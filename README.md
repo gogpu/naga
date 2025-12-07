@@ -1,13 +1,25 @@
-# naga
+<h1 align="center">naga</h1>
 
-[![CI](https://github.com/gogpu/naga/actions/workflows/ci.yml/badge.svg)](https://github.com/gogpu/naga/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/gogpu/naga.svg)](https://pkg.go.dev/github.com/gogpu/naga)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gogpu/naga)](https://goreportcard.com/report/github.com/gogpu/naga)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<p align="center">
+  <strong>Pure Go Shader Compiler</strong><br>
+  WGSL to SPIR-V, GLSL, and more. Zero CGO.
+</p>
 
-**Pure Go Shader Compiler** — WGSL to SPIR-V, GLSL, and more.
+<p align="center">
+  <a href="https://github.com/gogpu/naga/actions/workflows/ci.yml"><img src="https://github.com/gogpu/naga/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/gogpu/naga"><img src="https://codecov.io/gh/gogpu/naga/branch/main/graph/badge.svg" alt="codecov"></a>
+  <a href="https://pkg.go.dev/github.com/gogpu/naga"><img src="https://pkg.go.dev/badge/github.com/gogpu/naga.svg" alt="Go Reference"></a>
+  <a href="https://goreportcard.com/report/github.com/gogpu/naga"><img src="https://goreportcard.com/badge/github.com/gogpu/naga" alt="Go Report Card"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
+  <a href="https://github.com/gogpu/naga"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go Version"></a>
+  <a href="https://github.com/gogpu/naga"><img src="https://img.shields.io/badge/CGO-none-success" alt="Zero CGO"></a>
+</p>
 
-> 🚧 **Early Development** — WGSL parser complete, IR and backends in progress.
+<p align="center">
+  <sub>Part of the <a href="https://github.com/gogpu">GoGPU</a> ecosystem</sub>
+</p>
+
+> **Status:** WGSL parser complete, IR and backends in progress.
 
 ---
 
