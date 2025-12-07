@@ -285,10 +285,10 @@ const (
 	BuiltinFragDepth
 	BuiltinSampleIndex
 	BuiltinSampleMask
-	BuiltinLocalInvocationId
+	BuiltinLocalInvocationID
 	BuiltinLocalInvocationIndex
-	BuiltinGlobalInvocationId
-	BuiltinWorkGroupId
+	BuiltinGlobalInvocationID
+	BuiltinWorkGroupID
 	BuiltinNumWorkGroups
 )
 

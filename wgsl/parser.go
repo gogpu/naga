@@ -57,7 +57,7 @@ func (p *Parser) Parse() (*Module, error) {
 	}
 
 	if len(p.errors) > 0 {
-		return module, fmt.Errorf("parsing failed with %d error(s): %v", len(p.errors), p.errors[0])
+		return module, fmt.Errorf("parsing failed with %d error(s): %w", len(p.errors), p.errors[0])
 	}
 
 	return module, nil
