@@ -1,22 +1,23 @@
 # naga
 
+[![CI](https://github.com/gogpu/naga/actions/workflows/ci.yml/badge.svg)](https://github.com/gogpu/naga/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/gogpu/naga.svg)](https://pkg.go.dev/github.com/gogpu/naga)
 [![Go Report Card](https://goreportcard.com/badge/github.com/gogpu/naga)](https://goreportcard.com/report/github.com/gogpu/naga)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Pure Go Shader Compiler** — WGSL to SPIR-V, GLSL, and more.
 
-> 🚧 **Coming Soon** — Active development in progress!
+> 🚧 **Early Development** — WGSL parser complete, IR and backends in progress.
 
 ---
 
 ## ✨ Features
 
 - **Pure Go** — No CGO, no external dependencies
-- **WGSL Frontend** — Parse WebGPU Shading Language
-- **SPIR-V Backend** — Generate Vulkan-compatible bytecode
+- **WGSL Frontend** — Full lexer and parser for WebGPU Shading Language
+- **SPIR-V Backend** — Generate Vulkan-compatible bytecode (in progress)
 - **GLSL Backend** — OpenGL shader output (planned)
-- **Validation** — Catch errors before GPU execution
+- **Validation** — Catch errors before GPU execution (planned)
 
 ## 🎯 Vision
 
@@ -33,48 +34,47 @@ Port the excellent [naga](https://github.com/gfx-rs/naga) Rust shader compiler t
 go get github.com/gogpu/naga
 ```
 
-## 🚀 Usage (Planned API)
+## 🚀 Usage
+
+### Parsing WGSL
 
 ```go
 package main
 
 import (
-    "github.com/gogpu/naga"
+    "fmt"
     "github.com/gogpu/naga/wgsl"
-    "github.com/gogpu/naga/spirv"
 )
 
 func main() {
-    // Parse WGSL shader
     source := `
-        @vertex
-        fn vs_main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
-            return vec4<f32>(pos, 1.0);
-        }
+@vertex
+fn vs_main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
+    return vec4<f32>(pos, 1.0);
+}
 
-        @fragment
-        fn fs_main() -> @location(0) vec4<f32> {
-            return vec4<f32>(1.0, 0.0, 0.0, 1.0);
-        }
-    `
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+}
+`
 
-    module, err := wgsl.Parse(source)
+    // Tokenize
+    lexer := wgsl.NewLexer(source)
+    tokens, err := lexer.Tokenize()
     if err != nil {
         panic(err)
     }
 
-    // Validate
-    if err := naga.Validate(module); err != nil {
-        panic(err)
-    }
-
-    // Generate SPIR-V
-    spirvBytes, err := spirv.Generate(module)
+    // Parse to AST
+    parser := wgsl.NewParser(tokens)
+    module, err := parser.Parse()
     if err != nil {
         panic(err)
     }
 
-    // Use with Vulkan/WebGPU...
+    fmt.Printf("Parsed %d functions\n", len(module.Functions))
+    // Output: Parsed 2 functions
 }
 ```
 
@@ -82,29 +82,31 @@ func main() {
 
 ```
 naga/
-├── wgsl/          # WGSL frontend
-│   ├── lexer.go   # Tokenizer
-│   ├── parser.go  # Parser
-│   └── ast.go     # AST types
-├── ir/            # Intermediate representation
-├── spirv/         # SPIR-V backend
-├── glsl/          # GLSL backend (future)
-├── hlsl/          # HLSL backend (future)
-└── cmd/naga/      # CLI tool
+├── wgsl/           # WGSL frontend
+│   ├── token.go    # Token types (140+)
+│   ├── lexer.go    # Tokenizer
+│   ├── ast.go      # AST types
+│   └── parser.go   # Recursive descent parser
+├── ir/             # Intermediate representation
+├── spirv/          # SPIR-V backend
+├── glsl/           # GLSL backend (future)
+├── hlsl/           # HLSL backend (future)
+└── cmd/nagac/      # CLI tool
 ```
 
 ## 🗺️ Roadmap
 
-**Phase 1: WGSL Parser**
-- [ ] Lexer (tokenizer)
-- [ ] AST types
-- [ ] Parser
-- [ ] Error messages with source locations
+**Phase 1: WGSL Parser** ✅
+- [x] Lexer (tokenizer) — 140+ token types
+- [x] AST types — Complete type definitions
+- [x] Parser — Recursive descent, all WGSL constructs
+- [x] Error recovery — Synchronization on errors
 
 **Phase 2: IR & Validation**
 - [ ] Intermediate representation
 - [ ] Type checking
 - [ ] Semantic validation
+- [ ] Error messages with source locations
 
 **Phase 3: SPIR-V Backend**
 - [ ] SPIR-V binary writer
@@ -132,9 +134,11 @@ naga/
 
 ## 🤝 Contributing
 
-We welcome contributions! Especially help with:
-- WGSL parser implementation
-- SPIR-V spec expertise
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+Especially help with:
+- IR implementation
+- SPIR-V backend
 - Test cases from real shaders
 
 ## 📄 License

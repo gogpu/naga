@@ -2,13 +2,13 @@ package wgsl
 
 // Module represents a WGSL module (translation unit).
 type Module struct {
-	Enables    []Enable
+	Enables     []Enable
 	Diagnostics []Diagnostic
-	Structs    []*StructDecl
-	Functions  []*FunctionDecl
-	GlobalVars []*VarDecl
-	Aliases    []*AliasDecl
-	Constants  []*ConstDecl
+	Structs     []*StructDecl
+	Functions   []*FunctionDecl
+	GlobalVars  []*VarDecl
+	Aliases     []*AliasDecl
+	Constants   []*ConstDecl
 }
 
 // Enable represents an enable directive.
@@ -103,10 +103,10 @@ func (v *VarDecl) stmtNode() {}
 
 // ConstDecl represents a const declaration.
 type ConstDecl struct {
-	Name  string
-	Type  Type
-	Init  Expr
-	Span  Span
+	Name string
+	Type Type
+	Init Expr
+	Span Span
 }
 
 func (c *ConstDecl) Pos() Span { return c.Span }
@@ -142,7 +142,7 @@ type NamedType struct {
 	Span       Span
 }
 
-func (n *NamedType) Pos() Span  { return n.Span }
+func (n *NamedType) Pos() Span { return n.Span }
 func (n *NamedType) typeNode() {}
 
 // ArrayType represents an array type.
@@ -152,7 +152,7 @@ type ArrayType struct {
 	Span    Span
 }
 
-func (a *ArrayType) Pos() Span  { return a.Span }
+func (a *ArrayType) Pos() Span { return a.Span }
 func (a *ArrayType) typeNode() {}
 
 // PtrType represents a pointer type.
@@ -163,7 +163,7 @@ type PtrType struct {
 	Span         Span
 }
 
-func (p *PtrType) Pos() Span  { return p.Span }
+func (p *PtrType) Pos() Span { return p.Span }
 func (p *PtrType) typeNode() {}
 
 // Statements

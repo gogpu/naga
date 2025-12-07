@@ -7,12 +7,12 @@ import (
 
 // Lexer tokenizes WGSL source code.
 type Lexer struct {
-	source  string
-	pos     int
-	line    int
-	column  int
-	start   int
-	tokens  []Token
+	source string
+	pos    int
+	line   int
+	column int
+	start  int
+	tokens []Token
 }
 
 // NewLexer creates a new lexer for the given source.
@@ -319,44 +319,44 @@ var keywords = map[string]TokenKind{
 	"while":        TokenWhile,
 
 	// Types
-	"bool":                           TokenBool,
-	"f16":                            TokenF16,
-	"f32":                            TokenF32,
-	"i32":                            TokenI32,
-	"u32":                            TokenU32,
-	"vec2":                           TokenVec2,
-	"vec3":                           TokenVec3,
-	"vec4":                           TokenVec4,
-	"mat2x2":                         TokenMat2x2,
-	"mat2x3":                         TokenMat2x3,
-	"mat2x4":                         TokenMat2x4,
-	"mat3x2":                         TokenMat3x2,
-	"mat3x3":                         TokenMat3x3,
-	"mat3x4":                         TokenMat3x4,
-	"mat4x2":                         TokenMat4x2,
-	"mat4x3":                         TokenMat4x3,
-	"mat4x4":                         TokenMat4x4,
-	"array":                          TokenArray,
-	"atomic":                         TokenAtomic,
-	"ptr":                            TokenPtr,
-	"sampler":                        TokenSampler,
-	"sampler_comparison":             TokenSamplerComparison,
-	"texture_1d":                     TokenTexture1d,
-	"texture_2d":                     TokenTexture2d,
-	"texture_2d_array":               TokenTexture2dArray,
-	"texture_3d":                     TokenTexture3d,
-	"texture_cube":                   TokenTextureCube,
-	"texture_cube_array":             TokenTextureCubeArray,
-	"texture_multisampled_2d":        TokenTextureMultisampled2d,
-	"texture_storage_1d":             TokenTextureStorage1d,
-	"texture_storage_2d":             TokenTextureStorage2d,
-	"texture_storage_2d_array":       TokenTextureStorage2dArray,
-	"texture_storage_3d":             TokenTextureStorage3d,
-	"texture_depth_2d":               TokenTextureDepth2d,
-	"texture_depth_2d_array":         TokenTextureDepth2dArray,
-	"texture_depth_cube":             TokenTextureDepthCube,
-	"texture_depth_cube_array":       TokenTextureDepthCubeArray,
-	"texture_depth_multisampled_2d":  TokenTextureDepthMultisampled2d,
+	"bool":                          TokenBool,
+	"f16":                           TokenF16,
+	"f32":                           TokenF32,
+	"i32":                           TokenI32,
+	"u32":                           TokenU32,
+	"vec2":                          TokenVec2,
+	"vec3":                          TokenVec3,
+	"vec4":                          TokenVec4,
+	"mat2x2":                        TokenMat2x2,
+	"mat2x3":                        TokenMat2x3,
+	"mat2x4":                        TokenMat2x4,
+	"mat3x2":                        TokenMat3x2,
+	"mat3x3":                        TokenMat3x3,
+	"mat3x4":                        TokenMat3x4,
+	"mat4x2":                        TokenMat4x2,
+	"mat4x3":                        TokenMat4x3,
+	"mat4x4":                        TokenMat4x4,
+	"array":                         TokenArray,
+	"atomic":                        TokenAtomic,
+	"ptr":                           TokenPtr,
+	"sampler":                       TokenSampler,
+	"sampler_comparison":            TokenSamplerComparison,
+	"texture_1d":                    TokenTexture1d,
+	"texture_2d":                    TokenTexture2d,
+	"texture_2d_array":              TokenTexture2dArray,
+	"texture_3d":                    TokenTexture3d,
+	"texture_cube":                  TokenTextureCube,
+	"texture_cube_array":            TokenTextureCubeArray,
+	"texture_multisampled_2d":       TokenTextureMultisampled2d,
+	"texture_storage_1d":            TokenTextureStorage1d,
+	"texture_storage_2d":            TokenTextureStorage2d,
+	"texture_storage_2d_array":      TokenTextureStorage2dArray,
+	"texture_storage_3d":            TokenTextureStorage3d,
+	"texture_depth_2d":              TokenTextureDepth2d,
+	"texture_depth_2d_array":        TokenTextureDepth2dArray,
+	"texture_depth_cube":            TokenTextureDepthCube,
+	"texture_depth_cube_array":      TokenTextureDepthCubeArray,
+	"texture_depth_multisampled_2d": TokenTextureDepthMultisampled2d,
 }
 
 func (l *Lexer) lookupKeyword(text string) TokenKind {

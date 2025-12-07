@@ -72,10 +72,10 @@ func (ScalarType) typeInner() {}
 type ScalarKind uint8
 
 const (
-	ScalarSint ScalarKind = iota // Signed integer
-	ScalarUint                   // Unsigned integer
-	ScalarFloat                  // Floating point
-	ScalarBool                   // Boolean
+	ScalarSint  ScalarKind = iota // Signed integer
+	ScalarUint                    // Unsigned integer
+	ScalarFloat                   // Floating point
+	ScalarBool                    // Boolean
 )
 
 // VectorType represents vector types.
@@ -163,9 +163,9 @@ func (SamplerType) typeInner() {}
 
 // ImageType represents image/texture types.
 type ImageType struct {
-	Dim         ImageDimension
-	Arrayed     bool
-	Class       ImageClass
+	Dim          ImageDimension
+	Arrayed      bool
+	Class        ImageClass
 	Multisampled bool
 }
 
@@ -294,7 +294,7 @@ const (
 
 // LocationBinding represents a location binding.
 type LocationBinding struct {
-	Location    uint32
+	Location      uint32
 	Interpolation *Interpolation
 }
 

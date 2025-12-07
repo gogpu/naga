@@ -111,9 +111,9 @@ func TestLexerTypes(t *testing.T) {
 
 func TestLexerNumbers(t *testing.T) {
 	tests := []struct {
-		input    string
-		kind     TokenKind
-		lexeme   string
+		input  string
+		kind   TokenKind
+		lexeme string
 	}{
 		{"123", TokenIntLiteral, "123"},
 		{"0x1F", TokenIntLiteral, "0x1F"},

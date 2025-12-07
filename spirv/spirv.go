@@ -112,40 +112,40 @@ type OpCode uint16
 
 // Common opcodes
 const (
-	OpNop              OpCode = 0
-	OpSource           OpCode = 3
-	OpName             OpCode = 5
-	OpMemberName       OpCode = 6
-	OpExtInstImport    OpCode = 11
-	OpMemoryModel      OpCode = 14
-	OpEntryPoint       OpCode = 15
-	OpExecutionMode    OpCode = 16
-	OpCapability       OpCode = 17
-	OpTypeVoid         OpCode = 19
-	OpTypeBool         OpCode = 20
-	OpTypeInt          OpCode = 21
-	OpTypeFloat        OpCode = 22
-	OpTypeVector       OpCode = 23
-	OpTypeMatrix       OpCode = 24
-	OpTypeArray        OpCode = 28
-	OpTypeStruct       OpCode = 30
-	OpTypePointer      OpCode = 32
-	OpTypeFunction     OpCode = 33
-	OpConstant         OpCode = 43
+	OpNop               OpCode = 0
+	OpSource            OpCode = 3
+	OpName              OpCode = 5
+	OpMemberName        OpCode = 6
+	OpExtInstImport     OpCode = 11
+	OpMemoryModel       OpCode = 14
+	OpEntryPoint        OpCode = 15
+	OpExecutionMode     OpCode = 16
+	OpCapability        OpCode = 17
+	OpTypeVoid          OpCode = 19
+	OpTypeBool          OpCode = 20
+	OpTypeInt           OpCode = 21
+	OpTypeFloat         OpCode = 22
+	OpTypeVector        OpCode = 23
+	OpTypeMatrix        OpCode = 24
+	OpTypeArray         OpCode = 28
+	OpTypeStruct        OpCode = 30
+	OpTypePointer       OpCode = 32
+	OpTypeFunction      OpCode = 33
+	OpConstant          OpCode = 43
 	OpConstantComposite OpCode = 44
-	OpFunction         OpCode = 54
+	OpFunction          OpCode = 54
 	OpFunctionParameter OpCode = 55
-	OpFunctionEnd      OpCode = 56
-	OpVariable         OpCode = 59
-	OpLoad             OpCode = 61
-	OpStore            OpCode = 62
-	OpAccessChain      OpCode = 65
-	OpDecorate         OpCode = 71
-	OpMemberDecorate   OpCode = 72
-	OpLabel            OpCode = 248
-	OpBranch           OpCode = 249
-	OpReturn           OpCode = 253
-	OpReturnValue      OpCode = 254
+	OpFunctionEnd       OpCode = 56
+	OpVariable          OpCode = 59
+	OpLoad              OpCode = 61
+	OpStore             OpCode = 62
+	OpAccessChain       OpCode = 65
+	OpDecorate          OpCode = 71
+	OpMemberDecorate    OpCode = 72
+	OpLabel             OpCode = 248
+	OpBranch            OpCode = 249
+	OpReturn            OpCode = 253
+	OpReturnValue       OpCode = 254
 )
 
 // Decoration represents a SPIR-V decoration.
@@ -153,14 +153,14 @@ type Decoration uint32
 
 // Common decorations
 const (
-	DecorationBlock          Decoration = 2
-	DecorationColMajor       Decoration = 5
-	DecorationRowMajor       Decoration = 4
-	DecorationArrayStride    Decoration = 6
-	DecorationMatrixStride   Decoration = 7
-	DecorationBuiltIn        Decoration = 11
-	DecorationLocation       Decoration = 30
-	DecorationBinding        Decoration = 33
-	DecorationDescriptorSet  Decoration = 34
-	DecorationOffset         Decoration = 35
+	DecorationBlock         Decoration = 2
+	DecorationColMajor      Decoration = 5
+	DecorationRowMajor      Decoration = 4
+	DecorationArrayStride   Decoration = 6
+	DecorationMatrixStride  Decoration = 7
+	DecorationBuiltIn       Decoration = 11
+	DecorationLocation      Decoration = 30
+	DecorationBinding       Decoration = 33
+	DecorationDescriptorSet Decoration = 34
+	DecorationOffset        Decoration = 35
 )

@@ -1,0 +1,33 @@
+# CODEOWNERS for Naga
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repo
+* @kolkov
+
+# WGSL Frontend - Core parsing
+/wgsl/ @kolkov
+
+# Intermediate Representation
+/ir/ @kolkov
+
+# SPIR-V Backend
+/spirv/ @kolkov
+
+# CLI tool
+/cmd/ @kolkov
+
+# Documentation
+*.md @kolkov
+
+# GitHub configuration and CI/CD
+/.github/ @kolkov
+
+# Code quality and linting configuration
+/.golangci.yml @kolkov
+
+# Tests
+*_test.go @kolkov
+
+# Go module files
+/go.mod @kolkov
+/go.sum @kolkov
