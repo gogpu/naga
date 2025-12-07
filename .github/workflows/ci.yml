@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Test
+    name: Test - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -23,11 +23,17 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
+          cache: true
 
       - name: Download dependencies
         run: go mod download
 
+      - name: Run go vet
+        if: matrix.os == 'ubuntu-latest'
+        run: go vet ./...
+
       - name: Run tests
+        shell: bash
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload coverage
@@ -49,14 +55,41 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+          cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
+          args: --timeout=5m
+
+  formatting:
+    name: Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Check formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "ERROR: The following files are not formatted:"
+            gofmt -l .
+            echo ""
+            echo "Run 'go fmt ./...' to fix formatting issues."
+            exit 1
+          fi
+          echo "All files are properly formatted"
 
   build:
-    name: Build
+    name: Build - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -70,6 +103,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+          cache: true
 
       - name: Build
         run: go build ./...
@@ -86,6 +120,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+          cache: true
 
       - name: Run fuzz tests
         run: |
