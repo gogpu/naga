@@ -324,21 +324,5 @@ const (
 	SamplingSample
 )
 
-// Expression and Statement types are placeholders for now
-// They will be expanded in future implementation
-
-// Expression represents an expression.
-type Expression struct {
-	Kind ExpressionKind
-}
-
-// ExpressionKind represents expression kinds.
-type ExpressionKind uint8
-
-// Statement represents a statement.
-type Statement struct {
-	Kind StatementKind
-}
-
-// StatementKind represents statement kinds.
-type StatementKind uint8
+// Expression types are defined in expression.go
+// Statement types are defined in statement.go

@@ -1,0 +1,1067 @@
+package wgsl
+
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/gogpu/naga/ir"
+)
+
+// Lowerer converts WGSL AST to Naga IR.
+type Lowerer struct {
+	module *ir.Module
+
+	// Type resolution
+	types   map[string]ir.TypeHandle
+	typeIdx uint32
+
+	// Variable resolution
+	globals   map[string]ir.GlobalVariableHandle
+	locals    map[string]ir.ExpressionHandle
+	globalIdx uint32
+
+	// Current function context
+	currentFunc    *ir.Function
+	currentFuncIdx ir.FunctionHandle
+	currentExprIdx ir.ExpressionHandle
+
+	// Errors
+	errors []error
+}
+
+// Lower converts a WGSL AST module to Naga IR.
+func Lower(ast *Module) (*ir.Module, error) {
+	l := &Lowerer{
+		module:  &ir.Module{},
+		types:   make(map[string]ir.TypeHandle),
+		globals: make(map[string]ir.GlobalVariableHandle),
+		locals:  make(map[string]ir.ExpressionHandle),
+	}
+
+	// Register built-in types
+	l.registerBuiltinTypes()
+
+	// Lower structs
+	for _, s := range ast.Structs {
+		if err := l.lowerStruct(s); err != nil {
+			l.errors = append(l.errors, err)
+		}
+	}
+
+	// Lower global variables
+	for _, v := range ast.GlobalVars {
+		if err := l.lowerGlobalVar(v); err != nil {
+			l.errors = append(l.errors, err)
+		}
+	}
+
+	// Lower constants
+	for _, c := range ast.Constants {
+		if err := l.lowerConstant(c); err != nil {
+			l.errors = append(l.errors, err)
+		}
+	}
+
+	// Lower functions and identify entry points
+	for _, f := range ast.Functions {
+		if err := l.lowerFunction(f); err != nil {
+			l.errors = append(l.errors, err)
+		}
+	}
+
+	if len(l.errors) > 0 {
+		return nil, fmt.Errorf("lowering errors: %v", l.errors)
+	}
+
+	return l.module, nil
+}
+
+// registerBuiltinTypes registers WGSL built-in scalar types.
+func (l *Lowerer) registerBuiltinTypes() {
+	// Scalars
+	l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	l.registerType("f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2})
+	l.registerType("i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+	l.registerType("u32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	l.registerType("bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+}
+
+// registerType adds a type to the module and maps its name.
+func (l *Lowerer) registerType(name string, inner ir.TypeInner) ir.TypeHandle {
+	handle := ir.TypeHandle(l.typeIdx)
+	l.typeIdx++
+	l.module.Types = append(l.module.Types, ir.Type{
+		Name:  name,
+		Inner: inner,
+	})
+	if name != "" {
+		l.types[name] = handle
+	}
+	return handle
+}
+
+// lowerStruct converts a struct declaration to IR.
+func (l *Lowerer) lowerStruct(s *StructDecl) error {
+	members := make([]ir.StructMember, len(s.Members))
+	var offset uint32
+	for i, m := range s.Members {
+		typeHandle, err := l.resolveType(m.Type)
+		if err != nil {
+			return fmt.Errorf("struct %s member %s: %w", s.Name, m.Name, err)
+		}
+		members[i] = ir.StructMember{
+			Name:   m.Name,
+			Type:   typeHandle,
+			Offset: offset,
+		}
+		// Simplified: assume each member is 16-byte aligned (actual layout is more complex)
+		offset += 16
+	}
+	l.registerType(s.Name, ir.StructType{Members: members, Span: offset})
+	return nil
+}
+
+// lowerGlobalVar converts a global variable declaration to IR.
+func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
+	typeHandle, err := l.resolveType(v.Type)
+	if err != nil {
+		return fmt.Errorf("global var %s: %w", v.Name, err)
+	}
+
+	space := l.addressSpace(v.AddressSpace)
+	var binding *ir.ResourceBinding
+
+	// Parse @group and @binding attributes
+	for _, attr := range v.Attributes {
+		if attr.Name == "group" && len(attr.Args) > 0 {
+			if lit, ok := attr.Args[0].(*Literal); ok {
+				group, _ := strconv.ParseUint(lit.Value, 10, 32)
+				if binding == nil {
+					binding = &ir.ResourceBinding{}
+				}
+				binding.Group = uint32(group)
+			}
+		}
+		if attr.Name == "binding" && len(attr.Args) > 0 {
+			if lit, ok := attr.Args[0].(*Literal); ok {
+				bind, _ := strconv.ParseUint(lit.Value, 10, 32)
+				if binding == nil {
+					binding = &ir.ResourceBinding{}
+				}
+				binding.Binding = uint32(bind)
+			}
+		}
+	}
+
+	handle := ir.GlobalVariableHandle(l.globalIdx)
+	l.globalIdx++
+	l.module.GlobalVariables = append(l.module.GlobalVariables, ir.GlobalVariable{
+		Name:    v.Name,
+		Space:   space,
+		Binding: binding,
+		Type:    typeHandle,
+		Init:    nil, // TODO: handle initializers
+	})
+	l.globals[v.Name] = handle
+	return nil
+}
+
+// lowerConstant converts a constant declaration to IR.
+func (l *Lowerer) lowerConstant(c *ConstDecl) error {
+	typeHandle, err := l.resolveType(c.Type)
+	if err != nil {
+		return fmt.Errorf("constant %s: %w", c.Name, err)
+	}
+
+	// TODO: Evaluate constant expression
+	_ = typeHandle
+	return nil
+}
+
+// lowerFunction converts a function declaration to IR.
+func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
+	// Reset local context
+	l.locals = make(map[string]ir.ExpressionHandle)
+	l.currentExprIdx = 0
+
+	fn := &ir.Function{
+		Name:        f.Name,
+		Arguments:   make([]ir.FunctionArgument, len(f.Params)),
+		LocalVars:   []ir.LocalVariable{},
+		Expressions: []ir.Expression{},
+		Body:        []ir.Statement{},
+	}
+	l.currentFunc = fn
+
+	// Lower parameters
+	for i, p := range f.Params {
+		typeHandle, err := l.resolveType(p.Type)
+		if err != nil {
+			return fmt.Errorf("function %s param %s: %w", f.Name, p.Name, err)
+		}
+
+		binding := l.paramBinding(p.Attributes)
+		fn.Arguments[i] = ir.FunctionArgument{
+			Name:    p.Name,
+			Type:    typeHandle,
+			Binding: binding,
+		}
+
+		// Register parameter as local expression (FunctionArgument)
+		exprHandle := l.addExpression(ir.Expression{
+			Kind: ir.ExprFunctionArgument{Index: uint32(i)}, //nolint:gosec // i is bounded by function params length
+		})
+		l.locals[p.Name] = exprHandle
+	}
+
+	// Lower return type
+	if f.ReturnType != nil {
+		typeHandle, err := l.resolveType(f.ReturnType)
+		if err != nil {
+			return fmt.Errorf("function %s return type: %w", f.Name, err)
+		}
+		fn.Result = &ir.FunctionResult{
+			Type:    typeHandle,
+			Binding: l.returnBinding(f.Attributes),
+		}
+	}
+
+	// Lower function body
+	if f.Body != nil {
+		if err := l.lowerBlock(f.Body, &fn.Body); err != nil {
+			return fmt.Errorf("function %s body: %w", f.Name, err)
+		}
+	}
+
+	// Add function to module
+	funcHandle := ir.FunctionHandle(len(l.module.Functions)) //nolint:gosec // module functions length is controlled
+	l.module.Functions = append(l.module.Functions, *fn)
+	l.currentFuncIdx = funcHandle
+
+	// Check if this is an entry point
+	stage := l.entryPointStage(f.Attributes)
+	if stage != nil {
+		l.module.EntryPoints = append(l.module.EntryPoints, ir.EntryPoint{
+			Name:     f.Name,
+			Stage:    *stage,
+			Function: funcHandle,
+		})
+	}
+
+	return nil
+}
+
+// lowerBlock converts a block statement to IR statements.
+func (l *Lowerer) lowerBlock(block *BlockStmt, target *[]ir.Statement) error {
+	for _, stmt := range block.Statements {
+		if err := l.lowerStatement(stmt, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// lowerStatement converts a statement to IR.
+func (l *Lowerer) lowerStatement(stmt Stmt, target *[]ir.Statement) error {
+	switch s := stmt.(type) {
+	case *ReturnStmt:
+		return l.lowerReturn(s, target)
+	case *VarDecl:
+		return l.lowerLocalVar(s, target)
+	case *AssignStmt:
+		return l.lowerAssign(s, target)
+	case *IfStmt:
+		return l.lowerIf(s, target)
+	case *ForStmt:
+		return l.lowerFor(s, target)
+	case *WhileStmt:
+		return l.lowerWhile(s, target)
+	case *LoopStmt:
+		return l.lowerLoop(s, target)
+	case *BreakStmt:
+		*target = append(*target, ir.Statement{Kind: ir.StmtBreak{}})
+		return nil
+	case *ContinueStmt:
+		*target = append(*target, ir.Statement{Kind: ir.StmtContinue{}})
+		return nil
+	case *DiscardStmt:
+		*target = append(*target, ir.Statement{Kind: ir.StmtKill{}})
+		return nil
+	case *ExprStmt:
+		// Evaluate expression for side effects
+		_, err := l.lowerExpression(s.Expr, target)
+		return err
+	case *BlockStmt:
+		var body []ir.Statement
+		if err := l.lowerBlock(s, &body); err != nil {
+			return err
+		}
+		*target = append(*target, ir.Statement{Kind: ir.StmtBlock{Block: body}})
+		return nil
+	default:
+		return fmt.Errorf("unsupported statement type: %T", stmt)
+	}
+}
+
+// lowerReturn converts a return statement to IR.
+func (l *Lowerer) lowerReturn(ret *ReturnStmt, target *[]ir.Statement) error {
+	var valueHandle *ir.ExpressionHandle
+	if ret.Value != nil {
+		handle, err := l.lowerExpression(ret.Value, target)
+		if err != nil {
+			return err
+		}
+		valueHandle = &handle
+	}
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtReturn{Value: valueHandle},
+	})
+	return nil
+}
+
+// lowerLocalVar converts a local variable declaration to IR.
+func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
+	typeHandle, err := l.resolveType(v.Type)
+	if err != nil {
+		return fmt.Errorf("local var %s: %w", v.Name, err)
+	}
+
+	var initHandle *ir.ExpressionHandle
+	if v.Init != nil {
+		init, err := l.lowerExpression(v.Init, target)
+		if err != nil {
+			return err
+		}
+		initHandle = &init
+	}
+
+	localIdx := uint32(len(l.currentFunc.LocalVars)) //nolint:gosec // local vars length is bounded
+	l.currentFunc.LocalVars = append(l.currentFunc.LocalVars, ir.LocalVariable{
+		Name: v.Name,
+		Type: typeHandle,
+		Init: initHandle,
+	})
+
+	// Create local variable expression
+	exprHandle := l.addExpression(ir.Expression{
+		Kind: ir.ExprLocalVariable{Variable: localIdx},
+	})
+	l.locals[v.Name] = exprHandle
+
+	return nil
+}
+
+// lowerAssign converts an assignment statement to IR.
+func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error {
+	pointer, err := l.lowerExpression(assign.Left, target)
+	if err != nil {
+		return err
+	}
+
+	value, err := l.lowerExpression(assign.Right, target)
+	if err != nil {
+		return err
+	}
+
+	// Handle compound assignments (+=, -=, etc.)
+	if assign.Op != TokenEqual {
+		// Load current value
+		loadHandle := l.addExpression(ir.Expression{
+			Kind: ir.ExprLoad{Pointer: pointer},
+		})
+
+		// Apply operation
+		op := l.assignOpToBinary(assign.Op)
+		value = l.addExpression(ir.Expression{
+			Kind: ir.ExprBinary{
+				Op:    op,
+				Left:  loadHandle,
+				Right: value,
+			},
+		})
+	}
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtStore{Pointer: pointer, Value: value},
+	})
+	return nil
+}
+
+// lowerIf converts an if statement to IR.
+func (l *Lowerer) lowerIf(ifStmt *IfStmt, target *[]ir.Statement) error {
+	condition, err := l.lowerExpression(ifStmt.Condition, target)
+	if err != nil {
+		return err
+	}
+
+	var accept, reject []ir.Statement
+	if err := l.lowerBlock(ifStmt.Body, &accept); err != nil {
+		return err
+	}
+
+	if ifStmt.Else != nil {
+		if err := l.lowerStatement(ifStmt.Else, &reject); err != nil {
+			return err
+		}
+	}
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtIf{
+			Condition: condition,
+			Accept:    accept,
+			Reject:    reject,
+		},
+	})
+	return nil
+}
+
+// lowerFor converts a for loop to IR.
+func (l *Lowerer) lowerFor(forStmt *ForStmt, target *[]ir.Statement) error {
+	// For loops become: init; loop { if !condition { break }; body; update }
+	if forStmt.Init != nil {
+		if err := l.lowerStatement(forStmt.Init, target); err != nil {
+			return err
+		}
+	}
+
+	var body, continuing []ir.Statement
+
+	// Add condition check at start of body
+	if forStmt.Condition != nil {
+		condition, err := l.lowerExpression(forStmt.Condition, &body)
+		if err != nil {
+			return err
+		}
+		// Negate condition and break if false
+		notCond := l.addExpression(ir.Expression{
+			Kind: ir.ExprUnary{Op: ir.UnaryLogicalNot, Expr: condition},
+		})
+		body = append(body, ir.Statement{
+			Kind: ir.StmtIf{
+				Condition: notCond,
+				Accept:    []ir.Statement{{Kind: ir.StmtBreak{}}},
+				Reject:    []ir.Statement{},
+			},
+		})
+	}
+
+	// Add loop body
+	if err := l.lowerBlock(forStmt.Body, &body); err != nil {
+		return err
+	}
+
+	// Add update in continuing block
+	if forStmt.Update != nil {
+		if err := l.lowerStatement(forStmt.Update, &continuing); err != nil {
+			return err
+		}
+	}
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtLoop{
+			Body:       body,
+			Continuing: continuing,
+		},
+	})
+	return nil
+}
+
+// lowerWhile converts a while loop to IR.
+func (l *Lowerer) lowerWhile(whileStmt *WhileStmt, target *[]ir.Statement) error {
+	var body []ir.Statement
+
+	// Check condition at start
+	condition, err := l.lowerExpression(whileStmt.Condition, &body)
+	if err != nil {
+		return err
+	}
+
+	notCond := l.addExpression(ir.Expression{
+		Kind: ir.ExprUnary{Op: ir.UnaryLogicalNot, Expr: condition},
+	})
+	body = append(body, ir.Statement{
+		Kind: ir.StmtIf{
+			Condition: notCond,
+			Accept:    []ir.Statement{{Kind: ir.StmtBreak{}}},
+			Reject:    []ir.Statement{},
+		},
+	})
+
+	if err := l.lowerBlock(whileStmt.Body, &body); err != nil {
+		return err
+	}
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtLoop{
+			Body:       body,
+			Continuing: []ir.Statement{},
+		},
+	})
+	return nil
+}
+
+// lowerLoop converts a loop statement to IR.
+func (l *Lowerer) lowerLoop(loopStmt *LoopStmt, target *[]ir.Statement) error {
+	var body, continuing []ir.Statement
+
+	if err := l.lowerBlock(loopStmt.Body, &body); err != nil {
+		return err
+	}
+
+	if loopStmt.Continuing != nil {
+		if err := l.lowerBlock(loopStmt.Continuing, &continuing); err != nil {
+			return err
+		}
+	}
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtLoop{
+			Body:       body,
+			Continuing: continuing,
+		},
+	})
+	return nil
+}
+
+// lowerExpression converts an expression to IR.
+func (l *Lowerer) lowerExpression(expr Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	switch e := expr.(type) {
+	case *Literal:
+		return l.lowerLiteral(e)
+	case *Ident:
+		return l.resolveIdentifier(e.Name)
+	case *BinaryExpr:
+		return l.lowerBinary(e, target)
+	case *UnaryExpr:
+		return l.lowerUnary(e, target)
+	case *CallExpr:
+		return l.lowerCall(e, target)
+	case *ConstructExpr:
+		return l.lowerConstruct(e, target)
+	case *MemberExpr:
+		return l.lowerMember(e, target)
+	case *IndexExpr:
+		return l.lowerIndex(e, target)
+	default:
+		return 0, fmt.Errorf("unsupported expression type: %T", expr)
+	}
+}
+
+// lowerLiteral converts a literal to IR.
+func (l *Lowerer) lowerLiteral(lit *Literal) (ir.ExpressionHandle, error) {
+	var value ir.LiteralValue
+
+	switch lit.Kind {
+	case TokenIntLiteral:
+		v, _ := strconv.ParseInt(lit.Value, 0, 32)
+		value = ir.LiteralI32(v)
+	case TokenFloatLiteral:
+		v, _ := strconv.ParseFloat(lit.Value, 32)
+		value = ir.LiteralF32(v)
+	case TokenTrue:
+		value = ir.LiteralBool(true)
+	case TokenFalse:
+		value = ir.LiteralBool(false)
+	default:
+		return 0, fmt.Errorf("unsupported literal kind: %v", lit.Kind)
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.Literal{Value: value},
+	}), nil
+}
+
+// lowerBinary converts a binary expression to IR.
+func (l *Lowerer) lowerBinary(bin *BinaryExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	left, err := l.lowerExpression(bin.Left, target)
+	if err != nil {
+		return 0, err
+	}
+
+	right, err := l.lowerExpression(bin.Right, target)
+	if err != nil {
+		return 0, err
+	}
+
+	op := l.tokenToBinaryOp(bin.Op)
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprBinary{Op: op, Left: left, Right: right},
+	}), nil
+}
+
+// lowerUnary converts a unary expression to IR.
+func (l *Lowerer) lowerUnary(un *UnaryExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	operand, err := l.lowerExpression(un.Operand, target)
+	if err != nil {
+		return 0, err
+	}
+
+	op := l.tokenToUnaryOp(un.Op)
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprUnary{Op: op, Expr: operand},
+	}), nil
+}
+
+// lowerCall converts a call expression to IR.
+func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	funcName := call.Func.Name
+
+	// Check if this is a built-in function (vec4, vec3, etc.)
+	if l.isBuiltinConstructor(funcName) {
+		return l.lowerBuiltinConstructor(funcName, call.Args, target)
+	}
+
+	// Check if this is a math function
+	if mathFunc, ok := l.getMathFunction(funcName); ok {
+		return l.lowerMathCall(mathFunc, call.Args, target)
+	}
+
+	// Regular function call
+	// TODO: Look up function handle
+	args := make([]ir.ExpressionHandle, len(call.Args))
+	for i, arg := range call.Args {
+		handle, err := l.lowerExpression(arg, target)
+		if err != nil {
+			return 0, err
+		}
+		args[i] = handle
+	}
+
+	// For now, create a call result expression
+	resultHandle := l.addExpression(ir.Expression{
+		Kind: ir.ExprCallResult{Function: 0}, // TODO: resolve function
+	})
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtCall{
+			Function:  0, // TODO: resolve function
+			Arguments: args,
+			Result:    &resultHandle,
+		},
+	})
+
+	return resultHandle, nil
+}
+
+// lowerConstruct converts a type constructor to IR.
+func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	typeHandle, err := l.resolveType(cons.Type)
+	if err != nil {
+		return 0, err
+	}
+
+	components := make([]ir.ExpressionHandle, len(cons.Args))
+	for i, arg := range cons.Args {
+		handle, err := l.lowerExpression(arg, target)
+		if err != nil {
+			return 0, err
+		}
+		components[i] = handle
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprCompose{Type: typeHandle, Components: components},
+	}), nil
+}
+
+// lowerMember converts a member access to IR.
+func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	base, err := l.lowerExpression(mem.Expr, target)
+	if err != nil {
+		return 0, err
+	}
+
+	// TODO: Resolve member index from type
+	// For now, assume simple numeric index
+	index := l.swizzleToIndex(mem.Member)
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprAccessIndex{Base: base, Index: index},
+	}), nil
+}
+
+// lowerIndex converts an index expression to IR.
+func (l *Lowerer) lowerIndex(idx *IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	base, err := l.lowerExpression(idx.Expr, target)
+	if err != nil {
+		return 0, err
+	}
+
+	index, err := l.lowerExpression(idx.Index, target)
+	if err != nil {
+		return 0, err
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprAccess{Base: base, Index: index},
+	}), nil
+}
+
+// Helper methods
+
+func (l *Lowerer) addExpression(expr ir.Expression) ir.ExpressionHandle {
+	handle := l.currentExprIdx
+	l.currentExprIdx++
+	l.currentFunc.Expressions = append(l.currentFunc.Expressions, expr)
+	return handle
+}
+
+func (l *Lowerer) resolveIdentifier(name string) (ir.ExpressionHandle, error) {
+	// Check locals first
+	if handle, ok := l.locals[name]; ok {
+		return handle, nil
+	}
+
+	// Check globals
+	if handle, ok := l.globals[name]; ok {
+		return l.addExpression(ir.Expression{
+			Kind: ir.ExprGlobalVariable{Variable: handle},
+		}), nil
+	}
+
+	return 0, fmt.Errorf("unresolved identifier: %s", name)
+}
+
+// resolveType converts a WGSL type to an IR type handle.
+func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
+	switch t := typ.(type) {
+	case *NamedType:
+		return l.resolveNamedType(t)
+	case *ArrayType:
+		base, err := l.resolveType(t.Element)
+		if err != nil {
+			return 0, err
+		}
+		// TODO: Parse size expression
+		return l.registerType("", ir.ArrayType{Base: base, Size: ir.ArraySize{}}), nil
+	case *PtrType:
+		pointee, err := l.resolveType(t.PointeeType)
+		if err != nil {
+			return 0, err
+		}
+		space := l.addressSpace(t.AddressSpace)
+		return l.registerType("", ir.PointerType{Base: pointee, Space: space}), nil
+	default:
+		return 0, fmt.Errorf("unsupported type: %T", typ)
+	}
+}
+
+func (l *Lowerer) resolveNamedType(t *NamedType) (ir.TypeHandle, error) {
+	// Check for built-in vector types
+	if len(t.TypeParams) > 0 {
+		return l.resolveParameterizedType(t)
+	}
+
+	// Look up simple named type
+	if handle, ok := l.types[t.Name]; ok {
+		return handle, nil
+	}
+
+	return 0, fmt.Errorf("unknown type: %s", t.Name)
+}
+
+func (l *Lowerer) resolveParameterizedType(t *NamedType) (ir.TypeHandle, error) {
+	// Vector types: vec2<f32>, vec3<T>, vec4<T>
+	if len(t.Name) == 4 && t.Name[:3] == "vec" {
+		size := t.Name[3] - '0'
+		scalarType, err := l.resolveType(t.TypeParams[0])
+		if err != nil {
+			return 0, err
+		}
+		// Get scalar from type
+		scalar := l.module.Types[scalarType].Inner.(ir.ScalarType)
+		return l.registerType("", ir.VectorType{
+			Size:   ir.VectorSize(size),
+			Scalar: scalar,
+		}), nil
+	}
+
+	// Matrix types: mat2x2<f32>, mat4x4<f32>
+	if len(t.Name) >= 3 && t.Name[:3] == "mat" {
+		// Simple parsing: mat4x4 -> 4 columns, 4 rows
+		cols := t.Name[3] - '0'
+		rows := t.Name[5] - '0'
+		scalarType, err := l.resolveType(t.TypeParams[0])
+		if err != nil {
+			return 0, err
+		}
+		scalar := l.module.Types[scalarType].Inner.(ir.ScalarType)
+		return l.registerType("", ir.MatrixType{
+			Columns: ir.VectorSize(cols),
+			Rows:    ir.VectorSize(rows),
+			Scalar:  scalar,
+		}), nil
+	}
+
+	// Texture types: texture_2d<f32>
+	if len(t.Name) >= 7 && t.Name[:7] == "texture" {
+		dim := l.textureDim(t.Name)
+		return l.registerType("", ir.ImageType{
+			Dim:   dim,
+			Class: ir.ImageClassSampled,
+		}), nil
+	}
+
+	return 0, fmt.Errorf("unsupported parameterized type: %s", t.Name)
+}
+
+func (l *Lowerer) isBuiltinConstructor(name string) bool {
+	return (len(name) == 4 && name[:3] == "vec") ||
+		(len(name) >= 3 && name[:3] == "mat")
+}
+
+func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	// vec4<f32>(x, y, z, w) or vec4(x, y, z, w)
+	components := make([]ir.ExpressionHandle, len(args))
+	for i, arg := range args {
+		handle, err := l.lowerExpression(arg, target)
+		if err != nil {
+			return 0, err
+		}
+		components[i] = handle
+	}
+
+	// Infer type from constructor name
+	var typeHandle ir.TypeHandle
+	if len(name) == 4 && name[:3] == "vec" {
+		size := name[3] - '0'
+		// Assume f32 for now
+		scalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+		typeHandle = l.registerType("", ir.VectorType{
+			Size:   ir.VectorSize(size),
+			Scalar: scalar,
+		})
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprCompose{Type: typeHandle, Components: components},
+	}), nil
+}
+
+func (l *Lowerer) getMathFunction(name string) (ir.MathFunction, bool) {
+	mathFuncs := map[string]ir.MathFunction{
+		"abs":       ir.MathAbs,
+		"min":       ir.MathMin,
+		"max":       ir.MathMax,
+		"sin":       ir.MathSin,
+		"cos":       ir.MathCos,
+		"tan":       ir.MathTan,
+		"sqrt":      ir.MathSqrt,
+		"length":    ir.MathLength,
+		"normalize": ir.MathNormalize,
+		"dot":       ir.MathDot,
+		"cross":     ir.MathCross,
+	}
+	fn, ok := mathFuncs[name]
+	return fn, ok
+}
+
+func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) == 0 {
+		return 0, fmt.Errorf("math function requires at least one argument")
+	}
+
+	arg0, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	var arg1, arg2, arg3 *ir.ExpressionHandle
+	if len(args) > 1 {
+		a, err := l.lowerExpression(args[1], target)
+		if err != nil {
+			return 0, err
+		}
+		arg1 = &a
+	}
+	if len(args) > 2 {
+		a, err := l.lowerExpression(args[2], target)
+		if err != nil {
+			return 0, err
+		}
+		arg2 = &a
+	}
+	if len(args) > 3 {
+		a, err := l.lowerExpression(args[3], target)
+		if err != nil {
+			return 0, err
+		}
+		arg3 = &a
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprMath{
+			Fun:  mathFunc,
+			Arg:  arg0,
+			Arg1: arg1,
+			Arg2: arg2,
+			Arg3: arg3,
+		},
+	}), nil
+}
+
+// Attribute parsing
+
+func (l *Lowerer) paramBinding(attrs []Attribute) *ir.Binding {
+	for _, attr := range attrs {
+		switch attr.Name {
+		case "builtin":
+			if len(attr.Args) > 0 {
+				if id, ok := attr.Args[0].(*Ident); ok {
+					var binding ir.Binding = ir.BuiltinBinding{Builtin: l.builtin(id.Name)}
+					return &binding
+				}
+			}
+		case "location":
+			if len(attr.Args) > 0 {
+				if lit, ok := attr.Args[0].(*Literal); ok {
+					loc, _ := strconv.ParseUint(lit.Value, 10, 32)
+					var binding ir.Binding = ir.LocationBinding{Location: uint32(loc)}
+					return &binding
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (l *Lowerer) returnBinding(attrs []Attribute) *ir.Binding {
+	return l.paramBinding(attrs) // Same logic for return bindings
+}
+
+func (l *Lowerer) entryPointStage(attrs []Attribute) *ir.ShaderStage {
+	for _, attr := range attrs {
+		switch attr.Name {
+		case "vertex":
+			stage := ir.StageVertex
+			return &stage
+		case "fragment":
+			stage := ir.StageFragment
+			return &stage
+		case "compute":
+			stage := ir.StageCompute
+			return &stage
+		}
+	}
+	return nil
+}
+
+func (l *Lowerer) builtin(name string) ir.BuiltinValue {
+	builtins := map[string]ir.BuiltinValue{
+		"position":               ir.BuiltinPosition,
+		"vertex_index":           ir.BuiltinVertexIndex,
+		"instance_index":         ir.BuiltinInstanceIndex,
+		"front_facing":           ir.BuiltinFrontFacing,
+		"frag_depth":             ir.BuiltinFragDepth,
+		"local_invocation_id":    ir.BuiltinLocalInvocationID,
+		"local_invocation_index": ir.BuiltinLocalInvocationIndex,
+		"global_invocation_id":   ir.BuiltinGlobalInvocationID,
+		"workgroup_id":           ir.BuiltinWorkGroupID,
+		"num_workgroups":         ir.BuiltinNumWorkGroups,
+	}
+	if b, ok := builtins[name]; ok {
+		return b
+	}
+	return ir.BuiltinPosition // Default
+}
+
+func (l *Lowerer) addressSpace(space string) ir.AddressSpace {
+	spaces := map[string]ir.AddressSpace{
+		"function":      ir.SpaceFunction,
+		"private":       ir.SpacePrivate,
+		"workgroup":     ir.SpaceWorkGroup,
+		"uniform":       ir.SpaceUniform,
+		"storage":       ir.SpaceStorage,
+		"push_constant": ir.SpacePushConstant,
+		"handle":        ir.SpaceHandle,
+	}
+	if s, ok := spaces[space]; ok {
+		return s
+	}
+	return ir.SpaceFunction // Default
+}
+
+func (l *Lowerer) textureDim(name string) ir.ImageDimension {
+	if len(name) >= 9 && name == "texture_1d" {
+		return ir.Dim1D
+	}
+	if len(name) >= 9 && name == "texture_2d" {
+		return ir.Dim2D
+	}
+	if len(name) >= 9 && name == "texture_3d" {
+		return ir.Dim3D
+	}
+	if len(name) >= 12 && name == "texture_cube" {
+		return ir.DimCube
+	}
+	return ir.Dim2D // Default
+}
+
+func (l *Lowerer) tokenToBinaryOp(tok TokenKind) ir.BinaryOperator {
+	ops := map[TokenKind]ir.BinaryOperator{
+		TokenPlus:           ir.BinaryAdd,
+		TokenMinus:          ir.BinarySubtract,
+		TokenStar:           ir.BinaryMultiply,
+		TokenSlash:          ir.BinaryDivide,
+		TokenPercent:        ir.BinaryModulo,
+		TokenEqualEqual:     ir.BinaryEqual,
+		TokenBangEqual:      ir.BinaryNotEqual,
+		TokenLess:           ir.BinaryLess,
+		TokenLessEqual:      ir.BinaryLessEqual,
+		TokenGreater:        ir.BinaryGreater,
+		TokenGreaterEqual:   ir.BinaryGreaterEqual,
+		TokenAmpAmp:         ir.BinaryLogicalAnd,
+		TokenPipePipe:       ir.BinaryLogicalOr,
+		TokenAmpersand:      ir.BinaryAnd,
+		TokenPipe:           ir.BinaryInclusiveOr,
+		TokenCaret:          ir.BinaryExclusiveOr,
+		TokenLessLess:       ir.BinaryShiftLeft,
+		TokenGreaterGreater: ir.BinaryShiftRight,
+	}
+	if op, ok := ops[tok]; ok {
+		return op
+	}
+	return ir.BinaryAdd // Default
+}
+
+func (l *Lowerer) tokenToUnaryOp(tok TokenKind) ir.UnaryOperator {
+	ops := map[TokenKind]ir.UnaryOperator{
+		TokenMinus: ir.UnaryNegate,
+		TokenBang:  ir.UnaryLogicalNot,
+		TokenTilde: ir.UnaryBitwiseNot,
+	}
+	if op, ok := ops[tok]; ok {
+		return op
+	}
+	return ir.UnaryNegate // Default
+}
+
+func (l *Lowerer) assignOpToBinary(tok TokenKind) ir.BinaryOperator {
+	ops := map[TokenKind]ir.BinaryOperator{
+		TokenPlusEqual:  ir.BinaryAdd,
+		TokenMinusEqual: ir.BinarySubtract,
+		TokenStarEqual:  ir.BinaryMultiply,
+		TokenSlashEqual: ir.BinaryDivide,
+	}
+	if op, ok := ops[tok]; ok {
+		return op
+	}
+	return ir.BinaryAdd // Default
+}
+
+func (l *Lowerer) swizzleToIndex(member string) uint32 {
+	// Simple swizzle mapping: x=0, y=1, z=2, w=3
+	if len(member) == 1 {
+		switch member[0] {
+		case 'x', 'r':
+			return 0
+		case 'y', 'g':
+			return 1
+		case 'z', 'b':
+			return 2
+		case 'w', 'a':
+			return 3
+		}
+	}
+	return 0
+}

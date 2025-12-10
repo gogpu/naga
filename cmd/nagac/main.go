@@ -8,20 +8,21 @@
 //
 //	nagac shader.wgsl                    # Parse and validate
 //	nagac -o shader.spv shader.wgsl      # Compile to SPIR-V
-//	nagac -emit-ast shader.wgsl          # Print AST
+//	nagac -debug shader.wgsl             # Compile with debug info
 package main
 
 import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/gogpu/naga"
 )
 
 var (
-	output   = flag.String("o", "", "output file path")
-	emitAST  = flag.Bool("emit-ast", false, "print AST")
-	emitIR   = flag.Bool("emit-ir", false, "print IR")
-	validate = flag.Bool("validate", true, "validate shader")
+	output   = flag.String("o", "", "output file (default: stdout)")
+	debug    = flag.Bool("debug", false, "include debug info")
+	validate = flag.Bool("validate", true, "validate IR")
 	version  = flag.Bool("version", false, "print version")
 )
 
@@ -33,11 +34,12 @@ func main() {
 
 	if *version {
 		fmt.Printf("nagac version %s\n", nagaVersion)
-		os.Exit(0)
+		return
 	}
 
 	args := flag.Args()
 	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: no input file specified")
 		usage()
 		os.Exit(1)
 	}
@@ -47,33 +49,44 @@ func main() {
 	// Read input file
 	source, err := os.ReadFile(inputPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
+		fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("nagac: Compiling %s (%d bytes)\n", inputPath, len(source))
-	fmt.Println("")
-	fmt.Println("Note: Full compilation is not yet implemented.")
-	fmt.Println("Currently available:")
-	fmt.Println("  - Lexical analysis (tokenization)")
-	fmt.Println("  - AST type definitions")
-	fmt.Println("")
-	fmt.Println("Coming soon:")
-	fmt.Println("  - Full WGSL parsing")
-	fmt.Println("  - Semantic analysis")
-	fmt.Println("  - IR generation")
-	fmt.Println("  - SPIR-V output")
-	fmt.Println("")
-	fmt.Printf("Options: -o=%q -emit-ast=%v -emit-ir=%v -validate=%v\n",
-		*output, *emitAST, *emitIR, *validate)
+	// Compile WGSL to SPIR-V
+	opts := naga.CompileOptions{
+		Debug:    *debug,
+		Validate: *validate,
+	}
+	spirvBytes, err := naga.CompileWithOptions(string(source), opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Compilation error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Write output
+	if *output != "" {
+		err = os.WriteFile(*output, spirvBytes, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Successfully compiled %s to %s (%d bytes)\n", inputPath, *output, len(spirvBytes))
+	} else {
+		_, err = os.Stdout.Write(spirvBytes)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
+			os.Exit(1)
+		}
+	}
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: nagac [options] <input>\n\n")
+	fmt.Fprintf(os.Stderr, "Usage: nagac [options] <input.wgsl>\n\n")
 	fmt.Fprintf(os.Stderr, "Options:\n")
 	flag.PrintDefaults()
 	fmt.Fprintf(os.Stderr, "\nExamples:\n")
-	fmt.Fprintf(os.Stderr, "  nagac shader.wgsl               Parse and validate\n")
-	fmt.Fprintf(os.Stderr, "  nagac -o shader.spv shader.wgsl Compile to SPIR-V\n")
-	fmt.Fprintf(os.Stderr, "  nagac -emit-ast shader.wgsl     Print AST\n")
+	fmt.Fprintf(os.Stderr, "  nagac shader.wgsl               Compile to stdout\n")
+	fmt.Fprintf(os.Stderr, "  nagac -o shader.spv shader.wgsl Compile to file\n")
+	fmt.Fprintf(os.Stderr, "  nagac -debug shader.wgsl        Include debug info\n")
 }

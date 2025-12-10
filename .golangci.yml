@@ -168,6 +168,24 @@ linters:
         linters:
           - gosec       # G304 file inclusion is intentional for CLI
 
+      # SPIR-V backend - int->uint32 conversions are safe for indices
+      - path: spirv/.*\.go
+        linters:
+          - gosec       # G115 int conversions are safe for handle indices
+          - maintidx    # Backend emit functions intentionally have low maintainability
+
+      # IR package - int->uint32 conversions are safe for indices
+      - path: ir/.*\.go
+        linters:
+          - gosec       # G115 int conversions are safe for handle indices
+          - maintidx    # Validation functions intentionally have low maintainability
+
+      # Lowerer - has intentional complexity
+      - path: wgsl/lower\.go
+        linters:
+          - goconst     # "vec" pattern is clearer inline
+          - gocritic    # ptrToRefParam: returning *Binding is intentional for optional values
+
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
