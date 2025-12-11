@@ -52,10 +52,15 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 **Focus:** Compute shaders & DX improvements
 
+### Completed
+- [x] Better error messages with source locations (SourceError, FormatWithContext)
+- [x] Storage buffers (`var<storage, read>`, `var<storage, read_write>`)
+- [x] Workgroup shared memory (`var<workgroup>`)
+- [x] Access mode parsing (`read`, `write`, `read_write`)
+- [x] Workgroup size extraction (@workgroup_size)
+- [x] Atomic type support (`atomic<u32>`, `atomic<i32>`)
+
 ### Planned
-- [ ] Better error messages with source locations
-- [ ] Storage buffers (`var<storage>`)
-- [ ] Workgroup shared memory (`var<workgroup>`)
 - [ ] Atomic operations (atomicAdd, atomicMax, etc.)
 - [ ] Workgroup barrier (workgroupBarrier)
 - [ ] Unused variable warnings

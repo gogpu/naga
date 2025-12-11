@@ -257,11 +257,16 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 	// Check if this is an entry point
 	stage := l.entryPointStage(f.Attributes)
 	if stage != nil {
-		l.module.EntryPoints = append(l.module.EntryPoints, ir.EntryPoint{
+		ep := ir.EntryPoint{
 			Name:     f.Name,
 			Stage:    *stage,
 			Function: funcHandle,
-		})
+		}
+		// Extract workgroup_size for compute shaders
+		if *stage == ir.StageCompute {
+			ep.Workgroup = l.extractWorkgroupSize(f.Attributes)
+		}
+		l.module.EntryPoints = append(l.module.EntryPoints, ep)
 	}
 
 	return nil
@@ -867,6 +872,25 @@ func (l *Lowerer) resolveParameterizedType(t *NamedType) (ir.TypeHandle, error) 
 		}), nil
 	}
 
+	// Atomic types: atomic<u32>, atomic<i32>
+	if t.Name == "atomic" {
+		if len(t.TypeParams) != 1 {
+			return 0, fmt.Errorf("atomic type requires exactly one type parameter")
+		}
+		scalarType, err := l.resolveType(t.TypeParams[0])
+		if err != nil {
+			return 0, err
+		}
+		typ, ok := l.registry.Lookup(scalarType)
+		if !ok {
+			return 0, fmt.Errorf("scalar type handle %d not found in registry", scalarType)
+		}
+		scalar := typ.Inner.(ir.ScalarType)
+		return l.registerType("", ir.AtomicType{
+			Scalar: scalar,
+		}), nil
+	}
+
 	return 0, fmt.Errorf("unsupported parameterized type: %s", t.Name)
 }
 
@@ -1035,6 +1059,29 @@ func (l *Lowerer) entryPointStage(attrs []Attribute) *ir.ShaderStage {
 		}
 	}
 	return nil
+}
+
+// extractWorkgroupSize extracts workgroup_size from attributes.
+// Returns [x, y, z] where defaults are 1.
+func (l *Lowerer) extractWorkgroupSize(attrs []Attribute) [3]uint32 {
+	result := [3]uint32{1, 1, 1}
+	for _, attr := range attrs {
+		if attr.Name != "workgroup_size" {
+			continue
+		}
+		for i, arg := range attr.Args {
+			if i >= 3 {
+				break
+			}
+			if lit, ok := arg.(*Literal); ok {
+				if val, err := strconv.ParseUint(lit.Value, 10, 32); err == nil {
+					result[i] = uint32(val)
+				}
+			}
+		}
+		break
+	}
+	return result
 }
 
 func (l *Lowerer) builtin(name string) ir.BuiltinValue {

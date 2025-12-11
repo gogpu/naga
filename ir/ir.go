@@ -141,6 +141,13 @@ type PointerType struct {
 
 func (PointerType) typeInner() {}
 
+// AtomicType represents atomic types for thread-safe operations.
+type AtomicType struct {
+	Scalar ScalarType
+}
+
+func (AtomicType) typeInner() {}
+
 // AddressSpace represents memory address spaces.
 type AddressSpace uint8
 

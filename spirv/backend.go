@@ -279,6 +279,11 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		sampledTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
 		id = b.emitImageType(sampledTypeID, inner)
 
+	case ir.AtomicType:
+		// Atomic types in SPIR-V are just the underlying scalar type
+		// The atomicity is expressed through OpAtomic* instructions
+		id = b.emitScalarType(inner.Scalar)
+
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", inner)
 	}

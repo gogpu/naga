@@ -313,11 +313,18 @@ func (p *Parser) varDecl(attrs []Attribute) (*VarDecl, *ParseError) {
 		return nil, &ParseError{Message: "expected 'var'", Token: p.peek()}
 	}
 
-	// Optional address space: var<uniform>
+	// Optional address space and access mode: var<storage, read_write>
 	var addressSpace string
+	var accessMode string
 	if p.match(TokenLess) {
 		if p.check(TokenIdent) {
 			addressSpace = p.advance().Lexeme
+		}
+		// Optional access mode: var<storage, read_write>
+		if p.match(TokenComma) {
+			if p.check(TokenIdent) {
+				accessMode = p.advance().Lexeme
+			}
 		}
 		p.expect(TokenGreater)
 	}
@@ -354,6 +361,7 @@ func (p *Parser) varDecl(attrs []Attribute) (*VarDecl, *ParseError) {
 		Type:         varType,
 		Init:         init,
 		AddressSpace: addressSpace,
+		AccessMode:   accessMode,
 		Attributes:   attrs,
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
