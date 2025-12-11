@@ -876,6 +876,18 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		// Derivative functions
 		id, err = e.emitDerivative(kind)
 
+	case ir.ExprImageSample:
+		// Texture sampling
+		id, err = e.emitImageSample(kind)
+
+	case ir.ExprImageLoad:
+		// Texture load
+		id, err = e.emitImageLoad(kind)
+
+	case ir.ExprImageQuery:
+		// Image query
+		id, err = e.emitImageQuery(kind)
+
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -1877,3 +1889,254 @@ func (e *ExpressionEmitter) emitDerivative(deriv ir.ExprDerivative) (uint32, err
 
 // OpDot represents OpDot opcode (dot product).
 const OpDot OpCode = 148
+
+// Image instruction opcodes
+const (
+	OpSampledImage                OpCode = 86
+	OpImageSampleImplicitLod      OpCode = 87
+	OpImageSampleExplicitLod      OpCode = 88
+	OpImageSampleDrefImplicitLod  OpCode = 89
+	OpImageSampleDrefExplicitLod  OpCode = 90
+	OpImageSampleProjImplicitLod  OpCode = 91
+	OpImageSampleProjExplicitLod  OpCode = 92
+	OpImageSampleProjDrefImplicit OpCode = 93
+	OpImageSampleProjDrefExplicit OpCode = 94
+	OpImageFetch                  OpCode = 95
+	OpImageGather                 OpCode = 96
+	OpImageDrefGather             OpCode = 97
+	OpImageRead                   OpCode = 98
+	OpImageWrite                  OpCode = 99
+	OpImageQuerySizeLod           OpCode = 103
+	OpImageQuerySize              OpCode = 104
+	OpImageQueryLod               OpCode = 105
+	OpImageQueryLevels            OpCode = 106
+	OpImageQuerySamples           OpCode = 107
+)
+
+// emitImageSample emits a texture sampling operation.
+func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, error) {
+	// Get the sampled image (combination of image + sampler)
+	imageID, err := e.emitExpression(sample.Image)
+	if err != nil {
+		return 0, err
+	}
+
+	samplerID, err := e.emitExpression(sample.Sampler)
+	if err != nil {
+		return 0, err
+	}
+
+	coordID, err := e.emitExpression(sample.Coordinate)
+	if err != nil {
+		return 0, err
+	}
+
+	// Create SampledImage by combining image and sampler
+	// First, get the image type to construct the sampled image type
+	sampledImageTypeID := e.backend.getSampledImageType(sample.Image)
+	sampledImageID := e.backend.builder.AllocID()
+
+	sampledImageBuilder := NewInstructionBuilder()
+	sampledImageBuilder.AddWord(sampledImageTypeID)
+	sampledImageBuilder.AddWord(sampledImageID)
+	sampledImageBuilder.AddWord(imageID)
+	sampledImageBuilder.AddWord(samplerID)
+	e.backend.builder.functions = append(e.backend.builder.functions, sampledImageBuilder.Build(OpSampledImage))
+
+	// Result type is vec4<f32> for sampled images
+	resultType := e.backend.emitVec4F32Type()
+	resultID := e.backend.builder.AllocID()
+
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultType)
+	builder.AddWord(resultID)
+	builder.AddWord(sampledImageID)
+	builder.AddWord(coordID)
+
+	// Choose opcode based on sample level
+	switch level := sample.Level.(type) {
+	case ir.SampleLevelAuto:
+		// OpImageSampleImplicitLod (no extra operands for basic case)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleImplicitLod))
+
+	case ir.SampleLevelExact:
+		// OpImageSampleExplicitLod with Lod operand
+		levelID, err := e.emitExpression(level.Level)
+		if err != nil {
+			return 0, err
+		}
+		builder.AddWord(0x02) // ImageOperands::Lod
+		builder.AddWord(levelID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
+
+	case ir.SampleLevelBias:
+		// OpImageSampleImplicitLod with Bias operand
+		biasID, err := e.emitExpression(level.Bias)
+		if err != nil {
+			return 0, err
+		}
+		builder.AddWord(0x01) // ImageOperands::Bias
+		builder.AddWord(biasID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleImplicitLod))
+
+	case ir.SampleLevelGradient:
+		// OpImageSampleExplicitLod with Grad operand
+		gradXID, err := e.emitExpression(level.X)
+		if err != nil {
+			return 0, err
+		}
+		gradYID, err := e.emitExpression(level.Y)
+		if err != nil {
+			return 0, err
+		}
+		builder.AddWord(0x04) // ImageOperands::Grad
+		builder.AddWord(gradXID)
+		builder.AddWord(gradYID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
+
+	case ir.SampleLevelZero:
+		// OpImageSampleExplicitLod with Lod = 0
+		zeroID := e.backend.builder.AddConstantFloat32(
+			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}),
+			0.0)
+		builder.AddWord(0x02) // ImageOperands::Lod
+		builder.AddWord(zeroID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
+
+	default:
+		return 0, fmt.Errorf("unsupported sample level: %T", level)
+	}
+
+	return resultID, nil
+}
+
+// emitImageLoad emits a texture load operation.
+func (e *ExpressionEmitter) emitImageLoad(load ir.ExprImageLoad) (uint32, error) {
+	imageID, err := e.emitExpression(load.Image)
+	if err != nil {
+		return 0, err
+	}
+
+	coordID, err := e.emitExpression(load.Coordinate)
+	if err != nil {
+		return 0, err
+	}
+
+	// Result type is vec4<f32>
+	resultType := e.backend.emitVec4F32Type()
+	resultID := e.backend.builder.AllocID()
+
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultType)
+	builder.AddWord(resultID)
+	builder.AddWord(imageID)
+	builder.AddWord(coordID)
+
+	// Add Lod operand if specified
+	if load.Level != nil {
+		levelID, err := e.emitExpression(*load.Level)
+		if err != nil {
+			return 0, err
+		}
+		builder.AddWord(0x02) // ImageOperands::Lod
+		builder.AddWord(levelID)
+	}
+
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageFetch))
+	return resultID, nil
+}
+
+// emitImageQuery emits an image query operation.
+func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, error) {
+	imageID, err := e.emitExpression(query.Image)
+	if err != nil {
+		return 0, err
+	}
+
+	var resultID uint32
+	builder := NewInstructionBuilder()
+
+	switch q := query.Query.(type) {
+	case ir.ImageQuerySize:
+		// Returns uvec2 or uvec3 depending on image dimension
+		scalarID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		resultType := e.backend.builder.AddTypeVector(scalarID, uint32(ir.Vec3))
+		resultID = e.backend.builder.AllocID()
+		builder.AddWord(resultType)
+		builder.AddWord(resultID)
+		builder.AddWord(imageID)
+
+		if q.Level != nil {
+			levelID, err := e.emitExpression(*q.Level)
+			if err != nil {
+				return 0, err
+			}
+			builder.AddWord(levelID)
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageQuerySizeLod))
+		} else {
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageQuerySize))
+		}
+
+	case ir.ImageQueryNumLevels:
+		resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		resultID = e.backend.builder.AllocID()
+		builder.AddWord(resultType)
+		builder.AddWord(resultID)
+		builder.AddWord(imageID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageQueryLevels))
+
+	case ir.ImageQueryNumLayers:
+		// NumLayers is part of ImageQuerySize for array textures
+		resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		resultID = e.backend.builder.AllocID()
+		builder.AddWord(resultType)
+		builder.AddWord(resultID)
+		builder.AddWord(imageID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageQuerySize))
+
+	case ir.ImageQueryNumSamples:
+		resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		resultID = e.backend.builder.AllocID()
+		builder.AddWord(resultType)
+		builder.AddWord(resultID)
+		builder.AddWord(imageID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageQuerySamples))
+
+	default:
+		return 0, fmt.Errorf("unsupported image query: %T", q)
+	}
+
+	return resultID, nil
+}
+
+// getSampledImageType returns the type ID for a sampled image.
+func (b *Backend) getSampledImageType(_ ir.ExpressionHandle) uint32 {
+	// For now, create a generic sampled image type
+	// In a full implementation, we'd look up the actual image type
+	imageTypeID := b.emitImageType(
+		b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}),
+		ir.ImageType{
+			Dim:     ir.Dim2D,
+			Class:   ir.ImageClassSampled,
+			Arrayed: false,
+		},
+	)
+
+	// OpTypeSampledImage
+	resultID := b.builder.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultID)
+	builder.AddWord(imageTypeID)
+	b.builder.types = append(b.builder.types, builder.Build(OpTypeSampledImage))
+
+	return resultID
+}
+
+// emitVec4F32Type returns the type ID for vec4<f32>.
+func (b *Backend) emitVec4F32Type() uint32 {
+	scalarID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	return b.builder.AddTypeVector(scalarID, 4)
+}
+
+// OpTypeSampledImage represents OpTypeSampledImage opcode.
+const OpTypeSampledImage OpCode = 27

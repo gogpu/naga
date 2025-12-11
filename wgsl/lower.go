@@ -325,18 +325,36 @@ func (l *Lowerer) lowerReturn(ret *ReturnStmt, target *[]ir.Statement) error {
 
 // lowerLocalVar converts a local variable declaration to IR.
 func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
-	typeHandle, err := l.resolveType(v.Type)
-	if err != nil {
-		return fmt.Errorf("local var %s: %w", v.Name, err)
-	}
-
+	var typeHandle ir.TypeHandle
 	var initHandle *ir.ExpressionHandle
+
+	// Lower initializer first (needed for type inference)
 	if v.Init != nil {
 		init, err := l.lowerExpression(v.Init, target)
 		if err != nil {
 			return err
 		}
 		initHandle = &init
+	}
+
+	// Resolve type: explicit or inferred from initializer
+	//nolint:nestif // Type resolution logic requires explicit type vs inference branching
+	if v.Type != nil {
+		// Explicit type annotation
+		var err error
+		typeHandle, err = l.resolveType(v.Type)
+		if err != nil {
+			return fmt.Errorf("local var %s: %w", v.Name, err)
+		}
+	} else if initHandle != nil {
+		// Infer type from initializer expression
+		var err error
+		typeHandle, err = l.inferTypeFromExpression(*initHandle)
+		if err != nil {
+			return fmt.Errorf("local var %s type inference: %w", v.Name, err)
+		}
+	} else {
+		return fmt.Errorf("local var %s: type required without initializer", v.Name)
 	}
 
 	localIdx := uint32(len(l.currentFunc.LocalVars)) //nolint:gosec // local vars length is bounded
@@ -620,6 +638,11 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 		return l.lowerMathCall(mathFunc, call.Args, target)
 	}
 
+	// Check if this is a texture function
+	if l.isTextureFunction(funcName) {
+		return l.lowerTextureCall(funcName, call.Args, target)
+	}
+
 	// Regular function call
 	// TODO: Look up function handle
 	args := make([]ir.ExpressionHandle, len(call.Args))
@@ -745,8 +768,16 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 		if err != nil {
 			return 0, err
 		}
-		// TODO: Parse size expression
-		return l.registerType("", ir.ArrayType{Base: base, Size: ir.ArraySize{}}), nil
+		// Parse size expression if present
+		var size ir.ArraySize
+		if t.Size != nil {
+			if lit, ok := t.Size.(*Literal); ok && lit.Kind == TokenIntLiteral {
+				n, _ := strconv.ParseUint(lit.Value, 0, 32)
+				constSize := uint32(n)
+				size.Constant = &constSize
+			}
+		}
+		return l.registerType("", ir.ArrayType{Base: base, Size: size}), nil
 	case *PtrType:
 		pointee, err := l.resolveType(t.PointeeType)
 		if err != nil {
@@ -829,11 +860,12 @@ func (l *Lowerer) resolveParameterizedType(t *NamedType) (ir.TypeHandle, error) 
 
 func (l *Lowerer) isBuiltinConstructor(name string) bool {
 	return (len(name) == 4 && name[:3] == "vec") ||
-		(len(name) >= 3 && name[:3] == "mat")
+		(len(name) >= 3 && name[:3] == "mat") ||
+		name == "array"
 }
 
 func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	// vec4<f32>(x, y, z, w) or vec4(x, y, z, w)
+	// Lower all arguments first
 	components := make([]ir.ExpressionHandle, len(args))
 	for i, arg := range args {
 		handle, err := l.lowerExpression(arg, target)
@@ -845,13 +877,38 @@ func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir
 
 	// Infer type from constructor name
 	var typeHandle ir.TypeHandle
-	if len(name) == 4 && name[:3] == "vec" {
+
+	switch {
+	case len(name) == 4 && name[:3] == "vec":
+		// vec2, vec3, vec4
 		size := name[3] - '0'
 		// Assume f32 for now
 		scalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 		typeHandle = l.registerType("", ir.VectorType{
 			Size:   ir.VectorSize(size),
 			Scalar: scalar,
+		})
+
+	case name == "array":
+		// array(...) with inferred element type and size
+		if len(args) == 0 {
+			return 0, fmt.Errorf("array constructor requires at least one element")
+		}
+
+		// Infer element type from first argument
+		elemType, err := l.inferTypeFromExpression(components[0])
+		if err != nil {
+			return 0, fmt.Errorf("cannot infer array element type: %w", err)
+		}
+
+		// Create array type with fixed size
+		constSize := uint32(len(args)) //nolint:gosec // args length is bounded
+		arraySize := ir.ArraySize{
+			Constant: &constSize,
+		}
+		typeHandle = l.registerType("", ir.ArrayType{
+			Base: elemType,
+			Size: arraySize,
 		})
 	}
 
@@ -1086,4 +1143,239 @@ func (l *Lowerer) swizzleToIndex(member string) uint32 {
 		}
 	}
 	return 0
+}
+
+// inferTypeFromExpression infers a type handle from an expression's resolved type.
+// This is used for `let` bindings without explicit type annotations.
+func (l *Lowerer) inferTypeFromExpression(handle ir.ExpressionHandle) (ir.TypeHandle, error) {
+	if int(handle) >= len(l.currentFunc.ExpressionTypes) {
+		return 0, fmt.Errorf("expression %d has no resolved type", handle)
+	}
+
+	resolution := l.currentFunc.ExpressionTypes[handle]
+
+	// If it's already a handle, return it
+	if resolution.Handle != nil {
+		return *resolution.Handle, nil
+	}
+
+	// If it's an inline type, register it in the registry
+	if resolution.Value != nil {
+		return l.registerType("", resolution.Value), nil
+	}
+
+	return 0, fmt.Errorf("expression %d has empty type resolution", handle)
+}
+
+// isTextureFunction checks if a function name is a texture sampling/loading function.
+func (l *Lowerer) isTextureFunction(name string) bool {
+	switch name {
+	case "textureSample", "textureSampleBias", "textureSampleLevel", "textureSampleGrad",
+		"textureSampleCompare", "textureSampleCompareLevel",
+		"textureLoad", "textureStore",
+		"textureDimensions", "textureNumLevels", "textureNumLayers", "textureNumSamples":
+		return true
+	}
+	return false
+}
+
+// lowerTextureCall converts a texture function call to IR.
+func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 2 {
+		return 0, fmt.Errorf("%s requires at least 2 arguments", name)
+	}
+
+	switch name {
+	case "textureSample":
+		// textureSample(t, s, coord) or textureSample(t, s, coord, offset)
+		return l.lowerTextureSample(args, target, ir.SampleLevelAuto{})
+
+	case "textureSampleBias":
+		// textureSampleBias(t, s, coord, bias)
+		if len(args) < 4 {
+			return 0, fmt.Errorf("textureSampleBias requires 4 arguments")
+		}
+		bias, err := l.lowerExpression(args[3], target)
+		if err != nil {
+			return 0, err
+		}
+		return l.lowerTextureSample(args[:3], target, ir.SampleLevelBias{Bias: bias})
+
+	case "textureSampleLevel":
+		// textureSampleLevel(t, s, coord, level)
+		if len(args) < 4 {
+			return 0, fmt.Errorf("textureSampleLevel requires 4 arguments")
+		}
+		level, err := l.lowerExpression(args[3], target)
+		if err != nil {
+			return 0, err
+		}
+		return l.lowerTextureSample(args[:3], target, ir.SampleLevelExact{Level: level})
+
+	case "textureSampleGrad":
+		// textureSampleGrad(t, s, coord, ddx, ddy)
+		if len(args) < 5 {
+			return 0, fmt.Errorf("textureSampleGrad requires 5 arguments")
+		}
+		ddx, err := l.lowerExpression(args[3], target)
+		if err != nil {
+			return 0, err
+		}
+		ddy, err := l.lowerExpression(args[4], target)
+		if err != nil {
+			return 0, err
+		}
+		return l.lowerTextureSample(args[:3], target, ir.SampleLevelGradient{X: ddx, Y: ddy})
+
+	case "textureLoad":
+		// textureLoad(t, coord, level) or textureLoad(t, coord) for storage textures
+		return l.lowerTextureLoad(args, target)
+
+	case "textureStore":
+		// textureStore(t, coord, value)
+		return l.lowerTextureStore(args, target)
+
+	case "textureDimensions":
+		// textureDimensions(t) or textureDimensions(t, level)
+		return l.lowerTextureQuery(args, target, ir.ImageQuerySize{})
+
+	case "textureNumLevels":
+		// textureNumLevels(t)
+		return l.lowerTextureQuery(args, target, ir.ImageQueryNumLevels{})
+
+	case "textureNumLayers":
+		// textureNumLayers(t)
+		return l.lowerTextureQuery(args, target, ir.ImageQueryNumLayers{})
+
+	case "textureNumSamples":
+		// textureNumSamples(t)
+		return l.lowerTextureQuery(args, target, ir.ImageQueryNumSamples{})
+
+	default:
+		return 0, fmt.Errorf("unknown texture function: %s", name)
+	}
+}
+
+// lowerTextureSample converts a texture sampling call to IR.
+func (l *Lowerer) lowerTextureSample(args []Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
+	// args: texture, sampler, coordinate
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	sampler, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageSample{
+			Image:      image,
+			Sampler:    sampler,
+			Coordinate: coord,
+			Level:      level,
+		},
+	}), nil
+}
+
+// lowerTextureLoad converts a texture load call to IR.
+func (l *Lowerer) lowerTextureLoad(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	// args: texture, coordinate [, level]
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	var level *ir.ExpressionHandle
+	if len(args) > 2 {
+		lv, err := l.lowerExpression(args[2], target)
+		if err != nil {
+			return 0, err
+		}
+		level = &lv
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageLoad{
+			Image:      image,
+			Coordinate: coord,
+			Level:      level,
+		},
+	}), nil
+}
+
+// lowerTextureStore converts a texture store call to IR.
+func (l *Lowerer) lowerTextureStore(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	// args: texture, coordinate, value
+	if len(args) < 3 {
+		return 0, fmt.Errorf("textureStore requires 3 arguments")
+	}
+
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	value, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// textureStore is a statement, not an expression
+	// Add a store statement and return a zero value
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtImageStore{
+			Image:      image,
+			Coordinate: coord,
+			Value:      value,
+		},
+	})
+
+	// Return a zero value expression since textureStore doesn't return anything useful
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprZeroValue{Type: 0}, // void
+	}), nil
+}
+
+// lowerTextureQuery converts a texture query call to IR.
+func (l *Lowerer) lowerTextureQuery(args []Expr, target *[]ir.Statement, query ir.ImageQuery) (ir.ExpressionHandle, error) {
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// For textureDimensions with level argument
+	if len(args) > 1 {
+		if sizeQuery, ok := query.(ir.ImageQuerySize); ok {
+			level, err := l.lowerExpression(args[1], target)
+			if err != nil {
+				return 0, err
+			}
+			sizeQuery.Level = &level
+			query = sizeQuery
+		}
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageQuery{
+			Image: image,
+			Query: query,
+		},
+	}), nil
 }

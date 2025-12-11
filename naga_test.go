@@ -67,10 +67,6 @@ fn main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
 
 // TestCompileWithMathFunctions tests compilation with built-in math functions.
 func TestCompileWithMathFunctions(t *testing.T) {
-	// Note: Type inference for 'let' is not yet implemented, so we skip this test
-	// TODO: Re-enable when type inference is implemented
-	t.Skip("Type inference for 'let' bindings not yet implemented")
-
 	source := `
 @fragment
 fn main(@location(0) v: vec3<f32>) -> @location(0) vec4<f32> {

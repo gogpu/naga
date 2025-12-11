@@ -19,7 +19,7 @@
   <sub>Part of the <a href="https://github.com/gogpu">GoGPU</a> ecosystem</sub>
 </p>
 
-> **v0.2.0** — Type Inference & SPIR-V improvements. ~12K lines of pure Go.
+> **v0.3.0** — Let inference, array init, texture sampling. ~15K lines of pure Go.
 
 ---
 
@@ -28,8 +28,10 @@
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (140+ tokens)
 - **IR** — Complete intermediate representation (expressions, statements, types)
-- **Type Inference** — Automatic type resolution for all expressions
+- **Type Inference** — Automatic type resolution for all expressions, including `let` bindings
 - **Type Deduplication** — SPIR-V compliant unique type emission
+- **Array Initialization** — `array(1, 2, 3)` shorthand with inferred type and size
+- **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
 - **Validation** — Type checking and semantic validation
 - **CLI Tool** — `nagac` command-line compiler
@@ -185,20 +187,27 @@ naga/
 - [x] Built-in math functions (GLSL.std.450)
 - [x] Public API and CLI tool
 
-### v0.2.0 (Current) ✅
+### v0.2.0 ✅
 - [x] Type inference for all expressions
 - [x] Type deduplication (SPIR-V compliant)
 - [x] Correct int/float/uint opcode selection
 - [x] SPIR-V backend with proper type handling
 - [x] 67+ unit tests
 
-### v0.3.0 (Next)
-- [ ] Type inference for `let` bindings
-- [ ] Array initialization syntax
-- [ ] Texture sampling operations
-- [ ] More complete validation
+### v0.3.0 (Current) ✅
+- [x] Type inference for `let` bindings
+- [x] Array initialization syntax (`array(1, 2, 3)`)
+- [x] Texture sampling operations (textureSample, textureLoad, textureStore)
+- [x] SPIR-V image operations (OpImageSample*, OpImageFetch, OpImageQuery*)
+- [x] 124 unit tests
 
-### v0.4.0 (Future)
+### v0.4.0 (Next)
+- [ ] Better error messages with source locations
+- [ ] Compute shader improvements
+- [ ] Storage buffer operations
+- [ ] Workgroup shared memory
+
+### v0.5.0 (Future)
 - [ ] GLSL backend output
 - [ ] Source maps for debugging
 - [ ] Optimization passes

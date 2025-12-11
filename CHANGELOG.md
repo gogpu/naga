@@ -7,11 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.3.0
-- Type inference for `let` bindings
-- Array initialization syntax
-- Texture sampling operations
-- More complete validation
+### Planned for v0.4.0
+- Better error messages with source locations
+- Compute shader support
+- Storage buffer operations
+- Workgroup shared memory
+
+## [0.3.0] - 2025-12-11
+
+`let` type inference, array initialization, and texture sampling (~3K new LOC).
+
+### Added
+
+#### Type Inference for `let` Bindings
+- `wgsl/lower.go` — `inferTypeFromExpression()` method (~80 LOC)
+  - Supports inferring type from any expression
+  - `let x = 1.0` → inferred f32
+  - `let v = vec3(1.0)` → inferred vec3<f32>
+  - `let n = normalize(v)` → inferred from function return type
+- `wgsl/lower_type_inference_test.go` — 6 new tests
+
+#### Array Initialization Syntax
+- `wgsl/lower.go` — Array constructor handling (~50 LOC)
+  - `array(1, 2, 3)` shorthand with inferred type and size
+  - `array<f32, 3>(...)` explicit syntax
+  - Element type inferred from first element
+- Tests for array shorthand and vector arrays
+
+#### Texture Sampling Operations
+- `wgsl/lower.go` — Texture function lowering (~250 LOC)
+  - `textureSample(t, s, coord)` — Basic sampling
+  - `textureSampleBias(t, s, coord, bias)` — With LOD bias
+  - `textureSampleLevel(t, s, coord, level)` — Specific mip level
+  - `textureSampleGrad(t, s, coord, ddx, ddy)` — With derivatives
+  - `textureLoad(t, coord, level)` — Direct texel load
+  - `textureStore(t, coord, value)` — Write to storage texture
+  - `textureDimensions(t)` — Get texture size
+  - `textureNumLevels(t)` — Get mip count
+  - `textureNumLayers(t)` — Get array layer count
+- `spirv/backend.go` — SPIR-V image operations (~200 LOC)
+  - `OpSampledImage` — Combine texture and sampler
+  - `OpImageSampleImplicitLod` — textureSample
+  - `OpImageSampleExplicitLod` — textureSampleLevel
+  - `OpImageFetch` — textureLoad
+  - `OpImageWrite` — textureStore
+  - `OpImageQuerySize*` — textureDimensions
+  - `OpImageQueryLevels` — textureNumLevels
+  - Helper methods: `getSampledImageType()`, `emitVec4F32Type()`
+
+### Changed
+- `wgsl/lower.go` — `lowerLocalVar()` supports optional type with inference
+- `wgsl/lower.go` — `isBuiltinConstructor()` includes "array"
+- `wgsl/lower.go` — `lowerBuiltinConstructor()` handles array shorthand
+- `naga_test.go` — Enabled `TestCompileWithMathFunctions` (was skipped)
+- Total: 124 tests across all packages
+
+### Fixed
+- Array size now correctly uses pointer (`*uint32`) per IR definition
+- SPIR-V OpImageFetch uses coordinate without sampler
 
 ## [0.2.0] - 2025-12-11
 
@@ -134,6 +187,7 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/gogpu/naga/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gogpu/naga/releases/tag/v0.2.0
 [0.1.0]: https://github.com/gogpu/naga/releases/tag/v0.1.0
