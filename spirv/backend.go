@@ -138,10 +138,11 @@ func (b *Backend) emitDebugNames() {
 	}
 
 	// Function names
-	for handle, function := range b.module.Functions {
-		if function.Name != "" {
+	for handle := range b.module.Functions {
+		fn := &b.module.Functions[handle]
+		if fn.Name != "" {
 			if id, ok := b.functionIDs[ir.FunctionHandle(handle)]; ok {
-				b.builder.AddName(id, function.Name)
+				b.builder.AddName(id, fn.Name)
 			}
 		}
 	}
@@ -606,8 +607,9 @@ func (b *Backend) emitEntryPoints() error {
 
 // emitFunctions emits all functions.
 func (b *Backend) emitFunctions() error {
-	for handle, function := range b.module.Functions {
-		if err := b.emitFunction(ir.FunctionHandle(handle), &function); err != nil {
+	for handle := range b.module.Functions {
+		fn := &b.module.Functions[handle]
+		if err := b.emitFunction(ir.FunctionHandle(handle), fn); err != nil {
 			return err
 		}
 	}
@@ -664,7 +666,7 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// Create expression emitter for this function
 	emitter := &ExpressionEmitter{
 		backend:  b,
-		fn:       fn,
+		function: fn,
 		exprIDs:  make(map[ir.ExpressionHandle]uint32),
 		paramIDs: paramIDs,
 	}
@@ -723,7 +725,7 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 // ExpressionEmitter handles expression emission within a function context.
 type ExpressionEmitter struct {
 	backend     *Backend
-	fn          *ir.Function
+	function    *ir.Function // Renamed from fn for consistency
 	exprIDs     map[ir.ExpressionHandle]uint32
 	paramIDs    []uint32 // Function parameter IDs
 	localVarIDs []uint32 // Local variable IDs
@@ -738,6 +740,58 @@ type loopContext struct {
 	continueLabel uint32 // Label to branch to on continue
 }
 
+// resolveTypeResolution converts a TypeResolution to a SPIR-V type ID.
+// Handles both type handles (references to module types) and inline types.
+func (b *Backend) resolveTypeResolution(res ir.TypeResolution) uint32 {
+	if res.Handle != nil {
+		// Type handle - look up in cache
+		if id, ok := b.typeIDs[*res.Handle]; ok {
+			return id
+		}
+		// Not in cache - emit the type
+		id, err := b.emitType(*res.Handle)
+		if err != nil {
+			// This shouldn't happen if types were properly registered
+			panic(fmt.Sprintf("failed to emit type handle %d: %v", *res.Handle, err))
+		}
+		return id
+	}
+
+	// Inline type - emit and cache
+	return b.emitInlineType(res.Value)
+}
+
+// emitInlineType emits an inline TypeInner and returns its SPIR-V ID.
+// Used for types that don't exist in the module's type arena (e.g., temporary vector types).
+func (b *Backend) emitInlineType(inner ir.TypeInner) uint32 {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return b.emitScalarType(t)
+
+	case ir.VectorType:
+		scalarID := b.emitScalarType(t.Scalar)
+		return b.builder.AddTypeVector(scalarID, uint32(t.Size))
+
+	case ir.MatrixType:
+		scalarID := b.emitScalarType(t.Scalar)
+		columnTypeID := b.builder.AddTypeVector(scalarID, uint32(t.Rows))
+		return b.builder.AddTypeMatrix(columnTypeID, uint32(t.Columns))
+
+	case ir.PointerType:
+		// Emit the base type first
+		baseID, err := b.emitType(t.Base)
+		if err != nil {
+			panic(fmt.Sprintf("failed to emit pointer base type: %v", err))
+		}
+		storageClass := addressSpaceToStorageClass(t.Space)
+		return b.builder.AddTypePointer(storageClass, baseID)
+
+	default:
+		// For complex types that need handles, we should panic
+		panic(fmt.Sprintf("cannot emit inline type: %T (should be in module types)", inner))
+	}
+}
+
 // emitExpression emits an expression and returns its SPIR-V ID.
 //
 //nolint:gocyclo,cyclop // Expression dispatch requires high cyclomatic complexity
@@ -747,7 +801,7 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		return id, nil
 	}
 
-	expr := &e.fn.Expressions[handle]
+	expr := &e.function.Expressions[handle]
 	var id uint32
 	var err error
 
@@ -909,10 +963,49 @@ func (e *ExpressionEmitter) emitAccess(access ir.ExprAccess) (uint32, error) {
 		return 0, err
 	}
 
-	// Determine result type (pointer to element type)
-	// This is simplified - full implementation would need type inference
-	// For now, assume base is a pointer to array/vector
-	resultType := e.backend.builder.AllocID() // Placeholder
+	// Get result type from type inference
+	// Access returns a pointer to the indexed element
+	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
+	if err != nil {
+		return 0, fmt.Errorf("access base type: %w", err)
+	}
+
+	// Determine the element type
+	var elementType ir.TypeResolution
+	if baseType.Handle != nil {
+		inner := e.backend.module.Types[*baseType.Handle].Inner
+		switch t := inner.(type) {
+		case ir.ArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		case ir.PointerType:
+			// If base is pointer, we need to emit OpAccessChain which returns pointer
+			// The pointee is what we're indexing into
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		default:
+			return 0, fmt.Errorf("cannot index into type %T", t)
+		}
+	} else {
+		inner := baseType.Value
+		switch t := inner.(type) {
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		default:
+			return 0, fmt.Errorf("cannot index into inline type %T", t)
+		}
+	}
+
+	// Create pointer type for result (OpAccessChain returns pointer)
+	elementTypeID := e.backend.resolveTypeResolution(elementType)
+	// Determine storage class from base (for now, assume Function)
+	resultType := e.backend.builder.AddTypePointer(StorageClassFunction, elementTypeID)
 	return e.backend.builder.AddAccessChain(resultType, baseID, indexID), nil
 }
 
@@ -927,8 +1020,51 @@ func (e *ExpressionEmitter) emitAccessIndex(access ir.ExprAccessIndex) (uint32, 
 	u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	indexID := e.backend.builder.AddConstant(u32Type, access.Index)
 
-	// Determine result type (pointer to element type)
-	resultType := e.backend.builder.AllocID() // Placeholder
+	// Get result type from type inference (similar to emitAccess)
+	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
+	if err != nil {
+		return 0, fmt.Errorf("access index base type: %w", err)
+	}
+
+	// Determine the element type
+	var elementType ir.TypeResolution
+	if baseType.Handle != nil {
+		inner := e.backend.module.Types[*baseType.Handle].Inner
+		switch t := inner.(type) {
+		case ir.ArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		case ir.StructType:
+			if int(access.Index) >= len(t.Members) {
+				return 0, fmt.Errorf("struct member index %d out of range", access.Index)
+			}
+			h := t.Members[access.Index].Type
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.PointerType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		default:
+			return 0, fmt.Errorf("cannot index into type %T", t)
+		}
+	} else {
+		inner := baseType.Value
+		switch t := inner.(type) {
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		default:
+			return 0, fmt.Errorf("cannot index into inline type %T", t)
+		}
+	}
+
+	// Create pointer type for result
+	elementTypeID := e.backend.resolveTypeResolution(elementType)
+	resultType := e.backend.builder.AddTypePointer(StorageClassFunction, elementTypeID)
 	return e.backend.builder.AddAccessChain(resultType, baseID, indexID), nil
 }
 
@@ -939,9 +1075,32 @@ func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
 		return 0, err
 	}
 
-	// Determine result type by looking at pointer type
-	// This is simplified - full implementation would need type inference
-	resultType := e.backend.builder.AllocID() // Placeholder
+	// Get result type by dereferencing the pointer type
+	pointerType, err := ir.ResolveExpressionType(e.backend.module, e.function, load.Pointer)
+	if err != nil {
+		return 0, fmt.Errorf("load pointer type: %w", err)
+	}
+
+	// Extract the pointee type
+	var pointeeType ir.TypeResolution
+	if pointerType.Handle != nil {
+		inner := e.backend.module.Types[*pointerType.Handle].Inner
+		ptr, ok := inner.(ir.PointerType)
+		if !ok {
+			return 0, fmt.Errorf("load requires pointer type, got %T", inner)
+		}
+		h := ptr.Base
+		pointeeType = ir.TypeResolution{Handle: &h}
+	} else {
+		ptr, ok := pointerType.Value.(ir.PointerType)
+		if !ok {
+			return 0, fmt.Errorf("load requires pointer type, got %T", pointerType.Value)
+		}
+		h := ptr.Base
+		pointeeType = ir.TypeResolution{Handle: &h}
+	}
+
+	resultType := e.backend.resolveTypeResolution(pointeeType)
 	return e.backend.builder.AddLoad(resultType, pointerID), nil
 }
 
@@ -952,16 +1111,48 @@ func (e *ExpressionEmitter) emitUnary(unary ir.ExprUnary) (uint32, error) {
 		return 0, err
 	}
 
-	// Determine result type (same as operand type)
-	// This is simplified - full implementation would need type inference
-	resultType := e.backend.builder.AllocID() // Placeholder
+	// Get operand type to determine correct opcode
+	operandType, err := ir.ResolveExpressionType(e.backend.module, e.function, unary.Expr)
+	if err != nil {
+		return 0, fmt.Errorf("unary operand type: %w", err)
+	}
+
+	// Result type is same as operand type
+	resultType := e.backend.resolveTypeResolution(operandType)
+
+	// Determine scalar kind for choosing int vs float opcodes
+	var scalarKind ir.ScalarKind
+	if operandType.Handle != nil {
+		inner := e.backend.module.Types[*operandType.Handle].Inner
+		switch t := inner.(type) {
+		case ir.ScalarType:
+			scalarKind = t.Kind
+		case ir.VectorType:
+			scalarKind = t.Scalar.Kind
+		default:
+			return 0, fmt.Errorf("unary operator on non-numeric type: %T", t)
+		}
+	} else {
+		inner := operandType.Value
+		switch t := inner.(type) {
+		case ir.ScalarType:
+			scalarKind = t.Kind
+		case ir.VectorType:
+			scalarKind = t.Scalar.Kind
+		default:
+			return 0, fmt.Errorf("unary operator on non-numeric type: %T", t)
+		}
+	}
 
 	var opcode OpCode
 	switch unary.Op {
 	case ir.UnaryNegate:
-		// Need to determine if float or int based on type
-		// For now, assume float
-		opcode = OpFNegate
+		// Choose float or int negation based on scalar kind
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFNegate
+		} else {
+			opcode = OpSNegate // Signed integer negation
+		}
 	case ir.UnaryLogicalNot:
 		opcode = OpLogicalNot
 	case ir.UnaryBitwiseNot:
@@ -975,7 +1166,7 @@ func (e *ExpressionEmitter) emitUnary(unary ir.ExprUnary) (uint32, error) {
 
 // emitBinary emits a binary operation.
 //
-//nolint:gocyclo,cyclop // Binary operator dispatch requires high cyclomatic complexity
+//nolint:gocyclo,gocognit,cyclop,funlen,gocritic,staticcheck // Binary operator dispatch requires handling 20+ SPIR-V opcodes
 func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	leftID, err := e.emitExpression(binary.Left)
 	if err != nil {
@@ -987,36 +1178,158 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		return 0, err
 	}
 
-	// Determine result type
-	// This is simplified - full implementation would need type inference
-	resultType := e.backend.builder.AllocID() // Placeholder
+	// Get left operand type to determine correct opcode
+	leftType, err := ir.ResolveExpressionType(e.backend.module, e.function, binary.Left)
+	if err != nil {
+		return 0, fmt.Errorf("binary left type: %w", err)
+	}
 
-	// Map IR operator to SPIR-V opcode
-	// This is simplified - real implementation needs to check operand types
+	// Determine result type (for most operators, same as operand type; for comparisons, bool)
+	var resultType uint32
+	var scalarKind ir.ScalarKind
+
+	// Extract scalar kind from left operand
+	if leftType.Handle != nil {
+		inner := e.backend.module.Types[*leftType.Handle].Inner
+		switch t := inner.(type) {
+		case ir.ScalarType:
+			scalarKind = t.Kind
+		case ir.VectorType:
+			scalarKind = t.Scalar.Kind
+		default:
+			return 0, fmt.Errorf("binary operator on non-numeric type: %T", t)
+		}
+	} else {
+		inner := leftType.Value
+		switch t := inner.(type) {
+		case ir.ScalarType:
+			scalarKind = t.Kind
+		case ir.VectorType:
+			scalarKind = t.Scalar.Kind
+		default:
+			return 0, fmt.Errorf("binary operator on non-numeric type: %T", t)
+		}
+	}
+
+	// Determine result type based on operator
+	switch binary.Op {
+	case ir.BinaryEqual, ir.BinaryNotEqual, ir.BinaryLess, ir.BinaryLessEqual, ir.BinaryGreater, ir.BinaryGreaterEqual:
+		// Comparison operators return bool (or vec<bool> for vector operands)
+		//nolint:nestif // Type checking requires nested conditionals
+		if leftType.Handle != nil {
+			inner := e.backend.module.Types[*leftType.Handle].Inner
+			if vec, ok := inner.(ir.VectorType); ok {
+				// Vector comparison returns vec<bool>
+				boolVec := ir.VectorType{
+					Size:   vec.Size,
+					Scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
+				}
+				resultType = e.backend.emitInlineType(boolVec)
+			} else {
+				// Scalar comparison returns bool
+				resultType = e.backend.builder.AddTypeBool()
+			}
+		} else {
+			inner := leftType.Value
+			if vec, ok := inner.(ir.VectorType); ok {
+				boolVec := ir.VectorType{
+					Size:   vec.Size,
+					Scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
+				}
+				resultType = e.backend.emitInlineType(boolVec)
+			} else {
+				resultType = e.backend.builder.AddTypeBool()
+			}
+		}
+	case ir.BinaryLogicalAnd, ir.BinaryLogicalOr:
+		// Logical operators return bool
+		resultType = e.backend.builder.AddTypeBool()
+	default:
+		// Arithmetic and bitwise operators preserve operand type
+		resultType = e.backend.resolveTypeResolution(leftType)
+	}
+
+	// Map IR operator to SPIR-V opcode based on scalar kind
 	var opcode OpCode
 	switch binary.Op {
 	case ir.BinaryAdd:
-		opcode = OpFAdd // Assume float for now
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFAdd
+		} else {
+			opcode = OpIAdd
+		}
 	case ir.BinarySubtract:
-		opcode = OpFSub
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFSub
+		} else {
+			opcode = OpISub
+		}
 	case ir.BinaryMultiply:
-		opcode = OpFMul
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFMul
+		} else {
+			opcode = OpIMul
+		}
 	case ir.BinaryDivide:
-		opcode = OpFDiv
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFDiv
+		} else if scalarKind == ir.ScalarSint {
+			opcode = OpSDiv
+		} else {
+			opcode = OpUDiv
+		}
 	case ir.BinaryModulo:
-		opcode = OpFMod
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFMod
+		} else if scalarKind == ir.ScalarSint {
+			opcode = OpSMod
+		} else {
+			opcode = OpUMod
+		}
 	case ir.BinaryEqual:
-		opcode = OpFOrdEqual
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFOrdEqual
+		} else {
+			opcode = OpIEqual
+		}
 	case ir.BinaryNotEqual:
-		opcode = OpFOrdNotEqual
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFOrdNotEqual
+		} else {
+			opcode = OpINotEqual
+		}
 	case ir.BinaryLess:
-		opcode = OpFOrdLessThan
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFOrdLessThan
+		} else if scalarKind == ir.ScalarSint {
+			opcode = OpSLessThan
+		} else {
+			opcode = OpULessThan
+		}
 	case ir.BinaryLessEqual:
-		opcode = OpFOrdLessThanEqual
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFOrdLessThanEqual
+		} else if scalarKind == ir.ScalarSint {
+			opcode = OpSLessThanEqual
+		} else {
+			opcode = OpULessThanEqual
+		}
 	case ir.BinaryGreater:
-		opcode = OpFOrdGreaterThan
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFOrdGreaterThan
+		} else if scalarKind == ir.ScalarSint {
+			opcode = OpSGreaterThan
+		} else {
+			opcode = OpUGreaterThan
+		}
 	case ir.BinaryGreaterEqual:
-		opcode = OpFOrdGreaterThanEqual
+		if scalarKind == ir.ScalarFloat {
+			opcode = OpFOrdGreaterThanEqual
+		} else if scalarKind == ir.ScalarSint {
+			opcode = OpSGreaterThanEqual
+		} else {
+			opcode = OpUGreaterThanEqual
+		}
 	case ir.BinaryAnd:
 		opcode = OpBitwiseAnd
 	case ir.BinaryExclusiveOr:
@@ -1030,7 +1343,11 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	case ir.BinaryShiftLeft:
 		opcode = OpShiftLeftLogical
 	case ir.BinaryShiftRight:
-		opcode = OpShiftRightLogical // Assume unsigned for now
+		if scalarKind == ir.ScalarSint {
+			opcode = OpShiftRightArithmetic // Sign-extending
+		} else {
+			opcode = OpShiftRightLogical // Zero-filling
+		}
 	default:
 		return 0, fmt.Errorf("unsupported binary operator: %v", binary.Op)
 	}
@@ -1055,8 +1372,12 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 		return 0, err
 	}
 
-	// Determine result type (same as accept/reject)
-	resultType := e.backend.builder.AllocID() // Placeholder
+	// Result type is same as accept/reject branches
+	acceptType, err := ir.ResolveExpressionType(e.backend.module, e.function, sel.Accept)
+	if err != nil {
+		return 0, fmt.Errorf("select accept type: %w", err)
+	}
+	resultType := e.backend.resolveTypeResolution(acceptType)
 
 	return e.backend.builder.AddSelect(resultType, conditionID, acceptID, rejectID), nil
 }
@@ -1278,7 +1599,7 @@ func (e *ExpressionEmitter) emitLoop(stmt ir.StmtLoop) error {
 
 // emitMath emits a math built-in function using GLSL.std.450.
 //
-//nolint:gocyclo,cyclop,funlen // Math function dispatch requires high cyclomatic complexity and many statements
+//nolint:gocyclo,gocognit,cyclop,funlen,gocritic,staticcheck // Math function dispatch requires handling 40+ GLSL.std.450 instructions
 func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	// Emit first argument
 	argID, err := e.emitExpression(mathExpr.Arg)
@@ -1286,8 +1607,38 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		return 0, err
 	}
 
-	// Determine result type (placeholder - should infer from arguments)
-	resultType := e.backend.builder.AllocID()
+	// Get argument type to determine result type and correct opcodes
+	argType, err := ir.ResolveExpressionType(e.backend.module, e.function, mathExpr.Arg)
+	if err != nil {
+		return 0, fmt.Errorf("math argument type: %w", err)
+	}
+
+	// Determine scalar kind for choosing int vs float functions
+	var scalarKind ir.ScalarKind
+	if argType.Handle != nil {
+		inner := e.backend.module.Types[*argType.Handle].Inner
+		switch t := inner.(type) {
+		case ir.ScalarType:
+			scalarKind = t.Kind
+		case ir.VectorType:
+			scalarKind = t.Scalar.Kind
+		default:
+			scalarKind = ir.ScalarFloat // Default for complex types
+		}
+	} else {
+		inner := argType.Value
+		switch t := inner.(type) {
+		case ir.ScalarType:
+			scalarKind = t.Kind
+		case ir.VectorType:
+			scalarKind = t.Scalar.Kind
+		default:
+			scalarKind = ir.ScalarFloat
+		}
+	}
+
+	// Most math functions preserve the argument type
+	resultType := e.backend.resolveTypeResolution(argType)
 
 	// Map IR MathFunction to GLSL.std.450 instruction
 	var glslInst uint32
@@ -1297,13 +1648,35 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	switch mathExpr.Fun {
 	// Comparison functions
 	case ir.MathAbs:
-		glslInst = GLSLstd450FAbs // TODO: Check if float or int
+		if scalarKind == ir.ScalarFloat {
+			glslInst = GLSLstd450FAbs
+		} else {
+			glslInst = GLSLstd450SAbs
+		}
 	case ir.MathMin:
-		glslInst = GLSLstd450FMin // TODO: Check if float or int
+		if scalarKind == ir.ScalarFloat {
+			glslInst = GLSLstd450FMin
+		} else if scalarKind == ir.ScalarSint {
+			glslInst = GLSLstd450SMin
+		} else {
+			glslInst = GLSLstd450UMin
+		}
 	case ir.MathMax:
-		glslInst = GLSLstd450FMax // TODO: Check if float or int
+		if scalarKind == ir.ScalarFloat {
+			glslInst = GLSLstd450FMax
+		} else if scalarKind == ir.ScalarSint {
+			glslInst = GLSLstd450SMax
+		} else {
+			glslInst = GLSLstd450UMax
+		}
 	case ir.MathClamp:
-		glslInst = GLSLstd450FClamp // TODO: Check if float or int
+		if scalarKind == ir.ScalarFloat {
+			glslInst = GLSLstd450FClamp
+		} else if scalarKind == ir.ScalarSint {
+			glslInst = GLSLstd450SClamp
+		} else {
+			glslInst = GLSLstd450UClamp
+		}
 	case ir.MathSaturate:
 		// Saturate is clamp(x, 0, 1) - need to construct
 		glslInst = GLSLstd450FClamp
@@ -1458,8 +1831,12 @@ func (e *ExpressionEmitter) emitDerivative(deriv ir.ExprDerivative) (uint32, err
 		return 0, err
 	}
 
-	// Determine result type (placeholder - should infer from expression)
-	resultType := e.backend.builder.AllocID()
+	// Get result type from expression (derivative preserves type)
+	exprType, err := ir.ResolveExpressionType(e.backend.module, e.function, deriv.Expr)
+	if err != nil {
+		return 0, fmt.Errorf("derivative expression type: %w", err)
+	}
+	resultType := e.backend.resolveTypeResolution(exprType)
 
 	// Map axis and control to SPIR-V opcode
 	var opcode OpCode

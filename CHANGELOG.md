@@ -7,11 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.2.0
+### Planned for v0.3.0
 - Type inference for `let` bindings
 - Array initialization syntax
 - Texture sampling operations
 - More complete validation
+
+## [0.2.0] - 2025-12-11
+
+Type inference and SPIR-V backend improvements (~2K new LOC).
+
+### Added
+
+#### Type Inference System
+- `ir/resolve.go` — Complete type inference engine (~500 LOC)
+  - Resolves types for all 25+ expression kinds
+  - Handles literals, constants, composites, binary/unary ops
+  - Supports nested types (vectors, matrices, arrays, structs)
+  - `TypeResolution` struct for dual handle/inline representation
+- `ir/resolve_test.go` — 8 comprehensive unit tests
+
+#### Type Deduplication
+- `ir/registry.go` — Type registry for SPIR-V compliance (~100 LOC)
+  - Ensures each unique type appears exactly once
+  - Normalized type keys for structural equality
+  - Supports all IR type kinds
+- `ir/registry_test.go` — 18 unit tests
+
+#### SPIR-V Backend Improvements
+- Proper type resolution instead of placeholders
+- Correct int/float/uint opcode selection:
+  - `IAdd/ISub/IMul` vs `FAdd/FSub/FMul`
+  - `SDiv/UDiv/FDiv` for signed/unsigned/float
+  - `IEqual/SLessThan` vs `FOrdEqual/FOrdLessThan`
+- `emitInlineType()` for temporary types
+- Range-based iteration to avoid large struct copies
+
+#### Testing
+- `spirv/shader_test.go` — 10 end-to-end shader compilation tests
+- `wgsl/lower_type_inference_test.go` — 3 integration tests
+- `wgsl/deduplication_test.go` — Type deduplication tests
+- Total: 67+ tests across all packages
+
+### Changed
+- `ir/ir.go` — Added `TypeResolution` struct and `ExpressionTypes` to `Function`
+- `wgsl/lower.go` — Integrated type registry and expression type tracking
+- `spirv/backend.go` — Uses real types from inference system (~350 lines changed)
+- `ir/validate.go` — Range-based iteration for performance
+
+### Fixed
+- SPIR-V binary output now has correct type IDs for all expressions
+- Comparison operators correctly return `bool` or `vec<bool>`
+- Math functions select correct int vs float GLSL.std.450 instructions
 
 ## [0.1.0] - 2025-12-10
 
@@ -87,5 +134,6 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/gogpu/naga/releases/tag/v0.2.0
 [0.1.0]: https://github.com/gogpu/naga/releases/tag/v0.1.0

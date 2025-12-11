@@ -219,7 +219,8 @@ func (v *Validator) validateGlobalVariables() {
 func (v *Validator) validateFunctions() {
 	names := make(map[string]bool)
 
-	for _, fn := range v.module.Functions {
+	for i := range v.module.Functions {
+		fn := &v.module.Functions[i]
 		if fn.Name != "" {
 			if names[fn.Name] {
 				v.addError(fmt.Sprintf("duplicate function name %q", fn.Name))
@@ -228,14 +229,14 @@ func (v *Validator) validateFunctions() {
 		}
 
 		v.context = validationContext{
-			function:       &fn,
+			function:       fn,
 			functionName:   fn.Name,
 			loopDepth:      0,
 			inContinuing:   false,
 			expressionUsed: make(map[ExpressionHandle]bool),
 		}
 
-		v.validateFunction(&fn)
+		v.validateFunction(fn)
 	}
 }
 

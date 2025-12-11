@@ -19,7 +19,7 @@
   <sub>Part of the <a href="https://github.com/gogpu">GoGPU</a> ecosystem</sub>
 </p>
 
-> **v0.1.0** — Complete WGSL to SPIR-V compiler. ~10K lines of pure Go.
+> **v0.2.0** — Type Inference & SPIR-V improvements. ~12K lines of pure Go.
 
 ---
 
@@ -28,7 +28,9 @@
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (140+ tokens)
 - **IR** — Complete intermediate representation (expressions, statements, types)
-- **SPIR-V Backend** — Vulkan-compatible bytecode generation
+- **Type Inference** — Automatic type resolution for all expressions
+- **Type Deduplication** — SPIR-V compliant unique type emission
+- **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
 - **Validation** — Type checking and semantic validation
 - **CLI Tool** — `nagac` command-line compiler
 
@@ -121,16 +123,18 @@ naga/
 │   ├── lexer.go       # Tokenizer
 │   ├── ast.go         # AST types
 │   ├── parser.go      # Recursive descent parser (~1400 LOC)
-│   └── lower.go       # AST → IR converter (~1050 LOC)
+│   └── lower.go       # AST → IR converter (~1100 LOC)
 ├── ir/                # Intermediate representation
 │   ├── ir.go          # Core types (Module, Type, Function)
 │   ├── expression.go  # 33 expression types (~520 LOC)
 │   ├── statement.go   # 16 statement types (~320 LOC)
-│   └── validate.go    # IR validation (~750 LOC)
+│   ├── validate.go    # IR validation (~750 LOC)
+│   ├── resolve.go     # Type inference (~500 LOC) ← NEW
+│   └── registry.go    # Type deduplication (~100 LOC) ← NEW
 ├── spirv/             # SPIR-V backend
 │   ├── spirv.go       # SPIR-V constants and opcodes
 │   ├── writer.go      # Binary module builder (~670 LOC)
-│   └── backend.go     # IR → SPIR-V translator (~1500 LOC)
+│   └── backend.go     # IR → SPIR-V translator (~1800 LOC)
 ├── naga.go            # Public API
 └── cmd/nagac/         # CLI tool
 ```
@@ -171,7 +175,7 @@ naga/
 
 ## Roadmap
 
-### v0.1.0 (Current)
+### v0.1.0 ✅
 - [x] WGSL lexer and parser
 - [x] Complete IR (expressions, statements, types)
 - [x] IR validation
@@ -181,13 +185,20 @@ naga/
 - [x] Built-in math functions (GLSL.std.450)
 - [x] Public API and CLI tool
 
-### v0.2.0 (Next)
+### v0.2.0 (Current) ✅
+- [x] Type inference for all expressions
+- [x] Type deduplication (SPIR-V compliant)
+- [x] Correct int/float/uint opcode selection
+- [x] SPIR-V backend with proper type handling
+- [x] 67+ unit tests
+
+### v0.3.0 (Next)
 - [ ] Type inference for `let` bindings
 - [ ] Array initialization syntax
 - [ ] Texture sampling operations
 - [ ] More complete validation
 
-### v0.3.0 (Future)
+### v0.4.0 (Future)
 - [ ] GLSL backend output
 - [ ] Source maps for debugging
 - [ ] Optimization passes

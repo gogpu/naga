@@ -12,8 +12,8 @@ type Lowerer struct {
 	module *ir.Module
 
 	// Type resolution
-	types   map[string]ir.TypeHandle
-	typeIdx uint32
+	registry *ir.TypeRegistry         // Deduplicates types
+	types    map[string]ir.TypeHandle // Named type lookup
 
 	// Variable resolution
 	globals   map[string]ir.GlobalVariableHandle
@@ -32,10 +32,11 @@ type Lowerer struct {
 // Lower converts a WGSL AST module to Naga IR.
 func Lower(ast *Module) (*ir.Module, error) {
 	l := &Lowerer{
-		module:  &ir.Module{},
-		types:   make(map[string]ir.TypeHandle),
-		globals: make(map[string]ir.GlobalVariableHandle),
-		locals:  make(map[string]ir.ExpressionHandle),
+		module:   &ir.Module{},
+		registry: ir.NewTypeRegistry(),
+		types:    make(map[string]ir.TypeHandle),
+		globals:  make(map[string]ir.GlobalVariableHandle),
+		locals:   make(map[string]ir.ExpressionHandle),
 	}
 
 	// Register built-in types
@@ -73,6 +74,9 @@ func Lower(ast *Module) (*ir.Module, error) {
 		return nil, fmt.Errorf("lowering errors: %v", l.errors)
 	}
 
+	// Copy deduplicated types from registry to module
+	l.module.Types = l.registry.GetTypes()
+
 	return l.module, nil
 }
 
@@ -86,17 +90,16 @@ func (l *Lowerer) registerBuiltinTypes() {
 	l.registerType("bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 }
 
-// registerType adds a type to the module and maps its name.
+// registerType adds a type to the registry with deduplication and maps its name.
 func (l *Lowerer) registerType(name string, inner ir.TypeInner) ir.TypeHandle {
-	handle := ir.TypeHandle(l.typeIdx)
-	l.typeIdx++
-	l.module.Types = append(l.module.Types, ir.Type{
-		Name:  name,
-		Inner: inner,
-	})
+	// Use registry for deduplication
+	handle := l.registry.GetOrCreate(name, inner)
+
+	// Map named types for lookup
 	if name != "" {
 		l.types[name] = handle
 	}
+
 	return handle
 }
 
@@ -185,11 +188,12 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 	l.currentExprIdx = 0
 
 	fn := &ir.Function{
-		Name:        f.Name,
-		Arguments:   make([]ir.FunctionArgument, len(f.Params)),
-		LocalVars:   []ir.LocalVariable{},
-		Expressions: []ir.Expression{},
-		Body:        []ir.Statement{},
+		Name:            f.Name,
+		Arguments:       make([]ir.FunctionArgument, len(f.Params)),
+		LocalVars:       []ir.LocalVariable{},
+		Expressions:     []ir.Expression{},
+		ExpressionTypes: []ir.TypeResolution{},
+		Body:            []ir.Statement{},
 	}
 	l.currentFunc = fn
 
@@ -703,6 +707,15 @@ func (l *Lowerer) addExpression(expr ir.Expression) ir.ExpressionHandle {
 	handle := l.currentExprIdx
 	l.currentExprIdx++
 	l.currentFunc.Expressions = append(l.currentFunc.Expressions, expr)
+
+	// Resolve and store the expression type
+	exprType, err := ir.ResolveExpressionType(l.module, l.currentFunc, handle)
+	if err != nil {
+		// Store an empty type resolution on error - validation will catch this later
+		exprType = ir.TypeResolution{}
+	}
+	l.currentFunc.ExpressionTypes = append(l.currentFunc.ExpressionTypes, exprType)
+
 	return handle
 }
 
@@ -768,8 +781,12 @@ func (l *Lowerer) resolveParameterizedType(t *NamedType) (ir.TypeHandle, error) 
 		if err != nil {
 			return 0, err
 		}
-		// Get scalar from type
-		scalar := l.module.Types[scalarType].Inner.(ir.ScalarType)
+		// Get scalar from registry
+		typ, ok := l.registry.Lookup(scalarType)
+		if !ok {
+			return 0, fmt.Errorf("scalar type handle %d not found in registry", scalarType)
+		}
+		scalar := typ.Inner.(ir.ScalarType)
 		return l.registerType("", ir.VectorType{
 			Size:   ir.VectorSize(size),
 			Scalar: scalar,
@@ -785,7 +802,12 @@ func (l *Lowerer) resolveParameterizedType(t *NamedType) (ir.TypeHandle, error) 
 		if err != nil {
 			return 0, err
 		}
-		scalar := l.module.Types[scalarType].Inner.(ir.ScalarType)
+		// Get scalar from registry
+		typ, ok := l.registry.Lookup(scalarType)
+		if !ok {
+			return 0, fmt.Errorf("scalar type handle %d not found in registry", scalarType)
+		}
+		scalar := typ.Inner.(ir.ScalarType)
 		return l.registerType("", ir.MatrixType{
 			Columns: ir.VectorSize(cols),
 			Rows:    ir.VectorSize(rows),

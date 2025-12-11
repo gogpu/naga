@@ -167,8 +167,9 @@ func TestLowerTypes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			l := &Lowerer{
-				module: &ir.Module{},
-				types:  make(map[string]ir.TypeHandle),
+				module:   &ir.Module{},
+				registry: ir.NewTypeRegistry(),
+				types:    make(map[string]ir.TypeHandle),
 			}
 			l.registerBuiltinTypes()
 
@@ -177,9 +178,9 @@ func TestLowerTypes(t *testing.T) {
 				t.Fatalf("resolveType failed: %v", err)
 			}
 
-			// Type was added to module
-			if len(l.module.Types) == 0 {
-				t.Error("expected types in module")
+			// Type was added to registry
+			if l.registry.Count() == 0 {
+				t.Error("expected types in registry")
 			}
 		})
 	}
@@ -187,9 +188,10 @@ func TestLowerTypes(t *testing.T) {
 
 func TestLowerExpressions(t *testing.T) {
 	l := &Lowerer{
-		module: &ir.Module{},
-		types:  make(map[string]ir.TypeHandle),
-		locals: make(map[string]ir.ExpressionHandle),
+		module:   &ir.Module{},
+		registry: ir.NewTypeRegistry(),
+		types:    make(map[string]ir.TypeHandle),
+		locals:   make(map[string]ir.ExpressionHandle),
 	}
 	l.registerBuiltinTypes()
 	l.currentFunc = &ir.Function{

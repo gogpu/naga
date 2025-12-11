@@ -234,12 +234,13 @@ type ResourceBinding struct {
 
 // Function represents a function definition.
 type Function struct {
-	Name        string
-	Arguments   []FunctionArgument
-	Result      *FunctionResult
-	LocalVars   []LocalVariable
-	Expressions []Expression
-	Body        []Statement
+	Name            string
+	Arguments       []FunctionArgument
+	Result          *FunctionResult
+	LocalVars       []LocalVariable
+	Expressions     []Expression
+	ExpressionTypes []TypeResolution // Type of each expression (parallel to Expressions)
+	Body            []Statement
 }
 
 // FunctionArgument represents a function argument.
@@ -323,6 +324,14 @@ const (
 	SamplingCentroid
 	SamplingSample
 )
+
+// TypeResolution represents the resolved type of an expression.
+// It can either reference a type in the module's type arena (Handle)
+// or represent an inline/computed type (Value).
+type TypeResolution struct {
+	Handle *TypeHandle // If set, references a module type
+	Value  TypeInner   // If Handle is nil, this is the inline type
+}
 
 // Expression types are defined in expression.go
 // Statement types are defined in statement.go

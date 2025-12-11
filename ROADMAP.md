@@ -2,9 +2,7 @@
 
 > Pure Go Shader Compiler — WGSL to SPIR-V
 
-## Current: v0.1.0
-
-**Status:** Released
+## Released: v0.1.0 ✅
 
 Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
@@ -23,7 +21,20 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Next: v0.2.0
+## Current: v0.2.0 ✅
+
+**Focus:** Type system improvements
+
+### Completed
+- [x] Type inference for all expressions (~500 LOC)
+- [x] Type deduplication (SPIR-V compliant) (~100 LOC)
+- [x] Correct int/float/uint opcode selection
+- [x] SPIR-V backend with proper type handling
+- [x] 67+ unit tests
+
+---
+
+## Next: v0.3.0
 
 **Focus:** Language completeness
 
@@ -36,7 +47,7 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Future: v0.3.0
+## Future: v0.4.0
 
 **Focus:** Multiple backends
 
