@@ -59,11 +59,13 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 - [x] Access mode parsing (`read`, `write`, `read_write`)
 - [x] Workgroup size extraction (@workgroup_size)
 - [x] Atomic type support (`atomic<u32>`, `atomic<i32>`)
+- [x] Atomic operations (atomicAdd, atomicSub, atomicMin, atomicMax, etc.)
+- [x] Workgroup barrier (workgroupBarrier, storageBarrier, textureBarrier)
+- [x] ExprAtomicResult expression type
 
 ### Planned
-- [ ] Atomic operations (atomicAdd, atomicMax, etc.)
-- [ ] Workgroup barrier (workgroupBarrier)
 - [ ] Unused variable warnings
+- [ ] atomicCompareExchange
 
 ---
 

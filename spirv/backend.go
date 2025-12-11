@@ -893,6 +893,13 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		// Image query
 		id, err = e.emitImageQuery(kind)
 
+	case ir.ExprAtomicResult:
+		// Atomic result - should have been set by emitAtomic
+		if existingID, ok := e.exprIDs[handle]; ok {
+			return existingID, nil
+		}
+		return 0, fmt.Errorf("atomic result expression not found - emitAtomic should have set it")
+
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -1480,6 +1487,12 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 
 		e.backend.builder.AddStore(pointerID, valueID)
 		return nil
+
+	case ir.StmtAtomic:
+		return e.emitAtomic(kind)
+
+	case ir.StmtBarrier:
+		return e.emitBarrier(kind)
 
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", kind)
@@ -2145,3 +2158,105 @@ func (b *Backend) emitVec4F32Type() uint32 {
 
 // OpTypeSampledImage represents OpTypeSampledImage opcode.
 const OpTypeSampledImage OpCode = 27
+
+// emitBarrier emits a barrier statement.
+func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
+	u32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+
+	// Execution scope - workgroup for workgroupBarrier
+	execScopeID := e.backend.builder.AddConstant(u32TypeID, ScopeWorkgroup)
+
+	// Memory scope - also workgroup
+	memScopeID := e.backend.builder.AddConstant(u32TypeID, ScopeWorkgroup)
+
+	// Memory semantics based on barrier flags
+	semantics := MemorySemanticsAcquireRelease
+	if stmt.Flags&ir.BarrierWorkGroup != 0 {
+		semantics |= MemorySemanticsWorkgroupMemory
+	}
+	if stmt.Flags&ir.BarrierStorage != 0 {
+		semantics |= MemorySemanticsUniformMemory
+	}
+	if stmt.Flags&ir.BarrierTexture != 0 {
+		semantics |= MemorySemanticsImageMemory
+	}
+	semanticsID := e.backend.builder.AddConstant(u32TypeID, semantics)
+
+	// OpControlBarrier Execution Memory Semantics
+	builder := NewInstructionBuilder()
+	builder.AddWord(execScopeID)
+	builder.AddWord(memScopeID)
+	builder.AddWord(semanticsID)
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpControlBarrier))
+
+	return nil
+}
+
+// emitAtomic emits an atomic operation statement.
+func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
+	pointerID, err := e.emitExpression(stmt.Pointer)
+	if err != nil {
+		return err
+	}
+
+	valueID, err := e.emitExpression(stmt.Value)
+	if err != nil {
+		return err
+	}
+
+	// Get the result type (same as the value type - u32 or i32)
+	// For now assume u32
+	resultTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+
+	// Scope and memory semantics constants
+	scopeID := e.backend.builder.AddConstant(
+		e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
+		ScopeDevice,
+	)
+	semanticsID := e.backend.builder.AddConstant(
+		e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
+		MemorySemanticsAcquireRelease|MemorySemanticsUniformMemory,
+	)
+
+	// Determine opcode based on atomic function
+	var opcode OpCode
+	switch stmt.Fun.(type) {
+	case ir.AtomicAdd:
+		opcode = OpAtomicIAdd
+	case ir.AtomicSubtract:
+		opcode = OpAtomicISub
+	case ir.AtomicAnd:
+		opcode = OpAtomicAnd
+	case ir.AtomicInclusiveOr:
+		opcode = OpAtomicOr
+	case ir.AtomicExclusiveOr:
+		opcode = OpAtomicXor
+	case ir.AtomicMin:
+		opcode = OpAtomicUMin // TODO: check signed vs unsigned
+	case ir.AtomicMax:
+		opcode = OpAtomicUMax // TODO: check signed vs unsigned
+	case ir.AtomicExchange:
+		opcode = OpAtomicExchange
+	default:
+		return fmt.Errorf("unsupported atomic function: %T", stmt.Fun)
+	}
+
+	// Emit the atomic operation
+	// OpAtomic* ResultType Result Pointer Scope Semantics Value
+	resultID := e.backend.builder.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultTypeID)
+	builder.AddWord(resultID)
+	builder.AddWord(pointerID)
+	builder.AddWord(scopeID)
+	builder.AddWord(semanticsID)
+	builder.AddWord(valueID)
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(opcode))
+
+	// Store result ID for ExprAtomicResult
+	if stmt.Result != nil {
+		e.exprIDs[*stmt.Result] = resultID
+	}
+
+	return nil
+}

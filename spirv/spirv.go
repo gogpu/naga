@@ -378,6 +378,49 @@ const (
 	OpExtInst OpCode = 12 // Extended instruction
 )
 
+// Atomic operation opcodes
+const (
+	OpAtomicLoad          OpCode = 227 // Atomic load
+	OpAtomicStore         OpCode = 228 // Atomic store
+	OpAtomicExchange      OpCode = 229 // Atomic exchange
+	OpAtomicCompareExch   OpCode = 230 // Atomic compare-exchange
+	OpAtomicIIncrement    OpCode = 232 // Atomic integer increment
+	OpAtomicIDecrement    OpCode = 233 // Atomic integer decrement
+	OpAtomicIAdd          OpCode = 234 // Atomic integer add
+	OpAtomicISub          OpCode = 235 // Atomic integer subtract
+	OpAtomicSMin          OpCode = 236 // Atomic signed min
+	OpAtomicUMin          OpCode = 237 // Atomic unsigned min
+	OpAtomicSMax          OpCode = 238 // Atomic signed max
+	OpAtomicUMax          OpCode = 239 // Atomic unsigned max
+	OpAtomicAnd           OpCode = 240 // Atomic bitwise and
+	OpAtomicOr            OpCode = 241 // Atomic bitwise or
+	OpAtomicXor           OpCode = 242 // Atomic bitwise xor
+)
+
+// Memory scope for atomic operations
+const (
+	ScopeDevice    uint32 = 1 // Visible to all invocations in the device
+	ScopeWorkgroup uint32 = 2 // Visible to all invocations in the workgroup
+)
+
+// Memory semantics for atomic operations
+const (
+	MemorySemanticsNone                uint32 = 0x0
+	MemorySemanticsAcquire             uint32 = 0x2
+	MemorySemanticsRelease             uint32 = 0x4
+	MemorySemanticsAcquireRelease      uint32 = 0x8
+	MemorySemanticsUniformMemory       uint32 = 0x40
+	MemorySemanticsWorkgroupMemory     uint32 = 0x100
+	MemorySemanticsImageMemory         uint32 = 0x800
+	MemorySemanticsAtomicCounterMemory uint32 = 0x400
+)
+
+// Barrier opcodes
+const (
+	OpControlBarrier OpCode = 224 // Control barrier (execution + memory)
+	OpMemoryBarrier  OpCode = 225 // Memory barrier only
+)
+
 // SelectionControl flags for OpSelectionMerge
 type SelectionControl uint32
 

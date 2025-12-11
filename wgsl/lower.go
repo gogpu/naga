@@ -660,6 +660,19 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 		return l.lowerTextureCall(funcName, call.Args, target)
 	}
 
+	// Check if this is an atomic function
+	if atomicFunc := l.getAtomicFunction(funcName); atomicFunc != nil {
+		return l.lowerAtomicCall(atomicFunc, call.Args, target)
+	}
+
+	// Check if this is a barrier function
+	if barrierFlags := l.getBarrierFlags(funcName); barrierFlags != 0 {
+		*target = append(*target, ir.Statement{
+			Kind: ir.StmtBarrier{Flags: barrierFlags},
+		})
+		return 0, nil // Barriers don't return a value
+	}
+
 	// Regular function call
 	// TODO: Look up function handle
 	args := make([]ir.ExpressionHandle, len(call.Args))
@@ -1437,4 +1450,76 @@ func (l *Lowerer) lowerTextureQuery(args []Expr, target *[]ir.Statement, query i
 			Query: query,
 		},
 	}), nil
+}
+
+// getBarrierFlags returns barrier flags for a given function name, or 0 if not a barrier.
+func (l *Lowerer) getBarrierFlags(name string) ir.BarrierFlags {
+	switch name {
+	case "workgroupBarrier":
+		return ir.BarrierWorkGroup
+	case "storageBarrier":
+		return ir.BarrierStorage
+	case "textureBarrier":
+		return ir.BarrierTexture
+	}
+	return 0
+}
+
+// getAtomicFunction returns the atomic function for a given name, or nil if not an atomic.
+func (l *Lowerer) getAtomicFunction(name string) ir.AtomicFunction {
+	switch name {
+	case "atomicAdd":
+		return ir.AtomicAdd{}
+	case "atomicSub":
+		return ir.AtomicSubtract{}
+	case "atomicAnd":
+		return ir.AtomicAnd{}
+	case "atomicOr":
+		return ir.AtomicInclusiveOr{}
+	case "atomicXor":
+		return ir.AtomicExclusiveOr{}
+	case "atomicMin":
+		return ir.AtomicMin{}
+	case "atomicMax":
+		return ir.AtomicMax{}
+	case "atomicExchange":
+		return ir.AtomicExchange{}
+	}
+	return nil
+}
+
+// lowerAtomicCall converts an atomic function call to IR.
+// Atomic functions have the form: atomicOp(&ptr, value) -> old_value
+func (l *Lowerer) lowerAtomicCall(atomicFunc ir.AtomicFunction, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 2 {
+		return 0, fmt.Errorf("atomic function requires at least 2 arguments")
+	}
+
+	// First argument is a pointer (passed with &)
+	pointer, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Second argument is the value
+	value, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Create atomic result expression
+	resultHandle := l.addExpression(ir.Expression{
+		Kind: ir.ExprAtomicResult{},
+	})
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtAtomic{
+			Pointer: pointer,
+			Fun:     atomicFunc,
+			Value:   value,
+			Result:  &resultHandle,
+		},
+	})
+
+	return resultHandle, nil
 }

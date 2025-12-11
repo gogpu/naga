@@ -516,3 +516,9 @@ type ExprArrayLength struct {
 }
 
 func (ExprArrayLength) expressionKind() {}
+
+// ExprAtomicResult represents the result of an atomic operation.
+// This is created by StmtAtomic and holds the previous value.
+type ExprAtomicResult struct{}
+
+func (ExprAtomicResult) expressionKind() {}
