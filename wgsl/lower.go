@@ -10,6 +10,7 @@ import (
 // Lowerer converts WGSL AST to Naga IR.
 type Lowerer struct {
 	module *ir.Module
+	source string // Original source code for error messages
 
 	// Type resolution
 	registry *ir.TypeRegistry         // Deduplicates types
@@ -26,13 +27,19 @@ type Lowerer struct {
 	currentExprIdx ir.ExpressionHandle
 
 	// Errors
-	errors []error
+	errors SourceErrors
 }
 
 // Lower converts a WGSL AST module to Naga IR.
 func Lower(ast *Module) (*ir.Module, error) {
+	return LowerWithSource(ast, "")
+}
+
+// LowerWithSource converts a WGSL AST module to Naga IR, keeping source for error messages.
+func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 	l := &Lowerer{
 		module:   &ir.Module{},
+		source:   source,
 		registry: ir.NewTypeRegistry(),
 		types:    make(map[string]ir.TypeHandle),
 		globals:  make(map[string]ir.GlobalVariableHandle),
@@ -45,39 +52,44 @@ func Lower(ast *Module) (*ir.Module, error) {
 	// Lower structs
 	for _, s := range ast.Structs {
 		if err := l.lowerStruct(s); err != nil {
-			l.errors = append(l.errors, err)
+			l.addError(err.Error(), s.Span)
 		}
 	}
 
 	// Lower global variables
 	for _, v := range ast.GlobalVars {
 		if err := l.lowerGlobalVar(v); err != nil {
-			l.errors = append(l.errors, err)
+			l.addError(err.Error(), v.Span)
 		}
 	}
 
 	// Lower constants
 	for _, c := range ast.Constants {
 		if err := l.lowerConstant(c); err != nil {
-			l.errors = append(l.errors, err)
+			l.addError(err.Error(), c.Span)
 		}
 	}
 
 	// Lower functions and identify entry points
 	for _, f := range ast.Functions {
 		if err := l.lowerFunction(f); err != nil {
-			l.errors = append(l.errors, err)
+			l.addError(err.Error(), f.Span)
 		}
 	}
 
-	if len(l.errors) > 0 {
-		return nil, fmt.Errorf("lowering errors: %v", l.errors)
+	if l.errors.HasErrors() {
+		return nil, &l.errors
 	}
 
 	// Copy deduplicated types from registry to module
 	l.module.Types = l.registry.GetTypes()
 
 	return l.module, nil
+}
+
+// addError adds an error with source location.
+func (l *Lowerer) addError(message string, span Span) {
+	l.errors.Add(NewSourceError(message, span, l.source))
 }
 
 // registerBuiltinTypes registers WGSL built-in scalar types.

@@ -69,8 +69,8 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 
-	// Lower AST to IR
-	module, err := Lower(ast)
+	// Lower AST to IR (pass source for error messages)
+	module, err := LowerWithSource(ast, source)
 	if err != nil {
 		return nil, fmt.Errorf("lowering error: %w", err)
 	}
@@ -126,9 +126,17 @@ func Parse(source string) (*wgsl.Module, error) {
 // The IR is a lower-level representation that includes type information,
 // resolved identifiers, and a simpler structure suitable for code generation.
 func Lower(ast *wgsl.Module) (*ir.Module, error) {
-	module, err := wgsl.Lower(ast)
+	return LowerWithSource(ast, "")
+}
+
+// LowerWithSource converts WGSL AST to IR, keeping source for error messages.
+//
+// When source is provided, errors will include line:column information
+// and can show source context using ErrorList.FormatAll().
+func LowerWithSource(ast *wgsl.Module, source string) (*ir.Module, error) {
+	module, err := wgsl.LowerWithSource(ast, source)
 	if err != nil {
-		return nil, fmt.Errorf("lowering error: %w", err)
+		return nil, err
 	}
 	return module, nil
 }
