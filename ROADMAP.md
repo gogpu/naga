@@ -21,7 +21,7 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Current: v0.2.0 ✅
+## Released: v0.2.0 ✅
 
 **Focus:** Type system improvements
 
@@ -34,27 +34,43 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Next: v0.3.0
+## Released: v0.3.0 ✅
 
-**Focus:** Language completeness
+**Focus:** Language completeness (~15K LOC total)
 
-### Planned
-- [ ] Type inference for `let` bindings
-- [ ] Array initialization syntax (`array<f32, 3>(1.0, 2.0, 3.0)`)
-- [ ] Texture sampling operations (`textureSample`, `textureLoad`)
-- [ ] More complete validation (unused variables, unreachable code)
-- [ ] Better error messages with source locations
+### Completed
+- [x] Type inference for `let` bindings
+- [x] Array initialization syntax (`array(1, 2, 3)` shorthand)
+- [x] Texture sampling operations (textureSample, textureLoad, textureStore)
+- [x] Texture query operations (textureDimensions, textureNumLevels)
+- [x] SPIR-V image operations (OpImageSample*, OpImageFetch, OpImageQuery*)
+- [x] 124 unit tests
 
 ---
 
-## Future: v0.4.0
+## Next: v0.4.0
 
-**Focus:** Multiple backends
+**Focus:** Compute shaders & DX improvements
+
+### Planned
+- [ ] Better error messages with source locations
+- [ ] Storage buffers (`var<storage>`)
+- [ ] Workgroup shared memory (`var<workgroup>`)
+- [ ] Atomic operations (atomicAdd, atomicMax, etc.)
+- [ ] Workgroup barrier (workgroupBarrier)
+- [ ] Unused variable warnings
+
+---
+
+## Future: v0.5.0
+
+**Focus:** Multiple backends & optimization
 
 ### Planned
 - [ ] GLSL backend output
 - [ ] Source maps for debugging
 - [ ] Optimization passes (dead code elimination, constant folding)
+- [ ] Unreachable code detection
 
 ---
 
