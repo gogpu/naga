@@ -230,3 +230,70 @@ func TestLowerExpressions(t *testing.T) {
 		})
 	}
 }
+
+func TestUnusedVariableWarnings(t *testing.T) {
+	source := `
+@fragment
+fn main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
+    var unused: f32 = 1.0;
+    var used: f32 = 2.0;
+    return vec4<f32>(used, used, used, 1.0);
+}
+`
+	lexer := NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	result, err := LowerWithWarnings(ast, source)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	// Should have exactly one warning for 'unused'
+	if len(result.Warnings) != 1 {
+		t.Fatalf("Expected 1 warning, got %d", len(result.Warnings))
+	}
+
+	if result.Warnings[0].Message != "unused variable 'unused' in function 'main'" {
+		t.Errorf("Unexpected warning message: %s", result.Warnings[0].Message)
+	}
+}
+
+func TestUnusedVariableWarnings_UnderscoreIgnored(t *testing.T) {
+	source := `
+@fragment
+fn main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
+    var _ignored: f32 = 1.0;
+    return vec4<f32>(color.x, color.y, color.z, 1.0);
+}
+`
+	lexer := NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	result, err := LowerWithWarnings(ast, source)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	// Variables starting with _ should not produce warnings
+	if len(result.Warnings) != 0 {
+		t.Errorf("Expected no warnings for _ignored variable, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+}

@@ -19,7 +19,7 @@
   <sub>Part of the <a href="https://github.com/gogpu">GoGPU</a> ecosystem</sub>
 </p>
 
-> **v0.3.0** — Let inference, array init, texture sampling. ~15K lines of pure Go.
+> **v0.4.0** — Compute shaders, atomics, barriers, unused var warnings. ~17K lines of pure Go.
 
 ---
 
@@ -28,11 +28,15 @@
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (140+ tokens)
 - **IR** — Complete intermediate representation (expressions, statements, types)
+- **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
+- **Atomic Operations** — atomicAdd, atomicSub, atomicMin, atomicMax, atomicCompareExchangeWeak
+- **Barriers** — workgroupBarrier, storageBarrier, textureBarrier
 - **Type Inference** — Automatic type resolution for all expressions, including `let` bindings
 - **Type Deduplication** — SPIR-V compliant unique type emission
 - **Array Initialization** — `array(1, 2, 3)` shorthand with inferred type and size
 - **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
+- **Warnings** — Unused variable detection with `_` prefix exception
 - **Validation** — Type checking and semantic validation
 - **CLI Tool** — `nagac` command-line compiler
 
@@ -149,6 +153,7 @@ naga/
 - Matrices: `mat2x2<f32>` ... `mat4x4<f32>`
 - Arrays: `array<T, N>`
 - Structs: `struct { ... }`
+- Atomics: `atomic<u32>`, `atomic<i32>`
 - Textures: `texture_2d<f32>`, `texture_3d<f32>`, `texture_cube<f32>`
 - Samplers: `sampler`, `sampler_comparison`
 
@@ -159,8 +164,15 @@ naga/
 
 ### Bindings
 - `@builtin(position)`, `@builtin(vertex_index)`, `@builtin(instance_index)`
+- `@builtin(global_invocation_id)` — Compute shader invocation ID
 - `@location(N)` — Vertex attributes and fragment outputs
 - `@group(G) @binding(B)` — Resource bindings
+
+### Address Spaces
+- `var<uniform>` — Uniform buffer
+- `var<storage, read>` — Read-only storage buffer
+- `var<storage, read_write>` — Read-write storage buffer
+- `var<workgroup>` — Workgroup shared memory
 
 ### Statements
 - Variable declarations: `var`, `let`
@@ -169,11 +181,13 @@ naga/
 - Functions: `return`, `discard`
 - Assignment: `=`, `+=`, `-=`, `*=`, `/=`
 
-### Built-in Functions (40+)
+### Built-in Functions (50+)
 - Math: `sin`, `cos`, `tan`, `exp`, `log`, `pow`, `sqrt`, `abs`, `min`, `max`, `clamp`
 - Geometric: `dot`, `cross`, `length`, `distance`, `normalize`, `reflect`
 - Interpolation: `mix`, `step`, `smoothstep`
 - Derivatives: `dpdx`, `dpdy`, `fwidth`
+- Atomic: `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor`, `atomicExchange`, `atomicCompareExchangeWeak`
+- Barriers: `workgroupBarrier`, `storageBarrier`, `textureBarrier`
 
 ## Roadmap
 
@@ -194,20 +208,23 @@ naga/
 - [x] SPIR-V backend with proper type handling
 - [x] 67+ unit tests
 
-### v0.3.0 (Current) ✅
+### v0.3.0 ✅
 - [x] Type inference for `let` bindings
 - [x] Array initialization syntax (`array(1, 2, 3)`)
 - [x] Texture sampling operations (textureSample, textureLoad, textureStore)
 - [x] SPIR-V image operations (OpImageSample*, OpImageFetch, OpImageQuery*)
 - [x] 124 unit tests
 
-### v0.4.0 (Next)
-- [ ] Better error messages with source locations
-- [ ] Compute shader improvements
-- [ ] Storage buffer operations
-- [ ] Workgroup shared memory
+### v0.4.0 (Current) ✅
+- [x] Better error messages with source locations
+- [x] Storage buffers (`var<storage, read>`, `var<storage, read_write>`)
+- [x] Workgroup shared memory (`var<workgroup>`)
+- [x] Atomic operations (atomicAdd, atomicSub, atomicCompareExchangeWeak, etc.)
+- [x] Workgroup barriers (workgroupBarrier, storageBarrier, textureBarrier)
+- [x] Unused variable warnings
+- [x] 203 unit tests
 
-### v0.5.0 (Future)
+### v0.5.0 (Next)
 - [ ] GLSL backend output
 - [ ] Source maps for debugging
 - [ ] Optimization passes
@@ -234,7 +251,7 @@ naga/
 ## Contributing
 
 We welcome contributions! Areas where help is needed:
-- Additional WGSL features (atomics, ray tracing)
+- Additional WGSL features (ray tracing, mesh shaders)
 - Test cases from real shaders
 - GLSL backend implementation
 - Documentation improvements

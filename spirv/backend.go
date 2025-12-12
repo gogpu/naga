@@ -1408,7 +1408,7 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 
 // emitStatement emits a statement.
 //
-//nolint:cyclop // Statement dispatch requires high cyclomatic complexity
+//nolint:cyclop,gocyclo // Statement dispatch requires high cyclomatic complexity
 func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	switch kind := stmt.Kind.(type) {
 	case ir.StmtEmit:
@@ -2220,7 +2220,7 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 
 	// Determine opcode based on atomic function
 	var opcode OpCode
-	switch stmt.Fun.(type) {
+	switch kind := stmt.Fun.(type) {
 	case ir.AtomicAdd:
 		opcode = OpAtomicIAdd
 	case ir.AtomicSubtract:
@@ -2236,6 +2236,30 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 	case ir.AtomicMax:
 		opcode = OpAtomicUMax // TODO: check signed vs unsigned
 	case ir.AtomicExchange:
+		// Check if this is compare-exchange
+		if kind.Compare != nil {
+			// OpAtomicCompareExchange Result-Type Result Pointer Scope MemSemEq MemSemNeq Value Comparator
+			compareID, err := e.emitExpression(*kind.Compare)
+			if err != nil {
+				return err
+			}
+			resultID := e.backend.builder.AllocID()
+			builder := NewInstructionBuilder()
+			builder.AddWord(resultTypeID)
+			builder.AddWord(resultID)
+			builder.AddWord(pointerID)
+			builder.AddWord(scopeID)
+			builder.AddWord(semanticsID) // MemSemEqual
+			builder.AddWord(semanticsID) // MemSemUnequal (same for simplicity)
+			builder.AddWord(valueID)
+			builder.AddWord(compareID)
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpAtomicCompareExch))
+
+			if stmt.Result != nil {
+				e.exprIDs[*stmt.Result] = resultID
+			}
+			return nil
+		}
 		opcode = OpAtomicExchange
 	default:
 		return fmt.Errorf("unsupported atomic function: %T", stmt.Fun)

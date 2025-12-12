@@ -570,3 +570,89 @@ func validateSPIRVBinary(t *testing.T, spirvBytes []byte) {
 		t.Errorf("SPIR-V binary size %d is not 4-byte aligned", len(spirvBytes))
 	}
 }
+
+// TestCompileComputeShaderWithAtomics tests compute shader with atomic operations.
+func TestCompileComputeShaderWithAtomics(t *testing.T) {
+	source := `
+@group(0) @binding(0) var<storage, read_write> counter: atomic<u32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    atomicAdd(&counter, 1u);
+}
+`
+
+	// Parse WGSL
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Lower AST to IR
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	// Compile to SPIR-V
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	// Validate SPIR-V binary
+	validateSPIRVBinary(t, spirvBytes)
+
+	t.Logf("Successfully compiled compute shader with atomics: %d bytes", len(spirvBytes))
+}
+
+// TestCompileComputeShaderWithAtomicCompareExchange tests atomicCompareExchangeWeak.
+func TestCompileComputeShaderWithAtomicCompareExchange(t *testing.T) {
+	source := `
+@group(0) @binding(0) var<storage, read_write> counter: atomic<u32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    atomicCompareExchangeWeak(&counter, 0u, 1u);
+}
+`
+
+	// Parse WGSL
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Lower AST to IR
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	// Compile to SPIR-V
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	// Validate SPIR-V binary
+	validateSPIRVBinary(t, spirvBytes)
+
+	t.Logf("Successfully compiled compute shader with atomicCompareExchangeWeak: %d bytes", len(spirvBytes))
+}

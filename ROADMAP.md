@@ -62,10 +62,10 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 - [x] Atomic operations (atomicAdd, atomicSub, atomicMin, atomicMax, etc.)
 - [x] Workgroup barrier (workgroupBarrier, storageBarrier, textureBarrier)
 - [x] ExprAtomicResult expression type
-
-### Planned
-- [ ] Unused variable warnings
-- [ ] atomicCompareExchange
+- [x] atomicCompareExchangeWeak
+- [x] Address-of (`&`) and dereference (`*`) operators
+- [x] Unused variable warnings (with `_` prefix exception)
+- [x] 203 unit tests
 
 ---
 

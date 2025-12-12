@@ -7,11 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.4.0
-- Better error messages with source locations
-- Compute shader support
-- Storage buffer operations
-- Workgroup shared memory
+## [0.4.0] - 2025-12-12
+
+Compute shader support with atomics, barriers, and developer experience improvements (~2K new LOC).
+
+### Added
+
+#### Compute Shader Infrastructure
+- `wgsl/parser.go` — Access mode parsing for storage buffers
+  - `var<storage, read>` — Read-only storage buffer
+  - `var<storage, read_write>` — Read-write storage buffer
+  - `var<workgroup>` — Workgroup shared memory
+- `wgsl/lower.go` — Workgroup size extraction from `@workgroup_size` attribute
+- `ir/ir.go` — `AtomicType` for `atomic<u32>` and `atomic<i32>`
+
+#### Atomic Operations
+- `wgsl/lower.go` — Atomic function lowering (~150 LOC)
+  - `atomicAdd(&ptr, value)` — Atomic addition
+  - `atomicSub(&ptr, value)` — Atomic subtraction
+  - `atomicMin(&ptr, value)` — Atomic minimum
+  - `atomicMax(&ptr, value)` — Atomic maximum
+  - `atomicAnd(&ptr, value)` — Atomic bitwise AND
+  - `atomicOr(&ptr, value)` — Atomic bitwise OR
+  - `atomicXor(&ptr, value)` — Atomic bitwise XOR
+  - `atomicExchange(&ptr, value)` — Atomic exchange
+  - `atomicCompareExchangeWeak(&ptr, cmp, val)` — Compare and exchange
+- `spirv/backend.go` — SPIR-V atomic emission (~100 LOC)
+  - `OpAtomicIAdd`, `OpAtomicISub`, `OpAtomicAnd`, `OpAtomicOr`, `OpAtomicXor`
+  - `OpAtomicUMin`, `OpAtomicUMax`, `OpAtomicExchange`, `OpAtomicCompareExch`
+- `ir/expression.go` — `ExprAtomicResult` for atomic operation results
+
+#### Workgroup Barriers
+- `wgsl/lower.go` — Barrier function lowering
+  - `workgroupBarrier()` — Synchronize workgroup threads
+  - `storageBarrier()` — Memory barrier for storage buffers
+  - `textureBarrier()` — Memory barrier for textures
+- `spirv/backend.go` — `OpControlBarrier` emission with memory semantics
+
+#### Address-of and Dereference Operators
+- `wgsl/lower.go` — `&` and `*` operator handling
+  - `&var` — Returns pointer (no-op for storage variables)
+  - `*ptr` — Creates `ExprLoad` for dereferencing
+
+#### Unused Variable Warnings
+- `wgsl/lower.go` — Warning infrastructure (~50 LOC)
+  - `Warning` type with message and source span
+  - `LowerResult` struct containing module and warnings
+  - `LowerWithWarnings()` API for accessing warnings
+  - Variables prefixed with `_` are intentionally ignored
+  - `checkUnusedVariables()` called after each function
+
+#### Better Error Messages
+- `wgsl/errors.go` — `SourceError` type with source location
+- `wgsl/errors.go` — `FormatWithContext()` for pretty error display
+- `wgsl/lower.go` — `LowerWithSource()` preserves source for errors
+
+### Changed
+- `spirv/spirv.go` — Added SPIR-V opcodes for atomics and barriers
+- Total: 203 tests across all packages (+79 from v0.3.0)
+
+### Fixed
+- Type switch in `emitAtomic` now uses assignment form (gocritic fix)
 
 ## [0.3.0] - 2025-12-11
 

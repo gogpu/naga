@@ -7,6 +7,12 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
+// Warning represents a compiler warning (not an error).
+type Warning struct {
+	Message string
+	Span    Span
+}
+
 // Lowerer converts WGSL AST to Naga IR.
 type Lowerer struct {
 	module *ir.Module
@@ -21,13 +27,24 @@ type Lowerer struct {
 	locals    map[string]ir.ExpressionHandle
 	globalIdx uint32
 
+	// Variable usage tracking for unused variable warnings
+	localDecls map[string]Span // Where each local variable was declared
+	usedLocals map[string]bool // Which local variables have been used
+
 	// Current function context
 	currentFunc    *ir.Function
 	currentFuncIdx ir.FunctionHandle
 	currentExprIdx ir.ExpressionHandle
 
-	// Errors
-	errors SourceErrors
+	// Errors and warnings
+	errors   SourceErrors
+	warnings []Warning
+}
+
+// LowerResult contains the result of lowering, including any warnings.
+type LowerResult struct {
+	Module   *ir.Module
+	Warnings []Warning
 }
 
 // Lower converts a WGSL AST module to Naga IR.
@@ -37,13 +54,24 @@ func Lower(ast *Module) (*ir.Module, error) {
 
 // LowerWithSource converts a WGSL AST module to Naga IR, keeping source for error messages.
 func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
+	result, err := LowerWithWarnings(ast, source)
+	if err != nil {
+		return nil, err
+	}
+	return result.Module, nil
+}
+
+// LowerWithWarnings converts a WGSL AST module to Naga IR, returning warnings.
+func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 	l := &Lowerer{
-		module:   &ir.Module{},
-		source:   source,
-		registry: ir.NewTypeRegistry(),
-		types:    make(map[string]ir.TypeHandle),
-		globals:  make(map[string]ir.GlobalVariableHandle),
-		locals:   make(map[string]ir.ExpressionHandle),
+		module:     &ir.Module{},
+		source:     source,
+		registry:   ir.NewTypeRegistry(),
+		types:      make(map[string]ir.TypeHandle),
+		globals:    make(map[string]ir.GlobalVariableHandle),
+		locals:     make(map[string]ir.ExpressionHandle),
+		localDecls: make(map[string]Span),
+		usedLocals: make(map[string]bool),
 	}
 
 	// Register built-in types
@@ -84,7 +112,10 @@ func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 	// Copy deduplicated types from registry to module
 	l.module.Types = l.registry.GetTypes()
 
-	return l.module, nil
+	return &LowerResult{
+		Module:   l.module,
+		Warnings: l.warnings,
+	}, nil
 }
 
 // addError adds an error with source location.
@@ -197,6 +228,8 @@ func (l *Lowerer) lowerConstant(c *ConstDecl) error {
 func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 	// Reset local context
 	l.locals = make(map[string]ir.ExpressionHandle)
+	l.localDecls = make(map[string]Span)
+	l.usedLocals = make(map[string]bool)
 	l.currentExprIdx = 0
 
 	fn := &ir.Function{
@@ -248,6 +281,9 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 			return fmt.Errorf("function %s body: %w", f.Name, err)
 		}
 	}
+
+	// Check for unused local variables
+	l.checkUnusedVariables(f.Name)
 
 	// Add function to module
 	funcHandle := ir.FunctionHandle(len(l.module.Functions)) //nolint:gosec // module functions length is controlled
@@ -386,6 +422,9 @@ func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
 		Kind: ir.ExprLocalVariable{Variable: localIdx},
 	})
 	l.locals[v.Name] = exprHandle
+
+	// Track declaration for unused variable warnings
+	l.localDecls[v.Name] = v.Span
 
 	return nil
 }
@@ -630,6 +669,24 @@ func (l *Lowerer) lowerBinary(bin *BinaryExpr, target *[]ir.Statement) (ir.Expre
 
 // lowerUnary converts a unary expression to IR.
 func (l *Lowerer) lowerUnary(un *UnaryExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	// Handle address-of operator (&)
+	// For global variables in non-handle address spaces, the variable expression
+	// already produces a pointer, so & is effectively a no-op
+	if un.Op == TokenAmpersand {
+		return l.lowerExpression(un.Operand, target)
+	}
+
+	// Handle dereference operator (*)
+	if un.Op == TokenStar {
+		pointer, err := l.lowerExpression(un.Operand, target)
+		if err != nil {
+			return 0, err
+		}
+		return l.addExpression(ir.Expression{
+			Kind: ir.ExprLoad{Pointer: pointer},
+		}), nil
+	}
+
 	operand, err := l.lowerExpression(un.Operand, target)
 	if err != nil {
 		return 0, err
@@ -663,6 +720,11 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 	// Check if this is an atomic function
 	if atomicFunc := l.getAtomicFunction(funcName); atomicFunc != nil {
 		return l.lowerAtomicCall(atomicFunc, call.Args, target)
+	}
+
+	// Check if this is atomicCompareExchangeWeak (special case - 3 args)
+	if funcName == "atomicCompareExchangeWeak" {
+		return l.lowerAtomicCompareExchange(call.Args, target)
 	}
 
 	// Check if this is a barrier function
@@ -775,6 +837,8 @@ func (l *Lowerer) addExpression(expr ir.Expression) ir.ExpressionHandle {
 func (l *Lowerer) resolveIdentifier(name string) (ir.ExpressionHandle, error) {
 	// Check locals first
 	if handle, ok := l.locals[name]; ok {
+		// Mark as used for unused variable warnings
+		l.usedLocals[name] = true
 		return handle, nil
 	}
 
@@ -1187,6 +1251,22 @@ func (l *Lowerer) tokenToUnaryOp(tok TokenKind) ir.UnaryOperator {
 	return ir.UnaryNegate // Default
 }
 
+// checkUnusedVariables reports warnings for local variables that are declared but never used.
+func (l *Lowerer) checkUnusedVariables(funcName string) {
+	for name, span := range l.localDecls {
+		if !l.usedLocals[name] {
+			// Variables starting with _ are intentionally unused
+			if len(name) > 0 && name[0] == '_' {
+				continue
+			}
+			l.warnings = append(l.warnings, Warning{
+				Message: fmt.Sprintf("unused variable '%s' in function '%s'", name, funcName),
+				Span:    span,
+			})
+		}
+	}
+}
+
 func (l *Lowerer) assignOpToBinary(tok TokenKind) ir.BinaryOperator {
 	ops := map[TokenKind]ir.BinaryOperator{
 		TokenPlusEqual:  ir.BinaryAdd,
@@ -1516,6 +1596,49 @@ func (l *Lowerer) lowerAtomicCall(atomicFunc ir.AtomicFunction, args []Expr, tar
 		Kind: ir.StmtAtomic{
 			Pointer: pointer,
 			Fun:     atomicFunc,
+			Value:   value,
+			Result:  &resultHandle,
+		},
+	})
+
+	return resultHandle, nil
+}
+
+// lowerAtomicCompareExchange converts atomicCompareExchangeWeak to IR.
+// atomicCompareExchangeWeak(ptr, compare, value) -> __atomic_compare_exchange_result<T>
+// Note: Returns the old value; the exchanged bool would need struct support.
+func (l *Lowerer) lowerAtomicCompareExchange(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 3 {
+		return 0, fmt.Errorf("atomicCompareExchangeWeak requires 3 arguments")
+	}
+
+	// First argument is a pointer
+	pointer, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Second argument is the compare value
+	compare, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Third argument is the new value
+	value, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Create atomic result expression
+	resultHandle := l.addExpression(ir.Expression{
+		Kind: ir.ExprAtomicResult{},
+	})
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtAtomic{
+			Pointer: pointer,
+			Fun:     ir.AtomicExchange{Compare: &compare},
 			Value:   value,
 			Result:  &resultHandle,
 		},
