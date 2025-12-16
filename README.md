@@ -246,7 +246,7 @@ naga/
 |---------|-------------|--------|
 | [gogpu/gogpu](https://github.com/gogpu/gogpu) | Pure Go graphics framework | v0.3.0 |
 | [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU types and HAL | v0.4.0 |
-| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics with images, clipping, compositing | **v0.3.0** |
+| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics with layers, color pipeline, compositing | **v0.4.0** |
 | [go-webgpu/webgpu](https://github.com/go-webgpu/webgpu) | WebGPU FFI bindings | Stable |
 
 ## Contributing
