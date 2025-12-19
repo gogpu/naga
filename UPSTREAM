@@ -1,0 +1,12 @@
+Repository: https://github.com/gfx-rs/wgpu
+Path: naga/
+Commit: 90db08157ccd5a5a25564219f294d023d4253d5a
+Date: 2025-12-06
+wgpu Version: 27.0.0
+naga Version: post-0.14 (part of wgpu monorepo)
+
+Notes:
+- Pure Go port, not a direct line-by-line translation
+- Implements WGSL frontend and SPIR-V backend
+- Some features simplified or adapted for Go idioms
+- Reference code downloaded on 2025-12-07
