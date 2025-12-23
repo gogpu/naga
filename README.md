@@ -19,7 +19,7 @@
   <sub>Part of the <a href="https://github.com/gogpu">GoGPU</a> ecosystem</sub>
 </p>
 
-> **v0.4.0** — Compute shaders, atomics, barriers, unused var warnings. ~17K lines of pure Go.
+> **v0.5.0** — MSL backend for Metal shaders. ~21K lines of pure Go.
 
 ---
 
@@ -36,6 +36,7 @@
 - **Array Initialization** — `array(1, 2, 3)` shorthand with inferred type and size
 - **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
+- **MSL Backend** — Metal Shading Language output for macOS/iOS (new in v0.5.0)
 - **Warnings** — Unused variable detection with `_` prefix exception
 - **Validation** — Type checking and semantic validation
 - **CLI Tool** — `nagac` command-line compiler
@@ -135,12 +136,20 @@ naga/
 │   ├── expression.go  # 33 expression types (~520 LOC)
 │   ├── statement.go   # 16 statement types (~320 LOC)
 │   ├── validate.go    # IR validation (~750 LOC)
-│   ├── resolve.go     # Type inference (~500 LOC) ← NEW
-│   └── registry.go    # Type deduplication (~100 LOC) ← NEW
+│   ├── resolve.go     # Type inference (~500 LOC)
+│   └── registry.go    # Type deduplication (~100 LOC)
 ├── spirv/             # SPIR-V backend
 │   ├── spirv.go       # SPIR-V constants and opcodes
 │   ├── writer.go      # Binary module builder (~670 LOC)
 │   └── backend.go     # IR → SPIR-V translator (~1800 LOC)
+├── msl/               # MSL backend (NEW in v0.5.0)
+│   ├── backend.go     # Public API, Options, Compile()
+│   ├── writer.go      # MSL code writer
+│   ├── types.go       # Type generation (~400 LOC)
+│   ├── expressions.go # Expression codegen (~600 LOC)
+│   ├── statements.go  # Statement codegen (~350 LOC)
+│   ├── functions.go   # Entry points and functions (~500 LOC)
+│   └── keywords.go    # MSL/C++ reserved words
 ├── naga.go            # Public API
 └── cmd/nagac/         # CLI tool
 ```
@@ -215,7 +224,7 @@ naga/
 - [x] SPIR-V image operations (OpImageSample*, OpImageFetch, OpImageQuery*)
 - [x] 124 unit tests
 
-### v0.4.0 (Current) ✅
+### v0.4.0 ✅
 - [x] Better error messages with source locations
 - [x] Storage buffers (`var<storage, read>`, `var<storage, read_write>`)
 - [x] Workgroup shared memory (`var<workgroup>`)
@@ -224,7 +233,14 @@ naga/
 - [x] Unused variable warnings
 - [x] 203 unit tests
 
-### v0.5.0 (Next)
+### v0.5.0 (Current) ✅
+- [x] **MSL backend** — Metal Shading Language output (~3.6K LOC)
+- [x] All WGSL types: scalars, vectors, matrices, arrays, textures
+- [x] Entry point generation with stage-specific attributes
+- [x] Expression and statement code generation
+- [x] Keyword escaping for MSL/C++ reserved words
+
+### v0.6.0 (Next)
 - [ ] GLSL backend output
 - [ ] Source maps for debugging
 - [ ] Optimization passes
@@ -232,7 +248,7 @@ naga/
 ### v1.0.0 (Goal)
 - [ ] Full WGSL specification compliance
 - [ ] Production-ready stability
-- [ ] HLSL/MSL backends
+- [ ] HLSL backend
 
 ## References
 
@@ -244,8 +260,8 @@ naga/
 
 | Project | Description | Status |
 |---------|-------------|--------|
-| [gogpu/gogpu](https://github.com/gogpu/gogpu) | Pure Go graphics framework | **v0.4.0** |
-| [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU types and HAL | **v0.5.0** |
+| [gogpu/gogpu](https://github.com/gogpu/gogpu) | Pure Go graphics framework | **v0.5.0** |
+| [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU types and HAL | **v0.6.0** |
 | [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics with GPU backend, scene graph, SIMD | **v0.9.2** |
 | [go-webgpu/webgpu](https://github.com/go-webgpu/webgpu) | WebGPU FFI bindings | Stable |
 
