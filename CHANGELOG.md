@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-12-23
+
+MSL backend for Metal shader compilation (~3.6K new LOC).
+
+### Added
+
+#### Metal Shading Language Backend
+- `msl/backend.go` — Public API: `Options`, `TranslationInfo`, `Compile()`
+- `msl/writer.go` — MSL code generation writer
+- `msl/types.go` — Type generation (~400 LOC)
+  - Scalars: float, half, int, uint, bool
+  - Vectors: float2, float3, float4, etc.
+  - Matrices: float2x2, float3x3, float4x4
+  - Arrays with fixed size
+  - Textures: texture2d, texture3d, texturecube
+  - Samplers: sampler
+- `msl/expressions.go` — Expression code generation (~600 LOC)
+  - Literals, binary/unary operations
+  - Access expressions (array, struct, swizzle)
+  - Math function calls
+- `msl/statements.go` — Statement code generation (~350 LOC)
+  - Variable declarations
+  - Control flow (if, for, while, loop)
+  - Assignments and function calls
+- `msl/functions.go` — Entry point generation (~500 LOC)
+  - `[[vertex]]` for vertex shaders
+  - `[[fragment]]` for fragment shaders
+  - `[[kernel]]` for compute shaders
+  - Stage input/output structs
+- `msl/keywords.go` — MSL/C++ reserved word escaping
+- `msl/backend_test.go` — Unit tests for MSL compilation
+
+### Changed
+- Pre-release check script now uses kolkov/racedetector (Pure Go, no CGO)
+- Updated ecosystem: gogpu v0.5.0 (macOS Cocoa), wgpu v0.6.0 (Metal backend)
+
+### Notes
+- MSL backend enables Metal GPU rendering on macOS/iOS
+- Required by wgpu v0.6.0 Metal backend
+
 ## [0.4.0] - 2025-12-12
 
 Compute shader support with atomics, barriers, and developer experience improvements (~2K new LOC).
@@ -243,7 +283,9 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/gogpu/naga/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/gogpu/naga/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gogpu/naga/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gogpu/naga/releases/tag/v0.2.0
 [0.1.0]: https://github.com/gogpu/naga/releases/tag/v0.1.0

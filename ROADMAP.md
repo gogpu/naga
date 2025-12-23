@@ -48,7 +48,7 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Next: v0.4.0
+## Released: v0.4.0 ✅
 
 **Focus:** Compute shaders & DX improvements
 
@@ -69,9 +69,24 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Future: v0.5.0
+## Current: v0.5.0 ✅
 
-**Focus:** Multiple backends & optimization
+**Focus:** MSL backend for Metal
+
+### Completed
+- [x] **MSL backend** (`msl/`) — Metal Shading Language output (~3.6K LOC)
+- [x] Type generation: scalars, vectors, matrices, arrays, textures, samplers
+- [x] Expression code generation
+- [x] Statement code generation
+- [x] Entry point generation with stage attributes
+- [x] Keyword escaping for MSL/C++ reserved words
+- [x] Unit tests for MSL compilation
+
+---
+
+## Future: v0.6.0
+
+**Focus:** GLSL backend & optimization
 
 ### Planned
 - [ ] GLSL backend output
@@ -91,7 +106,6 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 - [ ] Stable public API
 - [ ] Performance optimization
 - [ ] HLSL backend (optional)
-- [ ] MSL backend (optional)
 
 ---
 
