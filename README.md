@@ -260,9 +260,9 @@ naga/
 
 | Project | Description | Status |
 |---------|-------------|--------|
-| [gogpu/gogpu](https://github.com/gogpu/gogpu) | Pure Go graphics framework | **v0.5.0** |
+| [gogpu/gogpu](https://github.com/gogpu/gogpu) | Pure Go graphics framework | **v0.6.1** |
 | [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU types and HAL | **v0.6.0** |
-| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics with GPU backend, scene graph, SIMD | **v0.9.2** |
+| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics with GPU backend, text, scene graph | **v0.11.0** |
 | [go-webgpu/webgpu](https://github.com/go-webgpu/webgpu) | WebGPU FFI bindings | Stable |
 
 ## Contributing
