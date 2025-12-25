@@ -1,10 +1,14 @@
 // Package naga provides a Pure Go shader compiler.
 //
-// naga compiles WGSL (WebGPU Shading Language) source code to SPIR-V binary format
-// for use with Vulkan and other graphics APIs. It provides a simple, high-level API
-// for shader compilation as well as lower-level access to individual compilation stages.
+// naga compiles WGSL (WebGPU Shading Language) source code to multiple output formats:
+//   - SPIR-V — Binary format for Vulkan
+//   - MSL — Metal Shading Language for macOS/iOS
+//   - GLSL — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+
 //
-// Example usage:
+// The package provides a simple, high-level API for shader compilation as well as
+// lower-level access to individual compilation stages.
+//
+// Example usage (SPIR-V):
 //
 //	source := `
 //	@vertex
@@ -16,6 +20,16 @@
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
+//
+// For MSL output, use the msl package:
+//
+//	module, _ := naga.Lower(ast)
+//	mslCode, info, err := msl.Compile(module, msl.DefaultOptions())
+//
+// For GLSL output, use the glsl package:
+//
+//	module, _ := naga.Lower(ast)
+//	glslCode, info, err := glsl.Compile(module, glsl.DefaultOptions())
 package naga
 
 import (

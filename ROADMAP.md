@@ -1,6 +1,6 @@
 # Naga Roadmap
 
-> Pure Go Shader Compiler — WGSL to SPIR-V
+> Pure Go Shader Compiler — WGSL to SPIR-V, MSL, and GLSL
 
 ## Released: v0.1.0 ✅
 
@@ -69,7 +69,7 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Current: v0.5.0 ✅
+## Released: v0.5.0 ✅
 
 **Focus:** MSL backend for Metal
 
@@ -84,15 +84,24 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Future: v0.6.0
+## Current: v0.6.0 ✅
 
-**Focus:** GLSL backend & optimization
+**Focus:** GLSL backend for OpenGL
 
-### Planned
-- [ ] GLSL backend output
+### Completed
+- [x] **GLSL backend** (`glsl/`) — OpenGL Shading Language output (~2.8K LOC)
+- [x] Type generation: scalars, vectors, matrices, arrays, textures, samplers
+- [x] Expression code generation with GLSL built-in functions
+- [x] Statement code generation (control flow, assignments)
+- [x] Entry point generation (`main()` with layout qualifiers)
+- [x] Keyword escaping for GLSL reserved words
+- [x] Version directive and precision qualifiers
+- [x] OpenGL 3.3+ and ES 3.0+ compatibility
+- [x] Comprehensive unit tests (40+ tests)
+
+### Future Work
 - [ ] Source maps for debugging
 - [ ] Optimization passes (dead code elimination, constant folding)
-- [ ] Unreachable code detection
 
 ---
 
@@ -122,7 +131,8 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 Help wanted on:
 - Additional WGSL features
 - Test cases from real shaders
-- Backend implementations
-- Documentation
+- HLSL backend implementation
+- Optimization passes
+- Documentation improvements
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
