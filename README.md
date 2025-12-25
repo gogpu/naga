@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Pure Go Shader Compiler</strong><br>
-  WGSL to SPIR-V. Zero CGO.
+  WGSL to SPIR-V, MSL, and GLSL. Zero CGO.
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
   <sub>Part of the <a href="https://github.com/gogpu">GoGPU</a> ecosystem</sub>
 </p>
 
-> **v0.5.0** — MSL backend for Metal shaders. ~21K lines of pure Go.
+
 
 ---
 
@@ -36,7 +36,8 @@
 - **Array Initialization** — `array(1, 2, 3)` shorthand with inferred type and size
 - **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
-- **MSL Backend** — Metal Shading Language output for macOS/iOS (new in v0.5.0)
+- **MSL Backend** — Metal Shading Language output for macOS/iOS
+- **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+
 - **Warnings** — Unused variable detection with `_` prefix exception
 - **Validation** — Type checking and semantic validation
 - **CLI Tool** — `nagac` command-line compiler
@@ -104,6 +105,23 @@ nagac -debug shader.wgsl -o shader.spv
 nagac -version
 ```
 
+### Multiple Backends
+
+```go
+// Parse and lower WGSL to IR (shared across all backends)
+ast, _ := naga.Parse(source)
+module, _ := naga.Lower(ast)
+
+// Generate SPIR-V (Vulkan)
+spirvBytes, _ := naga.GenerateSPIRV(module, spirv.Options{})
+
+// Generate MSL (Metal)
+mslCode, _, _ := msl.Compile(module, msl.DefaultOptions())
+
+// Generate GLSL (OpenGL)
+glslCode, _, _ := glsl.Compile(module, glsl.DefaultOptions())
+```
+
 ### Individual Stages
 
 ```go
@@ -142,7 +160,7 @@ naga/
 │   ├── spirv.go       # SPIR-V constants and opcodes
 │   ├── writer.go      # Binary module builder (~670 LOC)
 │   └── backend.go     # IR → SPIR-V translator (~1800 LOC)
-├── msl/               # MSL backend (NEW in v0.5.0)
+├── msl/               # MSL backend (Metal)
 │   ├── backend.go     # Public API, Options, Compile()
 │   ├── writer.go      # MSL code writer
 │   ├── types.go       # Type generation (~400 LOC)
@@ -150,6 +168,13 @@ naga/
 │   ├── statements.go  # Statement codegen (~350 LOC)
 │   ├── functions.go   # Entry points and functions (~500 LOC)
 │   └── keywords.go    # MSL/C++ reserved words
+├── glsl/              # GLSL backend (OpenGL)
+│   ├── backend.go     # Public API
+│   ├── writer.go      # GLSL code writer
+│   ├── types.go       # Type generation
+│   ├── expressions.go # Expression codegen
+│   ├── statements.go  # Statement codegen
+│   └── keywords.go    # Reserved word escaping
 ├── naga.go            # Public API
 └── cmd/nagac/         # CLI tool
 ```
@@ -198,57 +223,18 @@ naga/
 - Atomic: `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor`, `atomicExchange`, `atomicCompareExchangeWeak`
 - Barriers: `workgroupBarrier`, `storageBarrier`, `textureBarrier`
 
-## Roadmap
+## Status
 
-### v0.1.0 ✅
-- [x] WGSL lexer and parser
-- [x] Complete IR (expressions, statements, types)
-- [x] IR validation
-- [x] SPIR-V binary writer
-- [x] SPIR-V backend (types, constants, functions, expressions)
-- [x] Control flow (if, loop, break, continue)
-- [x] Built-in math functions (GLSL.std.450)
-- [x] Public API and CLI tool
+**Current Version:** See [CHANGELOG.md](CHANGELOG.md) for release history.
 
-### v0.2.0 ✅
-- [x] Type inference for all expressions
-- [x] Type deduplication (SPIR-V compliant)
-- [x] Correct int/float/uint opcode selection
-- [x] SPIR-V backend with proper type handling
-- [x] 67+ unit tests
+| Backend | Status | Target Platform |
+|---------|--------|-----------------|
+| SPIR-V | ✅ Stable | Vulkan |
+| MSL | ✅ Stable | Metal (macOS/iOS) |
+| GLSL | ✅ Stable | OpenGL 3.3+, ES 3.0+ |
+| HLSL | Planned | DirectX |
 
-### v0.3.0 ✅
-- [x] Type inference for `let` bindings
-- [x] Array initialization syntax (`array(1, 2, 3)`)
-- [x] Texture sampling operations (textureSample, textureLoad, textureStore)
-- [x] SPIR-V image operations (OpImageSample*, OpImageFetch, OpImageQuery*)
-- [x] 124 unit tests
-
-### v0.4.0 ✅
-- [x] Better error messages with source locations
-- [x] Storage buffers (`var<storage, read>`, `var<storage, read_write>`)
-- [x] Workgroup shared memory (`var<workgroup>`)
-- [x] Atomic operations (atomicAdd, atomicSub, atomicCompareExchangeWeak, etc.)
-- [x] Workgroup barriers (workgroupBarrier, storageBarrier, textureBarrier)
-- [x] Unused variable warnings
-- [x] 203 unit tests
-
-### v0.5.0 (Current) ✅
-- [x] **MSL backend** — Metal Shading Language output (~3.6K LOC)
-- [x] All WGSL types: scalars, vectors, matrices, arrays, textures
-- [x] Entry point generation with stage-specific attributes
-- [x] Expression and statement code generation
-- [x] Keyword escaping for MSL/C++ reserved words
-
-### v0.6.0 (Next)
-- [ ] GLSL backend output
-- [ ] Source maps for debugging
-- [ ] Optimization passes
-
-### v1.0.0 (Goal)
-- [ ] Full WGSL specification compliance
-- [ ] Production-ready stability
-- [ ] HLSL backend
+See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
 ## References
 
@@ -258,19 +244,20 @@ naga/
 
 ## Related Projects
 
-| Project | Description | Status |
-|---------|-------------|--------|
-| [gogpu/gogpu](https://github.com/gogpu/gogpu) | Pure Go graphics framework | **v0.7.0** |
-| [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU types and HAL | **v0.6.0** |
-| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics with GPU backend, text, scene graph | **v0.13.0** |
-| [go-webgpu/webgpu](https://github.com/go-webgpu/webgpu) | WebGPU FFI bindings | Stable |
+| Project | Description |
+|---------|-------------|
+| [gogpu/gogpu](https://github.com/gogpu/gogpu) | Pure Go graphics framework |
+| [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU types and HAL |
+| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics library |
+| [gogpu/ui](https://github.com/gogpu/ui) | Pure Go GUI toolkit |
+| [go-webgpu/webgpu](https://github.com/go-webgpu/webgpu) | WebGPU FFI bindings |
 
 ## Contributing
 
 We welcome contributions! Areas where help is needed:
-- Additional WGSL features (ray tracing, mesh shaders)
+- Additional WGSL features
 - Test cases from real shaders
-- GLSL backend implementation
+- Backend optimizations
 - Documentation improvements
 
 ## License

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-12-25
+
+GLSL backend for OpenGL shader compilation (~2.8K new LOC).
+
+### Added
+
+#### OpenGL Shading Language Backend
+- `glsl/backend.go` — Public API: `Options`, `TranslationInfo`, `Compile()`
+  - `GLSLVersion` configuration (GLSL 330, 400, 450, ES 300, ES 310)
+  - Vertex, fragment, and compute shader support
+- `glsl/writer.go` — GLSL code generation writer
+- `glsl/types.go` — Type generation (~300 LOC)
+  - Scalars: float, int, uint, bool
+  - Vectors: vec2, vec3, vec4, ivec*, uvec*, bvec*
+  - Matrices: mat2, mat3, mat4, mat2x3, etc.
+  - Arrays with fixed size
+  - Textures: sampler2D, sampler3D, samplerCube
+- `glsl/expressions.go` — Expression code generation (~400 LOC)
+  - Literals, binary/unary operations
+  - Access expressions (array, struct, swizzle)
+  - GLSL built-in function calls
+- `glsl/statements.go` — Statement code generation (~300 LOC)
+  - Variable declarations
+  - Control flow (if, for, while, loop)
+  - Assignments and function calls
+- `glsl/functions.go` — Entry point generation (~400 LOC)
+  - `void main()` with layout qualifiers
+  - Vertex: `layout(location = N) in/out`
+  - Fragment: `layout(location = N) out`
+  - Compute: `layout(local_size_x/y/z)` workgroup size
+- `glsl/keywords.go` — GLSL reserved word escaping (183 keywords)
+- `glsl/backend_test.go` — Comprehensive unit tests (40+ tests)
+
+### Changed
+- README.md updated with GLSL backend documentation
+- Architecture section now includes GLSL backend structure
+
+### Notes
+- GLSL backend enables OpenGL GPU rendering on all platforms
+- Supports OpenGL 3.3+, OpenGL ES 3.0+
+- Required by wgpu GLES backend for Linux/embedded platforms
+
 ## [0.5.0] - 2025-12-23
 
 MSL backend for Metal shader compilation (~3.6K new LOC).
@@ -283,7 +325,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/gogpu/naga/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gogpu/naga/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gogpu/naga/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gogpu/naga/compare/v0.2.0...v0.3.0
