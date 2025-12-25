@@ -47,3 +47,6 @@ __debug_bin*
 
 # Private dev docs
 docs/dev/
+
+# Temp folder
+tmp/

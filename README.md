@@ -246,13 +246,15 @@ See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
 ## Related Projects
 
-| Project | Description |
-|---------|-------------|
-| [gogpu/gogpu](https://github.com/gogpu/gogpu) | Pure Go graphics framework |
-| [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU types and HAL |
-| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics library |
-| [gogpu/ui](https://github.com/gogpu/ui) | Pure Go GUI toolkit |
-| [go-webgpu/webgpu](https://github.com/go-webgpu/webgpu) | WebGPU FFI bindings |
+| Project | Description | Purpose |
+|---------|-------------|---------|
+| [gogpu/gogpu](https://github.com/gogpu/gogpu) | Graphics framework | GPU abstraction, windowing, input |
+| [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU | Vulkan, Metal, GLES, Software backends |
+| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics | Canvas API, scene graph, GPU text |
+| [gogpu/ui](https://github.com/gogpu/ui) | GUI toolkit | Widgets, layouts, themes (planned) |
+| [go-webgpu/webgpu](https://github.com/go-webgpu/webgpu) | FFI bindings | wgpu-native integration |
+
+> **Note:** Always use the latest versions. Check each repository for current releases.
 
 ## Contributing
 
