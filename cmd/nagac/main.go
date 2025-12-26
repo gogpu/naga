@@ -15,25 +15,34 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/gogpu/naga"
 )
 
 var (
-	output   = flag.String("o", "", "output file (default: stdout)")
-	debug    = flag.Bool("debug", false, "include debug info")
-	validate = flag.Bool("validate", true, "validate IR")
-	version  = flag.Bool("version", false, "print version")
+	output      = flag.String("o", "", "output file (default: stdout)")
+	debugFlag   = flag.Bool("debug", false, "include debug info")
+	validate    = flag.Bool("validate", true, "validate IR")
+	versionFlag = flag.Bool("version", false, "print version")
 )
 
-const nagaVersion = "0.1.0-dev"
+// version returns the module version from build info.
+func version() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if info.Main.Version != "" && info.Main.Version != "(devel)" {
+			return info.Main.Version
+		}
+	}
+	return "dev"
+}
 
 func main() {
 	flag.Usage = usage
 	flag.Parse()
 
-	if *version {
-		fmt.Printf("nagac version %s\n", nagaVersion)
+	if *versionFlag {
+		fmt.Printf("nagac version %s\n", version())
 		return
 	}
 
@@ -55,7 +64,7 @@ func main() {
 
 	// Compile WGSL to SPIR-V
 	opts := naga.CompileOptions{
-		Debug:    *debug,
+		Debug:    *debugFlag,
 		Validate: *validate,
 	}
 	spirvBytes, err := naga.CompileWithOptions(string(source), opts)
