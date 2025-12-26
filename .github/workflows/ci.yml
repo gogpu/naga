@@ -126,3 +126,33 @@ jobs:
         run: |
           cd wgsl
           go test -fuzz=FuzzLexer -fuzztime=30s || true
+
+  # Dependency freshness check
+  # Uses go-mod-outdated (https://github.com/psampaz/go-mod-outdated)
+  deps:
+    name: Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+        cache: true
+
+    - name: Install go-mod-outdated
+      run: go install github.com/psampaz/go-mod-outdated@latest
+
+    - name: Check direct dependencies for updates
+      run: |
+        echo "## Direct Dependencies with Updates"
+        OUTDATED=$(go list -u -m -json all 2>/dev/null | go-mod-outdated -update -direct || true)
+        if [ -n "$OUTDATED" ]; then
+          echo "$OUTDATED"
+          echo "::warning::Some direct dependencies have updates available"
+        else
+          echo "All direct dependencies are up to date (naga is standalone)"
+        fi
