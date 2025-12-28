@@ -299,3 +299,96 @@ fn main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
 		t.Errorf("Expected no warnings for _ignored variable, got %d: %v", len(result.Warnings), result.Warnings)
 	}
 }
+
+// TestMathFunctions verifies that all WGSL built-in math functions are recognized
+func TestMathFunctions(t *testing.T) {
+	tests := []struct {
+		name     string
+		function string
+		args     string // WGSL function call arguments
+		wantMath ir.MathFunction
+	}{
+		{"abs", "abs", "x", ir.MathAbs},
+		{"min", "min", "x, y", ir.MathMin},
+		{"max", "max", "x, y", ir.MathMax},
+		{"clamp", "clamp", "x, 0.0, 1.0", ir.MathClamp},
+		{"sin", "sin", "x", ir.MathSin},
+		{"cos", "cos", "x", ir.MathCos},
+		{"tan", "tan", "x", ir.MathTan},
+		{"sqrt", "sqrt", "x", ir.MathSqrt},
+		{"length", "length", "v", ir.MathLength},
+		{"normalize", "normalize", "v", ir.MathNormalize},
+		{"dot", "dot", "v, v", ir.MathDot},
+		{"cross", "cross", "v3, v3", ir.MathCross},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := `
+fn test() -> f32 {
+    var x: f32 = 1.0;
+    var y: f32 = 2.0;
+    var v: vec4<f32> = vec4<f32>(1.0, 0.0, 0.0, 0.0);
+    var v3: vec3<f32> = vec3<f32>(1.0, 0.0, 0.0);
+    return ` + tt.function + `(` + tt.args + `);
+}
+`
+			// Special case for cross which returns vec3
+			if tt.function == "cross" {
+				source = `
+fn test() -> vec3<f32> {
+    var v3: vec3<f32> = vec3<f32>(1.0, 0.0, 0.0);
+    return cross(v3, v3);
+}
+`
+			}
+			// Special case for vector-returning functions
+			if tt.function == "normalize" {
+				source = `
+fn test() -> vec4<f32> {
+    var v: vec4<f32> = vec4<f32>(1.0, 0.0, 0.0, 0.0);
+    return normalize(v);
+}
+`
+			}
+
+			lexer := NewLexer(source)
+			tokens, err := lexer.Tokenize()
+			if err != nil {
+				t.Fatalf("Tokenize failed: %v", err)
+			}
+
+			parser := NewParser(tokens)
+			ast, err := parser.Parse()
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+
+			module, err := Lower(ast)
+			if err != nil {
+				t.Fatalf("Lower failed for %s: %v", tt.function, err)
+			}
+
+			// Verify the function compiled successfully
+			if len(module.Functions) != 1 {
+				t.Fatalf("expected 1 function, got %d", len(module.Functions))
+			}
+
+			fn := module.Functions[0]
+
+			// Verify the math function is in the function's expressions
+			found := false
+			for _, expr := range fn.Expressions {
+				if math, ok := expr.Kind.(ir.ExprMath); ok {
+					if math.Fun == tt.wantMath {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				t.Errorf("math function %s (%v) not found in function expressions", tt.function, tt.wantMath)
+			}
+		})
+	}
+}

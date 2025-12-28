@@ -1048,6 +1048,7 @@ func (l *Lowerer) getMathFunction(name string) (ir.MathFunction, bool) {
 		"abs":       ir.MathAbs,
 		"min":       ir.MathMin,
 		"max":       ir.MathMax,
+		"clamp":     ir.MathClamp,
 		"sin":       ir.MathSin,
 		"cos":       ir.MathCos,
 		"tan":       ir.MathTan,
