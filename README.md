@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Pure Go Shader Compiler</strong><br>
-  WGSL to SPIR-V, MSL, and GLSL. Zero CGO.
+  WGSL to SPIR-V, MSL, GLSL, and HLSL. Zero CGO.
 </p>
 
 <p align="center">
@@ -40,6 +40,7 @@
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
 - **MSL Backend** — Metal Shading Language output for macOS/iOS
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+
+- **HLSL Backend** — High-Level Shading Language for DirectX 11/12
 - **Warnings** — Unused variable detection with `_` prefix exception
 - **Validation** — Type checking and semantic validation
 - **CLI Tool** — `nagac` command-line compiler
@@ -122,6 +123,9 @@ mslCode, _, _ := msl.Compile(module, msl.DefaultOptions())
 
 // Generate GLSL (OpenGL)
 glslCode, _, _ := glsl.Compile(module, glsl.DefaultOptions())
+
+// Generate HLSL (DirectX)
+hlslCode, _, _ := hlsl.Compile(module, hlsl.DefaultOptions())
 ```
 
 ### Individual Stages
@@ -177,6 +181,15 @@ naga/
 │   ├── expressions.go # Expression codegen
 │   ├── statements.go  # Statement codegen
 │   └── keywords.go    # Reserved word escaping
+├── hlsl/              # HLSL backend (DirectX)
+│   ├── backend.go     # Public API, Options, Compile()
+│   ├── writer.go      # HLSL code writer (~400 LOC)
+│   ├── types.go       # Type generation (~500 LOC)
+│   ├── expressions.go # Expression codegen (~1100 LOC)
+│   ├── statements.go  # Statement codegen (~600 LOC)
+│   ├── storage.go     # Buffer/atomic operations (~500 LOC)
+│   ├── functions.go   # Entry points with semantics (~500 LOC)
+│   └── keywords.go    # HLSL reserved words
 ├── naga.go            # Public API
 └── cmd/nagac/         # CLI tool
 ```
@@ -234,7 +247,7 @@ naga/
 | SPIR-V | ✅ Stable | Vulkan |
 | MSL | ✅ Stable | Metal (macOS/iOS) |
 | GLSL | ✅ Stable | OpenGL 3.3+, ES 3.0+ |
-| HLSL | Planned | DirectX |
+| HLSL | ✅ Stable | DirectX 11/12 |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 

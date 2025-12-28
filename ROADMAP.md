@@ -1,6 +1,6 @@
 # Naga Roadmap
 
-> Pure Go Shader Compiler — WGSL to SPIR-V, MSL, and GLSL
+> Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, and HLSL
 
 ## Released: v0.1.0 ✅
 
@@ -84,7 +84,7 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Current: v0.6.0 ✅
+## Released: v0.6.0 ✅
 
 **Focus:** GLSL backend for OpenGL
 
@@ -99,9 +99,26 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 - [x] OpenGL 3.3+ and ES 3.0+ compatibility
 - [x] Comprehensive unit tests (40+ tests)
 
-### Future Work
-- [ ] Source maps for debugging
-- [ ] Optimization passes (dead code elimination, constant folding)
+---
+
+## Current: v0.7.0 ✅
+
+**Focus:** HLSL backend for DirectX
+
+### Completed
+- [x] **HLSL backend** (`hlsl/`) — High-Level Shading Language output (~8.8K LOC)
+- [x] Type generation: scalars, vectors, matrices, arrays, structs
+- [x] Expression code generation with 70+ HLSL intrinsics
+- [x] Statement code generation (control flow, barriers)
+- [x] Buffer operations: ByteAddressBuffer, StructuredBuffer, cbuffer
+- [x] Atomic operations: InterlockedAdd, And, Or, Xor, Min, Max, Exchange, CompareExchange
+- [x] Entry point generation with HLSL semantics (SV_Position, TEXCOORD, SV_Target)
+- [x] Compute shaders with `[numthreads(x,y,z)]`
+- [x] GPU barriers: GroupMemoryBarrier, DeviceMemoryBarrier, AllMemoryBarrier
+- [x] Texture sampling: Sample, SampleLevel, Load, GetDimensions, Gather
+- [x] Keyword escaping for HLSL reserved words (200+)
+- [x] Shader Model 5.1 (FXC) and 6.0+ (DXC) support
+- [x] DirectX 11 and DirectX 12 compatibility
 
 ---
 
@@ -114,7 +131,8 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 - [ ] Comprehensive test suite
 - [ ] Stable public API
 - [ ] Performance optimization
-- [ ] HLSL backend (optional)
+- [ ] Source maps for debugging
+- [ ] Optimization passes (dead code elimination, constant folding)
 
 ---
 
@@ -131,7 +149,6 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 Help wanted on:
 - Additional WGSL features
 - Test cases from real shaders
-- HLSL backend implementation
 - Optimization passes
 - Documentation improvements
 

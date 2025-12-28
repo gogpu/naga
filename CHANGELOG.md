@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2025-12-28
+
+HLSL backend for DirectX shader compilation (~8.8K new LOC).
+
+### Added
+
+#### HLSL Backend (DirectX)
+- `hlsl/backend.go` — Public API: `Options`, `TranslationInfo`, `Compile()`
+  - DXC-first strategy (Shader Model 6.0+)
+  - FXC compatibility mode (Shader Model 5.1)
+  - Vertex, fragment, and compute shader support
+- `hlsl/writer.go` — HLSL code generation writer (~400 LOC)
+- `hlsl/types.go` — Type generation (~500 LOC)
+  - Scalars: float, half, double, int, uint, bool
+  - Vectors: float2, float3, float4, int*, uint*
+  - Matrices: float2x2, float3x3, float4x4
+  - Structs with HLSL semantics
+- `hlsl/expressions.go` — Expression code generation (~1100 LOC)
+  - Literals, binary/unary operations
+  - Access expressions (array, struct, swizzle)
+  - 70+ HLSL intrinsic functions
+  - Texture sampling: Sample, SampleLevel, SampleBias, SampleGrad, Gather
+  - Derivatives: ddx, ddy, fwidth (coarse/fine variants)
+- `hlsl/statements.go` — Statement code generation (~600 LOC)
+  - Control flow (if, switch, loop, for)
+  - GPU barriers (GroupMemoryBarrier, DeviceMemoryBarrier, AllMemoryBarrier)
+  - Return, discard, break, continue
+- `hlsl/storage.go` — Buffer and atomic operations (~500 LOC)
+  - ByteAddressBuffer, RWByteAddressBuffer
+  - StructuredBuffer<T>, RWStructuredBuffer<T>
+  - cbuffer for uniforms
+  - Atomics: InterlockedAdd, And, Or, Xor, Min, Max, Exchange, CompareExchange
+- `hlsl/functions.go` — Entry point generation (~500 LOC)
+  - Input/output structs with HLSL semantics (SV_Position, TEXCOORD, SV_Target)
+  - `[numthreads(x,y,z)]` for compute shaders
+  - Helper functions for safe math operations
+- `hlsl/keywords.go` — HLSL reserved word escaping (200+ keywords)
+- `hlsl/conv.go` — IR to HLSL type/semantic conversion
+- `hlsl/namer.go` — Identifier mangling for HLSL compliance
+- `hlsl/errors.go` — HLSL-specific error types
+- `hlsl/shader_model.go` — Shader Model version handling
+- `hlsl/bind_target.go` — Register binding management (b/t/s/u)
+
+### Notes
+- HLSL backend enables DirectX GPU rendering on Windows
+- Supports DirectX 11 (SM 5.1) and DirectX 12 (SM 6.0+)
+- Total: ~8800 lines of code
+
 ## [0.6.0] - 2025-12-25
 
 GLSL backend for OpenGL shader compilation (~2.8K new LOC).
