@@ -101,7 +101,7 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Current: v0.7.0 ✅
+## Released: v0.7.0 ✅
 
 **Focus:** HLSL backend for DirectX
 
@@ -119,6 +119,19 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 - [x] Keyword escaping for HLSL reserved words (200+)
 - [x] Shader Model 5.1 (FXC) and 6.0+ (DXC) support
 - [x] DirectX 11 and DirectX 12 compatibility
+
+---
+
+## Current: v0.8.0 ✅
+
+**Focus:** Code quality and SPIR-V bug fixes
+
+### Completed
+- [x] **sign() type checking** — Correct GLSL.std.450 opcode selection (SSign vs FSign)
+- [x] **atomicMin/Max signed vs unsigned** — Correct OpAtomicSMin/UMin, OpAtomicSMax/UMax
+- [x] **Function resolution** — Pre-registration pass for forward references in WGSL
+- [x] **Return type attributes** — Parser handles attributes on function return types
+- [x] **Dead code removal** — Cleaned up spirv.Writer
 
 ---
 

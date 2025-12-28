@@ -181,14 +181,14 @@ func (p *Parser) functionDecl(attrs []Attribute) (*FunctionDecl, *ParseError) {
 
 	// Return type (optional)
 	var returnType Type
+	var returnAttrs []Attribute
 	if p.match(TokenArrow) {
-		returnAttrs := p.attributes()
+		returnAttrs = p.attributes()
 		rt, err := p.typeSpec()
 		if err != nil {
 			return nil, err
 		}
 		returnType = rt
-		_ = returnAttrs // TODO: handle return attributes
 	}
 
 	// Function body
@@ -198,11 +198,12 @@ func (p *Parser) functionDecl(attrs []Attribute) (*FunctionDecl, *ParseError) {
 	}
 
 	return &FunctionDecl{
-		Name:       name.Lexeme,
-		Params:     params,
-		ReturnType: returnType,
-		Attributes: attrs,
-		Body:       body,
+		Name:        name.Lexeme,
+		Params:      params,
+		ReturnType:  returnType,
+		ReturnAttrs: returnAttrs,
+		Attributes:  attrs,
+		Body:        body,
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
 		},

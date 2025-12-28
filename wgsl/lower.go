@@ -27,6 +27,9 @@ type Lowerer struct {
 	locals    map[string]ir.ExpressionHandle
 	globalIdx uint32
 
+	// Function resolution
+	functions map[string]ir.FunctionHandle // Named function lookup
+
 	// Variable usage tracking for unused variable warnings
 	localDecls map[string]Span // Where each local variable was declared
 	usedLocals map[string]bool // Which local variables have been used
@@ -70,6 +73,7 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 		types:      make(map[string]ir.TypeHandle),
 		globals:    make(map[string]ir.GlobalVariableHandle),
 		locals:     make(map[string]ir.ExpressionHandle),
+		functions:  make(map[string]ir.FunctionHandle),
 		localDecls: make(map[string]Span),
 		usedLocals: make(map[string]bool),
 	}
@@ -96,6 +100,11 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 		if err := l.lowerConstant(c); err != nil {
 			l.addError(err.Error(), c.Span)
 		}
+	}
+
+	// Pre-register all function names to support forward references
+	for i, f := range ast.Functions {
+		l.functions[f.Name] = ir.FunctionHandle(i) //nolint:gosec // G115: i is bounded by function count
 	}
 
 	// Lower functions and identify entry points
@@ -271,7 +280,7 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 		}
 		fn.Result = &ir.FunctionResult{
 			Type:    typeHandle,
-			Binding: l.returnBinding(f.Attributes),
+			Binding: l.returnBinding(f.ReturnAttrs),
 		}
 	}
 
@@ -285,8 +294,8 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 	// Check for unused local variables
 	l.checkUnusedVariables(f.Name)
 
-	// Add function to module
-	funcHandle := ir.FunctionHandle(len(l.module.Functions)) //nolint:gosec // module functions length is controlled
+	// Add function to module (handle was pre-registered for forward references)
+	funcHandle := l.functions[f.Name]
 	l.module.Functions = append(l.module.Functions, *fn)
 	l.currentFuncIdx = funcHandle
 
@@ -735,8 +744,12 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 		return 0, nil // Barriers don't return a value
 	}
 
-	// Regular function call
-	// TODO: Look up function handle
+	// Regular function call - look up function handle
+	funcHandle, ok := l.functions[funcName]
+	if !ok {
+		return 0, fmt.Errorf("unknown function: %s", funcName)
+	}
+
 	args := make([]ir.ExpressionHandle, len(call.Args))
 	for i, arg := range call.Args {
 		handle, err := l.lowerExpression(arg, target)
@@ -746,14 +759,14 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 		args[i] = handle
 	}
 
-	// For now, create a call result expression
+	// Create a call result expression
 	resultHandle := l.addExpression(ir.Expression{
-		Kind: ir.ExprCallResult{Function: 0}, // TODO: resolve function
+		Kind: ir.ExprCallResult{Function: funcHandle},
 	})
 
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtCall{
-			Function:  0, // TODO: resolve function
+			Function:  funcHandle,
 			Arguments: args,
 			Result:    &resultHandle,
 		},

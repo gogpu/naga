@@ -4,10 +4,6 @@
 // used by Vulkan, OpenCL, and other APIs.
 package spirv
 
-import (
-	"github.com/gogpu/naga/ir"
-)
-
 // Version represents a SPIR-V version.
 type Version struct {
 	Major uint8
@@ -59,7 +55,6 @@ const (
 // Writer generates SPIR-V from IR.
 type Writer struct {
 	options Options
-	module  *ir.Module
 
 	// Internal state
 	nextID      uint32
@@ -75,30 +70,6 @@ func NewWriter(options Options) *Writer {
 		typeIDs:     make(map[uint32]uint32),
 		constantIDs: make(map[uint32]uint32),
 	}
-}
-
-// Write generates SPIR-V binary from IR module.
-func (w *Writer) Write(module *ir.Module) ([]byte, error) {
-	w.module = module
-
-	// TODO: Implement SPIR-V generation
-	// This is a placeholder for future implementation
-
-	// Basic structure:
-	// 1. Write header (magic, version, generator, bound, schema)
-	// 2. Write capabilities
-	// 3. Write extensions
-	// 4. Write ext inst imports
-	// 5. Write memory model
-	// 6. Write entry points
-	// 7. Write execution modes
-	// 8. Write debug info
-	// 9. Write decorations
-	// 10. Write types and constants
-	// 11. Write global variables
-	// 12. Write functions
-
-	return nil, nil
 }
 
 // SPIR-V magic number and constants

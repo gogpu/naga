@@ -33,12 +33,14 @@ func TestLowerSimpleVertexShader(t *testing.T) {
 					Name:       "vec4",
 					TypeParams: []Type{&NamedType{Name: "f32"}},
 				},
-				Attributes: []Attribute{
-					{Name: "vertex"},
+				ReturnAttrs: []Attribute{
 					{
 						Name: "builtin",
 						Args: []Expr{&Ident{Name: "position"}},
 					},
+				},
+				Attributes: []Attribute{
+					{Name: "vertex"},
 				},
 				Body: &BlockStmt{
 					Statements: []Stmt{

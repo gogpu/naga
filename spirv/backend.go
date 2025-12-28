@@ -1797,7 +1797,11 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Computational functions
 	case ir.MathSign:
-		glslInst = GLSLstd450FSign // TODO: Check if float or int
+		if scalarKind == ir.ScalarFloat {
+			glslInst = GLSLstd450FSign
+		} else {
+			glslInst = GLSLstd450SSign
+		}
 	case ir.MathFma:
 		glslInst = GLSLstd450Fma
 	case ir.MathMix:
@@ -2192,6 +2196,66 @@ func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
 	return nil
 }
 
+// resolveAtomicScalarKind extracts the scalar kind from an atomic pointer expression.
+// Returns ScalarUint as default if the type cannot be resolved.
+func (e *ExpressionEmitter) resolveAtomicScalarKind(pointer ir.ExpressionHandle) ir.ScalarKind {
+	pointerType, err := ir.ResolveExpressionType(e.backend.module, e.function, pointer)
+	if err != nil {
+		return ir.ScalarUint
+	}
+
+	// Get the inner type from TypeResolution (either from Handle or Value)
+	var inner ir.TypeInner
+	if pointerType.Handle != nil && int(*pointerType.Handle) < len(e.backend.module.Types) {
+		inner = e.backend.module.Types[*pointerType.Handle].Inner
+	} else {
+		inner = pointerType.Value
+	}
+
+	ptrType, ok := inner.(ir.PointerType)
+	if !ok || int(ptrType.Base) >= len(e.backend.module.Types) {
+		return ir.ScalarUint
+	}
+
+	atomicType, ok := e.backend.module.Types[ptrType.Base].Inner.(ir.AtomicType)
+	if !ok {
+		return ir.ScalarUint
+	}
+
+	return atomicType.Scalar.Kind
+}
+
+// atomicOpcode returns the SPIR-V opcode for an atomic function.
+// Returns 0 if the function is AtomicExchange with a compare value (handled separately).
+func atomicOpcode(fun ir.AtomicFunction, scalarKind ir.ScalarKind) (OpCode, bool) {
+	switch fun.(type) {
+	case ir.AtomicAdd:
+		return OpAtomicIAdd, true
+	case ir.AtomicSubtract:
+		return OpAtomicISub, true
+	case ir.AtomicAnd:
+		return OpAtomicAnd, true
+	case ir.AtomicInclusiveOr:
+		return OpAtomicOr, true
+	case ir.AtomicExclusiveOr:
+		return OpAtomicXor, true
+	case ir.AtomicMin:
+		if scalarKind == ir.ScalarSint {
+			return OpAtomicSMin, true
+		}
+		return OpAtomicUMin, true
+	case ir.AtomicMax:
+		if scalarKind == ir.ScalarSint {
+			return OpAtomicSMax, true
+		}
+		return OpAtomicUMax, true
+	case ir.AtomicExchange:
+		return OpAtomicExchange, true
+	default:
+		return 0, false
+	}
+}
+
 // emitAtomic emits an atomic operation statement.
 func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 	pointerID, err := e.emitExpression(stmt.Pointer)
@@ -2204,9 +2268,9 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		return err
 	}
 
-	// Get the result type (same as the value type - u32 or i32)
-	// For now assume u32
-	resultTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	// Determine scalar kind from pointer type (atomic<i32> vs atomic<u32>)
+	scalarKind := e.resolveAtomicScalarKind(stmt.Pointer)
+	resultTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: scalarKind, Width: 4})
 
 	// Scope and memory semantics constants
 	scopeID := e.backend.builder.AddConstant(
@@ -2218,55 +2282,17 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		MemorySemanticsAcquireRelease|MemorySemanticsUniformMemory,
 	)
 
-	// Determine opcode based on atomic function
-	var opcode OpCode
-	switch kind := stmt.Fun.(type) {
-	case ir.AtomicAdd:
-		opcode = OpAtomicIAdd
-	case ir.AtomicSubtract:
-		opcode = OpAtomicISub
-	case ir.AtomicAnd:
-		opcode = OpAtomicAnd
-	case ir.AtomicInclusiveOr:
-		opcode = OpAtomicOr
-	case ir.AtomicExclusiveOr:
-		opcode = OpAtomicXor
-	case ir.AtomicMin:
-		opcode = OpAtomicUMin // TODO: check signed vs unsigned
-	case ir.AtomicMax:
-		opcode = OpAtomicUMax // TODO: check signed vs unsigned
-	case ir.AtomicExchange:
-		// Check if this is compare-exchange
-		if kind.Compare != nil {
-			// OpAtomicCompareExchange Result-Type Result Pointer Scope MemSemEq MemSemNeq Value Comparator
-			compareID, err := e.emitExpression(*kind.Compare)
-			if err != nil {
-				return err
-			}
-			resultID := e.backend.builder.AllocID()
-			builder := NewInstructionBuilder()
-			builder.AddWord(resultTypeID)
-			builder.AddWord(resultID)
-			builder.AddWord(pointerID)
-			builder.AddWord(scopeID)
-			builder.AddWord(semanticsID) // MemSemEqual
-			builder.AddWord(semanticsID) // MemSemUnequal (same for simplicity)
-			builder.AddWord(valueID)
-			builder.AddWord(compareID)
-			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpAtomicCompareExch))
+	// Handle compare-exchange separately
+	if exchange, ok := stmt.Fun.(ir.AtomicExchange); ok && exchange.Compare != nil {
+		return e.emitAtomicCompareExchange(stmt, pointerID, valueID, resultTypeID, scopeID, semanticsID, *exchange.Compare)
+	}
 
-			if stmt.Result != nil {
-				e.exprIDs[*stmt.Result] = resultID
-			}
-			return nil
-		}
-		opcode = OpAtomicExchange
-	default:
+	opcode, ok := atomicOpcode(stmt.Fun, scalarKind)
+	if !ok {
 		return fmt.Errorf("unsupported atomic function: %T", stmt.Fun)
 	}
 
-	// Emit the atomic operation
-	// OpAtomic* ResultType Result Pointer Scope Semantics Value
+	// Emit the atomic operation: OpAtomic* ResultType Result Pointer Scope Semantics Value
 	resultID := e.backend.builder.AllocID()
 	builder := NewInstructionBuilder()
 	builder.AddWord(resultTypeID)
@@ -2277,10 +2303,37 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 	builder.AddWord(valueID)
 	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(opcode))
 
-	// Store result ID for ExprAtomicResult
 	if stmt.Result != nil {
 		e.exprIDs[*stmt.Result] = resultID
 	}
+	return nil
+}
 
+// emitAtomicCompareExchange emits an atomic compare-exchange operation.
+func (e *ExpressionEmitter) emitAtomicCompareExchange(
+	stmt ir.StmtAtomic,
+	pointerID, valueID, resultTypeID, scopeID, semanticsID uint32,
+	compare ir.ExpressionHandle,
+) error {
+	compareID, err := e.emitExpression(compare)
+	if err != nil {
+		return err
+	}
+
+	resultID := e.backend.builder.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultTypeID)
+	builder.AddWord(resultID)
+	builder.AddWord(pointerID)
+	builder.AddWord(scopeID)
+	builder.AddWord(semanticsID) // MemSemEqual
+	builder.AddWord(semanticsID) // MemSemUnequal (same for simplicity)
+	builder.AddWord(valueID)
+	builder.AddWord(compareID)
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpAtomicCompareExch))
+
+	if stmt.Result != nil {
+		e.exprIDs[*stmt.Result] = resultID
+	}
 	return nil
 }
