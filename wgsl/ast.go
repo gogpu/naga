@@ -67,12 +67,13 @@ type StructMember struct {
 
 // FunctionDecl represents a function declaration.
 type FunctionDecl struct {
-	Name       string
-	Params     []*Parameter
-	ReturnType Type
-	Attributes []Attribute
-	Body       *BlockStmt
-	Span       Span
+	Name        string
+	Params      []*Parameter
+	ReturnType  Type
+	ReturnAttrs []Attribute // Attributes on return type (e.g., @builtin(position), @location(0))
+	Attributes  []Attribute
+	Body        *BlockStmt
+	Span        Span
 }
 
 func (f *FunctionDecl) Pos() Span { return f.Span }

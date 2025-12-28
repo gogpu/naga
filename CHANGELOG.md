@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2025-12-28
+
+Code quality improvements and SPIR-V backend bug fixes.
+
+### Fixed
+
+#### SPIR-V Backend
+- **sign() type checking** — Now correctly uses `SSign` for signed integers vs `FSign` for floats
+- **atomicMin/Max signed vs unsigned** — Now correctly uses `OpAtomicSMin`/`OpAtomicSMax` for signed integers and `OpAtomicUMin`/`OpAtomicUMax` for unsigned
+
+#### WGSL Frontend
+- **Function resolution** — Added pre-registration pass for forward function references
+- **Return type attributes** — Parser now correctly handles attributes on return types (e.g., `@builtin(position)`)
+
+### Changed
+- Removed dead `Write()` method from SPIR-V writer
+- Removed unused `module` field from `spirv.Writer` struct
+- Code cleanup in `hlsl/types.go` nolint directives
+
 ## [0.7.0] - 2025-12-28
 
 HLSL backend for DirectX shader compilation (~8.8K new LOC).
@@ -373,7 +392,9 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/gogpu/naga/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/gogpu/naga/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/gogpu/naga/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gogpu/naga/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gogpu/naga/compare/v0.3.0...v0.4.0

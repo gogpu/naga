@@ -68,7 +68,7 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 // writeStructMemberWithSemantic writes a struct member with HLSL semantic.
 // Used for entry point input/output structs (will be used in Phase 2).
 //
-//nolint:unused,unparam // Will be used when entry point generation is implemented
+//nolint:unused,unparam // Phase 2: error handling will be added for semantic validation
 func (w *Writer) writeStructMemberWithSemantic(member ir.FunctionArgument, memberIdx int) error {
 	memberType, arraySuffix := w.getTypeNameWithArraySuffix(member.Type)
 	memberName := member.Name
