@@ -135,6 +135,16 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
+## Released: v0.8.1 ✅
+
+**Focus:** WGSL built-in function completeness
+
+### Completed
+- [x] **clamp() built-in** — Added missing `clamp` to WGSL math function map
+- [x] **Math function tests** — Comprehensive coverage for all 12 built-in math functions
+
+---
+
 ## Goal: v1.0.0
 
 **Focus:** Production ready

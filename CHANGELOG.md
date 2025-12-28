@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2025-12-29
+
+### Fixed
+
+#### WGSL Lowering
+- **clamp() built-in function** — Added missing `clamp` to math function map
+  - Root cause: `getMathFunction()` was missing `clamp` → `ir.MathClamp` mapping
+  - Caused "unknown function: clamp" error during shader compilation
+  - Affected any WGSL shader using `clamp(value, min, max)`
+
+### Added
+- **Comprehensive math function tests** — `TestMathFunctions` covering all 12 WGSL built-in math functions
+  - Tests: abs, min, max, clamp, sin, cos, tan, sqrt, length, normalize, dot, cross
+  - Verifies correct IR generation for each function
+
 ## [0.8.0] - 2025-12-28
 
 Code quality improvements and SPIR-V backend bug fixes.
