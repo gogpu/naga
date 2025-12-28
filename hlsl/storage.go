@@ -207,9 +207,9 @@ func (w *Writer) writeBufferStore(bufferExpr, offset, value string, components i
 //	InterlockedMin(dest, value, originalValue);
 //	InterlockedMax(dest, value, originalValue);
 func (w *Writer) writeAtomicOp(fun ir.AtomicFunction, dest, value string, result *string) error {
-	intrinsic, err := atomicFunctionToHLSL(fun)
-	if err != nil {
-		return err
+	intrinsic, hlslErr := atomicFunctionToHLSL(fun)
+	if hlslErr != nil {
+		return hlslErr
 	}
 
 	if result != nil {
