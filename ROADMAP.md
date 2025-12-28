@@ -122,7 +122,7 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-## Current: v0.8.0 ✅
+## Released: v0.8.0 ✅
 
 **Focus:** Code quality and SPIR-V bug fixes
 
