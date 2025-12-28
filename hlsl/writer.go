@@ -5,7 +5,6 @@ package hlsl
 
 import (
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/gogpu/naga/ir"
@@ -225,149 +224,8 @@ func (w *Writer) registerNames() error {
 	return nil
 }
 
-// writeTypes writes struct type definitions.
-func (w *Writer) writeTypes() error {
-	for handle := range w.module.Types {
-		typ := &w.module.Types[handle]
-		st, ok := typ.Inner.(ir.StructType)
-		if !ok {
-			continue
-		}
-
-		typeName := w.typeNames[ir.TypeHandle(handle)] //nolint:gosec // G115: handle is valid slice index
-		w.writeLine("struct %s {", typeName)
-		w.pushIndent()
-
-		for memberIdx, member := range st.Members {
-			memberType := w.getTypeName(member.Type)
-			memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] //nolint:gosec // G115: handle is valid slice index
-			w.writeLine("%s %s;", memberType, memberName)
-		}
-
-		w.popIndent()
-		w.writeLine("};")
-		w.writeLine("")
-	}
-	return nil
-}
-
-// writeConstants writes constant definitions.
-func (w *Writer) writeConstants() error {
-	for handle := range w.module.Constants {
-		constant := &w.module.Constants[handle]
-		name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] //nolint:gosec // G115: handle is valid slice index
-		typeName := w.getTypeName(constant.Type)
-		value := w.writeConstantValue(constant)
-		w.writeLine("static const %s %s = %s;", typeName, name, value)
-	}
-	if len(w.module.Constants) > 0 {
-		w.writeLine("")
-	}
-	return nil
-}
-
-// writeConstantValue returns the HLSL representation of a constant value.
-func (w *Writer) writeConstantValue(constant *ir.Constant) string {
-	switch v := constant.Value.(type) {
-	case ir.ScalarValue:
-		return w.writeScalarValue(v)
-	case ir.CompositeValue:
-		return w.writeCompositeValue(v, constant.Type)
-	default:
-		return "0" // Unknown value type
-	}
-}
-
-// writeScalarValue returns the HLSL representation of a scalar value.
-func (w *Writer) writeScalarValue(v ir.ScalarValue) string {
-	switch v.Kind {
-	case ir.ScalarBool:
-		if v.Bits != 0 {
-			return "true"
-		}
-		return "false"
-	case ir.ScalarSint:
-		return fmt.Sprintf("%d", int32(v.Bits))
-	case ir.ScalarUint:
-		return fmt.Sprintf("%du", uint32(v.Bits))
-	case ir.ScalarFloat:
-		// Default to 32-bit float representation
-		return fmt.Sprintf("%g", float32FromBits(uint32(v.Bits)))
-	default:
-		return "0"
-	}
-}
-
-// writeCompositeValue returns the HLSL representation of a composite value.
-func (w *Writer) writeCompositeValue(v ir.CompositeValue, typeHandle ir.TypeHandle) string {
-	typeName := w.getTypeName(typeHandle)
-	var components []string
-	for _, compHandle := range v.Components {
-		if int(compHandle) < len(w.module.Constants) {
-			constant := &w.module.Constants[compHandle]
-			components = append(components, w.writeConstantValue(constant))
-		} else {
-			components = append(components, "0")
-		}
-	}
-	return fmt.Sprintf("%s(%s)", typeName, strings.Join(components, ", "))
-}
-
-// writeGlobalVariables writes global resource declarations.
-func (w *Writer) writeGlobalVariables() error {
-	for handle := range w.module.GlobalVariables {
-		global := &w.module.GlobalVariables[handle]
-		name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] //nolint:gosec // G115: handle is valid slice index
-		typeName := w.getTypeName(global.Type)
-
-		switch global.Space {
-		case ir.SpaceUniform:
-			w.writeUniformVariable(name, typeName, global)
-		case ir.SpaceStorage:
-			w.writeStorageVariable(name, typeName, global)
-		case ir.SpaceWorkGroup:
-			w.writeLine("groupshared %s %s;", typeName, name)
-		case ir.SpacePrivate:
-			w.writeLine("static %s %s;", typeName, name)
-		default:
-			w.writeLine("%s %s;", typeName, name)
-		}
-	}
-	if len(w.module.GlobalVariables) > 0 {
-		w.writeLine("")
-	}
-	return nil
-}
-
-// writeUniformVariable writes a cbuffer or constant buffer declaration.
-func (w *Writer) writeUniformVariable(name, typeName string, global *ir.GlobalVariable) {
-	if global.Binding != nil {
-		binding := w.getBindTarget(global.Binding)
-		w.writeLine("cbuffer %s_cbuffer : register(b%d, space%d) {", name, binding.Register, binding.Space)
-		w.pushIndent()
-		w.writeLine("%s %s;", typeName, name)
-		w.popIndent()
-		w.writeLine("};")
-		w.registerBindings[name] = fmt.Sprintf("register(b%d, space%d)", binding.Register, binding.Space)
-	} else {
-		w.writeLine("cbuffer %s_cbuffer {", name)
-		w.pushIndent()
-		w.writeLine("%s %s;", typeName, name)
-		w.popIndent()
-		w.writeLine("};")
-	}
-}
-
-// writeStorageVariable writes an RW buffer declaration.
-func (w *Writer) writeStorageVariable(name, typeName string, global *ir.GlobalVariable) {
-	if global.Binding != nil {
-		binding := w.getBindTarget(global.Binding)
-		w.writeLine("RWStructuredBuffer<%s> %s : register(u%d, space%d);", typeName, name, binding.Register, binding.Space)
-		w.registerBindings[name] = fmt.Sprintf("register(u%d, space%d)", binding.Register, binding.Space)
-	} else {
-		w.writeLine("RWStructuredBuffer<%s> %s;", typeName, name)
-	}
-}
+// NOTE: writeTypes, writeConstants, writeConstantValue, writeScalarValue,
+// writeCompositeValue, writeGlobalVariables are implemented in types.go
 
 // getBindTarget looks up or generates a bind target for a resource binding.
 func (w *Writer) getBindTarget(binding *ir.ResourceBinding) BindTarget {
@@ -455,7 +313,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	if fn.Result != nil {
 		returnType = w.getTypeName(fn.Result.Type)
 	} else {
-		returnType = "void"
+		returnType = hlslVoidType
 	}
 
 	// Arguments
@@ -529,7 +387,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	}
 
 	// Entry point signature
-	w.writeLine("void %s() {", name)
+	w.writeLine("%s %s() {", hlslVoidType, name)
 	w.pushIndent()
 
 	// Write local variables
@@ -584,48 +442,4 @@ func (w *Writer) popIndent() {
 	}
 }
 
-// getTypeName returns the HLSL type name for a type handle.
-func (w *Writer) getTypeName(handle ir.TypeHandle) string {
-	if int(handle) >= len(w.module.Types) {
-		return fmt.Sprintf("unknown_type_%d", handle)
-	}
-
-	typ := &w.module.Types[handle]
-	return w.typeToHLSL(typ)
-}
-
-// typeToHLSL converts an IR type to HLSL type name.
-func (w *Writer) typeToHLSL(typ *ir.Type) string {
-	switch inner := typ.Inner.(type) {
-	case ir.ScalarType:
-		return ScalarToHLSL(inner)
-	case ir.VectorType:
-		return VectorToHLSL(inner)
-	case ir.MatrixType:
-		return MatrixToHLSL(inner)
-	case ir.ArrayType:
-		elemType := w.getTypeName(inner.Base)
-		if inner.Size.Constant != nil {
-			return fmt.Sprintf("%s[%d]", elemType, *inner.Size.Constant)
-		}
-		return elemType + "[]"
-	case ir.StructType:
-		if typ.Name != "" {
-			return Escape(typ.Name)
-		}
-		return w.typeNames[ir.TypeHandle(0)] // Fallback
-	case ir.PointerType:
-		return w.getTypeName(inner.Base) // HLSL doesn't have explicit pointers
-	case ir.SamplerType:
-		return SamplerToHLSL(inner.Comparison)
-	case ir.ImageType:
-		return ImageToHLSL(inner, false)
-	default:
-		return "unknown"
-	}
-}
-
-// float32FromBits converts uint32 bits to float32.
-func float32FromBits(bits uint32) float32 {
-	return math.Float32frombits(bits)
-}
+// NOTE: getTypeName, typeToHLSL, float32FromBits are implemented in types.go

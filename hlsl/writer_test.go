@@ -383,7 +383,7 @@ func TestWriter_ScalarValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := w.writeScalarValue(tt.value)
+			got := w.writeScalarValue(tt.value, 0) // 0 is a dummy type handle for basic tests
 			if got != tt.want {
 				t.Errorf("writeScalarValue() = %q, want %q", got, tt.want)
 			}

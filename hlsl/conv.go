@@ -102,7 +102,7 @@ func BuiltInToSemantic(b ir.BuiltinValue) string {
 	switch b {
 	// Vertex shader
 	case ir.BuiltinPosition:
-		return "SV_Position"
+		return semanticSVPosition
 	case ir.BuiltinVertexIndex:
 		return "SV_VertexID"
 	case ir.BuiltinInstanceIndex:
@@ -129,7 +129,7 @@ func BuiltInToSemantic(b ir.BuiltinValue) string {
 		// NumWorkGroups requires a helper constant buffer
 		return "SV_GroupID" // Placeholder - will be replaced
 	default:
-		return "SV_Position" // Safe fallback
+		return semanticSVPosition // Safe fallback
 	}
 }
 
