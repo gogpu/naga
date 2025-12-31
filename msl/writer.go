@@ -60,6 +60,11 @@ type Writer struct {
 	needsSizesBuffer bool
 	needsDivHelper   bool
 	needsModHelper   bool
+
+	entryPointOutputVar        string
+	entryPointOutputType       ir.TypeHandle
+	entryPointOutputTypeActive bool
+	entryPointInputStructArg   int
 }
 
 // namer generates unique identifiers.
@@ -107,6 +112,7 @@ func newWriter(module *ir.Module, options *Options, pipeline *PipelineOptions) *
 		arrayWrappers:    make(map[ir.TypeHandle]string),
 		entryPointNames:  make(map[string]string),
 		namedExpressions: make(map[ir.ExpressionHandle]string),
+		entryPointInputStructArg: -1,
 	}
 }
 
@@ -160,6 +166,13 @@ func (w *Writer) writeHeader() {
 //
 //nolint:gocognit // Name registration requires handling all IR entity types
 func (w *Writer) registerNames() error {
+	entryPointNames := make(map[ir.FunctionHandle]string)
+	for _, ep := range w.module.EntryPoints {
+		if ep.Name != "" {
+			entryPointNames[ep.Function] = ep.Name
+		}
+	}
+
 	// Register type names
 	for handle, typ := range w.module.Types {
 		var baseName string
@@ -211,10 +224,11 @@ func (w *Writer) registerNames() error {
 	// Register function names
 	for handle := range w.module.Functions {
 		fn := &w.module.Functions[handle]
-		var baseName string
-		if fn.Name != "" {
-			baseName = fn.Name
-		} else {
+		baseName := fn.Name
+		if entryName, ok := entryPointNames[ir.FunctionHandle(handle)]; ok {
+			baseName = entryName
+		}
+		if baseName == "" {
 			baseName = fmt.Sprintf("function_%d", handle)
 		}
 		name := w.namer.call(baseName)
@@ -232,9 +246,12 @@ func (w *Writer) registerNames() error {
 
 	// Register entry point names
 	for epIdx, ep := range w.module.EntryPoints {
-		name := w.namer.call(ep.Name)
-		w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = name //nolint:gosec // G115: epIdx is valid slice index
-		w.entryPointNames[ep.Name] = name
+		fnName, ok := w.names[nameKey{kind: nameKeyFunction, handle1: uint32(ep.Function)}]
+		if !ok || fnName == "" {
+			fnName = w.namer.call(ep.Name)
+		}
+		w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = fnName //nolint:gosec // G115: epIdx is valid slice index
+		w.entryPointNames[ep.Name] = fnName
 	}
 
 	return nil
@@ -307,7 +324,7 @@ func (w *Writer) writeHelperFunctions() {
 	w.writeLine("T _naga_mod(T lhs, D rhs) {")
 	w.pushIndent()
 	w.writeLine("D nz = D(rhs != D(0));")
-	w.writeLine("return lhs %% (nz * rhs + D(!nz));")
+	w.writeLine("return lhs %s (nz * rhs + D(!nz));", "%")
 	w.popIndent()
 	w.writeLine("}")
 	w.writeLine("")

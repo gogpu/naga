@@ -151,6 +151,8 @@ func (l *Lowerer) registerType(name string, inner ir.TypeInner) ir.TypeHandle {
 	if name != "" {
 		l.types[name] = handle
 	}
+	// Keep module types in sync so type resolution works during lowering.
+	l.module.Types = l.registry.GetTypes()
 
 	return handle
 }
@@ -803,13 +805,41 @@ func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.Expre
 		return 0, err
 	}
 
-	// TODO: Resolve member index from type
-	// For now, assume simple numeric index
-	index := l.swizzleToIndex(mem.Member)
+	baseType, err := ir.ResolveExpressionType(l.module, l.currentFunc, base)
+	if err != nil {
+		return 0, fmt.Errorf("member access base type: %w", err)
+	}
 
-	return l.addExpression(ir.Expression{
-		Kind: ir.ExprAccessIndex{Base: base, Index: index},
-	}), nil
+	if index, ok, err := l.structMemberIndex(baseType, mem.Member); err != nil {
+		return 0, err
+	} else if ok {
+		return l.addExpression(ir.Expression{
+			Kind: ir.ExprAccessIndex{Base: base, Index: index},
+		}), nil
+	}
+
+	if vec, ok, err := l.vectorType(baseType); err != nil {
+		return 0, err
+	} else if ok {
+		if len(mem.Member) == 1 {
+			index, err := l.swizzleIndex(mem.Member, vec.Size)
+			if err != nil {
+				return 0, err
+			}
+			return l.addExpression(ir.Expression{
+				Kind: ir.ExprAccessIndex{Base: base, Index: index},
+			}), nil
+		}
+		size, pattern, err := l.swizzlePattern(mem.Member, vec.Size)
+		if err != nil {
+			return 0, err
+		}
+		return l.addExpression(ir.Expression{
+			Kind: ir.ExprSwizzle{Size: size, Vector: base, Pattern: pattern},
+		}), nil
+	}
+
+	return 0, fmt.Errorf("unsupported member access %q", mem.Member)
 }
 
 // lowerIndex converts an index expression to IR.
@@ -1309,6 +1339,120 @@ func (l *Lowerer) swizzleToIndex(member string) uint32 {
 		}
 	}
 	return 0
+}
+
+func (l *Lowerer) structMemberIndex(base ir.TypeResolution, name string) (uint32, bool, error) {
+	inner, _, err := l.resolveTypeInner(base)
+	if err != nil {
+		return 0, false, err
+	}
+	if inner == nil {
+		return 0, false, nil
+	}
+	st, ok := inner.(ir.StructType)
+	if !ok {
+		return 0, false, nil
+	}
+	for i, member := range st.Members {
+		if member.Name == name {
+			return uint32(i), true, nil
+		}
+	}
+	return 0, false, fmt.Errorf("struct has no member %q", name)
+}
+
+func (l *Lowerer) vectorType(base ir.TypeResolution) (ir.VectorType, bool, error) {
+	inner, _, err := l.resolveTypeInner(base)
+	if err != nil {
+		return ir.VectorType{}, false, err
+	}
+	if inner == nil {
+		return ir.VectorType{}, false, nil
+	}
+	if vec, ok := inner.(ir.VectorType); ok {
+		return vec, true, nil
+	}
+	return ir.VectorType{}, false, nil
+}
+
+func (l *Lowerer) resolveTypeInner(base ir.TypeResolution) (ir.TypeInner, *ir.TypeHandle, error) {
+	if base.Handle != nil {
+		handle := *base.Handle
+		if typ, ok := l.registry.Lookup(handle); ok {
+			inner := typ.Inner
+			if pt, ok := inner.(ir.PointerType); ok {
+				if baseType, ok := l.registry.Lookup(pt.Base); ok {
+					handle = pt.Base
+					inner = baseType.Inner
+				} else {
+					return nil, nil, fmt.Errorf("pointer base type %d out of range", pt.Base)
+				}
+			}
+			return inner, &handle, nil
+		}
+		return nil, nil, fmt.Errorf("type handle %d out of range", handle)
+	}
+	if base.Value != nil {
+		inner := base.Value
+		if pt, ok := inner.(ir.PointerType); ok {
+			if baseType, ok := l.registry.Lookup(pt.Base); ok {
+				inner = baseType.Inner
+				handle := pt.Base
+				return inner, &handle, nil
+			}
+			return nil, nil, fmt.Errorf("pointer base type %d out of range", pt.Base)
+		}
+		return inner, nil, nil
+	}
+	return nil, nil, nil
+}
+
+func (l *Lowerer) swizzleIndex(member string, vecSize ir.VectorSize) (uint32, error) {
+	if len(member) != 1 {
+		return 0, fmt.Errorf("invalid swizzle %q", member)
+	}
+	comp, ok := swizzleComponent(member[0])
+	if !ok {
+		return 0, fmt.Errorf("invalid swizzle component %q", member)
+	}
+	if uint8(comp) >= uint8(vecSize) {
+		return 0, fmt.Errorf("swizzle component %q out of range for vec%v", member, vecSize)
+	}
+	return uint32(comp), nil
+}
+
+func (l *Lowerer) swizzlePattern(member string, vecSize ir.VectorSize) (ir.VectorSize, [4]ir.SwizzleComponent, error) {
+	if len(member) < 2 || len(member) > 4 {
+		return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle %q", member)
+	}
+	var pattern [4]ir.SwizzleComponent
+	for i := 0; i < len(member); i++ {
+		comp, ok := swizzleComponent(member[i])
+		if !ok {
+			return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle component %q", member)
+		}
+		if uint8(comp) >= uint8(vecSize) {
+			return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("swizzle component %q out of range for vec%v", member, vecSize)
+		}
+		pattern[i] = comp
+	}
+	size := ir.VectorSize(len(member))
+	return size, pattern, nil
+}
+
+func swizzleComponent(c byte) (ir.SwizzleComponent, bool) {
+	switch c {
+	case 'x', 'r', 's':
+		return ir.SwizzleX, true
+	case 'y', 'g', 't':
+		return ir.SwizzleY, true
+	case 'z', 'b', 'p':
+		return ir.SwizzleZ, true
+	case 'w', 'a', 'q':
+		return ir.SwizzleW, true
+	default:
+		return 0, false
+	}
 }
 
 // inferTypeFromExpression infers a type handle from an expression's resolved type.

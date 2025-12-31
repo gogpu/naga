@@ -219,7 +219,7 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 func TestCompileTriangleShader(t *testing.T) {
 	// Note: Array initialization syntax not yet fully supported
 	// TODO: Re-enable when array initialization is implemented
-	t.Skip("Array initialization syntax not yet fully supported")
+	// t.Skip("Array initialization syntax not yet fully supported")
 
 	source := `
 struct VertexOutput {

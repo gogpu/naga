@@ -225,6 +225,28 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 // writeReturn writes a return statement.
 func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 	if ret.Value != nil {
+		if w.entryPointOutputTypeActive {
+			typeHandle := w.entryPointOutputType
+			if int(typeHandle) < len(w.module.Types) {
+				if st, ok := w.module.Types[typeHandle].Inner.(ir.StructType); ok {
+					tempName := fmt.Sprintf("_ret_%d", *ret.Value)
+					w.writeIndent()
+					w.write("auto %s = ", tempName)
+					if err := w.writeExpression(*ret.Value); err != nil {
+						return err
+					}
+					w.write(";\n")
+
+					for memberIdx := range st.Members {
+						memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(typeHandle), handle2: uint32(memberIdx)})
+						w.writeLine("%s.%s = %s.%s;", w.entryPointOutputVar, memberName, tempName, memberName)
+					}
+					w.writeLine("return %s;", w.entryPointOutputVar)
+					return nil
+				}
+			}
+		}
+
 		w.writeIndent()
 		w.write("return ")
 		if err := w.writeExpression(*ret.Value); err != nil {
@@ -259,7 +281,9 @@ func (w *Writer) writeBarrier(barrier ir.StmtBarrier) error {
 // writeStore writes a store statement.
 func (w *Writer) writeStore(store ir.StmtStore) error {
 	w.writeIndent()
-	w.write("*")
+	if w.shouldDerefPointer(store.Pointer) {
+		w.write("*")
+	}
 	if err := w.writeExpression(store.Pointer); err != nil {
 		return err
 	}

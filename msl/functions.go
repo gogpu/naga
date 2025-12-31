@@ -151,12 +151,18 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	w.localNames = make(map[uint32]string)
 	w.namedExpressions = make(map[ir.ExpressionHandle]string)
 	w.needBakeExpression = make(map[ir.ExpressionHandle]struct{})
+	w.entryPointOutputVar = ""
+	w.entryPointOutputTypeActive = false
+	w.entryPointInputStructArg = -1
 
 	defer func() {
 		w.currentFunction = nil
 		w.localNames = nil
 		w.namedExpressions = nil
 		w.needBakeExpression = nil
+		w.entryPointOutputVar = ""
+		w.entryPointOutputTypeActive = false
+		w.entryPointInputStructArg = -1
 	}()
 
 	// Write input/output structs if needed
@@ -181,12 +187,11 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	returnType := "void"
 	if hasOutputStruct {
 		returnType = outputStructName
+		w.entryPointOutputVar = "_output"
+		w.entryPointOutputType = fn.Result.Type
+		w.entryPointOutputTypeActive = true
 	} else if fn.Result != nil {
 		returnType = w.writeTypeName(fn.Result.Type, StorageAccess(0))
-		// Add result attribute
-		if fn.Result.Binding != nil {
-			returnType = w.writeBindingAttribute(*fn.Result.Binding) + " " + returnType
-		}
 	}
 
 	// Function signature
@@ -244,6 +249,10 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 					w.writeLine("auto %s = _input.%s;", argName, argName)
 				}
 			}
+		}
+		if w.entryPointInputStructArg >= 0 {
+			argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(w.entryPointInputStructArg)})
+			w.writeLine("auto %s = _input;", argName)
 		}
 	}
 
@@ -309,6 +318,47 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 	}
 
 	if !hasLocationInputs {
+		// Handle fragment stage struct inputs without explicit bindings.
+		if ep.Stage == ir.StageFragment {
+			for i, arg := range fn.Arguments {
+				if arg.Binding != nil {
+					continue
+				}
+				if int(arg.Type) >= len(w.module.Types) {
+					continue
+				}
+				typeInfo := &w.module.Types[arg.Type]
+				st, ok := typeInfo.Inner.(ir.StructType)
+				if !ok {
+					continue
+				}
+
+				structName := fmt.Sprintf("%s_Input", w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})) //nolint:gosec // G115: epIdx is valid slice index
+				w.entryPointInputStructArg = i
+
+				w.writeLine("struct %s {", structName)
+				w.pushIndent()
+
+				for memberIdx, member := range st.Members {
+					memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(arg.Type), handle2: uint32(memberIdx)}) //nolint:gosec // G115: memberIdx is valid slice index
+					memberType := w.writeTypeName(member.Type, StorageAccess(0))
+
+					attr := attrPosition
+					if memberIdx > 0 {
+						attr = fmt.Sprintf("[[user(locn%d)]]", memberIdx-1)
+					}
+
+					w.writeLine("%s %s %s;", memberType, memberName, attr)
+				}
+
+				w.popIndent()
+				w.writeLine("};")
+				w.writeLine("")
+
+				return structName, true
+			}
+		}
+
 		return "", false
 	}
 

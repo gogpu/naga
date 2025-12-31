@@ -210,7 +210,25 @@ func (w *Writer) writeZeroValue(typeHandle ir.TypeHandle) error {
 // writeCompose writes a composite construction.
 func (w *Writer) writeCompose(compose ir.ExprCompose) error {
 	typeName := w.writeTypeName(compose.Type, StorageAccess(0))
-	w.write("%s(", typeName)
+	useBraces := false
+	isArrayWrapper := false
+	if _, ok := w.arrayWrappers[compose.Type]; ok {
+		useBraces = true
+		isArrayWrapper = true
+	} else if int(compose.Type) < len(w.module.Types) {
+		if _, ok := w.module.Types[compose.Type].Inner.(ir.StructType); ok {
+			useBraces = true
+		}
+	}
+
+	if useBraces {
+		w.write("%s{", typeName)
+		if isArrayWrapper {
+			w.write("{")
+		}
+	} else {
+		w.write("%s(", typeName)
+	}
 	for i, component := range compose.Components {
 		if i > 0 {
 			w.write(", ")
@@ -219,12 +237,75 @@ func (w *Writer) writeCompose(compose ir.ExprCompose) error {
 			return err
 		}
 	}
-	w.write(")")
+	if useBraces {
+		if isArrayWrapper {
+			w.write("}")
+		}
+		w.write("}")
+	} else {
+		w.write(")")
+	}
 	return nil
 }
 
 // writeAccess writes a dynamic index access.
 func (w *Writer) writeAccess(access ir.ExprAccess) error {
+	baseType := w.getExpressionType(access.Base)
+	if baseType != nil {
+		if pt, ok := baseType.(ir.PointerType); ok {
+			if _, ok := w.arrayWrappers[pt.Base]; ok {
+				if w.pointerNeedsDeref(pt) {
+					w.write("(*")
+					if err := w.writeExpression(access.Base); err != nil {
+						return err
+					}
+					w.write(").inner[")
+				} else {
+					if err := w.writeExpression(access.Base); err != nil {
+						return err
+					}
+					w.write(".inner[")
+				}
+				if err := w.writeExpression(access.Index); err != nil {
+					return err
+				}
+				w.write("]")
+				return nil
+			}
+
+			if w.pointerNeedsDeref(pt) {
+				w.write("(*")
+				if err := w.writeExpression(access.Base); err != nil {
+					return err
+				}
+				w.write(")")
+			} else {
+				if err := w.writeExpression(access.Base); err != nil {
+					return err
+				}
+			}
+			w.write("[")
+			if err := w.writeExpression(access.Index); err != nil {
+				return err
+			}
+			w.write("]")
+			return nil
+		}
+	}
+	if baseHandle := w.getExpressionTypeHandle(access.Base); baseHandle != nil {
+		if _, ok := w.arrayWrappers[*baseHandle]; ok {
+			if err := w.writeExpression(access.Base); err != nil {
+				return err
+			}
+			w.write(".inner[")
+			if err := w.writeExpression(access.Index); err != nil {
+				return err
+			}
+			w.write("]")
+			return nil
+		}
+	}
+
 	if err := w.writeExpression(access.Base); err != nil {
 		return err
 	}
@@ -242,6 +323,69 @@ func (w *Writer) writeAccess(access ir.ExprAccess) error {
 func (w *Writer) writeAccessIndex(access ir.ExprAccessIndex) error {
 	// Get base type to determine if this is struct access or array/vector access
 	baseType := w.getExpressionType(access.Base)
+	if baseType != nil {
+		if pt, ok := baseType.(ir.PointerType); ok {
+			if _, ok := w.arrayWrappers[pt.Base]; ok {
+				if w.pointerNeedsDeref(pt) {
+					w.write("(*")
+					if err := w.writeExpression(access.Base); err != nil {
+						return err
+					}
+					w.write(").inner[%d]", access.Index)
+				} else {
+					if err := w.writeExpression(access.Base); err != nil {
+						return err
+					}
+					w.write(".inner[%d]", access.Index)
+				}
+				return nil
+			}
+
+			if int(pt.Base) < len(w.module.Types) {
+				if st, ok := w.module.Types[pt.Base].Inner.(ir.StructType); ok {
+					_ = st
+					if w.pointerNeedsDeref(pt) {
+						w.write("(*")
+						if err := w.writeExpression(access.Base); err != nil {
+							return err
+						}
+						w.write(")")
+					} else {
+						if err := w.writeExpression(access.Base); err != nil {
+							return err
+						}
+					}
+
+					memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(pt.Base), handle2: access.Index})
+					w.write(".%s", memberName)
+					return nil
+				}
+			}
+
+			if w.pointerNeedsDeref(pt) {
+				w.write("(*")
+				if err := w.writeExpression(access.Base); err != nil {
+					return err
+				}
+				w.write(")")
+			} else {
+				if err := w.writeExpression(access.Base); err != nil {
+					return err
+				}
+			}
+			w.write("[%d]", access.Index)
+			return nil
+		}
+	}
+	if baseHandle := w.getExpressionTypeHandle(access.Base); baseHandle != nil {
+		if _, ok := w.arrayWrappers[*baseHandle]; ok {
+			if err := w.writeExpression(access.Base); err != nil {
+				return err
+			}
+			w.write(".inner[%d]", access.Index)
+			return nil
+		}
+	}
 	if baseType != nil {
 		if st, ok := baseType.(ir.StructType); ok {
 			// Struct member access
@@ -335,7 +479,10 @@ func (w *Writer) writeLocalVariable(local ir.ExprLocalVariable) error {
 
 // writeLoad writes a pointer load.
 func (w *Writer) writeLoad(load ir.ExprLoad) error {
-	// In MSL, we often just dereference
+	if !w.shouldDerefPointer(load.Pointer) {
+		return w.writeExpression(load.Pointer)
+	}
+
 	w.write("(*")
 	if err := w.writeExpression(load.Pointer); err != nil {
 		return err
@@ -993,6 +1140,32 @@ func (w *Writer) isIntegerExpression(handle ir.ExpressionHandle) bool {
 		return false
 	}
 	return scalar.Kind == ir.ScalarSint || scalar.Kind == ir.ScalarUint
+}
+
+func (w *Writer) pointerNeedsDeref(pt ir.PointerType) bool {
+	switch pt.Space {
+	case ir.SpaceUniform, ir.SpaceStorage, ir.SpacePushConstant:
+		return true
+	default:
+		return false
+	}
+}
+
+func (w *Writer) shouldDerefPointer(handle ir.ExpressionHandle) bool {
+	if w.currentFunction == nil {
+		return false
+	}
+	if int(handle) >= len(w.currentFunction.Expressions) {
+		return false
+	}
+	switch w.currentFunction.Expressions[handle].Kind.(type) {
+	case ir.ExprAccess, ir.ExprAccessIndex:
+		return false
+	}
+	if pt, ok := w.getExpressionType(handle).(ir.PointerType); ok {
+		return w.pointerNeedsDeref(pt)
+	}
+	return false
 }
 
 // Unused but included for completeness
