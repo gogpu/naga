@@ -135,6 +135,17 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
+## Released: v0.8.3 ✅
+
+**Focus:** Critical MSL [[position]] fix
+
+### Completed
+- [x] **[[position]] attribute placement** — Fixed to emit on struct member, not function signature
+- [x] **Simple type output structs** — Generated for types with builtin bindings
+- [x] **Return statement handling** — Fixed for simple type output structs
+
+---
+
 ## Released: v0.8.2 ✅
 
 **Focus:** MSL backend ARM64 fixes

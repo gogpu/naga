@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-01-04
+
+Critical MSL backend fix for vertex shader position output.
+
+### Fixed
+
+#### MSL Backend
+- **[[position]] attribute placement** — Fixed to emit on struct member instead of function signature
+  - MSL requires `[[position]]` on struct member, not on function return type
+  - Before: `vertex float4 vs_main(...) [[position]] { }` (invalid MSL)
+  - After: `struct vs_main_Output { float4 member [[position]]; }; vertex vs_main_Output vs_main(...) { }` (valid MSL)
+  - Matches behavior of original Rust naga implementation
+- **Simple type output structs** — Now generates output struct for simple types with builtin bindings
+- **Return statement handling** — Fixed return for simple type output structs
+
 ## [0.8.2] - 2026-01-04
 
 MSL backend improvements for ARM64 macOS triangle rendering.
