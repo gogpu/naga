@@ -230,9 +230,19 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 	if int(typeHandle) >= len(w.module.Types) {
 		return false, nil
 	}
+
 	st, ok := w.module.Types[typeHandle].Inner.(ir.StructType)
 	if !ok {
-		return false, nil
+		// Simple type with output struct (e.g., float4 with [[position]])
+		// The output struct has a single "member" field
+		w.writeIndent()
+		w.write("%s.member = ", w.entryPointOutputVar)
+		if err := w.writeExpression(value); err != nil {
+			return false, err
+		}
+		w.write(";\n")
+		w.writeLine("return %s;", w.entryPointOutputVar)
+		return true, nil
 	}
 
 	tempName := fmt.Sprintf("_ret_%d", value)
