@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-01-04
+
+MSL backend improvements for ARM64 macOS triangle rendering.
+
+### Fixed
+
+#### MSL Backend
+- **Triangle shader compilation** — Fixed entry point output struct handling for vertex shaders
+- **Return attribute handling** — Improved `@builtin(position)` and other return type attributes
+- **Struct member emission** — Fixed struct field ordering and attribute placement
+
+### Added
+- **MSL backend tests** — Comprehensive test coverage for struct handling and entry points
+- **xcrun integration tests** — Real Metal shader validation on macOS (skipped on other platforms)
+
+### Changed
+- Improved WGSL lowering for complex struct types
+- Better error messages for unsupported shader features
+
+### Contributors
+- @ppoage — ARM64 macOS fixes and testing
+
 ## [0.8.1] - 2025-12-29
 
 ### Fixed

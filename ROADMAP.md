@@ -135,6 +135,21 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
+## Released: v0.8.2 ✅
+
+**Focus:** MSL backend ARM64 fixes
+
+### Completed
+- [x] **Triangle shader compilation** — Fixed entry point output struct handling
+- [x] **Return attribute handling** — Improved `@builtin(position)` processing
+- [x] **MSL backend tests** — xcrun integration tests for real Metal validation
+- [x] **Struct handling** — Fixed field ordering and attribute placement
+
+### Contributors
+- @ppoage — ARM64 macOS fixes and testing
+
+---
+
 ## Released: v0.8.1 ✅
 
 **Focus:** WGSL built-in function completeness
