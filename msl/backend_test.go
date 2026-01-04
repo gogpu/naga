@@ -535,10 +535,10 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 	if !strings.Contains(result, "fragment metal::float4 fs_main(") {
 		t.Error("Expected fragment entry point signature")
 	}
-	if strings.Contains(result, "[[position]]") {
-		t.Error("Did not expect position attribute on scalar return")
+	if !strings.Contains(result, ") [[position]] {") {
+		t.Error("Expected position return attribute after parameter list")
 	}
 	if strings.Contains(result, "[[color(0)]]") {
-		t.Error("Did not expect color attribute on scalar return")
+		t.Error("Did not expect color return attribute on non-struct fragment return")
 	}
 }

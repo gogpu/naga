@@ -137,7 +137,7 @@ func (w *Writer) writeEntryPoints() error {
 
 // writeEntryPoint writes a single entry point function.
 //
-//nolint:gocognit,gocyclo,cyclop,funlen // Entry point generation requires handling many input/output patterns
+//nolint:gocognit,gocyclo,cyclop,funlen,maintidx // Entry point generation requires handling many input/output patterns
 func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	if int(ep.Function) >= len(w.module.Functions) {
 		return fmt.Errorf("invalid entry point function handle: %d", ep.Function)
@@ -184,15 +184,26 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	}
 
 	// Return type
-	returnType := "void"
-	if hasOutputStruct {
-		returnType = outputStructName
-		w.entryPointOutputVar = "_output"
-		w.entryPointOutputType = fn.Result.Type
-		w.entryPointOutputTypeActive = true
-	} else if fn.Result != nil {
-		returnType = w.writeTypeName(fn.Result.Type, StorageAccess(0))
+	resolveReturnSignature := func() (string, string) {
+		if hasOutputStruct {
+			w.entryPointOutputVar = "_output"
+			w.entryPointOutputType = fn.Result.Type
+			w.entryPointOutputTypeActive = true
+			return outputStructName, ""
+		}
+		if fn.Result == nil {
+			return "void", ""
+		}
+		returnType := w.writeTypeName(fn.Result.Type, StorageAccess(0))
+		if fn.Result.Binding == nil {
+			return returnType, ""
+		}
+		if _, ok := (*fn.Result.Binding).(ir.BuiltinBinding); !ok {
+			return returnType, ""
+		}
+		return returnType, w.writeBindingAttribute(*fn.Result.Binding)
 	}
+	returnType, returnAttr := resolveReturnSignature()
 
 	// Function signature
 	w.write("%s %s %s(", stageKeyword, returnType, epName)
@@ -237,24 +248,40 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		}
 	}
 
-	w.write(") {\n")
+	if returnAttr != "" {
+		w.write(") %s {\n", returnAttr)
+	} else {
+		w.write(") {\n")
+	}
 	w.pushIndent()
 
 	// Extract inputs from struct if needed
-	if hasInputStruct {
+	emitInputAliases := func() {
+		if !hasInputStruct {
+			return
+		}
 		for i, arg := range fn.Arguments {
-			if arg.Binding != nil {
-				if _, ok := (*arg.Binding).(ir.LocationBinding); ok {
-					argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}) //nolint:gosec // G115: i is valid slice index
-					w.writeLine("auto %s = _input.%s;", argName, argName)
-				}
+			if arg.Binding == nil {
+				continue
 			}
+			if _, ok := (*arg.Binding).(ir.LocationBinding); !ok {
+				continue
+			}
+			argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}) //nolint:gosec // G115: i is valid slice index
+			w.writeLine("auto %s = _input.%s;", argName, argName)
 		}
-		if w.entryPointInputStructArg >= 0 {
-			argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(w.entryPointInputStructArg)})
-			w.writeLine("auto %s = _input;", argName)
+		if w.entryPointInputStructArg < 0 {
+			return
 		}
+		arg := fn.Arguments[w.entryPointInputStructArg]
+		argName := arg.Name
+		if argName == "" {
+			argName = fmt.Sprintf("arg_%d", w.entryPointInputStructArg)
+		}
+		argName = escapeName(argName)
+		w.writeLine("auto %s = _input;", argName)
 	}
+	emitInputAliases()
 
 	// Local variables
 	for i, local := range fn.LocalVars {
@@ -305,85 +332,88 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 }
 
 // writeEntryPointInputStruct writes the input struct for an entry point.
+//
+//nolint:gocognit // Entry point struct generation requires handling many input/output patterns
 func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir.Function) (string, bool) {
 	// Check if we need an input struct (location bindings)
 	hasLocationInputs := false
 	for _, arg := range fn.Arguments {
-		if arg.Binding != nil {
-			if _, ok := (*arg.Binding).(ir.LocationBinding); ok {
-				hasLocationInputs = true
-				break
-			}
+		if arg.Binding == nil {
+			continue
+		}
+		if _, ok := (*arg.Binding).(ir.LocationBinding); ok {
+			hasLocationInputs = true
+			break
 		}
 	}
 
-	if !hasLocationInputs {
-		// Handle fragment stage struct inputs without explicit bindings.
-		if ep.Stage == ir.StageFragment {
+	emitInputStruct := func(structName string, emitFields func()) {
+		w.writeLine("struct %s {", structName)
+		w.pushIndent()
+		emitFields()
+		w.popIndent()
+		w.writeLine("};")
+		w.writeLine("")
+	}
+
+	if hasLocationInputs {
+		structName := fmt.Sprintf("%s_Input", w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})) //nolint:gosec // G115: epIdx is valid slice index
+
+		emitInputStruct(structName, func() {
 			for i, arg := range fn.Arguments {
-				if arg.Binding != nil {
+				if arg.Binding == nil {
 					continue
 				}
-				if int(arg.Type) >= len(w.module.Types) {
-					continue
-				}
-				typeInfo := &w.module.Types[arg.Type]
-				st, ok := typeInfo.Inner.(ir.StructType)
+				loc, ok := (*arg.Binding).(ir.LocationBinding)
 				if !ok {
 					continue
 				}
-
-				structName := fmt.Sprintf("%s_Input", w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})) //nolint:gosec // G115: epIdx is valid slice index
-				w.entryPointInputStructArg = i
-
-				w.writeLine("struct %s {", structName)
-				w.pushIndent()
-
-				for memberIdx, member := range st.Members {
-					memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(arg.Type), handle2: uint32(memberIdx)}) //nolint:gosec // G115: memberIdx is valid slice index
-					memberType := w.writeTypeName(member.Type, StorageAccess(0))
-
-					attr := attrPosition
-					if memberIdx > 0 {
-						attr = fmt.Sprintf("[[user(locn%d)]]", memberIdx-1)
-					}
-
-					w.writeLine("%s %s %s;", memberType, memberName, attr)
-				}
-
-				w.popIndent()
-				w.writeLine("};")
-				w.writeLine("")
-
-				return structName, true
-			}
-		}
-
-		return "", false
-	}
-
-	structName := fmt.Sprintf("%s_Input", w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})) //nolint:gosec // G115: epIdx is valid slice index
-
-	w.writeLine("struct %s {", structName)
-	w.pushIndent()
-
-	for i, arg := range fn.Arguments {
-		if arg.Binding != nil {
-			if loc, ok := (*arg.Binding).(ir.LocationBinding); ok {
 				argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}) //nolint:gosec // G115: i is valid slice index
 				argType := w.writeTypeName(arg.Type, StorageAccess(0))
 
 				attr := locationInputAttribute(loc, ep.Stage)
 				w.writeLine("%s %s %s;", argType, argName, attr)
 			}
-		}
+		})
+
+		return structName, true
 	}
+	if ep.Stage != ir.StageFragment {
+		return "", false
+	}
+	for i, arg := range fn.Arguments {
+		if arg.Binding != nil {
+			continue
+		}
+		if int(arg.Type) >= len(w.module.Types) {
+			continue
+		}
+		typeInfo := &w.module.Types[arg.Type]
+		st, ok := typeInfo.Inner.(ir.StructType)
+		if !ok {
+			continue
+		}
 
-	w.popIndent()
-	w.writeLine("};")
-	w.writeLine("")
+		structName := fmt.Sprintf("%s_Input", w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})) //nolint:gosec // G115: epIdx is valid slice index
+		w.entryPointInputStructArg = i
 
-	return structName, true
+		emitInputStruct(structName, func() {
+			for memberIdx, member := range st.Members {
+				memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(arg.Type), handle2: uint32(memberIdx)}) //nolint:gosec // G115: memberIdx is valid slice index
+				memberType := w.writeTypeName(member.Type, StorageAccess(0))
+
+				attr := attrPosition
+				if memberIdx > 0 {
+					attr = fmt.Sprintf("[[user(locn%d)]]", memberIdx-1)
+				}
+
+				w.writeLine("%s %s %s;", memberType, memberName, attr)
+			}
+		})
+
+		return structName, true
+	}
+	return "", false
 }
 
 // writeEntryPointOutputStruct writes the output struct for an entry point.

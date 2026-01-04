@@ -222,40 +222,60 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 	return nil
 }
 
+func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, error) {
+	if !w.entryPointOutputTypeActive {
+		return false, nil
+	}
+	typeHandle := w.entryPointOutputType
+	if int(typeHandle) >= len(w.module.Types) {
+		return false, nil
+	}
+	st, ok := w.module.Types[typeHandle].Inner.(ir.StructType)
+	if !ok {
+		return false, nil
+	}
+
+	tempName := fmt.Sprintf("_ret_%d", value)
+	w.writeIndent()
+	w.write("auto %s = ", tempName)
+	if err := w.writeExpression(value); err != nil {
+		return false, err
+	}
+	w.write(";\n")
+
+	for memberIdx := range st.Members {
+		memberName := st.Members[memberIdx].Name
+		if memberName == "" {
+			memberName = fmt.Sprintf("member_%d", memberIdx)
+		}
+		memberName = escapeName(memberName)
+		w.writeLine("%s.%s = %s.%s;", w.entryPointOutputVar, memberName, tempName, memberName)
+	}
+	w.writeLine("return %s;", w.entryPointOutputVar)
+	return true, nil
+}
+
 // writeReturn writes a return statement.
 func (w *Writer) writeReturn(ret ir.StmtReturn) error {
-	if ret.Value != nil {
-		if w.entryPointOutputTypeActive {
-			typeHandle := w.entryPointOutputType
-			if int(typeHandle) < len(w.module.Types) {
-				if st, ok := w.module.Types[typeHandle].Inner.(ir.StructType); ok {
-					tempName := fmt.Sprintf("_ret_%d", *ret.Value)
-					w.writeIndent()
-					w.write("auto %s = ", tempName)
-					if err := w.writeExpression(*ret.Value); err != nil {
-						return err
-					}
-					w.write(";\n")
-
-					for memberIdx := range st.Members {
-						memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(typeHandle), handle2: uint32(memberIdx)})
-						w.writeLine("%s.%s = %s.%s;", w.entryPointOutputVar, memberName, tempName, memberName)
-					}
-					w.writeLine("return %s;", w.entryPointOutputVar)
-					return nil
-				}
-			}
-		}
-
-		w.writeIndent()
-		w.write("return ")
-		if err := w.writeExpression(*ret.Value); err != nil {
-			return err
-		}
-		w.write(";\n")
-	} else {
+	if ret.Value == nil {
 		w.writeLine("return;")
+		return nil
 	}
+
+	handled, err := w.writeEntryPointOutputReturn(*ret.Value)
+	if err != nil {
+		return err
+	}
+	if handled {
+		return nil
+	}
+
+	w.writeIndent()
+	w.write("return ")
+	if err := w.writeExpression(*ret.Value); err != nil {
+		return err
+	}
+	w.write(";\n")
 	return nil
 }
 

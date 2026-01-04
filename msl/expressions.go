@@ -249,6 +249,8 @@ func (w *Writer) writeCompose(compose ir.ExprCompose) error {
 }
 
 // writeAccess writes a dynamic index access.
+//
+//nolint:nestif,gocognit // Type/array-wrapper cases require nested checks
 func (w *Writer) writeAccess(access ir.ExprAccess) error {
 	baseType := w.getExpressionType(access.Base)
 	if baseType != nil {
@@ -292,6 +294,7 @@ func (w *Writer) writeAccess(access ir.ExprAccess) error {
 			return nil
 		}
 	}
+
 	if baseHandle := w.getExpressionTypeHandle(access.Base); baseHandle != nil {
 		if _, ok := w.arrayWrappers[*baseHandle]; ok {
 			if err := w.writeExpression(access.Base); err != nil {
@@ -319,7 +322,7 @@ func (w *Writer) writeAccess(access ir.ExprAccess) error {
 
 // writeAccessIndex writes a constant index access.
 //
-//nolint:nestif // Struct member access requires nested type checking
+//nolint:nestif,gocognit,gocyclo,cyclop // Struct member access requires nested type checking
 func (w *Writer) writeAccessIndex(access ir.ExprAccessIndex) error {
 	// Get base type to determine if this is struct access or array/vector access
 	baseType := w.getExpressionType(access.Base)

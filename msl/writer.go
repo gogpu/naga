@@ -222,17 +222,17 @@ func (w *Writer) registerNames() error {
 	}
 
 	// Register function names
-	for handle := range w.module.Functions {
-		fn := &w.module.Functions[handle]
+	for idx, handle := 0, ir.FunctionHandle(0); idx < len(w.module.Functions); idx, handle = idx+1, handle+1 {
+		fn := &w.module.Functions[idx]
 		baseName := fn.Name
-		if entryName, ok := entryPointNames[ir.FunctionHandle(handle)]; ok {
+		if entryName, ok := entryPointNames[handle]; ok {
 			baseName = entryName
 		}
 		if baseName == "" {
-			baseName = fmt.Sprintf("function_%d", handle)
+			baseName = fmt.Sprintf("function_%d", idx)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}] = name
 
 		// Register function argument names
 		for argIdx, arg := range fn.Arguments {

@@ -818,28 +818,31 @@ func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.Expre
 		}), nil
 	}
 
-	if vec, ok, err := l.vectorType(baseType); err != nil {
+	vec, ok, err := l.vectorType(baseType)
+	if err != nil {
 		return 0, err
-	} else if ok {
-		if len(mem.Member) == 1 {
-			index, err := l.swizzleIndex(mem.Member, vec.Size)
-			if err != nil {
-				return 0, err
-			}
-			return l.addExpression(ir.Expression{
-				Kind: ir.ExprAccessIndex{Base: base, Index: index},
-			}), nil
-		}
-		size, pattern, err := l.swizzlePattern(mem.Member, vec.Size)
+	}
+
+	if !ok {
+		return 0, fmt.Errorf("unsupported member access %q", mem.Member)
+	}
+
+	if len(mem.Member) == 1 {
+		index, err := l.swizzleIndex(mem.Member, vec.Size)
 		if err != nil {
 			return 0, err
 		}
 		return l.addExpression(ir.Expression{
-			Kind: ir.ExprSwizzle{Size: size, Vector: base, Pattern: pattern},
+			Kind: ir.ExprAccessIndex{Base: base, Index: index},
 		}), nil
 	}
-
-	return 0, fmt.Errorf("unsupported member access %q", mem.Member)
+	size, pattern, err := l.swizzlePattern(mem.Member, vec.Size)
+	if err != nil {
+		return 0, err
+	}
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprSwizzle{Size: size, Vector: base, Pattern: pattern},
+	}), nil
 }
 
 // lowerIndex converts an index expression to IR.
@@ -1324,87 +1327,75 @@ func (l *Lowerer) assignOpToBinary(tok TokenKind) ir.BinaryOperator {
 	return ir.BinaryAdd // Default
 }
 
-func (l *Lowerer) swizzleToIndex(member string) uint32 {
-	// Simple swizzle mapping: x=0, y=1, z=2, w=3
-	if len(member) == 1 {
-		switch member[0] {
-		case 'x', 'r':
-			return 0
-		case 'y', 'g':
-			return 1
-		case 'z', 'b':
-			return 2
-		case 'w', 'a':
-			return 3
-		}
-	}
-	return 0
-}
-
 func (l *Lowerer) structMemberIndex(base ir.TypeResolution, name string) (uint32, bool, error) {
-	inner, _, err := l.resolveTypeInner(base)
+	inner, ok, err := l.resolveTypeInner(base)
 	if err != nil {
 		return 0, false, err
 	}
-	if inner == nil {
-		return 0, false, nil
-	}
-	st, ok := inner.(ir.StructType)
 	if !ok {
 		return 0, false, nil
 	}
-	for i, member := range st.Members {
+	st, isStruct := inner.(ir.StructType)
+	if !isStruct {
+		return 0, false, nil
+	}
+	var idx uint32
+	for _, member := range st.Members {
 		if member.Name == name {
-			return uint32(i), true, nil
+			return idx, true, nil
 		}
+		idx++
 	}
 	return 0, false, fmt.Errorf("struct has no member %q", name)
 }
 
 func (l *Lowerer) vectorType(base ir.TypeResolution) (ir.VectorType, bool, error) {
-	inner, _, err := l.resolveTypeInner(base)
+	inner, ok, err := l.resolveTypeInner(base)
 	if err != nil {
 		return ir.VectorType{}, false, err
 	}
-	if inner == nil {
+	if !ok {
 		return ir.VectorType{}, false, nil
 	}
-	if vec, ok := inner.(ir.VectorType); ok {
+	if vec, isVec := inner.(ir.VectorType); isVec {
 		return vec, true, nil
 	}
 	return ir.VectorType{}, false, nil
 }
 
-func (l *Lowerer) resolveTypeInner(base ir.TypeResolution) (ir.TypeInner, *ir.TypeHandle, error) {
+func (l *Lowerer) resolveTypeInner(base ir.TypeResolution) (ir.TypeInner, bool, error) {
+	resolvePointer := func(inner ir.TypeInner) (ir.TypeInner, error) {
+		pt, ok := inner.(ir.PointerType)
+		if !ok {
+			return inner, nil
+		}
+		baseType, ok := l.registry.Lookup(pt.Base)
+		if !ok {
+			return nil, fmt.Errorf("pointer base type %d out of range", pt.Base)
+		}
+		return baseType.Inner, nil
+	}
+
 	if base.Handle != nil {
 		handle := *base.Handle
-		if typ, ok := l.registry.Lookup(handle); ok {
-			inner := typ.Inner
-			if pt, ok := inner.(ir.PointerType); ok {
-				if baseType, ok := l.registry.Lookup(pt.Base); ok {
-					handle = pt.Base
-					inner = baseType.Inner
-				} else {
-					return nil, nil, fmt.Errorf("pointer base type %d out of range", pt.Base)
-				}
-			}
-			return inner, &handle, nil
+		typ, ok := l.registry.Lookup(handle)
+		if !ok {
+			return nil, false, fmt.Errorf("type handle %d out of range", handle)
 		}
-		return nil, nil, fmt.Errorf("type handle %d out of range", handle)
+		inner, err := resolvePointer(typ.Inner)
+		if err != nil {
+			return nil, false, err
+		}
+		return inner, true, nil
 	}
 	if base.Value != nil {
-		inner := base.Value
-		if pt, ok := inner.(ir.PointerType); ok {
-			if baseType, ok := l.registry.Lookup(pt.Base); ok {
-				inner = baseType.Inner
-				handle := pt.Base
-				return inner, &handle, nil
-			}
-			return nil, nil, fmt.Errorf("pointer base type %d out of range", pt.Base)
+		inner, err := resolvePointer(base.Value)
+		if err != nil {
+			return nil, false, err
 		}
-		return inner, nil, nil
+		return inner, true, nil
 	}
-	return nil, nil, nil
+	return nil, false, nil
 }
 
 func (l *Lowerer) swizzleIndex(member string, vecSize ir.VectorSize) (uint32, error) {
@@ -1436,7 +1427,17 @@ func (l *Lowerer) swizzlePattern(member string, vecSize ir.VectorSize) (ir.Vecto
 		}
 		pattern[i] = comp
 	}
-	size := ir.VectorSize(len(member))
+	var size ir.VectorSize
+	switch len(member) {
+	case 2:
+		size = ir.Vec2
+	case 3:
+		size = ir.Vec3
+	case 4:
+		size = ir.Vec4
+	default:
+		return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle %q", member)
+	}
 	return size, pattern, nil
 }
 

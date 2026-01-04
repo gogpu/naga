@@ -26,7 +26,7 @@ func verifyMSLWithXcrun(t *testing.T, source string) {
 		t.Fatalf("write MSL temp file: %v", err)
 	}
 
-	cmd := exec.Command("xcrun", "-sdk", "macosx", "metal", "-c", srcPath, "-o", outPath)
+	cmd := exec.Command("xcrun", "-sdk", "macosx", "metal", "-c", srcPath, "-o", outPath) //nolint:gosec // G204: args are temp paths in tests
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("xcrun metal failed: %v\n%s\nMSL:\n%s", err, out, source)
