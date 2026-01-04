@@ -102,16 +102,16 @@ func (n *namer) call(base string) string {
 // newWriter creates a new MSL writer.
 func newWriter(module *ir.Module, options *Options, pipeline *PipelineOptions) *Writer {
 	return &Writer{
-		module:           module,
-		options:          options,
-		pipeline:         pipeline,
-		names:            make(map[nameKey]string),
-		namer:            newNamer(),
-		structPads:       make(map[nameKey]struct{}),
-		typeNames:        make(map[ir.TypeHandle]string),
-		arrayWrappers:    make(map[ir.TypeHandle]string),
-		entryPointNames:  make(map[string]string),
-		namedExpressions: make(map[ir.ExpressionHandle]string),
+		module:                   module,
+		options:                  options,
+		pipeline:                 pipeline,
+		names:                    make(map[nameKey]string),
+		namer:                    newNamer(),
+		structPads:               make(map[nameKey]struct{}),
+		typeNames:                make(map[ir.TypeHandle]string),
+		arrayWrappers:            make(map[ir.TypeHandle]string),
+		entryPointNames:          make(map[string]string),
+		namedExpressions:         make(map[ir.ExpressionHandle]string),
 		entryPointInputStructArg: -1,
 	}
 }
