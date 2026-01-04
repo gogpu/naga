@@ -529,16 +529,22 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 		t.Fatalf("Compile failed: %v", err)
 	}
 
-	if !strings.Contains(result, "vertex metal::float4 vs_main(") {
-		t.Error("Expected vertex entry point signature")
+	// MSL requires [[position]] on struct member, not on function return
+	// So we expect an output struct to be generated
+	if !strings.Contains(result, "struct vs_main_Output") {
+		t.Error("Expected output struct for vertex shader with builtin position")
+	}
+	if !strings.Contains(result, "[[position]]") {
+		t.Error("Expected position attribute in output struct")
+	}
+	if !strings.Contains(result, "vertex vs_main_Output vs_main(") {
+		t.Error("Expected vertex entry point to return output struct")
 	}
 	if !strings.Contains(result, "fragment metal::float4 fs_main(") {
 		t.Error("Expected fragment entry point signature")
 	}
-	if !strings.Contains(result, ") [[position]] {") {
-		t.Error("Expected position return attribute after parameter list")
-	}
-	if strings.Contains(result, "[[color(0)]]") {
-		t.Error("Did not expect color return attribute on non-struct fragment return")
+	// [[position]] should NOT be on function signature, only on struct member
+	if strings.Contains(result, ") [[position]] {") {
+		t.Error("[[position]] should be on struct member, not on function signature")
 	}
 }

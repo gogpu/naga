@@ -431,7 +431,24 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 	typeInfo := &w.module.Types[resultType]
 	st, ok := typeInfo.Inner.(ir.StructType)
 	if !ok {
-		// Simple return type with binding
+		// Simple return type - check if it has a builtin binding that requires output struct
+		// In MSL, [[position]] must be on a struct member, not on function return type
+		if fn.Result.Binding != nil {
+			if _, isBuiltin := (*fn.Result.Binding).(ir.BuiltinBinding); isBuiltin {
+				structName := fmt.Sprintf("%s_Output", w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})) //nolint:gosec // G115: epIdx is valid slice index
+				returnType := w.writeTypeName(fn.Result.Type, StorageAccess(0))
+				attr := w.writeBindingAttribute(*fn.Result.Binding)
+
+				w.writeLine("struct %s {", structName)
+				w.pushIndent()
+				w.writeLine("%s member %s;", returnType, attr)
+				w.popIndent()
+				w.writeLine("};")
+				w.writeLine("")
+
+				return structName, true
+			}
+		}
 		return "", false
 	}
 
