@@ -27,16 +27,23 @@ type Backend struct {
 
 	// GLSL.std.450 import ID (for math functions)
 	glslExtID uint32
+
+	// Entry point interface variables (for builtins and locations).
+	// Key: entry point function handle, Value: map of arg index → variable ID
+	entryInputVars  map[ir.FunctionHandle]map[int]uint32
+	entryOutputVars map[ir.FunctionHandle]uint32 // For function result
 }
 
 // NewBackend creates a new SPIR-V backend.
 func NewBackend(options Options) *Backend {
 	return &Backend{
-		options:     options,
-		typeIDs:     make(map[ir.TypeHandle]uint32),
-		constantIDs: make(map[ir.ConstantHandle]uint32),
-		globalIDs:   make(map[ir.GlobalVariableHandle]uint32),
-		functionIDs: make(map[ir.FunctionHandle]uint32),
+		options:         options,
+		typeIDs:         make(map[ir.TypeHandle]uint32),
+		constantIDs:     make(map[ir.ConstantHandle]uint32),
+		globalIDs:       make(map[ir.GlobalVariableHandle]uint32),
+		functionIDs:     make(map[ir.FunctionHandle]uint32),
+		entryInputVars:  make(map[ir.FunctionHandle]map[int]uint32),
+		entryOutputVars: make(map[ir.FunctionHandle]uint32),
 	}
 }
 
@@ -81,6 +88,11 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 
 	// 10. Global variables
 	if err := b.emitGlobals(); err != nil {
+		return nil, err
+	}
+
+	// 10.5. Entry point interface variables (builtins, locations)
+	if err := b.emitEntryPointInterfaceVars(); err != nil {
 		return nil, err
 	}
 
@@ -556,6 +568,108 @@ func (b *Backend) emitGlobals() error {
 	return nil
 }
 
+// emitEntryPointInterfaceVars creates input/output variables for entry point builtins and locations.
+// In SPIR-V, entry point functions don't receive builtins as parameters.
+// Instead, builtins are global variables with Input/Output storage class.
+func (b *Backend) emitEntryPointInterfaceVars() error {
+	for _, entryPoint := range b.module.EntryPoints {
+		fn := &b.module.Functions[entryPoint.Function]
+		inputVars := make(map[int]uint32)
+
+		// Create input variables for function arguments with bindings
+		for i, arg := range fn.Arguments {
+			if arg.Binding == nil {
+				continue
+			}
+
+			argTypeID, err := b.emitType(arg.Type)
+			if err != nil {
+				return err
+			}
+
+			// Create pointer type with Input storage class
+			ptrType := b.builder.AddTypePointer(StorageClassInput, argTypeID)
+
+			// Create variable
+			varID := b.builder.AddVariable(ptrType, StorageClassInput)
+			inputVars[i] = varID
+
+			// Add decoration based on binding type
+			switch binding := (*arg.Binding).(type) {
+			case ir.BuiltinBinding:
+				spirvBuiltin := builtinToSPIRV(binding.Builtin)
+				b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+			case ir.LocationBinding:
+				b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
+			}
+
+			// Add debug name if enabled
+			if b.options.Debug && arg.Name != "" {
+				b.builder.AddName(varID, arg.Name)
+			}
+		}
+
+		b.entryInputVars[entryPoint.Function] = inputVars
+
+		// Create output variable for function result with binding
+		if fn.Result != nil && fn.Result.Binding != nil {
+			resultTypeID, err := b.emitType(fn.Result.Type)
+			if err != nil {
+				return err
+			}
+
+			// Create pointer type with Output storage class
+			ptrType := b.builder.AddTypePointer(StorageClassOutput, resultTypeID)
+
+			// Create variable
+			varID := b.builder.AddVariable(ptrType, StorageClassOutput)
+			b.entryOutputVars[entryPoint.Function] = varID
+
+			// Add decoration based on binding type
+			switch binding := (*fn.Result.Binding).(type) {
+			case ir.BuiltinBinding:
+				spirvBuiltin := builtinToSPIRV(binding.Builtin)
+				b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+			case ir.LocationBinding:
+				b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
+			}
+		}
+	}
+	return nil
+}
+
+// builtinToSPIRV converts IR builtin value to SPIR-V BuiltIn.
+func builtinToSPIRV(builtin ir.BuiltinValue) BuiltIn {
+	switch builtin {
+	case ir.BuiltinPosition:
+		return BuiltInPosition
+	case ir.BuiltinVertexIndex:
+		return BuiltInVertexIndex
+	case ir.BuiltinInstanceIndex:
+		return BuiltInInstanceIndex
+	case ir.BuiltinFrontFacing:
+		return BuiltInFrontFacing
+	case ir.BuiltinFragDepth:
+		return BuiltInFragDepth
+	case ir.BuiltinSampleIndex:
+		return BuiltInSampleId
+	case ir.BuiltinSampleMask:
+		return BuiltInSampleMask
+	case ir.BuiltinLocalInvocationID:
+		return BuiltInLocalInvocationId
+	case ir.BuiltinLocalInvocationIndex:
+		return BuiltInLocalInvocationIndex
+	case ir.BuiltinGlobalInvocationID:
+		return BuiltInGlobalInvocationId
+	case ir.BuiltinWorkGroupID:
+		return BuiltInWorkgroupId
+	case ir.BuiltinNumWorkGroups:
+		return BuiltInNumWorkgroups
+	default:
+		return BuiltInPosition // Fallback
+	}
+}
+
 // emitEntryPoints emits all entry points with their execution modes.
 func (b *Backend) emitEntryPoints() error {
 	for _, entryPoint := range b.module.EntryPoints {
@@ -579,8 +693,9 @@ func (b *Backend) emitEntryPoints() error {
 		}
 
 		// Collect interface variables (inputs/outputs used by entry point)
-		// For now, we collect all global variables with Input/Output storage class
 		var interfaces []uint32
+
+		// Add regular global variables with Input/Output storage class
 		for handle, global := range b.module.GlobalVariables {
 			if global.Space == ir.SpaceFunction || global.Space == ir.SpacePrivate {
 				continue // Not interface variables
@@ -588,6 +703,18 @@ func (b *Backend) emitEntryPoints() error {
 			if varID, ok := b.globalIDs[ir.GlobalVariableHandle(handle)]; ok {
 				interfaces = append(interfaces, varID)
 			}
+		}
+
+		// Add entry point input variables (builtins, locations)
+		if inputVars, ok := b.entryInputVars[entryPoint.Function]; ok {
+			for _, varID := range inputVars {
+				interfaces = append(interfaces, varID)
+			}
+		}
+
+		// Add entry point output variable
+		if outputVar, ok := b.entryOutputVars[entryPoint.Function]; ok {
+			interfaces = append(interfaces, outputVar)
 		}
 
 		// Add entry point
@@ -623,26 +750,44 @@ func (b *Backend) emitFunctions() error {
 
 // emitFunction emits a single function.
 func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error {
-	// Determine return type
-	var returnTypeID uint32
-	if fn.Result != nil {
-		var err error
-		returnTypeID, err = b.emitType(fn.Result.Type)
-		if err != nil {
-			return err
+	// Check if this is an entry point function
+	isEntryPoint := false
+	for _, ep := range b.module.EntryPoints {
+		if ep.Function == handle {
+			isEntryPoint = true
+			break
 		}
-	} else {
-		// void return type
-		returnTypeID = b.builder.AddTypeVoid()
 	}
 
-	// Emit parameter types
-	paramTypeIDs := make([]uint32, len(fn.Arguments))
-	for i, arg := range fn.Arguments {
-		var err error
-		paramTypeIDs[i], err = b.emitType(arg.Type)
-		if err != nil {
-			return err
+	var returnTypeID uint32
+	var paramTypeIDs []uint32
+	paramIDs := make([]uint32, len(fn.Arguments))
+
+	if isEntryPoint {
+		// Entry point functions are void with no parameters in SPIR-V.
+		// They use Input/Output global variables instead.
+		returnTypeID = b.builder.AddTypeVoid()
+		paramTypeIDs = nil
+	} else {
+		// Regular function - determine return type
+		if fn.Result != nil {
+			var err error
+			returnTypeID, err = b.emitType(fn.Result.Type)
+			if err != nil {
+				return err
+			}
+		} else {
+			returnTypeID = b.builder.AddTypeVoid()
+		}
+
+		// Emit parameter types
+		paramTypeIDs = make([]uint32, len(fn.Arguments))
+		for i, arg := range fn.Arguments {
+			var err error
+			paramTypeIDs[i], err = b.emitType(arg.Type)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -653,30 +798,27 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	funcID := b.builder.AddFunction(funcTypeID, returnTypeID, FunctionControlNone)
 	b.functionIDs[handle] = funcID
 
-	// Emit function parameters
-	paramIDs := make([]uint32, len(fn.Arguments))
-	for i, arg := range fn.Arguments {
-		paramID := b.builder.AddFunctionParameter(paramTypeIDs[i])
-		paramIDs[i] = paramID
+	// Emit function parameters (only for non-entry-point functions)
+	if !isEntryPoint {
+		for i, arg := range fn.Arguments {
+			paramID := b.builder.AddFunctionParameter(paramTypeIDs[i])
+			paramIDs[i] = paramID
 
-		// Add debug name if enabled
-		if b.options.Debug && arg.Name != "" {
-			b.builder.AddName(paramID, arg.Name)
+			// Add debug name if enabled
+			if b.options.Debug && arg.Name != "" {
+				b.builder.AddName(paramID, arg.Name)
+			}
 		}
 	}
 
 	// Emit function body
 	b.builder.AddLabel() // Entry block
 
-	// Create expression emitter for this function
-	emitter := &ExpressionEmitter{
-		backend:  b,
-		function: fn,
-		exprIDs:  make(map[ir.ExpressionHandle]uint32),
-		paramIDs: paramIDs,
-	}
+	// IMPORTANT: SPIR-V requires all OpVariable instructions at the START of the
+	// first block, BEFORE any other instructions (including OpLoad).
+	// Order: OpLabel -> OpVariable(s) -> OpLoad(s) -> other instructions
 
-	// Emit local variables
+	// 1. First, emit local variables (OpVariable)
 	localVarIDs := make([]uint32, len(fn.LocalVars))
 	for i, localVar := range fn.LocalVars {
 		varType, err := b.emitType(localVar.Type)
@@ -701,18 +843,44 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		if b.options.Debug && localVar.Name != "" {
 			b.builder.AddName(varID, localVar.Name)
 		}
+	}
 
-		// Initialize if needed
+	// 2. Now, load input variables for entry points (OpLoad comes AFTER OpVariable)
+	var outputVarID uint32
+	if isEntryPoint {
+		if inputVars, ok := b.entryInputVars[handle]; ok {
+			for i, varID := range inputVars {
+				// Get the type for loading
+				argTypeID, _ := b.emitType(fn.Arguments[i].Type)
+				// Load from input variable
+				loadedID := b.builder.AddLoad(argTypeID, varID)
+				paramIDs[i] = loadedID
+			}
+		}
+		outputVarID = b.entryOutputVars[handle]
+	}
+
+	// 3. Create expression emitter for this function
+	emitter := &ExpressionEmitter{
+		backend:      b,
+		function:     fn,
+		exprIDs:      make(map[ir.ExpressionHandle]uint32),
+		paramIDs:     paramIDs,
+		isEntryPoint: isEntryPoint,
+		outputVarID:  outputVarID,
+	}
+	emitter.localVarIDs = localVarIDs
+
+	// 4. Initialize local variables (now that emitter is available)
+	for i, localVar := range fn.LocalVars {
 		if localVar.Init != nil {
 			initID, err := emitter.emitExpression(*localVar.Init)
 			if err != nil {
 				return err
 			}
-			b.builder.AddStore(varID, initID)
+			b.builder.AddStore(localVarIDs[i], initID)
 		}
 	}
-
-	emitter.localVarIDs = localVarIDs
 
 	// Emit function body statements
 	for _, stmt := range fn.Body {
@@ -732,8 +900,12 @@ type ExpressionEmitter struct {
 	backend     *Backend
 	function    *ir.Function // Renamed from fn for consistency
 	exprIDs     map[ir.ExpressionHandle]uint32
-	paramIDs    []uint32 // Function parameter IDs
+	paramIDs    []uint32 // Function parameter IDs (or loaded input values for entry points)
 	localVarIDs []uint32 // Local variable IDs
+
+	// Entry point context
+	isEntryPoint bool   // True if this is an entry point function
+	outputVarID  uint32 // Output variable ID for entry point result
 
 	// Loop context stack for break/continue
 	loopStack []loopContext
@@ -976,6 +1148,7 @@ func (e *ExpressionEmitter) emitCompose(compose ir.ExprCompose) (uint32, error) 
 }
 
 // emitAccess emits a dynamic access operation.
+// Returns the VALUE at the indexed location (not a pointer).
 func (e *ExpressionEmitter) emitAccess(access ir.ExprAccess) (uint32, error) {
 	baseID, err := e.emitExpression(access.Base)
 	if err != nil {
@@ -988,7 +1161,6 @@ func (e *ExpressionEmitter) emitAccess(access ir.ExprAccess) (uint32, error) {
 	}
 
 	// Get result type from type inference
-	// Access returns a pointer to the indexed element
 	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
 	if err != nil {
 		return 0, fmt.Errorf("access base type: %w", err)
@@ -1026,11 +1198,18 @@ func (e *ExpressionEmitter) emitAccess(access ir.ExprAccess) (uint32, error) {
 		}
 	}
 
-	// Create pointer type for result (OpAccessChain returns pointer)
+	// Get the element type ID
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
+
+	// Create pointer type for OpAccessChain result
 	// Determine storage class from base (for now, assume Function)
-	resultType := e.backend.builder.AddTypePointer(StorageClassFunction, elementTypeID)
-	return e.backend.builder.AddAccessChain(resultType, baseID, indexID), nil
+	ptrType := e.backend.builder.AddTypePointer(StorageClassFunction, elementTypeID)
+
+	// OpAccessChain returns a pointer
+	ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
+
+	// Load the value from the pointer (expressions should return values, not pointers)
+	return e.backend.builder.AddLoad(elementTypeID, ptrID), nil
 }
 
 // emitAccessIndex emits a static index access operation.
@@ -1086,10 +1265,17 @@ func (e *ExpressionEmitter) emitAccessIndex(access ir.ExprAccessIndex) (uint32, 
 		}
 	}
 
-	// Create pointer type for result
+	// Get the element type ID
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
-	resultType := e.backend.builder.AddTypePointer(StorageClassFunction, elementTypeID)
-	return e.backend.builder.AddAccessChain(resultType, baseID, indexID), nil
+
+	// Create pointer type for OpAccessChain result
+	ptrType := e.backend.builder.AddTypePointer(StorageClassFunction, elementTypeID)
+
+	// OpAccessChain returns a pointer
+	ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
+
+	// Load the value from the pointer (expressions should return values, not pointers)
+	return e.backend.builder.AddLoad(elementTypeID, ptrID), nil
 }
 
 // emitLoad emits a load operation.
@@ -1463,7 +1649,13 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 			if err != nil {
 				return err
 			}
-			e.backend.builder.AddReturnValue(valueID)
+			if e.isEntryPoint && e.outputVarID != 0 {
+				// For entry points, store to output variable instead of returning
+				e.backend.builder.AddStore(e.outputVarID, valueID)
+				e.backend.builder.AddReturn()
+			} else {
+				e.backend.builder.AddReturnValue(valueID)
+			}
 		} else {
 			// Return void
 			e.backend.builder.AddReturn()

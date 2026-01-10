@@ -137,6 +137,43 @@ const (
 	DecorationOffset        Decoration = 35
 )
 
+// BuiltIn represents a SPIR-V built-in decoration value.
+type BuiltIn uint32
+
+// SPIR-V built-in values (used with DecorationBuiltIn).
+const (
+	BuiltInPosition            BuiltIn = 0
+	BuiltInPointSize           BuiltIn = 1
+	BuiltInClipDistance        BuiltIn = 3
+	BuiltInCullDistance        BuiltIn = 4
+	BuiltInVertexId            BuiltIn = 5
+	BuiltInInstanceId          BuiltIn = 6
+	BuiltInPrimitiveId         BuiltIn = 7
+	BuiltInInvocationId        BuiltIn = 8
+	BuiltInLayer               BuiltIn = 9
+	BuiltInViewportIndex       BuiltIn = 10
+	BuiltInTessLevelOuter      BuiltIn = 11
+	BuiltInTessLevelInner      BuiltIn = 12
+	BuiltInTessCoord           BuiltIn = 13
+	BuiltInPatchVertices       BuiltIn = 14
+	BuiltInFragCoord           BuiltIn = 15
+	BuiltInPointCoord          BuiltIn = 16
+	BuiltInFrontFacing         BuiltIn = 17
+	BuiltInSampleId            BuiltIn = 18
+	BuiltInSamplePosition      BuiltIn = 19
+	BuiltInSampleMask          BuiltIn = 20
+	BuiltInFragDepth           BuiltIn = 22
+	BuiltInHelperInvocation    BuiltIn = 23
+	BuiltInNumWorkgroups       BuiltIn = 24
+	BuiltInWorkgroupSize       BuiltIn = 25
+	BuiltInWorkgroupId         BuiltIn = 26
+	BuiltInLocalInvocationId   BuiltIn = 27
+	BuiltInGlobalInvocationId  BuiltIn = 28
+	BuiltInLocalInvocationIndex BuiltIn = 29
+	BuiltInVertexIndex         BuiltIn = 42
+	BuiltInInstanceIndex       BuiltIn = 43
+)
+
 // ExecutionModel represents a SPIR-V execution model.
 type ExecutionModel uint32
 
