@@ -557,7 +557,7 @@ func (l *Lowerer) lowerFor(forStmt *ForStmt, target *[]ir.Statement) error {
 
 // lowerWhile converts a while loop to IR.
 func (l *Lowerer) lowerWhile(whileStmt *WhileStmt, target *[]ir.Statement) error {
-	var body []ir.Statement
+	var body []ir.Statement //nolint:prealloc // Size varies based on loop content
 
 	// Check condition at start
 	condition, err := l.lowerExpression(whileStmt.Condition, &body)

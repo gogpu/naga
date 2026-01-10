@@ -652,17 +652,17 @@ func builtinToSPIRV(builtin ir.BuiltinValue) BuiltIn {
 	case ir.BuiltinFragDepth:
 		return BuiltInFragDepth
 	case ir.BuiltinSampleIndex:
-		return BuiltInSampleId
+		return BuiltInSampleID
 	case ir.BuiltinSampleMask:
 		return BuiltInSampleMask
 	case ir.BuiltinLocalInvocationID:
-		return BuiltInLocalInvocationId
+		return BuiltInLocalInvocationID
 	case ir.BuiltinLocalInvocationIndex:
 		return BuiltInLocalInvocationIndex
 	case ir.BuiltinGlobalInvocationID:
-		return BuiltInGlobalInvocationId
+		return BuiltInGlobalInvocationID
 	case ir.BuiltinWorkGroupID:
-		return BuiltInWorkgroupId
+		return BuiltInWorkgroupID
 	case ir.BuiltinNumWorkGroups:
 		return BuiltInNumWorkgroups
 	default:
@@ -749,6 +749,8 @@ func (b *Backend) emitFunctions() error {
 }
 
 // emitFunction emits a single function.
+//
+//nolint:gocognit,gocyclo,cyclop,nestif // SPIR-V generation has inherent complexity from spec requirements
 func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error {
 	// Check if this is an entry point function
 	isEntryPoint := false
@@ -1594,7 +1596,7 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 
 // emitStatement emits a statement.
 //
-//nolint:cyclop,gocyclo // Statement dispatch requires high cyclomatic complexity
+//nolint:cyclop,gocyclo,nestif // Statement dispatch requires high cyclomatic complexity
 func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	switch kind := stmt.Kind.(type) {
 	case ir.StmtEmit:
