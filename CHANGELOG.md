@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-01-10
+
+Critical SPIR-V backend fix for Intel Vulkan driver compatibility.
+
+### Fixed
+
+#### SPIR-V Backend
+- **Instruction ordering** — Fixed OpVariable declarations to appear before OpLoad instructions
+  - SPIR-V spec requires all OpVariable at START of first block
+  - Intel Iris Xe Graphics was rejecting shaders with incorrect ordering
+  - Other drivers (NVIDIA, AMD) were more lenient but technically incorrect
+- **Array access semantics** — Added OpLoad after OpAccessChain
+  - OpAccessChain returns pointer, but consumers expect values
+  - Fixed undefined behavior in array/struct member access
+
+### Changed
+- **Constant naming** — Renamed BuiltIn*Id constants to BuiltIn*ID (Go naming convention)
+  - `BuiltInVertexId` → `BuiltInVertexID`
+  - `BuiltInInstanceId` → `BuiltInInstanceID`
+  - `BuiltInPrimitiveId` → `BuiltInPrimitiveID`
+  - `BuiltInInvocationId` → `BuiltInInvocationID`
+  - `BuiltInSampleId` → `BuiltInSampleID`
+  - `BuiltInWorkgroupId` → `BuiltInWorkgroupID`
+  - `BuiltInLocalInvocationId` → `BuiltInLocalInvocationID`
+  - `BuiltInGlobalInvocationId` → `BuiltInGlobalInvocationID`
+
 ## [0.8.3] - 2026-01-04
 
 Critical MSL backend fix for vertex shader position output.

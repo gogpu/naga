@@ -135,6 +135,21 @@ Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
+## Released: v0.8.4 ✅
+
+**Focus:** SPIR-V instruction ordering for Intel Vulkan
+
+### Completed
+- [x] **OpVariable ordering** — Fixed to appear before OpLoad instructions (SPIR-V spec compliance)
+- [x] **OpAccessChain semantics** — Added OpLoad for array/struct member access
+- [x] **BuiltIn naming** — Renamed Id constants to ID (Go naming convention)
+
+### Tested
+- Intel Iris Xe Graphics (Vulkan 1.4.323) — Triangle rendering works
+- NVIDIA/AMD drivers — Compatible
+
+---
+
 ## Released: v0.8.3 ✅
 
 **Focus:** Critical MSL [[position]] fix
