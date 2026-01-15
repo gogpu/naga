@@ -11,6 +11,7 @@
   <a href="https://pkg.go.dev/github.com/gogpu/naga"><img src="https://pkg.go.dev/badge/github.com/gogpu/naga.svg" alt="Go Reference"></a>
   <a href="https://goreportcard.com/report/github.com/gogpu/naga"><img src="https://goreportcard.com/badge/github.com/gogpu/naga" alt="Go Report Card"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
+  <a href="https://github.com/gogpu/naga/releases"><img src="https://img.shields.io/github/v/release/gogpu/naga" alt="Latest Release"></a>
   <a href="https://github.com/gogpu/naga"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go Version"></a>
   <a href="https://github.com/gogpu/naga"><img src="https://img.shields.io/badge/CGO-none-success" alt="Zero CGO"></a>
   <a href="https://github.com/gogpu/gogpu/stargazers"><img src="https://img.shields.io/github/stars/gogpu/gogpu?style=flat&labelColor=555&color=yellow" alt="Stars"></a>
@@ -22,6 +23,21 @@
 </p>
 
 
+
+---
+
+## Overview
+
+**naga** is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language) to multiple backend formats without requiring CGO or external dependencies.
+
+### Key Features
+
+| Category | Capabilities |
+|----------|--------------|
+| **Input** | Full WGSL parser (140+ tokens) |
+| **Outputs** | SPIR-V, MSL, GLSL, HLSL |
+| **Compute** | Storage buffers, workgroups, atomics, barriers |
+| **Build** | Zero CGO, single binary |
 
 ---
 
@@ -45,11 +61,17 @@
 - **Validation** — Type checking and semantic validation
 - **CLI Tool** — `nagac` command-line compiler
 
+---
+
 ## Installation
 
 ```bash
 go get github.com/gogpu/naga
 ```
+
+**Requirements:** Go 1.25+
+
+---
 
 ## Usage
 
@@ -145,6 +167,8 @@ spirvOpts := spirv.Options{Version: spirv.Version1_3, Debug: true}
 spirvBytes, err := naga.GenerateSPIRV(module, spirvOpts)
 ```
 
+---
+
 ## Architecture
 
 ```
@@ -238,6 +262,8 @@ naga/
 - Atomic: `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor`, `atomicExchange`, `atomicCompareExchangeWeak`
 - Barriers: `workgroupBarrier`, `storageBarrier`, `textureBarrier`
 
+---
+
 ## Status
 
 **Current Version:** See [CHANGELOG.md](CHANGELOG.md) for release history.
@@ -251,23 +277,37 @@ naga/
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
+---
+
 ## References
 
 - [WGSL Specification](https://www.w3.org/TR/WGSL/)
 - [SPIR-V Specification](https://registry.khronos.org/SPIR-V/)
 - [naga (Rust)](https://github.com/gfx-rs/naga) — Original implementation
 
-## Related Projects
+---
 
-| Project | Description | Purpose |
-|---------|-------------|---------|
-| [gogpu/gogpu](https://github.com/gogpu/gogpu) | Graphics framework | GPU abstraction, windowing, input |
-| [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU | Vulkan, Metal, GLES, Software backends |
-| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics | Canvas API, scene graph, GPU text |
-| [gogpu/ui](https://github.com/gogpu/ui) | GUI toolkit | Widgets, layouts, themes (planned) |
-| [go-webgpu/webgpu](https://github.com/go-webgpu/webgpu) | FFI bindings | wgpu-native integration |
+## Ecosystem
 
-> **Note:** Always use the latest versions. Check each repository for current releases.
+**naga** is the shader compiler for the [GoGPU](https://github.com/gogpu) ecosystem.
+
+| Project | Description |
+|---------|-------------|
+| [gogpu/gogpu](https://github.com/gogpu/gogpu) | GPU framework with windowing and input |
+| [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU implementation |
+| **gogpu/naga** | **Shader compiler (this repo)** |
+| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics library |
+| [gogpu/ui](https://github.com/gogpu/ui) | GUI toolkit (planned) |
+
+---
+
+## Documentation
+
+- **[ROADMAP.md](ROADMAP.md)** — Development milestones
+- **[CHANGELOG.md](CHANGELOG.md)** — Release notes
+- **[pkg.go.dev](https://pkg.go.dev/github.com/gogpu/naga)** — API reference
+
+---
 
 ## Contributing
 
