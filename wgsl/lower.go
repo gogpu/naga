@@ -132,18 +132,22 @@ func (l *Lowerer) addError(message string, span Span) {
 	l.errors.Add(NewSourceError(message, span, l.source))
 }
 
-// registerBuiltinTypes registers WGSL built-in scalar and sampler types.
+// registerBuiltinTypes registers WGSL built-in scalar types.
+// Note: Sampler types are NOT pre-registered because they should only be emitted
+// when actually used in the shader. Pre-registering them causes SPIR-V to contain
+// OpTypeSampler instructions even in shaders without textures, which can cause
+// Vulkan validation errors or crashes on some drivers.
 func (l *Lowerer) registerBuiltinTypes() {
-	// Scalars
+	// Scalars - these are needed for literals and basic expressions
 	l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
 	l.registerType("f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2})
 	l.registerType("i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
 	l.registerType("u32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	l.registerType("bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 
-	// Samplers (opaque types for texture sampling)
-	l.registerType("sampler", ir.SamplerType{Comparison: false})
-	l.registerType("sampler_comparison", ir.SamplerType{Comparison: true})
+	// Samplers are NOT registered here. They will be created on-demand when
+	// the shader actually uses sampler or sampler_comparison types.
+	// See resolveNamedType() for lazy sampler type registration.
 }
 
 // registerType adds a type to the registry with deduplication and maps its name.
@@ -165,6 +169,7 @@ func (l *Lowerer) registerType(name string, inner ir.TypeInner) ir.TypeHandle {
 func (l *Lowerer) lowerStruct(s *StructDecl) error {
 	members := make([]ir.StructMember, len(s.Members))
 	var offset uint32
+	var maxAlign uint32 = 1
 	for i, m := range s.Members {
 		typeHandle, err := l.resolveType(m.Type)
 		if err != nil {
@@ -180,17 +185,104 @@ func (l *Lowerer) lowerStruct(s *StructDecl) error {
 			}
 		}
 
+		// Calculate proper alignment and size for WGSL uniform buffer layout
+		align, size := l.typeAlignmentAndSize(typeHandle)
+		if align > maxAlign {
+			maxAlign = align
+		}
+
+		// Align offset to the type's alignment requirement
+		offset = (offset + align - 1) &^ (align - 1)
+
 		members[i] = ir.StructMember{
 			Name:    m.Name,
 			Type:    typeHandle,
 			Binding: binding,
 			Offset:  offset,
 		}
-		// Simplified: assume each member is 16-byte aligned (actual layout is more complex)
-		offset += 16
+		offset += size
 	}
-	l.registerType(s.Name, ir.StructType{Members: members, Span: offset})
+	// Round struct size up to alignment of largest member
+	structSize := (offset + maxAlign - 1) &^ (maxAlign - 1)
+	l.registerType(s.Name, ir.StructType{Members: members, Span: structSize})
 	return nil
+}
+
+// typeAlignmentAndSize returns the alignment and size of a type for uniform buffer layout.
+// Follows WGSL/WebGPU alignment rules (similar to std140 but with some differences).
+func (l *Lowerer) typeAlignmentAndSize(handle ir.TypeHandle) (align, size uint32) {
+	typ := l.module.Types[handle]
+
+	switch t := typ.Inner.(type) {
+	case ir.ScalarType:
+		// f32, i32, u32: 4 bytes each
+		return 4, 4
+
+	case ir.VectorType:
+		// vec2: align 8, size 8
+		// vec3: align 16, size 12
+		// vec4: align 16, size 16
+		scalarSize := uint32(4) // Assume f32/i32/u32
+		switch t.Size {
+		case ir.Vec2:
+			return 8, scalarSize * 2
+		case ir.Vec3:
+			return 16, scalarSize * 3
+		case ir.Vec4:
+			return 16, scalarSize * 4
+		}
+
+	case ir.MatrixType:
+		// Matrix layout: column-major, each column is a vec with alignment
+		// mat2x2: align 8, size 16 (2 vec2 columns)
+		// mat3x3: align 16, size 48 (3 vec3 columns, each padded to 16)
+		// mat4x4: align 16, size 64 (4 vec4 columns)
+		colAlign, colSize := l.vectorAlignmentAndSize(uint8(t.Rows))
+		return colAlign, colSize * uint32(t.Columns)
+
+	case ir.ArrayType:
+		// Array elements are aligned to 16 bytes (rounded up)
+		elemAlign, elemSize := l.typeAlignmentAndSize(t.Base)
+		// Each array element is rounded up to vec4 alignment (16 bytes)
+		stride := (elemSize + 15) &^ 15
+		if elemAlign < 16 {
+			elemAlign = 16
+		}
+		if t.Size.Constant != nil {
+			return elemAlign, stride * *t.Size.Constant
+		}
+		// Runtime-sized array
+		return elemAlign, stride
+
+	case ir.StructType:
+		// Struct alignment is the max of its members, size is pre-calculated
+		var maxMemberAlign uint32 = 1
+		for _, member := range t.Members {
+			memberAlign, _ := l.typeAlignmentAndSize(member.Type)
+			if memberAlign > maxMemberAlign {
+				maxMemberAlign = memberAlign
+			}
+		}
+		return maxMemberAlign, t.Span
+	}
+
+	// Default fallback
+	return 4, 4
+}
+
+// vectorAlignmentAndSize returns alignment and size for a vector of given component count.
+func (l *Lowerer) vectorAlignmentAndSize(components uint8) (align, size uint32) {
+	scalarSize := uint32(4) // f32/i32/u32
+	switch components {
+	case 2:
+		return 8, scalarSize * 2
+	case 3:
+		return 16, scalarSize * 3
+	case 4:
+		return 16, scalarSize * 4
+	default:
+		return 4, scalarSize
+	}
 }
 
 // lowerGlobalVar converts a global variable declaration to IR.
@@ -201,6 +293,15 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 	}
 
 	space := l.addressSpace(v.AddressSpace)
+
+	// Samplers and textures must use SpaceHandle (maps to UniformConstant in SPIR-V)
+	// This is required by Vulkan: "Variables identified with the UniformConstant
+	// storage class are used only as handles to refer to opaque resources.
+	// Such variables must be typed as OpTypeImage, OpTypeSampler, OpTypeSampledImage"
+	if l.isOpaqueResourceType(typeHandle) {
+		space = ir.SpaceHandle
+	}
+
 	var binding *ir.ResourceBinding
 
 	// Parse @group and @binding attributes
@@ -956,6 +1057,15 @@ func (l *Lowerer) resolveNamedType(t *NamedType) (ir.TypeHandle, error) {
 		return handle, nil
 	}
 
+	// Lazy registration of sampler types (only when actually used in shader)
+	// This prevents OpTypeSampler from appearing in shaders without textures
+	switch t.Name {
+	case "sampler":
+		return l.registerType("sampler", ir.SamplerType{Comparison: false}), nil
+	case "sampler_comparison":
+		return l.registerType("sampler_comparison", ir.SamplerType{Comparison: true}), nil
+	}
+
 	return 0, fmt.Errorf("unknown type: %s", t.Name)
 }
 
@@ -1278,6 +1388,21 @@ func (l *Lowerer) addressSpace(space string) ir.AddressSpace {
 		return s
 	}
 	return ir.SpaceFunction // Default
+}
+
+// isOpaqueResourceType checks if a type is an opaque resource (sampler or image/texture).
+// These types require SpaceHandle address space (UniformConstant in SPIR-V).
+func (l *Lowerer) isOpaqueResourceType(handle ir.TypeHandle) bool {
+	if int(handle) >= len(l.module.Types) {
+		return false
+	}
+	typ := l.module.Types[handle]
+	switch typ.Inner.(type) {
+	case ir.SamplerType, ir.ImageType:
+		return true
+	default:
+		return false
+	}
 }
 
 func (l *Lowerer) textureDim(name string) ir.ImageDimension {
