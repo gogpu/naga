@@ -986,98 +986,43 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 
 	switch kind := expr.Kind.(type) {
 	case ir.Literal:
-		// Emit literal as constant
 		id, err = e.emitLiteral(kind.Value)
-
 	case ir.ExprConstant:
-		// Reference module-level constant
-		id, ok := e.backend.constantIDs[kind.Constant]
-		if !ok {
-			return 0, fmt.Errorf("constant not found: %v", kind.Constant)
-		}
-		return id, nil
-
+		return e.emitConstantRef(kind)
 	case ir.ExprCompose:
-		// Composite construction
 		id, err = e.emitCompose(kind)
-
 	case ir.ExprAccess:
-		// Dynamic array/vector access
 		id, err = e.emitAccess(kind)
-
 	case ir.ExprAccessIndex:
-		// Static array/vector/struct access
 		id, err = e.emitAccessIndex(kind)
-
 	case ir.ExprFunctionArgument:
-		// Function parameter reference
-		if int(kind.Index) >= len(e.paramIDs) {
-			return 0, fmt.Errorf("function argument index out of range: %d", kind.Index)
-		}
-		return e.paramIDs[kind.Index], nil
-
+		return e.emitFunctionArgRef(kind)
 	case ir.ExprGlobalVariable:
-		// Global variable reference
-		id, ok := e.backend.globalIDs[kind.Variable]
-		if !ok {
-			return 0, fmt.Errorf("global variable not found: %v", kind.Variable)
-		}
-		return id, nil
-
+		return e.emitGlobalVarRef(kind)
 	case ir.ExprLocalVariable:
-		// Local variable reference
-		if int(kind.Variable) >= len(e.localVarIDs) {
-			return 0, fmt.Errorf("local variable index out of range: %d", kind.Variable)
-		}
-		return e.localVarIDs[kind.Variable], nil
-
+		return e.emitLocalVarRef(kind)
 	case ir.ExprLoad:
-		// Load from pointer
 		id, err = e.emitLoad(kind)
-
 	case ir.ExprUnary:
-		// Unary operation
 		id, err = e.emitUnary(kind)
-
 	case ir.ExprBinary:
-		// Binary operation
 		id, err = e.emitBinary(kind)
-
 	case ir.ExprSelect:
-		// Select (ternary operator)
 		id, err = e.emitSelect(kind)
-
 	case ir.ExprMath:
-		// Math built-in functions
 		id, err = e.emitMath(kind)
-
 	case ir.ExprDerivative:
-		// Derivative functions
 		id, err = e.emitDerivative(kind)
-
 	case ir.ExprImageSample:
-		// Texture sampling
 		id, err = e.emitImageSample(kind)
-
 	case ir.ExprImageLoad:
-		// Texture load
 		id, err = e.emitImageLoad(kind)
-
 	case ir.ExprImageQuery:
-		// Image query
 		id, err = e.emitImageQuery(kind)
-
 	case ir.ExprAtomicResult:
-		// Atomic result - should have been set by emitAtomic
-		if existingID, ok := e.exprIDs[handle]; ok {
-			return existingID, nil
-		}
-		return 0, fmt.Errorf("atomic result expression not found - emitAtomic should have set it")
-
+		return e.emitAtomicResultRef(handle)
 	case ir.ExprSwizzle:
-		// Vector swizzle (.xyz, .rgb, etc.)
 		id, err = e.emitSwizzle(kind)
-
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -1132,6 +1077,48 @@ func (e *ExpressionEmitter) emitLiteral(value ir.LiteralValue) (uint32, error) {
 	default:
 		return 0, fmt.Errorf("unsupported literal type: %T", v)
 	}
+}
+
+// emitConstantRef returns the SPIR-V ID for a module-level constant.
+func (e *ExpressionEmitter) emitConstantRef(kind ir.ExprConstant) (uint32, error) {
+	id, ok := e.backend.constantIDs[kind.Constant]
+	if !ok {
+		return 0, fmt.Errorf("constant not found: %v", kind.Constant)
+	}
+	return id, nil
+}
+
+// emitFunctionArgRef returns the SPIR-V ID for a function parameter.
+func (e *ExpressionEmitter) emitFunctionArgRef(kind ir.ExprFunctionArgument) (uint32, error) {
+	if int(kind.Index) >= len(e.paramIDs) {
+		return 0, fmt.Errorf("function argument index out of range: %d", kind.Index)
+	}
+	return e.paramIDs[kind.Index], nil
+}
+
+// emitGlobalVarRef returns the SPIR-V ID for a global variable.
+func (e *ExpressionEmitter) emitGlobalVarRef(kind ir.ExprGlobalVariable) (uint32, error) {
+	id, ok := e.backend.globalIDs[kind.Variable]
+	if !ok {
+		return 0, fmt.Errorf("global variable not found: %v", kind.Variable)
+	}
+	return id, nil
+}
+
+// emitLocalVarRef returns the SPIR-V ID for a local variable.
+func (e *ExpressionEmitter) emitLocalVarRef(kind ir.ExprLocalVariable) (uint32, error) {
+	if int(kind.Variable) >= len(e.localVarIDs) {
+		return 0, fmt.Errorf("local variable index out of range: %d", kind.Variable)
+	}
+	return e.localVarIDs[kind.Variable], nil
+}
+
+// emitAtomicResultRef returns the SPIR-V ID for an atomic result (set by emitAtomic).
+func (e *ExpressionEmitter) emitAtomicResultRef(handle ir.ExpressionHandle) (uint32, error) {
+	if existingID, ok := e.exprIDs[handle]; ok {
+		return existingID, nil
+	}
+	return 0, fmt.Errorf("atomic result expression not found - emitAtomic should have set it")
 }
 
 // emitCompose emits a composite construction.
