@@ -75,16 +75,18 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 		b.emitDebugNames()
 	}
 
-	// 8. Decorations
-	b.emitDecorations()
-
-	// 9. Types and constants
+	// 8. Types and constants
+	// Must be emitted before decorations because decorations need type IDs.
 	if err := b.emitTypes(); err != nil {
 		return nil, err
 	}
 	if err := b.emitConstants(); err != nil {
 		return nil, err
 	}
+
+	// 9. Struct member decorations (offsets)
+	// Must be after emitTypes() so typeIDs is populated.
+	b.emitStructMemberDecorations()
 
 	// 10. Global variables
 	if err := b.emitGlobals(); err != nil {
@@ -160,23 +162,10 @@ func (b *Backend) emitDebugNames() {
 	}
 }
 
-// emitDecorations adds decorations for globals and entry points.
-func (b *Backend) emitDecorations() {
-	// Global variable decorations (bindings, locations, built-ins)
-	for handle, global := range b.module.GlobalVariables {
-		id, ok := b.globalIDs[ir.GlobalVariableHandle(handle)]
-		if !ok {
-			continue
-		}
-
-		// Resource bindings (@group, @binding)
-		if global.Binding != nil {
-			b.builder.AddDecorate(id, DecorationDescriptorSet, global.Binding.Group)
-			b.builder.AddDecorate(id, DecorationBinding, global.Binding.Binding)
-		}
-	}
-
-	// Struct member decorations (offsets)
+// emitStructMemberDecorations adds offset decorations for struct members.
+// Must be called after emitTypes() so that typeIDs is populated.
+// Note: Global variable decorations (@group, @binding, Block) are added in emitGlobals().
+func (b *Backend) emitStructMemberDecorations() {
 	for handle, typ := range b.module.Types {
 		structType, ok := typ.Inner.(ir.StructType)
 		if !ok {
@@ -544,6 +533,12 @@ func (b *Backend) emitGlobals() error {
 			return err
 		}
 
+		// Add Block decoration for struct types in Uniform/Storage/PushConstant address spaces.
+		// This is required by Vulkan spec (VUID-StandaloneSpirv-Uniform-06676).
+		if b.needsBlockDecoration(global.Space, global.Type) {
+			b.builder.AddDecorate(varType, DecorationBlock)
+		}
+
 		// Create pointer type for the variable
 		storageClass := addressSpaceToStorageClass(global.Space)
 		ptrType := b.builder.AddTypePointer(storageClass, varType)
@@ -564,8 +559,28 @@ func (b *Backend) emitGlobals() error {
 
 		// Cache the variable ID
 		b.globalIDs[ir.GlobalVariableHandle(handle)] = varID
+
+		// Add decorations for resource bindings (@group, @binding)
+		// Must be done here because we now have the varID
+		if global.Binding != nil {
+			b.builder.AddDecorate(varID, DecorationDescriptorSet, global.Binding.Group)
+			b.builder.AddDecorate(varID, DecorationBinding, global.Binding.Binding)
+		}
 	}
 	return nil
+}
+
+// needsBlockDecoration returns true if a struct type in the given address space
+// needs the Block decoration per Vulkan SPIR-V requirements.
+func (b *Backend) needsBlockDecoration(space ir.AddressSpace, typeHandle ir.TypeHandle) bool {
+	switch space {
+	case ir.SpaceUniform, ir.SpaceStorage, ir.SpacePushConstant:
+		typ := &b.module.Types[typeHandle]
+		_, isStruct := typ.Inner.(ir.StructType)
+		return isStruct
+	default:
+		return false
+	}
 }
 
 // emitEntryPointInterfaceVars creates input/output variables for entry point builtins and locations.
