@@ -132,7 +132,7 @@ func (l *Lowerer) addError(message string, span Span) {
 	l.errors.Add(NewSourceError(message, span, l.source))
 }
 
-// registerBuiltinTypes registers WGSL built-in scalar types.
+// registerBuiltinTypes registers WGSL built-in scalar and sampler types.
 func (l *Lowerer) registerBuiltinTypes() {
 	// Scalars
 	l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
@@ -140,6 +140,10 @@ func (l *Lowerer) registerBuiltinTypes() {
 	l.registerType("i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
 	l.registerType("u32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	l.registerType("bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+
+	// Samplers (opaque types for texture sampling)
+	l.registerType("sampler", ir.SamplerType{Comparison: false})
+	l.registerType("sampler_comparison", ir.SamplerType{Comparison: true})
 }
 
 // registerType adds a type to the registry with deduplication and maps its name.
@@ -166,10 +170,21 @@ func (l *Lowerer) lowerStruct(s *StructDecl) error {
 		if err != nil {
 			return fmt.Errorf("struct %s member %s: %w", s.Name, m.Name, err)
 		}
+
+		// Extract binding from member attributes (@builtin, @location, etc.)
+		var binding *ir.Binding
+		for _, attr := range m.Attributes {
+			if b := l.memberBinding(&attr); b != nil {
+				binding = b
+				break
+			}
+		}
+
 		members[i] = ir.StructMember{
-			Name:   m.Name,
-			Type:   typeHandle,
-			Offset: offset,
+			Name:    m.Name,
+			Type:    typeHandle,
+			Binding: binding,
+			Offset:  offset,
 		}
 		// Simplified: assume each member is 16-byte aligned (actual layout is more complex)
 		offset += 16
@@ -1166,6 +1181,28 @@ func (l *Lowerer) paramBinding(attrs []Attribute) *ir.Binding {
 
 func (l *Lowerer) returnBinding(attrs []Attribute) *ir.Binding {
 	return l.paramBinding(attrs) // Same logic for return bindings
+}
+
+// memberBinding extracts binding from a single struct member attribute.
+func (l *Lowerer) memberBinding(attr *Attribute) *ir.Binding {
+	switch attr.Name {
+	case "builtin":
+		if len(attr.Args) > 0 {
+			if id, ok := attr.Args[0].(*Ident); ok {
+				var binding ir.Binding = ir.BuiltinBinding{Builtin: l.builtin(id.Name)}
+				return &binding
+			}
+		}
+	case "location":
+		if len(attr.Args) > 0 {
+			if lit, ok := attr.Args[0].(*Literal); ok {
+				loc, _ := strconv.ParseUint(lit.Value, 10, 32)
+				var binding ir.Binding = ir.LocationBinding{Location: uint32(loc)}
+				return &binding
+			}
+		}
+	}
+	return nil
 }
 
 func (l *Lowerer) entryPointStage(attrs []Attribute) *ir.ShaderStage {

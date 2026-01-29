@@ -522,6 +522,21 @@ func (b *ModuleBuilder) AddCompositeConstruct(resultType uint32, constituents ..
 	return resultID
 }
 
+// AddVectorShuffle adds OpVectorShuffle for vector swizzle operations.
+func (b *ModuleBuilder) AddVectorShuffle(resultType uint32, vec1 uint32, vec2 uint32, components []uint32) uint32 {
+	resultID := b.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultType)
+	builder.AddWord(resultID)
+	builder.AddWord(vec1)
+	builder.AddWord(vec2)
+	for _, component := range components {
+		builder.AddWord(component)
+	}
+	b.functions = append(b.functions, builder.Build(OpVectorShuffle))
+	return resultID
+}
+
 // AddSelect adds OpSelect.
 func (b *ModuleBuilder) AddSelect(resultType uint32, condition uint32, accept uint32, reject uint32) uint32 {
 	resultID := b.AllocID()

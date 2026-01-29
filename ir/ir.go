@@ -128,9 +128,10 @@ func (StructType) typeInner() {}
 
 // StructMember represents a struct member.
 type StructMember struct {
-	Name   string
-	Type   TypeHandle
-	Offset uint32
+	Name    string
+	Type    TypeHandle
+	Binding *Binding // @builtin(position), @location(0), etc.
+	Offset  uint32
 }
 
 // PointerType represents pointer types.

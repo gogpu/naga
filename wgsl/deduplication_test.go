@@ -46,13 +46,14 @@ func TestTypeDeduplication(t *testing.T) {
 
 	// Expected types:
 	// Built-ins: f32, f16, i32, u32, bool (5 types)
+	// Built-in samplers: sampler, sampler_comparison (2 types)
 	// User types:
 	// 1. vec4<f32> (vector) - deduplicated, should appear only once
 	// 2. Vertex (struct)
-	// Total: 7 unique types
+	// Total: 9 unique types
 
-	if typeCount != 7 {
-		t.Errorf("Expected 7 unique types, got %d", typeCount)
+	if typeCount != 9 {
+		t.Errorf("Expected 9 unique types, got %d", typeCount)
 		for i, typ := range module.Types {
 			t.Logf("Type %d: %s (%T)", i, typ.Name, typ.Inner)
 		}
@@ -102,14 +103,15 @@ func TestTypeDeduplicationMultipleStructs(t *testing.T) {
 
 	// Expected types:
 	// Built-ins: f32, f16, i32, u32, bool (5 types)
+	// Built-in samplers: sampler, sampler_comparison (2 types)
 	// User types:
 	// 1. vec4<f32> (vector) - used in both structs but deduplicated
 	// 2. A (struct)
 	// 3. B (struct)
-	// Total: 8 unique types
+	// Total: 10 unique types
 
-	if len(module.Types) != 8 {
-		t.Errorf("Expected 8 unique types, got %d", len(module.Types))
+	if len(module.Types) != 10 {
+		t.Errorf("Expected 10 unique types, got %d", len(module.Types))
 		for i, typ := range module.Types {
 			t.Logf("Type %d: %s (%T)", i, typ.Name, typ.Inner)
 		}

@@ -1074,6 +1074,10 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		}
 		return 0, fmt.Errorf("atomic result expression not found - emitAtomic should have set it")
 
+	case ir.ExprSwizzle:
+		// Vector swizzle (.xyz, .rgb, etc.)
+		id, err = e.emitSwizzle(kind)
+
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -1278,6 +1282,57 @@ func (e *ExpressionEmitter) emitAccessIndex(access ir.ExprAccessIndex) (uint32, 
 
 	// Load the value from the pointer (expressions should return values, not pointers)
 	return e.backend.builder.AddLoad(elementTypeID, ptrID), nil
+}
+
+// emitSwizzle emits a vector swizzle operation (.xyz, .rgb, etc.).
+// Uses OpVectorShuffle to rearrange vector components.
+func (e *ExpressionEmitter) emitSwizzle(swizzle ir.ExprSwizzle) (uint32, error) {
+	vectorID, err := e.emitExpression(swizzle.Vector)
+	if err != nil {
+		return 0, err
+	}
+
+	scalar, err := e.extractVectorScalar(swizzle.Vector)
+	if err != nil {
+		return 0, err
+	}
+
+	// Create result type (vector with swizzle.Size components)
+	resultTypeID := e.backend.emitInlineType(ir.VectorType{
+		Size:   swizzle.Size,
+		Scalar: scalar,
+	})
+
+	// Build component indices for OpVectorShuffle
+	components := make([]uint32, swizzle.Size)
+	for i := ir.VectorSize(0); i < swizzle.Size; i++ {
+		components[i] = uint32(swizzle.Pattern[i])
+	}
+
+	// OpVectorShuffle: shuffles components from one or two vectors
+	// We use the same vector for both operands when doing a simple swizzle
+	return e.backend.builder.AddVectorShuffle(resultTypeID, vectorID, vectorID, components), nil
+}
+
+// extractVectorScalar extracts the scalar type from a vector expression.
+func (e *ExpressionEmitter) extractVectorScalar(handle ir.ExpressionHandle) (ir.ScalarType, error) {
+	vectorType, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
+	if err != nil {
+		return ir.ScalarType{}, fmt.Errorf("swizzle vector type: %w", err)
+	}
+
+	if vectorType.Handle != nil {
+		inner := e.backend.module.Types[*vectorType.Handle].Inner
+		if vec, ok := inner.(ir.VectorType); ok {
+			return vec.Scalar, nil
+		}
+		return ir.ScalarType{}, fmt.Errorf("swizzle requires vector type, got %T", inner)
+	}
+
+	if vec, ok := vectorType.Value.(ir.VectorType); ok {
+		return vec.Scalar, nil
+	}
+	return ir.ScalarType{}, fmt.Errorf("swizzle requires vector type, got %T", vectorType.Value)
 }
 
 // emitLoad emits a load operation.

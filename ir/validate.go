@@ -675,11 +675,12 @@ func (v *Validator) validateEntryPoints() {
 		switch ep.Stage {
 		case StageVertex:
 			// Vertex shader must return @builtin(position)
+			// Position can be either:
+			// 1. Direct return: fn() -> @builtin(position) vec4<f32>
+			// 2. Struct member: fn() -> VertexOutput { @builtin(position) pos: vec4<f32>, ... }
 			if fn.Result == nil {
 				v.addError(fmt.Sprintf("entry point %q (@vertex): must have a return value", ep.Name))
-			} else if fn.Result.Binding == nil {
-				v.addError(fmt.Sprintf("entry point %q (@vertex): result must have binding", ep.Name))
-			} else if b, ok := (*fn.Result.Binding).(BuiltinBinding); !ok || b.Builtin != BuiltinPosition {
+			} else if !v.hasPositionBuiltin(fn.Result) {
 				v.addError(fmt.Sprintf("entry point %q (@vertex): must return @builtin(position)", ep.Name))
 			}
 
@@ -694,6 +695,43 @@ func (v *Validator) validateEntryPoints() {
 			}
 		}
 	}
+}
+
+// hasPositionBuiltin checks if the function result contains @builtin(position).
+// This can be either:
+// 1. Direct binding on result: fn() -> @builtin(position) vec4<f32>
+// 2. Struct member binding: fn() -> Struct { @builtin(position) pos: vec4<f32> }
+func (v *Validator) hasPositionBuiltin(result *FunctionResult) bool {
+	// Case 1: Direct binding on result
+	if result.Binding != nil && isPositionBuiltin(*result.Binding) {
+		return true
+	}
+
+	// Case 2: Check struct members for @builtin(position)
+	return v.structHasPositionBuiltin(result.Type)
+}
+
+// isPositionBuiltin checks if a binding is @builtin(position).
+func isPositionBuiltin(binding Binding) bool {
+	b, ok := binding.(BuiltinBinding)
+	return ok && b.Builtin == BuiltinPosition
+}
+
+// structHasPositionBuiltin checks if a struct type has a member with @builtin(position).
+func (v *Validator) structHasPositionBuiltin(typeHandle TypeHandle) bool {
+	if int(typeHandle) >= len(v.module.Types) {
+		return false
+	}
+	structType, ok := v.module.Types[typeHandle].Inner.(StructType)
+	if !ok {
+		return false
+	}
+	for _, member := range structType.Members {
+		if member.Binding != nil && isPositionBuiltin(*member.Binding) {
+			return true
+		}
+	}
+	return false
 }
 
 // Helper methods for validation
