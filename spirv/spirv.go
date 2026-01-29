@@ -48,8 +48,13 @@ type Capability uint32
 
 // Common capabilities
 const (
-	CapabilityShader Capability = 1
-	CapabilityMatrix Capability = 0 // Implied by Shader
+	CapabilityMatrix  Capability = 0 // Implied by Shader
+	CapabilityShader  Capability = 1
+	CapabilityFloat16 Capability = 9  // Required for OpTypeFloat 16
+	CapabilityFloat64 Capability = 10 // Required for OpTypeFloat 64
+	CapabilityInt64   Capability = 11 // Required for OpTypeInt 64
+	CapabilityInt16   Capability = 22 // Required for OpTypeInt 16
+	CapabilityInt8    Capability = 39 // Required for OpTypeInt 8
 )
 
 // Writer generates SPIR-V from IR.
@@ -105,6 +110,7 @@ const (
 	OpTypeFunction      OpCode = 33
 	OpConstant          OpCode = 43
 	OpConstantComposite OpCode = 44
+	OpConstantNull      OpCode = 46
 	OpFunction          OpCode = 54
 	OpFunctionParameter OpCode = 55
 	OpFunctionEnd       OpCode = 56
@@ -344,9 +350,10 @@ const (
 
 // Composite opcodes
 const (
-	OpCompositeConstruct OpCode = 80 // Construct composite
-	OpCompositeExtract   OpCode = 81 // Extract from composite
-	OpVectorShuffle      OpCode = 79 // Shuffle vector components
+	OpVectorExtractDynamic OpCode = 77 // Extract from vector with dynamic index
+	OpVectorShuffle        OpCode = 79 // Shuffle vector components
+	OpCompositeConstruct   OpCode = 80 // Construct composite
+	OpCompositeExtract     OpCode = 81 // Extract from composite
 )
 
 // Bitwise opcodes

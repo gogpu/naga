@@ -7,6 +7,34 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
+// entryPointInput describes how an entry point input argument is structured.
+// For struct inputs with member bindings, we create separate Input variables
+// for each member, then composite construct and store to a local variable.
+type entryPointInput struct {
+	// isStruct is true if the input is a struct with member bindings
+	isStruct bool
+	// singleVarID is the input variable ID for non-struct inputs
+	singleVarID uint32
+	// memberVarIDs maps struct member index to input variable ID
+	memberVarIDs map[int]uint32
+	// typeID is the SPIR-V type ID of the argument
+	typeID uint32
+}
+
+// entryPointOutput describes how entry point outputs are structured.
+// For struct outputs with member bindings, we create separate output
+// variables for each member. For simple outputs, we have a single variable.
+type entryPointOutput struct {
+	// isStruct is true if the output is a struct with member bindings
+	isStruct bool
+	// singleVarID is the output variable ID for non-struct outputs
+	singleVarID uint32
+	// memberVarIDs maps struct member index to output variable ID
+	memberVarIDs map[int]uint32
+	// resultTypeID is the SPIR-V type ID of the result (for struct decomposition)
+	resultTypeID uint32
+}
+
 // Backend translates IR to SPIR-V.
 type Backend struct {
 	module  *ir.Module
@@ -29,21 +57,60 @@ type Backend struct {
 	glslExtID uint32
 
 	// Entry point interface variables (for builtins and locations).
-	// Key: entry point function handle, Value: map of arg index → variable ID
-	entryInputVars  map[ir.FunctionHandle]map[int]uint32
-	entryOutputVars map[ir.FunctionHandle]uint32 // For function result
+	// Key: entry point function handle
+	entryInputVars  map[ir.FunctionHandle]map[int]*entryPointInput // arg index → input info
+	entryOutputVars map[ir.FunctionHandle]*entryPointOutput        // For function result
+
+	// Cached sampled image type (for texture sampling operations)
+	// Key: image dimension + arrayed, Value: SPIR-V type ID
+	sampledImageTypeIDs map[uint32]uint32
+
+	// Cached image type (for reuse)
+	// Key: image dimension + arrayed, Value: SPIR-V type ID
+	imageTypeIDs map[uint32]uint32
+
+	// Cached scalar types (f32, i32, u32, bool, f16, etc.)
+	// Key: (kind << 8) | width, Value: SPIR-V type ID
+	scalarTypeIDs map[uint32]uint32
+
+	// Cached pointer types
+	// Key: (storageClass << 24) | baseTypeID, Value: SPIR-V type ID
+	pointerTypeIDs map[uint32]uint32
+
+	// Cached vector types
+	// Key: (componentTypeID << 8) | componentCount, Value: SPIR-V type ID
+	vectorTypeIDs map[uint32]uint32
+
+	// Track used capabilities (to avoid duplicates)
+	usedCapabilities map[Capability]bool
+
+	// Cached void type ID (only one void type allowed in SPIR-V)
+	voidTypeID uint32
+
+	// Cached void function type ID (for entry points)
+	voidFuncTypeID uint32
+
+	// Cached function types (key: concatenated return + param type IDs)
+	funcTypeIDs map[string]uint32
 }
 
 // NewBackend creates a new SPIR-V backend.
 func NewBackend(options Options) *Backend {
 	return &Backend{
-		options:         options,
-		typeIDs:         make(map[ir.TypeHandle]uint32),
-		constantIDs:     make(map[ir.ConstantHandle]uint32),
-		globalIDs:       make(map[ir.GlobalVariableHandle]uint32),
-		functionIDs:     make(map[ir.FunctionHandle]uint32),
-		entryInputVars:  make(map[ir.FunctionHandle]map[int]uint32),
-		entryOutputVars: make(map[ir.FunctionHandle]uint32),
+		options:             options,
+		typeIDs:             make(map[ir.TypeHandle]uint32),
+		constantIDs:         make(map[ir.ConstantHandle]uint32),
+		globalIDs:           make(map[ir.GlobalVariableHandle]uint32),
+		functionIDs:         make(map[ir.FunctionHandle]uint32),
+		entryInputVars:      make(map[ir.FunctionHandle]map[int]*entryPointInput),
+		entryOutputVars:     make(map[ir.FunctionHandle]*entryPointOutput),
+		sampledImageTypeIDs: make(map[uint32]uint32),
+		imageTypeIDs:        make(map[uint32]uint32),
+		scalarTypeIDs:       make(map[uint32]uint32),
+		pointerTypeIDs:      make(map[uint32]uint32),
+		vectorTypeIDs:       make(map[uint32]uint32),
+		usedCapabilities:    make(map[Capability]bool),
+		funcTypeIDs:         make(map[string]uint32),
 	}
 }
 
@@ -114,10 +181,18 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 // emitCapabilities adds required SPIR-V capabilities.
 func (b *Backend) emitCapabilities() {
 	// Shader capability is required for all shader stages
-	b.builder.AddCapability(CapabilityShader)
+	b.addCapability(CapabilityShader)
 
 	// Add user-requested capabilities
 	for _, cap := range b.options.Capabilities {
+		b.addCapability(cap)
+	}
+}
+
+// addCapability adds a capability if not already added.
+func (b *Backend) addCapability(cap Capability) {
+	if !b.usedCapabilities[cap] {
+		b.usedCapabilities[cap] = true
 		b.builder.AddCapability(cap)
 	}
 }
@@ -215,11 +290,11 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 
 	case ir.VectorType:
 		scalarID := b.emitScalarType(inner.Scalar)
-		id = b.builder.AddTypeVector(scalarID, uint32(inner.Size))
+		id = b.emitVectorType(scalarID, uint32(inner.Size))
 
 	case ir.MatrixType:
 		scalarID := b.emitScalarType(inner.Scalar)
-		columnTypeID := b.builder.AddTypeVector(scalarID, uint32(inner.Rows))
+		columnTypeID := b.emitVectorType(scalarID, uint32(inner.Rows))
 		id = b.builder.AddTypeMatrix(columnTypeID, uint32(inner.Columns))
 
 	case ir.ArrayType:
@@ -266,7 +341,7 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		}
 
 		storageClass := addressSpaceToStorageClass(inner.Space)
-		id = b.builder.AddTypePointer(storageClass, baseID)
+		id = b.emitPointerType(storageClass, baseID)
 
 	case ir.SamplerType:
 		// OpTypeSampler has no operands
@@ -295,28 +370,150 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 }
 
 // emitScalarType emits a scalar type and returns its SPIR-V ID.
-// This is a helper that doesn't use the type cache.
+// Uses cache to ensure type deduplication (SPIR-V requires unique types).
 func (b *Backend) emitScalarType(scalar ir.ScalarType) uint32 {
+	// Create cache key: (kind << 8) | width
+	key := (uint32(scalar.Kind) << 8) | uint32(scalar.Width)
+
+	// Check cache first
+	if id, ok := b.scalarTypeIDs[key]; ok {
+		return id
+	}
+
+	// Create new type
+	var id uint32
 	switch scalar.Kind {
 	case ir.ScalarBool:
-		return b.builder.AddTypeBool()
+		id = b.builder.AddTypeBool()
 
 	case ir.ScalarFloat:
-		return b.builder.AddTypeFloat(uint32(scalar.Width) * 8) // bytes to bits
+		widthBits := uint32(scalar.Width) * 8 // bytes to bits
+		// Add required capabilities for non-32-bit floats
+		switch widthBits {
+		case 16:
+			b.addCapability(CapabilityFloat16)
+		case 64:
+			b.addCapability(CapabilityFloat64)
+		}
+		id = b.builder.AddTypeFloat(widthBits)
 
 	case ir.ScalarSint:
-		return b.builder.AddTypeInt(uint32(scalar.Width)*8, true)
+		widthBits := uint32(scalar.Width) * 8
+		// Add required capabilities for non-32-bit integers
+		switch widthBits {
+		case 8:
+			b.addCapability(CapabilityInt8)
+		case 16:
+			b.addCapability(CapabilityInt16)
+		case 64:
+			b.addCapability(CapabilityInt64)
+		}
+		id = b.builder.AddTypeInt(widthBits, true)
 
 	case ir.ScalarUint:
-		return b.builder.AddTypeInt(uint32(scalar.Width)*8, false)
+		widthBits := uint32(scalar.Width) * 8
+		// Add required capabilities for non-32-bit integers
+		switch widthBits {
+		case 8:
+			b.addCapability(CapabilityInt8)
+		case 16:
+			b.addCapability(CapabilityInt16)
+		case 64:
+			b.addCapability(CapabilityInt64)
+		}
+		id = b.builder.AddTypeInt(widthBits, false)
 
 	default:
 		panic(fmt.Sprintf("unknown scalar kind: %v", scalar.Kind))
 	}
+
+	// Cache and return
+	b.scalarTypeIDs[key] = id
+	return id
 }
 
-// emitImageType emits OpTypeImage.
+// getVoidType returns the cached void type ID, creating it if needed.
+func (b *Backend) getVoidType() uint32 {
+	if b.voidTypeID == 0 {
+		b.voidTypeID = b.builder.AddTypeVoid()
+	}
+	return b.voidTypeID
+}
+
+// getFuncType returns a cached function type ID, creating it if needed.
+func (b *Backend) getFuncType(returnTypeID uint32, paramTypeIDs []uint32) uint32 {
+	// Build cache key from return type and param types
+	key := fmt.Sprintf("%d", returnTypeID)
+	for _, p := range paramTypeIDs {
+		key += fmt.Sprintf("_%d", p)
+	}
+
+	if id, ok := b.funcTypeIDs[key]; ok {
+		return id
+	}
+
+	id := b.builder.AddTypeFunction(returnTypeID, paramTypeIDs...)
+	b.funcTypeIDs[key] = id
+	return id
+}
+
+// emitPointerType emits a pointer type and returns its SPIR-V ID.
+// Uses cache to ensure type deduplication.
+func (b *Backend) emitPointerType(storageClass StorageClass, baseTypeID uint32) uint32 {
+	// Create cache key: (storageClass << 24) | baseTypeID
+	// This works for baseTypeID up to 16M which is plenty
+	key := (uint32(storageClass) << 24) | baseTypeID
+
+	// Check cache first
+	if id, ok := b.pointerTypeIDs[key]; ok {
+		return id
+	}
+
+	// Create new type
+	id := b.builder.AddTypePointer(storageClass, baseTypeID)
+	b.pointerTypeIDs[key] = id
+	return id
+}
+
+// emitVectorType emits a vector type and returns its SPIR-V ID.
+// Uses cache to ensure type deduplication.
+func (b *Backend) emitVectorType(componentTypeID uint32, componentCount uint32) uint32 {
+	// Create cache key: (componentTypeID << 8) | componentCount
+	key := (componentTypeID << 8) | componentCount
+
+	// Check cache first
+	if id, ok := b.vectorTypeIDs[key]; ok {
+		return id
+	}
+
+	// Create new type
+	id := b.builder.AddTypeVector(componentTypeID, componentCount)
+	b.vectorTypeIDs[key] = id
+	return id
+}
+
+// imageTypeKey creates a cache key for an image type.
+func imageTypeKey(img ir.ImageType) uint32 {
+	// Pack dimension (3 bits), arrayed (1 bit), multisampled (1 bit), class (3 bits)
+	key := uint32(img.Dim) & 0x07
+	if img.Arrayed {
+		key |= 0x08
+	}
+	if img.Multisampled {
+		key |= 0x10
+	}
+	key |= (uint32(img.Class) & 0x07) << 5
+	return key
+}
+
+// emitImageType emits OpTypeImage, with caching to avoid duplicates.
 func (b *Backend) emitImageType(sampledTypeID uint32, img ir.ImageType) uint32 {
+	// Check cache first
+	cacheKey := imageTypeKey(img)
+	if id, ok := b.imageTypeIDs[cacheKey]; ok {
+		return id
+	}
+
 	id := b.builder.AllocID()
 	builder := NewInstructionBuilder()
 	builder.AddWord(id)
@@ -373,6 +570,9 @@ func (b *Backend) emitImageType(sampledTypeID uint32, img ir.ImageType) uint32 {
 	builder.AddWord(0) // spirv::ImageFormat::Unknown
 
 	b.builder.types = append(b.builder.types, builder.Build(OpTypeImage))
+
+	// Cache the type for reuse
+	b.imageTypeIDs[cacheKey] = id
 	return id
 }
 
@@ -541,7 +741,7 @@ func (b *Backend) emitGlobals() error {
 
 		// Create pointer type for the variable
 		storageClass := addressSpaceToStorageClass(global.Space)
-		ptrType := b.builder.AddTypePointer(storageClass, varType)
+		ptrType := b.emitPointerType(storageClass, varType)
 
 		// Emit the variable
 		var varID uint32
@@ -589,65 +789,147 @@ func (b *Backend) needsBlockDecoration(space ir.AddressSpace, typeHandle ir.Type
 func (b *Backend) emitEntryPointInterfaceVars() error {
 	for _, entryPoint := range b.module.EntryPoints {
 		fn := &b.module.Functions[entryPoint.Function]
-		inputVars := make(map[int]uint32)
+		inputVars := make(map[int]*entryPointInput)
 
-		// Create input variables for function arguments with bindings
+		// Create input variables for function arguments
 		for i, arg := range fn.Arguments {
-			if arg.Binding == nil {
-				continue
-			}
-
 			argTypeID, err := b.emitType(arg.Type)
 			if err != nil {
 				return err
 			}
 
-			// Create pointer type with Input storage class
-			ptrType := b.builder.AddTypePointer(StorageClassInput, argTypeID)
-
-			// Create variable
-			varID := b.builder.AddVariable(ptrType, StorageClassInput)
-			inputVars[i] = varID
-
-			// Add decoration based on binding type
-			switch binding := (*arg.Binding).(type) {
-			case ir.BuiltinBinding:
-				spirvBuiltin := builtinToSPIRV(binding.Builtin)
-				b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
-			case ir.LocationBinding:
-				b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
+			input := &entryPointInput{
+				typeID:       argTypeID,
+				memberVarIDs: make(map[int]uint32),
 			}
 
-			// Add debug name if enabled
-			if b.options.Debug && arg.Name != "" {
-				b.builder.AddName(varID, arg.Name)
+			if arg.Binding != nil {
+				// Simple case: argument has direct binding (scalar/vector/builtin)
+				ptrType := b.emitPointerType(StorageClassInput, argTypeID)
+				varID := b.builder.AddVariable(ptrType, StorageClassInput)
+				input.singleVarID = varID
+
+				switch binding := (*arg.Binding).(type) {
+				case ir.BuiltinBinding:
+					spirvBuiltin := builtinToSPIRV(binding.Builtin)
+					b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+				case ir.LocationBinding:
+					b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
+				}
+
+				if b.options.Debug && arg.Name != "" {
+					b.builder.AddName(varID, arg.Name)
+				}
+			} else {
+				// Check if argument is a struct with member bindings
+				argTypeInner := b.module.Types[arg.Type].Inner
+				if structType, ok := argTypeInner.(ir.StructType); ok {
+					// Check if any member has a binding
+					hasBindings := false
+					for _, member := range structType.Members {
+						if member.Binding != nil {
+							hasBindings = true
+							break
+						}
+					}
+					if hasBindings {
+						input.isStruct = true
+						// Create separate Input variable for each member with a binding
+						for j, member := range structType.Members {
+							if member.Binding == nil {
+								continue
+							}
+							memberTypeID, err := b.emitType(member.Type)
+							if err != nil {
+								return err
+							}
+							ptrType := b.emitPointerType(StorageClassInput, memberTypeID)
+							varID := b.builder.AddVariable(ptrType, StorageClassInput)
+							input.memberVarIDs[j] = varID
+
+							if b.options.Debug && member.Name != "" {
+								b.builder.AddName(varID, member.Name)
+							}
+
+							switch binding := (*member.Binding).(type) {
+							case ir.BuiltinBinding:
+								spirvBuiltin := builtinToSPIRV(binding.Builtin)
+								b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+							case ir.LocationBinding:
+								b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
+							}
+						}
+					}
+				}
+				// If not a struct with bindings, input.singleVarID stays 0 (no input var needed)
 			}
+
+			inputVars[i] = input
 		}
 
 		b.entryInputVars[entryPoint.Function] = inputVars
 
-		// Create output variable for function result with binding
-		if fn.Result != nil && fn.Result.Binding != nil {
+		// Create output variables for function result
+		if fn.Result != nil {
 			resultTypeID, err := b.emitType(fn.Result.Type)
 			if err != nil {
 				return err
 			}
 
-			// Create pointer type with Output storage class
-			ptrType := b.builder.AddTypePointer(StorageClassOutput, resultTypeID)
-
-			// Create variable
-			varID := b.builder.AddVariable(ptrType, StorageClassOutput)
-			b.entryOutputVars[entryPoint.Function] = varID
-
-			// Add decoration based on binding type
-			switch binding := (*fn.Result.Binding).(type) {
-			case ir.BuiltinBinding:
-				spirvBuiltin := builtinToSPIRV(binding.Builtin)
-				b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
-			case ir.LocationBinding:
-				b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
+			output := &entryPointOutput{
+				resultTypeID: resultTypeID,
+				memberVarIDs: make(map[int]uint32),
 			}
+
+			if fn.Result.Binding != nil {
+				// Simple output with a single binding
+				ptrType := b.emitPointerType(StorageClassOutput, resultTypeID)
+				varID := b.builder.AddVariable(ptrType, StorageClassOutput)
+				output.singleVarID = varID
+
+				switch binding := (*fn.Result.Binding).(type) {
+				case ir.BuiltinBinding:
+					spirvBuiltin := builtinToSPIRV(binding.Builtin)
+					b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+				case ir.LocationBinding:
+					b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
+				}
+			} else {
+				// Check if it's a struct with member bindings
+				resultType := b.module.Types[fn.Result.Type].Inner
+				if structType, ok := resultType.(ir.StructType); ok {
+					output.isStruct = true
+					// Create separate output variable for each member with a binding
+					for i, member := range structType.Members {
+						if member.Binding == nil {
+							continue
+						}
+						memberTypeID, err := b.emitType(member.Type)
+						if err != nil {
+							return err
+						}
+						ptrType := b.emitPointerType(StorageClassOutput, memberTypeID)
+						varID := b.builder.AddVariable(ptrType, StorageClassOutput)
+						output.memberVarIDs[i] = varID
+
+						// Add debug name if enabled
+						if b.options.Debug && member.Name != "" {
+							b.builder.AddName(varID, member.Name)
+						}
+
+						// Decorate based on binding type
+						switch binding := (*member.Binding).(type) {
+						case ir.BuiltinBinding:
+							spirvBuiltin := builtinToSPIRV(binding.Builtin)
+							b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+						case ir.LocationBinding:
+							b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
+						}
+					}
+				}
+			}
+
+			b.entryOutputVars[entryPoint.Function] = output
 		}
 	}
 	return nil
@@ -722,14 +1004,29 @@ func (b *Backend) emitEntryPoints() error {
 
 		// Add entry point input variables (builtins, locations)
 		if inputVars, ok := b.entryInputVars[entryPoint.Function]; ok {
-			for _, varID := range inputVars {
-				interfaces = append(interfaces, varID)
+			for _, input := range inputVars {
+				if input.isStruct {
+					// Struct input: add all member variables
+					for _, varID := range input.memberVarIDs {
+						interfaces = append(interfaces, varID)
+					}
+				} else if input.singleVarID != 0 {
+					interfaces = append(interfaces, input.singleVarID)
+				}
 			}
 		}
 
-		// Add entry point output variable
-		if outputVar, ok := b.entryOutputVars[entryPoint.Function]; ok {
-			interfaces = append(interfaces, outputVar)
+		// Add entry point output variables
+		if output, ok := b.entryOutputVars[entryPoint.Function]; ok {
+			if output.isStruct {
+				// Struct output: add all member variables
+				for _, varID := range output.memberVarIDs {
+					interfaces = append(interfaces, varID)
+				}
+			} else if output.singleVarID != 0 {
+				// Single output variable
+				interfaces = append(interfaces, output.singleVarID)
+			}
 		}
 
 		// Add entry point
@@ -783,7 +1080,7 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	if isEntryPoint {
 		// Entry point functions are void with no parameters in SPIR-V.
 		// They use Input/Output global variables instead.
-		returnTypeID = b.builder.AddTypeVoid()
+		returnTypeID = b.getVoidType()
 		paramTypeIDs = nil
 	} else {
 		// Regular function - determine return type
@@ -794,7 +1091,7 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 				return err
 			}
 		} else {
-			returnTypeID = b.builder.AddTypeVoid()
+			returnTypeID = b.getVoidType()
 		}
 
 		// Emit parameter types
@@ -809,7 +1106,7 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	}
 
 	// Create function type
-	funcTypeID := b.builder.AddTypeFunction(returnTypeID, paramTypeIDs...)
+	funcTypeID := b.getFuncType(returnTypeID, paramTypeIDs)
 
 	// Emit function declaration
 	funcID := b.builder.AddFunction(funcTypeID, returnTypeID, FunctionControlNone)
@@ -844,7 +1141,7 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		}
 
 		// Create pointer to function storage class
-		ptrType := b.builder.AddTypePointer(StorageClassFunction, varType)
+		ptrType := b.emitPointerType(StorageClassFunction, varType)
 
 		// Allocate variable (OpVariable in function body)
 		varID := b.builder.AllocID()
@@ -862,19 +1159,38 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		}
 	}
 
-	// 2. Now, load input variables for entry points (OpLoad comes AFTER OpVariable)
-	var outputVarID uint32
+	// 2. For entry points, handle input variables
+	// For struct inputs with member bindings, we need to:
+	// - Create a local variable for the struct (Function storage class)
+	// - Load each member from its Input interface variable
+	// - Composite construct the struct and store to local variable
+	// - Use the local variable pointer as the parameter
+	var output *entryPointOutput
+	entryPointInputLocals := make(map[int]uint32) // arg index → local var ID
+	var entryInputs map[int]*entryPointInput
 	if isEntryPoint {
 		if inputVars, ok := b.entryInputVars[handle]; ok {
-			for i, varID := range inputVars {
-				// Get the type for loading
-				argTypeID, _ := b.emitType(fn.Arguments[i].Type)
-				// Load from input variable
-				loadedID := b.builder.AddLoad(argTypeID, varID)
-				paramIDs[i] = loadedID
+			entryInputs = inputVars
+			for i, input := range inputVars {
+				if input.isStruct {
+					// Struct input with member bindings - create local variable
+					ptrType := b.emitPointerType(StorageClassFunction, input.typeID)
+					localVarID := b.builder.AllocID()
+					builder := NewInstructionBuilder()
+					builder.AddWord(ptrType)
+					builder.AddWord(localVarID)
+					builder.AddWord(uint32(StorageClassFunction))
+					b.builder.functions = append(b.builder.functions, builder.Build(OpVariable))
+
+					entryPointInputLocals[i] = localVarID
+					paramIDs[i] = localVarID
+				} else if input.singleVarID != 0 {
+					// Simple input - use directly
+					paramIDs[i] = input.singleVarID
+				}
 			}
 		}
-		outputVarID = b.entryOutputVars[handle]
+		output = b.entryOutputVars[handle]
 	}
 
 	// 3. Create expression emitter for this function
@@ -884,11 +1200,41 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		exprIDs:      make(map[ir.ExpressionHandle]uint32),
 		paramIDs:     paramIDs,
 		isEntryPoint: isEntryPoint,
-		outputVarID:  outputVarID,
+		output:       output,
 	}
 	emitter.localVarIDs = localVarIDs
 
-	// 4. Initialize local variables (now that emitter is available)
+	// 4. Initialize entry point struct inputs (load from Input interface variables)
+	// This must happen after OpVariable but before other instructions
+	if isEntryPoint && entryInputs != nil {
+		for i, localVarID := range entryPointInputLocals {
+			input := entryInputs[i]
+			arg := fn.Arguments[i]
+			argTypeInner := b.module.Types[arg.Type].Inner
+			structType := argTypeInner.(ir.StructType)
+
+			// Load each member from its Input interface variable and composite construct
+			memberIDs := make([]uint32, len(structType.Members))
+			for j, member := range structType.Members {
+				memberTypeID, _ := b.emitType(member.Type)
+				if memberVarID, ok := input.memberVarIDs[j]; ok {
+					// Load from Input interface variable
+					memberIDs[j] = b.builder.AddLoad(memberTypeID, memberVarID)
+				} else {
+					// Member without binding - use zero/default value
+					memberIDs[j] = b.builder.AddConstantNull(memberTypeID)
+				}
+			}
+
+			// Composite construct the struct
+			structValue := b.builder.AddCompositeConstruct(input.typeID, memberIDs...)
+
+			// Store to local variable
+			b.builder.AddStore(localVarID, structValue)
+		}
+	}
+
+	// 5. Initialize local variables (now that emitter is available)
 	for i, localVar := range fn.LocalVars {
 		if localVar.Init != nil {
 			initID, err := emitter.emitExpression(*localVar.Init)
@@ -921,8 +1267,8 @@ type ExpressionEmitter struct {
 	localVarIDs []uint32 // Local variable IDs
 
 	// Entry point context
-	isEntryPoint bool   // True if this is an entry point function
-	outputVarID  uint32 // Output variable ID for entry point result
+	isEntryPoint bool              // True if this is an entry point function
+	output       *entryPointOutput // Output variable(s) for entry point result
 
 	// Loop context stack for break/continue
 	loopStack []loopContext
@@ -964,11 +1310,11 @@ func (b *Backend) emitInlineType(inner ir.TypeInner) uint32 {
 
 	case ir.VectorType:
 		scalarID := b.emitScalarType(t.Scalar)
-		return b.builder.AddTypeVector(scalarID, uint32(t.Size))
+		return b.emitVectorType(scalarID, uint32(t.Size))
 
 	case ir.MatrixType:
 		scalarID := b.emitScalarType(t.Scalar)
-		columnTypeID := b.builder.AddTypeVector(scalarID, uint32(t.Rows))
+		columnTypeID := b.emitVectorType(scalarID, uint32(t.Rows))
 		return b.builder.AddTypeMatrix(columnTypeID, uint32(t.Columns))
 
 	case ir.PointerType:
@@ -978,7 +1324,7 @@ func (b *Backend) emitInlineType(inner ir.TypeInner) uint32 {
 			panic(fmt.Sprintf("failed to emit pointer base type: %v", err))
 		}
 		storageClass := addressSpaceToStorageClass(t.Space)
-		return b.builder.AddTypePointer(storageClass, baseID)
+		return b.emitPointerType(storageClass, baseID)
 
 	default:
 		// For complex types that need handles, we should panic
@@ -1011,11 +1357,14 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 	case ir.ExprAccessIndex:
 		id, err = e.emitAccessIndex(kind)
 	case ir.ExprFunctionArgument:
-		return e.emitFunctionArgRef(kind)
+		// Auto-load: emitExpression returns VALUES, not pointers
+		return e.emitFunctionArgValue(kind)
 	case ir.ExprGlobalVariable:
-		return e.emitGlobalVarRef(kind)
+		// Auto-load: emitExpression returns VALUES, not pointers
+		return e.emitGlobalVarValue(kind)
 	case ir.ExprLocalVariable:
-		return e.emitLocalVarRef(kind)
+		// Auto-load: emitExpression returns VALUES, not pointers
+		return e.emitLocalVarValue(kind)
 	case ir.ExprLoad:
 		id, err = e.emitLoad(kind)
 	case ir.ExprUnary:
@@ -1120,12 +1469,73 @@ func (e *ExpressionEmitter) emitGlobalVarRef(kind ir.ExprGlobalVariable) (uint32
 	return id, nil
 }
 
-// emitLocalVarRef returns the SPIR-V ID for a local variable.
+// emitLocalVarRef returns the SPIR-V ID (pointer) for a local variable.
+// This is used by emitPointerExpression for store destinations.
 func (e *ExpressionEmitter) emitLocalVarRef(kind ir.ExprLocalVariable) (uint32, error) {
 	if int(kind.Variable) >= len(e.localVarIDs) {
 		return 0, fmt.Errorf("local variable index out of range: %d", kind.Variable)
 	}
 	return e.localVarIDs[kind.Variable], nil
+}
+
+// emitLocalVarValue returns the loaded VALUE for a local variable.
+// This is used by emitExpression for value contexts.
+func (e *ExpressionEmitter) emitLocalVarValue(kind ir.ExprLocalVariable) (uint32, error) {
+	ptrID, err := e.emitLocalVarRef(kind)
+	if err != nil {
+		return 0, err
+	}
+
+	// Get the variable type and emit OpLoad
+	if int(kind.Variable) >= len(e.function.LocalVars) {
+		return 0, fmt.Errorf("local variable index out of range: %d", kind.Variable)
+	}
+	varType := e.function.LocalVars[kind.Variable].Type
+	typeID, err := e.backend.emitType(varType)
+	if err != nil {
+		return 0, err
+	}
+
+	return e.backend.builder.AddLoad(typeID, ptrID), nil
+}
+
+// emitGlobalVarValue returns the loaded VALUE for a global variable.
+// This is used by emitExpression for value contexts.
+func (e *ExpressionEmitter) emitGlobalVarValue(kind ir.ExprGlobalVariable) (uint32, error) {
+	ptrID, err := e.emitGlobalVarRef(kind)
+	if err != nil {
+		return 0, err
+	}
+
+	// Get the variable type and emit OpLoad
+	gv := e.backend.module.GlobalVariables[kind.Variable]
+	typeID, err := e.backend.emitType(gv.Type)
+	if err != nil {
+		return 0, err
+	}
+
+	return e.backend.builder.AddLoad(typeID, ptrID), nil
+}
+
+// emitFunctionArgValue returns the loaded VALUE for a function argument.
+// This is used by emitExpression for value contexts.
+func (e *ExpressionEmitter) emitFunctionArgValue(kind ir.ExprFunctionArgument) (uint32, error) {
+	ptrID, err := e.emitFunctionArgRef(kind)
+	if err != nil {
+		return 0, err
+	}
+
+	// Get the argument type and emit OpLoad
+	if int(kind.Index) >= len(e.function.Arguments) {
+		return 0, fmt.Errorf("function argument index out of range: %d", kind.Index)
+	}
+	argType := e.function.Arguments[kind.Index].Type
+	typeID, err := e.backend.emitType(argType)
+	if err != nil {
+		return 0, err
+	}
+
+	return e.backend.builder.AddLoad(typeID, ptrID), nil
 }
 
 // emitAtomicResultRef returns the SPIR-V ID for an atomic result (set by emitAtomic).
@@ -1155,10 +1565,218 @@ func (e *ExpressionEmitter) emitCompose(compose ir.ExprCompose) (uint32, error) 
 	return e.backend.builder.AddCompositeConstruct(typeID, componentIDs...), nil
 }
 
+// ensureLoaded checks if an expression is a variable reference and loads it if needed.
+// Returns the loaded value ID or the original ID if no load is needed.
+func (e *ExpressionEmitter) ensureLoaded(handle ir.ExpressionHandle, id uint32) (uint32, error) {
+	expr := e.function.Expressions[handle]
+
+	// Check if expression is a variable reference (returns pointer in SPIR-V)
+	switch expr.Kind.(type) {
+	case ir.ExprLocalVariable, ir.ExprGlobalVariable, ir.ExprFunctionArgument:
+		// Get the type of the variable (not pointer type, the base type)
+		exprType, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
+		if err != nil {
+			return 0, fmt.Errorf("ensureLoaded type: %w", err)
+		}
+		typeID := e.backend.resolveTypeResolution(exprType)
+		return e.backend.builder.AddLoad(typeID, id), nil
+	}
+
+	// Not a variable reference, return as-is
+	return id, nil
+}
+
+// getExpressionStorageClass returns the SPIR-V storage class for an expression.
+// Returns StorageClassFunction as default for non-pointer expressions.
+func (e *ExpressionEmitter) getExpressionStorageClass(handle ir.ExpressionHandle) StorageClass {
+	expr := e.function.Expressions[handle]
+
+	switch k := expr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		return StorageClassFunction
+	case ir.ExprGlobalVariable:
+		gv := e.backend.module.GlobalVariables[k.Variable]
+		return addressSpaceToStorageClass(gv.Space)
+	case ir.ExprFunctionArgument:
+		// Function arguments with bindings are typically Input
+		arg := e.function.Arguments[k.Index]
+		if arg.Binding != nil {
+			return StorageClassInput
+		}
+		return StorageClassFunction
+	case ir.ExprAccess:
+		return e.getExpressionStorageClass(k.Base)
+	case ir.ExprAccessIndex:
+		return e.getExpressionStorageClass(k.Base)
+	}
+
+	return StorageClassFunction
+}
+
 // emitAccess emits a dynamic access operation.
 // Returns the VALUE at the indexed location (not a pointer).
 func (e *ExpressionEmitter) emitAccess(access ir.ExprAccess) (uint32, error) {
+	// Get result type from type inference
+	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
+	if err != nil {
+		return 0, fmt.Errorf("access base type: %w", err)
+	}
+
+	// Check if base is a pointer expression
+	isPointerBase := e.isPointerExpression(access.Base)
+
+	// Get index value (always need loaded value for OpAccessChain/OpCompositeExtract)
+	indexID, err := e.emitExpression(access.Index)
+	if err != nil {
+		return 0, err
+	}
+
+	// Determine the element type
+	var elementType ir.TypeResolution
+	if baseType.Handle != nil {
+		inner := e.backend.module.Types[*baseType.Handle].Inner
+		switch t := inner.(type) {
+		case ir.ArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		case ir.PointerType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		default:
+			return 0, fmt.Errorf("cannot index into type %T", t)
+		}
+	} else {
+		inner := baseType.Value
+		switch t := inner.(type) {
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		default:
+			return 0, fmt.Errorf("cannot index into inline type %T", t)
+		}
+	}
+
+	// Get the element type ID
+	elementTypeID := e.backend.resolveTypeResolution(elementType)
+
+	if isPointerBase {
+		// Base is a pointer - use emitPointerExpression to get SPIR-V pointer, then OpAccessChain
+		baseID, err := e.emitPointerExpression(access.Base)
+		if err != nil {
+			return 0, err
+		}
+
+		// Create pointer type for OpAccessChain result
+		storageClass := e.getExpressionStorageClass(access.Base)
+		ptrType := e.backend.emitPointerType(storageClass, elementTypeID)
+
+		// OpAccessChain returns a pointer, then we auto-load
+		ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
+		return e.backend.builder.AddLoad(elementTypeID, ptrID), nil
+	}
+
+	// Base is already a value - use OpVectorExtractDynamic (for vectors)
 	baseID, err := e.emitExpression(access.Base)
+	if err != nil {
+		return 0, err
+	}
+
+	// For dynamic access on values, use OpVectorExtractDynamic
+	return e.backend.builder.AddVectorExtractDynamic(elementTypeID, baseID, indexID), nil
+}
+
+// isPointerExpression recursively checks if an expression returns a SPIR-V pointer.
+// This includes variable references and access chains on pointer bases.
+func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool {
+	expr := e.function.Expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.ExprLocalVariable, ir.ExprGlobalVariable, ir.ExprFunctionArgument:
+		return true
+	case ir.ExprAccessIndex:
+		return e.isPointerExpression(k.Base)
+	case ir.ExprAccess:
+		return e.isPointerExpression(k.Base)
+	}
+	return false
+}
+
+// emitPointerExpression emits an expression as a SPIR-V pointer without loading.
+// This is used for store destinations and other pointer contexts.
+// Returns error if the expression is not a pointer expression.
+func (e *ExpressionEmitter) emitPointerExpression(handle ir.ExpressionHandle) (uint32, error) {
+	expr := e.function.Expressions[handle]
+
+	switch k := expr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		return e.emitLocalVarRef(k)
+	case ir.ExprGlobalVariable:
+		return e.emitGlobalVarRef(k)
+	case ir.ExprFunctionArgument:
+		return e.emitFunctionArgRef(k)
+	case ir.ExprAccessIndex:
+		return e.emitAccessIndexAsPointer(k)
+	case ir.ExprAccess:
+		return e.emitAccessAsPointer(k)
+	default:
+		return 0, fmt.Errorf("expression %T is not a pointer expression", k)
+	}
+}
+
+// emitAccessIndexAsPointer emits an access index as a SPIR-V pointer without loading.
+func (e *ExpressionEmitter) emitAccessIndexAsPointer(access ir.ExprAccessIndex) (uint32, error) {
+	baseID, err := e.emitPointerExpression(access.Base)
+	if err != nil {
+		return 0, err
+	}
+
+	// Get result type from type inference
+	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
+	if err != nil {
+		return 0, fmt.Errorf("access index base type: %w", err)
+	}
+
+	// Determine the element type
+	var elementType ir.TypeResolution
+	if baseType.Handle != nil {
+		inner := e.backend.module.Types[*baseType.Handle].Inner
+		switch t := inner.(type) {
+		case ir.ArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		case ir.StructType:
+			if int(access.Index) >= len(t.Members) {
+				return 0, fmt.Errorf("struct member index %d out of range", access.Index)
+			}
+			h := t.Members[access.Index].Type
+			elementType = ir.TypeResolution{Handle: &h}
+		default:
+			return 0, fmt.Errorf("cannot index into type %T", t)
+		}
+	} else {
+		return 0, fmt.Errorf("cannot access index on inline type for pointer")
+	}
+
+	elementTypeID := e.backend.resolveTypeResolution(elementType)
+	u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	indexID := e.backend.builder.AddConstant(u32Type, access.Index)
+
+	storageClass := e.getExpressionStorageClass(access.Base)
+	ptrType := e.backend.emitPointerType(storageClass, elementTypeID)
+	return e.backend.builder.AddAccessChain(ptrType, baseID, indexID), nil
+}
+
+// emitAccessAsPointer emits a dynamic access as a SPIR-V pointer without loading.
+func (e *ExpressionEmitter) emitAccessAsPointer(access ir.ExprAccess) (uint32, error) {
+	baseID, err := e.emitPointerExpression(access.Base)
 	if err != nil {
 		return 0, err
 	}
@@ -1186,56 +1804,31 @@ func (e *ExpressionEmitter) emitAccess(access ir.ExprAccess) (uint32, error) {
 			elementType = ir.TypeResolution{Value: t.Scalar}
 		case ir.MatrixType:
 			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
-		case ir.PointerType:
-			// If base is pointer, we need to emit OpAccessChain which returns pointer
-			// The pointee is what we're indexing into
-			h := t.Base
-			elementType = ir.TypeResolution{Handle: &h}
 		default:
 			return 0, fmt.Errorf("cannot index into type %T", t)
 		}
 	} else {
-		inner := baseType.Value
-		switch t := inner.(type) {
-		case ir.VectorType:
-			elementType = ir.TypeResolution{Value: t.Scalar}
-		case ir.MatrixType:
-			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
-		default:
-			return 0, fmt.Errorf("cannot index into inline type %T", t)
-		}
+		return 0, fmt.Errorf("cannot access on inline type for pointer")
 	}
 
-	// Get the element type ID
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
-
-	// Create pointer type for OpAccessChain result
-	// Determine storage class from base (for now, assume Function)
-	ptrType := e.backend.builder.AddTypePointer(StorageClassFunction, elementTypeID)
-
-	// OpAccessChain returns a pointer
-	ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
-
-	// Load the value from the pointer (expressions should return values, not pointers)
-	return e.backend.builder.AddLoad(elementTypeID, ptrID), nil
+	storageClass := e.getExpressionStorageClass(access.Base)
+	ptrType := e.backend.emitPointerType(storageClass, elementTypeID)
+	return e.backend.builder.AddAccessChain(ptrType, baseID, indexID), nil
 }
 
 // emitAccessIndex emits a static index access operation.
+// Returns a VALUE (auto-loads from pointers). For pointer destinations, use emitAccessIndexAsPointer.
 func (e *ExpressionEmitter) emitAccessIndex(access ir.ExprAccessIndex) (uint32, error) {
-	baseID, err := e.emitExpression(access.Base)
-	if err != nil {
-		return 0, err
-	}
-
-	// Create constant for index
-	u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	indexID := e.backend.builder.AddConstant(u32Type, access.Index)
-
-	// Get result type from type inference (similar to emitAccess)
+	// Get result type from type inference
 	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
 	if err != nil {
 		return 0, fmt.Errorf("access index base type: %w", err)
 	}
+
+	// Check if base is a pointer expression (variable reference or nested access)
+	// If so, use OpAccessChain. Otherwise, use OpCompositeExtract on the loaded value.
+	isPointerBase := e.isPointerExpression(access.Base)
 
 	// Determine the element type
 	var elementType ir.TypeResolution
@@ -1276,19 +1869,37 @@ func (e *ExpressionEmitter) emitAccessIndex(access ir.ExprAccessIndex) (uint32, 
 	// Get the element type ID
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
 
-	// Create pointer type for OpAccessChain result
-	ptrType := e.backend.builder.AddTypePointer(StorageClassFunction, elementTypeID)
+	if isPointerBase {
+		// Base is a pointer - use emitPointerExpression to get SPIR-V pointer,
+		// then OpAccessChain, then auto-load to return a VALUE.
+		baseID, err := e.emitPointerExpression(access.Base)
+		if err != nil {
+			return 0, err
+		}
 
-	// OpAccessChain returns a pointer
-	ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
+		u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		indexID := e.backend.builder.AddConstant(u32Type, access.Index)
 
-	// Load the value from the pointer (expressions should return values, not pointers)
-	return e.backend.builder.AddLoad(elementTypeID, ptrID), nil
+		storageClass := e.getExpressionStorageClass(access.Base)
+		ptrType := e.backend.emitPointerType(storageClass, elementTypeID)
+		ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
+
+		// Auto-load the value - emitExpression should return VALUES, not pointers
+		return e.backend.builder.AddLoad(elementTypeID, ptrID), nil
+	}
+
+	// Base is already a value - use OpCompositeExtract
+	baseID, err := e.emitExpression(access.Base)
+	if err != nil {
+		return 0, err
+	}
+	return e.backend.builder.AddCompositeExtract(elementTypeID, baseID, access.Index), nil
 }
 
 // emitSwizzle emits a vector swizzle operation (.xyz, .rgb, etc.).
 // Uses OpVectorShuffle to rearrange vector components.
 func (e *ExpressionEmitter) emitSwizzle(swizzle ir.ExprSwizzle) (uint32, error) {
+	// emitExpression now auto-loads variable references, so vectorID is already a value
 	vectorID, err := e.emitExpression(swizzle.Vector)
 	if err != nil {
 		return 0, err
@@ -1338,38 +1949,25 @@ func (e *ExpressionEmitter) extractVectorScalar(handle ir.ExpressionHandle) (ir.
 }
 
 // emitLoad emits a load operation.
+// NOTE: ExprLoad is explicit in IR when the compiler wants to explicitly load.
+// Since emitExpression now auto-loads variable references, ExprLoad is mainly
+// used for compound assignments or explicit dereferences.
 func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
-	pointerID, err := e.emitExpression(load.Pointer)
+	// Use emitPointerExpression to get the SPIR-V pointer (without auto-loading)
+	pointerID, err := e.emitPointerExpression(load.Pointer)
 	if err != nil {
 		return 0, err
 	}
 
-	// Get result type by dereferencing the pointer type
+	// Get result type by examining the pointer expression's type
 	pointerType, err := ir.ResolveExpressionType(e.backend.module, e.function, load.Pointer)
 	if err != nil {
 		return 0, fmt.Errorf("load pointer type: %w", err)
 	}
 
-	// Extract the pointee type
-	var pointeeType ir.TypeResolution
-	if pointerType.Handle != nil {
-		inner := e.backend.module.Types[*pointerType.Handle].Inner
-		ptr, ok := inner.(ir.PointerType)
-		if !ok {
-			return 0, fmt.Errorf("load requires pointer type, got %T", inner)
-		}
-		h := ptr.Base
-		pointeeType = ir.TypeResolution{Handle: &h}
-	} else {
-		ptr, ok := pointerType.Value.(ir.PointerType)
-		if !ok {
-			return 0, fmt.Errorf("load requires pointer type, got %T", pointerType.Value)
-		}
-		h := ptr.Base
-		pointeeType = ir.TypeResolution{Handle: &h}
-	}
-
-	resultType := e.backend.resolveTypeResolution(pointeeType)
+	// The IR type of pointer expressions (LocalVariable, GlobalVariable, AccessIndex, Access)
+	// is the VALUE type, not a pointer type. So we use it directly.
+	resultType := e.backend.resolveTypeResolution(pointerType)
 	return e.backend.builder.AddLoad(resultType, pointerID), nil
 }
 
@@ -1708,9 +2306,26 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 			if err != nil {
 				return err
 			}
-			if e.isEntryPoint && e.outputVarID != 0 {
-				// For entry points, store to output variable instead of returning
-				e.backend.builder.AddStore(e.outputVarID, valueID)
+			if e.isEntryPoint && e.output != nil {
+				// For entry points, store to output variable(s) instead of returning
+				if e.output.isStruct {
+					// Struct output: extract each member and store to its variable
+					for memberIdx, varID := range e.output.memberVarIDs {
+						// Get the member type from the result type
+						resultType := e.backend.module.Types[e.function.Result.Type].Inner.(ir.StructType)
+						memberTypeID, err := e.backend.emitType(resultType.Members[memberIdx].Type)
+						if err != nil {
+							return err
+						}
+						// Extract member value using OpCompositeExtract
+						memberValue := e.backend.builder.AddCompositeExtract(memberTypeID, valueID, uint32(memberIdx))
+						// Store to output variable
+						e.backend.builder.AddStore(varID, memberValue)
+					}
+				} else if e.output.singleVarID != 0 {
+					// Single output variable
+					e.backend.builder.AddStore(e.output.singleVarID, valueID)
+				}
 				e.backend.builder.AddReturn()
 			} else {
 				e.backend.builder.AddReturnValue(valueID)
@@ -1726,7 +2341,8 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		return nil
 
 	case ir.StmtStore:
-		pointerID, err := e.emitExpression(kind.Pointer)
+		// Use emitPointerExpression for store destination - we need a pointer, not a loaded value
+		pointerID, err := e.emitPointerExpression(kind.Pointer)
 		if err != nil {
 			return err
 		}
@@ -2188,13 +2804,13 @@ const (
 
 // emitImageSample emits a texture sampling operation.
 func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, error) {
-	// Get the sampled image (combination of image + sampler)
-	imageID, err := e.emitExpression(sample.Image)
+	// Get the image and sampler pointer IDs
+	imagePtrID, err := e.emitExpression(sample.Image)
 	if err != nil {
 		return 0, err
 	}
 
-	samplerID, err := e.emitExpression(sample.Sampler)
+	samplerPtrID, err := e.emitExpression(sample.Sampler)
 	if err != nil {
 		return 0, err
 	}
@@ -2204,8 +2820,55 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		return 0, err
 	}
 
+	// Get the image type by resolving the expression type.
+	// For global variables, ResolveExpressionType returns the VALUE type (image/sampler),
+	// not a pointer type, so we can use it directly.
+	imageExprType, err := ir.ResolveExpressionType(e.backend.module, e.function, sample.Image)
+	if err != nil {
+		return 0, fmt.Errorf("image expression type: %w", err)
+	}
+
+	var imageTypeID uint32
+	if imageExprType.Handle != nil {
+		// Emit the image type (will use cache if already emitted)
+		imageTypeID, err = e.backend.emitType(*imageExprType.Handle)
+		if err != nil {
+			return 0, fmt.Errorf("emit image type: %w", err)
+		}
+	}
+	if imageTypeID == 0 {
+		// Fallback to generic image type if not found
+		imageTypeID = e.backend.emitImageType(
+			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}),
+			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, Arrayed: false},
+		)
+	}
+
+	// Get the sampler type by resolving the expression type.
+	samplerExprType, err := ir.ResolveExpressionType(e.backend.module, e.function, sample.Sampler)
+	if err != nil {
+		return 0, fmt.Errorf("sampler expression type: %w", err)
+	}
+
+	var samplerTypeID uint32
+	if samplerExprType.Handle != nil {
+		// Emit the sampler type (will use cache if already emitted)
+		samplerTypeID, err = e.backend.emitType(*samplerExprType.Handle)
+		if err != nil {
+			return 0, fmt.Errorf("emit sampler type: %w", err)
+		}
+	}
+	if samplerTypeID == 0 {
+		// Fallback to new sampler type if not found
+		samplerTypeID = e.backend.builder.AddTypeSampler()
+	}
+
+	// emitExpression now auto-loads, so imagePtrID and samplerPtrID are already
+	// the loaded image/sampler handles, not pointers
+	imageID := imagePtrID
+	samplerID := samplerPtrID
+
 	// Create SampledImage by combining image and sampler
-	// First, get the image type to construct the sampled image type
 	sampledImageTypeID := e.backend.getSampledImageType(sample.Image)
 	sampledImageID := e.backend.builder.AllocID()
 
@@ -2333,7 +2996,7 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 	case ir.ImageQuerySize:
 		// Returns uvec2 or uvec3 depending on image dimension
 		scalarID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-		resultType := e.backend.builder.AddTypeVector(scalarID, uint32(ir.Vec3))
+		resultType := e.backend.emitVectorType(scalarID, uint32(ir.Vec3))
 		resultID = e.backend.builder.AllocID()
 		builder.AddWord(resultType)
 		builder.AddWord(resultID)
@@ -2383,16 +3046,25 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 }
 
 // getSampledImageType returns the type ID for a sampled image.
+// Uses caching to ensure the same type is reused for identical image configurations.
 func (b *Backend) getSampledImageType(_ ir.ExpressionHandle) uint32 {
-	// For now, create a generic sampled image type
-	// In a full implementation, we'd look up the actual image type
+	// Create the image type descriptor
+	img := ir.ImageType{
+		Dim:     ir.Dim2D,
+		Class:   ir.ImageClassSampled,
+		Arrayed: false,
+	}
+	cacheKey := imageTypeKey(img)
+
+	// Check if we already have a sampled image type for this configuration
+	if sampledID, ok := b.sampledImageTypeIDs[cacheKey]; ok {
+		return sampledID
+	}
+
+	// Get or create the image type (will be cached by emitImageType)
 	imageTypeID := b.emitImageType(
 		b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}),
-		ir.ImageType{
-			Dim:     ir.Dim2D,
-			Class:   ir.ImageClassSampled,
-			Arrayed: false,
-		},
+		img,
 	)
 
 	// OpTypeSampledImage
@@ -2402,13 +3074,16 @@ func (b *Backend) getSampledImageType(_ ir.ExpressionHandle) uint32 {
 	builder.AddWord(imageTypeID)
 	b.builder.types = append(b.builder.types, builder.Build(OpTypeSampledImage))
 
+	// Cache the sampled image type
+	b.sampledImageTypeIDs[cacheKey] = resultID
+
 	return resultID
 }
 
 // emitVec4F32Type returns the type ID for vec4<f32>.
 func (b *Backend) emitVec4F32Type() uint32 {
 	scalarID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-	return b.builder.AddTypeVector(scalarID, 4)
+	return b.emitVectorType(scalarID, 4)
 }
 
 // OpTypeSampledImage represents OpTypeSampledImage opcode.
