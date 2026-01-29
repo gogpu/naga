@@ -87,9 +87,6 @@ type Backend struct {
 	// Cached void type ID (only one void type allowed in SPIR-V)
 	voidTypeID uint32
 
-	// Cached void function type ID (for entry points)
-	voidFuncTypeID uint32
-
 	// Cached function types (key: concatenated return + param type IDs)
 	funcTypeIDs map[string]uint32
 }
@@ -1565,27 +1562,6 @@ func (e *ExpressionEmitter) emitCompose(compose ir.ExprCompose) (uint32, error) 
 	return e.backend.builder.AddCompositeConstruct(typeID, componentIDs...), nil
 }
 
-// ensureLoaded checks if an expression is a variable reference and loads it if needed.
-// Returns the loaded value ID or the original ID if no load is needed.
-func (e *ExpressionEmitter) ensureLoaded(handle ir.ExpressionHandle, id uint32) (uint32, error) {
-	expr := e.function.Expressions[handle]
-
-	// Check if expression is a variable reference (returns pointer in SPIR-V)
-	switch expr.Kind.(type) {
-	case ir.ExprLocalVariable, ir.ExprGlobalVariable, ir.ExprFunctionArgument:
-		// Get the type of the variable (not pointer type, the base type)
-		exprType, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
-		if err != nil {
-			return 0, fmt.Errorf("ensureLoaded type: %w", err)
-		}
-		typeID := e.backend.resolveTypeResolution(exprType)
-		return e.backend.builder.AddLoad(typeID, id), nil
-	}
-
-	// Not a variable reference, return as-is
-	return id, nil
-}
-
 // getExpressionStorageClass returns the SPIR-V storage class for an expression.
 // Returns StorageClassFunction as default for non-pointer expressions.
 func (e *ExpressionEmitter) getExpressionStorageClass(handle ir.ExpressionHandle) StorageClass {
@@ -2818,49 +2794,6 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	coordID, err := e.emitExpression(sample.Coordinate)
 	if err != nil {
 		return 0, err
-	}
-
-	// Get the image type by resolving the expression type.
-	// For global variables, ResolveExpressionType returns the VALUE type (image/sampler),
-	// not a pointer type, so we can use it directly.
-	imageExprType, err := ir.ResolveExpressionType(e.backend.module, e.function, sample.Image)
-	if err != nil {
-		return 0, fmt.Errorf("image expression type: %w", err)
-	}
-
-	var imageTypeID uint32
-	if imageExprType.Handle != nil {
-		// Emit the image type (will use cache if already emitted)
-		imageTypeID, err = e.backend.emitType(*imageExprType.Handle)
-		if err != nil {
-			return 0, fmt.Errorf("emit image type: %w", err)
-		}
-	}
-	if imageTypeID == 0 {
-		// Fallback to generic image type if not found
-		imageTypeID = e.backend.emitImageType(
-			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}),
-			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, Arrayed: false},
-		)
-	}
-
-	// Get the sampler type by resolving the expression type.
-	samplerExprType, err := ir.ResolveExpressionType(e.backend.module, e.function, sample.Sampler)
-	if err != nil {
-		return 0, fmt.Errorf("sampler expression type: %w", err)
-	}
-
-	var samplerTypeID uint32
-	if samplerExprType.Handle != nil {
-		// Emit the sampler type (will use cache if already emitted)
-		samplerTypeID, err = e.backend.emitType(*samplerExprType.Handle)
-		if err != nil {
-			return 0, fmt.Errorf("emit sampler type: %w", err)
-		}
-	}
-	if samplerTypeID == 0 {
-		// Fallback to new sampler type if not found
-		samplerTypeID = e.backend.builder.AddTypeSampler()
 	}
 
 	// emitExpression now auto-loads, so imagePtrID and samplerPtrID are already
