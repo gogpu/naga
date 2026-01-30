@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-01-30
+
+Sampler support, swizzle operations, and SPIR-V development tools.
+
+### Added
+
+#### Sampler Types
+- `sampler` and `sampler_comparison` type support in WGSL lowerer
+- Lazy sampler type registration (prevents spurious OpTypeSampler in shaders without textures)
+
+#### Swizzle Support
+- Full swizzle support via `OpVectorShuffle` in SPIR-V backend
+- Handles all WGSL swizzle patterns (e.g., `.xyz`, `.rgba`, `.xxyy`)
+
+#### Struct Member Bindings
+- `Binding` field on `StructMember` for `@builtin`/`@location` on struct members
+- `hasPositionBuiltin` validation for vertex shader struct returns
+
+#### SPIR-V Development Tools
+- `cmd/spvdis` — SPIR-V disassembler for debugging shader compilation (~480 LOC)
+- `cmd/texture_compile` — Texture shader compile tool for testing (~95 LOC)
+
+### Fixed
+
+#### SPIR-V Backend
+- **Block decoration** — Added `OpDecorate Block` for uniform/storage/push_constant struct types
+  - Required by Vulkan VUID-StandaloneSpirv-Uniform-06676
+- **Member offset ordering** — Fixed `emitTypes()` to run before struct member decorations
+- **Pointer/value semantics** — Fixed entry point parameter handling for correct SPIR-V output
+
+#### WGSL Lowerer
+- **Uniform buffer alignment** — Proper alignment calculation for uniform buffer layout
+- **Sampler registration** — Samplers now created on-demand instead of pre-registered
+
+### Changed
+- Extracted expression ref helpers to separate functions (fixes funlen linter)
+- Removed unused code from SPIR-V backend
+
 ## [0.8.4] - 2026-01-10
 
 Critical SPIR-V backend fix for Intel Vulkan driver compatibility.
@@ -470,7 +508,12 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/gogpu/naga/compare/v0.8.4...v0.9.0
+[0.8.4]: https://github.com/gogpu/naga/compare/v0.8.3...v0.8.4
+[0.8.3]: https://github.com/gogpu/naga/compare/v0.8.2...v0.8.3
+[0.8.2]: https://github.com/gogpu/naga/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/gogpu/naga/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/gogpu/naga/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/gogpu/naga/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/gogpu/naga/compare/v0.5.0...v0.6.0
