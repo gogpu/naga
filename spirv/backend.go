@@ -187,10 +187,10 @@ func (b *Backend) emitCapabilities() {
 }
 
 // addCapability adds a capability if not already added.
-func (b *Backend) addCapability(cap Capability) {
-	if !b.usedCapabilities[cap] {
-		b.usedCapabilities[cap] = true
-		b.builder.AddCapability(cap)
+func (b *Backend) addCapability(capability Capability) {
+	if !b.usedCapabilities[capability] {
+		b.usedCapabilities[capability] = true
+		b.builder.AddCapability(capability)
 	}
 }
 
@@ -783,6 +783,8 @@ func (b *Backend) needsBlockDecoration(space ir.AddressSpace, typeHandle ir.Type
 // emitEntryPointInterfaceVars creates input/output variables for entry point builtins and locations.
 // In SPIR-V, entry point functions don't receive builtins as parameters.
 // Instead, builtins are global variables with Input/Output storage class.
+//
+//nolint:gocognit,nestif,gocyclo,cyclop,funlen // SPIR-V entry points require complex logic
 func (b *Backend) emitEntryPointInterfaceVars() error {
 	for _, entryPoint := range b.module.EntryPoints {
 		fn := &b.module.Functions[entryPoint.Function]
@@ -965,6 +967,8 @@ func builtinToSPIRV(builtin ir.BuiltinValue) BuiltIn {
 }
 
 // emitEntryPoints emits all entry points with their execution modes.
+//
+//nolint:gocognit,gocyclo,cyclop // SPIR-V entry points have many cases
 func (b *Backend) emitEntryPoints() error {
 	for _, entryPoint := range b.module.EntryPoints {
 		// Get function ID
@@ -1059,7 +1063,7 @@ func (b *Backend) emitFunctions() error {
 
 // emitFunction emits a single function.
 //
-//nolint:gocognit,gocyclo,cyclop,nestif // SPIR-V generation has inherent complexity from spec requirements
+//nolint:gocognit,gocyclo,cyclop,nestif,funlen // SPIR-V generation has inherent complexity from spec requirements
 func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error {
 	// Check if this is an entry point function
 	isEntryPoint := false
@@ -2227,7 +2231,7 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 
 // emitStatement emits a statement.
 //
-//nolint:cyclop,gocyclo,nestif // Statement dispatch requires high cyclomatic complexity
+//nolint:cyclop,gocyclo,nestif,gocognit,funlen // Statement dispatch requires high cyclomatic complexity
 func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	switch kind := stmt.Kind.(type) {
 	case ir.StmtEmit:
@@ -2779,6 +2783,8 @@ const (
 )
 
 // emitImageSample emits a texture sampling operation.
+//
+//nolint:funlen // texture sampling has many SPIR-V operands
 func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, error) {
 	// Get the image and sampler pointer IDs
 	imagePtrID, err := e.emitExpression(sample.Image)
