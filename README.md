@@ -53,6 +53,7 @@
 - **Type Deduplication** — SPIR-V compliant unique type emission
 - **Array Initialization** — `array(1, 2, 3)` shorthand with inferred type and size
 - **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions
+- **Swizzle Operations** — Full vector swizzle support (`.xyz`, `.rgba`, `.xxyy`, etc.)
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
 - **MSL Backend** — Metal Shading Language output for macOS/iOS
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+
@@ -128,6 +129,18 @@ nagac -debug shader.wgsl -o shader.spv
 
 # Show version
 nagac -version
+```
+
+### Development Tools
+
+```bash
+# SPIR-V disassembler (debugging shader compilation)
+go install github.com/gogpu/naga/cmd/spvdis@latest
+spvdis shader.spv
+
+# Texture shader compile tool (testing)
+go install github.com/gogpu/naga/cmd/texture_compile@latest
+texture_compile shader.wgsl
 ```
 
 ### Multiple Backends
@@ -215,7 +228,10 @@ naga/
 │   ├── functions.go   # Entry points with semantics (~500 LOC)
 │   └── keywords.go    # HLSL reserved words
 ├── naga.go            # Public API
-└── cmd/nagac/         # CLI tool
+└── cmd/
+    ├── nagac/         # CLI compiler
+    ├── spvdis/        # SPIR-V disassembler
+    └── texture_compile/ # Texture shader testing
 ```
 
 ## Supported WGSL Features

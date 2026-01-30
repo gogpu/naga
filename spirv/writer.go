@@ -246,6 +246,15 @@ func (b *ModuleBuilder) AddTypeBool() uint32 {
 	return id
 }
 
+// AddTypeSampler adds OpTypeSampler.
+func (b *ModuleBuilder) AddTypeSampler() uint32 {
+	id := b.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(id)
+	b.types = append(b.types, builder.Build(OpTypeSampler))
+	return id
+}
+
 // AddTypeFloat adds OpTypeFloat.
 func (b *ModuleBuilder) AddTypeFloat(width uint32) uint32 {
 	id := b.AllocID()
@@ -357,6 +366,16 @@ func (b *ModuleBuilder) AddConstant(typeID uint32, values ...uint32) uint32 {
 func (b *ModuleBuilder) AddConstantFloat32(typeID uint32, value float32) uint32 {
 	bits := math.Float32bits(value)
 	return b.AddConstant(typeID, bits)
+}
+
+// AddConstantNull adds OpConstantNull for a given type (all zeros/false/null).
+func (b *ModuleBuilder) AddConstantNull(typeID uint32) uint32 {
+	id := b.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(typeID)
+	builder.AddWord(id)
+	b.types = append(b.types, builder.Build(OpConstantNull))
+	return id
 }
 
 // AddConstantFloat64 adds a 64-bit float constant.
@@ -519,6 +538,49 @@ func (b *ModuleBuilder) AddCompositeConstruct(resultType uint32, constituents ..
 		builder.AddWord(constituent)
 	}
 	b.functions = append(b.functions, builder.Build(OpCompositeConstruct))
+	return resultID
+}
+
+// AddCompositeExtract adds OpCompositeExtract to extract a member from a composite value.
+// Unlike OpAccessChain, this operates on values (not pointers) and indexes are literals.
+func (b *ModuleBuilder) AddCompositeExtract(resultType uint32, composite uint32, indexes ...uint32) uint32 {
+	resultID := b.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultType)
+	builder.AddWord(resultID)
+	builder.AddWord(composite)
+	for _, idx := range indexes {
+		builder.AddWord(idx)
+	}
+	b.functions = append(b.functions, builder.Build(OpCompositeExtract))
+	return resultID
+}
+
+// AddVectorExtractDynamic adds OpVectorExtractDynamic to extract an element from a vector
+// using a dynamic (runtime) index. Unlike OpCompositeExtract, the index is an ID not a literal.
+func (b *ModuleBuilder) AddVectorExtractDynamic(resultType uint32, vector uint32, index uint32) uint32 {
+	resultID := b.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultType)
+	builder.AddWord(resultID)
+	builder.AddWord(vector)
+	builder.AddWord(index)
+	b.functions = append(b.functions, builder.Build(OpVectorExtractDynamic))
+	return resultID
+}
+
+// AddVectorShuffle adds OpVectorShuffle for vector swizzle operations.
+func (b *ModuleBuilder) AddVectorShuffle(resultType uint32, vec1 uint32, vec2 uint32, components []uint32) uint32 {
+	resultID := b.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultType)
+	builder.AddWord(resultID)
+	builder.AddWord(vec1)
+	builder.AddWord(vec2)
+	for _, component := range components {
+		builder.AddWord(component)
+	}
+	b.functions = append(b.functions, builder.Build(OpVectorShuffle))
 	return resultID
 }
 

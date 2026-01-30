@@ -46,6 +46,7 @@ func TestTypeDeduplication(t *testing.T) {
 
 	// Expected types:
 	// Built-ins: f32, f16, i32, u32, bool (5 types)
+	// Note: samplers are NOT pre-registered (only created on-demand when used)
 	// User types:
 	// 1. vec4<f32> (vector) - deduplicated, should appear only once
 	// 2. Vertex (struct)
@@ -102,6 +103,7 @@ func TestTypeDeduplicationMultipleStructs(t *testing.T) {
 
 	// Expected types:
 	// Built-ins: f32, f16, i32, u32, bool (5 types)
+	// Note: samplers are NOT pre-registered (only created on-demand when used)
 	// User types:
 	// 1. vec4<f32> (vector) - used in both structs but deduplicated
 	// 2. A (struct)

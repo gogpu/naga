@@ -1,219 +1,134 @@
-# Naga Roadmap
+# naga Roadmap
 
-> Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, and HLSL
-
-## Released: v0.1.0 ✅
-
-Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
-
-### Completed
-- WGSL lexer (140+ tokens)
-- WGSL parser (recursive descent)
-- IR with 33 expression types, 16 statement types
-- IR validation
-- AST → IR lowering
-- SPIR-V binary writer
-- SPIR-V backend (types, constants, functions, expressions)
-- Control flow (if, loop, break, continue)
-- 40+ built-in math functions (GLSL.std.450)
-- Public API: `naga.Compile()`, `CompileWithOptions()`
-- CLI tool: `nagac`
+> **Pure Go Shader Compiler**
+>
+> WGSL to SPIR-V, MSL, GLSL, and HLSL. Zero CGO.
 
 ---
 
-## Released: v0.2.0 ✅
+## Vision
 
-**Focus:** Type system improvements
+**naga** is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language) to multiple backend formats without requiring CGO or external dependencies.
 
-### Completed
-- [x] Type inference for all expressions (~500 LOC)
-- [x] Type deduplication (SPIR-V compliant) (~100 LOC)
-- [x] Correct int/float/uint opcode selection
-- [x] SPIR-V backend with proper type handling
-- [x] 67+ unit tests
+### Core Principles
 
----
-
-## Released: v0.3.0 ✅
-
-**Focus:** Language completeness (~15K LOC total)
-
-### Completed
-- [x] Type inference for `let` bindings
-- [x] Array initialization syntax (`array(1, 2, 3)` shorthand)
-- [x] Texture sampling operations (textureSample, textureLoad, textureStore)
-- [x] Texture query operations (textureDimensions, textureNumLevels)
-- [x] SPIR-V image operations (OpImageSample*, OpImageFetch, OpImageQuery*)
-- [x] 124 unit tests
+1. **Pure Go** — No CGO, easy cross-compilation, single binary deployment
+2. **Multi-Backend** — SPIR-V (Vulkan), MSL (Metal), GLSL (OpenGL), HLSL (DirectX)
+3. **Spec Compliant** — Follow W3C WGSL and Khronos SPIR-V specifications
+4. **Production-Ready** — Tested on real hardware (Intel, NVIDIA, AMD, Apple)
 
 ---
 
-## Released: v0.4.0 ✅
+## Current State: v0.9.0
 
-**Focus:** Compute shaders & DX improvements
-
-### Completed
-- [x] Better error messages with source locations (SourceError, FormatWithContext)
-- [x] Storage buffers (`var<storage, read>`, `var<storage, read_write>`)
-- [x] Workgroup shared memory (`var<workgroup>`)
-- [x] Access mode parsing (`read`, `write`, `read_write`)
-- [x] Workgroup size extraction (@workgroup_size)
-- [x] Atomic type support (`atomic<u32>`, `atomic<i32>`)
-- [x] Atomic operations (atomicAdd, atomicSub, atomicMin, atomicMax, etc.)
-- [x] Workgroup barrier (workgroupBarrier, storageBarrier, textureBarrier)
-- [x] ExprAtomicResult expression type
-- [x] atomicCompareExchangeWeak
-- [x] Address-of (`&`) and dereference (`*`) operators
-- [x] Unused variable warnings (with `_` prefix exception)
-- [x] 203 unit tests
+✅ **Production-ready** shader compiler (~17K LOC):
+- Full WGSL frontend (lexer, parser, IR)
+- 4 backend outputs (SPIR-V, MSL, GLSL, HLSL)
+- Compute shaders (atomics, barriers, workgroups)
+- Texture sampling and storage
+- Type inference and validation
+- Development tools (nagac, spvdis)
 
 ---
 
-## Released: v0.5.0 ✅
+## Upcoming
 
-**Focus:** MSL backend for Metal
-
-### Completed
-- [x] **MSL backend** (`msl/`) — Metal Shading Language output (~3.6K LOC)
-- [x] Type generation: scalars, vectors, matrices, arrays, textures, samplers
-- [x] Expression code generation
-- [x] Statement code generation
-- [x] Entry point generation with stage attributes
-- [x] Keyword escaping for MSL/C++ reserved words
-- [x] Unit tests for MSL compilation
-
----
-
-## Released: v0.6.0 ✅
-
-**Focus:** GLSL backend for OpenGL
-
-### Completed
-- [x] **GLSL backend** (`glsl/`) — OpenGL Shading Language output (~2.8K LOC)
-- [x] Type generation: scalars, vectors, matrices, arrays, textures, samplers
-- [x] Expression code generation with GLSL built-in functions
-- [x] Statement code generation (control flow, assignments)
-- [x] Entry point generation (`main()` with layout qualifiers)
-- [x] Keyword escaping for GLSL reserved words
-- [x] Version directive and precision qualifiers
-- [x] OpenGL 3.3+ and ES 3.0+ compatibility
-- [x] Comprehensive unit tests (40+ tests)
-
----
-
-## Released: v0.7.0 ✅
-
-**Focus:** HLSL backend for DirectX
-
-### Completed
-- [x] **HLSL backend** (`hlsl/`) — High-Level Shading Language output (~8.8K LOC)
-- [x] Type generation: scalars, vectors, matrices, arrays, structs
-- [x] Expression code generation with 70+ HLSL intrinsics
-- [x] Statement code generation (control flow, barriers)
-- [x] Buffer operations: ByteAddressBuffer, StructuredBuffer, cbuffer
-- [x] Atomic operations: InterlockedAdd, And, Or, Xor, Min, Max, Exchange, CompareExchange
-- [x] Entry point generation with HLSL semantics (SV_Position, TEXCOORD, SV_Target)
-- [x] Compute shaders with `[numthreads(x,y,z)]`
-- [x] GPU barriers: GroupMemoryBarrier, DeviceMemoryBarrier, AllMemoryBarrier
-- [x] Texture sampling: Sample, SampleLevel, Load, GetDimensions, Gather
-- [x] Keyword escaping for HLSL reserved words (200+)
-- [x] Shader Model 5.1 (FXC) and 6.0+ (DXC) support
-- [x] DirectX 11 and DirectX 12 compatibility
-
----
-
-## Released: v0.8.0 ✅
-
-**Focus:** Code quality and SPIR-V bug fixes
-
-### Completed
-- [x] **sign() type checking** — Correct GLSL.std.450 opcode selection (SSign vs FSign)
-- [x] **atomicMin/Max signed vs unsigned** — Correct OpAtomicSMin/UMin, OpAtomicSMax/UMax
-- [x] **Function resolution** — Pre-registration pass for forward references in WGSL
-- [x] **Return type attributes** — Parser handles attributes on function return types
-- [x] **Dead code removal** — Cleaned up spirv.Writer
-
----
-
-## Released: v0.8.4 ✅
-
-**Focus:** SPIR-V instruction ordering for Intel Vulkan
-
-### Completed
-- [x] **OpVariable ordering** — Fixed to appear before OpLoad instructions (SPIR-V spec compliance)
-- [x] **OpAccessChain semantics** — Added OpLoad for array/struct member access
-- [x] **BuiltIn naming** — Renamed Id constants to ID (Go naming convention)
-
-### Tested
-- Intel Iris Xe Graphics (Vulkan 1.4.323) — Triangle rendering works
-- NVIDIA/AMD drivers — Compatible
-
----
-
-## Released: v0.8.3 ✅
-
-**Focus:** Critical MSL [[position]] fix
-
-### Completed
-- [x] **[[position]] attribute placement** — Fixed to emit on struct member, not function signature
-- [x] **Simple type output structs** — Generated for types with builtin bindings
-- [x] **Return statement handling** — Fixed for simple type output structs
-
----
-
-## Released: v0.8.2 ✅
-
-**Focus:** MSL backend ARM64 fixes
-
-### Completed
-- [x] **Triangle shader compilation** — Fixed entry point output struct handling
-- [x] **Return attribute handling** — Improved `@builtin(position)` processing
-- [x] **MSL backend tests** — xcrun integration tests for real Metal validation
-- [x] **Struct handling** — Fixed field ordering and attribute placement
-
-### Contributors
-- @ppoage — ARM64 macOS fixes and testing
-
----
-
-## Released: v0.8.1 ✅
-
-**Focus:** WGSL built-in function completeness
-
-### Completed
-- [x] **clamp() built-in** — Added missing `clamp` to WGSL math function map
-- [x] **Math function tests** — Comprehensive coverage for all 12 built-in math functions
-
----
-
-## Goal: v1.0.0
-
-**Focus:** Production ready
-
-### Requirements
+### v1.0.0 — Production Release
 - [ ] Full WGSL specification compliance
-- [ ] Comprehensive test suite
-- [ ] Stable public API
-- [ ] Performance optimization
-- [ ] Source maps for debugging
+- [ ] API stability guarantee
 - [ ] Optimization passes (dead code elimination, constant folding)
+- [ ] Source maps for debugging
+- [ ] Comprehensive documentation
 
 ---
 
-## Non-Goals (for now)
+## Future Ideas
 
-- Ray tracing extensions
-- Mesh shaders
-- WebGPU-specific extensions beyond core WGSL
+| Theme | Description |
+|-------|-------------|
+| **Optimization** | Dead code elimination, constant folding, inlining |
+| **Source Maps** | Debug info mapping SPIR-V back to WGSL |
+| **WGSL Extensions** | Pointer parameters, subgroups |
+| **Validation** | Full WGSL spec compliance checking |
+
+---
+
+## Architecture
+
+```
+                      WGSL Source
+                           │
+                           ▼
+                   ┌───────────────┐
+                   │  wgsl/lexer   │
+                   │  wgsl/parser  │
+                   └───────┬───────┘
+                           │ AST
+                           ▼
+                   ┌───────────────┐
+                   │  wgsl/lower   │
+                   └───────┬───────┘
+                           │ IR
+                           ▼
+                   ┌───────────────┐
+                   │  ir/validate  │
+                   │  ir/resolve   │
+                   └───────┬───────┘
+                           │
+        ┌──────────┬───────┴───────┬──────────┐
+        ▼          ▼               ▼          ▼
+   ┌─────────┐ ┌─────────┐   ┌─────────┐ ┌─────────┐
+   │  spirv/ │ │   msl/  │   │  glsl/  │ │  hlsl/  │
+   │ backend │ │ backend │   │ backend │ │ backend │
+   └────┬────┘ └────┬────┘   └────┬────┘ └────┬────┘
+        │          │             │          │
+        ▼          ▼             ▼          ▼
+     SPIR-V      MSL           GLSL       HLSL
+    (Vulkan)   (Metal)       (OpenGL)  (DirectX)
+```
+
+---
+
+## Released Versions
+
+| Version | Date | Highlights |
+|---------|------|------------|
+| **v0.9.0** | 2026-01 | Sampler types, swizzle, dev tools |
+| v0.8.x | 2026-01 | SPIR-V Intel fixes, MSL [[position]] fix |
+| v0.7.0 | 2025-12 | HLSL backend (~8.8K LOC) |
+| v0.6.0 | 2025-12 | GLSL backend (~2.8K LOC) |
+| v0.5.0 | 2025-12 | MSL backend (~3.6K LOC) |
+| v0.4.0 | 2025-12 | Compute shaders, atomics, barriers |
+| v0.3.0 | 2025-12 | Texture sampling, array init |
+| v0.2.0 | 2025-12 | Type inference, deduplication |
+| v0.1.0 | 2025-12 | Initial release (~10K LOC) |
+
+→ **See [CHANGELOG.md](CHANGELOG.md) for detailed release notes**
 
 ---
 
 ## Contributing
 
-Help wanted on:
-- Additional WGSL features
-- Test cases from real shaders
-- Optimization passes
-- Documentation improvements
+We welcome contributions! Priority areas:
+
+1. **Test Cases** — Real-world shaders for testing
+2. **WGSL Features** — Additional language features
+3. **Optimization** — Backend optimization passes
+4. **Documentation** — Improve docs and examples
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
+
+## Non-Goals
+
+- **Runtime compilation** — naga is compile-time only
+- **Ray tracing** — Beyond core WGSL scope
+- **Mesh shaders** — Beyond core WGSL scope
+- **Shader reflection** — Use external tools
+
+---
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.

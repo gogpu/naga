@@ -38,15 +38,17 @@ __debug_bin*
 .env
 .env.local
 
-#  AI settings
+# AI settings
 .claude/
 .goda/
 .goco/
 .gode/
-
 
 # Private dev docs
 docs/dev/
 
 # Temp folder
 tmp/
+
+# SPIR-V compiled binaries (test artifacts)
+*.spv
