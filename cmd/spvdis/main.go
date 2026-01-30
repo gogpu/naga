@@ -226,7 +226,7 @@ func main() {
 			break
 		}
 		word := binary.LittleEndian.Uint32(data[offset:])
-		opcode := uint16(word & 0xFFFF)
+		opcode := uint16(word & 0xFFFF) //nolint:gosec // safe: masked to 16 bits
 		wordCount := int(word >> 16)
 
 		if wordCount == 0 || offset+wordCount*4 > len(data) {
@@ -260,6 +260,7 @@ func lookup(m map[uint32]string, v uint32) string {
 	return fmt.Sprintf("%d", v)
 }
 
+//nolint:gocognit,gocyclo,cyclop,funlen,maintidx // dev tool: switch cases for SPIR-V opcodes
 func printInstruction(name string, opcode uint16, ops []uint32, data []byte, offset int) {
 	switch opcode {
 	case 17: // OpCapability
@@ -270,12 +271,9 @@ func printInstruction(name string, opcode uint16, ops []uint32, data []byte, off
 		fmt.Printf("         %s = %s \"%s\"\n", id(ops[0]), name, str)
 
 	case 14: // OpMemoryModel
-		addr := []string{"Logical", "Physical32", "Physical64", "PhysicalStorageBuffer64"}
-		mem := []string{"Simple", "GLSL450", "OpenCL", "Vulkan"}
-		a, m := lookup(map[uint32]string{0: addr[0], 1: addr[1], 2: addr[2], 5348: addr[3]}, ops[0]), "?"
-		if ops[1] < uint32(len(mem)) {
-			m = mem[ops[1]]
-		}
+		addrModels := map[uint32]string{0: "Logical", 1: "Physical32", 2: "Physical64", 5348: "PhysicalStorageBuffer64"}
+		memModels := map[uint32]string{0: "Simple", 1: "GLSL450", 2: "OpenCL", 3: "Vulkan"}
+		a, m := lookup(addrModels, ops[0]), lookup(memModels, ops[1])
 		fmt.Printf("               %s %s %s\n", name, a, m)
 
 	case 15: // OpEntryPoint
@@ -460,21 +458,26 @@ func printInstruction(name string, opcode uint16, ops []uint32, data []byte, off
 
 	default:
 		// Generic fallback
-		fmt.Printf("         ")
-		if len(ops) >= 2 && (opcode >= 126 && opcode <= 200) {
-			// Arithmetic/logic ops: type result operands...
-			fmt.Printf("%s = %s %s", id(ops[1]), name, id(ops[0]))
-			for i := 2; i < len(ops); i++ {
-				fmt.Printf(" %s", id(ops[i]))
-			}
-		} else if len(ops) >= 1 {
-			fmt.Printf("%s", name)
-			for _, op := range ops {
-				fmt.Printf(" %s", id(op))
-			}
-		} else {
-			fmt.Printf("%s", name)
-		}
-		fmt.Println()
+		printGenericInstruction(name, opcode, ops)
 	}
+}
+
+func printGenericInstruction(name string, opcode uint16, ops []uint32) {
+	fmt.Printf("         ")
+	switch {
+	case len(ops) >= 2 && opcode >= 126 && opcode <= 200:
+		// Arithmetic/logic ops: type result operands...
+		fmt.Printf("%s = %s %s", id(ops[1]), name, id(ops[0]))
+		for i := 2; i < len(ops); i++ {
+			fmt.Printf(" %s", id(ops[i]))
+		}
+	case len(ops) >= 1:
+		fmt.Printf("%s", name)
+		for _, op := range ops {
+			fmt.Printf(" %s", id(op))
+		}
+	default:
+		fmt.Printf("%s", name)
+	}
+	fmt.Println()
 }

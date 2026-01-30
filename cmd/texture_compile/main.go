@@ -86,7 +86,7 @@ func main() {
 	fmt.Printf("Size: %d bytes\n", len(spv))
 
 	// Save to file
-	err = os.WriteFile("test_texture.spv", spv, 0644)
+	err = os.WriteFile("test_texture.spv", spv, 0600)
 	if err != nil {
 		fmt.Println("Write error:", err)
 		os.Exit(1)
