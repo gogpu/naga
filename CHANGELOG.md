@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-02-01
+
+WGSL language features: local const, switch statements, and storage texture support.
+
+### Added
+
+#### WGSL Language Features
+- **Local const declarations** — `const` inside function bodies with compile-time evaluation
+- **Switch statements** — Full switch/case/default support with SPIR-V `OpSwitch` generation
+
+#### Storage Texture Support
+- **`ir.StorageFormat`** — 50+ texture formats (rgba8unorm, r32float, etc.)
+- **`ir.StorageAccess`** — Access modes (read, write, read_write)
+- **ImageType extension** — StorageFormat and StorageAccess fields for storage textures
+- **WGSL parsing** — `texture_storage_2d<rgba8unorm, write>` syntax support
+- **SPIR-V generation** — Correct `OpTypeImage` format decorations for storage images
+
+#### SPIR-V Backend
+- **ImageFormat constants** — All SPIR-V image format values
+- **StorageFormatToImageFormat()** — IR to SPIR-V format conversion
+
+### Changed
+- Texture type parsing refactored to `parseTextureType()` with proper dimension/class detection
+- Removed unused `textureDim()` function
+
 ## [0.9.0] - 2026-01-30
 
 Sampler support, swizzle operations, and SPIR-V development tools.
