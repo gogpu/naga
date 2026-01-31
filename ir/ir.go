@@ -171,10 +171,12 @@ func (SamplerType) typeInner() {}
 
 // ImageType represents image/texture types.
 type ImageType struct {
-	Dim          ImageDimension
-	Arrayed      bool
-	Class        ImageClass
-	Multisampled bool
+	Dim           ImageDimension
+	Arrayed       bool
+	Class         ImageClass
+	Multisampled  bool
+	StorageFormat StorageFormat // Format for storage textures (only valid when Class == ImageClassStorage)
+	StorageAccess StorageAccess // Access mode for storage textures (only valid when Class == ImageClassStorage)
 }
 
 func (ImageType) typeInner() {}
@@ -196,6 +198,77 @@ const (
 	ImageClassSampled ImageClass = iota
 	ImageClassDepth
 	ImageClassStorage
+)
+
+// StorageFormat represents storage texture formats.
+// These are the formats that can be used with storage textures in WGSL.
+type StorageFormat uint8
+
+const (
+	StorageFormatUnknown StorageFormat = iota
+
+	// 8-bit formats
+	StorageFormatR8Unorm
+	StorageFormatR8Snorm
+	StorageFormatR8Uint
+	StorageFormatR8Sint
+
+	// 16-bit formats
+	StorageFormatR16Uint
+	StorageFormatR16Sint
+	StorageFormatR16Float
+	StorageFormatRg8Unorm
+	StorageFormatRg8Snorm
+	StorageFormatRg8Uint
+	StorageFormatRg8Sint
+
+	// 32-bit formats
+	StorageFormatR32Uint
+	StorageFormatR32Sint
+	StorageFormatR32Float
+	StorageFormatRg16Uint
+	StorageFormatRg16Sint
+	StorageFormatRg16Float
+	StorageFormatRgba8Unorm
+	StorageFormatRgba8Snorm
+	StorageFormatRgba8Uint
+	StorageFormatRgba8Sint
+	StorageFormatBgra8Unorm
+
+	// Packed 32-bit formats
+	StorageFormatRgb10a2Uint
+	StorageFormatRgb10a2Unorm
+	StorageFormatRg11b10Ufloat
+
+	// 64-bit formats
+	StorageFormatRg32Uint
+	StorageFormatRg32Sint
+	StorageFormatRg32Float
+	StorageFormatRgba16Uint
+	StorageFormatRgba16Sint
+	StorageFormatRgba16Float
+
+	// 128-bit formats
+	StorageFormatRgba32Uint
+	StorageFormatRgba32Sint
+	StorageFormatRgba32Float
+
+	// Normalized 16-bit per channel formats
+	StorageFormatR16Unorm
+	StorageFormatR16Snorm
+	StorageFormatRg16Unorm
+	StorageFormatRg16Snorm
+	StorageFormatRgba16Unorm
+	StorageFormatRgba16Snorm
+)
+
+// StorageAccess represents access modes for storage textures.
+type StorageAccess uint8
+
+const (
+	StorageAccessRead StorageAccess = iota
+	StorageAccessWrite
+	StorageAccessReadWrite
 )
 
 // Constant represents a constant value.

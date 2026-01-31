@@ -4,6 +4,8 @@
 // used by Vulkan, OpenCL, and other APIs.
 package spirv
 
+import "github.com/gogpu/naga/ir"
+
 // Version represents a SPIR-V version.
 type Version struct {
 	Major uint8
@@ -461,6 +463,53 @@ const (
 	LoopControlPartialCount       LoopControl = 0x100
 )
 
+// ImageFormat represents a SPIR-V image format.
+type ImageFormat uint32
+
+// SPIR-V image format values (for OpTypeImage)
+const (
+	ImageFormatUnknown      ImageFormat = 0
+	ImageFormatRgba32f      ImageFormat = 1
+	ImageFormatRgba16f      ImageFormat = 2
+	ImageFormatR32f         ImageFormat = 3
+	ImageFormatRgba8        ImageFormat = 4
+	ImageFormatRgba8Snorm   ImageFormat = 5
+	ImageFormatRg32f        ImageFormat = 6
+	ImageFormatRg16f        ImageFormat = 7
+	ImageFormatR11fG11fB10f ImageFormat = 8
+	ImageFormatR16f         ImageFormat = 9
+	ImageFormatRgba16       ImageFormat = 10
+	ImageFormatRgb10A2      ImageFormat = 11
+	ImageFormatRg16         ImageFormat = 12
+	ImageFormatRg8          ImageFormat = 13
+	ImageFormatR16          ImageFormat = 14
+	ImageFormatR8           ImageFormat = 15
+	ImageFormatRgba16Snorm  ImageFormat = 16
+	ImageFormatRg16Snorm    ImageFormat = 17
+	ImageFormatRg8Snorm     ImageFormat = 18
+	ImageFormatR16Snorm     ImageFormat = 19
+	ImageFormatR8Snorm      ImageFormat = 20
+	ImageFormatRgba32i      ImageFormat = 21
+	ImageFormatRgba16i      ImageFormat = 22
+	ImageFormatRgba8i       ImageFormat = 23
+	ImageFormatR32i         ImageFormat = 24
+	ImageFormatRg32i        ImageFormat = 25
+	ImageFormatRg16i        ImageFormat = 26
+	ImageFormatRg8i         ImageFormat = 27
+	ImageFormatR16i         ImageFormat = 28
+	ImageFormatR8i          ImageFormat = 29
+	ImageFormatRgba32ui     ImageFormat = 30
+	ImageFormatRgba16ui     ImageFormat = 31
+	ImageFormatRgba8ui      ImageFormat = 32
+	ImageFormatR32ui        ImageFormat = 33
+	ImageFormatRgb10a2ui    ImageFormat = 34
+	ImageFormatRg32ui       ImageFormat = 35
+	ImageFormatRg16ui       ImageFormat = 36
+	ImageFormatRg8ui        ImageFormat = 37
+	ImageFormatR16ui        ImageFormat = 38
+	ImageFormatR8ui         ImageFormat = 39
+)
+
 // GLSL.std.450 extended instruction set constants
 const (
 	GLSLstd450Round                 uint32 = 1
@@ -545,3 +594,107 @@ const (
 	GLSLstd450NMax                  uint32 = 80
 	GLSLstd450NClamp                uint32 = 81
 )
+
+// StorageFormatToImageFormat converts an IR storage format to a SPIR-V image format.
+//
+//nolint:gocyclo,cyclop,funlen // Large switch for exhaustive format mapping is inherently complex
+func StorageFormatToImageFormat(format ir.StorageFormat) ImageFormat {
+	switch format {
+	// 8-bit formats
+	case ir.StorageFormatR8Unorm:
+		return ImageFormatR8
+	case ir.StorageFormatR8Snorm:
+		return ImageFormatR8Snorm
+	case ir.StorageFormatR8Uint:
+		return ImageFormatR8ui
+	case ir.StorageFormatR8Sint:
+		return ImageFormatR8i
+
+	// 16-bit formats
+	case ir.StorageFormatR16Uint:
+		return ImageFormatR16ui
+	case ir.StorageFormatR16Sint:
+		return ImageFormatR16i
+	case ir.StorageFormatR16Float:
+		return ImageFormatR16f
+	case ir.StorageFormatRg8Unorm:
+		return ImageFormatRg8
+	case ir.StorageFormatRg8Snorm:
+		return ImageFormatRg8Snorm
+	case ir.StorageFormatRg8Uint:
+		return ImageFormatRg8ui
+	case ir.StorageFormatRg8Sint:
+		return ImageFormatRg8i
+
+	// 32-bit formats
+	case ir.StorageFormatR32Uint:
+		return ImageFormatR32ui
+	case ir.StorageFormatR32Sint:
+		return ImageFormatR32i
+	case ir.StorageFormatR32Float:
+		return ImageFormatR32f
+	case ir.StorageFormatRg16Uint:
+		return ImageFormatRg16ui
+	case ir.StorageFormatRg16Sint:
+		return ImageFormatRg16i
+	case ir.StorageFormatRg16Float:
+		return ImageFormatRg16f
+	case ir.StorageFormatRgba8Unorm:
+		return ImageFormatRgba8
+	case ir.StorageFormatRgba8Snorm:
+		return ImageFormatRgba8Snorm
+	case ir.StorageFormatRgba8Uint:
+		return ImageFormatRgba8ui
+	case ir.StorageFormatRgba8Sint:
+		return ImageFormatRgba8i
+	case ir.StorageFormatBgra8Unorm:
+		return ImageFormatRgba8 // BGRA not directly supported, use RGBA
+
+	// Packed 32-bit formats
+	case ir.StorageFormatRgb10a2Uint:
+		return ImageFormatRgb10a2ui
+	case ir.StorageFormatRgb10a2Unorm:
+		return ImageFormatRgb10A2
+	case ir.StorageFormatRg11b10Ufloat:
+		return ImageFormatR11fG11fB10f
+
+	// 64-bit formats
+	case ir.StorageFormatRg32Uint:
+		return ImageFormatRg32ui
+	case ir.StorageFormatRg32Sint:
+		return ImageFormatRg32i
+	case ir.StorageFormatRg32Float:
+		return ImageFormatRg32f
+	case ir.StorageFormatRgba16Uint:
+		return ImageFormatRgba16ui
+	case ir.StorageFormatRgba16Sint:
+		return ImageFormatRgba16i
+	case ir.StorageFormatRgba16Float:
+		return ImageFormatRgba16f
+
+	// 128-bit formats
+	case ir.StorageFormatRgba32Uint:
+		return ImageFormatRgba32ui
+	case ir.StorageFormatRgba32Sint:
+		return ImageFormatRgba32i
+	case ir.StorageFormatRgba32Float:
+		return ImageFormatRgba32f
+
+	// Normalized 16-bit per channel formats
+	case ir.StorageFormatR16Unorm:
+		return ImageFormatR16
+	case ir.StorageFormatR16Snorm:
+		return ImageFormatR16Snorm
+	case ir.StorageFormatRg16Unorm:
+		return ImageFormatRg16
+	case ir.StorageFormatRg16Snorm:
+		return ImageFormatRg16Snorm
+	case ir.StorageFormatRgba16Unorm:
+		return ImageFormatRgba16
+	case ir.StorageFormatRgba16Snorm:
+		return ImageFormatRgba16Snorm
+
+	default:
+		return ImageFormatUnknown
+	}
+}

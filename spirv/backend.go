@@ -564,7 +564,11 @@ func (b *Backend) emitImageType(sampledTypeID uint32, img ir.ImageType) uint32 {
 	builder.AddWord(sampled)
 
 	// Image format (for storage images; Unknown for sampled)
-	builder.AddWord(0) // spirv::ImageFormat::Unknown
+	var imageFormat ImageFormat
+	if img.Class == ir.ImageClassStorage {
+		imageFormat = StorageFormatToImageFormat(img.StorageFormat)
+	}
+	builder.AddWord(uint32(imageFormat))
 
 	b.builder.types = append(b.builder.types, builder.Build(OpTypeImage))
 
@@ -2341,6 +2345,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	case ir.StmtBarrier:
 		return e.emitBarrier(kind)
 
+	case ir.StmtSwitch:
+		return e.emitSwitch(kind)
+
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", kind)
 	}
@@ -2466,6 +2473,93 @@ func (e *ExpressionEmitter) emitLoop(stmt ir.StmtLoop) error {
 		builder = NewInstructionBuilder()
 		builder.AddWord(headerLabel)
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
+	}
+
+	// Merge label
+	e.backend.builder.AddLabel()
+
+	return nil
+}
+
+// emitSwitch emits a switch statement.
+func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
+	// Evaluate selector
+	selectorID, err := e.emitExpression(stmt.Selector)
+	if err != nil {
+		return fmt.Errorf("switch selector: %w", err)
+	}
+
+	// Allocate labels for merge and each case block
+	mergeLabel := e.backend.builder.AllocID()
+	caseLabels := make([]uint32, len(stmt.Cases))
+	for i := range stmt.Cases {
+		caseLabels[i] = e.backend.builder.AllocID()
+	}
+
+	// Find default case index
+	defaultIdx := -1
+	for i, c := range stmt.Cases {
+		if _, isDefault := c.Value.(ir.SwitchValueDefault); isDefault {
+			defaultIdx = i
+			break
+		}
+	}
+	if defaultIdx == -1 {
+		return fmt.Errorf("switch statement has no default case")
+	}
+	defaultLabel := caseLabels[defaultIdx]
+
+	// OpSelectionMerge declares the merge point
+	e.backend.builder.AddSelectionMerge(mergeLabel, SelectionControlNone)
+
+	// Build OpSwitch instruction
+	// Format: OpSwitch Selector Default (Literal Label)*
+	switchBuilder := NewInstructionBuilder()
+	switchBuilder.AddWord(selectorID)
+	switchBuilder.AddWord(defaultLabel)
+
+	// Add literal/label pairs for non-default cases
+	for i, c := range stmt.Cases {
+		switch v := c.Value.(type) {
+		case ir.SwitchValueI32:
+			// #nosec G115 - int32 to uint32 conversion for SPIR-V literal encoding
+			switchBuilder.AddWord(uint32(v) & 0xFFFFFFFF)
+			switchBuilder.AddWord(caseLabels[i])
+		case ir.SwitchValueU32:
+			switchBuilder.AddWord(uint32(v))
+			switchBuilder.AddWord(caseLabels[i])
+		case ir.SwitchValueDefault:
+			// Default is handled via defaultLabel parameter, skip here
+			continue
+		}
+	}
+	e.backend.builder.functions = append(e.backend.builder.functions, switchBuilder.Build(OpSwitch))
+
+	// Emit each case block
+	for i, c := range stmt.Cases {
+		// Case label
+		e.backend.builder.AddLabelWithID(caseLabels[i])
+
+		// Emit case body statements
+		for _, bodyStmt := range c.Body {
+			if err := e.emitStatement(bodyStmt); err != nil {
+				return fmt.Errorf("switch case body: %w", err)
+			}
+		}
+
+		// Branch to appropriate target
+		// Note: WGSL doesn't support fallthrough, but IR allows it for other frontends
+		var targetLabel uint32
+		if c.FallThrough && i < len(stmt.Cases)-1 {
+			// Fallthrough to next case
+			targetLabel = caseLabels[i+1]
+		} else {
+			// Branch to merge (normal case, or last case with fallthrough)
+			targetLabel = mergeLabel
+		}
+		branchBuilder := NewInstructionBuilder()
+		branchBuilder.AddWord(targetLabel)
+		e.backend.builder.functions = append(e.backend.builder.functions, branchBuilder.Build(OpBranch))
 	}
 
 	// Merge label

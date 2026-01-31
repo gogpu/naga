@@ -487,3 +487,86 @@ func TestParsePointerType(t *testing.T) {
 		t.Errorf("expected address space 'function', got %q", ptrType.AddressSpace)
 	}
 }
+
+// TestParseSwitchStatement tests parsing of switch statements (NAGA-002).
+func TestParseSwitchStatement(t *testing.T) {
+	source := `@fragment
+fn main(@location(0) idx: u32) -> @location(0) vec4<f32> {
+    var color: vec4<f32>;
+    switch idx {
+        case 0u: { color = vec4<f32>(1.0, 0.0, 0.0, 1.0); }
+        case 1u: { color = vec4<f32>(0.0, 1.0, 0.0, 1.0); }
+        default: { color = vec4<f32>(0.0, 0.0, 1.0, 1.0); }
+    }
+    return color;
+}`
+
+	module := parseSource(t, source)
+
+	if len(module.Functions) != 1 {
+		t.Fatalf("expected 1 function, got %d", len(module.Functions))
+	}
+
+	fn := module.Functions[0]
+	if fn.Body == nil || len(fn.Body.Statements) < 2 {
+		t.Fatalf("expected at least 2 statements in function body")
+	}
+
+	// Second statement should be switch
+	switchStmt, ok := fn.Body.Statements[1].(*SwitchStmt)
+	if !ok {
+		t.Fatalf("expected SwitchStmt, got %T", fn.Body.Statements[1])
+	}
+
+	if len(switchStmt.Cases) != 3 {
+		t.Errorf("expected 3 cases, got %d", len(switchStmt.Cases))
+	}
+
+	// Check first case (0u)
+	if switchStmt.Cases[0].IsDefault {
+		t.Errorf("first case should not be default")
+	}
+	if len(switchStmt.Cases[0].Selectors) != 1 {
+		t.Errorf("expected 1 selector in first case, got %d", len(switchStmt.Cases[0].Selectors))
+	}
+
+	// Check last case (default)
+	if !switchStmt.Cases[2].IsDefault {
+		t.Errorf("last case should be default")
+	}
+}
+
+// TestParseLocalConst tests parsing of local const declarations (NAGA-002).
+func TestParseLocalConst(t *testing.T) {
+	source := `@vertex
+fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
+    const PI = 3.14159;
+    let x = PI * 2.0;
+    return vec4<f32>(x, 0.0, 0.0, 1.0);
+}`
+
+	module := parseSource(t, source)
+
+	if len(module.Functions) != 1 {
+		t.Fatalf("expected 1 function, got %d", len(module.Functions))
+	}
+
+	fn := module.Functions[0]
+	if fn.Body == nil || len(fn.Body.Statements) < 1 {
+		t.Fatalf("expected at least 1 statement in function body")
+	}
+
+	// First statement should be const declaration
+	constDecl, ok := fn.Body.Statements[0].(*ConstDecl)
+	if !ok {
+		t.Fatalf("expected ConstDecl, got %T", fn.Body.Statements[0])
+	}
+
+	if constDecl.Name != "PI" {
+		t.Errorf("expected const name 'PI', got %q", constDecl.Name)
+	}
+
+	if constDecl.Init == nil {
+		t.Errorf("const should have initializer")
+	}
+}

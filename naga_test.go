@@ -498,3 +498,62 @@ fn main( -> @builtin(position) vec4<f32> {
 		})
 	}
 }
+
+// TestCompileSwitchStatement tests compilation of switch statements (NAGA-002).
+func TestCompileSwitchStatement(t *testing.T) {
+	source := `
+@fragment
+fn main(@location(0) idx: u32) -> @location(0) vec4<f32> {
+    var color: vec4<f32>;
+    switch idx {
+        case 0u: { color = vec4<f32>(1.0, 0.0, 0.0, 1.0); }
+        case 1u: { color = vec4<f32>(0.0, 1.0, 0.0, 1.0); }
+        default: { color = vec4<f32>(0.0, 0.0, 1.0, 1.0); }
+    }
+    return color;
+}
+`
+	opts := CompileOptions{Validate: false}
+	spirvBytes, err := CompileWithOptions(source, opts)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	// Check SPIR-V magic number
+	if len(spirvBytes) < 4 {
+		t.Fatal("Output too short")
+	}
+	magic := uint32(spirvBytes[0]) | uint32(spirvBytes[1])<<8 | uint32(spirvBytes[2])<<16 | uint32(spirvBytes[3])<<24
+	if magic != uint32(0x07230203) {
+		t.Errorf("Invalid SPIR-V magic: got 0x%08x, want 0x%08x", magic, uint32(0x07230203))
+	}
+
+	t.Logf("Generated %d bytes of SPIR-V for switch statement", len(spirvBytes))
+}
+
+// TestCompileLocalConst tests compilation of local const declarations (NAGA-002).
+func TestCompileLocalConst(t *testing.T) {
+	source := `
+@vertex
+fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
+    const PI = 3.14159;
+    let x = PI * 2.0;
+    return vec4<f32>(x, 0.0, 0.0, 1.0);
+}
+`
+	opts := CompileOptions{Validate: false}
+	spirvBytes, err := CompileWithOptions(source, opts)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	if len(spirvBytes) < 4 {
+		t.Fatal("Output too short")
+	}
+	magic := uint32(spirvBytes[0]) | uint32(spirvBytes[1])<<8 | uint32(spirvBytes[2])<<16 | uint32(spirvBytes[3])<<24
+	if magic != uint32(0x07230203) {
+		t.Errorf("Invalid SPIR-V magic: got 0x%08x, want 0x%08x", magic, uint32(0x07230203))
+	}
+
+	t.Logf("Generated %d bytes of SPIR-V for local const", len(spirvBytes))
+}

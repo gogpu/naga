@@ -648,10 +648,14 @@ func (p *Parser) statement() (Stmt, *ParseError) {
 		return p.continueStmt()
 	case p.check(TokenDiscard):
 		return p.discardStmt()
+	case p.check(TokenSwitch):
+		return p.switchStmt()
 	case p.check(TokenVar):
 		return p.varDecl(nil)
 	case p.check(TokenLet):
 		return p.letStmt()
+	case p.check(TokenConst):
+		return p.localConstStmt()
 	case p.check(TokenLeftBrace):
 		return p.block()
 	default:
@@ -817,6 +821,90 @@ func (p *Parser) loopStmt() (*LoopStmt, *ParseError) {
 			Start: Position{Line: start.Line, Column: start.Column},
 		},
 	}, nil
+}
+
+// switchStmt parses a switch statement.
+func (p *Parser) switchStmt() (*SwitchStmt, *ParseError) {
+	start := p.advance() // consume 'switch'
+
+	// Parse selector expression
+	selector, err := p.expression()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.expectErr(TokenLeftBrace); err != nil {
+		return nil, err
+	}
+
+	var cases []*SwitchCaseClause
+	for !p.check(TokenRightBrace) && !p.isAtEnd() {
+		caseClause, err := p.switchCaseClause()
+		if err != nil {
+			return nil, err
+		}
+		cases = append(cases, caseClause)
+	}
+
+	if err := p.expectErr(TokenRightBrace); err != nil {
+		return nil, err
+	}
+
+	return &SwitchStmt{
+		Selector: selector,
+		Cases:    cases,
+		Span: Span{
+			Start: Position{Line: start.Line, Column: start.Column},
+		},
+	}, nil
+}
+
+// switchCaseClause parses a case or default clause in a switch statement.
+func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
+	start := p.peek()
+	var selectors []Expr
+	isDefault := false
+
+	if p.match(TokenDefault) {
+		isDefault = true
+	} else if p.match(TokenCase) {
+		// Parse comma-separated selectors: case 1u, 2u, 3u:
+		for {
+			expr, err := p.expression()
+			if err != nil {
+				return nil, err
+			}
+			selectors = append(selectors, expr)
+			if !p.match(TokenComma) {
+				break
+			}
+		}
+	} else {
+		return nil, &ParseError{Message: "expected 'case' or 'default'", Token: start}
+	}
+
+	if err := p.expectErr(TokenColon); err != nil {
+		return nil, err
+	}
+
+	body, err := p.block()
+	if err != nil {
+		return nil, err
+	}
+
+	return &SwitchCaseClause{
+		Selectors: selectors,
+		IsDefault: isDefault,
+		Body:      body,
+		Span: Span{
+			Start: Position{Line: start.Line, Column: start.Column},
+		},
+	}, nil
+}
+
+// localConstStmt parses a local const declaration inside a function.
+func (p *Parser) localConstStmt() (*ConstDecl, *ParseError) {
+	return p.constDecl()
 }
 
 // breakStmt parses a break statement.

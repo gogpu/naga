@@ -19,13 +19,14 @@
 
 ---
 
-## Current State: v0.9.0
+## Current State: v0.10.0
 
-✅ **Production-ready** shader compiler (~17K LOC):
+✅ **Production-ready** shader compiler (~18K LOC):
 - Full WGSL frontend (lexer, parser, IR)
 - 4 backend outputs (SPIR-V, MSL, GLSL, HLSL)
 - Compute shaders (atomics, barriers, workgroups)
-- Texture sampling and storage
+- Texture sampling and storage textures (50+ formats)
+- Local const declarations and switch statements
 - Type inference and validation
 - Development tools (nagac, spvdis)
 
