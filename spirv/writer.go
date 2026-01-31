@@ -453,6 +453,13 @@ func (b *ModuleBuilder) AddLabel() uint32 {
 	return id
 }
 
+// AddLabelWithID adds a label with a pre-allocated ID.
+func (b *ModuleBuilder) AddLabelWithID(id uint32) {
+	builder := NewInstructionBuilder()
+	builder.AddWord(id)
+	b.functions = append(b.functions, builder.Build(OpLabel))
+}
+
 // AddReturn adds OpReturn.
 func (b *ModuleBuilder) AddReturn() {
 	builder := NewInstructionBuilder()

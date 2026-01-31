@@ -112,6 +112,7 @@ type ConstDecl struct {
 
 func (c *ConstDecl) Pos() Span { return c.Span }
 func (c *ConstDecl) declNode() {}
+func (c *ConstDecl) stmtNode() {} // Allow const as local statement
 
 // AliasDecl represents a type alias declaration.
 type AliasDecl struct {
@@ -273,6 +274,24 @@ type ExprStmt struct {
 
 func (e *ExprStmt) Pos() Span { return e.Span }
 func (e *ExprStmt) stmtNode() {}
+
+// SwitchStmt represents a switch statement.
+type SwitchStmt struct {
+	Selector Expr
+	Cases    []*SwitchCaseClause
+	Span     Span
+}
+
+func (s *SwitchStmt) Pos() Span { return s.Span }
+func (s *SwitchStmt) stmtNode() {}
+
+// SwitchCaseClause represents a case clause in a switch statement.
+type SwitchCaseClause struct {
+	Selectors []Expr     // Case selectors (nil or empty for default)
+	IsDefault bool       // True for default case
+	Body      *BlockStmt // Case body
+	Span      Span
+}
 
 // Expressions
 

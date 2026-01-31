@@ -462,6 +462,11 @@ func (l *Lowerer) lowerStatement(stmt Stmt, target *[]ir.Statement) error {
 		return l.lowerWhile(s, target)
 	case *LoopStmt:
 		return l.lowerLoop(s, target)
+	case *SwitchStmt:
+		return l.lowerSwitch(s, target)
+	case *ConstDecl:
+		// Local const is treated like let (named expression)
+		return l.lowerLocalConst(s, target)
 	case *BreakStmt:
 		*target = append(*target, ir.Statement{Kind: ir.StmtBreak{}})
 		return nil
@@ -725,6 +730,101 @@ func (l *Lowerer) lowerLoop(loopStmt *LoopStmt, target *[]ir.Statement) error {
 			Continuing: continuing,
 		},
 	})
+	return nil
+}
+
+// lowerSwitch converts a switch statement to IR.
+func (l *Lowerer) lowerSwitch(switchStmt *SwitchStmt, target *[]ir.Statement) error {
+	// Lower selector expression
+	selector, err := l.lowerExpression(switchStmt.Selector, target)
+	if err != nil {
+		return fmt.Errorf("switch selector: %w", err)
+	}
+
+	var cases []ir.SwitchCase
+	for i, clause := range switchStmt.Cases {
+		var caseBody []ir.Statement
+		if err := l.lowerBlock(clause.Body, &caseBody); err != nil {
+			return fmt.Errorf("switch case %d body: %w", i, err)
+		}
+
+		if clause.IsDefault {
+			cases = append(cases, ir.SwitchCase{
+				Value: ir.SwitchValueDefault{},
+				Body:  caseBody,
+			})
+		} else {
+			// For each selector, create a case
+			for _, sel := range clause.Selectors {
+				value, err := l.lowerSwitchCaseValue(sel)
+				if err != nil {
+					return fmt.Errorf("switch case %d selector: %w", i, err)
+				}
+				cases = append(cases, ir.SwitchCase{
+					Value: value,
+					Body:  caseBody,
+				})
+			}
+		}
+	}
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtSwitch{
+			Selector: selector,
+			Cases:    cases,
+		},
+	})
+	return nil
+}
+
+// lowerSwitchCaseValue converts a switch case selector to IR.
+func (l *Lowerer) lowerSwitchCaseValue(expr Expr) (ir.SwitchValue, error) {
+	lit, ok := expr.(*Literal)
+	if !ok {
+		return nil, fmt.Errorf("switch case selector must be a literal, got %T", expr)
+	}
+
+	switch lit.Kind {
+	case TokenIntLiteral:
+		// Parse the literal value
+		val, suffix := parseIntLiteral(lit.Value)
+		if suffix == "u" {
+			// #nosec G115 -- WGSL switch case values are always 32-bit
+			return ir.SwitchValueU32(uint32(val & 0xFFFFFFFF)), nil
+		}
+		// #nosec G115 -- WGSL switch case values are always 32-bit
+		return ir.SwitchValueI32(int32(val & 0xFFFFFFFF)), nil
+	default:
+		return nil, fmt.Errorf("switch case selector must be an integer literal")
+	}
+}
+
+// parseIntLiteral parses an integer literal and returns the value and suffix.
+func parseIntLiteral(s string) (int64, string) {
+	suffix := ""
+	if len(s) > 0 && (s[len(s)-1] == 'u' || s[len(s)-1] == 'i') {
+		suffix = string(s[len(s)-1])
+		s = s[:len(s)-1]
+	}
+	val, _ := strconv.ParseInt(s, 0, 64)
+	return val, suffix
+}
+
+// lowerLocalConst converts a local const declaration to IR.
+// Local const is treated as a named expression (similar to let).
+func (l *Lowerer) lowerLocalConst(decl *ConstDecl, target *[]ir.Statement) error {
+	if decl.Init == nil {
+		return fmt.Errorf("local const '%s' must have initializer", decl.Name)
+	}
+
+	// Lower the initializer expression
+	initHandle, err := l.lowerExpression(decl.Init, target)
+	if err != nil {
+		return fmt.Errorf("const '%s' initializer: %w", decl.Name, err)
+	}
+
+	// Register as a named expression (like let)
+	l.locals[decl.Name] = initHandle
 	return nil
 }
 
