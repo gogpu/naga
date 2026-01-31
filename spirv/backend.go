@@ -564,7 +564,11 @@ func (b *Backend) emitImageType(sampledTypeID uint32, img ir.ImageType) uint32 {
 	builder.AddWord(sampled)
 
 	// Image format (for storage images; Unknown for sampled)
-	builder.AddWord(0) // spirv::ImageFormat::Unknown
+	var imageFormat ImageFormat
+	if img.Class == ir.ImageClassStorage {
+		imageFormat = StorageFormatToImageFormat(img.StorageFormat)
+	}
+	builder.AddWord(uint32(imageFormat))
 
 	b.builder.types = append(b.builder.types, builder.Build(OpTypeImage))
 

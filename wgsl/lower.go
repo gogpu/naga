@@ -3,6 +3,7 @@ package wgsl
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/gogpu/naga/ir"
 )
@@ -1211,13 +1212,10 @@ func (l *Lowerer) resolveParameterizedType(t *NamedType) (ir.TypeHandle, error) 
 		}), nil
 	}
 
-	// Texture types: texture_2d<f32>
+	// Texture types: texture_2d<f32>, texture_storage_2d<rgba8unorm, write>, etc.
 	if len(t.Name) >= 7 && t.Name[:7] == "texture" {
-		dim := l.textureDim(t.Name)
-		return l.registerType("", ir.ImageType{
-			Dim:   dim,
-			Class: ir.ImageClassSampled,
-		}), nil
+		imgType := l.parseTextureType(t)
+		return l.registerType("", imgType), nil
 	}
 
 	// Atomic types: atomic<u32>, atomic<i32>
@@ -1505,20 +1503,162 @@ func (l *Lowerer) isOpaqueResourceType(handle ir.TypeHandle) bool {
 	}
 }
 
-func (l *Lowerer) textureDim(name string) ir.ImageDimension {
-	if len(name) >= 9 && name == "texture_1d" {
+// parseTextureType parses a texture type specification and returns an ImageType.
+// Handles: texture_2d<f32>, texture_storage_2d<rgba8unorm, write>, texture_depth_2d, etc.
+func (l *Lowerer) parseTextureType(t *NamedType) ir.ImageType {
+	name := t.Name
+	img := ir.ImageType{
+		Dim:   ir.Dim2D,
+		Class: ir.ImageClassSampled,
+	}
+
+	// Check for storage textures: texture_storage_1d, texture_storage_2d, etc.
+	if strings.HasPrefix(name, "texture_storage_") {
+		img.Class = ir.ImageClassStorage
+		suffix := name[16:] // After "texture_storage_"
+		img.Dim = l.parseTextureDimSuffix(suffix)
+		img.Arrayed = strings.Contains(suffix, "_array")
+
+		// Parse format and access from type params: <rgba8unorm, write>
+		if len(t.TypeParams) >= 1 {
+			img.StorageFormat = l.parseStorageFormat(t.TypeParams[0])
+		}
+		if len(t.TypeParams) >= 2 {
+			img.StorageAccess = l.parseStorageAccess(t.TypeParams[1])
+		}
+		return img
+	}
+
+	// Check for depth textures: texture_depth_2d, texture_depth_cube, etc.
+	if strings.HasPrefix(name, "texture_depth_") {
+		img.Class = ir.ImageClassDepth
+		suffix := name[14:] // After "texture_depth_"
+		img.Dim = l.parseTextureDimSuffix(suffix)
+		img.Arrayed = strings.Contains(suffix, "_array")
+		img.Multisampled = strings.Contains(suffix, "multisampled")
+		return img
+	}
+
+	// Check for multisampled textures: texture_multisampled_2d
+	if strings.HasPrefix(name, "texture_multisampled_") {
+		img.Multisampled = true
+		suffix := name[21:] // After "texture_multisampled_"
+		img.Dim = l.parseTextureDimSuffix(suffix)
+		return img
+	}
+
+	// Regular sampled textures: texture_1d, texture_2d, texture_3d, texture_cube, etc.
+	suffix := name[8:] // After "texture_"
+	img.Dim = l.parseTextureDimSuffix(suffix)
+	img.Arrayed = strings.Contains(suffix, "_array")
+
+	return img
+}
+
+// parseTextureDimSuffix parses dimension from suffix like "1d", "2d", "3d", "cube", "2d_array".
+func (l *Lowerer) parseTextureDimSuffix(suffix string) ir.ImageDimension {
+	if strings.HasPrefix(suffix, "1d") {
 		return ir.Dim1D
 	}
-	if len(name) >= 9 && name == "texture_2d" {
+	if strings.HasPrefix(suffix, "2d") {
 		return ir.Dim2D
 	}
-	if len(name) >= 9 && name == "texture_3d" {
+	if strings.HasPrefix(suffix, "3d") {
 		return ir.Dim3D
 	}
-	if len(name) >= 12 && name == "texture_cube" {
+	if strings.HasPrefix(suffix, "cube") {
 		return ir.DimCube
 	}
-	return ir.Dim2D // Default
+	return ir.Dim2D
+}
+
+// parseStorageFormat parses a storage texture format from a type parameter.
+func (l *Lowerer) parseStorageFormat(param Type) ir.StorageFormat {
+	// The format is typically an identifier like "rgba8unorm"
+	namedType, ok := param.(*NamedType)
+	if !ok {
+		return ir.StorageFormatUnknown
+	}
+	name := namedType.Name
+	formats := map[string]ir.StorageFormat{
+		// 8-bit formats
+		"r8unorm": ir.StorageFormatR8Unorm,
+		"r8snorm": ir.StorageFormatR8Snorm,
+		"r8uint":  ir.StorageFormatR8Uint,
+		"r8sint":  ir.StorageFormatR8Sint,
+
+		// 16-bit formats
+		"r16uint":  ir.StorageFormatR16Uint,
+		"r16sint":  ir.StorageFormatR16Sint,
+		"r16float": ir.StorageFormatR16Float,
+		"rg8unorm": ir.StorageFormatRg8Unorm,
+		"rg8snorm": ir.StorageFormatRg8Snorm,
+		"rg8uint":  ir.StorageFormatRg8Uint,
+		"rg8sint":  ir.StorageFormatRg8Sint,
+
+		// 32-bit formats
+		"r32uint":    ir.StorageFormatR32Uint,
+		"r32sint":    ir.StorageFormatR32Sint,
+		"r32float":   ir.StorageFormatR32Float,
+		"rg16uint":   ir.StorageFormatRg16Uint,
+		"rg16sint":   ir.StorageFormatRg16Sint,
+		"rg16float":  ir.StorageFormatRg16Float,
+		"rgba8unorm": ir.StorageFormatRgba8Unorm,
+		"rgba8snorm": ir.StorageFormatRgba8Snorm,
+		"rgba8uint":  ir.StorageFormatRgba8Uint,
+		"rgba8sint":  ir.StorageFormatRgba8Sint,
+		"bgra8unorm": ir.StorageFormatBgra8Unorm,
+
+		// Packed 32-bit formats
+		"rgb10a2uint":  ir.StorageFormatRgb10a2Uint,
+		"rgb10a2unorm": ir.StorageFormatRgb10a2Unorm,
+		"rg11b10float": ir.StorageFormatRg11b10Ufloat,
+
+		// 64-bit formats
+		"rg32uint":    ir.StorageFormatRg32Uint,
+		"rg32sint":    ir.StorageFormatRg32Sint,
+		"rg32float":   ir.StorageFormatRg32Float,
+		"rgba16uint":  ir.StorageFormatRgba16Uint,
+		"rgba16sint":  ir.StorageFormatRgba16Sint,
+		"rgba16float": ir.StorageFormatRgba16Float,
+
+		// 128-bit formats
+		"rgba32uint":  ir.StorageFormatRgba32Uint,
+		"rgba32sint":  ir.StorageFormatRgba32Sint,
+		"rgba32float": ir.StorageFormatRgba32Float,
+
+		// Normalized 16-bit per channel formats
+		"r16unorm":    ir.StorageFormatR16Unorm,
+		"r16snorm":    ir.StorageFormatR16Snorm,
+		"rg16unorm":   ir.StorageFormatRg16Unorm,
+		"rg16snorm":   ir.StorageFormatRg16Snorm,
+		"rgba16unorm": ir.StorageFormatRgba16Unorm,
+		"rgba16snorm": ir.StorageFormatRgba16Snorm,
+	}
+
+	if format, ok := formats[name]; ok {
+		return format
+	}
+	return ir.StorageFormatUnknown
+}
+
+// parseStorageAccess parses a storage texture access mode from a type parameter.
+func (l *Lowerer) parseStorageAccess(param Type) ir.StorageAccess {
+	namedType, ok := param.(*NamedType)
+	if !ok {
+		return ir.StorageAccessWrite
+	}
+	name := namedType.Name
+	switch name {
+	case "read":
+		return ir.StorageAccessRead
+	case "write":
+		return ir.StorageAccessWrite
+	case "read_write":
+		return ir.StorageAccessReadWrite
+	default:
+		return ir.StorageAccessWrite // Default to write
+	}
 }
 
 func (l *Lowerer) tokenToBinaryOp(tok TokenKind) ir.BinaryOperator {
