@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-02-07
+
+SPIR-V control flow fix and 55 new WGSL built-in math functions.
+
+### Fixed
+
+#### SPIR-V Backend
+- **`if/else` control flow** — Fixed invalid SPIR-V causing GPU hang on all drivers
+  - Root cause: `blockEndsWithTerminator()` didn't handle `StmtBlock` wrapper from WGSL lowerer
+  - Reject branch wrapped in `StmtBlock{}` by `lowerStatement()` vs flat `lowerBlock()` for accept
+  - Result: `OpReturn` emitted in reject block followed by spurious `OpBranch` (two terminators)
+  - Merge block left without terminator — undefined behavior in structured control flow
+  - Fix: Added `StmtBlock` and nested `StmtIf` handling to `blockEndsWithTerminator()`
+  - Added `OpUnreachable` emission for merge blocks when both branches terminate
+  - Fixed `AddLabel()` → `AddLabelWithID()` for correct merge block targeting
+
+### Added
+
+#### WGSL Built-in Functions (55 new, 67 total math functions)
+- **Trigonometric**: `cosh`, `sinh`, `tanh`, `acos`, `asin`, `atan`, `atan2`, `asinh`, `acosh`, `atanh`
+- **Angle conversion**: `radians`, `degrees`
+- **Decomposition**: `ceil`, `floor`, `round`, `fract`, `trunc`
+- **Exponential**: `exp`, `exp2`, `log`, `log2`, `pow`
+- **Geometric**: `distance`, `faceForward`, `reflect`, `refract`
+- **Computational**: `sign`, `fma`, `mix`, `step`, `smoothstep`, `inverseSqrt`, `saturate`
+- **Matrix**: `transpose`, `determinant`
+- **Bit manipulation**: `countTrailingZeros`, `countLeadingZeros`, `countOneBits`, `reverseBits`, `extractBits`, `insertBits`, `firstTrailingBit`, `firstLeadingBit`
+- **Data packing**: `pack4x8snorm`, `pack4x8unorm`, `pack2x16snorm`, `pack2x16unorm`, `pack2x16float`
+- **Data unpacking**: `unpack4x8snorm`, `unpack4x8unorm`, `unpack2x16snorm`, `unpack2x16unorm`, `unpack2x16float`
+- **Selection**: `select(falseVal, trueVal, condition)` — Component-wise selection
+
+#### Testing
+- SPIR-V `if/else` control flow test — validates correct block termination
+- 55 new math function compilation tests — all functions verified end-to-end
+- `select()` function test with scalar and vector variants
+
 ## [0.10.0] - 2026-02-01
 
 WGSL language features: local const, switch statements, and storage texture support.
@@ -533,7 +569,9 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/gogpu/naga/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/gogpu/naga/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/gogpu/naga/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/gogpu/naga/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/gogpu/naga/compare/v0.8.2...v0.8.3

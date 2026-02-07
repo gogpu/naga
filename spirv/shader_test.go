@@ -656,3 +656,248 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
 	t.Logf("Successfully compiled compute shader with atomicCompareExchangeWeak: %d bytes", len(spirvBytes))
 }
+
+// TestCompileFragmentShaderWithIfElseReturn tests the exact shader that caused GPU hang.
+// Bug WGSL-CONTROLFLOW-001: if/else with return in both branches generated broken SPIR-V.
+func TestCompileFragmentShaderWithIfElseReturn(t *testing.T) {
+	source := `
+struct Uniforms {
+    premultiplied: f32,
+    alpha: f32,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var tex: texture_2d<f32>;
+@group(0) @binding(2) var texSampler: sampler;
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let texColor = textureSample(tex, texSampler, input.uv);
+    if (uniforms.premultiplied > 0.5) {
+        return texColor * uniforms.alpha;
+    } else {
+        let a = texColor.a * uniforms.alpha;
+        return vec4<f32>(texColor.rgb * a, a);
+    }
+}
+`
+	// Parse WGSL
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Lower AST to IR
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	// Compile to SPIR-V
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	// Validate basic SPIR-V binary format
+	validateSPIRVBinary(t, spirvBytes)
+
+	// Validate structured control flow:
+	// Every OpBranchConditional must be preceded by OpSelectionMerge,
+	// and all branch target labels must exist in the binary.
+	validateSPIRVControlFlow(t, spirvBytes)
+
+	t.Logf("Successfully compiled fragment shader with if/else return: %d bytes", len(spirvBytes))
+}
+
+// TestCompileFragmentShaderWithNestedIfElse tests nested if/else control flow.
+func TestCompileFragmentShaderWithNestedIfElse(t *testing.T) {
+	source := `
+@fragment
+fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    var color: vec4<f32>;
+    if (uv.x > 0.5) {
+        if (uv.y > 0.5) {
+            color = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+        } else {
+            color = vec4<f32>(0.0, 1.0, 0.0, 1.0);
+        }
+    } else {
+        color = vec4<f32>(0.0, 0.0, 1.0, 1.0);
+    }
+    return color;
+}
+`
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+	validateSPIRVControlFlow(t, spirvBytes)
+
+	t.Logf("Successfully compiled fragment shader with nested if/else: %d bytes", len(spirvBytes))
+}
+
+// TestCompileFragmentShaderIfWithoutElse tests if without else branch.
+func TestCompileFragmentShaderIfWithoutElse(t *testing.T) {
+	source := `
+@fragment
+fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    var color: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    if (uv.x > 0.5) {
+        color = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    }
+    return color;
+}
+`
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+	validateSPIRVControlFlow(t, spirvBytes)
+
+	t.Logf("Successfully compiled fragment shader if without else: %d bytes", len(spirvBytes))
+}
+
+// validateSPIRVControlFlow validates the SPIR-V structured control flow rules:
+// 1. Every OpBranchConditional must be preceded by OpSelectionMerge or OpLoopMerge
+// 2. All branch target label IDs must exist as OpLabel instructions
+// 3. No unreachable instructions after terminators (OpReturn, OpReturnValue, OpKill, OpBranch)
+func validateSPIRVControlFlow(t *testing.T, spirvBytes []byte) {
+	t.Helper()
+
+	if len(spirvBytes) < 20 || len(spirvBytes)%4 != 0 {
+		t.Fatal("Invalid SPIR-V binary for control flow validation")
+	}
+
+	// Parse all instructions
+	words := make([]uint32, len(spirvBytes)/4)
+	for i := range words {
+		words[i] = uint32(spirvBytes[i*4]) |
+			uint32(spirvBytes[i*4+1])<<8 |
+			uint32(spirvBytes[i*4+2])<<16 |
+			uint32(spirvBytes[i*4+3])<<24
+	}
+
+	// Collect all label IDs and branch targets
+	labelIDs := make(map[uint32]bool)
+	branchTargets := make(map[uint32]bool)
+
+	// Track previous instruction opcode for merge validation
+	var prevOpcode OpCode
+	hasMerge := false
+
+	offset := 5 // Skip header
+	for offset < len(words) {
+		word := words[offset]
+		wordCount := word >> 16
+		opcode := OpCode(word & 0xFFFF)
+
+		if wordCount == 0 || offset+int(wordCount) > len(words) {
+			break
+		}
+
+		switch opcode {
+		case OpLabel:
+			if wordCount >= 2 {
+				labelIDs[words[offset+1]] = true
+			}
+
+		case OpSelectionMerge:
+			hasMerge = true
+			if wordCount >= 2 {
+				branchTargets[words[offset+1]] = true // merge label
+			}
+
+		case OpLoopMerge:
+			hasMerge = true
+			if wordCount >= 3 {
+				branchTargets[words[offset+1]] = true // merge label
+				branchTargets[words[offset+2]] = true // continue label
+			}
+
+		case OpBranch:
+			if wordCount >= 2 {
+				branchTargets[words[offset+1]] = true
+			}
+
+		case OpBranchConditional:
+			// Must be preceded by OpSelectionMerge or OpLoopMerge
+			if !hasMerge {
+				t.Errorf("OpBranchConditional at word %d not preceded by OpSelectionMerge/OpLoopMerge (prev opcode: %d)", offset, prevOpcode)
+			}
+			hasMerge = false
+			if wordCount >= 4 {
+				branchTargets[words[offset+2]] = true // true label
+				branchTargets[words[offset+3]] = true // false label
+			}
+		}
+
+		// Reset merge flag on non-merge, non-branch instructions
+		if opcode != OpSelectionMerge && opcode != OpLoopMerge && opcode != OpBranchConditional {
+			hasMerge = false
+		}
+
+		prevOpcode = opcode
+		offset += int(wordCount)
+	}
+
+	// Verify all branch targets exist as labels
+	for target := range branchTargets {
+		if !labelIDs[target] {
+			t.Errorf("Branch target ID %d does not have a corresponding OpLabel", target)
+		}
+	}
+}

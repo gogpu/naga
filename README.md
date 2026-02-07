@@ -264,16 +264,24 @@ naga/
 - `var<workgroup>` — Workgroup shared memory
 
 ### Statements
-- Variable declarations: `var`, `let`
-- Control flow: `if`, `else`, `for`, `while`, `loop`
+- Variable declarations: `var`, `let`, `const`
+- Control flow: `if`, `else`, `for`, `while`, `loop`, `switch`, `case`, `default`
 - Loop control: `break`, `continue`
 - Functions: `return`, `discard`
 - Assignment: `=`, `+=`, `-=`, `*=`, `/=`
 
-### Built-in Functions (50+)
-- Math: `sin`, `cos`, `tan`, `exp`, `log`, `pow`, `sqrt`, `abs`, `min`, `max`, `clamp`
-- Geometric: `dot`, `cross`, `length`, `distance`, `normalize`, `reflect`
+### Built-in Functions (90+)
+- Math: `abs`, `min`, `max`, `clamp`, `saturate`, `sign`, `fma`
+- Trigonometric: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`
+- Angle: `radians`, `degrees`
+- Exponential: `exp`, `exp2`, `log`, `log2`, `pow`, `sqrt`, `inverseSqrt`
+- Decomposition: `ceil`, `floor`, `round`, `fract`, `trunc`
+- Geometric: `dot`, `cross`, `length`, `distance`, `normalize`, `faceForward`, `reflect`, `refract`
 - Interpolation: `mix`, `step`, `smoothstep`
+- Matrix: `transpose`, `determinant`
+- Bit: `countTrailingZeros`, `countLeadingZeros`, `countOneBits`, `reverseBits`, `extractBits`, `insertBits`, `firstTrailingBit`, `firstLeadingBit`
+- Packing: `pack4x8snorm`, `pack4x8unorm`, `pack2x16snorm`, `pack2x16unorm`, `pack2x16float`, `unpack4x8snorm`, `unpack4x8unorm`, `unpack2x16snorm`, `unpack2x16unorm`, `unpack2x16float`
+- Selection: `select`
 - Derivatives: `dpdx`, `dpdy`, `fwidth`
 - Atomic: `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor`, `atomicExchange`, `atomicCompareExchangeWeak`
 - Barriers: `workgroupBarrier`, `storageBarrier`, `textureBarrier`

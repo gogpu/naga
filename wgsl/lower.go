@@ -868,6 +868,9 @@ func (l *Lowerer) lowerLiteral(lit *Literal) (ir.ExpressionHandle, error) {
 		value = ir.LiteralBool(true)
 	case TokenFalse:
 		value = ir.LiteralBool(false)
+	case TokenBoolLiteral:
+		// Parser normalizes TokenTrue/TokenFalse to TokenBoolLiteral
+		value = ir.LiteralBool(lit.Value == "true")
 	default:
 		return 0, fmt.Errorf("unsupported literal kind: %v", lit.Kind)
 	}
@@ -933,6 +936,11 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 	// Check if this is a built-in function (vec4, vec3, etc.)
 	if l.isBuiltinConstructor(funcName) {
 		return l.lowerBuiltinConstructor(funcName, call.Args, target)
+	}
+
+	// Check if this is the select() built-in (uses ExprSelect, not ExprMath)
+	if funcName == "select" {
+		return l.lowerSelectCall(call.Args, target)
 	}
 
 	// Check if this is a math function
@@ -1301,18 +1309,92 @@ func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir
 
 func (l *Lowerer) getMathFunction(name string) (ir.MathFunction, bool) {
 	mathFuncs := map[string]ir.MathFunction{
-		"abs":       ir.MathAbs,
-		"min":       ir.MathMin,
-		"max":       ir.MathMax,
-		"clamp":     ir.MathClamp,
-		"sin":       ir.MathSin,
-		"cos":       ir.MathCos,
-		"tan":       ir.MathTan,
-		"sqrt":      ir.MathSqrt,
-		"length":    ir.MathLength,
-		"normalize": ir.MathNormalize,
-		"dot":       ir.MathDot,
-		"cross":     ir.MathCross,
+		// Comparison functions
+		"abs":      ir.MathAbs,
+		"min":      ir.MathMin,
+		"max":      ir.MathMax,
+		"clamp":    ir.MathClamp,
+		"saturate": ir.MathSaturate,
+
+		// Trigonometric functions
+		"cos":   ir.MathCos,
+		"cosh":  ir.MathCosh,
+		"sin":   ir.MathSin,
+		"sinh":  ir.MathSinh,
+		"tan":   ir.MathTan,
+		"tanh":  ir.MathTanh,
+		"acos":  ir.MathAcos,
+		"asin":  ir.MathAsin,
+		"atan":  ir.MathAtan,
+		"atan2": ir.MathAtan2,
+		"asinh": ir.MathAsinh,
+		"acosh": ir.MathAcosh,
+		"atanh": ir.MathAtanh,
+
+		// Angle conversion
+		"radians": ir.MathRadians,
+		"degrees": ir.MathDegrees,
+
+		// Decomposition functions
+		"ceil":  ir.MathCeil,
+		"floor": ir.MathFloor,
+		"round": ir.MathRound,
+		"fract": ir.MathFract,
+		"trunc": ir.MathTrunc,
+
+		// Exponential functions
+		"exp":  ir.MathExp,
+		"exp2": ir.MathExp2,
+		"log":  ir.MathLog,
+		"log2": ir.MathLog2,
+		"pow":  ir.MathPow,
+
+		// Geometric functions
+		"dot":         ir.MathDot,
+		"cross":       ir.MathCross,
+		"distance":    ir.MathDistance,
+		"length":      ir.MathLength,
+		"normalize":   ir.MathNormalize,
+		"faceForward": ir.MathFaceForward,
+		"reflect":     ir.MathReflect,
+		"refract":     ir.MathRefract,
+
+		// Computational functions
+		"sign":        ir.MathSign,
+		"fma":         ir.MathFma,
+		"mix":         ir.MathMix,
+		"step":        ir.MathStep,
+		"smoothstep":  ir.MathSmoothStep,
+		"sqrt":        ir.MathSqrt,
+		"inverseSqrt": ir.MathInverseSqrt,
+
+		// Matrix functions
+		"transpose":   ir.MathTranspose,
+		"determinant": ir.MathDeterminant,
+
+		// Bit manipulation functions
+		"countTrailingZeros": ir.MathCountTrailingZeros,
+		"countLeadingZeros":  ir.MathCountLeadingZeros,
+		"countOneBits":       ir.MathCountOneBits,
+		"reverseBits":        ir.MathReverseBits,
+		"extractBits":        ir.MathExtractBits,
+		"insertBits":         ir.MathInsertBits,
+		"firstTrailingBit":   ir.MathFirstTrailingBit,
+		"firstLeadingBit":    ir.MathFirstLeadingBit,
+
+		// Data packing functions
+		"pack4x8snorm":  ir.MathPack4x8snorm,
+		"pack4x8unorm":  ir.MathPack4x8unorm,
+		"pack2x16snorm": ir.MathPack2x16snorm,
+		"pack2x16unorm": ir.MathPack2x16unorm,
+		"pack2x16float": ir.MathPack2x16float,
+
+		// Data unpacking functions
+		"unpack4x8snorm":  ir.MathUnpack4x8snorm,
+		"unpack4x8unorm":  ir.MathUnpack4x8unorm,
+		"unpack2x16snorm": ir.MathUnpack2x16snorm,
+		"unpack2x16unorm": ir.MathUnpack2x16unorm,
+		"unpack2x16float": ir.MathUnpack2x16float,
 	}
 	fn, ok := mathFuncs[name]
 	return fn, ok
@@ -1358,6 +1440,38 @@ func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []Expr, target *[
 			Arg1: arg1,
 			Arg2: arg2,
 			Arg3: arg3,
+		},
+	}), nil
+}
+
+// lowerSelectCall converts select(falseVal, trueVal, condition) to IR ExprSelect.
+// WGSL select() has signature: select(f, t, cond) -- returns t if cond is true, f otherwise.
+func (l *Lowerer) lowerSelectCall(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) != 3 {
+		return 0, fmt.Errorf("select() requires exactly 3 arguments, got %d", len(args))
+	}
+
+	// WGSL: select(falseVal, trueVal, condition)
+	falseVal, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	trueVal, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	condition, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprSelect{
+			Condition: condition,
+			Accept:    trueVal,
+			Reject:    falseVal,
 		},
 	}), nil
 }

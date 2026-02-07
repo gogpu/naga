@@ -308,46 +308,107 @@ func TestMathFunctions(t *testing.T) {
 		args     string // WGSL function call arguments
 		wantMath ir.MathFunction
 	}{
+		// Comparison functions
 		{"abs", "abs", "x", ir.MathAbs},
 		{"min", "min", "x, y", ir.MathMin},
 		{"max", "max", "x, y", ir.MathMax},
 		{"clamp", "clamp", "x, 0.0, 1.0", ir.MathClamp},
+		{"saturate", "saturate", "x", ir.MathSaturate},
+
+		// Trigonometric functions
 		{"sin", "sin", "x", ir.MathSin},
 		{"cos", "cos", "x", ir.MathCos},
 		{"tan", "tan", "x", ir.MathTan},
+		{"sinh", "sinh", "x", ir.MathSinh},
+		{"cosh", "cosh", "x", ir.MathCosh},
+		{"tanh", "tanh", "x", ir.MathTanh},
+		{"asin", "asin", "x", ir.MathAsin},
+		{"acos", "acos", "x", ir.MathAcos},
+		{"atan", "atan", "x", ir.MathAtan},
+		{"atan2", "atan2", "x, y", ir.MathAtan2},
+		{"asinh", "asinh", "x", ir.MathAsinh},
+		{"acosh", "acosh", "x", ir.MathAcosh},
+		{"atanh", "atanh", "x", ir.MathAtanh},
+
+		// Angle conversion
+		{"radians", "radians", "x", ir.MathRadians},
+		{"degrees", "degrees", "x", ir.MathDegrees},
+
+		// Decomposition functions
+		{"ceil", "ceil", "x", ir.MathCeil},
+		{"floor", "floor", "x", ir.MathFloor},
+		{"round", "round", "x", ir.MathRound},
+		{"fract", "fract", "x", ir.MathFract},
+		{"trunc", "trunc", "x", ir.MathTrunc},
+
+		// Exponential functions
+		{"exp", "exp", "x", ir.MathExp},
+		{"exp2", "exp2", "x", ir.MathExp2},
+		{"log", "log", "x", ir.MathLog},
+		{"log2", "log2", "x", ir.MathLog2},
+		{"pow", "pow", "x, y", ir.MathPow},
+
+		// Geometric functions
 		{"sqrt", "sqrt", "x", ir.MathSqrt},
+		{"inverseSqrt", "inverseSqrt", "x", ir.MathInverseSqrt},
 		{"length", "length", "v", ir.MathLength},
 		{"normalize", "normalize", "v", ir.MathNormalize},
 		{"dot", "dot", "v, v", ir.MathDot},
 		{"cross", "cross", "v3, v3", ir.MathCross},
+		{"distance", "distance", "x, y", ir.MathDistance},
+		{"faceForward", "faceForward", "v3, v3, v3", ir.MathFaceForward},
+		{"reflect", "reflect", "v3, v3", ir.MathReflect},
+		{"refract", "refract", "v3, v3, x", ir.MathRefract},
+
+		// Computational functions
+		{"sign", "sign", "x", ir.MathSign},
+		{"fma", "fma", "x, y, x", ir.MathFma},
+		{"mix", "mix", "x, y, x", ir.MathMix},
+		{"step", "step", "x, y", ir.MathStep},
+		{"smoothstep", "smoothstep", "x, y, x", ir.MathSmoothStep},
 	}
+
+	// Functions that return vec3 and take vec3 args
+	vec3Funcs := map[string]bool{"cross": true, "faceForward": true, "reflect": true}
+	// Functions that return vec4 and take vec4 args
+	vec4Funcs := map[string]bool{"normalize": true}
+	// Functions that take vec3 args and also a scalar, returning vec3
+	refractFunc := map[string]bool{"refract": true}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			source := `
+			var source string
+			switch {
+			case vec3Funcs[tt.function]:
+				source = `
+fn test() -> vec3<f32> {
+    var v3: vec3<f32> = vec3<f32>(1.0, 0.0, 0.0);
+    return ` + tt.function + `(` + tt.args + `);
+}
+`
+			case vec4Funcs[tt.function]:
+				source = `
+fn test() -> vec4<f32> {
+    var v: vec4<f32> = vec4<f32>(1.0, 0.0, 0.0, 0.0);
+    return ` + tt.function + `(` + tt.args + `);
+}
+`
+			case refractFunc[tt.function]:
+				source = `
+fn test() -> vec3<f32> {
+    var v3: vec3<f32> = vec3<f32>(1.0, 0.0, 0.0);
+    var x: f32 = 1.0;
+    return refract(v3, v3, x);
+}
+`
+			default:
+				source = `
 fn test() -> f32 {
     var x: f32 = 1.0;
     var y: f32 = 2.0;
     var v: vec4<f32> = vec4<f32>(1.0, 0.0, 0.0, 0.0);
     var v3: vec3<f32> = vec3<f32>(1.0, 0.0, 0.0);
     return ` + tt.function + `(` + tt.args + `);
-}
-`
-			// Special case for cross which returns vec3
-			if tt.function == "cross" {
-				source = `
-fn test() -> vec3<f32> {
-    var v3: vec3<f32> = vec3<f32>(1.0, 0.0, 0.0);
-    return cross(v3, v3);
-}
-`
-			}
-			// Special case for vector-returning functions
-			if tt.function == "normalize" {
-				source = `
-fn test() -> vec4<f32> {
-    var v: vec4<f32> = vec4<f32>(1.0, 0.0, 0.0, 0.0);
-    return normalize(v);
 }
 `
 			}
@@ -391,4 +452,130 @@ fn test() -> vec4<f32> {
 			}
 		})
 	}
+}
+
+// TestSelectBuiltin verifies the WGSL select() built-in function is lowered to ExprSelect.
+func TestSelectBuiltin(t *testing.T) {
+	source := `
+fn test() -> f32 {
+    var a: f32 = 1.0;
+    var b: f32 = 2.0;
+    var c: bool = true;
+    return select(a, b, c);
+}
+`
+	lexer := NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	if len(module.Functions) != 1 {
+		t.Fatalf("expected 1 function, got %d", len(module.Functions))
+	}
+
+	fn := module.Functions[0]
+
+	// Verify ExprSelect is in the function's expressions
+	found := false
+	for _, expr := range fn.Expressions {
+		if _, ok := expr.Kind.(ir.ExprSelect); ok {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("select() not found as ExprSelect in function expressions")
+	}
+}
+
+// TestIfElseWithReturn verifies if/else with return in both branches generates correct IR.
+func TestIfElseWithReturn(t *testing.T) {
+	source := `
+fn test(x: f32) -> f32 {
+    if (x > 0.5) {
+        return 1.0;
+    } else {
+        return 0.0;
+    }
+}
+`
+	lexer := NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	if len(module.Functions) != 1 {
+		t.Fatalf("expected 1 function, got %d", len(module.Functions))
+	}
+
+	fn := module.Functions[0]
+
+	// Verify the function body contains an if statement
+	foundIf := false
+	for _, stmt := range fn.Body {
+		ifStmt, ok := stmt.Kind.(ir.StmtIf)
+		if !ok {
+			continue
+		}
+		foundIf = true
+		// Verify both branches are non-empty
+		if len(ifStmt.Accept) == 0 {
+			t.Error("if accept block is empty")
+		}
+		if len(ifStmt.Reject) == 0 {
+			t.Error("if reject block is empty")
+		}
+		// Check last statement in accept is return
+		lastAccept := ifStmt.Accept[len(ifStmt.Accept)-1]
+		if _, ok := lastAccept.Kind.(ir.StmtReturn); !ok {
+			t.Errorf("last accept statement is %T, expected StmtReturn", lastAccept.Kind)
+		}
+		// Reject may contain a StmtBlock wrapping the return (parser places else body in a block)
+		// Find the return statement by traversing into blocks
+		if !containsReturn(ifStmt.Reject) {
+			t.Error("if reject block does not contain a return statement")
+		}
+	}
+	if !foundIf {
+		t.Error("if statement not found in function body")
+	}
+}
+
+// containsReturn checks if a block contains a return statement, traversing into nested blocks.
+func containsReturn(block ir.Block) bool {
+	for _, stmt := range block {
+		switch k := stmt.Kind.(type) {
+		case ir.StmtReturn:
+			return true
+		case ir.StmtBlock:
+			if containsReturn(k.Block) {
+				return true
+			}
+		}
+	}
+	return false
 }
