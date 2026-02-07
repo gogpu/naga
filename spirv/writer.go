@@ -466,6 +466,12 @@ func (b *ModuleBuilder) AddReturn() {
 	b.functions = append(b.functions, builder.Build(OpReturn))
 }
 
+// AddUnreachable adds OpUnreachable (terminator for unreachable basic blocks).
+func (b *ModuleBuilder) AddUnreachable() {
+	builder := NewInstructionBuilder()
+	b.functions = append(b.functions, builder.Build(OpUnreachable))
+}
+
 // AddReturnValue adds OpReturnValue.
 func (b *ModuleBuilder) AddReturnValue(valueID uint32) {
 	builder := NewInstructionBuilder()

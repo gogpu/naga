@@ -126,6 +126,7 @@ const (
 	OpBranch            OpCode = 249
 	OpReturn            OpCode = 253
 	OpReturnValue       OpCode = 254
+	OpUnreachable       OpCode = 255
 )
 
 // Decoration represents a SPIR-V decoration.
