@@ -1050,6 +1050,18 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 		}
 	}
 
+	// WGSL splat constructor: vec2(scalar) -> vec2(scalar, scalar), etc.
+	// When constructing a vector from a single scalar, replicate to all components.
+	targetType := l.module.Types[typeHandle]
+	if vec, ok := targetType.Inner.(ir.VectorType); ok && len(components) == 1 {
+		needed := int(vec.Size)
+		splatted := make([]ir.ExpressionHandle, needed)
+		for i := 0; i < needed; i++ {
+			splatted[i] = components[0]
+		}
+		components = splatted
+	}
+
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprCompose{Type: typeHandle, Components: components},
 	}), nil

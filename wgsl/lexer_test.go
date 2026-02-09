@@ -122,6 +122,11 @@ func TestLexerNumbers(t *testing.T) {
 		{"1.5e-3", TokenFloatLiteral, "1.5e-3"},
 		{"42u", TokenIntLiteral, "42u"},
 		{"3.14f", TokenFloatLiteral, "3.14f"},
+		// Hex literals with unsigned/signed suffixes
+		{"0xFFu", TokenIntLiteral, "0xFFu"},
+		{"0x1Fi", TokenIntLiteral, "0x1Fi"},
+		{"0x00u", TokenIntLiteral, "0x00u"},
+		{"0xABCDu", TokenIntLiteral, "0xABCDu"},
 	}
 
 	for _, tt := range tests {
