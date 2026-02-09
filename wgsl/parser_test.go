@@ -536,6 +536,66 @@ fn main(@location(0) idx: u32) -> @location(0) vec4<f32> {
 	}
 }
 
+// TestParseHexLiteralBitwiseOps tests parsing of hex literals with suffixes
+// in bitwise operations, which is the pattern used in SDF compute shaders
+// for pixel packing/unpacking (e.g., existing & 0xFFu, existing >> 8u).
+func TestParseHexLiteralBitwiseOps(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{
+			"hex AND mask",
+			"fn f() { let r = f32(x & 0xFFu) / 255.0; }",
+		},
+		{
+			"hex shift right AND mask",
+			"fn f() { let g = f32((x >> 8u) & 0xFFu) / 255.0; }",
+		},
+		{
+			"hex shift left",
+			"fn f() { let packed = r | (g << 8u); }",
+		},
+		{
+			"hex shift left 16",
+			"fn f() { let packed = r | (g << 8u) | (b << 16u) | (a << 24u); }",
+		},
+		{
+			"type constructor with hex AND",
+			"fn f() { let v = u32(x & 0xFFu); }",
+		},
+		{
+			"full SDF unpack pattern",
+			`fn f() {
+    let existing = 0u;
+    let dst_r = f32(existing & 0xFFu) / 255.0;
+    let dst_g = f32((existing >> 8u) & 0xFFu) / 255.0;
+    let dst_b = f32((existing >> 16u) & 0xFFu) / 255.0;
+    let dst_a = f32((existing >> 24u) & 0xFFu) / 255.0;
+}`,
+		},
+		{
+			"full SDF pack pattern",
+			`fn f() {
+    let ri = 0u;
+    let gi = 0u;
+    let bi = 0u;
+    let ai = 0u;
+    let packed = ri | (gi << 8u) | (bi << 16u) | (ai << 24u);
+}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tryParseSource(t, tt.source)
+			if err != nil {
+				t.Errorf("Parse error for %q: %v", tt.name, err)
+			}
+		})
+	}
+}
+
 // TestParseLocalConst tests parsing of local const declarations (NAGA-002).
 func TestParseLocalConst(t *testing.T) {
 	source := `@vertex

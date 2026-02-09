@@ -376,7 +376,6 @@ func exprHandlePtr(v ExpressionHandle) *ExpressionHandle {
 	return &v
 }
 
-//nolint:gocritic // ptrToRefParam: helper for tests
 func bindingPtr(b Binding) *Binding {
 	return &b
 }

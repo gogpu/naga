@@ -117,6 +117,7 @@ const (
 	OpFunction          OpCode = 54
 	OpFunctionParameter OpCode = 55
 	OpFunctionEnd       OpCode = 56
+	OpFunctionCall      OpCode = 57
 	OpVariable          OpCode = 59
 	OpLoad              OpCode = 61
 	OpStore             OpCode = 62

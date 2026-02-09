@@ -227,6 +227,10 @@ func (l *Lexer) number() {
 			for isHexDigit(l.peek()) {
 				l.advance()
 			}
+			// Integer suffixes (u for unsigned, i for signed)
+			if l.peek() == 'i' || l.peek() == 'u' {
+				l.advance()
+			}
 			l.addToken(TokenIntLiteral)
 			return
 		}

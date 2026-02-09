@@ -89,6 +89,11 @@ type Backend struct {
 
 	// Cached function types (key: concatenated return + param type IDs)
 	funcTypeIDs map[string]uint32
+
+	// Storage buffer variables that were wrapped in a struct for Vulkan compliance.
+	// When accessing these variables, an extra index 0 must be prepended to
+	// OpAccessChain to go through the wrapper struct to the actual data.
+	wrappedStorageVars map[ir.GlobalVariableHandle]bool
 }
 
 // NewBackend creates a new SPIR-V backend.
@@ -108,6 +113,7 @@ func NewBackend(options Options) *Backend {
 		vectorTypeIDs:       make(map[uint32]uint32),
 		usedCapabilities:    make(map[Capability]bool),
 		funcTypeIDs:         make(map[string]uint32),
+		wrappedStorageVars:  make(map[ir.GlobalVariableHandle]bool),
 	}
 }
 
@@ -737,6 +743,17 @@ func (b *Backend) emitGlobals() error {
 			b.builder.AddDecorate(varType, DecorationBlock)
 		}
 
+		// Vulkan VUID-StandaloneSpirv-Uniform-06807: StorageBuffer variables must be
+		// typed as OpTypeStruct (with Block decoration). If the variable type is NOT a
+		// struct (e.g., a runtime array like array<u32>), wrap it in a struct.
+		if global.Space == ir.SpaceStorage && !b.isStructType(global.Type) {
+			wrapperStruct := b.builder.AddTypeStruct(varType)
+			b.builder.AddDecorate(wrapperStruct, DecorationBlock)
+			b.builder.AddMemberDecorate(wrapperStruct, 0, DecorationOffset, 0)
+			varType = wrapperStruct
+			b.wrappedStorageVars[ir.GlobalVariableHandle(handle)] = true
+		}
+
 		// Create pointer type for the variable
 		storageClass := addressSpaceToStorageClass(global.Space)
 		ptrType := b.emitPointerType(storageClass, varType)
@@ -773,12 +790,17 @@ func (b *Backend) emitGlobals() error {
 func (b *Backend) needsBlockDecoration(space ir.AddressSpace, typeHandle ir.TypeHandle) bool {
 	switch space {
 	case ir.SpaceUniform, ir.SpaceStorage, ir.SpacePushConstant:
-		typ := &b.module.Types[typeHandle]
-		_, isStruct := typ.Inner.(ir.StructType)
-		return isStruct
+		return b.isStructType(typeHandle)
 	default:
 		return false
 	}
+}
+
+// isStructType returns true if the type at the given handle is a struct.
+func (b *Backend) isStructType(typeHandle ir.TypeHandle) bool {
+	typ := &b.module.Types[typeHandle]
+	_, isStruct := typ.Inner.(ir.StructType)
+	return isStruct
 }
 
 // emitEntryPointInterfaceVars creates input/output variables for entry point builtins and locations.
@@ -1200,12 +1222,14 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 
 	// 3. Create expression emitter for this function
 	emitter := &ExpressionEmitter{
-		backend:      b,
-		function:     fn,
-		exprIDs:      make(map[ir.ExpressionHandle]uint32),
-		paramIDs:     paramIDs,
-		isEntryPoint: isEntryPoint,
-		output:       output,
+		backend:            b,
+		function:           fn,
+		exprIDs:            make(map[ir.ExpressionHandle]uint32),
+		paramIDs:           paramIDs,
+		isEntryPoint:       isEntryPoint,
+		output:             output,
+		callResultIDs:      make(map[ir.ExpressionHandle]uint32),
+		deferredCallStores: make(map[ir.ExpressionHandle]uint32),
 	}
 	emitter.localVarIDs = localVarIDs
 
@@ -1239,28 +1263,27 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		}
 	}
 
-	// 5. Initialize local variables (now that emitter is available)
-	for i, localVar := range fn.LocalVars {
-		if localVar.Init != nil {
-			initID, err := emitter.emitExpression(*localVar.Init)
-			if err != nil {
-				return err
-			}
-			b.builder.AddStore(localVarIDs[i], initID)
-		}
-	}
-
-	// Store initial values for local variables with initializers.
+	// 5. Initialize local variables (now that emitter is available).
 	// OpVariable (emitted in prologue) doesn't include the initializer value,
-	// so we need explicit OpStore instructions before the function body.
+	// so we need explicit OpStore instructions.
+	// Variables initialized with call results (ExprCallResult) are deferred:
+	// the StmtCall in the body must run first to produce the result, then
+	// emitCall will store into the variable automatically.
 	for i, localVar := range fn.LocalVars {
-		if localVar.Init != nil {
-			initID, err := emitter.emitExpression(*localVar.Init)
-			if err != nil {
-				return fmt.Errorf("local var %q init: %w", localVar.Name, err)
-			}
-			b.builder.AddStore(localVarIDs[i], initID)
+		if localVar.Init == nil {
+			continue
 		}
+		initExpr := fn.Expressions[*localVar.Init]
+		if _, isCallResult := initExpr.Kind.(ir.ExprCallResult); isCallResult {
+			// Register deferred store: emitCall will handle OpStore
+			emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
+			continue
+		}
+		initID, err := emitter.emitExpression(*localVar.Init)
+		if err != nil {
+			return fmt.Errorf("local var %q init: %w", localVar.Name, err)
+		}
+		b.builder.AddStore(localVarIDs[i], initID)
 	}
 
 	// Emit function body statements
@@ -1300,6 +1323,14 @@ type ExpressionEmitter struct {
 
 	// Loop context stack for break/continue
 	loopStack []loopContext
+
+	// Cached call result IDs (set by emitCall, read by ExprCallResult)
+	callResultIDs map[ir.ExpressionHandle]uint32
+
+	// Deferred local variable stores for call results.
+	// Maps ExprCallResult handle to local variable SPIR-V pointer ID.
+	// When emitCall produces a result, it stores into the mapped variable.
+	deferredCallStores map[ir.ExpressionHandle]uint32
 }
 
 // loopContext tracks merge and continue labels for loop statements.
@@ -1413,6 +1444,8 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		id, err = e.emitImageQuery(kind)
 	case ir.ExprAtomicResult:
 		return e.emitAtomicResultRef(handle)
+	case ir.ExprCallResult:
+		return e.emitCallResultRef(handle)
 	case ir.ExprSwizzle:
 		id, err = e.emitSwizzle(kind)
 	case ir.ExprAs:
@@ -1547,20 +1580,28 @@ func (e *ExpressionEmitter) emitGlobalVarValue(kind ir.ExprGlobalVariable) (uint
 	return e.backend.builder.AddLoad(typeID, ptrID), nil
 }
 
-// emitFunctionArgValue returns the loaded VALUE for a function argument.
-// This is used by emitExpression for value contexts.
+// emitFunctionArgValue returns the VALUE of a function argument.
+// In SPIR-V, OpFunctionParameter for scalar/vector types produces a value
+// directly (not a pointer), so no OpLoad is needed for regular functions.
+// For entry point functions, arguments are backed by Input/Function variables
+// (pointers), so we must OpLoad to get the value.
 func (e *ExpressionEmitter) emitFunctionArgValue(kind ir.ExprFunctionArgument) (uint32, error) {
 	ptrID, err := e.emitFunctionArgRef(kind)
 	if err != nil {
 		return 0, err
 	}
 
-	// Get the argument type and emit OpLoad
+	if !e.isEntryPoint {
+		// Regular function: OpFunctionParameter produces a value, not a pointer
+		return ptrID, nil
+	}
+
+	// Entry point: paramIDs holds Input/Function variable pointers — need OpLoad
 	if int(kind.Index) >= len(e.function.Arguments) {
 		return 0, fmt.Errorf("function argument index out of range: %d", kind.Index)
 	}
-	argType := e.function.Arguments[kind.Index].Type
-	typeID, err := e.backend.emitType(argType)
+	arg := e.function.Arguments[kind.Index]
+	typeID, err := e.backend.emitType(arg.Type)
 	if err != nil {
 		return 0, err
 	}
@@ -1704,8 +1745,12 @@ func (e *ExpressionEmitter) emitAccess(access ir.ExprAccess) (uint32, error) {
 func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool {
 	expr := e.function.Expressions[handle]
 	switch k := expr.Kind.(type) {
-	case ir.ExprLocalVariable, ir.ExprGlobalVariable, ir.ExprFunctionArgument:
+	case ir.ExprLocalVariable, ir.ExprGlobalVariable:
 		return true
+	case ir.ExprFunctionArgument:
+		// For regular functions, OpFunctionParameter produces values, not pointers.
+		// For entry points, paramIDs holds Input/Function variable pointers.
+		return e.isEntryPoint
 	case ir.ExprAccessIndex:
 		return e.isPointerExpression(k.Base)
 	case ir.ExprAccess:
@@ -1724,7 +1769,25 @@ func (e *ExpressionEmitter) emitPointerExpression(handle ir.ExpressionHandle) (u
 	case ir.ExprLocalVariable:
 		return e.emitLocalVarRef(k)
 	case ir.ExprGlobalVariable:
-		return e.emitGlobalVarRef(k)
+		varID, err := e.emitGlobalVarRef(k)
+		if err != nil {
+			return 0, err
+		}
+		// If this storage buffer variable was wrapped in a struct,
+		// emit AccessChain to member 0 to get the actual data pointer.
+		if e.backend.wrappedStorageVars[k.Variable] {
+			gv := e.backend.module.GlobalVariables[k.Variable]
+			innerTypeID, err := e.backend.emitType(gv.Type)
+			if err != nil {
+				return 0, err
+			}
+			sc := addressSpaceToStorageClass(gv.Space)
+			ptrType := e.backend.emitPointerType(sc, innerTypeID)
+			u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+			const0 := e.backend.builder.AddConstant(u32Type, 0)
+			return e.backend.builder.AddAccessChain(ptrType, varID, const0), nil
+		}
+		return varID, nil
 	case ir.ExprFunctionArgument:
 		return e.emitFunctionArgRef(k)
 	case ir.ExprAccessIndex:
@@ -2457,6 +2520,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	case ir.StmtSwitch:
 		return e.emitSwitch(kind)
 
+	case ir.StmtCall:
+		return e.emitCall(kind)
+
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", kind)
 	}
@@ -2908,6 +2974,14 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	default:
 		return 0, fmt.Errorf("unsupported math function: %v", mathExpr.Fun)
+	}
+
+	// Functions that return a scalar float even when given a vector argument:
+	// length(vecN) -> float, distance(vecN, vecN) -> float, dot(vecN, vecN) -> float,
+	// determinant(matNxN) -> float.
+	switch mathExpr.Fun {
+	case ir.MathLength, ir.MathDistance, ir.MathDot, ir.MathDeterminant:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}})
 	}
 
 	// Collect all operands
@@ -3441,4 +3515,70 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 		e.exprIDs[*stmt.Result] = resultID
 	}
 	return nil
+}
+
+// emitCall emits a function call statement (OpFunctionCall).
+// If the call has a result, the SPIR-V result ID is cached for later ExprCallResult lookup.
+func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
+	// Look up the SPIR-V function ID
+	funcID, ok := e.backend.functionIDs[call.Function]
+	if !ok {
+		return fmt.Errorf("function %d not found in functionIDs", call.Function)
+	}
+
+	// Collect argument SPIR-V IDs
+	argIDs := make([]uint32, 0, len(call.Arguments))
+	for _, arg := range call.Arguments {
+		argID, err := e.emitExpression(arg)
+		if err != nil {
+			return fmt.Errorf("call argument: %w", err)
+		}
+		argIDs = append(argIDs, argID)
+	}
+
+	// Determine result type
+	var resultTypeID uint32
+	fn := e.backend.module.Functions[call.Function]
+	if fn.Result != nil {
+		var err error
+		resultTypeID, err = e.backend.emitType(fn.Result.Type)
+		if err != nil {
+			return fmt.Errorf("call result type: %w", err)
+		}
+	} else {
+		resultTypeID = e.backend.getVoidType()
+	}
+
+	// Generate result ID and emit OpFunctionCall
+	resultID := e.backend.builder.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultTypeID)
+	builder.AddWord(resultID)
+	builder.AddWord(funcID)
+	for _, argID := range argIDs {
+		builder.AddWord(argID)
+	}
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpFunctionCall))
+
+	// Cache the result ID for ExprCallResult
+	if call.Result != nil {
+		e.callResultIDs[*call.Result] = resultID
+
+		// If a local variable is initialized with this call result, store now.
+		// The local var init loop deferred this because StmtCall had not yet run.
+		if varPtrID, ok := e.deferredCallStores[*call.Result]; ok {
+			e.backend.builder.AddStore(varPtrID, resultID)
+			delete(e.deferredCallStores, *call.Result)
+		}
+	}
+
+	return nil
+}
+
+// emitCallResultRef returns the SPIR-V ID for a function call result (set by emitCall).
+func (e *ExpressionEmitter) emitCallResultRef(handle ir.ExpressionHandle) (uint32, error) {
+	if id, ok := e.callResultIDs[handle]; ok {
+		return id, nil
+	}
+	return 0, fmt.Errorf("call result for expression %d not found (was StmtCall emitted?)", handle)
 }
