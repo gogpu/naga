@@ -1200,12 +1200,14 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 
 	// 3. Create expression emitter for this function
 	emitter := &ExpressionEmitter{
-		backend:      b,
-		function:     fn,
-		exprIDs:      make(map[ir.ExpressionHandle]uint32),
-		paramIDs:     paramIDs,
-		isEntryPoint: isEntryPoint,
-		output:       output,
+		backend:            b,
+		function:           fn,
+		exprIDs:            make(map[ir.ExpressionHandle]uint32),
+		paramIDs:           paramIDs,
+		isEntryPoint:       isEntryPoint,
+		output:             output,
+		callResultIDs:      make(map[ir.ExpressionHandle]uint32),
+		deferredCallStores: make(map[ir.ExpressionHandle]uint32),
 	}
 	emitter.localVarIDs = localVarIDs
 
@@ -1239,22 +1241,20 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		}
 	}
 
-	// 5. Initialize local variables (now that emitter is available)
-	for i, localVar := range fn.LocalVars {
-		if localVar.Init != nil {
-			initID, err := emitter.emitExpression(*localVar.Init)
-			if err != nil {
-				return err
-			}
-			b.builder.AddStore(localVarIDs[i], initID)
-		}
-	}
-
-	// Store initial values for local variables with initializers.
+	// 5. Initialize local variables (now that emitter is available).
 	// OpVariable (emitted in prologue) doesn't include the initializer value,
-	// so we need explicit OpStore instructions before the function body.
+	// so we need explicit OpStore instructions.
+	// Variables initialized with call results (ExprCallResult) are deferred:
+	// the StmtCall in the body must run first to produce the result, then
+	// emitCall will store into the variable automatically.
 	for i, localVar := range fn.LocalVars {
 		if localVar.Init != nil {
+			initExpr := fn.Expressions[*localVar.Init]
+			if _, isCallResult := initExpr.Kind.(ir.ExprCallResult); isCallResult {
+				// Register deferred store: emitCall will handle OpStore
+				emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
+				continue
+			}
 			initID, err := emitter.emitExpression(*localVar.Init)
 			if err != nil {
 				return fmt.Errorf("local var %q init: %w", localVar.Name, err)
@@ -1300,6 +1300,14 @@ type ExpressionEmitter struct {
 
 	// Loop context stack for break/continue
 	loopStack []loopContext
+
+	// Cached call result IDs (set by emitCall, read by ExprCallResult)
+	callResultIDs map[ir.ExpressionHandle]uint32
+
+	// Deferred local variable stores for call results.
+	// Maps ExprCallResult handle to local variable SPIR-V pointer ID.
+	// When emitCall produces a result, it stores into the mapped variable.
+	deferredCallStores map[ir.ExpressionHandle]uint32
 }
 
 // loopContext tracks merge and continue labels for loop statements.
@@ -1413,6 +1421,8 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		id, err = e.emitImageQuery(kind)
 	case ir.ExprAtomicResult:
 		return e.emitAtomicResultRef(handle)
+	case ir.ExprCallResult:
+		return e.emitCallResultRef(handle)
 	case ir.ExprSwizzle:
 		id, err = e.emitSwizzle(kind)
 	case ir.ExprAs:
@@ -2457,6 +2467,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	case ir.StmtSwitch:
 		return e.emitSwitch(kind)
 
+	case ir.StmtCall:
+		return e.emitCall(kind)
+
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", kind)
 	}
@@ -3441,4 +3454,70 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 		e.exprIDs[*stmt.Result] = resultID
 	}
 	return nil
+}
+
+// emitCall emits a function call statement (OpFunctionCall).
+// If the call has a result, the SPIR-V result ID is cached for later ExprCallResult lookup.
+func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
+	// Look up the SPIR-V function ID
+	funcID, ok := e.backend.functionIDs[call.Function]
+	if !ok {
+		return fmt.Errorf("function %d not found in functionIDs", call.Function)
+	}
+
+	// Collect argument SPIR-V IDs
+	argIDs := make([]uint32, 0, len(call.Arguments))
+	for _, arg := range call.Arguments {
+		argID, err := e.emitExpression(arg)
+		if err != nil {
+			return fmt.Errorf("call argument: %w", err)
+		}
+		argIDs = append(argIDs, argID)
+	}
+
+	// Determine result type
+	var resultTypeID uint32
+	fn := e.backend.module.Functions[call.Function]
+	if fn.Result != nil {
+		var err error
+		resultTypeID, err = e.backend.emitType(fn.Result.Type)
+		if err != nil {
+			return fmt.Errorf("call result type: %w", err)
+		}
+	} else {
+		resultTypeID = e.backend.getVoidType()
+	}
+
+	// Generate result ID and emit OpFunctionCall
+	resultID := e.backend.builder.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultTypeID)
+	builder.AddWord(resultID)
+	builder.AddWord(funcID)
+	for _, argID := range argIDs {
+		builder.AddWord(argID)
+	}
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpFunctionCall))
+
+	// Cache the result ID for ExprCallResult
+	if call.Result != nil {
+		e.callResultIDs[*call.Result] = resultID
+
+		// If a local variable is initialized with this call result, store now.
+		// The local var init loop deferred this because StmtCall had not yet run.
+		if varPtrID, ok := e.deferredCallStores[*call.Result]; ok {
+			e.backend.builder.AddStore(varPtrID, resultID)
+			delete(e.deferredCallStores, *call.Result)
+		}
+	}
+
+	return nil
+}
+
+// emitCallResultRef returns the SPIR-V ID for a function call result (set by emitCall).
+func (e *ExpressionEmitter) emitCallResultRef(handle ir.ExpressionHandle) (uint32, error) {
+	if id, ok := e.callResultIDs[handle]; ok {
+		return id, nil
+	}
+	return 0, fmt.Errorf("call result for expression %d not found (was StmtCall emitted?)", handle)
 }
