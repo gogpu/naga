@@ -1270,19 +1270,20 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// the StmtCall in the body must run first to produce the result, then
 	// emitCall will store into the variable automatically.
 	for i, localVar := range fn.LocalVars {
-		if localVar.Init != nil {
-			initExpr := fn.Expressions[*localVar.Init]
-			if _, isCallResult := initExpr.Kind.(ir.ExprCallResult); isCallResult {
-				// Register deferred store: emitCall will handle OpStore
-				emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
-				continue
-			}
-			initID, err := emitter.emitExpression(*localVar.Init)
-			if err != nil {
-				return fmt.Errorf("local var %q init: %w", localVar.Name, err)
-			}
-			b.builder.AddStore(localVarIDs[i], initID)
+		if localVar.Init == nil {
+			continue
 		}
+		initExpr := fn.Expressions[*localVar.Init]
+		if _, isCallResult := initExpr.Kind.(ir.ExprCallResult); isCallResult {
+			// Register deferred store: emitCall will handle OpStore
+			emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
+			continue
+		}
+		initID, err := emitter.emitExpression(*localVar.Init)
+		if err != nil {
+			return fmt.Errorf("local var %q init: %w", localVar.Name, err)
+		}
+		b.builder.AddStore(localVarIDs[i], initID)
 	}
 
 	// Emit function body statements

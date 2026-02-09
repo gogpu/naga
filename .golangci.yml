@@ -132,6 +132,8 @@ linters:
           - dupl
           - gocognit
           - unparam
+          - nestif      # Analysis tests have inherent nesting
+          - gocritic    # Analysis tests have complex if-else chains
 
       # Parser - complex by nature
       - path: wgsl/parser\.go

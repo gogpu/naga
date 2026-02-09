@@ -164,7 +164,7 @@ func disassembleSPIRV(data []byte) string {
 	var sb strings.Builder
 
 	// Header
-	sb.WriteString(fmt.Sprintf("; SPIR-V\n"))
+	sb.WriteString("; SPIR-V\n")
 	sb.WriteString(fmt.Sprintf("; Magic:     0x%08X\n", words[0]))
 	sb.WriteString(fmt.Sprintf("; Version:   %d.%d\n", (words[1]>>16)&0xFF, (words[1]>>8)&0xFF))
 	sb.WriteString(fmt.Sprintf("; Generator: 0x%08X\n", words[2]))
@@ -791,7 +791,6 @@ func traceValueChain(t *testing.T, valueID uint32,
 		operand  uint32
 	},
 	names map[uint32]string) {
-
 	// Check if it's a BitwiseOr result
 	for _, bor := range bitwiseOrs {
 		if bor.resultID == valueID {
@@ -1028,8 +1027,8 @@ func opcodeName(op OpCode) string {
 	}
 }
 
-func capabilityName(cap uint32) string {
-	switch Capability(cap) {
+func capabilityName(c uint32) string {
+	switch Capability(c) {
 	case CapabilityShader:
 		return "Shader"
 	case CapabilityFloat16:
@@ -1039,7 +1038,7 @@ func capabilityName(cap uint32) string {
 	case CapabilityInt64:
 		return "Int64"
 	default:
-		return fmt.Sprintf("Cap(%d)", cap)
+		return fmt.Sprintf("Cap(%d)", c)
 	}
 }
 

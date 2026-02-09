@@ -10,7 +10,7 @@ import (
 )
 
 // Shader A: BROKEN — uses var + if/else to assign result, then reads it after merge.
-const shaderA_VarIfElse = `
+const shaderAVarIfElse = `
 struct Params { value: f32, flag: u32, width: u32, height: u32 }
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read_write> out: array<u32>;
@@ -31,7 +31,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `
 
 // Shader B: WORKING — no var, no if/else, just let binding.
-const shaderB_NoVar = `
+const shaderBNoVar = `
 struct Params { value: f32, flag: u32, width: u32, height: u32 }
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read_write> out: array<u32>;
@@ -88,14 +88,14 @@ func TestVarIfElseSPIRV(t *testing.T) {
 	// Compile Shader A (var + if/else)
 	// ---------------------------------------------------------------
 	t.Log("=== Compiling Shader A (var + if/else) ===")
-	spirvA := compileWGSLToSPIRV(t, "ShaderA", shaderA_VarIfElse)
+	spirvA := compileWGSLToSPIRV(t, "ShaderA", shaderAVarIfElse)
 	t.Logf("Shader A: %d bytes (%d words)", len(spirvA), len(spirvA)/4)
 
 	// ---------------------------------------------------------------
 	// Compile Shader B (no var, no if/else)
 	// ---------------------------------------------------------------
 	t.Log("\n=== Compiling Shader B (no var) ===")
-	spirvB := compileWGSLToSPIRV(t, "ShaderB", shaderB_NoVar)
+	spirvB := compileWGSLToSPIRV(t, "ShaderB", shaderBNoVar)
 	t.Logf("Shader B: %d bytes (%d words)", len(spirvB), len(spirvB)/4)
 
 	// ---------------------------------------------------------------
@@ -610,7 +610,7 @@ func compareInstructionCounts(t *testing.T, spirvA, spirvB []byte) {
 
 // TestVarIfElseSPIRV_ControlFlowValidation runs the existing control flow validator on Shader A.
 func TestVarIfElseSPIRV_ControlFlowValidation(t *testing.T) {
-	spirvA := compileWGSLToSPIRV(t, "ShaderA", shaderA_VarIfElse)
+	spirvA := compileWGSLToSPIRV(t, "ShaderA", shaderAVarIfElse)
 
 	t.Log("Running control flow validation on Shader A (var + if/else)...")
 	validateSPIRVControlFlow(t, spirvA)
@@ -620,7 +620,7 @@ func TestVarIfElseSPIRV_ControlFlowValidation(t *testing.T) {
 // TestVarIfElse_DetailedBlockDump dumps each basic block of Shader A with all instructions,
 // making it easy to follow the exact execution path.
 func TestVarIfElse_DetailedBlockDump(t *testing.T) {
-	spirvA := compileWGSLToSPIRV(t, "ShaderA", shaderA_VarIfElse)
+	spirvA := compileWGSLToSPIRV(t, "ShaderA", shaderAVarIfElse)
 	instrs := decodeSPIRVInstructions(spirvA)
 
 	// Collect names

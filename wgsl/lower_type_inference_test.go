@@ -6,7 +6,6 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-//nolint:nestif // Test validation requires nested type checking
 func TestLowerer_TypeInference(t *testing.T) {
 	// Create AST for simple vertex shader with type inference
 	ast := &Module{
@@ -148,7 +147,6 @@ func TestLowerer_TypeInference(t *testing.T) {
 	}
 }
 
-//nolint:nestif // Test validation requires nested type checking
 func TestLowerer_TypeInference_BinaryOp(t *testing.T) {
 	// Create AST for function with binary operation
 	ast := &Module{
@@ -204,7 +202,6 @@ func TestLowerer_TypeInference_BinaryOp(t *testing.T) {
 	}
 }
 
-//nolint:nestif // Test validation requires nested type checking
 func TestLowerer_TypeInference_Comparison(t *testing.T) {
 	// Create AST for function with comparison
 	ast := &Module{
@@ -611,7 +608,6 @@ func TestLowerer_LetTypeInference_Bool(t *testing.T) {
 	}
 }
 
-//nolint:nestif // Test validation requires nested type checking
 func TestLowerer_ArrayInit_Shorthand(t *testing.T) {
 	// Test: let arr = array(1.0, 2.0, 3.0); (should infer array<f32, 3>)
 	ast := &Module{
@@ -681,7 +677,6 @@ func TestLowerer_ArrayInit_Shorthand(t *testing.T) {
 	}
 }
 
-//nolint:nestif // Test validation requires nested type checking
 func TestLowerer_ArrayInit_Vectors(t *testing.T) {
 	// Test: let positions = array(vec2(0.0, 0.5), vec2(-0.5, -0.5), vec2(0.5, -0.5));
 	ast := &Module{
@@ -768,7 +763,6 @@ func TestLowerer_ArrayInit_Vectors(t *testing.T) {
 	}
 }
 
-//nolint:nestif // Test validation requires nested type checking
 func TestLowerer_ArrayInit_ExplicitType(t *testing.T) {
 	// Test: var arr: array<f32, 3> = array<f32, 3>(1.0, 2.0, 3.0);
 	ast := &Module{
