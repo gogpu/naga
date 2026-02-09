@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-02-09
+
+Critical SPIR-V opcode corrections and compute shader fixes. Fixes incorrect code generation for logical operators, comparisons, shifts, and local variable initializers — all discovered during GPU SDF compute shader development.
+
+### Fixed
+
+#### SPIR-V Backend
+- **`OpLogicalAnd` opcode** — Was 164 (`OpLogicalEqual`), corrected to 167 per SPIR-V spec
+  - WGSL `&&` compiled to boolean equality instead of logical AND
+  - `false && false` incorrectly evaluated to `true`
+  - Caused filled rectangles to render as outlines in compute shaders
+- **Comparison opcodes swapped** — `OpFOrdGreaterThan` and `OpFOrdLessThanEqual` had each other's values
+  - `>` behaved as `<=` and vice versa in float comparisons
+- **Shift opcodes rotated** — `OpShiftLeftLogical`, `OpShiftRightLogical`, `OpShiftRightArithmetic` corrected
+  - Bit shift operations produced wrong results (e.g., RGBA channel packing)
+- **Local variable initializers** — `var x: f32 = 0.0` now emits `OpStore` for the initial value
+  - `OpVariable` was emitted without initializer; `LocalVariable.Init` field was ignored by backend
+  - Variables started with undefined values, causing conditional stores to not propagate
+- **Entry point interface** — Only Input/Output variables listed per SPIR-V 1.3 spec
+  - Uniform and StorageBuffer variables no longer incorrectly included
+- **Void function termination** — Explicit `OpReturn` for functions without terminator
+- **Boolean literal type** — Consistent type deduplication via `emitScalarType`
+- **Runtime-sized arrays** — `OpTypeRuntimeArray` for storage buffer `array<T>` (was returning error)
+- **Type conversions** — `f32(x)`, `u32(y)` now generate correct conversion opcodes instead of compose
+- **Unsigned integer literals** — `1u` suffix correctly parsed as `u32` (was always `i32`)
+- **Array stride** — Automatic `ArrayStride` decoration for runtime arrays (std430 layout)
+
+#### WGSL Frontend
+- **`f16` pre-registration removed** — No longer emits `OpCapability Float16` in shaders that don't use `f16`
+  - Fixes Vulkan validation errors on devices without `shaderFloat16` support
+
+### Added
+- `OpLogicalEqual` (164), `OpLogicalNotEqual` (165) SPIR-V opcodes
+- `OpConvertFToU`, `OpConvertFToS`, `OpConvertSToF`, `OpConvertUToF`, `OpBitcast` conversion opcodes
+- `nagac` now targets SPIR-V 1.3 by default
+
 ## [0.11.0] - 2026-02-07
 
 SPIR-V control flow fix and 55 new WGSL built-in math functions.
@@ -569,7 +605,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/gogpu/naga/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/gogpu/naga/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/gogpu/naga/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/gogpu/naga/compare/v0.8.4...v0.9.0

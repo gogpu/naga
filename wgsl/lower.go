@@ -141,7 +141,10 @@ func (l *Lowerer) addError(message string, span Span) {
 func (l *Lowerer) registerBuiltinTypes() {
 	// Scalars - these are needed for literals and basic expressions
 	l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-	l.registerType("f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2})
+	// Note: f16 is NOT pre-registered. Per WGSL spec, f16 requires an explicit
+	// "enable f16;" directive. Pre-registering causes SPIR-V to contain
+	// OpCapability Float16 even in shaders that don't use it, which triggers
+	// Vulkan validation errors on devices without shaderFloat16 support.
 	l.registerType("i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
 	l.registerType("u32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	l.registerType("bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
@@ -859,8 +862,21 @@ func (l *Lowerer) lowerLiteral(lit *Literal) (ir.ExpressionHandle, error) {
 
 	switch lit.Kind {
 	case TokenIntLiteral:
-		v, _ := strconv.ParseInt(lit.Value, 0, 32)
-		value = ir.LiteralI32(v)
+		text := lit.Value
+		isUnsigned := false
+		if len(text) > 0 && text[len(text)-1] == 'u' {
+			text = text[:len(text)-1]
+			isUnsigned = true
+		} else if len(text) > 0 && text[len(text)-1] == 'i' {
+			text = text[:len(text)-1]
+		}
+		if isUnsigned {
+			v, _ := strconv.ParseUint(text, 0, 32)
+			value = ir.LiteralU32(v)
+		} else {
+			v, _ := strconv.ParseInt(text, 0, 32)
+			value = ir.LiteralI32(v)
+		}
 	case TokenFloatLiteral:
 		v, _ := strconv.ParseFloat(lit.Value, 32)
 		value = ir.LiteralF32(v)
@@ -1018,6 +1034,22 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 		components[i] = handle
 	}
 
+	// For scalar type constructors with a single argument (e.g., f32(x), u32(y)),
+	// generate ExprAs (type conversion) instead of ExprCompose.
+	if len(components) == 1 {
+		targetType := l.module.Types[typeHandle]
+		if scalar, ok := targetType.Inner.(ir.ScalarType); ok {
+			width := scalar.Width
+			return l.addExpression(ir.Expression{
+				Kind: ir.ExprAs{
+					Expr:    components[0],
+					Kind:    scalar.Kind,
+					Convert: &width,
+				},
+			}), nil
+		}
+	}
+
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprCompose{Type: typeHandle, Components: components},
 	}), nil
@@ -1142,7 +1174,12 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 				size.Constant = &constSize
 			}
 		}
-		return l.registerType("", ir.ArrayType{Base: base, Size: size}), nil
+		// Compute element stride for SPIR-V ArrayStride decoration.
+		// Runtime arrays are always in storage buffers (std430 layout),
+		// so stride = roundUp(elemAlign, elemSize).
+		elemAlign, elemSize := l.typeAlignmentAndSize(base)
+		stride := (elemSize + elemAlign - 1) &^ (elemAlign - 1)
+		return l.registerType("", ir.ArrayType{Base: base, Size: size, Stride: stride}), nil
 	case *PtrType:
 		pointee, err := l.resolveType(t.PointeeType)
 		if err != nil {
@@ -1296,9 +1333,12 @@ func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir
 		arraySize := ir.ArraySize{
 			Constant: &constSize,
 		}
+		elemAlign, elemSize := l.typeAlignmentAndSize(elemType)
+		arrStride := (elemSize + elemAlign - 1) &^ (elemAlign - 1)
 		typeHandle = l.registerType("", ir.ArrayType{
-			Base: elemType,
-			Size: arraySize,
+			Base:   elemType,
+			Size:   arraySize,
+			Stride: arrStride,
 		})
 	}
 

@@ -18,6 +18,7 @@ import (
 	"runtime/debug"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/spirv"
 )
 
 var (
@@ -64,8 +65,9 @@ func main() {
 
 	// Compile WGSL to SPIR-V
 	opts := naga.CompileOptions{
-		Debug:    *debugFlag,
-		Validate: *validate,
+		SPIRVVersion: spirv.Version1_3,
+		Debug:        *debugFlag,
+		Validate:     *validate,
 	}
 	spirvBytes, err := naga.CompileWithOptions(string(source), opts)
 	if err != nil {

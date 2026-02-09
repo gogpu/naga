@@ -107,6 +107,7 @@ const (
 	OpTypeVector        OpCode = 23
 	OpTypeMatrix        OpCode = 24
 	OpTypeArray         OpCode = 28
+	OpTypeRuntimeArray  OpCode = 29
 	OpTypeStruct        OpCode = 30
 	OpTypePointer       OpCode = 32
 	OpTypeFunction      OpCode = 33
@@ -327,8 +328,8 @@ const (
 	OpFOrdEqual            OpCode = 180 // Float ordered equal
 	OpFOrdNotEqual         OpCode = 182 // Float ordered not equal
 	OpFOrdLessThan         OpCode = 184 // Float ordered less than
-	OpFOrdLessThanEqual    OpCode = 186 // Float ordered less than or equal
-	OpFOrdGreaterThan      OpCode = 188 // Float ordered greater than
+	OpFOrdGreaterThan      OpCode = 186 // Float ordered greater than
+	OpFOrdLessThanEqual    OpCode = 188 // Float ordered less than or equal
 	OpFOrdGreaterThanEqual OpCode = 190 // Float ordered greater than or equal
 	OpIEqual               OpCode = 170 // Integer equal
 	OpINotEqual            OpCode = 171 // Integer not equal
@@ -344,11 +345,13 @@ const (
 
 // Logical opcodes
 const (
-	OpLogicalNot OpCode = 168 // Logical not
-	OpLogicalAnd OpCode = 164 // Logical and
-	OpLogicalOr  OpCode = 166 // Logical or
-	OpSelect     OpCode = 169 // Select between values
-	OpNot        OpCode = 200 // Bitwise not
+	OpLogicalEqual    OpCode = 164 // Logical equal
+	OpLogicalNotEqual OpCode = 165 // Logical not equal
+	OpLogicalOr       OpCode = 166 // Logical or
+	OpLogicalAnd      OpCode = 167 // Logical and
+	OpLogicalNot      OpCode = 168 // Logical not
+	OpSelect          OpCode = 169 // Select between values
+	OpNot             OpCode = 200 // Bitwise not
 )
 
 // Composite opcodes
@@ -361,9 +364,9 @@ const (
 
 // Bitwise opcodes
 const (
-	OpShiftLeftLogical     OpCode = 194 // Shift left logical
-	OpShiftRightLogical    OpCode = 195 // Shift right logical
-	OpShiftRightArithmetic OpCode = 196 // Shift right arithmetic
+	OpShiftRightLogical    OpCode = 194 // Shift right logical
+	OpShiftRightArithmetic OpCode = 195 // Shift right arithmetic
+	OpShiftLeftLogical     OpCode = 196 // Shift left logical
 	OpBitwiseOr            OpCode = 197 // Bitwise OR
 	OpBitwiseXor           OpCode = 198 // Bitwise XOR
 	OpBitwiseAnd           OpCode = 199 // Bitwise AND
@@ -389,6 +392,15 @@ const (
 	OpDPdxCoarse   OpCode = 213 // Coarse derivative in X
 	OpDPdyCoarse   OpCode = 214 // Coarse derivative in Y
 	OpFwidthCoarse OpCode = 215 // Coarse fwidth
+)
+
+// Conversion opcodes
+const (
+	OpConvertFToU OpCode = 109 // Float to unsigned int
+	OpConvertFToS OpCode = 110 // Float to signed int
+	OpConvertSToF OpCode = 111 // Signed int to float
+	OpConvertUToF OpCode = 112 // Unsigned int to float
+	OpBitcast     OpCode = 124 // Bitcast between types of same width
 )
 
 // Extended instruction set opcodes
