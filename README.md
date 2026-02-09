@@ -54,6 +54,7 @@
 - **Array Initialization** — `array(1, 2, 3)` shorthand with inferred type and size
 - **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions
 - **Swizzle Operations** — Full vector swizzle support (`.xyz`, `.rgba`, `.xxyy`, etc.)
+- **Function Calls** — `OpFunctionCall` support for modular WGSL shaders with helper functions
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
 - **MSL Backend** — Metal Shading Language output for macOS/iOS
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+

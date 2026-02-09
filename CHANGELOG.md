@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-02-10
+
+SPIR-V function call support and compute shader codegen improvements for GPU SDF pipeline.
+
+### Added
+
+#### SPIR-V Backend
+- **`OpFunctionCall`** — Function call support for non-entry-point functions
+  - Emits `OpFunctionCall` with correct result type and argument passing
+  - Enables modular WGSL shaders with helper functions
+
+#### Testing
+- **SPIR-V codegen analysis tests** for SDF compute shaders (~2000 LOC)
+  - `sdf_analysis_test.go` — Validates SPIR-V output for SDF batch shader patterns
+  - `var_ifelse_test.go` — Tests variable initialization and if/else codegen
+
+### Fixed
+
+#### SPIR-V Backend
+- **Compute shader codegen** — Multiple fixes for real-world compute shader patterns
+  - Fixed `var` initialization from expressions (was emitting zero instead of computed value)
+  - Fixed hex literal suffix parsing (`0xFFu` now correctly parsed as `u32`)
+  - Improved expression handling for complex compute shader workflows
+
+#### WGSL Frontend
+- **Hex literal suffixes** — `0xFFu` and `0xFFi` now correctly parsed with type suffix
+
 ## [0.11.1] - 2026-02-09
 
 Critical SPIR-V opcode corrections and compute shader fixes. Fixes incorrect code generation for logical operators, comparisons, shifts, and local variable initializers — all discovered during GPU SDF compute shader development.
@@ -605,7 +632,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/gogpu/naga/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/gogpu/naga/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/gogpu/naga/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/gogpu/naga/compare/v0.9.0...v0.10.0
