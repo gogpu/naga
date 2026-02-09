@@ -300,18 +300,15 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 			return 0, err
 		}
 
-		// Array size (constant or runtime-sized)
-		var sizeID uint32
 		if inner.Size.Constant != nil {
-			// Fixed-size array: create u32 constant for length
+			// Fixed-size array
 			u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-			sizeID = b.builder.AddConstant(u32TypeID, *inner.Size.Constant)
+			sizeID := b.builder.AddConstant(u32TypeID, *inner.Size.Constant)
+			id = b.builder.AddTypeArray(baseID, sizeID)
 		} else {
-			// Runtime-sized array: use OpTypeRuntimeArray (not implemented yet)
-			return 0, fmt.Errorf("runtime-sized arrays not yet implemented")
+			// Runtime-sized array (storage buffers)
+			id = b.builder.AddTypeRuntimeArray(baseID)
 		}
-
-		id = b.builder.AddTypeArray(baseID, sizeID)
 
 		// Add ArrayStride decoration if stride > 0
 		if inner.Stride > 0 {
@@ -997,13 +994,16 @@ func (b *Backend) emitEntryPoints() error {
 		// Collect interface variables (inputs/outputs used by entry point)
 		var interfaces []uint32
 
-		// Add regular global variables with Input/Output storage class
+		// Add regular global variables — for SPIR-V 1.3, only Input/Output
+		// storage classes are allowed in the entry point interface.
+		// Uniform and StorageBuffer variables are NOT listed.
 		for handle, global := range b.module.GlobalVariables {
-			if global.Space == ir.SpaceFunction || global.Space == ir.SpacePrivate {
-				continue // Not interface variables
-			}
-			if varID, ok := b.globalIDs[ir.GlobalVariableHandle(handle)]; ok {
-				interfaces = append(interfaces, varID)
+			if global.Space != ir.SpaceFunction && global.Space != ir.SpacePrivate &&
+				global.Space != ir.SpaceUniform && global.Space != ir.SpaceStorage &&
+				global.Space != ir.SpaceHandle {
+				if varID, ok := b.globalIDs[ir.GlobalVariableHandle(handle)]; ok {
+					interfaces = append(interfaces, varID)
+				}
 			}
 		}
 
@@ -1250,11 +1250,34 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		}
 	}
 
+	// Store initial values for local variables with initializers.
+	// OpVariable (emitted in prologue) doesn't include the initializer value,
+	// so we need explicit OpStore instructions before the function body.
+	for i, localVar := range fn.LocalVars {
+		if localVar.Init != nil {
+			initID, err := emitter.emitExpression(*localVar.Init)
+			if err != nil {
+				return fmt.Errorf("local var %q init: %w", localVar.Name, err)
+			}
+			b.builder.AddStore(localVarIDs[i], initID)
+		}
+	}
+
 	// Emit function body statements
 	for _, stmt := range fn.Body {
 		if err := emitter.emitStatement(stmt); err != nil {
 			return err
 		}
+	}
+
+	// Add OpReturn if the function body doesn't end with a terminator.
+	// Every SPIR-V basic block must end with a terminator instruction.
+	if !blockEndsWithTerminator(fn.Body) {
+		if fn.Result != nil {
+			// Non-void function without explicit return — should not happen in valid WGSL
+			return fmt.Errorf("non-void function missing return statement")
+		}
+		b.builder.AddReturn()
 	}
 
 	// Add OpFunctionEnd
@@ -1392,6 +1415,8 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		return e.emitAtomicResultRef(handle)
 	case ir.ExprSwizzle:
 		id, err = e.emitSwizzle(kind)
+	case ir.ExprAs:
+		id, err = e.emitAs(kind)
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -1425,7 +1450,7 @@ func (e *ExpressionEmitter) emitLiteral(value ir.LiteralValue) (uint32, error) {
 		return e.backend.builder.AddConstant(typeID, uint32(v)), nil
 
 	case ir.LiteralBool:
-		typeID := e.backend.builder.AddTypeBool()
+		typeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 		if v {
 			// OpConstantTrue
 			resultID := e.backend.builder.AllocID()
@@ -1932,6 +1957,90 @@ func (e *ExpressionEmitter) extractVectorScalar(handle ir.ExpressionHandle) (ir.
 	return ir.ScalarType{}, fmt.Errorf("swizzle requires vector type, got %T", vectorType.Value)
 }
 
+// emitAs emits a type conversion or bitcast.
+func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
+	exprID, err := e.emitExpression(as.Expr)
+	if err != nil {
+		return 0, err
+	}
+
+	// Resolve source expression type to get source scalar kind
+	srcType, err := ir.ResolveExpressionType(e.backend.module, e.function, as.Expr)
+	if err != nil {
+		return 0, fmt.Errorf("as source type: %w", err)
+	}
+
+	var srcScalar ir.ScalarType
+	var srcInner ir.TypeInner
+	if srcType.Handle != nil {
+		srcInner = e.backend.module.Types[*srcType.Handle].Inner
+	} else {
+		srcInner = srcType.Value
+	}
+	switch t := srcInner.(type) {
+	case ir.ScalarType:
+		srcScalar = t
+	case ir.VectorType:
+		srcScalar = t.Scalar
+	default:
+		return 0, fmt.Errorf("as: unsupported source type %T", srcInner)
+	}
+
+	if as.Convert == nil {
+		// Bitcast
+		targetType := e.backend.emitScalarType(ir.ScalarType{Kind: as.Kind, Width: srcScalar.Width})
+		return e.emitConversionOp(OpBitcast, targetType, exprID), nil
+	}
+
+	targetScalar := ir.ScalarType{Kind: as.Kind, Width: *as.Convert}
+	var targetTypeID uint32
+	if vec, ok := srcInner.(ir.VectorType); ok {
+		targetTypeID = e.backend.emitInlineType(ir.VectorType{Size: vec.Size, Scalar: targetScalar})
+	} else {
+		targetTypeID = e.backend.emitScalarType(targetScalar)
+	}
+
+	// Select conversion opcode based on source → target scalar kinds
+	op, err := selectConversionOp(srcScalar.Kind, as.Kind)
+	if err != nil {
+		return 0, err
+	}
+
+	return e.emitConversionOp(op, targetTypeID, exprID), nil
+}
+
+// selectConversionOp returns the SPIR-V opcode for a scalar type conversion.
+func selectConversionOp(src, dst ir.ScalarKind) (OpCode, error) {
+	switch {
+	case src == ir.ScalarUint && dst == ir.ScalarFloat:
+		return OpConvertUToF, nil
+	case src == ir.ScalarSint && dst == ir.ScalarFloat:
+		return OpConvertSToF, nil
+	case src == ir.ScalarFloat && dst == ir.ScalarUint:
+		return OpConvertFToU, nil
+	case src == ir.ScalarFloat && dst == ir.ScalarSint:
+		return OpConvertFToS, nil
+	case (src == ir.ScalarUint && dst == ir.ScalarSint) || (src == ir.ScalarSint && dst == ir.ScalarUint):
+		return OpBitcast, nil
+	case src == dst:
+		// Same kind, different width (e.g. f32→f64) — bitcast for now
+		return OpBitcast, nil
+	default:
+		return 0, fmt.Errorf("unsupported conversion: %v → %v", src, dst)
+	}
+}
+
+// emitConversionOp emits a unary conversion instruction.
+func (e *ExpressionEmitter) emitConversionOp(op OpCode, resultType, operand uint32) uint32 {
+	resultID := e.backend.builder.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(resultType)
+	builder.AddWord(resultID)
+	builder.AddWord(operand)
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(op))
+	return resultID
+}
+
 // emitLoad emits a load operation.
 // NOTE: ExprLoad is explicit in IR when the compiler wants to explicitly load.
 // Since emitExpression now auto-loads variable references, ExprLoad is mainly
@@ -2078,7 +2187,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 				resultType = e.backend.emitInlineType(boolVec)
 			} else {
 				// Scalar comparison returns bool
-				resultType = e.backend.builder.AddTypeBool()
+				resultType = e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 			}
 		} else {
 			inner := leftType.Value
@@ -2089,12 +2198,12 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 				}
 				resultType = e.backend.emitInlineType(boolVec)
 			} else {
-				resultType = e.backend.builder.AddTypeBool()
+				resultType = e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 			}
 		}
 	case ir.BinaryLogicalAnd, ir.BinaryLogicalOr:
 		// Logical operators return bool
-		resultType = e.backend.builder.AddTypeBool()
+		resultType = e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	default:
 		// Arithmetic and bitwise operators preserve operand type
 		resultType = e.backend.resolveTypeResolution(leftType)

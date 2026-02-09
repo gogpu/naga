@@ -58,6 +58,7 @@
 - **MSL Backend** — Metal Shading Language output for macOS/iOS
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12
+- **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Warnings** — Unused variable detection with `_` prefix exception
 - **Validation** — Type checking and semantic validation
 - **CLI Tool** — `nagac` command-line compiler
@@ -240,7 +241,7 @@ naga/
 - Scalars: `f32`, `f64`, `i32`, `u32`, `bool`
 - Vectors: `vec2<T>`, `vec3<T>`, `vec4<T>`
 - Matrices: `mat2x2<f32>` ... `mat4x4<f32>`
-- Arrays: `array<T, N>`
+- Arrays: `array<T, N>`, `array<T>` (runtime-sized, storage buffers)
 - Structs: `struct { ... }`
 - Atomics: `atomic<u32>`, `atomic<i32>`
 - Textures: `texture_2d<f32>`, `texture_3d<f32>`, `texture_cube<f32>`

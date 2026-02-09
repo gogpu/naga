@@ -313,6 +313,16 @@ func (b *ModuleBuilder) AddTypeArray(elementType uint32, length uint32) uint32 {
 	return id
 }
 
+// AddTypeRuntimeArray adds OpTypeRuntimeArray for storage buffer runtime-sized arrays.
+func (b *ModuleBuilder) AddTypeRuntimeArray(elementType uint32) uint32 {
+	id := b.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(id)
+	builder.AddWord(elementType)
+	b.types = append(b.types, builder.Build(OpTypeRuntimeArray))
+	return id
+}
+
 // AddTypePointer adds OpTypePointer.
 func (b *ModuleBuilder) AddTypePointer(storageClass StorageClass, baseType uint32) uint32 {
 	id := b.AllocID()
