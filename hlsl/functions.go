@@ -23,20 +23,57 @@ const (
 // Entry Point Input/Output Structs
 // =============================================================================
 
+// structArgEntry tracks entry point arguments that are structs with member bindings.
+// When a WGSL entry point takes a struct argument like `input: VertexInput` where the
+// struct members have @location or @builtin bindings, the HLSL backend must flatten
+// those members into the input struct and reconstruct the original struct in the body.
+type structArgEntry struct {
+	argIdx        int
+	structType    ir.StructType
+	argTypeHandle ir.TypeHandle
+}
+
 // writeEntryPointInputStruct writes the input struct for an entry point.
 // HLSL entry points typically use input structs with semantics for vertex/fragment stages.
-func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir.Function) (string, bool) {
-	// Check if we need an input struct (location or builtin bindings)
+// It returns the struct name, whether an input struct was written, and a list of struct
+// arguments whose members were flattened into the input struct.
+//
+//nolint:gocognit // Entry point input handling requires checking multiple argument forms
+func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir.Function) (string, bool, []structArgEntry) {
+	// Check if we need an input struct (location or builtin bindings, or struct args with member bindings)
 	hasInputs := false
-	for _, arg := range fn.Arguments {
+	var structArgs []structArgEntry
+
+	for i, arg := range fn.Arguments {
 		if arg.Binding != nil {
 			hasInputs = true
-			break
+			continue
+		}
+		// Check if this is a struct argument with member bindings
+		if int(arg.Type) < len(w.module.Types) {
+			typeInfo := &w.module.Types[arg.Type]
+			if st, ok := typeInfo.Inner.(ir.StructType); ok {
+				hasMemberBindings := false
+				for _, member := range st.Members {
+					if member.Binding != nil {
+						hasMemberBindings = true
+						break
+					}
+				}
+				if hasMemberBindings {
+					hasInputs = true
+					structArgs = append(structArgs, structArgEntry{
+						argIdx:        i,
+						structType:    st,
+						argTypeHandle: arg.Type,
+					})
+				}
+			}
 		}
 	}
 
 	if !hasInputs {
-		return "", false
+		return "", false, nil
 	}
 
 	structName := fmt.Sprintf("%s_Input", w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}]) //nolint:gosec // G115: epIdx is valid slice index
@@ -45,33 +82,58 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 	w.pushIndent()
 
 	for i, arg := range fn.Arguments {
-		if arg.Binding == nil {
+		if arg.Binding != nil {
+			// Direct binding on argument — existing behavior
+			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
+			argType, arraySuffix := w.getTypeNameWithArraySuffix(arg.Type)
+
+			semantic := w.getSemanticFromBinding(*arg.Binding, i)
+
+			interpMod := ""
+			if ep.Stage == ir.StageFragment {
+				interpMod = w.getInterpolationModifier(*arg.Binding)
+				if interpMod != "" {
+					interpMod += " "
+				}
+			}
+
+			w.writeLine("%s%s %s%s : %s;", interpMod, argType, argName, arraySuffix, semantic)
 			continue
 		}
 
-		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
-		argType, arraySuffix := w.getTypeNameWithArraySuffix(arg.Type)
-
-		// Get semantic from binding
-		semantic := w.getSemanticFromBinding(*arg.Binding, i)
-
-		// Get interpolation modifiers for fragment shader inputs
-		interpMod := ""
-		if ep.Stage == ir.StageFragment {
-			interpMod = w.getInterpolationModifier(*arg.Binding)
-			if interpMod != "" {
-				interpMod += " "
+		// Check if this is a struct arg with member bindings
+		for _, sa := range structArgs {
+			if sa.argIdx != i {
+				continue
 			}
-		}
+			// Flatten struct members with bindings into the input struct
+			for memberIdx, member := range sa.structType.Members {
+				if member.Binding == nil {
+					continue
+				}
+				memberName := Escape(member.Name)
+				memberType, arraySuffix := w.getTypeNameWithArraySuffix(member.Type)
+				semantic := w.getSemanticFromBinding(*member.Binding, memberIdx)
 
-		w.writeLine("%s%s %s%s : %s;", interpMod, argType, argName, arraySuffix, semantic)
+				interpMod := ""
+				if ep.Stage == ir.StageFragment {
+					interpMod = w.getInterpolationModifier(*member.Binding)
+					if interpMod != "" {
+						interpMod += " "
+					}
+				}
+
+				w.writeLine("%s%s %s%s : %s;", interpMod, memberType, memberName, arraySuffix, semantic)
+			}
+			break
+		}
 	}
 
 	w.popIndent()
 	w.writeLine("};")
 	w.writeLine("")
 
-	return structName, true
+	return structName, true, structArgs
 }
 
 // writeEntryPointOutputStruct writes the output struct for an entry point.
@@ -150,7 +212,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	}()
 
 	// Write input/output structs if needed
-	inputStructName, hasInputStruct := w.writeEntryPointInputStruct(epIdx, ep, fn)
+	inputStructName, hasInputStruct, structArgs := w.writeEntryPointInputStruct(epIdx, ep, fn)
 	outputStructName, hasOutputStruct := w.writeEntryPointOutputStruct(epIdx, ep, fn)
 
 	epName := w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] //nolint:gosec // G115: epIdx is valid slice index
@@ -196,7 +258,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 
 	// Extract inputs from struct if needed
 	if hasInputStruct {
-		w.writeInputExtraction(ep, fn)
+		w.writeInputExtraction(ep, fn, structArgs)
 	}
 
 	// Write local variables with optional init expressions
@@ -300,8 +362,28 @@ func (w *Writer) writeEntryPointSignature(returnType, epName string, ep *ir.Entr
 // For vertex/fragment stages, ALL bindings (location and builtin) go through
 // the input struct. For compute shaders, builtins are passed as direct parameters
 // and only location bindings are extracted from the struct.
-func (w *Writer) writeInputExtraction(ep *ir.EntryPoint, fn *ir.Function) {
+// Struct arguments with member bindings are reconstructed from the flattened input.
+func (w *Writer) writeInputExtraction(ep *ir.EntryPoint, fn *ir.Function, structArgs []structArgEntry) {
 	for i, arg := range fn.Arguments {
+		// Check if this is a struct arg that was flattened
+		if sa := findStructArg(structArgs, i); sa != nil {
+			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
+			structTypeName := w.getTypeName(sa.argTypeHandle)
+
+			// Declare the struct variable
+			w.writeLine("%s %s;", structTypeName, argName)
+
+			// Assign each member from the flattened input struct
+			for _, member := range sa.structType.Members {
+				if member.Binding == nil {
+					continue
+				}
+				memberName := Escape(member.Name)
+				w.writeLine("%s.%s = _input.%s;", argName, memberName, memberName)
+			}
+			continue
+		}
+
 		if arg.Binding == nil {
 			continue
 		}
@@ -314,6 +396,16 @@ func (w *Writer) writeInputExtraction(ep *ir.EntryPoint, fn *ir.Function) {
 		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
 		w.writeLine("%s %s = _input.%s;", w.getTypeName(arg.Type), argName, argName)
 	}
+}
+
+// findStructArg returns the structArgEntry for the given argument index, or nil if not found.
+func findStructArg(structArgs []structArgEntry, argIdx int) *structArgEntry {
+	for idx := range structArgs {
+		if structArgs[idx].argIdx == argIdx {
+			return &structArgs[idx]
+		}
+	}
+	return nil
 }
 
 // =============================================================================

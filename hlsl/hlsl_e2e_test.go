@@ -489,3 +489,56 @@ fn main(@location(0) x: f32) -> @location(0) vec4<f32> {
 
 	t.Logf("HLSL output:\n%s", code)
 }
+
+// =============================================================================
+// Struct argument entry point (the gogpu shader pattern)
+// =============================================================================
+
+func TestE2E_StructArgumentEntryPoint(t *testing.T) {
+	source := `
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) color: vec4<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+}
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = vec4<f32>(input.position, 0.0, 1.0);
+    output.color = input.color;
+    return output;
+}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    return input.color;
+}
+`
+	code := compileWGSLToHLSL(t, source)
+
+	// Input struct should have flattened struct members with semantics
+	assertContains(t, code, "struct vs_main_Input")
+	assertContains(t, code, "TEXCOORD0")
+	assertContains(t, code, "TEXCOORD1")
+
+	// The struct variable should be declared and populated from _input
+	assertContains(t, code, "VertexInput input")
+	assertContains(t, code, "input.position = _input.position")
+	assertContains(t, code, "input.color = _input.color")
+
+	// Output struct should have SV_Position
+	assertContains(t, code, "SV_Position")
+
+	// Fragment output
+	assertContains(t, code, "SV_Target0")
+
+	// No stubs
+	assertNotContains(t, code, "// Function body (to be implemented)")
+
+	t.Logf("HLSL output:\n%s", code)
+}
