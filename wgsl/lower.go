@@ -1608,6 +1608,10 @@ func (l *Lowerer) getRelationalFunction(name string) (ir.RelationalFunction, boo
 		return ir.RelationalAll, true
 	case "any":
 		return ir.RelationalAny, true
+	case "isnan":
+		return ir.RelationalIsNan, true
+	case "isinf":
+		return ir.RelationalIsInf, true
 	default:
 		return 0, false
 	}
