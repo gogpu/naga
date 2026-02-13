@@ -5,7 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.1] - 2026-02-13
+
+Hotfix: wire up HLSL codegen (was causing DPC_WATCHDOG_VIOLATION BSOD on DX12), complete all 93 WGSL built-in functions.
+
+### Added
+
+#### WGSL Frontend
+- **All 93 WGSL built-in functions** — Complete coverage of the W3C WGSL specification
+  - 14 math functions: `modf`, `frexp`, `ldexp`, `inverse`, `quantizeToF16`, `outerProduct`, `pack4xI8`/`U8`, `pack4xI8Clamp`/`U8Clamp`, `unpack4xI8`/`U8`
+  - 9 derivative functions: `dpdx`, `dpdy`, `fwidth` + `Coarse`/`Fine` variants
+  - 4 relational functions: `all`, `any`, `isnan`, `isinf`
+  - `arrayLength` for runtime-sized arrays
+
+#### Testing
+- **HLSL end-to-end golden tests** — 14 tests covering the full WGSL → HLSL pipeline
+  - Triangle shader, vertex/fragment, compute, uniform buffers
+  - Math functions, control flow (if/else, switch, loops), swizzle
+  - Entry point deduplication, stub detection, semantic validation
 
 ### Fixed
 

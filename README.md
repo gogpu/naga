@@ -272,21 +272,23 @@ naga/
 - Functions: `return`, `discard`
 - Assignment: `=`, `+=`, `-=`, `*=`, `/=`
 
-### Built-in Functions (90+)
-- Math: `abs`, `min`, `max`, `clamp`, `saturate`, `sign`, `fma`
+### Built-in Functions (93)
+- Math: `abs`, `min`, `max`, `clamp`, `saturate`, `sign`, `fma`, `modf`, `frexp`, `ldexp`, `quantizeToF16`
 - Trigonometric: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`
 - Angle: `radians`, `degrees`
 - Exponential: `exp`, `exp2`, `log`, `log2`, `pow`, `sqrt`, `inverseSqrt`
 - Decomposition: `ceil`, `floor`, `round`, `fract`, `trunc`
-- Geometric: `dot`, `cross`, `length`, `distance`, `normalize`, `faceForward`, `reflect`, `refract`
+- Geometric: `dot`, `cross`, `length`, `distance`, `normalize`, `faceForward`, `reflect`, `refract`, `outerProduct`
 - Interpolation: `mix`, `step`, `smoothstep`
-- Matrix: `transpose`, `determinant`
+- Matrix: `transpose`, `determinant`, `inverse`
+- Relational: `all`, `any`, `isnan`, `isinf`
 - Bit: `countTrailingZeros`, `countLeadingZeros`, `countOneBits`, `reverseBits`, `extractBits`, `insertBits`, `firstTrailingBit`, `firstLeadingBit`
-- Packing: `pack4x8snorm`, `pack4x8unorm`, `pack2x16snorm`, `pack2x16unorm`, `pack2x16float`, `unpack4x8snorm`, `unpack4x8unorm`, `unpack2x16snorm`, `unpack2x16unorm`, `unpack2x16float`
+- Packing: `pack4x8snorm`, `pack4x8unorm`, `pack2x16snorm`, `pack2x16unorm`, `pack2x16float`, `pack4xI8`, `pack4xU8`, `pack4xI8Clamp`, `pack4xU8Clamp`, `unpack4x8snorm`, `unpack4x8unorm`, `unpack2x16snorm`, `unpack2x16unorm`, `unpack2x16float`, `unpack4xI8`, `unpack4xU8`
 - Selection: `select`
-- Derivatives: `dpdx`, `dpdy`, `fwidth`
+- Derivatives: `dpdx`, `dpdy`, `fwidth`, `dpdxCoarse`, `dpdyCoarse`, `fwidthCoarse`, `dpdxFine`, `dpdyFine`, `fwidthFine`
 - Atomic: `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor`, `atomicExchange`, `atomicCompareExchangeWeak`
 - Barriers: `workgroupBarrier`, `storageBarrier`, `textureBarrier`
+- Array: `arrayLength`
 
 ---
 
