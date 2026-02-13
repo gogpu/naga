@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### HLSL Backend
+- **Wire up codegen** — Connect implemented expression/statement/function codegen to the writer
+  - Entry point functions now generate actual HLSL bodies instead of stub placeholders
+  - Regular functions call `writeFunctionBody()` for complete code generation
+  - Entry points use `writeEntryPointWithIO()` with proper I/O structs and semantics
+  - Removed duplicate function emission (entry points were written twice)
+- **Fragment output semantic** — Fragment shader `@location(N)` now maps to `SV_TargetN` (was `TEXCOORD0`)
+- **Builtin extraction** — `@builtin(vertex_index)` correctly extracted from input struct to local variable
+- **Array syntax** — HLSL arrays now use correct syntax:
+  - Declarations: `float2 name[3]` instead of `float2[3] name`
+  - Initializers: `{elem1, elem2}` instead of `type[3](elem1, elem2)`
+- **Named expression ordering** — Expression names cached AFTER writing initializer (prevents `float x = x;`)
+
 ## [0.12.0] - 2026-02-10
 
 SPIR-V function call support and compute shader codegen improvements for GPU SDF pipeline.

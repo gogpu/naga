@@ -1,11 +1,8 @@
 // Copyright 2025 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-// Package-level nolint for expression functions prepared for future integration.
-// These functions implement HLSL expression generation and will be used
-// when the full statement codegen calls writeExpression.
-//
-//nolint:unused // Functions prepared for integration in statements phase
+// Package hlsl implements HLSL expression generation for all IR expression types.
+// Expression functions are called transitively via writeBlock → writeStatement → writeExpression.
 package hlsl
 
 import (
@@ -191,6 +188,21 @@ func (w *Writer) writeZeroValueExpression(e ir.ExprZeroValue) error {
 
 // writeComposeExpression writes a composite construction (vector, matrix, array, struct).
 func (w *Writer) writeComposeExpression(e ir.ExprCompose) error {
+	// HLSL arrays use initializer list syntax { ... } not constructor syntax type(...)
+	if isArrayType(w.module, e.Type) {
+		w.out.WriteString("{")
+		for i, comp := range e.Components {
+			if i > 0 {
+				w.out.WriteString(", ")
+			}
+			if err := w.writeExpression(comp); err != nil {
+				return fmt.Errorf("compose component %d: %w", i, err)
+			}
+		}
+		w.out.WriteString("}")
+		return nil
+	}
+
 	typeName := w.getTypeName(e.Type)
 	w.out.WriteString(typeName)
 	w.out.WriteByte('(')
@@ -1090,6 +1102,8 @@ func (w *Writer) getExpressionType(handle ir.ExpressionHandle) *ir.Type {
 }
 
 // writeExpressionToString writes an expression to a string.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeExpressionToString(handle ir.ExpressionHandle) (string, error) {
 	// Save current output
 	oldOut := w.out
@@ -1106,6 +1120,8 @@ func (w *Writer) writeExpressionToString(handle ir.ExpressionHandle) (string, er
 }
 
 // getExpressionTypeInner returns just the TypeInner for an expression.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) getExpressionTypeInner(handle ir.ExpressionHandle) ir.TypeInner {
 	typ := w.getExpressionType(handle)
 	if typ != nil {
@@ -1115,6 +1131,8 @@ func (w *Writer) getExpressionTypeInner(handle ir.ExpressionHandle) ir.TypeInner
 }
 
 // formatSpecialFloat handles special float values like inf and nan.
+//
+//nolint:unused // Helper prepared for integration when needed
 func formatSpecialFloat(f float64) (string, bool) {
 	if math.IsInf(f, 1) {
 		return hlslPosInf, true

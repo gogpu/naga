@@ -19,7 +19,7 @@
 
 ---
 
-## Current State: v0.11.1
+## Current State: v0.12.0
 
 ✅ **Production-ready** shader compiler (~19K LOC):
 - Full WGSL frontend (lexer, parser, IR)
@@ -29,6 +29,7 @@
 - Texture sampling and storage textures (50+ formats)
 - Local const declarations and switch statements
 - Correct SPIR-V structured control flow (`if/else`, `switch`, `loop`)
+- HLSL codegen fully wired up (entry points, functions, expressions, statements)
 - Type inference, validation, and scalar type conversions
 - Development tools (nagac with SPIR-V 1.3, spvdis)
 
@@ -96,7 +97,8 @@
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **v0.11.1** | 2026-02 | SPIR-V opcode fixes, compute shader improvements |
+| **v0.12.0** | 2026-02 | Function calls, compute shader codegen, HLSL wiring |
+| v0.11.1 | 2026-02 | SPIR-V opcode fixes, compute shader improvements |
 | v0.11.0 | 2026-02 | SPIR-V if/else fix, 55 new built-in functions |
 | v0.10.0 | 2026-02 | Local const, switch statements, storage textures |
 | v0.9.0 | 2026-01 | Sampler types, swizzle, dev tools |
