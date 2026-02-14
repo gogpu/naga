@@ -1,7 +1,6 @@
 package spirv
 
 import (
-	"encoding/binary"
 	"fmt"
 	"strings"
 	"testing"
@@ -705,16 +704,4 @@ func buildTypeInfo(instrs []spirvInstruction, names map[uint32]string) map[uint3
 		}
 	}
 	return info
-}
-
-// validateSPIRVBinaryBasic performs basic SPIR-V binary validation.
-func validateSPIRVBinaryBasic(t *testing.T, data []byte) {
-	t.Helper()
-	if len(data) < 20 {
-		t.Fatalf("SPIR-V binary too short: %d bytes", len(data))
-	}
-	magic := binary.LittleEndian.Uint32(data[0:4])
-	if magic != 0x07230203 {
-		t.Fatalf("Invalid SPIR-V magic number: 0x%08X", magic)
-	}
 }
