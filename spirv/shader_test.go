@@ -901,3 +901,209 @@ func validateSPIRVControlFlow(t *testing.T, spirvBytes []byte) {
 		}
 	}
 }
+
+// TestBoolToFloatConversion tests f32(bool_value) conversion.
+// Previously this produced "unsupported conversion: 3 → 2" (Bool=3, Float=2).
+func TestBoolToFloatConversion(t *testing.T) {
+	source := `
+@fragment
+fn main(@location(0) value: f32) -> @location(0) vec4<f32> {
+    let flag: bool = value > 0.5;
+    let result: f32 = f32(flag);
+    return vec4<f32>(result, result, result, 1.0);
+}
+`
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	// Verify the binary contains OpSelect (used for bool→float conversion)
+	if !containsOpcode(spirvBytes, OpSelect) {
+		t.Error("Expected OpSelect in SPIR-V binary for bool→float conversion")
+	}
+
+	t.Logf("Successfully compiled bool→f32 conversion: %d bytes", len(spirvBytes))
+}
+
+// TestBoolToUintConversion tests u32(bool_value) conversion.
+func TestBoolToUintConversion(t *testing.T) {
+	source := `
+@group(0) @binding(0) var<storage, read_write> output: array<u32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    let flag: bool = idx > 0u;
+    output[idx] = u32(flag);
+}
+`
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	// Verify the binary contains OpSelect (used for bool→uint conversion)
+	if !containsOpcode(spirvBytes, OpSelect) {
+		t.Error("Expected OpSelect in SPIR-V binary for bool→u32 conversion")
+	}
+
+	t.Logf("Successfully compiled bool→u32 conversion: %d bytes", len(spirvBytes))
+}
+
+// TestBoolToSintConversion tests i32(bool_value) conversion.
+func TestBoolToSintConversion(t *testing.T) {
+	source := `
+@fragment
+fn main(@location(0) value: f32) -> @location(0) vec4<f32> {
+    let flag: bool = value > 0.0;
+    let result: i32 = i32(flag);
+    let fval: f32 = f32(result);
+    return vec4<f32>(fval, fval, fval, 1.0);
+}
+`
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	if !containsOpcode(spirvBytes, OpSelect) {
+		t.Error("Expected OpSelect in SPIR-V binary for bool→i32 conversion")
+	}
+
+	t.Logf("Successfully compiled bool→i32 conversion: %d bytes", len(spirvBytes))
+}
+
+// TestInlineBoolToFloatConversion tests f32(x > 0.0) inline expression.
+func TestInlineBoolToFloatConversion(t *testing.T) {
+	source := `
+@fragment
+fn main(@location(0) value: f32) -> @location(0) vec4<f32> {
+    let result: f32 = f32(value > 0.0);
+    return vec4<f32>(result, 0.0, 0.0, 1.0);
+}
+`
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	if !containsOpcode(spirvBytes, OpSelect) {
+		t.Error("Expected OpSelect in SPIR-V binary for inline bool→f32 conversion")
+	}
+
+	t.Logf("Successfully compiled inline bool→f32 conversion: %d bytes", len(spirvBytes))
+}
+
+// containsOpcode scans a SPIR-V binary for a specific opcode.
+func containsOpcode(spirvBytes []byte, target OpCode) bool {
+	if len(spirvBytes) < 20 || len(spirvBytes)%4 != 0 {
+		return false
+	}
+
+	words := make([]uint32, len(spirvBytes)/4)
+	for i := range words {
+		words[i] = uint32(spirvBytes[i*4]) |
+			uint32(spirvBytes[i*4+1])<<8 |
+			uint32(spirvBytes[i*4+2])<<16 |
+			uint32(spirvBytes[i*4+3])<<24
+	}
+
+	offset := 5 // Skip header
+	for offset < len(words) {
+		word := words[offset]
+		wordCount := word >> 16
+		opcode := OpCode(word & 0xFFFF)
+
+		if wordCount == 0 || offset+int(wordCount) > len(words) {
+			break
+		}
+
+		if opcode == target {
+			return true
+		}
+
+		offset += int(wordCount)
+	}
+	return false
+}

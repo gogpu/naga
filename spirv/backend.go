@@ -2063,6 +2063,14 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 		targetTypeID = e.backend.emitScalarType(targetScalar)
 	}
 
+	// Bool conversions require special handling — no single SPIR-V opcode exists.
+	if srcScalar.Kind == ir.ScalarBool {
+		return e.emitBoolToNumeric(targetTypeID, targetScalar, srcInner, exprID)
+	}
+	if as.Kind == ir.ScalarBool {
+		return e.emitNumericToBool(targetTypeID, srcScalar, srcInner, exprID)
+	}
+
 	// Select conversion opcode based on source → target scalar kinds
 	op, err := selectConversionOp(srcScalar.Kind, as.Kind)
 	if err != nil {
@@ -2070,6 +2078,85 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 	}
 
 	return e.emitConversionOp(op, targetTypeID, exprID), nil
+}
+
+// emitBoolToNumeric converts a bool (or bool vector) to a numeric type using OpSelect.
+// SPIR-V has no direct bool→numeric conversion opcode.
+// bool → float:  OpSelect(floatType, boolVal, 1.0, 0.0)
+// bool → int:    OpSelect(intType,   boolVal, 1,   0)
+func (e *ExpressionEmitter) emitBoolToNumeric(targetTypeID uint32, targetScalar ir.ScalarType, srcInner ir.TypeInner, exprID uint32) (uint32, error) {
+	// Create scalar constants for one and zero
+	scalarTypeID := e.backend.emitScalarType(targetScalar)
+	var oneID, zeroID uint32
+	switch targetScalar.Kind {
+	case ir.ScalarFloat:
+		oneID = e.backend.builder.AddConstantFloat32(scalarTypeID, 1.0)
+		zeroID = e.backend.builder.AddConstantFloat32(scalarTypeID, 0.0)
+	case ir.ScalarUint, ir.ScalarSint:
+		oneID = e.backend.builder.AddConstant(scalarTypeID, 1)
+		zeroID = e.backend.builder.AddConstant(scalarTypeID, 0)
+	default:
+		return 0, fmt.Errorf("bool conversion: unsupported target kind %v", targetScalar.Kind)
+	}
+
+	// For vector types, replicate constants into composite vectors
+	if vec, ok := srcInner.(ir.VectorType); ok {
+		size := int(vec.Size)
+		oneComponents := make([]uint32, size)
+		zeroComponents := make([]uint32, size)
+		for i := range size {
+			oneComponents[i] = oneID
+			zeroComponents[i] = zeroID
+		}
+		vecTypeID := e.backend.emitInlineType(ir.VectorType{Size: vec.Size, Scalar: targetScalar})
+		oneID = e.backend.builder.AddConstantComposite(vecTypeID, oneComponents...)
+		zeroID = e.backend.builder.AddConstantComposite(vecTypeID, zeroComponents...)
+		return e.backend.builder.AddSelect(vecTypeID, exprID, oneID, zeroID), nil
+	}
+
+	return e.backend.builder.AddSelect(targetTypeID, exprID, oneID, zeroID), nil
+}
+
+// emitNumericToBool converts a numeric (or numeric vector) to bool using comparison with zero.
+// SPIR-V has no direct numeric→bool conversion opcode.
+// float → bool:  OpFOrdNotEqual(boolType, val, 0.0)
+// int   → bool:  OpINotEqual(boolType, val, 0)
+func (e *ExpressionEmitter) emitNumericToBool(targetTypeID uint32, srcScalar ir.ScalarType, srcInner ir.TypeInner, exprID uint32) (uint32, error) {
+	// Create zero constant matching source type
+	srcScalarTypeID := e.backend.emitScalarType(srcScalar)
+	var zeroID uint32
+	var cmpOp OpCode
+	switch srcScalar.Kind {
+	case ir.ScalarFloat:
+		zeroID = e.backend.builder.AddConstantFloat32(srcScalarTypeID, 0.0)
+		cmpOp = OpFOrdNotEqual
+	case ir.ScalarUint, ir.ScalarSint:
+		zeroID = e.backend.builder.AddConstant(srcScalarTypeID, 0)
+		cmpOp = OpINotEqual
+	default:
+		return 0, fmt.Errorf("bool conversion: unsupported source kind %v", srcScalar.Kind)
+	}
+
+	// For vector types, replicate zero constant into composite vector
+	if vec, ok := srcInner.(ir.VectorType); ok {
+		size := int(vec.Size)
+		zeroComponents := make([]uint32, size)
+		for i := range size {
+			zeroComponents[i] = zeroID
+		}
+		srcVecTypeID := e.backend.emitInlineType(ir.VectorType{Size: vec.Size, Scalar: srcScalar})
+		zeroID = e.backend.builder.AddConstantComposite(srcVecTypeID, zeroComponents...)
+	}
+
+	// Emit comparison: value != 0
+	resultID := e.backend.builder.AllocID()
+	builder := NewInstructionBuilder()
+	builder.AddWord(targetTypeID)
+	builder.AddWord(resultID)
+	builder.AddWord(exprID)
+	builder.AddWord(zeroID)
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(cmpOp))
+	return resultID, nil
 }
 
 // selectConversionOp returns the SPIR-V opcode for a scalar type conversion.
