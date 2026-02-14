@@ -226,12 +226,27 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 }
 
 // writeReturn writes a return statement.
+// In entry points, return values are assigned to output variables instead.
 func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 	if ret.Value != nil {
 		value, err := w.writeExpression(*ret.Value)
 		if err != nil {
 			return err
 		}
+
+		// In entry points, assign to output (gl_Position, fragColor, gl_FragDepth, etc.)
+		if w.inEntryPoint && w.entryPointResult != nil && w.entryPointResult.Binding != nil {
+			switch b := (*w.entryPointResult.Binding).(type) {
+			case ir.BuiltinBinding:
+				outputName := glslBuiltIn(b.Builtin, true)
+				w.writeLine("%s = %s;", outputName, value)
+				return nil
+			case ir.LocationBinding:
+				w.writeLine("fragColor = %s;", value)
+				return nil
+			}
+		}
+
 		w.writeLine("return %s;", value)
 	} else {
 		w.writeLine("return;")

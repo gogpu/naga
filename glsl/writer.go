@@ -58,6 +58,10 @@ type Writer struct {
 	localNames        map[uint32]string
 	namedExpressions  map[ir.ExpressionHandle]string
 
+	// Entry point context
+	inEntryPoint     bool
+	entryPointResult *ir.FunctionResult
+
 	// Expression baking (expressions that need to be materialized to temporaries)
 	needBakeExpression map[ir.ExpressionHandle]struct{}
 
@@ -291,9 +295,10 @@ func (w *Writer) writeTypes() error {
 		w.pushIndent()
 
 		for memberIdx, member := range st.Members {
-			memberType := w.getTypeName(member.Type)
+			baseType := w.getBaseTypeName(member.Type)
+			arraySuffix := w.getArraySuffix(member.Type)
 			memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] //nolint:gosec // G115: handle is valid slice index
-			w.writeLine("%s %s;", memberType, memberName)
+			w.writeLine("%s %s%s;", baseType, memberName, arraySuffix)
 		}
 
 		w.popIndent()
@@ -307,9 +312,10 @@ func (w *Writer) writeTypes() error {
 func (w *Writer) writeConstants() error {
 	for handle, constant := range w.module.Constants {
 		name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] //nolint:gosec // G115: handle is valid slice index
-		typeName := w.getTypeName(constant.Type)
+		baseType := w.getBaseTypeName(constant.Type)
+		arraySuffix := w.getArraySuffix(constant.Type)
 		value := w.writeConstantValue(constant)
-		w.writeLine("const %s %s = %s;", typeName, name, value)
+		w.writeLine("const %s %s%s = %s;", baseType, name, arraySuffix, value)
 	}
 	if len(w.module.Constants) > 0 {
 		w.writeLine("")
@@ -451,8 +457,18 @@ func (w *Writer) writeHelperFunctions() {
 }
 
 // writeFunctions writes regular function definitions.
+// Entry point functions are skipped — they are emitted by writeEntryPoints as void main().
 func (w *Writer) writeFunctions() error {
+	// Collect entry point function handles to skip them
+	epFunctions := make(map[ir.FunctionHandle]bool, len(w.module.EntryPoints))
+	for _, ep := range w.module.EntryPoints {
+		epFunctions[ep.Function] = true
+	}
+
 	for handle := range w.module.Functions {
+		if epFunctions[ir.FunctionHandle(handle)] { //nolint:gosec // G115: handle is valid slice index
+			continue
+		}
 		fn := &w.module.Functions[handle]
 		if err := w.writeFunction(ir.FunctionHandle(handle), fn); err != nil { //nolint:gosec // G115: handle is valid slice index
 			return err
@@ -488,15 +504,10 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	w.writeLine("%s %s(%s) {", returnType, name, strings.Join(args, ", "))
 	w.pushIndent()
 
-	// Write local variables
-	for localIdx, local := range fn.LocalVars {
-		localName := w.namer.call(local.Name)
-		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
-		localType := w.getTypeName(local.Type)
-		w.writeLine("%s %s;", localType, localName)
+	if err := w.writeLocalVars(fn); err != nil {
+		return err
 	}
 
-	// Write function body
 	if err := w.writeBlock(ir.Block(fn.Body)); err != nil {
 		return err
 	}
@@ -529,7 +540,10 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// Look up actual function from handle
 	fn := &w.module.Functions[ep.Function]
 	w.currentFunction = fn
+	w.currentFuncHandle = ep.Function
 	w.localNames = make(map[uint32]string)
+	w.inEntryPoint = true
+	w.entryPointResult = fn.Result
 
 	// Write input/output declarations for vertex/fragment
 	switch ep.Stage {
@@ -545,12 +559,8 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	w.writeLine("void main() {")
 	w.pushIndent()
 
-	// Write local variables
-	for localIdx, local := range fn.LocalVars {
-		localName := w.namer.call(local.Name)
-		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
-		localType := w.getTypeName(local.Type)
-		w.writeLine("%s %s;", localType, localName)
+	if err := w.writeLocalVars(fn); err != nil {
+		return err
 	}
 
 	// Write function body
@@ -562,27 +572,35 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	w.writeLine("}")
 
 	w.currentFunction = nil
+	w.inEntryPoint = false
+	w.entryPointResult = nil
 	_ = epIdx // Used for name lookup
 	return nil
 }
 
 // writeVertexIO writes vertex shader input/output declarations.
 func (w *Writer) writeVertexIO(_ *ir.EntryPoint, fn *ir.Function) {
-	// Write input attributes
+	// Write input attributes (only for location-bound, builtins use gl_* variables)
 	for _, arg := range fn.Arguments {
 		if arg.Binding != nil {
 			if loc, ok := (*arg.Binding).(ir.LocationBinding); ok {
-				typeName := w.getTypeName(arg.Type)
-				w.writeLine("layout(location = %d) in %s %s;", loc.Location, typeName, escapeKeyword(arg.Name))
+				baseType := w.getBaseTypeName(arg.Type)
+				arraySuffix := w.getArraySuffix(arg.Type)
+				name := escapeKeyword(arg.Name)
+				w.writeLine("layout(location = %d) in %s %s%s;", loc.Location, baseType, name, arraySuffix)
 			}
+			// BuiltinBinding: no declaration needed (gl_VertexID, gl_InstanceID are built-in)
 		}
 	}
 
-	// Write output varyings
-	if fn.Result != nil {
-		// For struct returns, expand to individual outputs
-		// For now, assume position output
-		w.writeLine("// Vertex outputs handled via gl_Position")
+	// Write output varyings (only for location-bound, @builtin(position) uses gl_Position)
+	if fn.Result != nil && fn.Result.Binding != nil {
+		if loc, ok := (*fn.Result.Binding).(ir.LocationBinding); ok {
+			baseType := w.getBaseTypeName(fn.Result.Type)
+			arraySuffix := w.getArraySuffix(fn.Result.Type)
+			w.writeLine("layout(location = %d) out %s _vs_out%s;", loc.Location, baseType, arraySuffix)
+		}
+		// BuiltinBinding (position): uses gl_Position, no declaration needed
 	}
 	w.writeLine("")
 }
@@ -593,17 +611,30 @@ func (w *Writer) writeFragmentIO(_ *ir.EntryPoint, fn *ir.Function) {
 	for _, arg := range fn.Arguments {
 		if arg.Binding != nil {
 			if loc, ok := (*arg.Binding).(ir.LocationBinding); ok {
-				typeName := w.getTypeName(arg.Type)
-				w.writeLine("layout(location = %d) in %s %s;", loc.Location, typeName, escapeKeyword(arg.Name))
+				baseType := w.getBaseTypeName(arg.Type)
+				arraySuffix := w.getArraySuffix(arg.Type)
+				name := escapeKeyword(arg.Name)
+				w.writeLine("layout(location = %d) in %s %s%s;", loc.Location, baseType, name, arraySuffix)
 			}
+			// BuiltinBinding: no declaration needed (gl_FragCoord etc. are built-in)
 		}
 	}
 
 	// Write output colors
 	if fn.Result != nil {
-		// Default to location 0 for fragment color
-		typeName := w.getTypeName(fn.Result.Type)
-		w.writeLine("layout(location = 0) out %s fragColor;", typeName)
+		if fn.Result.Binding != nil {
+			if loc, ok := (*fn.Result.Binding).(ir.LocationBinding); ok {
+				baseType := w.getBaseTypeName(fn.Result.Type)
+				arraySuffix := w.getArraySuffix(fn.Result.Type)
+				w.writeLine("layout(location = %d) out %s fragColor%s;", loc.Location, baseType, arraySuffix)
+			}
+			// BuiltinBinding (frag_depth etc.): uses gl_FragDepth, no declaration needed
+		} else {
+			// No binding — default to location 0
+			baseType := w.getBaseTypeName(fn.Result.Type)
+			arraySuffix := w.getArraySuffix(fn.Result.Type)
+			w.writeLine("layout(location = 0) out %s fragColor%s;", baseType, arraySuffix)
+		}
 	}
 	w.writeLine("")
 }
@@ -630,6 +661,28 @@ func (w *Writer) writeComputeLayout(ep *ir.EntryPoint) {
 
 	w.writeLine("layout(local_size_x = %d, local_size_y = %d, local_size_z = %d) in;", x, y, z)
 	w.writeLine("")
+}
+
+// writeLocalVars writes local variable declarations, including initializers if present.
+func (w *Writer) writeLocalVars(fn *ir.Function) error {
+	for localIdx, local := range fn.LocalVars {
+		localName := w.namer.call(local.Name)
+		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
+		baseType := w.getBaseTypeName(local.Type)
+		arraySuffix := w.getArraySuffix(local.Type)
+
+		if local.Init != nil {
+			// Has an initializer — emit "type name[size] = init_expr;"
+			initStr, err := w.writeExpression(*local.Init)
+			if err != nil {
+				return err
+			}
+			w.writeLine("%s %s%s = %s;", baseType, localName, arraySuffix, initStr)
+		} else {
+			w.writeLine("%s %s%s;", baseType, localName, arraySuffix)
+		}
+	}
+	return nil
 }
 
 // Note: writeBlock is defined in statements.go and takes ir.Block directly
@@ -669,6 +722,8 @@ func (w *Writer) popIndent() {
 }
 
 // getTypeName returns the GLSL type name for a type handle.
+// For arrays, this returns the full type including size (e.g., "vec2[3]").
+// Use getBaseTypeName + getArraySuffix for variable declarations.
 func (w *Writer) getTypeName(handle ir.TypeHandle) string {
 	if int(handle) >= len(w.module.Types) {
 		return fmt.Sprintf("type_%d", handle)
@@ -676,6 +731,72 @@ func (w *Writer) getTypeName(handle ir.TypeHandle) string {
 
 	typ := w.module.Types[handle]
 	return w.typeToGLSL(typ)
+}
+
+// getBaseTypeName returns the base GLSL type name, unwrapping arrays.
+// For "array<vec2, 3>" returns "vec2". For non-arrays, same as getTypeName.
+func (w *Writer) getBaseTypeName(handle ir.TypeHandle) string {
+	if int(handle) >= len(w.module.Types) {
+		return fmt.Sprintf("type_%d", handle)
+	}
+	typ := w.module.Types[handle]
+	if arr, ok := typ.Inner.(ir.ArrayType); ok {
+		return w.getBaseTypeName(arr.Base)
+	}
+	return w.typeToGLSL(typ)
+}
+
+// getArraySuffix returns the array size suffix(es) for a type handle.
+// For "array<vec2, 3>" returns "[3]". For non-arrays, returns "".
+// Handles nested arrays: "array<array<float, 4>, 3>" returns "[3][4]".
+func (w *Writer) getArraySuffix(handle ir.TypeHandle) string {
+	if int(handle) >= len(w.module.Types) {
+		return ""
+	}
+	typ := w.module.Types[handle]
+	arr, ok := typ.Inner.(ir.ArrayType)
+	if !ok {
+		return ""
+	}
+	if arr.Size.Constant != nil {
+		return fmt.Sprintf("[%d]", *arr.Size.Constant) + w.getArraySuffix(arr.Base)
+	}
+	return "[]" + w.getArraySuffix(arr.Base)
+}
+
+// glslBuiltIn returns the GLSL built-in variable name for a builtin value.
+func glslBuiltIn(builtin ir.BuiltinValue, isOutput bool) string {
+	switch builtin {
+	case ir.BuiltinPosition:
+		if isOutput {
+			return "gl_Position"
+		}
+		return "gl_FragCoord"
+	case ir.BuiltinVertexIndex:
+		return "uint(gl_VertexID)"
+	case ir.BuiltinInstanceIndex:
+		return "uint(gl_InstanceID)"
+	case ir.BuiltinFrontFacing:
+		return "gl_FrontFacing"
+	case ir.BuiltinFragDepth:
+		return "gl_FragDepth"
+	case ir.BuiltinSampleIndex:
+		return "gl_SampleID"
+	case ir.BuiltinSampleMask:
+		return "gl_SampleMaskIn[0]"
+	case ir.BuiltinLocalInvocationID:
+		return "gl_LocalInvocationID"
+	case ir.BuiltinLocalInvocationIndex:
+		return "gl_LocalInvocationIndex"
+	case ir.BuiltinGlobalInvocationID:
+		return "gl_GlobalInvocationID"
+	case ir.BuiltinWorkGroupID:
+		return "gl_WorkGroupID"
+	case ir.BuiltinNumWorkGroups:
+		return "gl_NumWorkGroups"
+	default:
+		return "gl_UNKNOWN"
+	}
 }
 
 // formatFloat formats a float32 for GLSL output.

@@ -226,6 +226,15 @@ func (w *Writer) writeSwizzle(s ir.ExprSwizzle) (string, error) {
 
 // writeFunctionArgument writes a function argument reference.
 func (w *Writer) writeFunctionArgument(a ir.ExprFunctionArgument) (string, error) {
+	// In entry points, builtin arguments map to GLSL built-in variables.
+	if w.inEntryPoint && w.currentFunction != nil && int(a.Index) < len(w.currentFunction.Arguments) {
+		arg := &w.currentFunction.Arguments[a.Index]
+		if arg.Binding != nil {
+			if b, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
+				return glslBuiltIn(b.Builtin, false), nil
+			}
+		}
+	}
 	name := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(w.currentFuncHandle), handle2: a.Index}]
 	return name, nil
 }
