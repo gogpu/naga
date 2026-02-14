@@ -308,20 +308,27 @@ const OpExtension OpCode = 10
 
 // Arithmetic opcodes
 const (
-	OpFNegate OpCode = 127 // Float negation
-	OpSNegate OpCode = 126 // Signed integer negation
-	OpFAdd    OpCode = 129 // Float addition
-	OpFSub    OpCode = 131 // Float subtraction
-	OpFMul    OpCode = 133 // Float multiplication
-	OpFDiv    OpCode = 136 // Float division
-	OpFMod    OpCode = 141 // Float modulo
-	OpIAdd    OpCode = 128 // Integer addition
-	OpISub    OpCode = 130 // Integer subtraction
-	OpIMul    OpCode = 132 // Integer multiplication
-	OpSDiv    OpCode = 135 // Signed integer division
-	OpUDiv    OpCode = 137 // Unsigned integer division
-	OpSMod    OpCode = 139 // Signed integer modulo
-	OpUMod    OpCode = 142 // Unsigned integer modulo
+	OpFNegate           OpCode = 127 // Float negation
+	OpSNegate           OpCode = 126 // Signed integer negation
+	OpFAdd              OpCode = 129 // Float addition
+	OpFSub              OpCode = 131 // Float subtraction
+	OpFMul              OpCode = 133 // Float multiplication
+	OpUDiv              OpCode = 134 // Unsigned integer division
+	OpSDiv              OpCode = 135 // Signed integer division
+	OpFDiv              OpCode = 136 // Float division
+	OpUMod              OpCode = 137 // Unsigned integer modulo
+	OpSRem              OpCode = 138 // Signed integer remainder
+	OpSMod              OpCode = 139 // Signed integer modulo
+	OpFRem              OpCode = 140 // Float remainder
+	OpFMod              OpCode = 141 // Float modulo
+	OpVectorTimesScalar OpCode = 142 // Vector-scalar float multiplication
+	OpMatrixTimesScalar OpCode = 143 // Matrix-scalar float multiplication
+	OpVectorTimesMatrix OpCode = 144 // Vector-matrix multiplication
+	OpMatrixTimesVector OpCode = 145 // Matrix-vector multiplication
+	OpMatrixTimesMatrix OpCode = 146 // Matrix-matrix multiplication
+	OpIAdd              OpCode = 128 // Integer addition
+	OpISub              OpCode = 130 // Integer subtraction
+	OpIMul              OpCode = 132 // Integer multiplication
 )
 
 // Comparison opcodes

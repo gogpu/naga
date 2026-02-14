@@ -833,7 +833,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 
 				switch binding := (*arg.Binding).(type) {
 				case ir.BuiltinBinding:
-					spirvBuiltin := builtinToSPIRV(binding.Builtin)
+					spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassInput)
 					b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
 				case ir.LocationBinding:
 					b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
@@ -875,7 +875,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 
 							switch binding := (*member.Binding).(type) {
 							case ir.BuiltinBinding:
-								spirvBuiltin := builtinToSPIRV(binding.Builtin)
+								spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassInput)
 								b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
 							case ir.LocationBinding:
 								b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
@@ -911,7 +911,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 
 				switch binding := (*fn.Result.Binding).(type) {
 				case ir.BuiltinBinding:
-					spirvBuiltin := builtinToSPIRV(binding.Builtin)
+					spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassOutput)
 					b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
 				case ir.LocationBinding:
 					b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
@@ -942,7 +942,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 						// Decorate based on binding type
 						switch binding := (*member.Binding).(type) {
 						case ir.BuiltinBinding:
-							spirvBuiltin := builtinToSPIRV(binding.Builtin)
+							spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassOutput)
 							b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
 						case ir.LocationBinding:
 							b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
@@ -958,10 +958,18 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 }
 
 // builtinToSPIRV converts IR builtin value to SPIR-V BuiltIn.
-func builtinToSPIRV(builtin ir.BuiltinValue) BuiltIn {
+// The storageClass parameter is needed because some builtins map to different
+// SPIR-V BuiltIn values depending on whether they are inputs or outputs.
+// In particular, ir.BuiltinPosition maps to:
+//   - BuiltInPosition (SPIR-V 0) when used as a vertex shader output (StorageClassOutput)
+//   - BuiltInFragCoord (SPIR-V 15) when used as a fragment shader input (StorageClassInput)
+func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn {
 	switch builtin {
 	case ir.BuiltinPosition:
-		return BuiltInPosition
+		if storageClass == StorageClassOutput {
+			return BuiltInPosition
+		}
+		return BuiltInFragCoord
 	case ir.BuiltinVertexIndex:
 		return BuiltInVertexIndex
 	case ir.BuiltinInstanceIndex:
@@ -1337,6 +1345,16 @@ type ExpressionEmitter struct {
 type loopContext struct {
 	mergeLabel    uint32 // Label to branch to on break
 	continueLabel uint32 // Label to branch to on continue
+}
+
+// typeResolutionInner extracts the ir.TypeInner from a TypeResolution.
+// Returns the concrete type (ScalarType, VectorType, MatrixType, etc.)
+// regardless of whether the resolution uses a Handle or inline Value.
+func typeResolutionInner(module *ir.Module, res ir.TypeResolution) ir.TypeInner {
+	if res.Handle != nil {
+		return module.Types[*res.Handle].Inner
+	}
+	return res.Value
 }
 
 // resolveTypeResolution converts a TypeResolution to a SPIR-V type ID.
@@ -2376,7 +2394,33 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		}
 	case ir.BinaryMultiply:
 		if scalarKind == ir.ScalarFloat {
-			opcode = OpFMul
+			// Check for vector-scalar multiplication which requires OpVectorTimesScalar.
+			// Resolve right operand type to detect mixed vector/scalar operands.
+			rightType, rightErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			if rightErr != nil {
+				return 0, fmt.Errorf("binary right type: %w", rightErr)
+			}
+			leftInner := typeResolutionInner(e.backend.module, leftType)
+			rightInner := typeResolutionInner(e.backend.module, rightType)
+			_, leftIsVec := leftInner.(ir.VectorType)
+			_, rightIsVec := rightInner.(ir.VectorType)
+			_, leftIsScalar := leftInner.(ir.ScalarType)
+			_, rightIsScalar := rightInner.(ir.ScalarType)
+
+			switch {
+			case leftIsVec && rightIsScalar:
+				// vec * scalar -> OpVectorTimesScalar(vec, scalar)
+				// Result type is the vector type (already leftType).
+				return e.backend.builder.AddBinaryOp(OpVectorTimesScalar, resultType, leftID, rightID), nil
+			case leftIsScalar && rightIsVec:
+				// scalar * vec -> OpVectorTimesScalar(vec, scalar) with swapped operands.
+				// Result type is the vector type (rightType).
+				vecResultType := e.backend.resolveTypeResolution(rightType)
+				return e.backend.builder.AddBinaryOp(OpVectorTimesScalar, vecResultType, rightID, leftID), nil
+			default:
+				// Both scalar or both vector -> standard OpFMul.
+				opcode = OpFMul
+			}
 		} else {
 			opcode = OpIMul
 		}
