@@ -228,29 +228,98 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 // writeReturn writes a return statement.
 // In entry points, return values are assigned to output variables instead.
 func (w *Writer) writeReturn(ret ir.StmtReturn) error {
-	if ret.Value != nil {
-		value, err := w.writeExpression(*ret.Value)
-		if err != nil {
-			return err
-		}
-
-		// In entry points, assign to output (gl_Position, fragColor, gl_FragDepth, etc.)
-		if w.inEntryPoint && w.entryPointResult != nil && w.entryPointResult.Binding != nil {
-			switch b := (*w.entryPointResult.Binding).(type) {
-			case ir.BuiltinBinding:
-				outputName := glslBuiltIn(b.Builtin, true)
-				w.writeLine("%s = %s;", outputName, value)
-				return nil
-			case ir.LocationBinding:
-				w.writeLine("fragColor = %s;", value)
-				return nil
-			}
-		}
-
-		w.writeLine("return %s;", value)
-	} else {
+	if ret.Value == nil {
 		w.writeLine("return;")
+		return nil
 	}
+
+	// In entry points, assign to output variables instead of returning.
+	if w.inEntryPoint && w.entryPointResult != nil {
+		// Case 1: Direct binding on result (scalar/vector output)
+		if w.entryPointResult.Binding != nil {
+			return w.writeDirectReturn(ret)
+		}
+		// Case 2: Struct output — expand into individual assignments
+		if w.epStructOutput != nil {
+			return w.writeStructReturn(ret, w.epStructOutput)
+		}
+	}
+
+	value, err := w.writeExpression(*ret.Value)
+	if err != nil {
+		return err
+	}
+	w.writeLine("return %s;", value)
+	return nil
+}
+
+// writeDirectReturn handles return statements where the result has a direct binding.
+func (w *Writer) writeDirectReturn(ret ir.StmtReturn) error {
+	value, err := w.writeExpression(*ret.Value)
+	if err != nil {
+		return err
+	}
+	switch b := (*w.entryPointResult.Binding).(type) {
+	case ir.BuiltinBinding:
+		outputName := glslBuiltIn(b.Builtin, true)
+		w.writeLine("%s = %s;", outputName, value)
+	case ir.LocationBinding:
+		w.writeLine("fragColor = %s;", value)
+	default:
+		w.writeLine("return %s;", value)
+	}
+	return nil
+}
+
+// writeStructReturn expands a struct return value into individual output assignments.
+// The return value can be:
+// - An ExprCompose (constructing the struct from individual values)
+// - A local variable or other expression referencing a struct
+//
+//nolint:nestif // Struct return expansion requires nested expression checks
+func (w *Writer) writeStructReturn(ret ir.StmtReturn, info *epStructInfo) error {
+	// Check if the return value is a Compose expression — we can extract components directly
+	if w.currentFunction != nil && int(*ret.Value) < len(w.currentFunction.Expressions) {
+		expr := &w.currentFunction.Expressions[*ret.Value]
+		if compose, ok := expr.Kind.(ir.ExprCompose); ok {
+			// Each component of the compose maps to a struct member
+			for memberIdx, memberInfo := range info.members {
+				if memberIdx >= len(compose.Components) {
+					break
+				}
+				compStr, err := w.writeExpression(compose.Components[memberIdx])
+				if err != nil {
+					return err
+				}
+				w.writeLine("%s = %s;", memberInfo.glslName, compStr)
+			}
+			return nil
+		}
+	}
+
+	// General case: the return value is an expression that evaluates to the struct.
+	// We need to evaluate it once, then assign each member.
+	value, err := w.writeExpression(*ret.Value)
+	if err != nil {
+		return err
+	}
+
+	// Resolve the struct type to get member names
+	if int(info.structType) < len(w.module.Types) {
+		if st, ok := w.module.Types[info.structType].Inner.(ir.StructType); ok {
+			for memberIdx, memberInfo := range info.members {
+				if memberIdx >= len(st.Members) {
+					break
+				}
+				memberName := escapeKeyword(st.Members[memberIdx].Name)
+				w.writeLine("%s = %s.%s;", memberInfo.glslName, value, memberName)
+			}
+			return nil
+		}
+	}
+
+	// Fallback: cannot expand, write as-is
+	w.writeLine("return %s;", value)
 	return nil
 }
 

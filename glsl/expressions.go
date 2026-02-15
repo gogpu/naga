@@ -167,33 +167,67 @@ func (w *Writer) writeAccess(a ir.ExprAccess) (string, error) {
 }
 
 // writeAccessIndex writes a constant-index access expression.
-//
-//nolint:nestif // Struct member lookup requires nested type checking
 func (w *Writer) writeAccessIndex(a ir.ExprAccessIndex) (string, error) {
+	// Check if this accesses a flattened entry point struct argument.
+	if name, ok := w.resolveEPStructAccess(a); ok {
+		return name, nil
+	}
+
 	base, err := w.writeExpression(a.Base)
 	if err != nil {
 		return "", err
 	}
 
-	// Check if this is a struct member access
-	if w.currentFunction != nil && int(a.Base) < len(w.currentFunction.Expressions) {
-		baseExpr := &w.currentFunction.Expressions[a.Base]
-		if baseTypeHandle := w.getExpressionTypeHandle(baseExpr.Kind); baseTypeHandle != nil {
-			if int(*baseTypeHandle) < len(w.module.Types) {
-				baseType := &w.module.Types[*baseTypeHandle]
-				if st, ok := baseType.Inner.(ir.StructType); ok {
-					if int(a.Index) < len(st.Members) {
-						memberName := st.Members[a.Index].Name
-						if memberName != "" {
-							return fmt.Sprintf("%s.%s", base, escapeKeyword(memberName)), nil
-						}
-					}
-				}
-			}
-		}
+	// Check if this is a struct member access via type resolution.
+	if name, ok := w.resolveStructMemberAccess(a, base); ok {
+		return name, nil
 	}
 
 	return fmt.Sprintf("%s[%d]", base, a.Index), nil
+}
+
+// resolveEPStructAccess checks if an AccessIndex targets a flattened entry point
+// struct argument and returns the GLSL variable name for that member.
+func (w *Writer) resolveEPStructAccess(a ir.ExprAccessIndex) (string, bool) {
+	if !w.inEntryPoint || w.currentFunction == nil {
+		return "", false
+	}
+	if int(a.Base) >= len(w.currentFunction.Expressions) {
+		return "", false
+	}
+	baseExpr := &w.currentFunction.Expressions[a.Base]
+	funcArg, ok := baseExpr.Kind.(ir.ExprFunctionArgument)
+	if !ok {
+		return "", false
+	}
+	info, found := w.epStructArgs[funcArg.Index]
+	if !found || int(a.Index) >= len(info.members) {
+		return "", false
+	}
+	return info.members[a.Index].glslName, true
+}
+
+// resolveStructMemberAccess checks if an AccessIndex targets a struct type
+// and returns "base.memberName" instead of "base[index]".
+func (w *Writer) resolveStructMemberAccess(a ir.ExprAccessIndex, base string) (string, bool) {
+	if w.currentFunction == nil || int(a.Base) >= len(w.currentFunction.Expressions) {
+		return "", false
+	}
+	baseExpr := &w.currentFunction.Expressions[a.Base]
+	baseTypeHandle := w.getExpressionTypeHandle(baseExpr.Kind)
+	if baseTypeHandle == nil || int(*baseTypeHandle) >= len(w.module.Types) {
+		return "", false
+	}
+	baseType := &w.module.Types[*baseTypeHandle]
+	st, ok := baseType.Inner.(ir.StructType)
+	if !ok || int(a.Index) >= len(st.Members) {
+		return "", false
+	}
+	memberName := st.Members[a.Index].Name
+	if memberName == "" {
+		return "", false
+	}
+	return fmt.Sprintf("%s.%s", base, escapeKeyword(memberName)), true
 }
 
 // writeSplat writes a splat expression (scalar to vector).
@@ -240,7 +274,22 @@ func (w *Writer) writeFunctionArgument(a ir.ExprFunctionArgument) (string, error
 }
 
 // writeGlobalVariable writes a global variable reference.
+// For globals that are part of a combined texture-sampler pair, this returns
+// the combined sampler name so that texture() calls use the correct uniform.
 func (w *Writer) writeGlobalVariable(g ir.ExprGlobalVariable) (string, error) {
+	// If this global is part of a combined pair, we need to find which pair
+	// uses it. For texture globals, the combined name is used directly in
+	// writeImageSample via resolveCombinedSamplerName, but if someone
+	// references the texture/sampler global outside of a sample expression
+	// (e.g., textureSize), we still return the first matching combined name.
+	if w.globalIsCombined[g.Variable] {
+		for _, info := range w.combinedSamplers {
+			if info.textureHandle == g.Variable || info.samplerHandle == g.Variable {
+				return info.glslName, nil
+			}
+		}
+	}
+
 	name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(g.Variable)}]
 	return name, nil
 }
@@ -607,23 +656,16 @@ func (w *Writer) writeDerivative(d ir.ExprDerivative) (string, error) {
 }
 
 // writeImageSample writes an image sample expression.
+// In GLSL, textures and samplers must be combined. The combined name is resolved
+// from the pre-scanned texture-sampler pairs in combinedSamplers.
 func (w *Writer) writeImageSample(s ir.ExprImageSample) (string, error) {
-	image, err := w.writeExpression(s.Image)
-	if err != nil {
-		return "", err
-	}
-	sampler, err := w.writeExpression(s.Sampler)
-	if err != nil {
-		return "", err
-	}
 	coordinate, err := w.writeExpression(s.Coordinate)
 	if err != nil {
 		return "", err
 	}
 
-	// In GLSL, textures and samplers are combined
-	combinedName := fmt.Sprintf("%s_%s", image, sampler)
-	w.textureSamplerPairs = append(w.textureSamplerPairs, combinedName)
+	// Resolve the combined sampler name from the pre-scanned pairs.
+	combinedName := w.resolveCombinedSamplerName(s.Image, s.Sampler)
 
 	// Handle different sampling modes based on Level type
 	switch level := s.Level.(type) {
@@ -655,6 +697,34 @@ func (w *Writer) writeImageSample(s ir.ExprImageSample) (string, error) {
 		// SampleLevelAuto or nil - implicit LOD
 		return fmt.Sprintf("texture(%s, %s)", combinedName, coordinate), nil
 	}
+}
+
+// resolveCombinedSamplerName resolves the combined sampler name for a texture-sampler
+// pair used in an ExprImageSample. It looks up the global variable handles and checks
+// the pre-scanned combinedSamplers map.
+func (w *Writer) resolveCombinedSamplerName(imageExpr, samplerExpr ir.ExpressionHandle) string {
+	if w.currentFunction == nil {
+		return w.fallbackCombinedName(imageExpr, samplerExpr)
+	}
+
+	imageHandle := w.resolveGlobalVarHandle(w.currentFunction, imageExpr)
+	samplerHandle := w.resolveGlobalVarHandle(w.currentFunction, samplerExpr)
+
+	if imageHandle != nil && samplerHandle != nil {
+		if name := w.getCombinedSamplerName(*imageHandle, *samplerHandle); name != "" {
+			return name
+		}
+	}
+
+	return w.fallbackCombinedName(imageExpr, samplerExpr)
+}
+
+// fallbackCombinedName generates a combined name by writing both expressions.
+// Used when the pair was not found in the pre-scanned map.
+func (w *Writer) fallbackCombinedName(imageExpr, samplerExpr ir.ExpressionHandle) string {
+	image, _ := w.writeExpression(imageExpr)
+	sampler, _ := w.writeExpression(samplerExpr)
+	return fmt.Sprintf("%s_%s", image, sampler)
 }
 
 // writeImageLoad writes an image load expression.
@@ -796,6 +866,10 @@ func (w *Writer) getExpressionTypeHandle(kind ir.ExpressionKind) *ir.TypeHandle 
 	case ir.ExprGlobalVariable:
 		if int(k.Variable) < len(w.module.GlobalVariables) {
 			return &w.module.GlobalVariables[k.Variable].Type
+		}
+	case ir.ExprFunctionArgument:
+		if w.currentFunction != nil && int(k.Index) < len(w.currentFunction.Arguments) {
+			return &w.currentFunction.Arguments[k.Index].Type
 		}
 	case ir.ExprCompose:
 		return &k.Type

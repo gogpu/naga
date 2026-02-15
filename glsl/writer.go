@@ -49,8 +49,18 @@ type Writer struct {
 	// Type tracking
 	typeNames map[ir.TypeHandle]string
 
-	// Texture-sampler pair tracking (WGSL separates, GLSL combines)
+	// Texture-sampler pair tracking (WGSL separates, GLSL combines).
+	// In WGSL, textures and samplers are separate globals. In GLSL, they must
+	// be combined into e.g. "uniform sampler2D tex_sampler;".
 	textureSamplerPairs []string
+
+	// combinedSamplers maps a texture-sampler pair key to its combined GLSL name.
+	// The key is "textureHandle:samplerHandle".
+	combinedSamplers map[string]*combinedSamplerInfo
+
+	// globalIsCombined tracks which global variable handles have been absorbed
+	// into a combined sampler and should be skipped in writeGlobalVariables.
+	globalIsCombined map[ir.GlobalVariableHandle]bool
 
 	// Function context (set during function writing)
 	currentFunction   *ir.Function
@@ -61,6 +71,18 @@ type Writer struct {
 	// Entry point context
 	inEntryPoint     bool
 	entryPointResult *ir.FunctionResult
+
+	// Entry point struct IO flattening.
+	// Maps argument index to the flattened struct member info.
+	// When a vertex/fragment entry point argument is a struct type, the struct
+	// members become individual layout(location=N) in declarations instead
+	// of a single argument. This map tracks which arguments are flattened.
+	epStructArgs map[uint32]*epStructInfo
+
+	// Entry point struct output flattening.
+	// When an entry point returns a struct type, this tracks the struct info
+	// so that return statements can be expanded into individual assignments.
+	epStructOutput *epStructInfo
 
 	// Expression baking (expressions that need to be materialized to temporaries)
 	needBakeExpression map[ir.ExpressionHandle]struct{}
@@ -73,6 +95,40 @@ type Writer struct {
 	// Helper function flags
 	needsModHelper bool
 	needsDivHelper bool
+}
+
+// epStructMemberInfo holds the GLSL variable name and binding for a flattened struct member.
+type epStructMemberInfo struct {
+	// glslName is the GLSL variable name emitted for this member.
+	glslName string
+	// isBuiltin is true if this member is bound to a GLSL built-in (gl_Position, etc.).
+	isBuiltin bool
+	// builtinName is the GLSL built-in name (only valid when isBuiltin is true).
+	builtinName string
+}
+
+// epStructInfo tracks a flattened entry point struct argument or result.
+type epStructInfo struct {
+	// structType is the IR struct type handle.
+	structType ir.TypeHandle
+	// members maps struct member index to the resolved GLSL info.
+	members []epStructMemberInfo
+}
+
+// combinedSamplerInfo holds information about a combined texture-sampler pair
+// for GLSL output. WGSL has separate texture and sampler types, but GLSL
+// requires them to be declared together as e.g. "uniform sampler2D name;".
+type combinedSamplerInfo struct {
+	// glslName is the combined GLSL variable name (e.g., "tex_texSampler").
+	glslName string
+	// textureHandle is the GlobalVariableHandle for the texture.
+	textureHandle ir.GlobalVariableHandle
+	// samplerHandle is the GlobalVariableHandle for the sampler.
+	samplerHandle ir.GlobalVariableHandle
+	// glslTypeName is the combined GLSL type (e.g., "sampler2D").
+	glslTypeName string
+	// binding is the binding index to use in the layout qualifier (from texture).
+	binding *ir.ResourceBinding
 }
 
 // namer generates unique identifiers.
@@ -120,6 +176,9 @@ func newWriter(module *ir.Module, options *Options) *Writer {
 		entryPointNames:    make(map[string]string),
 		namedExpressions:   make(map[ir.ExpressionHandle]string),
 		needBakeExpression: make(map[ir.ExpressionHandle]struct{}),
+		epStructArgs:       make(map[uint32]*epStructInfo),
+		combinedSamplers:   make(map[string]*combinedSamplerInfo),
+		globalIsCombined:   make(map[ir.GlobalVariableHandle]bool),
 		requiredVersion:    options.LangVersion,
 	}
 }
@@ -141,6 +200,9 @@ func (w *Writer) writeModule() error {
 	if err := w.registerNames(); err != nil {
 		return err
 	}
+
+	// 3b. Scan for texture-sampler pairs (WGSL separate → GLSL combined)
+	w.scanTextureSamplerPairs()
 
 	// 4. Write type definitions (structs)
 	if err := w.writeTypes(); err != nil {
@@ -282,6 +344,103 @@ func (w *Writer) registerNames() error {
 	return nil
 }
 
+// scanTextureSamplerPairs scans all functions and entry points for ExprImageSample
+// expressions to discover which texture globals are paired with which sampler globals.
+// GLSL has no separate texture/sampler types, so each pair must be emitted as a
+// single "uniform sampler2D" declaration.
+func (w *Writer) scanTextureSamplerPairs() {
+	for i := range w.module.Functions {
+		fn := &w.module.Functions[i]
+		w.scanFunctionForPairs(fn)
+	}
+}
+
+// scanFunctionForPairs scans a single function's expressions for ExprImageSample.
+func (w *Writer) scanFunctionForPairs(fn *ir.Function) {
+	for _, expr := range fn.Expressions {
+		sample, ok := expr.Kind.(ir.ExprImageSample)
+		if !ok {
+			continue
+		}
+		w.registerTextureSamplerPair(fn, sample)
+	}
+}
+
+// registerTextureSamplerPair resolves the texture and sampler expression handles
+// back to their GlobalVariableHandles and creates a combined sampler entry.
+func (w *Writer) registerTextureSamplerPair(fn *ir.Function, sample ir.ExprImageSample) {
+	imageHandle := w.resolveGlobalVarHandle(fn, sample.Image)
+	samplerHandle := w.resolveGlobalVarHandle(fn, sample.Sampler)
+	if imageHandle == nil || samplerHandle == nil {
+		return
+	}
+
+	pairKey := combinedPairKey(*imageHandle, *samplerHandle)
+	if _, exists := w.combinedSamplers[pairKey]; exists {
+		return // Already registered
+	}
+
+	texName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(*imageHandle)}]
+	samplerName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(*samplerHandle)}]
+	combinedName := texName + "_" + samplerName
+
+	// Determine the GLSL combined sampler type from the texture's ImageType.
+	glslType := "sampler2D" // default
+	texGlobal := &w.module.GlobalVariables[*imageHandle]
+	if int(texGlobal.Type) < len(w.module.Types) {
+		if imgType, ok := w.module.Types[texGlobal.Type].Inner.(ir.ImageType); ok {
+			glslType = w.imageToGLSL(imgType)
+		}
+	}
+
+	info := &combinedSamplerInfo{
+		glslName:      combinedName,
+		textureHandle: *imageHandle,
+		samplerHandle: *samplerHandle,
+		glslTypeName:  glslType,
+		binding:       texGlobal.Binding,
+	}
+
+	w.combinedSamplers[pairKey] = info
+	w.globalIsCombined[*imageHandle] = true
+	w.globalIsCombined[*samplerHandle] = true
+}
+
+// resolveGlobalVarHandle traces an expression handle back to its GlobalVariableHandle.
+// It follows ExprLoad indirections since the IR may wrap globals in a Load.
+func (w *Writer) resolveGlobalVarHandle(fn *ir.Function, exprHandle ir.ExpressionHandle) *ir.GlobalVariableHandle {
+	if int(exprHandle) >= len(fn.Expressions) {
+		return nil
+	}
+	expr := &fn.Expressions[exprHandle]
+
+	switch k := expr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		h := k.Variable
+		return &h
+	case ir.ExprLoad:
+		// Follow through Load to the pointer expression
+		return w.resolveGlobalVarHandle(fn, k.Pointer)
+	default:
+		return nil
+	}
+}
+
+// combinedPairKey returns a deterministic map key for a texture-sampler pair.
+func combinedPairKey(textureHandle, samplerHandle ir.GlobalVariableHandle) string {
+	return fmt.Sprintf("%d:%d", textureHandle, samplerHandle)
+}
+
+// getCombinedSamplerName returns the combined name for a texture-sampler pair,
+// or empty string if not combined.
+func (w *Writer) getCombinedSamplerName(textureHandle, samplerHandle ir.GlobalVariableHandle) string {
+	key := combinedPairKey(textureHandle, samplerHandle)
+	if info, ok := w.combinedSamplers[key]; ok {
+		return info.glslName
+	}
+	return ""
+}
+
 // writeTypes writes struct type definitions.
 func (w *Writer) writeTypes() error {
 	for handle, typ := range w.module.Types {
@@ -383,8 +542,18 @@ func (w *Writer) writeCompositeValue(v ir.CompositeValue, typeHandle ir.TypeHand
 }
 
 // writeGlobalVariables writes uniform, input, and output declarations.
+// Texture and sampler globals that are part of combined pairs are skipped here;
+// their combined declarations are emitted by writeCombinedSamplerDeclarations.
 func (w *Writer) writeGlobalVariables() error {
+	// First, emit combined texture-sampler declarations.
+	w.writeCombinedSamplerDeclarations()
+
 	for handle, global := range w.module.GlobalVariables {
+		// Skip globals that have been absorbed into combined samplers.
+		if w.globalIsCombined[ir.GlobalVariableHandle(handle)] { //nolint:gosec // G115: handle is valid slice index
+			continue
+		}
+
 		name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] //nolint:gosec // G115: handle is valid slice index
 		typeName := w.getTypeName(global.Type)
 
@@ -401,20 +570,91 @@ func (w *Writer) writeGlobalVariables() error {
 			w.writeLine("%s %s;", typeName, name)
 		}
 	}
-	if len(w.module.GlobalVariables) > 0 {
+	if len(w.module.GlobalVariables) > 0 || len(w.combinedSamplers) > 0 {
 		w.writeLine("")
 	}
 	return nil
 }
 
+// writeCombinedSamplerDeclarations emits "uniform sampler2D name;" declarations
+// for each discovered texture-sampler pair.
+func (w *Writer) writeCombinedSamplerDeclarations() {
+	// Collect entries for deterministic output order.
+	pairs := make([]*combinedSamplerInfo, 0, len(w.combinedSamplers))
+	for _, info := range w.combinedSamplers {
+		pairs = append(pairs, info)
+	}
+
+	// Sort by texture handle then sampler handle for deterministic order.
+	for i := 0; i < len(pairs); i++ {
+		for j := i + 1; j < len(pairs); j++ {
+			if pairs[i].textureHandle > pairs[j].textureHandle ||
+				(pairs[i].textureHandle == pairs[j].textureHandle &&
+					pairs[i].samplerHandle > pairs[j].samplerHandle) {
+				pairs[i], pairs[j] = pairs[j], pairs[i]
+			}
+		}
+	}
+
+	for _, info := range pairs {
+		w.textureSamplerPairs = append(w.textureSamplerPairs, info.glslName)
+
+		if info.binding != nil {
+			binding := info.binding.Binding + w.options.TextureBindingBase
+			w.writeLine("layout(binding = %d) uniform %s %s;", binding, info.glslTypeName, info.glslName)
+		} else {
+			w.writeLine("uniform %s %s;", info.glslTypeName, info.glslName)
+		}
+	}
+}
+
 // writeUniformVariable writes a uniform declaration.
+// For struct types in SpaceUniform, emits a GLSL uniform block (UBO) instead
+// of a plain struct uniform. WebGPU var<uniform> maps to UBOs which require
+// the block syntax: "uniform BlockName { members } instanceName;"
+// Plain "uniform StructType varName;" is set via glUniform*, NOT via
+// glBindBufferRange, so UBO data would never reach the shader.
 func (w *Writer) writeUniformVariable(name, typeName string, global ir.GlobalVariable) {
+	// Check if the type is a struct — if so, emit as a uniform block (UBO).
+	if int(global.Type) < len(w.module.Types) {
+		if st, ok := w.module.Types[global.Type].Inner.(ir.StructType); ok {
+			w.writeUniformBlock(name, typeName, global, st)
+			return
+		}
+	}
+
+	// Non-struct uniform (plain uniform variable)
 	if global.Binding != nil {
 		binding := global.Binding.Binding + w.options.UniformBindingBase
 		w.writeLine("layout(binding = %d) uniform %s %s;", binding, typeName, name)
 	} else {
 		w.writeLine("uniform %s %s;", typeName, name)
 	}
+}
+
+// writeUniformBlock emits a GLSL uniform block (UBO) for a struct type.
+// Uses std140 layout which matches WebGPU uniform buffer layout rules.
+// Block name uses "_typeName_ubo" suffix to avoid conflict with the struct
+// type definition (GLSL shares namespace between struct and block names).
+func (w *Writer) writeUniformBlock(name, typeName string, global ir.GlobalVariable, st ir.StructType) {
+	blockName := "_" + typeName + "_ubo"
+	if global.Binding != nil {
+		binding := global.Binding.Binding + w.options.UniformBindingBase
+		w.writeLine("layout(std140, binding = %d) uniform %s {", binding, blockName)
+	} else {
+		w.writeLine("uniform %s {", blockName)
+	}
+	w.pushIndent()
+
+	for memberIdx, member := range st.Members {
+		baseType := w.getBaseTypeName(member.Type)
+		arraySuffix := w.getArraySuffix(member.Type)
+		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(global.Type), handle2: uint32(memberIdx)}] //nolint:gosec // G115: memberIdx bounded by slice
+		w.writeLine("%s %s%s;", baseType, memberName, arraySuffix)
+	}
+
+	w.popIndent()
+	w.writeLine("} %s;", name)
 }
 
 // writeStorageVariable writes a storage buffer declaration.
@@ -544,6 +784,8 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	w.localNames = make(map[uint32]string)
 	w.inEntryPoint = true
 	w.entryPointResult = fn.Result
+	w.epStructArgs = make(map[uint32]*epStructInfo)
+	w.epStructOutput = nil
 
 	// Write input/output declarations for vertex/fragment
 	switch ep.Stage {
@@ -574,15 +816,18 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	w.currentFunction = nil
 	w.inEntryPoint = false
 	w.entryPointResult = nil
+	w.epStructArgs = nil
+	w.epStructOutput = nil
 	_ = epIdx // Used for name lookup
 	return nil
 }
 
 // writeVertexIO writes vertex shader input/output declarations.
 func (w *Writer) writeVertexIO(_ *ir.EntryPoint, fn *ir.Function) {
-	// Write input attributes (only for location-bound, builtins use gl_* variables)
-	for _, arg := range fn.Arguments {
+	// Write input attributes
+	for argIdx, arg := range fn.Arguments {
 		if arg.Binding != nil {
+			// Direct binding on argument (scalar/vector input)
 			if loc, ok := (*arg.Binding).(ir.LocationBinding); ok {
 				baseType := w.getBaseTypeName(arg.Type)
 				arraySuffix := w.getArraySuffix(arg.Type)
@@ -590,26 +835,23 @@ func (w *Writer) writeVertexIO(_ *ir.EntryPoint, fn *ir.Function) {
 				w.writeLine("layout(location = %d) in %s %s%s;", loc.Location, baseType, name, arraySuffix)
 			}
 			// BuiltinBinding: no declaration needed (gl_VertexID, gl_InstanceID are built-in)
+		} else {
+			// No direct binding — check if this is a struct with member bindings
+			w.writeStructArgIO(uint32(argIdx), arg.Type, "in", false) //nolint:gosec // G115: argIdx bounded by slice
 		}
 	}
 
-	// Write output varyings (only for location-bound, @builtin(position) uses gl_Position)
-	if fn.Result != nil && fn.Result.Binding != nil {
-		if loc, ok := (*fn.Result.Binding).(ir.LocationBinding); ok {
-			baseType := w.getBaseTypeName(fn.Result.Type)
-			arraySuffix := w.getArraySuffix(fn.Result.Type)
-			w.writeLine("layout(location = %d) out %s _vs_out%s;", loc.Location, baseType, arraySuffix)
-		}
-		// BuiltinBinding (position): uses gl_Position, no declaration needed
-	}
+	// Write output varyings
+	w.writeResultIO(fn, "out", true)
 	w.writeLine("")
 }
 
 // writeFragmentIO writes fragment shader input/output declarations.
 func (w *Writer) writeFragmentIO(_ *ir.EntryPoint, fn *ir.Function) {
 	// Write input varyings from vertex shader
-	for _, arg := range fn.Arguments {
+	for argIdx, arg := range fn.Arguments {
 		if arg.Binding != nil {
+			// Direct binding on argument
 			if loc, ok := (*arg.Binding).(ir.LocationBinding); ok {
 				baseType := w.getBaseTypeName(arg.Type)
 				arraySuffix := w.getArraySuffix(arg.Type)
@@ -617,27 +859,146 @@ func (w *Writer) writeFragmentIO(_ *ir.EntryPoint, fn *ir.Function) {
 				w.writeLine("layout(location = %d) in %s %s%s;", loc.Location, baseType, name, arraySuffix)
 			}
 			// BuiltinBinding: no declaration needed (gl_FragCoord etc. are built-in)
+		} else {
+			// No direct binding — check if this is a struct with member bindings
+			w.writeStructArgIO(uint32(argIdx), arg.Type, "in", false) //nolint:gosec // G115: argIdx bounded by slice
 		}
 	}
 
 	// Write output colors
-	if fn.Result != nil {
-		if fn.Result.Binding != nil {
-			if loc, ok := (*fn.Result.Binding).(ir.LocationBinding); ok {
-				baseType := w.getBaseTypeName(fn.Result.Type)
-				arraySuffix := w.getArraySuffix(fn.Result.Type)
-				w.writeLine("layout(location = %d) out %s fragColor%s;", loc.Location, baseType, arraySuffix)
-			}
-			// BuiltinBinding (frag_depth etc.): uses gl_FragDepth, no declaration needed
-		} else {
-			// No binding — default to location 0
-			baseType := w.getBaseTypeName(fn.Result.Type)
-			arraySuffix := w.getArraySuffix(fn.Result.Type)
-			w.writeLine("layout(location = 0) out %s fragColor%s;", baseType, arraySuffix)
-		}
-	}
+	w.writeResultIO(fn, "out", false)
 	w.writeLine("")
 }
+
+// writeStructArgIO flattens a struct-typed entry point argument into individual IO declarations.
+// It populates w.epStructArgs for later use by expression writers.
+func (w *Writer) writeStructArgIO(argIdx uint32, typeHandle ir.TypeHandle, qualifier string, isOutput bool) {
+	if int(typeHandle) >= len(w.module.Types) {
+		return
+	}
+	st, ok := w.module.Types[typeHandle].Inner.(ir.StructType)
+	if !ok {
+		return
+	}
+
+	info := &epStructInfo{
+		structType: typeHandle,
+		members:    make([]epStructMemberInfo, len(st.Members)),
+	}
+
+	for memberIdx, member := range st.Members {
+		if member.Binding == nil {
+			info.members[memberIdx] = epStructMemberInfo{
+				glslName: escapeKeyword(member.Name),
+			}
+			continue
+		}
+		switch b := (*member.Binding).(type) {
+		case ir.LocationBinding:
+			baseType := w.getBaseTypeName(member.Type)
+			name := escapeKeyword(member.Name)
+			w.writeLine("layout(location = %d) %s %s %s;", b.Location, qualifier, baseType, name)
+			info.members[memberIdx] = epStructMemberInfo{
+				glslName: name,
+			}
+		case ir.BuiltinBinding:
+			builtinName := glslBuiltIn(b.Builtin, isOutput)
+			info.members[memberIdx] = epStructMemberInfo{
+				isBuiltin:   true,
+				builtinName: builtinName,
+				glslName:    builtinName,
+			}
+		}
+	}
+
+	w.epStructArgs[argIdx] = info
+}
+
+// writeResultIO writes output declarations for a function result.
+// Handles both direct-binding results and struct results with member bindings.
+func (w *Writer) writeResultIO(fn *ir.Function, qualifier string, isVertexOutput bool) {
+	if fn.Result == nil {
+		return
+	}
+
+	if fn.Result.Binding != nil {
+		// Direct binding on result
+		switch b := (*fn.Result.Binding).(type) {
+		case ir.LocationBinding:
+			baseType := w.getBaseTypeName(fn.Result.Type)
+			arraySuffix := w.getArraySuffix(fn.Result.Type)
+			outName := "fragColor"
+			if isVertexOutput {
+				outName = "_vs_out"
+			}
+			w.writeLine("layout(location = %d) %s %s %s%s;", b.Location, qualifier, baseType, outName, arraySuffix)
+		// BuiltinBinding: uses gl_Position/gl_FragDepth, no declaration needed
+		default:
+			// No output declaration needed for builtins
+		}
+		return
+	}
+
+	// No direct binding — check if result type is a struct with member bindings
+	if int(fn.Result.Type) >= len(w.module.Types) {
+		return
+	}
+	st, ok := w.module.Types[fn.Result.Type].Inner.(ir.StructType)
+	if !ok {
+		// Non-struct without binding — use default location 0
+		if !isVertexOutput {
+			baseType := w.getBaseTypeName(fn.Result.Type)
+			arraySuffix := w.getArraySuffix(fn.Result.Type)
+			w.writeLine("layout(location = 0) %s %s fragColor%s;", qualifier, baseType, arraySuffix)
+		}
+		return
+	}
+
+	// Struct result — flatten members into individual out declarations.
+	// For vertex outputs, prefix names with "v_" to avoid collisions with
+	// input variables that may share the same member names (e.g., both
+	// VertexInput and VertexOutput contain "local", "color", etc.).
+	info := &epStructInfo{
+		structType: fn.Result.Type,
+		members:    make([]epStructMemberInfo, len(st.Members)),
+	}
+
+	for memberIdx, member := range st.Members {
+		if member.Binding == nil {
+			name := escapeKeyword(member.Name)
+			if isVertexOutput {
+				name = "v_" + name
+			}
+			info.members[memberIdx] = epStructMemberInfo{
+				glslName: name,
+			}
+			continue
+		}
+		switch b := (*member.Binding).(type) {
+		case ir.LocationBinding:
+			baseType := w.getBaseTypeName(member.Type)
+			name := escapeKeyword(member.Name)
+			if isVertexOutput {
+				name = "v_" + name
+			}
+			w.writeLine("layout(location = %d) %s %s %s;", b.Location, qualifier, baseType, name)
+			info.members[memberIdx] = epStructMemberInfo{
+				glslName: name,
+			}
+		case ir.BuiltinBinding:
+			builtinName := glslBuiltIn(b.Builtin, true)
+			info.members[memberIdx] = epStructMemberInfo{
+				isBuiltin:   true,
+				builtinName: builtinName,
+				glslName:    builtinName,
+			}
+		}
+	}
+
+	w.epStructOutput = info
+}
+
+// NOTE: writeFragmentIO is defined alongside writeVertexIO above.
 
 // writeComputeLayout writes compute shader layout declaration.
 func (w *Writer) writeComputeLayout(ep *ir.EntryPoint) {
