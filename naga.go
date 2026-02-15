@@ -4,6 +4,7 @@
 //   - SPIR-V — Binary format for Vulkan
 //   - MSL — Metal Shading Language for macOS/iOS
 //   - GLSL — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+
+//   - HLSL — High Level Shading Language for DirectX
 //
 // The package provides a simple, high-level API for shader compilation as well as
 // lower-level access to individual compilation stages.

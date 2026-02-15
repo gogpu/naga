@@ -19,12 +19,12 @@
 
 ---
 
-## Current State: v0.12.1
+## Current State: v0.13.0
 
 ✅ **Production-ready** shader compiler (~19K LOC):
 - Full WGSL frontend (lexer, parser, IR)
 - 4 backend outputs (SPIR-V, MSL, GLSL, HLSL)
-- All 93 WGSL built-in functions (math, geometric, bit manipulation, packing, derivatives, relational)
+- 100+ WGSL built-in functions (math, geometric, bit manipulation, packing, derivatives, relational)
 - Compute shaders (atomics, barriers, workgroups, runtime-sized storage buffers)
 - Texture sampling and storage textures (50+ formats)
 - Local const declarations and switch statements

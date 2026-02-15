@@ -34,7 +34,7 @@
 
 | Category | Capabilities |
 |----------|--------------|
-| **Input** | Full WGSL parser (140+ tokens) |
+| **Input** | Full WGSL parser (120+ tokens) |
 | **Outputs** | SPIR-V, MSL, GLSL, HLSL |
 | **Compute** | Storage buffers, workgroups, atomics, barriers |
 | **Build** | Zero CGO, single binary |
@@ -44,7 +44,7 @@
 ## Features
 
 - **Pure Go** — No CGO, no external dependencies
-- **WGSL Frontend** — Full lexer and parser (140+ tokens)
+- **WGSL Frontend** — Full lexer and parser (120+ tokens)
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
 - **Atomic Operations** — atomicAdd, atomicSub, atomicMin, atomicMax, atomicCompareExchangeWeak
@@ -189,14 +189,14 @@ spirvBytes, err := naga.GenerateSPIRV(module, spirvOpts)
 ```
 naga/
 ├── wgsl/              # WGSL frontend
-│   ├── token.go       # Token types (140+)
+│   ├── token.go       # Token types (120+)
 │   ├── lexer.go       # Tokenizer
 │   ├── ast.go         # AST types
 │   ├── parser.go      # Recursive descent parser (~1400 LOC)
-│   └── lower.go       # AST → IR converter (~1100 LOC)
+│   └── lower.go       # AST → IR converter (~2500 LOC)
 ├── ir/                # Intermediate representation
 │   ├── ir.go          # Core types (Module, Type, Function)
-│   ├── expression.go  # 33 expression types (~520 LOC)
+│   ├── expression.go  # 24 expression types (~520 LOC)
 │   ├── statement.go   # 16 statement types (~320 LOC)
 │   ├── validate.go    # IR validation (~750 LOC)
 │   ├── resolve.go     # Type inference (~500 LOC)
@@ -204,12 +204,12 @@ naga/
 ├── spirv/             # SPIR-V backend
 │   ├── spirv.go       # SPIR-V constants and opcodes
 │   ├── writer.go      # Binary module builder (~670 LOC)
-│   └── backend.go     # IR → SPIR-V translator (~1800 LOC)
+│   └── backend.go     # IR → SPIR-V translator (~3700 LOC)
 ├── msl/               # MSL backend (Metal)
 │   ├── backend.go     # Public API, Options, Compile()
 │   ├── writer.go      # MSL code writer
 │   ├── types.go       # Type generation (~400 LOC)
-│   ├── expressions.go # Expression codegen (~600 LOC)
+│   ├── expressions.go # Expression codegen (~1175 LOC)
 │   ├── statements.go  # Statement codegen (~350 LOC)
 │   ├── functions.go   # Entry points and functions (~500 LOC)
 │   └── keywords.go    # MSL/C++ reserved words
@@ -239,7 +239,7 @@ naga/
 ## Supported WGSL Features
 
 ### Types
-- Scalars: `f32`, `f64`, `i32`, `u32`, `bool`
+- Scalars: `f16`, `f32`, `i32`, `u32`, `bool`
 - Vectors: `vec2<T>`, `vec3<T>`, `vec4<T>`
 - Matrices: `mat2x2<f32>` ... `mat4x4<f32>`
 - Arrays: `array<T, N>`, `array<T>` (runtime-sized, storage buffers)
@@ -272,7 +272,7 @@ naga/
 - Functions: `return`, `discard`
 - Assignment: `=`, `+=`, `-=`, `*=`, `/=`
 
-### Built-in Functions (93)
+### Built-in Functions (100+)
 - Math: `abs`, `min`, `max`, `clamp`, `saturate`, `sign`, `fma`, `modf`, `frexp`, `ldexp`, `quantizeToF16`
 - Trigonometric: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`
 - Angle: `radians`, `degrees`
