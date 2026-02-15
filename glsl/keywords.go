@@ -28,7 +28,7 @@ var glslKeywords = map[string]struct{}{
 	"dmat4x2": {}, "dmat4x3": {}, "dmat4x4": {},
 
 	// Sampler types
-	"sampler1D": {}, "sampler2D": {}, "sampler3D": {},
+	"sampler": {}, "sampler1D": {}, "sampler2D": {}, "sampler3D": {},
 	"samplerCube": {}, "sampler2DRect": {},
 	"sampler1DShadow": {}, "sampler2DShadow": {}, "samplerCubeShadow": {}, "sampler2DRectShadow": {},
 	"sampler1DArray": {}, "sampler2DArray": {},

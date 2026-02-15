@@ -1,11 +1,10 @@
 // Copyright 2025 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-// Package-level nolint for functions prepared for future integration.
-// These functions implement HLSL entry point I/O handling and will be
-// integrated when the full HLSL backend statement/expression codegen is complete.
+// Package hlsl implements HLSL entry point I/O handling with proper
+// input/output structs and semantics for vertex, fragment, and compute shaders.
 //
-//nolint:unused,nestif // Functions prepared for integration in next phase
+//nolint:nestif
 package hlsl
 
 import (
@@ -24,20 +23,57 @@ const (
 // Entry Point Input/Output Structs
 // =============================================================================
 
+// structArgEntry tracks entry point arguments that are structs with member bindings.
+// When a WGSL entry point takes a struct argument like `input: VertexInput` where the
+// struct members have @location or @builtin bindings, the HLSL backend must flatten
+// those members into the input struct and reconstruct the original struct in the body.
+type structArgEntry struct {
+	argIdx        int
+	structType    ir.StructType
+	argTypeHandle ir.TypeHandle
+}
+
 // writeEntryPointInputStruct writes the input struct for an entry point.
 // HLSL entry points typically use input structs with semantics for vertex/fragment stages.
-func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir.Function) (string, bool) {
-	// Check if we need an input struct (location or builtin bindings)
+// It returns the struct name, whether an input struct was written, and a list of struct
+// arguments whose members were flattened into the input struct.
+//
+//nolint:gocognit // Entry point input handling requires checking multiple argument forms
+func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir.Function) (string, bool, []structArgEntry) {
+	// Check if we need an input struct (location or builtin bindings, or struct args with member bindings)
 	hasInputs := false
-	for _, arg := range fn.Arguments {
+	var structArgs []structArgEntry
+
+	for i, arg := range fn.Arguments {
 		if arg.Binding != nil {
 			hasInputs = true
-			break
+			continue
+		}
+		// Check if this is a struct argument with member bindings
+		if int(arg.Type) < len(w.module.Types) {
+			typeInfo := &w.module.Types[arg.Type]
+			if st, ok := typeInfo.Inner.(ir.StructType); ok {
+				hasMemberBindings := false
+				for _, member := range st.Members {
+					if member.Binding != nil {
+						hasMemberBindings = true
+						break
+					}
+				}
+				if hasMemberBindings {
+					hasInputs = true
+					structArgs = append(structArgs, structArgEntry{
+						argIdx:        i,
+						structType:    st,
+						argTypeHandle: arg.Type,
+					})
+				}
+			}
 		}
 	}
 
 	if !hasInputs {
-		return "", false
+		return "", false, nil
 	}
 
 	structName := fmt.Sprintf("%s_Input", w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}]) //nolint:gosec // G115: epIdx is valid slice index
@@ -46,33 +82,58 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 	w.pushIndent()
 
 	for i, arg := range fn.Arguments {
-		if arg.Binding == nil {
+		if arg.Binding != nil {
+			// Direct binding on argument — existing behavior
+			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
+			argType, arraySuffix := w.getTypeNameWithArraySuffix(arg.Type)
+
+			semantic := w.getSemanticFromBinding(*arg.Binding, i)
+
+			interpMod := ""
+			if ep.Stage == ir.StageFragment {
+				interpMod = w.getInterpolationModifier(*arg.Binding)
+				if interpMod != "" {
+					interpMod += " "
+				}
+			}
+
+			w.writeLine("%s%s %s%s : %s;", interpMod, argType, argName, arraySuffix, semantic)
 			continue
 		}
 
-		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
-		argType, arraySuffix := w.getTypeNameWithArraySuffix(arg.Type)
-
-		// Get semantic from binding
-		semantic := w.getSemanticFromBinding(*arg.Binding, i)
-
-		// Get interpolation modifiers for fragment shader inputs
-		interpMod := ""
-		if ep.Stage == ir.StageFragment {
-			interpMod = w.getInterpolationModifier(*arg.Binding)
-			if interpMod != "" {
-				interpMod += " "
+		// Check if this is a struct arg with member bindings
+		for _, sa := range structArgs {
+			if sa.argIdx != i {
+				continue
 			}
-		}
+			// Flatten struct members with bindings into the input struct
+			for memberIdx, member := range sa.structType.Members {
+				if member.Binding == nil {
+					continue
+				}
+				memberName := Escape(member.Name)
+				memberType, arraySuffix := w.getTypeNameWithArraySuffix(member.Type)
+				semantic := w.getSemanticFromBinding(*member.Binding, memberIdx)
 
-		w.writeLine("%s%s %s%s : %s;", interpMod, argType, argName, arraySuffix, semantic)
+				interpMod := ""
+				if ep.Stage == ir.StageFragment {
+					interpMod = w.getInterpolationModifier(*member.Binding)
+					if interpMod != "" {
+						interpMod += " "
+					}
+				}
+
+				w.writeLine("%s%s %s%s : %s;", interpMod, memberType, memberName, arraySuffix, semantic)
+			}
+			break
+		}
 	}
 
 	w.popIndent()
 	w.writeLine("};")
 	w.writeLine("")
 
-	return structName, true
+	return structName, true, structArgs
 }
 
 // writeEntryPointOutputStruct writes the output struct for an entry point.
@@ -143,6 +204,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	w.currentFunction = fn
 	w.currentFuncHandle = ep.Function
 	w.localNames = make(map[uint32]string)
+	w.namedExpressions = make(map[ir.ExpressionHandle]string)
 
 	defer func() {
 		w.currentFunction = nil
@@ -150,7 +212,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	}()
 
 	// Write input/output structs if needed
-	inputStructName, hasInputStruct := w.writeEntryPointInputStruct(epIdx, ep, fn)
+	inputStructName, hasInputStruct, structArgs := w.writeEntryPointInputStruct(epIdx, ep, fn)
 	outputStructName, hasOutputStruct := w.writeEntryPointOutputStruct(epIdx, ep, fn)
 
 	epName := w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] //nolint:gosec // G115: epIdx is valid slice index
@@ -175,20 +237,47 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	// Write function signature
 	w.writeEntryPointSignature(returnType, epName, ep, fn, inputStructName, hasInputStruct)
 
+	// Add return semantic for simple (non-struct) return types.
+	// Fragment shader @location(N) maps to SV_TargetN (not TEXCOORD).
+	if !hasOutputStruct && fn.Result != nil && fn.Result.Binding != nil {
+		var semantic string
+		if ep.Stage == ir.StageFragment {
+			if loc, ok := (*fn.Result.Binding).(ir.LocationBinding); ok {
+				semantic = fmt.Sprintf("SV_Target%d", loc.Location)
+			} else {
+				semantic = w.getSemanticFromBinding(*fn.Result.Binding, 0)
+			}
+		} else {
+			semantic = w.getSemanticFromBinding(*fn.Result.Binding, 0)
+		}
+		fmt.Fprintf(&w.out, " : %s", semantic)
+	}
+
 	w.writeLine(" {")
 	w.pushIndent()
 
 	// Extract inputs from struct if needed
 	if hasInputStruct {
-		w.writeInputExtraction(ep, fn)
+		w.writeInputExtraction(ep, fn, structArgs)
 	}
 
-	// Write local variables
+	// Write local variables with optional init expressions
 	for localIdx, local := range fn.LocalVars {
 		localName := w.namer.call(local.Name)
 		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
-		localType := w.getTypeName(local.Type)
-		w.writeLine("%s %s;", localType, localName)
+		// HLSL arrays: type name[size], not type[size] name
+		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
+		if local.Init != nil {
+			w.writeIndent()
+			fmt.Fprintf(&w.out, "%s %s%s = ", localType, localName, arraySuffix)
+			if err := w.writeExpression(*local.Init); err != nil {
+				w.popIndent()
+				return fmt.Errorf("entry point local var init: %w", err)
+			}
+			w.out.WriteString(";\n")
+		} else {
+			w.writeLine("%s %s%s;", localType, localName, arraySuffix)
+		}
 	}
 
 	if len(fn.LocalVars) > 0 || hasInputStruct {
@@ -201,8 +290,11 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 		w.writeLine("")
 	}
 
-	// Write function body placeholder
-	w.writeLine("// Entry point body (to be implemented)")
+	// Write function body statements
+	if err := w.writeBlock(fn.Body); err != nil {
+		w.popIndent()
+		return err
+	}
 
 	// Return output struct if needed
 	if hasOutputStruct {
@@ -267,17 +359,53 @@ func (w *Writer) writeEntryPointSignature(returnType, epName string, ep *ir.Entr
 }
 
 // writeInputExtraction writes code to extract input values from the input struct.
-func (w *Writer) writeInputExtraction(ep *ir.EntryPoint, fn *ir.Function) {
+// For vertex/fragment stages, ALL bindings (location and builtin) go through
+// the input struct. For compute shaders, builtins are passed as direct parameters
+// and only location bindings are extracted from the struct.
+// Struct arguments with member bindings are reconstructed from the flattened input.
+func (w *Writer) writeInputExtraction(ep *ir.EntryPoint, fn *ir.Function, structArgs []structArgEntry) {
 	for i, arg := range fn.Arguments {
+		// Check if this is a struct arg that was flattened
+		if sa := findStructArg(structArgs, i); sa != nil {
+			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
+			structTypeName := w.getTypeName(sa.argTypeHandle)
+
+			// Declare the struct variable
+			w.writeLine("%s %s;", structTypeName, argName)
+
+			// Assign each member from the flattened input struct
+			for _, member := range sa.structType.Members {
+				if member.Binding == nil {
+					continue
+				}
+				memberName := Escape(member.Name)
+				w.writeLine("%s.%s = _input.%s;", argName, memberName, memberName)
+			}
+			continue
+		}
+
 		if arg.Binding == nil {
 			continue
 		}
-		// Only extract location bindings (builtins are passed directly in compute)
-		if _, ok := (*arg.Binding).(ir.LocationBinding); ok {
-			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
-			w.writeLine("%s %s = _input.%s;", w.getTypeName(arg.Type), argName, argName)
+		// In compute shaders, builtins are direct parameters (not in input struct)
+		if ep.Stage == ir.StageCompute {
+			if _, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
+				continue
+			}
+		}
+		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
+		w.writeLine("%s %s = _input.%s;", w.getTypeName(arg.Type), argName, argName)
+	}
+}
+
+// findStructArg returns the structArgEntry for the given argument index, or nil if not found.
+func findStructArg(structArgs []structArgEntry, argIdx int) *structArgEntry {
+	for idx := range structArgs {
+		if structArgs[idx].argIdx == argIdx {
+			return &structArgs[idx]
 		}
 	}
+	return nil
 }
 
 // =============================================================================
@@ -285,6 +413,8 @@ func (w *Writer) writeInputExtraction(ep *ir.EntryPoint, fn *ir.Function) {
 // =============================================================================
 
 // writeModHelper writes the safe modulo helper function.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeModHelper() {
 	w.writeLine("// Safe modulo helper (truncated division semantics)")
 	w.writeLine("int %s(int a, int b) {", NagaModFunction)
@@ -304,6 +434,8 @@ func (w *Writer) writeModHelper() {
 }
 
 // writeDivHelper writes the safe division helper function.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeDivHelper() {
 	w.writeLine("// Safe division helper (handles zero divisor)")
 	w.writeLine("int %s(int a, int b) {", NagaDivFunction)
@@ -323,6 +455,8 @@ func (w *Writer) writeDivHelper() {
 }
 
 // writeAbsHelper writes the safe abs helper function.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeAbsHelper() {
 	w.writeLine("// Safe abs helper (handles INT_MIN)")
 	w.writeLine("int %s(int v) {", NagaAbsFunction)
@@ -334,6 +468,8 @@ func (w *Writer) writeAbsHelper() {
 }
 
 // writeNegHelper writes the safe negation helper function.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeNegHelper() {
 	w.writeLine("// Safe negation helper (handles INT_MIN)")
 	w.writeLine("int %s(int v) {", NagaNegFunction)
@@ -345,6 +481,8 @@ func (w *Writer) writeNegHelper() {
 }
 
 // writeModfHelper writes the modf wrapper to return result struct like WGSL.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeModfHelper() {
 	w.writeLine("// modf wrapper returning struct like WGSL")
 	w.writeLine("struct _naga_modf_result_f32 {")
@@ -366,6 +504,8 @@ func (w *Writer) writeModfHelper() {
 }
 
 // writeFrexpHelper writes the frexp wrapper to return result struct like WGSL.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeFrexpHelper() {
 	w.writeLine("// frexp wrapper returning struct like WGSL")
 	w.writeLine("struct _naga_frexp_result_f32 {")
@@ -387,6 +527,8 @@ func (w *Writer) writeFrexpHelper() {
 }
 
 // writeExtractBitsHelper writes the extractBits helper for SM < 6.0.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeExtractBitsHelper() {
 	w.writeLine("// extractBits helper for older shader models")
 	w.writeLine("uint %s(uint e, uint offset, uint count) {", NagaExtractBitsFunction)
@@ -415,6 +557,8 @@ func (w *Writer) writeExtractBitsHelper() {
 }
 
 // writeInsertBitsHelper writes the insertBits helper for SM < 6.0.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeInsertBitsHelper() {
 	w.writeLine("// insertBits helper for older shader models")
 	w.writeLine("uint %s(uint e, uint newbits, uint offset, uint count) {", NagaInsertBitsFunction)
@@ -435,6 +579,8 @@ func (w *Writer) writeInsertBitsHelper() {
 }
 
 // writeF2I32Helper writes the float-to-i32 conversion helper with clamping.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeF2I32Helper() {
 	w.writeLine("// Float to i32 conversion with clamping (handles NaN, inf)")
 	w.writeLine("int %s(float v) {", NagaF2I32Function)
@@ -446,6 +592,8 @@ func (w *Writer) writeF2I32Helper() {
 }
 
 // writeF2U32Helper writes the float-to-u32 conversion helper with clamping.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeF2U32Helper() {
 	w.writeLine("// Float to u32 conversion with clamping (handles NaN, inf)")
 	w.writeLine("uint %s(float v) {", NagaF2U32Function)
@@ -471,6 +619,8 @@ func (w *Writer) isEntryPointFunction(handle ir.FunctionHandle) bool {
 }
 
 // getArgumentSemantic returns the HLSL semantic for a function argument binding.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) getArgumentSemantic(arg ir.FunctionArgument, argIdx int) string {
 	if arg.Binding == nil {
 		return ""
@@ -479,6 +629,8 @@ func (w *Writer) getArgumentSemantic(arg ir.FunctionArgument, argIdx int) string
 }
 
 // writeArgumentWithSemantic writes a function argument with its semantic.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeArgumentWithSemantic(arg ir.FunctionArgument, argIdx int, argName string) string {
 	argType := w.getTypeName(arg.Type)
 	semantic := w.getArgumentSemantic(arg, argIdx)
@@ -494,6 +646,8 @@ func (w *Writer) writeArgumentWithSemantic(arg ir.FunctionArgument, argIdx int, 
 // =============================================================================
 
 // getResultSemantic returns the HLSL semantic for a function result binding.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) getResultSemantic(result *ir.FunctionResult) string {
 	if result == nil || result.Binding == nil {
 		return ""
@@ -502,6 +656,8 @@ func (w *Writer) getResultSemantic(result *ir.FunctionResult) string {
 }
 
 // writeResultType writes the return type with semantic if applicable.
+//
+//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeResultType(result *ir.FunctionResult) string {
 	if result == nil {
 		return "void"

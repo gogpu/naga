@@ -959,6 +959,21 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 		return l.lowerSelectCall(call.Args, target)
 	}
 
+	// Check if this is a derivative function (dpdx, dpdy, fwidth + coarse/fine)
+	if deriv, ok := l.getDerivativeFunction(funcName); ok {
+		return l.lowerDerivativeCall(deriv, call.Args, target)
+	}
+
+	// Check if this is a relational function (all, any)
+	if relFun, ok := l.getRelationalFunction(funcName); ok {
+		return l.lowerRelationalCall(relFun, call.Args, target)
+	}
+
+	// Check if this is arrayLength
+	if funcName == "arrayLength" {
+		return l.lowerArrayLengthCall(call.Args, target)
+	}
+
 	// Check if this is a math function
 	if mathFunc, ok := l.getMathFunction(funcName); ok {
 		return l.lowerMathCall(mathFunc, call.Args, target)
@@ -1447,6 +1462,26 @@ func (l *Lowerer) getMathFunction(name string) (ir.MathFunction, bool) {
 		"unpack2x16snorm": ir.MathUnpack2x16snorm,
 		"unpack2x16unorm": ir.MathUnpack2x16unorm,
 		"unpack2x16float": ir.MathUnpack2x16float,
+		"unpack4xI8":      ir.MathUnpack4xI8,
+		"unpack4xU8":      ir.MathUnpack4xU8,
+		"pack4xI8":        ir.MathPack4xI8,
+		"pack4xU8":        ir.MathPack4xU8,
+		"pack4xI8Clamp":   ir.MathPack4xI8Clamp,
+		"pack4xU8Clamp":   ir.MathPack4xU8Clamp,
+
+		// Decomposition functions (struct return)
+		"modf":  ir.MathModf,
+		"frexp": ir.MathFrexp,
+		"ldexp": ir.MathLdexp,
+
+		// Matrix functions
+		"inverse": ir.MathInverse,
+
+		// Precision
+		"quantizeToF16": ir.MathQuantizeF16,
+
+		// Vector/matrix operations
+		"outerProduct": ir.MathOuter,
 	}
 	fn, ok := mathFuncs[name]
 	return fn, ok
@@ -1525,6 +1560,86 @@ func (l *Lowerer) lowerSelectCall(args []Expr, target *[]ir.Statement) (ir.Expre
 			Accept:    trueVal,
 			Reject:    falseVal,
 		},
+	}), nil
+}
+
+// getDerivativeFunction maps WGSL derivative function names to IR derivative parameters.
+func (l *Lowerer) getDerivativeFunction(name string) (ir.ExprDerivative, bool) {
+	switch name {
+	case "dpdx":
+		return ir.ExprDerivative{Axis: ir.DerivativeX, Control: ir.DerivativeNone}, true
+	case "dpdy":
+		return ir.ExprDerivative{Axis: ir.DerivativeY, Control: ir.DerivativeNone}, true
+	case "fwidth":
+		return ir.ExprDerivative{Axis: ir.DerivativeWidth, Control: ir.DerivativeNone}, true
+	case "dpdxCoarse":
+		return ir.ExprDerivative{Axis: ir.DerivativeX, Control: ir.DerivativeCoarse}, true
+	case "dpdyCoarse":
+		return ir.ExprDerivative{Axis: ir.DerivativeY, Control: ir.DerivativeCoarse}, true
+	case "fwidthCoarse":
+		return ir.ExprDerivative{Axis: ir.DerivativeWidth, Control: ir.DerivativeCoarse}, true
+	case "dpdxFine":
+		return ir.ExprDerivative{Axis: ir.DerivativeX, Control: ir.DerivativeFine}, true
+	case "dpdyFine":
+		return ir.ExprDerivative{Axis: ir.DerivativeY, Control: ir.DerivativeFine}, true
+	case "fwidthFine":
+		return ir.ExprDerivative{Axis: ir.DerivativeWidth, Control: ir.DerivativeFine}, true
+	default:
+		return ir.ExprDerivative{}, false
+	}
+}
+
+func (l *Lowerer) lowerDerivativeCall(deriv ir.ExprDerivative, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) != 1 {
+		return 0, fmt.Errorf("derivative function requires exactly 1 argument, got %d", len(args))
+	}
+	expr, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+	deriv.Expr = expr
+	return l.addExpression(ir.Expression{Kind: deriv}), nil
+}
+
+// getRelationalFunction maps WGSL relational function names to IR.
+func (l *Lowerer) getRelationalFunction(name string) (ir.RelationalFunction, bool) {
+	switch name {
+	case "all":
+		return ir.RelationalAll, true
+	case "any":
+		return ir.RelationalAny, true
+	case "isnan":
+		return ir.RelationalIsNan, true
+	case "isinf":
+		return ir.RelationalIsInf, true
+	default:
+		return 0, false
+	}
+}
+
+func (l *Lowerer) lowerRelationalCall(fun ir.RelationalFunction, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) != 1 {
+		return 0, fmt.Errorf("relational function requires exactly 1 argument, got %d", len(args))
+	}
+	arg, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprRelational{Fun: fun, Argument: arg},
+	}), nil
+}
+
+func (l *Lowerer) lowerArrayLengthCall(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) != 1 {
+		return 0, fmt.Errorf("arrayLength requires exactly 1 argument, got %d", len(args))
+	}
+	arg, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprArrayLength{Array: arg},
 	}), nil
 }
 

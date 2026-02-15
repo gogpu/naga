@@ -444,7 +444,6 @@ func (w *Writer) writeScalarValue(v ir.ScalarValue, typeHandle ir.TypeHandle) st
 
 // writeCompositeValue returns the HLSL representation of a composite value.
 func (w *Writer) writeCompositeValue(v ir.CompositeValue, typeHandle ir.TypeHandle) string {
-	typeName := w.getTypeName(typeHandle)
 	var components []string
 	for _, compHandle := range v.Components {
 		if int(compHandle) < len(w.module.Constants) {
@@ -454,6 +453,11 @@ func (w *Writer) writeCompositeValue(v ir.CompositeValue, typeHandle ir.TypeHand
 			components = append(components, "0")
 		}
 	}
+	// HLSL arrays use initializer list syntax { ... } not constructor syntax type(...)
+	if isArrayType(w.module, typeHandle) {
+		return fmt.Sprintf("{%s}", strings.Join(components, ", "))
+	}
+	typeName := w.getTypeName(typeHandle)
 	return fmt.Sprintf("%s(%s)", typeName, strings.Join(components, ", "))
 }
 

@@ -5,7 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.0] - 2026-02-15
+
+GLSL backend improvements, HLSL struct entry point fix, and SPIR-V vector/scalar multiply and bool conversion fixes.
+
+### Added
+
+#### GLSL Backend
+- **UBO blocks for struct uniforms** — Struct uniform variables now emit `layout(std140) uniform BlockName { ... }` blocks instead of bare uniform declarations
+- **Entry point struct I/O** — Vertex/fragment entry points with struct parameters and return types now correctly emit `in`/`out` declarations for each struct member
+
+#### Testing
+- **SPIR-V loop iteration regression tests** — Tests verifying correct loop codegen
+- **SPIR-V conditional call result regression tests** — Tests for function calls inside if/return blocks
+
+### Fixed
+
+#### GLSL Backend
+- **Array syntax** — Array declarations now use correct GLSL syntax (`float name[3]` instead of `float[3] name`)
+- **Built-in mappings** — WGSL builtins correctly mapped to GLSL equivalents (`gl_Position`, `gl_VertexID`, etc.)
+- **Entry point generation** — Correct `void main()` generation with proper layout qualifiers
+- **Local variable initializers** — Variables with initializers now emit correct GLSL initialization
+
+#### HLSL Backend
+- **Struct entry point arguments with member bindings** — Entry points accepting struct parameters with `@builtin`/`@location` member bindings now correctly generate HLSL input structs with proper semantics
+
+#### SPIR-V Backend
+- **`OpVectorTimesScalar`** — Vector-scalar multiplication now emits the dedicated `OpVectorTimesScalar` instruction instead of component-wise multiply
+- **Opcode number corrections** — Fixed incorrect opcode values for vector/scalar operations
+- **Bool-to-float conversion** — `f32(bool_expr)` now generates correct `OpSelect` instead of failing with "unsupported conversion"
+- **Variable initialization from expressions** — Additional fixes for `var x = expr;` patterns
+- **Math function argument handling** — Improved argument ordering for `smoothstep`, `clamp`, `select`, `abs`, `min`, `max`
+
+### Changed
+- Removed unused test helper `validateSPIRVBinaryBasic`
+
+## [0.12.1] - 2026-02-13
+
+Hotfix: wire up HLSL codegen (was causing DPC_WATCHDOG_VIOLATION BSOD on DX12), complete all 93 WGSL built-in functions.
+
+### Added
+
+#### WGSL Frontend
+- **All 93 WGSL built-in functions** — Complete coverage of the W3C WGSL specification
+  - 14 math functions: `modf`, `frexp`, `ldexp`, `inverse`, `quantizeToF16`, `outerProduct`, `pack4xI8`/`U8`, `pack4xI8Clamp`/`U8Clamp`, `unpack4xI8`/`U8`
+  - 9 derivative functions: `dpdx`, `dpdy`, `fwidth` + `Coarse`/`Fine` variants
+  - 4 relational functions: `all`, `any`, `isnan`, `isinf`
+  - `arrayLength` for runtime-sized arrays
+
+#### Testing
+- **HLSL end-to-end golden tests** — 14 tests covering the full WGSL → HLSL pipeline
+  - Triangle shader, vertex/fragment, compute, uniform buffers
+  - Math functions, control flow (if/else, switch, loops), swizzle
+  - Entry point deduplication, stub detection, semantic validation
+
+### Fixed
+
+#### HLSL Backend
+- **Wire up codegen** — Connect implemented expression/statement/function codegen to the writer
+  - Entry point functions now generate actual HLSL bodies instead of stub placeholders
+  - Regular functions call `writeFunctionBody()` for complete code generation
+  - Entry points use `writeEntryPointWithIO()` with proper I/O structs and semantics
+  - Removed duplicate function emission (entry points were written twice)
+- **Fragment output semantic** — Fragment shader `@location(N)` now maps to `SV_TargetN` (was `TEXCOORD0`)
+- **Builtin extraction** — `@builtin(vertex_index)` correctly extracted from input struct to local variable
+- **Array syntax** — HLSL arrays now use correct syntax:
+  - Declarations: `float2 name[3]` instead of `float2[3] name`
+  - Initializers: `{elem1, elem2}` instead of `type[3](elem1, elem2)`
+- **Named expression ordering** — Expression names cached AFTER writing initializer (prevents `float x = x;`)
 
 ## [0.12.0] - 2026-02-10
 
@@ -632,7 +699,9 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/gogpu/naga/compare/v0.12.1...v0.13.0
+[0.12.1]: https://github.com/gogpu/naga/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/gogpu/naga/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/gogpu/naga/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/gogpu/naga/compare/v0.10.0...v0.11.0

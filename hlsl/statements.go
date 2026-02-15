@@ -1,11 +1,8 @@
 // Copyright 2025 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-// Package-level nolint for statement functions prepared for future integration.
-// These functions implement HLSL statement generation and will be used
-// when the full writer integration calls writeBlock for function bodies.
-//
-//nolint:unused // Functions prepared for integration in next phase
+// Package hlsl implements HLSL statement generation for all IR statement types.
+// Statement functions are called via writeBlock from function body and entry point writers.
 package hlsl
 
 import (
@@ -100,18 +97,24 @@ func (w *Writer) writeEmittedExpression(handle ir.ExpressionHandle) error {
 		return nil // Skip if type is not available
 	}
 
-	// Generate a unique name for this expression
+	// Generate a unique name for this expression.
+	// The name is added to namedExpressions AFTER writing the initializer,
+	// so that writeExpression expands the actual expression rather than
+	// outputting the name itself (which would produce "float _e0 = _e0;").
 	name := fmt.Sprintf("_e%d", handle)
-	w.namedExpressions[handle] = name
 
 	// Write variable declaration with initialization
-	typeName := w.typeToHLSL(exprType)
+	// HLSL arrays: type name[size], not type[size] name
+	typeName, arraySuffix := w.typeToHLSLWithArraySuffix(exprType)
 	w.writeIndent()
-	fmt.Fprintf(&w.out, "%s %s = ", typeName, name)
+	fmt.Fprintf(&w.out, "%s %s%s = ", typeName, name, arraySuffix)
 	if err := w.writeExpression(handle); err != nil {
 		return err
 	}
 	w.out.WriteString(";\n")
+
+	// Cache the name for subsequent references to this expression
+	w.namedExpressions[handle] = name
 
 	return nil
 }
@@ -586,18 +589,19 @@ func (w *Writer) writeFunctionBody(fn *ir.Function) error {
 	for localIdx, local := range fn.LocalVars {
 		localName := w.namer.call(local.Name)
 		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
-		localType := w.getTypeName(local.Type)
+		// HLSL arrays: type name[size], not type[size] name
+		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
 
 		// Initialize with zero if requested or required
 		if local.Init != nil {
 			w.writeIndent()
-			fmt.Fprintf(&w.out, "%s %s = ", localType, localName)
+			fmt.Fprintf(&w.out, "%s %s%s = ", localType, localName, arraySuffix)
 			if err := w.writeExpression(*local.Init); err != nil {
 				return fmt.Errorf("local var init: %w", err)
 			}
 			w.out.WriteString(";\n")
 		} else {
-			w.writeLine("%s %s;", localType, localName)
+			w.writeLine("%s %s%s;", localType, localName, arraySuffix)
 		}
 	}
 

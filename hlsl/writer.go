@@ -290,8 +290,13 @@ func (w *Writer) writeHelperFunctions() {
 }
 
 // writeFunctions writes regular function definitions.
+// Entry point functions are skipped here — they are written by writeEntryPoints
+// with proper I/O structs and semantics.
 func (w *Writer) writeFunctions() error {
 	for handle := range w.module.Functions {
+		if w.isEntryPointFunction(ir.FunctionHandle(handle)) { //nolint:gosec // G115: handle is valid slice index
+			continue
+		}
 		fn := &w.module.Functions[handle]
 		if err := w.writeFunction(ir.FunctionHandle(handle), fn); err != nil { //nolint:gosec // G115: handle is valid slice index
 			return err
@@ -305,6 +310,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	w.currentFunction = fn
 	w.currentFuncHandle = handle
 	w.localNames = make(map[uint32]string)
+	w.namedExpressions = make(map[ir.ExpressionHandle]string)
 
 	name := w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}]
 
@@ -327,16 +333,12 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	w.writeLine("%s %s(%s) {", returnType, name, strings.Join(args, ", "))
 	w.pushIndent()
 
-	// Write local variables
-	for localIdx, local := range fn.LocalVars {
-		localName := w.namer.call(local.Name)
-		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
-		localType := w.getTypeName(local.Type)
-		w.writeLine("%s %s;", localType, localName)
+	// Write function body (local variables + statements)
+	if err := w.writeFunctionBody(fn); err != nil {
+		w.popIndent()
+		w.currentFunction = nil
+		return err
 	}
-
-	// Write function body (placeholder - full implementation in later phases)
-	w.writeLine("// Function body (to be implemented)")
 
 	w.popIndent()
 	w.writeLine("}")
@@ -355,56 +357,10 @@ func (w *Writer) writeEntryPoints() error {
 			continue
 		}
 
-		if err := w.writeEntryPoint(epIdx, ep); err != nil {
+		if err := w.writeEntryPointWithIO(epIdx, ep); err != nil {
 			return err
 		}
 	}
-	return nil
-}
-
-// writeEntryPoint writes a single entry point.
-func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
-	// Look up actual function from handle
-	fn := &w.module.Functions[ep.Function]
-	w.currentFunction = fn
-	w.localNames = make(map[uint32]string)
-
-	name := w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] //nolint:gosec // G115: epIdx is valid slice index
-
-	// Write compute shader attributes if needed
-	if ep.Stage == ir.StageCompute {
-		x, y, z := ep.Workgroup[0], ep.Workgroup[1], ep.Workgroup[2]
-		if x == 0 {
-			x = 1
-		}
-		if y == 0 {
-			y = 1
-		}
-		if z == 0 {
-			z = 1
-		}
-		w.writeLine("[numthreads(%d, %d, %d)]", x, y, z)
-	}
-
-	// Entry point signature
-	w.writeLine("%s %s() {", hlslVoidType, name)
-	w.pushIndent()
-
-	// Write local variables
-	for localIdx, local := range fn.LocalVars {
-		localName := w.namer.call(local.Name)
-		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
-		localType := w.getTypeName(local.Type)
-		w.writeLine("%s %s;", localType, localName)
-	}
-
-	// Write function body (placeholder - full implementation in later phases)
-	w.writeLine("// Entry point body (to be implemented)")
-
-	w.popIndent()
-	w.writeLine("}")
-
-	w.currentFunction = nil
 	return nil
 }
 
