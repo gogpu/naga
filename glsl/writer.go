@@ -265,8 +265,8 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("type_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyType, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
-		w.typeNames[ir.TypeHandle(handle)] = name                           //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyType, handle1: uint32(handle)}] = name
+		w.typeNames[ir.TypeHandle(handle)] = name
 
 		// Register struct member names
 		if st, ok := typ.Inner.(ir.StructType); ok {
@@ -275,7 +275,7 @@ func (w *Writer) registerNames() error {
 				if memberName == "" {
 					memberName = fmt.Sprintf("member_%d", memberIdx)
 				}
-				w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] = escapeKeyword(memberName) //nolint:gosec // G115: handle is valid slice index
+				w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] = escapeKeyword(memberName)
 			}
 		}
 	}
@@ -289,7 +289,7 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("const_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] = name
 	}
 
 	// Register global variable names
@@ -301,7 +301,7 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("global_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] = name
 	}
 
 	// Register function names
@@ -314,7 +314,7 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("function_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}] = name
 
 		// Register function argument names
 		for argIdx, arg := range fn.Arguments {
@@ -322,7 +322,7 @@ func (w *Writer) registerNames() error {
 			if argName == "" {
 				argName = fmt.Sprintf("arg_%d", argIdx)
 			}
-			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] = escapeKeyword(argName) //nolint:gosec // G115: handle is valid slice index
+			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] = escapeKeyword(argName)
 		}
 	}
 
@@ -337,7 +337,7 @@ func (w *Writer) registerNames() error {
 				continue
 			}
 		}
-		w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = name //nolint:gosec // G115: epIdx is valid slice index
+		w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = name
 		w.entryPointNames[ep.Name] = name
 	}
 
@@ -449,14 +449,14 @@ func (w *Writer) writeTypes() error {
 			continue
 		}
 
-		typeName := w.typeNames[ir.TypeHandle(handle)] //nolint:gosec // G115: handle is valid slice index
+		typeName := w.typeNames[ir.TypeHandle(handle)]
 		w.writeLine("struct %s {", typeName)
 		w.pushIndent()
 
 		for memberIdx, member := range st.Members {
 			baseType := w.getBaseTypeName(member.Type)
 			arraySuffix := w.getArraySuffix(member.Type)
-			memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] //nolint:gosec // G115: handle is valid slice index
+			memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}]
 			w.writeLine("%s %s%s;", baseType, memberName, arraySuffix)
 		}
 
@@ -470,7 +470,7 @@ func (w *Writer) writeTypes() error {
 // writeConstants writes constant definitions.
 func (w *Writer) writeConstants() error {
 	for handle, constant := range w.module.Constants {
-		name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] //nolint:gosec // G115: handle is valid slice index
+		name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}]
 		baseType := w.getBaseTypeName(constant.Type)
 		arraySuffix := w.getArraySuffix(constant.Type)
 		value := w.writeConstantValue(constant)
@@ -550,11 +550,11 @@ func (w *Writer) writeGlobalVariables() error {
 
 	for handle, global := range w.module.GlobalVariables {
 		// Skip globals that have been absorbed into combined samplers.
-		if w.globalIsCombined[ir.GlobalVariableHandle(handle)] { //nolint:gosec // G115: handle is valid slice index
+		if w.globalIsCombined[ir.GlobalVariableHandle(handle)] {
 			continue
 		}
 
-		name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] //nolint:gosec // G115: handle is valid slice index
+		name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}]
 		typeName := w.getTypeName(global.Type)
 
 		switch global.Space {
@@ -649,7 +649,7 @@ func (w *Writer) writeUniformBlock(name, typeName string, global ir.GlobalVariab
 	for memberIdx, member := range st.Members {
 		baseType := w.getBaseTypeName(member.Type)
 		arraySuffix := w.getArraySuffix(member.Type)
-		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(global.Type), handle2: uint32(memberIdx)}] //nolint:gosec // G115: memberIdx bounded by slice
+		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(global.Type), handle2: uint32(memberIdx)}]
 		w.writeLine("%s %s%s;", baseType, memberName, arraySuffix)
 	}
 
@@ -706,11 +706,11 @@ func (w *Writer) writeFunctions() error {
 	}
 
 	for handle := range w.module.Functions {
-		if epFunctions[ir.FunctionHandle(handle)] { //nolint:gosec // G115: handle is valid slice index
+		if epFunctions[ir.FunctionHandle(handle)] {
 			continue
 		}
 		fn := &w.module.Functions[handle]
-		if err := w.writeFunction(ir.FunctionHandle(handle), fn); err != nil { //nolint:gosec // G115: handle is valid slice index
+		if err := w.writeFunction(ir.FunctionHandle(handle), fn); err != nil {
 			return err
 		}
 	}
@@ -736,7 +736,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// Arguments
 	args := make([]string, 0, len(fn.Arguments))
 	for argIdx, arg := range fn.Arguments {
-		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] //nolint:gosec // G115: argIdx is bounded by slice length
+		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}]
 		argType := w.getTypeName(arg.Type)
 		args = append(args, fmt.Sprintf("%s %s", argType, argName))
 	}
@@ -837,7 +837,7 @@ func (w *Writer) writeVertexIO(_ *ir.EntryPoint, fn *ir.Function) {
 			// BuiltinBinding: no declaration needed (gl_VertexID, gl_InstanceID are built-in)
 		} else {
 			// No direct binding — check if this is a struct with member bindings
-			w.writeStructArgIO(uint32(argIdx), arg.Type, "in", false) //nolint:gosec // G115: argIdx bounded by slice
+			w.writeStructArgIO(uint32(argIdx), arg.Type, "in", false)
 		}
 	}
 
@@ -861,7 +861,7 @@ func (w *Writer) writeFragmentIO(_ *ir.EntryPoint, fn *ir.Function) {
 			// BuiltinBinding: no declaration needed (gl_FragCoord etc. are built-in)
 		} else {
 			// No direct binding — check if this is a struct with member bindings
-			w.writeStructArgIO(uint32(argIdx), arg.Type, "in", false) //nolint:gosec // G115: argIdx bounded by slice
+			w.writeStructArgIO(uint32(argIdx), arg.Type, "in", false)
 		}
 	}
 
@@ -1028,7 +1028,7 @@ func (w *Writer) writeComputeLayout(ep *ir.EntryPoint) {
 func (w *Writer) writeLocalVars(fn *ir.Function) error {
 	for localIdx, local := range fn.LocalVars {
 		localName := w.namer.call(local.Name)
-		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
+		w.localNames[uint32(localIdx)] = localName
 		baseType := w.getBaseTypeName(local.Type)
 		arraySuffix := w.getArraySuffix(local.Type)
 

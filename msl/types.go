@@ -22,7 +22,7 @@ type StorageAccess uint8
 // writeTypes writes all type definitions.
 func (w *Writer) writeTypes() error {
 	for handle, typ := range w.module.Types {
-		if err := w.writeTypeDefinition(ir.TypeHandle(handle), &typ); err != nil { //nolint:gosec // G115: handle is valid slice index
+		if err := w.writeTypeDefinition(ir.TypeHandle(handle), &typ); err != nil {
 			return err
 		}
 	}
@@ -52,7 +52,7 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 	w.pushIndent()
 
 	for memberIdx, member := range st.Members {
-		memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}) //nolint:gosec // G115: memberIdx is valid slice index
+		memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)})
 		memberType := w.writeTypeName(member.Type, StorageAccess(0))
 
 		// Check if this is a vec3 that needs to be packed
@@ -381,7 +381,7 @@ func (w *Writer) writeConstants() error {
 
 	for handle := range w.module.Constants {
 		constant := &w.module.Constants[handle]
-		if err := w.writeConstant(ir.ConstantHandle(handle), constant); err != nil { //nolint:gosec // G115: handle is valid slice index
+		if err := w.writeConstant(ir.ConstantHandle(handle), constant); err != nil {
 			return err
 		}
 	}

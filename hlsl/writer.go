@@ -146,8 +146,8 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("type_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyType, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
-		w.typeNames[ir.TypeHandle(handle)] = name                           //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyType, handle1: uint32(handle)}] = name
+		w.typeNames[ir.TypeHandle(handle)] = name
 
 		// Register struct member names
 		if st, ok := typ.Inner.(ir.StructType); ok {
@@ -156,7 +156,7 @@ func (w *Writer) registerNames() error {
 				if memberName == "" {
 					memberName = fmt.Sprintf("member_%d", memberIdx)
 				}
-				w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] = Escape(memberName) //nolint:gosec // G115: handle is valid slice index
+				w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] = Escape(memberName)
 			}
 		}
 	}
@@ -171,7 +171,7 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("const_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] = name
 	}
 
 	// Register global variable names
@@ -184,7 +184,7 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("global_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] = name
 	}
 
 	// Register function names
@@ -197,7 +197,7 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("function_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}] = name
 
 		// Register function argument names
 		for argIdx, arg := range fn.Arguments {
@@ -205,7 +205,7 @@ func (w *Writer) registerNames() error {
 			if argName == "" {
 				argName = fmt.Sprintf("arg_%d", argIdx)
 			}
-			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] = Escape(argName) //nolint:gosec // G115: handle is valid slice index
+			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] = Escape(argName)
 		}
 	}
 
@@ -217,7 +217,7 @@ func (w *Writer) registerNames() error {
 		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
 			continue
 		}
-		w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = name //nolint:gosec // G115: epIdx is valid slice index
+		w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = name
 		w.entryPointNames[ep.Name] = name
 	}
 
@@ -294,11 +294,11 @@ func (w *Writer) writeHelperFunctions() {
 // with proper I/O structs and semantics.
 func (w *Writer) writeFunctions() error {
 	for handle := range w.module.Functions {
-		if w.isEntryPointFunction(ir.FunctionHandle(handle)) { //nolint:gosec // G115: handle is valid slice index
+		if w.isEntryPointFunction(ir.FunctionHandle(handle)) {
 			continue
 		}
 		fn := &w.module.Functions[handle]
-		if err := w.writeFunction(ir.FunctionHandle(handle), fn); err != nil { //nolint:gosec // G115: handle is valid slice index
+		if err := w.writeFunction(ir.FunctionHandle(handle), fn); err != nil {
 			return err
 		}
 	}
@@ -325,7 +325,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// Arguments
 	args := make([]string, 0, len(fn.Arguments))
 	for argIdx, arg := range fn.Arguments {
-		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] //nolint:gosec // G115: argIdx is bounded by slice length
+		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}]
 		argType := w.getTypeName(arg.Type)
 		args = append(args, fmt.Sprintf("%s %s", argType, argName))
 	}

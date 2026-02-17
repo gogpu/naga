@@ -33,7 +33,7 @@ func (w *Writer) typeInnerToGLSL(inner ir.TypeInner) string {
 		for handle, regTyp := range w.module.Types {
 			if st, ok := regTyp.Inner.(ir.StructType); ok {
 				if structsEqual(st, t) {
-					if name, ok := w.typeNames[ir.TypeHandle(handle)]; ok { //nolint:gosec // G115: handle is bounded by slice length
+					if name, ok := w.typeNames[ir.TypeHandle(handle)]; ok {
 						return name
 					}
 				}

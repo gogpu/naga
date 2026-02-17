@@ -1,4 +1,4 @@
-# GolangCI-Lint v2.7 Configuration for Naga - Pure Go Shader Compiler
+# GolangCI-Lint v2.10 Configuration for Naga - Pure Go Shader Compiler
 # Documentation: https://golangci-lint.run/docs/configuration/
 
 version: "2"
@@ -165,10 +165,14 @@ linters:
           - gocyclo
           - cyclop
 
-      # CLI tool - file operations are intentional
+      # CLI tools - file operations and user input are intentional
       - path: cmd/nagac/.*\.go
         linters:
           - gosec       # G304 file inclusion is intentional for CLI
+
+      - path: cmd/spvdis/.*\.go
+        linters:
+          - gosec       # G703/G705: CLI tool reads user files and prints to stderr
 
       # SPIR-V backend - int->uint32 conversions are safe for indices
       - path: spirv/.*\.go
@@ -182,11 +186,17 @@ linters:
           - gosec       # G115 int conversions are safe for handle indices
           - maintidx    # Validation functions intentionally have low maintainability
 
+      # Shader backend writers - int->uint32 conversions are safe for IR handles
+      - path: (glsl|hlsl|msl)/.*\.go
+        linters:
+          - gosec       # G115 int conversions are safe for handle indices
+
       # Lowerer - has intentional complexity
       - path: wgsl/lower\.go
         linters:
           - goconst     # "vec" pattern is clearer inline
           - gocritic    # ptrToRefParam: returning *Binding is intentional for optional values
+          - gosec       # G115 int conversions safe; G602 slice index guarded by range loop
 
 issues:
   max-issues-per-linter: 0

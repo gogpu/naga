@@ -162,7 +162,7 @@ func (p *Parser) functionDecl(attrs []Attribute) (*FunctionDecl, *ParseError) {
 		return nil, err
 	}
 
-	var params []*Parameter
+	params := make([]*Parameter, 0, 4) // most functions have few params
 	for !p.check(TokenRightParen) && !p.isAtEnd() {
 		param, err := p.parameter()
 		if err != nil {
@@ -254,7 +254,7 @@ func (p *Parser) structDecl(attrs []Attribute) (*StructDecl, *ParseError) {
 		return nil, err
 	}
 
-	var members []*StructMember
+	members := make([]*StructMember, 0, 4) // most structs have a few members
 	for !p.check(TokenRightBrace) && !p.isAtEnd() {
 		member, err := p.structMember()
 		if err != nil {
@@ -606,7 +606,7 @@ func (p *Parser) block() (*BlockStmt, *ParseError) {
 		return nil, err
 	}
 
-	var stmts []Stmt
+	stmts := make([]Stmt, 0, 4) // most blocks have a few statements
 	for !p.check(TokenRightBrace) && !p.isAtEnd() {
 		stmt, err := p.statement()
 		if err != nil {
@@ -1277,7 +1277,7 @@ func (p *Parser) postfix() (Expr, *ParseError) {
 	for {
 		if p.match(TokenLeftParen) {
 			// Function call
-			var args []Expr
+			args := make([]Expr, 0, 4)
 			for !p.check(TokenRightParen) && !p.isAtEnd() {
 				arg, err := p.expression()
 				if err != nil {

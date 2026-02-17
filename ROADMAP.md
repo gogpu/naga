@@ -19,7 +19,7 @@
 
 ---
 
-## Current State: v0.13.0
+## Current State: v0.13.1
 
 ✅ **Production-ready** shader compiler (~19K LOC):
 - Full WGSL frontend (lexer, parser, IR)
@@ -40,6 +40,7 @@
 ### v1.0.0 — Production Release
 - [ ] Full WGSL specification compliance
 - [ ] API stability guarantee
+- [x] Compiler allocation optimization (−32% allocs, −34% bytes)
 - [ ] Optimization passes (dead code elimination, constant folding)
 - [ ] Source maps for debugging
 - [ ] Comprehensive documentation
@@ -97,7 +98,9 @@
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **v0.12.1** | 2026-02 | HLSL codegen wiring fix, all 93 WGSL builtins |
+| **v0.13.1** | 2026-02 | SPIR-V OpArrayLength fix, 68 benchmarks, −32% allocs |
+| v0.13.0 | 2026-02 | GLSL backend, HLSL/SPIR-V fixes, all 93 WGSL builtins |
+| v0.12.1 | 2026-02 | HLSL codegen wiring fix, all 93 WGSL builtins |
 | v0.12.0 | 2026-02 | Function calls, compute shader codegen |
 | v0.11.1 | 2026-02 | SPIR-V opcode fixes, compute shader improvements |
 | v0.11.0 | 2026-02 | SPIR-V if/else fix, 55 new built-in functions |

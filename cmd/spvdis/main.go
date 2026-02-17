@@ -226,7 +226,7 @@ func main() {
 			break
 		}
 		word := binary.LittleEndian.Uint32(data[offset:])
-		opcode := uint16(word & 0xFFFF) //nolint:gosec // safe: masked to 16 bits
+		opcode := uint16(word & 0xFFFF)
 		wordCount := int(word >> 16)
 
 		if wordCount == 0 || offset+wordCount*4 > len(data) {

@@ -1424,6 +1424,103 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 	t.Logf("Successfully verified direct @builtin(position) on fragment input: %d bytes", len(spirvBytes))
 }
 
+// TestCompileArrayLengthBareArray tests arrayLength on a bare runtime-sized array
+// in a storage buffer. The SPIR-V backend wraps it in a synthetic struct.
+func TestCompileArrayLengthBareArray(t *testing.T) {
+	source := `
+@group(0) @binding(0) var<storage, read_write> output: array<f32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let len = arrayLength(&output);
+    if id.x < len {
+        output[id.x] = f32(id.x);
+    }
+}
+`
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	if !containsOpcode(spirvBytes, OpArrayLength) {
+		t.Error("Expected OpArrayLength in SPIR-V binary for arrayLength(&output)")
+	}
+
+	t.Logf("Successfully compiled arrayLength on bare array: %d bytes", len(spirvBytes))
+}
+
+// TestCompileArrayLengthStructMember tests arrayLength on a runtime-sized array
+// that is the last member of a struct in a storage buffer.
+func TestCompileArrayLengthStructMember(t *testing.T) {
+	source := `
+struct Buffer {
+    count: u32,
+    data: array<f32>,
+}
+
+@group(0) @binding(0) var<storage, read_write> buf: Buffer;
+
+@compute @workgroup_size(64, 1, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let len = arrayLength(&buf.data);
+    if id.x < len {
+        buf.data[id.x] = f32(id.x);
+    }
+}
+`
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	if !containsOpcode(spirvBytes, OpArrayLength) {
+		t.Error("Expected OpArrayLength in SPIR-V binary for arrayLength(&buf.data)")
+	}
+
+	t.Logf("Successfully compiled arrayLength on struct member: %d bytes", len(spirvBytes))
+}
+
 // containsOpcode scans a SPIR-V binary for a specific opcode.
 func containsOpcode(spirvBytes []byte, target OpCode) bool {
 	if len(spirvBytes) < 20 || len(spirvBytes)%4 != 0 {

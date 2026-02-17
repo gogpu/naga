@@ -11,9 +11,28 @@ type Instruction struct {
 	Words  []uint32 // result type ID, result ID, operands
 }
 
+// WordCount returns the total word count including the opcode word.
+func (i Instruction) WordCount() int {
+	return len(i.Words) + 1
+}
+
+// WriteTo writes the instruction directly to a byte buffer at the given offset.
+// Returns the new offset after writing.
+func (i Instruction) WriteTo(buffer []byte, offset int) int {
+	wordCount := uint32(len(i.Words) + 1)
+	binary.LittleEndian.PutUint32(buffer[offset:], (wordCount<<16)|uint32(i.Opcode))
+	offset += 4
+	for _, word := range i.Words {
+		binary.LittleEndian.PutUint32(buffer[offset:], word)
+		offset += 4
+	}
+	return offset
+}
+
 // InstructionBuilder builds SPIR-V instructions.
 type InstructionBuilder struct {
 	words []uint32
+	arena *wordArena // if set, Build allocates from arena instead of heap
 }
 
 // NewInstructionBuilder creates a new instruction builder.
@@ -21,6 +40,11 @@ func NewInstructionBuilder() *InstructionBuilder {
 	return &InstructionBuilder{
 		words: make([]uint32, 0, 8),
 	}
+}
+
+// Reset clears the builder for reuse without allocating.
+func (b *InstructionBuilder) Reset() {
+	b.words = b.words[:0]
 }
 
 // AddWord adds a word to the instruction.
@@ -52,10 +76,19 @@ func (b *InstructionBuilder) AddString(s string) {
 }
 
 // Build builds the instruction with the given opcode.
+// It copies the words to a new slice so the builder can be safely reused.
+// If the builder has an arena, words are allocated from the arena (amortized O(1)).
 func (b *InstructionBuilder) Build(opcode OpCode) Instruction {
+	var words []uint32
+	if b.arena != nil {
+		words = b.arena.alloc(len(b.words))
+	} else {
+		words = make([]uint32, len(b.words))
+	}
+	copy(words, b.words)
 	return Instruction{
 		Opcode: opcode,
-		Words:  b.words,
+		Words:  words,
 	}
 }
 
@@ -66,6 +99,38 @@ func (i Instruction) Encode() []uint32 {
 	result = append(result, (wordCount<<16)|uint32(i.Opcode))
 	result = append(result, i.Words...)
 	return result
+}
+
+// wordArena is a bulk allocator for instruction word slices.
+// Instead of allocating a separate []uint32 per instruction, we allocate
+// from a single large backing array, reducing GC pressure.
+type wordArena struct {
+	buf []uint32
+	pos int
+}
+
+// newWordArena creates an arena with the given initial capacity in words.
+func newWordArena(capacity int) wordArena {
+	return wordArena{
+		buf: make([]uint32, capacity),
+	}
+}
+
+// alloc returns a slice of n words from the arena.
+// If the arena is full, it allocates a new backing array (doubling).
+func (a *wordArena) alloc(n int) []uint32 {
+	if a.pos+n > len(a.buf) {
+		// Grow: at least double, or enough for this request
+		newSize := len(a.buf) * 2
+		if newSize < a.pos+n {
+			newSize = a.pos + n
+		}
+		a.buf = make([]uint32, newSize)
+		a.pos = 0
+	}
+	s := a.buf[a.pos : a.pos+n : a.pos+n]
+	a.pos += n
+	return s
 }
 
 // ModuleBuilder builds complete SPIR-V modules.
@@ -92,27 +157,42 @@ type ModuleBuilder struct {
 
 	// ID allocation
 	nextID uint32
+
+	// Shared instruction builder to avoid per-instruction allocation.
+	ib InstructionBuilder
+
+	// Word arena for bulk allocation of instruction word slices.
+	arena wordArena
 }
 
 // NewModuleBuilder creates a new SPIR-V module builder.
 func NewModuleBuilder(version Version) *ModuleBuilder {
-	return &ModuleBuilder{
+	mb := &ModuleBuilder{
 		version:        version,
 		generator:      GeneratorID,
 		schema:         0,
-		capabilities:   make([]Instruction, 0),
+		capabilities:   make([]Instruction, 0, 2),
 		extensions:     make([]Instruction, 0),
-		extInstImports: make([]Instruction, 0),
-		entryPoints:    make([]Instruction, 0),
-		executionModes: make([]Instruction, 0),
+		extInstImports: make([]Instruction, 0, 1),
+		entryPoints:    make([]Instruction, 0, 2),
+		executionModes: make([]Instruction, 0, 4),
 		debugStrings:   make([]Instruction, 0),
-		debugNames:     make([]Instruction, 0),
-		annotations:    make([]Instruction, 0),
-		types:          make([]Instruction, 0),
-		globalVars:     make([]Instruction, 0),
-		functions:      make([]Instruction, 0),
+		debugNames:     make([]Instruction, 0, 8),
+		annotations:    make([]Instruction, 0, 16),
+		types:          make([]Instruction, 0, 32),
+		globalVars:     make([]Instruction, 0, 4),
+		functions:      make([]Instruction, 0, 64),
 		nextID:         1,
+		arena:          newWordArena(2048), // pre-allocate ~2K words for all instructions
 	}
+	// Initialize shared instruction builder with arena reference.
+	// The builder's scratch space (words) grows once to max needed size and is reused.
+	// The arena provides O(1) bulk allocation for instruction word slices in Build().
+	mb.ib = InstructionBuilder{
+		words: make([]uint32, 0, 16),
+		arena: &mb.arena,
+	}
+	return mb
 }
 
 // AllocID allocates a new SPIR-V ID.
@@ -124,251 +204,251 @@ func (b *ModuleBuilder) AllocID() uint32 {
 
 // AddCapability adds a capability.
 func (b *ModuleBuilder) AddCapability(capability Capability) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(uint32(capability))
-	b.capabilities = append(b.capabilities, builder.Build(OpCapability))
+	b.ib.Reset()
+	b.ib.AddWord(uint32(capability))
+	b.capabilities = append(b.capabilities, b.ib.Build(OpCapability))
 }
 
 // AddExtension adds an extension.
 func (b *ModuleBuilder) AddExtension(name string) {
-	builder := NewInstructionBuilder()
-	builder.AddString(name)
-	b.extensions = append(b.extensions, builder.Build(OpExtension))
+	b.ib.Reset()
+	b.ib.AddString(name)
+	b.extensions = append(b.extensions, b.ib.Build(OpExtension))
 }
 
 // AddExtInstImport imports an extended instruction set.
 func (b *ModuleBuilder) AddExtInstImport(name string) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddString(name)
-	b.extInstImports = append(b.extInstImports, builder.Build(OpExtInstImport))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddString(name)
+	b.extInstImports = append(b.extInstImports, b.ib.Build(OpExtInstImport))
 	return id
 }
 
 // SetMemoryModel sets the memory model.
 func (b *ModuleBuilder) SetMemoryModel(addressing AddressingModel, memory MemoryModel) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(uint32(addressing))
-	builder.AddWord(uint32(memory))
-	inst := builder.Build(OpMemoryModel)
+	b.ib.Reset()
+	b.ib.AddWord(uint32(addressing))
+	b.ib.AddWord(uint32(memory))
+	inst := b.ib.Build(OpMemoryModel)
 	b.memoryModel = &inst
 }
 
 // AddEntryPoint adds an entry point.
 func (b *ModuleBuilder) AddEntryPoint(execModel ExecutionModel, funcID uint32, name string, interfaces []uint32) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(uint32(execModel))
-	builder.AddWord(funcID)
-	builder.AddString(name)
+	b.ib.Reset()
+	b.ib.AddWord(uint32(execModel))
+	b.ib.AddWord(funcID)
+	b.ib.AddString(name)
 	for _, iface := range interfaces {
-		builder.AddWord(iface)
+		b.ib.AddWord(iface)
 	}
-	b.entryPoints = append(b.entryPoints, builder.Build(OpEntryPoint))
+	b.entryPoints = append(b.entryPoints, b.ib.Build(OpEntryPoint))
 }
 
 // AddExecutionMode adds an execution mode.
 func (b *ModuleBuilder) AddExecutionMode(entryPoint uint32, mode ExecutionMode, params ...uint32) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(entryPoint)
-	builder.AddWord(uint32(mode))
+	b.ib.Reset()
+	b.ib.AddWord(entryPoint)
+	b.ib.AddWord(uint32(mode))
 	for _, param := range params {
-		builder.AddWord(param)
+		b.ib.AddWord(param)
 	}
-	b.executionModes = append(b.executionModes, builder.Build(OpExecutionMode))
+	b.executionModes = append(b.executionModes, b.ib.Build(OpExecutionMode))
 }
 
 // AddString adds a debug string.
 func (b *ModuleBuilder) AddString(text string) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddString(text)
-	b.debugStrings = append(b.debugStrings, builder.Build(OpString))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddString(text)
+	b.debugStrings = append(b.debugStrings, b.ib.Build(OpString))
 	return id
 }
 
 // AddName adds a debug name.
 func (b *ModuleBuilder) AddName(id uint32, name string) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddString(name)
-	b.debugNames = append(b.debugNames, builder.Build(OpName))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddString(name)
+	b.debugNames = append(b.debugNames, b.ib.Build(OpName))
 }
 
 // AddMemberName adds a debug member name.
 func (b *ModuleBuilder) AddMemberName(structID, member uint32, name string) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(structID)
-	builder.AddWord(member)
-	builder.AddString(name)
-	b.debugNames = append(b.debugNames, builder.Build(OpMemberName))
+	b.ib.Reset()
+	b.ib.AddWord(structID)
+	b.ib.AddWord(member)
+	b.ib.AddString(name)
+	b.debugNames = append(b.debugNames, b.ib.Build(OpMemberName))
 }
 
 // AddDecorate adds a decoration.
 func (b *ModuleBuilder) AddDecorate(id uint32, decoration Decoration, params ...uint32) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddWord(uint32(decoration))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddWord(uint32(decoration))
 	for _, param := range params {
-		builder.AddWord(param)
+		b.ib.AddWord(param)
 	}
-	b.annotations = append(b.annotations, builder.Build(OpDecorate))
+	b.annotations = append(b.annotations, b.ib.Build(OpDecorate))
 }
 
 // AddMemberDecorate adds a member decoration.
 func (b *ModuleBuilder) AddMemberDecorate(structID, member uint32, decoration Decoration, params ...uint32) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(structID)
-	builder.AddWord(member)
-	builder.AddWord(uint32(decoration))
+	b.ib.Reset()
+	b.ib.AddWord(structID)
+	b.ib.AddWord(member)
+	b.ib.AddWord(uint32(decoration))
 	for _, param := range params {
-		builder.AddWord(param)
+		b.ib.AddWord(param)
 	}
-	b.annotations = append(b.annotations, builder.Build(OpMemberDecorate))
+	b.annotations = append(b.annotations, b.ib.Build(OpMemberDecorate))
 }
 
 // AddTypeVoid adds OpTypeVoid.
 func (b *ModuleBuilder) AddTypeVoid() uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	b.types = append(b.types, builder.Build(OpTypeVoid))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.types = append(b.types, b.ib.Build(OpTypeVoid))
 	return id
 }
 
 // AddTypeBool adds OpTypeBool.
 func (b *ModuleBuilder) AddTypeBool() uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	b.types = append(b.types, builder.Build(OpTypeBool))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.types = append(b.types, b.ib.Build(OpTypeBool))
 	return id
 }
 
 // AddTypeSampler adds OpTypeSampler.
 func (b *ModuleBuilder) AddTypeSampler() uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	b.types = append(b.types, builder.Build(OpTypeSampler))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.types = append(b.types, b.ib.Build(OpTypeSampler))
 	return id
 }
 
 // AddTypeFloat adds OpTypeFloat.
 func (b *ModuleBuilder) AddTypeFloat(width uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddWord(width)
-	b.types = append(b.types, builder.Build(OpTypeFloat))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddWord(width)
+	b.types = append(b.types, b.ib.Build(OpTypeFloat))
 	return id
 }
 
 // AddTypeInt adds OpTypeInt.
 func (b *ModuleBuilder) AddTypeInt(width uint32, signed bool) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddWord(width)
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddWord(width)
 	if signed {
-		builder.AddWord(1)
+		b.ib.AddWord(1)
 	} else {
-		builder.AddWord(0)
+		b.ib.AddWord(0)
 	}
-	b.types = append(b.types, builder.Build(OpTypeInt))
+	b.types = append(b.types, b.ib.Build(OpTypeInt))
 	return id
 }
 
 // AddTypeVector adds OpTypeVector.
 func (b *ModuleBuilder) AddTypeVector(componentType uint32, count uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddWord(componentType)
-	builder.AddWord(count)
-	b.types = append(b.types, builder.Build(OpTypeVector))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddWord(componentType)
+	b.ib.AddWord(count)
+	b.types = append(b.types, b.ib.Build(OpTypeVector))
 	return id
 }
 
 // AddTypeMatrix adds OpTypeMatrix.
 func (b *ModuleBuilder) AddTypeMatrix(columnType uint32, columnCount uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddWord(columnType)
-	builder.AddWord(columnCount)
-	b.types = append(b.types, builder.Build(OpTypeMatrix))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddWord(columnType)
+	b.ib.AddWord(columnCount)
+	b.types = append(b.types, b.ib.Build(OpTypeMatrix))
 	return id
 }
 
 // AddTypeArray adds OpTypeArray.
 func (b *ModuleBuilder) AddTypeArray(elementType uint32, length uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddWord(elementType)
-	builder.AddWord(length) // length is a constant ID
-	b.types = append(b.types, builder.Build(OpTypeArray))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddWord(elementType)
+	b.ib.AddWord(length) // length is a constant ID
+	b.types = append(b.types, b.ib.Build(OpTypeArray))
 	return id
 }
 
 // AddTypeRuntimeArray adds OpTypeRuntimeArray for storage buffer runtime-sized arrays.
 func (b *ModuleBuilder) AddTypeRuntimeArray(elementType uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddWord(elementType)
-	b.types = append(b.types, builder.Build(OpTypeRuntimeArray))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddWord(elementType)
+	b.types = append(b.types, b.ib.Build(OpTypeRuntimeArray))
 	return id
 }
 
 // AddTypePointer adds OpTypePointer.
 func (b *ModuleBuilder) AddTypePointer(storageClass StorageClass, baseType uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddWord(uint32(storageClass))
-	builder.AddWord(baseType)
-	b.types = append(b.types, builder.Build(OpTypePointer))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddWord(uint32(storageClass))
+	b.ib.AddWord(baseType)
+	b.types = append(b.types, b.ib.Build(OpTypePointer))
 	return id
 }
 
 // AddTypeFunction adds OpTypeFunction.
 func (b *ModuleBuilder) AddTypeFunction(returnType uint32, paramTypes ...uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	builder.AddWord(returnType)
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.ib.AddWord(returnType)
 	for _, paramType := range paramTypes {
-		builder.AddWord(paramType)
+		b.ib.AddWord(paramType)
 	}
-	b.types = append(b.types, builder.Build(OpTypeFunction))
+	b.types = append(b.types, b.ib.Build(OpTypeFunction))
 	return id
 }
 
 // AddTypeStruct adds OpTypeStruct.
 func (b *ModuleBuilder) AddTypeStruct(memberTypes ...uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
+	b.ib.Reset()
+	b.ib.AddWord(id)
 	for _, memberType := range memberTypes {
-		builder.AddWord(memberType)
+		b.ib.AddWord(memberType)
 	}
-	b.types = append(b.types, builder.Build(OpTypeStruct))
+	b.types = append(b.types, b.ib.Build(OpTypeStruct))
 	return id
 }
 
 // AddConstant adds OpConstant.
 func (b *ModuleBuilder) AddConstant(typeID uint32, values ...uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(typeID)
-	builder.AddWord(id)
+	b.ib.Reset()
+	b.ib.AddWord(typeID)
+	b.ib.AddWord(id)
 	for _, value := range values {
-		builder.AddWord(value)
+		b.ib.AddWord(value)
 	}
-	b.types = append(b.types, builder.Build(OpConstant))
+	b.types = append(b.types, b.ib.Build(OpConstant))
 	return id
 }
 
@@ -381,10 +461,10 @@ func (b *ModuleBuilder) AddConstantFloat32(typeID uint32, value float32) uint32 
 // AddConstantNull adds OpConstantNull for a given type (all zeros/false/null).
 func (b *ModuleBuilder) AddConstantNull(typeID uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(typeID)
-	builder.AddWord(id)
-	b.types = append(b.types, builder.Build(OpConstantNull))
+	b.ib.Reset()
+	b.ib.AddWord(typeID)
+	b.ib.AddWord(id)
+	b.types = append(b.types, b.ib.Build(OpConstantNull))
 	return id
 }
 
@@ -399,168 +479,168 @@ func (b *ModuleBuilder) AddConstantFloat64(typeID uint32, value float64) uint32 
 // AddConstantComposite adds OpConstantComposite.
 func (b *ModuleBuilder) AddConstantComposite(typeID uint32, constituents ...uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(typeID)
-	builder.AddWord(id)
+	b.ib.Reset()
+	b.ib.AddWord(typeID)
+	b.ib.AddWord(id)
 	for _, constituent := range constituents {
-		builder.AddWord(constituent)
+		b.ib.AddWord(constituent)
 	}
-	b.types = append(b.types, builder.Build(OpConstantComposite))
+	b.types = append(b.types, b.ib.Build(OpConstantComposite))
 	return id
 }
 
 // AddVariable adds OpVariable.
 func (b *ModuleBuilder) AddVariable(pointerType uint32, storageClass StorageClass) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(pointerType)
-	builder.AddWord(id)
-	builder.AddWord(uint32(storageClass))
-	b.globalVars = append(b.globalVars, builder.Build(OpVariable))
+	b.ib.Reset()
+	b.ib.AddWord(pointerType)
+	b.ib.AddWord(id)
+	b.ib.AddWord(uint32(storageClass))
+	b.globalVars = append(b.globalVars, b.ib.Build(OpVariable))
 	return id
 }
 
 // AddVariableWithInit adds OpVariable with initializer.
 func (b *ModuleBuilder) AddVariableWithInit(pointerType uint32, storageClass StorageClass, initID uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(pointerType)
-	builder.AddWord(id)
-	builder.AddWord(uint32(storageClass))
-	builder.AddWord(initID)
-	b.globalVars = append(b.globalVars, builder.Build(OpVariable))
+	b.ib.Reset()
+	b.ib.AddWord(pointerType)
+	b.ib.AddWord(id)
+	b.ib.AddWord(uint32(storageClass))
+	b.ib.AddWord(initID)
+	b.globalVars = append(b.globalVars, b.ib.Build(OpVariable))
 	return id
 }
 
 // AddFunction adds a function definition.
 func (b *ModuleBuilder) AddFunction(funcType uint32, returnType uint32, control FunctionControl) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(returnType)
-	builder.AddWord(id)
-	builder.AddWord(uint32(control))
-	builder.AddWord(funcType)
-	b.functions = append(b.functions, builder.Build(OpFunction))
+	b.ib.Reset()
+	b.ib.AddWord(returnType)
+	b.ib.AddWord(id)
+	b.ib.AddWord(uint32(control))
+	b.ib.AddWord(funcType)
+	b.functions = append(b.functions, b.ib.Build(OpFunction))
 	return id
 }
 
 // AddFunctionParameter adds a function parameter.
 func (b *ModuleBuilder) AddFunctionParameter(typeID uint32) uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(typeID)
-	builder.AddWord(id)
-	b.functions = append(b.functions, builder.Build(OpFunctionParameter))
+	b.ib.Reset()
+	b.ib.AddWord(typeID)
+	b.ib.AddWord(id)
+	b.functions = append(b.functions, b.ib.Build(OpFunctionParameter))
 	return id
 }
 
 // AddLabel adds a label.
 func (b *ModuleBuilder) AddLabel() uint32 {
 	id := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	b.functions = append(b.functions, builder.Build(OpLabel))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.functions = append(b.functions, b.ib.Build(OpLabel))
 	return id
 }
 
 // AddLabelWithID adds a label with a pre-allocated ID.
 func (b *ModuleBuilder) AddLabelWithID(id uint32) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(id)
-	b.functions = append(b.functions, builder.Build(OpLabel))
+	b.ib.Reset()
+	b.ib.AddWord(id)
+	b.functions = append(b.functions, b.ib.Build(OpLabel))
 }
 
 // AddReturn adds OpReturn.
 func (b *ModuleBuilder) AddReturn() {
-	builder := NewInstructionBuilder()
-	b.functions = append(b.functions, builder.Build(OpReturn))
+	b.ib.Reset()
+	b.functions = append(b.functions, b.ib.Build(OpReturn))
 }
 
 // AddUnreachable adds OpUnreachable (terminator for unreachable basic blocks).
 func (b *ModuleBuilder) AddUnreachable() {
-	builder := NewInstructionBuilder()
-	b.functions = append(b.functions, builder.Build(OpUnreachable))
+	b.ib.Reset()
+	b.functions = append(b.functions, b.ib.Build(OpUnreachable))
 }
 
 // AddReturnValue adds OpReturnValue.
 func (b *ModuleBuilder) AddReturnValue(valueID uint32) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(valueID)
-	b.functions = append(b.functions, builder.Build(OpReturnValue))
+	b.ib.Reset()
+	b.ib.AddWord(valueID)
+	b.functions = append(b.functions, b.ib.Build(OpReturnValue))
 }
 
 // AddFunctionEnd adds OpFunctionEnd.
 func (b *ModuleBuilder) AddFunctionEnd() {
-	builder := NewInstructionBuilder()
-	b.functions = append(b.functions, builder.Build(OpFunctionEnd))
+	b.ib.Reset()
+	b.functions = append(b.functions, b.ib.Build(OpFunctionEnd))
 }
 
 // AddBinaryOp adds a binary operation instruction.
 func (b *ModuleBuilder) AddBinaryOp(opcode OpCode, resultType uint32, left uint32, right uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
-	builder.AddWord(left)
-	builder.AddWord(right)
-	b.functions = append(b.functions, builder.Build(opcode))
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(left)
+	b.ib.AddWord(right)
+	b.functions = append(b.functions, b.ib.Build(opcode))
 	return resultID
 }
 
 // AddUnaryOp adds a unary operation instruction.
 func (b *ModuleBuilder) AddUnaryOp(opcode OpCode, resultType uint32, operand uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
-	builder.AddWord(operand)
-	b.functions = append(b.functions, builder.Build(opcode))
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(operand)
+	b.functions = append(b.functions, b.ib.Build(opcode))
 	return resultID
 }
 
 // AddLoad adds OpLoad.
 func (b *ModuleBuilder) AddLoad(resultType uint32, pointer uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
-	builder.AddWord(pointer)
-	b.functions = append(b.functions, builder.Build(OpLoad))
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(pointer)
+	b.functions = append(b.functions, b.ib.Build(OpLoad))
 	return resultID
 }
 
 // AddStore adds OpStore.
 func (b *ModuleBuilder) AddStore(pointer uint32, value uint32) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(pointer)
-	builder.AddWord(value)
-	b.functions = append(b.functions, builder.Build(OpStore))
+	b.ib.Reset()
+	b.ib.AddWord(pointer)
+	b.ib.AddWord(value)
+	b.functions = append(b.functions, b.ib.Build(OpStore))
 }
 
 // AddAccessChain adds OpAccessChain.
 func (b *ModuleBuilder) AddAccessChain(resultType uint32, base uint32, indices ...uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
-	builder.AddWord(base)
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(base)
 	for _, index := range indices {
-		builder.AddWord(index)
+		b.ib.AddWord(index)
 	}
-	b.functions = append(b.functions, builder.Build(OpAccessChain))
+	b.functions = append(b.functions, b.ib.Build(OpAccessChain))
 	return resultID
 }
 
 // AddCompositeConstruct adds OpCompositeConstruct.
 func (b *ModuleBuilder) AddCompositeConstruct(resultType uint32, constituents ...uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
 	for _, constituent := range constituents {
-		builder.AddWord(constituent)
+		b.ib.AddWord(constituent)
 	}
-	b.functions = append(b.functions, builder.Build(OpCompositeConstruct))
+	b.functions = append(b.functions, b.ib.Build(OpCompositeConstruct))
 	return resultID
 }
 
@@ -568,14 +648,14 @@ func (b *ModuleBuilder) AddCompositeConstruct(resultType uint32, constituents ..
 // Unlike OpAccessChain, this operates on values (not pointers) and indexes are literals.
 func (b *ModuleBuilder) AddCompositeExtract(resultType uint32, composite uint32, indexes ...uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
-	builder.AddWord(composite)
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(composite)
 	for _, idx := range indexes {
-		builder.AddWord(idx)
+		b.ib.AddWord(idx)
 	}
-	b.functions = append(b.functions, builder.Build(OpCompositeExtract))
+	b.functions = append(b.functions, b.ib.Build(OpCompositeExtract))
 	return resultID
 }
 
@@ -583,87 +663,87 @@ func (b *ModuleBuilder) AddCompositeExtract(resultType uint32, composite uint32,
 // using a dynamic (runtime) index. Unlike OpCompositeExtract, the index is an ID not a literal.
 func (b *ModuleBuilder) AddVectorExtractDynamic(resultType uint32, vector uint32, index uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
-	builder.AddWord(vector)
-	builder.AddWord(index)
-	b.functions = append(b.functions, builder.Build(OpVectorExtractDynamic))
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(vector)
+	b.ib.AddWord(index)
+	b.functions = append(b.functions, b.ib.Build(OpVectorExtractDynamic))
 	return resultID
 }
 
 // AddVectorShuffle adds OpVectorShuffle for vector swizzle operations.
 func (b *ModuleBuilder) AddVectorShuffle(resultType uint32, vec1 uint32, vec2 uint32, components []uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
-	builder.AddWord(vec1)
-	builder.AddWord(vec2)
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(vec1)
+	b.ib.AddWord(vec2)
 	for _, component := range components {
-		builder.AddWord(component)
+		b.ib.AddWord(component)
 	}
-	b.functions = append(b.functions, builder.Build(OpVectorShuffle))
+	b.functions = append(b.functions, b.ib.Build(OpVectorShuffle))
 	return resultID
 }
 
 // AddSelect adds OpSelect.
 func (b *ModuleBuilder) AddSelect(resultType uint32, condition uint32, accept uint32, reject uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
-	builder.AddWord(condition)
-	builder.AddWord(accept)
-	builder.AddWord(reject)
-	b.functions = append(b.functions, builder.Build(OpSelect))
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(condition)
+	b.ib.AddWord(accept)
+	b.ib.AddWord(reject)
+	b.functions = append(b.functions, b.ib.Build(OpSelect))
 	return resultID
 }
 
 // AddSelectionMerge adds OpSelectionMerge.
 func (b *ModuleBuilder) AddSelectionMerge(mergeLabel uint32, control SelectionControl) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(mergeLabel)
-	builder.AddWord(uint32(control))
-	b.functions = append(b.functions, builder.Build(OpSelectionMerge))
+	b.ib.Reset()
+	b.ib.AddWord(mergeLabel)
+	b.ib.AddWord(uint32(control))
+	b.functions = append(b.functions, b.ib.Build(OpSelectionMerge))
 }
 
 // AddLoopMerge adds OpLoopMerge.
 func (b *ModuleBuilder) AddLoopMerge(mergeLabel uint32, continueLabel uint32, control LoopControl) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(mergeLabel)
-	builder.AddWord(continueLabel)
-	builder.AddWord(uint32(control))
-	b.functions = append(b.functions, builder.Build(OpLoopMerge))
+	b.ib.Reset()
+	b.ib.AddWord(mergeLabel)
+	b.ib.AddWord(continueLabel)
+	b.ib.AddWord(uint32(control))
+	b.functions = append(b.functions, b.ib.Build(OpLoopMerge))
 }
 
 // AddBranchConditional adds OpBranchConditional.
 func (b *ModuleBuilder) AddBranchConditional(condition uint32, trueLabel uint32, falseLabel uint32) {
-	builder := NewInstructionBuilder()
-	builder.AddWord(condition)
-	builder.AddWord(trueLabel)
-	builder.AddWord(falseLabel)
-	b.functions = append(b.functions, builder.Build(OpBranchConditional))
+	b.ib.Reset()
+	b.ib.AddWord(condition)
+	b.ib.AddWord(trueLabel)
+	b.ib.AddWord(falseLabel)
+	b.functions = append(b.functions, b.ib.Build(OpBranchConditional))
 }
 
 // AddKill adds OpKill (fragment shader discard).
 func (b *ModuleBuilder) AddKill() {
-	builder := NewInstructionBuilder()
-	b.functions = append(b.functions, builder.Build(OpKill))
+	b.ib.Reset()
+	b.functions = append(b.functions, b.ib.Build(OpKill))
 }
 
 // AddExtInst adds OpExtInst (extended instruction).
 func (b *ModuleBuilder) AddExtInst(resultType uint32, extSet uint32, instruction uint32, operands ...uint32) uint32 {
 	resultID := b.AllocID()
-	builder := NewInstructionBuilder()
-	builder.AddWord(resultType)
-	builder.AddWord(resultID)
-	builder.AddWord(extSet)
-	builder.AddWord(instruction)
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(extSet)
+	b.ib.AddWord(instruction)
 	for _, operand := range operands {
-		builder.AddWord(operand)
+		b.ib.AddWord(operand)
 	}
-	b.functions = append(b.functions, builder.Build(OpExtInst))
+	b.functions = append(b.functions, b.ib.Build(OpExtInst))
 	return resultID
 }
 
@@ -678,7 +758,7 @@ func (b *ModuleBuilder) Build() []byte {
 	totalWords += countWords(b.extensions)
 	totalWords += countWords(b.extInstImports)
 	if b.memoryModel != nil {
-		totalWords += len(b.memoryModel.Encode())
+		totalWords += b.memoryModel.WordCount()
 	}
 	totalWords += countWords(b.entryPoints)
 	totalWords += countWords(b.executionModes)
@@ -728,7 +808,7 @@ func (b *ModuleBuilder) Build() []byte {
 func countWords(instructions []Instruction) int {
 	count := 0
 	for _, inst := range instructions {
-		count += len(inst.Encode())
+		count += inst.WordCount()
 	}
 	return count
 }
@@ -743,12 +823,7 @@ func writeInstructions(buffer []byte, offset int, instructions []Instruction) in
 
 // writeInstruction writes a single instruction to buffer.
 func writeInstruction(buffer []byte, offset int, inst Instruction) int {
-	words := inst.Encode()
-	for _, word := range words {
-		binary.LittleEndian.PutUint32(buffer[offset:], word)
-		offset += 4
-	}
-	return offset
+	return inst.WriteTo(buffer, offset)
 }
 
 // versionToWord converts Version to SPIR-V word format.

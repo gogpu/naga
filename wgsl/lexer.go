@@ -17,11 +17,17 @@ type Lexer struct {
 
 // NewLexer creates a new lexer for the given source.
 func NewLexer(source string) *Lexer {
+	// Estimate ~1 token per 6 characters of source.
+	estTokens := len(source) / 6
+	if estTokens < 16 {
+		estTokens = 16
+	}
 	return &Lexer{
 		source: source,
 		pos:    0,
 		line:   1,
 		column: 1,
+		tokens: make([]Token, 0, estTokens),
 	}
 }
 
