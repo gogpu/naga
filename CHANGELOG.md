@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-02-17
+
+SPIR-V OpArrayLength fix, comprehensive benchmarks, and compiler allocation optimization (−32%).
+
+### Fixed
+
+- **SPIR-V `OpArrayLength`** — Runtime-sized array length queries (`arrayLength()`) now emit
+  correct `OpArrayLength` instruction. Handles both bare storage arrays (wrapped in synthetic
+  struct) and struct member arrays. Fixes "unsupported expression kind: ExprArrayLength" crash
+  in compute shaders with dynamic buffer sizes.
+
+### Added
+
+- **Comprehensive compiler benchmarks** — 68 benchmarks across all 7 packages (root, wgsl, spirv,
+  glsl, hlsl, msl, ir) with `ReportAllocs()` and `b.SetBytes()` throughput metrics. Covers
+  full pipeline (lex→parse→lower→validate→generate), cross-backend comparison, and per-stage
+  isolation. Table-driven by shader complexity (small/medium/large).
+
+### Changed
+
+- **Compiler allocation reduction (−32.3%)** — Large PBR shader: 1384→937 allocs, 203KB→134KB.
+  Word arena for SPIR-V instructions (eliminates per-instruction `make()`), shared
+  `InstructionBuilder` with `Reset()`, package-level lookup tables in lowerer (eliminates
+  6 map allocations per compile including 66-entry `getMathFunction`), capacity hints in
+  parser/lexer/backend. SPIR-V generate stage: −58.4% allocs. Lowerer bytes: −68.6%.
+
 ## [0.13.0] - 2026-02-15
 
 GLSL backend improvements, HLSL struct entry point fix, and SPIR-V vector/scalar multiply and bool conversion fixes.
@@ -699,7 +725,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/gogpu/naga/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/gogpu/naga/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/gogpu/naga/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/gogpu/naga/compare/v0.11.1...v0.12.0
