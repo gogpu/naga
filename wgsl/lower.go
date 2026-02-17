@@ -71,12 +71,12 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 		module:     &ir.Module{},
 		source:     source,
 		registry:   ir.NewTypeRegistry(),
-		types:      make(map[string]ir.TypeHandle),
-		globals:    make(map[string]ir.GlobalVariableHandle),
-		locals:     make(map[string]ir.ExpressionHandle),
-		functions:  make(map[string]ir.FunctionHandle),
-		localDecls: make(map[string]Span),
-		usedLocals: make(map[string]bool),
+		types:      make(map[string]ir.TypeHandle, 16),
+		globals:    make(map[string]ir.GlobalVariableHandle, 8),
+		locals:     make(map[string]ir.ExpressionHandle, 16),
+		functions:  make(map[string]ir.FunctionHandle, len(ast.Functions)),
+		localDecls: make(map[string]Span, 16),
+		usedLocals: make(map[string]bool, 16),
 	}
 
 	// Register built-in types
@@ -357,19 +357,35 @@ func (l *Lowerer) lowerConstant(c *ConstDecl) error {
 
 // lowerFunction converts a function declaration to IR.
 func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
-	// Reset local context
-	l.locals = make(map[string]ir.ExpressionHandle)
-	l.localDecls = make(map[string]Span)
-	l.usedLocals = make(map[string]bool)
+	// Reset local context by clearing maps instead of reallocating.
+	for k := range l.locals {
+		delete(l.locals, k)
+	}
+	for k := range l.localDecls {
+		delete(l.localDecls, k)
+	}
+	for k := range l.usedLocals {
+		delete(l.usedLocals, k)
+	}
 	l.currentExprIdx = 0
+
+	// Estimate sizes based on function complexity.
+	var bodySize int
+	if f.Body != nil {
+		bodySize = len(f.Body.Statements)
+	}
+	estExprs := bodySize * 3 // rough: ~3 expressions per statement
+	if estExprs < 8 {
+		estExprs = 8
+	}
 
 	fn := &ir.Function{
 		Name:            f.Name,
 		Arguments:       make([]ir.FunctionArgument, len(f.Params)),
-		LocalVars:       []ir.LocalVariable{},
-		Expressions:     []ir.Expression{},
-		ExpressionTypes: []ir.TypeResolution{},
-		Body:            []ir.Statement{},
+		LocalVars:       make([]ir.LocalVariable, 0, 4),
+		Expressions:     make([]ir.Expression, 0, estExprs),
+		ExpressionTypes: make([]ir.TypeResolution, 0, estExprs),
+		Body:            make([]ir.Statement, 0, bodySize),
 	}
 	l.currentFunc = fn
 
@@ -1374,116 +1390,119 @@ func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir
 	}), nil
 }
 
+// mathFuncTable is a package-level lookup table for WGSL math function names to IR math functions.
+// Declared at package scope to avoid reallocating the map on every call to getMathFunction.
+var mathFuncTable = map[string]ir.MathFunction{
+	// Comparison functions
+	"abs":      ir.MathAbs,
+	"min":      ir.MathMin,
+	"max":      ir.MathMax,
+	"clamp":    ir.MathClamp,
+	"saturate": ir.MathSaturate,
+
+	// Trigonometric functions
+	"cos":   ir.MathCos,
+	"cosh":  ir.MathCosh,
+	"sin":   ir.MathSin,
+	"sinh":  ir.MathSinh,
+	"tan":   ir.MathTan,
+	"tanh":  ir.MathTanh,
+	"acos":  ir.MathAcos,
+	"asin":  ir.MathAsin,
+	"atan":  ir.MathAtan,
+	"atan2": ir.MathAtan2,
+	"asinh": ir.MathAsinh,
+	"acosh": ir.MathAcosh,
+	"atanh": ir.MathAtanh,
+
+	// Angle conversion
+	"radians": ir.MathRadians,
+	"degrees": ir.MathDegrees,
+
+	// Decomposition functions
+	"ceil":  ir.MathCeil,
+	"floor": ir.MathFloor,
+	"round": ir.MathRound,
+	"fract": ir.MathFract,
+	"trunc": ir.MathTrunc,
+
+	// Exponential functions
+	"exp":  ir.MathExp,
+	"exp2": ir.MathExp2,
+	"log":  ir.MathLog,
+	"log2": ir.MathLog2,
+	"pow":  ir.MathPow,
+
+	// Geometric functions
+	"dot":         ir.MathDot,
+	"cross":       ir.MathCross,
+	"distance":    ir.MathDistance,
+	"length":      ir.MathLength,
+	"normalize":   ir.MathNormalize,
+	"faceForward": ir.MathFaceForward,
+	"reflect":     ir.MathReflect,
+	"refract":     ir.MathRefract,
+
+	// Computational functions
+	"sign":        ir.MathSign,
+	"fma":         ir.MathFma,
+	"mix":         ir.MathMix,
+	"step":        ir.MathStep,
+	"smoothstep":  ir.MathSmoothStep,
+	"sqrt":        ir.MathSqrt,
+	"inverseSqrt": ir.MathInverseSqrt,
+
+	// Matrix functions
+	"transpose":   ir.MathTranspose,
+	"determinant": ir.MathDeterminant,
+
+	// Bit manipulation functions
+	"countTrailingZeros": ir.MathCountTrailingZeros,
+	"countLeadingZeros":  ir.MathCountLeadingZeros,
+	"countOneBits":       ir.MathCountOneBits,
+	"reverseBits":        ir.MathReverseBits,
+	"extractBits":        ir.MathExtractBits,
+	"insertBits":         ir.MathInsertBits,
+	"firstTrailingBit":   ir.MathFirstTrailingBit,
+	"firstLeadingBit":    ir.MathFirstLeadingBit,
+
+	// Data packing functions
+	"pack4x8snorm":  ir.MathPack4x8snorm,
+	"pack4x8unorm":  ir.MathPack4x8unorm,
+	"pack2x16snorm": ir.MathPack2x16snorm,
+	"pack2x16unorm": ir.MathPack2x16unorm,
+	"pack2x16float": ir.MathPack2x16float,
+
+	// Data unpacking functions
+	"unpack4x8snorm":  ir.MathUnpack4x8snorm,
+	"unpack4x8unorm":  ir.MathUnpack4x8unorm,
+	"unpack2x16snorm": ir.MathUnpack2x16snorm,
+	"unpack2x16unorm": ir.MathUnpack2x16unorm,
+	"unpack2x16float": ir.MathUnpack2x16float,
+	"unpack4xI8":      ir.MathUnpack4xI8,
+	"unpack4xU8":      ir.MathUnpack4xU8,
+	"pack4xI8":        ir.MathPack4xI8,
+	"pack4xU8":        ir.MathPack4xU8,
+	"pack4xI8Clamp":   ir.MathPack4xI8Clamp,
+	"pack4xU8Clamp":   ir.MathPack4xU8Clamp,
+
+	// Decomposition functions (struct return)
+	"modf":  ir.MathModf,
+	"frexp": ir.MathFrexp,
+	"ldexp": ir.MathLdexp,
+
+	// Matrix functions
+	"inverse": ir.MathInverse,
+
+	// Precision
+	"quantizeToF16": ir.MathQuantizeF16,
+
+	// Vector/matrix operations
+	"outerProduct": ir.MathOuter,
+}
+
 func (l *Lowerer) getMathFunction(name string) (ir.MathFunction, bool) {
-	mathFuncs := map[string]ir.MathFunction{
-		// Comparison functions
-		"abs":      ir.MathAbs,
-		"min":      ir.MathMin,
-		"max":      ir.MathMax,
-		"clamp":    ir.MathClamp,
-		"saturate": ir.MathSaturate,
-
-		// Trigonometric functions
-		"cos":   ir.MathCos,
-		"cosh":  ir.MathCosh,
-		"sin":   ir.MathSin,
-		"sinh":  ir.MathSinh,
-		"tan":   ir.MathTan,
-		"tanh":  ir.MathTanh,
-		"acos":  ir.MathAcos,
-		"asin":  ir.MathAsin,
-		"atan":  ir.MathAtan,
-		"atan2": ir.MathAtan2,
-		"asinh": ir.MathAsinh,
-		"acosh": ir.MathAcosh,
-		"atanh": ir.MathAtanh,
-
-		// Angle conversion
-		"radians": ir.MathRadians,
-		"degrees": ir.MathDegrees,
-
-		// Decomposition functions
-		"ceil":  ir.MathCeil,
-		"floor": ir.MathFloor,
-		"round": ir.MathRound,
-		"fract": ir.MathFract,
-		"trunc": ir.MathTrunc,
-
-		// Exponential functions
-		"exp":  ir.MathExp,
-		"exp2": ir.MathExp2,
-		"log":  ir.MathLog,
-		"log2": ir.MathLog2,
-		"pow":  ir.MathPow,
-
-		// Geometric functions
-		"dot":         ir.MathDot,
-		"cross":       ir.MathCross,
-		"distance":    ir.MathDistance,
-		"length":      ir.MathLength,
-		"normalize":   ir.MathNormalize,
-		"faceForward": ir.MathFaceForward,
-		"reflect":     ir.MathReflect,
-		"refract":     ir.MathRefract,
-
-		// Computational functions
-		"sign":        ir.MathSign,
-		"fma":         ir.MathFma,
-		"mix":         ir.MathMix,
-		"step":        ir.MathStep,
-		"smoothstep":  ir.MathSmoothStep,
-		"sqrt":        ir.MathSqrt,
-		"inverseSqrt": ir.MathInverseSqrt,
-
-		// Matrix functions
-		"transpose":   ir.MathTranspose,
-		"determinant": ir.MathDeterminant,
-
-		// Bit manipulation functions
-		"countTrailingZeros": ir.MathCountTrailingZeros,
-		"countLeadingZeros":  ir.MathCountLeadingZeros,
-		"countOneBits":       ir.MathCountOneBits,
-		"reverseBits":        ir.MathReverseBits,
-		"extractBits":        ir.MathExtractBits,
-		"insertBits":         ir.MathInsertBits,
-		"firstTrailingBit":   ir.MathFirstTrailingBit,
-		"firstLeadingBit":    ir.MathFirstLeadingBit,
-
-		// Data packing functions
-		"pack4x8snorm":  ir.MathPack4x8snorm,
-		"pack4x8unorm":  ir.MathPack4x8unorm,
-		"pack2x16snorm": ir.MathPack2x16snorm,
-		"pack2x16unorm": ir.MathPack2x16unorm,
-		"pack2x16float": ir.MathPack2x16float,
-
-		// Data unpacking functions
-		"unpack4x8snorm":  ir.MathUnpack4x8snorm,
-		"unpack4x8unorm":  ir.MathUnpack4x8unorm,
-		"unpack2x16snorm": ir.MathUnpack2x16snorm,
-		"unpack2x16unorm": ir.MathUnpack2x16unorm,
-		"unpack2x16float": ir.MathUnpack2x16float,
-		"unpack4xI8":      ir.MathUnpack4xI8,
-		"unpack4xU8":      ir.MathUnpack4xU8,
-		"pack4xI8":        ir.MathPack4xI8,
-		"pack4xU8":        ir.MathPack4xU8,
-		"pack4xI8Clamp":   ir.MathPack4xI8Clamp,
-		"pack4xU8Clamp":   ir.MathPack4xU8Clamp,
-
-		// Decomposition functions (struct return)
-		"modf":  ir.MathModf,
-		"frexp": ir.MathFrexp,
-		"ldexp": ir.MathLdexp,
-
-		// Matrix functions
-		"inverse": ir.MathInverse,
-
-		// Precision
-		"quantizeToF16": ir.MathQuantizeF16,
-
-		// Vector/matrix operations
-		"outerProduct": ir.MathOuter,
-	}
-	fn, ok := mathFuncs[name]
+	fn, ok := mathFuncTable[name]
 	return fn, ok
 }
 
@@ -1734,36 +1753,40 @@ func (l *Lowerer) extractWorkgroupSize(attrs []Attribute) [3]uint32 {
 	return result
 }
 
+// builtinTable maps WGSL builtin names to IR builtin values.
+var builtinTable = map[string]ir.BuiltinValue{
+	"position":               ir.BuiltinPosition,
+	"vertex_index":           ir.BuiltinVertexIndex,
+	"instance_index":         ir.BuiltinInstanceIndex,
+	"front_facing":           ir.BuiltinFrontFacing,
+	"frag_depth":             ir.BuiltinFragDepth,
+	"local_invocation_id":    ir.BuiltinLocalInvocationID,
+	"local_invocation_index": ir.BuiltinLocalInvocationIndex,
+	"global_invocation_id":   ir.BuiltinGlobalInvocationID,
+	"workgroup_id":           ir.BuiltinWorkGroupID,
+	"num_workgroups":         ir.BuiltinNumWorkGroups,
+}
+
 func (l *Lowerer) builtin(name string) ir.BuiltinValue {
-	builtins := map[string]ir.BuiltinValue{
-		"position":               ir.BuiltinPosition,
-		"vertex_index":           ir.BuiltinVertexIndex,
-		"instance_index":         ir.BuiltinInstanceIndex,
-		"front_facing":           ir.BuiltinFrontFacing,
-		"frag_depth":             ir.BuiltinFragDepth,
-		"local_invocation_id":    ir.BuiltinLocalInvocationID,
-		"local_invocation_index": ir.BuiltinLocalInvocationIndex,
-		"global_invocation_id":   ir.BuiltinGlobalInvocationID,
-		"workgroup_id":           ir.BuiltinWorkGroupID,
-		"num_workgroups":         ir.BuiltinNumWorkGroups,
-	}
-	if b, ok := builtins[name]; ok {
+	if b, ok := builtinTable[name]; ok {
 		return b
 	}
 	return ir.BuiltinPosition // Default
 }
 
+// addressSpaceTable maps WGSL address space names to IR address spaces.
+var addressSpaceTable = map[string]ir.AddressSpace{
+	"function":      ir.SpaceFunction,
+	"private":       ir.SpacePrivate,
+	"workgroup":     ir.SpaceWorkGroup,
+	"uniform":       ir.SpaceUniform,
+	"storage":       ir.SpaceStorage,
+	"push_constant": ir.SpacePushConstant,
+	"handle":        ir.SpaceHandle,
+}
+
 func (l *Lowerer) addressSpace(space string) ir.AddressSpace {
-	spaces := map[string]ir.AddressSpace{
-		"function":      ir.SpaceFunction,
-		"private":       ir.SpacePrivate,
-		"workgroup":     ir.SpaceWorkGroup,
-		"uniform":       ir.SpaceUniform,
-		"storage":       ir.SpaceStorage,
-		"push_constant": ir.SpacePushConstant,
-		"handle":        ir.SpaceHandle,
-	}
-	if s, ok := spaces[space]; ok {
+	if s, ok := addressSpaceTable[space]; ok {
 		return s
 	}
 	return ir.SpaceFunction // Default
@@ -1854,70 +1877,70 @@ func (l *Lowerer) parseTextureDimSuffix(suffix string) ir.ImageDimension {
 }
 
 // parseStorageFormat parses a storage texture format from a type parameter.
+// storageFormatTable maps WGSL storage format names to IR storage formats.
+var storageFormatTable = map[string]ir.StorageFormat{
+	// 8-bit formats
+	"r8unorm": ir.StorageFormatR8Unorm,
+	"r8snorm": ir.StorageFormatR8Snorm,
+	"r8uint":  ir.StorageFormatR8Uint,
+	"r8sint":  ir.StorageFormatR8Sint,
+
+	// 16-bit formats
+	"r16uint":  ir.StorageFormatR16Uint,
+	"r16sint":  ir.StorageFormatR16Sint,
+	"r16float": ir.StorageFormatR16Float,
+	"rg8unorm": ir.StorageFormatRg8Unorm,
+	"rg8snorm": ir.StorageFormatRg8Snorm,
+	"rg8uint":  ir.StorageFormatRg8Uint,
+	"rg8sint":  ir.StorageFormatRg8Sint,
+
+	// 32-bit formats
+	"r32uint":    ir.StorageFormatR32Uint,
+	"r32sint":    ir.StorageFormatR32Sint,
+	"r32float":   ir.StorageFormatR32Float,
+	"rg16uint":   ir.StorageFormatRg16Uint,
+	"rg16sint":   ir.StorageFormatRg16Sint,
+	"rg16float":  ir.StorageFormatRg16Float,
+	"rgba8unorm": ir.StorageFormatRgba8Unorm,
+	"rgba8snorm": ir.StorageFormatRgba8Snorm,
+	"rgba8uint":  ir.StorageFormatRgba8Uint,
+	"rgba8sint":  ir.StorageFormatRgba8Sint,
+	"bgra8unorm": ir.StorageFormatBgra8Unorm,
+
+	// Packed 32-bit formats
+	"rgb10a2uint":  ir.StorageFormatRgb10a2Uint,
+	"rgb10a2unorm": ir.StorageFormatRgb10a2Unorm,
+	"rg11b10float": ir.StorageFormatRg11b10Ufloat,
+
+	// 64-bit formats
+	"rg32uint":    ir.StorageFormatRg32Uint,
+	"rg32sint":    ir.StorageFormatRg32Sint,
+	"rg32float":   ir.StorageFormatRg32Float,
+	"rgba16uint":  ir.StorageFormatRgba16Uint,
+	"rgba16sint":  ir.StorageFormatRgba16Sint,
+	"rgba16float": ir.StorageFormatRgba16Float,
+
+	// 128-bit formats
+	"rgba32uint":  ir.StorageFormatRgba32Uint,
+	"rgba32sint":  ir.StorageFormatRgba32Sint,
+	"rgba32float": ir.StorageFormatRgba32Float,
+
+	// Normalized 16-bit per channel formats
+	"r16unorm":    ir.StorageFormatR16Unorm,
+	"r16snorm":    ir.StorageFormatR16Snorm,
+	"rg16unorm":   ir.StorageFormatRg16Unorm,
+	"rg16snorm":   ir.StorageFormatRg16Snorm,
+	"rgba16unorm": ir.StorageFormatRgba16Unorm,
+	"rgba16snorm": ir.StorageFormatRgba16Snorm,
+}
+
 func (l *Lowerer) parseStorageFormat(param Type) ir.StorageFormat {
 	// The format is typically an identifier like "rgba8unorm"
 	namedType, ok := param.(*NamedType)
 	if !ok {
 		return ir.StorageFormatUnknown
 	}
-	name := namedType.Name
-	formats := map[string]ir.StorageFormat{
-		// 8-bit formats
-		"r8unorm": ir.StorageFormatR8Unorm,
-		"r8snorm": ir.StorageFormatR8Snorm,
-		"r8uint":  ir.StorageFormatR8Uint,
-		"r8sint":  ir.StorageFormatR8Sint,
-
-		// 16-bit formats
-		"r16uint":  ir.StorageFormatR16Uint,
-		"r16sint":  ir.StorageFormatR16Sint,
-		"r16float": ir.StorageFormatR16Float,
-		"rg8unorm": ir.StorageFormatRg8Unorm,
-		"rg8snorm": ir.StorageFormatRg8Snorm,
-		"rg8uint":  ir.StorageFormatRg8Uint,
-		"rg8sint":  ir.StorageFormatRg8Sint,
-
-		// 32-bit formats
-		"r32uint":    ir.StorageFormatR32Uint,
-		"r32sint":    ir.StorageFormatR32Sint,
-		"r32float":   ir.StorageFormatR32Float,
-		"rg16uint":   ir.StorageFormatRg16Uint,
-		"rg16sint":   ir.StorageFormatRg16Sint,
-		"rg16float":  ir.StorageFormatRg16Float,
-		"rgba8unorm": ir.StorageFormatRgba8Unorm,
-		"rgba8snorm": ir.StorageFormatRgba8Snorm,
-		"rgba8uint":  ir.StorageFormatRgba8Uint,
-		"rgba8sint":  ir.StorageFormatRgba8Sint,
-		"bgra8unorm": ir.StorageFormatBgra8Unorm,
-
-		// Packed 32-bit formats
-		"rgb10a2uint":  ir.StorageFormatRgb10a2Uint,
-		"rgb10a2unorm": ir.StorageFormatRgb10a2Unorm,
-		"rg11b10float": ir.StorageFormatRg11b10Ufloat,
-
-		// 64-bit formats
-		"rg32uint":    ir.StorageFormatRg32Uint,
-		"rg32sint":    ir.StorageFormatRg32Sint,
-		"rg32float":   ir.StorageFormatRg32Float,
-		"rgba16uint":  ir.StorageFormatRgba16Uint,
-		"rgba16sint":  ir.StorageFormatRgba16Sint,
-		"rgba16float": ir.StorageFormatRgba16Float,
-
-		// 128-bit formats
-		"rgba32uint":  ir.StorageFormatRgba32Uint,
-		"rgba32sint":  ir.StorageFormatRgba32Sint,
-		"rgba32float": ir.StorageFormatRgba32Float,
-
-		// Normalized 16-bit per channel formats
-		"r16unorm":    ir.StorageFormatR16Unorm,
-		"r16snorm":    ir.StorageFormatR16Snorm,
-		"rg16unorm":   ir.StorageFormatRg16Unorm,
-		"rg16snorm":   ir.StorageFormatRg16Snorm,
-		"rgba16unorm": ir.StorageFormatRgba16Unorm,
-		"rgba16snorm": ir.StorageFormatRgba16Snorm,
-	}
-
-	if format, ok := formats[name]; ok {
+	if format, ok := storageFormatTable[namedType.Name]; ok {
 		return format
 	}
 	return ir.StorageFormatUnknown
@@ -1942,40 +1965,44 @@ func (l *Lowerer) parseStorageAccess(param Type) ir.StorageAccess {
 	}
 }
 
+// binaryOpTable maps token kinds to binary operators.
+var binaryOpTable = map[TokenKind]ir.BinaryOperator{
+	TokenPlus:           ir.BinaryAdd,
+	TokenMinus:          ir.BinarySubtract,
+	TokenStar:           ir.BinaryMultiply,
+	TokenSlash:          ir.BinaryDivide,
+	TokenPercent:        ir.BinaryModulo,
+	TokenEqualEqual:     ir.BinaryEqual,
+	TokenBangEqual:      ir.BinaryNotEqual,
+	TokenLess:           ir.BinaryLess,
+	TokenLessEqual:      ir.BinaryLessEqual,
+	TokenGreater:        ir.BinaryGreater,
+	TokenGreaterEqual:   ir.BinaryGreaterEqual,
+	TokenAmpAmp:         ir.BinaryLogicalAnd,
+	TokenPipePipe:       ir.BinaryLogicalOr,
+	TokenAmpersand:      ir.BinaryAnd,
+	TokenPipe:           ir.BinaryInclusiveOr,
+	TokenCaret:          ir.BinaryExclusiveOr,
+	TokenLessLess:       ir.BinaryShiftLeft,
+	TokenGreaterGreater: ir.BinaryShiftRight,
+}
+
+// unaryOpTable maps token kinds to unary operators.
+var unaryOpTable = map[TokenKind]ir.UnaryOperator{
+	TokenMinus: ir.UnaryNegate,
+	TokenBang:  ir.UnaryLogicalNot,
+	TokenTilde: ir.UnaryBitwiseNot,
+}
+
 func (l *Lowerer) tokenToBinaryOp(tok TokenKind) ir.BinaryOperator {
-	ops := map[TokenKind]ir.BinaryOperator{
-		TokenPlus:           ir.BinaryAdd,
-		TokenMinus:          ir.BinarySubtract,
-		TokenStar:           ir.BinaryMultiply,
-		TokenSlash:          ir.BinaryDivide,
-		TokenPercent:        ir.BinaryModulo,
-		TokenEqualEqual:     ir.BinaryEqual,
-		TokenBangEqual:      ir.BinaryNotEqual,
-		TokenLess:           ir.BinaryLess,
-		TokenLessEqual:      ir.BinaryLessEqual,
-		TokenGreater:        ir.BinaryGreater,
-		TokenGreaterEqual:   ir.BinaryGreaterEqual,
-		TokenAmpAmp:         ir.BinaryLogicalAnd,
-		TokenPipePipe:       ir.BinaryLogicalOr,
-		TokenAmpersand:      ir.BinaryAnd,
-		TokenPipe:           ir.BinaryInclusiveOr,
-		TokenCaret:          ir.BinaryExclusiveOr,
-		TokenLessLess:       ir.BinaryShiftLeft,
-		TokenGreaterGreater: ir.BinaryShiftRight,
-	}
-	if op, ok := ops[tok]; ok {
+	if op, ok := binaryOpTable[tok]; ok {
 		return op
 	}
 	return ir.BinaryAdd // Default
 }
 
 func (l *Lowerer) tokenToUnaryOp(tok TokenKind) ir.UnaryOperator {
-	ops := map[TokenKind]ir.UnaryOperator{
-		TokenMinus: ir.UnaryNegate,
-		TokenBang:  ir.UnaryLogicalNot,
-		TokenTilde: ir.UnaryBitwiseNot,
-	}
-	if op, ok := ops[tok]; ok {
+	if op, ok := unaryOpTable[tok]; ok {
 		return op
 	}
 	return ir.UnaryNegate // Default
@@ -1997,14 +2024,16 @@ func (l *Lowerer) checkUnusedVariables(funcName string) {
 	}
 }
 
+// assignOpTable maps compound assignment token kinds to binary operators.
+var assignOpTable = map[TokenKind]ir.BinaryOperator{
+	TokenPlusEqual:  ir.BinaryAdd,
+	TokenMinusEqual: ir.BinarySubtract,
+	TokenStarEqual:  ir.BinaryMultiply,
+	TokenSlashEqual: ir.BinaryDivide,
+}
+
 func (l *Lowerer) assignOpToBinary(tok TokenKind) ir.BinaryOperator {
-	ops := map[TokenKind]ir.BinaryOperator{
-		TokenPlusEqual:  ir.BinaryAdd,
-		TokenMinusEqual: ir.BinarySubtract,
-		TokenStarEqual:  ir.BinaryMultiply,
-		TokenSlashEqual: ir.BinaryDivide,
-	}
-	if op, ok := ops[tok]; ok {
+	if op, ok := assignOpTable[tok]; ok {
 		return op
 	}
 	return ir.BinaryAdd // Default

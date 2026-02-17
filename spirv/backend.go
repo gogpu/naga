@@ -94,26 +94,41 @@ type Backend struct {
 	// When accessing these variables, an extra index 0 must be prepended to
 	// OpAccessChain to go through the wrapper struct to the actual data.
 	wrappedStorageVars map[ir.GlobalVariableHandle]bool
+
+	// Shared instruction builder reused across emit methods that don't call
+	// other emit functions between Reset() and Build().
+	ib InstructionBuilder
 }
 
 // NewBackend creates a new SPIR-V backend.
 func NewBackend(options Options) *Backend {
 	return &Backend{
 		options:             options,
-		typeIDs:             make(map[ir.TypeHandle]uint32),
-		constantIDs:         make(map[ir.ConstantHandle]uint32),
-		globalIDs:           make(map[ir.GlobalVariableHandle]uint32),
-		functionIDs:         make(map[ir.FunctionHandle]uint32),
-		entryInputVars:      make(map[ir.FunctionHandle]map[int]*entryPointInput),
-		entryOutputVars:     make(map[ir.FunctionHandle]*entryPointOutput),
-		sampledImageTypeIDs: make(map[uint32]uint32),
-		imageTypeIDs:        make(map[uint32]uint32),
-		scalarTypeIDs:       make(map[uint32]uint32),
-		pointerTypeIDs:      make(map[uint32]uint32),
-		vectorTypeIDs:       make(map[uint32]uint32),
-		usedCapabilities:    make(map[Capability]bool),
-		funcTypeIDs:         make(map[string]uint32),
-		wrappedStorageVars:  make(map[ir.GlobalVariableHandle]bool),
+		typeIDs:             make(map[ir.TypeHandle]uint32, 16),
+		constantIDs:         make(map[ir.ConstantHandle]uint32, 16),
+		globalIDs:           make(map[ir.GlobalVariableHandle]uint32, 4),
+		functionIDs:         make(map[ir.FunctionHandle]uint32, 4),
+		entryInputVars:      make(map[ir.FunctionHandle]map[int]*entryPointInput, 2),
+		entryOutputVars:     make(map[ir.FunctionHandle]*entryPointOutput, 2),
+		sampledImageTypeIDs: make(map[uint32]uint32, 4),
+		imageTypeIDs:        make(map[uint32]uint32, 4),
+		scalarTypeIDs:       make(map[uint32]uint32, 8),
+		pointerTypeIDs:      make(map[uint32]uint32, 8),
+		vectorTypeIDs:       make(map[uint32]uint32, 8),
+		usedCapabilities:    make(map[Capability]bool, 4),
+		funcTypeIDs:         make(map[string]uint32, 4),
+		wrappedStorageVars:  make(map[ir.GlobalVariableHandle]bool, 2),
+	}
+}
+
+// newIB creates a new InstructionBuilder that allocates from the module's arena.
+// Use this for cases where the builder must survive across calls to other emit
+// methods (e.g. when emitExpression is called between AddWord and Build).
+// For simple cases (build immediately after adding words), use b.ib instead.
+func (b *Backend) newIB() *InstructionBuilder {
+	return &InstructionBuilder{
+		words: make([]uint32, 0, 8),
+		arena: &b.builder.arena,
 	}
 }
 
@@ -121,6 +136,11 @@ func NewBackend(options Options) *Backend {
 func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	b.module = module
 	b.builder = NewModuleBuilder(b.options.Version)
+	// Initialize shared instruction builder with module builder's arena for zero-alloc builds.
+	b.ib = InstructionBuilder{
+		words: make([]uint32, 0, 16),
+		arena: &b.builder.arena,
+	}
 
 	// 1. Capabilities
 	b.emitCapabilities()
@@ -346,7 +366,7 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 	case ir.SamplerType:
 		// OpTypeSampler has no operands
 		id = b.builder.AllocID()
-		builder := NewInstructionBuilder()
+		builder := b.newIB()
 		builder.AddWord(id)
 		b.builder.types = append(b.builder.types, builder.Build(OpTypeSampler))
 
@@ -515,7 +535,7 @@ func (b *Backend) emitImageType(sampledTypeID uint32, img ir.ImageType) uint32 {
 	}
 
 	id := b.builder.AllocID()
-	builder := NewInstructionBuilder()
+	builder := b.newIB()
 	builder.AddWord(id)
 	builder.AddWord(sampledTypeID)
 
@@ -662,7 +682,7 @@ func (b *Backend) emitScalarConstant(typeID uint32, value ir.ScalarValue) uint32
 		if value.Bits != 0 {
 			// OpConstantTrue
 			id := b.builder.AllocID()
-			builder := NewInstructionBuilder()
+			builder := b.newIB()
 			builder.AddWord(typeID)
 			builder.AddWord(id)
 			b.builder.types = append(b.builder.types, builder.Build(OpConstantTrue))
@@ -670,7 +690,7 @@ func (b *Backend) emitScalarConstant(typeID uint32, value ir.ScalarValue) uint32
 		}
 		// OpConstantFalse
 		id := b.builder.AllocID()
-		builder := NewInstructionBuilder()
+		builder := b.newIB()
 		builder.AddWord(typeID)
 		builder.AddWord(id)
 		b.builder.types = append(b.builder.types, builder.Build(OpConstantFalse))
@@ -1184,7 +1204,7 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 
 		// Allocate variable (OpVariable in function body)
 		varID := b.builder.AllocID()
-		builder := NewInstructionBuilder()
+		builder := b.newIB()
 		builder.AddWord(ptrType)
 		builder.AddWord(varID)
 		builder.AddWord(uint32(StorageClassFunction))
@@ -1215,7 +1235,7 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 					// Struct input with member bindings - create local variable
 					ptrType := b.emitPointerType(StorageClassFunction, input.typeID)
 					localVarID := b.builder.AllocID()
-					builder := NewInstructionBuilder()
+					builder := b.newIB()
 					builder.AddWord(ptrType)
 					builder.AddWord(localVarID)
 					builder.AddWord(uint32(StorageClassFunction))
@@ -1236,12 +1256,12 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	emitter := &ExpressionEmitter{
 		backend:            b,
 		function:           fn,
-		exprIDs:            make(map[ir.ExpressionHandle]uint32),
+		exprIDs:            make(map[ir.ExpressionHandle]uint32, len(fn.Expressions)),
 		paramIDs:           paramIDs,
 		isEntryPoint:       isEntryPoint,
 		output:             output,
-		callResultIDs:      make(map[ir.ExpressionHandle]uint32),
-		deferredCallStores: make(map[ir.ExpressionHandle]uint32),
+		callResultIDs:      make(map[ir.ExpressionHandle]uint32, 4),
+		deferredCallStores: make(map[ir.ExpressionHandle]uint32, 4),
 	}
 	emitter.localVarIDs = localVarIDs
 
@@ -1413,6 +1433,11 @@ func (b *Backend) emitInlineType(inner ir.TypeInner) uint32 {
 	}
 }
 
+// newIB creates a new InstructionBuilder that allocates from the module's arena.
+func (e *ExpressionEmitter) newIB() *InstructionBuilder {
+	return e.backend.newIB()
+}
+
 // emitExpression emits an expression and returns its SPIR-V ID.
 //
 //nolint:gocyclo,cyclop // Expression dispatch requires high cyclomatic complexity
@@ -1511,7 +1536,7 @@ func (e *ExpressionEmitter) emitLiteral(value ir.LiteralValue) (uint32, error) {
 		if v {
 			// OpConstantTrue
 			resultID := e.backend.builder.AllocID()
-			builder := NewInstructionBuilder()
+			builder := e.newIB()
 			builder.AddWord(typeID)
 			builder.AddWord(resultID)
 			e.backend.builder.types = append(e.backend.builder.types, builder.Build(OpConstantTrue))
@@ -1519,7 +1544,7 @@ func (e *ExpressionEmitter) emitLiteral(value ir.LiteralValue) (uint32, error) {
 		}
 		// OpConstantFalse
 		resultID := e.backend.builder.AllocID()
-		builder := NewInstructionBuilder()
+		builder := e.newIB()
 		builder.AddWord(typeID)
 		builder.AddWord(resultID)
 		e.backend.builder.types = append(e.backend.builder.types, builder.Build(OpConstantFalse))
@@ -2174,7 +2199,7 @@ func (e *ExpressionEmitter) emitNumericToBool(targetTypeID uint32, srcScalar ir.
 
 	// Emit comparison: value != 0
 	resultID := e.backend.builder.AllocID()
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 	builder.AddWord(targetTypeID)
 	builder.AddWord(resultID)
 	builder.AddWord(exprID)
@@ -2207,7 +2232,7 @@ func selectConversionOp(src, dst ir.ScalarKind) (OpCode, error) {
 // emitConversionOp emits a unary conversion instruction.
 func (e *ExpressionEmitter) emitConversionOp(op OpCode, resultType, operand uint32) uint32 {
 	resultID := e.backend.builder.AllocID()
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 	builder.AddWord(resultType)
 	builder.AddWord(resultID)
 	builder.AddWord(operand)
@@ -2577,7 +2602,7 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 			return fmt.Errorf("break statement outside of loop")
 		}
 		ctx := e.loopStack[len(e.loopStack)-1]
-		builder := NewInstructionBuilder()
+		builder := e.newIB()
 		builder.AddWord(ctx.mergeLabel)
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 		return nil
@@ -2587,7 +2612,7 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 			return fmt.Errorf("continue statement outside of loop")
 		}
 		ctx := e.loopStack[len(e.loopStack)-1]
-		builder := NewInstructionBuilder()
+		builder := e.newIB()
 		builder.AddWord(ctx.continueLabel)
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 		return nil
@@ -2693,7 +2718,7 @@ func (e *ExpressionEmitter) emitIf(stmt ir.StmtIf) error {
 	}
 	// Branch to merge only if block didn't already terminate (return/kill/break/continue)
 	if !blockEndsWithTerminator(stmt.Accept) {
-		builder := NewInstructionBuilder()
+		builder := e.newIB()
 		builder.AddWord(mergeLabel)
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 	}
@@ -2707,7 +2732,7 @@ func (e *ExpressionEmitter) emitIf(stmt ir.StmtIf) error {
 	}
 	// Branch to merge only if block didn't already terminate
 	if !blockEndsWithTerminator(stmt.Reject) {
-		builder := NewInstructionBuilder()
+		builder := e.newIB()
 		builder.AddWord(mergeLabel)
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 	}
@@ -2764,7 +2789,7 @@ func (e *ExpressionEmitter) emitLoop(stmt ir.StmtLoop) error {
 	}()
 
 	// Branch to header
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 	builder.AddWord(headerLabel)
 	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 
@@ -2775,7 +2800,7 @@ func (e *ExpressionEmitter) emitLoop(stmt ir.StmtLoop) error {
 	e.backend.builder.AddLoopMerge(mergeLabel, continueLabel, LoopControlNone)
 
 	// Branch to body
-	builder = NewInstructionBuilder()
+	builder = e.newIB()
 	builder.AddWord(bodyLabel)
 	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 
@@ -2791,7 +2816,7 @@ func (e *ExpressionEmitter) emitLoop(stmt ir.StmtLoop) error {
 
 	// Branch to continue block only if body didn't already terminate
 	if !blockEndsWithTerminator(stmt.Body) {
-		builder = NewInstructionBuilder()
+		builder = e.newIB()
 		builder.AddWord(continueLabel)
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 	}
@@ -2816,7 +2841,7 @@ func (e *ExpressionEmitter) emitLoop(stmt ir.StmtLoop) error {
 		e.backend.builder.AddBranchConditional(breakCondID, mergeLabel, headerLabel)
 	} else {
 		// Unconditional back-edge to header
-		builder = NewInstructionBuilder()
+		builder = e.newIB()
 		builder.AddWord(headerLabel)
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 	}
@@ -2860,7 +2885,7 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 
 	// Build OpSwitch instruction
 	// Format: OpSwitch Selector Default (Literal Label)*
-	switchBuilder := NewInstructionBuilder()
+	switchBuilder := e.newIB()
 	switchBuilder.AddWord(selectorID)
 	switchBuilder.AddWord(defaultLabel)
 
@@ -2905,7 +2930,7 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 		}
 		// Branch to target only if case body didn't already terminate
 		if !blockEndsWithTerminator(c.Body) {
-			branchBuilder := NewInstructionBuilder()
+			branchBuilder := e.newIB()
 			branchBuilder.AddWord(targetLabel)
 			e.backend.builder.functions = append(e.backend.builder.functions, branchBuilder.Build(OpBranch))
 		}
@@ -3262,7 +3287,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	sampledImageTypeID := e.backend.getSampledImageType(sample.Image)
 	sampledImageID := e.backend.builder.AllocID()
 
-	sampledImageBuilder := NewInstructionBuilder()
+	sampledImageBuilder := e.newIB()
 	sampledImageBuilder.AddWord(sampledImageTypeID)
 	sampledImageBuilder.AddWord(sampledImageID)
 	sampledImageBuilder.AddWord(imageID)
@@ -3273,7 +3298,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	resultType := e.backend.emitVec4F32Type()
 	resultID := e.backend.builder.AllocID()
 
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 	builder.AddWord(resultType)
 	builder.AddWord(resultID)
 	builder.AddWord(sampledImageID)
@@ -3352,7 +3377,7 @@ func (e *ExpressionEmitter) emitImageLoad(load ir.ExprImageLoad) (uint32, error)
 	resultType := e.backend.emitVec4F32Type()
 	resultID := e.backend.builder.AllocID()
 
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 	builder.AddWord(resultType)
 	builder.AddWord(resultID)
 	builder.AddWord(imageID)
@@ -3380,7 +3405,7 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 	}
 
 	var resultID uint32
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 
 	switch q := query.Query.(type) {
 	case ir.ImageQuerySize:
@@ -3459,7 +3484,7 @@ func (b *Backend) getSampledImageType(_ ir.ExpressionHandle) uint32 {
 
 	// OpTypeSampledImage
 	resultID := b.builder.AllocID()
-	builder := NewInstructionBuilder()
+	builder := b.newIB()
 	builder.AddWord(resultID)
 	builder.AddWord(imageTypeID)
 	b.builder.types = append(b.builder.types, builder.Build(OpTypeSampledImage))
@@ -3503,7 +3528,7 @@ func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
 	semanticsID := e.backend.builder.AddConstant(u32TypeID, semantics)
 
 	// OpControlBarrier Execution Memory Semantics
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 	builder.AddWord(execScopeID)
 	builder.AddWord(memScopeID)
 	builder.AddWord(semanticsID)
@@ -3610,7 +3635,7 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 
 	// Emit the atomic operation: OpAtomic* ResultType Result Pointer Scope Semantics Value
 	resultID := e.backend.builder.AllocID()
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 	builder.AddWord(resultTypeID)
 	builder.AddWord(resultID)
 	builder.AddWord(pointerID)
@@ -3637,7 +3662,7 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	}
 
 	resultID := e.backend.builder.AllocID()
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 	builder.AddWord(resultTypeID)
 	builder.AddWord(resultID)
 	builder.AddWord(pointerID)
@@ -3688,7 +3713,7 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 
 	// Generate result ID and emit OpFunctionCall
 	resultID := e.backend.builder.AllocID()
-	builder := NewInstructionBuilder()
+	builder := e.newIB()
 	builder.AddWord(resultTypeID)
 	builder.AddWord(resultID)
 	builder.AddWord(funcID)
@@ -3805,7 +3830,7 @@ func (e *ExpressionEmitter) emitArrayLength(expr ir.ExprArrayLength) (uint32, er
 
 	// Emit OpArrayLength: result-type result-id struct-pointer member-index
 	resultID := e.backend.builder.AllocID()
-	ib := NewInstructionBuilder()
+	ib := e.newIB()
 	ib.AddWord(resultType)
 	ib.AddWord(resultID)
 	ib.AddWord(structID)

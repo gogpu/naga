@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"strconv"
 )
 
 // TypeRegistry ensures type deduplication for SPIR-V emission.
@@ -9,13 +10,15 @@ import (
 type TypeRegistry struct {
 	types   []Type
 	typeMap map[string]TypeHandle
+	keyBuf  []byte // reusable buffer for building type keys
 }
 
 // NewTypeRegistry creates a new type registry for deduplication.
 func NewTypeRegistry() *TypeRegistry {
 	return &TypeRegistry{
-		types:   []Type{},
-		typeMap: make(map[string]TypeHandle),
+		types:   make([]Type, 0, 16),
+		typeMap: make(map[string]TypeHandle, 16),
+		keyBuf:  make([]byte, 0, 64),
 	}
 }
 
@@ -47,31 +50,39 @@ func (r *TypeRegistry) GetTypes() []Type {
 
 // normalizeType creates a unique key for a type based on its structure.
 // Two structurally identical types will produce the same key.
+// Uses a reusable byte buffer to avoid fmt.Sprintf allocations for common types.
 func (r *TypeRegistry) normalizeType(inner TypeInner) string {
+	b := r.keyBuf[:0]
+
 	switch t := inner.(type) {
 	case ScalarType:
-		return fmt.Sprintf("scalar:%d:%d", t.Kind, t.Width)
+		b = append(b, "scalar:"...)
+		b = strconv.AppendInt(b, int64(t.Kind), 10)
+		b = append(b, ':')
+		b = strconv.AppendUint(b, uint64(t.Width), 10)
+		r.keyBuf = b
+		return string(b)
 
 	case VectorType:
+		// Recursive call clobbers keyBuf, so build with string concat.
 		scalarKey := r.normalizeType(t.Scalar)
-		return fmt.Sprintf("vec:%d:%s", t.Size, scalarKey)
+		return "vec:" + strconv.FormatUint(uint64(t.Size), 10) + ":" + scalarKey
 
 	case MatrixType:
 		scalarKey := r.normalizeType(t.Scalar)
-		return fmt.Sprintf("mat:%dx%d:%s", t.Columns, t.Rows, scalarKey)
+		return "mat:" + strconv.FormatUint(uint64(t.Columns), 10) + "x" + strconv.FormatUint(uint64(t.Rows), 10) + ":" + scalarKey
 
 	case ArrayType:
 		var sizeKey string
 		if t.Size.Constant != nil {
-			sizeKey = fmt.Sprintf("%d", *t.Size.Constant)
+			sizeKey = strconv.FormatUint(uint64(*t.Size.Constant), 10)
 		} else {
 			sizeKey = "runtime"
 		}
-		// Note: We use the base handle directly as it's already deduplicated
-		return fmt.Sprintf("array:%d:%s:%d", t.Base, sizeKey, t.Stride)
+		return "array:" + strconv.FormatInt(int64(t.Base), 10) + ":" + sizeKey + ":" + strconv.FormatUint(uint64(t.Stride), 10)
 
 	case StructType:
-		// For structs, we need to normalize all members
+		// Structs use fmt.Sprintf since they're less frequent and more complex.
 		key := fmt.Sprintf("struct:%d:%d", len(t.Members), t.Span)
 		for _, member := range t.Members {
 			key += fmt.Sprintf(":m(%s,%d,%d)", member.Name, member.Type, member.Offset)
@@ -79,16 +90,26 @@ func (r *TypeRegistry) normalizeType(inner TypeInner) string {
 		return key
 
 	case PointerType:
-		return fmt.Sprintf("ptr:%d:%d", t.Base, t.Space)
+		return "ptr:" + strconv.FormatInt(int64(t.Base), 10) + ":" + strconv.FormatInt(int64(t.Space), 10)
 
 	case SamplerType:
-		return fmt.Sprintf("sampler:%v", t.Comparison)
+		if t.Comparison {
+			return "sampler:true"
+		}
+		return "sampler:false"
 
 	case ImageType:
 		return fmt.Sprintf("image:%d:%v:%d:%v", t.Dim, t.Arrayed, t.Class, t.Multisampled)
 
+	case AtomicType:
+		b = append(b, "atomic:"...)
+		b = strconv.AppendInt(b, int64(t.Scalar.Kind), 10)
+		b = append(b, ':')
+		b = strconv.AppendUint(b, uint64(t.Scalar.Width), 10)
+		r.keyBuf = b
+		return string(b)
+
 	default:
-		// Fallback for unknown types
 		return fmt.Sprintf("unknown:%T", inner)
 	}
 }
