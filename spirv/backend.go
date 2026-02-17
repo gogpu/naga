@@ -728,6 +728,10 @@ const OpTypeSampler OpCode = 26
 // OpTypeImage represents OpTypeImage opcode.
 const OpTypeImage OpCode = 25
 
+// OpArrayLength gets the length of a runtime-sized array in a storage buffer struct.
+// Result type must be u32. Operands: struct pointer, member index.
+const OpArrayLength OpCode = 68
+
 // emitGlobals emits all global variables to SPIR-V.
 func (b *Backend) emitGlobals() error {
 	for handle, global := range b.module.GlobalVariables {
@@ -1468,6 +1472,8 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		id, err = e.emitSwizzle(kind)
 	case ir.ExprAs:
 		id, err = e.emitAs(kind)
+	case ir.ExprArrayLength:
+		id, err = e.emitArrayLength(kind)
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -3712,4 +3718,99 @@ func (e *ExpressionEmitter) emitCallResultRef(handle ir.ExpressionHandle) (uint3
 		return id, nil
 	}
 	return 0, fmt.Errorf("call result for expression %d not found (was StmtCall emitted?)", handle)
+}
+
+// emitArrayLength emits OpArrayLength for runtime-sized arrays in storage buffers.
+//
+// SPIR-V requires OpArrayLength to operate on a pointer to the struct that
+// contains the runtime-sized array as its last member, plus the member index.
+//
+// The expression chain from the IR is one of:
+//   - ExprArrayLength { Array: ExprGlobalVariable } -- global IS the runtime array
+//     (backend wraps it in a synthetic struct, so member index = 0)
+//   - ExprArrayLength { Array: ExprAccessIndex { Base: ExprGlobalVariable, Index: N } }
+//     -- global is a struct whose member N is the runtime array
+func (e *ExpressionEmitter) emitArrayLength(expr ir.ExprArrayLength) (uint32, error) {
+	// Walk the Array expression to find the global variable and optional member index.
+	var globalHandle ir.GlobalVariableHandle
+	var memberIndex *uint32 // nil if the array expression refers to the global directly
+
+	arrayExpr := e.function.Expressions[expr.Array]
+	switch k := arrayExpr.Kind.(type) {
+	case ir.ExprAccessIndex:
+		// Array is a member of a struct: arrayLength(&buf.data)
+		// The base must be a global variable.
+		baseExpr := e.function.Expressions[k.Base]
+		switch bk := baseExpr.Kind.(type) {
+		case ir.ExprGlobalVariable:
+			globalHandle = bk.Variable
+			idx := k.Index
+			memberIndex = &idx
+		default:
+			return 0, fmt.Errorf("array length: AccessIndex base must be GlobalVariable, got %T", bk)
+		}
+	case ir.ExprGlobalVariable:
+		// Array IS the global variable directly: arrayLength(&output)
+		globalHandle = k.Variable
+		memberIndex = nil
+	default:
+		return 0, fmt.Errorf("array length: expected GlobalVariable or AccessIndex, got %T", k)
+	}
+
+	// Get the SPIR-V variable ID for the global.
+	varID, ok := e.backend.globalIDs[globalHandle]
+	if !ok {
+		return 0, fmt.Errorf("array length: global variable %d not found", globalHandle)
+	}
+
+	// Determine the struct pointer ID and member index for OpArrayLength.
+	//
+	// SPIR-V requires that OpArrayLength operates on a pointer to an
+	// OpTypeStruct whose last member is a runtime-sized array.
+	//
+	// Case 1: The Naga IR global type is already a struct.
+	//   The struct was decorated with Block directly. Use the global var
+	//   pointer and the member index from the AccessIndex expression.
+	//
+	// Case 2: The Naga IR global type is a bare runtime array.
+	//   The backend wrapped it in a synthetic struct (see emitGlobals).
+	//   The wrapper struct has the array at member 0. Use the global var
+	//   pointer (which points to the wrapper struct) and member index 0.
+	var structID uint32
+	var lastMemberIndex uint32
+
+	isWrapped := e.backend.wrappedStorageVars[globalHandle]
+
+	switch {
+	case memberIndex != nil && !isWrapped:
+		// Naga struct type, not wrapped. The runtime array is at the given member index.
+		structID = varID
+		lastMemberIndex = *memberIndex
+	case memberIndex == nil && isWrapped:
+		// Bare runtime array, wrapped in a synthetic struct. Member index is 0.
+		structID = varID
+		lastMemberIndex = 0
+	case memberIndex != nil && isWrapped:
+		return 0, fmt.Errorf("array length: unexpected wrapped variable with AccessIndex")
+	default:
+		// memberIndex == nil && !isWrapped: the global is not wrapped and not accessed
+		// through a struct member. This means the global type itself must be a struct
+		// whose last member is the runtime array. This shouldn't happen in valid IR
+		// since the lowerer always creates an AccessIndex for struct members.
+		return 0, fmt.Errorf("array length: global variable is not a struct and was not wrapped")
+	}
+
+	// Result type is always u32.
+	resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+
+	// Emit OpArrayLength: result-type result-id struct-pointer member-index
+	resultID := e.backend.builder.AllocID()
+	ib := NewInstructionBuilder()
+	ib.AddWord(resultType)
+	ib.AddWord(resultID)
+	ib.AddWord(structID)
+	ib.AddWord(lastMemberIndex)
+	e.backend.builder.functions = append(e.backend.builder.functions, ib.Build(OpArrayLength))
+
+	return resultID, nil
 }
