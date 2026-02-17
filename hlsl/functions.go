@@ -76,7 +76,7 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 		return "", false, nil
 	}
 
-	structName := fmt.Sprintf("%s_Input", w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}]) //nolint:gosec // G115: epIdx is valid slice index
+	structName := fmt.Sprintf("%s_Input", w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}])
 
 	w.writeLine("struct %s {", structName)
 	w.pushIndent()
@@ -84,7 +84,7 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 	for i, arg := range fn.Arguments {
 		if arg.Binding != nil {
 			// Direct binding on argument — existing behavior
-			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
+			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}]
 			argType, arraySuffix := w.getTypeNameWithArraySuffix(arg.Type)
 
 			semantic := w.getSemanticFromBinding(*arg.Binding, i)
@@ -155,13 +155,13 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 		return "", false
 	}
 
-	structName := fmt.Sprintf("%s_Output", w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}]) //nolint:gosec // G115: epIdx is valid slice index
+	structName := fmt.Sprintf("%s_Output", w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}])
 
 	w.writeLine("struct %s {", structName)
 	w.pushIndent()
 
 	for memberIdx, member := range st.Members {
-		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(resultType), handle2: uint32(memberIdx)}] //nolint:gosec // G115: memberIdx is valid slice index
+		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(resultType), handle2: uint32(memberIdx)}]
 		memberType, arraySuffix := w.getTypeNameWithArraySuffix(member.Type)
 
 		// Determine semantic based on stage and position
@@ -215,7 +215,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	inputStructName, hasInputStruct, structArgs := w.writeEntryPointInputStruct(epIdx, ep, fn)
 	outputStructName, hasOutputStruct := w.writeEntryPointOutputStruct(epIdx, ep, fn)
 
-	epName := w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] //nolint:gosec // G115: epIdx is valid slice index
+	epName := w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}]
 
 	// Write compute shader attributes
 	if ep.Stage == ir.StageCompute {
@@ -264,7 +264,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	// Write local variables with optional init expressions
 	for localIdx, local := range fn.LocalVars {
 		localName := w.namer.call(local.Name)
-		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
+		w.localNames[uint32(localIdx)] = localName
 		// HLSL arrays: type name[size], not type[size] name
 		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
 		if local.Init != nil {
@@ -347,7 +347,7 @@ func (w *Writer) writeEntryPointSignature(returnType, epName string, ep *ir.Entr
 				if !firstParam {
 					w.out.WriteString(", ")
 				}
-				argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
+				argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}]
 				argType := w.getTypeName(arg.Type)
 				fmt.Fprintf(&w.out, "%s %s : %s", argType, argName, semantic)
 				firstParam = false
@@ -367,7 +367,7 @@ func (w *Writer) writeInputExtraction(ep *ir.EntryPoint, fn *ir.Function, struct
 	for i, arg := range fn.Arguments {
 		// Check if this is a struct arg that was flattened
 		if sa := findStructArg(structArgs, i); sa != nil {
-			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
+			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}]
 			structTypeName := w.getTypeName(sa.argTypeHandle)
 
 			// Declare the struct variable
@@ -393,7 +393,7 @@ func (w *Writer) writeInputExtraction(ep *ir.EntryPoint, fn *ir.Function, struct
 				continue
 			}
 		}
-		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}] //nolint:gosec // G115: i is valid slice index
+		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}]
 		w.writeLine("%s %s = _input.%s;", w.getTypeName(arg.Type), argName, argName)
 	}
 }

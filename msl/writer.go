@@ -182,8 +182,8 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("type_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyType, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
-		w.typeNames[ir.TypeHandle(handle)] = name                           //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyType, handle1: uint32(handle)}] = name
+		w.typeNames[ir.TypeHandle(handle)] = name
 
 		// Register struct member names
 		if st, ok := typ.Inner.(ir.StructType); ok {
@@ -192,7 +192,7 @@ func (w *Writer) registerNames() error {
 				if memberName == "" {
 					memberName = fmt.Sprintf("member_%d", memberIdx)
 				}
-				w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] = escapeName(memberName) //nolint:gosec // G115: handle is valid slice index
+				w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] = escapeName(memberName)
 			}
 		}
 	}
@@ -206,7 +206,7 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("const_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] = name
 	}
 
 	// Register global variable names
@@ -218,7 +218,7 @@ func (w *Writer) registerNames() error {
 			baseName = fmt.Sprintf("global_%d", handle)
 		}
 		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] = name //nolint:gosec // G115: handle is valid slice index
+		w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] = name
 	}
 
 	// Register function names
@@ -240,7 +240,7 @@ func (w *Writer) registerNames() error {
 			if argName == "" {
 				argName = fmt.Sprintf("arg_%d", argIdx)
 			}
-			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] = escapeName(argName) //nolint:gosec // G115: handle is valid slice index
+			w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(argIdx)}] = escapeName(argName)
 		}
 	}
 
@@ -250,7 +250,7 @@ func (w *Writer) registerNames() error {
 		if !ok || fnName == "" {
 			fnName = w.namer.call(ep.Name)
 		}
-		w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = fnName //nolint:gosec // G115: epIdx is valid slice index
+		w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = fnName
 		w.entryPointNames[ep.Name] = fnName
 	}
 

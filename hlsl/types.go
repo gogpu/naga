@@ -29,7 +29,7 @@ func (w *Writer) writeTypes() error {
 			continue
 		}
 
-		if err := w.writeStructDefinition(ir.TypeHandle(handle), typ.Name, st); err != nil { //nolint:gosec // G115: handle is valid slice index
+		if err := w.writeStructDefinition(ir.TypeHandle(handle), typ.Name, st); err != nil {
 			return err
 		}
 	}
@@ -47,7 +47,7 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 	w.pushIndent()
 
 	for memberIdx, member := range st.Members {
-		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] //nolint:gosec // G115: memberIdx is bounded by slice length
+		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}]
 		if memberName == "" {
 			memberName = fmt.Sprintf("member_%d", memberIdx)
 		}
@@ -381,7 +381,7 @@ func (w *Writer) writeConstants() error {
 
 	for handle := range w.module.Constants {
 		constant := &w.module.Constants[handle]
-		name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] //nolint:gosec // G115: handle is valid slice index
+		name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}]
 		if name == "" {
 			name = fmt.Sprintf("const_%d", handle)
 		}
@@ -465,7 +465,7 @@ func (w *Writer) writeCompositeValue(v ir.CompositeValue, typeHandle ir.TypeHand
 func (w *Writer) writeGlobalVariables() error {
 	for handle := range w.module.GlobalVariables {
 		global := &w.module.GlobalVariables[handle]
-		name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}] //nolint:gosec // G115: handle is valid slice index
+		name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(handle)}]
 		if name == "" {
 			name = fmt.Sprintf("global_%d", handle)
 		}

@@ -165,11 +165,11 @@ func disassembleSPIRV(data []byte) string {
 
 	// Header
 	sb.WriteString("; SPIR-V\n")
-	sb.WriteString(fmt.Sprintf("; Magic:     0x%08X\n", words[0]))
-	sb.WriteString(fmt.Sprintf("; Version:   %d.%d\n", (words[1]>>16)&0xFF, (words[1]>>8)&0xFF))
-	sb.WriteString(fmt.Sprintf("; Generator: 0x%08X\n", words[2]))
-	sb.WriteString(fmt.Sprintf("; Bound:     %d\n", words[3]))
-	sb.WriteString(fmt.Sprintf("; Schema:    %d\n", words[4]))
+	fmt.Fprintf(&sb, "; Magic:     0x%08X\n", words[0])
+	fmt.Fprintf(&sb, "; Version:   %d.%d\n", (words[1]>>16)&0xFF, (words[1]>>8)&0xFF)
+	fmt.Fprintf(&sb, "; Generator: 0x%08X\n", words[2])
+	fmt.Fprintf(&sb, "; Bound:     %d\n", words[3])
+	fmt.Fprintf(&sb, "; Schema:    %d\n", words[4])
 	sb.WriteString("\n")
 
 	// Collect names for pretty printing
@@ -207,13 +207,13 @@ func disassembleSPIRV(data []byte) string {
 		wordCount := int(words[offset] >> 16)
 		opcode := OpCode(words[offset] & 0xFFFF)
 		if wordCount == 0 || offset+wordCount > len(words) {
-			sb.WriteString(fmt.Sprintf("; ERROR: invalid instruction at word %d\n", offset))
+			fmt.Fprintf(&sb, "; ERROR: invalid instruction at word %d\n", offset)
 			break
 		}
 
 		instrWords := words[offset : offset+wordCount]
 		line := formatInstruction(opcode, instrWords, names, memberNames)
-		sb.WriteString(fmt.Sprintf("  %4d: %s\n", offset, line))
+		fmt.Fprintf(&sb, "  %4d: %s\n", offset, line)
 
 		offset += wordCount
 	}

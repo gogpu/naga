@@ -105,7 +105,7 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 
 	// Pre-register all function names to support forward references
 	for i, f := range ast.Functions {
-		l.functions[f.Name] = ir.FunctionHandle(i) //nolint:gosec // G115: i is bounded by function count
+		l.functions[f.Name] = ir.FunctionHandle(i)
 	}
 
 	// Lower functions and identify entry points
@@ -405,7 +405,7 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 
 		// Register parameter as local expression (FunctionArgument)
 		exprHandle := l.addExpression(ir.Expression{
-			Kind: ir.ExprFunctionArgument{Index: uint32(i)}, //nolint:gosec // i is bounded by function params length
+			Kind: ir.ExprFunctionArgument{Index: uint32(i)},
 		})
 		l.locals[p.Name] = exprHandle
 	}
@@ -562,7 +562,7 @@ func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
 		return fmt.Errorf("local var %s: type required without initializer", v.Name)
 	}
 
-	localIdx := uint32(len(l.currentFunc.LocalVars)) //nolint:gosec // local vars length is bounded
+	localIdx := uint32(len(l.currentFunc.LocalVars))
 	l.currentFunc.LocalVars = append(l.currentFunc.LocalVars, ir.LocalVariable{
 		Name: v.Name,
 		Type: typeHandle,
@@ -1372,7 +1372,7 @@ func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir
 		}
 
 		// Create array type with fixed size
-		constSize := uint32(len(args)) //nolint:gosec // args length is bounded
+		constSize := uint32(len(args))
 		arraySize := ir.ArraySize{
 			Constant: &constSize,
 		}

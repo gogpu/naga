@@ -588,7 +588,7 @@ func (w *Writer) writeFunctionBody(fn *ir.Function) error {
 	// Write local variables
 	for localIdx, local := range fn.LocalVars {
 		localName := w.namer.call(local.Name)
-		w.localNames[uint32(localIdx)] = localName //nolint:gosec // G115: localIdx is valid slice index
+		w.localNames[uint32(localIdx)] = localName
 		// HLSL arrays: type name[size], not type[size] name
 		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
 

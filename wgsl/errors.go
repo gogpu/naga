@@ -44,11 +44,11 @@ func (e *SourceError) FormatWithContext() string {
 
 	// Build the error message with context
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("error: %s\n", e.Message))
-	sb.WriteString(fmt.Sprintf("  --> line %d:%d\n", lineNum, col))
+	fmt.Fprintf(&sb, "error: %s\n", e.Message)
+	fmt.Fprintf(&sb, "  --> line %d:%d\n", lineNum, col)
 	sb.WriteString("   |\n")
-	sb.WriteString(fmt.Sprintf("%3d| %s\n", lineNum, line))
-	sb.WriteString(fmt.Sprintf("   | %s^\n", strings.Repeat(" ", col-1)))
+	fmt.Fprintf(&sb, "%3d| %s\n", lineNum, line)
+	fmt.Fprintf(&sb, "   | %s^\n", strings.Repeat(" ", col-1))
 
 	return sb.String()
 }
