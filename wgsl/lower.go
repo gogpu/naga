@@ -722,7 +722,15 @@ func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
 
 // lowerAssign converts an assignment statement to IR.
 func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error {
-	pointer, err := l.lowerExpression(assign.Left, target)
+	// Special case: *ptr = value (pointer dereference on LHS)
+	// Extract the inner pointer expression directly — don't generate ExprLoad
+	var pointer ir.ExpressionHandle
+	var err error
+	if unary, ok := assign.Left.(*UnaryExpr); ok && unary.Op == TokenStar {
+		pointer, err = l.lowerExpression(unary.Operand, target)
+	} else {
+		pointer, err = l.lowerExpression(assign.Left, target)
+	}
 	if err != nil {
 		return err
 	}
@@ -733,18 +741,15 @@ func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error 
 	}
 
 	// Handle compound assignments (+=, -=, etc.)
+	// Use the pointer/variable expression directly as the left operand instead of
+	// creating an explicit ExprLoad. The SPIR-V backend auto-loads variable
+	// expressions when they appear as values in binary operations.
 	if assign.Op != TokenEqual {
-		// Load current value
-		loadHandle := l.addExpression(ir.Expression{
-			Kind: ir.ExprLoad{Pointer: pointer},
-		})
-
-		// Apply operation
 		op := l.assignOpToBinary(assign.Op)
 		value = l.addExpression(ir.Expression{
 			Kind: ir.ExprBinary{
 				Op:    op,
-				Left:  loadHandle,
+				Left:  pointer,
 				Right: value,
 			},
 		})
@@ -1197,6 +1202,24 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 			Kind: ir.StmtBarrier{Flags: barrierFlags},
 		})
 		return 0, nil // Barriers don't return a value
+	}
+
+	// Check if this is a struct constructor (e.g., VertexOutput(pos, uv))
+	if typeHandle, exists := l.types[funcName]; exists {
+		inner := ir.TypeResInner(l.module, ir.TypeResolution{Handle: &typeHandle})
+		if _, isStruct := inner.(ir.StructType); isStruct {
+			components := make([]ir.ExpressionHandle, len(call.Args))
+			for i, arg := range call.Args {
+				handle, err := l.lowerExpression(arg, target)
+				if err != nil {
+					return 0, err
+				}
+				components[i] = handle
+			}
+			return l.addExpression(ir.Expression{
+				Kind: ir.ExprCompose{Type: typeHandle, Components: components},
+			}), nil
+		}
 	}
 
 	// Regular function call - look up function handle
