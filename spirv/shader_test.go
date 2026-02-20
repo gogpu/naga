@@ -1772,6 +1772,126 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	t.Logf("Successfully compiled MSDF text shader: %d bytes", len(spirvBytes))
 }
 
+// TestCompileSDFRenderShader tests the SDF shape rendering shader.
+func TestCompileSDFRenderShader(t *testing.T) {
+	source := `
+struct Uniforms {
+    viewport: vec2<f32>,
+    _pad: vec2<f32>,
+}
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) local: vec2<f32>,
+    @location(2) shape_kind: f32,
+    @location(3) param1: f32,
+    @location(4) param2: f32,
+    @location(5) param3: f32,
+    @location(6) half_stroke: f32,
+    @location(7) is_stroked: f32,
+    @location(8) color: vec4<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) local: vec2<f32>,
+    @location(1) shape_kind: f32,
+    @location(2) param1: f32,
+    @location(3) param2: f32,
+    @location(4) param3: f32,
+    @location(5) half_stroke: f32,
+    @location(6) is_stroked: f32,
+    @location(7) color: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    let ndc_x = in.position.x / u.viewport.x * 2.0 - 1.0;
+    let ndc_y = 1.0 - in.position.y / u.viewport.y * 2.0;
+    out.clip_position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+    out.local = in.local;
+    out.shape_kind = in.shape_kind;
+    out.param1 = in.param1;
+    out.param2 = in.param2;
+    out.param3 = in.param3;
+    out.half_stroke = in.half_stroke;
+    out.is_stroked = in.is_stroked;
+    out.color = in.color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let dx = in.local.x;
+    let dy = in.local.y;
+    let nx = dx / in.param1;
+    let ny = dy / in.param2;
+    let elen = sqrt(nx * nx + ny * ny);
+    let rdiff = in.param1 - in.param2;
+    let min_r = (in.param1 + in.param2 - sqrt(rdiff * rdiff)) * 0.5;
+    let d_circle = (elen - 1.0) * min_r;
+    let apx = sqrt(dx * dx);
+    let apy = sqrt(dy * dy);
+    let qx = apx - in.param1 + in.param3;
+    let qy = apy - in.param2 + in.param3;
+    let mqx = (qx + sqrt(qx * qx)) * 0.5;
+    let mqy = (qy + sqrt(qy * qy)) * 0.5;
+    let outside = sqrt(mqx * mqx + mqy * mqy);
+    let qdiff = qx - qy;
+    let max_qxy = (qx + qy + sqrt(qdiff * qdiff)) * 0.5;
+    let inside = (max_qxy - sqrt(max_qxy * max_qxy)) * 0.5;
+    let d_rrect = outside + inside - in.param3;
+    let kind_f = in.shape_kind;
+    let kdiff = kind_f - 1.0;
+    let is_rrect = (kind_f + 1.0 - sqrt(kdiff * kdiff)) * 0.5;
+    let is_circle = 1.0 - is_rrect;
+    let d = d_circle * is_circle + d_rrect * is_rrect;
+    let abs_d = sqrt(d * d);
+    let effective_dist = d + in.is_stroked * (abs_d - in.half_stroke - d);
+    let t_raw = effective_dist + 0.5;
+    let t_pos = (t_raw + sqrt(t_raw * t_raw)) * 0.5;
+    let t_diff = t_pos - 1.0;
+    let t = (t_pos + 1.0 - sqrt(t_diff * t_diff)) * 0.5;
+    let coverage = 1.0 - t * t * (3.0 - 2.0 * t);
+    if coverage < 1.0 / 255.0 {
+        discard;
+    }
+    return in.color * coverage;
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled SDF render shader: %d bytes", len(spirvBytes))
+}
+
 // validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
 // Skips if Vulkan SDK tools are not available.
 func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {
