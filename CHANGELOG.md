@@ -5,6 +5,88 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-02-21
+
+Major WGSL language coverage expansion: 15/15 Essential reference shaders from Rust naga test suite now compile to valid SPIR-V.
+
+### Added
+
+#### WGSL Parser
+- Abstract type constructors without template parameters (`vec3(1,2,3)`, `mat2x2(...)`, `array(...)`)
+- `bitcast<T>(expr)` template syntax with dedicated AST node
+- `binding_array<T, N>` type syntax
+- Float literal suffixes without decimal point (`1f`, `1h`)
+- Switch statement: `default` as case selector, trailing commas, optional colon
+- Increment/decrement statements (`i++`, `i--`)
+
+#### WGSL Lowerer
+- 48 predeclared short type aliases (`vec3f`, `mat4x4f`, `vec2i`, etc.)
+- Struct constructor syntax (`StructName(field1, field2)`)
+- Pointer dereference on assignment LHS (`*ptr = value`)
+- `_` discard identifier in assignments and let bindings
+- `modf().fract`/`.whole` and `frexp().fract`/`.exp` member access on builtin results
+- `bitcast` expression lowering
+- Constant expression evaluator for switch case selectors
+- `dot4I8Packed` / `dot4U8Packed` packed dot product builtins
+- `textureGather`, `textureGatherCompare`, `textureSampleBaseClampToEdge`
+- `texture_depth_2d_array` as non-parameterized type
+- `textureSampleCompare` / `textureSampleCompareLevel`
+- Global variable type inference from initializer
+- `BindingArrayType` for descriptor array types
+
+#### SPIR-V Backend
+- `OpTranspose` (native SPIR-V opcode 84) with matrix type swap
+- Matrix type caching (prevents duplicate OpTypeMatrix)
+- 25 new math functions: bit manipulation (countOneBits, reverseBits, extractBits, insertBits, firstLeadingBit, firstTrailingBit, countLeadingZeros, countTrailingZeros), pack/unpack (4x8snorm, 4x8unorm, 2x16snorm, 2x16unorm, 2x16float), quantizeToF16
+- `OpSDotKHR` / `OpUDotKHR` with SPV_KHR_integer_dot_product extension
+- `OpImageGather` / `OpImageDrefGather` with component index
+- `OpBitCount`, `OpBitReverse`, `OpBitFieldInsert`, `OpBitFieldSExtract`, `OpBitFieldUExtract`
+- Pointer access chains on function arguments
+- `findCallResultInTree` extended to 12+ expression types
+- `BindingArrayType` emission (OpTypeArray/OpTypeRuntimeArray)
+- Identity conversion early return
+
+#### IR
+- `BindingArrayType` struct for descriptor array types
+
+#### Testing
+- **17 reference shader regression tests** — 15 Essential + 2 bonus (skybox, water) from Rust naga test suite, embedded as string literals for CI compatibility
+- SPIR-V validation via `spirv-val` in CI
+
+### Fixed
+
+#### WGSL Frontend
+- Compound assignment (`+=`, `-=`) on local variables — removed explicit ExprLoad
+- `textureDimensions` accepting 1 argument (texture only)
+- `>>` token splitting for nested template closing (`ptr<function, vec3<f32>>`)
+- Const with constructor expressions (`const light = vec3<f32>(1,2,3)`)
+- Unary negation in constant expressions (`const X = -0.1`)
+- `let` bindings emitted at declaration point for SSA dominance correctness
+- Float literals without trailing digit (`1.` now parsed correctly)
+- Module-level constants with constructor initializers
+- Switch statement termination analysis for exhaustive matching
+- Trailing semicolons after closing braces no longer cause parse errors
+- Vector type inference from constructor arguments
+
+#### SPIR-V Backend
+- `OpIMul` result type for scalar*vector promotion (was using scalar type instead of vector)
+- `MatrixStride` decoration for uniform matrix members
+- `let` variable semantics — emit `OpLoad` for `let` bindings (value semantics, not reference)
+- `OpCapability ImageQuery` emitted when using `textureDimensions`/`textureNumLevels`
+- Matrix multiply (`OpMatrixTimesVector`, `OpVectorTimesMatrix`, `OpMatrixTimesMatrix`) type handling
+- Deferred `OpStore` for variables initialized from complex expressions
+- Vector/scalar type promotion for `add`, `subtract`, `modulo` binary operations
+- `select()` builtin: float-to-bool condition conversion
+- Arrayed texture coordinate handling (array index as separate component)
+- `OpImageWrite` operand ordering for storage textures
+- Sampled type derived from storage format for `OpTypeImage` (was defaulting to float)
+- `atomicStore` / `atomicLoad` — correct SPIR-V opcode emission
+- Workgroup variable layout decorations (Offset, ArrayStride)
+- `OpDecorate Block` deduplication — no longer emits duplicate decorations
+- Loop `continuing` block codegen — correct back-edge and merge block structure
+- Uniform struct wrapping — storage/uniform buffer structs get correct member decorations
+- Vector type conversion in composite constructors
+
 ## [0.13.1] - 2026-02-17
 
 SPIR-V OpArrayLength fix, comprehensive benchmarks, and compiler allocation optimization (−32%).
@@ -726,6 +808,7 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 ---
 
 [Unreleased]: https://github.com/gogpu/naga/compare/v0.13.1...HEAD
+[0.14.0]: https://github.com/gogpu/naga/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/gogpu/naga/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/gogpu/naga/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/gogpu/naga/compare/v0.12.0...v0.12.1

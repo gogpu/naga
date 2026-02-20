@@ -34,9 +34,10 @@
 
 | Category | Capabilities |
 |----------|--------------|
-| **Input** | Full WGSL parser (120+ tokens) |
+| **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors |
 | **Outputs** | SPIR-V, MSL, GLSL, HLSL |
 | **Compute** | Storage buffers, workgroups, atomics, barriers |
+| **Compatibility** | 15/15 Essential reference shaders from Rust naga test suite |
 | **Build** | Zero CGO, single binary |
 
 ---
@@ -44,7 +45,8 @@
 ## Features
 
 - **Pure Go** — No CGO, no external dependencies
-- **WGSL Frontend** — Full lexer and parser (120+ tokens)
+- **WGSL Frontend** — Full lexer and parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`, etc.), abstract constructors (`vec3(1,2,3)`)
+- **Rust Naga Compatibility** — 15/15 Essential reference shaders from the Rust naga test suite compile to valid SPIR-V, with 17 regression tests
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
 - **Atomic Operations** — atomicAdd, atomicSub, atomicMin, atomicMax, atomicCompareExchangeWeak
@@ -52,7 +54,7 @@
 - **Type Inference** — Automatic type resolution for all expressions, including `let` bindings
 - **Type Deduplication** — SPIR-V compliant unique type emission
 - **Array Initialization** — `array(1, 2, 3)` shorthand with inferred type and size
-- **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions
+- **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions, textureGather, textureSampleCompare
 - **Swizzle Operations** — Full vector swizzle support (`.xyz`, `.rgba`, `.xxyy`, etc.)
 - **Function Calls** — `OpFunctionCall` support for modular WGSL shaders with helper functions
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
@@ -60,6 +62,7 @@
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
+- **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
 - **Validation** — Type checking and semantic validation
 - **CLI Tool** — `nagac` command-line compiler
@@ -240,13 +243,15 @@ naga/
 
 ### Types
 - Scalars: `f16`, `f32`, `i32`, `u32`, `bool`
-- Vectors: `vec2<T>`, `vec3<T>`, `vec4<T>`
-- Matrices: `mat2x2<f32>` ... `mat4x4<f32>`
+- Vectors: `vec2<T>`, `vec3<T>`, `vec4<T>` (and short aliases: `vec2f`, `vec3i`, `vec4u`, etc.)
+- Matrices: `mat2x2<f32>` ... `mat4x4<f32>` (and short aliases: `mat2x2f`, `mat4x4f`, etc.)
 - Arrays: `array<T, N>`, `array<T>` (runtime-sized, storage buffers)
-- Structs: `struct { ... }`
+- Structs: `struct { ... }` (with constructor syntax: `StructName(field1, field2)`)
 - Atomics: `atomic<u32>`, `atomic<i32>`
-- Textures: `texture_2d<f32>`, `texture_3d<f32>`, `texture_cube<f32>`
+- Textures: `texture_2d<f32>`, `texture_3d<f32>`, `texture_cube<f32>`, `texture_depth_2d_array`
 - Samplers: `sampler`, `sampler_comparison`
+- Binding arrays: `binding_array<T, N>`
+- Abstract constructors: `vec3(1,2,3)`, `mat2x2(...)`, `array(...)` (without explicit template parameters)
 
 ### Shader Stages
 - `@vertex` — Vertex shaders with `@builtin(position)` output
@@ -313,6 +318,10 @@ See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 - [SPIR-V Specification](https://registry.khronos.org/SPIR-V/)
 - [naga (Rust)](https://github.com/gfx-rs/naga) — Original implementation
 
+### Rust Naga Compatibility
+
+naga is tested against reference shaders from the [Rust naga](https://github.com/gfx-rs/naga) test suite. All 15 Essential reference shaders compile to valid SPIR-V, with 17 regression tests embedded in the CI pipeline to prevent regressions.
+
 ---
 
 ## Ecosystem
@@ -331,6 +340,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
 ## Documentation
 
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** — Compiler architecture, pipeline, IR design
 - **[ROADMAP.md](ROADMAP.md)** — Development milestones
 - **[CHANGELOG.md](CHANGELOG.md)** — Release notes
 - **[pkg.go.dev](https://pkg.go.dev/github.com/gogpu/naga)** — API reference

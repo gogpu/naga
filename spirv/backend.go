@@ -352,6 +352,7 @@ func (b *Backend) emitTypeNoLayout(handle ir.TypeHandle) (uint32, error) {
 	return b.emitType(handle)
 }
 
+//nolint:gocyclo,cyclop,funlen // type emission handles all IR type kinds (scalar, vector, matrix, struct, array, image, sampler, etc.)
 func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 	// Check cache
 	if id, ok := b.typeIDs[handle]; ok {
@@ -3192,6 +3193,8 @@ func (e *ExpressionEmitter) emitIf(stmt ir.StmtIf) error {
 // Returns the ExprCallResult handle if found. This is used to detect local variable
 // inits like `var x = func() - 0.5` where the call result is nested inside a
 // binary expression, not the top-level init expression.
+//
+//nolint:gocognit,gocyclo,cyclop // recursive expression tree traversal requires handling 12+ expression types
 func findCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
 	if int(handle) >= len(expressions) {
 		return 0, false
@@ -3970,7 +3973,7 @@ const (
 
 // emitImageSample emits a texture sampling operation.
 //
-//nolint:funlen // texture sampling has many SPIR-V operands
+//nolint:gocognit,gocyclo,cyclop,funlen,nestif // texture sampling has many SPIR-V operands and gather/depth variants
 func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, error) {
 	// Get the image and sampler pointer IDs
 	imagePtrID, err := e.emitExpression(sample.Image)

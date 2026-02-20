@@ -293,6 +293,8 @@ func (l *Lowerer) vectorAlignmentAndSize(components uint8) (align, size uint32) 
 }
 
 // lowerGlobalVar converts a global variable declaration to IR.
+//
+//nolint:nestif // type inference with optional type and initializer requires nested conditionals
 func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 	var typeHandle ir.TypeHandle
 	var err error
@@ -360,8 +362,6 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 
 // inferGlobalVarType infers the type of a global variable from its initializer expression.
 // Handles constructors (vec2(1), mat2x2(...), array(...)), literals, and scalar calls.
-//
-//nolint:gocognit // Type inference from AST expression requires handling many patterns
 func (l *Lowerer) inferGlobalVarType(init Expr) (ir.TypeHandle, error) {
 	switch e := init.(type) {
 	case *ConstructExpr:
@@ -499,7 +499,7 @@ func (l *Lowerer) lowerScalarConstant(name string, typ Type, lit *Literal) error
 // lowerCompositeConstant lowers a constructor expression to an IR constant.
 // Handles vectors, matrices, arrays, zero-value constructors, and nested constructors.
 //
-//nolint:gocognit // Module-level constant lowering handles many constructor variants
+//nolint:nestif // composite constant lowering handles many constructor variants
 func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *ConstructExpr) error {
 	// Resolve the composite type
 	var typeHandle ir.TypeHandle
@@ -575,8 +575,6 @@ func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *
 }
 
 // evalConstantArgs evaluates constructor arguments as constants.
-//
-//nolint:gocognit // Handles literal and nested constructor args
 func (l *Lowerer) evalConstantArgs(name string, args []Expr, parentType ir.TypeInner) ([]ir.ConstantHandle, error) {
 	componentHandles := make([]ir.ConstantHandle, len(args))
 
@@ -733,6 +731,8 @@ func (l *Lowerer) createZeroComponents(name string, parentType ir.TypeInner) ([]
 
 // inferCompositeConstantType infers the concrete type for a constructor without template args
 // from its literal arguments. For example, vec3(0.0, 1.0, 2.0) infers vec3<f32>.
+//
+//nolint:nestif // scalar kind inference from literal/constructor arguments requires nested type checks
 func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr) (ir.TypeHandle, error) {
 	named, ok := construct.Type.(*NamedType)
 	if !ok || len(named.TypeParams) > 0 {
@@ -1516,7 +1516,7 @@ func (l *Lowerer) evalCallAsConstantInt(call *CallExpr) (ir.ScalarKind, int64, e
 // Handles patterns like vec4(4).x where a vector constructor's component is accessed.
 func (l *Lowerer) evalMemberAsConstantInt(member *MemberExpr) (ir.ScalarKind, int64, error) {
 	// Determine the swizzle component index from the member name
-	idx := -1
+	var idx int
 	switch member.Member {
 	case "x", "r":
 		idx = 0
@@ -1535,7 +1535,7 @@ func (l *Lowerer) evalMemberAsConstantInt(member *MemberExpr) (ir.ScalarKind, in
 	case *CallExpr:
 		// e.g., vec4(4) — splat constructor, all components are the same
 		name := base.Func.Name
-		if !((len(name) == 4 && name[:3] == "vec") || (len(name) > 4 && name[:3] == "vec")) {
+		if len(name) < 4 || name[:3] != "vec" {
 			return 0, 0, fmt.Errorf("member access on non-vector call '%s' in constant expression", name)
 		}
 		if len(base.Args) == 1 {
@@ -1721,6 +1721,8 @@ func (l *Lowerer) lowerUnary(un *UnaryExpr, target *[]ir.Statement) (ir.Expressi
 }
 
 // lowerCall converts a call expression to IR.
+//
+//nolint:gocyclo,cyclop // dispatches to 20+ builtin function handlers
 func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	funcName := call.Func.Name
 
@@ -1917,8 +1919,6 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 }
 
 // lowerMember converts a member access to IR.
-//
-//nolint:gocognit // Member access handles structs, vectors, swizzles, and builtin result decomposition
 func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Check for builtin result member access (e.g., modf(x).fract, frexp(x).exp).
 	// These builtins conceptually return structs but we decompose them into
@@ -2280,10 +2280,7 @@ func (l *Lowerer) inferConstructorTypeFromScalar(namedType *NamedType, scalar ir
 		}
 	}
 
-	// Matrix constructors: mat2x2, mat2x3, mat3x4, etc.
-	if len(name) == 5 && name[:3] == "mat" && name[3] == 'x' {
-		// Not valid — matrices are matCxR (6 chars)
-	}
+	// Matrix constructors: mat2x2, mat2x3, mat3x4, etc. (matCxR = 6 chars, skip 5-char names)
 	if len(name) == 6 && name[:3] == "mat" && name[4] == 'x' {
 		cols := name[3] - '0'
 		rows := name[5] - '0'
@@ -3596,8 +3593,6 @@ func (l *Lowerer) lowerTextureSampleClampToEdge(args []Expr, target *[]ir.Statem
 //
 //	textureGather(component, texture, sampler, coords [, offset])    — sampled/multisampled textures
 //	textureGather(texture, sampler, coords [, offset])               — depth textures (component always 0)
-//
-//nolint:gocognit // two overloads with arrayed/offset variants
 func (l *Lowerer) lowerTextureGather(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 3 {
 		return 0, fmt.Errorf("textureGather requires at least 3 arguments, got %d", len(args))

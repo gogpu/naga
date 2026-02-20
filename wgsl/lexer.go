@@ -384,9 +384,6 @@ func (l *Lexer) lookupKeyword(text string) TokenKind {
 	if kind, ok := keywords[text]; ok {
 		return kind
 	}
-	if text == "true" || text == "false" {
-		return TokenBoolLiteral
-	}
 	return TokenIdent
 }
 
