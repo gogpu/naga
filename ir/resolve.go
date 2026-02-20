@@ -432,7 +432,18 @@ func resolveBinaryType(module *Module, fn *Function, expr ExprBinary) (TypeResol
 		return resolveMulResultType(module, leftType, rightType), nil
 
 	default:
-		// Arithmetic and bitwise operators preserve left operand type
+		// Arithmetic and bitwise operators: if one side is scalar and the other is vector,
+		// the result is vector (WGSL broadcasts scalar to match vector size).
+		rightType, rightErr := ResolveExpressionType(module, fn, expr.Right)
+		if rightErr == nil {
+			leftInner := typeResInner(module, leftType)
+			rightInner := typeResInner(module, rightType)
+			_, leftIsScalar := leftInner.(ScalarType)
+			_, rightIsVec := rightInner.(VectorType)
+			if leftIsScalar && rightIsVec {
+				return rightType, nil
+			}
+		}
 		return leftType, nil
 	}
 }

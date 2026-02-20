@@ -2701,32 +2701,64 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("select condition type: %w", err)
 	}
-	var condInner ir.TypeInner
-	if condType.Handle != nil {
-		condInner = e.backend.module.Types[*condType.Handle].Inner
-	} else {
-		condInner = condType.Value
+	condInner := typeResolutionInner(e.backend.module, condType)
+	acceptInner := typeResolutionInner(e.backend.module, acceptType)
+
+	// If condition is float (scalar or vector), convert to bool by comparing != 0.0.
+	// Common in shaders: select(a, b, step(...)) where step returns float, not bool.
+	if condScalar, ok := condInner.(ir.ScalarType); ok && condScalar.Kind == ir.ScalarFloat {
+		// scalar float → scalar bool via OpFOrdNotEqual(cond, 0.0)
+		boolTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+		zeroID := e.backend.builder.AddConstantFloat32(
+			e.backend.emitScalarType(condScalar), 0.0)
+		cmpID := e.backend.builder.AllocID()
+		builder := e.newIB()
+		builder.AddWord(boolTypeID)
+		builder.AddWord(cmpID)
+		builder.AddWord(conditionID)
+		builder.AddWord(zeroID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpFOrdNotEqual))
+		conditionID = cmpID
+		condInner = ir.ScalarType{Kind: ir.ScalarBool, Width: 1}
+	} else if condVec, ok := condInner.(ir.VectorType); ok && condVec.Scalar.Kind == ir.ScalarFloat {
+		// vec<float> → vec<bool> via OpFOrdNotEqual(cond, vec(0.0))
+		boolVecTypeID := e.backend.emitVectorType(
+			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1}),
+			uint32(condVec.Size))
+		floatScalarID := e.backend.emitScalarType(condVec.Scalar)
+		zeroScalarID := e.backend.builder.AddConstantFloat32(floatScalarID, 0.0)
+		// Build zero vector
+		zeroVecID := e.backend.builder.AllocID()
+		zb := e.newIB()
+		floatVecTypeID := e.backend.emitVectorType(floatScalarID, uint32(condVec.Size))
+		zb.AddWord(floatVecTypeID)
+		zb.AddWord(zeroVecID)
+		for range condVec.Size {
+			zb.AddWord(zeroScalarID)
+		}
+		e.backend.builder.functions = append(e.backend.builder.functions, zb.Build(OpCompositeConstruct))
+		// Compare
+		cmpID := e.backend.builder.AllocID()
+		cb := e.newIB()
+		cb.AddWord(boolVecTypeID)
+		cb.AddWord(cmpID)
+		cb.AddWord(conditionID)
+		cb.AddWord(zeroVecID)
+		e.backend.builder.functions = append(e.backend.builder.functions, cb.Build(OpFOrdNotEqual))
+		conditionID = cmpID
+		condInner = ir.VectorType{Size: condVec.Size, Scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}}
 	}
-	var acceptInner ir.TypeInner
-	if acceptType.Handle != nil {
-		acceptInner = e.backend.module.Types[*acceptType.Handle].Inner
-	} else {
-		acceptInner = acceptType.Value
-	}
+
+	// SPIR-V OpSelect requires the condition to be the same size as the result.
+	// WGSL allows scalar bool condition with vector operands (broadcast).
 	if _, isBoolScalar := condInner.(ir.ScalarType); isBoolScalar {
 		if vecType, isVec := acceptInner.(ir.VectorType); isVec {
 			// Splat scalar bool to vector bool
-			boolVecInner := ir.VectorType{
-				Scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
-				Size:   vecType.Size,
-			}
-			boolVecHandle := ir.TypeHandle(len(e.backend.module.Types))
-			e.backend.module.Types = append(e.backend.module.Types, ir.Type{
-				Inner: boolVecInner,
-			})
-			boolVecTypeID, _ := e.backend.emitType(boolVecHandle)
-			builder := e.newIB()
+			boolVecTypeID := e.backend.emitVectorType(
+				e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1}),
+				uint32(vecType.Size))
 			splatID := e.backend.builder.AllocID()
+			builder := e.newIB()
 			builder.AddWord(boolVecTypeID)
 			builder.AddWord(splatID)
 			for range vecType.Size {
@@ -2860,6 +2892,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 
 	case ir.StmtCall:
 		return e.emitCall(kind)
+
+	case ir.StmtImageStore:
+		return e.emitImageStore(kind)
 
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", kind)
@@ -3504,13 +3539,21 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		return 0, err
 	}
 
+	// For arrayed textures, append array index to coordinate vector.
+	if sample.ArrayIndex != nil {
+		coordID, err = e.appendArrayIndex(coordID, *sample.ArrayIndex, sample.Coordinate)
+		if err != nil {
+			return 0, err
+		}
+	}
+
 	// emitExpression now auto-loads, so imagePtrID and samplerPtrID are already
 	// the loaded image/sampler handles, not pointers
 	imageID := imagePtrID
 	samplerID := samplerPtrID
 
 	// Create SampledImage by combining image and sampler
-	sampledImageTypeID := e.backend.getSampledImageType(sample.Image)
+	sampledImageTypeID := e.backend.getSampledImageType(e.function, sample.Image)
 	sampledImageID := e.backend.builder.AllocID()
 
 	sampledImageBuilder := e.newIB()
@@ -3691,13 +3734,20 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 
 // getSampledImageType returns the type ID for a sampled image.
 // Uses caching to ensure the same type is reused for identical image configurations.
-func (b *Backend) getSampledImageType(_ ir.ExpressionHandle) uint32 {
-	// Create the image type descriptor
+func (b *Backend) getSampledImageType(fn *ir.Function, imageExpr ir.ExpressionHandle) uint32 {
+	// Resolve the actual image type from the expression
 	img := ir.ImageType{
-		Dim:     ir.Dim2D,
-		Class:   ir.ImageClassSampled,
-		Arrayed: false,
+		Dim:   ir.Dim2D,
+		Class: ir.ImageClassSampled,
 	}
+	exprType, err := ir.ResolveExpressionType(b.module, fn, imageExpr)
+	if err == nil {
+		inner := typeResolutionInner(b.module, exprType)
+		if imgType, ok := inner.(ir.ImageType); ok {
+			img = imgType
+		}
+	}
+
 	cacheKey := imageTypeKey(img)
 
 	// Check if we already have a sampled image type for this configuration
@@ -3905,6 +3955,83 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	if stmt.Result != nil {
 		e.exprIDs[*stmt.Result] = resultID
 	}
+	return nil
+}
+
+// appendArrayIndex converts an integer array index to float and appends it to the coordinate vector.
+// Returns the new coordinate ID with the array index appended.
+func (e *ExpressionEmitter) appendArrayIndex(coordID uint32, arrayIndexExpr, coordExpr ir.ExpressionHandle) (uint32, error) {
+	arrayIndexID, err := e.emitExpression(arrayIndexExpr)
+	if err != nil {
+		return 0, err
+	}
+	// Convert array index to float if it's integer
+	arrayIndexType, _ := ir.ResolveExpressionType(e.backend.module, e.function, arrayIndexExpr)
+	indexInner := typeResolutionInner(e.backend.module, arrayIndexType)
+	if scalar, ok := indexInner.(ir.ScalarType); ok && scalar.Kind != ir.ScalarFloat {
+		floatTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		convertedID := e.backend.builder.AllocID()
+		cb := e.newIB()
+		cb.AddWord(floatTypeID)
+		cb.AddWord(convertedID)
+		cb.AddWord(arrayIndexID)
+		opcode := OpConvertSToF
+		if scalar.Kind == ir.ScalarUint {
+			opcode = OpConvertUToF
+		}
+		e.backend.builder.functions = append(e.backend.builder.functions, cb.Build(opcode))
+		arrayIndexID = convertedID
+	}
+	// Extend coordinate vector: e.g. vec2(x,y) + arrayIndex → vec3(x,y,arrayIndex)
+	coordType, _ := ir.ResolveExpressionType(e.backend.module, e.function, coordExpr)
+	coordInner := typeResolutionInner(e.backend.module, coordType)
+	if coordVec, ok := coordInner.(ir.VectorType); ok {
+		floatScalarID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		newVecTypeID := e.backend.emitVectorType(floatScalarID, uint32(coordVec.Size+1))
+		extCoordID := e.backend.builder.AllocID()
+		eb := e.newIB()
+		eb.AddWord(newVecTypeID)
+		eb.AddWord(extCoordID)
+		eb.AddWord(coordID)
+		eb.AddWord(arrayIndexID)
+		e.backend.builder.functions = append(e.backend.builder.functions, eb.Build(OpCompositeConstruct))
+		return extCoordID, nil
+	}
+	return coordID, nil
+}
+
+// emitImageStore emits an OpImageWrite instruction for textureStore().
+func (e *ExpressionEmitter) emitImageStore(store ir.StmtImageStore) error {
+	imageID, err := e.emitExpression(store.Image)
+	if err != nil {
+		return fmt.Errorf("image store image: %w", err)
+	}
+
+	coordID, err := e.emitExpression(store.Coordinate)
+	if err != nil {
+		return fmt.Errorf("image store coordinate: %w", err)
+	}
+
+	// Handle array index for arrayed storage textures
+	if store.ArrayIndex != nil {
+		coordID, err = e.appendArrayIndex(coordID, *store.ArrayIndex, store.Coordinate)
+		if err != nil {
+			return err
+		}
+	}
+
+	valueID, err := e.emitExpression(store.Value)
+	if err != nil {
+		return fmt.Errorf("image store value: %w", err)
+	}
+
+	// OpImageWrite: no result type, no result ID
+	builder := e.newIB()
+	builder.AddWord(imageID)
+	builder.AddWord(coordID)
+	builder.AddWord(valueID)
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageWrite))
+
 	return nil
 }
 

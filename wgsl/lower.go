@@ -2388,7 +2388,7 @@ func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statem
 
 // lowerTextureSample converts a texture sampling call to IR.
 func (l *Lowerer) lowerTextureSample(args []Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
-	// args: texture, sampler, coordinate
+	// args: texture, sampler, coordinate [, array_index_or_offset] [, offset]
 	image, err := l.lowerExpression(args[0], target)
 	if err != nil {
 		return 0, err
@@ -2404,14 +2404,44 @@ func (l *Lowerer) lowerTextureSample(args []Expr, target *[]ir.Statement, level 
 		return 0, err
 	}
 
+	// Check if texture is arrayed to determine how to interpret extra arguments
+	var arrayIndex *ir.ExpressionHandle
+	if len(args) > 3 && l.isTextureArrayed(args[0]) {
+		ai, aiErr := l.lowerExpression(args[3], target)
+		if aiErr != nil {
+			return 0, aiErr
+		}
+		arrayIndex = &ai
+	}
+
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprImageSample{
 			Image:      image,
 			Sampler:    sampler,
 			Coordinate: coord,
+			ArrayIndex: arrayIndex,
 			Level:      level,
 		},
 	}), nil
+}
+
+// isTextureArrayed checks if a texture expression refers to an arrayed image type.
+func (l *Lowerer) isTextureArrayed(expr Expr) bool {
+	ident, ok := expr.(*Ident)
+	if !ok {
+		return false
+	}
+	for _, gv := range l.module.GlobalVariables {
+		if gv.Name == ident.Name {
+			if int(gv.Type) < len(l.module.Types) {
+				if img, ok := l.module.Types[gv.Type].Inner.(ir.ImageType); ok {
+					return img.Arrayed
+				}
+			}
+			return false
+		}
+	}
+	return false
 }
 
 // lowerTextureLoad converts a texture load call to IR.

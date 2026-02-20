@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -2320,6 +2321,57 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	validateWithVulkanSDK(t, spirvBytes)
 
 	t.Logf("Successfully compiled blend shader: %d bytes", len(spirvBytes))
+}
+
+// TestCompileFullBlendShader compiles the FULL gg blend.wgsl production shader.
+// This tests 29 blend modes, HSL color space, overlay, color dodge/burn, soft light,
+// deeply nested function calls, mix/step/sqrt builtins, select with vec3, and module-level constants.
+func TestCompileFullBlendShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/blend.wgsl")
+	if err != nil {
+		t.Skipf("blend.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled full blend shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileStripShader compiles the gg strip.wgsl compute shader.
+// This tests texture_storage_2d, textureStore, bitwise ops, continue statement,
+// multiple compute entry points, and two bind groups.
+func TestCompileStripShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/strip.wgsl")
+	if err != nil {
+		t.Skipf("strip.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled strip shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileCompositeShader compiles the gg composite.wgsl shader.
+// This tests texture_2d_array, textureSample with array index, storage buffers,
+// for loops with u32, switch inside for loop, and multiple entry points.
+func TestCompileCompositeShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/composite.wgsl")
+	if err != nil {
+		t.Skipf("composite.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled composite shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
 }
 
 // validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
