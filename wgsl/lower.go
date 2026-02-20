@@ -352,15 +352,113 @@ func (l *Lowerer) lowerConstant(c *ConstDecl) error {
 		return fmt.Errorf("module constant '%s' must have initializer", c.Name)
 	}
 
-	// Evaluate the constant initializer to a scalar value.
-	lit, ok := c.Init.(*Literal)
-	if !ok {
-		return fmt.Errorf("module constant '%s': only literal initializers supported", c.Name)
+	switch init := c.Init.(type) {
+	case *Literal:
+		return l.lowerScalarConstant(c.Name, c.Type, init)
+	case *ConstructExpr:
+		return l.lowerCompositeConstant(c.Name, c.Type, init)
+	case *UnaryExpr:
+		// Handle negation of literals: const X = -0.1;
+		if init.Op == TokenMinus {
+			if lit, ok := init.Operand.(*Literal); ok {
+				negLit := &Literal{Kind: lit.Kind, Value: "-" + lit.Value, Span: lit.Span}
+				return l.lowerScalarConstant(c.Name, c.Type, negLit)
+			}
+		}
+		return fmt.Errorf("module constant '%s': unsupported unary expression", c.Name)
+	default:
+		return fmt.Errorf("module constant '%s': unsupported initializer %T", c.Name, c.Init)
+	}
+}
+
+// lowerScalarConstant lowers a scalar literal to an IR constant.
+func (l *Lowerer) lowerScalarConstant(name string, typ Type, lit *Literal) error {
+	scalarKind, bits, err := l.evalLiteral(lit)
+	if err != nil {
+		return fmt.Errorf("module constant '%s': %w", name, err)
 	}
 
-	var scalarKind ir.ScalarKind
-	var bits uint64
+	var typeHandle ir.TypeHandle
+	if typ != nil {
+		typeHandle, err = l.resolveType(typ)
+		if err != nil {
+			return fmt.Errorf("constant %s: %w", name, err)
+		}
+	} else {
+		typeHandle = l.registerType("", ir.ScalarType{Kind: scalarKind, Width: 4})
+	}
 
+	handle := ir.ConstantHandle(len(l.module.Constants))
+	l.module.Constants = append(l.module.Constants, ir.Constant{
+		Name:  name,
+		Type:  typeHandle,
+		Value: ir.ScalarValue{Bits: bits, Kind: scalarKind},
+	})
+	l.moduleConstants[name] = handle
+	return nil
+}
+
+// lowerCompositeConstant lowers a constructor expression with all-literal args to an IR composite constant.
+func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *ConstructExpr) error {
+	// Resolve the composite type
+	var typeHandle ir.TypeHandle
+	var err error
+	if declType != nil {
+		typeHandle, err = l.resolveType(declType)
+	} else if construct.Type != nil {
+		typeHandle, err = l.resolveType(construct.Type)
+	} else {
+		return fmt.Errorf("module constant '%s': cannot infer composite type", name)
+	}
+	if err != nil {
+		return fmt.Errorf("constant %s: %w", name, err)
+	}
+
+	// Determine the component scalar type from the composite type
+	inner := l.module.Types[typeHandle].Inner
+	var componentScalar ir.ScalarType
+	switch t := inner.(type) {
+	case ir.VectorType:
+		componentScalar = t.Scalar
+	case ir.MatrixType:
+		componentScalar = t.Scalar
+	default:
+		return fmt.Errorf("module constant '%s': unsupported composite type %T", name, inner)
+	}
+	componentType := l.registerType("", componentScalar)
+
+	// Evaluate each argument as a literal and create scalar constants
+	componentHandles := make([]ir.ConstantHandle, len(construct.Args))
+	for i, arg := range construct.Args {
+		lit, ok := arg.(*Literal)
+		if !ok {
+			return fmt.Errorf("module constant '%s': composite argument %d is not a literal", name, i)
+		}
+		_, bits, err := l.evalLiteral(lit)
+		if err != nil {
+			return fmt.Errorf("module constant '%s' arg %d: %w", name, i, err)
+		}
+		compHandle := ir.ConstantHandle(len(l.module.Constants))
+		l.module.Constants = append(l.module.Constants, ir.Constant{
+			Name:  "",
+			Type:  componentType,
+			Value: ir.ScalarValue{Bits: bits, Kind: componentScalar.Kind},
+		})
+		componentHandles[i] = compHandle
+	}
+
+	handle := ir.ConstantHandle(len(l.module.Constants))
+	l.module.Constants = append(l.module.Constants, ir.Constant{
+		Name:  name,
+		Type:  typeHandle,
+		Value: ir.CompositeValue{Components: componentHandles},
+	})
+	l.moduleConstants[name] = handle
+	return nil
+}
+
+// evalLiteral evaluates a literal token to its scalar kind and bit representation.
+func (l *Lowerer) evalLiteral(lit *Literal) (ir.ScalarKind, uint64, error) {
 	switch lit.Kind {
 	case TokenIntLiteral:
 		text := lit.Value
@@ -373,54 +471,27 @@ func (l *Lowerer) lowerConstant(c *ConstDecl) error {
 		}
 		if isUnsigned {
 			v, _ := strconv.ParseUint(text, 0, 32)
-			bits = v
-			scalarKind = ir.ScalarUint
-		} else {
-			v, _ := strconv.ParseInt(text, 0, 32)
-			bits = uint64(v)
-			scalarKind = ir.ScalarSint
+			return ir.ScalarUint, v, nil
 		}
+		v, _ := strconv.ParseInt(text, 0, 32)
+		return ir.ScalarSint, uint64(v), nil
 	case TokenFloatLiteral:
 		text := lit.Value
 		if len(text) > 0 && (text[len(text)-1] == 'f' || text[len(text)-1] == 'h') {
 			text = text[:len(text)-1]
 		}
 		v, _ := strconv.ParseFloat(text, 32)
-		bits = uint64(math.Float32bits(float32(v)))
-		scalarKind = ir.ScalarFloat
+		return ir.ScalarFloat, uint64(math.Float32bits(float32(v))), nil
 	case TokenTrue, TokenBoolLiteral:
 		if lit.Value == "true" {
-			bits = 1
+			return ir.ScalarBool, 1, nil
 		}
-		scalarKind = ir.ScalarBool
+		return ir.ScalarBool, 0, nil
 	case TokenFalse:
-		scalarKind = ir.ScalarBool
+		return ir.ScalarBool, 0, nil
 	default:
-		return fmt.Errorf("module constant '%s': unsupported literal kind %v", c.Name, lit.Kind)
+		return 0, 0, fmt.Errorf("unsupported literal kind %v", lit.Kind)
 	}
-
-	// Resolve the type. If no explicit type, infer from the literal.
-	var typeHandle ir.TypeHandle
-	if c.Type != nil {
-		var err error
-		typeHandle, err = l.resolveType(c.Type)
-		if err != nil {
-			return fmt.Errorf("constant %s: %w", c.Name, err)
-		}
-	} else {
-		// Infer type from literal
-		width := uint8(4)
-		typeHandle = l.registerType("", ir.ScalarType{Kind: scalarKind, Width: width})
-	}
-
-	handle := ir.ConstantHandle(len(l.module.Constants))
-	l.module.Constants = append(l.module.Constants, ir.Constant{
-		Name:  c.Name,
-		Type:  typeHandle,
-		Value: ir.ScalarValue{Bits: bits, Kind: scalarKind},
-	})
-	l.moduleConstants[c.Name] = handle
-	return nil
 }
 
 // lowerFunction converts a function declaration to IR.
@@ -1436,6 +1507,12 @@ func (l *Lowerer) resolveNamedType(t *NamedType) (ir.TypeHandle, error) {
 		return l.registerType("sampler_comparison", ir.SamplerType{Comparison: true}), nil
 	}
 
+	// Texture types without type parameters (e.g., texture_depth_2d, texture_depth_2d_array)
+	if len(t.Name) >= 7 && t.Name[:7] == "texture" {
+		imgType := l.parseTextureType(t)
+		return l.registerType("", imgType), nil
+	}
+
 	return 0, fmt.Errorf("unknown type: %s", t.Name)
 }
 
@@ -2385,8 +2462,8 @@ func (l *Lowerer) isTextureFunction(name string) bool {
 
 // lowerTextureCall converts a texture function call to IR.
 func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	if len(args) < 2 {
-		return 0, fmt.Errorf("%s requires at least 2 arguments", name)
+	if len(args) < 1 {
+		return 0, fmt.Errorf("%s requires at least 1 argument", name)
 	}
 
 	switch name {
@@ -2430,6 +2507,15 @@ func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statem
 			return 0, err
 		}
 		return l.lowerTextureSample(args[:3], target, ir.SampleLevelGradient{X: ddx, Y: ddy})
+
+	case "textureSampleCompare":
+		// textureSampleCompare(t, s, coord, depth_ref) or (t, s, coord, array_index, depth_ref)
+		return l.lowerTextureSampleCompare(args, target, ir.SampleLevelAuto{})
+
+	case "textureSampleCompareLevel":
+		// textureSampleCompareLevel(t, s, coord, depth_ref) or (t, s, coord, array_index, depth_ref)
+		// Always samples at level 0 per WGSL spec.
+		return l.lowerTextureSampleCompare(args, target, ir.SampleLevelZero{})
 
 	case "textureLoad":
 		// textureLoad(t, coord, level) or textureLoad(t, coord) for storage textures
@@ -2495,6 +2581,57 @@ func (l *Lowerer) lowerTextureSample(args []Expr, target *[]ir.Statement, level 
 			Coordinate: coord,
 			ArrayIndex: arrayIndex,
 			Level:      level,
+		},
+	}), nil
+}
+
+// lowerTextureSampleCompare converts a depth texture comparison sampling call to IR.
+// textureSampleCompare(t, s, coord, depth_ref) or (t, s, coord, array_index, depth_ref)
+func (l *Lowerer) lowerTextureSampleCompare(args []Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
+	if len(args) < 4 {
+		return 0, fmt.Errorf("textureSampleCompare requires at least 4 arguments")
+	}
+
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	sampler, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	var arrayIndex *ir.ExpressionHandle
+	depthRefIdx := 3
+
+	if l.isTextureArrayed(args[0]) && len(args) >= 5 {
+		ai, aiErr := l.lowerExpression(args[3], target)
+		if aiErr != nil {
+			return 0, aiErr
+		}
+		arrayIndex = &ai
+		depthRefIdx = 4
+	}
+
+	depthRef, err := l.lowerExpression(args[depthRefIdx], target)
+	if err != nil {
+		return 0, err
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageSample{
+			Image:      image,
+			Sampler:    sampler,
+			Coordinate: coord,
+			ArrayIndex: arrayIndex,
+			Level:      level,
+			DepthRef:   &depthRef,
 		},
 	}), nil
 }

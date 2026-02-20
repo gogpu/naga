@@ -1501,6 +1501,11 @@ func (p *Parser) expect(kind TokenKind) bool {
 		p.advance()
 		return true
 	}
+	// Handle >> splitting: when expecting >, accept >> and split it
+	if kind == TokenGreater && p.check(TokenGreaterGreater) {
+		p.splitGreaterGreater()
+		return true
+	}
 	return false
 }
 
@@ -1509,10 +1514,29 @@ func (p *Parser) expectErr(kind TokenKind) *ParseError {
 		p.advance()
 		return nil
 	}
+	// Handle >> splitting: when expecting >, accept >> and split it
+	if kind == TokenGreater && p.check(TokenGreaterGreater) {
+		p.splitGreaterGreater()
+		return nil
+	}
 	return &ParseError{
 		Message: fmt.Sprintf("expected %s, got %s", kind, p.peek().Kind),
 		Token:   p.peek(),
 	}
+}
+
+// splitGreaterGreater splits a >> token into two > tokens, consuming the first.
+// This handles the WGSL angle bracket ambiguity in nested template args (e.g., vec3<f32>>).
+func (p *Parser) splitGreaterGreater() {
+	tok := p.tokens[p.current]
+	// Replace >> with a single > at position+1
+	p.tokens[p.current] = Token{
+		Kind:   TokenGreater,
+		Lexeme: ">",
+		Line:   tok.Line,
+		Column: tok.Column + 1,
+	}
+	// Don't advance — the remaining > stays for the outer template close
 }
 
 func (p *Parser) synchronize() {

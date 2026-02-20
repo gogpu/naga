@@ -81,6 +81,10 @@ type Backend struct {
 	// Key: (componentTypeID << 8) | componentCount, Value: SPIR-V type ID
 	vectorTypeIDs map[uint32]uint32
 
+	// Cached matrix types
+	// Key: (columnTypeID << 8) | columnCount, Value: SPIR-V type ID
+	matrixTypeIDs map[uint32]uint32
+
 	// Track used capabilities (to avoid duplicates)
 	usedCapabilities map[Capability]bool
 
@@ -119,6 +123,7 @@ func NewBackend(options Options) *Backend {
 		scalarTypeIDs:       make(map[uint32]uint32, 8),
 		pointerTypeIDs:      make(map[uint32]uint32, 8),
 		vectorTypeIDs:       make(map[uint32]uint32, 8),
+		matrixTypeIDs:       make(map[uint32]uint32, 4),
 		usedCapabilities:    make(map[Capability]bool, 4),
 		funcTypeIDs:         make(map[string]uint32, 4),
 		wrappedStorageVars:  make(map[ir.GlobalVariableHandle]bool, 2),
@@ -355,7 +360,7 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 	case ir.MatrixType:
 		scalarID := b.emitScalarType(inner.Scalar)
 		columnTypeID := b.emitVectorType(scalarID, uint32(inner.Rows))
-		id = b.builder.AddTypeMatrix(columnTypeID, uint32(inner.Columns))
+		id = b.emitMatrixType(columnTypeID, uint32(inner.Columns))
 
 	case ir.ArrayType:
 		baseID, err := b.emitType(inner.Base)
@@ -550,6 +555,17 @@ func (b *Backend) emitVectorType(componentTypeID uint32, componentCount uint32) 
 	// Create new type
 	id := b.builder.AddTypeVector(componentTypeID, componentCount)
 	b.vectorTypeIDs[key] = id
+	return id
+}
+
+// emitMatrixType emits or returns cached matrix type.
+func (b *Backend) emitMatrixType(columnTypeID uint32, columnCount uint32) uint32 {
+	key := (columnTypeID << 8) | columnCount
+	if id, ok := b.matrixTypeIDs[key]; ok {
+		return id
+	}
+	id := b.builder.AddTypeMatrix(columnTypeID, columnCount)
+	b.matrixTypeIDs[key] = id
 	return id
 }
 
@@ -1554,7 +1570,7 @@ func (b *Backend) emitInlineType(inner ir.TypeInner) uint32 {
 	case ir.MatrixType:
 		scalarID := b.emitScalarType(t.Scalar)
 		columnTypeID := b.emitVectorType(scalarID, uint32(t.Rows))
-		return b.builder.AddTypeMatrix(columnTypeID, uint32(t.Columns))
+		return b.emitMatrixType(columnTypeID, uint32(t.Columns))
 
 	case ir.PointerType:
 		// Emit the base type first
@@ -3513,6 +3529,10 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		glslInst = GLSLstd450MatrixInverse
 	case ir.MathDeterminant:
 		glslInst = GLSLstd450Determinant
+	case ir.MathTranspose:
+		// OpTranspose is a native SPIR-V instruction (unary)
+		useNativeOpcode = true
+		nativeOpcode = OpTranspose
 
 	default:
 		return 0, fmt.Errorf("unsupported math function: %v", mathExpr.Fun)
@@ -3524,6 +3544,14 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	switch mathExpr.Fun {
 	case ir.MathLength, ir.MathDistance, ir.MathDot, ir.MathDeterminant:
 		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}})
+	case ir.MathTranspose:
+		// transpose(matRxC) -> matCxR: swap columns and rows
+		inner := ir.TypeResInner(e.backend.module, argType)
+		if mat, ok := inner.(ir.MatrixType); ok {
+			resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+				Value: ir.MatrixType{Columns: mat.Rows, Rows: mat.Columns, Scalar: mat.Scalar},
+			})
+		}
 	}
 
 	// Collect all operands
@@ -3552,7 +3580,9 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Emit instruction
 	if useNativeOpcode {
-		// Use native SPIR-V opcode (e.g., OpDot)
+		if len(operands) == 1 {
+			return e.backend.builder.AddUnaryOp(nativeOpcode, resultType, operands[0]), nil
+		}
 		return e.backend.builder.AddBinaryOp(nativeOpcode, resultType, operands[0], operands[1]), nil
 	}
 
@@ -3614,6 +3644,9 @@ func (e *ExpressionEmitter) emitDerivative(deriv ir.ExprDerivative) (uint32, err
 
 // OpDot represents OpDot opcode (dot product).
 const OpDot OpCode = 148
+
+// OpTranspose represents OpTranspose opcode (matrix transpose).
+const OpTranspose OpCode = 84
 
 // Image instruction opcodes
 const (
