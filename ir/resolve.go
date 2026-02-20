@@ -418,10 +418,66 @@ func resolveBinaryType(module *Module, fn *Function, expr ExprBinary) (TypeResol
 		// Logical operators return bool
 		return TypeResolution{Value: ScalarType{Kind: ScalarBool, Width: 1}}, nil
 
+	case BinaryMultiply:
+		// Multiplication result type depends on both operands:
+		//   scalar * vector → vector
+		//   scalar * matrix → matrix
+		//   matrix * vector → vector(rows)
+		//   vector * matrix → vector(columns)
+		// For same-type multiplication, left type is correct.
+		rightType, rightErr := ResolveExpressionType(module, fn, expr.Right)
+		if rightErr != nil {
+			return TypeResolution{}, fmt.Errorf("binary right: %w", rightErr)
+		}
+		return resolveMulResultType(module, leftType, rightType), nil
+
 	default:
 		// Arithmetic and bitwise operators preserve left operand type
 		return leftType, nil
 	}
+}
+
+// resolveMulResultType determines the result type of a multiplication.
+// Matches WGSL spec: scalar*vec→vec, scalar*mat→mat, mat*vec→vec(rows), vec*mat→vec(cols).
+func resolveMulResultType(module *Module, left, right TypeResolution) TypeResolution {
+	leftInner := typeResInner(module, left)
+	rightInner := typeResInner(module, right)
+
+	_, leftIsScalar := leftInner.(ScalarType)
+	_, rightIsScalar := rightInner.(ScalarType)
+	_, leftIsVec := leftInner.(VectorType)
+	_, rightIsVec := rightInner.(VectorType)
+	leftMat, leftIsMat := leftInner.(MatrixType)
+	rightMat, rightIsMat := rightInner.(MatrixType)
+
+	switch {
+	case leftIsScalar && rightIsVec:
+		return right
+	case leftIsScalar && rightIsMat:
+		return right
+	case leftIsVec && rightIsScalar:
+		return left
+	case leftIsMat && rightIsScalar:
+		return left
+	case leftIsMat && rightIsVec:
+		// mat(cols x rows) * vec(cols) → vec(rows)
+		return TypeResolution{Value: VectorType{Size: leftMat.Rows, Scalar: leftMat.Scalar}}
+	case leftIsVec && rightIsMat:
+		// vec(rows) * mat(cols x rows) → vec(cols)
+		return TypeResolution{Value: VectorType{Size: rightMat.Columns, Scalar: rightMat.Scalar}}
+	case leftIsMat && rightIsMat:
+		return left
+	default:
+		return left
+	}
+}
+
+// typeResInner extracts the TypeInner from a TypeResolution.
+func typeResInner(module *Module, res TypeResolution) TypeInner {
+	if res.Handle != nil {
+		return module.Types[*res.Handle].Inner
+	}
+	return res.Value
 }
 
 func resolveSelectType(module *Module, fn *Function, expr ExprSelect) (TypeResolution, error) {

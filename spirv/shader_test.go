@@ -1,6 +1,9 @@
 package spirv
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -1763,5 +1766,45 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 		t.Errorf("Expected 2 entry points, got %d", len(module.EntryPoints))
 	}
 
+	// Run spirv-val and spirv-dis from Vulkan SDK if available
+	validateWithVulkanSDK(t, spirvBytes)
+
 	t.Logf("Successfully compiled MSDF text shader: %d bytes", len(spirvBytes))
+}
+
+// validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
+// Skips if Vulkan SDK tools are not available.
+func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {
+	t.Helper()
+
+	// Check spirv-val availability
+	spirvVal, err := exec.LookPath("spirv-val")
+	if err != nil {
+		t.Log("spirv-val not found, skipping Vulkan SDK validation")
+		return
+	}
+
+	// Write SPIR-V to temp file
+	tmpDir := t.TempDir()
+	spvPath := filepath.Join(tmpDir, "shader.spv")
+	if err := os.WriteFile(spvPath, spirvBytes, 0o644); err != nil {
+		t.Fatalf("Failed to write .spv: %v", err)
+	}
+
+	// Run spirv-val
+	cmd := exec.Command(spirvVal, spvPath, "--target-env", "vulkan1.2")
+	valOut, valErr := cmd.CombinedOutput()
+	if valErr != nil {
+		// Validation failed — dump disassembly for debugging
+		t.Errorf("spirv-val FAILED:\n%s", valOut)
+
+		spirvDis, disErr := exec.LookPath("spirv-dis")
+		if disErr == nil {
+			disCmd := exec.Command(spirvDis, spvPath, "--no-header")
+			disOut, _ := disCmd.CombinedOutput()
+			t.Logf("SPIR-V disassembly:\n%s", disOut)
+		}
+	} else {
+		t.Log("spirv-val: VALID")
+	}
 }

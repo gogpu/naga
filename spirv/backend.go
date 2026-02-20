@@ -278,6 +278,14 @@ func (b *Backend) emitStructMemberDecorations() {
 		for memberIndex, member := range structType.Members {
 			b.builder.AddMemberDecorate(structID, uint32(memberIndex), DecorationOffset, member.Offset)
 
+			// Matrix members in uniform blocks require ColMajor + MatrixStride decorations.
+			memberInner := b.module.Types[member.Type].Inner
+			if mat, ok := memberInner.(ir.MatrixType); ok {
+				b.builder.AddMemberDecorate(structID, uint32(memberIndex), DecorationColMajor)
+				stride := uint32(mat.Rows) * uint32(mat.Scalar.Width)
+				b.builder.AddMemberDecorate(structID, uint32(memberIndex), DecorationMatrixStride, stride)
+			}
+
 			// Add member names if debug enabled
 			if b.options.Debug && member.Name != "" {
 				b.builder.AddMemberName(structID, uint32(memberIndex), member.Name)
