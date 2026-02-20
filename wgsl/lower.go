@@ -956,47 +956,185 @@ func (l *Lowerer) lowerSwitch(switchStmt *SwitchStmt, target *[]ir.Statement) er
 }
 
 // lowerSwitchCaseValue converts a switch case selector to IR.
+// Handles literal integers, named constants, constant binary expressions,
+// and type constructor zero values (e.g., i32()).
 func (l *Lowerer) lowerSwitchCaseValue(expr Expr) (ir.SwitchValue, error) {
-	switch e := expr.(type) {
-	case *Literal:
-		return l.literalToSwitchValue(e)
-	case *Ident:
-		// Resolve module-level constant to its literal value
-		constHandle, ok := l.moduleConstants[e.Name]
-		if !ok {
-			return nil, fmt.Errorf("switch case selector '%s': not a known constant", e.Name)
-		}
-		constant := &l.module.Constants[constHandle]
-		sv, ok := constant.Value.(ir.ScalarValue)
-		if !ok {
-			return nil, fmt.Errorf("switch case selector '%s': not a scalar constant", e.Name)
-		}
-		switch sv.Kind {
-		case ir.ScalarUint:
-			return ir.SwitchValueU32(uint32(sv.Bits)), nil
-		case ir.ScalarSint:
-			return ir.SwitchValueI32(int32(sv.Bits)), nil
-		default:
-			return nil, fmt.Errorf("switch case selector '%s': must be integer", e.Name)
-		}
+	kind, val, err := l.evalConstantIntExpr(expr)
+	if err != nil {
+		return nil, fmt.Errorf("switch case selector: %w", err)
+	}
+	switch kind {
+	case ir.ScalarUint:
+		return ir.SwitchValueU32(uint32(val)), nil
+	case ir.ScalarSint:
+		return ir.SwitchValueI32(int32(val)), nil
 	default:
-		return nil, fmt.Errorf("switch case selector must be a literal or constant, got %T", expr)
+		return nil, fmt.Errorf("switch case selector must be integer, got %v", kind)
 	}
 }
 
-// literalToSwitchValue converts a literal expression to a switch value.
-func (l *Lowerer) literalToSwitchValue(lit *Literal) (ir.SwitchValue, error) {
-	switch lit.Kind {
-	case TokenIntLiteral:
-		val, suffix := parseIntLiteral(lit.Value)
-		if suffix == "u" {
-			// #nosec G115 -- WGSL switch case values are always 32-bit
-			return ir.SwitchValueU32(uint32(val & 0xFFFFFFFF)), nil
+// evalConstantIntExpr evaluates a constant integer expression at compile time.
+// It supports:
+//   - Integer literals (42, 0u)
+//   - Named constants (const c1 = 1)
+//   - Binary expressions of constants (c1 + 2, c1 - 1)
+//   - Unary negation of constants (-c1)
+//   - Type constructor zero values (i32(), u32())
+func (l *Lowerer) evalConstantIntExpr(expr Expr) (ir.ScalarKind, int64, error) {
+	switch e := expr.(type) {
+	case *Literal:
+		return l.evalLiteralAsInt(e)
+	case *Ident:
+		return l.evalConstantIdent(e.Name)
+	case *BinaryExpr:
+		return l.evalConstantBinaryExpr(e)
+	case *UnaryExpr:
+		if e.Op == TokenMinus {
+			kind, val, err := l.evalConstantIntExpr(e.Operand)
+			if err != nil {
+				return 0, 0, err
+			}
+			return kind, -val, nil
 		}
-		// #nosec G115 -- WGSL switch case values are always 32-bit
-		return ir.SwitchValueI32(int32(val & 0xFFFFFFFF)), nil
+		return 0, 0, fmt.Errorf("unsupported unary operator in constant expression: %v", e.Op)
+	case *ConstructExpr:
+		return l.evalTypeConstructorAsInt(e)
+	case *CallExpr:
+		return l.evalCallAsConstantInt(e)
 	default:
-		return nil, fmt.Errorf("switch case selector must be an integer literal")
+		return 0, 0, fmt.Errorf("unsupported expression type in constant context: %T", expr)
+	}
+}
+
+// evalConstantBinaryExpr evaluates a binary expression of constants at compile time.
+func (l *Lowerer) evalConstantBinaryExpr(e *BinaryExpr) (ir.ScalarKind, int64, error) {
+	leftKind, leftVal, err := l.evalConstantIntExpr(e.Left)
+	if err != nil {
+		return 0, 0, fmt.Errorf("left operand: %w", err)
+	}
+	rightKind, rightVal, err := l.evalConstantIntExpr(e.Right)
+	if err != nil {
+		return 0, 0, fmt.Errorf("right operand: %w", err)
+	}
+	// Result kind: unsigned only if both operands are unsigned
+	resultKind := ir.ScalarSint
+	if leftKind == ir.ScalarUint && rightKind == ir.ScalarUint {
+		resultKind = ir.ScalarUint
+	}
+	switch e.Op {
+	case TokenPlus:
+		return resultKind, leftVal + rightVal, nil
+	case TokenMinus:
+		return resultKind, leftVal - rightVal, nil
+	case TokenStar:
+		return resultKind, leftVal * rightVal, nil
+	case TokenSlash:
+		if rightVal == 0 {
+			return 0, 0, fmt.Errorf("division by zero in constant expression")
+		}
+		return resultKind, leftVal / rightVal, nil
+	case TokenPercent:
+		if rightVal == 0 {
+			return 0, 0, fmt.Errorf("modulo by zero in constant expression")
+		}
+		return resultKind, leftVal % rightVal, nil
+	default:
+		return 0, 0, fmt.Errorf("unsupported operator in constant expression: %v", e.Op)
+	}
+}
+
+// evalLiteralAsInt extracts an integer value from a literal expression.
+func (l *Lowerer) evalLiteralAsInt(lit *Literal) (ir.ScalarKind, int64, error) {
+	if lit.Kind != TokenIntLiteral {
+		return 0, 0, fmt.Errorf("expected integer literal, got %v", lit.Kind)
+	}
+	val, suffix := parseIntLiteral(lit.Value)
+	if suffix == "u" {
+		return ir.ScalarUint, val, nil
+	}
+	return ir.ScalarSint, val, nil
+}
+
+// evalConstantIdent resolves a named constant to its integer value.
+func (l *Lowerer) evalConstantIdent(name string) (ir.ScalarKind, int64, error) {
+	constHandle, ok := l.moduleConstants[name]
+	if !ok {
+		return 0, 0, fmt.Errorf("'%s' is not a known constant", name)
+	}
+	constant := &l.module.Constants[constHandle]
+	sv, ok := constant.Value.(ir.ScalarValue)
+	if !ok {
+		return 0, 0, fmt.Errorf("'%s' is not a scalar constant", name)
+	}
+	switch sv.Kind {
+	case ir.ScalarUint:
+		return ir.ScalarUint, int64(sv.Bits), nil
+	case ir.ScalarSint:
+		return ir.ScalarSint, int64(sv.Bits), nil
+	default:
+		return 0, 0, fmt.Errorf("'%s' must be an integer constant, got %v", name, sv.Kind)
+	}
+}
+
+// evalTypeConstructorAsInt evaluates a type constructor expression as a constant integer.
+// Handles i32() = 0, u32() = 0, i32(expr), u32(expr).
+func (l *Lowerer) evalTypeConstructorAsInt(cons *ConstructExpr) (ir.ScalarKind, int64, error) {
+	named, ok := cons.Type.(*NamedType)
+	if !ok {
+		return 0, 0, fmt.Errorf("unsupported type constructor in constant expression")
+	}
+	var kind ir.ScalarKind
+	switch named.Name {
+	case "i32":
+		kind = ir.ScalarSint
+	case "u32":
+		kind = ir.ScalarUint
+	default:
+		return 0, 0, fmt.Errorf("unsupported type '%s' in constant expression", named.Name)
+	}
+	if len(cons.Args) == 0 {
+		return kind, 0, nil
+	}
+	if len(cons.Args) == 1 {
+		_, val, err := l.evalConstantIntExpr(cons.Args[0])
+		if err != nil {
+			return 0, 0, err
+		}
+		return kind, val, nil
+	}
+	return 0, 0, fmt.Errorf("type constructor with %d args in constant expression", len(cons.Args))
+}
+
+// evalCallAsConstantInt evaluates a function-style call as a constant integer.
+// Handles i32() and u32() when parsed as CallExpr instead of ConstructExpr.
+func (l *Lowerer) evalCallAsConstantInt(call *CallExpr) (ir.ScalarKind, int64, error) {
+	switch call.Func.Name {
+	case "i32":
+		if len(call.Args) == 0 {
+			return ir.ScalarSint, 0, nil
+		}
+		if len(call.Args) == 1 {
+			_, val, err := l.evalConstantIntExpr(call.Args[0])
+			if err != nil {
+				return 0, 0, err
+			}
+			return ir.ScalarSint, val, nil
+		}
+		return 0, 0, fmt.Errorf("i32() requires 0 or 1 arguments in constant expression")
+	case "u32":
+		if len(call.Args) == 0 {
+			return ir.ScalarUint, 0, nil
+		}
+		if len(call.Args) == 1 {
+			_, val, err := l.evalConstantIntExpr(call.Args[0])
+			if err != nil {
+				return 0, 0, err
+			}
+			return ir.ScalarUint, val, nil
+		}
+		return 0, 0, fmt.Errorf("u32() requires 0 or 1 arguments in constant expression")
+	default:
+		return 0, 0, fmt.Errorf("unsupported function '%s' in constant expression", call.Func.Name)
 	}
 }
 
@@ -1920,14 +2058,16 @@ var mathFuncTable = map[string]ir.MathFunction{
 	"pow":  ir.MathPow,
 
 	// Geometric functions
-	"dot":         ir.MathDot,
-	"cross":       ir.MathCross,
-	"distance":    ir.MathDistance,
-	"length":      ir.MathLength,
-	"normalize":   ir.MathNormalize,
-	"faceForward": ir.MathFaceForward,
-	"reflect":     ir.MathReflect,
-	"refract":     ir.MathRefract,
+	"dot":          ir.MathDot,
+	"dot4I8Packed": ir.MathDot4I8Packed,
+	"dot4U8Packed": ir.MathDot4U8Packed,
+	"cross":        ir.MathCross,
+	"distance":     ir.MathDistance,
+	"length":       ir.MathLength,
+	"normalize":    ir.MathNormalize,
+	"faceForward":  ir.MathFaceForward,
+	"reflect":      ir.MathReflect,
+	"refract":      ir.MathRefract,
 
 	// Computational functions
 	"sign":        ir.MathSign,
@@ -2681,6 +2821,8 @@ func (l *Lowerer) isTextureFunction(name string) bool {
 	switch name {
 	case "textureSample", "textureSampleBias", "textureSampleLevel", "textureSampleGrad",
 		"textureSampleCompare", "textureSampleCompareLevel",
+		"textureSampleBaseClampToEdge",
+		"textureGather", "textureGatherCompare",
 		"textureLoad", "textureStore",
 		"textureDimensions", "textureNumLevels", "textureNumLayers", "textureNumSamples":
 		return true
@@ -2689,6 +2831,8 @@ func (l *Lowerer) isTextureFunction(name string) bool {
 }
 
 // lowerTextureCall converts a texture function call to IR.
+//
+//nolint:gocyclo,cyclop // Texture function dispatch requires one case per WGSL texture builtin
 func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 1 {
 		return 0, fmt.Errorf("%s requires at least 1 argument", name)
@@ -2744,6 +2888,21 @@ func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statem
 		// textureSampleCompareLevel(t, s, coord, depth_ref) or (t, s, coord, array_index, depth_ref)
 		// Always samples at level 0 per WGSL spec.
 		return l.lowerTextureSampleCompare(args, target, ir.SampleLevelZero{})
+
+	case "textureSampleBaseClampToEdge":
+		// textureSampleBaseClampToEdge(t, s, coord)
+		// Samples at level 0 with coordinates clamped to [half_texel, 1-half_texel].
+		return l.lowerTextureSampleClampToEdge(args, target)
+
+	case "textureGather":
+		// textureGather(component, t, s, coord [, offset])
+		// Gathers one component from 4 texels in a 2x2 footprint.
+		return l.lowerTextureGather(args, target)
+
+	case "textureGatherCompare":
+		// textureGatherCompare(t, s, coord, depth_ref [, offset])
+		// Gather with depth comparison (always gathers component 0).
+		return l.lowerTextureGatherCompare(args, target)
 
 	case "textureLoad":
 		// textureLoad(t, coord, level) or textureLoad(t, coord) for storage textures
@@ -2862,6 +3021,181 @@ func (l *Lowerer) lowerTextureSampleCompare(args []Expr, target *[]ir.Statement,
 			DepthRef:   &depthRef,
 		},
 	}), nil
+}
+
+// lowerTextureSampleClampToEdge converts textureSampleBaseClampToEdge(t, s, coord) to IR.
+// Samples at mip level 0 with coordinates clamped to [half_texel, 1-half_texel].
+func (l *Lowerer) lowerTextureSampleClampToEdge(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 3 {
+		return 0, fmt.Errorf("textureSampleBaseClampToEdge requires at least 3 arguments, got %d", len(args))
+	}
+
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	sampler, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageSample{
+			Image:       image,
+			Sampler:     sampler,
+			Coordinate:  coord,
+			Level:       ir.SampleLevelZero{},
+			ClampToEdge: true,
+		},
+	}), nil
+}
+
+// lowerTextureGather converts textureGather(component, t, s, coord [, offset]) to IR.
+// Gathers one component from 4 texels in a 2x2 footprint.
+func (l *Lowerer) lowerTextureGather(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 4 {
+		return 0, fmt.Errorf("textureGather requires at least 4 arguments, got %d", len(args))
+	}
+
+	// First argument is the component index (0-3)
+	component, err := l.evalGatherComponent(args[0])
+	if err != nil {
+		return 0, fmt.Errorf("textureGather component: %w", err)
+	}
+
+	image, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	sampler, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[3], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Check for array index and optional offset
+	var arrayIndex *ir.ExpressionHandle
+	var offset *ir.ExpressionHandle
+	nextArg := 4
+
+	if l.isTextureArrayed(args[1]) && len(args) > nextArg {
+		ai, aiErr := l.lowerExpression(args[nextArg], target)
+		if aiErr != nil {
+			return 0, aiErr
+		}
+		arrayIndex = &ai
+		nextArg++
+	}
+
+	if len(args) > nextArg {
+		off, offErr := l.lowerExpression(args[nextArg], target)
+		if offErr != nil {
+			return 0, offErr
+		}
+		offset = &off
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageSample{
+			Image:      image,
+			Sampler:    sampler,
+			Coordinate: coord,
+			ArrayIndex: arrayIndex,
+			Offset:     offset,
+			Level:      ir.SampleLevelZero{},
+			Gather:     &component,
+		},
+	}), nil
+}
+
+// lowerTextureGatherCompare converts textureGatherCompare(t, s, coord, depth_ref [, offset]) to IR.
+// Performs a gather operation with depth comparison, always gathering component 0.
+func (l *Lowerer) lowerTextureGatherCompare(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 4 {
+		return 0, fmt.Errorf("textureGatherCompare requires at least 4 arguments, got %d", len(args))
+	}
+
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	sampler, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	var arrayIndex *ir.ExpressionHandle
+	depthRefIdx := 3
+
+	if l.isTextureArrayed(args[0]) && len(args) >= 5 {
+		ai, aiErr := l.lowerExpression(args[3], target)
+		if aiErr != nil {
+			return 0, aiErr
+		}
+		arrayIndex = &ai
+		depthRefIdx = 4
+	}
+
+	depthRef, err := l.lowerExpression(args[depthRefIdx], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Check for optional offset after depth_ref
+	var offset *ir.ExpressionHandle
+	if len(args) > depthRefIdx+1 {
+		off, offErr := l.lowerExpression(args[depthRefIdx+1], target)
+		if offErr != nil {
+			return 0, offErr
+		}
+		offset = &off
+	}
+
+	// textureGatherCompare always gathers component X (0)
+	gatherComp := ir.SwizzleX
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageSample{
+			Image:      image,
+			Sampler:    sampler,
+			Coordinate: coord,
+			ArrayIndex: arrayIndex,
+			Offset:     offset,
+			Level:      ir.SampleLevelZero{},
+			DepthRef:   &depthRef,
+			Gather:     &gatherComp,
+		},
+	}), nil
+}
+
+// evalGatherComponent evaluates the component argument of textureGather.
+// The component must be a constant integer expression in range [0, 3].
+func (l *Lowerer) evalGatherComponent(expr Expr) (ir.SwizzleComponent, error) {
+	_, val, err := l.evalConstantIntExpr(expr)
+	if err != nil {
+		return 0, fmt.Errorf("component must be a constant expression: %w", err)
+	}
+	if val < 0 || val > 3 {
+		return 0, fmt.Errorf("component index %d out of range [0, 3]", val)
+	}
+	return ir.SwizzleComponent(val), nil
 }
 
 // isTextureArrayed checks if a texture expression refers to an arrayed image type.

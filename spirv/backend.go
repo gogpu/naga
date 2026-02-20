@@ -88,6 +88,9 @@ type Backend struct {
 	// Track used capabilities (to avoid duplicates)
 	usedCapabilities map[Capability]bool
 
+	// Track used extensions (to avoid duplicates)
+	usedExtensions map[string]bool
+
 	// Cached void type ID (only one void type allowed in SPIR-V)
 	voidTypeID uint32
 
@@ -125,6 +128,7 @@ func NewBackend(options Options) *Backend {
 		vectorTypeIDs:       make(map[uint32]uint32, 8),
 		matrixTypeIDs:       make(map[uint32]uint32, 4),
 		usedCapabilities:    make(map[Capability]bool, 4),
+		usedExtensions:      make(map[string]bool, 2),
 		funcTypeIDs:         make(map[string]uint32, 4),
 		wrappedStorageVars:  make(map[ir.GlobalVariableHandle]bool, 2),
 		blockDecoratedTypes: make(map[uint32]bool, 4),
@@ -227,6 +231,14 @@ func (b *Backend) addCapability(capability Capability) {
 	if !b.usedCapabilities[capability] {
 		b.usedCapabilities[capability] = true
 		b.builder.AddCapability(capability)
+	}
+}
+
+// addExtension adds a SPIR-V extension without duplicates.
+func (b *Backend) addExtension(name string) {
+	if !b.usedExtensions[name] {
+		b.usedExtensions[name] = true
+		b.builder.AddExtension(name)
 	}
 }
 
@@ -1874,6 +1886,9 @@ func (e *ExpressionEmitter) getExpressionStorageClass(handle ir.ExpressionHandle
 		return e.getExpressionStorageClass(k.Base)
 	case ir.ExprAccessIndex:
 		return e.getExpressionStorageClass(k.Base)
+	case ir.ExprLoad:
+		// Load dereferences a pointer — propagate storage class from the pointer source
+		return e.getExpressionStorageClass(k.Pointer)
 	}
 
 	return StorageClassFunction
@@ -1971,6 +1986,12 @@ func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool
 		return e.isPointerExpression(k.Base)
 	case ir.ExprAccess:
 		return e.isPointerExpression(k.Base)
+	case ir.ExprLoad:
+		// ExprLoad dereferences a pointer. If the pointer source is a pointer expression
+		// (e.g., a function argument with pointer type), then the load result can be
+		// treated as a pointer for access chain purposes. In SPIR-V, we skip the load
+		// and use OpAccessChain directly on the underlying pointer.
+		return e.isPointerExpression(k.Pointer)
 	}
 	return false
 }
@@ -2010,6 +2031,11 @@ func (e *ExpressionEmitter) emitPointerExpression(handle ir.ExpressionHandle) (u
 		return e.emitAccessIndexAsPointer(k)
 	case ir.ExprAccess:
 		return e.emitAccessAsPointer(k)
+	case ir.ExprLoad:
+		// ExprLoad dereferences a pointer. For pointer chain contexts (store targets,
+		// access chains), skip the load and pass through to the underlying pointer.
+		// This allows (*p).x to emit OpAccessChain on p directly.
+		return e.emitPointerExpression(k.Pointer)
 	default:
 		return 0, fmt.Errorf("expression %T is not a pointer expression", k)
 	}
@@ -3587,6 +3613,93 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		useNativeOpcode = true
 		nativeOpcode = OpTranspose
 
+	// QuantizeToF16: native SPIR-V instruction
+	case ir.MathQuantizeF16:
+		useNativeOpcode = true
+		nativeOpcode = OpQuantizeToF16
+
+	// Bit manipulation functions
+	case ir.MathCountTrailingZeros:
+		// WGSL countTrailingZeros -> GLSL.std.450 FindILsb
+		glslInst = GLSLstd450FindILsb
+	case ir.MathCountLeadingZeros:
+		// WGSL countLeadingZeros -> polyfill: (31 - FindUMsb(x)) for u32, or FindSMsb for i32
+		// Simplified: use FindUMsb for unsigned, FindSMsb for signed
+		// Note: GLSL FindUMsb returns the bit position of the MSB (undefined for 0)
+		// WGSL countLeadingZeros expects the count. We emit FindUMsb/FindSMsb and
+		// the result subtraction is done at IR level by the lowerer.
+		if scalarKind == ir.ScalarSint {
+			glslInst = GLSLstd450FindSMsb
+		} else {
+			glslInst = GLSLstd450FindUMsb
+		}
+	case ir.MathCountOneBits:
+		// OpBitCount is a native SPIR-V instruction
+		useNativeOpcode = true
+		nativeOpcode = OpBitCount
+	case ir.MathReverseBits:
+		// OpBitReverse is a native SPIR-V instruction
+		useNativeOpcode = true
+		nativeOpcode = OpBitReverse
+	case ir.MathFirstTrailingBit:
+		// WGSL firstTrailingBit -> GLSL.std.450 FindILsb
+		glslInst = GLSLstd450FindILsb
+	case ir.MathFirstLeadingBit:
+		// WGSL firstLeadingBit -> FindSMsb (signed) or FindUMsb (unsigned)
+		if scalarKind == ir.ScalarSint {
+			glslInst = GLSLstd450FindSMsb
+		} else {
+			glslInst = GLSLstd450FindUMsb
+		}
+
+	// ExtractBits and InsertBits: native SPIR-V opcodes with 3 or 4 operands.
+	// These are handled specially below because they have more than 2 operands.
+	case ir.MathExtractBits:
+		// OpBitFieldSExtract (signed) or OpBitFieldUExtract (unsigned):
+		// result-type result-id base offset count
+		if scalarKind == ir.ScalarSint {
+			nativeOpcode = OpBitFieldSExtract
+		} else {
+			nativeOpcode = OpBitFieldUExtract
+		}
+		useNativeOpcode = true
+	case ir.MathInsertBits:
+		// OpBitFieldInsert: result-type result-id base insert offset count
+		nativeOpcode = OpBitFieldInsert
+		useNativeOpcode = true
+
+	// Data packing functions (GLSL.std.450)
+	case ir.MathPack4x8snorm:
+		glslInst = GLSLstd450PackSnorm4x8
+	case ir.MathPack4x8unorm:
+		glslInst = GLSLstd450PackUnorm4x8
+	case ir.MathPack2x16snorm:
+		glslInst = GLSLstd450PackSnorm2x16
+	case ir.MathPack2x16unorm:
+		glslInst = GLSLstd450PackUnorm2x16
+	case ir.MathPack2x16float:
+		glslInst = GLSLstd450PackHalf2x16
+
+	// Data unpacking functions (GLSL.std.450)
+	case ir.MathUnpack4x8snorm:
+		glslInst = GLSLstd450UnpackSnorm4x8
+	case ir.MathUnpack4x8unorm:
+		glslInst = GLSLstd450UnpackUnorm4x8
+	case ir.MathUnpack2x16snorm:
+		glslInst = GLSLstd450UnpackSnorm2x16
+	case ir.MathUnpack2x16unorm:
+		glslInst = GLSLstd450UnpackUnorm2x16
+	case ir.MathUnpack2x16float:
+		glslInst = GLSLstd450UnpackHalf2x16
+
+	// Packed dot product (SPV_KHR_integer_dot_product extension)
+	case ir.MathDot4I8Packed:
+		nativeOpcode = OpSDotKHR
+		useNativeOpcode = true
+	case ir.MathDot4U8Packed:
+		nativeOpcode = OpUDotKHR
+		useNativeOpcode = true
+
 	default:
 		return 0, fmt.Errorf("unsupported math function: %v", mathExpr.Fun)
 	}
@@ -3605,6 +3718,35 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 				Value: ir.MatrixType{Columns: mat.Rows, Rows: mat.Columns, Scalar: mat.Scalar},
 			})
 		}
+
+	// Packing functions: vec -> u32
+	case ir.MathPack4x8snorm, ir.MathPack4x8unorm,
+		ir.MathPack2x16snorm, ir.MathPack2x16unorm, ir.MathPack2x16float:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
+		})
+
+	// Unpacking 4x8 functions: u32 -> vec4<f32>
+	case ir.MathUnpack4x8snorm, ir.MathUnpack4x8unorm:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, Size: 4},
+		})
+
+	// Unpacking 2x16 functions: u32 -> vec2<f32>
+	case ir.MathUnpack2x16snorm, ir.MathUnpack2x16unorm, ir.MathUnpack2x16float:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, Size: 2},
+		})
+
+	// Packed dot product: u32, u32 -> i32 (signed) or u32 (unsigned)
+	case ir.MathDot4I8Packed:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
+		})
+	case ir.MathDot4U8Packed:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
+		})
 	}
 
 	// Collect all operands
@@ -3633,10 +3775,40 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Emit instruction
 	if useNativeOpcode {
+		// Special case: packed dot product needs extension and capability
+		if mathExpr.Fun == ir.MathDot4I8Packed || mathExpr.Fun == ir.MathDot4U8Packed {
+			e.backend.addExtension("SPV_KHR_integer_dot_product")
+			e.backend.addCapability(CapabilityDotProductInput4x8BitPacked)
+			e.backend.addCapability(CapabilityDotProduct)
+			// OpSDotKHR/OpUDotKHR: result-type result-id vec1 vec2 packed-vector-format
+			resultID := e.backend.builder.AllocID()
+			ib := e.newIB()
+			ib.AddWord(resultType)
+			ib.AddWord(resultID)
+			for _, op := range operands {
+				ib.AddWord(op)
+			}
+			ib.AddWord(PackedVectorFormat4x8Bit)
+			e.backend.builder.functions = append(e.backend.builder.functions, ib.Build(nativeOpcode))
+			return resultID, nil
+		}
+
 		if len(operands) == 1 {
 			return e.backend.builder.AddUnaryOp(nativeOpcode, resultType, operands[0]), nil
 		}
-		return e.backend.builder.AddBinaryOp(nativeOpcode, resultType, operands[0], operands[1]), nil
+		if len(operands) == 2 {
+			return e.backend.builder.AddBinaryOp(nativeOpcode, resultType, operands[0], operands[1]), nil
+		}
+		// 3+ operands (ExtractBits, InsertBits): build manually
+		resultID := e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(resultType)
+		ib.AddWord(resultID)
+		for _, op := range operands {
+			ib.AddWord(op)
+		}
+		e.backend.builder.functions = append(e.backend.builder.functions, ib.Build(nativeOpcode))
+		return resultID, nil
 	}
 
 	// Use GLSL.std.450 extended instruction
@@ -3772,51 +3944,137 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	resultType := e.backend.emitVec4F32Type()
 	resultID := e.backend.builder.AllocID()
 
+	// Handle gather operations (textureGather / textureGatherCompare)
+	if sample.Gather != nil {
+		builder := e.newIB()
+		builder.AddWord(resultType)
+		builder.AddWord(resultID)
+		builder.AddWord(sampledImageID)
+		builder.AddWord(coordID)
+
+		var opcode OpCode
+		if sample.DepthRef != nil {
+			// OpImageDrefGather: result-type result-id sampled-image coordinate dref [image-operands]
+			drefID, drefErr := e.emitExpression(*sample.DepthRef)
+			if drefErr != nil {
+				return 0, drefErr
+			}
+			builder.AddWord(drefID)
+			opcode = OpImageDrefGather
+		} else {
+			// OpImageGather: result-type result-id sampled-image coordinate component [image-operands]
+			componentID := e.backend.builder.AddConstant(
+				e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4}),
+				uint32(*sample.Gather),
+			)
+			builder.AddWord(componentID)
+			opcode = OpImageGather
+		}
+
+		// Append optional image operands (Offset)
+		if sample.Offset != nil {
+			offsetID, offsetErr := e.emitExpression(*sample.Offset)
+			if offsetErr != nil {
+				return 0, offsetErr
+			}
+			builder.AddWord(0x20) // ImageOperands::ConstOffset
+			builder.AddWord(offsetID)
+		}
+
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(opcode))
+		return resultID, nil
+	}
+
+	// Standard sampling path
 	builder := e.newIB()
 	builder.AddWord(resultType)
 	builder.AddWord(resultID)
 	builder.AddWord(sampledImageID)
 	builder.AddWord(coordID)
 
+	// Collect image operand mask and values for Offset (can combine with level operands)
+	var imageOperandMask uint32
+	var imageOperandValues []uint32
+	if sample.Offset != nil {
+		offsetID, offsetErr := e.emitExpression(*sample.Offset)
+		if offsetErr != nil {
+			return 0, offsetErr
+		}
+		imageOperandMask |= 0x20 // ImageOperands::ConstOffset
+		imageOperandValues = append(imageOperandValues, offsetID)
+	}
+
 	// Choose opcode based on sample level
 	switch level := sample.Level.(type) {
 	case ir.SampleLevelAuto:
-		// OpImageSampleImplicitLod (no extra operands for basic case)
-		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleImplicitLod))
+		if sample.DepthRef != nil {
+			drefID, drefErr := e.emitExpression(*sample.DepthRef)
+			if drefErr != nil {
+				return 0, drefErr
+			}
+			builder.AddWord(drefID)
+			if imageOperandMask != 0 {
+				builder.AddWord(imageOperandMask)
+				for _, v := range imageOperandValues {
+					builder.AddWord(v)
+				}
+			}
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleDrefImplicitLod))
+		} else {
+			if imageOperandMask != 0 {
+				builder.AddWord(imageOperandMask)
+				for _, v := range imageOperandValues {
+					builder.AddWord(v)
+				}
+			}
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleImplicitLod))
+		}
 
 	case ir.SampleLevelExact:
 		// OpImageSampleExplicitLod with Lod operand
-		levelID, err := e.emitExpression(level.Level)
-		if err != nil {
-			return 0, err
+		levelID, levelErr := e.emitExpression(level.Level)
+		if levelErr != nil {
+			return 0, levelErr
 		}
-		builder.AddWord(0x02) // ImageOperands::Lod
+		imageOperandMask |= 0x02 // ImageOperands::Lod
+		builder.AddWord(imageOperandMask)
 		builder.AddWord(levelID)
+		for _, v := range imageOperandValues {
+			builder.AddWord(v)
+		}
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
 
 	case ir.SampleLevelBias:
 		// OpImageSampleImplicitLod with Bias operand
-		biasID, err := e.emitExpression(level.Bias)
-		if err != nil {
-			return 0, err
+		biasID, biasErr := e.emitExpression(level.Bias)
+		if biasErr != nil {
+			return 0, biasErr
 		}
-		builder.AddWord(0x01) // ImageOperands::Bias
+		imageOperandMask |= 0x01 // ImageOperands::Bias
+		builder.AddWord(imageOperandMask)
 		builder.AddWord(biasID)
+		for _, v := range imageOperandValues {
+			builder.AddWord(v)
+		}
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleImplicitLod))
 
 	case ir.SampleLevelGradient:
 		// OpImageSampleExplicitLod with Grad operand
-		gradXID, err := e.emitExpression(level.X)
-		if err != nil {
-			return 0, err
+		gradXID, gradXErr := e.emitExpression(level.X)
+		if gradXErr != nil {
+			return 0, gradXErr
 		}
-		gradYID, err := e.emitExpression(level.Y)
-		if err != nil {
-			return 0, err
+		gradYID, gradYErr := e.emitExpression(level.Y)
+		if gradYErr != nil {
+			return 0, gradYErr
 		}
-		builder.AddWord(0x04) // ImageOperands::Grad
+		imageOperandMask |= 0x04 // ImageOperands::Grad
+		builder.AddWord(imageOperandMask)
 		builder.AddWord(gradXID)
 		builder.AddWord(gradYID)
+		for _, v := range imageOperandValues {
+			builder.AddWord(v)
+		}
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
 
 	case ir.SampleLevelZero:
@@ -3824,9 +4082,27 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		zeroID := e.backend.builder.AddConstantFloat32(
 			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}),
 			0.0)
-		builder.AddWord(0x02) // ImageOperands::Lod
-		builder.AddWord(zeroID)
-		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
+		imageOperandMask |= 0x02 // ImageOperands::Lod
+		if sample.DepthRef != nil {
+			drefID, drefErr := e.emitExpression(*sample.DepthRef)
+			if drefErr != nil {
+				return 0, drefErr
+			}
+			builder.AddWord(drefID)
+			builder.AddWord(imageOperandMask)
+			builder.AddWord(zeroID)
+			for _, v := range imageOperandValues {
+				builder.AddWord(v)
+			}
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleDrefExplicitLod))
+		} else {
+			builder.AddWord(imageOperandMask)
+			builder.AddWord(zeroID)
+			for _, v := range imageOperandValues {
+				builder.AddWord(v)
+			}
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
+		}
 
 	default:
 		return 0, fmt.Errorf("unsupported sample level: %T", level)

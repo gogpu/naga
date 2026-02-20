@@ -50,14 +50,16 @@ type Capability uint32
 
 // Common capabilities
 const (
-	CapabilityMatrix     Capability = 0 // Implied by Shader
-	CapabilityShader     Capability = 1
-	CapabilityFloat16    Capability = 9  // Required for OpTypeFloat 16
-	CapabilityFloat64    Capability = 10 // Required for OpTypeFloat 64
-	CapabilityInt64      Capability = 11 // Required for OpTypeInt 64
-	CapabilityInt16      Capability = 22 // Required for OpTypeInt 16
-	CapabilityInt8       Capability = 39 // Required for OpTypeInt 8
-	CapabilityImageQuery Capability = 50 // Required for OpImageQuerySize/Lod/Levels/Samples
+	CapabilityMatrix                      Capability = 0 // Implied by Shader
+	CapabilityShader                      Capability = 1
+	CapabilityFloat16                     Capability = 9    // Required for OpTypeFloat 16
+	CapabilityFloat64                     Capability = 10   // Required for OpTypeFloat 64
+	CapabilityInt64                       Capability = 11   // Required for OpTypeInt 64
+	CapabilityInt16                       Capability = 22   // Required for OpTypeInt 16
+	CapabilityInt8                        Capability = 39   // Required for OpTypeInt 8
+	CapabilityImageQuery                  Capability = 50   // Required for OpImageQuerySize/Lod/Levels/Samples
+	CapabilityDotProductInput4x8BitPacked Capability = 6018 // Required for packed 4x8 dot product
+	CapabilityDotProduct                  Capability = 6019 // Required for integer dot product
 )
 
 // Writer generates SPIR-V from IR.
@@ -381,6 +383,11 @@ const (
 	OpBitwiseOr            OpCode = 197 // Bitwise OR
 	OpBitwiseXor           OpCode = 198 // Bitwise XOR
 	OpBitwiseAnd           OpCode = 199 // Bitwise AND
+	OpBitFieldInsert       OpCode = 201 // Insert bit field
+	OpBitFieldSExtract     OpCode = 202 // Extract signed bit field
+	OpBitFieldUExtract     OpCode = 203 // Extract unsigned bit field
+	OpBitReverse           OpCode = 204 // Reverse bits
+	OpBitCount             OpCode = 205 // Count set bits
 )
 
 // Control flow opcodes
@@ -407,11 +414,12 @@ const (
 
 // Conversion opcodes
 const (
-	OpConvertFToU OpCode = 109 // Float to unsigned int
-	OpConvertFToS OpCode = 110 // Float to signed int
-	OpConvertSToF OpCode = 111 // Signed int to float
-	OpConvertUToF OpCode = 112 // Unsigned int to float
-	OpBitcast     OpCode = 124 // Bitcast between types of same width
+	OpConvertFToU   OpCode = 109 // Float to unsigned int
+	OpConvertFToS   OpCode = 110 // Float to signed int
+	OpConvertSToF   OpCode = 111 // Signed int to float
+	OpConvertUToF   OpCode = 112 // Unsigned int to float
+	OpBitcast       OpCode = 124 // Bitcast between types of same width
+	OpQuantizeToF16 OpCode = 116 // Quantize float to f16 precision
 )
 
 // Extended instruction set opcodes
@@ -436,6 +444,15 @@ const (
 	OpAtomicAnd         OpCode = 240 // Atomic bitwise and
 	OpAtomicOr          OpCode = 241 // Atomic bitwise or
 	OpAtomicXor         OpCode = 242 // Atomic bitwise xor
+)
+
+// Integer dot product opcodes (SPV_KHR_integer_dot_product)
+const (
+	OpSDotKHR OpCode = 4450 // Signed integer dot product
+	OpUDotKHR OpCode = 4451 // Unsigned integer dot product
+
+	// PackedVectorFormat4x8Bit is the packed vector format for 4x8 bit integers.
+	PackedVectorFormat4x8Bit uint32 = 0
 )
 
 // Memory scope for atomic operations
