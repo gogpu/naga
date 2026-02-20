@@ -246,8 +246,12 @@ func (l *Lexer) number() {
 		l.advance()
 	}
 
-	// Look for fractional part
-	if l.peek() == '.' && isDigit(l.peekNext()) {
+	// Look for fractional part.
+	// WGSL allows "1." as a float literal (no trailing digit required).
+	// We treat "N." as float when followed by a digit or not an identifier-start char.
+	// "1.x" is member access (int 1, then .x), but "1." "1.0" "1.5" are floats.
+	nextAfterDot := l.peekNext()
+	if l.peek() == '.' && !isAlpha(nextAfterDot) && nextAfterDot != '_' {
 		l.advance() // consume '.'
 		for isDigit(l.peek()) {
 			l.advance()

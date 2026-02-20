@@ -1161,11 +1161,7 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 
 // lowerConstruct converts a type constructor to IR.
 func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	typeHandle, err := l.resolveType(cons.Type)
-	if err != nil {
-		return 0, err
-	}
-
+	// Lower arguments first — we may need them for type inference.
 	components := make([]ir.ExpressionHandle, len(cons.Args))
 	for i, arg := range cons.Args {
 		handle, err := l.lowerExpression(arg, target)
@@ -1173,6 +1169,17 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 			return 0, err
 		}
 		components[i] = handle
+	}
+
+	typeHandle, err := l.resolveType(cons.Type)
+	if err != nil {
+		// Try type inference for vec2/vec3/vec4/array without template arguments.
+		// WGSL allows vec2(a, b) where scalar type is inferred from arguments.
+		inferredHandle, inferErr := l.inferConstructorType(cons.Type, components)
+		if inferErr != nil {
+			return 0, err // return original error
+		}
+		typeHandle = inferredHandle
 	}
 
 	// For scalar type constructors with a single argument (e.g., f32(x), u32(y)),
@@ -1368,6 +1375,44 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 		return l.registerType("", ir.PointerType{Base: pointee, Space: space}), nil
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", typ)
+	}
+}
+
+// inferConstructorType infers the concrete type for a type constructor without template args
+// (e.g., vec2(a, b) where the scalar type is inferred from arguments).
+func (l *Lowerer) inferConstructorType(typ Type, components []ir.ExpressionHandle) (ir.TypeHandle, error) {
+	namedType, ok := typ.(*NamedType)
+	if !ok || len(components) == 0 {
+		return 0, fmt.Errorf("cannot infer type")
+	}
+
+	// Resolve the scalar type from the first argument
+	argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
+	if err != nil {
+		return 0, fmt.Errorf("cannot infer type from argument: %w", err)
+	}
+	argInner := ir.TypeResInner(l.module, argType)
+
+	var scalar ir.ScalarType
+	switch t := argInner.(type) {
+	case ir.ScalarType:
+		scalar = t
+	case ir.VectorType:
+		scalar = t.Scalar
+	default:
+		return 0, fmt.Errorf("cannot infer scalar type from %T", argInner)
+	}
+
+	// Match vector constructor names
+	switch namedType.Name {
+	case "vec2":
+		return l.registerType("vec2_inferred", ir.VectorType{Size: 2, Scalar: scalar}), nil
+	case "vec3":
+		return l.registerType("vec3_inferred", ir.VectorType{Size: 3, Scalar: scalar}), nil
+	case "vec4":
+		return l.registerType("vec4_inferred", ir.VectorType{Size: 4, Scalar: scalar}), nil
+	default:
+		return 0, fmt.Errorf("cannot infer type for %s", namedType.Name)
 	}
 }
 

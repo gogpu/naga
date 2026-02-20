@@ -2504,6 +2504,28 @@ func TestCompileHelloComputeShader(t *testing.T) {
 		strings.Count(string(source), "\n"), len(spirvBytes))
 }
 
+// TestCompileUniformValuesShader tests a uniform-based Mandelbrot shader.
+// Tests struct uniforms, local arrays, for loops with break, length builtin.
+// TODO: Requires abstract type inference for vec2()/vec4() without template params in let bindings.
+func TestCompileUniformValuesShader(t *testing.T) {
+	t.Skip("requires abstract type inference for inferred vec constructors in let bindings")
+}
+
+// TestCompileMSAALineShader tests a simple MSAA line rendering shader.
+func TestCompileMSAALineShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/msaa_line/shader.wgsl")
+	if err != nil {
+		t.Skipf("msaa_line shader.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled msaa_line shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
 // validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
 // Skips if Vulkan SDK tools are not available.
 func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {

@@ -1029,6 +1029,28 @@ func (p *Parser) exprOrAssignStmt() (Stmt, *ParseError) {
 		return nil, err
 	}
 
+	// Check for increment/decrement: i++ or i--
+	// Desugar to compound assignment: i += 1 or i -= 1
+	if p.check(TokenPlusPlus) || p.check(TokenMinusMinus) {
+		op := TokenPlusEqual
+		if p.peek().Kind == TokenMinusMinus {
+			op = TokenMinusEqual
+		}
+		p.advance() // consume ++ or --
+		p.match(TokenSemicolon)
+		return &AssignStmt{
+			Left: expr,
+			Op:   op,
+			Right: &Literal{
+				Kind:  TokenIntLiteral,
+				Value: "1",
+			},
+			Span: Span{
+				Start: Position{Line: start.Line, Column: start.Column},
+			},
+		}, nil
+	}
+
 	// Check for assignment operators
 	if p.isAssignOp(p.peek().Kind) {
 		op := p.advance()
