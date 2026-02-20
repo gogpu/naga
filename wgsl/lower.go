@@ -294,9 +294,21 @@ func (l *Lowerer) vectorAlignmentAndSize(components uint8) (align, size uint32) 
 
 // lowerGlobalVar converts a global variable declaration to IR.
 func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
-	typeHandle, err := l.resolveType(v.Type)
-	if err != nil {
-		return fmt.Errorf("global var %s: %w", v.Name, err)
+	var typeHandle ir.TypeHandle
+	var err error
+	if v.Type != nil {
+		typeHandle, err = l.resolveType(v.Type)
+		if err != nil {
+			return fmt.Errorf("global var %s: %w", v.Name, err)
+		}
+	} else if v.Init != nil {
+		// Type inference from initializer (e.g., var<private> x = vec2(1))
+		typeHandle, err = l.inferGlobalVarType(v.Init)
+		if err != nil {
+			return fmt.Errorf("global var %s: %w", v.Name, err)
+		}
+	} else {
+		return fmt.Errorf("global var %s: type annotation required without initializer", v.Name)
 	}
 
 	space := l.addressSpace(v.AddressSpace)
@@ -346,6 +358,57 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 	return nil
 }
 
+// inferGlobalVarType infers the type of a global variable from its initializer expression.
+// Handles constructors (vec2(1), mat2x2(...), array(...)), literals, and scalar calls.
+//
+//nolint:gocognit // Type inference from AST expression requires handling many patterns
+func (l *Lowerer) inferGlobalVarType(init Expr) (ir.TypeHandle, error) {
+	switch e := init.(type) {
+	case *ConstructExpr:
+		// First try direct type resolution (e.g., vec2<i32>(...))
+		if e.Type != nil {
+			h, err := l.resolveType(e.Type)
+			if err == nil {
+				return h, nil
+			}
+			// If that fails, try inference from args (e.g., vec2(1))
+			return l.inferCompositeConstantType(e)
+		}
+		return 0, fmt.Errorf("unsupported type: %v", e.Type)
+	case *CallExpr:
+		// Scalar constructor: i32(x), f32(x), bool(x)
+		switch e.Func.Name {
+		case "i32":
+			return l.registerType("", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}), nil
+		case "u32":
+			return l.registerType("", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}), nil
+		case "f32":
+			return l.registerType("", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}), nil
+		case "bool":
+			return l.registerType("", ir.ScalarType{Kind: ir.ScalarBool, Width: 1}), nil
+		default:
+			// Could be struct constructor
+			if h, ok := l.types[e.Func.Name]; ok {
+				return h, nil
+			}
+			return 0, fmt.Errorf("unsupported call type: %s", e.Func.Name)
+		}
+	case *Literal:
+		kind, _, err := l.evalLiteral(e)
+		if err != nil {
+			return 0, err
+		}
+		return l.registerType("", ir.ScalarType{Kind: kind, Width: 4}), nil
+	case *UnaryExpr:
+		if e.Op == TokenMinus {
+			return l.inferGlobalVarType(e.Operand)
+		}
+		return 0, fmt.Errorf("unsupported unary op for type inference")
+	default:
+		return 0, fmt.Errorf("unsupported type: %v", init)
+	}
+}
+
 // lowerConstant converts a constant declaration to IR.
 func (l *Lowerer) lowerConstant(c *ConstDecl) error {
 	if c.Init == nil {
@@ -357,6 +420,9 @@ func (l *Lowerer) lowerConstant(c *ConstDecl) error {
 		return l.lowerScalarConstant(c.Name, c.Type, init)
 	case *ConstructExpr:
 		return l.lowerCompositeConstant(c.Name, c.Type, init)
+	case *CallExpr:
+		// Handle struct constructor: Foo(args...) or scalar constructor: i32(val)
+		return l.lowerCallConstant(c.Name, c.Type, init)
 	case *UnaryExpr:
 		// Handle negation of literals: const X = -0.1;
 		if init.Op == TokenMinus {
@@ -369,6 +435,38 @@ func (l *Lowerer) lowerConstant(c *ConstDecl) error {
 	default:
 		return fmt.Errorf("module constant '%s': unsupported initializer %T", c.Name, c.Init)
 	}
+}
+
+// lowerCallConstant handles module-level constants with CallExpr initializers.
+// This handles struct zero-value constructors like Foo() and scalar conversions like i32(1u).
+func (l *Lowerer) lowerCallConstant(name string, declType Type, call *CallExpr) error {
+	funcName := call.Func.Name
+
+	// Check if this is a struct constructor
+	if typeHandle, exists := l.types[funcName]; exists {
+		inner := l.module.Types[typeHandle].Inner
+		if _, isStruct := inner.(ir.StructType); isStruct {
+			// Convert to ConstructExpr and delegate
+			construct := &ConstructExpr{
+				Type: &NamedType{Name: funcName},
+				Args: call.Args,
+			}
+			return l.lowerCompositeConstant(name, declType, construct)
+		}
+	}
+
+	// Check if this is a scalar constructor: i32(), u32(), f32(), bool()
+	switch funcName {
+	case "i32", "u32", "f32", "bool":
+		// Treat as zero-value or conversion constructor
+		construct := &ConstructExpr{
+			Type: &NamedType{Name: funcName},
+			Args: call.Args,
+		}
+		return l.lowerCompositeConstant(name, declType, construct)
+	}
+
+	return fmt.Errorf("module constant '%s': unsupported call expression '%s'", name, funcName)
 }
 
 // lowerScalarConstant lowers a scalar literal to an IR constant.
@@ -398,7 +496,10 @@ func (l *Lowerer) lowerScalarConstant(name string, typ Type, lit *Literal) error
 	return nil
 }
 
-// lowerCompositeConstant lowers a constructor expression with all-literal args to an IR composite constant.
+// lowerCompositeConstant lowers a constructor expression to an IR constant.
+// Handles vectors, matrices, arrays, zero-value constructors, and nested constructors.
+//
+//nolint:gocognit // Module-level constant lowering handles many constructor variants
 func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *ConstructExpr) error {
 	// Resolve the composite type
 	var typeHandle ir.TypeHandle
@@ -407,6 +508,14 @@ func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *
 		typeHandle, err = l.resolveType(declType)
 	} else if construct.Type != nil {
 		typeHandle, err = l.resolveType(construct.Type)
+		if err != nil {
+			// Try to infer type from arguments for bare constructors like vec3(0.0, 1.0, 2.0)
+			inferred, inferErr := l.inferCompositeConstantType(construct)
+			if inferErr == nil {
+				typeHandle = inferred
+				err = nil
+			}
+		}
 	} else {
 		return fmt.Errorf("module constant '%s': cannot infer composite type", name)
 	}
@@ -414,47 +523,282 @@ func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *
 		return fmt.Errorf("constant %s: %w", name, err)
 	}
 
-	// Determine the component scalar type from the composite type
 	inner := l.module.Types[typeHandle].Inner
-	var componentScalar ir.ScalarType
-	switch t := inner.(type) {
-	case ir.VectorType:
-		componentScalar = t.Scalar
-	case ir.MatrixType:
-		componentScalar = t.Scalar
-	default:
-		return fmt.Errorf("module constant '%s': unsupported composite type %T", name, inner)
-	}
-	componentType := l.registerType("", componentScalar)
 
-	// Evaluate each argument as a literal and create scalar constants
-	componentHandles := make([]ir.ConstantHandle, len(construct.Args))
-	for i, arg := range construct.Args {
-		lit, ok := arg.(*Literal)
-		if !ok {
-			return fmt.Errorf("module constant '%s': composite argument %d is not a literal", name, i)
+	// Handle zero-value scalar constructors: bool(), i32(), u32(), f32()
+	if scalar, ok := inner.(ir.ScalarType); ok {
+		var bits uint64
+		if len(construct.Args) == 0 {
+			bits = 0 // zero value
+		} else if len(construct.Args) == 1 {
+			if lit, ok := construct.Args[0].(*Literal); ok {
+				_, bits, err = l.evalLiteral(lit)
+				if err != nil {
+					return fmt.Errorf("module constant '%s': %w", name, err)
+				}
+			} else {
+				return fmt.Errorf("module constant '%s': scalar constructor arg is not a literal", name)
+			}
 		}
-		_, bits, err := l.evalLiteral(lit)
-		if err != nil {
-			return fmt.Errorf("module constant '%s' arg %d: %w", name, i, err)
-		}
-		compHandle := ir.ConstantHandle(len(l.module.Constants))
+		constHandle := ir.ConstantHandle(len(l.module.Constants))
 		l.module.Constants = append(l.module.Constants, ir.Constant{
-			Name:  "",
-			Type:  componentType,
-			Value: ir.ScalarValue{Bits: bits, Kind: componentScalar.Kind},
+			Name:  name,
+			Type:  typeHandle,
+			Value: ir.ScalarValue{Bits: bits, Kind: scalar.Kind},
 		})
-		componentHandles[i] = compHandle
+		l.moduleConstants[name] = constHandle
+		return nil
 	}
 
-	handle := ir.ConstantHandle(len(l.module.Constants))
+	// Evaluate all args recursively as constants
+	componentHandles, err := l.evalConstantArgs(name, construct.Args, inner)
+	if err != nil {
+		return err
+	}
+
+	// Zero-value constructor with no args: create zero components
+	if len(construct.Args) == 0 {
+		componentHandles, err = l.createZeroComponents(name, inner)
+		if err != nil {
+			return err
+		}
+	}
+
+	constHandle := ir.ConstantHandle(len(l.module.Constants))
 	l.module.Constants = append(l.module.Constants, ir.Constant{
 		Name:  name,
 		Type:  typeHandle,
 		Value: ir.CompositeValue{Components: componentHandles},
 	})
-	l.moduleConstants[name] = handle
+	l.moduleConstants[name] = constHandle
 	return nil
+}
+
+// evalConstantArgs evaluates constructor arguments as constants.
+//
+//nolint:gocognit // Handles literal and nested constructor args
+func (l *Lowerer) evalConstantArgs(name string, args []Expr, parentType ir.TypeInner) ([]ir.ConstantHandle, error) {
+	componentHandles := make([]ir.ConstantHandle, len(args))
+
+	// Determine component scalar type from parent
+	var componentScalar ir.ScalarType
+	switch t := parentType.(type) {
+	case ir.VectorType:
+		componentScalar = t.Scalar
+	case ir.MatrixType:
+		componentScalar = t.Scalar
+	case ir.ArrayType:
+		// Array elements — defer scalar detection to per-element handling
+	case ir.StructType:
+		// Struct members — defer to per-member handling
+	default:
+		return nil, fmt.Errorf("module constant '%s': unsupported composite type %T", name, parentType)
+	}
+
+	for i, arg := range args {
+		switch a := arg.(type) {
+		case *Literal:
+			_, bits, err := l.evalLiteral(a)
+			if err != nil {
+				return nil, fmt.Errorf("module constant '%s' arg %d: %w", name, i, err)
+			}
+			componentType := l.registerType("", componentScalar)
+			compHandle := ir.ConstantHandle(len(l.module.Constants))
+			l.module.Constants = append(l.module.Constants, ir.Constant{
+				Type:  componentType,
+				Value: ir.ScalarValue{Bits: bits, Kind: componentScalar.Kind},
+			})
+			componentHandles[i] = compHandle
+
+		case *ConstructExpr:
+			// Nested constructor — recursively lower as anonymous constant
+			anonName := fmt.Sprintf("%s_arg%d", name, i)
+			if err := l.lowerCompositeConstant(anonName, nil, a); err != nil {
+				return nil, err
+			}
+			// The last constant added is the anonymous composite
+			componentHandles[i] = ir.ConstantHandle(len(l.module.Constants) - 1)
+
+		case *UnaryExpr:
+			if a.Op == TokenMinus {
+				if lit, ok := a.Operand.(*Literal); ok {
+					negLit := &Literal{Kind: lit.Kind, Value: "-" + lit.Value, Span: lit.Span}
+					_, bits, err := l.evalLiteral(negLit)
+					if err != nil {
+						return nil, fmt.Errorf("module constant '%s' arg %d: %w", name, i, err)
+					}
+					componentType := l.registerType("", componentScalar)
+					compHandle := ir.ConstantHandle(len(l.module.Constants))
+					l.module.Constants = append(l.module.Constants, ir.Constant{
+						Type:  componentType,
+						Value: ir.ScalarValue{Bits: bits, Kind: componentScalar.Kind},
+					})
+					componentHandles[i] = compHandle
+					continue
+				}
+			}
+			return nil, fmt.Errorf("module constant '%s' arg %d: unsupported expression %T", name, i, arg)
+
+		default:
+			return nil, fmt.Errorf("module constant '%s' arg %d: unsupported expression %T", name, i, arg)
+		}
+	}
+
+	return componentHandles, nil
+}
+
+// createZeroComponents creates zero-value component constants for a composite type.
+func (l *Lowerer) createZeroComponents(name string, parentType ir.TypeInner) ([]ir.ConstantHandle, error) {
+	switch t := parentType.(type) {
+	case ir.VectorType:
+		n := int(t.Size)
+		handles := make([]ir.ConstantHandle, n)
+		componentType := l.registerType("", t.Scalar)
+		for i := 0; i < n; i++ {
+			h := ir.ConstantHandle(len(l.module.Constants))
+			l.module.Constants = append(l.module.Constants, ir.Constant{
+				Type:  componentType,
+				Value: ir.ScalarValue{Bits: 0, Kind: t.Scalar.Kind},
+			})
+			handles[i] = h
+		}
+		return handles, nil
+	case ir.MatrixType:
+		n := int(t.Columns)
+		handles := make([]ir.ConstantHandle, n)
+		for i := 0; i < n; i++ {
+			// Each column is a zero vector
+			colHandles, err := l.createZeroComponents(name, ir.VectorType{Size: t.Rows, Scalar: t.Scalar})
+			if err != nil {
+				return nil, err
+			}
+			colType := l.registerType("", ir.VectorType{Size: t.Rows, Scalar: t.Scalar})
+			h := ir.ConstantHandle(len(l.module.Constants))
+			l.module.Constants = append(l.module.Constants, ir.Constant{
+				Type:  colType,
+				Value: ir.CompositeValue{Components: colHandles},
+			})
+			handles[i] = h
+		}
+		return handles, nil
+	case ir.ArrayType:
+		if t.Size.Constant == nil {
+			return nil, fmt.Errorf("cannot create zero value for runtime-sized array")
+		}
+		n := int(*t.Size.Constant)
+		handles := make([]ir.ConstantHandle, n)
+		elemInner := l.module.Types[t.Base].Inner
+		for i := 0; i < n; i++ {
+			elemHandles, err := l.createZeroComponents(name, elemInner)
+			if err != nil {
+				return nil, err
+			}
+			h := ir.ConstantHandle(len(l.module.Constants))
+			l.module.Constants = append(l.module.Constants, ir.Constant{
+				Type:  t.Base,
+				Value: ir.CompositeValue{Components: elemHandles},
+			})
+			handles[i] = h
+		}
+		return handles, nil
+	case ir.StructType:
+		handles := make([]ir.ConstantHandle, len(t.Members))
+		for i, m := range t.Members {
+			memInner := l.module.Types[m.Type].Inner
+			if scalar, ok := memInner.(ir.ScalarType); ok {
+				h := ir.ConstantHandle(len(l.module.Constants))
+				l.module.Constants = append(l.module.Constants, ir.Constant{
+					Type:  m.Type,
+					Value: ir.ScalarValue{Bits: 0, Kind: scalar.Kind},
+				})
+				handles[i] = h
+			} else {
+				subHandles, err := l.createZeroComponents(name, memInner)
+				if err != nil {
+					return nil, err
+				}
+				h := ir.ConstantHandle(len(l.module.Constants))
+				l.module.Constants = append(l.module.Constants, ir.Constant{
+					Type:  m.Type,
+					Value: ir.CompositeValue{Components: subHandles},
+				})
+				handles[i] = h
+			}
+		}
+		return handles, nil
+	default:
+		return nil, fmt.Errorf("module constant '%s': cannot create zero value for %T", name, parentType)
+	}
+}
+
+// inferCompositeConstantType infers the concrete type for a constructor without template args
+// from its literal arguments. For example, vec3(0.0, 1.0, 2.0) infers vec3<f32>.
+func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr) (ir.TypeHandle, error) {
+	named, ok := construct.Type.(*NamedType)
+	if !ok || len(named.TypeParams) > 0 {
+		return 0, fmt.Errorf("cannot infer type for %T", construct.Type)
+	}
+
+	// Infer scalar kind from first argument
+	var scalar ir.ScalarType
+	if len(construct.Args) > 0 {
+		if lit, ok := construct.Args[0].(*Literal); ok {
+			kind, _, err := l.evalLiteral(lit)
+			if err != nil {
+				return 0, err
+			}
+			scalar = ir.ScalarType{Kind: kind, Width: 4}
+		} else if sub, ok := construct.Args[0].(*ConstructExpr); ok {
+			// Nested constructor: mat2x2(vec2(0.), vec2(0.)) — infer from inner
+			subType, err := l.inferCompositeConstantType(sub)
+			if err != nil {
+				return 0, err
+			}
+			inner := l.module.Types[subType].Inner
+			switch t := inner.(type) {
+			case ir.VectorType:
+				scalar = t.Scalar
+			case ir.ScalarType:
+				scalar = t
+			default:
+				return 0, fmt.Errorf("cannot infer scalar from %T", inner)
+			}
+		} else {
+			return 0, fmt.Errorf("cannot infer type from argument %T", construct.Args[0])
+		}
+	} else {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4} // default to f32
+	}
+
+	// Build the concrete type
+	switch {
+	case len(named.Name) == 4 && named.Name[:3] == "vec":
+		size := named.Name[3] - '0'
+		return l.registerType("", ir.VectorType{
+			Size:   ir.VectorSize(size),
+			Scalar: scalar,
+		}), nil
+	case len(named.Name) >= 5 && named.Name[:3] == "mat":
+		cols := named.Name[3] - '0'
+		rows := named.Name[5] - '0'
+		return l.registerType("", ir.MatrixType{
+			Columns: ir.VectorSize(cols),
+			Rows:    ir.VectorSize(rows),
+			Scalar:  scalar,
+		}), nil
+	case named.Name == "array":
+		if len(construct.Args) == 0 {
+			return 0, fmt.Errorf("cannot infer array type without arguments")
+		}
+		elemType := l.registerType("", scalar)
+		size := uint32(len(construct.Args))
+		return l.registerType("", ir.ArrayType{
+			Base: elemType,
+			Size: ir.ArraySize{Constant: &size},
+		}), nil
+	default:
+		return 0, fmt.Errorf("cannot infer type for '%s'", named.Name)
+	}
 }
 
 // evalLiteral evaluates a literal token to its scalar kind and bit representation.
@@ -1001,6 +1345,8 @@ func (l *Lowerer) evalConstantIntExpr(expr Expr) (ir.ScalarKind, int64, error) {
 		return l.evalTypeConstructorAsInt(e)
 	case *CallExpr:
 		return l.evalCallAsConstantInt(e)
+	case *MemberExpr:
+		return l.evalMemberAsConstantInt(e)
 	default:
 		return 0, 0, fmt.Errorf("unsupported expression type in constant context: %T", expr)
 	}
@@ -1056,23 +1402,51 @@ func (l *Lowerer) evalLiteralAsInt(lit *Literal) (ir.ScalarKind, int64, error) {
 }
 
 // evalConstantIdent resolves a named constant to its integer value.
+// Checks both module-level constants and local constants (function-scope const declarations).
 func (l *Lowerer) evalConstantIdent(name string) (ir.ScalarKind, int64, error) {
-	constHandle, ok := l.moduleConstants[name]
-	if !ok {
-		return 0, 0, fmt.Errorf("'%s' is not a known constant", name)
+	// Check module-level constants first
+	if constHandle, ok := l.moduleConstants[name]; ok {
+		constant := &l.module.Constants[constHandle]
+		sv, ok := constant.Value.(ir.ScalarValue)
+		if !ok {
+			return 0, 0, fmt.Errorf("'%s' is not a scalar constant", name)
+		}
+		switch sv.Kind {
+		case ir.ScalarUint:
+			return ir.ScalarUint, int64(sv.Bits), nil
+		case ir.ScalarSint:
+			return ir.ScalarSint, int64(sv.Bits), nil
+		default:
+			return 0, 0, fmt.Errorf("'%s' must be an integer constant, got %v", name, sv.Kind)
+		}
 	}
-	constant := &l.module.Constants[constHandle]
-	sv, ok := constant.Value.(ir.ScalarValue)
-	if !ok {
-		return 0, 0, fmt.Errorf("'%s' is not a scalar constant", name)
+
+	// Check local constants (const declarations inside functions)
+	if exprHandle, ok := l.locals[name]; ok {
+		return l.evalExpressionAsConstantInt(exprHandle)
 	}
-	switch sv.Kind {
-	case ir.ScalarUint:
-		return ir.ScalarUint, int64(sv.Bits), nil
-	case ir.ScalarSint:
-		return ir.ScalarSint, int64(sv.Bits), nil
+
+	return 0, 0, fmt.Errorf("'%s' is not a known constant", name)
+}
+
+// evalExpressionAsConstantInt extracts the integer value from an already-lowered expression.
+func (l *Lowerer) evalExpressionAsConstantInt(handle ir.ExpressionHandle) (ir.ScalarKind, int64, error) {
+	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.Expressions) {
+		return 0, 0, fmt.Errorf("expression handle %d out of range", handle)
+	}
+	expr := l.currentFunc.Expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.Literal:
+		switch v := k.Value.(type) {
+		case ir.LiteralI32:
+			return ir.ScalarSint, int64(v), nil
+		case ir.LiteralU32:
+			return ir.ScalarUint, int64(v), nil
+		default:
+			return 0, 0, fmt.Errorf("expression is not an integer literal")
+		}
 	default:
-		return 0, 0, fmt.Errorf("'%s' must be an integer constant, got %v", name, sv.Kind)
+		return 0, 0, fmt.Errorf("expression is not a constant literal (kind: %T)", expr.Kind)
 	}
 }
 
@@ -1135,6 +1509,53 @@ func (l *Lowerer) evalCallAsConstantInt(call *CallExpr) (ir.ScalarKind, int64, e
 		return 0, 0, fmt.Errorf("u32() requires 0 or 1 arguments in constant expression")
 	default:
 		return 0, 0, fmt.Errorf("unsupported function '%s' in constant expression", call.Func.Name)
+	}
+}
+
+// evalMemberAsConstantInt evaluates a member access expression as a constant integer.
+// Handles patterns like vec4(4).x where a vector constructor's component is accessed.
+func (l *Lowerer) evalMemberAsConstantInt(member *MemberExpr) (ir.ScalarKind, int64, error) {
+	// Determine the swizzle component index from the member name
+	idx := -1
+	switch member.Member {
+	case "x", "r":
+		idx = 0
+	case "y", "g":
+		idx = 1
+	case "z", "b":
+		idx = 2
+	case "w", "a":
+		idx = 3
+	default:
+		return 0, 0, fmt.Errorf("unsupported member '%s' in constant expression", member.Member)
+	}
+
+	// The base must be a vector constructor with enough arguments
+	switch base := member.Expr.(type) {
+	case *CallExpr:
+		// e.g., vec4(4) — splat constructor, all components are the same
+		name := base.Func.Name
+		if !((len(name) == 4 && name[:3] == "vec") || (len(name) > 4 && name[:3] == "vec")) {
+			return 0, 0, fmt.Errorf("member access on non-vector call '%s' in constant expression", name)
+		}
+		if len(base.Args) == 1 {
+			// Splat: all components have the same value
+			return l.evalConstantIntExpr(base.Args[0])
+		}
+		if idx < len(base.Args) {
+			return l.evalConstantIntExpr(base.Args[idx])
+		}
+		return 0, 0, fmt.Errorf("member index %d out of range for %d-arg constructor", idx, len(base.Args))
+	case *ConstructExpr:
+		if len(base.Args) == 1 {
+			return l.evalConstantIntExpr(base.Args[0])
+		}
+		if idx < len(base.Args) {
+			return l.evalConstantIntExpr(base.Args[idx])
+		}
+		return 0, 0, fmt.Errorf("member index %d out of range for %d-arg constructor", idx, len(base.Args))
+	default:
+		return 0, 0, fmt.Errorf("unsupported base expression %T for member access in constant context", member.Expr)
 	}
 }
 
@@ -1203,6 +1624,8 @@ func (l *Lowerer) lowerExpression(expr Expr, target *[]ir.Statement) (ir.Express
 		return l.lowerMember(e, target)
 	case *IndexExpr:
 		return l.lowerIndex(e, target)
+	case *BitcastExpr:
+		return l.lowerBitcast(e, target)
 	default:
 		return 0, fmt.Errorf("unsupported expression type: %T", expr)
 	}
@@ -1630,6 +2053,55 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *MemberExpr, target *[]ir.Stat
 }
 
 // lowerIndex converts an index expression to IR.
+// lowerBitcast converts a bitcast<Type>(expr) to IR.
+func (l *Lowerer) lowerBitcast(bc *BitcastExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	exprHandle, err := l.lowerExpression(bc.Expr, target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Resolve the target type to determine the scalar kind
+	targetScalarKind, err := l.resolveTargetScalarKind(bc.Type)
+	if err != nil {
+		return 0, fmt.Errorf("bitcast target type: %w", err)
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprAs{
+			Expr:    exprHandle,
+			Kind:    targetScalarKind,
+			Convert: nil, // nil Convert = bitcast
+		},
+	}), nil
+}
+
+// resolveTargetScalarKind extracts the scalar kind from a type for bitcast.
+func (l *Lowerer) resolveTargetScalarKind(t Type) (ir.ScalarKind, error) {
+	switch ty := t.(type) {
+	case *NamedType:
+		switch ty.Name {
+		case "f32", "f16":
+			return ir.ScalarFloat, nil
+		case "i32":
+			return ir.ScalarSint, nil
+		case "u32":
+			return ir.ScalarUint, nil
+		case "bool":
+			return ir.ScalarBool, nil
+		case "vec2", "vec3", "vec4":
+			// For vector bitcast, extract scalar kind from type parameter
+			if len(ty.TypeParams) > 0 {
+				return l.resolveTargetScalarKind(ty.TypeParams[0])
+			}
+			return ir.ScalarFloat, nil // default to float
+		default:
+			return 0, fmt.Errorf("unsupported bitcast target type '%s'", ty.Name)
+		}
+	default:
+		return 0, fmt.Errorf("unsupported bitcast target type %T", t)
+	}
+}
+
 func (l *Lowerer) lowerIndex(idx *IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	base, err := l.lowerExpression(idx.Expr, target)
 	if err != nil {
@@ -1721,6 +2193,20 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 		}
 		space := l.addressSpace(t.AddressSpace)
 		return l.registerType("", ir.PointerType{Base: pointee, Space: space}), nil
+	case *BindingArrayType:
+		base, err := l.resolveType(t.Element)
+		if err != nil {
+			return 0, err
+		}
+		var size *uint32
+		if t.Size != nil {
+			if lit, ok := t.Size.(*Literal); ok && lit.Kind == TokenIntLiteral {
+				n, _ := strconv.ParseUint(lit.Value, 0, 32)
+				s := uint32(n)
+				size = &s
+			}
+		}
+		return l.registerType("", ir.BindingArrayType{Base: base, Size: size}), nil
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", typ)
 	}
@@ -1730,8 +2216,14 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 // (e.g., vec2(a, b) where the scalar type is inferred from arguments).
 func (l *Lowerer) inferConstructorType(typ Type, components []ir.ExpressionHandle) (ir.TypeHandle, error) {
 	namedType, ok := typ.(*NamedType)
-	if !ok || len(components) == 0 {
+	if !ok {
 		return 0, fmt.Errorf("cannot infer type")
+	}
+
+	// Zero-arg constructors: default to f32 scalar
+	if len(components) == 0 {
+		scalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+		return l.inferConstructorTypeFromScalar(namedType, scalar)
 	}
 
 	// Resolve the scalar type from the first argument
@@ -1747,21 +2239,64 @@ func (l *Lowerer) inferConstructorType(typ Type, components []ir.ExpressionHandl
 		scalar = t
 	case ir.VectorType:
 		scalar = t.Scalar
+	case ir.MatrixType:
+		scalar = t.Scalar
 	default:
 		return 0, fmt.Errorf("cannot infer scalar type from %T", argInner)
 	}
 
-	// Match vector constructor names
-	switch namedType.Name {
-	case "vec2":
-		return l.registerType("vec2_inferred", ir.VectorType{Size: 2, Scalar: scalar}), nil
-	case "vec3":
-		return l.registerType("vec3_inferred", ir.VectorType{Size: 3, Scalar: scalar}), nil
-	case "vec4":
-		return l.registerType("vec4_inferred", ir.VectorType{Size: 4, Scalar: scalar}), nil
-	default:
-		return 0, fmt.Errorf("cannot infer type for %s", namedType.Name)
+	// Handle array with inferred element type
+	if namedType.Name == "array" && len(components) > 0 {
+		argType, argErr := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
+		if argErr != nil {
+			return 0, fmt.Errorf("cannot infer array element type: %w", argErr)
+		}
+		var elemTypeHandle ir.TypeHandle
+		if argType.Handle != nil {
+			elemTypeHandle = *argType.Handle
+		} else {
+			elemTypeHandle = l.registerType("", argType.Value)
+		}
+		arrSize := uint32(len(components))
+		return l.registerType("", ir.ArrayType{
+			Base: elemTypeHandle,
+			Size: ir.ArraySize{Constant: &arrSize},
+		}), nil
 	}
+
+	return l.inferConstructorTypeFromScalar(namedType, scalar)
+}
+
+// inferConstructorTypeFromScalar builds a concrete IR type handle for a named constructor
+// given an inferred scalar kind. Supports vec, mat, and array constructors.
+func (l *Lowerer) inferConstructorTypeFromScalar(namedType *NamedType, scalar ir.ScalarType) (ir.TypeHandle, error) {
+	name := namedType.Name
+
+	// Vector constructors: vec2, vec3, vec4
+	if len(name) == 4 && name[:3] == "vec" {
+		size := name[3] - '0'
+		if size >= 2 && size <= 4 {
+			return l.registerType("", ir.VectorType{Size: ir.VectorSize(size), Scalar: scalar}), nil
+		}
+	}
+
+	// Matrix constructors: mat2x2, mat2x3, mat3x4, etc.
+	if len(name) == 5 && name[:3] == "mat" && name[3] == 'x' {
+		// Not valid — matrices are matCxR (6 chars)
+	}
+	if len(name) == 6 && name[:3] == "mat" && name[4] == 'x' {
+		cols := name[3] - '0'
+		rows := name[5] - '0'
+		if cols >= 2 && cols <= 4 && rows >= 2 && rows <= 4 {
+			return l.registerType("", ir.MatrixType{
+				Columns: ir.VectorSize(cols),
+				Rows:    ir.VectorSize(rows),
+				Scalar:  scalar,
+			}), nil
+		}
+	}
+
+	return 0, fmt.Errorf("cannot infer type for %s", name)
 }
 
 func (l *Lowerer) resolveNamedType(t *NamedType) (ir.TypeHandle, error) {
@@ -2426,7 +2961,7 @@ func (l *Lowerer) isOpaqueResourceType(handle ir.TypeHandle) bool {
 	}
 	typ := l.module.Types[handle]
 	switch typ.Inner.(type) {
-	case ir.SamplerType, ir.ImageType:
+	case ir.SamplerType, ir.ImageType, ir.BindingArrayType:
 		return true
 	default:
 		return false
@@ -3056,30 +3591,52 @@ func (l *Lowerer) lowerTextureSampleClampToEdge(args []Expr, target *[]ir.Statem
 	}), nil
 }
 
-// lowerTextureGather converts textureGather(component, t, s, coord [, offset]) to IR.
-// Gathers one component from 4 texels in a 2x2 footprint.
+// lowerTextureGather converts textureGather to IR.
+// Two overloads:
+//
+//	textureGather(component, texture, sampler, coords [, offset])    — sampled/multisampled textures
+//	textureGather(texture, sampler, coords [, offset])               — depth textures (component always 0)
+//
+//nolint:gocognit // two overloads with arrayed/offset variants
 func (l *Lowerer) lowerTextureGather(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	if len(args) < 4 {
-		return 0, fmt.Errorf("textureGather requires at least 4 arguments, got %d", len(args))
+	if len(args) < 3 {
+		return 0, fmt.Errorf("textureGather requires at least 3 arguments, got %d", len(args))
 	}
 
-	// First argument is the component index (0-3)
-	component, err := l.evalGatherComponent(args[0])
-	if err != nil {
-		return 0, fmt.Errorf("textureGather component: %w", err)
+	// Detect depth texture overload: first arg is a depth texture identifier
+	isDepth := l.isTextureDepth(args[0])
+
+	var component ir.SwizzleComponent
+	var textureArgIdx int
+
+	if isDepth {
+		// Depth overload: textureGather(texture, sampler, coords [, offset])
+		component = ir.SwizzleX // always component 0 for depth
+		textureArgIdx = 0
+	} else {
+		// Normal overload: textureGather(component, texture, sampler, coords [, offset])
+		if len(args) < 4 {
+			return 0, fmt.Errorf("textureGather requires at least 4 arguments for non-depth textures, got %d", len(args))
+		}
+		var err error
+		component, err = l.evalGatherComponent(args[0])
+		if err != nil {
+			return 0, fmt.Errorf("textureGather component: %w", err)
+		}
+		textureArgIdx = 1
 	}
 
-	image, err := l.lowerExpression(args[1], target)
+	image, err := l.lowerExpression(args[textureArgIdx], target)
 	if err != nil {
 		return 0, err
 	}
 
-	sampler, err := l.lowerExpression(args[2], target)
+	sampler, err := l.lowerExpression(args[textureArgIdx+1], target)
 	if err != nil {
 		return 0, err
 	}
 
-	coord, err := l.lowerExpression(args[3], target)
+	coord, err := l.lowerExpression(args[textureArgIdx+2], target)
 	if err != nil {
 		return 0, err
 	}
@@ -3087,9 +3644,9 @@ func (l *Lowerer) lowerTextureGather(args []Expr, target *[]ir.Statement) (ir.Ex
 	// Check for array index and optional offset
 	var arrayIndex *ir.ExpressionHandle
 	var offset *ir.ExpressionHandle
-	nextArg := 4
+	nextArg := textureArgIdx + 3
 
-	if l.isTextureArrayed(args[1]) && len(args) > nextArg {
+	if l.isTextureArrayed(args[textureArgIdx]) && len(args) > nextArg {
 		ai, aiErr := l.lowerExpression(args[nextArg], target)
 		if aiErr != nil {
 			return 0, aiErr
@@ -3209,6 +3766,25 @@ func (l *Lowerer) isTextureArrayed(expr Expr) bool {
 			if int(gv.Type) < len(l.module.Types) {
 				if img, ok := l.module.Types[gv.Type].Inner.(ir.ImageType); ok {
 					return img.Arrayed
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
+// isTextureDepth checks if a texture expression refers to a depth image type.
+func (l *Lowerer) isTextureDepth(expr Expr) bool {
+	ident, ok := expr.(*Ident)
+	if !ok {
+		return false
+	}
+	for _, gv := range l.module.GlobalVariables {
+		if gv.Name == ident.Name {
+			if int(gv.Type) < len(l.module.Types) {
+				if img, ok := l.module.Types[gv.Type].Inner.(ir.ImageType); ok {
+					return img.Class == ir.ImageClassDepth
 				}
 			}
 			return false

@@ -499,9 +499,50 @@ func (p *Parser) aliasDecl() (*AliasDecl, *ParseError) {
 func (p *Parser) typeSpec() (Type, *ParseError) {
 	tok := p.peek()
 
-	// Array type: array<f32, 4> - must check before general type keywords
+	// Array type: array<f32, 4> or array (without template args for inferred type)
 	if p.check(TokenArray) {
 		p.advance() // consume 'array'
+		if p.check(TokenLess) {
+			p.advance() // consume '<'
+
+			elemType, err := p.typeSpec()
+			if err != nil {
+				return nil, err
+			}
+
+			var size Expr
+			if p.match(TokenComma) {
+				// Parse only primary expression for size to avoid > being interpreted as comparison
+				size, err = p.primary()
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			if err := p.expectErr(TokenGreater); err != nil {
+				return nil, err
+			}
+
+			return &ArrayType{
+				Element: elemType,
+				Size:    size,
+				Span: Span{
+					Start: Position{Line: tok.Line, Column: tok.Column},
+				},
+			}, nil
+		}
+		// No template args: array(...) with inferred type — return as NamedType
+		return &NamedType{
+			Name: "array",
+			Span: Span{
+				Start: Position{Line: tok.Line, Column: tok.Column},
+			},
+		}, nil
+	}
+
+	// Binding array type: binding_array<texture_2d<f32>> or binding_array<texture_2d<f32>, 5>
+	if p.check(TokenIdent) && tok.Lexeme == "binding_array" {
+		p.advance() // consume 'binding_array'
 		if err := p.expectErr(TokenLess); err != nil {
 			return nil, err
 		}
@@ -513,7 +554,6 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 
 		var size Expr
 		if p.match(TokenComma) {
-			// Parse only primary expression for size to avoid > being interpreted as comparison
 			size, err = p.primary()
 			if err != nil {
 				return nil, err
@@ -524,7 +564,7 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 			return nil, err
 		}
 
-		return &ArrayType{
+		return &BindingArrayType{
 			Element: elemType,
 			Size:    size,
 			Span: Span{
@@ -1439,6 +1479,37 @@ func (p *Parser) primary() (Expr, *ParseError) {
 		}, nil
 
 	case TokenIdent:
+		// Handle bitcast<Type>(expr) — special syntax
+		if tok.Lexeme == "bitcast" {
+			p.advance() // consume 'bitcast'
+			if err := p.expectErr(TokenLess); err != nil {
+				return nil, err
+			}
+			targetType, err := p.typeSpec()
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectErr(TokenGreater); err != nil {
+				return nil, err
+			}
+			if err := p.expectErr(TokenLeftParen); err != nil {
+				return nil, err
+			}
+			arg, err := p.expression()
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectErr(TokenRightParen); err != nil {
+				return nil, err
+			}
+			return &BitcastExpr{
+				Type: targetType,
+				Expr: arg,
+				Span: Span{
+					Start: Position{Line: tok.Line, Column: tok.Column},
+				},
+			}, nil
+		}
 		p.advance()
 		return &Ident{
 			Name: tok.Lexeme,

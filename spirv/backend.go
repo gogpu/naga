@@ -438,6 +438,21 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		// The atomicity is expressed through OpAtomic* instructions
 		id = b.emitScalarType(inner.Scalar)
 
+	case ir.BindingArrayType:
+		baseID, err := b.emitType(inner.Base)
+		if err != nil {
+			return 0, err
+		}
+		if inner.Size != nil {
+			// Fixed-size binding array
+			u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+			sizeID := b.builder.AddConstant(u32TypeID, *inner.Size)
+			id = b.builder.AddTypeArray(baseID, sizeID)
+		} else {
+			// Unbounded binding array (runtime-sized)
+			id = b.builder.AddTypeRuntimeArray(baseID)
+		}
+
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", inner)
 	}
@@ -1510,6 +1525,10 @@ type ExpressionEmitter struct {
 	// Loop context stack for break/continue
 	loopStack []loopContext
 
+	// Break target stack: merge labels for both loops and switches.
+	// A break inside a switch branches to the switch merge, not the loop merge.
+	breakStack []uint32
+
 	// Cached call result IDs (set by emitCall, read by ExprCallResult)
 	callResultIDs map[ir.ExpressionHandle]uint32
 
@@ -1927,6 +1946,9 @@ func (e *ExpressionEmitter) emitAccess(access ir.ExprAccess) (uint32, error) {
 		case ir.PointerType:
 			h := t.Base
 			elementType = ir.TypeResolution{Handle: &h}
+		case ir.BindingArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
 		default:
 			return 0, fmt.Errorf("cannot index into type %T", t)
 		}
@@ -2072,11 +2094,25 @@ func (e *ExpressionEmitter) emitAccessIndexAsPointer(access ir.ExprAccessIndex) 
 			}
 			h := t.Members[access.Index].Type
 			elementType = ir.TypeResolution{Handle: &h}
+		case ir.BindingArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
 		default:
 			return 0, fmt.Errorf("cannot index into type %T", t)
 		}
 	} else {
-		return 0, fmt.Errorf("cannot access index on inline type for pointer")
+		// Inline type (not in the module type table)
+		switch t := baseType.Value.(type) {
+		case ir.ArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		default:
+			return 0, fmt.Errorf("cannot access index on inline type %T for pointer", t)
+		}
 	}
 
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
@@ -2118,11 +2154,25 @@ func (e *ExpressionEmitter) emitAccessAsPointer(access ir.ExprAccess) (uint32, e
 			elementType = ir.TypeResolution{Value: t.Scalar}
 		case ir.MatrixType:
 			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		case ir.BindingArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
 		default:
 			return 0, fmt.Errorf("cannot index into type %T", t)
 		}
 	} else {
-		return 0, fmt.Errorf("cannot access on inline type for pointer")
+		// Inline type (not in the module type table)
+		switch t := baseType.Value.(type) {
+		case ir.ArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		default:
+			return 0, fmt.Errorf("cannot access on inline type %T for pointer", t)
+		}
 	}
 
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
@@ -2163,6 +2213,9 @@ func (e *ExpressionEmitter) emitAccessIndex(access ir.ExprAccessIndex) (uint32, 
 			h := t.Members[access.Index].Type
 			elementType = ir.TypeResolution{Handle: &h}
 		case ir.PointerType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.BindingArrayType:
 			h := t.Base
 			elementType = ir.TypeResolution{Handle: &h}
 		default:
@@ -2292,8 +2345,14 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 	}
 
 	if as.Convert == nil {
-		// Bitcast
-		targetType := e.backend.emitScalarType(ir.ScalarType{Kind: as.Kind, Width: srcScalar.Width})
+		// Bitcast — preserve vector structure if source is a vector
+		targetScalar := ir.ScalarType{Kind: as.Kind, Width: srcScalar.Width}
+		var targetType uint32
+		if vec, ok := srcInner.(ir.VectorType); ok {
+			targetType = e.backend.emitInlineType(ir.VectorType{Size: vec.Size, Scalar: targetScalar})
+		} else {
+			targetType = e.backend.emitScalarType(targetScalar)
+		}
 		return e.emitConversionOp(OpBitcast, targetType, exprID), nil
 	}
 
@@ -2303,6 +2362,11 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 		targetTypeID = e.backend.emitInlineType(ir.VectorType{Size: vec.Size, Scalar: targetScalar})
 	} else {
 		targetTypeID = e.backend.emitScalarType(targetScalar)
+	}
+
+	// Identity conversion: same kind and width — just return the expression unchanged
+	if srcScalar.Kind == as.Kind && srcScalar.Width == *as.Convert {
+		return exprID, nil
 	}
 
 	// Bool conversions require special handling — no single SPIR-V opcode exists.
@@ -2967,12 +3031,12 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		return e.emitLoop(kind)
 
 	case ir.StmtBreak:
-		if len(e.loopStack) == 0 {
-			return fmt.Errorf("break statement outside of loop")
+		if len(e.breakStack) == 0 {
+			return fmt.Errorf("break statement outside of loop or switch")
 		}
-		ctx := e.loopStack[len(e.loopStack)-1]
+		mergeLabel := e.breakStack[len(e.breakStack)-1]
 		builder := e.newIB()
-		builder.AddWord(ctx.mergeLabel)
+		builder.AddWord(mergeLabel)
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 		return nil
 
@@ -3245,8 +3309,10 @@ func (e *ExpressionEmitter) emitLoop(stmt ir.StmtLoop) error {
 		mergeLabel:    mergeLabel,
 		continueLabel: continueLabel,
 	})
+	e.breakStack = append(e.breakStack, mergeLabel)
 	defer func() {
 		e.loopStack = e.loopStack[:len(e.loopStack)-1]
+		e.breakStack = e.breakStack[:len(e.breakStack)-1]
 	}()
 
 	// Branch to header
@@ -3366,6 +3432,12 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 		}
 	}
 	e.backend.builder.functions = append(e.backend.builder.functions, switchBuilder.Build(OpSwitch))
+
+	// Push break target for switch so break inside cases branches to mergeLabel
+	e.breakStack = append(e.breakStack, mergeLabel)
+	defer func() {
+		e.breakStack = e.breakStack[:len(e.breakStack)-1]
+	}()
 
 	// Emit each case block
 	for i, c := range stmt.Cases {

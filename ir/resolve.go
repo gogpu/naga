@@ -160,6 +160,9 @@ func resolveAccessType(module *Module, fn *Function, expr ExprAccess) (TypeResol
 			return TypeResolution{}, fmt.Errorf("pointer base type %d out of range", t.Base)
 		}
 		return resolveAccessType(module, fn, ExprAccess{Base: expr.Base, Index: expr.Index})
+	case BindingArrayType:
+		h := t.Base
+		return TypeResolution{Handle: &h}, nil
 	default:
 		return TypeResolution{}, fmt.Errorf("cannot index into type %T", t)
 	}
@@ -203,6 +206,9 @@ func resolveAccessIndexType(module *Module, fn *Function, expr ExprAccessIndex) 
 		}
 		_ = module.Types[t.Base].Inner // Validate it exists
 		return resolveAccessIndexType(module, fn, ExprAccessIndex{Base: expr.Base, Index: expr.Index})
+	case BindingArrayType:
+		h := t.Base
+		return TypeResolution{Handle: &h}, nil
 	default:
 		return TypeResolution{}, fmt.Errorf("cannot index into type %T", t)
 	}

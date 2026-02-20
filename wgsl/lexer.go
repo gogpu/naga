@@ -287,6 +287,13 @@ func (l *Lexer) number() {
 		return
 	}
 
+	// Float suffix without decimal point: 1f, 1h are valid WGSL float literals
+	if l.peek() == 'f' || l.peek() == 'h' {
+		l.advance()
+		l.addToken(TokenFloatLiteral)
+		return
+	}
+
 	// Integer suffixes
 	if l.peek() == 'i' || l.peek() == 'u' {
 		l.advance()
