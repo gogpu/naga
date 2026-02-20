@@ -2206,6 +2206,122 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	t.Logf("Successfully compiled blit shader: %d bytes", len(spirvBytes))
 }
 
+// TestCompileBlendShader tests gg's 29-mode blend shader with module-level constants,
+// switch statements, function calls, and select/step/sqrt builtins.
+func TestCompileBlendShader(t *testing.T) {
+	source := `
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+struct BlendParams {
+    mode: u32,
+    alpha: f32,
+    padding: vec2<f32>,
+}
+
+@group(0) @binding(0) var dst_texture: texture_2d<f32>;
+@group(0) @binding(1) var src_texture: texture_2d<f32>;
+@group(0) @binding(2) var tex_sampler: sampler;
+@group(0) @binding(3) var<uniform> params: BlendParams;
+
+const BLEND_NORMAL: u32 = 0u;
+const BLEND_MULTIPLY: u32 = 1u;
+const BLEND_SCREEN: u32 = 2u;
+const BLEND_DARKEN: u32 = 4u;
+const BLEND_LIGHTEN: u32 = 5u;
+const BLEND_DIFFERENCE: u32 = 10u;
+const BLEND_EXCLUSION: u32 = 11u;
+const BLEND_CLEAR: u32 = 16u;
+const BLEND_COPY: u32 = 17u;
+const BLEND_DESTINATION: u32 = 18u;
+const BLEND_SOURCE_OVER: u32 = 19u;
+const BLEND_PLUS: u32 = 28u;
+
+fn blend_multiply(src: vec3<f32>, dst: vec3<f32>) -> vec3<f32> {
+    return src * dst;
+}
+
+fn blend_screen(src: vec3<f32>, dst: vec3<f32>) -> vec3<f32> {
+    return src + dst - src * dst;
+}
+
+fn blend_separable(src: vec3<f32>, dst: vec3<f32>, mode: u32) -> vec3<f32> {
+    switch mode {
+        case BLEND_NORMAL: { return src; }
+        case BLEND_MULTIPLY: { return blend_multiply(src, dst); }
+        case BLEND_SCREEN: { return blend_screen(src, dst); }
+        case BLEND_DARKEN: { return min(src, dst); }
+        case BLEND_LIGHTEN: { return max(src, dst); }
+        case BLEND_DIFFERENCE: { return abs(src - dst); }
+        case BLEND_EXCLUSION: { return src + dst - 2.0 * src * dst; }
+        default: { return src; }
+    }
+}
+
+fn blend_porter_duff(src: vec4<f32>, dst: vec4<f32>, mode: u32) -> vec4<f32> {
+    let sa = src.a;
+    let da = dst.a;
+    switch mode {
+        case BLEND_CLEAR: { return vec4<f32>(0.0); }
+        case BLEND_COPY: { return src; }
+        case BLEND_DESTINATION: { return dst; }
+        case BLEND_SOURCE_OVER: { return src + dst * (1.0 - sa); }
+        case BLEND_PLUS: { return min(src + dst, vec4<f32>(1.0)); }
+        default: { return src; }
+    }
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0)
+    );
+    var uvs = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(2.0, 1.0),
+        vec2<f32>(0.0, -1.0)
+    );
+    var out: VertexOutput;
+    out.position = vec4<f32>(positions[idx], 0.0, 1.0);
+    out.uv = uvs[idx];
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    var src = textureSample(src_texture, tex_sampler, in.uv);
+    let dst = textureSample(dst_texture, tex_sampler, in.uv);
+    src = vec4<f32>(src.rgb * params.alpha, src.a * params.alpha);
+    let mode = params.mode;
+
+    if mode >= BLEND_CLEAR {
+        return blend_porter_duff(src, dst, mode);
+    }
+
+    let blended_rgb = blend_separable(src.rgb, dst.rgb, mode);
+    let out_alpha = src.a + dst.a * (1.0 - src.a);
+
+    let final_rgb = select(
+        dst.rgb,
+        blended_rgb * src.a + dst.rgb * dst.a * (1.0 - src.a),
+        out_alpha > 0.0
+    ) / max(out_alpha, 0.0001);
+
+    return vec4<f32>(final_rgb * out_alpha, out_alpha);
+}
+`
+
+	spirvBytes := compileWGSL(t, source)
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled blend shader: %d bytes", len(spirvBytes))
+}
+
 // validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
 // Skips if Vulkan SDK tools are not available.
 func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {

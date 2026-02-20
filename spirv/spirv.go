@@ -50,7 +50,7 @@ type Capability uint32
 
 // Common capabilities
 const (
-	CapabilityMatrix     Capability = 0  // Implied by Shader
+	CapabilityMatrix     Capability = 0 // Implied by Shader
 	CapabilityShader     Capability = 1
 	CapabilityFloat16    Capability = 9  // Required for OpTypeFloat 16
 	CapabilityFloat64    Capability = 10 // Required for OpTypeFloat 64

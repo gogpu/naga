@@ -1262,12 +1262,12 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 
 	// 3. Create expression emitter for this function
 	emitter := &ExpressionEmitter{
-		backend:            b,
-		function:           fn,
-		exprIDs:            make(map[ir.ExpressionHandle]uint32, len(fn.Expressions)),
-		paramIDs:           paramIDs,
-		isEntryPoint:       isEntryPoint,
-		output:             output,
+		backend:               b,
+		function:              fn,
+		exprIDs:               make(map[ir.ExpressionHandle]uint32, len(fn.Expressions)),
+		paramIDs:              paramIDs,
+		isEntryPoint:          isEntryPoint,
+		output:                output,
 		callResultIDs:         make(map[ir.ExpressionHandle]uint32, 4),
 		deferredCallStores:    make(map[ir.ExpressionHandle]uint32, 4),
 		deferredComplexStores: make(map[ir.ExpressionHandle][]deferredComplexStore),
@@ -2515,6 +2515,12 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	case ir.BinaryDivide:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFDiv
+			// Check for vec / scalar — SPIR-V has no OpVectorDivideScalar.
+			// Splat the scalar to a matching vector.
+			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			if rErr == nil {
+				leftID, rightID, resultType = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			}
 		} else if scalarKind == ir.ScalarSint {
 			opcode = OpSDiv
 		} else {
@@ -2597,6 +2603,59 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	return e.backend.builder.AddBinaryOp(opcode, resultType, leftID, rightID), nil
 }
 
+// promoteScalarToVector handles vec/scalar mixed operands for binary operations
+// that have no dedicated SPIR-V opcode (divide, modulo, add, subtract).
+// It splats the scalar operand to a vector of matching size using OpCompositeConstruct.
+// Returns potentially updated leftID, rightID, and resultType.
+func (e *ExpressionEmitter) promoteScalarToVector(
+	leftType, rightType ir.TypeResolution,
+	leftID, rightID, resultType uint32,
+) (uint32, uint32, uint32) {
+	var leftInner, rightInner ir.TypeInner
+	if leftType.Handle != nil {
+		leftInner = e.backend.module.Types[*leftType.Handle].Inner
+	} else {
+		leftInner = leftType.Value
+	}
+	if rightType.Handle != nil {
+		rightInner = e.backend.module.Types[*rightType.Handle].Inner
+	} else {
+		rightInner = rightType.Value
+	}
+
+	leftVec, leftIsVec := leftInner.(ir.VectorType)
+	_, rightIsScalar := rightInner.(ir.ScalarType)
+	rightVec, rightIsVec := rightInner.(ir.VectorType)
+	_, leftIsScalar := leftInner.(ir.ScalarType)
+
+	if leftIsVec && rightIsScalar {
+		// vec op scalar → splat scalar to matching vector
+		rightID = e.splatScalar(rightID, leftVec)
+		return leftID, rightID, resultType
+	}
+	if leftIsScalar && rightIsVec {
+		// scalar op vec → splat scalar to matching vector, result type is vec
+		leftID = e.splatScalar(leftID, rightVec)
+		resultType = e.backend.resolveTypeResolution(rightType)
+		return leftID, rightID, resultType
+	}
+	return leftID, rightID, resultType
+}
+
+// splatScalar creates an OpCompositeConstruct that replicates a scalar to a vector.
+func (e *ExpressionEmitter) splatScalar(scalarID uint32, vecType ir.VectorType) uint32 {
+	vecTypeID := e.backend.emitInlineType(vecType)
+	splatID := e.backend.builder.AllocID()
+	builder := e.newIB()
+	builder.AddWord(vecTypeID)
+	builder.AddWord(splatID)
+	for range vecType.Size {
+		builder.AddWord(scalarID)
+	}
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpCompositeConstruct))
+	return splatID
+}
+
 // emitSelect emits a select operation.
 func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 	conditionID, err := e.emitExpression(sel.Condition)
@@ -2620,6 +2679,52 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 		return 0, fmt.Errorf("select accept type: %w", err)
 	}
 	resultType := e.backend.resolveTypeResolution(acceptType)
+
+	// SPIR-V OpSelect requires the condition to be the same size as the result.
+	// WGSL allows scalar bool condition with vector operands (broadcast).
+	// When condition is scalar bool but result is vector, splat the condition.
+	condType, err := ir.ResolveExpressionType(e.backend.module, e.function, sel.Condition)
+	if err != nil {
+		return 0, fmt.Errorf("select condition type: %w", err)
+	}
+	var condInner ir.TypeInner
+	if condType.Handle != nil {
+		condInner = e.backend.module.Types[*condType.Handle].Inner
+	} else {
+		condInner = condType.Value
+	}
+	var acceptInner ir.TypeInner
+	if acceptType.Handle != nil {
+		acceptInner = e.backend.module.Types[*acceptType.Handle].Inner
+	} else {
+		acceptInner = acceptType.Value
+	}
+	if _, isBoolScalar := condInner.(ir.ScalarType); isBoolScalar {
+		if vecType, isVec := acceptInner.(ir.VectorType); isVec {
+			// Splat scalar bool to vector bool
+			boolVecInner := ir.VectorType{
+				Scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
+				Size:   vecType.Size,
+			}
+			boolVecHandle := ir.TypeHandle(len(e.backend.module.Types))
+			e.backend.module.Types = append(e.backend.module.Types, ir.Type{
+				Inner: boolVecInner,
+			})
+			boolVecTypeID, _ := e.backend.emitType(boolVecHandle)
+			builder := e.newIB()
+			splatID := e.backend.builder.AllocID()
+			builder.AddWord(boolVecTypeID)
+			builder.AddWord(splatID)
+			for range vecType.Size {
+				builder.AddWord(conditionID)
+			}
+			e.backend.builder.functions = append(
+				e.backend.builder.functions,
+				builder.Build(OpCompositeConstruct),
+			)
+			conditionID = splatID
+		}
+	}
 
 	return e.backend.builder.AddSelect(resultType, conditionID, acceptID, rejectID), nil
 }
@@ -2847,6 +2952,18 @@ func blockEndsWithTerminator(block ir.Block) bool {
 	case ir.StmtIf:
 		// An if statement is a terminator if BOTH branches end with terminators
 		return blockEndsWithTerminator(kind.Accept) && blockEndsWithTerminator(kind.Reject)
+	case ir.StmtSwitch:
+		// A switch is a terminator if it has a default case and all cases end with terminators
+		hasDefault := false
+		for _, c := range kind.Cases {
+			if _, ok := c.Value.(ir.SwitchValueDefault); ok {
+				hasDefault = true
+			}
+			if !blockEndsWithTerminator(c.Body) {
+				return false
+			}
+		}
+		return hasDefault
 	default:
 		return false
 	}
@@ -3019,6 +3136,20 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 
 	// Merge label - use pre-allocated ID
 	e.backend.builder.AddLabelWithID(mergeLabel)
+
+	// If all cases terminate (return/break/etc), the merge block is unreachable.
+	// SPIR-V still requires every block to end with a terminator instruction.
+	allCasesTerminate := true
+	for _, c := range stmt.Cases {
+		if !blockEndsWithTerminator(c.Body) {
+			allCasesTerminate = false
+			break
+		}
+	}
+	if allCasesTerminate {
+		builder := e.newIB()
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpUnreachable))
+	}
 
 	return nil
 }

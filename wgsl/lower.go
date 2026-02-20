@@ -2,6 +2,7 @@ package wgsl
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -24,9 +25,10 @@ type Lowerer struct {
 	types    map[string]ir.TypeHandle // Named type lookup
 
 	// Variable resolution
-	globals   map[string]ir.GlobalVariableHandle
-	locals    map[string]ir.ExpressionHandle
-	globalIdx uint32
+	globals         map[string]ir.GlobalVariableHandle
+	locals          map[string]ir.ExpressionHandle
+	moduleConstants map[string]ir.ConstantHandle
+	globalIdx       uint32
 
 	// Function resolution
 	functions map[string]ir.FunctionHandle // Named function lookup
@@ -68,15 +70,16 @@ func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 // LowerWithWarnings converts a WGSL AST module to Naga IR, returning warnings.
 func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 	l := &Lowerer{
-		module:     &ir.Module{},
-		source:     source,
-		registry:   ir.NewTypeRegistry(),
-		types:      make(map[string]ir.TypeHandle, 16),
-		globals:    make(map[string]ir.GlobalVariableHandle, 8),
-		locals:     make(map[string]ir.ExpressionHandle, 16),
-		functions:  make(map[string]ir.FunctionHandle, len(ast.Functions)),
-		localDecls: make(map[string]Span, 16),
-		usedLocals: make(map[string]bool, 16),
+		module:          &ir.Module{},
+		source:          source,
+		registry:        ir.NewTypeRegistry(),
+		types:           make(map[string]ir.TypeHandle, 16),
+		globals:         make(map[string]ir.GlobalVariableHandle, 8),
+		locals:          make(map[string]ir.ExpressionHandle, 16),
+		moduleConstants: make(map[string]ir.ConstantHandle, 16),
+		functions:       make(map[string]ir.FunctionHandle, len(ast.Functions)),
+		localDecls:      make(map[string]Span, 16),
+		usedLocals:      make(map[string]bool, 16),
 	}
 
 	// Register built-in types
@@ -345,13 +348,78 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 
 // lowerConstant converts a constant declaration to IR.
 func (l *Lowerer) lowerConstant(c *ConstDecl) error {
-	typeHandle, err := l.resolveType(c.Type)
-	if err != nil {
-		return fmt.Errorf("constant %s: %w", c.Name, err)
+	if c.Init == nil {
+		return fmt.Errorf("module constant '%s' must have initializer", c.Name)
 	}
 
-	// TODO: Evaluate constant expression
-	_ = typeHandle
+	// Evaluate the constant initializer to a scalar value.
+	lit, ok := c.Init.(*Literal)
+	if !ok {
+		return fmt.Errorf("module constant '%s': only literal initializers supported", c.Name)
+	}
+
+	var scalarKind ir.ScalarKind
+	var bits uint64
+
+	switch lit.Kind {
+	case TokenIntLiteral:
+		text := lit.Value
+		isUnsigned := false
+		if len(text) > 0 && text[len(text)-1] == 'u' {
+			text = text[:len(text)-1]
+			isUnsigned = true
+		} else if len(text) > 0 && text[len(text)-1] == 'i' {
+			text = text[:len(text)-1]
+		}
+		if isUnsigned {
+			v, _ := strconv.ParseUint(text, 0, 32)
+			bits = v
+			scalarKind = ir.ScalarUint
+		} else {
+			v, _ := strconv.ParseInt(text, 0, 32)
+			bits = uint64(v)
+			scalarKind = ir.ScalarSint
+		}
+	case TokenFloatLiteral:
+		text := lit.Value
+		if len(text) > 0 && (text[len(text)-1] == 'f' || text[len(text)-1] == 'h') {
+			text = text[:len(text)-1]
+		}
+		v, _ := strconv.ParseFloat(text, 32)
+		bits = uint64(math.Float32bits(float32(v)))
+		scalarKind = ir.ScalarFloat
+	case TokenTrue, TokenBoolLiteral:
+		if lit.Value == "true" {
+			bits = 1
+		}
+		scalarKind = ir.ScalarBool
+	case TokenFalse:
+		scalarKind = ir.ScalarBool
+	default:
+		return fmt.Errorf("module constant '%s': unsupported literal kind %v", c.Name, lit.Kind)
+	}
+
+	// Resolve the type. If no explicit type, infer from the literal.
+	var typeHandle ir.TypeHandle
+	if c.Type != nil {
+		var err error
+		typeHandle, err = l.resolveType(c.Type)
+		if err != nil {
+			return fmt.Errorf("constant %s: %w", c.Name, err)
+		}
+	} else {
+		// Infer type from literal
+		width := uint8(4)
+		typeHandle = l.registerType("", ir.ScalarType{Kind: scalarKind, Width: width})
+	}
+
+	handle := ir.ConstantHandle(len(l.module.Constants))
+	l.module.Constants = append(l.module.Constants, ir.Constant{
+		Name:  c.Name,
+		Type:  typeHandle,
+		Value: ir.ScalarValue{Bits: bits, Kind: scalarKind},
+	})
+	l.moduleConstants[c.Name] = handle
 	return nil
 }
 
@@ -799,14 +867,37 @@ func (l *Lowerer) lowerSwitch(switchStmt *SwitchStmt, target *[]ir.Statement) er
 
 // lowerSwitchCaseValue converts a switch case selector to IR.
 func (l *Lowerer) lowerSwitchCaseValue(expr Expr) (ir.SwitchValue, error) {
-	lit, ok := expr.(*Literal)
-	if !ok {
-		return nil, fmt.Errorf("switch case selector must be a literal, got %T", expr)
+	switch e := expr.(type) {
+	case *Literal:
+		return l.literalToSwitchValue(e)
+	case *Ident:
+		// Resolve module-level constant to its literal value
+		constHandle, ok := l.moduleConstants[e.Name]
+		if !ok {
+			return nil, fmt.Errorf("switch case selector '%s': not a known constant", e.Name)
+		}
+		constant := &l.module.Constants[constHandle]
+		sv, ok := constant.Value.(ir.ScalarValue)
+		if !ok {
+			return nil, fmt.Errorf("switch case selector '%s': not a scalar constant", e.Name)
+		}
+		switch sv.Kind {
+		case ir.ScalarUint:
+			return ir.SwitchValueU32(uint32(sv.Bits)), nil
+		case ir.ScalarSint:
+			return ir.SwitchValueI32(int32(sv.Bits)), nil
+		default:
+			return nil, fmt.Errorf("switch case selector '%s': must be integer", e.Name)
+		}
+	default:
+		return nil, fmt.Errorf("switch case selector must be a literal or constant, got %T", expr)
 	}
+}
 
+// literalToSwitchValue converts a literal expression to a switch value.
+func (l *Lowerer) literalToSwitchValue(lit *Literal) (ir.SwitchValue, error) {
 	switch lit.Kind {
 	case TokenIntLiteral:
-		// Parse the literal value
 		val, suffix := parseIntLiteral(lit.Value)
 		if suffix == "u" {
 			// #nosec G115 -- WGSL switch case values are always 32-bit
@@ -1195,6 +1286,13 @@ func (l *Lowerer) resolveIdentifier(name string) (ir.ExpressionHandle, error) {
 		// Mark as used for unused variable warnings
 		l.usedLocals[name] = true
 		return handle, nil
+	}
+
+	// Check module-level constants
+	if handle, ok := l.moduleConstants[name]; ok {
+		return l.addExpression(ir.Expression{
+			Kind: ir.ExprConstant{Constant: handle},
+		}), nil
 	}
 
 	// Check globals
