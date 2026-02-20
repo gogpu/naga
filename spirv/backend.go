@@ -379,8 +379,12 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		b.builder.types = append(b.builder.types, builder.Build(OpTypeSampler))
 
 	case ir.ImageType:
-		// OpTypeImage (simplified - full implementation would need more work)
-		sampledTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		// Derive sampled type from image class and storage format
+		sampledScalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+		if inner.Class == ir.ImageClassStorage {
+			sampledScalar = storageFormatToScalar(inner.StorageFormat)
+		}
+		sampledTypeID := b.emitScalarType(sampledScalar)
 		id = b.emitImageType(sampledTypeID, inner)
 
 	case ir.AtomicType:
@@ -606,6 +610,24 @@ func (b *Backend) emitImageType(sampledTypeID uint32, img ir.ImageType) uint32 {
 	// Cache the type for reuse
 	b.imageTypeIDs[cacheKey] = id
 	return id
+}
+
+// storageFormatToScalar maps a storage texture format to its sampled scalar type.
+// Float formats → f32, unsigned int formats → u32, signed int formats → i32.
+func storageFormatToScalar(format ir.StorageFormat) ir.ScalarType {
+	switch format {
+	case ir.StorageFormatR8Uint, ir.StorageFormatRg8Uint, ir.StorageFormatR16Uint,
+		ir.StorageFormatRg16Uint, ir.StorageFormatR32Uint, ir.StorageFormatRg32Uint,
+		ir.StorageFormatRgba8Uint, ir.StorageFormatRgba16Uint, ir.StorageFormatRgba32Uint,
+		ir.StorageFormatRgb10a2Uint:
+		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	case ir.StorageFormatR8Sint, ir.StorageFormatRg8Sint, ir.StorageFormatR16Sint,
+		ir.StorageFormatRg16Sint, ir.StorageFormatR32Sint, ir.StorageFormatRg32Sint,
+		ir.StorageFormatRgba8Sint, ir.StorageFormatRgba16Sint, ir.StorageFormatRgba32Sint:
+		return ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
+	default:
+		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
 }
 
 // addressSpaceToStorageClass converts IR AddressSpace to SPIR-V StorageClass.
