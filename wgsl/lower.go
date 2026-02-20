@@ -1100,6 +1100,16 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 		return l.lowerTextureCall(funcName, call.Args, target)
 	}
 
+	// Check if this is atomicStore (special case - no result)
+	if funcName == "atomicStore" {
+		return l.lowerAtomicStore(call.Args, target)
+	}
+
+	// Check if this is atomicLoad (special case - 1 arg, returns value)
+	if funcName == "atomicLoad" {
+		return l.lowerAtomicLoad(call.Args, target)
+	}
+
 	// Check if this is an atomic function
 	if atomicFunc := l.getAtomicFunction(funcName); atomicFunc != nil {
 		return l.lowerAtomicCall(atomicFunc, call.Args, target)
@@ -2605,6 +2615,63 @@ func (l *Lowerer) lowerAtomicCall(atomicFunc ir.AtomicFunction, args []Expr, tar
 			Pointer: pointer,
 			Fun:     atomicFunc,
 			Value:   value,
+			Result:  &resultHandle,
+		},
+	})
+
+	return resultHandle, nil
+}
+
+// lowerAtomicStore converts atomicStore(&ptr, value) to IR.
+// atomicStore is a statement - it has no return value.
+func (l *Lowerer) lowerAtomicStore(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 2 {
+		return 0, fmt.Errorf("atomicStore requires 2 arguments")
+	}
+
+	pointer, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	value, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtAtomic{
+			Pointer: pointer,
+			Fun:     ir.AtomicStore{},
+			Value:   value,
+			Result:  nil, // atomicStore has no result
+		},
+	})
+
+	return 0, nil // No return value
+}
+
+// lowerAtomicLoad converts atomicLoad(&ptr) to IR.
+// Returns the loaded atomic value.
+func (l *Lowerer) lowerAtomicLoad(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 1 {
+		return 0, fmt.Errorf("atomicLoad requires 1 argument")
+	}
+
+	pointer, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	resultHandle := l.addExpression(ir.Expression{
+		Kind: ir.ExprAtomicResult{},
+	})
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtAtomic{
+			Pointer: pointer,
+			Fun:     ir.AtomicLoad{},
+			Value:   pointer, // Not used by backend for AtomicLoad
 			Result:  &resultHandle,
 		},
 	})

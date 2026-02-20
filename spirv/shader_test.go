@@ -2374,6 +2374,57 @@ func TestCompileCompositeShader(t *testing.T) {
 		strings.Count(string(source), "\n"), len(spirvBytes))
 }
 
+// TestCompileFlattenShader compiles the gg flatten.wgsl compute shader.
+// This tests atomicAdd, atomicStore, complex control flow with many if/else if chains,
+// multiple compute entry points, and sqrt/ceil/pow builtins.
+func TestCompileFlattenShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/flatten.wgsl")
+	if err != nil {
+		t.Skipf("flatten.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled flatten shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileCoarseShader compiles the gg coarse.wgsl compute shader.
+// This tests atomicAdd, atomicStore, complex tile binning with nested function calls,
+// and multiple compute entry points.
+func TestCompileCoarseShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/coarse.wgsl")
+	if err != nil {
+		t.Skipf("coarse.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled coarse shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileFineShader compiles the gg fine.wgsl compute shader.
+// This tests workgroup shared memory (var<workgroup>), workgroupBarrier(),
+// bitwise shift operators, multiple compute entry points, and complex control flow.
+func TestCompileFineShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/fine.wgsl")
+	if err != nil {
+		t.Skipf("fine.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled fine shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
 // validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
 // Skips if Vulkan SDK tools are not available.
 func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {

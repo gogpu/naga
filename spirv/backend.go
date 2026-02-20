@@ -306,6 +306,30 @@ func (b *Backend) emitTypes() error {
 
 // emitType emits a single IR type and returns its SPIR-V ID.
 // Uses caching to ensure type deduplication.
+// emitTypeNoLayout emits a type without explicit layout decorations (ArrayStride, etc).
+// Used for Workgroup storage class variables which must not have layout decorations.
+func (b *Backend) emitTypeNoLayout(handle ir.TypeHandle) (uint32, error) {
+	typ := &b.module.Types[handle]
+
+	if inner, ok := typ.Inner.(ir.ArrayType); ok {
+		baseID, err := b.emitType(inner.Base)
+		if err != nil {
+			return 0, err
+		}
+		if inner.Size.Constant != nil {
+			u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+			sizeID := b.builder.AddConstant(u32TypeID, *inner.Size.Constant)
+			id := b.builder.AddTypeArray(baseID, sizeID)
+			// Explicitly NO ArrayStride decoration for Workgroup arrays
+			return id, nil
+		}
+		return b.builder.AddTypeRuntimeArray(baseID), nil
+	}
+
+	// For non-array types, use the standard emitter
+	return b.emitType(handle)
+}
+
 func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 	// Check cache
 	if id, ok := b.typeIDs[handle]; ok {
@@ -728,8 +752,7 @@ func (b *Backend) emitScalarConstant(typeID uint32, value ir.ScalarValue) uint32
 
 	case ir.ScalarFloat:
 		// Determine width from type
-		typ := &b.module.Types[b.findTypeHandleByID(typeID)]
-		scalarType := typ.Inner.(ir.ScalarType)
+		scalarType := b.resolveScalarType(typeID)
 		if scalarType.Width == 4 {
 			// 32-bit float
 			return b.builder.AddConstantFloat32(typeID, math.Float32frombits(uint32(value.Bits)))
@@ -740,8 +763,7 @@ func (b *Backend) emitScalarConstant(typeID uint32, value ir.ScalarValue) uint32
 	case ir.ScalarSint, ir.ScalarUint:
 		// For integers, just pass the bits directly
 		// Handle 64-bit integers (need two words)
-		typ := &b.module.Types[b.findTypeHandleByID(typeID)]
-		scalarType := typ.Inner.(ir.ScalarType)
+		scalarType := b.resolveScalarType(typeID)
 		if scalarType.Width == 8 {
 			// 64-bit integer
 			lowBits := uint32(value.Bits & 0xFFFFFFFF)
@@ -753,6 +775,20 @@ func (b *Backend) emitScalarConstant(typeID uint32, value ir.ScalarValue) uint32
 
 	default:
 		panic(fmt.Sprintf("unknown scalar kind: %v", value.Kind))
+	}
+}
+
+// resolveScalarType finds the ScalarType for a SPIR-V type ID, unwrapping AtomicType if needed.
+func (b *Backend) resolveScalarType(typeID uint32) ir.ScalarType {
+	handle := b.findTypeHandleByID(typeID)
+	typ := &b.module.Types[handle]
+	switch inner := typ.Inner.(type) {
+	case ir.ScalarType:
+		return inner
+	case ir.AtomicType:
+		return inner.Scalar
+	default:
+		panic(fmt.Sprintf("expected ScalarType or AtomicType, got %T", typ.Inner))
 	}
 }
 
@@ -785,8 +821,16 @@ const OpArrayLength OpCode = 68
 // emitGlobals emits all global variables to SPIR-V.
 func (b *Backend) emitGlobals() error {
 	for handle, global := range b.module.GlobalVariables {
-		// Get the variable type
-		varType, err := b.emitType(global.Type)
+		// Get the variable type.
+		// Workgroup variables must NOT have explicit layout decorations
+		// (ArrayStride, Offset, MatrixStride) per Vulkan SPIR-V rules.
+		var varType uint32
+		var err error
+		if global.Space == ir.SpaceWorkGroup {
+			varType, err = b.emitTypeNoLayout(global.Type)
+		} else {
+			varType, err = b.emitType(global.Type)
+		}
 		if err != nil {
 			return err
 		}
@@ -835,8 +879,34 @@ func (b *Backend) emitGlobals() error {
 			b.builder.AddDecorate(varID, DecorationDescriptorSet, global.Binding.Group)
 			b.builder.AddDecorate(varID, DecorationBinding, global.Binding.Binding)
 		}
+
+		// Add NonReadable/NonWritable decorations for storage images and storage buffers.
+		// SPIR-V requires these decorations to match the access mode.
+		storageAccess := b.getStorageAccess(global)
+		if storageAccess >= 0 {
+			access := ir.StorageAccess(storageAccess)
+			if access == ir.StorageAccessWrite {
+				b.builder.AddDecorate(varID, DecorationNonReadable)
+			}
+			if access == ir.StorageAccessRead {
+				b.builder.AddDecorate(varID, DecorationNonWritable)
+			}
+		}
 	}
 	return nil
+}
+
+// getStorageAccess returns the StorageAccess for a global variable, or -1 if not applicable.
+// Checks both Storage address space and storage image types.
+func (b *Backend) getStorageAccess(global ir.GlobalVariable) int {
+	if int(global.Type) < len(b.module.Types) {
+		if img, ok := b.module.Types[global.Type].Inner.(ir.ImageType); ok {
+			if img.Class == ir.ImageClassStorage {
+				return int(img.StorageAccess)
+			}
+		}
+	}
+	return -1
 }
 
 // needsBlockDecoration returns true if a struct type in the given address space
@@ -1053,7 +1123,7 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 
 // emitEntryPoints emits all entry points with their execution modes.
 //
-//nolint:gocognit,gocyclo,cyclop // SPIR-V entry points have many cases
+//nolint:gocognit // SPIR-V entry points have many cases
 func (b *Backend) emitEntryPoints() error {
 	for _, entryPoint := range b.module.EntryPoints {
 		// Get function ID
@@ -1078,18 +1148,10 @@ func (b *Backend) emitEntryPoints() error {
 		// Collect interface variables (inputs/outputs used by entry point)
 		var interfaces []uint32
 
-		// Add regular global variables — for SPIR-V 1.3, only Input/Output
-		// storage classes are allowed in the entry point interface.
-		// Uniform and StorageBuffer variables are NOT listed.
-		for handle, global := range b.module.GlobalVariables {
-			if global.Space != ir.SpaceFunction && global.Space != ir.SpacePrivate &&
-				global.Space != ir.SpaceUniform && global.Space != ir.SpaceStorage &&
-				global.Space != ir.SpaceHandle {
-				if varID, ok := b.globalIDs[ir.GlobalVariableHandle(handle)]; ok {
-					interfaces = append(interfaces, varID)
-				}
-			}
-		}
+		// SPIR-V 1.3 (Vulkan 1.2): Only Input/Output storage classes are
+		// allowed in the entry point interface list. Global variables in other
+		// storage classes (Uniform, StorageBuffer, WorkGroup, PushConstant, etc.)
+		// are NOT listed. Input/Output builtins are handled separately below.
 
 		// Add entry point input variables (builtins, locations)
 		if inputVars, ok := b.entryInputVars[entryPoint.Function]; ok {
@@ -3900,12 +3962,8 @@ func atomicOpcode(fun ir.AtomicFunction, scalarKind ir.ScalarKind) (OpCode, bool
 
 // emitAtomic emits an atomic operation statement.
 func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
-	pointerID, err := e.emitExpression(stmt.Pointer)
-	if err != nil {
-		return err
-	}
-
-	valueID, err := e.emitExpression(stmt.Value)
+	// Atomic ops need a POINTER, not a loaded value.
+	pointerID, err := e.emitPointerExpression(stmt.Pointer)
 	if err != nil {
 		return err
 	}
@@ -3924,9 +3982,52 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		MemorySemanticsAcquireRelease|MemorySemanticsUniformMemory,
 	)
 
+	// Handle AtomicLoad: OpAtomicLoad ResultType Result Pointer Scope Semantics (no value)
+	// SPIR-V requires Acquire semantics (not AcquireRelease) for loads.
+	if _, ok := stmt.Fun.(ir.AtomicLoad); ok {
+		acquireSemID := e.backend.builder.AddConstant(
+			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
+			MemorySemanticsAcquire|MemorySemanticsUniformMemory,
+		)
+		resultID := e.backend.builder.AllocID()
+		builder := e.newIB()
+		builder.AddWord(resultTypeID)
+		builder.AddWord(resultID)
+		builder.AddWord(pointerID)
+		builder.AddWord(scopeID)
+		builder.AddWord(acquireSemID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpAtomicLoad))
+		if stmt.Result != nil {
+			e.exprIDs[*stmt.Result] = resultID
+		}
+		return nil
+	}
+
+	// All remaining atomic ops need a value operand
+	valueID, err := e.emitExpression(stmt.Value)
+	if err != nil {
+		return err
+	}
+
 	// Handle compare-exchange separately
 	if exchange, ok := stmt.Fun.(ir.AtomicExchange); ok && exchange.Compare != nil {
 		return e.emitAtomicCompareExchange(stmt, pointerID, valueID, resultTypeID, scopeID, semanticsID, *exchange.Compare)
+	}
+
+	// Handle AtomicStore: OpAtomicStore Pointer Scope Semantics Value (no result)
+	// SPIR-V requires Release semantics (not AcquireRelease) for stores.
+	if _, ok := stmt.Fun.(ir.AtomicStore); ok {
+		releaseSemID := e.backend.builder.AddConstant(
+			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
+			MemorySemanticsRelease|MemorySemanticsUniformMemory,
+		)
+		builder := e.newIB()
+		builder.AddWord(pointerID)
+		builder.AddWord(scopeID)
+		builder.AddWord(releaseSemID)
+		builder.AddWord(valueID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpAtomicStore))
+		return nil
 	}
 
 	opcode, ok := atomicOpcode(stmt.Fun, scalarKind)

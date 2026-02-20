@@ -143,6 +143,8 @@ const (
 	DecorationArrayStride   Decoration = 6
 	DecorationMatrixStride  Decoration = 7
 	DecorationBuiltIn       Decoration = 11
+	DecorationNonWritable   Decoration = 24
+	DecorationNonReadable   Decoration = 25
 	DecorationLocation      Decoration = 30
 	DecorationBinding       Decoration = 33
 	DecorationDescriptorSet Decoration = 34

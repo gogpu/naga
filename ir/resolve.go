@@ -85,6 +85,8 @@ func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle
 	case ExprArrayLength:
 		// ArrayLength returns u32
 		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
+	case ExprAtomicResult:
+		return resolveAtomicResultType(module, fn, handle)
 	default:
 		return TypeResolution{}, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -613,4 +615,66 @@ func resolveAsType(module *Module, fn *Function, expr ExprAs) (TypeResolution, e
 
 	// Bitcast preserves the type structure
 	return exprType, nil
+}
+
+// resolveAtomicResultType resolves the type of an atomic operation result.
+// Searches the function body for the StmtAtomic that writes to this expression handle,
+// then returns the scalar type of the atomic pointer.
+func resolveAtomicResultType(module *Module, fn *Function, handle ExpressionHandle) (TypeResolution, error) {
+	if atomicType := findAtomicTypeForResult(module, fn, fn.Body, handle); atomicType != nil {
+		return TypeResolution{Value: *atomicType}, nil
+	}
+	// Fallback: most atomics operate on u32
+	return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
+}
+
+// findAtomicTypeForResult recursively searches statements for a StmtAtomic with matching Result.
+func findAtomicTypeForResult(module *Module, fn *Function, stmts []Statement, handle ExpressionHandle) *ScalarType {
+	for _, stmt := range stmts {
+		if s, ok := stmt.Kind.(StmtAtomic); ok && s.Result != nil && *s.Result == handle {
+			return resolveAtomicPointerScalar(module, fn, s.Pointer)
+		}
+		for _, sub := range stmtSubBlocks(stmt) {
+			if t := findAtomicTypeForResult(module, fn, sub, handle); t != nil {
+				return t
+			}
+		}
+	}
+	return nil
+}
+
+// resolveAtomicPointerScalar resolves a pointer expression to its atomic scalar type.
+func resolveAtomicPointerScalar(module *Module, fn *Function, pointer ExpressionHandle) *ScalarType {
+	ptrType, err := ResolveExpressionType(module, fn, pointer)
+	if err != nil {
+		return nil
+	}
+	inner := typeResInner(module, ptrType)
+	if at, ok := inner.(AtomicType); ok {
+		return &at.Scalar
+	}
+	if st, ok := inner.(ScalarType); ok {
+		return &st
+	}
+	return nil
+}
+
+// stmtSubBlocks returns all nested statement blocks for a given statement.
+func stmtSubBlocks(stmt Statement) []Block {
+	switch s := stmt.Kind.(type) {
+	case StmtBlock:
+		return []Block{s.Block}
+	case StmtIf:
+		return []Block{s.Accept, s.Reject}
+	case StmtLoop:
+		return []Block{s.Body, s.Continuing}
+	case StmtSwitch:
+		blocks := make([]Block, len(s.Cases))
+		for i, c := range s.Cases {
+			blocks[i] = c.Body
+		}
+		return blocks
+	default:
+		return nil
+	}
 }
