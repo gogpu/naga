@@ -807,16 +807,50 @@ func (p *Parser) whileStmt() (*WhileStmt, *ParseError) {
 }
 
 // loopStmt parses a loop statement.
+// WGSL loop syntax: loop { body_stmts... continuing { stmts... } }
+// The continuing block is optional and appears at the end of the loop body.
 func (p *Parser) loopStmt() (*LoopStmt, *ParseError) {
 	start := p.advance() // consume 'loop'
 
-	body, err := p.block()
-	if err != nil {
+	if err := p.expectErr(TokenLeftBrace); err != nil {
+		return nil, err
+	}
+
+	// Parse body statements, stopping at 'continuing' or '}'
+	bodyStmts := make([]Stmt, 0, 4)
+	for !p.check(TokenRightBrace) && !p.check(TokenContinuing) && !p.isAtEnd() {
+		stmt, err := p.statement()
+		if err != nil {
+			return nil, err
+		}
+		if stmt != nil {
+			bodyStmts = append(bodyStmts, stmt)
+		}
+	}
+
+	body := &BlockStmt{
+		Statements: bodyStmts,
+		Span:       Span{Start: Position{Line: start.Line, Column: start.Column}},
+	}
+
+	// Parse optional continuing block
+	var continuing *BlockStmt
+	if p.check(TokenContinuing) {
+		p.advance() // consume 'continuing'
+		var err *ParseError
+		continuing, err = p.block()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := p.expectErr(TokenRightBrace); err != nil {
 		return nil, err
 	}
 
 	return &LoopStmt{
-		Body: body,
+		Body:       body,
+		Continuing: continuing,
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
 		},

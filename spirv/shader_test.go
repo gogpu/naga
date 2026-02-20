@@ -2425,6 +2425,39 @@ func TestCompileFineShader(t *testing.T) {
 		strings.Count(string(source), "\n"), len(spirvBytes))
 }
 
+// TestCompileBoidsShader compiles the wgpu reference boids compute shader.
+// Tests loop with continuing block, runtime-sized arrays, struct member access,
+// distance/normalize/clamp/length builtins, read-only and read-write storage buffers.
+func TestCompileBoidsShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/naga/tests/in/wgsl/boids.wgsl")
+	if err != nil {
+		t.Skipf("boids.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled boids shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileCollatzShader compiles the wgpu reference collatz compute shader.
+// Tests while loops, function calls, modulo operator, runtime-sized arrays.
+func TestCompileCollatzShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/naga/tests/in/wgsl/collatz.wgsl")
+	if err != nil {
+		t.Skipf("collatz.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled collatz shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
 // validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
 // Skips if Vulkan SDK tools are not available.
 func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {

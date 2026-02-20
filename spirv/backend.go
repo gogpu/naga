@@ -95,6 +95,10 @@ type Backend struct {
 	// OpAccessChain to go through the wrapper struct to the actual data.
 	wrappedStorageVars map[ir.GlobalVariableHandle]bool
 
+	// Track types already decorated with Block (to avoid duplicate decorations
+	// when multiple variables share the same struct type).
+	blockDecoratedTypes map[uint32]bool
+
 	// Shared instruction builder reused across emit methods that don't call
 	// other emit functions between Reset() and Build().
 	ib InstructionBuilder
@@ -118,6 +122,7 @@ func NewBackend(options Options) *Backend {
 		usedCapabilities:    make(map[Capability]bool, 4),
 		funcTypeIDs:         make(map[string]uint32, 4),
 		wrappedStorageVars:  make(map[ir.GlobalVariableHandle]bool, 2),
+		blockDecoratedTypes: make(map[uint32]bool, 4),
 	}
 }
 
@@ -837,8 +842,11 @@ func (b *Backend) emitGlobals() error {
 
 		// Add Block decoration for struct types in Uniform/Storage/PushConstant address spaces.
 		// This is required by Vulkan spec (VUID-StandaloneSpirv-Uniform-06676).
-		if b.needsBlockDecoration(global.Space, global.Type) {
+		// Track decorated types to avoid duplicate Block decorations when multiple
+		// variables share the same struct type.
+		if b.needsBlockDecoration(global.Space, global.Type) && !b.blockDecoratedTypes[varType] {
 			b.builder.AddDecorate(varType, DecorationBlock)
+			b.blockDecoratedTypes[varType] = true
 		}
 
 		// Vulkan VUID-StandaloneSpirv-Uniform-06807: StorageBuffer variables must be
