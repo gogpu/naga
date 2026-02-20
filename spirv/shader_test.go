@@ -2458,6 +2458,52 @@ func TestCompileCollatzShader(t *testing.T) {
 		strings.Count(string(source), "\n"), len(spirvBytes))
 }
 
+// TestCompileCubeShader compiles the wgpu cube example shader.
+// Tests textureLoad with integer textures, multiple entry points, mat4x4 uniform.
+func TestCompileCubeShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/cube/shader.wgsl")
+	if err != nil {
+		t.Skipf("cube shader.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled cube shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileHelloTriangleShader compiles the wgpu hello_triangle example.
+func TestCompileHelloTriangleShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/hello_triangle/shader.wgsl")
+	if err != nil {
+		t.Skipf("hello_triangle shader.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled hello_triangle shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileHelloComputeShader compiles the wgpu hello_compute standalone example.
+func TestCompileHelloComputeShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/standalone/01_hello_compute/src/shader.wgsl")
+	if err != nil {
+		t.Skipf("hello_compute shader.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled hello_compute shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
 // validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
 // Skips if Vulkan SDK tools are not available.
 func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {

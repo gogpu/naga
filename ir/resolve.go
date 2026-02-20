@@ -438,8 +438,8 @@ func resolveBinaryType(module *Module, fn *Function, expr ExprBinary) (TypeResol
 		// the result is vector (WGSL broadcasts scalar to match vector size).
 		rightType, rightErr := ResolveExpressionType(module, fn, expr.Right)
 		if rightErr == nil {
-			leftInner := typeResInner(module, leftType)
-			rightInner := typeResInner(module, rightType)
+			leftInner := TypeResInner(module, leftType)
+			rightInner := TypeResInner(module, rightType)
 			_, leftIsScalar := leftInner.(ScalarType)
 			_, rightIsVec := rightInner.(VectorType)
 			if leftIsScalar && rightIsVec {
@@ -453,8 +453,8 @@ func resolveBinaryType(module *Module, fn *Function, expr ExprBinary) (TypeResol
 // resolveMulResultType determines the result type of a multiplication.
 // Matches WGSL spec: scalar*vec→vec, scalar*mat→mat, mat*vec→vec(rows), vec*mat→vec(cols).
 func resolveMulResultType(module *Module, left, right TypeResolution) TypeResolution {
-	leftInner := typeResInner(module, left)
-	rightInner := typeResInner(module, right)
+	leftInner := TypeResInner(module, left)
+	rightInner := TypeResInner(module, right)
 
 	_, leftIsScalar := leftInner.(ScalarType)
 	_, rightIsScalar := rightInner.(ScalarType)
@@ -485,8 +485,8 @@ func resolveMulResultType(module *Module, left, right TypeResolution) TypeResolu
 	}
 }
 
-// typeResInner extracts the TypeInner from a TypeResolution.
-func typeResInner(module *Module, res TypeResolution) TypeInner {
+// TypeResInner returns the inner type of a TypeResolution.
+func TypeResInner(module *Module, res TypeResolution) TypeInner {
 	if res.Handle != nil {
 		return module.Types[*res.Handle].Inner
 	}
@@ -649,7 +649,7 @@ func resolveAtomicPointerScalar(module *Module, fn *Function, pointer Expression
 	if err != nil {
 		return nil
 	}
-	inner := typeResInner(module, ptrType)
+	inner := TypeResInner(module, ptrType)
 	if at, ok := inner.(AtomicType); ok {
 		return &at.Scalar
 	}

@@ -849,13 +849,16 @@ func (b *Backend) emitGlobals() error {
 			b.blockDecoratedTypes[varType] = true
 		}
 
-		// Vulkan VUID-StandaloneSpirv-Uniform-06807: StorageBuffer variables must be
-		// typed as OpTypeStruct (with Block decoration). If the variable type is NOT a
-		// struct (e.g., a runtime array like array<u32>), wrap it in a struct.
-		if global.Space == ir.SpaceStorage && !b.isStructType(global.Type) {
+		// Vulkan VUID-StandaloneSpirv-Uniform-06807: Uniform and StorageBuffer variables
+		// must be typed as OpTypeStruct (with Block decoration). If the variable type
+		// is NOT a struct, wrap it in a struct with proper layout decorations.
+		needsWrap := (global.Space == ir.SpaceStorage || global.Space == ir.SpaceUniform) && !b.isStructType(global.Type)
+		if needsWrap {
 			wrapperStruct := b.builder.AddTypeStruct(varType)
 			b.builder.AddDecorate(wrapperStruct, DecorationBlock)
 			b.builder.AddMemberDecorate(wrapperStruct, 0, DecorationOffset, 0)
+			// Add matrix layout decorations if member is a matrix type
+			b.addMatrixLayoutIfNeeded(wrapperStruct, 0, global.Type)
 			varType = wrapperStruct
 			b.wrappedStorageVars[ir.GlobalVariableHandle(handle)] = true
 		}
@@ -933,6 +936,17 @@ func (b *Backend) isStructType(typeHandle ir.TypeHandle) bool {
 	typ := &b.module.Types[typeHandle]
 	_, isStruct := typ.Inner.(ir.StructType)
 	return isStruct
+}
+
+// addMatrixLayoutIfNeeded adds ColMajor + MatrixStride decorations for a wrapper struct member
+// if the member's IR type is a matrix.
+func (b *Backend) addMatrixLayoutIfNeeded(structID uint32, memberIdx uint32, typeHandle ir.TypeHandle) {
+	inner := b.module.Types[typeHandle].Inner
+	if mat, ok := inner.(ir.MatrixType); ok {
+		b.builder.AddMemberDecorate(structID, memberIdx, DecorationColMajor)
+		stride := uint32(mat.Rows) * uint32(mat.Scalar.Width)
+		b.builder.AddMemberDecorate(structID, memberIdx, DecorationMatrixStride, stride)
+	}
 }
 
 // emitEntryPointInterfaceVars creates input/output variables for entry point builtins and locations.
@@ -1738,13 +1752,26 @@ func (e *ExpressionEmitter) emitLocalVarValue(kind ir.ExprLocalVariable) (uint32
 // emitGlobalVarValue returns the loaded VALUE for a global variable.
 // This is used by emitExpression for value contexts.
 func (e *ExpressionEmitter) emitGlobalVarValue(kind ir.ExprGlobalVariable) (uint32, error) {
+	gv := e.backend.module.GlobalVariables[kind.Variable]
+
+	// Get pointer to the actual data (handles wrapped uniform/storage variables)
 	ptrID, err := e.emitGlobalVarRef(kind)
 	if err != nil {
 		return 0, err
 	}
+	if e.backend.wrappedStorageVars[kind.Variable] {
+		// Wrapped variable: emit AccessChain to member 0 to get past wrapper struct
+		innerTypeID, err := e.backend.emitType(gv.Type)
+		if err != nil {
+			return 0, err
+		}
+		sc := addressSpaceToStorageClass(gv.Space)
+		ptrType := e.backend.emitPointerType(sc, innerTypeID)
+		u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		const0 := e.backend.builder.AddConstant(u32Type, 0)
+		ptrID = e.backend.builder.AddAccessChain(ptrType, ptrID, const0)
+	}
 
-	// Get the variable type and emit OpLoad
-	gv := e.backend.module.GlobalVariables[kind.Variable]
 	typeID, err := e.backend.emitType(gv.Type)
 	if err != nil {
 		return 0, err

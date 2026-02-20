@@ -1191,10 +1191,29 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 		}
 	}
 
-	// WGSL splat constructor: vec2(scalar) -> vec2(scalar, scalar), etc.
-	// When constructing a vector from a single scalar, replicate to all components.
+	// WGSL vector type conversion: vec2<i32>(vec2<f32>) -> ExprAs conversion.
+	// When constructing a vector from a single vector argument of different element type,
+	// this is a type conversion, not a composition.
 	targetType := l.module.Types[typeHandle]
 	if vec, ok := targetType.Inner.(ir.VectorType); ok && len(components) == 1 {
+		argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
+		if err == nil {
+			argInner := ir.TypeResInner(l.module, argType)
+			if argVec, ok := argInner.(ir.VectorType); ok && argVec.Size == vec.Size {
+				// Vector-to-vector conversion (e.g., vec2<i32>(vec2<f32>))
+				width := vec.Scalar.Width
+				return l.addExpression(ir.Expression{
+					Kind: ir.ExprAs{
+						Expr:    components[0],
+						Kind:    vec.Scalar.Kind,
+						Convert: &width,
+					},
+				}), nil
+			}
+		}
+
+		// WGSL splat constructor: vec2(scalar) -> vec2(scalar, scalar), etc.
+		// When constructing a vector from a single scalar, replicate to all components.
 		needed := int(vec.Size)
 		splatted := make([]ir.ExpressionHandle, needed)
 		for i := 0; i < needed; i++ {

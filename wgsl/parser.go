@@ -34,6 +34,13 @@ func (p *Parser) Parse() (*Module, error) {
 	module := &Module{}
 
 	for !p.isAtEnd() {
+		// Skip optional semicolons between declarations (e.g., struct Foo { ... };)
+		for p.match(TokenSemicolon) {
+		}
+		if p.isAtEnd() {
+			break
+		}
+
 		decl, err := p.declaration()
 		if err != nil {
 			p.errors = append(p.errors, *err)
