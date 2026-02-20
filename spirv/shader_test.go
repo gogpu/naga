@@ -1,6 +1,10 @@
 package spirv
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -719,6 +723,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 	// Every OpBranchConditional must be preceded by OpSelectionMerge,
 	// and all branch target labels must exist in the binary.
 	validateSPIRVControlFlow(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
 
 	t.Logf("Successfully compiled fragment shader with if/else return: %d bytes", len(spirvBytes))
 }
@@ -1552,4 +1557,1030 @@ func containsOpcode(spirvBytes []byte, target OpCode) bool {
 		offset += int(wordCount)
 	}
 	return false
+}
+
+// TestCompileFunctionCallInLetExpr tests that user function call results can
+// be used in let-bound expressions (e.g., let sd = func() - 0.5).
+// This pattern is used by the MSDF text rendering shader.
+func TestCompileFunctionCallInLetExpr(t *testing.T) {
+	source := `
+fn median3(r: f32, g: f32, b: f32) -> f32 {
+    let min_rg = min(r, g);
+    let max_rg = max(r, g);
+    let min_max_b = min(max_rg, b);
+    return max(min_rg, min_max_b);
+}
+
+@fragment
+fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let sd = median3(uv.x, uv.y, 0.5) - 0.5;
+    let alpha = clamp(sd + 0.5, 0.0, 1.0);
+    return vec4<f32>(alpha, alpha, alpha, 1.0);
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+	t.Logf("Successfully compiled function call in let expression: %d bytes", len(spirvBytes))
+}
+
+// TestCompileImageQuery tests that textureDimensions emits ImageQuery capability.
+func TestCompileImageQuery(t *testing.T) {
+	source := `
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var tex_sampler: sampler;
+
+@fragment
+fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dims = textureDimensions(tex, 0);
+    let size = vec2<f32>(f32(dims.x), f32(dims.y));
+    let scaled_uv = uv / size;
+    return textureSample(tex, tex_sampler, scaled_uv);
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	// Verify ImageQuery capability (6) is present in SPIR-V binary
+	words := make([]uint32, len(spirvBytes)/4)
+	for i := range words {
+		words[i] = uint32(spirvBytes[i*4]) |
+			uint32(spirvBytes[i*4+1])<<8 |
+			uint32(spirvBytes[i*4+2])<<16 |
+			uint32(spirvBytes[i*4+3])<<24
+	}
+	foundImageQuery := false
+	offset := 5
+	for offset < len(words) {
+		word := words[offset]
+		wordCount := int(word >> 16)
+		opcode := word & 0xFFFF
+		if wordCount == 0 || offset+wordCount > len(words) {
+			break
+		}
+		// OpCapability = 17, ImageQuery = 50
+		if opcode == 17 && wordCount >= 2 && words[offset+1] == 50 {
+			foundImageQuery = true
+		}
+		offset += wordCount
+	}
+	if !foundImageQuery {
+		t.Error("Expected ImageQuery capability (6) in SPIR-V binary")
+	}
+
+	t.Logf("Successfully compiled image query shader with ImageQuery capability: %d bytes", len(spirvBytes))
+}
+
+// TestCompileMSDFTextShader tests the full MSDF text rendering shader end-to-end.
+// This is the shader used by gg's GPU text pipeline.
+func TestCompileMSDFTextShader(t *testing.T) {
+	source := `
+struct TextUniforms {
+    transform: mat4x4<f32>,
+    color: vec4<f32>,
+    msdf_params: vec4<f32>,
+}
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) tex_coord: vec2<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) tex_coord: vec2<f32>,
+    @location(1) color: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: TextUniforms;
+@group(0) @binding(1) var msdf_atlas: texture_2d<f32>;
+@group(0) @binding(2) var msdf_sampler: sampler;
+
+fn median3(r: f32, g: f32, b: f32) -> f32 {
+    let min_rg = min(r, g);
+    let max_rg = max(r, g);
+    let min_max_b = min(max_rg, b);
+    return max(min_rg, min_max_b);
+}
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    let p = vec4<f32>(in.position, 0.0, 1.0);
+    let col0 = uniforms.transform[0];
+    let col1 = uniforms.transform[1];
+    let col2 = uniforms.transform[2];
+    let col3 = uniforms.transform[3];
+    let pos = p.x * col0 + p.y * col1 + p.z * col2 + p.w * col3;
+    out.position = pos;
+    out.tex_coord = in.tex_coord;
+    out.color = uniforms.color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let msdf = textureSample(msdf_atlas, msdf_sampler, in.tex_coord).rgb;
+    let sd = median3(msdf.r, msdf.g, msdf.b) - 0.5;
+    let tex_size = vec2<f32>(uniforms.msdf_params.y, uniforms.msdf_params.y);
+    let fw = fwidth(in.tex_coord);
+    let dx_dy = fw * tex_size;
+    let px_range = uniforms.msdf_params.x;
+    let screen_px_range = px_range / length(dx_dy);
+    let screen_px_distance = screen_px_range * sd;
+    let alpha = clamp(screen_px_distance + 0.5, 0.0, 1.0);
+    return vec4<f32>(in.color.rgb * alpha, in.color.a * alpha);
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	// Verify we have both vertex and fragment entry points
+	if len(module.EntryPoints) != 2 {
+		t.Errorf("Expected 2 entry points, got %d", len(module.EntryPoints))
+	}
+
+	// Run spirv-val and spirv-dis from Vulkan SDK if available
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled MSDF text shader: %d bytes", len(spirvBytes))
+}
+
+// TestCompileSDFRenderShader tests the SDF shape rendering shader.
+func TestCompileSDFRenderShader(t *testing.T) {
+	source := `
+struct Uniforms {
+    viewport: vec2<f32>,
+    _pad: vec2<f32>,
+}
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) local: vec2<f32>,
+    @location(2) shape_kind: f32,
+    @location(3) param1: f32,
+    @location(4) param2: f32,
+    @location(5) param3: f32,
+    @location(6) half_stroke: f32,
+    @location(7) is_stroked: f32,
+    @location(8) color: vec4<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) local: vec2<f32>,
+    @location(1) shape_kind: f32,
+    @location(2) param1: f32,
+    @location(3) param2: f32,
+    @location(4) param3: f32,
+    @location(5) half_stroke: f32,
+    @location(6) is_stroked: f32,
+    @location(7) color: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    let ndc_x = in.position.x / u.viewport.x * 2.0 - 1.0;
+    let ndc_y = 1.0 - in.position.y / u.viewport.y * 2.0;
+    out.clip_position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+    out.local = in.local;
+    out.shape_kind = in.shape_kind;
+    out.param1 = in.param1;
+    out.param2 = in.param2;
+    out.param3 = in.param3;
+    out.half_stroke = in.half_stroke;
+    out.is_stroked = in.is_stroked;
+    out.color = in.color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let dx = in.local.x;
+    let dy = in.local.y;
+    let nx = dx / in.param1;
+    let ny = dy / in.param2;
+    let elen = sqrt(nx * nx + ny * ny);
+    let rdiff = in.param1 - in.param2;
+    let min_r = (in.param1 + in.param2 - sqrt(rdiff * rdiff)) * 0.5;
+    let d_circle = (elen - 1.0) * min_r;
+    let apx = sqrt(dx * dx);
+    let apy = sqrt(dy * dy);
+    let qx = apx - in.param1 + in.param3;
+    let qy = apy - in.param2 + in.param3;
+    let mqx = (qx + sqrt(qx * qx)) * 0.5;
+    let mqy = (qy + sqrt(qy * qy)) * 0.5;
+    let outside = sqrt(mqx * mqx + mqy * mqy);
+    let qdiff = qx - qy;
+    let max_qxy = (qx + qy + sqrt(qdiff * qdiff)) * 0.5;
+    let inside = (max_qxy - sqrt(max_qxy * max_qxy)) * 0.5;
+    let d_rrect = outside + inside - in.param3;
+    let kind_f = in.shape_kind;
+    let kdiff = kind_f - 1.0;
+    let is_rrect = (kind_f + 1.0 - sqrt(kdiff * kdiff)) * 0.5;
+    let is_circle = 1.0 - is_rrect;
+    let d = d_circle * is_circle + d_rrect * is_rrect;
+    let abs_d = sqrt(d * d);
+    let effective_dist = d + in.is_stroked * (abs_d - in.half_stroke - d);
+    let t_raw = effective_dist + 0.5;
+    let t_pos = (t_raw + sqrt(t_raw * t_raw)) * 0.5;
+    let t_diff = t_pos - 1.0;
+    let t = (t_pos + 1.0 - sqrt(t_diff * t_diff)) * 0.5;
+    let coverage = 1.0 - t * t * (3.0 - 2.0 * t);
+    if coverage < 1.0 / 255.0 {
+        discard;
+    }
+    return in.color * coverage;
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled SDF render shader: %d bytes", len(spirvBytes))
+}
+
+// TestCompileConvexShader tests the convex polygon rendering shader.
+func TestCompileConvexShader(t *testing.T) {
+	source := `
+struct Uniforms {
+    viewport: vec2<f32>,
+    _pad: vec2<f32>,
+}
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) coverage: f32,
+    @location(2) color: vec4<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) coverage: f32,
+    @location(1) color: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    let ndc_x = in.position.x / u.viewport.x * 2.0 - 1.0;
+    let ndc_y = 1.0 - in.position.y / u.viewport.y * 2.0;
+    out.clip_position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+    out.coverage = in.coverage;
+    out.color = in.color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    if in.coverage < 1.0 / 255.0 {
+        discard;
+    }
+    return in.color * in.coverage;
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled convex shader: %d bytes", len(spirvBytes))
+}
+
+// compileWGSL is a helper that parses, lowers, and compiles WGSL source to SPIR-V.
+func compileWGSL(t *testing.T, source string) []byte {
+	t.Helper()
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	return spirvBytes
+}
+
+// TestCompileGogpuPositionedQuadShader tests the gogpu positionedQuadShaderSource.
+// This shader uses vec4*f32, vec3*f32, and if/else with return — patterns that
+// previously caused OpFSub/OpFAdd type mismatches.
+func TestCompileGogpuPositionedQuadShader(t *testing.T) {
+	source := `
+struct QuadUniforms {
+    rect: vec4<f32>,
+    screen: vec2<f32>,
+    alpha: f32,
+    premultiplied: f32,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: QuadUniforms;
+@group(1) @binding(0) var texSampler: sampler;
+@group(1) @binding(1) var tex: texture_2d<f32>;
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+    var corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(1.0, 1.0),
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+        vec2<f32>(1.0, 0.0)
+    );
+
+    let corner = corners[vertexIndex];
+    let pixelX = uniforms.rect.x + corner.x * uniforms.rect.z;
+    let pixelY = uniforms.rect.y + corner.y * uniforms.rect.w;
+    let ndcX = (pixelX / uniforms.screen.x) * 2.0 - 1.0;
+    let ndcY = 1.0 - (pixelY / uniforms.screen.y) * 2.0;
+
+    var output: VertexOutput;
+    output.position = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
+    output.uv = corner;
+    return output;
+}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let texColor = textureSample(tex, texSampler, input.uv);
+    if (uniforms.premultiplied > 0.5) {
+        return texColor * uniforms.alpha;
+    } else {
+        let a = texColor.a * uniforms.alpha;
+        return vec4<f32>(texColor.rgb * a, a);
+    }
+}
+`
+
+	spirvBytes := compileWGSL(t, source)
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled gogpu positioned quad shader: %d bytes", len(spirvBytes))
+}
+
+// TestCompileGogpuTexturedQuadShader tests the gogpu texturedQuadShaderSource.
+// This shader uses mat4x4 * vec4 multiplication.
+func TestCompileGogpuTexturedQuadShader(t *testing.T) {
+	source := `
+struct Uniforms {
+    transform: mat4x4<f32>,
+    color: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(1) @binding(0) var texSampler: sampler;
+@group(1) @binding(1) var tex: texture_2d<f32>;
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = uniforms.transform * vec4<f32>(input.position, 0.0, 1.0);
+    output.uv = input.uv;
+    return output;
+}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let texColor = textureSample(tex, texSampler, input.uv);
+    return texColor * uniforms.color;
+}
+`
+
+	spirvBytes := compileWGSL(t, source)
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled gogpu textured quad shader: %d bytes", len(spirvBytes))
+}
+
+// TestCompileStencilFillShader tests the gg stencil_fill shader.
+func TestCompileStencilFillShader(t *testing.T) {
+	source := `
+struct Uniforms {
+    viewport: vec2<f32>,
+    _pad: vec2<f32>,
+}
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+@vertex
+fn vs_main(@location(0) pos: vec2<f32>) -> @builtin(position) vec4<f32> {
+    let ndc_x = pos.x / u.viewport.x * 2.0 - 1.0;
+    let ndc_y = 1.0 - pos.y / u.viewport.y * 2.0;
+    return vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+}
+`
+
+	spirvBytes := compileWGSL(t, source)
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled stencil fill shader: %d bytes", len(spirvBytes))
+}
+
+// TestCompileCoverShader tests the gg cover pass shader.
+func TestCompileCoverShader(t *testing.T) {
+	source := `
+struct Uniforms {
+    viewport: vec2<f32>,
+    _pad: vec2<f32>,
+    color: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+@vertex
+fn vs_main(@location(0) pos: vec2<f32>) -> @builtin(position) vec4<f32> {
+    let ndc_x = pos.x / u.viewport.x * 2.0 - 1.0;
+    let ndc_y = 1.0 - pos.y / u.viewport.y * 2.0;
+    return vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return u.color;
+}
+`
+
+	spirvBytes := compileWGSL(t, source)
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled cover shader: %d bytes", len(spirvBytes))
+}
+
+// TestCompileBlitShader tests the gg blit shader with array indexing.
+func TestCompileBlitShader(t *testing.T) {
+	source := `
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@group(0) @binding(0) var src_texture: texture_2d<f32>;
+@group(0) @binding(1) var src_sampler: sampler;
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0)
+    );
+    var uvs = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(2.0, 1.0),
+        vec2<f32>(0.0, -1.0)
+    );
+
+    var out: VertexOutput;
+    out.position = vec4<f32>(positions[idx], 0.0, 1.0);
+    out.uv = uvs[idx];
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(src_texture, src_sampler, in.uv);
+}
+`
+
+	spirvBytes := compileWGSL(t, source)
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled blit shader: %d bytes", len(spirvBytes))
+}
+
+// TestCompileBlendShader tests gg's 29-mode blend shader with module-level constants,
+// switch statements, function calls, and select/step/sqrt builtins.
+func TestCompileBlendShader(t *testing.T) {
+	source := `
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+struct BlendParams {
+    mode: u32,
+    alpha: f32,
+    padding: vec2<f32>,
+}
+
+@group(0) @binding(0) var dst_texture: texture_2d<f32>;
+@group(0) @binding(1) var src_texture: texture_2d<f32>;
+@group(0) @binding(2) var tex_sampler: sampler;
+@group(0) @binding(3) var<uniform> params: BlendParams;
+
+const BLEND_NORMAL: u32 = 0u;
+const BLEND_MULTIPLY: u32 = 1u;
+const BLEND_SCREEN: u32 = 2u;
+const BLEND_DARKEN: u32 = 4u;
+const BLEND_LIGHTEN: u32 = 5u;
+const BLEND_DIFFERENCE: u32 = 10u;
+const BLEND_EXCLUSION: u32 = 11u;
+const BLEND_CLEAR: u32 = 16u;
+const BLEND_COPY: u32 = 17u;
+const BLEND_DESTINATION: u32 = 18u;
+const BLEND_SOURCE_OVER: u32 = 19u;
+const BLEND_PLUS: u32 = 28u;
+
+fn blend_multiply(src: vec3<f32>, dst: vec3<f32>) -> vec3<f32> {
+    return src * dst;
+}
+
+fn blend_screen(src: vec3<f32>, dst: vec3<f32>) -> vec3<f32> {
+    return src + dst - src * dst;
+}
+
+fn blend_separable(src: vec3<f32>, dst: vec3<f32>, mode: u32) -> vec3<f32> {
+    switch mode {
+        case BLEND_NORMAL: { return src; }
+        case BLEND_MULTIPLY: { return blend_multiply(src, dst); }
+        case BLEND_SCREEN: { return blend_screen(src, dst); }
+        case BLEND_DARKEN: { return min(src, dst); }
+        case BLEND_LIGHTEN: { return max(src, dst); }
+        case BLEND_DIFFERENCE: { return abs(src - dst); }
+        case BLEND_EXCLUSION: { return src + dst - 2.0 * src * dst; }
+        default: { return src; }
+    }
+}
+
+fn blend_porter_duff(src: vec4<f32>, dst: vec4<f32>, mode: u32) -> vec4<f32> {
+    let sa = src.a;
+    let da = dst.a;
+    switch mode {
+        case BLEND_CLEAR: { return vec4<f32>(0.0); }
+        case BLEND_COPY: { return src; }
+        case BLEND_DESTINATION: { return dst; }
+        case BLEND_SOURCE_OVER: { return src + dst * (1.0 - sa); }
+        case BLEND_PLUS: { return min(src + dst, vec4<f32>(1.0)); }
+        default: { return src; }
+    }
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOutput {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0)
+    );
+    var uvs = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 1.0),
+        vec2<f32>(2.0, 1.0),
+        vec2<f32>(0.0, -1.0)
+    );
+    var out: VertexOutput;
+    out.position = vec4<f32>(positions[idx], 0.0, 1.0);
+    out.uv = uvs[idx];
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    var src = textureSample(src_texture, tex_sampler, in.uv);
+    let dst = textureSample(dst_texture, tex_sampler, in.uv);
+    src = vec4<f32>(src.rgb * params.alpha, src.a * params.alpha);
+    let mode = params.mode;
+
+    if mode >= BLEND_CLEAR {
+        return blend_porter_duff(src, dst, mode);
+    }
+
+    let blended_rgb = blend_separable(src.rgb, dst.rgb, mode);
+    let out_alpha = src.a + dst.a * (1.0 - src.a);
+
+    let final_rgb = select(
+        dst.rgb,
+        blended_rgb * src.a + dst.rgb * dst.a * (1.0 - src.a),
+        out_alpha > 0.0
+    ) / max(out_alpha, 0.0001);
+
+    return vec4<f32>(final_rgb * out_alpha, out_alpha);
+}
+`
+
+	spirvBytes := compileWGSL(t, source)
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled blend shader: %d bytes", len(spirvBytes))
+}
+
+// TestCompileFullBlendShader compiles the FULL gg blend.wgsl production shader.
+// This tests 29 blend modes, HSL color space, overlay, color dodge/burn, soft light,
+// deeply nested function calls, mix/step/sqrt builtins, select with vec3, and module-level constants.
+func TestCompileFullBlendShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/blend.wgsl")
+	if err != nil {
+		t.Skipf("blend.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled full blend shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileStripShader compiles the gg strip.wgsl compute shader.
+// This tests texture_storage_2d, textureStore, bitwise ops, continue statement,
+// multiple compute entry points, and two bind groups.
+func TestCompileStripShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/strip.wgsl")
+	if err != nil {
+		t.Skipf("strip.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled strip shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileCompositeShader compiles the gg composite.wgsl shader.
+// This tests texture_2d_array, textureSample with array index, storage buffers,
+// for loops with u32, switch inside for loop, and multiple entry points.
+func TestCompileCompositeShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/composite.wgsl")
+	if err != nil {
+		t.Skipf("composite.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled composite shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileFlattenShader compiles the gg flatten.wgsl compute shader.
+// This tests atomicAdd, atomicStore, complex control flow with many if/else if chains,
+// multiple compute entry points, and sqrt/ceil/pow builtins.
+func TestCompileFlattenShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/flatten.wgsl")
+	if err != nil {
+		t.Skipf("flatten.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled flatten shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileCoarseShader compiles the gg coarse.wgsl compute shader.
+// This tests atomicAdd, atomicStore, complex tile binning with nested function calls,
+// and multiple compute entry points.
+func TestCompileCoarseShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/coarse.wgsl")
+	if err != nil {
+		t.Skipf("coarse.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled coarse shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileFineShader compiles the gg fine.wgsl compute shader.
+// This tests workgroup shared memory (var<workgroup>), workgroupBarrier(),
+// bitwise shift operators, multiple compute entry points, and complex control flow.
+func TestCompileFineShader(t *testing.T) {
+	source, err := os.ReadFile("../../gg/internal/gpu/shaders/fine.wgsl")
+	if err != nil {
+		t.Skipf("fine.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled fine shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileBoidsShader compiles the wgpu reference boids compute shader.
+// Tests loop with continuing block, runtime-sized arrays, struct member access,
+// distance/normalize/clamp/length builtins, read-only and read-write storage buffers.
+func TestCompileBoidsShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/naga/tests/in/wgsl/boids.wgsl")
+	if err != nil {
+		t.Skipf("boids.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled boids shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileCollatzShader compiles the wgpu reference collatz compute shader.
+// Tests while loops, function calls, modulo operator, runtime-sized arrays.
+func TestCompileCollatzShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/naga/tests/in/wgsl/collatz.wgsl")
+	if err != nil {
+		t.Skipf("collatz.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled collatz shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileCubeShader compiles the wgpu cube example shader.
+// Tests textureLoad with integer textures, multiple entry points, mat4x4 uniform.
+func TestCompileCubeShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/cube/shader.wgsl")
+	if err != nil {
+		t.Skipf("cube shader.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled cube shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileHelloTriangleShader compiles the wgpu hello_triangle example.
+func TestCompileHelloTriangleShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/hello_triangle/shader.wgsl")
+	if err != nil {
+		t.Skipf("hello_triangle shader.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled hello_triangle shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileHelloComputeShader compiles the wgpu hello_compute standalone example.
+func TestCompileHelloComputeShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/standalone/01_hello_compute/src/shader.wgsl")
+	if err != nil {
+		t.Skipf("hello_compute shader.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled hello_compute shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileHelloWorkgroupsShader tests the wgpu hello_workgroups example.
+// Tests multiple bare runtime arrays in storage, compound assignment to indexed buffer, 3D workgroup_size.
+// TODO: Requires abstract integer literal handling (a[x] += 1 where 1 is untyped).
+func TestCompileHelloWorkgroupsShader(t *testing.T) {
+	t.Skip("requires abstract integer literal type resolution for compound assignments")
+}
+
+// TestCompileRenderToTextureShader tests the wgpu render_to_texture example.
+func TestCompileRenderToTextureShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/render_to_texture/shader.wgsl")
+	if err != nil {
+		t.Skipf("render_to_texture shader.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled render_to_texture shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// TestCompileUniformValuesShader tests a uniform-based Mandelbrot shader.
+// Tests struct uniforms, local arrays, for loops with break, length builtin.
+// TODO: Requires abstract type inference for vec2()/vec4() without template params in let bindings.
+func TestCompileUniformValuesShader(t *testing.T) {
+	t.Skip("requires abstract type inference for inferred vec constructors in let bindings")
+}
+
+// TestCompileMSAALineShader tests a simple MSAA line rendering shader.
+func TestCompileMSAALineShader(t *testing.T) {
+	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/msaa_line/shader.wgsl")
+	if err != nil {
+		t.Skipf("msaa_line shader.wgsl not available: %v", err)
+	}
+
+	spirvBytes := compileWGSL(t, string(source))
+	validateSPIRVBinary(t, spirvBytes)
+	validateWithVulkanSDK(t, spirvBytes)
+
+	t.Logf("Successfully compiled msaa_line shader (%d lines): %d bytes",
+		strings.Count(string(source), "\n"), len(spirvBytes))
+}
+
+// validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
+// Skips if Vulkan SDK tools are not available.
+func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {
+	t.Helper()
+
+	// Check spirv-val availability
+	spirvVal, err := exec.LookPath("spirv-val")
+	if err != nil {
+		t.Log("spirv-val not found, skipping Vulkan SDK validation")
+		return
+	}
+
+	// Write SPIR-V to temp file
+	tmpDir := t.TempDir()
+	spvPath := filepath.Join(tmpDir, "shader.spv")
+	if err := os.WriteFile(spvPath, spirvBytes, 0o644); err != nil {
+		t.Fatalf("Failed to write .spv: %v", err)
+	}
+
+	// Run spirv-val
+	cmd := exec.Command(spirvVal, spvPath, "--target-env", "vulkan1.2")
+	valOut, valErr := cmd.CombinedOutput()
+	if valErr != nil {
+		// Validation failed — dump disassembly for debugging
+		t.Errorf("spirv-val FAILED:\n%s", valOut)
+
+		spirvDis, disErr := exec.LookPath("spirv-dis")
+		if disErr == nil {
+			disCmd := exec.Command(spirvDis, spvPath, "--no-header")
+			disOut, _ := disCmd.CombinedOutput()
+			t.Logf("SPIR-V disassembly:\n%s", disOut)
+		}
+	} else {
+		t.Log("spirv-val: VALID")
+	}
 }

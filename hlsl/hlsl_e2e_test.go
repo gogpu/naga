@@ -276,7 +276,7 @@ fn main(@location(0) v: vec3<f32>) -> @location(0) vec4<f32> {
     let mx = max(s, a);
     let mn = min(s, a);
     let cl = clamp(d, 0.0, 1.0);
-    return vec4<f32>(mx, mn, cl, 1.0);
+    return vec4<f32>(mx, mn, cl, c.x);
 }
 `
 	code := compileWGSLToHLSL(t, source)

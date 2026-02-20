@@ -81,8 +81,15 @@ type Backend struct {
 	// Key: (componentTypeID << 8) | componentCount, Value: SPIR-V type ID
 	vectorTypeIDs map[uint32]uint32
 
+	// Cached matrix types
+	// Key: (columnTypeID << 8) | columnCount, Value: SPIR-V type ID
+	matrixTypeIDs map[uint32]uint32
+
 	// Track used capabilities (to avoid duplicates)
 	usedCapabilities map[Capability]bool
+
+	// Track used extensions (to avoid duplicates)
+	usedExtensions map[string]bool
 
 	// Cached void type ID (only one void type allowed in SPIR-V)
 	voidTypeID uint32
@@ -94,6 +101,10 @@ type Backend struct {
 	// When accessing these variables, an extra index 0 must be prepended to
 	// OpAccessChain to go through the wrapper struct to the actual data.
 	wrappedStorageVars map[ir.GlobalVariableHandle]bool
+
+	// Track types already decorated with Block (to avoid duplicate decorations
+	// when multiple variables share the same struct type).
+	blockDecoratedTypes map[uint32]bool
 
 	// Shared instruction builder reused across emit methods that don't call
 	// other emit functions between Reset() and Build().
@@ -115,9 +126,12 @@ func NewBackend(options Options) *Backend {
 		scalarTypeIDs:       make(map[uint32]uint32, 8),
 		pointerTypeIDs:      make(map[uint32]uint32, 8),
 		vectorTypeIDs:       make(map[uint32]uint32, 8),
+		matrixTypeIDs:       make(map[uint32]uint32, 4),
 		usedCapabilities:    make(map[Capability]bool, 4),
+		usedExtensions:      make(map[string]bool, 2),
 		funcTypeIDs:         make(map[string]uint32, 4),
 		wrappedStorageVars:  make(map[ir.GlobalVariableHandle]bool, 2),
+		blockDecoratedTypes: make(map[uint32]bool, 4),
 	}
 }
 
@@ -220,6 +234,14 @@ func (b *Backend) addCapability(capability Capability) {
 	}
 }
 
+// addExtension adds a SPIR-V extension without duplicates.
+func (b *Backend) addExtension(name string) {
+	if !b.usedExtensions[name] {
+		b.usedExtensions[name] = true
+		b.builder.AddExtension(name)
+	}
+}
+
 // emitDebugNames adds debug names for types, constants, globals, and functions.
 func (b *Backend) emitDebugNames() {
 	// Type names
@@ -278,6 +300,14 @@ func (b *Backend) emitStructMemberDecorations() {
 		for memberIndex, member := range structType.Members {
 			b.builder.AddMemberDecorate(structID, uint32(memberIndex), DecorationOffset, member.Offset)
 
+			// Matrix members in uniform blocks require ColMajor + MatrixStride decorations.
+			memberInner := b.module.Types[member.Type].Inner
+			if mat, ok := memberInner.(ir.MatrixType); ok {
+				b.builder.AddMemberDecorate(structID, uint32(memberIndex), DecorationColMajor)
+				stride := uint32(mat.Rows) * uint32(mat.Scalar.Width)
+				b.builder.AddMemberDecorate(structID, uint32(memberIndex), DecorationMatrixStride, stride)
+			}
+
 			// Add member names if debug enabled
 			if b.options.Debug && member.Name != "" {
 				b.builder.AddMemberName(structID, uint32(memberIndex), member.Name)
@@ -298,6 +328,31 @@ func (b *Backend) emitTypes() error {
 
 // emitType emits a single IR type and returns its SPIR-V ID.
 // Uses caching to ensure type deduplication.
+// emitTypeNoLayout emits a type without explicit layout decorations (ArrayStride, etc).
+// Used for Workgroup storage class variables which must not have layout decorations.
+func (b *Backend) emitTypeNoLayout(handle ir.TypeHandle) (uint32, error) {
+	typ := &b.module.Types[handle]
+
+	if inner, ok := typ.Inner.(ir.ArrayType); ok {
+		baseID, err := b.emitType(inner.Base)
+		if err != nil {
+			return 0, err
+		}
+		if inner.Size.Constant != nil {
+			u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+			sizeID := b.builder.AddConstant(u32TypeID, *inner.Size.Constant)
+			id := b.builder.AddTypeArray(baseID, sizeID)
+			// Explicitly NO ArrayStride decoration for Workgroup arrays
+			return id, nil
+		}
+		return b.builder.AddTypeRuntimeArray(baseID), nil
+	}
+
+	// For non-array types, use the standard emitter
+	return b.emitType(handle)
+}
+
+//nolint:gocyclo,cyclop,funlen // type emission handles all IR type kinds (scalar, vector, matrix, struct, array, image, sampler, etc.)
 func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 	// Check cache
 	if id, ok := b.typeIDs[handle]; ok {
@@ -318,7 +373,7 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 	case ir.MatrixType:
 		scalarID := b.emitScalarType(inner.Scalar)
 		columnTypeID := b.emitVectorType(scalarID, uint32(inner.Rows))
-		id = b.builder.AddTypeMatrix(columnTypeID, uint32(inner.Columns))
+		id = b.emitMatrixType(columnTypeID, uint32(inner.Columns))
 
 	case ir.ArrayType:
 		baseID, err := b.emitType(inner.Base)
@@ -371,14 +426,33 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		b.builder.types = append(b.builder.types, builder.Build(OpTypeSampler))
 
 	case ir.ImageType:
-		// OpTypeImage (simplified - full implementation would need more work)
-		sampledTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		// Derive sampled type from image class and storage format
+		sampledScalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+		if inner.Class == ir.ImageClassStorage {
+			sampledScalar = storageFormatToScalar(inner.StorageFormat)
+		}
+		sampledTypeID := b.emitScalarType(sampledScalar)
 		id = b.emitImageType(sampledTypeID, inner)
 
 	case ir.AtomicType:
 		// Atomic types in SPIR-V are just the underlying scalar type
 		// The atomicity is expressed through OpAtomic* instructions
 		id = b.emitScalarType(inner.Scalar)
+
+	case ir.BindingArrayType:
+		baseID, err := b.emitType(inner.Base)
+		if err != nil {
+			return 0, err
+		}
+		if inner.Size != nil {
+			// Fixed-size binding array
+			u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+			sizeID := b.builder.AddConstant(u32TypeID, *inner.Size)
+			id = b.builder.AddTypeArray(baseID, sizeID)
+		} else {
+			// Unbounded binding array (runtime-sized)
+			id = b.builder.AddTypeRuntimeArray(baseID)
+		}
 
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", inner)
@@ -512,6 +586,17 @@ func (b *Backend) emitVectorType(componentTypeID uint32, componentCount uint32) 
 	return id
 }
 
+// emitMatrixType emits or returns cached matrix type.
+func (b *Backend) emitMatrixType(columnTypeID uint32, columnCount uint32) uint32 {
+	key := (columnTypeID << 8) | columnCount
+	if id, ok := b.matrixTypeIDs[key]; ok {
+		return id
+	}
+	id := b.builder.AddTypeMatrix(columnTypeID, columnCount)
+	b.matrixTypeIDs[key] = id
+	return id
+}
+
 // imageTypeKey creates a cache key for an image type.
 func imageTypeKey(img ir.ImageType) uint32 {
 	// Pack dimension (3 bits), arrayed (1 bit), multisampled (1 bit), class (3 bits)
@@ -598,6 +683,24 @@ func (b *Backend) emitImageType(sampledTypeID uint32, img ir.ImageType) uint32 {
 	// Cache the type for reuse
 	b.imageTypeIDs[cacheKey] = id
 	return id
+}
+
+// storageFormatToScalar maps a storage texture format to its sampled scalar type.
+// Float formats → f32, unsigned int formats → u32, signed int formats → i32.
+func storageFormatToScalar(format ir.StorageFormat) ir.ScalarType {
+	switch format {
+	case ir.StorageFormatR8Uint, ir.StorageFormatRg8Uint, ir.StorageFormatR16Uint,
+		ir.StorageFormatRg16Uint, ir.StorageFormatR32Uint, ir.StorageFormatRg32Uint,
+		ir.StorageFormatRgba8Uint, ir.StorageFormatRgba16Uint, ir.StorageFormatRgba32Uint,
+		ir.StorageFormatRgb10a2Uint:
+		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	case ir.StorageFormatR8Sint, ir.StorageFormatRg8Sint, ir.StorageFormatR16Sint,
+		ir.StorageFormatRg16Sint, ir.StorageFormatR32Sint, ir.StorageFormatRg32Sint,
+		ir.StorageFormatRgba8Sint, ir.StorageFormatRgba16Sint, ir.StorageFormatRgba32Sint:
+		return ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
+	default:
+		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
 }
 
 // addressSpaceToStorageClass converts IR AddressSpace to SPIR-V StorageClass.
@@ -698,8 +801,7 @@ func (b *Backend) emitScalarConstant(typeID uint32, value ir.ScalarValue) uint32
 
 	case ir.ScalarFloat:
 		// Determine width from type
-		typ := &b.module.Types[b.findTypeHandleByID(typeID)]
-		scalarType := typ.Inner.(ir.ScalarType)
+		scalarType := b.resolveScalarType(typeID)
 		if scalarType.Width == 4 {
 			// 32-bit float
 			return b.builder.AddConstantFloat32(typeID, math.Float32frombits(uint32(value.Bits)))
@@ -710,8 +812,7 @@ func (b *Backend) emitScalarConstant(typeID uint32, value ir.ScalarValue) uint32
 	case ir.ScalarSint, ir.ScalarUint:
 		// For integers, just pass the bits directly
 		// Handle 64-bit integers (need two words)
-		typ := &b.module.Types[b.findTypeHandleByID(typeID)]
-		scalarType := typ.Inner.(ir.ScalarType)
+		scalarType := b.resolveScalarType(typeID)
 		if scalarType.Width == 8 {
 			// 64-bit integer
 			lowBits := uint32(value.Bits & 0xFFFFFFFF)
@@ -723,6 +824,20 @@ func (b *Backend) emitScalarConstant(typeID uint32, value ir.ScalarValue) uint32
 
 	default:
 		panic(fmt.Sprintf("unknown scalar kind: %v", value.Kind))
+	}
+}
+
+// resolveScalarType finds the ScalarType for a SPIR-V type ID, unwrapping AtomicType if needed.
+func (b *Backend) resolveScalarType(typeID uint32) ir.ScalarType {
+	handle := b.findTypeHandleByID(typeID)
+	typ := &b.module.Types[handle]
+	switch inner := typ.Inner.(type) {
+	case ir.ScalarType:
+		return inner
+	case ir.AtomicType:
+		return inner.Scalar
+	default:
+		panic(fmt.Sprintf("expected ScalarType or AtomicType, got %T", typ.Inner))
 	}
 }
 
@@ -755,25 +870,39 @@ const OpArrayLength OpCode = 68
 // emitGlobals emits all global variables to SPIR-V.
 func (b *Backend) emitGlobals() error {
 	for handle, global := range b.module.GlobalVariables {
-		// Get the variable type
-		varType, err := b.emitType(global.Type)
+		// Get the variable type.
+		// Workgroup variables must NOT have explicit layout decorations
+		// (ArrayStride, Offset, MatrixStride) per Vulkan SPIR-V rules.
+		var varType uint32
+		var err error
+		if global.Space == ir.SpaceWorkGroup {
+			varType, err = b.emitTypeNoLayout(global.Type)
+		} else {
+			varType, err = b.emitType(global.Type)
+		}
 		if err != nil {
 			return err
 		}
 
 		// Add Block decoration for struct types in Uniform/Storage/PushConstant address spaces.
 		// This is required by Vulkan spec (VUID-StandaloneSpirv-Uniform-06676).
-		if b.needsBlockDecoration(global.Space, global.Type) {
+		// Track decorated types to avoid duplicate Block decorations when multiple
+		// variables share the same struct type.
+		if b.needsBlockDecoration(global.Space, global.Type) && !b.blockDecoratedTypes[varType] {
 			b.builder.AddDecorate(varType, DecorationBlock)
+			b.blockDecoratedTypes[varType] = true
 		}
 
-		// Vulkan VUID-StandaloneSpirv-Uniform-06807: StorageBuffer variables must be
-		// typed as OpTypeStruct (with Block decoration). If the variable type is NOT a
-		// struct (e.g., a runtime array like array<u32>), wrap it in a struct.
-		if global.Space == ir.SpaceStorage && !b.isStructType(global.Type) {
+		// Vulkan VUID-StandaloneSpirv-Uniform-06807: Uniform and StorageBuffer variables
+		// must be typed as OpTypeStruct (with Block decoration). If the variable type
+		// is NOT a struct, wrap it in a struct with proper layout decorations.
+		needsWrap := (global.Space == ir.SpaceStorage || global.Space == ir.SpaceUniform) && !b.isStructType(global.Type)
+		if needsWrap {
 			wrapperStruct := b.builder.AddTypeStruct(varType)
 			b.builder.AddDecorate(wrapperStruct, DecorationBlock)
 			b.builder.AddMemberDecorate(wrapperStruct, 0, DecorationOffset, 0)
+			// Add matrix layout decorations if member is a matrix type
+			b.addMatrixLayoutIfNeeded(wrapperStruct, 0, global.Type)
 			varType = wrapperStruct
 			b.wrappedStorageVars[ir.GlobalVariableHandle(handle)] = true
 		}
@@ -805,8 +934,34 @@ func (b *Backend) emitGlobals() error {
 			b.builder.AddDecorate(varID, DecorationDescriptorSet, global.Binding.Group)
 			b.builder.AddDecorate(varID, DecorationBinding, global.Binding.Binding)
 		}
+
+		// Add NonReadable/NonWritable decorations for storage images and storage buffers.
+		// SPIR-V requires these decorations to match the access mode.
+		storageAccess := b.getStorageAccess(global)
+		if storageAccess >= 0 {
+			access := ir.StorageAccess(storageAccess)
+			if access == ir.StorageAccessWrite {
+				b.builder.AddDecorate(varID, DecorationNonReadable)
+			}
+			if access == ir.StorageAccessRead {
+				b.builder.AddDecorate(varID, DecorationNonWritable)
+			}
+		}
 	}
 	return nil
+}
+
+// getStorageAccess returns the StorageAccess for a global variable, or -1 if not applicable.
+// Checks both Storage address space and storage image types.
+func (b *Backend) getStorageAccess(global ir.GlobalVariable) int {
+	if int(global.Type) < len(b.module.Types) {
+		if img, ok := b.module.Types[global.Type].Inner.(ir.ImageType); ok {
+			if img.Class == ir.ImageClassStorage {
+				return int(img.StorageAccess)
+			}
+		}
+	}
+	return -1
 }
 
 // needsBlockDecoration returns true if a struct type in the given address space
@@ -825,6 +980,17 @@ func (b *Backend) isStructType(typeHandle ir.TypeHandle) bool {
 	typ := &b.module.Types[typeHandle]
 	_, isStruct := typ.Inner.(ir.StructType)
 	return isStruct
+}
+
+// addMatrixLayoutIfNeeded adds ColMajor + MatrixStride decorations for a wrapper struct member
+// if the member's IR type is a matrix.
+func (b *Backend) addMatrixLayoutIfNeeded(structID uint32, memberIdx uint32, typeHandle ir.TypeHandle) {
+	inner := b.module.Types[typeHandle].Inner
+	if mat, ok := inner.(ir.MatrixType); ok {
+		b.builder.AddMemberDecorate(structID, memberIdx, DecorationColMajor)
+		stride := uint32(mat.Rows) * uint32(mat.Scalar.Width)
+		b.builder.AddMemberDecorate(structID, memberIdx, DecorationMatrixStride, stride)
+	}
 }
 
 // emitEntryPointInterfaceVars creates input/output variables for entry point builtins and locations.
@@ -1023,7 +1189,7 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 
 // emitEntryPoints emits all entry points with their execution modes.
 //
-//nolint:gocognit,gocyclo,cyclop // SPIR-V entry points have many cases
+//nolint:gocognit // SPIR-V entry points have many cases
 func (b *Backend) emitEntryPoints() error {
 	for _, entryPoint := range b.module.EntryPoints {
 		// Get function ID
@@ -1048,18 +1214,10 @@ func (b *Backend) emitEntryPoints() error {
 		// Collect interface variables (inputs/outputs used by entry point)
 		var interfaces []uint32
 
-		// Add regular global variables — for SPIR-V 1.3, only Input/Output
-		// storage classes are allowed in the entry point interface.
-		// Uniform and StorageBuffer variables are NOT listed.
-		for handle, global := range b.module.GlobalVariables {
-			if global.Space != ir.SpaceFunction && global.Space != ir.SpacePrivate &&
-				global.Space != ir.SpaceUniform && global.Space != ir.SpaceStorage &&
-				global.Space != ir.SpaceHandle {
-				if varID, ok := b.globalIDs[ir.GlobalVariableHandle(handle)]; ok {
-					interfaces = append(interfaces, varID)
-				}
-			}
-		}
+		// SPIR-V 1.3 (Vulkan 1.2): Only Input/Output storage classes are
+		// allowed in the entry point interface list. Global variables in other
+		// storage classes (Uniform, StorageBuffer, WorkGroup, PushConstant, etc.)
+		// are NOT listed. Input/Output builtins are handled separately below.
 
 		// Add entry point input variables (builtins, locations)
 		if inputVars, ok := b.entryInputVars[entryPoint.Function]; ok {
@@ -1254,14 +1412,15 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 
 	// 3. Create expression emitter for this function
 	emitter := &ExpressionEmitter{
-		backend:            b,
-		function:           fn,
-		exprIDs:            make(map[ir.ExpressionHandle]uint32, len(fn.Expressions)),
-		paramIDs:           paramIDs,
-		isEntryPoint:       isEntryPoint,
-		output:             output,
-		callResultIDs:      make(map[ir.ExpressionHandle]uint32, 4),
-		deferredCallStores: make(map[ir.ExpressionHandle]uint32, 4),
+		backend:               b,
+		function:              fn,
+		exprIDs:               make(map[ir.ExpressionHandle]uint32, len(fn.Expressions)),
+		paramIDs:              paramIDs,
+		isEntryPoint:          isEntryPoint,
+		output:                output,
+		callResultIDs:         make(map[ir.ExpressionHandle]uint32, 4),
+		deferredCallStores:    make(map[ir.ExpressionHandle]uint32, 4),
+		deferredComplexStores: make(map[ir.ExpressionHandle][]deferredComplexStore),
 	}
 	emitter.localVarIDs = localVarIDs
 
@@ -1298,17 +1457,28 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// 5. Initialize local variables (now that emitter is available).
 	// OpVariable (emitted in prologue) doesn't include the initializer value,
 	// so we need explicit OpStore instructions.
-	// Variables initialized with call results (ExprCallResult) are deferred:
-	// the StmtCall in the body must run first to produce the result, then
-	// emitCall will store into the variable automatically.
+	//
+	// Variables whose init expression tree contains an ExprCallResult anywhere
+	// (directly or inside Binary/Unary/etc.) must be deferred: the StmtCall in
+	// the body must run first to produce the result. After the body is emitted,
+	// we evaluate the deferred inits and store them.
 	for i, localVar := range fn.LocalVars {
 		if localVar.Init == nil {
 			continue
 		}
 		initExpr := fn.Expressions[*localVar.Init]
 		if _, isCallResult := initExpr.Kind.(ir.ExprCallResult); isCallResult {
-			// Register deferred store: emitCall will handle OpStore
+			// Direct call result: register deferred store for emitCall
 			emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
+			continue
+		}
+		if callResultHandle, ok := findCallResultInTree(fn.Expressions, *localVar.Init); ok {
+			// Init contains a call result somewhere in the tree — defer
+			// until the corresponding StmtCall runs.
+			emitter.deferredComplexStores[callResultHandle] = append(
+				emitter.deferredComplexStores[callResultHandle],
+				deferredComplexStore{varPtrID: localVarIDs[i], initExpr: *localVar.Init},
+			)
 			continue
 		}
 		initID, err := emitter.emitExpression(*localVar.Init)
@@ -1356,6 +1526,10 @@ type ExpressionEmitter struct {
 	// Loop context stack for break/continue
 	loopStack []loopContext
 
+	// Break target stack: merge labels for both loops and switches.
+	// A break inside a switch branches to the switch merge, not the loop merge.
+	breakStack []uint32
+
 	// Cached call result IDs (set by emitCall, read by ExprCallResult)
 	callResultIDs map[ir.ExpressionHandle]uint32
 
@@ -1363,6 +1537,18 @@ type ExpressionEmitter struct {
 	// Maps ExprCallResult handle to local variable SPIR-V pointer ID.
 	// When emitCall produces a result, it stores into the mapped variable.
 	deferredCallStores map[ir.ExpressionHandle]uint32
+
+	// Deferred complex stores: init expressions that contain a CallResult.
+	// Maps ExprCallResult handle to a list of (varPtrID, initExprHandle) pairs.
+	// After emitCall caches the result, these are evaluated and stored.
+	deferredComplexStores map[ir.ExpressionHandle][]deferredComplexStore
+}
+
+// deferredComplexStore represents a local variable whose init expression
+// contains an ExprCallResult somewhere in its expression tree.
+type deferredComplexStore struct {
+	varPtrID uint32
+	initExpr ir.ExpressionHandle
 }
 
 // loopContext tracks merge and continue labels for loop statements.
@@ -1416,7 +1602,7 @@ func (b *Backend) emitInlineType(inner ir.TypeInner) uint32 {
 	case ir.MatrixType:
 		scalarID := b.emitScalarType(t.Scalar)
 		columnTypeID := b.emitVectorType(scalarID, uint32(t.Rows))
-		return b.builder.AddTypeMatrix(columnTypeID, uint32(t.Columns))
+		return b.emitMatrixType(columnTypeID, uint32(t.Columns))
 
 	case ir.PointerType:
 		// Emit the base type first
@@ -1614,13 +1800,26 @@ func (e *ExpressionEmitter) emitLocalVarValue(kind ir.ExprLocalVariable) (uint32
 // emitGlobalVarValue returns the loaded VALUE for a global variable.
 // This is used by emitExpression for value contexts.
 func (e *ExpressionEmitter) emitGlobalVarValue(kind ir.ExprGlobalVariable) (uint32, error) {
+	gv := e.backend.module.GlobalVariables[kind.Variable]
+
+	// Get pointer to the actual data (handles wrapped uniform/storage variables)
 	ptrID, err := e.emitGlobalVarRef(kind)
 	if err != nil {
 		return 0, err
 	}
+	if e.backend.wrappedStorageVars[kind.Variable] {
+		// Wrapped variable: emit AccessChain to member 0 to get past wrapper struct
+		innerTypeID, err := e.backend.emitType(gv.Type)
+		if err != nil {
+			return 0, err
+		}
+		sc := addressSpaceToStorageClass(gv.Space)
+		ptrType := e.backend.emitPointerType(sc, innerTypeID)
+		u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		const0 := e.backend.builder.AddConstant(u32Type, 0)
+		ptrID = e.backend.builder.AddAccessChain(ptrType, ptrID, const0)
+	}
 
-	// Get the variable type and emit OpLoad
-	gv := e.backend.module.GlobalVariables[kind.Variable]
 	typeID, err := e.backend.emitType(gv.Type)
 	if err != nil {
 		return 0, err
@@ -1707,6 +1906,9 @@ func (e *ExpressionEmitter) getExpressionStorageClass(handle ir.ExpressionHandle
 		return e.getExpressionStorageClass(k.Base)
 	case ir.ExprAccessIndex:
 		return e.getExpressionStorageClass(k.Base)
+	case ir.ExprLoad:
+		// Load dereferences a pointer — propagate storage class from the pointer source
+		return e.getExpressionStorageClass(k.Pointer)
 	}
 
 	return StorageClassFunction
@@ -1743,6 +1945,9 @@ func (e *ExpressionEmitter) emitAccess(access ir.ExprAccess) (uint32, error) {
 		case ir.MatrixType:
 			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
 		case ir.PointerType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.BindingArrayType:
 			h := t.Base
 			elementType = ir.TypeResolution{Handle: &h}
 		default:
@@ -1804,6 +2009,12 @@ func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool
 		return e.isPointerExpression(k.Base)
 	case ir.ExprAccess:
 		return e.isPointerExpression(k.Base)
+	case ir.ExprLoad:
+		// ExprLoad dereferences a pointer. If the pointer source is a pointer expression
+		// (e.g., a function argument with pointer type), then the load result can be
+		// treated as a pointer for access chain purposes. In SPIR-V, we skip the load
+		// and use OpAccessChain directly on the underlying pointer.
+		return e.isPointerExpression(k.Pointer)
 	}
 	return false
 }
@@ -1843,6 +2054,11 @@ func (e *ExpressionEmitter) emitPointerExpression(handle ir.ExpressionHandle) (u
 		return e.emitAccessIndexAsPointer(k)
 	case ir.ExprAccess:
 		return e.emitAccessAsPointer(k)
+	case ir.ExprLoad:
+		// ExprLoad dereferences a pointer. For pointer chain contexts (store targets,
+		// access chains), skip the load and pass through to the underlying pointer.
+		// This allows (*p).x to emit OpAccessChain on p directly.
+		return e.emitPointerExpression(k.Pointer)
 	default:
 		return 0, fmt.Errorf("expression %T is not a pointer expression", k)
 	}
@@ -1879,11 +2095,25 @@ func (e *ExpressionEmitter) emitAccessIndexAsPointer(access ir.ExprAccessIndex) 
 			}
 			h := t.Members[access.Index].Type
 			elementType = ir.TypeResolution{Handle: &h}
+		case ir.BindingArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
 		default:
 			return 0, fmt.Errorf("cannot index into type %T", t)
 		}
 	} else {
-		return 0, fmt.Errorf("cannot access index on inline type for pointer")
+		// Inline type (not in the module type table)
+		switch t := baseType.Value.(type) {
+		case ir.ArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		default:
+			return 0, fmt.Errorf("cannot access index on inline type %T for pointer", t)
+		}
 	}
 
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
@@ -1925,11 +2155,25 @@ func (e *ExpressionEmitter) emitAccessAsPointer(access ir.ExprAccess) (uint32, e
 			elementType = ir.TypeResolution{Value: t.Scalar}
 		case ir.MatrixType:
 			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		case ir.BindingArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
 		default:
 			return 0, fmt.Errorf("cannot index into type %T", t)
 		}
 	} else {
-		return 0, fmt.Errorf("cannot access on inline type for pointer")
+		// Inline type (not in the module type table)
+		switch t := baseType.Value.(type) {
+		case ir.ArrayType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.VectorType:
+			elementType = ir.TypeResolution{Value: t.Scalar}
+		case ir.MatrixType:
+			elementType = ir.TypeResolution{Value: ir.VectorType{Size: t.Rows, Scalar: t.Scalar}}
+		default:
+			return 0, fmt.Errorf("cannot access on inline type %T for pointer", t)
+		}
 	}
 
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
@@ -1970,6 +2214,9 @@ func (e *ExpressionEmitter) emitAccessIndex(access ir.ExprAccessIndex) (uint32, 
 			h := t.Members[access.Index].Type
 			elementType = ir.TypeResolution{Handle: &h}
 		case ir.PointerType:
+			h := t.Base
+			elementType = ir.TypeResolution{Handle: &h}
+		case ir.BindingArrayType:
 			h := t.Base
 			elementType = ir.TypeResolution{Handle: &h}
 		default:
@@ -2099,8 +2346,14 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 	}
 
 	if as.Convert == nil {
-		// Bitcast
-		targetType := e.backend.emitScalarType(ir.ScalarType{Kind: as.Kind, Width: srcScalar.Width})
+		// Bitcast — preserve vector structure if source is a vector
+		targetScalar := ir.ScalarType{Kind: as.Kind, Width: srcScalar.Width}
+		var targetType uint32
+		if vec, ok := srcInner.(ir.VectorType); ok {
+			targetType = e.backend.emitInlineType(ir.VectorType{Size: vec.Size, Scalar: targetScalar})
+		} else {
+			targetType = e.backend.emitScalarType(targetScalar)
+		}
 		return e.emitConversionOp(OpBitcast, targetType, exprID), nil
 	}
 
@@ -2110,6 +2363,11 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 		targetTypeID = e.backend.emitInlineType(ir.VectorType{Size: vec.Size, Scalar: targetScalar})
 	} else {
 		targetTypeID = e.backend.emitScalarType(targetScalar)
+	}
+
+	// Identity conversion: same kind and width — just return the expression unchanged
+	if srcScalar.Kind == as.Kind && srcScalar.Width == *as.Convert {
+		return exprID, nil
 	}
 
 	// Bool conversions require special handling — no single SPIR-V opcode exists.
@@ -2355,6 +2613,8 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			scalarKind = t.Kind
 		case ir.VectorType:
 			scalarKind = t.Scalar.Kind
+		case ir.MatrixType:
+			scalarKind = t.Scalar.Kind
 		default:
 			return 0, fmt.Errorf("binary operator on non-numeric type: %T", t)
 		}
@@ -2364,6 +2624,8 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		case ir.ScalarType:
 			scalarKind = t.Kind
 		case ir.VectorType:
+			scalarKind = t.Scalar.Kind
+		case ir.MatrixType:
 			scalarKind = t.Scalar.Kind
 		default:
 			return 0, fmt.Errorf("binary operator on non-numeric type: %T", t)
@@ -2414,19 +2676,29 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	case ir.BinaryAdd:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFAdd
+			// vec + scalar or scalar + vec: splat scalar to matching vector
+			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			if rErr == nil {
+				leftID, rightID, resultType = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			}
 		} else {
 			opcode = OpIAdd
 		}
 	case ir.BinarySubtract:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFSub
+			// vec - scalar or scalar - vec: splat scalar to matching vector
+			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			if rErr == nil {
+				leftID, rightID, resultType = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			}
 		} else {
 			opcode = OpISub
 		}
 	case ir.BinaryMultiply:
 		if scalarKind == ir.ScalarFloat {
-			// Check for vector-scalar multiplication which requires OpVectorTimesScalar.
-			// Resolve right operand type to detect mixed vector/scalar operands.
+			// Check for special multiplication cases (vector-scalar, matrix-vector, etc.)
+			// that require dedicated SPIR-V opcodes.
 			rightType, rightErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
 			if rightErr != nil {
 				return 0, fmt.Errorf("binary right type: %w", rightErr)
@@ -2437,15 +2709,36 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			_, rightIsVec := rightInner.(ir.VectorType)
 			_, leftIsScalar := leftInner.(ir.ScalarType)
 			_, rightIsScalar := rightInner.(ir.ScalarType)
+			leftMat, leftIsMat := leftInner.(ir.MatrixType)
+			_, rightIsMat := rightInner.(ir.MatrixType)
 
 			switch {
+			case leftIsMat && rightIsVec:
+				// mat * vec -> OpMatrixTimesVector
+				// Result type is vec<Rows> (number of rows in the matrix).
+				vecScalarID := e.backend.emitScalarType(leftMat.Scalar)
+				vecTypeID := e.backend.emitVectorType(vecScalarID, uint32(leftMat.Rows))
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesVector, vecTypeID, leftID, rightID), nil
+			case leftIsVec && rightIsMat:
+				// vec * mat -> OpVectorTimesMatrix
+				// Result type is the vector type matching matrix columns.
+				vecResultType := e.backend.resolveTypeResolution(leftType)
+				return e.backend.builder.AddBinaryOp(OpVectorTimesMatrix, vecResultType, leftID, rightID), nil
+			case leftIsMat && rightIsMat:
+				// mat * mat -> OpMatrixTimesMatrix
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesMatrix, resultType, leftID, rightID), nil
+			case leftIsMat && rightIsScalar:
+				// mat * scalar -> OpMatrixTimesScalar
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesScalar, resultType, leftID, rightID), nil
+			case leftIsScalar && rightIsMat:
+				// scalar * mat -> OpMatrixTimesScalar (swapped operands)
+				matResultType := e.backend.resolveTypeResolution(rightType)
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesScalar, matResultType, rightID, leftID), nil
 			case leftIsVec && rightIsScalar:
 				// vec * scalar -> OpVectorTimesScalar(vec, scalar)
-				// Result type is the vector type (already leftType).
 				return e.backend.builder.AddBinaryOp(OpVectorTimesScalar, resultType, leftID, rightID), nil
 			case leftIsScalar && rightIsVec:
 				// scalar * vec -> OpVectorTimesScalar(vec, scalar) with swapped operands.
-				// Result type is the vector type (rightType).
 				vecResultType := e.backend.resolveTypeResolution(rightType)
 				return e.backend.builder.AddBinaryOp(OpVectorTimesScalar, vecResultType, rightID, leftID), nil
 			default:
@@ -2458,6 +2751,12 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	case ir.BinaryDivide:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFDiv
+			// Check for vec / scalar — SPIR-V has no OpVectorDivideScalar.
+			// Splat the scalar to a matching vector.
+			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			if rErr == nil {
+				leftID, rightID, resultType = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			}
 		} else if scalarKind == ir.ScalarSint {
 			opcode = OpSDiv
 		} else {
@@ -2466,6 +2765,10 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	case ir.BinaryModulo:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFMod
+			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			if rErr == nil {
+				leftID, rightID, resultType = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			}
 		} else if scalarKind == ir.ScalarSint {
 			opcode = OpSMod
 		} else {
@@ -2540,6 +2843,59 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	return e.backend.builder.AddBinaryOp(opcode, resultType, leftID, rightID), nil
 }
 
+// promoteScalarToVector handles vec/scalar mixed operands for binary operations
+// that have no dedicated SPIR-V opcode (divide, modulo, add, subtract).
+// It splats the scalar operand to a vector of matching size using OpCompositeConstruct.
+// Returns potentially updated leftID, rightID, and resultType.
+func (e *ExpressionEmitter) promoteScalarToVector(
+	leftType, rightType ir.TypeResolution,
+	leftID, rightID, resultType uint32,
+) (uint32, uint32, uint32) {
+	var leftInner, rightInner ir.TypeInner
+	if leftType.Handle != nil {
+		leftInner = e.backend.module.Types[*leftType.Handle].Inner
+	} else {
+		leftInner = leftType.Value
+	}
+	if rightType.Handle != nil {
+		rightInner = e.backend.module.Types[*rightType.Handle].Inner
+	} else {
+		rightInner = rightType.Value
+	}
+
+	leftVec, leftIsVec := leftInner.(ir.VectorType)
+	_, rightIsScalar := rightInner.(ir.ScalarType)
+	rightVec, rightIsVec := rightInner.(ir.VectorType)
+	_, leftIsScalar := leftInner.(ir.ScalarType)
+
+	if leftIsVec && rightIsScalar {
+		// vec op scalar → splat scalar to matching vector
+		rightID = e.splatScalar(rightID, leftVec)
+		return leftID, rightID, resultType
+	}
+	if leftIsScalar && rightIsVec {
+		// scalar op vec → splat scalar to matching vector, result type is vec
+		leftID = e.splatScalar(leftID, rightVec)
+		resultType = e.backend.resolveTypeResolution(rightType)
+		return leftID, rightID, resultType
+	}
+	return leftID, rightID, resultType
+}
+
+// splatScalar creates an OpCompositeConstruct that replicates a scalar to a vector.
+func (e *ExpressionEmitter) splatScalar(scalarID uint32, vecType ir.VectorType) uint32 {
+	vecTypeID := e.backend.emitInlineType(vecType)
+	splatID := e.backend.builder.AllocID()
+	builder := e.newIB()
+	builder.AddWord(vecTypeID)
+	builder.AddWord(splatID)
+	for range vecType.Size {
+		builder.AddWord(scalarID)
+	}
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpCompositeConstruct))
+	return splatID
+}
+
 // emitSelect emits a select operation.
 func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 	conditionID, err := e.emitExpression(sel.Condition)
@@ -2563,6 +2919,84 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 		return 0, fmt.Errorf("select accept type: %w", err)
 	}
 	resultType := e.backend.resolveTypeResolution(acceptType)
+
+	// SPIR-V OpSelect requires the condition to be the same size as the result.
+	// WGSL allows scalar bool condition with vector operands (broadcast).
+	// When condition is scalar bool but result is vector, splat the condition.
+	condType, err := ir.ResolveExpressionType(e.backend.module, e.function, sel.Condition)
+	if err != nil {
+		return 0, fmt.Errorf("select condition type: %w", err)
+	}
+	condInner := typeResolutionInner(e.backend.module, condType)
+	acceptInner := typeResolutionInner(e.backend.module, acceptType)
+
+	// If condition is float (scalar or vector), convert to bool by comparing != 0.0.
+	// Common in shaders: select(a, b, step(...)) where step returns float, not bool.
+	if condScalar, ok := condInner.(ir.ScalarType); ok && condScalar.Kind == ir.ScalarFloat {
+		// scalar float → scalar bool via OpFOrdNotEqual(cond, 0.0)
+		boolTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+		zeroID := e.backend.builder.AddConstantFloat32(
+			e.backend.emitScalarType(condScalar), 0.0)
+		cmpID := e.backend.builder.AllocID()
+		builder := e.newIB()
+		builder.AddWord(boolTypeID)
+		builder.AddWord(cmpID)
+		builder.AddWord(conditionID)
+		builder.AddWord(zeroID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpFOrdNotEqual))
+		conditionID = cmpID
+		condInner = ir.ScalarType{Kind: ir.ScalarBool, Width: 1}
+	} else if condVec, ok := condInner.(ir.VectorType); ok && condVec.Scalar.Kind == ir.ScalarFloat {
+		// vec<float> → vec<bool> via OpFOrdNotEqual(cond, vec(0.0))
+		boolVecTypeID := e.backend.emitVectorType(
+			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1}),
+			uint32(condVec.Size))
+		floatScalarID := e.backend.emitScalarType(condVec.Scalar)
+		zeroScalarID := e.backend.builder.AddConstantFloat32(floatScalarID, 0.0)
+		// Build zero vector
+		zeroVecID := e.backend.builder.AllocID()
+		zb := e.newIB()
+		floatVecTypeID := e.backend.emitVectorType(floatScalarID, uint32(condVec.Size))
+		zb.AddWord(floatVecTypeID)
+		zb.AddWord(zeroVecID)
+		for range condVec.Size {
+			zb.AddWord(zeroScalarID)
+		}
+		e.backend.builder.functions = append(e.backend.builder.functions, zb.Build(OpCompositeConstruct))
+		// Compare
+		cmpID := e.backend.builder.AllocID()
+		cb := e.newIB()
+		cb.AddWord(boolVecTypeID)
+		cb.AddWord(cmpID)
+		cb.AddWord(conditionID)
+		cb.AddWord(zeroVecID)
+		e.backend.builder.functions = append(e.backend.builder.functions, cb.Build(OpFOrdNotEqual))
+		conditionID = cmpID
+		condInner = ir.VectorType{Size: condVec.Size, Scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}}
+	}
+
+	// SPIR-V OpSelect requires the condition to be the same size as the result.
+	// WGSL allows scalar bool condition with vector operands (broadcast).
+	if _, isBoolScalar := condInner.(ir.ScalarType); isBoolScalar {
+		if vecType, isVec := acceptInner.(ir.VectorType); isVec {
+			// Splat scalar bool to vector bool
+			boolVecTypeID := e.backend.emitVectorType(
+				e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1}),
+				uint32(vecType.Size))
+			splatID := e.backend.builder.AllocID()
+			builder := e.newIB()
+			builder.AddWord(boolVecTypeID)
+			builder.AddWord(splatID)
+			for range vecType.Size {
+				builder.AddWord(conditionID)
+			}
+			e.backend.builder.functions = append(
+				e.backend.builder.functions,
+				builder.Build(OpCompositeConstruct),
+			)
+			conditionID = splatID
+		}
+	}
 
 	return e.backend.builder.AddSelect(resultType, conditionID, acceptID, rejectID), nil
 }
@@ -2598,12 +3032,12 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		return e.emitLoop(kind)
 
 	case ir.StmtBreak:
-		if len(e.loopStack) == 0 {
-			return fmt.Errorf("break statement outside of loop")
+		if len(e.breakStack) == 0 {
+			return fmt.Errorf("break statement outside of loop or switch")
 		}
-		ctx := e.loopStack[len(e.loopStack)-1]
+		mergeLabel := e.breakStack[len(e.breakStack)-1]
 		builder := e.newIB()
-		builder.AddWord(ctx.mergeLabel)
+		builder.AddWord(mergeLabel)
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpBranch))
 		return nil
 
@@ -2685,6 +3119,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 	case ir.StmtCall:
 		return e.emitCall(kind)
 
+	case ir.StmtImageStore:
+		return e.emitImageStore(kind)
+
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", kind)
 	}
@@ -2752,6 +3189,85 @@ func (e *ExpressionEmitter) emitIf(stmt ir.StmtIf) error {
 // blockEndsWithTerminator checks if a block ends with a terminator instruction
 // (return, kill, break, continue) that makes subsequent OpBranch unreachable.
 // In SPIR-V, each basic block must end with exactly one terminator instruction.
+// findCallResultInTree checks if an expression tree contains an ExprCallResult.
+// Returns the ExprCallResult handle if found. This is used to detect local variable
+// inits like `var x = func() - 0.5` where the call result is nested inside a
+// binary expression, not the top-level init expression.
+//
+//nolint:gocognit,gocyclo,cyclop // recursive expression tree traversal requires handling 12+ expression types
+func findCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
+	if int(handle) >= len(expressions) {
+		return 0, false
+	}
+	expr := expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.ExprCallResult:
+		return handle, true
+	case ir.ExprBinary:
+		if h, ok := findCallResultInTree(expressions, k.Left); ok {
+			return h, true
+		}
+		return findCallResultInTree(expressions, k.Right)
+	case ir.ExprUnary:
+		return findCallResultInTree(expressions, k.Expr)
+	case ir.ExprAccessIndex:
+		return findCallResultInTree(expressions, k.Base)
+	case ir.ExprAccess:
+		return findCallResultInTree(expressions, k.Base)
+	case ir.ExprSwizzle:
+		return findCallResultInTree(expressions, k.Vector)
+	case ir.ExprLoad:
+		return findCallResultInTree(expressions, k.Pointer)
+	case ir.ExprCompose:
+		for _, comp := range k.Components {
+			if h, ok := findCallResultInTree(expressions, comp); ok {
+				return h, true
+			}
+		}
+		return 0, false
+	case ir.ExprAs:
+		return findCallResultInTree(expressions, k.Expr)
+	case ir.ExprSplat:
+		return findCallResultInTree(expressions, k.Value)
+	case ir.ExprSelect:
+		if h, ok := findCallResultInTree(expressions, k.Condition); ok {
+			return h, true
+		}
+		if h, ok := findCallResultInTree(expressions, k.Accept); ok {
+			return h, true
+		}
+		return findCallResultInTree(expressions, k.Reject)
+	case ir.ExprMath:
+		if h, ok := findCallResultInTree(expressions, k.Arg); ok {
+			return h, true
+		}
+		if k.Arg1 != nil {
+			if h, ok := findCallResultInTree(expressions, *k.Arg1); ok {
+				return h, true
+			}
+		}
+		if k.Arg2 != nil {
+			if h, ok := findCallResultInTree(expressions, *k.Arg2); ok {
+				return h, true
+			}
+		}
+		if k.Arg3 != nil {
+			if h, ok := findCallResultInTree(expressions, *k.Arg3); ok {
+				return h, true
+			}
+		}
+		return 0, false
+	case ir.ExprDerivative:
+		return findCallResultInTree(expressions, k.Expr)
+	case ir.ExprRelational:
+		return findCallResultInTree(expressions, k.Argument)
+	case ir.ExprArrayLength:
+		return findCallResultInTree(expressions, k.Array)
+	default:
+		return 0, false
+	}
+}
+
 func blockEndsWithTerminator(block ir.Block) bool {
 	if len(block) == 0 {
 		return false
@@ -2766,6 +3282,18 @@ func blockEndsWithTerminator(block ir.Block) bool {
 	case ir.StmtIf:
 		// An if statement is a terminator if BOTH branches end with terminators
 		return blockEndsWithTerminator(kind.Accept) && blockEndsWithTerminator(kind.Reject)
+	case ir.StmtSwitch:
+		// A switch is a terminator if it has a default case and all cases end with terminators
+		hasDefault := false
+		for _, c := range kind.Cases {
+			if _, ok := c.Value.(ir.SwitchValueDefault); ok {
+				hasDefault = true
+			}
+			if !blockEndsWithTerminator(c.Body) {
+				return false
+			}
+		}
+		return hasDefault
 	default:
 		return false
 	}
@@ -2784,8 +3312,10 @@ func (e *ExpressionEmitter) emitLoop(stmt ir.StmtLoop) error {
 		mergeLabel:    mergeLabel,
 		continueLabel: continueLabel,
 	})
+	e.breakStack = append(e.breakStack, mergeLabel)
 	defer func() {
 		e.loopStack = e.loopStack[:len(e.loopStack)-1]
+		e.breakStack = e.breakStack[:len(e.breakStack)-1]
 	}()
 
 	// Branch to header
@@ -2906,6 +3436,12 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 	}
 	e.backend.builder.functions = append(e.backend.builder.functions, switchBuilder.Build(OpSwitch))
 
+	// Push break target for switch so break inside cases branches to mergeLabel
+	e.breakStack = append(e.breakStack, mergeLabel)
+	defer func() {
+		e.breakStack = e.breakStack[:len(e.breakStack)-1]
+	}()
+
 	// Emit each case block
 	for i, c := range stmt.Cases {
 		// Case label
@@ -2938,6 +3474,20 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 
 	// Merge label - use pre-allocated ID
 	e.backend.builder.AddLabelWithID(mergeLabel)
+
+	// If all cases terminate (return/break/etc), the merge block is unreachable.
+	// SPIR-V still requires every block to end with a terminator instruction.
+	allCasesTerminate := true
+	for _, c := range stmt.Cases {
+		if !blockEndsWithTerminator(c.Body) {
+			allCasesTerminate = false
+			break
+		}
+	}
+	if allCasesTerminate {
+		builder := e.newIB()
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpUnreachable))
+	}
 
 	return nil
 }
@@ -3133,6 +3683,97 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		glslInst = GLSLstd450MatrixInverse
 	case ir.MathDeterminant:
 		glslInst = GLSLstd450Determinant
+	case ir.MathTranspose:
+		// OpTranspose is a native SPIR-V instruction (unary)
+		useNativeOpcode = true
+		nativeOpcode = OpTranspose
+
+	// QuantizeToF16: native SPIR-V instruction
+	case ir.MathQuantizeF16:
+		useNativeOpcode = true
+		nativeOpcode = OpQuantizeToF16
+
+	// Bit manipulation functions
+	case ir.MathCountTrailingZeros:
+		// WGSL countTrailingZeros -> GLSL.std.450 FindILsb
+		glslInst = GLSLstd450FindILsb
+	case ir.MathCountLeadingZeros:
+		// WGSL countLeadingZeros -> polyfill: (31 - FindUMsb(x)) for u32, or FindSMsb for i32
+		// Simplified: use FindUMsb for unsigned, FindSMsb for signed
+		// Note: GLSL FindUMsb returns the bit position of the MSB (undefined for 0)
+		// WGSL countLeadingZeros expects the count. We emit FindUMsb/FindSMsb and
+		// the result subtraction is done at IR level by the lowerer.
+		if scalarKind == ir.ScalarSint {
+			glslInst = GLSLstd450FindSMsb
+		} else {
+			glslInst = GLSLstd450FindUMsb
+		}
+	case ir.MathCountOneBits:
+		// OpBitCount is a native SPIR-V instruction
+		useNativeOpcode = true
+		nativeOpcode = OpBitCount
+	case ir.MathReverseBits:
+		// OpBitReverse is a native SPIR-V instruction
+		useNativeOpcode = true
+		nativeOpcode = OpBitReverse
+	case ir.MathFirstTrailingBit:
+		// WGSL firstTrailingBit -> GLSL.std.450 FindILsb
+		glslInst = GLSLstd450FindILsb
+	case ir.MathFirstLeadingBit:
+		// WGSL firstLeadingBit -> FindSMsb (signed) or FindUMsb (unsigned)
+		if scalarKind == ir.ScalarSint {
+			glslInst = GLSLstd450FindSMsb
+		} else {
+			glslInst = GLSLstd450FindUMsb
+		}
+
+	// ExtractBits and InsertBits: native SPIR-V opcodes with 3 or 4 operands.
+	// These are handled specially below because they have more than 2 operands.
+	case ir.MathExtractBits:
+		// OpBitFieldSExtract (signed) or OpBitFieldUExtract (unsigned):
+		// result-type result-id base offset count
+		if scalarKind == ir.ScalarSint {
+			nativeOpcode = OpBitFieldSExtract
+		} else {
+			nativeOpcode = OpBitFieldUExtract
+		}
+		useNativeOpcode = true
+	case ir.MathInsertBits:
+		// OpBitFieldInsert: result-type result-id base insert offset count
+		nativeOpcode = OpBitFieldInsert
+		useNativeOpcode = true
+
+	// Data packing functions (GLSL.std.450)
+	case ir.MathPack4x8snorm:
+		glslInst = GLSLstd450PackSnorm4x8
+	case ir.MathPack4x8unorm:
+		glslInst = GLSLstd450PackUnorm4x8
+	case ir.MathPack2x16snorm:
+		glslInst = GLSLstd450PackSnorm2x16
+	case ir.MathPack2x16unorm:
+		glslInst = GLSLstd450PackUnorm2x16
+	case ir.MathPack2x16float:
+		glslInst = GLSLstd450PackHalf2x16
+
+	// Data unpacking functions (GLSL.std.450)
+	case ir.MathUnpack4x8snorm:
+		glslInst = GLSLstd450UnpackSnorm4x8
+	case ir.MathUnpack4x8unorm:
+		glslInst = GLSLstd450UnpackUnorm4x8
+	case ir.MathUnpack2x16snorm:
+		glslInst = GLSLstd450UnpackSnorm2x16
+	case ir.MathUnpack2x16unorm:
+		glslInst = GLSLstd450UnpackUnorm2x16
+	case ir.MathUnpack2x16float:
+		glslInst = GLSLstd450UnpackHalf2x16
+
+	// Packed dot product (SPV_KHR_integer_dot_product extension)
+	case ir.MathDot4I8Packed:
+		nativeOpcode = OpSDotKHR
+		useNativeOpcode = true
+	case ir.MathDot4U8Packed:
+		nativeOpcode = OpUDotKHR
+		useNativeOpcode = true
 
 	default:
 		return 0, fmt.Errorf("unsupported math function: %v", mathExpr.Fun)
@@ -3144,6 +3785,43 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	switch mathExpr.Fun {
 	case ir.MathLength, ir.MathDistance, ir.MathDot, ir.MathDeterminant:
 		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}})
+	case ir.MathTranspose:
+		// transpose(matRxC) -> matCxR: swap columns and rows
+		inner := ir.TypeResInner(e.backend.module, argType)
+		if mat, ok := inner.(ir.MatrixType); ok {
+			resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+				Value: ir.MatrixType{Columns: mat.Rows, Rows: mat.Columns, Scalar: mat.Scalar},
+			})
+		}
+
+	// Packing functions: vec -> u32
+	case ir.MathPack4x8snorm, ir.MathPack4x8unorm,
+		ir.MathPack2x16snorm, ir.MathPack2x16unorm, ir.MathPack2x16float:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
+		})
+
+	// Unpacking 4x8 functions: u32 -> vec4<f32>
+	case ir.MathUnpack4x8snorm, ir.MathUnpack4x8unorm:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, Size: 4},
+		})
+
+	// Unpacking 2x16 functions: u32 -> vec2<f32>
+	case ir.MathUnpack2x16snorm, ir.MathUnpack2x16unorm, ir.MathUnpack2x16float:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, Size: 2},
+		})
+
+	// Packed dot product: u32, u32 -> i32 (signed) or u32 (unsigned)
+	case ir.MathDot4I8Packed:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
+		})
+	case ir.MathDot4U8Packed:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
+		})
 	}
 
 	// Collect all operands
@@ -3172,8 +3850,40 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Emit instruction
 	if useNativeOpcode {
-		// Use native SPIR-V opcode (e.g., OpDot)
-		return e.backend.builder.AddBinaryOp(nativeOpcode, resultType, operands[0], operands[1]), nil
+		// Special case: packed dot product needs extension and capability
+		if mathExpr.Fun == ir.MathDot4I8Packed || mathExpr.Fun == ir.MathDot4U8Packed {
+			e.backend.addExtension("SPV_KHR_integer_dot_product")
+			e.backend.addCapability(CapabilityDotProductInput4x8BitPacked)
+			e.backend.addCapability(CapabilityDotProduct)
+			// OpSDotKHR/OpUDotKHR: result-type result-id vec1 vec2 packed-vector-format
+			resultID := e.backend.builder.AllocID()
+			ib := e.newIB()
+			ib.AddWord(resultType)
+			ib.AddWord(resultID)
+			for _, op := range operands {
+				ib.AddWord(op)
+			}
+			ib.AddWord(PackedVectorFormat4x8Bit)
+			e.backend.builder.functions = append(e.backend.builder.functions, ib.Build(nativeOpcode))
+			return resultID, nil
+		}
+
+		if len(operands) == 1 {
+			return e.backend.builder.AddUnaryOp(nativeOpcode, resultType, operands[0]), nil
+		}
+		if len(operands) == 2 {
+			return e.backend.builder.AddBinaryOp(nativeOpcode, resultType, operands[0], operands[1]), nil
+		}
+		// 3+ operands (ExtractBits, InsertBits): build manually
+		resultID := e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(resultType)
+		ib.AddWord(resultID)
+		for _, op := range operands {
+			ib.AddWord(op)
+		}
+		e.backend.builder.functions = append(e.backend.builder.functions, ib.Build(nativeOpcode))
+		return resultID, nil
 	}
 
 	// Use GLSL.std.450 extended instruction
@@ -3235,6 +3945,9 @@ func (e *ExpressionEmitter) emitDerivative(deriv ir.ExprDerivative) (uint32, err
 // OpDot represents OpDot opcode (dot product).
 const OpDot OpCode = 148
 
+// OpTranspose represents OpTranspose opcode (matrix transpose).
+const OpTranspose OpCode = 84
+
 // Image instruction opcodes
 const (
 	OpSampledImage                OpCode = 86
@@ -3260,7 +3973,7 @@ const (
 
 // emitImageSample emits a texture sampling operation.
 //
-//nolint:funlen // texture sampling has many SPIR-V operands
+//nolint:gocognit,gocyclo,cyclop,funlen,nestif // texture sampling has many SPIR-V operands and gather/depth variants
 func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, error) {
 	// Get the image and sampler pointer IDs
 	imagePtrID, err := e.emitExpression(sample.Image)
@@ -3278,13 +3991,21 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		return 0, err
 	}
 
+	// For arrayed textures, append array index to coordinate vector.
+	if sample.ArrayIndex != nil {
+		coordID, err = e.appendArrayIndex(coordID, *sample.ArrayIndex, sample.Coordinate)
+		if err != nil {
+			return 0, err
+		}
+	}
+
 	// emitExpression now auto-loads, so imagePtrID and samplerPtrID are already
 	// the loaded image/sampler handles, not pointers
 	imageID := imagePtrID
 	samplerID := samplerPtrID
 
 	// Create SampledImage by combining image and sampler
-	sampledImageTypeID := e.backend.getSampledImageType(sample.Image)
+	sampledImageTypeID := e.backend.getSampledImageType(e.function, sample.Image)
 	sampledImageID := e.backend.builder.AllocID()
 
 	sampledImageBuilder := e.newIB()
@@ -3298,51 +4019,137 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	resultType := e.backend.emitVec4F32Type()
 	resultID := e.backend.builder.AllocID()
 
+	// Handle gather operations (textureGather / textureGatherCompare)
+	if sample.Gather != nil {
+		builder := e.newIB()
+		builder.AddWord(resultType)
+		builder.AddWord(resultID)
+		builder.AddWord(sampledImageID)
+		builder.AddWord(coordID)
+
+		var opcode OpCode
+		if sample.DepthRef != nil {
+			// OpImageDrefGather: result-type result-id sampled-image coordinate dref [image-operands]
+			drefID, drefErr := e.emitExpression(*sample.DepthRef)
+			if drefErr != nil {
+				return 0, drefErr
+			}
+			builder.AddWord(drefID)
+			opcode = OpImageDrefGather
+		} else {
+			// OpImageGather: result-type result-id sampled-image coordinate component [image-operands]
+			componentID := e.backend.builder.AddConstant(
+				e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4}),
+				uint32(*sample.Gather),
+			)
+			builder.AddWord(componentID)
+			opcode = OpImageGather
+		}
+
+		// Append optional image operands (Offset)
+		if sample.Offset != nil {
+			offsetID, offsetErr := e.emitExpression(*sample.Offset)
+			if offsetErr != nil {
+				return 0, offsetErr
+			}
+			builder.AddWord(0x20) // ImageOperands::ConstOffset
+			builder.AddWord(offsetID)
+		}
+
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(opcode))
+		return resultID, nil
+	}
+
+	// Standard sampling path
 	builder := e.newIB()
 	builder.AddWord(resultType)
 	builder.AddWord(resultID)
 	builder.AddWord(sampledImageID)
 	builder.AddWord(coordID)
 
+	// Collect image operand mask and values for Offset (can combine with level operands)
+	var imageOperandMask uint32
+	var imageOperandValues []uint32
+	if sample.Offset != nil {
+		offsetID, offsetErr := e.emitExpression(*sample.Offset)
+		if offsetErr != nil {
+			return 0, offsetErr
+		}
+		imageOperandMask |= 0x20 // ImageOperands::ConstOffset
+		imageOperandValues = append(imageOperandValues, offsetID)
+	}
+
 	// Choose opcode based on sample level
 	switch level := sample.Level.(type) {
 	case ir.SampleLevelAuto:
-		// OpImageSampleImplicitLod (no extra operands for basic case)
-		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleImplicitLod))
+		if sample.DepthRef != nil {
+			drefID, drefErr := e.emitExpression(*sample.DepthRef)
+			if drefErr != nil {
+				return 0, drefErr
+			}
+			builder.AddWord(drefID)
+			if imageOperandMask != 0 {
+				builder.AddWord(imageOperandMask)
+				for _, v := range imageOperandValues {
+					builder.AddWord(v)
+				}
+			}
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleDrefImplicitLod))
+		} else {
+			if imageOperandMask != 0 {
+				builder.AddWord(imageOperandMask)
+				for _, v := range imageOperandValues {
+					builder.AddWord(v)
+				}
+			}
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleImplicitLod))
+		}
 
 	case ir.SampleLevelExact:
 		// OpImageSampleExplicitLod with Lod operand
-		levelID, err := e.emitExpression(level.Level)
-		if err != nil {
-			return 0, err
+		levelID, levelErr := e.emitExpression(level.Level)
+		if levelErr != nil {
+			return 0, levelErr
 		}
-		builder.AddWord(0x02) // ImageOperands::Lod
+		imageOperandMask |= 0x02 // ImageOperands::Lod
+		builder.AddWord(imageOperandMask)
 		builder.AddWord(levelID)
+		for _, v := range imageOperandValues {
+			builder.AddWord(v)
+		}
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
 
 	case ir.SampleLevelBias:
 		// OpImageSampleImplicitLod with Bias operand
-		biasID, err := e.emitExpression(level.Bias)
-		if err != nil {
-			return 0, err
+		biasID, biasErr := e.emitExpression(level.Bias)
+		if biasErr != nil {
+			return 0, biasErr
 		}
-		builder.AddWord(0x01) // ImageOperands::Bias
+		imageOperandMask |= 0x01 // ImageOperands::Bias
+		builder.AddWord(imageOperandMask)
 		builder.AddWord(biasID)
+		for _, v := range imageOperandValues {
+			builder.AddWord(v)
+		}
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleImplicitLod))
 
 	case ir.SampleLevelGradient:
 		// OpImageSampleExplicitLod with Grad operand
-		gradXID, err := e.emitExpression(level.X)
-		if err != nil {
-			return 0, err
+		gradXID, gradXErr := e.emitExpression(level.X)
+		if gradXErr != nil {
+			return 0, gradXErr
 		}
-		gradYID, err := e.emitExpression(level.Y)
-		if err != nil {
-			return 0, err
+		gradYID, gradYErr := e.emitExpression(level.Y)
+		if gradYErr != nil {
+			return 0, gradYErr
 		}
-		builder.AddWord(0x04) // ImageOperands::Grad
+		imageOperandMask |= 0x04 // ImageOperands::Grad
+		builder.AddWord(imageOperandMask)
 		builder.AddWord(gradXID)
 		builder.AddWord(gradYID)
+		for _, v := range imageOperandValues {
+			builder.AddWord(v)
+		}
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
 
 	case ir.SampleLevelZero:
@@ -3350,9 +4157,27 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		zeroID := e.backend.builder.AddConstantFloat32(
 			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}),
 			0.0)
-		builder.AddWord(0x02) // ImageOperands::Lod
-		builder.AddWord(zeroID)
-		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
+		imageOperandMask |= 0x02 // ImageOperands::Lod
+		if sample.DepthRef != nil {
+			drefID, drefErr := e.emitExpression(*sample.DepthRef)
+			if drefErr != nil {
+				return 0, drefErr
+			}
+			builder.AddWord(drefID)
+			builder.AddWord(imageOperandMask)
+			builder.AddWord(zeroID)
+			for _, v := range imageOperandValues {
+				builder.AddWord(v)
+			}
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleDrefExplicitLod))
+		} else {
+			builder.AddWord(imageOperandMask)
+			builder.AddWord(zeroID)
+			for _, v := range imageOperandValues {
+				builder.AddWord(v)
+			}
+			e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageSampleExplicitLod))
+		}
 
 	default:
 		return 0, fmt.Errorf("unsupported sample level: %T", level)
@@ -3399,6 +4224,9 @@ func (e *ExpressionEmitter) emitImageLoad(load ir.ExprImageLoad) (uint32, error)
 
 // emitImageQuery emits an image query operation.
 func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, error) {
+	// Image query operations require the ImageQuery capability.
+	e.backend.addCapability(CapabilityImageQuery)
+
 	imageID, err := e.emitExpression(query.Image)
 	if err != nil {
 		return 0, err
@@ -3462,13 +4290,20 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 
 // getSampledImageType returns the type ID for a sampled image.
 // Uses caching to ensure the same type is reused for identical image configurations.
-func (b *Backend) getSampledImageType(_ ir.ExpressionHandle) uint32 {
-	// Create the image type descriptor
+func (b *Backend) getSampledImageType(fn *ir.Function, imageExpr ir.ExpressionHandle) uint32 {
+	// Resolve the actual image type from the expression
 	img := ir.ImageType{
-		Dim:     ir.Dim2D,
-		Class:   ir.ImageClassSampled,
-		Arrayed: false,
+		Dim:   ir.Dim2D,
+		Class: ir.ImageClassSampled,
 	}
+	exprType, err := ir.ResolveExpressionType(b.module, fn, imageExpr)
+	if err == nil {
+		inner := typeResolutionInner(b.module, exprType)
+		if imgType, ok := inner.(ir.ImageType); ok {
+			img = imgType
+		}
+	}
+
 	cacheKey := imageTypeKey(img)
 
 	// Check if we already have a sampled image type for this configuration
@@ -3599,12 +4434,8 @@ func atomicOpcode(fun ir.AtomicFunction, scalarKind ir.ScalarKind) (OpCode, bool
 
 // emitAtomic emits an atomic operation statement.
 func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
-	pointerID, err := e.emitExpression(stmt.Pointer)
-	if err != nil {
-		return err
-	}
-
-	valueID, err := e.emitExpression(stmt.Value)
+	// Atomic ops need a POINTER, not a loaded value.
+	pointerID, err := e.emitPointerExpression(stmt.Pointer)
 	if err != nil {
 		return err
 	}
@@ -3623,9 +4454,52 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		MemorySemanticsAcquireRelease|MemorySemanticsUniformMemory,
 	)
 
+	// Handle AtomicLoad: OpAtomicLoad ResultType Result Pointer Scope Semantics (no value)
+	// SPIR-V requires Acquire semantics (not AcquireRelease) for loads.
+	if _, ok := stmt.Fun.(ir.AtomicLoad); ok {
+		acquireSemID := e.backend.builder.AddConstant(
+			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
+			MemorySemanticsAcquire|MemorySemanticsUniformMemory,
+		)
+		resultID := e.backend.builder.AllocID()
+		builder := e.newIB()
+		builder.AddWord(resultTypeID)
+		builder.AddWord(resultID)
+		builder.AddWord(pointerID)
+		builder.AddWord(scopeID)
+		builder.AddWord(acquireSemID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpAtomicLoad))
+		if stmt.Result != nil {
+			e.exprIDs[*stmt.Result] = resultID
+		}
+		return nil
+	}
+
+	// All remaining atomic ops need a value operand
+	valueID, err := e.emitExpression(stmt.Value)
+	if err != nil {
+		return err
+	}
+
 	// Handle compare-exchange separately
 	if exchange, ok := stmt.Fun.(ir.AtomicExchange); ok && exchange.Compare != nil {
 		return e.emitAtomicCompareExchange(stmt, pointerID, valueID, resultTypeID, scopeID, semanticsID, *exchange.Compare)
+	}
+
+	// Handle AtomicStore: OpAtomicStore Pointer Scope Semantics Value (no result)
+	// SPIR-V requires Release semantics (not AcquireRelease) for stores.
+	if _, ok := stmt.Fun.(ir.AtomicStore); ok {
+		releaseSemID := e.backend.builder.AddConstant(
+			e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
+			MemorySemanticsRelease|MemorySemanticsUniformMemory,
+		)
+		builder := e.newIB()
+		builder.AddWord(pointerID)
+		builder.AddWord(scopeID)
+		builder.AddWord(releaseSemID)
+		builder.AddWord(valueID)
+		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpAtomicStore))
+		return nil
 	}
 
 	opcode, ok := atomicOpcode(stmt.Fun, scalarKind)
@@ -3679,6 +4553,83 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	return nil
 }
 
+// appendArrayIndex converts an integer array index to float and appends it to the coordinate vector.
+// Returns the new coordinate ID with the array index appended.
+func (e *ExpressionEmitter) appendArrayIndex(coordID uint32, arrayIndexExpr, coordExpr ir.ExpressionHandle) (uint32, error) {
+	arrayIndexID, err := e.emitExpression(arrayIndexExpr)
+	if err != nil {
+		return 0, err
+	}
+	// Convert array index to float if it's integer
+	arrayIndexType, _ := ir.ResolveExpressionType(e.backend.module, e.function, arrayIndexExpr)
+	indexInner := typeResolutionInner(e.backend.module, arrayIndexType)
+	if scalar, ok := indexInner.(ir.ScalarType); ok && scalar.Kind != ir.ScalarFloat {
+		floatTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		convertedID := e.backend.builder.AllocID()
+		cb := e.newIB()
+		cb.AddWord(floatTypeID)
+		cb.AddWord(convertedID)
+		cb.AddWord(arrayIndexID)
+		opcode := OpConvertSToF
+		if scalar.Kind == ir.ScalarUint {
+			opcode = OpConvertUToF
+		}
+		e.backend.builder.functions = append(e.backend.builder.functions, cb.Build(opcode))
+		arrayIndexID = convertedID
+	}
+	// Extend coordinate vector: e.g. vec2(x,y) + arrayIndex → vec3(x,y,arrayIndex)
+	coordType, _ := ir.ResolveExpressionType(e.backend.module, e.function, coordExpr)
+	coordInner := typeResolutionInner(e.backend.module, coordType)
+	if coordVec, ok := coordInner.(ir.VectorType); ok {
+		floatScalarID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		newVecTypeID := e.backend.emitVectorType(floatScalarID, uint32(coordVec.Size+1))
+		extCoordID := e.backend.builder.AllocID()
+		eb := e.newIB()
+		eb.AddWord(newVecTypeID)
+		eb.AddWord(extCoordID)
+		eb.AddWord(coordID)
+		eb.AddWord(arrayIndexID)
+		e.backend.builder.functions = append(e.backend.builder.functions, eb.Build(OpCompositeConstruct))
+		return extCoordID, nil
+	}
+	return coordID, nil
+}
+
+// emitImageStore emits an OpImageWrite instruction for textureStore().
+func (e *ExpressionEmitter) emitImageStore(store ir.StmtImageStore) error {
+	imageID, err := e.emitExpression(store.Image)
+	if err != nil {
+		return fmt.Errorf("image store image: %w", err)
+	}
+
+	coordID, err := e.emitExpression(store.Coordinate)
+	if err != nil {
+		return fmt.Errorf("image store coordinate: %w", err)
+	}
+
+	// Handle array index for arrayed storage textures
+	if store.ArrayIndex != nil {
+		coordID, err = e.appendArrayIndex(coordID, *store.ArrayIndex, store.Coordinate)
+		if err != nil {
+			return err
+		}
+	}
+
+	valueID, err := e.emitExpression(store.Value)
+	if err != nil {
+		return fmt.Errorf("image store value: %w", err)
+	}
+
+	// OpImageWrite: no result type, no result ID
+	builder := e.newIB()
+	builder.AddWord(imageID)
+	builder.AddWord(coordID)
+	builder.AddWord(valueID)
+	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpImageWrite))
+
+	return nil
+}
+
 // emitCall emits a function call statement (OpFunctionCall).
 // If the call has a result, the SPIR-V result ID is cached for later ExprCallResult lookup.
 func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
@@ -3722,24 +4673,48 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 	}
 	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpFunctionCall))
 
-	// Cache the result ID for ExprCallResult
+	// Cache the result ID for ExprCallResult and handle deferred stores.
 	if call.Result != nil {
 		e.callResultIDs[*call.Result] = resultID
-
-		// If a local variable is initialized with this call result, store now.
-		// The local var init loop deferred this because StmtCall had not yet run.
-		if varPtrID, ok := e.deferredCallStores[*call.Result]; ok {
-			e.backend.builder.AddStore(varPtrID, resultID)
-			delete(e.deferredCallStores, *call.Result)
+		if err := e.processDeferredStores(*call.Result, resultID); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
+// processDeferredStores handles deferred local variable stores after a call result
+// is available. Handles both direct (var x = func()) and complex (var x = func() - 0.5)
+// deferred stores.
+func (e *ExpressionEmitter) processDeferredStores(resultHandle ir.ExpressionHandle, resultID uint32) error {
+	// Direct: local var is initialized with this call result directly.
+	if varPtrID, ok := e.deferredCallStores[resultHandle]; ok {
+		e.backend.builder.AddStore(varPtrID, resultID)
+		delete(e.deferredCallStores, resultHandle)
+	}
+
+	// Complex: local var init expression CONTAINS this call result.
+	stores, ok := e.deferredComplexStores[resultHandle]
+	if !ok {
+		return nil
+	}
+	for _, s := range stores {
+		initID, err := e.emitExpression(s.initExpr)
+		if err != nil {
+			return fmt.Errorf("deferred complex store: %w", err)
+		}
+		e.backend.builder.AddStore(s.varPtrID, initID)
+	}
+	delete(e.deferredComplexStores, resultHandle)
+	return nil
+}
+
 // emitCallResultRef returns the SPIR-V ID for a function call result (set by emitCall).
 func (e *ExpressionEmitter) emitCallResultRef(handle ir.ExpressionHandle) (uint32, error) {
 	if id, ok := e.callResultIDs[handle]; ok {
+		// Cache in exprIDs so subsequent references use the fast path.
+		e.exprIDs[handle] = id
 		return id, nil
 	}
 	return 0, fmt.Errorf("call result for expression %d not found (was StmtCall emitted?)", handle)

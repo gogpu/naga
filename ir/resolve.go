@@ -85,6 +85,8 @@ func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle
 	case ExprArrayLength:
 		// ArrayLength returns u32
 		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
+	case ExprAtomicResult:
+		return resolveAtomicResultType(module, fn, handle)
 	default:
 		return TypeResolution{}, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -158,6 +160,9 @@ func resolveAccessType(module *Module, fn *Function, expr ExprAccess) (TypeResol
 			return TypeResolution{}, fmt.Errorf("pointer base type %d out of range", t.Base)
 		}
 		return resolveAccessType(module, fn, ExprAccess{Base: expr.Base, Index: expr.Index})
+	case BindingArrayType:
+		h := t.Base
+		return TypeResolution{Handle: &h}, nil
 	default:
 		return TypeResolution{}, fmt.Errorf("cannot index into type %T", t)
 	}
@@ -201,6 +206,9 @@ func resolveAccessIndexType(module *Module, fn *Function, expr ExprAccessIndex) 
 		}
 		_ = module.Types[t.Base].Inner // Validate it exists
 		return resolveAccessIndexType(module, fn, ExprAccessIndex{Base: expr.Base, Index: expr.Index})
+	case BindingArrayType:
+		h := t.Base
+		return TypeResolution{Handle: &h}, nil
 	default:
 		return TypeResolution{}, fmt.Errorf("cannot index into type %T", t)
 	}
@@ -418,10 +426,77 @@ func resolveBinaryType(module *Module, fn *Function, expr ExprBinary) (TypeResol
 		// Logical operators return bool
 		return TypeResolution{Value: ScalarType{Kind: ScalarBool, Width: 1}}, nil
 
+	case BinaryMultiply:
+		// Multiplication result type depends on both operands:
+		//   scalar * vector → vector
+		//   scalar * matrix → matrix
+		//   matrix * vector → vector(rows)
+		//   vector * matrix → vector(columns)
+		// For same-type multiplication, left type is correct.
+		rightType, rightErr := ResolveExpressionType(module, fn, expr.Right)
+		if rightErr != nil {
+			return TypeResolution{}, fmt.Errorf("binary right: %w", rightErr)
+		}
+		return resolveMulResultType(module, leftType, rightType), nil
+
 	default:
-		// Arithmetic and bitwise operators preserve left operand type
+		// Arithmetic and bitwise operators: if one side is scalar and the other is vector,
+		// the result is vector (WGSL broadcasts scalar to match vector size).
+		rightType, rightErr := ResolveExpressionType(module, fn, expr.Right)
+		if rightErr == nil {
+			leftInner := TypeResInner(module, leftType)
+			rightInner := TypeResInner(module, rightType)
+			_, leftIsScalar := leftInner.(ScalarType)
+			_, rightIsVec := rightInner.(VectorType)
+			if leftIsScalar && rightIsVec {
+				return rightType, nil
+			}
+		}
 		return leftType, nil
 	}
+}
+
+// resolveMulResultType determines the result type of a multiplication.
+// Matches WGSL spec: scalar*vec→vec, scalar*mat→mat, mat*vec→vec(rows), vec*mat→vec(cols).
+func resolveMulResultType(module *Module, left, right TypeResolution) TypeResolution {
+	leftInner := TypeResInner(module, left)
+	rightInner := TypeResInner(module, right)
+
+	_, leftIsScalar := leftInner.(ScalarType)
+	_, rightIsScalar := rightInner.(ScalarType)
+	_, leftIsVec := leftInner.(VectorType)
+	_, rightIsVec := rightInner.(VectorType)
+	leftMat, leftIsMat := leftInner.(MatrixType)
+	rightMat, rightIsMat := rightInner.(MatrixType)
+
+	switch {
+	case leftIsScalar && rightIsVec:
+		return right
+	case leftIsScalar && rightIsMat:
+		return right
+	case leftIsVec && rightIsScalar:
+		return left
+	case leftIsMat && rightIsScalar:
+		return left
+	case leftIsMat && rightIsVec:
+		// mat(cols x rows) * vec(cols) → vec(rows)
+		return TypeResolution{Value: VectorType{Size: leftMat.Rows, Scalar: leftMat.Scalar}}
+	case leftIsVec && rightIsMat:
+		// vec(rows) * mat(cols x rows) → vec(cols)
+		return TypeResolution{Value: VectorType{Size: rightMat.Columns, Scalar: rightMat.Scalar}}
+	case leftIsMat && rightIsMat:
+		return left
+	default:
+		return left
+	}
+}
+
+// TypeResInner returns the inner type of a TypeResolution.
+func TypeResInner(module *Module, res TypeResolution) TypeInner {
+	if res.Handle != nil {
+		return module.Types[*res.Handle].Inner
+	}
+	return res.Value
 }
 
 func resolveSelectType(module *Module, fn *Function, expr ExprSelect) (TypeResolution, error) {
@@ -546,4 +621,66 @@ func resolveAsType(module *Module, fn *Function, expr ExprAs) (TypeResolution, e
 
 	// Bitcast preserves the type structure
 	return exprType, nil
+}
+
+// resolveAtomicResultType resolves the type of an atomic operation result.
+// Searches the function body for the StmtAtomic that writes to this expression handle,
+// then returns the scalar type of the atomic pointer.
+func resolveAtomicResultType(module *Module, fn *Function, handle ExpressionHandle) (TypeResolution, error) {
+	if atomicType := findAtomicTypeForResult(module, fn, fn.Body, handle); atomicType != nil {
+		return TypeResolution{Value: *atomicType}, nil
+	}
+	// Fallback: most atomics operate on u32
+	return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
+}
+
+// findAtomicTypeForResult recursively searches statements for a StmtAtomic with matching Result.
+func findAtomicTypeForResult(module *Module, fn *Function, stmts []Statement, handle ExpressionHandle) *ScalarType {
+	for _, stmt := range stmts {
+		if s, ok := stmt.Kind.(StmtAtomic); ok && s.Result != nil && *s.Result == handle {
+			return resolveAtomicPointerScalar(module, fn, s.Pointer)
+		}
+		for _, sub := range stmtSubBlocks(stmt) {
+			if t := findAtomicTypeForResult(module, fn, sub, handle); t != nil {
+				return t
+			}
+		}
+	}
+	return nil
+}
+
+// resolveAtomicPointerScalar resolves a pointer expression to its atomic scalar type.
+func resolveAtomicPointerScalar(module *Module, fn *Function, pointer ExpressionHandle) *ScalarType {
+	ptrType, err := ResolveExpressionType(module, fn, pointer)
+	if err != nil {
+		return nil
+	}
+	inner := TypeResInner(module, ptrType)
+	if at, ok := inner.(AtomicType); ok {
+		return &at.Scalar
+	}
+	if st, ok := inner.(ScalarType); ok {
+		return &st
+	}
+	return nil
+}
+
+// stmtSubBlocks returns all nested statement blocks for a given statement.
+func stmtSubBlocks(stmt Statement) []Block {
+	switch s := stmt.Kind.(type) {
+	case StmtBlock:
+		return []Block{s.Block}
+	case StmtIf:
+		return []Block{s.Accept, s.Reject}
+	case StmtLoop:
+		return []Block{s.Body, s.Continuing}
+	case StmtSwitch:
+		blocks := make([]Block, len(s.Cases))
+		for i, c := range s.Cases {
+			blocks[i] = c.Body
+		}
+		return blocks
+	default:
+		return nil
+	}
 }

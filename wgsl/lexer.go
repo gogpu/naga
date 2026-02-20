@@ -246,8 +246,12 @@ func (l *Lexer) number() {
 		l.advance()
 	}
 
-	// Look for fractional part
-	if l.peek() == '.' && isDigit(l.peekNext()) {
+	// Look for fractional part.
+	// WGSL allows "1." as a float literal (no trailing digit required).
+	// We treat "N." as float when followed by a digit or not an identifier-start char.
+	// "1.x" is member access (int 1, then .x), but "1." "1.0" "1.5" are floats.
+	nextAfterDot := l.peekNext()
+	if l.peek() == '.' && !isAlpha(nextAfterDot) && nextAfterDot != '_' {
 		l.advance() // consume '.'
 		for isDigit(l.peek()) {
 			l.advance()
@@ -279,6 +283,13 @@ func (l *Lexer) number() {
 		for isDigit(l.peek()) {
 			l.advance()
 		}
+		l.addToken(TokenFloatLiteral)
+		return
+	}
+
+	// Float suffix without decimal point: 1f, 1h are valid WGSL float literals
+	if l.peek() == 'f' || l.peek() == 'h' {
+		l.advance()
 		l.addToken(TokenFloatLiteral)
 		return
 	}
@@ -372,9 +383,6 @@ var keywords = map[string]TokenKind{
 func (l *Lexer) lookupKeyword(text string) TokenKind {
 	if kind, ok := keywords[text]; ok {
 		return kind
-	}
-	if text == "true" || text == "false" {
-		return TokenBoolLiteral
 	}
 	return TokenIdent
 }

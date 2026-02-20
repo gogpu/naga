@@ -139,60 +139,98 @@ const (
 	TokenTextureDepthMultisampled2d
 )
 
+// tokenNames maps token kinds to their string representations.
+var tokenNames = map[TokenKind]string{
+	TokenEOF:          "EOF",
+	TokenError:        "Error",
+	TokenIdent:        "Ident",
+	TokenIntLiteral:   "IntLiteral",
+	TokenFloatLiteral: "FloatLiteral",
+	TokenBoolLiteral:  "BoolLiteral",
+
+	// Operators
+	TokenPlus:                "+",
+	TokenMinus:               "-",
+	TokenStar:                "*",
+	TokenSlash:               "/",
+	TokenPercent:             "%",
+	TokenAmpersand:           "&",
+	TokenPipe:                "|",
+	TokenCaret:               "^",
+	TokenTilde:               "~",
+	TokenBang:                "!",
+	TokenEqual:               "=",
+	TokenLess:                "<",
+	TokenGreater:             ">",
+	TokenDot:                 ".",
+	TokenComma:               ",",
+	TokenColon:               ":",
+	TokenSemicolon:           ";",
+	TokenAt:                  "@",
+	TokenArrow:               "->",
+	TokenPlusPlus:            "++",
+	TokenMinusMinus:          "--",
+	TokenEqualEqual:          "==",
+	TokenBangEqual:           "!=",
+	TokenLessEqual:           "<=",
+	TokenGreaterEqual:        ">=",
+	TokenAmpAmp:              "&&",
+	TokenPipePipe:            "||",
+	TokenLessLess:            "<<",
+	TokenGreaterGreater:      ">>",
+	TokenPlusEqual:           "+=",
+	TokenMinusEqual:          "-=",
+	TokenStarEqual:           "*=",
+	TokenSlashEqual:          "/=",
+	TokenPercentEqual:        "%=",
+	TokenAmpEqual:            "&=",
+	TokenPipeEqual:           "|=",
+	TokenCaretEqual:          "^=",
+	TokenLessLessEqual:       "<<=",
+	TokenGreaterGreaterEqual: ">>=",
+
+	// Delimiters
+	TokenLeftParen:    "(",
+	TokenRightParen:   ")",
+	TokenLeftBrace:    "{",
+	TokenRightBrace:   "}",
+	TokenLeftBracket:  "[",
+	TokenRightBracket: "]",
+
+	// Keywords
+	TokenAlias:       "alias",
+	TokenBreak:       "break",
+	TokenCase:        "case",
+	TokenConst:       "const",
+	TokenConstAssert: "const_assert",
+	TokenContinue:    "continue",
+	TokenContinuing:  "continuing",
+	TokenDefault:     "default",
+	TokenDiagnostic:  "diagnostic",
+	TokenDiscard:     "discard",
+	TokenElse:        "else",
+	TokenEnable:      "enable",
+	TokenFalse:       "false",
+	TokenFn:          "fn",
+	TokenFor:         "for",
+	TokenIf:          "if",
+	TokenLet:         "let",
+	TokenLoop:        "loop",
+	TokenOverride:    "override",
+	TokenReturn:      "return",
+	TokenStruct:      "struct",
+	TokenSwitch:      "switch",
+	TokenTrue:        "true",
+	TokenVar:         "var",
+	TokenWhile:       "while",
+}
+
 // String returns the string representation of the token kind.
 func (k TokenKind) String() string {
-	switch k {
-	case TokenEOF:
-		return "EOF"
-	case TokenError:
-		return "Error"
-	case TokenIdent:
-		return "Ident"
-	case TokenIntLiteral:
-		return "IntLiteral"
-	case TokenFloatLiteral:
-		return "FloatLiteral"
-	case TokenBoolLiteral:
-		return "BoolLiteral"
-	case TokenPlus:
-		return "+"
-	case TokenMinus:
-		return "-"
-	case TokenStar:
-		return "*"
-	case TokenSlash:
-		return "/"
-	case TokenLeftParen:
-		return "("
-	case TokenRightParen:
-		return ")"
-	case TokenLeftBrace:
-		return "{"
-	case TokenRightBrace:
-		return "}"
-	case TokenFn:
-		return "fn"
-	case TokenStruct:
-		return "struct"
-	case TokenVar:
-		return "var"
-	case TokenLet:
-		return "let"
-	case TokenConst:
-		return "const"
-	case TokenReturn:
-		return "return"
-	case TokenIf:
-		return "if"
-	case TokenElse:
-		return "else"
-	case TokenFor:
-		return "for"
-	case TokenWhile:
-		return "while"
-	default:
-		return "Unknown"
+	if name, ok := tokenNames[k]; ok {
+		return name
 	}
+	return "Unknown"
 }
 
 // Token represents a lexical token.

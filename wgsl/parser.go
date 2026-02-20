@@ -34,6 +34,13 @@ func (p *Parser) Parse() (*Module, error) {
 	module := &Module{}
 
 	for !p.isAtEnd() {
+		// Skip optional semicolons between declarations (e.g., struct Foo { ... };)
+		for p.match(TokenSemicolon) {
+		}
+		if p.isAtEnd() {
+			break
+		}
+
 		decl, err := p.declaration()
 		if err != nil {
 			p.errors = append(p.errors, *err)
@@ -492,9 +499,50 @@ func (p *Parser) aliasDecl() (*AliasDecl, *ParseError) {
 func (p *Parser) typeSpec() (Type, *ParseError) {
 	tok := p.peek()
 
-	// Array type: array<f32, 4> - must check before general type keywords
+	// Array type: array<f32, 4> or array (without template args for inferred type)
 	if p.check(TokenArray) {
 		p.advance() // consume 'array'
+		if p.check(TokenLess) {
+			p.advance() // consume '<'
+
+			elemType, err := p.typeSpec()
+			if err != nil {
+				return nil, err
+			}
+
+			var size Expr
+			if p.match(TokenComma) {
+				// Parse only primary expression for size to avoid > being interpreted as comparison
+				size, err = p.primary()
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			if err := p.expectErr(TokenGreater); err != nil {
+				return nil, err
+			}
+
+			return &ArrayType{
+				Element: elemType,
+				Size:    size,
+				Span: Span{
+					Start: Position{Line: tok.Line, Column: tok.Column},
+				},
+			}, nil
+		}
+		// No template args: array(...) with inferred type — return as NamedType
+		return &NamedType{
+			Name: "array",
+			Span: Span{
+				Start: Position{Line: tok.Line, Column: tok.Column},
+			},
+		}, nil
+	}
+
+	// Binding array type: binding_array<texture_2d<f32>> or binding_array<texture_2d<f32>, 5>
+	if p.check(TokenIdent) && tok.Lexeme == "binding_array" {
+		p.advance() // consume 'binding_array'
 		if err := p.expectErr(TokenLess); err != nil {
 			return nil, err
 		}
@@ -506,7 +554,6 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 
 		var size Expr
 		if p.match(TokenComma) {
-			// Parse only primary expression for size to avoid > being interpreted as comparison
 			size, err = p.primary()
 			if err != nil {
 				return nil, err
@@ -517,7 +564,7 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 			return nil, err
 		}
 
-		return &ArrayType{
+		return &BindingArrayType{
 			Element: elemType,
 			Size:    size,
 			Span: Span{
@@ -807,16 +854,50 @@ func (p *Parser) whileStmt() (*WhileStmt, *ParseError) {
 }
 
 // loopStmt parses a loop statement.
+// WGSL loop syntax: loop { body_stmts... continuing { stmts... } }
+// The continuing block is optional and appears at the end of the loop body.
 func (p *Parser) loopStmt() (*LoopStmt, *ParseError) {
 	start := p.advance() // consume 'loop'
 
-	body, err := p.block()
-	if err != nil {
+	if err := p.expectErr(TokenLeftBrace); err != nil {
+		return nil, err
+	}
+
+	// Parse body statements, stopping at 'continuing' or '}'
+	bodyStmts := make([]Stmt, 0, 4)
+	for !p.check(TokenRightBrace) && !p.check(TokenContinuing) && !p.isAtEnd() {
+		stmt, err := p.statement()
+		if err != nil {
+			return nil, err
+		}
+		if stmt != nil {
+			bodyStmts = append(bodyStmts, stmt)
+		}
+	}
+
+	body := &BlockStmt{
+		Statements: bodyStmts,
+		Span:       Span{Start: Position{Line: start.Line, Column: start.Column}},
+	}
+
+	// Parse optional continuing block
+	var continuing *BlockStmt
+	if p.check(TokenContinuing) {
+		p.advance() // consume 'continuing'
+		var err *ParseError
+		continuing, err = p.block()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := p.expectErr(TokenRightBrace); err != nil {
 		return nil, err
 	}
 
 	return &LoopStmt{
-		Body: body,
+		Body:       body,
+		Continuing: continuing,
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
 		},
@@ -860,6 +941,16 @@ func (p *Parser) switchStmt() (*SwitchStmt, *ParseError) {
 }
 
 // switchCaseClause parses a case or default clause in a switch statement.
+//
+// WGSL switch clause syntax:
+//
+//	case expr1, expr2, default: { ... }   -- mixed selectors with default
+//	case expr1, expr2: { ... }            -- comma-separated selectors
+//	case expr1, { ... }                   -- trailing comma, no colon
+//	default: { ... }                      -- standalone default with colon
+//	default { ... }                       -- standalone default without colon
+//
+// The colon before the block is optional in modern WGSL.
 func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
 	start := p.peek()
 	var selectors []Expr
@@ -868,13 +959,24 @@ func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
 	if p.match(TokenDefault) {
 		isDefault = true
 	} else if p.match(TokenCase) {
-		// Parse comma-separated selectors: case 1u, 2u, 3u:
+		// Parse comma-separated selectors, which may include 'default'.
+		// Examples: case 0, 1:   case default, 6:   case 1, default:
 		for {
-			expr, err := p.expression()
-			if err != nil {
-				return nil, err
+			// Check for 'default' keyword as a selector
+			if p.check(TokenDefault) {
+				p.advance()
+				isDefault = true
+			} else {
+				// Stop if the next token starts the body (trailing comma case)
+				if p.check(TokenColon) || p.check(TokenLeftBrace) {
+					break
+				}
+				expr, err := p.expression()
+				if err != nil {
+					return nil, err
+				}
+				selectors = append(selectors, expr)
 			}
-			selectors = append(selectors, expr)
 			if !p.match(TokenComma) {
 				break
 			}
@@ -883,9 +985,8 @@ func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
 		return nil, &ParseError{Message: "expected 'case' or 'default'", Token: start}
 	}
 
-	if err := p.expectErr(TokenColon); err != nil {
-		return nil, err
-	}
+	// Colon is optional in modern WGSL
+	p.match(TokenColon)
 
 	body, err := p.block()
 	if err != nil {
@@ -941,7 +1042,7 @@ func (p *Parser) discardStmt() (*DiscardStmt, *ParseError) {
 }
 
 // letStmt parses a let statement (local variable).
-func (p *Parser) letStmt() (*VarDecl, *ParseError) {
+func (p *Parser) letStmt() (*ConstDecl, *ParseError) {
 	start := p.peek()
 	p.advance() // consume 'let'
 
@@ -950,13 +1051,13 @@ func (p *Parser) letStmt() (*VarDecl, *ParseError) {
 	}
 	name := p.advance()
 
-	var varType Type
+	var letType Type
 	if p.match(TokenColon) {
 		t, err := p.typeSpec()
 		if err != nil {
 			return nil, err
 		}
-		varType = t
+		letType = t
 	}
 
 	if err := p.expectErr(TokenEqual); err != nil {
@@ -970,9 +1071,9 @@ func (p *Parser) letStmt() (*VarDecl, *ParseError) {
 
 	p.match(TokenSemicolon)
 
-	return &VarDecl{
+	return &ConstDecl{
 		Name: name.Lexeme,
-		Type: varType,
+		Type: letType,
 		Init: init,
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
@@ -986,6 +1087,28 @@ func (p *Parser) exprOrAssignStmt() (Stmt, *ParseError) {
 	expr, err := p.expression()
 	if err != nil {
 		return nil, err
+	}
+
+	// Check for increment/decrement: i++ or i--
+	// Desugar to compound assignment: i += 1 or i -= 1
+	if p.check(TokenPlusPlus) || p.check(TokenMinusMinus) {
+		op := TokenPlusEqual
+		if p.peek().Kind == TokenMinusMinus {
+			op = TokenMinusEqual
+		}
+		p.advance() // consume ++ or --
+		p.match(TokenSemicolon)
+		return &AssignStmt{
+			Left: expr,
+			Op:   op,
+			Right: &Literal{
+				Kind:  TokenIntLiteral,
+				Value: "1",
+			},
+			Span: Span{
+				Start: Position{Line: start.Line, Column: start.Column},
+			},
+		}, nil
 	}
 
 	// Check for assignment operators
@@ -1356,6 +1479,37 @@ func (p *Parser) primary() (Expr, *ParseError) {
 		}, nil
 
 	case TokenIdent:
+		// Handle bitcast<Type>(expr) — special syntax
+		if tok.Lexeme == "bitcast" {
+			p.advance() // consume 'bitcast'
+			if err := p.expectErr(TokenLess); err != nil {
+				return nil, err
+			}
+			targetType, err := p.typeSpec()
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectErr(TokenGreater); err != nil {
+				return nil, err
+			}
+			if err := p.expectErr(TokenLeftParen); err != nil {
+				return nil, err
+			}
+			arg, err := p.expression()
+			if err != nil {
+				return nil, err
+			}
+			if err := p.expectErr(TokenRightParen); err != nil {
+				return nil, err
+			}
+			return &BitcastExpr{
+				Type: targetType,
+				Expr: arg,
+				Span: Span{
+					Start: Position{Line: tok.Line, Column: tok.Column},
+				},
+			}, nil
+		}
 		p.advance()
 		return &Ident{
 			Name: tok.Lexeme,
@@ -1438,6 +1592,11 @@ func (p *Parser) expect(kind TokenKind) bool {
 		p.advance()
 		return true
 	}
+	// Handle >> splitting: when expecting >, accept >> and split it
+	if kind == TokenGreater && p.check(TokenGreaterGreater) {
+		p.splitGreaterGreater()
+		return true
+	}
 	return false
 }
 
@@ -1446,10 +1605,29 @@ func (p *Parser) expectErr(kind TokenKind) *ParseError {
 		p.advance()
 		return nil
 	}
+	// Handle >> splitting: when expecting >, accept >> and split it
+	if kind == TokenGreater && p.check(TokenGreaterGreater) {
+		p.splitGreaterGreater()
+		return nil
+	}
 	return &ParseError{
 		Message: fmt.Sprintf("expected %s, got %s", kind, p.peek().Kind),
 		Token:   p.peek(),
 	}
+}
+
+// splitGreaterGreater splits a >> token into two > tokens, consuming the first.
+// This handles the WGSL angle bracket ambiguity in nested template args (e.g., vec3<f32>>).
+func (p *Parser) splitGreaterGreater() {
+	tok := p.tokens[p.current]
+	// Replace >> with a single > at position+1
+	p.tokens[p.current] = Token{
+		Kind:   TokenGreater,
+		Lexeme: ">",
+		Line:   tok.Line,
+		Column: tok.Column + 1,
+	}
+	// Don't advance — the remaining > stays for the outer template close
 }
 
 func (p *Parser) synchronize() {

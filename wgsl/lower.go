@@ -2,6 +2,7 @@ package wgsl
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -24,9 +25,10 @@ type Lowerer struct {
 	types    map[string]ir.TypeHandle // Named type lookup
 
 	// Variable resolution
-	globals   map[string]ir.GlobalVariableHandle
-	locals    map[string]ir.ExpressionHandle
-	globalIdx uint32
+	globals         map[string]ir.GlobalVariableHandle
+	locals          map[string]ir.ExpressionHandle
+	moduleConstants map[string]ir.ConstantHandle
+	globalIdx       uint32
 
 	// Function resolution
 	functions map[string]ir.FunctionHandle // Named function lookup
@@ -68,15 +70,16 @@ func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 // LowerWithWarnings converts a WGSL AST module to Naga IR, returning warnings.
 func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 	l := &Lowerer{
-		module:     &ir.Module{},
-		source:     source,
-		registry:   ir.NewTypeRegistry(),
-		types:      make(map[string]ir.TypeHandle, 16),
-		globals:    make(map[string]ir.GlobalVariableHandle, 8),
-		locals:     make(map[string]ir.ExpressionHandle, 16),
-		functions:  make(map[string]ir.FunctionHandle, len(ast.Functions)),
-		localDecls: make(map[string]Span, 16),
-		usedLocals: make(map[string]bool, 16),
+		module:          &ir.Module{},
+		source:          source,
+		registry:        ir.NewTypeRegistry(),
+		types:           make(map[string]ir.TypeHandle, 16),
+		globals:         make(map[string]ir.GlobalVariableHandle, 8),
+		locals:          make(map[string]ir.ExpressionHandle, 16),
+		moduleConstants: make(map[string]ir.ConstantHandle, 16),
+		functions:       make(map[string]ir.FunctionHandle, len(ast.Functions)),
+		localDecls:      make(map[string]Span, 16),
+		usedLocals:      make(map[string]bool, 16),
 	}
 
 	// Register built-in types
@@ -290,10 +293,24 @@ func (l *Lowerer) vectorAlignmentAndSize(components uint8) (align, size uint32) 
 }
 
 // lowerGlobalVar converts a global variable declaration to IR.
+//
+//nolint:nestif // type inference with optional type and initializer requires nested conditionals
 func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
-	typeHandle, err := l.resolveType(v.Type)
-	if err != nil {
-		return fmt.Errorf("global var %s: %w", v.Name, err)
+	var typeHandle ir.TypeHandle
+	var err error
+	if v.Type != nil {
+		typeHandle, err = l.resolveType(v.Type)
+		if err != nil {
+			return fmt.Errorf("global var %s: %w", v.Name, err)
+		}
+	} else if v.Init != nil {
+		// Type inference from initializer (e.g., var<private> x = vec2(1))
+		typeHandle, err = l.inferGlobalVarType(v.Init)
+		if err != nil {
+			return fmt.Errorf("global var %s: %w", v.Name, err)
+		}
+	} else {
+		return fmt.Errorf("global var %s: type annotation required without initializer", v.Name)
 	}
 
 	space := l.addressSpace(v.AddressSpace)
@@ -343,16 +360,482 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 	return nil
 }
 
+// inferGlobalVarType infers the type of a global variable from its initializer expression.
+// Handles constructors (vec2(1), mat2x2(...), array(...)), literals, and scalar calls.
+func (l *Lowerer) inferGlobalVarType(init Expr) (ir.TypeHandle, error) {
+	switch e := init.(type) {
+	case *ConstructExpr:
+		// First try direct type resolution (e.g., vec2<i32>(...))
+		if e.Type != nil {
+			h, err := l.resolveType(e.Type)
+			if err == nil {
+				return h, nil
+			}
+			// If that fails, try inference from args (e.g., vec2(1))
+			return l.inferCompositeConstantType(e)
+		}
+		return 0, fmt.Errorf("unsupported type: %v", e.Type)
+	case *CallExpr:
+		// Scalar constructor: i32(x), f32(x), bool(x)
+		switch e.Func.Name {
+		case "i32":
+			return l.registerType("", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}), nil
+		case "u32":
+			return l.registerType("", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}), nil
+		case "f32":
+			return l.registerType("", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}), nil
+		case "bool":
+			return l.registerType("", ir.ScalarType{Kind: ir.ScalarBool, Width: 1}), nil
+		default:
+			// Could be struct constructor
+			if h, ok := l.types[e.Func.Name]; ok {
+				return h, nil
+			}
+			return 0, fmt.Errorf("unsupported call type: %s", e.Func.Name)
+		}
+	case *Literal:
+		kind, _, err := l.evalLiteral(e)
+		if err != nil {
+			return 0, err
+		}
+		return l.registerType("", ir.ScalarType{Kind: kind, Width: 4}), nil
+	case *UnaryExpr:
+		if e.Op == TokenMinus {
+			return l.inferGlobalVarType(e.Operand)
+		}
+		return 0, fmt.Errorf("unsupported unary op for type inference")
+	default:
+		return 0, fmt.Errorf("unsupported type: %v", init)
+	}
+}
+
 // lowerConstant converts a constant declaration to IR.
 func (l *Lowerer) lowerConstant(c *ConstDecl) error {
-	typeHandle, err := l.resolveType(c.Type)
-	if err != nil {
-		return fmt.Errorf("constant %s: %w", c.Name, err)
+	if c.Init == nil {
+		return fmt.Errorf("module constant '%s' must have initializer", c.Name)
 	}
 
-	// TODO: Evaluate constant expression
-	_ = typeHandle
+	switch init := c.Init.(type) {
+	case *Literal:
+		return l.lowerScalarConstant(c.Name, c.Type, init)
+	case *ConstructExpr:
+		return l.lowerCompositeConstant(c.Name, c.Type, init)
+	case *CallExpr:
+		// Handle struct constructor: Foo(args...) or scalar constructor: i32(val)
+		return l.lowerCallConstant(c.Name, c.Type, init)
+	case *UnaryExpr:
+		// Handle negation of literals: const X = -0.1;
+		if init.Op == TokenMinus {
+			if lit, ok := init.Operand.(*Literal); ok {
+				negLit := &Literal{Kind: lit.Kind, Value: "-" + lit.Value, Span: lit.Span}
+				return l.lowerScalarConstant(c.Name, c.Type, negLit)
+			}
+		}
+		return fmt.Errorf("module constant '%s': unsupported unary expression", c.Name)
+	default:
+		return fmt.Errorf("module constant '%s': unsupported initializer %T", c.Name, c.Init)
+	}
+}
+
+// lowerCallConstant handles module-level constants with CallExpr initializers.
+// This handles struct zero-value constructors like Foo() and scalar conversions like i32(1u).
+func (l *Lowerer) lowerCallConstant(name string, declType Type, call *CallExpr) error {
+	funcName := call.Func.Name
+
+	// Check if this is a struct constructor
+	if typeHandle, exists := l.types[funcName]; exists {
+		inner := l.module.Types[typeHandle].Inner
+		if _, isStruct := inner.(ir.StructType); isStruct {
+			// Convert to ConstructExpr and delegate
+			construct := &ConstructExpr{
+				Type: &NamedType{Name: funcName},
+				Args: call.Args,
+			}
+			return l.lowerCompositeConstant(name, declType, construct)
+		}
+	}
+
+	// Check if this is a scalar constructor: i32(), u32(), f32(), bool()
+	switch funcName {
+	case "i32", "u32", "f32", "bool":
+		// Treat as zero-value or conversion constructor
+		construct := &ConstructExpr{
+			Type: &NamedType{Name: funcName},
+			Args: call.Args,
+		}
+		return l.lowerCompositeConstant(name, declType, construct)
+	}
+
+	return fmt.Errorf("module constant '%s': unsupported call expression '%s'", name, funcName)
+}
+
+// lowerScalarConstant lowers a scalar literal to an IR constant.
+func (l *Lowerer) lowerScalarConstant(name string, typ Type, lit *Literal) error {
+	scalarKind, bits, err := l.evalLiteral(lit)
+	if err != nil {
+		return fmt.Errorf("module constant '%s': %w", name, err)
+	}
+
+	var typeHandle ir.TypeHandle
+	if typ != nil {
+		typeHandle, err = l.resolveType(typ)
+		if err != nil {
+			return fmt.Errorf("constant %s: %w", name, err)
+		}
+	} else {
+		typeHandle = l.registerType("", ir.ScalarType{Kind: scalarKind, Width: 4})
+	}
+
+	handle := ir.ConstantHandle(len(l.module.Constants))
+	l.module.Constants = append(l.module.Constants, ir.Constant{
+		Name:  name,
+		Type:  typeHandle,
+		Value: ir.ScalarValue{Bits: bits, Kind: scalarKind},
+	})
+	l.moduleConstants[name] = handle
 	return nil
+}
+
+// lowerCompositeConstant lowers a constructor expression to an IR constant.
+// Handles vectors, matrices, arrays, zero-value constructors, and nested constructors.
+//
+//nolint:nestif // composite constant lowering handles many constructor variants
+func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *ConstructExpr) error {
+	// Resolve the composite type
+	var typeHandle ir.TypeHandle
+	var err error
+	if declType != nil {
+		typeHandle, err = l.resolveType(declType)
+	} else if construct.Type != nil {
+		typeHandle, err = l.resolveType(construct.Type)
+		if err != nil {
+			// Try to infer type from arguments for bare constructors like vec3(0.0, 1.0, 2.0)
+			inferred, inferErr := l.inferCompositeConstantType(construct)
+			if inferErr == nil {
+				typeHandle = inferred
+				err = nil
+			}
+		}
+	} else {
+		return fmt.Errorf("module constant '%s': cannot infer composite type", name)
+	}
+	if err != nil {
+		return fmt.Errorf("constant %s: %w", name, err)
+	}
+
+	inner := l.module.Types[typeHandle].Inner
+
+	// Handle zero-value scalar constructors: bool(), i32(), u32(), f32()
+	if scalar, ok := inner.(ir.ScalarType); ok {
+		var bits uint64
+		if len(construct.Args) == 0 {
+			bits = 0 // zero value
+		} else if len(construct.Args) == 1 {
+			if lit, ok := construct.Args[0].(*Literal); ok {
+				_, bits, err = l.evalLiteral(lit)
+				if err != nil {
+					return fmt.Errorf("module constant '%s': %w", name, err)
+				}
+			} else {
+				return fmt.Errorf("module constant '%s': scalar constructor arg is not a literal", name)
+			}
+		}
+		constHandle := ir.ConstantHandle(len(l.module.Constants))
+		l.module.Constants = append(l.module.Constants, ir.Constant{
+			Name:  name,
+			Type:  typeHandle,
+			Value: ir.ScalarValue{Bits: bits, Kind: scalar.Kind},
+		})
+		l.moduleConstants[name] = constHandle
+		return nil
+	}
+
+	// Evaluate all args recursively as constants
+	componentHandles, err := l.evalConstantArgs(name, construct.Args, inner)
+	if err != nil {
+		return err
+	}
+
+	// Zero-value constructor with no args: create zero components
+	if len(construct.Args) == 0 {
+		componentHandles, err = l.createZeroComponents(name, inner)
+		if err != nil {
+			return err
+		}
+	}
+
+	constHandle := ir.ConstantHandle(len(l.module.Constants))
+	l.module.Constants = append(l.module.Constants, ir.Constant{
+		Name:  name,
+		Type:  typeHandle,
+		Value: ir.CompositeValue{Components: componentHandles},
+	})
+	l.moduleConstants[name] = constHandle
+	return nil
+}
+
+// evalConstantArgs evaluates constructor arguments as constants.
+func (l *Lowerer) evalConstantArgs(name string, args []Expr, parentType ir.TypeInner) ([]ir.ConstantHandle, error) {
+	componentHandles := make([]ir.ConstantHandle, len(args))
+
+	// Determine component scalar type from parent
+	var componentScalar ir.ScalarType
+	switch t := parentType.(type) {
+	case ir.VectorType:
+		componentScalar = t.Scalar
+	case ir.MatrixType:
+		componentScalar = t.Scalar
+	case ir.ArrayType:
+		// Array elements — defer scalar detection to per-element handling
+	case ir.StructType:
+		// Struct members — defer to per-member handling
+	default:
+		return nil, fmt.Errorf("module constant '%s': unsupported composite type %T", name, parentType)
+	}
+
+	for i, arg := range args {
+		switch a := arg.(type) {
+		case *Literal:
+			_, bits, err := l.evalLiteral(a)
+			if err != nil {
+				return nil, fmt.Errorf("module constant '%s' arg %d: %w", name, i, err)
+			}
+			componentType := l.registerType("", componentScalar)
+			compHandle := ir.ConstantHandle(len(l.module.Constants))
+			l.module.Constants = append(l.module.Constants, ir.Constant{
+				Type:  componentType,
+				Value: ir.ScalarValue{Bits: bits, Kind: componentScalar.Kind},
+			})
+			componentHandles[i] = compHandle
+
+		case *ConstructExpr:
+			// Nested constructor — recursively lower as anonymous constant
+			anonName := fmt.Sprintf("%s_arg%d", name, i)
+			if err := l.lowerCompositeConstant(anonName, nil, a); err != nil {
+				return nil, err
+			}
+			// The last constant added is the anonymous composite
+			componentHandles[i] = ir.ConstantHandle(len(l.module.Constants) - 1)
+
+		case *UnaryExpr:
+			if a.Op == TokenMinus {
+				if lit, ok := a.Operand.(*Literal); ok {
+					negLit := &Literal{Kind: lit.Kind, Value: "-" + lit.Value, Span: lit.Span}
+					_, bits, err := l.evalLiteral(negLit)
+					if err != nil {
+						return nil, fmt.Errorf("module constant '%s' arg %d: %w", name, i, err)
+					}
+					componentType := l.registerType("", componentScalar)
+					compHandle := ir.ConstantHandle(len(l.module.Constants))
+					l.module.Constants = append(l.module.Constants, ir.Constant{
+						Type:  componentType,
+						Value: ir.ScalarValue{Bits: bits, Kind: componentScalar.Kind},
+					})
+					componentHandles[i] = compHandle
+					continue
+				}
+			}
+			return nil, fmt.Errorf("module constant '%s' arg %d: unsupported expression %T", name, i, arg)
+
+		default:
+			return nil, fmt.Errorf("module constant '%s' arg %d: unsupported expression %T", name, i, arg)
+		}
+	}
+
+	return componentHandles, nil
+}
+
+// createZeroComponents creates zero-value component constants for a composite type.
+func (l *Lowerer) createZeroComponents(name string, parentType ir.TypeInner) ([]ir.ConstantHandle, error) {
+	switch t := parentType.(type) {
+	case ir.VectorType:
+		n := int(t.Size)
+		handles := make([]ir.ConstantHandle, n)
+		componentType := l.registerType("", t.Scalar)
+		for i := 0; i < n; i++ {
+			h := ir.ConstantHandle(len(l.module.Constants))
+			l.module.Constants = append(l.module.Constants, ir.Constant{
+				Type:  componentType,
+				Value: ir.ScalarValue{Bits: 0, Kind: t.Scalar.Kind},
+			})
+			handles[i] = h
+		}
+		return handles, nil
+	case ir.MatrixType:
+		n := int(t.Columns)
+		handles := make([]ir.ConstantHandle, n)
+		for i := 0; i < n; i++ {
+			// Each column is a zero vector
+			colHandles, err := l.createZeroComponents(name, ir.VectorType{Size: t.Rows, Scalar: t.Scalar})
+			if err != nil {
+				return nil, err
+			}
+			colType := l.registerType("", ir.VectorType{Size: t.Rows, Scalar: t.Scalar})
+			h := ir.ConstantHandle(len(l.module.Constants))
+			l.module.Constants = append(l.module.Constants, ir.Constant{
+				Type:  colType,
+				Value: ir.CompositeValue{Components: colHandles},
+			})
+			handles[i] = h
+		}
+		return handles, nil
+	case ir.ArrayType:
+		if t.Size.Constant == nil {
+			return nil, fmt.Errorf("cannot create zero value for runtime-sized array")
+		}
+		n := int(*t.Size.Constant)
+		handles := make([]ir.ConstantHandle, n)
+		elemInner := l.module.Types[t.Base].Inner
+		for i := 0; i < n; i++ {
+			elemHandles, err := l.createZeroComponents(name, elemInner)
+			if err != nil {
+				return nil, err
+			}
+			h := ir.ConstantHandle(len(l.module.Constants))
+			l.module.Constants = append(l.module.Constants, ir.Constant{
+				Type:  t.Base,
+				Value: ir.CompositeValue{Components: elemHandles},
+			})
+			handles[i] = h
+		}
+		return handles, nil
+	case ir.StructType:
+		handles := make([]ir.ConstantHandle, len(t.Members))
+		for i, m := range t.Members {
+			memInner := l.module.Types[m.Type].Inner
+			if scalar, ok := memInner.(ir.ScalarType); ok {
+				h := ir.ConstantHandle(len(l.module.Constants))
+				l.module.Constants = append(l.module.Constants, ir.Constant{
+					Type:  m.Type,
+					Value: ir.ScalarValue{Bits: 0, Kind: scalar.Kind},
+				})
+				handles[i] = h
+			} else {
+				subHandles, err := l.createZeroComponents(name, memInner)
+				if err != nil {
+					return nil, err
+				}
+				h := ir.ConstantHandle(len(l.module.Constants))
+				l.module.Constants = append(l.module.Constants, ir.Constant{
+					Type:  m.Type,
+					Value: ir.CompositeValue{Components: subHandles},
+				})
+				handles[i] = h
+			}
+		}
+		return handles, nil
+	default:
+		return nil, fmt.Errorf("module constant '%s': cannot create zero value for %T", name, parentType)
+	}
+}
+
+// inferCompositeConstantType infers the concrete type for a constructor without template args
+// from its literal arguments. For example, vec3(0.0, 1.0, 2.0) infers vec3<f32>.
+//
+//nolint:nestif // scalar kind inference from literal/constructor arguments requires nested type checks
+func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr) (ir.TypeHandle, error) {
+	named, ok := construct.Type.(*NamedType)
+	if !ok || len(named.TypeParams) > 0 {
+		return 0, fmt.Errorf("cannot infer type for %T", construct.Type)
+	}
+
+	// Infer scalar kind from first argument
+	var scalar ir.ScalarType
+	if len(construct.Args) > 0 {
+		if lit, ok := construct.Args[0].(*Literal); ok {
+			kind, _, err := l.evalLiteral(lit)
+			if err != nil {
+				return 0, err
+			}
+			scalar = ir.ScalarType{Kind: kind, Width: 4}
+		} else if sub, ok := construct.Args[0].(*ConstructExpr); ok {
+			// Nested constructor: mat2x2(vec2(0.), vec2(0.)) — infer from inner
+			subType, err := l.inferCompositeConstantType(sub)
+			if err != nil {
+				return 0, err
+			}
+			inner := l.module.Types[subType].Inner
+			switch t := inner.(type) {
+			case ir.VectorType:
+				scalar = t.Scalar
+			case ir.ScalarType:
+				scalar = t
+			default:
+				return 0, fmt.Errorf("cannot infer scalar from %T", inner)
+			}
+		} else {
+			return 0, fmt.Errorf("cannot infer type from argument %T", construct.Args[0])
+		}
+	} else {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4} // default to f32
+	}
+
+	// Build the concrete type
+	switch {
+	case len(named.Name) == 4 && named.Name[:3] == "vec":
+		size := named.Name[3] - '0'
+		return l.registerType("", ir.VectorType{
+			Size:   ir.VectorSize(size),
+			Scalar: scalar,
+		}), nil
+	case len(named.Name) >= 5 && named.Name[:3] == "mat":
+		cols := named.Name[3] - '0'
+		rows := named.Name[5] - '0'
+		return l.registerType("", ir.MatrixType{
+			Columns: ir.VectorSize(cols),
+			Rows:    ir.VectorSize(rows),
+			Scalar:  scalar,
+		}), nil
+	case named.Name == "array":
+		if len(construct.Args) == 0 {
+			return 0, fmt.Errorf("cannot infer array type without arguments")
+		}
+		elemType := l.registerType("", scalar)
+		size := uint32(len(construct.Args))
+		return l.registerType("", ir.ArrayType{
+			Base: elemType,
+			Size: ir.ArraySize{Constant: &size},
+		}), nil
+	default:
+		return 0, fmt.Errorf("cannot infer type for '%s'", named.Name)
+	}
+}
+
+// evalLiteral evaluates a literal token to its scalar kind and bit representation.
+func (l *Lowerer) evalLiteral(lit *Literal) (ir.ScalarKind, uint64, error) {
+	switch lit.Kind {
+	case TokenIntLiteral:
+		text := lit.Value
+		isUnsigned := false
+		if len(text) > 0 && text[len(text)-1] == 'u' {
+			text = text[:len(text)-1]
+			isUnsigned = true
+		} else if len(text) > 0 && text[len(text)-1] == 'i' {
+			text = text[:len(text)-1]
+		}
+		if isUnsigned {
+			v, _ := strconv.ParseUint(text, 0, 32)
+			return ir.ScalarUint, v, nil
+		}
+		v, _ := strconv.ParseInt(text, 0, 32)
+		return ir.ScalarSint, uint64(v), nil
+	case TokenFloatLiteral:
+		text := lit.Value
+		if len(text) > 0 && (text[len(text)-1] == 'f' || text[len(text)-1] == 'h') {
+			text = text[:len(text)-1]
+		}
+		v, _ := strconv.ParseFloat(text, 32)
+		return ir.ScalarFloat, uint64(math.Float32bits(float32(v))), nil
+	case TokenTrue, TokenBoolLiteral:
+		if lit.Value == "true" {
+			return ir.ScalarBool, 1, nil
+		}
+		return ir.ScalarBool, 0, nil
+	case TokenFalse:
+		return ir.ScalarBool, 0, nil
+	default:
+		return 0, 0, fmt.Errorf("unsupported literal kind %v", lit.Kind)
+	}
 }
 
 // lowerFunction converts a function declaration to IR.
@@ -583,7 +1066,29 @@ func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
 
 // lowerAssign converts an assignment statement to IR.
 func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error {
-	pointer, err := l.lowerExpression(assign.Left, target)
+	// WGSL discard pattern: _ = expr; evaluates RHS for side effects, discards result.
+	if ident, ok := assign.Left.(*Ident); ok && ident.Name == "_" {
+		// Evaluate the RHS expression for side effects only
+		rhs, err := l.lowerExpression(assign.Right, target)
+		if err != nil {
+			return err
+		}
+		// Emit the expression so side effects occur (function calls, etc.)
+		*target = append(*target, ir.Statement{Kind: ir.StmtEmit{
+			Range: ir.Range{Start: rhs, End: rhs + 1},
+		}})
+		return nil
+	}
+
+	// Special case: *ptr = value (pointer dereference on LHS)
+	// Extract the inner pointer expression directly — don't generate ExprLoad
+	var pointer ir.ExpressionHandle
+	var err error
+	if unary, ok := assign.Left.(*UnaryExpr); ok && unary.Op == TokenStar {
+		pointer, err = l.lowerExpression(unary.Operand, target)
+	} else {
+		pointer, err = l.lowerExpression(assign.Left, target)
+	}
 	if err != nil {
 		return err
 	}
@@ -594,18 +1099,15 @@ func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error 
 	}
 
 	// Handle compound assignments (+=, -=, etc.)
+	// Use the pointer/variable expression directly as the left operand instead of
+	// creating an explicit ExprLoad. The SPIR-V backend auto-loads variable
+	// expressions when they appear as values in binary operations.
 	if assign.Op != TokenEqual {
-		// Load current value
-		loadHandle := l.addExpression(ir.Expression{
-			Kind: ir.ExprLoad{Pointer: pointer},
-		})
-
-		// Apply operation
 		op := l.assignOpToBinary(assign.Op)
 		value = l.addExpression(ir.Expression{
 			Kind: ir.ExprBinary{
 				Op:    op,
-				Left:  loadHandle,
+				Left:  pointer,
 				Right: value,
 			},
 		})
@@ -798,24 +1300,262 @@ func (l *Lowerer) lowerSwitch(switchStmt *SwitchStmt, target *[]ir.Statement) er
 }
 
 // lowerSwitchCaseValue converts a switch case selector to IR.
+// Handles literal integers, named constants, constant binary expressions,
+// and type constructor zero values (e.g., i32()).
 func (l *Lowerer) lowerSwitchCaseValue(expr Expr) (ir.SwitchValue, error) {
-	lit, ok := expr.(*Literal)
-	if !ok {
-		return nil, fmt.Errorf("switch case selector must be a literal, got %T", expr)
+	kind, val, err := l.evalConstantIntExpr(expr)
+	if err != nil {
+		return nil, fmt.Errorf("switch case selector: %w", err)
+	}
+	switch kind {
+	case ir.ScalarUint:
+		return ir.SwitchValueU32(uint32(val)), nil
+	case ir.ScalarSint:
+		return ir.SwitchValueI32(int32(val)), nil
+	default:
+		return nil, fmt.Errorf("switch case selector must be integer, got %v", kind)
+	}
+}
+
+// evalConstantIntExpr evaluates a constant integer expression at compile time.
+// It supports:
+//   - Integer literals (42, 0u)
+//   - Named constants (const c1 = 1)
+//   - Binary expressions of constants (c1 + 2, c1 - 1)
+//   - Unary negation of constants (-c1)
+//   - Type constructor zero values (i32(), u32())
+func (l *Lowerer) evalConstantIntExpr(expr Expr) (ir.ScalarKind, int64, error) {
+	switch e := expr.(type) {
+	case *Literal:
+		return l.evalLiteralAsInt(e)
+	case *Ident:
+		return l.evalConstantIdent(e.Name)
+	case *BinaryExpr:
+		return l.evalConstantBinaryExpr(e)
+	case *UnaryExpr:
+		if e.Op == TokenMinus {
+			kind, val, err := l.evalConstantIntExpr(e.Operand)
+			if err != nil {
+				return 0, 0, err
+			}
+			return kind, -val, nil
+		}
+		return 0, 0, fmt.Errorf("unsupported unary operator in constant expression: %v", e.Op)
+	case *ConstructExpr:
+		return l.evalTypeConstructorAsInt(e)
+	case *CallExpr:
+		return l.evalCallAsConstantInt(e)
+	case *MemberExpr:
+		return l.evalMemberAsConstantInt(e)
+	default:
+		return 0, 0, fmt.Errorf("unsupported expression type in constant context: %T", expr)
+	}
+}
+
+// evalConstantBinaryExpr evaluates a binary expression of constants at compile time.
+func (l *Lowerer) evalConstantBinaryExpr(e *BinaryExpr) (ir.ScalarKind, int64, error) {
+	leftKind, leftVal, err := l.evalConstantIntExpr(e.Left)
+	if err != nil {
+		return 0, 0, fmt.Errorf("left operand: %w", err)
+	}
+	rightKind, rightVal, err := l.evalConstantIntExpr(e.Right)
+	if err != nil {
+		return 0, 0, fmt.Errorf("right operand: %w", err)
+	}
+	// Result kind: unsigned only if both operands are unsigned
+	resultKind := ir.ScalarSint
+	if leftKind == ir.ScalarUint && rightKind == ir.ScalarUint {
+		resultKind = ir.ScalarUint
+	}
+	switch e.Op {
+	case TokenPlus:
+		return resultKind, leftVal + rightVal, nil
+	case TokenMinus:
+		return resultKind, leftVal - rightVal, nil
+	case TokenStar:
+		return resultKind, leftVal * rightVal, nil
+	case TokenSlash:
+		if rightVal == 0 {
+			return 0, 0, fmt.Errorf("division by zero in constant expression")
+		}
+		return resultKind, leftVal / rightVal, nil
+	case TokenPercent:
+		if rightVal == 0 {
+			return 0, 0, fmt.Errorf("modulo by zero in constant expression")
+		}
+		return resultKind, leftVal % rightVal, nil
+	default:
+		return 0, 0, fmt.Errorf("unsupported operator in constant expression: %v", e.Op)
+	}
+}
+
+// evalLiteralAsInt extracts an integer value from a literal expression.
+func (l *Lowerer) evalLiteralAsInt(lit *Literal) (ir.ScalarKind, int64, error) {
+	if lit.Kind != TokenIntLiteral {
+		return 0, 0, fmt.Errorf("expected integer literal, got %v", lit.Kind)
+	}
+	val, suffix := parseIntLiteral(lit.Value)
+	if suffix == "u" {
+		return ir.ScalarUint, val, nil
+	}
+	return ir.ScalarSint, val, nil
+}
+
+// evalConstantIdent resolves a named constant to its integer value.
+// Checks both module-level constants and local constants (function-scope const declarations).
+func (l *Lowerer) evalConstantIdent(name string) (ir.ScalarKind, int64, error) {
+	// Check module-level constants first
+	if constHandle, ok := l.moduleConstants[name]; ok {
+		constant := &l.module.Constants[constHandle]
+		sv, ok := constant.Value.(ir.ScalarValue)
+		if !ok {
+			return 0, 0, fmt.Errorf("'%s' is not a scalar constant", name)
+		}
+		switch sv.Kind {
+		case ir.ScalarUint:
+			return ir.ScalarUint, int64(sv.Bits), nil
+		case ir.ScalarSint:
+			return ir.ScalarSint, int64(sv.Bits), nil
+		default:
+			return 0, 0, fmt.Errorf("'%s' must be an integer constant, got %v", name, sv.Kind)
+		}
 	}
 
-	switch lit.Kind {
-	case TokenIntLiteral:
-		// Parse the literal value
-		val, suffix := parseIntLiteral(lit.Value)
-		if suffix == "u" {
-			// #nosec G115 -- WGSL switch case values are always 32-bit
-			return ir.SwitchValueU32(uint32(val & 0xFFFFFFFF)), nil
+	// Check local constants (const declarations inside functions)
+	if exprHandle, ok := l.locals[name]; ok {
+		return l.evalExpressionAsConstantInt(exprHandle)
+	}
+
+	return 0, 0, fmt.Errorf("'%s' is not a known constant", name)
+}
+
+// evalExpressionAsConstantInt extracts the integer value from an already-lowered expression.
+func (l *Lowerer) evalExpressionAsConstantInt(handle ir.ExpressionHandle) (ir.ScalarKind, int64, error) {
+	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.Expressions) {
+		return 0, 0, fmt.Errorf("expression handle %d out of range", handle)
+	}
+	expr := l.currentFunc.Expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.Literal:
+		switch v := k.Value.(type) {
+		case ir.LiteralI32:
+			return ir.ScalarSint, int64(v), nil
+		case ir.LiteralU32:
+			return ir.ScalarUint, int64(v), nil
+		default:
+			return 0, 0, fmt.Errorf("expression is not an integer literal")
 		}
-		// #nosec G115 -- WGSL switch case values are always 32-bit
-		return ir.SwitchValueI32(int32(val & 0xFFFFFFFF)), nil
 	default:
-		return nil, fmt.Errorf("switch case selector must be an integer literal")
+		return 0, 0, fmt.Errorf("expression is not a constant literal (kind: %T)", expr.Kind)
+	}
+}
+
+// evalTypeConstructorAsInt evaluates a type constructor expression as a constant integer.
+// Handles i32() = 0, u32() = 0, i32(expr), u32(expr).
+func (l *Lowerer) evalTypeConstructorAsInt(cons *ConstructExpr) (ir.ScalarKind, int64, error) {
+	named, ok := cons.Type.(*NamedType)
+	if !ok {
+		return 0, 0, fmt.Errorf("unsupported type constructor in constant expression")
+	}
+	var kind ir.ScalarKind
+	switch named.Name {
+	case "i32":
+		kind = ir.ScalarSint
+	case "u32":
+		kind = ir.ScalarUint
+	default:
+		return 0, 0, fmt.Errorf("unsupported type '%s' in constant expression", named.Name)
+	}
+	if len(cons.Args) == 0 {
+		return kind, 0, nil
+	}
+	if len(cons.Args) == 1 {
+		_, val, err := l.evalConstantIntExpr(cons.Args[0])
+		if err != nil {
+			return 0, 0, err
+		}
+		return kind, val, nil
+	}
+	return 0, 0, fmt.Errorf("type constructor with %d args in constant expression", len(cons.Args))
+}
+
+// evalCallAsConstantInt evaluates a function-style call as a constant integer.
+// Handles i32() and u32() when parsed as CallExpr instead of ConstructExpr.
+func (l *Lowerer) evalCallAsConstantInt(call *CallExpr) (ir.ScalarKind, int64, error) {
+	switch call.Func.Name {
+	case "i32":
+		if len(call.Args) == 0 {
+			return ir.ScalarSint, 0, nil
+		}
+		if len(call.Args) == 1 {
+			_, val, err := l.evalConstantIntExpr(call.Args[0])
+			if err != nil {
+				return 0, 0, err
+			}
+			return ir.ScalarSint, val, nil
+		}
+		return 0, 0, fmt.Errorf("i32() requires 0 or 1 arguments in constant expression")
+	case "u32":
+		if len(call.Args) == 0 {
+			return ir.ScalarUint, 0, nil
+		}
+		if len(call.Args) == 1 {
+			_, val, err := l.evalConstantIntExpr(call.Args[0])
+			if err != nil {
+				return 0, 0, err
+			}
+			return ir.ScalarUint, val, nil
+		}
+		return 0, 0, fmt.Errorf("u32() requires 0 or 1 arguments in constant expression")
+	default:
+		return 0, 0, fmt.Errorf("unsupported function '%s' in constant expression", call.Func.Name)
+	}
+}
+
+// evalMemberAsConstantInt evaluates a member access expression as a constant integer.
+// Handles patterns like vec4(4).x where a vector constructor's component is accessed.
+func (l *Lowerer) evalMemberAsConstantInt(member *MemberExpr) (ir.ScalarKind, int64, error) {
+	// Determine the swizzle component index from the member name
+	var idx int
+	switch member.Member {
+	case "x", "r":
+		idx = 0
+	case "y", "g":
+		idx = 1
+	case "z", "b":
+		idx = 2
+	case "w", "a":
+		idx = 3
+	default:
+		return 0, 0, fmt.Errorf("unsupported member '%s' in constant expression", member.Member)
+	}
+
+	// The base must be a vector constructor with enough arguments
+	switch base := member.Expr.(type) {
+	case *CallExpr:
+		// e.g., vec4(4) — splat constructor, all components are the same
+		name := base.Func.Name
+		if len(name) < 4 || name[:3] != "vec" {
+			return 0, 0, fmt.Errorf("member access on non-vector call '%s' in constant expression", name)
+		}
+		if len(base.Args) == 1 {
+			// Splat: all components have the same value
+			return l.evalConstantIntExpr(base.Args[0])
+		}
+		if idx < len(base.Args) {
+			return l.evalConstantIntExpr(base.Args[idx])
+		}
+		return 0, 0, fmt.Errorf("member index %d out of range for %d-arg constructor", idx, len(base.Args))
+	case *ConstructExpr:
+		if len(base.Args) == 1 {
+			return l.evalConstantIntExpr(base.Args[0])
+		}
+		if idx < len(base.Args) {
+			return l.evalConstantIntExpr(base.Args[idx])
+		}
+		return 0, 0, fmt.Errorf("member index %d out of range for %d-arg constructor", idx, len(base.Args))
+	default:
+		return 0, 0, fmt.Errorf("unsupported base expression %T for member access in constant context", member.Expr)
 	}
 }
 
@@ -843,8 +1583,25 @@ func (l *Lowerer) lowerLocalConst(decl *ConstDecl, target *[]ir.Statement) error
 		return fmt.Errorf("const '%s' initializer: %w", decl.Name, err)
 	}
 
+	// WGSL discard pattern: let _ = expr; evaluates expr, discards the result.
+	if decl.Name == "_" {
+		*target = append(*target, ir.Statement{Kind: ir.StmtEmit{
+			Range: ir.Range{Start: initHandle, End: initHandle + 1},
+		}})
+		return nil
+	}
+
 	// Register as a named expression (like let)
 	l.locals[decl.Name] = initHandle
+
+	// Emit the expression at the declaration point to ensure correct SSA dominance.
+	// Without this, the expression would be lazily emitted at its first use site,
+	// which may be inside a branch block. If the same expression is also used in
+	// another branch, the SPIR-V ID would not dominate its use.
+	*target = append(*target, ir.Statement{Kind: ir.StmtEmit{
+		Range: ir.Range{Start: initHandle, End: initHandle + 1},
+	}})
+
 	return nil
 }
 
@@ -867,6 +1624,8 @@ func (l *Lowerer) lowerExpression(expr Expr, target *[]ir.Statement) (ir.Express
 		return l.lowerMember(e, target)
 	case *IndexExpr:
 		return l.lowerIndex(e, target)
+	case *BitcastExpr:
+		return l.lowerBitcast(e, target)
 	default:
 		return 0, fmt.Errorf("unsupported expression type: %T", expr)
 	}
@@ -962,12 +1721,19 @@ func (l *Lowerer) lowerUnary(un *UnaryExpr, target *[]ir.Statement) (ir.Expressi
 }
 
 // lowerCall converts a call expression to IR.
+//
+//nolint:gocyclo,cyclop // dispatches to 20+ builtin function handlers
 func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	funcName := call.Func.Name
 
 	// Check if this is a built-in function (vec4, vec3, etc.)
 	if l.isBuiltinConstructor(funcName) {
 		return l.lowerBuiltinConstructor(funcName, call.Args, target)
+	}
+
+	// Check if this is a short type alias constructor (e.g., vec3f(1.0, 2.0, 3.0))
+	if expanded, ok := shortTypeAliases[funcName]; ok {
+		return l.lowerShortAliasConstructor(expanded, call.Args, target)
 	}
 
 	// Check if this is the select() built-in (uses ExprSelect, not ExprMath)
@@ -1000,6 +1766,16 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 		return l.lowerTextureCall(funcName, call.Args, target)
 	}
 
+	// Check if this is atomicStore (special case - no result)
+	if funcName == "atomicStore" {
+		return l.lowerAtomicStore(call.Args, target)
+	}
+
+	// Check if this is atomicLoad (special case - 1 arg, returns value)
+	if funcName == "atomicLoad" {
+		return l.lowerAtomicLoad(call.Args, target)
+	}
+
 	// Check if this is an atomic function
 	if atomicFunc := l.getAtomicFunction(funcName); atomicFunc != nil {
 		return l.lowerAtomicCall(atomicFunc, call.Args, target)
@@ -1016,6 +1792,24 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 			Kind: ir.StmtBarrier{Flags: barrierFlags},
 		})
 		return 0, nil // Barriers don't return a value
+	}
+
+	// Check if this is a struct constructor (e.g., VertexOutput(pos, uv))
+	if typeHandle, exists := l.types[funcName]; exists {
+		inner := ir.TypeResInner(l.module, ir.TypeResolution{Handle: &typeHandle})
+		if _, isStruct := inner.(ir.StructType); isStruct {
+			components := make([]ir.ExpressionHandle, len(call.Args))
+			for i, arg := range call.Args {
+				handle, err := l.lowerExpression(arg, target)
+				if err != nil {
+					return 0, err
+				}
+				components[i] = handle
+			}
+			return l.addExpression(ir.Expression{
+				Kind: ir.ExprCompose{Type: typeHandle, Components: components},
+			}), nil
+		}
 	}
 
 	// Regular function call - look up function handle
@@ -1051,11 +1845,7 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 
 // lowerConstruct converts a type constructor to IR.
 func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	typeHandle, err := l.resolveType(cons.Type)
-	if err != nil {
-		return 0, err
-	}
-
+	// Lower arguments first — we may need them for type inference.
 	components := make([]ir.ExpressionHandle, len(cons.Args))
 	for i, arg := range cons.Args {
 		handle, err := l.lowerExpression(arg, target)
@@ -1063,6 +1853,17 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 			return 0, err
 		}
 		components[i] = handle
+	}
+
+	typeHandle, err := l.resolveType(cons.Type)
+	if err != nil {
+		// Try type inference for vec2/vec3/vec4/array without template arguments.
+		// WGSL allows vec2(a, b) where scalar type is inferred from arguments.
+		inferredHandle, inferErr := l.inferConstructorType(cons.Type, components)
+		if inferErr != nil {
+			return 0, err // return original error
+		}
+		typeHandle = inferredHandle
 	}
 
 	// For scalar type constructors with a single argument (e.g., f32(x), u32(y)),
@@ -1081,10 +1882,29 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 		}
 	}
 
-	// WGSL splat constructor: vec2(scalar) -> vec2(scalar, scalar), etc.
-	// When constructing a vector from a single scalar, replicate to all components.
+	// WGSL vector type conversion: vec2<i32>(vec2<f32>) -> ExprAs conversion.
+	// When constructing a vector from a single vector argument of different element type,
+	// this is a type conversion, not a composition.
 	targetType := l.module.Types[typeHandle]
 	if vec, ok := targetType.Inner.(ir.VectorType); ok && len(components) == 1 {
+		argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
+		if err == nil {
+			argInner := ir.TypeResInner(l.module, argType)
+			if argVec, ok := argInner.(ir.VectorType); ok && argVec.Size == vec.Size {
+				// Vector-to-vector conversion (e.g., vec2<i32>(vec2<f32>))
+				width := vec.Scalar.Width
+				return l.addExpression(ir.Expression{
+					Kind: ir.ExprAs{
+						Expr:    components[0],
+						Kind:    vec.Scalar.Kind,
+						Convert: &width,
+					},
+				}), nil
+			}
+		}
+
+		// WGSL splat constructor: vec2(scalar) -> vec2(scalar, scalar), etc.
+		// When constructing a vector from a single scalar, replicate to all components.
 		needed := int(vec.Size)
 		splatted := make([]ir.ExpressionHandle, needed)
 		for i := 0; i < needed; i++ {
@@ -1100,6 +1920,13 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 
 // lowerMember converts a member access to IR.
 func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	// Check for builtin result member access (e.g., modf(x).fract, frexp(x).exp).
+	// These builtins conceptually return structs but we decompose them into
+	// equivalent scalar math operations at lowering time.
+	if result, ok := l.tryLowerBuiltinResultMember(mem, target); ok {
+		return result, nil
+	}
+
 	base, err := l.lowerExpression(mem.Expr, target)
 	if err != nil {
 		return 0, err
@@ -1145,7 +1972,136 @@ func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.Expre
 	}), nil
 }
 
+// tryLowerBuiltinResultMember checks if a member access is on a builtin that returns
+// a struct result (modf, frexp) and decomposes it into equivalent math operations.
+//
+// WGSL modf(x) returns __modf_result_f32 { fract: f32, whole: f32 }
+//   - modf(x).fract = x - trunc(x)  (fractional part, same sign as x)
+//   - modf(x).whole = trunc(x)       (whole number part)
+//
+// WGSL frexp(x) returns __frexp_result_f32 { fract: f32, exp: i32 }
+//   - frexp(x).fract  (mantissa in [0.5, 1.0) or zero)
+//   - frexp(x).exp    (integer exponent)
+//
+// Returns (handle, true) if handled, or (0, false) if not a builtin result access.
+func (l *Lowerer) tryLowerBuiltinResultMember(mem *MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool) {
+	// The base expression must be a call: modf(x) or frexp(x)
+	call, ok := mem.Expr.(*CallExpr)
+	if !ok {
+		return 0, false
+	}
+
+	funcName := call.Func.Name
+
+	switch funcName {
+	case "modf":
+		if len(call.Args) != 1 {
+			return 0, false
+		}
+		arg, err := l.lowerExpression(call.Args[0], target)
+		if err != nil {
+			return 0, false
+		}
+		switch mem.Member {
+		case "fract":
+			// modf(x).fract = x - trunc(x)
+			truncX := l.addExpression(ir.Expression{
+				Kind: ir.ExprMath{Fun: ir.MathTrunc, Arg: arg},
+			})
+			result := l.addExpression(ir.Expression{
+				Kind: ir.ExprBinary{Op: ir.BinarySubtract, Left: arg, Right: truncX},
+			})
+			return result, true
+		case "whole":
+			// modf(x).whole = trunc(x)
+			result := l.addExpression(ir.Expression{
+				Kind: ir.ExprMath{Fun: ir.MathTrunc, Arg: arg},
+			})
+			return result, true
+		}
+	case "frexp":
+		if len(call.Args) != 1 {
+			return 0, false
+		}
+		arg, err := l.lowerExpression(call.Args[0], target)
+		if err != nil {
+			return 0, false
+		}
+		switch mem.Member {
+		case "fract":
+			// frexp(x).fract: extract mantissa using ldexp(x, -floor(log2(abs(x))))
+			// Simplified: use the full frexp and decompose later. For now,
+			// approximate as: x / exp2(floor(log2(abs(x)) + 1.0))
+			// This is a complex decomposition. Emit the MathFrexp as-is and
+			// let SPIR-V handle it (GLSL.std.450 Frexp returns struct natively).
+			// Since our IR doesn't support struct-returning math, we emit a
+			// MathFrexp and return it - backends that support it can handle it.
+			result := l.addExpression(ir.Expression{
+				Kind: ir.ExprMath{Fun: ir.MathFrexp, Arg: arg},
+			})
+			return result, true
+		case "exp":
+			// frexp(x).exp: same complexity issue as above.
+			result := l.addExpression(ir.Expression{
+				Kind: ir.ExprMath{Fun: ir.MathFrexp, Arg: arg},
+			})
+			return result, true
+		}
+	}
+
+	return 0, false
+}
+
 // lowerIndex converts an index expression to IR.
+// lowerBitcast converts a bitcast<Type>(expr) to IR.
+func (l *Lowerer) lowerBitcast(bc *BitcastExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	exprHandle, err := l.lowerExpression(bc.Expr, target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Resolve the target type to determine the scalar kind
+	targetScalarKind, err := l.resolveTargetScalarKind(bc.Type)
+	if err != nil {
+		return 0, fmt.Errorf("bitcast target type: %w", err)
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprAs{
+			Expr:    exprHandle,
+			Kind:    targetScalarKind,
+			Convert: nil, // nil Convert = bitcast
+		},
+	}), nil
+}
+
+// resolveTargetScalarKind extracts the scalar kind from a type for bitcast.
+func (l *Lowerer) resolveTargetScalarKind(t Type) (ir.ScalarKind, error) {
+	switch ty := t.(type) {
+	case *NamedType:
+		switch ty.Name {
+		case "f32", "f16":
+			return ir.ScalarFloat, nil
+		case "i32":
+			return ir.ScalarSint, nil
+		case "u32":
+			return ir.ScalarUint, nil
+		case "bool":
+			return ir.ScalarBool, nil
+		case "vec2", "vec3", "vec4":
+			// For vector bitcast, extract scalar kind from type parameter
+			if len(ty.TypeParams) > 0 {
+				return l.resolveTargetScalarKind(ty.TypeParams[0])
+			}
+			return ir.ScalarFloat, nil // default to float
+		default:
+			return 0, fmt.Errorf("unsupported bitcast target type '%s'", ty.Name)
+		}
+	default:
+		return 0, fmt.Errorf("unsupported bitcast target type %T", t)
+	}
+}
+
 func (l *Lowerer) lowerIndex(idx *IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	base, err := l.lowerExpression(idx.Expr, target)
 	if err != nil {
@@ -1186,6 +2142,13 @@ func (l *Lowerer) resolveIdentifier(name string) (ir.ExpressionHandle, error) {
 		// Mark as used for unused variable warnings
 		l.usedLocals[name] = true
 		return handle, nil
+	}
+
+	// Check module-level constants
+	if handle, ok := l.moduleConstants[name]; ok {
+		return l.addExpression(ir.Expression{
+			Kind: ir.ExprConstant{Constant: handle},
+		}), nil
 	}
 
 	// Check globals
@@ -1230,9 +2193,107 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 		}
 		space := l.addressSpace(t.AddressSpace)
 		return l.registerType("", ir.PointerType{Base: pointee, Space: space}), nil
+	case *BindingArrayType:
+		base, err := l.resolveType(t.Element)
+		if err != nil {
+			return 0, err
+		}
+		var size *uint32
+		if t.Size != nil {
+			if lit, ok := t.Size.(*Literal); ok && lit.Kind == TokenIntLiteral {
+				n, _ := strconv.ParseUint(lit.Value, 0, 32)
+				s := uint32(n)
+				size = &s
+			}
+		}
+		return l.registerType("", ir.BindingArrayType{Base: base, Size: size}), nil
 	default:
 		return 0, fmt.Errorf("unsupported type: %T", typ)
 	}
+}
+
+// inferConstructorType infers the concrete type for a type constructor without template args
+// (e.g., vec2(a, b) where the scalar type is inferred from arguments).
+func (l *Lowerer) inferConstructorType(typ Type, components []ir.ExpressionHandle) (ir.TypeHandle, error) {
+	namedType, ok := typ.(*NamedType)
+	if !ok {
+		return 0, fmt.Errorf("cannot infer type")
+	}
+
+	// Zero-arg constructors: default to f32 scalar
+	if len(components) == 0 {
+		scalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+		return l.inferConstructorTypeFromScalar(namedType, scalar)
+	}
+
+	// Resolve the scalar type from the first argument
+	argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
+	if err != nil {
+		return 0, fmt.Errorf("cannot infer type from argument: %w", err)
+	}
+	argInner := ir.TypeResInner(l.module, argType)
+
+	var scalar ir.ScalarType
+	switch t := argInner.(type) {
+	case ir.ScalarType:
+		scalar = t
+	case ir.VectorType:
+		scalar = t.Scalar
+	case ir.MatrixType:
+		scalar = t.Scalar
+	default:
+		return 0, fmt.Errorf("cannot infer scalar type from %T", argInner)
+	}
+
+	// Handle array with inferred element type
+	if namedType.Name == "array" && len(components) > 0 {
+		argType, argErr := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
+		if argErr != nil {
+			return 0, fmt.Errorf("cannot infer array element type: %w", argErr)
+		}
+		var elemTypeHandle ir.TypeHandle
+		if argType.Handle != nil {
+			elemTypeHandle = *argType.Handle
+		} else {
+			elemTypeHandle = l.registerType("", argType.Value)
+		}
+		arrSize := uint32(len(components))
+		return l.registerType("", ir.ArrayType{
+			Base: elemTypeHandle,
+			Size: ir.ArraySize{Constant: &arrSize},
+		}), nil
+	}
+
+	return l.inferConstructorTypeFromScalar(namedType, scalar)
+}
+
+// inferConstructorTypeFromScalar builds a concrete IR type handle for a named constructor
+// given an inferred scalar kind. Supports vec, mat, and array constructors.
+func (l *Lowerer) inferConstructorTypeFromScalar(namedType *NamedType, scalar ir.ScalarType) (ir.TypeHandle, error) {
+	name := namedType.Name
+
+	// Vector constructors: vec2, vec3, vec4
+	if len(name) == 4 && name[:3] == "vec" {
+		size := name[3] - '0'
+		if size >= 2 && size <= 4 {
+			return l.registerType("", ir.VectorType{Size: ir.VectorSize(size), Scalar: scalar}), nil
+		}
+	}
+
+	// Matrix constructors: mat2x2, mat2x3, mat3x4, etc. (matCxR = 6 chars, skip 5-char names)
+	if len(name) == 6 && name[:3] == "mat" && name[4] == 'x' {
+		cols := name[3] - '0'
+		rows := name[5] - '0'
+		if cols >= 2 && cols <= 4 && rows >= 2 && rows <= 4 {
+			return l.registerType("", ir.MatrixType{
+				Columns: ir.VectorSize(cols),
+				Rows:    ir.VectorSize(rows),
+				Scalar:  scalar,
+			}), nil
+		}
+	}
+
+	return 0, fmt.Errorf("cannot infer type for %s", name)
 }
 
 func (l *Lowerer) resolveNamedType(t *NamedType) (ir.TypeHandle, error) {
@@ -1246,13 +2307,31 @@ func (l *Lowerer) resolveNamedType(t *NamedType) (ir.TypeHandle, error) {
 		return handle, nil
 	}
 
-	// Lazy registration of sampler types (only when actually used in shader)
-	// This prevents OpTypeSampler from appearing in shaders without textures
+	// Lazy registration of types that should only appear when used.
+	// Samplers: prevents OpTypeSampler in shaders without textures.
+	// f16: per WGSL spec, requires "enable f16;" but we register on demand to support
+	// short type aliases (vec2h, mat4x4h) without requiring explicit enable directives.
 	switch t.Name {
 	case "sampler":
 		return l.registerType("sampler", ir.SamplerType{Comparison: false}), nil
 	case "sampler_comparison":
 		return l.registerType("sampler_comparison", ir.SamplerType{Comparison: true}), nil
+	case "f16":
+		return l.registerType("f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}), nil
+	}
+
+	// Texture types without type parameters (e.g., texture_depth_2d, texture_depth_2d_array)
+	if len(t.Name) >= 7 && t.Name[:7] == "texture" {
+		imgType := l.parseTextureType(t)
+		return l.registerType("", imgType), nil
+	}
+
+	// Check for WGSL predeclared short type aliases (e.g., vec3f -> vec3<f32>)
+	if expanded, ok := shortTypeAliases[t.Name]; ok {
+		return l.resolveNamedType(&NamedType{
+			Name:       expanded.baseName,
+			TypeParams: []Type{&NamedType{Name: expanded.scalarName}},
+		})
 	}
 
 	return 0, fmt.Errorf("unknown type: %s", t.Name)
@@ -1390,6 +2469,83 @@ func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir
 	}), nil
 }
 
+// lowerShortAliasConstructor handles constructor calls using short type aliases
+// (e.g., vec3f(1.0, 2.0, 3.0) which expands to vec3<f32>(1.0, 2.0, 3.0)).
+func (l *Lowerer) lowerShortAliasConstructor(alias shortTypeAlias, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	// Lower all arguments
+	components := make([]ir.ExpressionHandle, len(args))
+	for i, arg := range args {
+		handle, err := l.lowerExpression(arg, target)
+		if err != nil {
+			return 0, err
+		}
+		components[i] = handle
+	}
+
+	// Resolve the expanded type (e.g., vec3<f32>)
+	typeHandle, err := l.resolveNamedType(&NamedType{
+		Name:       alias.baseName,
+		TypeParams: []Type{&NamedType{Name: alias.scalarName}},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("short type alias %s<%s>: %w", alias.baseName, alias.scalarName, err)
+	}
+
+	// For scalar constructors with a single argument, generate ExprAs (type conversion)
+	if len(components) == 1 {
+		targetType := l.module.Types[typeHandle]
+		if scalar, ok := targetType.Inner.(ir.ScalarType); ok {
+			width := scalar.Width
+			return l.addExpression(ir.Expression{
+				Kind: ir.ExprAs{
+					Expr:    components[0],
+					Kind:    scalar.Kind,
+					Convert: &width,
+				},
+			}), nil
+		}
+	}
+
+	// Handle vector splat: vec3f(1.0) -> vec3<f32>(1.0, 1.0, 1.0)
+	targetType := l.module.Types[typeHandle]
+	if vec, ok := targetType.Inner.(ir.VectorType); ok && len(components) == 1 {
+		needed := int(vec.Size)
+		splatted := make([]ir.ExpressionHandle, needed)
+		for i := 0; i < needed; i++ {
+			splatted[i] = components[0]
+		}
+		components = splatted
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprCompose{Type: typeHandle, Components: components},
+	}), nil
+}
+
+// shortTypeAlias represents a WGSL predeclared short type alias.
+type shortTypeAlias struct {
+	baseName   string // e.g., "vec3", "mat4x4"
+	scalarName string // e.g., "f32", "i32", "u32", "f16"
+}
+
+// shortTypeAliases maps WGSL predeclared short type names to their expanded forms.
+// Per WGSL spec, these are built-in type aliases, not keywords.
+var shortTypeAliases = map[string]shortTypeAlias{
+	// Vector aliases
+	"vec2i": {"vec2", "i32"}, "vec3i": {"vec3", "i32"}, "vec4i": {"vec4", "i32"},
+	"vec2u": {"vec2", "u32"}, "vec3u": {"vec3", "u32"}, "vec4u": {"vec4", "u32"},
+	"vec2f": {"vec2", "f32"}, "vec3f": {"vec3", "f32"}, "vec4f": {"vec4", "f32"},
+	"vec2h": {"vec2", "f16"}, "vec3h": {"vec3", "f16"}, "vec4h": {"vec4", "f16"},
+	// Matrix aliases - f32
+	"mat2x2f": {"mat2x2", "f32"}, "mat2x3f": {"mat2x3", "f32"}, "mat2x4f": {"mat2x4", "f32"},
+	"mat3x2f": {"mat3x2", "f32"}, "mat3x3f": {"mat3x3", "f32"}, "mat3x4f": {"mat3x4", "f32"},
+	"mat4x2f": {"mat4x2", "f32"}, "mat4x3f": {"mat4x3", "f32"}, "mat4x4f": {"mat4x4", "f32"},
+	// Matrix aliases - f16
+	"mat2x2h": {"mat2x2", "f16"}, "mat2x3h": {"mat2x3", "f16"}, "mat2x4h": {"mat2x4", "f16"},
+	"mat3x2h": {"mat3x2", "f16"}, "mat3x3h": {"mat3x3", "f16"}, "mat3x4h": {"mat3x4", "f16"},
+	"mat4x2h": {"mat4x2", "f16"}, "mat4x3h": {"mat4x3", "f16"}, "mat4x4h": {"mat4x4", "f16"},
+}
+
 // mathFuncTable is a package-level lookup table for WGSL math function names to IR math functions.
 // Declared at package scope to avoid reallocating the map on every call to getMathFunction.
 var mathFuncTable = map[string]ir.MathFunction{
@@ -1434,14 +2590,16 @@ var mathFuncTable = map[string]ir.MathFunction{
 	"pow":  ir.MathPow,
 
 	// Geometric functions
-	"dot":         ir.MathDot,
-	"cross":       ir.MathCross,
-	"distance":    ir.MathDistance,
-	"length":      ir.MathLength,
-	"normalize":   ir.MathNormalize,
-	"faceForward": ir.MathFaceForward,
-	"reflect":     ir.MathReflect,
-	"refract":     ir.MathRefract,
+	"dot":          ir.MathDot,
+	"dot4I8Packed": ir.MathDot4I8Packed,
+	"dot4U8Packed": ir.MathDot4U8Packed,
+	"cross":        ir.MathCross,
+	"distance":     ir.MathDistance,
+	"length":       ir.MathLength,
+	"normalize":    ir.MathNormalize,
+	"faceForward":  ir.MathFaceForward,
+	"reflect":      ir.MathReflect,
+	"refract":      ir.MathRefract,
 
 	// Computational functions
 	"sign":        ir.MathSign,
@@ -1800,7 +2958,7 @@ func (l *Lowerer) isOpaqueResourceType(handle ir.TypeHandle) bool {
 	}
 	typ := l.module.Types[handle]
 	switch typ.Inner.(type) {
-	case ir.SamplerType, ir.ImageType:
+	case ir.SamplerType, ir.ImageType, ir.BindingArrayType:
 		return true
 	default:
 		return false
@@ -2195,6 +3353,8 @@ func (l *Lowerer) isTextureFunction(name string) bool {
 	switch name {
 	case "textureSample", "textureSampleBias", "textureSampleLevel", "textureSampleGrad",
 		"textureSampleCompare", "textureSampleCompareLevel",
+		"textureSampleBaseClampToEdge",
+		"textureGather", "textureGatherCompare",
 		"textureLoad", "textureStore",
 		"textureDimensions", "textureNumLevels", "textureNumLayers", "textureNumSamples":
 		return true
@@ -2203,9 +3363,11 @@ func (l *Lowerer) isTextureFunction(name string) bool {
 }
 
 // lowerTextureCall converts a texture function call to IR.
+//
+//nolint:gocyclo,cyclop // Texture function dispatch requires one case per WGSL texture builtin
 func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	if len(args) < 2 {
-		return 0, fmt.Errorf("%s requires at least 2 arguments", name)
+	if len(args) < 1 {
+		return 0, fmt.Errorf("%s requires at least 1 argument", name)
 	}
 
 	switch name {
@@ -2250,6 +3412,30 @@ func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statem
 		}
 		return l.lowerTextureSample(args[:3], target, ir.SampleLevelGradient{X: ddx, Y: ddy})
 
+	case "textureSampleCompare":
+		// textureSampleCompare(t, s, coord, depth_ref) or (t, s, coord, array_index, depth_ref)
+		return l.lowerTextureSampleCompare(args, target, ir.SampleLevelAuto{})
+
+	case "textureSampleCompareLevel":
+		// textureSampleCompareLevel(t, s, coord, depth_ref) or (t, s, coord, array_index, depth_ref)
+		// Always samples at level 0 per WGSL spec.
+		return l.lowerTextureSampleCompare(args, target, ir.SampleLevelZero{})
+
+	case "textureSampleBaseClampToEdge":
+		// textureSampleBaseClampToEdge(t, s, coord)
+		// Samples at level 0 with coordinates clamped to [half_texel, 1-half_texel].
+		return l.lowerTextureSampleClampToEdge(args, target)
+
+	case "textureGather":
+		// textureGather(component, t, s, coord [, offset])
+		// Gathers one component from 4 texels in a 2x2 footprint.
+		return l.lowerTextureGather(args, target)
+
+	case "textureGatherCompare":
+		// textureGatherCompare(t, s, coord, depth_ref [, offset])
+		// Gather with depth comparison (always gathers component 0).
+		return l.lowerTextureGatherCompare(args, target)
+
 	case "textureLoad":
 		// textureLoad(t, coord, level) or textureLoad(t, coord) for storage textures
 		return l.lowerTextureLoad(args, target)
@@ -2281,7 +3467,101 @@ func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statem
 
 // lowerTextureSample converts a texture sampling call to IR.
 func (l *Lowerer) lowerTextureSample(args []Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
-	// args: texture, sampler, coordinate
+	// args: texture, sampler, coordinate [, array_index_or_offset] [, offset]
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	sampler, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Check if texture is arrayed to determine how to interpret extra arguments
+	var arrayIndex *ir.ExpressionHandle
+	if len(args) > 3 && l.isTextureArrayed(args[0]) {
+		ai, aiErr := l.lowerExpression(args[3], target)
+		if aiErr != nil {
+			return 0, aiErr
+		}
+		arrayIndex = &ai
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageSample{
+			Image:      image,
+			Sampler:    sampler,
+			Coordinate: coord,
+			ArrayIndex: arrayIndex,
+			Level:      level,
+		},
+	}), nil
+}
+
+// lowerTextureSampleCompare converts a depth texture comparison sampling call to IR.
+// textureSampleCompare(t, s, coord, depth_ref) or (t, s, coord, array_index, depth_ref)
+func (l *Lowerer) lowerTextureSampleCompare(args []Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
+	if len(args) < 4 {
+		return 0, fmt.Errorf("textureSampleCompare requires at least 4 arguments")
+	}
+
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	sampler, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	var arrayIndex *ir.ExpressionHandle
+	depthRefIdx := 3
+
+	if l.isTextureArrayed(args[0]) && len(args) >= 5 {
+		ai, aiErr := l.lowerExpression(args[3], target)
+		if aiErr != nil {
+			return 0, aiErr
+		}
+		arrayIndex = &ai
+		depthRefIdx = 4
+	}
+
+	depthRef, err := l.lowerExpression(args[depthRefIdx], target)
+	if err != nil {
+		return 0, err
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageSample{
+			Image:      image,
+			Sampler:    sampler,
+			Coordinate: coord,
+			ArrayIndex: arrayIndex,
+			Level:      level,
+			DepthRef:   &depthRef,
+		},
+	}), nil
+}
+
+// lowerTextureSampleClampToEdge converts textureSampleBaseClampToEdge(t, s, coord) to IR.
+// Samples at mip level 0 with coordinates clamped to [half_texel, 1-half_texel].
+func (l *Lowerer) lowerTextureSampleClampToEdge(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 3 {
+		return 0, fmt.Errorf("textureSampleBaseClampToEdge requires at least 3 arguments, got %d", len(args))
+	}
+
 	image, err := l.lowerExpression(args[0], target)
 	if err != nil {
 		return 0, err
@@ -2299,12 +3579,213 @@ func (l *Lowerer) lowerTextureSample(args []Expr, target *[]ir.Statement, level 
 
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprImageSample{
+			Image:       image,
+			Sampler:     sampler,
+			Coordinate:  coord,
+			Level:       ir.SampleLevelZero{},
+			ClampToEdge: true,
+		},
+	}), nil
+}
+
+// lowerTextureGather converts textureGather to IR.
+// Two overloads:
+//
+//	textureGather(component, texture, sampler, coords [, offset])    — sampled/multisampled textures
+//	textureGather(texture, sampler, coords [, offset])               — depth textures (component always 0)
+func (l *Lowerer) lowerTextureGather(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 3 {
+		return 0, fmt.Errorf("textureGather requires at least 3 arguments, got %d", len(args))
+	}
+
+	// Detect depth texture overload: first arg is a depth texture identifier
+	isDepth := l.isTextureDepth(args[0])
+
+	var component ir.SwizzleComponent
+	var textureArgIdx int
+
+	if isDepth {
+		// Depth overload: textureGather(texture, sampler, coords [, offset])
+		component = ir.SwizzleX // always component 0 for depth
+		textureArgIdx = 0
+	} else {
+		// Normal overload: textureGather(component, texture, sampler, coords [, offset])
+		if len(args) < 4 {
+			return 0, fmt.Errorf("textureGather requires at least 4 arguments for non-depth textures, got %d", len(args))
+		}
+		var err error
+		component, err = l.evalGatherComponent(args[0])
+		if err != nil {
+			return 0, fmt.Errorf("textureGather component: %w", err)
+		}
+		textureArgIdx = 1
+	}
+
+	image, err := l.lowerExpression(args[textureArgIdx], target)
+	if err != nil {
+		return 0, err
+	}
+
+	sampler, err := l.lowerExpression(args[textureArgIdx+1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[textureArgIdx+2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Check for array index and optional offset
+	var arrayIndex *ir.ExpressionHandle
+	var offset *ir.ExpressionHandle
+	nextArg := textureArgIdx + 3
+
+	if l.isTextureArrayed(args[textureArgIdx]) && len(args) > nextArg {
+		ai, aiErr := l.lowerExpression(args[nextArg], target)
+		if aiErr != nil {
+			return 0, aiErr
+		}
+		arrayIndex = &ai
+		nextArg++
+	}
+
+	if len(args) > nextArg {
+		off, offErr := l.lowerExpression(args[nextArg], target)
+		if offErr != nil {
+			return 0, offErr
+		}
+		offset = &off
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageSample{
 			Image:      image,
 			Sampler:    sampler,
 			Coordinate: coord,
-			Level:      level,
+			ArrayIndex: arrayIndex,
+			Offset:     offset,
+			Level:      ir.SampleLevelZero{},
+			Gather:     &component,
 		},
 	}), nil
+}
+
+// lowerTextureGatherCompare converts textureGatherCompare(t, s, coord, depth_ref [, offset]) to IR.
+// Performs a gather operation with depth comparison, always gathering component 0.
+func (l *Lowerer) lowerTextureGatherCompare(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 4 {
+		return 0, fmt.Errorf("textureGatherCompare requires at least 4 arguments, got %d", len(args))
+	}
+
+	image, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	sampler, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	coord, err := l.lowerExpression(args[2], target)
+	if err != nil {
+		return 0, err
+	}
+
+	var arrayIndex *ir.ExpressionHandle
+	depthRefIdx := 3
+
+	if l.isTextureArrayed(args[0]) && len(args) >= 5 {
+		ai, aiErr := l.lowerExpression(args[3], target)
+		if aiErr != nil {
+			return 0, aiErr
+		}
+		arrayIndex = &ai
+		depthRefIdx = 4
+	}
+
+	depthRef, err := l.lowerExpression(args[depthRefIdx], target)
+	if err != nil {
+		return 0, err
+	}
+
+	// Check for optional offset after depth_ref
+	var offset *ir.ExpressionHandle
+	if len(args) > depthRefIdx+1 {
+		off, offErr := l.lowerExpression(args[depthRefIdx+1], target)
+		if offErr != nil {
+			return 0, offErr
+		}
+		offset = &off
+	}
+
+	// textureGatherCompare always gathers component X (0)
+	gatherComp := ir.SwizzleX
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprImageSample{
+			Image:      image,
+			Sampler:    sampler,
+			Coordinate: coord,
+			ArrayIndex: arrayIndex,
+			Offset:     offset,
+			Level:      ir.SampleLevelZero{},
+			DepthRef:   &depthRef,
+			Gather:     &gatherComp,
+		},
+	}), nil
+}
+
+// evalGatherComponent evaluates the component argument of textureGather.
+// The component must be a constant integer expression in range [0, 3].
+func (l *Lowerer) evalGatherComponent(expr Expr) (ir.SwizzleComponent, error) {
+	_, val, err := l.evalConstantIntExpr(expr)
+	if err != nil {
+		return 0, fmt.Errorf("component must be a constant expression: %w", err)
+	}
+	if val < 0 || val > 3 {
+		return 0, fmt.Errorf("component index %d out of range [0, 3]", val)
+	}
+	return ir.SwizzleComponent(val), nil
+}
+
+// isTextureArrayed checks if a texture expression refers to an arrayed image type.
+func (l *Lowerer) isTextureArrayed(expr Expr) bool {
+	ident, ok := expr.(*Ident)
+	if !ok {
+		return false
+	}
+	for _, gv := range l.module.GlobalVariables {
+		if gv.Name == ident.Name {
+			if int(gv.Type) < len(l.module.Types) {
+				if img, ok := l.module.Types[gv.Type].Inner.(ir.ImageType); ok {
+					return img.Arrayed
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
+// isTextureDepth checks if a texture expression refers to a depth image type.
+func (l *Lowerer) isTextureDepth(expr Expr) bool {
+	ident, ok := expr.(*Ident)
+	if !ok {
+		return false
+	}
+	for _, gv := range l.module.GlobalVariables {
+		if gv.Name == ident.Name {
+			if int(gv.Type) < len(l.module.Types) {
+				if img, ok := l.module.Types[gv.Type].Inner.(ir.ImageType); ok {
+					return img.Class == ir.ImageClassDepth
+				}
+			}
+			return false
+		}
+	}
+	return false
 }
 
 // lowerTextureLoad converts a texture load call to IR.
@@ -2468,6 +3949,63 @@ func (l *Lowerer) lowerAtomicCall(atomicFunc ir.AtomicFunction, args []Expr, tar
 			Pointer: pointer,
 			Fun:     atomicFunc,
 			Value:   value,
+			Result:  &resultHandle,
+		},
+	})
+
+	return resultHandle, nil
+}
+
+// lowerAtomicStore converts atomicStore(&ptr, value) to IR.
+// atomicStore is a statement - it has no return value.
+func (l *Lowerer) lowerAtomicStore(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 2 {
+		return 0, fmt.Errorf("atomicStore requires 2 arguments")
+	}
+
+	pointer, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	value, err := l.lowerExpression(args[1], target)
+	if err != nil {
+		return 0, err
+	}
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtAtomic{
+			Pointer: pointer,
+			Fun:     ir.AtomicStore{},
+			Value:   value,
+			Result:  nil, // atomicStore has no result
+		},
+	})
+
+	return 0, nil // No return value
+}
+
+// lowerAtomicLoad converts atomicLoad(&ptr) to IR.
+// Returns the loaded atomic value.
+func (l *Lowerer) lowerAtomicLoad(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	if len(args) < 1 {
+		return 0, fmt.Errorf("atomicLoad requires 1 argument")
+	}
+
+	pointer, err := l.lowerExpression(args[0], target)
+	if err != nil {
+		return 0, err
+	}
+
+	resultHandle := l.addExpression(ir.Expression{
+		Kind: ir.ExprAtomicResult{},
+	})
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtAtomic{
+			Pointer: pointer,
+			Fun:     ir.AtomicLoad{},
+			Value:   pointer, // Not used by backend for AtomicLoad
 			Result:  &resultHandle,
 		},
 	})

@@ -231,6 +231,16 @@ type AtomicExchange struct {
 
 func (AtomicExchange) atomicFunction() {}
 
+// AtomicStore performs atomic store. Has no result.
+type AtomicStore struct{}
+
+func (AtomicStore) atomicFunction() {}
+
+// AtomicLoad performs atomic load. Has no value operand.
+type AtomicLoad struct{}
+
+func (AtomicLoad) atomicFunction() {}
+
 // StmtWorkGroupUniformLoad loads uniformly from a uniform pointer in workgroup address space.
 // Corresponds to WGSL workgroupUniformLoad built-in function with barrier semantics.
 type StmtWorkGroupUniformLoad struct {

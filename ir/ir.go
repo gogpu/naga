@@ -149,6 +149,15 @@ type AtomicType struct {
 
 func (AtomicType) typeInner() {}
 
+// BindingArrayType represents a binding array type (binding_array<T, N>).
+// In SPIR-V, this maps to an array of uniform resources (textures, samplers).
+type BindingArrayType struct {
+	Base TypeHandle
+	Size *uint32 // nil for unbounded
+}
+
+func (BindingArrayType) typeInner() {}
+
 // AddressSpace represents memory address spaces.
 type AddressSpace uint8
 

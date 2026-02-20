@@ -157,6 +157,16 @@ type ArrayType struct {
 func (a *ArrayType) Pos() Span { return a.Span }
 func (a *ArrayType) typeNode() {}
 
+// BindingArrayType represents a binding array type (binding_array<T, N>).
+type BindingArrayType struct {
+	Element Type
+	Size    Expr // nil for unbounded
+	Span    Span
+}
+
+func (b *BindingArrayType) Pos() Span { return b.Span }
+func (b *BindingArrayType) typeNode() {}
+
 // PtrType represents a pointer type.
 type PtrType struct {
 	AddressSpace string
@@ -374,3 +384,13 @@ type ConstructExpr struct {
 
 func (c *ConstructExpr) Pos() Span { return c.Span }
 func (c *ConstructExpr) exprNode() {}
+
+// BitcastExpr represents a bitcast expression: bitcast<TargetType>(expr).
+type BitcastExpr struct {
+	Type Type // Target type
+	Expr Expr // Source expression
+	Span Span
+}
+
+func (b *BitcastExpr) Pos() Span { return b.Span }
+func (b *BitcastExpr) exprNode() {}
