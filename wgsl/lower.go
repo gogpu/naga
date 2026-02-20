@@ -845,6 +845,15 @@ func (l *Lowerer) lowerLocalConst(decl *ConstDecl, target *[]ir.Statement) error
 
 	// Register as a named expression (like let)
 	l.locals[decl.Name] = initHandle
+
+	// Emit the expression at the declaration point to ensure correct SSA dominance.
+	// Without this, the expression would be lazily emitted at its first use site,
+	// which may be inside a branch block. If the same expression is also used in
+	// another branch, the SPIR-V ID would not dominate its use.
+	*target = append(*target, ir.Statement{Kind: ir.StmtEmit{
+		Range: ir.Range{Start: initHandle, End: initHandle + 1},
+	}})
+
 	return nil
 }
 
