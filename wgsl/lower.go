@@ -722,6 +722,20 @@ func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
 
 // lowerAssign converts an assignment statement to IR.
 func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error {
+	// WGSL discard pattern: _ = expr; evaluates RHS for side effects, discards result.
+	if ident, ok := assign.Left.(*Ident); ok && ident.Name == "_" {
+		// Evaluate the RHS expression for side effects only
+		rhs, err := l.lowerExpression(assign.Right, target)
+		if err != nil {
+			return err
+		}
+		// Emit the expression so side effects occur (function calls, etc.)
+		*target = append(*target, ir.Statement{Kind: ir.StmtEmit{
+			Range: ir.Range{Start: rhs, End: rhs + 1},
+		}})
+		return nil
+	}
+
 	// Special case: *ptr = value (pointer dereference on LHS)
 	// Extract the inner pointer expression directly — don't generate ExprLoad
 	var pointer ir.ExpressionHandle
@@ -1010,6 +1024,14 @@ func (l *Lowerer) lowerLocalConst(decl *ConstDecl, target *[]ir.Statement) error
 		return fmt.Errorf("const '%s' initializer: %w", decl.Name, err)
 	}
 
+	// WGSL discard pattern: let _ = expr; evaluates expr, discards the result.
+	if decl.Name == "_" {
+		*target = append(*target, ir.Statement{Kind: ir.StmtEmit{
+			Range: ir.Range{Start: initHandle, End: initHandle + 1},
+		}})
+		return nil
+	}
+
 	// Register as a named expression (like let)
 	l.locals[decl.Name] = initHandle
 
@@ -1144,6 +1166,11 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 	// Check if this is a built-in function (vec4, vec3, etc.)
 	if l.isBuiltinConstructor(funcName) {
 		return l.lowerBuiltinConstructor(funcName, call.Args, target)
+	}
+
+	// Check if this is a short type alias constructor (e.g., vec3f(1.0, 2.0, 3.0))
+	if expanded, ok := shortTypeAliases[funcName]; ok {
+		return l.lowerShortAliasConstructor(expanded, call.Args, target)
 	}
 
 	// Check if this is the select() built-in (uses ExprSelect, not ExprMath)
@@ -1329,7 +1356,16 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 }
 
 // lowerMember converts a member access to IR.
+//
+//nolint:gocognit // Member access handles structs, vectors, swizzles, and builtin result decomposition
 func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	// Check for builtin result member access (e.g., modf(x).fract, frexp(x).exp).
+	// These builtins conceptually return structs but we decompose them into
+	// equivalent scalar math operations at lowering time.
+	if result, ok := l.tryLowerBuiltinResultMember(mem, target); ok {
+		return result, nil
+	}
+
 	base, err := l.lowerExpression(mem.Expr, target)
 	if err != nil {
 		return 0, err
@@ -1373,6 +1409,86 @@ func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.Expre
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprSwizzle{Size: size, Vector: base, Pattern: pattern},
 	}), nil
+}
+
+// tryLowerBuiltinResultMember checks if a member access is on a builtin that returns
+// a struct result (modf, frexp) and decomposes it into equivalent math operations.
+//
+// WGSL modf(x) returns __modf_result_f32 { fract: f32, whole: f32 }
+//   - modf(x).fract = x - trunc(x)  (fractional part, same sign as x)
+//   - modf(x).whole = trunc(x)       (whole number part)
+//
+// WGSL frexp(x) returns __frexp_result_f32 { fract: f32, exp: i32 }
+//   - frexp(x).fract  (mantissa in [0.5, 1.0) or zero)
+//   - frexp(x).exp    (integer exponent)
+//
+// Returns (handle, true) if handled, or (0, false) if not a builtin result access.
+func (l *Lowerer) tryLowerBuiltinResultMember(mem *MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool) {
+	// The base expression must be a call: modf(x) or frexp(x)
+	call, ok := mem.Expr.(*CallExpr)
+	if !ok {
+		return 0, false
+	}
+
+	funcName := call.Func.Name
+
+	switch funcName {
+	case "modf":
+		if len(call.Args) != 1 {
+			return 0, false
+		}
+		arg, err := l.lowerExpression(call.Args[0], target)
+		if err != nil {
+			return 0, false
+		}
+		switch mem.Member {
+		case "fract":
+			// modf(x).fract = x - trunc(x)
+			truncX := l.addExpression(ir.Expression{
+				Kind: ir.ExprMath{Fun: ir.MathTrunc, Arg: arg},
+			})
+			result := l.addExpression(ir.Expression{
+				Kind: ir.ExprBinary{Op: ir.BinarySubtract, Left: arg, Right: truncX},
+			})
+			return result, true
+		case "whole":
+			// modf(x).whole = trunc(x)
+			result := l.addExpression(ir.Expression{
+				Kind: ir.ExprMath{Fun: ir.MathTrunc, Arg: arg},
+			})
+			return result, true
+		}
+	case "frexp":
+		if len(call.Args) != 1 {
+			return 0, false
+		}
+		arg, err := l.lowerExpression(call.Args[0], target)
+		if err != nil {
+			return 0, false
+		}
+		switch mem.Member {
+		case "fract":
+			// frexp(x).fract: extract mantissa using ldexp(x, -floor(log2(abs(x))))
+			// Simplified: use the full frexp and decompose later. For now,
+			// approximate as: x / exp2(floor(log2(abs(x)) + 1.0))
+			// This is a complex decomposition. Emit the MathFrexp as-is and
+			// let SPIR-V handle it (GLSL.std.450 Frexp returns struct natively).
+			// Since our IR doesn't support struct-returning math, we emit a
+			// MathFrexp and return it - backends that support it can handle it.
+			result := l.addExpression(ir.Expression{
+				Kind: ir.ExprMath{Fun: ir.MathFrexp, Arg: arg},
+			})
+			return result, true
+		case "exp":
+			// frexp(x).exp: same complexity issue as above.
+			result := l.addExpression(ir.Expression{
+				Kind: ir.ExprMath{Fun: ir.MathFrexp, Arg: arg},
+			})
+			return result, true
+		}
+	}
+
+	return 0, false
 }
 
 // lowerIndex converts an index expression to IR.
@@ -1521,19 +1637,31 @@ func (l *Lowerer) resolveNamedType(t *NamedType) (ir.TypeHandle, error) {
 		return handle, nil
 	}
 
-	// Lazy registration of sampler types (only when actually used in shader)
-	// This prevents OpTypeSampler from appearing in shaders without textures
+	// Lazy registration of types that should only appear when used.
+	// Samplers: prevents OpTypeSampler in shaders without textures.
+	// f16: per WGSL spec, requires "enable f16;" but we register on demand to support
+	// short type aliases (vec2h, mat4x4h) without requiring explicit enable directives.
 	switch t.Name {
 	case "sampler":
 		return l.registerType("sampler", ir.SamplerType{Comparison: false}), nil
 	case "sampler_comparison":
 		return l.registerType("sampler_comparison", ir.SamplerType{Comparison: true}), nil
+	case "f16":
+		return l.registerType("f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}), nil
 	}
 
 	// Texture types without type parameters (e.g., texture_depth_2d, texture_depth_2d_array)
 	if len(t.Name) >= 7 && t.Name[:7] == "texture" {
 		imgType := l.parseTextureType(t)
 		return l.registerType("", imgType), nil
+	}
+
+	// Check for WGSL predeclared short type aliases (e.g., vec3f -> vec3<f32>)
+	if expanded, ok := shortTypeAliases[t.Name]; ok {
+		return l.resolveNamedType(&NamedType{
+			Name:       expanded.baseName,
+			TypeParams: []Type{&NamedType{Name: expanded.scalarName}},
+		})
 	}
 
 	return 0, fmt.Errorf("unknown type: %s", t.Name)
@@ -1669,6 +1797,83 @@ func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprCompose{Type: typeHandle, Components: components},
 	}), nil
+}
+
+// lowerShortAliasConstructor handles constructor calls using short type aliases
+// (e.g., vec3f(1.0, 2.0, 3.0) which expands to vec3<f32>(1.0, 2.0, 3.0)).
+func (l *Lowerer) lowerShortAliasConstructor(alias shortTypeAlias, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	// Lower all arguments
+	components := make([]ir.ExpressionHandle, len(args))
+	for i, arg := range args {
+		handle, err := l.lowerExpression(arg, target)
+		if err != nil {
+			return 0, err
+		}
+		components[i] = handle
+	}
+
+	// Resolve the expanded type (e.g., vec3<f32>)
+	typeHandle, err := l.resolveNamedType(&NamedType{
+		Name:       alias.baseName,
+		TypeParams: []Type{&NamedType{Name: alias.scalarName}},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("short type alias %s<%s>: %w", alias.baseName, alias.scalarName, err)
+	}
+
+	// For scalar constructors with a single argument, generate ExprAs (type conversion)
+	if len(components) == 1 {
+		targetType := l.module.Types[typeHandle]
+		if scalar, ok := targetType.Inner.(ir.ScalarType); ok {
+			width := scalar.Width
+			return l.addExpression(ir.Expression{
+				Kind: ir.ExprAs{
+					Expr:    components[0],
+					Kind:    scalar.Kind,
+					Convert: &width,
+				},
+			}), nil
+		}
+	}
+
+	// Handle vector splat: vec3f(1.0) -> vec3<f32>(1.0, 1.0, 1.0)
+	targetType := l.module.Types[typeHandle]
+	if vec, ok := targetType.Inner.(ir.VectorType); ok && len(components) == 1 {
+		needed := int(vec.Size)
+		splatted := make([]ir.ExpressionHandle, needed)
+		for i := 0; i < needed; i++ {
+			splatted[i] = components[0]
+		}
+		components = splatted
+	}
+
+	return l.addExpression(ir.Expression{
+		Kind: ir.ExprCompose{Type: typeHandle, Components: components},
+	}), nil
+}
+
+// shortTypeAlias represents a WGSL predeclared short type alias.
+type shortTypeAlias struct {
+	baseName   string // e.g., "vec3", "mat4x4"
+	scalarName string // e.g., "f32", "i32", "u32", "f16"
+}
+
+// shortTypeAliases maps WGSL predeclared short type names to their expanded forms.
+// Per WGSL spec, these are built-in type aliases, not keywords.
+var shortTypeAliases = map[string]shortTypeAlias{
+	// Vector aliases
+	"vec2i": {"vec2", "i32"}, "vec3i": {"vec3", "i32"}, "vec4i": {"vec4", "i32"},
+	"vec2u": {"vec2", "u32"}, "vec3u": {"vec3", "u32"}, "vec4u": {"vec4", "u32"},
+	"vec2f": {"vec2", "f32"}, "vec3f": {"vec3", "f32"}, "vec4f": {"vec4", "f32"},
+	"vec2h": {"vec2", "f16"}, "vec3h": {"vec3", "f16"}, "vec4h": {"vec4", "f16"},
+	// Matrix aliases - f32
+	"mat2x2f": {"mat2x2", "f32"}, "mat2x3f": {"mat2x3", "f32"}, "mat2x4f": {"mat2x4", "f32"},
+	"mat3x2f": {"mat3x2", "f32"}, "mat3x3f": {"mat3x3", "f32"}, "mat3x4f": {"mat3x4", "f32"},
+	"mat4x2f": {"mat4x2", "f32"}, "mat4x3f": {"mat4x3", "f32"}, "mat4x4f": {"mat4x4", "f32"},
+	// Matrix aliases - f16
+	"mat2x2h": {"mat2x2", "f16"}, "mat2x3h": {"mat2x3", "f16"}, "mat2x4h": {"mat2x4", "f16"},
+	"mat3x2h": {"mat3x2", "f16"}, "mat3x3h": {"mat3x3", "f16"}, "mat3x4h": {"mat3x4", "f16"},
+	"mat4x2h": {"mat4x2", "f16"}, "mat4x3h": {"mat4x3", "f16"}, "mat4x4h": {"mat4x4", "f16"},
 }
 
 // mathFuncTable is a package-level lookup table for WGSL math function names to IR math functions.

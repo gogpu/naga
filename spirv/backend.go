@@ -3117,6 +3117,59 @@ func findCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandl
 		return findCallResultInTree(expressions, k.Right)
 	case ir.ExprUnary:
 		return findCallResultInTree(expressions, k.Expr)
+	case ir.ExprAccessIndex:
+		return findCallResultInTree(expressions, k.Base)
+	case ir.ExprAccess:
+		return findCallResultInTree(expressions, k.Base)
+	case ir.ExprSwizzle:
+		return findCallResultInTree(expressions, k.Vector)
+	case ir.ExprLoad:
+		return findCallResultInTree(expressions, k.Pointer)
+	case ir.ExprCompose:
+		for _, comp := range k.Components {
+			if h, ok := findCallResultInTree(expressions, comp); ok {
+				return h, true
+			}
+		}
+		return 0, false
+	case ir.ExprAs:
+		return findCallResultInTree(expressions, k.Expr)
+	case ir.ExprSplat:
+		return findCallResultInTree(expressions, k.Value)
+	case ir.ExprSelect:
+		if h, ok := findCallResultInTree(expressions, k.Condition); ok {
+			return h, true
+		}
+		if h, ok := findCallResultInTree(expressions, k.Accept); ok {
+			return h, true
+		}
+		return findCallResultInTree(expressions, k.Reject)
+	case ir.ExprMath:
+		if h, ok := findCallResultInTree(expressions, k.Arg); ok {
+			return h, true
+		}
+		if k.Arg1 != nil {
+			if h, ok := findCallResultInTree(expressions, *k.Arg1); ok {
+				return h, true
+			}
+		}
+		if k.Arg2 != nil {
+			if h, ok := findCallResultInTree(expressions, *k.Arg2); ok {
+				return h, true
+			}
+		}
+		if k.Arg3 != nil {
+			if h, ok := findCallResultInTree(expressions, *k.Arg3); ok {
+				return h, true
+			}
+		}
+		return 0, false
+	case ir.ExprDerivative:
+		return findCallResultInTree(expressions, k.Expr)
+	case ir.ExprRelational:
+		return findCallResultInTree(expressions, k.Argument)
+	case ir.ExprArrayLength:
+		return findCallResultInTree(expressions, k.Array)
 	default:
 		return 0, false
 	}

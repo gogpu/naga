@@ -901,6 +901,16 @@ func (p *Parser) switchStmt() (*SwitchStmt, *ParseError) {
 }
 
 // switchCaseClause parses a case or default clause in a switch statement.
+//
+// WGSL switch clause syntax:
+//
+//	case expr1, expr2, default: { ... }   -- mixed selectors with default
+//	case expr1, expr2: { ... }            -- comma-separated selectors
+//	case expr1, { ... }                   -- trailing comma, no colon
+//	default: { ... }                      -- standalone default with colon
+//	default { ... }                       -- standalone default without colon
+//
+// The colon before the block is optional in modern WGSL.
 func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
 	start := p.peek()
 	var selectors []Expr
@@ -909,13 +919,24 @@ func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
 	if p.match(TokenDefault) {
 		isDefault = true
 	} else if p.match(TokenCase) {
-		// Parse comma-separated selectors: case 1u, 2u, 3u:
+		// Parse comma-separated selectors, which may include 'default'.
+		// Examples: case 0, 1:   case default, 6:   case 1, default:
 		for {
-			expr, err := p.expression()
-			if err != nil {
-				return nil, err
+			// Check for 'default' keyword as a selector
+			if p.check(TokenDefault) {
+				p.advance()
+				isDefault = true
+			} else {
+				// Stop if the next token starts the body (trailing comma case)
+				if p.check(TokenColon) || p.check(TokenLeftBrace) {
+					break
+				}
+				expr, err := p.expression()
+				if err != nil {
+					return nil, err
+				}
+				selectors = append(selectors, expr)
 			}
-			selectors = append(selectors, expr)
 			if !p.match(TokenComma) {
 				break
 			}
@@ -924,9 +945,8 @@ func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
 		return nil, &ParseError{Message: "expected 'case' or 'default'", Token: start}
 	}
 
-	if err := p.expectErr(TokenColon); err != nil {
-		return nil, err
-	}
+	// Colon is optional in modern WGSL
+	p.match(TokenColon)
 
 	body, err := p.block()
 	if err != nil {
