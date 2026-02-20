@@ -2450,12 +2450,22 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	case ir.BinaryAdd:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFAdd
+			// vec + scalar or scalar + vec: splat scalar to matching vector
+			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			if rErr == nil {
+				leftID, rightID, resultType = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			}
 		} else {
 			opcode = OpIAdd
 		}
 	case ir.BinarySubtract:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFSub
+			// vec - scalar or scalar - vec: splat scalar to matching vector
+			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			if rErr == nil {
+				leftID, rightID, resultType = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			}
 		} else {
 			opcode = OpISub
 		}
@@ -2529,6 +2539,10 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	case ir.BinaryModulo:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFMod
+			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			if rErr == nil {
+				leftID, rightID, resultType = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
+			}
 		} else if scalarKind == ir.ScalarSint {
 			opcode = OpSMod
 		} else {
