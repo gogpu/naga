@@ -941,7 +941,7 @@ func (p *Parser) discardStmt() (*DiscardStmt, *ParseError) {
 }
 
 // letStmt parses a let statement (local variable).
-func (p *Parser) letStmt() (*VarDecl, *ParseError) {
+func (p *Parser) letStmt() (*ConstDecl, *ParseError) {
 	start := p.peek()
 	p.advance() // consume 'let'
 
@@ -950,13 +950,13 @@ func (p *Parser) letStmt() (*VarDecl, *ParseError) {
 	}
 	name := p.advance()
 
-	var varType Type
+	var letType Type
 	if p.match(TokenColon) {
 		t, err := p.typeSpec()
 		if err != nil {
 			return nil, err
 		}
-		varType = t
+		letType = t
 	}
 
 	if err := p.expectErr(TokenEqual); err != nil {
@@ -970,9 +970,9 @@ func (p *Parser) letStmt() (*VarDecl, *ParseError) {
 
 	p.match(TokenSemicolon)
 
-	return &VarDecl{
+	return &ConstDecl{
 		Name: name.Lexeme,
-		Type: varType,
+		Type: letType,
 		Init: init,
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},

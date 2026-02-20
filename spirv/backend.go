@@ -1260,8 +1260,9 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		paramIDs:           paramIDs,
 		isEntryPoint:       isEntryPoint,
 		output:             output,
-		callResultIDs:      make(map[ir.ExpressionHandle]uint32, 4),
-		deferredCallStores: make(map[ir.ExpressionHandle]uint32, 4),
+		callResultIDs:         make(map[ir.ExpressionHandle]uint32, 4),
+		deferredCallStores:    make(map[ir.ExpressionHandle]uint32, 4),
+		deferredComplexStores: make(map[ir.ExpressionHandle][]deferredComplexStore),
 	}
 	emitter.localVarIDs = localVarIDs
 
@@ -1298,17 +1299,28 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// 5. Initialize local variables (now that emitter is available).
 	// OpVariable (emitted in prologue) doesn't include the initializer value,
 	// so we need explicit OpStore instructions.
-	// Variables initialized with call results (ExprCallResult) are deferred:
-	// the StmtCall in the body must run first to produce the result, then
-	// emitCall will store into the variable automatically.
+	//
+	// Variables whose init expression tree contains an ExprCallResult anywhere
+	// (directly or inside Binary/Unary/etc.) must be deferred: the StmtCall in
+	// the body must run first to produce the result. After the body is emitted,
+	// we evaluate the deferred inits and store them.
 	for i, localVar := range fn.LocalVars {
 		if localVar.Init == nil {
 			continue
 		}
 		initExpr := fn.Expressions[*localVar.Init]
 		if _, isCallResult := initExpr.Kind.(ir.ExprCallResult); isCallResult {
-			// Register deferred store: emitCall will handle OpStore
+			// Direct call result: register deferred store for emitCall
 			emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
+			continue
+		}
+		if callResultHandle, ok := findCallResultInTree(fn.Expressions, *localVar.Init); ok {
+			// Init contains a call result somewhere in the tree — defer
+			// until the corresponding StmtCall runs.
+			emitter.deferredComplexStores[callResultHandle] = append(
+				emitter.deferredComplexStores[callResultHandle],
+				deferredComplexStore{varPtrID: localVarIDs[i], initExpr: *localVar.Init},
+			)
 			continue
 		}
 		initID, err := emitter.emitExpression(*localVar.Init)
@@ -1363,6 +1375,18 @@ type ExpressionEmitter struct {
 	// Maps ExprCallResult handle to local variable SPIR-V pointer ID.
 	// When emitCall produces a result, it stores into the mapped variable.
 	deferredCallStores map[ir.ExpressionHandle]uint32
+
+	// Deferred complex stores: init expressions that contain a CallResult.
+	// Maps ExprCallResult handle to a list of (varPtrID, initExprHandle) pairs.
+	// After emitCall caches the result, these are evaluated and stored.
+	deferredComplexStores map[ir.ExpressionHandle][]deferredComplexStore
+}
+
+// deferredComplexStore represents a local variable whose init expression
+// contains an ExprCallResult somewhere in its expression tree.
+type deferredComplexStore struct {
+	varPtrID uint32
+	initExpr ir.ExpressionHandle
 }
 
 // loopContext tracks merge and continue labels for loop statements.
@@ -2355,6 +2379,8 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			scalarKind = t.Kind
 		case ir.VectorType:
 			scalarKind = t.Scalar.Kind
+		case ir.MatrixType:
+			scalarKind = t.Scalar.Kind
 		default:
 			return 0, fmt.Errorf("binary operator on non-numeric type: %T", t)
 		}
@@ -2364,6 +2390,8 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		case ir.ScalarType:
 			scalarKind = t.Kind
 		case ir.VectorType:
+			scalarKind = t.Scalar.Kind
+		case ir.MatrixType:
 			scalarKind = t.Scalar.Kind
 		default:
 			return 0, fmt.Errorf("binary operator on non-numeric type: %T", t)
@@ -2425,8 +2453,8 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		}
 	case ir.BinaryMultiply:
 		if scalarKind == ir.ScalarFloat {
-			// Check for vector-scalar multiplication which requires OpVectorTimesScalar.
-			// Resolve right operand type to detect mixed vector/scalar operands.
+			// Check for special multiplication cases (vector-scalar, matrix-vector, etc.)
+			// that require dedicated SPIR-V opcodes.
 			rightType, rightErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
 			if rightErr != nil {
 				return 0, fmt.Errorf("binary right type: %w", rightErr)
@@ -2437,15 +2465,36 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			_, rightIsVec := rightInner.(ir.VectorType)
 			_, leftIsScalar := leftInner.(ir.ScalarType)
 			_, rightIsScalar := rightInner.(ir.ScalarType)
+			leftMat, leftIsMat := leftInner.(ir.MatrixType)
+			_, rightIsMat := rightInner.(ir.MatrixType)
 
 			switch {
+			case leftIsMat && rightIsVec:
+				// mat * vec -> OpMatrixTimesVector
+				// Result type is vec<Rows> (number of rows in the matrix).
+				vecScalarID := e.backend.emitScalarType(leftMat.Scalar)
+				vecTypeID := e.backend.emitVectorType(vecScalarID, uint32(leftMat.Rows))
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesVector, vecTypeID, leftID, rightID), nil
+			case leftIsVec && rightIsMat:
+				// vec * mat -> OpVectorTimesMatrix
+				// Result type is the vector type matching matrix columns.
+				vecResultType := e.backend.resolveTypeResolution(leftType)
+				return e.backend.builder.AddBinaryOp(OpVectorTimesMatrix, vecResultType, leftID, rightID), nil
+			case leftIsMat && rightIsMat:
+				// mat * mat -> OpMatrixTimesMatrix
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesMatrix, resultType, leftID, rightID), nil
+			case leftIsMat && rightIsScalar:
+				// mat * scalar -> OpMatrixTimesScalar
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesScalar, resultType, leftID, rightID), nil
+			case leftIsScalar && rightIsMat:
+				// scalar * mat -> OpMatrixTimesScalar (swapped operands)
+				matResultType := e.backend.resolveTypeResolution(rightType)
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesScalar, matResultType, rightID, leftID), nil
 			case leftIsVec && rightIsScalar:
 				// vec * scalar -> OpVectorTimesScalar(vec, scalar)
-				// Result type is the vector type (already leftType).
 				return e.backend.builder.AddBinaryOp(OpVectorTimesScalar, resultType, leftID, rightID), nil
 			case leftIsScalar && rightIsVec:
 				// scalar * vec -> OpVectorTimesScalar(vec, scalar) with swapped operands.
-				// Result type is the vector type (rightType).
 				vecResultType := e.backend.resolveTypeResolution(rightType)
 				return e.backend.builder.AddBinaryOp(OpVectorTimesScalar, vecResultType, rightID, leftID), nil
 			default:
@@ -2752,6 +2801,30 @@ func (e *ExpressionEmitter) emitIf(stmt ir.StmtIf) error {
 // blockEndsWithTerminator checks if a block ends with a terminator instruction
 // (return, kill, break, continue) that makes subsequent OpBranch unreachable.
 // In SPIR-V, each basic block must end with exactly one terminator instruction.
+// findCallResultInTree checks if an expression tree contains an ExprCallResult.
+// Returns the ExprCallResult handle if found. This is used to detect local variable
+// inits like `var x = func() - 0.5` where the call result is nested inside a
+// binary expression, not the top-level init expression.
+func findCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
+	if int(handle) >= len(expressions) {
+		return 0, false
+	}
+	expr := expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.ExprCallResult:
+		return handle, true
+	case ir.ExprBinary:
+		if h, ok := findCallResultInTree(expressions, k.Left); ok {
+			return h, true
+		}
+		return findCallResultInTree(expressions, k.Right)
+	case ir.ExprUnary:
+		return findCallResultInTree(expressions, k.Expr)
+	default:
+		return 0, false
+	}
+}
+
 func blockEndsWithTerminator(block ir.Block) bool {
 	if len(block) == 0 {
 		return false
@@ -3399,6 +3472,9 @@ func (e *ExpressionEmitter) emitImageLoad(load ir.ExprImageLoad) (uint32, error)
 
 // emitImageQuery emits an image query operation.
 func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, error) {
+	// Image query operations require the ImageQuery capability.
+	e.backend.addCapability(CapabilityImageQuery)
+
 	imageID, err := e.emitExpression(query.Image)
 	if err != nil {
 		return 0, err
@@ -3722,24 +3798,48 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 	}
 	e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpFunctionCall))
 
-	// Cache the result ID for ExprCallResult
+	// Cache the result ID for ExprCallResult and handle deferred stores.
 	if call.Result != nil {
 		e.callResultIDs[*call.Result] = resultID
-
-		// If a local variable is initialized with this call result, store now.
-		// The local var init loop deferred this because StmtCall had not yet run.
-		if varPtrID, ok := e.deferredCallStores[*call.Result]; ok {
-			e.backend.builder.AddStore(varPtrID, resultID)
-			delete(e.deferredCallStores, *call.Result)
+		if err := e.processDeferredStores(*call.Result, resultID); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
+// processDeferredStores handles deferred local variable stores after a call result
+// is available. Handles both direct (var x = func()) and complex (var x = func() - 0.5)
+// deferred stores.
+func (e *ExpressionEmitter) processDeferredStores(resultHandle ir.ExpressionHandle, resultID uint32) error {
+	// Direct: local var is initialized with this call result directly.
+	if varPtrID, ok := e.deferredCallStores[resultHandle]; ok {
+		e.backend.builder.AddStore(varPtrID, resultID)
+		delete(e.deferredCallStores, resultHandle)
+	}
+
+	// Complex: local var init expression CONTAINS this call result.
+	stores, ok := e.deferredComplexStores[resultHandle]
+	if !ok {
+		return nil
+	}
+	for _, s := range stores {
+		initID, err := e.emitExpression(s.initExpr)
+		if err != nil {
+			return fmt.Errorf("deferred complex store: %w", err)
+		}
+		e.backend.builder.AddStore(s.varPtrID, initID)
+	}
+	delete(e.deferredComplexStores, resultHandle)
+	return nil
+}
+
 // emitCallResultRef returns the SPIR-V ID for a function call result (set by emitCall).
 func (e *ExpressionEmitter) emitCallResultRef(handle ir.ExpressionHandle) (uint32, error) {
 	if id, ok := e.callResultIDs[handle]; ok {
+		// Cache in exprIDs so subsequent references use the fast path.
+		e.exprIDs[handle] = id
 		return id, nil
 	}
 	return 0, fmt.Errorf("call result for expression %d not found (was StmtCall emitted?)", handle)

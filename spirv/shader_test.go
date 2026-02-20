@@ -1553,3 +1553,215 @@ func containsOpcode(spirvBytes []byte, target OpCode) bool {
 	}
 	return false
 }
+
+// TestCompileFunctionCallInLetExpr tests that user function call results can
+// be used in let-bound expressions (e.g., let sd = func() - 0.5).
+// This pattern is used by the MSDF text rendering shader.
+func TestCompileFunctionCallInLetExpr(t *testing.T) {
+	source := `
+fn median3(r: f32, g: f32, b: f32) -> f32 {
+    let min_rg = min(r, g);
+    let max_rg = max(r, g);
+    let min_max_b = min(max_rg, b);
+    return max(min_rg, min_max_b);
+}
+
+@fragment
+fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let sd = median3(uv.x, uv.y, 0.5) - 0.5;
+    let alpha = clamp(sd + 0.5, 0.0, 1.0);
+    return vec4<f32>(alpha, alpha, alpha, 1.0);
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+	t.Logf("Successfully compiled function call in let expression: %d bytes", len(spirvBytes))
+}
+
+// TestCompileImageQuery tests that textureDimensions emits ImageQuery capability.
+func TestCompileImageQuery(t *testing.T) {
+	source := `
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var tex_sampler: sampler;
+
+@fragment
+fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let dims = textureDimensions(tex, 0);
+    let size = vec2<f32>(f32(dims.x), f32(dims.y));
+    let scaled_uv = uv / size;
+    return textureSample(tex, tex_sampler, scaled_uv);
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	// Verify ImageQuery capability (6) is present in SPIR-V binary
+	words := make([]uint32, len(spirvBytes)/4)
+	for i := range words {
+		words[i] = uint32(spirvBytes[i*4]) |
+			uint32(spirvBytes[i*4+1])<<8 |
+			uint32(spirvBytes[i*4+2])<<16 |
+			uint32(spirvBytes[i*4+3])<<24
+	}
+	foundImageQuery := false
+	offset := 5
+	for offset < len(words) {
+		word := words[offset]
+		wordCount := int(word >> 16)
+		opcode := word & 0xFFFF
+		if wordCount == 0 || offset+wordCount > len(words) {
+			break
+		}
+		// OpCapability = 17, ImageQuery = 50
+		if opcode == 17 && wordCount >= 2 && words[offset+1] == 50 {
+			foundImageQuery = true
+		}
+		offset += wordCount
+	}
+	if !foundImageQuery {
+		t.Error("Expected ImageQuery capability (6) in SPIR-V binary")
+	}
+
+	t.Logf("Successfully compiled image query shader with ImageQuery capability: %d bytes", len(spirvBytes))
+}
+
+// TestCompileMSDFTextShader tests the full MSDF text rendering shader end-to-end.
+// This is the shader used by gg's GPU text pipeline.
+func TestCompileMSDFTextShader(t *testing.T) {
+	source := `
+struct TextUniforms {
+    transform: mat4x4<f32>,
+    color: vec4<f32>,
+    msdf_params: vec4<f32>,
+}
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) tex_coord: vec2<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) tex_coord: vec2<f32>,
+    @location(1) color: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: TextUniforms;
+@group(0) @binding(1) var msdf_atlas: texture_2d<f32>;
+@group(0) @binding(2) var msdf_sampler: sampler;
+
+fn median3(r: f32, g: f32, b: f32) -> f32 {
+    let min_rg = min(r, g);
+    let max_rg = max(r, g);
+    let min_max_b = min(max_rg, b);
+    return max(min_rg, min_max_b);
+}
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    let p = vec4<f32>(in.position, 0.0, 1.0);
+    let col0 = uniforms.transform[0];
+    let col1 = uniforms.transform[1];
+    let col2 = uniforms.transform[2];
+    let col3 = uniforms.transform[3];
+    let pos = p.x * col0 + p.y * col1 + p.z * col2 + p.w * col3;
+    out.position = pos;
+    out.tex_coord = in.tex_coord;
+    out.color = uniforms.color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let msdf = textureSample(msdf_atlas, msdf_sampler, in.tex_coord).rgb;
+    let sd = median3(msdf.r, msdf.g, msdf.b) - 0.5;
+    let tex_size = vec2<f32>(uniforms.msdf_params.y, uniforms.msdf_params.y);
+    let fw = fwidth(in.tex_coord);
+    let dx_dy = fw * tex_size;
+    let px_range = uniforms.msdf_params.x;
+    let screen_px_range = px_range / length(dx_dy);
+    let screen_px_distance = screen_px_range * sd;
+    let alpha = clamp(screen_px_distance + 0.5, 0.0, 1.0);
+    return vec4<f32>(in.color.rgb * alpha, in.color.a * alpha);
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+
+	// Verify we have both vertex and fragment entry points
+	if len(module.EntryPoints) != 2 {
+		t.Errorf("Expected 2 entry points, got %d", len(module.EntryPoints))
+	}
+
+	t.Logf("Successfully compiled MSDF text shader: %d bytes", len(spirvBytes))
+}
