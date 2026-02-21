@@ -1,0 +1,62 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct type_4 {
+    float inner[4];
+};
+
+struct type_5 {
+    int inner[3];
+};
+
+struct type_7 {
+    metal::float2 inner[2];
+};
+
+struct type_8 {
+    uint inner[4];
+};
+
+constant uint DATA_SIZE = 8u;
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+float sum_array(type_4 arr) {
+    float total = 0.0;
+    uint i = 0u;
+    
+    while (true) {
+        if (!((i < 4u))) {
+            break;
+        }
+        total = (total + arr.inner[i]);
+        i = (i + 1u);
+    }
+    return total;
+}
+
+kernel void main_() {
+    type_8 data = type_8();
+    uint idx = 2u;
+    
+    data.inner[0] = 100u;
+    data.inner[1] = 200u;
+    data.inner[2] = (data.inner[0] + data.inner[1]);
+    data.inner[3] = (data.inner[2] * 2u);
+    float _fc46 = sum_array(type_4{{1.0, 2.0, 3.0, 4.0}});
+}
+

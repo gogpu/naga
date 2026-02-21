@@ -1,0 +1,91 @@
+; SPIR-V
+; Version: 1.3
+; Generator: 0x00000000
+; Bound: 80
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_15 "main"
+               OpExecutionMode %_15 LocalSize 1 1 1
+         %_2 = OpTypeFloat 32
+         %_3 = OpTypeInt 32 1
+         %_4 = OpTypeInt 32 0
+         %_5 = OpTypeBool
+         %_6 = OpTypeVector %_2 4
+         %_7 = OpTypeMatrix %_6 4
+         %_8 = OpTypeVector %_2 2
+         %_9 = OpTypeMatrix %_8 2
+         %_10 = OpTypeVector %_2 3
+         %_11 = OpTypeMatrix %_10 3
+         %_12 = OpTypeMatrix %_10 4
+         %_13 = OpTypeVoid
+         %_14 = OpTypeFunction %_13
+         %_17 = OpConstant %_2 1065353216
+         %_18 = OpConstant %_2 0
+         %_19 = OpConstant %_2 0
+         %_20 = OpConstant %_2 0
+         %_21 = OpConstant %_2 0
+         %_22 = OpConstant %_2 1065353216
+         %_23 = OpConstant %_2 0
+         %_24 = OpConstant %_2 0
+         %_25 = OpConstant %_2 0
+         %_26 = OpConstant %_2 0
+         %_27 = OpConstant %_2 1065353216
+         %_28 = OpConstant %_2 0
+         %_29 = OpConstant %_2 0
+         %_30 = OpConstant %_2 0
+         %_31 = OpConstant %_2 0
+         %_32 = OpConstant %_2 1065353216
+         %_34 = OpConstant %_2 1065353216
+         %_35 = OpConstant %_2 0
+         %_36 = OpConstant %_2 0
+         %_37 = OpConstant %_2 1065353216
+         %_39 = OpConstant %_2 1065353216
+         %_40 = OpConstant %_2 0
+         %_41 = OpConstant %_2 0
+         %_42 = OpConstant %_2 0
+         %_43 = OpConstant %_2 1065353216
+         %_44 = OpConstant %_2 0
+         %_45 = OpConstant %_2 0
+         %_46 = OpConstant %_2 0
+         %_47 = OpConstant %_2 1065353216
+         %_49 = OpConstant %_2 1065353216
+         %_50 = OpConstant %_2 0
+         %_51 = OpConstant %_2 0
+         %_52 = OpConstant %_2 0
+         %_53 = OpConstant %_2 1065353216
+         %_54 = OpConstant %_2 0
+         %_55 = OpConstant %_2 0
+         %_56 = OpConstant %_2 0
+         %_57 = OpConstant %_2 1065353216
+         %_58 = OpConstant %_2 0
+         %_59 = OpConstant %_2 0
+         %_60 = OpConstant %_2 0
+         %_62 = OpConstant %_2 1065353216
+         %_63 = OpConstant %_2 1073741824
+         %_64 = OpConstant %_2 1077936128
+         %_65 = OpConstant %_2 1065353216
+         %_70 = OpConstant %_3 0
+         %_72 = OpConstant %_3 1
+         %_74 = OpConstant %_3 3
+         %_75 = OpConstant %_3 2
+         %_78 = OpConstant %_2 1073741824
+         %_15 = OpFunction %_13 None %_14
+         %_16 = OpLabel
+         %_33 = OpCompositeConstruct %_7 %_17 %_18 %_19 %_20 %_21 %_22 %_23 %_24 %_25 %_26 %_27 %_28 %_29 %_30 %_31 %_32
+         %_38 = OpCompositeConstruct %_9 %_34 %_35 %_36 %_37
+         %_48 = OpCompositeConstruct %_11 %_39 %_40 %_41 %_42 %_43 %_44 %_45 %_46 %_47
+         %_61 = OpCompositeConstruct %_12 %_49 %_50 %_51 %_52 %_53 %_54 %_55 %_56 %_57 %_58 %_59 %_60
+         %_66 = OpCompositeConstruct %_6 %_62 %_63 %_64 %_65
+         %_67 = OpMatrixTimesVector %_6 %_33 %_66
+         %_68 = OpMatrixTimesMatrix %_7 %_33 %_33
+         %_69 = OpTranspose %_9 %_38
+         %_71 = OpVectorExtractDynamic %_6 %_33 %_70
+         %_73 = OpVectorExtractDynamic %_6 %_33 %_72
+         %_76 = OpVectorExtractDynamic %_6 %_33 %_75
+         %_77 = OpVectorExtractDynamic %_2 %_76 %_74
+         %_79 = OpMatrixTimesScalar %_9 %_38 %_78
+               OpReturn
+               OpFunctionEnd

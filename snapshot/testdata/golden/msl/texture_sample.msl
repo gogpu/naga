@@ -1,0 +1,52 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct VertexOutput {
+    metal::float4 position_;
+    metal::float2 uv;
+};
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+struct vs_main_Output {
+    metal::float4 position_ [[position]];
+    metal::float2 uv [[user(locn0)]];
+};
+
+vertex vs_main_Output vs_main(uint vi [[vertex_id]],
+    metal::texture2d<float, metal::access::sample> t_diffuse [[texture(0)]],
+    metal::sampler s_diffuse [[sampler(1)]]) {
+    vs_main_Output _output;
+    auto _ret_25 = VertexOutput{metal::float4(metal::float2(((float(_naga_div(int(vi), 2)) * 4.0) - 1.0), ((float(_naga_mod(int(vi), 2)) * 4.0) - 1.0)), 0.0, 1.0), ((metal::float2(((float(_naga_div(int(vi), 2)) * 4.0) - 1.0), ((float(_naga_mod(int(vi), 2)) * 4.0) - 1.0)) + 1.0) * 0.5)};
+    _output.position_ = _ret_25.position_;
+    _output.uv = _ret_25.uv;
+    return _output;
+    return _output;
+}
+
+struct fs_main_Input {
+    metal::float2 uv [[user(locn0)]];
+};
+
+fragment metal::float4 fs_main(fs_main_Input _input [[stage_in]],
+    metal::texture2d<float, metal::access::sample> t_diffuse [[texture(0)]],
+    metal::sampler s_diffuse [[sampler(1)]]) {
+    auto uv = _input.uv;
+    
+    return t_diffuse.sample(s_diffuse, uv);
+}
+

@@ -1,0 +1,65 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct Uniforms {
+    metal::float4x4 model;
+    metal::float4x4 view;
+    metal::float4x4 projection;
+};
+
+struct VertexOutput {
+    metal::float4 position_;
+    metal::float3 world_pos;
+};
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+struct vs_main_Input {
+    metal::float3 position_ [[attribute(0)]];
+};
+
+struct vs_main_Output {
+    metal::float4 position_ [[position]];
+    metal::float3 world_pos [[user(locn0)]];
+};
+
+vertex vs_main_Output vs_main(vs_main_Input _input [[stage_in]],
+    constant Uniforms* uniforms [[buffer(0)]]) {
+    auto position_ = _input.position_;
+    VertexOutput out_ = VertexOutput();
+    
+    vs_main_Output _output;
+    out_.position_ = ((uniforms.projection * uniforms.view) * (uniforms.model * metal::float4(position_, 1.0)));
+    out_.world_pos = (uniforms.model * metal::float4(position_, 1.0)).xyz;
+    auto _ret_12 = out_;
+    _output.position_ = _ret_12.position_;
+    _output.world_pos = _ret_12.world_pos;
+    return _output;
+    return _output;
+}
+
+struct fs_main_Input {
+    metal::float3 world_pos [[user(locn0)]];
+};
+
+fragment metal::float4 fs_main(fs_main_Input _input [[stage_in]],
+    constant Uniforms* uniforms [[buffer(0)]]) {
+    auto world_pos = _input.world_pos;
+    
+    return metal::float4(((metal::normalize(world_pos) * 0.5) + 0.5), 1.0);
+}
+

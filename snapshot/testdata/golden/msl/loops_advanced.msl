@@ -1,0 +1,91 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+int nested_loops() {
+    int total = 0;
+    int i = 0;
+    int j = 0;
+    
+    while (true) {
+        if (!((i < 3))) {
+            break;
+        }
+        while (true) {
+            if (!((j < 3))) {
+                break;
+            }
+            total = ((total + (i * 3)) + j);
+            j = (j + 1);
+        }
+        i = (i + 1);
+    }
+    return total;
+}
+
+int loop_with_break() {
+    int sum = 0;
+    int i = 0;
+    
+    while (true) {
+        if ((i >= 10)) {
+            break;
+        }
+        if ((i == 5)) {
+            i = (i + 1);
+            continue;
+        }
+        sum = (sum + i);
+        i = (i + 1);
+    }
+    return sum;
+}
+
+int loop_with_continuing() {
+    int sum = 0;
+    int i = 0;
+    
+    while (true) {
+        if ((i >= 5)) {
+            break;
+        }
+        sum = (sum + i);
+        i = (i + 1);
+    }
+    return sum;
+}
+
+int while_loop() {
+    int n = 100;
+    
+    while (true) {
+        if (!((n > 1))) {
+            break;
+        }
+        n = _naga_div(n, 2);
+    }
+    return n;
+}
+
+kernel void main_() {
+    int _fc0 = nested_loops();
+    int _fc1 = loop_with_break();
+    int _fc2 = loop_with_continuing();
+    int _fc3 = while_loop();
+}
+

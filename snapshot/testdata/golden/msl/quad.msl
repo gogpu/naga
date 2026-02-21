@@ -1,0 +1,53 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct VertexOutput {
+    metal::float4 position_;
+    metal::float2 uv;
+};
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+struct vs_main_Output {
+    metal::float4 position_ [[position]];
+    metal::float2 uv [[user(locn0)]];
+};
+
+vertex vs_main_Output vs_main(uint vi [[vertex_id]]) {
+    metal::float2 pos = metal::float2();
+    metal::float2 uv = metal::float2();
+    
+    vs_main_Output _output;
+    pos = metal::float2(((float(_naga_div(int(vi), 2)) * 4.0) - 1.0), ((float(_naga_mod(int(vi), 2)) * 4.0) - 1.0));
+    uv = ((pos + 1.0) * 0.5);
+    auto _ret_27 = VertexOutput{metal::float4(pos, 0.0, 1.0), uv};
+    _output.position_ = _ret_27.position_;
+    _output.uv = _ret_27.uv;
+    return _output;
+    return _output;
+}
+
+struct fs_main_Input {
+    metal::float2 uv [[user(locn0)]];
+};
+
+fragment metal::float4 fs_main(fs_main_Input _input [[stage_in]]) {
+    auto uv = _input.uv;
+    
+    return metal::float4(uv, 0.0, 1.0);
+}
+

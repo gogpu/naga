@@ -1,0 +1,68 @@
+; SPIR-V
+; Version: 1.3
+; Generator: 0x00000000
+; Bound: 57
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_9 "main"
+               OpExecutionMode %_9 LocalSize 1 1 1
+         %_2 = OpTypeFloat 32
+         %_3 = OpTypeInt 32 1
+         %_4 = OpTypeInt 32 0
+         %_5 = OpTypeBool
+         %_6 = OpTypeVector %_2 3
+         %_7 = OpTypeVoid
+         %_8 = OpTypeFunction %_7
+         %_11 = OpConstant %_2 1065353216
+         %_12 = OpConstant %_2 1073741824
+         %_13 = OpConstant %_2 1077936128
+         %_15 = OpConstant %_2 1082130432
+         %_16 = OpConstant %_2 1084227584
+         %_17 = OpConstant %_2 1086324736
+         %_19 = OpConstant %_2 1056964608
+         %_24 = OpConstant %_2 0
+         %_25 = OpConstant %_2 1065353216
+         %_27 = OpConstant %_2 1056964608
+         %_29 = OpConstant %_2 0
+         %_30 = OpConstant %_2 1065353216
+         %_32 = OpConstant %_2 1065353216
+         %_35 = OpConstant %_2 1084227584
+         %_38 = OpConstant %_2 1071225242
+         %_40 = OpConstant %_2 1067869798
+         %_42 = OpConstant %_2 1065353216
+         %_43 = OpConstant %_2 1073741824
+         %_45 = OpConstant %_2 1065353216
+         %_46 = OpConstant %_2 1073741824
+         %_48 = OpConstant %_2 1082130432
+         %_50 = OpConstant %_2 1073741824
+         %_51 = OpConstant %_2 1077936128
+         %_53 = OpConstant %_2 1065353216
+         %_55 = OpConstant %_2 1065353216
+         %_9 = OpFunction %_7 None %_8
+         %_10 = OpLabel
+         %_14 = OpCompositeConstruct %_6 %_11 %_12 %_13
+         %_18 = OpCompositeConstruct %_6 %_15 %_16 %_17
+         %_20 = OpExtInst %_6 %_1 %_69 %_14
+         %_21 = OpExtInst %_2 %_1 %_66 %_14
+         %_22 = OpDot %_2 %_14 %_18
+         %_23 = OpExtInst %_6 %_1 %_68 %_14 %_18
+         %_26 = OpExtInst %_2 %_1 %_43 %_19 %_24 %_25
+         %_28 = OpExtInst %_6 %_1 %_46 %_14 %_18 %_27
+         %_31 = OpExtInst %_2 %_1 %_49 %_29 %_30 %_19
+         %_33 = OpFNegate %_2 %_32
+         %_34 = OpExtInst %_2 %_1 %_4 %_33
+         %_36 = OpFNegate %_2 %_35
+         %_37 = OpExtInst %_2 %_1 %_6 %_36
+         %_39 = OpExtInst %_2 %_1 %_8 %_38
+         %_41 = OpExtInst %_2 %_1 %_9 %_40
+         %_44 = OpExtInst %_2 %_1 %_37 %_42 %_43
+         %_47 = OpExtInst %_2 %_1 %_40 %_45 %_46
+         %_49 = OpExtInst %_2 %_1 %_31 %_48
+         %_52 = OpExtInst %_2 %_1 %_26 %_50 %_51
+         %_54 = OpExtInst %_2 %_1 %_27 %_53
+         %_56 = OpExtInst %_2 %_1 %_28 %_55
+               OpReturn
+               OpFunctionEnd
