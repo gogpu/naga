@@ -88,6 +88,32 @@ func TestVersion_SupportsCompute(t *testing.T) {
 	}
 }
 
+func TestVersion_versionLessThan(t *testing.T) {
+	tests := []struct {
+		version Version
+		number  int
+		want    bool
+	}{
+		{Version330, 410, true},   // 330 < 410
+		{Version400, 410, true},   // 400 < 410
+		{Version410, 410, false},  // 410 == 410, not less
+		{Version420, 410, false},  // 420 > 410
+		{Version450, 410, false},  // 450 > 410
+		{Version460, 410, false},  // 460 > 410
+		{VersionES300, 410, true}, // 300 < 410 (but ES check is separate)
+		{VersionES310, 410, true}, // 310 < 410
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.version.String(), func(t *testing.T) {
+			got := tt.version.versionLessThan(tt.number)
+			if got != tt.want {
+				t.Errorf("versionLessThan(%d) = %v, want %v", tt.number, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestVersion_SupportsStorageBuffers(t *testing.T) {
 	tests := []struct {
 		version Version
@@ -409,7 +435,7 @@ func TestFormatFloat64(t *testing.T) {
 // Compile Tests - Empty Module
 // =============================================================================
 
-func TestCompile_EmptyModule(t *testing.T) {
+func TestCompile_DefaultOptions(t *testing.T) {
 	module := &ir.Module{}
 
 	source, info, err := Compile(module, DefaultOptions())
@@ -420,6 +446,11 @@ func TestCompile_EmptyModule(t *testing.T) {
 	// Should have version directive
 	if !strings.HasPrefix(source, "#version 330 core") {
 		t.Errorf("Expected version directive, got: %s", source[:minInt(50, len(source))])
+	}
+
+	// Desktop GLSL 330 < 410: must include GL_ARB_separate_shader_objects
+	if !strings.Contains(source, "#extension GL_ARB_separate_shader_objects : enable") {
+		t.Error("Expected GL_ARB_separate_shader_objects extension for GLSL 330")
 	}
 
 	// Info should be populated
@@ -447,6 +478,11 @@ func TestCompile_ES300(t *testing.T) {
 	if !strings.Contains(source, "precision highp float;") {
 		t.Error("Expected precision qualifier for ES")
 	}
+
+	// ES versions must NOT include GL_ARB_separate_shader_objects (core in ES 3.00+)
+	if strings.Contains(source, "GL_ARB_separate_shader_objects") {
+		t.Error("ES 300 should NOT include GL_ARB_separate_shader_objects extension")
+	}
 }
 
 func TestCompile_ES310(t *testing.T) {
@@ -462,6 +498,11 @@ func TestCompile_ES310(t *testing.T) {
 	if !strings.HasPrefix(source, "#version 310 es") {
 		t.Errorf("Expected ES 3.10 version directive, got: %s", source[:minInt(50, len(source))])
 	}
+
+	// ES versions must NOT include GL_ARB_separate_shader_objects
+	if strings.Contains(source, "GL_ARB_separate_shader_objects") {
+		t.Error("ES 310 should NOT include GL_ARB_separate_shader_objects extension")
+	}
 }
 
 func TestCompile_Version450(t *testing.T) {
@@ -476,6 +517,32 @@ func TestCompile_Version450(t *testing.T) {
 
 	if !strings.HasPrefix(source, "#version 450 core") {
 		t.Errorf("Expected 450 core version directive, got: %s", source[:minInt(50, len(source))])
+	}
+
+	// GLSL 450 >= 410: must NOT include GL_ARB_separate_shader_objects (core)
+	if strings.Contains(source, "GL_ARB_separate_shader_objects") {
+		t.Error("GLSL 450 should NOT include GL_ARB_separate_shader_objects extension")
+	}
+}
+
+func TestCompile_Version410(t *testing.T) {
+	module := &ir.Module{}
+
+	source, _, err := Compile(module, Options{
+		LangVersion: Version410,
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	if !strings.HasPrefix(source, "#version 410 core") {
+		t.Errorf("Expected 410 core version directive, got: %s", source[:minInt(50, len(source))])
+	}
+
+	// GLSL 410 is where layout(location) on varyings became core.
+	// Must NOT include the extension.
+	if strings.Contains(source, "GL_ARB_separate_shader_objects") {
+		t.Error("GLSL 410 should NOT include GL_ARB_separate_shader_objects extension")
 	}
 }
 

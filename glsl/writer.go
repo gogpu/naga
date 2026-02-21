@@ -231,9 +231,16 @@ func (w *Writer) writeModule() error {
 	return w.writeEntryPoints()
 }
 
-// writeVersionDirective writes the #version directive.
+// writeVersionDirective writes the #version directive and required extensions.
 func (w *Writer) writeVersionDirective() {
 	w.writeLine("#version %s", w.options.LangVersion.String())
+
+	// layout(location) on inter-stage varyings requires GL_ARB_separate_shader_objects
+	// in desktop GLSL < 4.10. In 4.10+ it is core. ES is unaffected (core since ES 3.00).
+	if !w.options.LangVersion.ES && w.options.LangVersion.versionLessThan(410) {
+		w.writeLine("#extension GL_ARB_separate_shader_objects : enable")
+	}
+
 	w.writeLine("")
 }
 
