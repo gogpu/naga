@@ -80,8 +80,10 @@ fn ps_main() -> @location(0) vec4<f32> {
 `
 	code := compileWGSLToHLSL(t, source)
 
-	// Vertex entry point with input struct
-	assertContains(t, code, "struct vs_main_Input")
+	// Vertex entry point with input struct.
+	// Entry point naming: stage prefix + original name.
+	// WGSL "vs_main" -> HLSL "vs_vs_main", WGSL "ps_main" -> HLSL "ps_ps_main".
+	assertContains(t, code, "struct vs_vs_main_Input")
 	assertContains(t, code, "SV_VertexID")
 
 	// Vertex output semantic
@@ -250,8 +252,8 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 	// Should have register binding
 	assertContains(t, code, "register(")
 
-	// Should have matrix type
-	assertContains(t, code, "float4x4")
+	// Should have row_major matrix type in struct
+	assertContains(t, code, "row_major float4x4")
 
 	// No stubs
 	assertNotContains(t, code, "// Function body (to be implemented)")
@@ -521,8 +523,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 `
 	code := compileWGSLToHLSL(t, source)
 
-	// Input struct should have flattened struct members with semantics
-	assertContains(t, code, "struct vs_main_Input")
+	// Input struct should have flattened struct members with semantics.
+	// Entry point naming: stage prefix + original name.
+	// WGSL "vs_main" -> HLSL "vs_vs_main".
+	assertContains(t, code, "struct vs_vs_main_Input")
 	assertContains(t, code, "TEXCOORD0")
 	assertContains(t, code, "TEXCOORD1")
 
@@ -539,6 +543,328 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
 	// No stubs
 	assertNotContains(t, code, "// Function body (to be implemented)")
+
+	t.Logf("HLSL struct arg output:\n%s", code)
+}
+
+// =============================================================================
+// MSDF text shader -- multiple entry points + function calls with results
+// =============================================================================
+
+func TestE2E_MSDFTextShader(t *testing.T) {
+	source := `
+struct TextUniforms {
+    transform: mat4x4<f32>,
+    color: vec4<f32>,
+    msdf_params: vec4<f32>,
+}
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) tex_coord: vec2<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) tex_coord: vec2<f32>,
+    @location(1) color: vec4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: TextUniforms;
+@group(0) @binding(1) var msdf_atlas: texture_2d<f32>;
+@group(0) @binding(2) var msdf_sampler: sampler;
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    let p = vec4<f32>(in.position, 0.0, 1.0);
+    let col0 = uniforms.transform[0];
+    let col1 = uniforms.transform[1];
+    let col2 = uniforms.transform[2];
+    let col3 = uniforms.transform[3];
+    let pos = p.x * col0 + p.y * col1 + p.z * col2 + p.w * col3;
+    out.position = pos;
+    out.tex_coord = in.tex_coord;
+    out.color = uniforms.color;
+    return out;
+}
+
+fn median3(r: f32, g: f32, b: f32) -> f32 {
+    return max(min(r, g), min(max(r, g), b));
+}
+
+fn sampleSD(uv: vec2<f32>) -> f32 {
+    let msdf = textureSample(msdf_atlas, msdf_sampler, uv).rgb;
+    return median3(msdf.r, msdf.g, msdf.b) - 0.5;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let px_range = uniforms.msdf_params.x;
+    let atlas_size = uniforms.msdf_params.y;
+    let unit_range = vec2<f32>(px_range / atlas_size, px_range / atlas_size);
+    let screen_tex_size = vec2<f32>(1.0, 1.0) / fwidth(in.tex_coord);
+    let screen_px_range = max(0.5 * dot(unit_range, screen_tex_size), 1.0);
+    let offset = fwidth(in.tex_coord) * 0.25;
+    let sd0 = sampleSD(in.tex_coord + vec2<f32>(-offset.x, -offset.y));
+    let sd1 = sampleSD(in.tex_coord + vec2<f32>( offset.x, -offset.y));
+    let sd2 = sampleSD(in.tex_coord + vec2<f32>(-offset.x,  offset.y));
+    let sd3 = sampleSD(in.tex_coord + vec2<f32>( offset.x,  offset.y));
+    let sd = (sd0 + sd1 + sd2 + sd3) * 0.25;
+    let alpha = clamp(screen_px_range * sd + 0.5, 0.0, 1.0);
+    return vec4<f32>(in.color.rgb * alpha, in.color.a * alpha);
+}
+
+@fragment
+fn fs_main_outline(in: VertexOutput) -> @location(0) vec4<f32> {
+    let msdf = textureSample(msdf_atlas, msdf_sampler, in.tex_coord).rgb;
+    let sd = median3(msdf.r, msdf.g, msdf.b) - 0.5;
+    let unit_range = vec2<f32>(uniforms.msdf_params.x / uniforms.msdf_params.y,
+                              uniforms.msdf_params.x / uniforms.msdf_params.y);
+    let screen_tex_size = vec2<f32>(1.0, 1.0) / fwidth(in.tex_coord);
+    let screen_px_range = max(0.5 * dot(unit_range, screen_tex_size), 1.0);
+    let screen_px_distance = screen_px_range * sd;
+    let outline_width = uniforms.msdf_params.z;
+    let fill_alpha = clamp(screen_px_distance + 0.5, 0.0, 1.0);
+    let outline_alpha = clamp(screen_px_distance + outline_width + 0.5, 0.0, 1.0);
+    let outline_color = vec4<f32>(1.0 - in.color.rgb, 1.0);
+    let outline_diff = outline_alpha - fill_alpha;
+    let fill = vec4<f32>(in.color.rgb * fill_alpha, in.color.a * fill_alpha);
+    let outline = vec4<f32>(outline_color.rgb * outline_diff, outline_color.a * outline_diff);
+    return fill + outline;
+}
+
+@fragment
+fn fs_main_shadow(in: VertexOutput) -> @location(0) vec4<f32> {
+    let shadow_offset = vec2<f32>(0.002, 0.002);
+    let shadow_color = vec4<f32>(0.0, 0.0, 0.0, 0.5);
+    let unit_range = vec2<f32>(uniforms.msdf_params.x / uniforms.msdf_params.y,
+                              uniforms.msdf_params.x / uniforms.msdf_params.y);
+    let screen_tex_size = vec2<f32>(1.0, 1.0) / fwidth(in.tex_coord);
+    let screen_px_range = max(0.5 * dot(unit_range, screen_tex_size), 1.0);
+    let shadow_msdf = textureSample(msdf_atlas, msdf_sampler, in.tex_coord - shadow_offset).rgb;
+    let shadow_sd = median3(shadow_msdf.r, shadow_msdf.g, shadow_msdf.b) - 0.5;
+    let shadow_alpha = clamp(screen_px_range * shadow_sd + 0.5, 0.0, 1.0);
+    let msdf = textureSample(msdf_atlas, msdf_sampler, in.tex_coord).rgb;
+    let fill_sd = median3(msdf.r, msdf.g, msdf.b) - 0.5;
+    let fill_alpha = clamp(screen_px_range * fill_sd + 0.5, 0.0, 1.0);
+    let shadow = vec4<f32>(shadow_color.rgb * shadow_alpha, shadow_color.a * shadow_alpha);
+    let fill = vec4<f32>(in.color.rgb * fill_alpha, in.color.a * fill_alpha);
+    return fill + shadow * (1.0 - fill.a);
+}
+`
+	code := compileWGSLToHLSL(t, source)
+
+	// Bug 1: All entry point names must be unique.
+	// vs_main -> vs_vs_main, fs_main -> ps_fs_main,
+	// fs_main_outline -> ps_fs_main_outline, fs_main_shadow -> ps_fs_main_shadow.
+	assertContains(t, code, "vs_vs_main")
+	assertContains(t, code, "ps_fs_main")
+	assertContains(t, code, "ps_fs_main_outline")
+	assertContains(t, code, "ps_fs_main_shadow")
+
+	// Verify uniqueness: no generic ps_main that would collide.
+	assertNotContains(t, code, "ps_main(") // old broken name should not appear
+	assertNotContains(t, code, "ps_main ") // no generic ps_main prefix
+
+	// Bug 2: Function call results must be declared with type and unique names.
+	// Each call site gets a unique variable _crN (N = expression handle).
+	// Verify typed declarations exist (float _crNN = funcname(...)).
+	assertContains(t, code, "float _cr")           // at least one typed call result
+	assertNotContains(t, code, "_sampleSD_result") // old broken global pattern gone
+	assertNotContains(t, code, "_median3_result")  // old broken global pattern gone
+
+	// Input/output structs should have unique names per entry point.
+	assertContains(t, code, "struct vs_vs_main_Input")
+	assertContains(t, code, "struct ps_fs_main_Input")
+	assertContains(t, code, "struct ps_fs_main_outline_Input")
+	assertContains(t, code, "struct ps_fs_main_shadow_Input")
+
+	// Regular functions should be declared (not entry points).
+	assertContains(t, code, "float median3(")
+	assertContains(t, code, "float sampleSD(")
+
+	// Semantic bindings for vertex output.
+	assertContains(t, code, "SV_Position")
+	assertContains(t, code, "SV_Target0")
+
+	// Matrix members in uniform structs must have row_major qualifier.
+	assertContains(t, code, "row_major float4x4 transform")
+
+	// No stubs.
+	assertNotContains(t, code, "// Function body (to be implemented)")
+	assertNotContains(t, code, "// Entry point body (to be implemented)")
+
+	t.Logf("MSDF text HLSL output:\n%s", code)
+}
+
+// TestE2E_MSDFTextShader_PerEntryPoint tests per-entry-point compilation as DX12 backend does.
+func TestE2E_MSDFTextShader_PerEntryPoint(t *testing.T) {
+	source := `
+struct TextUniforms {
+    transform: mat4x4<f32>,
+    color: vec4<f32>,
+    msdf_params: vec4<f32>,
+}
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) tex_coord: vec2<f32>,
+}
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) tex_coord: vec2<f32>,
+    @location(1) color: vec4<f32>,
+}
+@group(0) @binding(0) var<uniform> uniforms: TextUniforms;
+@group(0) @binding(1) var msdf_atlas: texture_2d<f32>;
+@group(0) @binding(2) var msdf_sampler: sampler;
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    let p = vec4<f32>(in.position, 0.0, 1.0);
+    let col0 = uniforms.transform[0];
+    let col1 = uniforms.transform[1];
+    let col2 = uniforms.transform[2];
+    let col3 = uniforms.transform[3];
+    let pos = p.x * col0 + p.y * col1 + p.z * col2 + p.w * col3;
+    out.position = pos;
+    out.tex_coord = in.tex_coord;
+    out.color = uniforms.color;
+    return out;
+}
+
+fn median3(r: f32, g: f32, b: f32) -> f32 {
+    return max(min(r, g), min(max(r, g), b));
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+}
+`
+	// Compile per-entry-point (as DX12 backend does)
+	for _, epName := range []string{"vs_main", "fs_main"} {
+		lexer := wgsl.NewLexer(source)
+		tokens, err := lexer.Tokenize()
+		if err != nil {
+			t.Fatalf("Tokenize failed: %v", err)
+		}
+		parser := wgsl.NewParser(tokens)
+		ast, err := parser.Parse()
+		if err != nil {
+			t.Fatalf("Parse failed: %v", err)
+		}
+		module, err := wgsl.LowerWithSource(ast, source)
+		if err != nil {
+			t.Fatalf("Lower failed: %v", err)
+		}
+		opts := hlsl.DefaultOptions()
+		opts.EntryPoint = epName
+		code, _, err := hlsl.Compile(module, opts)
+		if err != nil {
+			t.Fatalf("HLSL Compile (entry=%s) failed: %v", epName, err)
+		}
+		t.Logf("=== HLSL for entry point '%s' ===\n%s", epName, code)
+
+		// Verify key elements present
+		if !strings.Contains(code, "register(b0") {
+			t.Errorf("entry=%s: missing cbuffer register(b0)", epName)
+		}
+		// Matrix member must have row_major qualifier
+		assertContains(t, code, "row_major float4x4 transform")
+	}
+}
+
+// =============================================================================
+// Function call with result (typed variable declaration)
+// =============================================================================
+
+func TestE2E_FunctionCallWithResult(t *testing.T) {
+	source := `
+fn helper(x: f32) -> f32 {
+    return x * 2.0;
+}
+
+@fragment
+fn main(@location(0) v: f32) -> @location(0) vec4<f32> {
+    let result = helper(v);
+    return vec4<f32>(result, 0.0, 0.0, 1.0);
+}
+`
+	code := compileWGSLToHLSL(t, source)
+
+	// The call result must be declared with its type (float _crN = helper(...)).
+	assertContains(t, code, "float _cr")
+	assertContains(t, code, "= helper(")
+
+	// Must NOT contain old-style bare undeclared assignment.
+	assertNotContains(t, code, "_helper_result = helper(")
+
+	// No stubs.
+	assertNotContains(t, code, "// Function body (to be implemented)")
+
+	t.Logf("Function call result HLSL output:\n%s", code)
+}
+
+// =============================================================================
+// row_major on uniform matrix members
+// =============================================================================
+
+func TestE2E_MatrixRowMajor(t *testing.T) {
+	source := `
+struct Uniforms {
+    model: mat4x4<f32>,
+    view: mat4x4<f32>,
+    proj: mat4x4<f32>,
+    scale: f32,
+}
+
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+@vertex
+fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
+    return vec4<f32>(pos * u.scale, 1.0);
+}
+`
+	code := compileWGSLToHLSL(t, source)
+
+	// All matrix members must have row_major prefix
+	assertContains(t, code, "row_major float4x4 model")
+	assertContains(t, code, "row_major float4x4 view")
+	assertContains(t, code, "row_major float4x4 proj")
+
+	// Non-matrix members must NOT have row_major prefix
+	assertNotContains(t, code, "row_major float scale")
+
+	t.Logf("HLSL output:\n%s", code)
+}
+
+// =============================================================================
+// Matrix multiply reversal: mat * vec → mul(vec, mat)
+// =============================================================================
+
+func TestE2E_MatrixMulReversed(t *testing.T) {
+	source := `
+struct Camera {
+    mvp: mat4x4<f32>,
+}
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+
+@vertex
+fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
+    let p = vec4<f32>(pos, 1.0);
+    return camera.mvp * p;
+}
+`
+	code := compileWGSLToHLSL(t, source)
+
+	// mat4x4 * vec4 should become mul(vec4, mat4x4) — reversed args
+	assertContains(t, code, "mul(")
+
+	// The row_major qualifier should be present on the matrix member
+	assertContains(t, code, "row_major float4x4 mvp")
 
 	t.Logf("HLSL output:\n%s", code)
 }

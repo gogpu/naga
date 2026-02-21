@@ -212,8 +212,10 @@ func (w *Writer) registerNames() error {
 	// Register entry point names
 	for epIdx := range w.module.EntryPoints {
 		ep := &w.module.EntryPoints[epIdx]
-		// Entry point function is named by shader type convention
-		name := fmt.Sprintf("%s_main", ShaderStageToHLSL(ep.Stage))
+		// Entry point function is named by stage prefix + original name.
+		// This produces unique names like vs_vs_main, ps_fs_main, ps_fs_main_outline
+		// when multiple entry points share the same stage (e.g., multiple fragment shaders).
+		name := fmt.Sprintf("%s_%s", ShaderStageToHLSL(ep.Stage), ep.Name)
 		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
 			continue
 		}

@@ -406,7 +406,7 @@ func (w *Writer) writeUnaryExpression(e ir.ExprUnary) error {
 
 // writeBinaryExpression writes a binary operation.
 //
-//nolint:gocyclo,cyclop // Binary operator mapping requires many cases (19 operators)
+//nolint:gocyclo,cyclop,funlen // Binary operator mapping requires many cases (19 operators + matrix mul)
 func (w *Writer) writeBinaryExpression(e ir.ExprBinary) error {
 	var op string
 	switch e.Op {
@@ -415,6 +415,25 @@ func (w *Writer) writeBinaryExpression(e ir.ExprBinary) error {
 	case ir.BinarySubtract:
 		op = "-"
 	case ir.BinaryMultiply:
+		// When either operand is a matrix, use mul() with reversed args.
+		// HLSL row_major storage transposes the matrix, so mul(right, left)
+		// produces the correct result matching WGSL's left * right semantics.
+		leftType := w.getExpressionTypeInner(e.Left)
+		rightType := w.getExpressionTypeInner(e.Right)
+		_, leftIsMatrix := leftType.(ir.MatrixType)
+		_, rightIsMatrix := rightType.(ir.MatrixType)
+		if leftIsMatrix || rightIsMatrix {
+			w.out.WriteString("mul(")
+			if err := w.writeExpression(e.Right); err != nil {
+				return fmt.Errorf("binary right: %w", err)
+			}
+			w.out.WriteString(", ")
+			if err := w.writeExpression(e.Left); err != nil {
+				return fmt.Errorf("binary left: %w", err)
+			}
+			w.out.WriteString(")")
+			return nil
+		}
 		op = "*"
 	case ir.BinaryDivide:
 		op = "/"
@@ -1050,9 +1069,10 @@ func (w *Writer) writeImageQueryExpression(e ir.ExprImageQuery) error {
 // =============================================================================
 
 // writeCallResultExpression writes a reference to a call result.
+// Normally this is NOT reached because writeCallStatement registers the
+// result in namedExpressions, and writeExpression returns the cached name
+// before dispatching here. This fallback exists for safety.
 func (w *Writer) writeCallResultExpression(e ir.ExprCallResult) error {
-	// The call result is stored in a temporary by the call statement
-	// This references that temporary
 	name := w.names[nameKey{kind: nameKeyFunction, handle1: uint32(e.Function)}]
 	fmt.Fprintf(&w.out, "_%s_result", name)
 	return nil
@@ -1120,8 +1140,6 @@ func (w *Writer) writeExpressionToString(handle ir.ExpressionHandle) (string, er
 }
 
 // getExpressionTypeInner returns just the TypeInner for an expression.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) getExpressionTypeInner(handle ir.ExpressionHandle) ir.TypeInner {
 	typ := w.getExpressionType(handle)
 	if typ != nil {

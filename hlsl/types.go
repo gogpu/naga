@@ -55,8 +55,14 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 		// Get the type information for the member
 		memberType, arraySuffix := w.getTypeNameWithArraySuffix(member.Type)
 
-		// Write member with type, name, and array suffix
-		w.writeLine("%s %s%s;", memberType, memberName, arraySuffix)
+		// Add row_major prefix for matrix-typed members (needed for correct
+		// column access in HLSL cbuffers — WGSL M[i] = column i, but HLSL
+		// default column_major packing makes M[i] return row i).
+		if isMatrixType(w.module, member.Type) || containsMatrix(w.module, member.Type) {
+			w.writeLine("row_major %s %s%s;", memberType, memberName, arraySuffix)
+		} else {
+			w.writeLine("%s %s%s;", memberType, memberName, arraySuffix)
+		}
 	}
 
 	w.popIndent()
@@ -361,14 +367,19 @@ func (w *Writer) writeByteAddressBufferType(readOnly bool) string {
 }
 
 // writeCBufferDeclaration writes a cbuffer declaration.
-func (w *Writer) writeCBufferDeclaration(name, typeName string, binding *BindTarget) {
+func (w *Writer) writeCBufferDeclaration(name, typeName string, typeHandle ir.TypeHandle, binding *BindTarget) {
 	if binding != nil {
 		w.writeLine("cbuffer %s_cbuffer : register(b%d, space%d) {", name, binding.Register, binding.Space)
 	} else {
 		w.writeLine("cbuffer %s_cbuffer {", name)
 	}
 	w.pushIndent()
-	w.writeLine("%s %s;", typeName, name)
+	// Add row_major prefix for direct matrix types in cbuffer
+	if isMatrixType(w.module, typeHandle) || containsMatrix(w.module, typeHandle) {
+		w.writeLine("row_major %s %s;", typeName, name)
+	} else {
+		w.writeLine("%s %s;", typeName, name)
+	}
 	w.popIndent()
 	w.writeLine("};")
 }
@@ -496,7 +507,7 @@ func (w *Writer) writeGlobalVariable(name string, global *ir.GlobalVariable) err
 	case ir.SpaceUniform:
 		// Constant buffers
 		binding := w.getBindTarget(global.Binding)
-		w.writeCBufferDeclaration(name, typeName, &binding)
+		w.writeCBufferDeclaration(name, typeName, typeHandle, &binding)
 		w.registerBindings[name] = fmt.Sprintf("register(b%d, space%d)", binding.Register, binding.Space)
 
 	case ir.SpaceStorage:
@@ -668,6 +679,19 @@ func isArrayType(module *ir.Module, handle ir.TypeHandle) bool {
 	}
 	_, ok := module.Types[handle].Inner.(ir.ArrayType)
 	return ok
+}
+
+// containsMatrix checks if the type at handle contains a matrix type
+// (e.g., array of matrices). Does not match plain matrix types — use isMatrixType for that.
+func containsMatrix(module *ir.Module, handle ir.TypeHandle) bool {
+	if int(handle) >= len(module.Types) {
+		return false
+	}
+	arr, ok := module.Types[handle].Inner.(ir.ArrayType)
+	if !ok {
+		return false
+	}
+	return isMatrixType(module, arr.Base) || containsMatrix(module, arr.Base)
 }
 
 // isRuntimeArray checks if the type at handle is a runtime-sized array.

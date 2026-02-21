@@ -261,12 +261,24 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 		w.writeInputExtraction(ep, fn, structArgs)
 	}
 
-	// Write local variables with optional init expressions
+	// Write local variables with optional init expressions.
+	// When a local variable has the same type as the entry point result,
+	// it IS the output variable — declare it as _output with the output struct type
+	// so that HLSL semantics (SV_Position, TEXCOORD) are attached correctly.
+	outputLocalMapped := false
 	for localIdx, local := range fn.LocalVars {
 		localName := w.namer.call(local.Name)
-		w.localNames[uint32(localIdx)] = localName
-		// HLSL arrays: type name[size], not type[size] name
 		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
+
+		// Map the output local variable to _output with the output struct type
+		if hasOutputStruct && !outputLocalMapped && fn.Result != nil && local.Type == fn.Result.Type {
+			localName = "_output"
+			localType = outputStructName
+			outputLocalMapped = true
+		}
+
+		w.localNames[uint32(localIdx)] = localName
+
 		if local.Init != nil {
 			w.writeIndent()
 			fmt.Fprintf(&w.out, "%s %s%s = ", localType, localName, arraySuffix)
@@ -284,8 +296,8 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 		w.writeLine("")
 	}
 
-	// Create output struct if needed
-	if hasOutputStruct {
+	// Create output struct if not already mapped from a local variable
+	if hasOutputStruct && !outputLocalMapped {
 		w.writeLine("%s _output;", outputStructName)
 		w.writeLine("")
 	}
@@ -296,7 +308,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 		return err
 	}
 
-	// Return output struct if needed
+	// Return output struct if needed (fallback for control flow paths without explicit return)
 	if hasOutputStruct {
 		w.writeLine("return _output;")
 	}
