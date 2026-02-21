@@ -46,6 +46,13 @@ func (v Version) VersionNumber() string {
 	return fmt.Sprintf("%d%02d", v.Major, v.Minor)
 }
 
+// versionLessThan returns true if the numeric version (Major*100+Minor) is
+// less than the given number. For example, versionLessThan(410) returns true
+// for GLSL 330 (3*100+30=330 < 410) and false for GLSL 410 (4*100+10=410).
+func (v Version) versionLessThan(number int) bool {
+	return int(v.Major)*100+int(v.Minor) < number
+}
+
 // SupportsCompute returns true if this version supports compute shaders.
 func (v Version) SupportsCompute() bool {
 	if v.ES {

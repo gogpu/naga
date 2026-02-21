@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+#### GLSL Backend
+- Emit `#extension GL_ARB_separate_shader_objects : enable` for desktop GLSL < 4.10 — `layout(location)` on inter-stage varyings requires this extension; NVIDIA drivers reject generated code without it ([#31](https://github.com/gogpu/naga/issues/31))
+
 ## [0.14.1] - 2026-02-21
 
 ### Fixed
