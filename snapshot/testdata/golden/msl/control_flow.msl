@@ -1,0 +1,104 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+int test_if(int x) {
+    if ((x > 0)) {
+        return 1;
+    } else {
+        if ((x < 0)) {
+            return -(1);
+        } else {
+            {
+                return 0;
+            }
+        }
+    }
+}
+
+int test_loop() {
+    int sum = 0;
+    int i = 0;
+    
+    while (true) {
+        if ((i >= 10)) {
+            break;
+        }
+        sum = (sum + i);
+        i = (i + 1);
+    }
+    return sum;
+}
+
+int test_for() {
+    int sum = 0;
+    int i = 0;
+    
+    while (true) {
+        if (!((i < 5))) {
+            break;
+        }
+        if ((i == 3)) {
+            continue;
+        }
+        sum = (sum + i);
+        i = (i + 1);
+    }
+    return sum;
+}
+
+int test_while() {
+    int n = 10;
+    
+    while (true) {
+        if (!((n > 0))) {
+            break;
+        }
+        n = (n - 1);
+    }
+    return n;
+}
+
+int test_switch(int x) {
+    int result = int();
+    
+    switch (x) {
+        case 1:
+            result = 10;
+            break;
+        case 2:
+            result = 20;
+            break;
+        case 3:
+            result = 20;
+            break;
+        default:
+            result = 0;
+            break;
+    }
+    return result;
+}
+
+kernel void main_() {
+    int _fc1 = test_if(1);
+    int _fc2 = test_loop();
+    int _fc3 = test_for();
+    int _fc4 = test_while();
+    int _fc6 = test_switch(2);
+}
+

@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Test Infrastructure
+- **Golden snapshot test system** (`snapshot/`) — compiles 10 WGSL shaders through all 4 backends (SPIR-V, GLSL, HLSL, MSL), compares output to 40 stored golden files; supports `UPDATE_GOLDEN=1` for regeneration
+- **WGSL error case tests** (`wgsl/wgsl_errors_test.go`) — 76 test cases covering parse errors (39) and lowering errors (37): unknown types, unresolved identifiers, missing tokens, wrong builtin argument counts, reserved words
+- **SPIR-V disassembler** for golden snapshots — extracted from `cmd/spvdis/` into reusable test helper, produces diff-friendly text output
+
 ### Fixed
+
+#### SPIR-V Backend
+- **Deterministic output** — replaced `map[int]uint32` with `[]uint32` slices for entry point interface variables and struct member extraction; Go map iteration order was causing non-reproducible SPIR-V binaries
 
 #### GLSL Backend
 - Emit `#extension GL_ARB_separate_shader_objects : enable` for desktop GLSL < 4.10 — `layout(location)` on inter-stage varyings requires this extension; NVIDIA drivers reject generated code without it ([#31](https://github.com/gogpu/naga/issues/31))

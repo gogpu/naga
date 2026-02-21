@@ -1,0 +1,30 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+struct main__Output {
+    metal::float4 member [[position]];
+};
+
+vertex main__Output main_(uint idx [[vertex_id]]) {
+    main__Output _output;
+    _output.member = metal::float4(0.0, 0.0, 0.0, 1.0);
+    return _output;
+    return _output;
+}
+

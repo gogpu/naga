@@ -1,0 +1,37 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+float add(float a, float b) {
+    return (a + b);
+}
+
+metal::float2 multiply(metal::float2 a, metal::float2 b) {
+    return (a * b);
+}
+
+metal::float2 test_fma() {
+    return metal::fma(metal::float2(2.0, 2.0), metal::float2(0.5, 0.5), metal::float2(0.5, 0.5));
+}
+
+kernel void main_() {
+    float _fc2 = add(1.0, 2.0);
+    metal::float2 _fc9 = multiply(metal::float2(2.0, 3.0), metal::float2(4.0, 5.0));
+    metal::float2 _fc10 = test_fma();
+}
+
