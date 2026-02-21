@@ -266,8 +266,13 @@ func compareGolden(t *testing.T, path, actual string) {
 		t.Fatalf("read golden file %s: %v", path, err)
 	}
 
-	if string(expected) != actual {
-		diff := diffStrings(string(expected), actual)
+	// Normalize line endings for cross-platform comparison.
+	// Git may convert \n to \r\n on Windows checkout.
+	expectedStr := strings.ReplaceAll(string(expected), "\r\n", "\n")
+	actualStr := strings.ReplaceAll(actual, "\r\n", "\n")
+
+	if expectedStr != actualStr {
+		diff := diffStrings(expectedStr, actualStr)
 		t.Errorf("output differs from golden %s:\n%s", path, diff)
 	}
 }
