@@ -1,0 +1,34 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct Uniforms {
+    metal::float4 color_;
+    float scale;
+};
+
+struct type_6 {
+    float inner[64];
+};
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+kernel void main_(uint local_idx [[thread_index_in_threadgroup]],
+    constant Uniforms* uniforms [[buffer(0)]]) {
+    shared_data.inner[local_idx] = (uniforms.scale * float(local_idx));
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+}
+

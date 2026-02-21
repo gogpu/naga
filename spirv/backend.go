@@ -15,8 +15,9 @@ type entryPointInput struct {
 	isStruct bool
 	// singleVarID is the input variable ID for non-struct inputs
 	singleVarID uint32
-	// memberVarIDs maps struct member index to input variable ID
-	memberVarIDs map[int]uint32
+	// memberVarIDs holds input variable IDs indexed by struct member index.
+	// Zero means no variable for that member. Only populated when isStruct is true.
+	memberVarIDs []uint32
 	// typeID is the SPIR-V type ID of the argument
 	typeID uint32
 }
@@ -29,8 +30,9 @@ type entryPointOutput struct {
 	isStruct bool
 	// singleVarID is the output variable ID for non-struct outputs
 	singleVarID uint32
-	// memberVarIDs maps struct member index to output variable ID
-	memberVarIDs map[int]uint32
+	// memberVarIDs holds output variable IDs indexed by struct member index.
+	// Zero means no variable for that member. Only populated when isStruct is true.
+	memberVarIDs []uint32
 	// resultTypeID is the SPIR-V type ID of the result (for struct decomposition)
 	resultTypeID uint32
 }
@@ -58,8 +60,8 @@ type Backend struct {
 
 	// Entry point interface variables (for builtins and locations).
 	// Key: entry point function handle
-	entryInputVars  map[ir.FunctionHandle]map[int]*entryPointInput // arg index → input info
-	entryOutputVars map[ir.FunctionHandle]*entryPointOutput        // For function result
+	entryInputVars  map[ir.FunctionHandle][]*entryPointInput // index = arg index
+	entryOutputVars map[ir.FunctionHandle]*entryPointOutput  // For function result
 
 	// Cached sampled image type (for texture sampling operations)
 	// Key: image dimension + arrayed, Value: SPIR-V type ID
@@ -119,7 +121,7 @@ func NewBackend(options Options) *Backend {
 		constantIDs:         make(map[ir.ConstantHandle]uint32, 16),
 		globalIDs:           make(map[ir.GlobalVariableHandle]uint32, 4),
 		functionIDs:         make(map[ir.FunctionHandle]uint32, 4),
-		entryInputVars:      make(map[ir.FunctionHandle]map[int]*entryPointInput, 2),
+		entryInputVars:      make(map[ir.FunctionHandle][]*entryPointInput, 2),
 		entryOutputVars:     make(map[ir.FunctionHandle]*entryPointOutput, 2),
 		sampledImageTypeIDs: make(map[uint32]uint32, 4),
 		imageTypeIDs:        make(map[uint32]uint32, 4),
@@ -997,11 +999,11 @@ func (b *Backend) addMatrixLayoutIfNeeded(structID uint32, memberIdx uint32, typ
 // In SPIR-V, entry point functions don't receive builtins as parameters.
 // Instead, builtins are global variables with Input/Output storage class.
 //
-//nolint:gocognit,nestif,gocyclo,cyclop,funlen // SPIR-V entry points require complex logic
+//nolint:gocognit,nestif,gocyclo,cyclop,funlen,dupl // SPIR-V entry points require complex logic
 func (b *Backend) emitEntryPointInterfaceVars() error {
 	for _, entryPoint := range b.module.EntryPoints {
 		fn := &b.module.Functions[entryPoint.Function]
-		inputVars := make(map[int]*entryPointInput)
+		inputVars := make([]*entryPointInput, len(fn.Arguments))
 
 		// Create input variables for function arguments
 		for i, arg := range fn.Arguments {
@@ -1011,8 +1013,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 			}
 
 			input := &entryPointInput{
-				typeID:       argTypeID,
-				memberVarIDs: make(map[int]uint32),
+				typeID: argTypeID,
 			}
 
 			if arg.Binding != nil {
@@ -1046,6 +1047,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 					}
 					if hasBindings {
 						input.isStruct = true
+						input.memberVarIDs = make([]uint32, len(structType.Members))
 						// Create separate Input variable for each member with a binding
 						for j, member := range structType.Members {
 							if member.Binding == nil {
@@ -1090,7 +1092,6 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 
 			output := &entryPointOutput{
 				resultTypeID: resultTypeID,
-				memberVarIDs: make(map[int]uint32),
 			}
 
 			if fn.Result.Binding != nil {
@@ -1111,6 +1112,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 				resultType := b.module.Types[fn.Result.Type].Inner
 				if structType, ok := resultType.(ir.StructType); ok {
 					output.isStruct = true
+					output.memberVarIDs = make([]uint32, len(structType.Members))
 					// Create separate output variable for each member with a binding
 					for i, member := range structType.Members {
 						if member.Binding == nil {
@@ -1189,7 +1191,7 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 
 // emitEntryPoints emits all entry points with their execution modes.
 //
-//nolint:gocognit // SPIR-V entry points have many cases
+//nolint:gocognit,cyclop,nestif // SPIR-V entry points have many cases
 func (b *Backend) emitEntryPoints() error {
 	for _, entryPoint := range b.module.EntryPoints {
 		// Get function ID
@@ -1222,9 +1224,15 @@ func (b *Backend) emitEntryPoints() error {
 		// Add entry point input variables (builtins, locations)
 		if inputVars, ok := b.entryInputVars[entryPoint.Function]; ok {
 			for _, input := range inputVars {
+				if input == nil {
+					continue
+				}
 				if input.isStruct {
 					// Struct input: add all member variables
 					for _, varID := range input.memberVarIDs {
+						if varID == 0 {
+							continue
+						}
 						interfaces = append(interfaces, varID)
 					}
 				} else if input.singleVarID != 0 {
@@ -1238,6 +1246,9 @@ func (b *Backend) emitEntryPoints() error {
 			if output.isStruct {
 				// Struct output: add all member variables
 				for _, varID := range output.memberVarIDs {
+					if varID == 0 {
+						continue
+					}
 					interfaces = append(interfaces, varID)
 				}
 			} else if output.singleVarID != 0 {
@@ -1383,12 +1394,15 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// - Composite construct the struct and store to local variable
 	// - Use the local variable pointer as the parameter
 	var output *entryPointOutput
-	entryPointInputLocals := make(map[int]uint32) // arg index → local var ID
-	var entryInputs map[int]*entryPointInput
+	entryPointInputLocals := make([]uint32, len(fn.Arguments)) // index = arg index, 0 = no local
+	var entryInputs []*entryPointInput
 	if isEntryPoint {
 		if inputVars, ok := b.entryInputVars[handle]; ok {
 			entryInputs = inputVars
 			for i, input := range inputVars {
+				if input == nil {
+					continue
+				}
 				if input.isStruct {
 					// Struct input with member bindings - create local variable
 					ptrType := b.emitPointerType(StorageClassFunction, input.typeID)
@@ -1428,6 +1442,9 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// This must happen after OpVariable but before other instructions
 	if isEntryPoint && entryInputs != nil {
 		for i, localVarID := range entryPointInputLocals {
+			if localVarID == 0 {
+				continue
+			}
 			input := entryInputs[i]
 			arg := fn.Arguments[i]
 			argTypeInner := b.module.Types[arg.Type].Inner
@@ -1437,7 +1454,8 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 			memberIDs := make([]uint32, len(structType.Members))
 			for j, member := range structType.Members {
 				memberTypeID, _ := b.emitType(member.Type)
-				if memberVarID, ok := input.memberVarIDs[j]; ok {
+				memberVarID := input.memberVarIDs[j]
+				if memberVarID != 0 {
 					// Load from Input interface variable
 					memberIDs[j] = b.builder.AddLoad(memberTypeID, memberVarID)
 				} else {
@@ -3063,6 +3081,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 				if e.output.isStruct {
 					// Struct output: extract each member and store to its variable
 					for memberIdx, varID := range e.output.memberVarIDs {
+						if varID == 0 {
+							continue
+						}
 						// Get the member type from the result type
 						resultType := e.backend.module.Types[e.function.Result.Type].Inner.(ir.StructType)
 						memberTypeID, err := e.backend.emitType(resultType.Members[memberIdx].Type)
