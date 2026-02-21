@@ -722,6 +722,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	w.currentFunction = fn
 	w.currentFuncHandle = handle
 	w.localNames = make(map[uint32]string)
+	w.namedExpressions = make(map[ir.ExpressionHandle]string)
 
 	name := w.names[nameKey{kind: nameKeyFunction, handle1: uint32(handle)}]
 
@@ -782,6 +783,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	w.currentFunction = fn
 	w.currentFuncHandle = ep.Function
 	w.localNames = make(map[uint32]string)
+	w.namedExpressions = make(map[ir.ExpressionHandle]string)
 	w.inEntryPoint = true
 	w.entryPointResult = fn.Result
 	w.epStructArgs = make(map[uint32]*epStructInfo)

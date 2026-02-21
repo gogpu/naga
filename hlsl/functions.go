@@ -237,21 +237,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	// Write function signature
 	w.writeEntryPointSignature(returnType, epName, ep, fn, inputStructName, hasInputStruct)
 
-	// Add return semantic for simple (non-struct) return types.
-	// Fragment shader @location(N) maps to SV_TargetN (not TEXCOORD).
-	if !hasOutputStruct && fn.Result != nil && fn.Result.Binding != nil {
-		var semantic string
-		if ep.Stage == ir.StageFragment {
-			if loc, ok := (*fn.Result.Binding).(ir.LocationBinding); ok {
-				semantic = fmt.Sprintf("SV_Target%d", loc.Location)
-			} else {
-				semantic = w.getSemanticFromBinding(*fn.Result.Binding, 0)
-			}
-		} else {
-			semantic = w.getSemanticFromBinding(*fn.Result.Binding, 0)
-		}
-		fmt.Fprintf(&w.out, " : %s", semantic)
-	}
+	w.writeReturnSemantic(ep, fn, hasOutputStruct)
 
 	w.writeLine(" {")
 	w.pushIndent()
@@ -261,31 +247,14 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 		w.writeInputExtraction(ep, fn, structArgs)
 	}
 
-	// Write local variables with optional init expressions
-	for localIdx, local := range fn.LocalVars {
-		localName := w.namer.call(local.Name)
-		w.localNames[uint32(localIdx)] = localName
-		// HLSL arrays: type name[size], not type[size] name
-		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
-		if local.Init != nil {
-			w.writeIndent()
-			fmt.Fprintf(&w.out, "%s %s%s = ", localType, localName, arraySuffix)
-			if err := w.writeExpression(*local.Init); err != nil {
-				w.popIndent()
-				return fmt.Errorf("entry point local var init: %w", err)
-			}
-			w.out.WriteString(";\n")
-		} else {
-			w.writeLine("%s %s%s;", localType, localName, arraySuffix)
-		}
+	outputLocalMapped, err := w.writeEntryPointLocalVars(fn, hasOutputStruct, outputStructName, hasInputStruct)
+	if err != nil {
+		w.popIndent()
+		return err
 	}
 
-	if len(fn.LocalVars) > 0 || hasInputStruct {
-		w.writeLine("")
-	}
-
-	// Create output struct if needed
-	if hasOutputStruct {
+	// Create output struct if not already mapped from a local variable
+	if hasOutputStruct && !outputLocalMapped {
 		w.writeLine("%s _output;", outputStructName)
 		w.writeLine("")
 	}
@@ -296,7 +265,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 		return err
 	}
 
-	// Return output struct if needed
+	// Return output struct if needed (fallback for control flow paths without explicit return)
 	if hasOutputStruct {
 		w.writeLine("return _output;")
 	}
@@ -321,6 +290,62 @@ func (w *Writer) writeComputeAttributes(ep *ir.EntryPoint) {
 		z = 1
 	}
 	w.writeLine("[numthreads(%d, %d, %d)]", x, y, z)
+}
+
+// writeReturnSemantic adds HLSL return semantic for simple (non-struct) return types.
+// Fragment shader @location(N) maps to SV_TargetN (not TEXCOORD).
+func (w *Writer) writeReturnSemantic(ep *ir.EntryPoint, fn *ir.Function, hasOutputStruct bool) {
+	if hasOutputStruct || fn.Result == nil || fn.Result.Binding == nil {
+		return
+	}
+	var semantic string
+	if ep.Stage == ir.StageFragment {
+		if loc, ok := (*fn.Result.Binding).(ir.LocationBinding); ok {
+			semantic = fmt.Sprintf("SV_Target%d", loc.Location)
+		} else {
+			semantic = w.getSemanticFromBinding(*fn.Result.Binding, 0)
+		}
+	} else {
+		semantic = w.getSemanticFromBinding(*fn.Result.Binding, 0)
+	}
+	fmt.Fprintf(&w.out, " : %s", semantic)
+}
+
+// writeEntryPointLocalVars writes local variable declarations for an entry point.
+// When a local variable has the same type as the entry point result, it IS the
+// output variable — declared as _output with the output struct type so that HLSL
+// semantics (SV_Position, TEXCOORD) are attached correctly.
+// Returns whether an output local was mapped to _output.
+func (w *Writer) writeEntryPointLocalVars(fn *ir.Function, hasOutputStruct bool, outputStructName string, hasInputStruct bool) (bool, error) {
+	outputLocalMapped := false
+	for localIdx, local := range fn.LocalVars {
+		localName := w.namer.call(local.Name)
+		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
+
+		if hasOutputStruct && !outputLocalMapped && fn.Result != nil && local.Type == fn.Result.Type {
+			localName = "_output"
+			localType = outputStructName
+			outputLocalMapped = true
+		}
+
+		w.localNames[uint32(localIdx)] = localName
+
+		if local.Init != nil {
+			w.writeIndent()
+			fmt.Fprintf(&w.out, "%s %s%s = ", localType, localName, arraySuffix)
+			if err := w.writeExpression(*local.Init); err != nil {
+				return false, fmt.Errorf("entry point local var init: %w", err)
+			}
+			w.out.WriteString(";\n")
+		} else {
+			w.writeLine("%s %s%s;", localType, localName, arraySuffix)
+		}
+	}
+
+	if len(fn.LocalVars) > 0 || hasInputStruct {
+		w.writeLine("")
+	}
+	return outputLocalMapped, nil
 }
 
 // writeEntryPointSignature writes the function signature for an entry point.

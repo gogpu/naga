@@ -472,10 +472,20 @@ func (w *Writer) writeCallStatement(s ir.StmtCall) error {
 		funcName = fmt.Sprintf("function_%d", s.Function)
 	}
 
-	// If there's a result, assign it
+	// If there's a result, declare a typed local variable and assign it.
+	// Use the Result expression handle for a unique name (same call target
+	// may be invoked multiple times in the same function body).
 	if s.Result != nil {
-		// Store result in a temporary variable
-		fmt.Fprintf(&w.out, "_%s_result = ", funcName)
+		typeName := hlslTypeFloat // fallback
+		if int(s.Function) < len(w.module.Functions) {
+			calledFn := &w.module.Functions[s.Function]
+			if calledFn.Result != nil {
+				typeName = w.getTypeName(calledFn.Result.Type)
+			}
+		}
+		tempName := fmt.Sprintf("_cr%d", *s.Result)
+		w.namedExpressions[*s.Result] = tempName
+		fmt.Fprintf(&w.out, "%s %s = ", typeName, tempName)
 	}
 
 	// Write function call

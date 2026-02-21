@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-02-21
+
+### Fixed
+
+#### HLSL Backend
+- `row_major` qualifier for matrix struct members in cbuffer/uniform blocks — DX12 `M[i]` column access was returning rows instead of columns, causing transposed transforms and invisible geometry
+- `mul(right, left)` argument reversal for `row_major` matrices — HLSL `mul()` semantics differ from WGSL `*` operator when layout changes
+- Unique entry point names — prevent HLSL duplicate function errors when multiple entry points reference the same function
+- Typed call results — function calls now use correct return type instead of void
+
+#### GLSL Backend
+- Clear `namedExpressions` between function compilations — expression handle names from one WGSL function were leaking into subsequent functions, causing `undeclared identifier` errors in GLES shaders
+
 ## [0.14.0] - 2026-02-21
 
 Major WGSL language coverage expansion: 15/15 Essential reference shaders from Rust naga test suite now compile to valid SPIR-V.

@@ -631,6 +631,7 @@ func TestWriteCBufferDeclaration(t *testing.T) {
 		name         string
 		bufName      string
 		typeName     string
+		typeHandle   ir.TypeHandle
 		binding      *BindTarget
 		wantContains []string
 	}{
@@ -638,6 +639,7 @@ func TestWriteCBufferDeclaration(t *testing.T) {
 			"with binding",
 			"uniforms",
 			"UniformData",
+			ir.TypeHandle(0), // not a matrix → no row_major
 			&BindTarget{Register: 0, Space: 0},
 			[]string{"cbuffer uniforms_cbuffer : register(b0, space0)", "UniformData uniforms;"},
 		},
@@ -645,6 +647,7 @@ func TestWriteCBufferDeclaration(t *testing.T) {
 			"without binding",
 			"globals",
 			"GlobalData",
+			ir.TypeHandle(0),
 			nil,
 			[]string{"cbuffer globals_cbuffer {", "GlobalData globals;"},
 		},
@@ -653,7 +656,7 @@ func TestWriteCBufferDeclaration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w.out.Reset()
-			w.writeCBufferDeclaration(tt.bufName, tt.typeName, tt.binding)
+			w.writeCBufferDeclaration(tt.bufName, tt.typeName, tt.typeHandle, tt.binding)
 			output := w.out.String()
 
 			for _, want := range tt.wantContains {
