@@ -1,0 +1,102 @@
+; SPIR-V
+; Version: 1.3
+; Generator: 0x00000000
+; Bound: 64
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %_23 "vs_main" %_14 %_16 %_18
+               OpEntryPoint Fragment %_53 "fs_main" %_19 %_20
+               OpExecutionMode %_53 OriginUpperLeft
+               OpMemberDecorate %_8 0 Offset 0
+               OpMemberDecorate %_8 0 ColMajor
+               OpMemberDecorate %_8 0 MatrixStride 16
+               OpMemberDecorate %_8 1 Offset 64
+               OpMemberDecorate %_8 1 ColMajor
+               OpMemberDecorate %_8 1 MatrixStride 16
+               OpMemberDecorate %_8 2 Offset 128
+               OpMemberDecorate %_8 2 ColMajor
+               OpMemberDecorate %_8 2 MatrixStride 16
+               OpMemberDecorate %_10 0 Offset 0
+               OpMemberDecorate %_10 1 Offset 16
+               OpDecorate %_8 Block
+               OpDecorate %_12 DescriptorSet 0
+               OpDecorate %_12 Binding 0
+               OpDecorate %_14 Location 0
+               OpDecorate %_16 BuiltIn Position
+               OpDecorate %_18 Location 0
+               OpDecorate %_19 Location 0
+               OpDecorate %_20 Location 0
+         %_2 = OpTypeFloat 32
+         %_3 = OpTypeInt 32 1
+         %_4 = OpTypeInt 32 0
+         %_5 = OpTypeBool
+         %_6 = OpTypeVector %_2 4
+         %_7 = OpTypeMatrix %_6 4
+         %_8 = OpTypeStruct %_7 %_7 %_7
+         %_9 = OpTypeVector %_2 3
+         %_10 = OpTypeStruct %_6 %_9
+         %_11 = OpTypePointer Uniform %_8
+         %_13 = OpTypePointer Input %_9
+         %_15 = OpTypePointer Output %_6
+         %_17 = OpTypePointer Output %_9
+         %_21 = OpTypeVoid
+         %_22 = OpTypeFunction %_21
+         %_25 = OpTypePointer Function %_10
+         %_27 = OpConstant %_4 0
+         %_28 = OpTypePointer Uniform %_7
+         %_32 = OpConstant %_2 1065353216
+         %_35 = OpConstant %_4 2
+         %_38 = OpConstant %_4 1
+         %_43 = OpConstant %_4 0
+         %_44 = OpTypePointer Function %_6
+         %_46 = OpConstant %_4 1
+         %_47 = OpTypePointer Function %_9
+         %_57 = OpConstant %_2 1056964608
+         %_59 = OpConstant %_2 1056964608
+         %_62 = OpConstant %_2 1065353216
+         %_12 = OpVariable %_11 Uniform
+         %_14 = OpVariable %_13 Input
+         %_16 = OpVariable %_15 Output
+         %_18 = OpVariable %_17 Output
+         %_19 = OpVariable %_13 Input
+         %_20 = OpVariable %_15 Output
+         %_23 = OpFunction %_21 None %_22
+         %_24 = OpLabel
+         %_26 = OpVariable %_25 Function
+         %_29 = OpAccessChain %_28 %_12 %_27
+         %_30 = OpLoad %_7 %_29
+         %_31 = OpLoad %_9 %_14
+         %_33 = OpCompositeConstruct %_6 %_31 %_32
+         %_34 = OpMatrixTimesVector %_6 %_30 %_33
+         %_36 = OpAccessChain %_28 %_12 %_35
+         %_37 = OpLoad %_7 %_36
+         %_39 = OpAccessChain %_28 %_12 %_38
+         %_40 = OpLoad %_7 %_39
+         %_41 = OpMatrixTimesMatrix %_7 %_37 %_40
+         %_42 = OpMatrixTimesVector %_6 %_41 %_34
+         %_45 = OpAccessChain %_44 %_26 %_43
+               OpStore %_45 %_42
+         %_48 = OpAccessChain %_47 %_26 %_46
+         %_49 = OpVectorShuffle %_9 %_34 %_34 0 1 2
+               OpStore %_48 %_49
+         %_50 = OpLoad %_10 %_26
+         %_51 = OpCompositeExtract %_6 %_50 0
+               OpStore %_16 %_51
+         %_52 = OpCompositeExtract %_9 %_50 1
+               OpStore %_18 %_52
+               OpReturn
+               OpFunctionEnd
+         %_53 = OpFunction %_21 None %_22
+         %_54 = OpLabel
+         %_55 = OpLoad %_9 %_19
+         %_56 = OpExtInst %_9 %_1 %_69 %_55
+         %_58 = OpVectorTimesScalar %_9 %_56 %_57
+         %_60 = OpCompositeConstruct %_9 %_59 %_59 %_59
+         %_61 = OpFAdd %_9 %_58 %_60
+         %_63 = OpCompositeConstruct %_6 %_61 %_62
+               OpStore %_20 %_63
+               OpReturn
+               OpFunctionEnd

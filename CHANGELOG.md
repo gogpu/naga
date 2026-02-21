@@ -10,8 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Test Infrastructure
-- **Golden snapshot test system** (`snapshot/`) — compiles 10 WGSL shaders through all 4 backends (SPIR-V, GLSL, HLSL, MSL), compares output to 40 stored golden files; supports `UPDATE_GOLDEN=1` for regeneration
+- **Golden snapshot test system** (`snapshot/`) — compiles 30 WGSL shaders through all 4 backends (SPIR-V, GLSL, HLSL, MSL), compares output to ~118 stored golden files; supports `UPDATE_GOLDEN=1` for regeneration
+- **20 new reference shaders** — collatz, atomics, workgroup_memory, quad, vertex_colors, uniforms_mvp, multi_output, math_builtins, conversions, swizzle, expressions_complex, structs, arrays, matrices, let_and_var, loops_advanced, switch_advanced, texture_sample, texture_storage, pointers
 - **WGSL error case tests** (`wgsl/wgsl_errors_test.go`) — 76 test cases covering parse errors (39) and lowering errors (37): unknown types, unresolved identifiers, missing tokens, wrong builtin argument counts, reserved words
+- **IR validator semantic tests** (`ir/validate_semantic_test.go`) — 47 test functions covering type validation, constants/globals, entry points, functions, expressions, statements, and positive edge cases
+- **SPIR-V capability tracking tests** (`spirv/capabilities_test.go`) — 13 test functions verifying correct OpCapability emission: Shader always present, Float16/64, Int8/16/64, ImageQuery, DotProduct, no-emit-when-unused, no duplicates
 - **SPIR-V disassembler** for golden snapshots — extracted from `cmd/spvdis/` into reusable test helper, produces diff-friendly text output
 
 ### Fixed

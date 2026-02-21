@@ -1,0 +1,27 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+kernel void main_(metal::uint3 gid [[thread_position_in_grid]],
+    metal::texture2d<float, metal::access::read_write> output_tex [[texture(0)]]) {
+    if (((gid[0] >= output_tex.get_width()[0]) || (gid[1] >= output_tex.get_width()[1]))) {
+        return;
+    }
+    output_tex.write(metal::float4(metal::float2((float(gid[0]) / float(output_tex.get_width()[0])), (float(gid[1]) / float(output_tex.get_width()[1])))[0], metal::float2((float(gid[0]) / float(output_tex.get_width()[0])), (float(gid[1]) / float(output_tex.get_width()[1])))[1], 0.5, 1.0), uint2(int(gid.xy)));
+}
+

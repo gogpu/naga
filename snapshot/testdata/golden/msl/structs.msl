@@ -1,0 +1,42 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct Inner {
+    float value;
+    uint flag;
+};
+
+struct Outer {
+    metal::packed_float3 position_;
+    Inner inner;
+    float scale;
+};
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+float process_struct(Outer s) {
+    return ((s.position_[0] * s.scale) + s.inner.value);
+}
+
+kernel void main_() {
+    Outer mutable_outer = Outer{metal::float3(1.0, 2.0, 3.0), Inner{3.14, 1u}, 2.0};
+    
+    mutable_outer.scale = 5.0;
+    mutable_outer.inner.value = 42.0;
+    float _fc20 = process_struct(mutable_outer);
+}
+

@@ -1,0 +1,53 @@
+; SPIR-V
+; Version: 1.3
+; Generator: 0x00000000
+; Bound: 42
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_11 "main"
+               OpExecutionMode %_11 LocalSize 1 1 1
+         %_2 = OpTypeFloat 32
+         %_3 = OpTypeInt 32 1
+         %_4 = OpTypeInt 32 0
+         %_5 = OpTypeBool
+         %_6 = OpTypeVector %_2 4
+         %_7 = OpTypeVector %_2 2
+         %_8 = OpTypeVector %_2 3
+         %_9 = OpTypeVoid
+         %_10 = OpTypeFunction %_9
+         %_13 = OpConstant %_2 1065353216
+         %_14 = OpConstant %_2 1073741824
+         %_15 = OpConstant %_2 1077936128
+         %_16 = OpConstant %_2 1082130432
+         %_31 = OpConstant %_2 1065353216
+         %_32 = OpConstant %_2 1073741824
+         %_36 = OpConstant %_2 1065353216
+         %_37 = OpConstant %_2 1073741824
+         %_38 = OpConstant %_2 1077936128
+         %_11 = OpFunction %_9 None %_10
+         %_12 = OpLabel
+         %_17 = OpCompositeConstruct %_6 %_13 %_14 %_15 %_16
+         %_18 = OpCompositeExtract %_2 %_17 0
+         %_19 = OpCompositeExtract %_2 %_17 1
+         %_20 = OpCompositeExtract %_2 %_17 2
+         %_21 = OpCompositeExtract %_2 %_17 3
+         %_22 = OpVectorShuffle %_7 %_17 %_17 0 1
+         %_23 = OpVectorShuffle %_8 %_17 %_17 0 1 2
+         %_24 = OpVectorShuffle %_6 %_17 %_17 0 1 2 3
+         %_25 = OpVectorShuffle %_7 %_17 %_17 2 3
+         %_26 = OpVectorShuffle %_7 %_17 %_17 0 0
+         %_27 = OpVectorShuffle %_8 %_17 %_17 1 1 1
+         %_28 = OpVectorShuffle %_6 %_17 %_17 3 2 1 0
+         %_29 = OpVectorShuffle %_7 %_17 %_17 1 0
+         %_30 = OpVectorShuffle %_8 %_17 %_17 2 0 1
+         %_33 = OpCompositeConstruct %_7 %_31 %_32
+         %_34 = OpVectorShuffle %_7 %_33 %_33 1 0
+         %_35 = OpVectorShuffle %_7 %_33 %_33 0 0
+         %_39 = OpCompositeConstruct %_8 %_36 %_37 %_38
+         %_40 = OpVectorShuffle %_7 %_39 %_39 2 0
+         %_41 = OpVectorShuffle %_8 %_39 %_39 1 0 2
+               OpReturn
+               OpFunctionEnd

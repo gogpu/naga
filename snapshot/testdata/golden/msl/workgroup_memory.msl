@@ -1,0 +1,41 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct Params {
+    uint count;
+};
+
+struct type_5 {
+    float inner[256];
+};
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+kernel void main_(uint lid [[thread_index_in_threadgroup]], metal::uint3 gid [[thread_position_in_grid]],
+    constant Params* params [[buffer(0)]],
+    device type_6* output [[buffer(1)]]) {
+    shared_data.inner[lid] = (float(gid[0]) * 0.5);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if ((lid < 128u)) {
+        shared_data.inner[lid] = (shared_data.inner[lid] + shared_data.inner[(lid + 128u)]);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if ((lid == 0u)) {
+        output[_naga_div(gid[0], 256u)] = shared_data.inner[0];
+    }
+}
+

@@ -1,0 +1,49 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct Data {
+    type_4 values;
+};
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+uint collatz_iterations(uint n_base) {
+    uint n = n_base;
+    uint i = 0u;
+    
+    while (true) {
+        if (!((n > 1u))) {
+            break;
+        }
+        if ((_naga_mod(n, 2u) == 0u)) {
+            n = _naga_div(n, 2u);
+        } else {
+            {
+                n = ((3u * n) + 1u);
+            }
+        }
+        i = (i + 1u);
+    }
+    return i;
+}
+
+kernel void main_(metal::uint3 gid [[thread_position_in_grid]],
+    device Data* data [[buffer(0)]]) {
+    uint _fc9 = collatz_iterations(data.values[gid[0]]);
+    data.values[gid[0]] = _fc9;
+}
+

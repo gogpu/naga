@@ -1,0 +1,82 @@
+; SPIR-V
+; Version: 1.3
+; Generator: 0x00000000
+; Bound: 61
+; Schema: 0
+
+               OpCapability Shader
+               OpCapability DerivativeControl
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_17 "main" %_14
+               OpExecutionMode %_17 LocalSize 8 8 1
+               OpDecorate %_12 DescriptorSet 0
+               OpDecorate %_12 Binding 0
+               OpDecorate %_12 NonReadable
+               OpDecorate %_14 BuiltIn GlobalInvocationId
+         %_2 = OpTypeFloat 32
+         %_3 = OpTypeInt 32 1
+         %_4 = OpTypeInt 32 0
+         %_5 = OpTypeBool
+         %_6 = OpTypeImage %_2 2D 0 0 0 2 Unknown 4
+         %_7 = OpTypeVector %_4 3
+         %_8 = OpTypeVector %_2 2
+         %_9 = OpTypeVector %_2 4
+         %_10 = OpTypeVector %_3 2
+         %_11 = OpTypePointer UniformConstant %_6
+         %_13 = OpTypePointer Input %_7
+         %_15 = OpTypeVoid
+         %_16 = OpTypeFunction %_15
+         %_21 = OpConstant %_4 0
+         %_22 = OpTypePointer Input %_4
+         %_27 = OpConstant %_4 1
+         %_36 = OpConstant %_4 0
+         %_43 = OpConstant %_4 1
+         %_53 = OpConstant %_2 1056964608
+         %_54 = OpConstant %_2 1065353216
+         %_58 = OpTypeVector %_4 2
+         %_12 = OpVariable %_11 UniformConstant
+         %_14 = OpVariable %_13 Input
+         %_17 = OpFunction %_15 None %_16
+         %_18 = OpLabel
+         %_19 = OpLoad %_6 %_12
+         %_20 = OpImageQuerySize %_7 %_19
+         %_23 = OpAccessChain %_22 %_14 %_21
+         %_24 = OpLoad %_4 %_23
+         %_25 = OpCompositeExtract %_4 %_20 0
+         %_26 = OpLogicalEqual %_5 %_24 %_25
+         %_28 = OpAccessChain %_22 %_14 %_27
+         %_29 = OpLoad %_4 %_28
+         %_30 = OpCompositeExtract %_4 %_20 1
+         %_31 = OpLogicalEqual %_5 %_29 %_30
+         %_32 = OpIsNan %_5 %_26 %_31
+               OpSelectionMerge %_35 0
+               OpBranchConditional %_32 %_33 %_34
+         %_33 = OpLabel
+               OpReturn
+         %_34 = OpLabel
+               OpBranch %_35
+         %_35 = OpLabel
+         %_37 = OpAccessChain %_22 %_14 %_36
+         %_38 = OpLoad %_4 %_37
+         %_39 = OpConvertUToF %_2 %_38
+         %_40 = OpCompositeExtract %_4 %_20 0
+         %_41 = OpConvertUToF %_2 %_40
+         %_42 = OpFDiv %_2 %_39 %_41
+         %_44 = OpAccessChain %_22 %_14 %_43
+         %_45 = OpLoad %_4 %_44
+         %_46 = OpConvertUToF %_2 %_45
+         %_47 = OpCompositeExtract %_4 %_20 1
+         %_48 = OpConvertUToF %_2 %_47
+         %_49 = OpFDiv %_2 %_46 %_48
+         %_50 = OpCompositeConstruct %_8 %_42 %_49
+         %_51 = OpCompositeExtract %_2 %_50 0
+         %_52 = OpCompositeExtract %_2 %_50 1
+         %_55 = OpCompositeConstruct %_9 %_51 %_52 %_53 %_54
+         %_56 = OpLoad %_6 %_12
+         %_57 = OpLoad %_7 %_14
+         %_59 = OpVectorShuffle %_58 %_57 %_57 0 1
+         %_60 = OpBitcast %_10 %_59
+               OpImageWrite %_56 %_60 %_55
+               OpReturn
+               OpFunctionEnd

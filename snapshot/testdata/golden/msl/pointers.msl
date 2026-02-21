@@ -1,0 +1,66 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct Data {
+    float value;
+    uint count;
+};
+
+struct type_7 {
+    float inner[4];
+};
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+void increment(thread int& p) {
+    p = (p + 1);
+}
+
+float read_value(thread float& p) {
+    return p;
+}
+
+void swap(thread int& a, thread int& b) {
+    a = b;
+    b = a;
+}
+
+void modify_array_element(thread type_7& arr, uint idx, float val) {
+    arr.inner[idx] = val;
+}
+
+void modify_struct_field(thread Data& d) {
+    d.value = (d.value * 2.0);
+    d.count = (d.count + 1u);
+}
+
+kernel void main_() {
+    int x = 10;
+    float f = 3.14;
+    int a = 1;
+    int b = 2;
+    type_7 arr = type_7{{1.0, 2.0, 3.0, 4.0}};
+    Data data = Data{1.0, 0u};
+    
+    auto _fc2 = increment(x);
+    auto _fc3 = increment(x);
+    float _fc6 = read_value(f);
+    auto _fc11 = swap(a, b);
+    auto _fc20 = modify_array_element(arr, 0u, 99.0);
+    auto _fc25 = modify_struct_field(data);
+}
+

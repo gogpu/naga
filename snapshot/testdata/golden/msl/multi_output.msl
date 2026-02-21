@@ -1,0 +1,53 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+
+struct FragmentOutput {
+    metal::float4 color_;
+    metal::float4 normal_;
+};
+
+// Safe division helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_div(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs / (nz * rhs + D(!nz));
+}
+
+// Safe modulo helper (handles zero divisor)
+template <typename T, typename D>
+T _naga_mod(T lhs, D rhs) {
+    D nz = D(rhs != D(0));
+    return lhs % (nz * rhs + D(!nz));
+}
+
+struct vs_main_Output {
+    metal::float4 member [[position]];
+};
+
+vertex vs_main_Output vs_main(uint vi [[vertex_id]]) {
+    vs_main_Output _output;
+    _output.member = metal::float4(0.0, 0.0, 0.0, 1.0);
+    return _output;
+    return _output;
+}
+
+struct fs_main_Output {
+    metal::float4 color_ [[color(0)]];
+    metal::float4 normal_ [[color(1)]];
+};
+
+fragment fs_main_Output fs_main(metal::float4 frag_coord [[position]]) {
+    FragmentOutput out_ = FragmentOutput();
+    
+    fs_main_Output _output;
+    out_.color_ = metal::float4(1.0, 0.0, 0.0, 1.0);
+    out_.normal_ = metal::float4(0.0, 0.0, 1.0, 1.0);
+    auto _ret_1 = out_;
+    _output.color_ = _ret_1.color_;
+    _output.normal_ = _ret_1.normal_;
+    return _output;
+    return _output;
+}
+

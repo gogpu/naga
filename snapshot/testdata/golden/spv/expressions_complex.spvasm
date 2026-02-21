@@ -1,0 +1,63 @@
+; SPIR-V
+; Version: 1.3
+; Generator: 0x00000000
+; Bound: 52
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_9 "main"
+               OpExecutionMode %_9 LocalSize 1 1 1
+         %_2 = OpTypeFloat 32
+         %_3 = OpTypeInt 32 1
+         %_4 = OpTypeInt 32 0
+         %_5 = OpTypeBool
+         %_6 = OpTypeVector %_2 3
+         %_7 = OpTypeVoid
+         %_8 = OpTypeFunction %_7
+         %_11 = OpConstant %_2 1065353216
+         %_12 = OpConstant %_2 1073741824
+         %_13 = OpConstant %_2 1077936128
+         %_14 = OpConstant %_2 1082130432
+         %_27 = OpConstantTrue %_5
+         %_29 = OpConstantFalse %_5
+         %_30 = OpConstant %_2 1065353216
+         %_32 = OpConstant %_2 0
+         %_34 = OpTypeVector %_5 3
+         %_38 = OpConstant %_3 20
+         %_39 = OpConstant %_3 10
+         %_44 = OpConstant %_2 1065353216
+         %_9 = OpFunction %_7 None %_8
+         %_10 = OpLabel
+         %_15 = OpFMul %_2 %_11 %_12
+         %_16 = OpFMul %_2 %_13 %_14
+         %_17 = OpFAdd %_2 %_15 %_16
+         %_18 = OpFAdd %_2 %_11 %_12
+         %_19 = OpFSub %_2 %_13 %_14
+         %_20 = OpFMul %_2 %_18 %_19
+         %_21 = OpFDiv %_2 %_11 %_12
+         %_22 = OpFDiv %_2 %_13 %_14
+         %_23 = OpFSub %_2 %_21 %_22
+         %_24 = OpFAdd %_2 %_11 %_12
+         %_25 = OpFAdd %_2 %_24 %_13
+         %_26 = OpFMul %_2 %_25 %_14
+         %_28 = OpIsNormal %_2 %_27 %_12 %_11
+         %_31 = OpCompositeConstruct %_6 %_30 %_30 %_30
+         %_33 = OpCompositeConstruct %_6 %_32 %_32 %_32
+         %_35 = OpCompositeConstruct %_34 %_29 %_29 %_29
+         %_36 = OpIsNormal %_6 %_35 %_31 %_33
+         %_37 = OpULessThan %_5 %_11 %_12
+         %_40 = OpIsNormal %_3 %_37 %_38 %_39
+         %_41 = OpCompositeConstruct %_6 %_11 %_12 %_13
+         %_42 = OpCompositeConstruct %_6 %_14 %_13 %_12
+         %_43 = OpFMul %_6 %_41 %_42
+         %_45 = OpCompositeConstruct %_6 %_44 %_44 %_44
+         %_46 = OpFAdd %_6 %_43 %_45
+         %_47 = OpExtInst %_2 %_1 %_66 %_41
+         %_48 = OpDot %_2 %_41 %_42
+         %_49 = OpFMul %_2 %_47 %_48
+         %_50 = OpFAdd %_6 %_41 %_42
+         %_51 = OpExtInst %_6 %_1 %_69 %_50
+               OpReturn
+               OpFunctionEnd
