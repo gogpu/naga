@@ -19,7 +19,7 @@
 
 ---
 
-## Current State: v0.13.1
+## Current State: v0.14.2
 
 ✅ **Production-ready** shader compiler (~19K LOC):
 - Full WGSL frontend (lexer, parser, IR)
@@ -29,8 +29,10 @@
 - Texture sampling and storage textures (50+ formats)
 - Local const declarations and switch statements
 - Correct SPIR-V structured control flow (`if/else`, `switch`, `loop`)
-- HLSL codegen fully wired up (entry points, functions, expressions, statements)
+- HLSL codegen with row_major matrices, mul() reversal, unique entry points
+- GLSL UBO blocks, GL_ARB_separate_shader_objects for GLSL < 4.10
 - Type inference, validation, and scalar type conversions
+- Golden snapshot tests (~118 files across 4 backends)
 - Development tools (nagac with SPIR-V 1.3, spvdis)
 
 ---
