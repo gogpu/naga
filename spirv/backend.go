@@ -1490,9 +1490,9 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 			emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
 			continue
 		}
-		if callResultHandle, ok := findCallResultInTree(fn.Expressions, *localVar.Init); ok {
-			// Init contains a call result somewhere in the tree — defer
-			// until the corresponding StmtCall runs.
+		if callResultHandle, ok := findLastCallResultInTree(fn.Expressions, *localVar.Init); ok {
+			// Init contains call result(s) somewhere in the tree — defer
+			// until the LAST call completes (all earlier results are already cached).
 			emitter.deferredComplexStores[callResultHandle] = append(
 				emitter.deferredComplexStores[callResultHandle],
 				deferredComplexStore{varPtrID: localVarIDs[i], initExpr: *localVar.Init},
@@ -3210,13 +3210,15 @@ func (e *ExpressionEmitter) emitIf(stmt ir.StmtIf) error {
 // blockEndsWithTerminator checks if a block ends with a terminator instruction
 // (return, kill, break, continue) that makes subsequent OpBranch unreachable.
 // In SPIR-V, each basic block must end with exactly one terminator instruction.
-// findCallResultInTree checks if an expression tree contains an ExprCallResult.
-// Returns the ExprCallResult handle if found. This is used to detect local variable
-// inits like `var x = func() - 0.5` where the call result is nested inside a
-// binary expression, not the top-level init expression.
+// findLastCallResultInTree finds the ExprCallResult with the highest expression
+// handle in an expression tree. When an init expression contains multiple call
+// results (e.g., `var x = f() + g()`), the deferred store must be triggered by
+// the LAST call to complete. Since StmtCalls are emitted in expression handle
+// order, the highest handle corresponds to the last call emitted — by which
+// point all earlier call results are already cached in callResultIDs.
 //
-//nolint:gocognit,gocyclo,cyclop // recursive expression tree traversal requires handling 12+ expression types
-func findCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
+//nolint:gocognit,gocyclo,cyclop,funlen // recursive expression tree traversal requires handling 12+ expression types
+func findLastCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
 	if int(handle) >= len(expressions) {
 		return 0, false
 	}
@@ -3225,65 +3227,88 @@ func findCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandl
 	case ir.ExprCallResult:
 		return handle, true
 	case ir.ExprBinary:
-		if h, ok := findCallResultInTree(expressions, k.Left); ok {
-			return h, true
+		best, found := findLastCallResultInTree(expressions, k.Left)
+		if h, ok := findLastCallResultInTree(expressions, k.Right); ok {
+			if !found || h > best {
+				best = h
+			}
+			found = true
 		}
-		return findCallResultInTree(expressions, k.Right)
+		return best, found
 	case ir.ExprUnary:
-		return findCallResultInTree(expressions, k.Expr)
+		return findLastCallResultInTree(expressions, k.Expr)
 	case ir.ExprAccessIndex:
-		return findCallResultInTree(expressions, k.Base)
+		return findLastCallResultInTree(expressions, k.Base)
 	case ir.ExprAccess:
-		return findCallResultInTree(expressions, k.Base)
+		return findLastCallResultInTree(expressions, k.Base)
 	case ir.ExprSwizzle:
-		return findCallResultInTree(expressions, k.Vector)
+		return findLastCallResultInTree(expressions, k.Vector)
 	case ir.ExprLoad:
-		return findCallResultInTree(expressions, k.Pointer)
+		return findLastCallResultInTree(expressions, k.Pointer)
 	case ir.ExprCompose:
+		best := ir.ExpressionHandle(0)
+		found := false
 		for _, comp := range k.Components {
-			if h, ok := findCallResultInTree(expressions, comp); ok {
-				return h, true
+			if h, ok := findLastCallResultInTree(expressions, comp); ok {
+				if !found || h > best {
+					best = h
+				}
+				found = true
 			}
 		}
-		return 0, false
+		return best, found
 	case ir.ExprAs:
-		return findCallResultInTree(expressions, k.Expr)
+		return findLastCallResultInTree(expressions, k.Expr)
 	case ir.ExprSplat:
-		return findCallResultInTree(expressions, k.Value)
+		return findLastCallResultInTree(expressions, k.Value)
 	case ir.ExprSelect:
-		if h, ok := findCallResultInTree(expressions, k.Condition); ok {
-			return h, true
+		best, found := findLastCallResultInTree(expressions, k.Condition)
+		if h, ok := findLastCallResultInTree(expressions, k.Accept); ok {
+			if !found || h > best {
+				best = h
+			}
+			found = true
 		}
-		if h, ok := findCallResultInTree(expressions, k.Accept); ok {
-			return h, true
+		if h, ok := findLastCallResultInTree(expressions, k.Reject); ok {
+			if !found || h > best {
+				best = h
+			}
+			found = true
 		}
-		return findCallResultInTree(expressions, k.Reject)
+		return best, found
 	case ir.ExprMath:
-		if h, ok := findCallResultInTree(expressions, k.Arg); ok {
-			return h, true
-		}
+		best, found := findLastCallResultInTree(expressions, k.Arg)
 		if k.Arg1 != nil {
-			if h, ok := findCallResultInTree(expressions, *k.Arg1); ok {
-				return h, true
+			if h, ok := findLastCallResultInTree(expressions, *k.Arg1); ok {
+				if !found || h > best {
+					best = h
+				}
+				found = true
 			}
 		}
 		if k.Arg2 != nil {
-			if h, ok := findCallResultInTree(expressions, *k.Arg2); ok {
-				return h, true
+			if h, ok := findLastCallResultInTree(expressions, *k.Arg2); ok {
+				if !found || h > best {
+					best = h
+				}
+				found = true
 			}
 		}
 		if k.Arg3 != nil {
-			if h, ok := findCallResultInTree(expressions, *k.Arg3); ok {
-				return h, true
+			if h, ok := findLastCallResultInTree(expressions, *k.Arg3); ok {
+				if !found || h > best {
+					best = h
+				}
+				found = true
 			}
 		}
-		return 0, false
+		return best, found
 	case ir.ExprDerivative:
-		return findCallResultInTree(expressions, k.Expr)
+		return findLastCallResultInTree(expressions, k.Expr)
 	case ir.ExprRelational:
-		return findCallResultInTree(expressions, k.Argument)
+		return findLastCallResultInTree(expressions, k.Argument)
 	case ir.ExprArrayLength:
-		return findCallResultInTree(expressions, k.Array)
+		return findLastCallResultInTree(expressions, k.Array)
 	default:
 		return 0, false
 	}
