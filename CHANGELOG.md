@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.3] - 2026-02-25
+
+### Fixed
+
+#### SPIR-V Backend
+- **Deferred store for multiple call results** — Variables initialized from expressions containing multiple function call results now correctly emit deferred `OpStore` instructions for each intermediate result
+- **Deferred store for `var x = atomicOp()`** — Atomic operation results used in variable initialization now correctly generate deferred stores instead of losing the value (NAGA-SPV-006)
+- **`OpLogicalEqual` for bool comparisons** — Boolean equality expressions now emit correct `OpLogicalEqual` opcode; transitive deferred stores propagate through boolean comparison chains
+- **Atomic result type for `atomic<i32>` struct fields** — Atomic operations on signed integer struct members now use correct `OpTypeInt 32 1` result type instead of unsigned
+- **Prologue var init splitting** — Variable initializations that reference other local variables are now split from the function prologue into `StmtStore` at the declaration point, preventing use-before-definition in SPIR-V (NAGA-SPV-007)
+
 ## [0.14.2] - 2026-02-22
 
 ### Added
@@ -840,7 +851,10 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.14.3...HEAD
+[0.14.3]: https://github.com/gogpu/naga/compare/v0.14.2...v0.14.3
+[0.14.2]: https://github.com/gogpu/naga/compare/v0.14.1...v0.14.2
+[0.14.1]: https://github.com/gogpu/naga/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/gogpu/naga/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/gogpu/naga/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/gogpu/naga/compare/v0.12.1...v0.13.0
