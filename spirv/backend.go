@@ -4568,6 +4568,12 @@ func (e *ExpressionEmitter) resolveAtomicScalarKind(pointer ir.ExpressionHandle)
 		inner = pointerType.Value
 	}
 
+	// ResolveExpressionType may return the atomic type directly (e.g., for
+	// struct field access like tiles[i].backdrop) or wrapped in a PointerType.
+	if atomicType, ok := inner.(ir.AtomicType); ok {
+		return atomicType.Scalar.Kind
+	}
+
 	ptrType, ok := inner.(ir.PointerType)
 	if !ok || int(ptrType.Base) >= len(e.backend.module.Types) {
 		return ir.ScalarUint
