@@ -1490,7 +1490,12 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 			emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
 			continue
 		}
-		if callResultHandle, ok := findLastCallResultInTree(fn.Expressions, *localVar.Init); ok {
+		if _, isAtomicResult := initExpr.Kind.(ir.ExprAtomicResult); isAtomicResult {
+			// Direct atomic result: register deferred store for emitAtomic
+			emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
+			continue
+		}
+		if callResultHandle, ok := findLastDeferredResultInTree(fn.Expressions, *localVar.Init); ok {
 			// Init contains call result(s) somewhere in the tree — defer
 			// until the LAST call completes (all earlier results are already cached).
 			emitter.deferredComplexStores[callResultHandle] = append(
@@ -3210,7 +3215,7 @@ func (e *ExpressionEmitter) emitIf(stmt ir.StmtIf) error {
 // blockEndsWithTerminator checks if a block ends with a terminator instruction
 // (return, kill, break, continue) that makes subsequent OpBranch unreachable.
 // In SPIR-V, each basic block must end with exactly one terminator instruction.
-// findLastCallResultInTree finds the ExprCallResult with the highest expression
+// findLastDeferredResultInTree finds the ExprCallResult with the highest expression
 // handle in an expression tree. When an init expression contains multiple call
 // results (e.g., `var x = f() + g()`), the deferred store must be triggered by
 // the LAST call to complete. Since StmtCalls are emitted in expression handle
@@ -3218,7 +3223,7 @@ func (e *ExpressionEmitter) emitIf(stmt ir.StmtIf) error {
 // point all earlier call results are already cached in callResultIDs.
 //
 //nolint:gocognit,gocyclo,cyclop,funlen // recursive expression tree traversal requires handling 12+ expression types
-func findLastCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
+func findLastDeferredResultInTree(expressions []ir.Expression, handle ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
 	if int(handle) >= len(expressions) {
 		return 0, false
 	}
@@ -3226,9 +3231,11 @@ func findLastCallResultInTree(expressions []ir.Expression, handle ir.ExpressionH
 	switch k := expr.Kind.(type) {
 	case ir.ExprCallResult:
 		return handle, true
+	case ir.ExprAtomicResult:
+		return handle, true
 	case ir.ExprBinary:
-		best, found := findLastCallResultInTree(expressions, k.Left)
-		if h, ok := findLastCallResultInTree(expressions, k.Right); ok {
+		best, found := findLastDeferredResultInTree(expressions, k.Left)
+		if h, ok := findLastDeferredResultInTree(expressions, k.Right); ok {
 			if !found || h > best {
 				best = h
 			}
@@ -3236,20 +3243,20 @@ func findLastCallResultInTree(expressions []ir.Expression, handle ir.ExpressionH
 		}
 		return best, found
 	case ir.ExprUnary:
-		return findLastCallResultInTree(expressions, k.Expr)
+		return findLastDeferredResultInTree(expressions, k.Expr)
 	case ir.ExprAccessIndex:
-		return findLastCallResultInTree(expressions, k.Base)
+		return findLastDeferredResultInTree(expressions, k.Base)
 	case ir.ExprAccess:
-		return findLastCallResultInTree(expressions, k.Base)
+		return findLastDeferredResultInTree(expressions, k.Base)
 	case ir.ExprSwizzle:
-		return findLastCallResultInTree(expressions, k.Vector)
+		return findLastDeferredResultInTree(expressions, k.Vector)
 	case ir.ExprLoad:
-		return findLastCallResultInTree(expressions, k.Pointer)
+		return findLastDeferredResultInTree(expressions, k.Pointer)
 	case ir.ExprCompose:
 		best := ir.ExpressionHandle(0)
 		found := false
 		for _, comp := range k.Components {
-			if h, ok := findLastCallResultInTree(expressions, comp); ok {
+			if h, ok := findLastDeferredResultInTree(expressions, comp); ok {
 				if !found || h > best {
 					best = h
 				}
@@ -3258,18 +3265,18 @@ func findLastCallResultInTree(expressions []ir.Expression, handle ir.ExpressionH
 		}
 		return best, found
 	case ir.ExprAs:
-		return findLastCallResultInTree(expressions, k.Expr)
+		return findLastDeferredResultInTree(expressions, k.Expr)
 	case ir.ExprSplat:
-		return findLastCallResultInTree(expressions, k.Value)
+		return findLastDeferredResultInTree(expressions, k.Value)
 	case ir.ExprSelect:
-		best, found := findLastCallResultInTree(expressions, k.Condition)
-		if h, ok := findLastCallResultInTree(expressions, k.Accept); ok {
+		best, found := findLastDeferredResultInTree(expressions, k.Condition)
+		if h, ok := findLastDeferredResultInTree(expressions, k.Accept); ok {
 			if !found || h > best {
 				best = h
 			}
 			found = true
 		}
-		if h, ok := findLastCallResultInTree(expressions, k.Reject); ok {
+		if h, ok := findLastDeferredResultInTree(expressions, k.Reject); ok {
 			if !found || h > best {
 				best = h
 			}
@@ -3277,9 +3284,9 @@ func findLastCallResultInTree(expressions []ir.Expression, handle ir.ExpressionH
 		}
 		return best, found
 	case ir.ExprMath:
-		best, found := findLastCallResultInTree(expressions, k.Arg)
+		best, found := findLastDeferredResultInTree(expressions, k.Arg)
 		if k.Arg1 != nil {
-			if h, ok := findLastCallResultInTree(expressions, *k.Arg1); ok {
+			if h, ok := findLastDeferredResultInTree(expressions, *k.Arg1); ok {
 				if !found || h > best {
 					best = h
 				}
@@ -3287,7 +3294,7 @@ func findLastCallResultInTree(expressions []ir.Expression, handle ir.ExpressionH
 			}
 		}
 		if k.Arg2 != nil {
-			if h, ok := findLastCallResultInTree(expressions, *k.Arg2); ok {
+			if h, ok := findLastDeferredResultInTree(expressions, *k.Arg2); ok {
 				if !found || h > best {
 					best = h
 				}
@@ -3295,7 +3302,7 @@ func findLastCallResultInTree(expressions []ir.Expression, handle ir.ExpressionH
 			}
 		}
 		if k.Arg3 != nil {
-			if h, ok := findLastCallResultInTree(expressions, *k.Arg3); ok {
+			if h, ok := findLastDeferredResultInTree(expressions, *k.Arg3); ok {
 				if !found || h > best {
 					best = h
 				}
@@ -3304,11 +3311,11 @@ func findLastCallResultInTree(expressions []ir.Expression, handle ir.ExpressionH
 		}
 		return best, found
 	case ir.ExprDerivative:
-		return findLastCallResultInTree(expressions, k.Expr)
+		return findLastDeferredResultInTree(expressions, k.Expr)
 	case ir.ExprRelational:
-		return findLastCallResultInTree(expressions, k.Argument)
+		return findLastDeferredResultInTree(expressions, k.Argument)
 	case ir.ExprArrayLength:
-		return findLastCallResultInTree(expressions, k.Array)
+		return findLastDeferredResultInTree(expressions, k.Array)
 	default:
 		return 0, false
 	}
@@ -4517,6 +4524,9 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpAtomicLoad))
 		if stmt.Result != nil {
 			e.exprIDs[*stmt.Result] = resultID
+			if err := e.processDeferredStores(*stmt.Result, resultID); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -4566,6 +4576,9 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 
 	if stmt.Result != nil {
 		e.exprIDs[*stmt.Result] = resultID
+		if err := e.processDeferredStores(*stmt.Result, resultID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
