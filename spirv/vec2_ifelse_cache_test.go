@@ -66,13 +66,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Logf("spirv-dis output:\n%s", string(disOut))
 	}
 
-	// Try spirv-val
-	valCmd := exec.Command("spirv-val", spvFile)
-	valOut, err := valCmd.CombinedOutput()
-	if err != nil {
-		t.Errorf("spirv-val FAILED: %v\n%s", err, string(valOut))
+	// Try spirv-val (skip if not installed)
+	if _, lookErr := exec.LookPath("spirv-val"); lookErr == nil {
+		valCmd := exec.Command("spirv-val", spvFile)
+		valOut, valErr := valCmd.CombinedOutput()
+		if valErr != nil {
+			t.Errorf("spirv-val FAILED: %v\n%s", valErr, string(valOut))
+		} else {
+			t.Log("spirv-val: PASS")
+		}
 	} else {
-		t.Log("spirv-val: PASS")
+		t.Log("spirv-val not found, skipping validation")
 	}
 
 	// Analyze SPIR-V instructions to check for the bug
@@ -152,13 +156,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 		t.Logf("spirv-dis output:\n%s", string(disOut))
 	}
 
-	// spirv-val
-	valCmd := exec.Command("spirv-val", spvFile)
-	valOut, err := valCmd.CombinedOutput()
-	if err != nil {
-		t.Errorf("spirv-val FAILED: %v\n%s", err, string(valOut))
+	// spirv-val (skip if not installed)
+	if _, lookErr := exec.LookPath("spirv-val"); lookErr == nil {
+		valCmd := exec.Command("spirv-val", spvFile)
+		valOut, valErr := valCmd.CombinedOutput()
+		if valErr != nil {
+			t.Errorf("spirv-val FAILED: %v\n%s", valErr, string(valOut))
+		} else {
+			t.Log("spirv-val: PASS")
+		}
 	} else {
-		t.Log("spirv-val: PASS")
+		t.Log("spirv-val not found, skipping validation")
 	}
 }
 
@@ -188,7 +196,11 @@ func TestPathTilingFullShader(t *testing.T) {
 		t.Logf("Full disassembly: %d bytes", len(disOut))
 	}
 
-	// spirv-val
+	// spirv-val (skip if not installed)
+	if _, lookErr := exec.LookPath("spirv-val"); lookErr != nil {
+		t.Log("spirv-val not found, skipping validation")
+		return
+	}
 	valCmd := exec.Command("spirv-val", spvFile)
 	valOut, err := valCmd.CombinedOutput()
 	if err != nil {
