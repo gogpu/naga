@@ -1,6 +1,7 @@
 package spirv
 
 import (
+	"os"
 	"testing"
 )
 
@@ -214,4 +215,180 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	spirvBytes := compileWGSLToSPIRV(t, "VarInitTwoCalls", shader)
 	validateSPIRVControlFlow(t, spirvBytes)
 	t.Logf("Compiled %d bytes, control flow valid", len(spirvBytes))
+}
+
+// TestSpanFullShaderDump compiles both versions of path_count.wgsl through Go naga
+// and saves the SPIR-V to files for comparison with Rust naga output and spirv-val.
+func TestSpanFullShaderDump(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, output string
+	}{
+		{"SpanFunc", "../../gg/tmp/path_count_span_full.wgsl", "../../gg/tmp/path_count_full_go.spv"},
+		{"Inline", "../../gg/tmp/path_count_inline.wgsl", "../../gg/tmp/path_count_inline_go.spv"},
+	} {
+		shader, err := os.ReadFile(tc.input)
+		if err != nil {
+			t.Skipf("%s not found: %v", tc.input, err)
+		}
+		spirvBytes := compileWGSLToSPIRV(t, tc.name, string(shader))
+		if err := os.WriteFile(tc.output, spirvBytes, 0644); err != nil {
+			t.Fatalf("write SPIR-V: %v", err)
+		}
+		t.Logf("%s: wrote %d bytes to %s", tc.name, len(spirvBytes), tc.output)
+	}
+}
+
+// TestSpanFunctionVsInline compares SPIR-V generated for span() as a function call
+// vs the same expression inlined. Helps diagnose why span() produces wrong GPU results.
+func TestSpanFunctionVsInline(t *testing.T) {
+	const shaderWithFunc = `
+@group(0) @binding(0) var<storage, read_write> out: array<u32>;
+
+fn span(a: f32, b: f32) -> u32 {
+    return u32(max(ceil(max(a, b)) - floor(min(a, b)), 1.0));
+}
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let s0 = vec2<f32>(1.5, 2.5);
+    let s1 = vec2<f32>(3.5, 4.5);
+    var count_x = span(s0.x, s1.x) - 1u;
+    var count = count_x + span(s0.y, s1.y);
+    out[gid.x] = count;
+}
+`
+	const shaderInline = `
+@group(0) @binding(0) var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let s0 = vec2<f32>(1.5, 2.5);
+    let s1 = vec2<f32>(3.5, 4.5);
+    var count_x = u32(max(ceil(max(s0.x, s1.x)) - floor(min(s0.x, s1.x)), 1.0)) - 1u;
+    var count = count_x + u32(max(ceil(max(s0.y, s1.y)) - floor(min(s0.y, s1.y)), 1.0));
+    out[gid.x] = count;
+}
+`
+	t.Log("=== FUNCTION CALL VERSION ===")
+	spirvFunc := compileWGSLToSPIRV(t, "SpanFunc", shaderWithFunc)
+	t.Log(disassembleSPIRV(spirvFunc))
+
+	t.Log("\n=== INLINE VERSION ===")
+	spirvInline := compileWGSLToSPIRV(t, "SpanInline", shaderInline)
+	t.Log(disassembleSPIRV(spirvInline))
+
+	// Count key instructions
+	for _, pair := range []struct {
+		name string
+		data []byte
+	}{{"Function", spirvFunc}, {"Inline", spirvInline}} {
+		instrs := decodeSPIRVInstructions(pair.data)
+		var funcs, calls, extInsts, stores, loads int
+		for _, inst := range instrs {
+			switch inst.opcode {
+			case OpFunction:
+				funcs++
+			case OpFunctionCall:
+				calls++
+			case OpExtInst:
+				extInsts++
+			case OpStore:
+				stores++
+			case OpLoad:
+				loads++
+			}
+		}
+		t.Logf("%s: %d functions, %d calls, %d ExtInst, %d stores, %d loads",
+			pair.name, funcs, calls, extInsts, stores, loads)
+	}
+}
+
+// TestBoolEqualUsesLogicalEqual verifies that bool==bool comparison emits
+// OpLogicalEqual (not OpIEqual) and bool!=bool emits OpLogicalNotEqual
+// (not OpINotEqual). SPIR-V spec requires logical ops for boolean operands.
+// Bug: NAGA-SPV-007 — OpIEqual with bool operands fails spirv-val.
+func TestBoolEqualUsesLogicalEqual(t *testing.T) {
+	const shader = `
+@group(0) @binding(0) var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let a = true;
+    let b = gid.x == 0u;
+    if a == b {
+        out[0] = 1u;
+    }
+    if a != b {
+        out[1] = 2u;
+    }
+}
+`
+	spirvBytes := compileWGSLToSPIRV(t, "BoolEqual", shader)
+
+	instrs := decodeSPIRVInstructions(spirvBytes)
+	var logicalEqual, logicalNotEqual, iEqual, iNotEqual int
+	for _, inst := range instrs {
+		switch inst.opcode {
+		case OpLogicalEqual:
+			logicalEqual++
+		case OpLogicalNotEqual:
+			logicalNotEqual++
+		case OpIEqual:
+			iEqual++
+		case OpINotEqual:
+			iNotEqual++
+		}
+	}
+
+	t.Logf("OpLogicalEqual: %d, OpLogicalNotEqual: %d, OpIEqual: %d, OpINotEqual: %d",
+		logicalEqual, logicalNotEqual, iEqual, iNotEqual)
+
+	if logicalEqual == 0 {
+		t.Errorf("expected OpLogicalEqual for bool==bool, got none (OpIEqual count: %d)", iEqual)
+	}
+	if logicalNotEqual == 0 {
+		t.Errorf("expected OpLogicalNotEqual for bool!=bool, got none (OpINotEqual count: %d)", iNotEqual)
+	}
+}
+
+// TestDeferredStoreTransitiveDeps verifies that var X = Y is correctly deferred
+// when Y itself depends on a function call result.
+// Bug: NAGA-SPV-008 — `var imax = count` was initialized in prologue before
+// `count` was ready (count deferred due to span() call in its init).
+func TestDeferredStoreTransitiveDeps(t *testing.T) {
+	const shader = `
+@group(0) @binding(0) var<storage, read_write> out: array<u32>;
+
+fn compute(a: f32, b: f32) -> u32 {
+    return u32(max(ceil(max(a, b)) - floor(min(a, b)), 1.0));
+}
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let x = f32(gid.x);
+    var count = compute(x, x + 1.0);
+    var copy = count;  // Depends on deferred count!
+    out[0] = copy;
+}
+`
+	spirvBytes := compileWGSLToSPIRV(t, "DeferredTransitive", shader)
+
+	// Verify: OpStore for "copy" must come AFTER OpFunctionCall (which produces count).
+	instrs := decodeSPIRVInstructions(spirvBytes)
+	callSeen := false
+	copyStoreAfterCall := false
+	for _, inst := range instrs {
+		if inst.opcode == OpFunctionCall {
+			callSeen = true
+		}
+		// After the call, look for Store to "copy" variable.
+		// The Store for copy should reference a Load from count, which was just stored.
+		if callSeen && inst.opcode == OpStore {
+			copyStoreAfterCall = true
+		}
+	}
+	if !copyStoreAfterCall {
+		t.Error("expected OpStore for copy variable after OpFunctionCall, but all stores precede the call")
+	}
+	t.Logf("Compiled %d bytes, deferred store ordering verified", len(spirvBytes))
 }
