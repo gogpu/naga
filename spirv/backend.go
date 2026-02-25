@@ -1480,25 +1480,111 @@ func (b *Backend) emitFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// (directly or inside Binary/Unary/etc.) must be deferred: the StmtCall in
 	// the body must run first to produce the result. After the body is emitted,
 	// we evaluate the deferred inits and store them.
+	//
+	// Additionally, variables that reference other deferred variables (via
+	// ExprLocalVariable) must also be deferred, since the referenced variable
+	// won't be initialized until the body runs.
+
+	// Pass 1: classify each var — find which call result handle it depends on
+	// (directly or transitively through other deferred vars).
+	type varDeferInfo struct {
+		isDeferred     bool
+		callResultH    ir.ExpressionHandle // the call result to wait for
+		hasCallResult  bool                // whether callResultH is valid
+		isDirectCall   bool                // direct ExprCallResult/ExprAtomicResult
+		depsOnVarIndex int                 // index of deferred var it depends on (-1 if none)
+	}
+	varInfo := make([]varDeferInfo, len(fn.LocalVars))
+
 	for i, localVar := range fn.LocalVars {
 		if localVar.Init == nil {
 			continue
 		}
 		initExpr := fn.Expressions[*localVar.Init]
 		if _, isCallResult := initExpr.Kind.(ir.ExprCallResult); isCallResult {
-			// Direct call result: register deferred store for emitCall
+			varInfo[i] = varDeferInfo{isDeferred: true, isDirectCall: true}
+			continue
+		}
+		if _, isAtomicResult := initExpr.Kind.(ir.ExprAtomicResult); isAtomicResult {
+			varInfo[i] = varDeferInfo{isDeferred: true, isDirectCall: true}
+			continue
+		}
+		if h, ok := findLastDeferredResultInTree(fn.Expressions, *localVar.Init); ok {
+			varInfo[i] = varDeferInfo{isDeferred: true, callResultH: h, hasCallResult: true}
+		}
+	}
+
+	// Pass 2: propagate — vars referencing deferred vars become deferred too.
+	for changed := true; changed; {
+		changed = false
+		for i, localVar := range fn.LocalVars {
+			if localVar.Init == nil || varInfo[i].isDeferred {
+				continue
+			}
+			deferredSet := make(map[int]bool, len(varInfo))
+			for j := range varInfo {
+				if varInfo[j].isDeferred {
+					deferredSet[j] = true
+				}
+			}
+			if depIdx := findDeferredLocalVarRef(fn.Expressions, *localVar.Init, deferredSet); depIdx >= 0 {
+				varInfo[i] = varDeferInfo{isDeferred: true, depsOnVarIndex: depIdx}
+				changed = true
+			}
+		}
+	}
+
+	// Resolve transitive dependencies: find the ultimate call result handle
+	// for vars that depend on other deferred vars.
+	for i := range varInfo {
+		if !varInfo[i].isDeferred || varInfo[i].isDirectCall || varInfo[i].hasCallResult {
+			continue
+		}
+		// Walk the dependency chain to find the call result.
+		visited := make(map[int]bool)
+		j := varInfo[i].depsOnVarIndex
+		for j >= 0 && !visited[j] {
+			visited[j] = true
+			if varInfo[j].hasCallResult {
+				varInfo[i].callResultH = varInfo[j].callResultH
+				varInfo[i].hasCallResult = true
+				break
+			}
+			if varInfo[j].isDirectCall && fn.LocalVars[j].Init != nil {
+				varInfo[i].callResultH = *fn.LocalVars[j].Init
+				varInfo[i].hasCallResult = true
+				break
+			}
+			j = varInfo[j].depsOnVarIndex
+		}
+	}
+
+	// Pass 3: emit stores.
+	for i, localVar := range fn.LocalVars {
+		if localVar.Init == nil {
+			continue
+		}
+		if !varInfo[i].isDeferred {
+			initID, err := emitter.emitExpression(*localVar.Init)
+			if err != nil {
+				return fmt.Errorf("local var %q init: %w", localVar.Name, err)
+			}
+			b.builder.AddStore(localVarIDs[i], initID)
+			continue
+		}
+		if varInfo[i].isDirectCall {
 			emitter.deferredCallStores[*localVar.Init] = localVarIDs[i]
 			continue
 		}
-		if callResultHandle, ok := findCallResultInTree(fn.Expressions, *localVar.Init); ok {
-			// Init contains a call result somewhere in the tree — defer
-			// until the corresponding StmtCall runs.
-			emitter.deferredComplexStores[callResultHandle] = append(
-				emitter.deferredComplexStores[callResultHandle],
+		if varInfo[i].hasCallResult {
+			emitter.deferredComplexStores[varInfo[i].callResultH] = append(
+				emitter.deferredComplexStores[varInfo[i].callResultH],
 				deferredComplexStore{varPtrID: localVarIDs[i], initExpr: *localVar.Init},
 			)
 			continue
 		}
+		// Fallback: deferred but no call result found — shouldn't happen,
+		// but emit in prologue to avoid silently dropping the init.
 		initID, err := emitter.emitExpression(*localVar.Init)
 		if err != nil {
 			return fmt.Errorf("local var %q init: %w", localVar.Name, err)
@@ -2795,12 +2881,16 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	case ir.BinaryEqual:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFOrdEqual
+		} else if scalarKind == ir.ScalarBool {
+			opcode = OpLogicalEqual
 		} else {
 			opcode = OpIEqual
 		}
 	case ir.BinaryNotEqual:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFOrdNotEqual
+		} else if scalarKind == ir.ScalarBool {
+			opcode = OpLogicalNotEqual
 		} else {
 			opcode = OpINotEqual
 		}
@@ -2837,11 +2927,19 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			opcode = OpUGreaterThanEqual
 		}
 	case ir.BinaryAnd:
-		opcode = OpBitwiseAnd
+		if scalarKind == ir.ScalarBool {
+			opcode = OpLogicalAnd
+		} else {
+			opcode = OpBitwiseAnd
+		}
 	case ir.BinaryExclusiveOr:
 		opcode = OpBitwiseXor
 	case ir.BinaryInclusiveOr:
-		opcode = OpBitwiseOr
+		if scalarKind == ir.ScalarBool {
+			opcode = OpLogicalOr
+		} else {
+			opcode = OpBitwiseOr
+		}
 	case ir.BinaryLogicalAnd:
 		opcode = OpLogicalAnd
 	case ir.BinaryLogicalOr:
@@ -3210,13 +3308,15 @@ func (e *ExpressionEmitter) emitIf(stmt ir.StmtIf) error {
 // blockEndsWithTerminator checks if a block ends with a terminator instruction
 // (return, kill, break, continue) that makes subsequent OpBranch unreachable.
 // In SPIR-V, each basic block must end with exactly one terminator instruction.
-// findCallResultInTree checks if an expression tree contains an ExprCallResult.
-// Returns the ExprCallResult handle if found. This is used to detect local variable
-// inits like `var x = func() - 0.5` where the call result is nested inside a
-// binary expression, not the top-level init expression.
+// findLastDeferredResultInTree finds the ExprCallResult with the highest expression
+// handle in an expression tree. When an init expression contains multiple call
+// results (e.g., `var x = f() + g()`), the deferred store must be triggered by
+// the LAST call to complete. Since StmtCalls are emitted in expression handle
+// order, the highest handle corresponds to the last call emitted — by which
+// point all earlier call results are already cached in callResultIDs.
 //
-//nolint:gocognit,gocyclo,cyclop // recursive expression tree traversal requires handling 12+ expression types
-func findCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
+//nolint:gocognit,gocyclo,cyclop,funlen // recursive expression tree traversal requires handling 12+ expression types
+func findLastDeferredResultInTree(expressions []ir.Expression, handle ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
 	if int(handle) >= len(expressions) {
 		return 0, false
 	}
@@ -3224,68 +3324,127 @@ func findCallResultInTree(expressions []ir.Expression, handle ir.ExpressionHandl
 	switch k := expr.Kind.(type) {
 	case ir.ExprCallResult:
 		return handle, true
+	case ir.ExprAtomicResult:
+		return handle, true
 	case ir.ExprBinary:
-		if h, ok := findCallResultInTree(expressions, k.Left); ok {
-			return h, true
+		best, found := findLastDeferredResultInTree(expressions, k.Left)
+		if h, ok := findLastDeferredResultInTree(expressions, k.Right); ok {
+			if !found || h > best {
+				best = h
+			}
+			found = true
 		}
-		return findCallResultInTree(expressions, k.Right)
+		return best, found
 	case ir.ExprUnary:
-		return findCallResultInTree(expressions, k.Expr)
+		return findLastDeferredResultInTree(expressions, k.Expr)
 	case ir.ExprAccessIndex:
-		return findCallResultInTree(expressions, k.Base)
+		return findLastDeferredResultInTree(expressions, k.Base)
 	case ir.ExprAccess:
-		return findCallResultInTree(expressions, k.Base)
+		return findLastDeferredResultInTree(expressions, k.Base)
 	case ir.ExprSwizzle:
-		return findCallResultInTree(expressions, k.Vector)
+		return findLastDeferredResultInTree(expressions, k.Vector)
 	case ir.ExprLoad:
-		return findCallResultInTree(expressions, k.Pointer)
+		return findLastDeferredResultInTree(expressions, k.Pointer)
 	case ir.ExprCompose:
+		best := ir.ExpressionHandle(0)
+		found := false
 		for _, comp := range k.Components {
-			if h, ok := findCallResultInTree(expressions, comp); ok {
-				return h, true
+			if h, ok := findLastDeferredResultInTree(expressions, comp); ok {
+				if !found || h > best {
+					best = h
+				}
+				found = true
 			}
 		}
-		return 0, false
+		return best, found
 	case ir.ExprAs:
-		return findCallResultInTree(expressions, k.Expr)
+		return findLastDeferredResultInTree(expressions, k.Expr)
 	case ir.ExprSplat:
-		return findCallResultInTree(expressions, k.Value)
+		return findLastDeferredResultInTree(expressions, k.Value)
 	case ir.ExprSelect:
-		if h, ok := findCallResultInTree(expressions, k.Condition); ok {
-			return h, true
+		best, found := findLastDeferredResultInTree(expressions, k.Condition)
+		if h, ok := findLastDeferredResultInTree(expressions, k.Accept); ok {
+			if !found || h > best {
+				best = h
+			}
+			found = true
 		}
-		if h, ok := findCallResultInTree(expressions, k.Accept); ok {
-			return h, true
+		if h, ok := findLastDeferredResultInTree(expressions, k.Reject); ok {
+			if !found || h > best {
+				best = h
+			}
+			found = true
 		}
-		return findCallResultInTree(expressions, k.Reject)
+		return best, found
 	case ir.ExprMath:
-		if h, ok := findCallResultInTree(expressions, k.Arg); ok {
-			return h, true
-		}
+		best, found := findLastDeferredResultInTree(expressions, k.Arg)
 		if k.Arg1 != nil {
-			if h, ok := findCallResultInTree(expressions, *k.Arg1); ok {
-				return h, true
+			if h, ok := findLastDeferredResultInTree(expressions, *k.Arg1); ok {
+				if !found || h > best {
+					best = h
+				}
+				found = true
 			}
 		}
 		if k.Arg2 != nil {
-			if h, ok := findCallResultInTree(expressions, *k.Arg2); ok {
-				return h, true
+			if h, ok := findLastDeferredResultInTree(expressions, *k.Arg2); ok {
+				if !found || h > best {
+					best = h
+				}
+				found = true
 			}
 		}
 		if k.Arg3 != nil {
-			if h, ok := findCallResultInTree(expressions, *k.Arg3); ok {
-				return h, true
+			if h, ok := findLastDeferredResultInTree(expressions, *k.Arg3); ok {
+				if !found || h > best {
+					best = h
+				}
+				found = true
 			}
 		}
-		return 0, false
+		return best, found
 	case ir.ExprDerivative:
-		return findCallResultInTree(expressions, k.Expr)
+		return findLastDeferredResultInTree(expressions, k.Expr)
 	case ir.ExprRelational:
-		return findCallResultInTree(expressions, k.Argument)
+		return findLastDeferredResultInTree(expressions, k.Argument)
 	case ir.ExprArrayLength:
-		return findCallResultInTree(expressions, k.Array)
+		return findLastDeferredResultInTree(expressions, k.Array)
 	default:
 		return 0, false
+	}
+}
+
+// findDeferredLocalVarRef checks if an expression tree contains a reference
+// (ExprLocalVariable) to any local variable in the deferred set. Returns the
+// index of the first deferred var found, or -1 if none.
+func findDeferredLocalVarRef(expressions []ir.Expression, handle ir.ExpressionHandle, deferredSet map[int]bool) int {
+	if int(handle) >= len(expressions) {
+		return -1
+	}
+	expr := expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		if deferredSet[int(k.Variable)] {
+			return int(k.Variable)
+		}
+		return -1
+	case ir.ExprBinary:
+		if idx := findDeferredLocalVarRef(expressions, k.Left, deferredSet); idx >= 0 {
+			return idx
+		}
+		return findDeferredLocalVarRef(expressions, k.Right, deferredSet)
+	case ir.ExprUnary:
+		return findDeferredLocalVarRef(expressions, k.Expr, deferredSet)
+	case ir.ExprLoad:
+		return findDeferredLocalVarRef(expressions, k.Pointer, deferredSet)
+	case ir.ExprAccessIndex:
+		return findDeferredLocalVarRef(expressions, k.Base, deferredSet)
+	case ir.ExprAccess:
+		return findDeferredLocalVarRef(expressions, k.Base, deferredSet)
+	case ir.ExprAs:
+		return findDeferredLocalVarRef(expressions, k.Expr, deferredSet)
+	default:
+		return -1
 	}
 }
 
@@ -4409,6 +4568,12 @@ func (e *ExpressionEmitter) resolveAtomicScalarKind(pointer ir.ExpressionHandle)
 		inner = pointerType.Value
 	}
 
+	// ResolveExpressionType may return the atomic type directly (e.g., for
+	// struct field access like tiles[i].backdrop) or wrapped in a PointerType.
+	if atomicType, ok := inner.(ir.AtomicType); ok {
+		return atomicType.Scalar.Kind
+	}
+
 	ptrType, ok := inner.(ir.PointerType)
 	if !ok || int(ptrType.Base) >= len(e.backend.module.Types) {
 		return ir.ScalarUint
@@ -4492,6 +4657,9 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		e.backend.builder.functions = append(e.backend.builder.functions, builder.Build(OpAtomicLoad))
 		if stmt.Result != nil {
 			e.exprIDs[*stmt.Result] = resultID
+			if err := e.processDeferredStores(*stmt.Result, resultID); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -4541,6 +4709,9 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 
 	if stmt.Result != nil {
 		e.exprIDs[*stmt.Result] = resultID
+		if err := e.processDeferredStores(*stmt.Result, resultID); err != nil {
+			return err
+		}
 	}
 	return nil
 }

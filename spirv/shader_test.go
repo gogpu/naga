@@ -1606,6 +1606,125 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 	t.Logf("Successfully compiled function call in let expression: %d bytes", len(spirvBytes))
 }
 
+// TestCompileMultipleCallResultsInInit tests that a local variable init expression
+// containing TWO different function call results compiles correctly.
+// This is the exact pattern from path_count.wgsl that triggered the
+// "deferred complex store: call result for expression N not found" error.
+// The bug was that findCallResultInTree returned only the FIRST CallResult,
+// so the deferred store was triggered too early — before the second call completed.
+func TestCompileMultipleCallResultsInInit(t *testing.T) {
+	source := `
+fn span(a: f32, b: f32) -> u32 {
+    let mx = max(a, b);
+    let mn = min(a, b);
+    var result = ceil(mx) - floor(mn);
+    if result < 1.0 {
+        result = 1.0;
+    }
+    return u32(result);
+}
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let s0 = vec2<f32>(1.0, 2.0);
+    let s1 = vec2<f32>(3.0, 4.0);
+
+    // Two call results in a single expression tree — this was the failing pattern.
+    var count_x = span(s0.x, s1.x) - 1u;
+    var count = count_x + span(s0.y, s1.y);
+
+    // Use the values to prevent dead-code elimination.
+    _ = count;
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+	t.Logf("Successfully compiled multiple call results in init: %d bytes", len(spirvBytes))
+}
+
+// TestCompileMultipleCallResultsInlinedLet tests the case where `let` declarations
+// cause two call results to be inlined into a single expression tree used by a
+// `var` init. This is the exact path_count.wgsl pattern:
+//
+//	let count_x = span(s0.x, s1.x) - 1u;    // inlined (let)
+//	let count = count_x + span(s0.y, s1.y);  // inlined (let)
+//	var imax = count;                         // init has TWO CallResults
+func TestCompileMultipleCallResultsInlinedLet(t *testing.T) {
+	source := `
+fn span(a: f32, b: f32) -> u32 {
+    let mx = max(a, b);
+    let mn = min(a, b);
+    var result = ceil(mx) - floor(mn);
+    if result < 1.0 {
+        result = 1.0;
+    }
+    return u32(result);
+}
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let s0 = vec2<f32>(1.0, 2.0);
+    let s1 = vec2<f32>(3.0, 4.0);
+
+    // let declarations get inlined — both CallResults end up in imax's init tree.
+    let count_x = span(s0.x, s1.x) - 1u;
+    let count = count_x + span(s0.y, s1.y);
+    var imax = count;
+
+    _ = imax;
+}
+`
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	backend := NewBackend(DefaultOptions())
+	spirvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	validateSPIRVBinary(t, spirvBytes)
+	t.Logf("Successfully compiled inlined let with multiple call results: %d bytes", len(spirvBytes))
+}
+
 // TestCompileImageQuery tests that textureDimensions emits ImageQuery capability.
 func TestCompileImageQuery(t *testing.T) {
 	source := `
