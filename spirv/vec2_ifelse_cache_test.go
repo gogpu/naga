@@ -49,8 +49,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `
 	spirvBytes := compileWGSLToSPIRV(t, "Vec2IfElseCache", shader)
 
-	// Write SPIR-V to temp file for spirv-dis
-	spvFile := "../../gg/tmp/vec2_ifelse_cache.spv"
+	// Write SPIR-V to temp file for spirv-dis/spirv-val
+	spvFile := t.TempDir() + "/vec2_ifelse_cache.spv"
 	if err := os.WriteFile(spvFile, spirvBytes, 0o644); err != nil {
 		t.Fatalf("write SPIR-V: %v", err)
 	}
@@ -136,8 +136,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `
 	spirvBytes := compileWGSLToSPIRV(t, "Vec2CacheMinimal", shader)
 
-	// Write SPIR-V to temp file for spirv-dis
-	spvFile := "../../gg/tmp/vec2_cache_minimal.spv"
+	// Write SPIR-V to temp file for spirv-dis/spirv-val
+	spvFile := t.TempDir() + "/vec2_cache_minimal.spv"
 	if err := os.WriteFile(spvFile, spirvBytes, 0o644); err != nil {
 		t.Fatalf("write SPIR-V: %v", err)
 	}
@@ -173,7 +173,8 @@ func TestPathTilingFullShader(t *testing.T) {
 
 	spirvBytes := compileWGSLToSPIRV(t, "PathTiling", string(shaderSrc))
 
-	spvFile := "../../gg/tmp/path_tiling_go.spv"
+	tmpDir := t.TempDir()
+	spvFile := tmpDir + "/path_tiling_go.spv"
 	if err := os.WriteFile(spvFile, spirvBytes, 0o644); err != nil {
 		t.Fatalf("write SPIR-V: %v", err)
 	}
@@ -184,10 +185,7 @@ func TestPathTilingFullShader(t *testing.T) {
 	if err != nil {
 		t.Logf("spirv-dis failed: %v", err)
 	} else {
-		// Save full disassembly to file
-		disFile := "../../gg/tmp/path_tiling_go.spvasm"
-		os.WriteFile(disFile, disOut, 0o644)
-		t.Logf("Full disassembly saved to %s (%d bytes)", disFile, len(disOut))
+		t.Logf("Full disassembly: %d bytes", len(disOut))
 	}
 
 	// spirv-val
