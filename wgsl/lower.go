@@ -1046,10 +1046,29 @@ func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
 	}
 
 	localIdx := uint32(len(l.currentFunc.LocalVars))
+
+	// Check if the init expression references any local variable.
+	// Inits that reference local variables MUST be emitted as StmtStore at the
+	// declaration point because the SPIR-V backend pre-computes non-deferred var
+	// inits in the prologue — before the function body executes. If a var's init
+	// reads another local variable that is later modified by control flow (if/else),
+	// the prologue would use stale (pre-modification) values.
+	//
+	// This matches Rust naga's approach: runtime inits referencing local vars are
+	// lowered to LocalVariable{Init: nil} + StmtStore at declaration position.
+	// Inits that only reference globals, uniforms, constants, and function args
+	// are safe in the prologue since these values don't change during execution.
+	needsBodyStore := initHandle != nil && l.initReferencesLocalVariable(*initHandle)
+
+	var prologueInit *ir.ExpressionHandle
+	if initHandle != nil && !needsBodyStore {
+		prologueInit = initHandle
+	}
+
 	l.currentFunc.LocalVars = append(l.currentFunc.LocalVars, ir.LocalVariable{
 		Name: v.Name,
 		Type: typeHandle,
-		Init: initHandle,
+		Init: prologueInit,
 	})
 
 	// Create local variable expression
@@ -1057,6 +1076,14 @@ func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
 		Kind: ir.ExprLocalVariable{Variable: localIdx},
 	})
 	l.locals[v.Name] = exprHandle
+
+	// Emit body store for inits that reference local variables.
+	if needsBodyStore {
+		*target = append(*target, ir.Statement{Kind: ir.StmtStore{
+			Pointer: exprHandle,
+			Value:   *initHandle,
+		}})
+	}
 
 	// Track declaration for unused variable warnings
 	l.localDecls[v.Name] = v.Span
@@ -2116,6 +2143,92 @@ func (l *Lowerer) lowerIndex(idx *IndexExpr, target *[]ir.Statement) (ir.Express
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprAccess{Base: base, Index: index},
 	}), nil
+}
+
+// initReferencesLocalVariable walks the expression tree and returns true if any
+// sub-expression is an ExprLocalVariable. This identifies var inits that MUST be
+// emitted as StmtStore at declaration position rather than pre-computed in the
+// SPIR-V prologue.
+//
+// Only local variable references are problematic because local vars can be modified
+// by body control flow (if/else blocks). Globals, uniforms, function arguments,
+// constants, and function call results are all safe in the prologue:
+//   - Globals/uniforms: immutable during function execution
+//   - Function arguments: immutable during function execution
+//   - Constants/literals: compile-time values
+//   - CallResult/AtomicResult: handled by the existing deferred store mechanism
+//
+//nolint:gocyclo,cyclop // recursive expression tree traversal — one case per expression type
+func (l *Lowerer) initReferencesLocalVariable(handle ir.ExpressionHandle) bool {
+	if int(handle) >= len(l.currentFunc.Expressions) {
+		return false
+	}
+	expr := l.currentFunc.Expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		return true
+
+	// Leaf expressions that never reference local vars:
+	case ir.Literal, ir.ExprConstant, ir.ExprZeroValue,
+		ir.ExprGlobalVariable, ir.ExprFunctionArgument,
+		ir.ExprCallResult, ir.ExprAtomicResult:
+		return false
+
+	// Composite expressions — recurse into sub-expressions:
+	case ir.ExprCompose:
+		for _, comp := range k.Components {
+			if l.initReferencesLocalVariable(comp) {
+				return true
+			}
+		}
+		return false
+	case ir.ExprSplat:
+		return l.initReferencesLocalVariable(k.Value)
+	case ir.ExprAccess:
+		return l.initReferencesLocalVariable(k.Base) || l.initReferencesLocalVariable(k.Index)
+	case ir.ExprAccessIndex:
+		return l.initReferencesLocalVariable(k.Base)
+	case ir.ExprSwizzle:
+		return l.initReferencesLocalVariable(k.Vector)
+	case ir.ExprLoad:
+		return l.initReferencesLocalVariable(k.Pointer)
+	case ir.ExprUnary:
+		return l.initReferencesLocalVariable(k.Expr)
+	case ir.ExprBinary:
+		return l.initReferencesLocalVariable(k.Left) || l.initReferencesLocalVariable(k.Right)
+	case ir.ExprSelect:
+		return l.initReferencesLocalVariable(k.Condition) ||
+			l.initReferencesLocalVariable(k.Accept) ||
+			l.initReferencesLocalVariable(k.Reject)
+	case ir.ExprMath:
+		if l.initReferencesLocalVariable(k.Arg) {
+			return true
+		}
+		if k.Arg1 != nil && l.initReferencesLocalVariable(*k.Arg1) {
+			return true
+		}
+		if k.Arg2 != nil && l.initReferencesLocalVariable(*k.Arg2) {
+			return true
+		}
+		if k.Arg3 != nil && l.initReferencesLocalVariable(*k.Arg3) {
+			return true
+		}
+		return false
+	case ir.ExprAs:
+		return l.initReferencesLocalVariable(k.Expr)
+	case ir.ExprRelational:
+		return l.initReferencesLocalVariable(k.Argument)
+	case ir.ExprDerivative:
+		return l.initReferencesLocalVariable(k.Expr)
+	case ir.ExprArrayLength:
+		return l.initReferencesLocalVariable(k.Array)
+
+	default:
+		// Unknown expression type — conservatively treat as referencing local vars
+		// to ensure correctness. This covers ExprImageSample, ExprImageLoad, etc.
+		// which are unlikely in var init expressions but handled for safety.
+		return true
+	}
 }
 
 // Helper methods
