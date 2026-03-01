@@ -36,12 +36,19 @@ jobs:
         shell: bash
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
+      - name: Verify coverage file
         if: matrix.os == 'ubuntu-latest'
+        run: ls -la coverage.txt && echo "$(wc -l < coverage.txt) lines"
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.txt
-          fail_ci_if_error: false
+          flags: unittests
+          name: codecov-naga
+          fail_ci_if_error: true
 
   lint:
     name: Lint
