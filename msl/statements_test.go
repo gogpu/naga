@@ -320,7 +320,7 @@ func TestMSL_Kill(t *testing.T) {
 		},
 	}
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "discard_fragment();")
+	mustContainMSL(t, result, "metal::discard_fragment();")
 }
 
 // =============================================================================

@@ -378,9 +378,6 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 
 		return structName, true
 	}
-	if ep.Stage != ir.StageFragment {
-		return "", false
-	}
 	for i, arg := range fn.Arguments {
 		if arg.Binding != nil {
 			continue
@@ -402,9 +399,17 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 				memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(arg.Type), handle2: uint32(memberIdx)})
 				memberType := w.writeTypeName(member.Type, StorageAccess(0))
 
-				attr := attrPosition
-				if memberIdx > 0 {
-					attr = fmt.Sprintf("[[user(locn%d)]]", memberIdx-1)
+				var attr string
+				if member.Binding != nil {
+					switch b := (*member.Binding).(type) {
+					case ir.LocationBinding:
+						attr = locationInputAttribute(b, ep.Stage)
+					case ir.BuiltinBinding:
+						attr = builtinInputAttribute(b.Builtin, ep.Stage)
+					}
+				}
+				if attr == "" {
+					continue
 				}
 
 				w.writeLine("%s %s %s;", memberType, memberName, attr)

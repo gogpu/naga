@@ -27,12 +27,18 @@ T _naga_mod(T lhs, D rhs) {
     return lhs % (nz * rhs + D(!nz));
 }
 
+struct vs_main_Input {
+    metal::float3 position_ [[attribute(0)]];
+    metal::float3 color_ [[attribute(1)]];
+};
+
 struct vs_main_Output {
     metal::float4 position_ [[position]];
     metal::float3 color_ [[user(locn0)]];
 };
 
-vertex vs_main_Output vs_main() {
+vertex vs_main_Output vs_main(vs_main_Input _input [[stage_in]]) {
+    auto in_ = _input;
     VertexOutput out_ = VertexOutput();
     
     vs_main_Output _output;
