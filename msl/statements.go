@@ -58,7 +58,7 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		return w.writeReturn(k)
 
 	case ir.StmtKill:
-		w.writeLine("discard_fragment();")
+		w.writeLine("%sdiscard_fragment();", Namespace)
 		return nil
 
 	case ir.StmtBarrier:

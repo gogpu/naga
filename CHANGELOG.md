@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.4] - 2026-03-01
+
+### Fixed
+
+#### MSL Backend
+- **Vertex `[[stage_in]]` for struct-typed arguments** — vertex shaders with struct-typed inputs (e.g., `fn vs_main(in: VertexInput)`) now correctly generate a synthesized `_Input` struct with `[[attribute(N)]]` members and `[[stage_in]]` parameter; previously only fragment stage was handled, causing undefined `in_` reference ([gogpu/ui#23](https://github.com/gogpu/ui/issues/23))
+- **`metal::discard_fragment()` namespace** — `discard_fragment()` now emits with required `metal::` namespace prefix; bare call was rejected by Metal shader compiler
+
 ## [0.14.3] - 2026-02-25
 
 ### Fixed
