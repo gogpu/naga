@@ -333,7 +333,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 
 // writeEntryPointInputStruct writes the input struct for an entry point.
 //
-//nolint:gocognit // Entry point struct generation requires handling many input/output patterns
+//nolint:gocognit,cyclop // Entry point struct generation requires handling many input/output patterns
 func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir.Function) (string, bool) {
 	// Check if we need an input struct (location bindings)
 	hasLocationInputs := false
@@ -409,7 +409,15 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 					}
 				}
 				if attr == "" {
-					continue
+					// Fallback for struct members without explicit bindings
+					switch {
+					case ep.Stage == ir.StageFragment && memberIdx == 0:
+						attr = attrPosition
+					case ep.Stage == ir.StageFragment:
+						attr = fmt.Sprintf("[[user(locn%d)]]", memberIdx-1)
+					default:
+						attr = fmt.Sprintf("[[attribute(%d)]]", memberIdx)
+					}
 				}
 
 				w.writeLine("%s %s %s;", memberType, memberName, attr)

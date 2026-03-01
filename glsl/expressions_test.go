@@ -1507,7 +1507,7 @@ func TestGLSL_WorkGroupUniformLoadStatement(t *testing.T) {
 func TestGLSL_ComputeEntryPoint(t *testing.T) {
 	tVec3U32 := ir.TypeHandle(0)
 
-	var globalIdBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID}
+	var globalIDBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID}
 
 	opts := DefaultOptions()
 	opts.LangVersion = Version{Major: 4, Minor: 30}
@@ -1519,7 +1519,7 @@ func TestGLSL_ComputeEntryPoint(t *testing.T) {
 		Functions: []ir.Function{{
 			Name: "cs_main",
 			Arguments: []ir.FunctionArgument{
-				{Name: "global_id", Type: tVec3U32, Binding: &globalIdBinding},
+				{Name: "global_id", Type: tVec3U32, Binding: &globalIDBinding},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtReturn{}},
