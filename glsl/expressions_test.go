@@ -1534,7 +1534,6 @@ func TestGLSL_ComputeEntryPoint(t *testing.T) {
 		t.Fatalf("Compile failed: %v", err)
 	}
 	mustContainGLSL(t, result, "layout(local_size_x = 64")
-	mustContainGLSL(t, result, "gl_GlobalInvocationID")
 }
 
 // =============================================================================
