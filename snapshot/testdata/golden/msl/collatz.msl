@@ -42,7 +42,7 @@ uint collatz_iterations(uint n_base) {
 }
 
 kernel void main_(metal::uint3 gid [[thread_position_in_grid]],
-    device Data* data [[buffer(0)]]) {
+    device Data& data [[buffer(0)]]) {
     uint _fc9 = collatz_iterations(data.values[gid[0]]);
     data.values[gid[0]] = _fc9;
 }

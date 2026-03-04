@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.5] - 2026-03-04
+
+### Fixed
+
+#### MSL Backend
+- **Buffer parameters use references (`&`) instead of pointers (`*`)** — buffer parameters now generate `constant Uniforms& u [[buffer(0)]]` (reference) instead of `constant Uniforms* u [[buffer(0)]]` (pointer); pointer syntax required `->` or `(*u).` for member access while the expression writer generates `.` access, causing Metal compilation errors on Apple Silicon ([gogpu/ui#23](https://github.com/gogpu/ui/issues/23))
+
 ## [0.14.4] - 2026-03-01
 
 ### Fixed

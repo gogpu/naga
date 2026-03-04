@@ -26,8 +26,8 @@ T _naga_mod(T lhs, D rhs) {
 }
 
 kernel void main_(uint lid [[thread_index_in_threadgroup]], metal::uint3 gid [[thread_position_in_grid]],
-    constant Params* params [[buffer(0)]],
-    device type_6* output [[buffer(1)]]) {
+    constant Params& params [[buffer(0)]],
+    device type_6& output [[buffer(1)]]) {
     shared_data.inner[lid] = (float(gid[0]) * 0.5);
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if ((lid < 128u)) {
