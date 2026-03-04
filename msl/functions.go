@@ -528,7 +528,7 @@ func (w *Writer) writeGlobalResourceParam(handle uint32, global *ir.GlobalVariab
 		typeName := w.writeTypeName(global.Type, StorageAccess(0))
 
 		if space == spaceConstant || space == spaceDevice {
-			w.write("%s %s* %s [[buffer(%d)]]", space, typeName, name, binding)
+			w.write("%s %s& %s [[buffer(%d)]]", space, typeName, name, binding)
 		} else {
 			w.write("%s %s [[buffer(%d)]]", typeName, name, binding)
 		}

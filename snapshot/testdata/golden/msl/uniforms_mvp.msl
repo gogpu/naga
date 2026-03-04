@@ -38,7 +38,7 @@ struct vs_main_Output {
 };
 
 vertex vs_main_Output vs_main(vs_main_Input _input [[stage_in]],
-    constant Uniforms* uniforms [[buffer(0)]]) {
+    constant Uniforms& uniforms [[buffer(0)]]) {
     auto position_ = _input.position_;
     VertexOutput out_ = VertexOutput();
     
@@ -57,7 +57,7 @@ struct fs_main_Input {
 };
 
 fragment metal::float4 fs_main(fs_main_Input _input [[stage_in]],
-    constant Uniforms* uniforms [[buffer(0)]]) {
+    constant Uniforms& uniforms [[buffer(0)]]) {
     auto world_pos = _input.world_pos;
     
     return metal::float4(((metal::normalize(world_pos) * 0.5) + 0.5), 1.0);

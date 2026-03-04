@@ -1146,12 +1146,9 @@ func (w *Writer) isIntegerExpression(handle ir.ExpressionHandle) bool {
 }
 
 func (w *Writer) pointerNeedsDeref(pt ir.PointerType) bool {
-	switch pt.Space {
-	case ir.SpaceUniform, ir.SpaceStorage, ir.SpacePushConstant:
-		return true
-	default:
-		return false
-	}
+	// Buffer parameters use references (&) in MSL, not pointers (*).
+	// References don't need explicit dereference.
+	return false
 }
 
 func (w *Writer) shouldDerefPointer(handle ir.ExpressionHandle) bool {

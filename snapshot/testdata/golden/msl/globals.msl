@@ -27,7 +27,7 @@ T _naga_mod(T lhs, D rhs) {
 }
 
 kernel void main_(uint local_idx [[thread_index_in_threadgroup]],
-    constant Uniforms* uniforms [[buffer(0)]]) {
+    constant Uniforms& uniforms [[buffer(0)]]) {
     shared_data.inner[local_idx] = (uniforms.scale * float(local_idx));
     threadgroup_barrier(mem_flags::mem_threadgroup);
 }
