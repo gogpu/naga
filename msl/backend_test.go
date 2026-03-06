@@ -548,3 +548,168 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 		t.Error("[[position]] should be on struct member, not on function signature")
 	}
 }
+
+// TestMSL_PassThroughGlobals verifies that helper functions receiving
+// texture/sampler globals get them as extra parameters, and call sites
+// pass them as extra arguments. This is the fix for gogpu/ui#23 where
+// MSL helper functions couldn't access entry point resource bindings.
+func TestMSL_PassThroughGlobals(t *testing.T) {
+	// Type handles:
+	// 0: f32, 1: vec2f, 2: vec4f, 3: texture2d, 4: sampler
+	tF32 := ir.TypeHandle(0)
+	tVec2 := ir.TypeHandle(1)
+	tVec4 := ir.TypeHandle(2)
+	tTex := ir.TypeHandle(3)
+	tSamp := ir.TypeHandle(4)
+
+	binding0 := &ir.ResourceBinding{Group: 0, Binding: 0}
+	binding1 := &ir.ResourceBinding{Group: 0, Binding: 1}
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "vec2f", Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "vec4f", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "tex2d", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}},
+			{Name: "samp", Inner: ir.SamplerType{Comparison: false}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "my_texture", Space: ir.SpaceHandle, Type: tTex, Binding: binding0},
+			{Name: "my_sampler", Space: ir.SpaceHandle, Type: tSamp, Binding: binding1},
+		},
+		Functions: []ir.Function{
+			{
+				// Helper function: sample_tex(uv: vec2f) -> vec4f
+				// References globals: my_texture (0), my_sampler (1)
+				Name: "sample_tex",
+				Arguments: []ir.FunctionArgument{
+					{Name: "uv", Type: tVec2},
+				},
+				Result: &ir.FunctionResult{Type: tVec4},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},  // 0: uv
+					{Kind: ir.ExprGlobalVariable{Variable: 0}}, // 1: my_texture
+					{Kind: ir.ExprGlobalVariable{Variable: 1}}, // 2: my_sampler
+					{Kind: ir.ExprImageSample{ // 3: textureSample
+						Image: 1, Sampler: 2, Coordinate: 0,
+						Level: ir.SampleLevelAuto{},
+					}},
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tVec2}, // 0: uv
+					{Handle: &tTex},  // 1: texture
+					{Handle: &tSamp}, // 2: sampler
+					{Handle: &tVec4}, // 3: sample result
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
+				},
+			},
+			{
+				// Entry point function: calls sample_tex with hardcoded UV
+				Name: "fs_entry",
+				Result: &ir.FunctionResult{
+					Type:    tVec4,
+					Binding: bindingPtr(ir.LocationBinding{Location: 0}),
+				},
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // 0: 0.5
+					{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // 1: 0.5
+					{Kind: ir.ExprCompose{ // 2: vec2(0.5, 0.5)
+						Type: tVec2, Components: []ir.ExpressionHandle{0, 1},
+					}},
+					{Kind: ir.ExprCallResult{Function: 0}}, // 3: result of call
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tF32},  // 0: literal
+					{Handle: &tF32},  // 1: literal
+					{Handle: &tVec2}, // 2: compose
+					{Handle: &tVec4}, // 3: call result
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+					{Kind: ir.StmtCall{
+						Function:  0, // call sample_tex
+						Arguments: []ir.ExpressionHandle{2},
+						Result:    ptrExpr(3),
+					}},
+					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
+				},
+			},
+		},
+		EntryPoints: []ir.EntryPoint{
+			{
+				Name: "fs_main", Stage: ir.StageFragment,
+				Function: 1, // references Functions[1]
+			},
+		},
+	}
+
+	result, _, err := Compile(module, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	// Helper function should have texture and sampler as extra params (no [[binding]])
+	if !strings.Contains(result, "sample_tex(") {
+		t.Fatal("Expected helper function sample_tex in output")
+	}
+
+	// Check that helper function has pass-through params
+	if !strings.Contains(result, "my_texture") {
+		t.Error("Expected my_texture in helper function params")
+	}
+	if !strings.Contains(result, "my_sampler") {
+		t.Error("Expected my_sampler in helper function params")
+	}
+
+	// Helper function params should NOT have [[texture(N)]] or [[sampler(N)]] attributes
+	// (those belong only on entry point params)
+	lines := strings.Split(result, "\n")
+	inHelper := false
+	for _, line := range lines {
+		if strings.Contains(line, "sample_tex(") {
+			inHelper = true
+		}
+		if inHelper && strings.Contains(line, ") {") {
+			inHelper = false
+		}
+		if inHelper {
+			if strings.Contains(line, "[[texture(") || strings.Contains(line, "[[sampler(") {
+				t.Errorf("Helper function should not have binding attributes, got: %s", line)
+			}
+		}
+	}
+
+	// Entry point should have [[texture(0)]] and [[sampler(1)]]
+	if !strings.Contains(result, "[[texture(0)]]") {
+		t.Error("Expected [[texture(0)]] on entry point param")
+	}
+	if !strings.Contains(result, "[[sampler(1)]]") {
+		t.Error("Expected [[sampler(1)]] on entry point param")
+	}
+
+	// Call site should pass globals as extra arguments
+	// Look for something like: sample_tex(vec2f_expr, my_texture, my_sampler)
+	foundCallWithGlobals := false
+	for _, line := range lines {
+		if strings.Contains(line, "sample_tex(") && strings.Contains(line, "my_texture") && strings.Contains(line, "my_sampler") {
+			foundCallWithGlobals = true
+			break
+		}
+	}
+	if !foundCallWithGlobals {
+		t.Error("Expected call site to pass my_texture and my_sampler as extra arguments")
+	}
+
+	t.Logf("Generated MSL:\n%s", result)
+}
+
+func ptrExpr(h ir.ExpressionHandle) *ir.ExpressionHandle {
+	return &h
+}
+
+func bindingPtr(b ir.Binding) *ir.Binding {
+	return &b
+}

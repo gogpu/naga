@@ -13,6 +13,98 @@ const (
 	spaceDevice   = "device"
 )
 
+// needsPassThrough returns true if global variables in this address space
+// must be passed as function arguments in MSL. MSL doesn't have true globals
+// for resources — they must be passed through from entry points.
+func needsPassThrough(space ir.AddressSpace) bool {
+	switch space {
+	case ir.SpaceUniform, ir.SpaceStorage, ir.SpaceHandle, ir.SpacePrivate, ir.SpaceWorkGroup:
+		return true
+	default:
+		return false
+	}
+}
+
+// analyzeFuncPassThroughGlobals scans each non-entry-point function to determine
+// which global variables it references. These globals must be added as extra
+// parameters since MSL helper functions cannot access entry point bindings.
+// Uses memoization to handle transitive calls (A calls B which uses globals).
+func (w *Writer) analyzeFuncPassThroughGlobals() {
+	for handle := range w.module.Functions {
+		w.getPassThroughGlobals(ir.FunctionHandle(handle))
+	}
+}
+
+// getPassThroughGlobals returns (and caches) the list of global variable handles
+// that a function needs as pass-through parameters.
+func (w *Writer) getPassThroughGlobals(handle ir.FunctionHandle) []uint32 {
+	if cached, ok := w.funcPassThroughGlobals[handle]; ok {
+		return cached
+	}
+
+	// Mark as visited (empty slice) to prevent infinite recursion
+	w.funcPassThroughGlobals[handle] = []uint32{}
+
+	fn := &w.module.Functions[handle]
+	seen := make(map[uint32]struct{})
+	var result []uint32
+
+	addGlobal := func(h uint32) {
+		if _, already := seen[h]; already {
+			return
+		}
+		if int(h) < len(w.module.GlobalVariables) {
+			gvar := &w.module.GlobalVariables[h]
+			if needsPassThrough(gvar.Space) {
+				seen[h] = struct{}{}
+				result = append(result, h)
+			}
+		}
+	}
+
+	// Direct global variable references in expressions
+	for _, expr := range fn.Expressions {
+		if gv, ok := expr.Kind.(ir.ExprGlobalVariable); ok {
+			addGlobal(uint32(gv.Variable))
+		}
+	}
+
+	// Transitive: globals used by called functions
+	w.walkStmts(fn.Body, func(call ir.StmtCall) {
+		if int(call.Function) < len(w.module.Functions) {
+			for _, h := range w.getPassThroughGlobals(call.Function) {
+				addGlobal(h)
+			}
+		}
+	})
+
+	w.funcPassThroughGlobals[handle] = result
+	return result
+}
+
+// walkStmts walks all statements (including nested blocks) and calls
+// the visitor for each StmtCall found.
+func (w *Writer) walkStmts(stmts ir.Block, visitCall func(ir.StmtCall)) {
+	for _, stmt := range stmts {
+		switch s := stmt.Kind.(type) {
+		case ir.StmtCall:
+			visitCall(s)
+		case ir.StmtBlock:
+			w.walkStmts(s.Block, visitCall)
+		case ir.StmtIf:
+			w.walkStmts(s.Accept, visitCall)
+			w.walkStmts(s.Reject, visitCall)
+		case ir.StmtSwitch:
+			for _, c := range s.Cases {
+				w.walkStmts(c.Body, visitCall)
+			}
+		case ir.StmtLoop:
+			w.walkStmts(s.Body, visitCall)
+			w.walkStmts(s.Continuing, visitCall)
+		}
+	}
+}
+
 // writeFunctions writes all non-entry-point function definitions.
 func (w *Writer) writeFunctions() error {
 	for handle := range w.module.Functions {
@@ -68,13 +160,26 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	w.write("%s %s(", returnType, funcName)
 
 	// Parameters
+	paramCount := 0
 	for i, arg := range fn.Arguments {
-		if i > 0 {
+		if paramCount > 0 {
 			w.write(", ")
 		}
 		argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(handle), handle2: uint32(i)})
 		argType := w.writeTypeName(arg.Type, StorageAccess(0))
 		w.write("%s %s", argType, argName)
+		paramCount++
+	}
+
+	// Pass-through global resources (textures, samplers, buffers)
+	if globals, ok := w.funcPassThroughGlobals[handle]; ok {
+		for _, gHandle := range globals {
+			if paramCount > 0 {
+				w.write(",\n    ")
+			}
+			w.writePassThroughParam(gHandle)
+			paramCount++
+		}
 	}
 
 	w.write(") {\n")
@@ -496,6 +601,34 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 	w.writeLine("")
 
 	return structName, true
+}
+
+// writePassThroughParam writes a global variable as a pass-through parameter
+// for a helper function. Unlike entry point params, these have no [[binding]] attributes.
+func (w *Writer) writePassThroughParam(handle uint32) {
+	global := &w.module.GlobalVariables[handle]
+	name := w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: handle})
+	typeInfo := &w.module.Types[global.Type]
+
+	switch inner := typeInfo.Inner.(type) {
+	case ir.SamplerType:
+		w.write("%ssampler %s", Namespace, name)
+
+	case ir.ImageType:
+		typeName := w.imageTypeName(inner, StorageAccess(0))
+		w.write("%s %s", typeName, name)
+
+	default:
+		// Buffer types (uniform, storage)
+		space := addressSpaceName(global.Space)
+		typeName := w.writeTypeName(global.Type, StorageAccess(0))
+
+		if space == spaceConstant || space == spaceDevice {
+			w.write("%s %s& %s", space, typeName, name)
+		} else {
+			w.write("%s %s", typeName, name)
+		}
+	}
 }
 
 // writeGlobalResourceParam writes a global resource as an entry point parameter.

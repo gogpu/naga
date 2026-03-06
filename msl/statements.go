@@ -473,6 +473,18 @@ func (w *Writer) writeCall(call ir.StmtCall) error {
 		}
 	}
 
+	// Pass-through global resources (textures, samplers, buffers)
+	if globals, ok := w.funcPassThroughGlobals[call.Function]; ok {
+		hasArgs := len(call.Arguments) > 0
+		for i, gHandle := range globals {
+			if hasArgs || i > 0 {
+				w.write(", ")
+			}
+			name := w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: gHandle})
+			w.write("%s", name)
+		}
+	}
+
 	w.write(");\n")
 	return nil
 }
