@@ -65,6 +65,11 @@ type Writer struct {
 	entryPointOutputType       ir.TypeHandle
 	entryPointOutputTypeActive bool
 	entryPointInputStructArg   int
+
+	// Pass-through globals: for each function, the list of global variable handles
+	// that need to be passed as extra parameters (textures, samplers, buffers, etc.)
+	// MSL requires these because helper functions can't access entry point bindings directly.
+	funcPassThroughGlobals map[ir.FunctionHandle][]uint32
 }
 
 // namer generates unique identifiers.
@@ -113,6 +118,7 @@ func newWriter(module *ir.Module, options *Options, pipeline *PipelineOptions) *
 		entryPointNames:          make(map[string]string),
 		namedExpressions:         make(map[ir.ExpressionHandle]string),
 		entryPointInputStructArg: -1,
+		funcPassThroughGlobals:   make(map[ir.FunctionHandle][]uint32),
 	}
 }
 
@@ -144,12 +150,15 @@ func (w *Writer) writeModule() error {
 	// 5. Write helper functions if needed
 	w.writeHelperFunctions()
 
-	// 6. Write functions
+	// 6. Analyze pass-through globals for helper functions
+	w.analyzeFuncPassThroughGlobals()
+
+	// 7. Write functions
 	if err := w.writeFunctions(); err != nil {
 		return err
 	}
 
-	// 7. Write entry points
+	// 8. Write entry points
 	return w.writeEntryPoints()
 }
 
