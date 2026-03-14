@@ -70,6 +70,11 @@ type Writer struct {
 	// that need to be passed as extra parameters (textures, samplers, buffers, etc.)
 	// MSL requires these because helper functions can't access entry point bindings directly.
 	funcPassThroughGlobals map[ir.FunctionHandle][]uint32
+
+	// currentResourceMap maps (group, binding) to Metal bind targets for the current entry point.
+	// Computed per entry point to assign sequential buffer/texture/sampler indices that avoid
+	// collisions across bind groups.
+	currentResourceMap map[ir.ResourceBinding]BindTarget
 }
 
 // namer generates unique identifiers.

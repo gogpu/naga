@@ -2,6 +2,7 @@ package msl
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/gogpu/naga/ir"
 )
@@ -340,6 +341,11 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		}
 	}
 
+	// Compute Metal binding indices for this entry point.
+	// This assigns sequential per-type indices across all bind groups,
+	// preventing collisions when multiple groups share binding numbers.
+	w.computeResourceMap(ep.Name)
+
 	// Resource bindings (textures, buffers, samplers)
 	for i, global := range w.module.GlobalVariables {
 		if global.Binding != nil {
@@ -631,7 +637,88 @@ func (w *Writer) writePassThroughParam(handle uint32) {
 	}
 }
 
+// computeResourceMap builds the Metal binding index map for the current entry point.
+// If PerEntryPointMap has an explicit mapping for epName, it is used directly.
+// Otherwise, sequential indices per resource type (buffer, texture, sampler) are
+// assigned across all globals sorted by (group, binding), matching the approach
+// used by Rust wgpu-hal's Metal device.
+func (w *Writer) computeResourceMap(epName string) {
+	// Check for explicit mapping first.
+	if w.options.PerEntryPointMap != nil {
+		if epRes, ok := w.options.PerEntryPointMap[epName]; ok {
+			w.currentResourceMap = epRes.Resources
+			return
+		}
+	}
+
+	// Auto-compute: collect all globals with bindings, classify by resource type,
+	// sort by (group, binding), assign sequential indices per type.
+	type globalEntry struct {
+		binding ir.ResourceBinding
+		resKind int // 0=buffer, 1=texture, 2=sampler
+	}
+
+	var entries []globalEntry
+	for _, global := range w.module.GlobalVariables {
+		if global.Binding == nil {
+			continue
+		}
+		if int(global.Type) >= len(w.module.Types) {
+			continue
+		}
+
+		var kind int
+		switch w.module.Types[global.Type].Inner.(type) {
+		case ir.SamplerType:
+			kind = 2
+		case ir.ImageType:
+			kind = 1
+		default:
+			kind = 0
+		}
+
+		entries = append(entries, globalEntry{
+			binding: *global.Binding,
+			resKind: kind,
+		})
+	}
+
+	// Sort by (group, binding) for deterministic assignment.
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].binding.Group != entries[j].binding.Group {
+			return entries[i].binding.Group < entries[j].binding.Group
+		}
+		return entries[i].binding.Binding < entries[j].binding.Binding
+	})
+
+	// Assign sequential indices per resource type.
+	resMap := make(map[ir.ResourceBinding]BindTarget, len(entries))
+	var nextBuffer, nextTexture, nextSampler uint8
+	for _, e := range entries {
+		var bt BindTarget
+		switch e.resKind {
+		case 0: // buffer
+			idx := nextBuffer
+			bt.Buffer = &idx
+			nextBuffer++
+		case 1: // texture
+			idx := nextTexture
+			bt.Texture = &idx
+			nextTexture++
+		case 2: // sampler
+			idx := nextSampler
+			bt.Sampler = &idx
+			nextSampler++
+		}
+		resMap[e.binding] = bt
+	}
+
+	w.currentResourceMap = resMap
+}
+
 // writeGlobalResourceParam writes a global resource as an entry point parameter.
+// It uses currentResourceMap (populated by computeResourceMap) to determine the
+// Metal binding index, which ensures unique indices across bind groups.
 func (w *Writer) writeGlobalResourceParam(handle uint32, global *ir.GlobalVariable) error {
 	name := w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: handle})
 
@@ -641,33 +728,49 @@ func (w *Writer) writeGlobalResourceParam(handle uint32, global *ir.GlobalVariab
 
 	typeInfo := &w.module.Types[global.Type]
 
-	// Determine binding slot
-	var binding uint32
-	if global.Binding != nil {
-		binding = global.Binding.Binding
+	// Look up the Metal binding index from the pre-computed resource map.
+	var bt BindTarget
+	if global.Binding != nil && w.currentResourceMap != nil {
+		bt = w.currentResourceMap[*global.Binding]
 	}
 
 	switch inner := typeInfo.Inner.(type) {
 	case ir.SamplerType:
-		w.write("%ssampler %s [[sampler(%d)]]", Namespace, name, binding)
+		idx := w.bindTargetIndex(bt.Sampler, global.Binding)
+		w.write("%ssampler %s [[sampler(%d)]]", Namespace, name, idx)
 
 	case ir.ImageType:
 		typeName := w.imageTypeName(inner, StorageAccess(0))
-		w.write("%s %s [[texture(%d)]]", typeName, name, binding)
+		idx := w.bindTargetIndex(bt.Texture, global.Binding)
+		w.write("%s %s [[texture(%d)]]", typeName, name, idx)
 
 	default:
 		// Buffer types
 		space := addressSpaceName(global.Space)
 		typeName := w.writeTypeName(global.Type, StorageAccess(0))
+		idx := w.bindTargetIndex(bt.Buffer, global.Binding)
 
 		if space == spaceConstant || space == spaceDevice {
-			w.write("%s %s& %s [[buffer(%d)]]", space, typeName, name, binding)
+			w.write("%s %s& %s [[buffer(%d)]]", space, typeName, name, idx)
 		} else {
-			w.write("%s %s [[buffer(%d)]]", typeName, name, binding)
+			w.write("%s %s [[buffer(%d)]]", typeName, name, idx)
 		}
 	}
 
 	return nil
+}
+
+// bindTargetIndex returns the Metal binding index from a BindTarget slot pointer.
+// If the slot is non-nil (explicit or auto-computed mapping), its value is used.
+// Otherwise falls back to the raw WGSL binding number (legacy behavior).
+func (w *Writer) bindTargetIndex(slot *uint8, binding *ir.ResourceBinding) uint32 {
+	if slot != nil {
+		return uint32(*slot)
+	}
+	if binding != nil {
+		return binding.Binding
+	}
+	return 0
 }
 
 // writeBindingAttribute writes the MSL attribute for a binding.

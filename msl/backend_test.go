@@ -682,12 +682,14 @@ func TestMSL_PassThroughGlobals(t *testing.T) {
 		}
 	}
 
-	// Entry point should have [[texture(0)]] and [[sampler(1)]]
+	// Entry point should have [[texture(0)]] and [[sampler(0)]]
+	// Sampler gets index 0 because Metal indices are sequential per resource type
+	// (not the raw WGSL binding number), matching Rust wgpu-hal behavior.
 	if !strings.Contains(result, "[[texture(0)]]") {
 		t.Error("Expected [[texture(0)]] on entry point param")
 	}
-	if !strings.Contains(result, "[[sampler(1)]]") {
-		t.Error("Expected [[sampler(1)]] on entry point param")
+	if !strings.Contains(result, "[[sampler(0)]]") {
+		t.Error("Expected [[sampler(0)]] on entry point param")
 	}
 
 	// Call site should pass globals as extra arguments
@@ -701,6 +703,225 @@ func TestMSL_PassThroughGlobals(t *testing.T) {
 	}
 	if !foundCallWithGlobals {
 		t.Error("Expected call site to pass my_texture and my_sampler as extra arguments")
+	}
+
+	t.Logf("Generated MSL:\n%s", result)
+}
+
+// TestMSL_MultiGroupBindingIndices verifies that globals from different bind
+// groups get unique Metal buffer indices. Before the fix, @group(0) @binding(0)
+// and @group(1) @binding(0) both mapped to [[buffer(0)]], causing a Metal
+// shader compilation error. After the fix, they get sequential indices:
+// [[buffer(0)]] and [[buffer(1)]].
+//
+// This is the regression test for gogpu/gg#209.
+func TestMSL_MultiGroupBindingIndices(t *testing.T) {
+	// Types: 0=f32, 1=vec4f, 2=Uniforms{viewport:vec4f}, 3=ClipParams{rect:vec4f}
+	tVec4 := ir.TypeHandle(1)
+	tUniforms := ir.TypeHandle(2)
+	tClipParams := ir.TypeHandle(3)
+
+	// Two buffers in different bind groups with the same binding number.
+	group0Binding0 := &ir.ResourceBinding{Group: 0, Binding: 0}
+	group1Binding0 := &ir.ResourceBinding{Group: 1, Binding: 0}
+
+	// Fragment shader: reads from both uniforms and clip params.
+	expressions := []ir.Expression{
+		{Kind: ir.ExprGlobalVariable{Variable: 0}},    // 0: uniforms
+		{Kind: ir.ExprGlobalVariable{Variable: 1}},    // 1: clip_params
+		{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // 2: uniforms.viewport
+		{Kind: ir.ExprLoad{Pointer: 2}},               // 3: load viewport
+	}
+	expressionTypes := []ir.TypeResolution{
+		{Value: ir.PointerType{Base: tUniforms, Space: ir.SpaceUniform}},   // 0
+		{Value: ir.PointerType{Base: tClipParams, Space: ir.SpaceUniform}}, // 1
+		{Value: ir.PointerType{Base: tVec4, Space: ir.SpaceUniform}},       // 2
+		{Handle: &tVec4}, // 3
+	}
+
+	retExpr := ir.ExpressionHandle(3)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "vec4f", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{
+				Name: "Uniforms",
+				Inner: ir.StructType{
+					Members: []ir.StructMember{
+						{Name: "viewport", Type: tVec4, Offset: 0},
+					},
+					Span: 16,
+				},
+			},
+			{
+				Name: "ClipParams",
+				Inner: ir.StructType{
+					Members: []ir.StructMember{
+						{Name: "clip_rect", Type: tVec4, Offset: 0},
+					},
+					Span: 16,
+				},
+			},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "uniforms", Space: ir.SpaceUniform, Type: tUniforms, Binding: group0Binding0},
+			{Name: "clip_params", Space: ir.SpaceUniform, Type: tClipParams, Binding: group1Binding0},
+		},
+		Functions: []ir.Function{
+			{
+				Name: "fs_main",
+				Result: &ir.FunctionResult{
+					Type:    tVec4,
+					Binding: bindingPtr(ir.LocationBinding{Location: 0}),
+				},
+				Expressions:     expressions,
+				ExpressionTypes: expressionTypes,
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+					{Kind: ir.StmtReturn{Value: &retExpr}},
+				},
+			},
+		},
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+		},
+	}
+
+	result, _, err := Compile(module, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	// Key assertion: the two buffers MUST have different indices.
+	if !strings.Contains(result, "[[buffer(0)]]") {
+		t.Error("Expected [[buffer(0)]] for first buffer (group 0)")
+	}
+	if !strings.Contains(result, "[[buffer(1)]]") {
+		t.Error("Expected [[buffer(1)]] for second buffer (group 1)")
+	}
+
+	// Count occurrences of [[buffer(0)]] — must be exactly 1.
+	count := strings.Count(result, "[[buffer(0)]]")
+	if count != 1 {
+		t.Errorf("Expected exactly 1 occurrence of [[buffer(0)]], got %d", count)
+	}
+
+	// On macOS, verify the generated MSL actually compiles with Metal compiler.
+	if runtime.GOOS == "darwin" {
+		verifyMSLWithXcrun(t, result)
+	}
+
+	t.Logf("Generated MSL:\n%s", result)
+}
+
+// TestMSL_MultiGroupMixedResourceTypes verifies sequential index assignment
+// across multiple groups with mixed resource types (buffer + texture + sampler).
+func TestMSL_MultiGroupMixedResourceTypes(t *testing.T) {
+	tVec4 := ir.TypeHandle(1)
+	tUniforms := ir.TypeHandle(3)
+	tClipParams := ir.TypeHandle(4)
+	tTex := ir.TypeHandle(5)
+	tSamp := ir.TypeHandle(6)
+
+	// group(0): binding(0)=Uniforms(buffer), binding(1)=texture, binding(2)=sampler
+	// group(1): binding(0)=ClipParams(buffer)
+	g0b0 := &ir.ResourceBinding{Group: 0, Binding: 0}
+	g0b1 := &ir.ResourceBinding{Group: 0, Binding: 1}
+	g0b2 := &ir.ResourceBinding{Group: 0, Binding: 2}
+	g1b0 := &ir.ResourceBinding{Group: 1, Binding: 0}
+
+	expressions := []ir.Expression{
+		{Kind: ir.ExprGlobalVariable{Variable: 0}},    // 0: uniforms
+		{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // 1: uniforms.viewport
+		{Kind: ir.ExprLoad{Pointer: 1}},               // 2: load viewport
+	}
+	expressionTypes := []ir.TypeResolution{
+		{Value: ir.PointerType{Base: tUniforms, Space: ir.SpaceUniform}}, // 0
+		{Value: ir.PointerType{Base: tVec4, Space: ir.SpaceUniform}},     // 1
+		{Handle: &tVec4}, // 2
+	}
+
+	retExpr := ir.ExpressionHandle(2)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "vec4f", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "vec2f", Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{
+				Name: "Uniforms",
+				Inner: ir.StructType{
+					Members: []ir.StructMember{{Name: "viewport", Type: tVec4, Offset: 0}},
+					Span:    16,
+				},
+			},
+			{
+				Name: "ClipParams",
+				Inner: ir.StructType{
+					Members: []ir.StructMember{{Name: "clip_rect", Type: tVec4, Offset: 0}},
+					Span:    16,
+				},
+			},
+			{Name: "tex2d", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}},
+			{Name: "samp", Inner: ir.SamplerType{Comparison: false}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "uniforms", Space: ir.SpaceUniform, Type: tUniforms, Binding: g0b0},
+			{Name: "atlas", Space: ir.SpaceHandle, Type: tTex, Binding: g0b1},
+			{Name: "atlas_sampler", Space: ir.SpaceHandle, Type: tSamp, Binding: g0b2},
+			{Name: "clip_params", Space: ir.SpaceUniform, Type: tClipParams, Binding: g1b0},
+		},
+		Functions: []ir.Function{
+			{
+				Name: "fs_main",
+				Result: &ir.FunctionResult{
+					Type:    tVec4,
+					Binding: bindingPtr(ir.LocationBinding{Location: 0}),
+				},
+				Expressions:     expressions,
+				ExpressionTypes: expressionTypes,
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+					{Kind: ir.StmtReturn{Value: &retExpr}},
+				},
+			},
+		},
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+		},
+	}
+
+	result, _, err := Compile(module, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	// Buffers: sequential across groups.
+	// group(0) binding(0) Uniforms → buffer(0)
+	// group(1) binding(0) ClipParams → buffer(1)
+	if strings.Count(result, "[[buffer(0)]]") != 1 {
+		t.Errorf("Expected exactly 1 [[buffer(0)]], got %d", strings.Count(result, "[[buffer(0)]]"))
+	}
+	if strings.Count(result, "[[buffer(1)]]") != 1 {
+		t.Errorf("Expected exactly 1 [[buffer(1)]], got %d", strings.Count(result, "[[buffer(1)]]"))
+	}
+
+	// Textures and samplers: independent namespaces, each starts at 0.
+	if !strings.Contains(result, "[[texture(0)]]") {
+		t.Error("Expected [[texture(0)]] for atlas")
+	}
+	if !strings.Contains(result, "[[sampler(0)]]") {
+		t.Error("Expected [[sampler(0)]] for atlas_sampler")
+	}
+
+	// Verify no duplicate indices within same resource type.
+	if strings.Count(result, "[[buffer(0)]]") > 1 {
+		t.Error("Duplicate [[buffer(0)]] — bind group collision!")
+	}
+
+	if runtime.GOOS == "darwin" {
+		verifyMSLWithXcrun(t, result)
 	}
 
 	t.Logf("Generated MSL:\n%s", result)
