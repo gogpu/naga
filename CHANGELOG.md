@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.7] - 2026-03-15
+
+### Fixed
+
+#### MSL Backend
+- **Multi-group binding index collision** — `@group(0) @binding(0)` and `@group(1) @binding(0)` both mapped to Metal `[[buffer(0)]]`, causing shader compilation failure on macOS. The MSL backend now assigns sequential per-type indices (buffer, texture, sampler) across all bind groups sorted by `(group, binding)`, matching the Rust wgpu-hal approach. When `PerEntryPointMap` provides explicit mappings, those take priority. ([gogpu/gg#209](https://github.com/gogpu/gg/issues/209))
+
 ## [0.14.6] - 2026-03-06
 
 ### Fixed

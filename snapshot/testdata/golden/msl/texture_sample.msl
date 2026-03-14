@@ -29,7 +29,7 @@ struct vs_main_Output {
 
 vertex vs_main_Output vs_main(uint vi [[vertex_id]],
     metal::texture2d<float, metal::access::sample> t_diffuse [[texture(0)]],
-    metal::sampler s_diffuse [[sampler(1)]]) {
+    metal::sampler s_diffuse [[sampler(0)]]) {
     vs_main_Output _output;
     auto _ret_25 = VertexOutput{metal::float4(metal::float2(((float(_naga_div(int(vi), 2)) * 4.0) - 1.0), ((float(_naga_mod(int(vi), 2)) * 4.0) - 1.0)), 0.0, 1.0), ((metal::float2(((float(_naga_div(int(vi), 2)) * 4.0) - 1.0), ((float(_naga_mod(int(vi), 2)) * 4.0) - 1.0)) + 1.0) * 0.5)};
     _output.position_ = _ret_25.position_;
@@ -44,7 +44,7 @@ struct fs_main_Input {
 
 fragment metal::float4 fs_main(fs_main_Input _input [[stage_in]],
     metal::texture2d<float, metal::access::sample> t_diffuse [[texture(0)]],
-    metal::sampler s_diffuse [[sampler(1)]]) {
+    metal::sampler s_diffuse [[sampler(0)]]) {
     auto uv = _input.uv;
     
     return t_diffuse.sample(s_diffuse, uv);
