@@ -31,6 +31,19 @@ const (
 	nameKeyLocal
 )
 
+// maxBindingsPerGroup is the maximum number of bindings per bind group
+// used when flattening (group, binding) to a single GL binding point.
+// WebGPU allows up to 16 bindings per group across 4 groups (0..3).
+// Flattened binding = group * maxBindingsPerGroup + binding.
+const maxBindingsPerGroup = 16
+
+// flattenBinding converts a WebGPU (group, binding) pair to a single GL binding
+// index. GLSL has no concept of bind groups -- only flat binding indices.
+// The formula is: group * maxBindingsPerGroup + binding + base.
+func flattenBinding(group, binding, base uint32) uint32 {
+	return group*maxBindingsPerGroup + binding + base
+}
+
 // Writer generates GLSL source code from IR.
 type Writer struct {
 	module  *ir.Module
@@ -607,7 +620,7 @@ func (w *Writer) writeCombinedSamplerDeclarations() {
 		w.textureSamplerPairs = append(w.textureSamplerPairs, info.glslName)
 
 		if info.binding != nil {
-			binding := info.binding.Binding + w.options.TextureBindingBase
+			binding := flattenBinding(info.binding.Group, info.binding.Binding, w.options.TextureBindingBase)
 			w.writeLine("layout(binding = %d) uniform %s %s;", binding, info.glslTypeName, info.glslName)
 		} else {
 			w.writeLine("uniform %s %s;", info.glslTypeName, info.glslName)
@@ -632,7 +645,7 @@ func (w *Writer) writeUniformVariable(name, typeName string, global ir.GlobalVar
 
 	// Non-struct uniform (plain uniform variable)
 	if global.Binding != nil {
-		binding := global.Binding.Binding + w.options.UniformBindingBase
+		binding := flattenBinding(global.Binding.Group, global.Binding.Binding, w.options.UniformBindingBase)
 		w.writeLine("layout(binding = %d) uniform %s %s;", binding, typeName, name)
 	} else {
 		w.writeLine("uniform %s %s;", typeName, name)
@@ -646,7 +659,7 @@ func (w *Writer) writeUniformVariable(name, typeName string, global ir.GlobalVar
 func (w *Writer) writeUniformBlock(name, typeName string, global ir.GlobalVariable, st ir.StructType) {
 	blockName := "_" + typeName + "_ubo"
 	if global.Binding != nil {
-		binding := global.Binding.Binding + w.options.UniformBindingBase
+		binding := flattenBinding(global.Binding.Group, global.Binding.Binding, w.options.UniformBindingBase)
 		w.writeLine("layout(std140, binding = %d) uniform %s {", binding, blockName)
 	} else {
 		w.writeLine("uniform %s {", blockName)
@@ -673,7 +686,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 	}
 
 	if global.Binding != nil {
-		binding := global.Binding.Binding + w.options.StorageBindingBase
+		binding := flattenBinding(global.Binding.Group, global.Binding.Binding, w.options.StorageBindingBase)
 		w.writeLine("layout(std430, binding = %d) buffer %s_block { %s %s; };", binding, name, typeName, name)
 	} else {
 		w.writeLine("buffer %s_block { %s %s; };", name, typeName, name)
