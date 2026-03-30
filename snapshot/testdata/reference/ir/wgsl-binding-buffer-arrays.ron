@@ -1,0 +1,369 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("UniformIndex"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("index"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 2,
+                size: Dynamic,
+                stride: 4,
+            ),
+        ),
+        (
+            name: Some("Foo"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("x"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("far"),
+                        ty: 3,
+                        binding: None,
+                        offset: 4,
+                    ),
+                ],
+                span: 8,
+            ),
+        ),
+        (
+            name: None,
+            inner: BindingArray(
+                base: 4,
+                size: Constant(1),
+            ),
+        ),
+        (
+            name: Some("FragmentIn"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("index"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("storage_array"),
+            space: Storage(
+                access: ("LOAD"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 5,
+            init: None,
+        ),
+        (
+            name: Some("uni"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 10,
+            )),
+            ty: 1,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [
+                    (
+                        name: Some("fragment_in"),
+                        ty: 6,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 0,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Flat),
+                        sampling: None,
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [
+                    (
+                        name: Some("u1"),
+                        ty: 0,
+                        init: Some(5),
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 2,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    Literal(U32(0)),
+                    LocalVariable(0),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 7,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 11,
+                        right: 10,
+                    ),
+                    GlobalVariable(0),
+                    Access(
+                        base: 13,
+                        index: 3,
+                    ),
+                    AccessIndex(
+                        base: 14,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 15,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 17,
+                        right: 16,
+                    ),
+                    GlobalVariable(0),
+                    Access(
+                        base: 19,
+                        index: 4,
+                    ),
+                    AccessIndex(
+                        base: 20,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 21,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 23,
+                        right: 22,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 25,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 26,
+                        index: 1,
+                    ),
+                    ArrayLength(27),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 29,
+                        right: 28,
+                    ),
+                    GlobalVariable(0),
+                    Access(
+                        base: 31,
+                        index: 3,
+                    ),
+                    AccessIndex(
+                        base: 32,
+                        index: 1,
+                    ),
+                    ArrayLength(33),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 35,
+                        right: 34,
+                    ),
+                    GlobalVariable(0),
+                    Access(
+                        base: 37,
+                        index: 4,
+                    ),
+                    AccessIndex(
+                        base: 38,
+                        index: 1,
+                    ),
+                    ArrayLength(39),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 41,
+                        right: 40,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                ],
+                named_expressions: {
+                    0: "fragment_in",
+                    3: "uniform_index",
+                    4: "non_uniform_index",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 8,
+                        end: 13,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 12,
+                    ),
+                    Emit((
+                        start: 14,
+                        end: 19,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 18,
+                    ),
+                    Emit((
+                        start: 20,
+                        end: 25,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 24,
+                    ),
+                    Emit((
+                        start: 26,
+                        end: 31,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 30,
+                    ),
+                    Emit((
+                        start: 32,
+                        end: 37,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 36,
+                    ),
+                    Emit((
+                        start: 38,
+                        end: 43,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 42,
+                    ),
+                    Emit((
+                        start: 43,
+                        end: 44,
+                    )),
+                    Return(
+                        value: Some(43),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

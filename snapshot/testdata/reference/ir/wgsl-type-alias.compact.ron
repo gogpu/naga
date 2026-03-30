@@ -1,0 +1,226 @@
+(
+    types: [
+        (
+            name: Some("FVec3"),
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("Mat3"),
+            inner: Matrix(
+                columns: Tri,
+                rows: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Bi,
+                rows: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 0,
+                        components: [
+                            0,
+                            1,
+                            2,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Tri,
+                        value: 4,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 6,
+                    ),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 0,
+                        components: [
+                            7,
+                            8,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 10,
+                    ),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 0,
+                        components: [
+                            11,
+                            12,
+                        ],
+                    ),
+                    As(
+                        expr: 13,
+                        kind: Sint,
+                        convert: Some(4),
+                    ),
+                    Literal(F32(1.0)),
+                    Literal(F32(2.0)),
+                    Literal(F32(3.0)),
+                    Literal(F32(4.0)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            15,
+                            16,
+                        ],
+                    ),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            17,
+                            18,
+                        ],
+                    ),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            19,
+                            20,
+                        ],
+                    ),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            3,
+                            3,
+                            3,
+                        ],
+                    ),
+                    ZeroValue(4),
+                    ZeroValue(3),
+                ],
+                named_expressions: {
+                    3: "a",
+                    5: "c",
+                    9: "b",
+                    13: "d",
+                    14: "e",
+                    21: "f",
+                    22: "g",
+                    23: "h",
+                    24: "i",
+                },
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 5,
+                        end: 6,
+                    )),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Emit((
+                        start: 13,
+                        end: 14,
+                    )),
+                    Emit((
+                        start: 14,
+                        end: 15,
+                    )),
+                    Emit((
+                        start: 19,
+                        end: 22,
+                    )),
+                    Emit((
+                        start: 22,
+                        end: 23,
+                    )),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

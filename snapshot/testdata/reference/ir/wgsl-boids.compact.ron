@@ -1,0 +1,1248 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("Particle"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("pos"),
+                        ty: 2,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("vel"),
+                        ty: 2,
+                        binding: None,
+                        offset: 8,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+        (
+            name: Some("SimParams"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("deltaT"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("rule1Distance"),
+                        ty: 1,
+                        binding: None,
+                        offset: 4,
+                    ),
+                    (
+                        name: Some("rule2Distance"),
+                        ty: 1,
+                        binding: None,
+                        offset: 8,
+                    ),
+                    (
+                        name: Some("rule3Distance"),
+                        ty: 1,
+                        binding: None,
+                        offset: 12,
+                    ),
+                    (
+                        name: Some("rule1Scale"),
+                        ty: 1,
+                        binding: None,
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("rule2Scale"),
+                        ty: 1,
+                        binding: None,
+                        offset: 20,
+                    ),
+                    (
+                        name: Some("rule3Scale"),
+                        ty: 1,
+                        binding: None,
+                        offset: 24,
+                    ),
+                ],
+                span: 28,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 3,
+                size: Dynamic,
+                stride: 16,
+            ),
+        ),
+        (
+            name: Some("Particles"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("particles"),
+                        ty: 5,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("NUM_PARTICLES"),
+            ty: 0,
+            init: 0,
+        ),
+    ],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("params"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 4,
+            init: None,
+        ),
+        (
+            name: Some("particlesSrc"),
+            space: Storage(
+                access: ("LOAD"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 6,
+            init: None,
+        ),
+        (
+            name: Some("particlesDst"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 6,
+            init: None,
+        ),
+    ],
+    global_expressions: [
+        Literal(U32(1500)),
+    ],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (64, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [
+                    (
+                        name: Some("global_invocation_id"),
+                        ty: 7,
+                        binding: Some(BuiltIn(GlobalInvocationId)),
+                    ),
+                ],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("vPos"),
+                        ty: 2,
+                        init: None,
+                    ),
+                    (
+                        name: Some("vVel"),
+                        ty: 2,
+                        init: None,
+                    ),
+                    (
+                        name: Some("cMass"),
+                        ty: 2,
+                        init: Some(18),
+                    ),
+                    (
+                        name: Some("cVel"),
+                        ty: 2,
+                        init: Some(22),
+                    ),
+                    (
+                        name: Some("colVel"),
+                        ty: 2,
+                        init: Some(26),
+                    ),
+                    (
+                        name: Some("cMassCount"),
+                        ty: 8,
+                        init: Some(28),
+                    ),
+                    (
+                        name: Some("cVelCount"),
+                        ty: 8,
+                        init: Some(30),
+                    ),
+                    (
+                        name: Some("pos"),
+                        ty: 2,
+                        init: None,
+                    ),
+                    (
+                        name: Some("vel"),
+                        ty: 2,
+                        init: None,
+                    ),
+                    (
+                        name: Some("i"),
+                        ty: 0,
+                        init: Some(34),
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    Constant(0),
+                    Binary(
+                        op: GreaterEqual,
+                        left: 1,
+                        right: 2,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 4,
+                        index: 0,
+                    ),
+                    Access(
+                        base: 5,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 6,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 7,
+                    ),
+                    LocalVariable(0),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 10,
+                        index: 0,
+                    ),
+                    Access(
+                        base: 11,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 12,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 13,
+                    ),
+                    LocalVariable(1),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            16,
+                            17,
+                        ],
+                    ),
+                    LocalVariable(2),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            20,
+                            21,
+                        ],
+                    ),
+                    LocalVariable(3),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            24,
+                            25,
+                        ],
+                    ),
+                    LocalVariable(4),
+                    Literal(I32(0)),
+                    LocalVariable(5),
+                    Literal(I32(0)),
+                    LocalVariable(6),
+                    LocalVariable(7),
+                    LocalVariable(8),
+                    Literal(U32(0)),
+                    LocalVariable(9),
+                    Load(
+                        pointer: 35,
+                    ),
+                    Constant(0),
+                    Binary(
+                        op: GreaterEqual,
+                        left: 36,
+                        right: 37,
+                    ),
+                    Load(
+                        pointer: 35,
+                    ),
+                    Binary(
+                        op: Equal,
+                        left: 39,
+                        right: 1,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 41,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 35,
+                    ),
+                    Access(
+                        base: 42,
+                        index: 43,
+                    ),
+                    AccessIndex(
+                        base: 44,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 45,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 47,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 35,
+                    ),
+                    Access(
+                        base: 48,
+                        index: 49,
+                    ),
+                    AccessIndex(
+                        base: 50,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 51,
+                    ),
+                    Load(
+                        pointer: 32,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Math(
+                        fun: Distance,
+                        arg: 53,
+                        arg1: Some(54),
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 56,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 57,
+                    ),
+                    Binary(
+                        op: Less,
+                        left: 55,
+                        right: 58,
+                    ),
+                    Load(
+                        pointer: 19,
+                    ),
+                    Load(
+                        pointer: 32,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 60,
+                        right: 61,
+                    ),
+                    Load(
+                        pointer: 29,
+                    ),
+                    Literal(I32(1)),
+                    Binary(
+                        op: Add,
+                        left: 63,
+                        right: 64,
+                    ),
+                    Load(
+                        pointer: 32,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Math(
+                        fun: Distance,
+                        arg: 66,
+                        arg1: Some(67),
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 69,
+                        index: 2,
+                    ),
+                    Load(
+                        pointer: 70,
+                    ),
+                    Binary(
+                        op: Less,
+                        left: 68,
+                        right: 71,
+                    ),
+                    Load(
+                        pointer: 27,
+                    ),
+                    Load(
+                        pointer: 32,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Binary(
+                        op: Subtract,
+                        left: 74,
+                        right: 75,
+                    ),
+                    Binary(
+                        op: Subtract,
+                        left: 73,
+                        right: 76,
+                    ),
+                    Load(
+                        pointer: 32,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Math(
+                        fun: Distance,
+                        arg: 78,
+                        arg1: Some(79),
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 81,
+                        index: 3,
+                    ),
+                    Load(
+                        pointer: 82,
+                    ),
+                    Binary(
+                        op: Less,
+                        left: 80,
+                        right: 83,
+                    ),
+                    Load(
+                        pointer: 23,
+                    ),
+                    Load(
+                        pointer: 33,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 85,
+                        right: 86,
+                    ),
+                    Load(
+                        pointer: 31,
+                    ),
+                    Literal(I32(1)),
+                    Binary(
+                        op: Add,
+                        left: 88,
+                        right: 89,
+                    ),
+                    Load(
+                        pointer: 35,
+                    ),
+                    Literal(U32(1)),
+                    Binary(
+                        op: Add,
+                        left: 91,
+                        right: 92,
+                    ),
+                    Load(
+                        pointer: 29,
+                    ),
+                    Literal(I32(0)),
+                    Binary(
+                        op: Greater,
+                        left: 94,
+                        right: 95,
+                    ),
+                    Load(
+                        pointer: 19,
+                    ),
+                    Load(
+                        pointer: 29,
+                    ),
+                    As(
+                        expr: 98,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Splat(
+                        size: Bi,
+                        value: 99,
+                    ),
+                    Binary(
+                        op: Divide,
+                        left: 97,
+                        right: 100,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Binary(
+                        op: Subtract,
+                        left: 101,
+                        right: 102,
+                    ),
+                    Load(
+                        pointer: 31,
+                    ),
+                    Literal(I32(0)),
+                    Binary(
+                        op: Greater,
+                        left: 104,
+                        right: 105,
+                    ),
+                    Load(
+                        pointer: 23,
+                    ),
+                    Load(
+                        pointer: 31,
+                    ),
+                    As(
+                        expr: 108,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Splat(
+                        size: Bi,
+                        value: 109,
+                    ),
+                    Binary(
+                        op: Divide,
+                        left: 107,
+                        right: 110,
+                    ),
+                    Load(
+                        pointer: 15,
+                    ),
+                    Load(
+                        pointer: 19,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 114,
+                        index: 4,
+                    ),
+                    Load(
+                        pointer: 115,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 113,
+                        right: 116,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 112,
+                        right: 117,
+                    ),
+                    Load(
+                        pointer: 27,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 120,
+                        index: 5,
+                    ),
+                    Load(
+                        pointer: 121,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 119,
+                        right: 122,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 118,
+                        right: 123,
+                    ),
+                    Load(
+                        pointer: 23,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 126,
+                        index: 6,
+                    ),
+                    Load(
+                        pointer: 127,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 125,
+                        right: 128,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 124,
+                        right: 129,
+                    ),
+                    Load(
+                        pointer: 15,
+                    ),
+                    Math(
+                        fun: Normalize,
+                        arg: 131,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Load(
+                        pointer: 15,
+                    ),
+                    Math(
+                        fun: Length,
+                        arg: 133,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.1)),
+                    Math(
+                        fun: Clamp,
+                        arg: 134,
+                        arg1: Some(135),
+                        arg2: Some(136),
+                        arg3: None,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 132,
+                        right: 137,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Load(
+                        pointer: 15,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 141,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 142,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 140,
+                        right: 143,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 139,
+                        right: 144,
+                    ),
+                    AccessIndex(
+                        base: 9,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 146,
+                    ),
+                    Literal(F32(-1.0)),
+                    Binary(
+                        op: Less,
+                        left: 147,
+                        right: 148,
+                    ),
+                    AccessIndex(
+                        base: 9,
+                        index: 0,
+                    ),
+                    Literal(F32(1.0)),
+                    AccessIndex(
+                        base: 9,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 152,
+                    ),
+                    Literal(F32(1.0)),
+                    Binary(
+                        op: Greater,
+                        left: 153,
+                        right: 154,
+                    ),
+                    AccessIndex(
+                        base: 9,
+                        index: 0,
+                    ),
+                    Literal(F32(-1.0)),
+                    AccessIndex(
+                        base: 9,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 158,
+                    ),
+                    Literal(F32(-1.0)),
+                    Binary(
+                        op: Less,
+                        left: 159,
+                        right: 160,
+                    ),
+                    AccessIndex(
+                        base: 9,
+                        index: 1,
+                    ),
+                    Literal(F32(1.0)),
+                    AccessIndex(
+                        base: 9,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 164,
+                    ),
+                    Literal(F32(1.0)),
+                    Binary(
+                        op: Greater,
+                        left: 165,
+                        right: 166,
+                    ),
+                    AccessIndex(
+                        base: 9,
+                        index: 1,
+                    ),
+                    Literal(F32(-1.0)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 170,
+                        index: 0,
+                    ),
+                    Access(
+                        base: 171,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 172,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 175,
+                        index: 0,
+                    ),
+                    Access(
+                        base: 176,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 177,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 15,
+                    ),
+                ],
+                named_expressions: {
+                    0: "global_invocation_id",
+                    1: "index",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    If(
+                        condition: 3,
+                        accept: [
+                            Return(
+                                value: None,
+                            ),
+                        ],
+                        reject: [],
+                    ),
+                    Emit((
+                        start: 5,
+                        end: 9,
+                    )),
+                    Store(
+                        pointer: 9,
+                        value: 8,
+                    ),
+                    Emit((
+                        start: 11,
+                        end: 15,
+                    )),
+                    Store(
+                        pointer: 15,
+                        value: 14,
+                    ),
+                    Emit((
+                        start: 18,
+                        end: 19,
+                    )),
+                    Emit((
+                        start: 22,
+                        end: 23,
+                    )),
+                    Emit((
+                        start: 26,
+                        end: 27,
+                    )),
+                    Loop(
+                        body: [
+                            Emit((
+                                start: 36,
+                                end: 37,
+                            )),
+                            Emit((
+                                start: 38,
+                                end: 39,
+                            )),
+                            If(
+                                condition: 38,
+                                accept: [
+                                    Break,
+                                ],
+                                reject: [],
+                            ),
+                            Emit((
+                                start: 39,
+                                end: 41,
+                            )),
+                            If(
+                                condition: 40,
+                                accept: [
+                                    Continue,
+                                ],
+                                reject: [],
+                            ),
+                            Emit((
+                                start: 42,
+                                end: 47,
+                            )),
+                            Store(
+                                pointer: 32,
+                                value: 46,
+                            ),
+                            Emit((
+                                start: 48,
+                                end: 53,
+                            )),
+                            Store(
+                                pointer: 33,
+                                value: 52,
+                            ),
+                            Emit((
+                                start: 53,
+                                end: 56,
+                            )),
+                            Emit((
+                                start: 57,
+                                end: 60,
+                            )),
+                            If(
+                                condition: 59,
+                                accept: [
+                                    Emit((
+                                        start: 60,
+                                        end: 63,
+                                    )),
+                                    Store(
+                                        pointer: 19,
+                                        value: 62,
+                                    ),
+                                    Emit((
+                                        start: 63,
+                                        end: 64,
+                                    )),
+                                    Emit((
+                                        start: 65,
+                                        end: 66,
+                                    )),
+                                    Store(
+                                        pointer: 29,
+                                        value: 65,
+                                    ),
+                                ],
+                                reject: [],
+                            ),
+                            Emit((
+                                start: 66,
+                                end: 69,
+                            )),
+                            Emit((
+                                start: 70,
+                                end: 73,
+                            )),
+                            If(
+                                condition: 72,
+                                accept: [
+                                    Emit((
+                                        start: 73,
+                                        end: 78,
+                                    )),
+                                    Store(
+                                        pointer: 27,
+                                        value: 77,
+                                    ),
+                                ],
+                                reject: [],
+                            ),
+                            Emit((
+                                start: 78,
+                                end: 81,
+                            )),
+                            Emit((
+                                start: 82,
+                                end: 85,
+                            )),
+                            If(
+                                condition: 84,
+                                accept: [
+                                    Emit((
+                                        start: 85,
+                                        end: 88,
+                                    )),
+                                    Store(
+                                        pointer: 23,
+                                        value: 87,
+                                    ),
+                                    Emit((
+                                        start: 88,
+                                        end: 89,
+                                    )),
+                                    Emit((
+                                        start: 90,
+                                        end: 91,
+                                    )),
+                                    Store(
+                                        pointer: 31,
+                                        value: 90,
+                                    ),
+                                ],
+                                reject: [],
+                            ),
+                        ],
+                        continuing: [
+                            Emit((
+                                start: 91,
+                                end: 92,
+                            )),
+                            Emit((
+                                start: 93,
+                                end: 94,
+                            )),
+                            Store(
+                                pointer: 35,
+                                value: 93,
+                            ),
+                        ],
+                        break_if: None,
+                    ),
+                    Emit((
+                        start: 94,
+                        end: 95,
+                    )),
+                    Emit((
+                        start: 96,
+                        end: 97,
+                    )),
+                    If(
+                        condition: 96,
+                        accept: [
+                            Emit((
+                                start: 97,
+                                end: 104,
+                            )),
+                            Store(
+                                pointer: 19,
+                                value: 103,
+                            ),
+                        ],
+                        reject: [],
+                    ),
+                    Emit((
+                        start: 104,
+                        end: 105,
+                    )),
+                    Emit((
+                        start: 106,
+                        end: 107,
+                    )),
+                    If(
+                        condition: 106,
+                        accept: [
+                            Emit((
+                                start: 107,
+                                end: 112,
+                            )),
+                            Store(
+                                pointer: 23,
+                                value: 111,
+                            ),
+                        ],
+                        reject: [],
+                    ),
+                    Emit((
+                        start: 112,
+                        end: 114,
+                    )),
+                    Emit((
+                        start: 115,
+                        end: 120,
+                    )),
+                    Emit((
+                        start: 121,
+                        end: 126,
+                    )),
+                    Emit((
+                        start: 127,
+                        end: 131,
+                    )),
+                    Store(
+                        pointer: 15,
+                        value: 130,
+                    ),
+                    Emit((
+                        start: 131,
+                        end: 135,
+                    )),
+                    Emit((
+                        start: 137,
+                        end: 139,
+                    )),
+                    Store(
+                        pointer: 15,
+                        value: 138,
+                    ),
+                    Emit((
+                        start: 139,
+                        end: 141,
+                    )),
+                    Emit((
+                        start: 142,
+                        end: 146,
+                    )),
+                    Store(
+                        pointer: 9,
+                        value: 145,
+                    ),
+                    Emit((
+                        start: 146,
+                        end: 148,
+                    )),
+                    Emit((
+                        start: 149,
+                        end: 150,
+                    )),
+                    If(
+                        condition: 149,
+                        accept: [
+                            Emit((
+                                start: 150,
+                                end: 151,
+                            )),
+                            Store(
+                                pointer: 150,
+                                value: 151,
+                            ),
+                        ],
+                        reject: [],
+                    ),
+                    Emit((
+                        start: 152,
+                        end: 154,
+                    )),
+                    Emit((
+                        start: 155,
+                        end: 156,
+                    )),
+                    If(
+                        condition: 155,
+                        accept: [
+                            Emit((
+                                start: 156,
+                                end: 157,
+                            )),
+                            Store(
+                                pointer: 156,
+                                value: 157,
+                            ),
+                        ],
+                        reject: [],
+                    ),
+                    Emit((
+                        start: 158,
+                        end: 160,
+                    )),
+                    Emit((
+                        start: 161,
+                        end: 162,
+                    )),
+                    If(
+                        condition: 161,
+                        accept: [
+                            Emit((
+                                start: 162,
+                                end: 163,
+                            )),
+                            Store(
+                                pointer: 162,
+                                value: 163,
+                            ),
+                        ],
+                        reject: [],
+                    ),
+                    Emit((
+                        start: 164,
+                        end: 166,
+                    )),
+                    Emit((
+                        start: 167,
+                        end: 168,
+                    )),
+                    If(
+                        condition: 167,
+                        accept: [
+                            Emit((
+                                start: 168,
+                                end: 169,
+                            )),
+                            Store(
+                                pointer: 168,
+                                value: 169,
+                            ),
+                        ],
+                        reject: [],
+                    ),
+                    Emit((
+                        start: 171,
+                        end: 175,
+                    )),
+                    Store(
+                        pointer: 173,
+                        value: 174,
+                    ),
+                    Emit((
+                        start: 176,
+                        end: 180,
+                    )),
+                    Store(
+                        pointer: 178,
+                        value: 179,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

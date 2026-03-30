@@ -1,0 +1,43 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct TestR {
+    uint test_m;
+};
+struct TestS {
+    uint test_m;
+};
+constant uint test_c = 1u;
+
+void test_f(
+) {
+    return;
+}
+
+void test_g(
+) {
+    return;
+}
+
+kernel void test_ep(
+  metal::uint3 __local_invocation_id [[thread_position_in_threadgroup]]
+, threadgroup metal::float2x2& w_mem2_
+) {
+    if (metal::all(__local_invocation_id == metal::uint3(0u))) {
+        w_mem = {};
+        w_mem2_ = {};
+    }
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+    metal::float2x2 phony = w_mem2_;
+    test_g();
+    return;
+}

@@ -1,0 +1,925 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Image(
+                dim: D1,
+                arrayed: false,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: true,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D3,
+                arrayed: false,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Sampled(
+                    kind: Float,
+                    multi: true,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D1,
+                arrayed: false,
+                class: Storage(
+                    format: Rgba8Unorm,
+                    access: ("STORE"),
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Storage(
+                    format: Rgba8Unorm,
+                    access: ("STORE"),
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: true,
+                class: Storage(
+                    format: Rgba8Unorm,
+                    access: ("STORE"),
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D3,
+                arrayed: false,
+                class: Storage(
+                    format: Rgba8Unorm,
+                    access: ("STORE"),
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("image_1d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("image_2d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 3,
+            init: None,
+        ),
+        (
+            name: Some("image_2d_array"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 5,
+            init: None,
+        ),
+        (
+            name: Some("image_3d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 3,
+            )),
+            ty: 7,
+            init: None,
+        ),
+        (
+            name: Some("image_multisampled_2d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 4,
+            )),
+            ty: 9,
+            init: None,
+        ),
+        (
+            name: Some("image_storage_1d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 5,
+            )),
+            ty: 10,
+            init: None,
+        ),
+        (
+            name: Some("image_storage_2d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 6,
+            )),
+            ty: 11,
+            init: None,
+        ),
+        (
+            name: Some("image_storage_2d_array"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 7,
+            )),
+            ty: 12,
+            init: None,
+        ),
+        (
+            name: Some("image_storage_3d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 8,
+            )),
+            ty: 13,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("test_textureLoad_1d"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 1,
+                    binding: None,
+                ),
+                (
+                    name: Some("level"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(0),
+                ImageLoad(
+                    image: 2,
+                    coordinate: 0,
+                    array_index: None,
+                    sample: None,
+                    level: Some(1),
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "level",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Return(
+                    value: Some(3),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureLoad_2d"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 4,
+                    binding: None,
+                ),
+                (
+                    name: Some("level"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(1),
+                ImageLoad(
+                    image: 2,
+                    coordinate: 0,
+                    array_index: None,
+                    sample: None,
+                    level: Some(1),
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "level",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Return(
+                    value: Some(3),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureLoad_2d_array_u"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 4,
+                    binding: None,
+                ),
+                (
+                    name: Some("index"),
+                    ty: 6,
+                    binding: None,
+                ),
+                (
+                    name: Some("level"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                GlobalVariable(2),
+                ImageLoad(
+                    image: 3,
+                    coordinate: 0,
+                    array_index: Some(1),
+                    sample: None,
+                    level: Some(2),
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "index",
+                2: "level",
+            },
+            body: [
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Return(
+                    value: Some(4),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureLoad_2d_array_s"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 4,
+                    binding: None,
+                ),
+                (
+                    name: Some("index"),
+                    ty: 1,
+                    binding: None,
+                ),
+                (
+                    name: Some("level"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                GlobalVariable(2),
+                ImageLoad(
+                    image: 3,
+                    coordinate: 0,
+                    array_index: Some(1),
+                    sample: None,
+                    level: Some(2),
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "index",
+                2: "level",
+            },
+            body: [
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Return(
+                    value: Some(4),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureLoad_3d"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 8,
+                    binding: None,
+                ),
+                (
+                    name: Some("level"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(3),
+                ImageLoad(
+                    image: 2,
+                    coordinate: 0,
+                    array_index: None,
+                    sample: None,
+                    level: Some(1),
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "level",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Return(
+                    value: Some(3),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureLoad_multisampled_2d"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 4,
+                    binding: None,
+                ),
+                (
+                    name: Some("_sample"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(4),
+                ImageLoad(
+                    image: 2,
+                    coordinate: 0,
+                    array_index: None,
+                    sample: Some(1),
+                    level: None,
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "_sample",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Return(
+                    value: Some(3),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureStore_1d"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 1,
+                    binding: None,
+                ),
+                (
+                    name: Some("value"),
+                    ty: 2,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(5),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "value",
+            },
+            body: [
+                ImageStore(
+                    image: 2,
+                    coordinate: 0,
+                    array_index: None,
+                    value: 1,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureStore_2d"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 4,
+                    binding: None,
+                ),
+                (
+                    name: Some("value"),
+                    ty: 2,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(6),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "value",
+            },
+            body: [
+                ImageStore(
+                    image: 2,
+                    coordinate: 0,
+                    array_index: None,
+                    value: 1,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureStore_2d_array_u"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 4,
+                    binding: None,
+                ),
+                (
+                    name: Some("array_index"),
+                    ty: 6,
+                    binding: None,
+                ),
+                (
+                    name: Some("value"),
+                    ty: 2,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                GlobalVariable(7),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "array_index",
+                2: "value",
+            },
+            body: [
+                ImageStore(
+                    image: 3,
+                    coordinate: 0,
+                    array_index: Some(1),
+                    value: 2,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureStore_2d_array_s"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 4,
+                    binding: None,
+                ),
+                (
+                    name: Some("array_index"),
+                    ty: 1,
+                    binding: None,
+                ),
+                (
+                    name: Some("value"),
+                    ty: 2,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                GlobalVariable(7),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "array_index",
+                2: "value",
+            },
+            body: [
+                ImageStore(
+                    image: 3,
+                    coordinate: 0,
+                    array_index: Some(1),
+                    value: 2,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureStore_3d"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 8,
+                    binding: None,
+                ),
+                (
+                    name: Some("value"),
+                    ty: 2,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(8),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "value",
+            },
+            body: [
+                ImageStore(
+                    image: 2,
+                    coordinate: 0,
+                    array_index: None,
+                    value: 1,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "fragment_shader",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fragment_shader"),
+                arguments: [],
+                result: Some((
+                    ty: 2,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    CallResult(0),
+                    ZeroValue(4),
+                    Literal(I32(0)),
+                    CallResult(1),
+                    ZeroValue(4),
+                    Literal(U32(0)),
+                    Literal(I32(0)),
+                    CallResult(2),
+                    ZeroValue(4),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    CallResult(3),
+                    ZeroValue(8),
+                    Literal(I32(0)),
+                    CallResult(4),
+                    ZeroValue(4),
+                    Literal(I32(0)),
+                    CallResult(5),
+                    Literal(I32(0)),
+                    ZeroValue(2),
+                    ZeroValue(4),
+                    ZeroValue(2),
+                    ZeroValue(4),
+                    Literal(U32(0)),
+                    ZeroValue(2),
+                    ZeroValue(4),
+                    Literal(I32(0)),
+                    ZeroValue(2),
+                    ZeroValue(8),
+                    ZeroValue(2),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            32,
+                            33,
+                            34,
+                            35,
+                        ],
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [
+                            0,
+                            1,
+                        ],
+                        result: Some(2),
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [
+                            3,
+                            4,
+                        ],
+                        result: Some(5),
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [
+                            6,
+                            7,
+                            8,
+                        ],
+                        result: Some(9),
+                    ),
+                    Call(
+                        function: 3,
+                        arguments: [
+                            10,
+                            11,
+                            12,
+                        ],
+                        result: Some(13),
+                    ),
+                    Call(
+                        function: 4,
+                        arguments: [
+                            14,
+                            15,
+                        ],
+                        result: Some(16),
+                    ),
+                    Call(
+                        function: 5,
+                        arguments: [
+                            17,
+                            18,
+                        ],
+                        result: Some(19),
+                    ),
+                    Call(
+                        function: 6,
+                        arguments: [
+                            20,
+                            21,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 7,
+                        arguments: [
+                            22,
+                            23,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 8,
+                        arguments: [
+                            24,
+                            25,
+                            26,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 9,
+                        arguments: [
+                            27,
+                            28,
+                            29,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 10,
+                        arguments: [
+                            30,
+                            31,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 36,
+                        end: 37,
+                    )),
+                    Return(
+                        value: Some(36),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

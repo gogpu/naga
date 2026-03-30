@@ -1,0 +1,28 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+metal::int3 naga_f2i32(metal::float3 value) {
+    return static_cast<metal::int3>(metal::clamp(value, -2147483600.0, 2147483500.0));
+}
+
+
+kernel void main_(
+) {
+    metal::float3 a = metal::float3(0.0, 0.0, 0.0);
+    metal::float3 c = metal::float3(0.0);
+    metal::float3 b = metal::float3(metal::float2(0.0), 0.0);
+    metal::float3 d = metal::float3(metal::float2(0.0), 0.0);
+    metal::int3 e = naga_f2i32(d);
+    metal::float2x2 f = metal::float2x2(metal::float2(1.0, 2.0), metal::float2(3.0, 4.0));
+    metal::float3x3 g = metal::float3x3(a, a, a);
+    return;
+}

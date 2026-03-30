@@ -3,12 +3,12 @@
 
 // Package hlsl implements HLSL entry point I/O handling with proper
 // input/output structs and semantics for vertex, fragment, and compute shaders.
-//
-//nolint:nestif
 package hlsl
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/gogpu/naga/ir"
 )
@@ -20,202 +20,405 @@ const (
 )
 
 // =============================================================================
-// Entry Point Input/Output Structs
+// Interface Key for sorting EP struct members (matches Rust InterfaceKey)
 // =============================================================================
 
-// structArgEntry tracks entry point arguments that are structs with member bindings.
-// When a WGSL entry point takes a struct argument like `input: VertexInput` where the
-// struct members have @location or @builtin bindings, the HLSL backend must flatten
-// those members into the input struct and reconstruct the original struct in the body.
-type structArgEntry struct {
-	argIdx        int
-	structType    ir.StructType
-	argTypeHandle ir.TypeHandle
+// interfaceKeyKind orders members: locations first, then builtins, then other.
+type interfaceKeyKind int
+
+const (
+	interfaceKeyLocation interfaceKeyKind = iota
+	interfaceKeyBuiltIn
+	interfaceKeyOther
+)
+
+// interfaceKey is used to sort entry point struct members.
+// Location members come first (sorted by location), then builtins.
+type interfaceKey struct {
+	kind     interfaceKeyKind
+	location uint32
+	builtin  ir.BuiltinValue
 }
 
-// writeEntryPointInputStruct writes the input struct for an entry point.
-// HLSL entry points typically use input structs with semantics for vertex/fragment stages.
-// It returns the struct name, whether an input struct was written, and a list of struct
-// arguments whose members were flattened into the input struct.
-//
-//nolint:gocognit // Entry point input handling requires checking multiple argument forms
-func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir.Function) (string, bool, []structArgEntry) {
-	// Check if we need an input struct (location or builtin bindings, or struct args with member bindings)
-	hasInputs := false
-	var structArgs []structArgEntry
+func newInterfaceKey(binding *ir.Binding) interfaceKey {
+	if binding == nil {
+		return interfaceKey{kind: interfaceKeyOther}
+	}
+	switch b := (*binding).(type) {
+	case ir.LocationBinding:
+		return interfaceKey{kind: interfaceKeyLocation, location: b.Location}
+	case ir.BuiltinBinding:
+		return interfaceKey{kind: interfaceKeyBuiltIn, builtin: b.Builtin}
+	default:
+		return interfaceKey{kind: interfaceKeyOther}
+	}
+}
 
-	for i, arg := range fn.Arguments {
-		if arg.Binding != nil {
-			hasInputs = true
-			continue
+func interfaceKeyLess(a, b interfaceKey) bool {
+	if a.kind != b.kind {
+		return a.kind < b.kind
+	}
+	if a.kind == interfaceKeyLocation {
+		return a.location < b.location
+	}
+	// For builtins, use numeric value for deterministic ordering
+	return a.builtin < b.builtin
+}
+
+// isSubgroupBuiltinBinding returns true if the binding is a subgroup-related builtin.
+// These builtins need special handling in HLSL (computed from wave intrinsics).
+// Matches Rust naga is_subgroup_builtin_binding.
+func isSubgroupBuiltinBinding(binding *ir.Binding) bool {
+	if binding == nil {
+		return false
+	}
+	bb, ok := (*binding).(ir.BuiltinBinding)
+	if !ok {
+		return false
+	}
+	switch bb.Builtin {
+	case ir.BuiltinSubgroupSize, ir.BuiltinSubgroupInvocationID,
+		ir.BuiltinNumSubgroups, ir.BuiltinSubgroupID:
+		return true
+	}
+	return false
+}
+
+// hasSubgroupBuiltin checks if any argument (or struct member) has a subgroup builtin.
+func (w *Writer) hasSubgroupBuiltin(fn *ir.Function) bool {
+	for _, arg := range fn.Arguments {
+		if isSubgroupBuiltinBinding(arg.Binding) {
+			return true
 		}
-		// Check if this is a struct argument with member bindings
+		// Check struct members
 		if int(arg.Type) < len(w.module.Types) {
-			typeInfo := &w.module.Types[arg.Type]
-			if st, ok := typeInfo.Inner.(ir.StructType); ok {
-				hasMemberBindings := false
+			if st, ok := w.module.Types[arg.Type].Inner.(ir.StructType); ok {
 				for _, member := range st.Members {
-					if member.Binding != nil {
-						hasMemberBindings = true
-						break
+					if isSubgroupBuiltinBinding(member.Binding) {
+						return true
 					}
 				}
-				if hasMemberBindings {
-					hasInputs = true
-					structArgs = append(structArgs, structArgEntry{
-						argIdx:        i,
-						structType:    st,
-						argTypeHandle: arg.Type,
+			}
+		}
+	}
+	return false
+}
+
+// =============================================================================
+// Entry Point Interface Struct Generation (matches Rust naga)
+// =============================================================================
+
+// writeEPInterface decides whether to create input/output interface structs
+// for an entry point. Matches Rust naga's write_ep_interface logic:
+//   - Input struct: created for Fragment stage, or if any arg has subgroup builtin
+//   - Output struct: created when result binding is None AND stage is Vertex
+func (w *Writer) writeEPInterface(
+	epIdx int,
+	fn *ir.Function,
+	stage ir.ShaderStage,
+	epName string,
+) (*entryPointInterface, error) {
+	epIO := &entryPointInterface{}
+
+	// Input struct: Fragment stage always gets one, or if subgroup builtins present
+	needsInputStruct := false
+	if len(fn.Arguments) > 0 {
+		if stage == ir.StageFragment {
+			needsInputStruct = true
+		}
+		if w.hasSubgroupBuiltin(fn) {
+			needsInputStruct = true
+		}
+	}
+
+	if needsInputStruct {
+		input, err := w.writeEPInputStruct(epIdx, fn, stage, epName)
+		if err != nil {
+			return nil, err
+		}
+		epIO.input = input
+	}
+
+	// Output struct: Vertex stage with struct result (no direct binding on result)
+	if fn.Result != nil && fn.Result.Binding == nil && stage == ir.StageVertex {
+		output, err := w.writeEPOutputStruct(fn, stage, epName, w.options.FragmentEntryPoint)
+		if err != nil {
+			return nil, err
+		}
+		epIO.output = output
+	}
+
+	return epIO, nil
+}
+
+// writeEPInputStruct flattens all entry point arguments into a single input struct.
+// Matches Rust naga's write_ep_input_struct.
+func (w *Writer) writeEPInputStruct(
+	epIdx int,
+	fn *ir.Function,
+	stage ir.ShaderStage,
+	epName string,
+) (*entryPointBinding, error) {
+	structName := fmt.Sprintf("%sInput_%s", stageName(stage), epName)
+
+	var fakeMembers []epStructMember
+	for i, arg := range fn.Arguments {
+		// Check if argument is a struct with member bindings
+		if int(arg.Type) < len(w.module.Types) {
+			if st, ok := w.module.Types[arg.Type].Inner.(ir.StructType); ok {
+				for _, member := range st.Members {
+					memberName := w.namer.callOr(member.Name, "member")
+					idx := uint32(len(fakeMembers))
+					fakeMembers = append(fakeMembers, epStructMember{
+						name:    memberName,
+						ty:      member.Type,
+						binding: member.Binding,
+						index:   idx,
 					})
 				}
-			}
-		}
-	}
-
-	if !hasInputs {
-		return "", false, nil
-	}
-
-	structName := fmt.Sprintf("%s_Input", w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}])
-
-	w.writeLine("struct %s {", structName)
-	w.pushIndent()
-
-	for i, arg := range fn.Arguments {
-		if arg.Binding != nil {
-			// Direct binding on argument — existing behavior
-			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}]
-			argType, arraySuffix := w.getTypeNameWithArraySuffix(arg.Type)
-
-			semantic := w.getSemanticFromBinding(*arg.Binding, i)
-
-			interpMod := ""
-			if ep.Stage == ir.StageFragment {
-				interpMod = w.getInterpolationModifier(*arg.Binding)
-				if interpMod != "" {
-					interpMod += " "
-				}
-			}
-
-			w.writeLine("%s%s %s%s : %s;", interpMod, argType, argName, arraySuffix, semantic)
-			continue
-		}
-
-		// Check if this is a struct arg with member bindings
-		for _, sa := range structArgs {
-			if sa.argIdx != i {
 				continue
 			}
-			// Flatten struct members with bindings into the input struct
-			for memberIdx, member := range sa.structType.Members {
-				if member.Binding == nil {
-					continue
-				}
-				memberName := Escape(member.Name)
-				memberType, arraySuffix := w.getTypeNameWithArraySuffix(member.Type)
-				semantic := w.getSemanticFromBinding(*member.Binding, memberIdx)
-
-				interpMod := ""
-				if ep.Stage == ir.StageFragment {
-					interpMod = w.getInterpolationModifier(*member.Binding)
-					if interpMod != "" {
-						interpMod += " "
-					}
-				}
-
-				w.writeLine("%s%s %s%s : %s;", interpMod, memberType, memberName, arraySuffix, semantic)
-			}
-			break
 		}
+
+		// Non-struct argument
+		argName := fn.Arguments[i].Name
+		memberName := w.namer.callOr(argName, "member")
+		idx := uint32(len(fakeMembers))
+		fakeMembers = append(fakeMembers, epStructMember{
+			name:    memberName,
+			ty:      arg.Type,
+			binding: arg.Binding,
+			index:   idx,
+		})
 	}
 
-	w.popIndent()
-	w.writeLine("};")
-	w.writeLine("")
-
-	return structName, true, structArgs
+	return w.writeInterfaceStruct(stage, IoInput, structName, fakeMembers)
 }
 
-// writeEntryPointOutputStruct writes the output struct for an entry point.
-// Returns the struct name and whether an output struct was written.
-func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *ir.Function) (string, bool) {
-	if fn.Result == nil {
-		return "", false
-	}
+// writeEPOutputStruct flattens the entry point result struct into an output struct.
+// If a fragment entry point is provided and stage is Vertex, outputs not consumed
+// by the fragment shader are stripped. Matches Rust naga's write_ep_output_struct.
+func (w *Writer) writeEPOutputStruct(
+	fn *ir.Function,
+	stage ir.ShaderStage,
+	epName string,
+	fragEP *FragmentEntryPoint,
+) (*entryPointBinding, error) {
+	structName := fmt.Sprintf("%sOutput_%s", stageName(stage), epName)
 
 	resultType := fn.Result.Type
 	if int(resultType) >= len(w.module.Types) {
-		return "", false
+		return nil, fmt.Errorf("result type out of range")
 	}
 
-	typeInfo := &w.module.Types[resultType]
-	st, ok := typeInfo.Inner.(ir.StructType)
+	st, ok := w.module.Types[resultType].Inner.(ir.StructType)
 	if !ok {
-		// Simple return type - will be handled in signature
-		return "", false
+		return nil, fmt.Errorf("EP output type is not a struct")
 	}
 
-	structName := fmt.Sprintf("%s_Output", w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}])
-
-	w.writeLine("struct %s {", structName)
-	w.pushIndent()
-
-	for memberIdx, member := range st.Members {
-		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(resultType), handle2: uint32(memberIdx)}]
-		memberType, arraySuffix := w.getTypeNameWithArraySuffix(member.Type)
-
-		// Determine semantic based on stage and position
-		var semantic string
-		switch ep.Stage {
-		case ir.StageVertex:
-			if memberIdx == 0 {
-				semantic = "SV_Position"
-			} else {
-				semantic = fmt.Sprintf("TEXCOORD%d", memberIdx-1)
+	// Gather fragment input locations to filter vertex outputs.
+	// Only applied when a fragment entry point is provided and stage is Vertex.
+	var fsInputLocs []uint32
+	if fragEP != nil && stage == ir.StageVertex {
+		for _, arg := range fragEP.Function.Arguments {
+			if int(arg.Type) < len(fragEP.Module.Types) {
+				if fragSt, ok := fragEP.Module.Types[arg.Type].Inner.(ir.StructType); ok {
+					for _, m := range fragSt.Members {
+						if m.Binding != nil {
+							if loc, ok := (*m.Binding).(ir.LocationBinding); ok {
+								fsInputLocs = append(fsInputLocs, loc.Location)
+							}
+						}
+					}
+					continue
+				}
 			}
-		case ir.StageFragment:
-			semantic = fmt.Sprintf("SV_Target%d", memberIdx)
-		default:
-			semantic = fmt.Sprintf("TEXCOORD%d", memberIdx)
+			if arg.Binding != nil {
+				if loc, ok := (*arg.Binding).(ir.LocationBinding); ok {
+					fsInputLocs = append(fsInputLocs, loc.Location)
+				}
+			}
+		}
+		sort.Slice(fsInputLocs, func(i, j int) bool { return fsInputLocs[i] < fsInputLocs[j] })
+	}
+
+	var fakeMembers []epStructMember
+	for i, member := range st.Members {
+		// Filter out vertex outputs not consumed by fragment shader
+		if len(fsInputLocs) > 0 {
+			if member.Binding != nil {
+				if loc, ok := (*member.Binding).(ir.LocationBinding); ok {
+					found := sort.Search(len(fsInputLocs), func(k int) bool {
+						return fsInputLocs[k] >= loc.Location
+					})
+					if found >= len(fsInputLocs) || fsInputLocs[found] != loc.Location {
+						continue // Skip — not consumed by fragment shader
+					}
+				}
+			}
 		}
 
-		w.writeLine("%s %s%s : %s;", memberType, memberName, arraySuffix, semantic)
+		memberName := w.namer.callOr(member.Name, "member")
+		fakeMembers = append(fakeMembers, epStructMember{
+			name:    memberName,
+			ty:      member.Type,
+			binding: member.Binding,
+			index:   uint32(i),
+		})
 	}
 
-	w.popIndent()
-	w.writeLine("};")
-	w.writeLine("")
+	return w.writeInterfaceStruct(stage, IoOutput, structName, fakeMembers)
+}
 
-	return structName, true
+// writeInterfaceStruct writes an interface struct with members sorted by binding.
+// Locations come first (ascending), then builtins. Matches Rust's write_interface_struct.
+func (w *Writer) writeInterfaceStruct(
+	stage ir.ShaderStage,
+	io Io,
+	structName string,
+	members []epStructMember,
+) (*entryPointBinding, error) {
+	// Sort members: locations first (ascending), then builtins
+	sort.SliceStable(members, func(i, j int) bool {
+		ki := newInterfaceKey(members[i].binding)
+		kj := newInterfaceKey(members[j].binding)
+		return interfaceKeyLess(ki, kj)
+	})
+
+	stageIO := &shaderStageIO{stage: stage, io: io}
+
+	// Check if any member has SubgroupId (need __local_invocation_index)
+	hasSubgroupId := false
+	for _, m := range members {
+		if m.binding != nil {
+			if bb, ok := (*m.binding).(ir.BuiltinBinding); ok && bb.Builtin == ir.BuiltinSubgroupID {
+				hasSubgroupId = true
+				break
+			}
+		}
+	}
+
+	fmt.Fprintf(&w.out, "struct %s", structName)
+	w.out.WriteString(" {\n")
+	for _, m := range members {
+		// Skip subgroup builtins — they are computed from wave intrinsics
+		if isSubgroupBuiltinBinding(m.binding) {
+			continue
+		}
+		w.out.WriteString("    ")
+		if m.binding != nil {
+			w.writeModifierForType(m.binding, m.ty)
+		}
+		typeName := w.getTypeName(m.ty)
+		fmt.Fprintf(&w.out, "%s %s", typeName, m.name)
+		if m.binding != nil {
+			w.writeSemantic(m.binding, stageIO)
+		}
+		w.out.WriteString(";\n")
+	}
+	// Add __local_invocation_index if SubgroupId is used
+	if hasSubgroupId {
+		w.out.WriteString("    uint __local_invocation_index : SV_GroupIndex;\n")
+	}
+	w.out.WriteString("};\n\n")
+
+	// For input structs, restore original order (by index) for initialization
+	if io == IoInput {
+		sort.SliceStable(members, func(i, j int) bool {
+			return members[i].index < members[j].index
+		})
+	}
+
+	// Generate arg name from struct name (Rust uses to_lowercase, not just first char)
+	argName := w.namer.call(strings.ToLower(structName))
+
+	return &entryPointBinding{
+		tyName:  structName,
+		argName: argName,
+		members: members,
+	}, nil
+}
+
+// writeModifierForType writes interpolation/invariant modifiers, applying default
+// interpolation for int/uint types (Flat -> nointerpolation).
+func (w *Writer) writeModifierForType(binding *ir.Binding, ty ir.TypeHandle) {
+	if binding == nil {
+		return
+	}
+	switch b := (*binding).(type) {
+	case ir.BuiltinBinding:
+		if b.Builtin == ir.BuiltinPosition && b.Invariant {
+			fmt.Fprintf(&w.out, "precise ")
+		}
+	case ir.LocationBinding:
+		if b.Interpolation != nil {
+			if kindStr := InterpolationToHLSL(b.Interpolation.Kind); kindStr != "" {
+				fmt.Fprintf(&w.out, "%s ", kindStr)
+			}
+			if sampStr := SamplingToHLSL(b.Interpolation.Sampling); sampStr != "" {
+				fmt.Fprintf(&w.out, "%s ", sampStr)
+			}
+		} else {
+			// Apply default interpolation: int/uint -> nointerpolation (matches Rust naga)
+			if int(ty) < len(w.module.Types) {
+				kind, hasKind := getScalarKind(w.module, ty)
+				if hasKind && (kind == ir.ScalarSint || kind == ir.ScalarUint) {
+					fmt.Fprintf(&w.out, "nointerpolation ")
+				}
+			}
+		}
+	}
+}
+
+// writeModifier writes interpolation/invariant modifiers for a binding.
+// Matches Rust naga's write_modifier.
+func (w *Writer) writeModifier(binding *ir.Binding) {
+	if binding == nil {
+		return
+	}
+	switch b := (*binding).(type) {
+	case ir.BuiltinBinding:
+		if b.Builtin == ir.BuiltinPosition {
+			// Check for invariant - for now, we don't track this
+		}
+	case ir.LocationBinding:
+		if b.Interpolation != nil {
+			if kindStr := InterpolationToHLSL(b.Interpolation.Kind); kindStr != "" {
+				fmt.Fprintf(&w.out, "%s ", kindStr)
+			}
+			if sampStr := SamplingToHLSL(b.Interpolation.Sampling); sampStr != "" {
+				fmt.Fprintf(&w.out, "%s ", sampStr)
+			}
+		}
+	}
 }
 
 // =============================================================================
-// Entry Point Signature Generation
+// Entry Point Function Writing
 // =============================================================================
 
 // writeEntryPointWithIO writes an entry point with proper input/output handling.
-// This is the enhanced version that generates HLSL-style entry points with semantics.
+// Uses entryPointIO (populated by writeAllEPInterfaces) to determine signature format.
 func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
-	if int(ep.Function) >= len(w.module.Functions) {
-		return fmt.Errorf("invalid entry point function handle: %d", ep.Function)
-	}
+	fn := &ep.Function
+	// Write per-function wrapped helpers (matching Rust naga order)
+	w.writePerFunctionWrappedHelpers(fn)
 
-	fn := &w.module.Functions[ep.Function]
 	w.currentFunction = fn
-	w.currentFuncHandle = ep.Function
+	w.currentFuncHandle = epFuncHandle(epIdx)
+	w.currentEPIndex = epIdx
 	w.localNames = make(map[uint32]string)
 	w.namedExpressions = make(map[ir.ExpressionHandle]string)
+	w.updateExpressionsToBake(fn)
+	w.continueCtx.clear()
 
 	defer func() {
 		w.currentFunction = nil
 		w.localNames = nil
 	}()
 
-	// Write input/output structs if needed
-	inputStructName, hasInputStruct, structArgs := w.writeEntryPointInputStruct(epIdx, ep, fn)
-	outputStructName, hasOutputStruct := w.writeEntryPointOutputStruct(epIdx, ep, fn)
-
 	epName := w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}]
+	epIO := w.entryPointIO[epIdx]
 
 	// Write compute shader attributes
 	if ep.Stage == ir.StageCompute {
@@ -224,39 +427,120 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 
 	// Determine return type
 	returnType := "void"
-	if hasOutputStruct {
-		returnType = outputStructName
+	if epIO != nil && epIO.output != nil {
+		returnType = epIO.output.tyName
 	} else if fn.Result != nil {
 		returnType = w.getTypeName(fn.Result.Type)
-		// Add semantic for simple return types
-		if fn.Result.Binding != nil {
-			returnType = w.getTypeName(fn.Result.Type)
+	}
+
+	// Write function signature with precise modifier if needed
+	w.writeIndent()
+	// Check for invariant Position on result binding -> "precise" prefix
+	if fn.Result != nil && fn.Result.Binding != nil {
+		if bb, ok := (*fn.Result.Binding).(ir.BuiltinBinding); ok {
+			if bb.Builtin == ir.BuiltinPosition && bb.Invariant {
+				w.out.WriteString("precise ")
+			}
+		}
+	}
+	fmt.Fprintf(&w.out, "%s %s(", returnType, epName)
+
+	// Determine if workgroup init is needed
+	needWgInit := w.needWorkgroupInit(ep)
+
+	// Write parameters
+	hasParams := false
+	if epIO != nil && epIO.input != nil {
+		// Input struct parameter
+		fmt.Fprintf(&w.out, "%s %s", epIO.input.tyName, epIO.input.argName)
+		hasParams = true
+	} else {
+		// Flat parameters with semantics (vertex stage, compute stage)
+		for i, arg := range fn.Arguments {
+			if i > 0 {
+				w.out.WriteString(", ")
+			}
+			argType := w.getTypeName(arg.Type)
+			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(i)}]
+			fmt.Fprintf(&w.out, "%s %s", argType, argName)
+			if arg.Binding != nil {
+				stageIO := &shaderStageIO{stage: ep.Stage, io: IoInput}
+				w.writeSemantic(arg.Binding, stageIO)
+			}
+			hasParams = true
 		}
 	}
 
-	// Write function signature
-	w.writeEntryPointSignature(returnType, epName, ep, fn, inputStructName, hasInputStruct)
+	// Add __local_invocation_id parameter for workgroup init
+	if needWgInit {
+		if hasParams {
+			w.out.WriteString(", ")
+		}
+		w.out.WriteString("uint3 __local_invocation_id : SV_GroupThreadID")
+	}
 
-	w.writeReturnSemantic(ep, fn, hasOutputStruct)
+	w.out.WriteString(")")
 
-	w.writeLine(" {")
+	// Write return semantic for non-struct results (e.g., fragment SV_Target)
+	if epIO == nil || epIO.output == nil {
+		if fn.Result != nil && fn.Result.Binding != nil {
+			stageIO := &shaderStageIO{stage: ep.Stage, io: IoOutput}
+			w.writeSemantic(fn.Result.Binding, stageIO)
+		}
+	}
+
+	// Opening brace on next line (matches Rust naga HLSL format)
+	w.out.WriteString("\n")
+	w.writeLine("{")
 	w.pushIndent()
 
-	// Extract inputs from struct if needed
-	if hasInputStruct {
-		w.writeInputExtraction(ep, fn, structArgs)
+	// Write workgroup variable zero-initialization if needed
+	if needWgInit {
+		w.writeWorkgroupInit()
 	}
 
-	outputLocalMapped, err := w.writeEntryPointLocalVars(fn, hasOutputStruct, outputStructName, hasInputStruct)
-	if err != nil {
-		w.popIndent()
-		return err
+	// Write EP arguments initialization (extract from input struct)
+	if epIO != nil && epIO.input != nil {
+		w.writeEPArgumentsInit(epIdx, fn, ep, epIO.input)
 	}
 
-	// Create output struct if not already mapped from a local variable
-	if hasOutputStruct && !outputLocalMapped {
-		w.writeLine("%s _output;", outputStructName)
-		w.writeLine("")
+	// Write local variables (use pre-registered names from registerNames)
+	for localIdx, local := range fn.LocalVars {
+		localName := w.names[nameKey{kind: nameKeyLocal, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(localIdx)}]
+		if localName == "" {
+			localName = w.namer.callOr(local.Name, "local")
+		}
+		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
+
+		w.localNames[uint32(localIdx)] = localName
+
+		// Rust naga always initializes locals: with init expression or (Type)0.
+		// Exception: RayQuery variables are NOT zero-initialized.
+		w.writeIndent()
+		isRayQuery := strings.Contains(localType, "RayQuery")
+		if !isRayQuery && int(local.Type) < len(w.module.Types) {
+			_, isRayQuery = w.module.Types[local.Type].Inner.(ir.RayQueryType)
+		}
+		if isRayQuery {
+			fmt.Fprintf(&w.out, "%s %s%s;\n", localType, localName, arraySuffix)
+		} else {
+			fmt.Fprintf(&w.out, "%s %s%s = ", localType, localName, arraySuffix)
+			if local.Init != nil {
+				if err := w.writeExpression(*local.Init); err != nil {
+					w.popIndent()
+					return fmt.Errorf("entry point local var init: %w", err)
+				}
+			} else {
+				// Zero initialize: (Type)0 matching Rust naga's write_default_init
+				fmt.Fprintf(&w.out, "(%s%s)0", localType, arraySuffix)
+			}
+			w.out.WriteString(";\n")
+		}
+	}
+
+	if len(fn.LocalVars) > 0 {
+		// Rust naga writes just a newline (no indentation) after locals
+		w.out.WriteByte('\n')
 	}
 
 	// Write function body statements
@@ -265,9 +549,9 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 		return err
 	}
 
-	// Return output struct if needed (fallback for control flow paths without explicit return)
-	if hasOutputStruct {
-		w.writeLine("return _output;")
+	// Add implicit return for void entry points
+	if fn.Result == nil && !hlslBlockEndsWithReturn(fn.Body) {
+		w.writeLine("return;")
 	}
 
 	w.popIndent()
@@ -275,6 +559,78 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	w.writeLine("")
 
 	return nil
+}
+
+// writeEPArgumentsInit writes the argument initialization code when using an input struct.
+// Matches Rust naga's write_ep_arguments_initialization.
+func (w *Writer) writeEPArgumentsInit(epIdx int, fn *ir.Function, ep *ir.EntryPoint, epInput *entryPointBinding) {
+	fakeIter := 0
+	for i, arg := range fn.Arguments {
+		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(i)}]
+		argType := w.getTypeName(arg.Type)
+
+		// Check if this is a struct argument
+		if int(arg.Type) < len(w.module.Types) {
+			if st, ok := w.module.Types[arg.Type].Inner.(ir.StructType); ok {
+				// Struct argument: initialize with { member1, member2, ... }
+				w.writeIndent()
+				fmt.Fprintf(&w.out, "%s %s = { ", argType, argName)
+				for j, member := range st.Members {
+					if j > 0 {
+						w.out.WriteString(", ")
+					}
+					if fakeIter < len(epInput.members) {
+						w.writeEPArgInit(ep, epInput, &epInput.members[fakeIter], member.Binding)
+						fakeIter++
+					}
+				}
+				w.out.WriteString(" };\n")
+				continue
+			}
+		}
+
+		// Simple argument
+		w.writeIndent()
+		fmt.Fprintf(&w.out, "%s %s = ", argType, argName)
+		if fakeIter < len(epInput.members) {
+			w.writeEPArgInit(ep, epInput, &epInput.members[fakeIter], arg.Binding)
+			fakeIter++
+		}
+		w.out.WriteString(";\n")
+	}
+}
+
+// writeEPArgInit writes the initialization expression for a single EP argument.
+// Subgroup builtins are computed from wave intrinsics; others read from the input struct.
+// Matches Rust naga write_ep_argument_initialization.
+func (w *Writer) writeEPArgInit(ep *ir.EntryPoint, epInput *entryPointBinding, fakeMember *epStructMember, binding *ir.Binding) {
+	if binding != nil {
+		if bb, ok := (*binding).(ir.BuiltinBinding); ok {
+			switch bb.Builtin {
+			case ir.BuiltinSubgroupSize:
+				w.out.WriteString("WaveGetLaneCount()")
+				return
+			case ir.BuiltinSubgroupInvocationID:
+				w.out.WriteString("WaveGetLaneIndex()")
+				return
+			case ir.BuiltinNumSubgroups:
+				total := uint32(1)
+				if ep != nil {
+					total = ep.Workgroup[0] * ep.Workgroup[1] * ep.Workgroup[2]
+					if total == 0 {
+						total = 1
+					}
+				}
+				fmt.Fprintf(&w.out, "(%du + WaveGetLaneCount() - 1u) / WaveGetLaneCount()", total)
+				return
+			case ir.BuiltinSubgroupID:
+				fmt.Fprintf(&w.out, "%s.__local_invocation_index / WaveGetLaneCount()", epInput.argName)
+				return
+			}
+		}
+	}
+	// Default: read from input struct
+	fmt.Fprintf(&w.out, "%s.%s", epInput.argName, fakeMember.name)
 }
 
 // writeComputeAttributes writes [numthreads(x,y,z)] attribute for compute shaders.
@@ -292,154 +648,37 @@ func (w *Writer) writeComputeAttributes(ep *ir.EntryPoint) {
 	w.writeLine("[numthreads(%d, %d, %d)]", x, y, z)
 }
 
-// writeReturnSemantic adds HLSL return semantic for simple (non-struct) return types.
-// Fragment shader @location(N) maps to SV_TargetN (not TEXCOORD).
-func (w *Writer) writeReturnSemantic(ep *ir.EntryPoint, fn *ir.Function, hasOutputStruct bool) {
-	if hasOutputStruct || fn.Result == nil || fn.Result.Binding == nil {
-		return
-	}
-	var semantic string
-	if ep.Stage == ir.StageFragment {
-		if loc, ok := (*fn.Result.Binding).(ir.LocationBinding); ok {
-			semantic = fmt.Sprintf("SV_Target%d", loc.Location)
-		} else {
-			semantic = w.getSemanticFromBinding(*fn.Result.Binding, 0)
-		}
-	} else {
-		semantic = w.getSemanticFromBinding(*fn.Result.Binding, 0)
-	}
-	fmt.Fprintf(&w.out, " : %s", semantic)
-}
-
-// writeEntryPointLocalVars writes local variable declarations for an entry point.
-// When a local variable has the same type as the entry point result, it IS the
-// output variable — declared as _output with the output struct type so that HLSL
-// semantics (SV_Position, TEXCOORD) are attached correctly.
-// Returns whether an output local was mapped to _output.
-func (w *Writer) writeEntryPointLocalVars(fn *ir.Function, hasOutputStruct bool, outputStructName string, hasInputStruct bool) (bool, error) {
-	outputLocalMapped := false
-	for localIdx, local := range fn.LocalVars {
-		localName := w.namer.call(local.Name)
-		localType, arraySuffix := w.getTypeNameWithArraySuffix(local.Type)
-
-		if hasOutputStruct && !outputLocalMapped && fn.Result != nil && local.Type == fn.Result.Type {
-			localName = "_output"
-			localType = outputStructName
-			outputLocalMapped = true
-		}
-
-		w.localNames[uint32(localIdx)] = localName
-
-		if local.Init != nil {
-			w.writeIndent()
-			fmt.Fprintf(&w.out, "%s %s%s = ", localType, localName, arraySuffix)
-			if err := w.writeExpression(*local.Init); err != nil {
-				return false, fmt.Errorf("entry point local var init: %w", err)
-			}
-			w.out.WriteString(";\n")
-		} else {
-			w.writeLine("%s %s%s;", localType, localName, arraySuffix)
-		}
-	}
-
-	if len(fn.LocalVars) > 0 || hasInputStruct {
-		w.writeLine("")
-	}
-	return outputLocalMapped, nil
-}
-
-// writeEntryPointSignature writes the function signature for an entry point.
-func (w *Writer) writeEntryPointSignature(returnType, epName string, ep *ir.EntryPoint, fn *ir.Function, inputStructName string, hasInputStruct bool) {
-	w.writeIndent()
-	fmt.Fprintf(&w.out, "%s %s(", returnType, epName)
-
-	firstParam := true
-
-	// Stage input struct
-	if hasInputStruct {
-		fmt.Fprintf(&w.out, "%s _input", inputStructName)
-		firstParam = false
-	}
-
-	// Built-in inputs not in struct (compute shader specifics)
-	if ep.Stage == ir.StageCompute {
-		for i, arg := range fn.Arguments {
-			if arg.Binding == nil {
-				continue
-			}
-			if builtin, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
-				semantic := BuiltInToSemantic(builtin.Builtin)
-				if !firstParam {
-					w.out.WriteString(", ")
-				}
-				argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}]
-				argType := w.getTypeName(arg.Type)
-				fmt.Fprintf(&w.out, "%s %s : %s", argType, argName, semantic)
-				firstParam = false
-			}
-		}
-	}
-
-	w.out.WriteString(")")
-}
-
-// writeInputExtraction writes code to extract input values from the input struct.
-// For vertex/fragment stages, ALL bindings (location and builtin) go through
-// the input struct. For compute shaders, builtins are passed as direct parameters
-// and only location bindings are extracted from the struct.
-// Struct arguments with member bindings are reconstructed from the flattened input.
-func (w *Writer) writeInputExtraction(ep *ir.EntryPoint, fn *ir.Function, structArgs []structArgEntry) {
-	for i, arg := range fn.Arguments {
-		// Check if this is a struct arg that was flattened
-		if sa := findStructArg(structArgs, i); sa != nil {
-			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}]
-			structTypeName := w.getTypeName(sa.argTypeHandle)
-
-			// Declare the struct variable
-			w.writeLine("%s %s;", structTypeName, argName)
-
-			// Assign each member from the flattened input struct
-			for _, member := range sa.structType.Members {
-				if member.Binding == nil {
-					continue
-				}
-				memberName := Escape(member.Name)
-				w.writeLine("%s.%s = _input.%s;", argName, memberName, memberName)
-			}
-			continue
-		}
-
-		if arg.Binding == nil {
-			continue
-		}
-		// In compute shaders, builtins are direct parameters (not in input struct)
-		if ep.Stage == ir.StageCompute {
-			if _, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
-				continue
-			}
-		}
-		argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(ep.Function), handle2: uint32(i)}]
-		w.writeLine("%s %s = _input.%s;", w.getTypeName(arg.Type), argName, argName)
-	}
-}
-
-// findStructArg returns the structArgEntry for the given argument index, or nil if not found.
-func findStructArg(structArgs []structArgEntry, argIdx int) *structArgEntry {
-	for idx := range structArgs {
-		if structArgs[idx].argIdx == argIdx {
-			return &structArgs[idx]
-		}
-	}
-	return nil
-}
-
 // =============================================================================
-// Extended Helper Functions
+// Helper Functions
 // =============================================================================
+
+// stageName returns the debug name for a shader stage (matches Rust's {:?} formatting).
+func stageName(stage ir.ShaderStage) string {
+	switch stage {
+	case ir.StageVertex:
+		return "Vertex"
+	case ir.StageFragment:
+		return "Fragment"
+	case ir.StageCompute:
+		return "Compute"
+	default:
+		return "Unknown"
+	}
+}
+
+// toLowerFirst lowercases the first character of a string.
+func toLowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	b := []byte(s)
+	if b[0] >= 'A' && b[0] <= 'Z' {
+		b[0] += 32
+	}
+	return string(b)
+}
 
 // writeModHelper writes the safe modulo helper function.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeModHelper() {
 	w.writeLine("// Safe modulo helper (truncated division semantics)")
 	w.writeLine("int %s(int a, int b) {", NagaModFunction)
@@ -459,8 +698,6 @@ func (w *Writer) writeModHelper() {
 }
 
 // writeDivHelper writes the safe division helper function.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeDivHelper() {
 	w.writeLine("// Safe division helper (handles zero divisor)")
 	w.writeLine("int %s(int a, int b) {", NagaDivFunction)
@@ -480,8 +717,6 @@ func (w *Writer) writeDivHelper() {
 }
 
 // writeAbsHelper writes the safe abs helper function.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeAbsHelper() {
 	w.writeLine("// Safe abs helper (handles INT_MIN)")
 	w.writeLine("int %s(int v) {", NagaAbsFunction)
@@ -493,8 +728,6 @@ func (w *Writer) writeAbsHelper() {
 }
 
 // writeNegHelper writes the safe negation helper function.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeNegHelper() {
 	w.writeLine("// Safe negation helper (handles INT_MIN)")
 	w.writeLine("int %s(int v) {", NagaNegFunction)
@@ -506,8 +739,6 @@ func (w *Writer) writeNegHelper() {
 }
 
 // writeModfHelper writes the modf wrapper to return result struct like WGSL.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeModfHelper() {
 	w.writeLine("// modf wrapper returning struct like WGSL")
 	w.writeLine("struct _naga_modf_result_f32 {")
@@ -529,8 +760,6 @@ func (w *Writer) writeModfHelper() {
 }
 
 // writeFrexpHelper writes the frexp wrapper to return result struct like WGSL.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeFrexpHelper() {
 	w.writeLine("// frexp wrapper returning struct like WGSL")
 	w.writeLine("struct _naga_frexp_result_f32 {")
@@ -552,8 +781,6 @@ func (w *Writer) writeFrexpHelper() {
 }
 
 // writeExtractBitsHelper writes the extractBits helper for SM < 6.0.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeExtractBitsHelper() {
 	w.writeLine("// extractBits helper for older shader models")
 	w.writeLine("uint %s(uint e, uint offset, uint count) {", NagaExtractBitsFunction)
@@ -582,8 +809,6 @@ func (w *Writer) writeExtractBitsHelper() {
 }
 
 // writeInsertBitsHelper writes the insertBits helper for SM < 6.0.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeInsertBitsHelper() {
 	w.writeLine("// insertBits helper for older shader models")
 	w.writeLine("uint %s(uint e, uint newbits, uint offset, uint count) {", NagaInsertBitsFunction)
@@ -604,8 +829,6 @@ func (w *Writer) writeInsertBitsHelper() {
 }
 
 // writeF2I32Helper writes the float-to-i32 conversion helper with clamping.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeF2I32Helper() {
 	w.writeLine("// Float to i32 conversion with clamping (handles NaN, inf)")
 	w.writeLine("int %s(float v) {", NagaF2I32Function)
@@ -617,8 +840,6 @@ func (w *Writer) writeF2I32Helper() {
 }
 
 // writeF2U32Helper writes the float-to-u32 conversion helper with clamping.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeF2U32Helper() {
 	w.writeLine("// Float to u32 conversion with clamping (handles NaN, inf)")
 	w.writeLine("uint %s(float v) {", NagaF2U32Function)
@@ -634,18 +855,14 @@ func (w *Writer) writeF2U32Helper() {
 // =============================================================================
 
 // isEntryPointFunction checks if a function is an entry point.
-func (w *Writer) isEntryPointFunction(handle ir.FunctionHandle) bool {
-	for _, ep := range w.module.EntryPoints {
-		if ep.Function == handle {
-			return true
-		}
-	}
+// Since entry point functions are stored inline in EntryPoint.Function (not in
+// Module.Functions[]), any FunctionHandle into Module.Functions[] is by definition
+// NOT an entry point.
+func (w *Writer) isEntryPointFunction(_ ir.FunctionHandle) bool {
 	return false
 }
 
 // getArgumentSemantic returns the HLSL semantic for a function argument binding.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) getArgumentSemantic(arg ir.FunctionArgument, argIdx int) string {
 	if arg.Binding == nil {
 		return ""
@@ -654,8 +871,6 @@ func (w *Writer) getArgumentSemantic(arg ir.FunctionArgument, argIdx int) string
 }
 
 // writeArgumentWithSemantic writes a function argument with its semantic.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeArgumentWithSemantic(arg ir.FunctionArgument, argIdx int, argName string) string {
 	argType := w.getTypeName(arg.Type)
 	semantic := w.getArgumentSemantic(arg, argIdx)
@@ -671,8 +886,6 @@ func (w *Writer) writeArgumentWithSemantic(arg ir.FunctionArgument, argIdx int, 
 // =============================================================================
 
 // getResultSemantic returns the HLSL semantic for a function result binding.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) getResultSemantic(result *ir.FunctionResult) string {
 	if result == nil || result.Binding == nil {
 		return ""
@@ -681,20 +894,48 @@ func (w *Writer) getResultSemantic(result *ir.FunctionResult) string {
 }
 
 // writeResultType writes the return type with semantic if applicable.
-//
-//nolint:unused // Helper prepared for integration when needed
 func (w *Writer) writeResultType(result *ir.FunctionResult) string {
 	if result == nil {
 		return "void"
 	}
 
 	typeName := w.getTypeName(result.Type)
-	semantic := w.getResultSemantic(result)
-
-	if semantic != "" {
-		// HLSL doesn't support return semantics in the type declaration,
-		// they're specified via output structs or SV_Target for fragments
-		return typeName
-	}
 	return typeName
+}
+
+// needWorkgroupInit returns true if the entry point needs workgroup variable
+// zero-initialization. Matches Rust naga's need_workgroup_variables_initialization.
+func (w *Writer) needWorkgroupInit(ep *ir.EntryPoint) bool {
+	if !w.options.ZeroInitializeWorkgroupMemory {
+		return false
+	}
+	// Only compute-like entry points
+	if ep.Stage != ir.StageCompute {
+		return false
+	}
+	// Check if there are any workgroup variables
+	for _, gv := range w.module.GlobalVariables {
+		if gv.Space == ir.SpaceWorkGroup {
+			return true
+		}
+	}
+	return false
+}
+
+// writeWorkgroupInit writes the workgroup variable zero-initialization code.
+// Matches Rust naga's write_workgroup_variables_initialization.
+func (w *Writer) writeWorkgroupInit() {
+	w.writeLine("if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {")
+	w.pushIndent()
+	for i, gv := range w.module.GlobalVariables {
+		if gv.Space != ir.SpaceWorkGroup {
+			continue
+		}
+		varName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(i)}]
+		typeName := w.getTypeName(gv.Type)
+		w.writeLine("%s = (%s)0;", varName, typeName)
+	}
+	w.popIndent()
+	w.writeLine("}")
+	w.writeLine("GroupMemoryBarrierWithGroupSync();")
 }

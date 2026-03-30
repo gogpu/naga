@@ -89,8 +89,6 @@ func (v *Validator) validateTypes() {
 }
 
 // validateType validates a single type.
-//
-//nolint:gocognit,gocyclo,cyclop // Type validation requires checking many type variants
 func (v *Validator) validateType(handle TypeHandle, typ *Type) {
 	if typ.Inner == nil {
 		v.addError(fmt.Sprintf("type %d has nil inner type", handle))
@@ -278,8 +276,6 @@ func (v *Validator) validateFunction(fn *Function) {
 }
 
 // validateExpression validates a single expression.
-//
-//nolint:gocognit,gocyclo,cyclop,funlen // Expression validation requires checking many expression variants
 func (v *Validator) validateExpression(handle ExpressionHandle, expr *Expression) {
 	if expr.Kind == nil {
 		v.addErrorInExpression(handle, "expression has nil kind")
@@ -474,6 +470,22 @@ func (v *Validator) validateExpression(handle ExpressionHandle, expr *Expression
 		if !v.isValidExpressionHandle(kind.Array) {
 			v.addErrorInExpression(handle, fmt.Sprintf("array expression %d does not exist", kind.Array))
 		}
+
+	case ExprRayQueryProceedResult:
+		// No fields to validate — result is produced by StmtRayQuery with Proceed function
+
+	case ExprRayQueryGetIntersection:
+		if !v.isValidExpressionHandle(kind.Query) {
+			v.addErrorInExpression(handle, fmt.Sprintf("ray query expression %d does not exist", kind.Query))
+		}
+
+	case ExprSubgroupBallotResult:
+		// No fields to validate — result is produced by StmtSubgroupBallot
+
+	case ExprSubgroupOperationResult:
+		if !v.isValidTypeHandle(kind.Type) {
+			v.addErrorInExpression(handle, fmt.Sprintf("type %d does not exist", kind.Type))
+		}
 	}
 }
 
@@ -485,8 +497,6 @@ func (v *Validator) validateBlock(block Block) {
 }
 
 // validateStatement validates a single statement.
-//
-//nolint:gocognit,gocyclo,cyclop,funlen // Statement validation requires checking many statement variants
 func (v *Validator) validateStatement(index int, stmt *Statement) {
 	if stmt.Kind == nil {
 		v.addErrorInStatement(index, "statement has nil kind")
@@ -664,12 +674,8 @@ func (v *Validator) validateEntryPoints() {
 		}
 		names[ep.Name] = true
 
-		if !v.isValidFunctionHandle(ep.Function) {
-			v.addError(fmt.Sprintf("entry point %q: function %d does not exist", ep.Name, ep.Function))
-			continue
-		}
-
-		fn := &v.module.Functions[ep.Function]
+		// Entry point function is stored inline (not via handle).
+		fn := &v.module.EntryPoints[i].Function
 
 		// Validate stage-specific requirements
 		switch ep.Stage {

@@ -1,0 +1,230 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 166
+; Schema: 0
+
+               OpCapability Shader
+               OpCapability Image1D
+               OpCapability SampledCubeArray
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %_122 "fragment_shader" %_37
+               OpExecutionMode %_122 OriginUpperLeft
+               OpDecorate %_19 DescriptorSet 0
+               OpDecorate %_19 Binding 0
+               OpDecorate %_21 DescriptorSet 0
+               OpDecorate %_21 Binding 1
+               OpDecorate %_23 DescriptorSet 0
+               OpDecorate %_23 Binding 2
+               OpDecorate %_25 DescriptorSet 0
+               OpDecorate %_25 Binding 3
+               OpDecorate %_27 DescriptorSet 0
+               OpDecorate %_27 Binding 4
+               OpDecorate %_29 DescriptorSet 0
+               OpDecorate %_29 Binding 5
+               OpDecorate %_29 NonReadable
+               OpDecorate %_31 DescriptorSet 0
+               OpDecorate %_31 Binding 6
+               OpDecorate %_31 NonReadable
+               OpDecorate %_33 DescriptorSet 0
+               OpDecorate %_33 Binding 7
+               OpDecorate %_33 NonReadable
+               OpDecorate %_35 DescriptorSet 0
+               OpDecorate %_35 Binding 8
+               OpDecorate %_35 NonReadable
+               OpDecorate %_37 Location 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeImage %_3 1D 0 0 0 1 Unknown
+         %_5 = OpTypeInt 32 1
+         %_6 = OpTypeVector %_3 4
+         %_7 = OpTypeImage %_3 2D 0 0 0 1 Unknown
+         %_8 = OpTypeVector %_5 2
+         %_9 = OpTypeImage %_3 2D 0 1 0 1 Unknown
+         %_10 = OpTypeInt 32 0
+         %_11 = OpTypeImage %_3 3D 0 0 0 1 Unknown
+         %_12 = OpTypeVector %_5 3
+         %_13 = OpTypeImage %_3 2D 0 0 1 1 Unknown
+         %_14 = OpTypeImage %_3 1D 0 0 0 2 Unknown 4
+         %_15 = OpTypeImage %_3 2D 0 0 0 2 Unknown 4
+         %_16 = OpTypeImage %_3 2D 0 1 0 2 Unknown 4
+         %_17 = OpTypeImage %_3 3D 0 0 0 2 Unknown 4
+         %_18 = OpTypePointer UniformConstant %_4
+         %_20 = OpTypePointer UniformConstant %_7
+         %_22 = OpTypePointer UniformConstant %_9
+         %_24 = OpTypePointer UniformConstant %_11
+         %_26 = OpTypePointer UniformConstant %_13
+         %_28 = OpTypePointer UniformConstant %_14
+         %_30 = OpTypePointer UniformConstant %_15
+         %_32 = OpTypePointer UniformConstant %_16
+         %_34 = OpTypePointer UniformConstant %_17
+         %_36 = OpTypePointer Output %_6
+         %_38 = OpTypeFunction %_6 %_5 %_5
+         %_45 = OpTypeFunction %_6 %_8 %_5
+         %_52 = OpTypeFunction %_6 %_8 %_10 %_5
+         %_62 = OpTypeFunction %_6 %_8 %_5 %_5
+         %_71 = OpTypeFunction %_6 %_12 %_5
+         %_84 = OpTypeFunction %_2 %_5 %_6
+         %_90 = OpTypeFunction %_2 %_8 %_6
+         %_96 = OpTypeFunction %_2 %_8 %_10 %_6
+         %_104 = OpTypeVector %_3 3
+         %_106 = OpTypeFunction %_2 %_8 %_5 %_6
+         %_115 = OpTypeFunction %_2 %_12 %_6
+         %_121 = OpTypeFunction %_2
+         %_124 = OpConstant %_5 0
+         %_125 = OpConstant %_5 0
+         %_127 = OpConstantNull %_8
+         %_128 = OpConstant %_5 0
+         %_130 = OpConstantNull %_8
+         %_131 = OpConstant %_10 0
+         %_132 = OpConstant %_5 0
+         %_134 = OpConstantNull %_8
+         %_135 = OpConstant %_5 0
+         %_136 = OpConstant %_5 0
+         %_138 = OpConstantNull %_12
+         %_139 = OpConstant %_5 0
+         %_141 = OpConstantNull %_8
+         %_142 = OpConstant %_5 0
+         %_144 = OpConstant %_5 0
+         %_145 = OpConstantNull %_6
+         %_147 = OpConstantNull %_8
+         %_148 = OpConstantNull %_6
+         %_150 = OpConstantNull %_8
+         %_151 = OpConstant %_10 0
+         %_152 = OpConstantNull %_6
+         %_154 = OpConstantNull %_8
+         %_155 = OpConstant %_5 0
+         %_156 = OpConstantNull %_6
+         %_158 = OpConstantNull %_12
+         %_159 = OpConstantNull %_6
+         %_161 = OpConstant %_3 0
+         %_162 = OpConstant %_3 0
+         %_163 = OpConstant %_3 0
+         %_164 = OpConstant %_3 0
+         %_19 = OpVariable %_18 UniformConstant
+         %_21 = OpVariable %_20 UniformConstant
+         %_23 = OpVariable %_22 UniformConstant
+         %_25 = OpVariable %_24 UniformConstant
+         %_27 = OpVariable %_26 UniformConstant
+         %_29 = OpVariable %_28 UniformConstant
+         %_31 = OpVariable %_30 UniformConstant
+         %_33 = OpVariable %_32 UniformConstant
+         %_35 = OpVariable %_34 UniformConstant
+         %_37 = OpVariable %_36 Output
+         %_39 = OpFunction %_6 None %_38
+         %_40 = OpFunctionParameter %_5
+         %_41 = OpFunctionParameter %_5
+         %_42 = OpLabel
+         %_43 = OpLoad %_4 %_19
+         %_44 = OpImageFetch %_6 %_43 %_40 %_2 %_41
+               OpReturnValue %_44
+               OpFunctionEnd
+         %_46 = OpFunction %_6 None %_45
+         %_47 = OpFunctionParameter %_8
+         %_48 = OpFunctionParameter %_5
+         %_49 = OpLabel
+         %_50 = OpLoad %_7 %_21
+         %_51 = OpImageFetch %_6 %_50 %_47 %_2 %_48
+               OpReturnValue %_51
+               OpFunctionEnd
+         %_53 = OpFunction %_6 None %_52
+         %_54 = OpFunctionParameter %_8
+         %_55 = OpFunctionParameter %_10
+         %_56 = OpFunctionParameter %_5
+         %_57 = OpLabel
+         %_58 = OpLoad %_9 %_23
+         %_59 = OpBitcast %_5 %_55
+         %_60 = OpCompositeConstruct %_12 %_54 %_59
+         %_61 = OpImageFetch %_6 %_58 %_60 %_2 %_56
+               OpReturnValue %_61
+               OpFunctionEnd
+         %_63 = OpFunction %_6 None %_62
+         %_64 = OpFunctionParameter %_8
+         %_65 = OpFunctionParameter %_5
+         %_66 = OpFunctionParameter %_5
+         %_67 = OpLabel
+         %_68 = OpLoad %_9 %_23
+         %_69 = OpCompositeConstruct %_12 %_64 %_65
+         %_70 = OpImageFetch %_6 %_68 %_69 %_2 %_66
+               OpReturnValue %_70
+               OpFunctionEnd
+         %_72 = OpFunction %_6 None %_71
+         %_73 = OpFunctionParameter %_12
+         %_74 = OpFunctionParameter %_5
+         %_75 = OpLabel
+         %_76 = OpLoad %_11 %_25
+         %_77 = OpImageFetch %_6 %_76 %_73 %_2 %_74
+               OpReturnValue %_77
+               OpFunctionEnd
+         %_78 = OpFunction %_6 None %_45
+         %_79 = OpFunctionParameter %_8
+         %_80 = OpFunctionParameter %_5
+         %_81 = OpLabel
+         %_82 = OpLoad %_13 %_27
+         %_83 = OpImageFetch %_6 %_82 %_79 %_64 %_80
+               OpReturnValue %_83
+               OpFunctionEnd
+         %_85 = OpFunction %_2 None %_84
+         %_86 = OpFunctionParameter %_5
+         %_87 = OpFunctionParameter %_6
+         %_88 = OpLabel
+         %_89 = OpLoad %_14 %_29
+               OpImageWrite %_89 %_86 %_87
+               OpReturn
+               OpFunctionEnd
+         %_91 = OpFunction %_2 None %_90
+         %_92 = OpFunctionParameter %_8
+         %_93 = OpFunctionParameter %_6
+         %_94 = OpLabel
+         %_95 = OpLoad %_15 %_31
+               OpImageWrite %_95 %_92 %_93
+               OpReturn
+               OpFunctionEnd
+         %_97 = OpFunction %_2 None %_96
+         %_98 = OpFunctionParameter %_8
+         %_99 = OpFunctionParameter %_10
+         %_100 = OpFunctionParameter %_6
+         %_101 = OpLabel
+         %_102 = OpLoad %_16 %_33
+         %_103 = OpConvertUToF %_3 %_99
+         %_105 = OpCompositeConstruct %_104 %_98 %_103
+               OpImageWrite %_102 %_105 %_100
+               OpReturn
+               OpFunctionEnd
+         %_107 = OpFunction %_2 None %_106
+         %_108 = OpFunctionParameter %_8
+         %_109 = OpFunctionParameter %_5
+         %_110 = OpFunctionParameter %_6
+         %_111 = OpLabel
+         %_112 = OpLoad %_16 %_33
+         %_113 = OpConvertSToF %_3 %_109
+         %_114 = OpCompositeConstruct %_104 %_108 %_113
+               OpImageWrite %_112 %_114 %_110
+               OpReturn
+               OpFunctionEnd
+         %_116 = OpFunction %_2 None %_115
+         %_117 = OpFunctionParameter %_12
+         %_118 = OpFunctionParameter %_6
+         %_119 = OpLabel
+         %_120 = OpLoad %_17 %_35
+               OpImageWrite %_120 %_117 %_118
+               OpReturn
+               OpFunctionEnd
+         %_122 = OpFunction %_2 None %_121
+         %_123 = OpLabel
+         %_126 = OpFunctionCall %_6 %_39 %_124 %_125
+         %_129 = OpFunctionCall %_6 %_46 %_127 %_128
+         %_133 = OpFunctionCall %_6 %_53 %_130 %_131 %_132
+         %_137 = OpFunctionCall %_6 %_63 %_134 %_135 %_136
+         %_140 = OpFunctionCall %_6 %_72 %_138 %_139
+         %_143 = OpFunctionCall %_6 %_78 %_141 %_142
+         %_146 = OpFunctionCall %_2 %_85 %_144 %_145
+         %_149 = OpFunctionCall %_2 %_91 %_147 %_148
+         %_153 = OpFunctionCall %_2 %_97 %_150 %_151 %_152
+         %_157 = OpFunctionCall %_2 %_107 %_154 %_155 %_156
+         %_160 = OpFunctionCall %_2 %_116 %_158 %_159
+         %_165 = OpCompositeConstruct %_6 %_161 %_162 %_163 %_164
+               OpStore %_37 %_165
+               OpReturn
+               OpFunctionEnd

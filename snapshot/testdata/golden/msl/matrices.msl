@@ -1,22 +1,29 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
+
+kernel void main_(
+) {
+    metal::float4x4 identity = metal::float4x4(metal::float4(1.0, 0.0, 0.0, 0.0), metal::float4(0.0, 1.0, 0.0, 0.0), metal::float4(0.0, 0.0, 1.0, 0.0), metal::float4(0.0, 0.0, 0.0, 1.0));
+    metal::float2x2 m2_ = metal::float2x2(metal::float2(1.0, 0.0), metal::float2(0.0, 1.0));
+    metal::float3x3 m3_ = metal::float3x3(metal::float3(1.0, 0.0, 0.0), metal::float3(0.0, 1.0, 0.0), metal::float3(0.0, 0.0, 1.0));
+    metal::float4x3 m4x3_ = metal::float4x3(metal::float3(1.0, 0.0, 0.0), metal::float3(0.0, 1.0, 0.0), metal::float3(0.0, 0.0, 1.0), metal::float3(0.0, 0.0, 0.0));
+    metal::float4 v = metal::float4(1.0, 2.0, 3.0, 1.0);
+    metal::float4 transformed = identity * v;
+    metal::float4x4 combined = identity * identity;
+    metal::float2x2 t2_ = metal::transpose(m2_);
+    metal::float4 col0_ = identity[0];
+    metal::float4 col1_ = identity[1];
+    float element = identity[2].w;
+    metal::float2x2 scaled = m2_ * 2.0;
+    return;
 }
-
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
-}
-
-kernel void main_() {
-}
-

@@ -1,0 +1,1747 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Bi,
+                rows: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 4,
+                size: Constant(2),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(2),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 9,
+                size: Constant(1),
+                stride: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 11,
+                size: Constant(1),
+                stride: 16,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("all_constant_arguments"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                Literal(I32(42)),
+                Literal(I32(43)),
+                Compose(
+                    ty: 1,
+                    components: [
+                        0,
+                        1,
+                    ],
+                ),
+                Literal(U32(44)),
+                Literal(U32(45)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        3,
+                        4,
+                    ],
+                ),
+                Literal(F32(46.0)),
+                Literal(F32(47.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        6,
+                        7,
+                    ],
+                ),
+                Literal(F32(48.0)),
+                Literal(F32(49.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        9,
+                        10,
+                    ],
+                ),
+                Literal(F32(48.0)),
+                Literal(F32(49.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        12,
+                        13,
+                    ],
+                ),
+                Literal(U32(42)),
+                Literal(U32(43)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        15,
+                        16,
+                    ],
+                ),
+                Literal(U32(43)),
+                Literal(U32(42)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        19,
+                        18,
+                    ],
+                ),
+                Literal(U32(42)),
+                Literal(U32(43)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        21,
+                        22,
+                    ],
+                ),
+                Literal(U32(43)),
+                Literal(U32(42)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        25,
+                        24,
+                    ],
+                ),
+                Literal(I32(0)),
+                Literal(I32(0)),
+                Compose(
+                    ty: 1,
+                    components: [
+                        27,
+                        28,
+                    ],
+                ),
+                Literal(U32(0)),
+                Literal(U32(0)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        30,
+                        31,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        33,
+                        34,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        36,
+                        37,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        39,
+                        40,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        38,
+                        41,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        43,
+                        44,
+                    ],
+                ),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        46,
+                        47,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        45,
+                        48,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        50,
+                        51,
+                    ],
+                ),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        53,
+                        54,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        52,
+                        55,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        57,
+                        58,
+                    ],
+                ),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        60,
+                        61,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        59,
+                        62,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        64,
+                        65,
+                    ],
+                ),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        67,
+                        68,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        66,
+                        69,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        71,
+                        72,
+                    ],
+                ),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        74,
+                        75,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        73,
+                        76,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        78,
+                        79,
+                    ],
+                ),
+                Compose(
+                    ty: 5,
+                    components: [
+                        80,
+                        81,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        82,
+                        83,
+                    ],
+                ),
+                Literal(F32(2.0)),
+                Literal(F32(1.0)),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        86,
+                        85,
+                    ],
+                ),
+                Compose(
+                    ty: 5,
+                    components: [
+                        87,
+                        88,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        89,
+                        90,
+                    ],
+                ),
+                Literal(F32(3.0)),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        93,
+                        94,
+                    ],
+                ),
+                Compose(
+                    ty: 5,
+                    components: [
+                        92,
+                        95,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        96,
+                        97,
+                    ],
+                ),
+                Literal(F32(4.0)),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Literal(F32(3.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        100,
+                        101,
+                    ],
+                ),
+                Compose(
+                    ty: 5,
+                    components: [
+                        102,
+                        99,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        103,
+                        104,
+                    ],
+                ),
+                Literal(I32(1)),
+                Splat(
+                    size: Bi,
+                    value: 106,
+                ),
+                Literal(F32(1.0)),
+                Splat(
+                    size: Bi,
+                    value: 108,
+                ),
+                Literal(I32(1)),
+                Splat(
+                    size: Bi,
+                    value: 110,
+                ),
+                Literal(U32(1)),
+                Splat(
+                    size: Bi,
+                    value: 112,
+                ),
+                Literal(F32(1.0)),
+                Splat(
+                    size: Bi,
+                    value: 114,
+                ),
+                Literal(F32(1.0)),
+                Splat(
+                    size: Bi,
+                    value: 116,
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        118,
+                        119,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        121,
+                        122,
+                    ],
+                ),
+                Literal(F32(2.0)),
+                Literal(F32(1.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        125,
+                        124,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        127,
+                        128,
+                    ],
+                ),
+                Literal(I32(1)),
+                Literal(I32(2)),
+                Compose(
+                    ty: 8,
+                    components: [
+                        130,
+                        131,
+                    ],
+                ),
+                Literal(I32(2)),
+                Literal(I32(1)),
+                Compose(
+                    ty: 8,
+                    components: [
+                        134,
+                        133,
+                    ],
+                ),
+                Literal(I32(1)),
+                Literal(I32(2)),
+                Compose(
+                    ty: 8,
+                    components: [
+                        136,
+                        137,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        139,
+                        140,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        142,
+                        143,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        145,
+                        146,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        148,
+                        149,
+                    ],
+                ),
+                Literal(I32(1)),
+                Splat(
+                    size: Tri,
+                    value: 151,
+                ),
+                Compose(
+                    ty: 10,
+                    components: [
+                        152,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Splat(
+                    size: Tri,
+                    value: 154,
+                ),
+                Compose(
+                    ty: 12,
+                    components: [
+                        155,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Splat(
+                    size: Tri,
+                    value: 157,
+                ),
+                Compose(
+                    ty: 12,
+                    components: [
+                        158,
+                    ],
+                ),
+                Literal(I32(1)),
+                Splat(
+                    size: Bi,
+                    value: 160,
+                ),
+                Literal(U32(1)),
+                Splat(
+                    size: Bi,
+                    value: 162,
+                ),
+                Literal(F32(1.0)),
+                Splat(
+                    size: Bi,
+                    value: 164,
+                ),
+                Literal(F32(1.0)),
+                Splat(
+                    size: Bi,
+                    value: 166,
+                ),
+                Literal(I32(1)),
+                Literal(I32(2)),
+                Compose(
+                    ty: 8,
+                    components: [
+                        168,
+                        169,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        171,
+                        172,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        174,
+                        175,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        177,
+                        178,
+                    ],
+                ),
+            ],
+            named_expressions: {
+                2: "xvipaiai",
+                5: "xvupaiai",
+                8: "xvfpaiai",
+                11: "xvfpafaf",
+                14: "xvfpaiaf",
+                17: "xvupuai",
+                20: "xvupaiu",
+                23: "xvuuai",
+                26: "xvuaiu",
+                29: "xvip____",
+                32: "xvup____",
+                35: "xvfp____",
+                42: "xmfp____",
+                49: "xmfpaiaiaiai",
+                56: "xmfpafaiaiai",
+                63: "xmfpaiafaiai",
+                70: "xmfpaiaiafai",
+                77: "xmfpaiaiaiaf",
+                84: "xmfp_faiaiai",
+                91: "xmfpai_faiai",
+                98: "xmfpaiai_fai",
+                105: "xmfpaiaiai_f",
+                107: "xvispai",
+                109: "xvfspaf",
+                111: "xvis_ai",
+                113: "xvus_ai",
+                115: "xvfs_ai",
+                117: "xvfs_af",
+                120: "xafafaf",
+                123: "xaf_faf",
+                126: "xafaf_f",
+                129: "xafaiai",
+                132: "xai_iai",
+                135: "xaiai_i",
+                138: "xaipaiai",
+                141: "xafpaiai",
+                144: "xafpaiaf",
+                147: "xafpafai",
+                150: "xafpafaf",
+                153: "xavipai",
+                156: "xavfpai",
+                159: "xavfpaf",
+                161: "xvisai",
+                163: "xvusai",
+                165: "xvfsai",
+                167: "xvfsaf",
+                170: "iaipaiai",
+                173: "iafpaiaf",
+                176: "iafpafai",
+                179: "iafpafaf",
+            },
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 8,
+                    end: 9,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 14,
+                    end: 15,
+                )),
+                Emit((
+                    start: 17,
+                    end: 18,
+                )),
+                Emit((
+                    start: 20,
+                    end: 21,
+                )),
+                Emit((
+                    start: 23,
+                    end: 24,
+                )),
+                Emit((
+                    start: 26,
+                    end: 27,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 29,
+                    end: 30,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 32,
+                    end: 33,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 35,
+                    end: 36,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 38,
+                    end: 39,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 41,
+                    end: 43,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 45,
+                    end: 46,
+                )),
+                Emit((
+                    start: 48,
+                    end: 50,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 52,
+                    end: 53,
+                )),
+                Emit((
+                    start: 55,
+                    end: 57,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 59,
+                    end: 60,
+                )),
+                Emit((
+                    start: 62,
+                    end: 64,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 66,
+                    end: 67,
+                )),
+                Emit((
+                    start: 69,
+                    end: 71,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 73,
+                    end: 74,
+                )),
+                Emit((
+                    start: 76,
+                    end: 78,
+                )),
+                Emit((
+                    start: 82,
+                    end: 85,
+                )),
+                Emit((
+                    start: 89,
+                    end: 92,
+                )),
+                Emit((
+                    start: 96,
+                    end: 99,
+                )),
+                Emit((
+                    start: 103,
+                    end: 106,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 107,
+                    end: 108,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 109,
+                    end: 110,
+                )),
+                Emit((
+                    start: 111,
+                    end: 112,
+                )),
+                Emit((
+                    start: 113,
+                    end: 114,
+                )),
+                Emit((
+                    start: 115,
+                    end: 116,
+                )),
+                Emit((
+                    start: 117,
+                    end: 118,
+                )),
+                Emit((
+                    start: 120,
+                    end: 121,
+                )),
+                Emit((
+                    start: 123,
+                    end: 124,
+                )),
+                Emit((
+                    start: 126,
+                    end: 127,
+                )),
+                Emit((
+                    start: 129,
+                    end: 130,
+                )),
+                Emit((
+                    start: 132,
+                    end: 133,
+                )),
+                Emit((
+                    start: 135,
+                    end: 136,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 138,
+                    end: 139,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 141,
+                    end: 142,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 144,
+                    end: 145,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 147,
+                    end: 148,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 150,
+                    end: 151,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 152,
+                    end: 154,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 155,
+                    end: 157,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 158,
+                    end: 160,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 161,
+                    end: 162,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 163,
+                    end: 164,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 165,
+                    end: 166,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 167,
+                    end: 168,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 170,
+                    end: 171,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 173,
+                    end: 174,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 176,
+                    end: 177,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 179,
+                    end: 180,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("mixed_constant_and_runtime_arguments"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("u"),
+                    ty: 2,
+                    init: None,
+                ),
+                (
+                    name: Some("i"),
+                    ty: 0,
+                    init: None,
+                ),
+                (
+                    name: Some("f"),
+                    ty: 4,
+                    init: None,
+                ),
+            ],
+            expressions: [
+                LocalVariable(0),
+                LocalVariable(1),
+                LocalVariable(2),
+                Load(
+                    pointer: 0,
+                ),
+                Literal(U32(43)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        3,
+                        4,
+                    ],
+                ),
+                Load(
+                    pointer: 0,
+                ),
+                Literal(U32(42)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        7,
+                        6,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(47.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        9,
+                        10,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(49.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        12,
+                        13,
+                    ],
+                ),
+                Load(
+                    pointer: 0,
+                ),
+                Literal(U32(43)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        15,
+                        16,
+                    ],
+                ),
+                Load(
+                    pointer: 0,
+                ),
+                Literal(U32(42)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        19,
+                        18,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(2.0)),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        21,
+                        22,
+                    ],
+                ),
+                Compose(
+                    ty: 5,
+                    components: [
+                        23,
+                        24,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        25,
+                        26,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        29,
+                        28,
+                    ],
+                ),
+                Compose(
+                    ty: 5,
+                    components: [
+                        30,
+                        31,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        32,
+                        33,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        36,
+                        37,
+                    ],
+                ),
+                Compose(
+                    ty: 5,
+                    components: [
+                        35,
+                        38,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        39,
+                        40,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Literal(F32(3.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        43,
+                        44,
+                    ],
+                ),
+                Compose(
+                    ty: 5,
+                    components: [
+                        45,
+                        42,
+                    ],
+                ),
+                Compose(
+                    ty: 6,
+                    components: [
+                        46,
+                        47,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        49,
+                        50,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(1.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        53,
+                        52,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        55,
+                        56,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(1.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        59,
+                        58,
+                    ],
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Literal(I32(2)),
+                Compose(
+                    ty: 8,
+                    components: [
+                        61,
+                        62,
+                    ],
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Literal(I32(1)),
+                Compose(
+                    ty: 8,
+                    components: [
+                        65,
+                        64,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        67,
+                        68,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(1.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        71,
+                        70,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        73,
+                        74,
+                    ],
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(F32(1.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        77,
+                        76,
+                    ],
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Literal(I32(2)),
+                Compose(
+                    ty: 8,
+                    components: [
+                        79,
+                        80,
+                    ],
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Literal(I32(1)),
+                Compose(
+                    ty: 8,
+                    components: [
+                        83,
+                        82,
+                    ],
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 85,
+                ),
+                Load(
+                    pointer: 0,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 87,
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 89,
+                ),
+            ],
+            named_expressions: {
+                5: "xvupuai",
+                8: "xvupaiu",
+                11: "xvfpfai",
+                14: "xvfpfaf",
+                17: "xvuuai",
+                20: "xvuaiu",
+                27: "xmfp_faiaiai",
+                34: "xmfpai_faiai",
+                41: "xmfpaiai_fai",
+                48: "xmfpaiaiai_f",
+                51: "xaf_faf",
+                54: "xafaf_f",
+                57: "xaf_fai",
+                60: "xafai_f",
+                63: "xai_iai",
+                66: "xaiai_i",
+                69: "xafp_faf",
+                72: "xafpaf_f",
+                75: "xafp_fai",
+                78: "xafpai_f",
+                81: "xaip_iai",
+                84: "xaipai_i",
+                86: "xvisi",
+                88: "xvusu",
+                90: "xvfsf",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Emit((
+                    start: 8,
+                    end: 9,
+                )),
+                Emit((
+                    start: 9,
+                    end: 10,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 12,
+                    end: 13,
+                )),
+                Emit((
+                    start: 14,
+                    end: 15,
+                )),
+                Emit((
+                    start: 15,
+                    end: 16,
+                )),
+                Emit((
+                    start: 17,
+                    end: 18,
+                )),
+                Emit((
+                    start: 18,
+                    end: 19,
+                )),
+                Emit((
+                    start: 20,
+                    end: 21,
+                )),
+                Emit((
+                    start: 21,
+                    end: 22,
+                )),
+                Emit((
+                    start: 25,
+                    end: 28,
+                )),
+                Emit((
+                    start: 28,
+                    end: 29,
+                )),
+                Emit((
+                    start: 32,
+                    end: 35,
+                )),
+                Emit((
+                    start: 35,
+                    end: 36,
+                )),
+                Emit((
+                    start: 39,
+                    end: 42,
+                )),
+                Emit((
+                    start: 42,
+                    end: 43,
+                )),
+                Emit((
+                    start: 46,
+                    end: 49,
+                )),
+                Emit((
+                    start: 49,
+                    end: 50,
+                )),
+                Emit((
+                    start: 51,
+                    end: 52,
+                )),
+                Emit((
+                    start: 52,
+                    end: 53,
+                )),
+                Emit((
+                    start: 54,
+                    end: 55,
+                )),
+                Emit((
+                    start: 55,
+                    end: 56,
+                )),
+                Emit((
+                    start: 57,
+                    end: 58,
+                )),
+                Emit((
+                    start: 58,
+                    end: 59,
+                )),
+                Emit((
+                    start: 60,
+                    end: 61,
+                )),
+                Emit((
+                    start: 61,
+                    end: 62,
+                )),
+                Emit((
+                    start: 63,
+                    end: 64,
+                )),
+                Emit((
+                    start: 64,
+                    end: 65,
+                )),
+                Emit((
+                    start: 66,
+                    end: 67,
+                )),
+                Emit((
+                    start: 67,
+                    end: 68,
+                )),
+                Emit((
+                    start: 69,
+                    end: 70,
+                )),
+                Emit((
+                    start: 70,
+                    end: 71,
+                )),
+                Emit((
+                    start: 72,
+                    end: 73,
+                )),
+                Emit((
+                    start: 73,
+                    end: 74,
+                )),
+                Emit((
+                    start: 75,
+                    end: 76,
+                )),
+                Emit((
+                    start: 76,
+                    end: 77,
+                )),
+                Emit((
+                    start: 78,
+                    end: 79,
+                )),
+                Emit((
+                    start: 79,
+                    end: 80,
+                )),
+                Emit((
+                    start: 81,
+                    end: 82,
+                )),
+                Emit((
+                    start: 82,
+                    end: 83,
+                )),
+                Emit((
+                    start: 84,
+                    end: 85,
+                )),
+                Emit((
+                    start: 85,
+                    end: 87,
+                )),
+                Emit((
+                    start: 87,
+                    end: 89,
+                )),
+                Emit((
+                    start: 89,
+                    end: 91,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

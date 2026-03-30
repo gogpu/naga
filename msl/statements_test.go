@@ -113,12 +113,16 @@ func TestMSL_Switch(t *testing.T) {
 		},
 	}
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "switch (")
-	mustContainMSL(t, result, "case 0:")
-	mustContainMSL(t, result, "case 1:")
-	mustContainMSL(t, result, "default:")
-	// Only the non-fallthrough case should have break
-	// Case 0 and default should have break, case 1 should not (fallthrough)
+	// Rust naga uses switch(x) without space before paren
+	mustContainMSL(t, result, "switch(")
+	// Case bodies are wrapped in braces with break inside (Rust naga style).
+	// Fallthrough case (case 1) has label only, no braces.
+	mustContainMSL(t, result, "case 0: {")
+	mustContainMSL(t, result, "case 1:") // fallthrough: label only, no braces
+	mustContainMSL(t, result, "default: {")
+	// Cases that end with a terminator (Return, Break, Continue, Kill) do NOT get
+	// an extra break; appended. Since all non-fallthrough cases end with StmtReturn,
+	// there should be 0 break statements. This matches Rust naga's is_terminator check.
 	lines := strings.Split(result, "\n")
 	breakCount := 0
 	for _, line := range lines {
@@ -126,9 +130,8 @@ func TestMSL_Switch(t *testing.T) {
 			breakCount++
 		}
 	}
-	// Expected: 2 breaks (case 0 + default), not 3 (case 1 is fallthrough)
-	if breakCount < 2 {
-		t.Errorf("Expected at least 2 break statements, got %d", breakCount)
+	if breakCount != 0 {
+		t.Errorf("Expected 0 break statements (cases end with return), got %d", breakCount)
 	}
 }
 
@@ -186,7 +189,7 @@ func TestMSL_Loop(t *testing.T) {
 		},
 	}
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "while (true) {")
+	mustContainMSL(t, result, "while(true) {")
 	mustContainMSL(t, result, "break;")
 }
 
@@ -216,7 +219,7 @@ func TestMSL_LoopWithContinuing(t *testing.T) {
 		},
 	}
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "while (true) {")
+	mustContainMSL(t, result, "while(true) {")
 	mustContainMSL(t, result, "continue;")
 }
 
@@ -412,8 +415,8 @@ func TestMSL_AtomicOperations(t *testing.T) {
 		{"and", ir.AtomicAnd{}, "atomic_fetch_and_explicit"},
 		{"or", ir.AtomicInclusiveOr{}, "atomic_fetch_or_explicit"},
 		{"xor", ir.AtomicExclusiveOr{}, "atomic_fetch_xor_explicit"},
-		{"min", ir.AtomicMin{}, "atomic_fetch_min_explicit"},
-		{"max", ir.AtomicMax{}, "atomic_fetch_max_explicit"},
+		{"min", ir.AtomicMin{}, "atomic_min_explicit"},
+		{"max", ir.AtomicMax{}, "atomic_max_explicit"},
 		{"exchange", ir.AtomicExchange{}, "atomic_exchange_explicit"},
 	}
 
@@ -486,8 +489,8 @@ func TestMSL_AtomicWithResult(t *testing.T) {
 		},
 	}
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "auto _ae2 = ")
-	mustContainMSL(t, result, "atomic_fetch_add_explicit")
+	mustContainMSL(t, result, "int _e2 = ")
+	mustContainMSL(t, result, "metal::atomic_fetch_add_explicit(&")
 }
 
 func TestMSL_AtomicCompareExchange(t *testing.T) {
@@ -605,7 +608,7 @@ func TestMSL_FunctionCallWithResult(t *testing.T) {
 		},
 	}
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "_fc1 = ")
+	mustContainMSL(t, result, "_e1 = ")
 	mustContainMSL(t, result, "helper(")
 }
 
@@ -641,8 +644,9 @@ func TestMSL_WorkGroupUniformLoad(t *testing.T) {
 		},
 	}
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "threadgroup_barrier(mem_flags::mem_threadgroup);")
-	mustContainMSL(t, result, "_wul1")
+	mustContainMSL(t, result, "metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);")
+	// Matches Rust naga: WorkGroupUniformLoad result is named via namer.call("") -> "unnamed"
+	mustContainMSL(t, result, "unnamed")
 }
 
 // =============================================================================
@@ -804,5 +808,5 @@ func TestMSL_RayQueryTerminate(t *testing.T) {
 		},
 	}
 	result := compileModule(t, module)
-	mustContainMSL(t, result, ".abort()")
+	mustContainMSL(t, result, ".ready = false;")
 }

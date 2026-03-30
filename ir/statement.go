@@ -241,6 +241,18 @@ type AtomicLoad struct{}
 
 func (AtomicLoad) atomicFunction() {}
 
+// StmtImageAtomic performs an atomic operation on a texel in a storage texture.
+// The image must have atomic access. The coordinate type must match the image dimension.
+type StmtImageAtomic struct {
+	Image      ExpressionHandle
+	Coordinate ExpressionHandle
+	ArrayIndex *ExpressionHandle
+	Fun        AtomicFunction
+	Value      ExpressionHandle
+}
+
+func (StmtImageAtomic) statementKind() {}
+
 // StmtWorkGroupUniformLoad loads uniformly from a uniform pointer in workgroup address space.
 // Corresponds to WGSL workgroupUniformLoad built-in function with barrier semantics.
 type StmtWorkGroupUniformLoad struct {
@@ -294,3 +306,45 @@ func (RayQueryProceed) rayQueryFunction() {}
 type RayQueryTerminate struct{}
 
 func (RayQueryTerminate) rayQueryFunction() {}
+
+// RayQueryGenerateIntersection generates a new intersection at the given distance.
+// Used during candidate intersection processing (AABB).
+type RayQueryGenerateIntersection struct {
+	HitT ExpressionHandle // f32 intersection distance
+}
+
+func (RayQueryGenerateIntersection) rayQueryFunction() {}
+
+// RayQueryConfirmIntersection confirms the current candidate intersection.
+// Used during candidate intersection processing (triangles).
+type RayQueryConfirmIntersection struct{}
+
+func (RayQueryConfirmIntersection) rayQueryFunction() {}
+
+// StmtSubgroupBallot calculates a bitmask using a boolean from each active thread in the subgroup.
+// The result is a vec4<u32> (SubgroupBallotResult expression).
+type StmtSubgroupBallot struct {
+	Result    ExpressionHandle  // SubgroupBallotResult expression
+	Predicate *ExpressionHandle // Optional boolean predicate
+}
+
+func (StmtSubgroupBallot) statementKind() {}
+
+// StmtSubgroupCollectiveOperation computes a collective operation across active threads.
+type StmtSubgroupCollectiveOperation struct {
+	Op           SubgroupOperation   // What operation to compute
+	CollectiveOp CollectiveOperation // How to combine the results
+	Argument     ExpressionHandle    // The value to compute over
+	Result       ExpressionHandle    // SubgroupOperationResult expression
+}
+
+func (StmtSubgroupCollectiveOperation) statementKind() {}
+
+// StmtSubgroupGather gathers a value from another active thread in the subgroup.
+type StmtSubgroupGather struct {
+	Mode     GatherMode       // Specifies which thread to gather from
+	Argument ExpressionHandle // The value to broadcast over
+	Result   ExpressionHandle // SubgroupOperationResult expression
+}
+
+func (StmtSubgroupGather) statementKind() {}

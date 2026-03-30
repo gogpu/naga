@@ -1,0 +1,22 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+struct fs_mainOutput {
+    metal::float4 member [[color(0)]];
+};
+fragment fs_mainOutput fs_main(
+) {
+    metal::float4 Pass = metal::float4(1.0, 1.0, 1.0, 1.0);
+    metal::float4 _e6 = Pass;
+    return fs_mainOutput { _e6 };
+}

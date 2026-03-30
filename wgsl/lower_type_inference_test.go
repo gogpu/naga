@@ -51,12 +51,12 @@ func TestLowerer_TypeInference(t *testing.T) {
 		t.Fatalf("Lower() error = %v", err)
 	}
 
-	// Verify we have a function
-	if len(module.Functions) != 1 {
-		t.Fatalf("expected 1 function, got %d", len(module.Functions))
+	// Entry point functions are inline in EntryPoints, not in Functions[]
+	if len(module.EntryPoints) != 1 {
+		t.Fatalf("expected 1 entry point, got %d", len(module.EntryPoints))
 	}
 
-	fn := module.Functions[0]
+	fn := module.EntryPoints[0].Function
 
 	// Verify ExpressionTypes has same length as Expressions
 	if len(fn.ExpressionTypes) != len(fn.Expressions) {
@@ -148,7 +148,9 @@ func TestLowerer_TypeInference(t *testing.T) {
 }
 
 func TestLowerer_TypeInference_BinaryOp(t *testing.T) {
-	// Create AST for function with binary operation
+	// Create AST for function with binary operation on literals.
+	// The constant evaluator folds 1.0 + 2.0 to Literal(F32(3.0)),
+	// matching Rust naga behavior.
 	ast := &Module{
 		Functions: []*FunctionDecl{
 			{
@@ -180,30 +182,34 @@ func TestLowerer_TypeInference_BinaryOp(t *testing.T) {
 
 	fn := module.Functions[0]
 
-	// Find binary expression
-	foundBinary := false
+	// Constant folding: 1.0 + 2.0 is folded to Literal(F32(3.0)).
+	// Verify the folded literal has f32 type.
+	foundF32Literal := false
 	for i, expr := range fn.Expressions {
-		if _, ok := expr.Kind.(ir.ExprBinary); ok {
-			foundBinary = true
-			// Binary add of f32 should return f32
-			exprType := fn.ExpressionTypes[i]
-			if scalar, ok := exprType.Value.(ir.ScalarType); ok {
-				if scalar.Kind != ir.ScalarFloat {
-					t.Errorf("Binary add should preserve f32 type, got %v", scalar.Kind)
+		if lit, ok := expr.Kind.(ir.Literal); ok {
+			if f32Val, isF32 := lit.Value.(ir.LiteralF32); isF32 && float32(f32Val) == 3.0 {
+				foundF32Literal = true
+				exprType := fn.ExpressionTypes[i]
+				if scalar, ok := exprType.Value.(ir.ScalarType); ok {
+					if scalar.Kind != ir.ScalarFloat {
+						t.Errorf("Folded literal should have f32 type, got %v", scalar.Kind)
+					}
+				} else {
+					t.Errorf("Folded literal should have scalar type, got %T", exprType.Value)
 				}
-			} else {
-				t.Errorf("Binary add should have scalar type, got %T", exprType.Value)
 			}
 		}
 	}
 
-	if !foundBinary {
-		t.Error("Expected to find binary expression")
+	if !foundF32Literal {
+		t.Error("Expected to find folded F32(3.0) literal")
 	}
 }
 
 func TestLowerer_TypeInference_Comparison(t *testing.T) {
-	// Create AST for function with comparison
+	// Create AST for function with comparison on literals.
+	// The constant evaluator folds 1.0 < 2.0 to Literal(Bool(true)),
+	// matching Rust naga behavior.
 	ast := &Module{
 		Functions: []*FunctionDecl{
 			{
@@ -235,27 +241,27 @@ func TestLowerer_TypeInference_Comparison(t *testing.T) {
 
 	fn := module.Functions[0]
 
-	// Find binary comparison expression
-	foundComparison := false
+	// Constant folding: 1.0 < 2.0 is folded to Literal(Bool(true)).
+	// Verify the folded literal has bool type.
+	foundBoolLiteral := false
 	for i, expr := range fn.Expressions {
-		if binExpr, ok := expr.Kind.(ir.ExprBinary); ok {
-			if binExpr.Op == ir.BinaryLess {
-				foundComparison = true
-				// Comparison should return bool
+		if lit, ok := expr.Kind.(ir.Literal); ok {
+			if boolVal, isBool := lit.Value.(ir.LiteralBool); isBool && bool(boolVal) {
+				foundBoolLiteral = true
 				exprType := fn.ExpressionTypes[i]
 				if scalar, ok := exprType.Value.(ir.ScalarType); ok {
 					if scalar.Kind != ir.ScalarBool {
-						t.Errorf("Comparison should return bool, got %v", scalar.Kind)
+						t.Errorf("Folded comparison should have bool type, got %v", scalar.Kind)
 					}
 				} else {
-					t.Errorf("Comparison should have scalar type, got %T", exprType.Value)
+					t.Errorf("Folded comparison should have scalar type, got %T", exprType.Value)
 				}
 			}
 		}
 	}
 
-	if !foundComparison {
-		t.Error("Expected to find comparison expression")
+	if !foundBoolLiteral {
+		t.Error("Expected to find folded Bool(true) literal")
 	}
 }
 
@@ -831,5 +837,130 @@ func TestLowerer_ArrayInit_ExplicitType(t *testing.T) {
 		}
 	} else {
 		t.Errorf("expected array type, got %T", typeInner)
+	}
+}
+
+// TestAbstractConstantsDontRegisterTypes verifies that abstract module-scope constants
+// (e.g., `const g0 = 1;`) do NOT register types in the type arena, matching Rust naga
+// where abstract constants are stored in the frontend context and never in the module.
+func TestAbstractConstantsDontRegisterTypes(t *testing.T) {
+	source := `
+const g0 = 1;
+const g1 = 1u;
+const g2 = 1.0;
+const g3 = 1.0f;
+
+@compute @workgroup_size(1)
+fn main() {
+    var g0x = g0;
+}
+`
+	lexer := NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("tokenize: %v", err)
+	}
+	parser := NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	module, err := LowerWithSource(ast, source)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+
+	// Abstract constants (g0, g2) should NOT be in module.Constants
+	for _, c := range module.Constants {
+		if c.Name == "g0" || c.Name == "g2" {
+			t.Errorf("abstract constant %q should not be in module.Constants", c.Name)
+		}
+	}
+
+	// Concrete constants (g1, g3) SHOULD be in module.Constants
+	foundG1, foundG3 := false, false
+	for _, c := range module.Constants {
+		if c.Name == "g1" {
+			foundG1 = true
+		}
+		if c.Name == "g3" {
+			foundG3 = true
+		}
+	}
+	if !foundG1 {
+		t.Error("concrete constant g1 missing from module.Constants")
+	}
+	if !foundG3 {
+		t.Error("concrete constant g3 missing from module.Constants")
+	}
+
+	// Verify type order: Uint should come before Sint
+	// (Uint registered by g1 = 1u, Sint registered later by g0x usage)
+	uintIdx, sintIdx := -1, -1
+	for i, typ := range module.Types {
+		if sc, ok := typ.Inner.(ir.ScalarType); ok {
+			if sc.Kind == ir.ScalarUint && sc.Width == 4 && uintIdx < 0 {
+				uintIdx = i
+			}
+			if sc.Kind == ir.ScalarSint && sc.Width == 4 && sintIdx < 0 {
+				sintIdx = i
+			}
+		}
+	}
+	if uintIdx >= 0 && sintIdx >= 0 && uintIdx >= sintIdx {
+		t.Errorf("Uint type (idx=%d) should come before Sint type (idx=%d)", uintIdx, sintIdx)
+	}
+}
+
+// TestAbstractLocalConstsDeferExpression verifies that abstract local const declarations
+// create deferred expressions that are re-lowered at use site, matching Rust naga where
+// abstract const expressions become dead after concretization and compact removes them.
+func TestAbstractLocalConstsDeferExpression(t *testing.T) {
+	source := `
+@compute @workgroup_size(1)
+fn main() {
+    const c0 = 1;
+    const c1 = 1u;
+    var c0x = c0;
+    var c1x = c1;
+}
+`
+	lexer := NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("tokenize: %v", err)
+	}
+	parser := NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	module, err := LowerWithSource(ast, source)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+
+	// Find the entry point function
+	if len(module.EntryPoints) == 0 {
+		t.Fatal("no entry points")
+	}
+	ep := &module.EntryPoints[0].Function
+
+	// After compact, c0x should have a LATER expression index than c1x,
+	// because c0 is abstract (expression created at var site) while c1 is
+	// concrete (expression created at const site and reused).
+	var c0xInit, c1xInit ir.ExpressionHandle
+	for _, lv := range ep.LocalVars {
+		if lv.Name == "c0x" && lv.Init != nil {
+			c0xInit = *lv.Init
+		}
+		if lv.Name == "c1x" && lv.Init != nil {
+			c1xInit = *lv.Init
+		}
+	}
+	// c1x init should be at a lower index than c0x init
+	// (concrete const expression created before abstract const is concretized)
+	if c1xInit >= c0xInit {
+		t.Errorf("c1x init (%d) should be at lower index than c0x init (%d)", c1xInit, c0xInit)
 	}
 }

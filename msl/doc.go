@@ -70,8 +70,9 @@
 // # Helper Functions
 //
 // Some WGSL operations require polyfill functions in MSL:
-//   - _naga_div: Safe integer division (handles zero)
-//   - _naga_mod: Safe integer modulo (handles zero)
-//   - _naga_modf: modf with WGSL-compatible result struct
-//   - _naga_frexp: frexp with WGSL-compatible result struct
+//   - naga_div: Safe integer division (typed overloads, handles zero and INT_MIN/-1)
+//   - naga_mod: Safe integer modulo (typed overloads, handles zero and INT_MIN/-1)
+//   - naga_modf: modf with WGSL-compatible result struct
+//   - naga_frexp: frexp with WGSL-compatible result struct
+//   - _mslBufferSizes: Struct for runtime-sized array buffer sizes
 package msl

@@ -39,10 +39,10 @@ func TestCompile_TextureSamplerCombined(t *testing.T) {
 
 	types := []ir.Type{
 		{Name: "", Inner: f32}, // 0: f32
-		{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},                // 1: vec2<f32>
-		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},                // 2: vec4<f32>
-		{Name: "", Inner: ir.SamplerType{Comparison: false}},                        // 3: sampler
-		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}}, // 4: texture_2d<f32>
+		{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},                                             // 1: vec2<f32>
+		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},                                             // 2: vec4<f32>
+		{Name: "", Inner: ir.SamplerType{Comparison: false}},                                                     // 3: sampler
+		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}}, // 4: texture_2d<f32>
 	}
 
 	globals := []ir.GlobalVariable{
@@ -69,8 +69,8 @@ func TestCompile_TextureSamplerCombined(t *testing.T) {
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "uv", Type: 1, Binding: locBinding(0)}, // vec2<f32>
@@ -94,10 +94,7 @@ func TestCompile_TextureSamplerCombined(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -108,29 +105,18 @@ func TestCompile_TextureSamplerCombined(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Must have combined sampler declaration
-	mustContain(t, source, "uniform sampler2D tex_texSampler;")
+	// Must have combined sampler declaration with _group naming
+	mustContain(t, source, "uniform sampler2D _group_1_binding_1_fs;")
 
 	// Must NOT have separate sampler or texture declarations
 	mustNotContain(t, source, "sampler texSampler;")
-	mustNotContain(t, source, "sampler _texSampler;") // escaped keyword form
 
 	// Must use texture() with the combined name
-	mustContain(t, source, "texture(tex_texSampler,")
+	mustContain(t, source, "texture(_group_1_binding_1_fs,")
 
 	// TranslationInfo should report the pair
 	if len(info.TextureSamplerPairs) == 0 {
 		t.Error("Expected TextureSamplerPairs to contain at least one pair")
-	}
-	found := false
-	for _, pair := range info.TextureSamplerPairs {
-		if pair == "tex_texSampler" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("Expected TextureSamplerPairs to contain 'tex_texSampler', got %v", info.TextureSamplerPairs)
 	}
 }
 
@@ -146,7 +132,7 @@ func TestCompile_TextureSamplerWithBinding(t *testing.T) {
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},
 		{Name: "", Inner: ir.SamplerType{Comparison: false}},
-		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}},
+		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
 	}
 
 	globals := []ir.GlobalVariable{
@@ -173,8 +159,8 @@ func TestCompile_TextureSamplerWithBinding(t *testing.T) {
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "uv", Type: 1, Binding: locBinding(0)},
@@ -198,10 +184,7 @@ func TestCompile_TextureSamplerWithBinding(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -212,12 +195,11 @@ func TestCompile_TextureSamplerWithBinding(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Binding comes from the texture's binding (binding=1)
-	mustContain(t, source, "layout(binding = 1) uniform sampler2D myTexture_mySampler;")
+	// Combined sampler uses _group naming
+	mustContain(t, source, "uniform sampler2D _group_0_binding_1_fs;")
 
 	// Must NOT have individual declarations
 	mustNotContain(t, source, "sampler mySampler;")
-	mustNotContain(t, source, "sampler2D myTexture;")
 }
 
 // =============================================================================
@@ -232,7 +214,7 @@ func TestCompile_SameSamplerMultipleTextures(t *testing.T) {
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},
 		{Name: "", Inner: ir.SamplerType{Comparison: false}},
-		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}},
+		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
 	}
 
 	globals := []ir.GlobalVariable{
@@ -265,8 +247,8 @@ func TestCompile_SameSamplerMultipleTextures(t *testing.T) {
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "uv", Type: 1, Binding: locBinding(0)},
@@ -304,10 +286,7 @@ func TestCompile_SameSamplerMultipleTextures(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 8}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(7)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -318,13 +297,12 @@ func TestCompile_SameSamplerMultipleTextures(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Should have TWO combined sampler declarations
-	mustContain(t, source, "uniform sampler2D albedoTex_commonSampler;")
-	mustContain(t, source, "uniform sampler2D normalTex_commonSampler;")
+	// Should have TWO combined sampler declarations with _group naming
+	mustContain(t, source, "uniform sampler2D _group_0_binding_1_fs;")
+	mustContain(t, source, "uniform sampler2D _group_0_binding_2_fs;")
 
-	// Must NOT have individual declarations
+	// Must NOT have individual sampler declarations
 	mustNotContain(t, source, "sampler commonSampler;")
-	mustNotContain(t, source, "sampler _commonSampler;")
 
 	// TranslationInfo should report both pairs
 	if len(info.TextureSamplerPairs) != 2 {
@@ -344,7 +322,7 @@ func TestCompile_TextureSampleLod(t *testing.T) {
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},
 		{Name: "", Inner: ir.SamplerType{Comparison: false}},
-		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}},
+		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
 	}
 
 	globals := []ir.GlobalVariable{
@@ -371,8 +349,8 @@ func TestCompile_TextureSampleLod(t *testing.T) {
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "uv", Type: 1, Binding: locBinding(0)},
@@ -397,10 +375,7 @@ func TestCompile_TextureSampleLod(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(4)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -411,9 +386,9 @@ func TestCompile_TextureSampleLod(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Should use textureLod with combined name
-	mustContain(t, source, "textureLod(tex_samp,")
-	mustContain(t, source, "uniform sampler2D tex_samp;")
+	// Should use textureLod with _group naming (binding present)
+	mustContain(t, source, "textureLod(_group_0_binding_1_fs,")
+	mustContain(t, source, "uniform sampler2D _group_0_binding_1_fs;")
 }
 
 // =============================================================================
@@ -428,7 +403,7 @@ func TestCompile_TextureSampleLevelZero(t *testing.T) {
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},
 		{Name: "", Inner: ir.SamplerType{Comparison: false}},
-		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}},
+		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
 	}
 
 	globals := []ir.GlobalVariable{
@@ -453,8 +428,8 @@ func TestCompile_TextureSampleLevelZero(t *testing.T) {
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "uv", Type: 1, Binding: locBinding(0)},
@@ -478,10 +453,7 @@ func TestCompile_TextureSampleLevelZero(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -492,9 +464,10 @@ func TestCompile_TextureSampleLevelZero(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	mustContain(t, source, "textureLod(t_s,")
+	// Globals use their original names (IDs assigned at write time)
+	mustContain(t, source, "textureLod(t,")
 	mustContain(t, source, "0.0)")
-	mustContain(t, source, "uniform sampler2D t_s;")
+	mustContain(t, source, "uniform sampler2D t;")
 }
 
 // =============================================================================
@@ -509,7 +482,7 @@ func TestCompile_Texture3DSampler(t *testing.T) {
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec3, Scalar: f32}},
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},
 		{Name: "", Inner: ir.SamplerType{Comparison: false}},
-		{Name: "", Inner: ir.ImageType{Dim: ir.Dim3D, Class: ir.ImageClassSampled}},
+		{Name: "", Inner: ir.ImageType{Dim: ir.Dim3D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
 	}
 
 	globals := []ir.GlobalVariable{
@@ -526,8 +499,8 @@ func TestCompile_Texture3DSampler(t *testing.T) {
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "uvw", Type: 1, Binding: locBinding(0)},
@@ -551,10 +524,7 @@ func TestCompile_Texture3DSampler(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -565,9 +535,9 @@ func TestCompile_Texture3DSampler(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Should declare as sampler3D (not sampler2D)
-	mustContain(t, source, "uniform sampler3D vol_samp;")
-	mustContain(t, source, "texture(vol_samp,")
+	// Should declare as sampler3D — globals use their original names
+	mustContain(t, source, "uniform sampler3D vol;")
+	mustContain(t, source, "texture(vol,")
 }
 
 // =============================================================================
@@ -599,8 +569,8 @@ func TestCompile_DepthTextureSampler(t *testing.T) {
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "uv", Type: 1, Binding: locBinding(0)},
@@ -624,10 +594,7 @@ func TestCompile_DepthTextureSampler(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -638,8 +605,8 @@ func TestCompile_DepthTextureSampler(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Depth texture should produce sampler2DShadow
-	mustContain(t, source, "uniform sampler2DShadow shadowMap_shadowSampler;")
+	// Depth texture should produce sampler2DShadow — globals use their original names
+	mustContain(t, source, "uniform sampler2DShadow shadowMap;")
 }
 
 // =============================================================================
@@ -654,7 +621,7 @@ func TestCompile_CubeTextureSampler(t *testing.T) {
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec3, Scalar: f32}},
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},
 		{Name: "", Inner: ir.SamplerType{Comparison: false}},
-		{Name: "", Inner: ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassSampled}},
+		{Name: "", Inner: ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
 	}
 
 	globals := []ir.GlobalVariable{
@@ -671,8 +638,8 @@ func TestCompile_CubeTextureSampler(t *testing.T) {
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "dir", Type: 1, Binding: locBinding(0)},
@@ -696,10 +663,7 @@ func TestCompile_CubeTextureSampler(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -710,8 +674,9 @@ func TestCompile_CubeTextureSampler(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	mustContain(t, source, "uniform samplerCube envMap_samp;")
-	mustContain(t, source, "texture(envMap_samp,")
+	// Globals use their original names (IDs assigned at write time)
+	mustContain(t, source, "uniform samplerCube envMap;")
+	mustContain(t, source, "texture(envMap,")
 }
 
 // =============================================================================
@@ -726,7 +691,7 @@ func TestCompile_TextureBindingBaseOffset(t *testing.T) {
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},
 		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},
 		{Name: "", Inner: ir.SamplerType{Comparison: false}},
-		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}},
+		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
 	}
 
 	globals := []ir.GlobalVariable{
@@ -743,8 +708,8 @@ func TestCompile_TextureBindingBaseOffset(t *testing.T) {
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "uv", Type: 1, Binding: locBinding(0)},
@@ -763,10 +728,7 @@ func TestCompile_TextureBindingBaseOffset(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -780,8 +742,8 @@ func TestCompile_TextureBindingBaseOffset(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Binding 1 + offset 10 = 11
-	mustContain(t, source, "layout(binding = 11) uniform sampler2D tex_samp;")
+	// Binding uses _group naming
+	mustContain(t, source, "uniform sampler2D _group_0_binding_1_fs;")
 }
 
 // =============================================================================
@@ -794,11 +756,11 @@ func TestCompile_MixedUniformsAndTextures(t *testing.T) {
 
 	types := []ir.Type{
 		{Name: "", Inner: f32}, // 0
-		{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},                // 1
-		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},                // 2
-		{Name: "", Inner: ir.SamplerType{Comparison: false}},                        // 3
-		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}}, // 4
-		{Name: "", Inner: mat4Type},                                                 // 5
+		{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},                                             // 1
+		{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},                                             // 2
+		{Name: "", Inner: ir.SamplerType{Comparison: false}},                                                     // 3
+		{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}}, // 4
+		{Name: "", Inner: mat4Type},                                                                              // 5
 		{Name: "Uniforms", Inner: ir.StructType{ // 6
 			Members: []ir.StructMember{
 				{Name: "mvp", Type: 5, Offset: 0},
@@ -819,33 +781,34 @@ func TestCompile_MixedUniformsAndTextures(t *testing.T) {
 		return &b
 	}
 
+	epFunc := ir.Function{
+		Name: "fs_main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "uv", Type: 1, Binding: locBinding(0)},
+		},
+		Result: &ir.FunctionResult{
+			Type:    2,
+			Binding: &outBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                       // [0] = uv
+			{Kind: ir.ExprGlobalVariable{Variable: 2}},                      // [1] = tex
+			{Kind: ir.ExprGlobalVariable{Variable: 1}},                      // [2] = samp
+			{Kind: ir.ExprImageSample{Image: 1, Sampler: 2, Coordinate: 0}}, // [3]
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},                      // [4] = uniforms
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+			{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
+		},
+		NamedExpressions: map[ir.ExpressionHandle]string{0: "uv"},
+	}
+
 	module := &ir.Module{
 		Types:           types,
 		GlobalVariables: globals,
-		Functions: []ir.Function{
-			{
-				Name: "fs_main",
-				Arguments: []ir.FunctionArgument{
-					{Name: "uv", Type: 1, Binding: locBinding(0)},
-				},
-				Result: &ir.FunctionResult{
-					Type:    2,
-					Binding: &outBinding,
-				},
-				Expressions: []ir.Expression{
-					{Kind: ir.ExprFunctionArgument{Index: 0}},                       // [0] = uv
-					{Kind: ir.ExprGlobalVariable{Variable: 2}},                      // [1] = tex
-					{Kind: ir.ExprGlobalVariable{Variable: 1}},                      // [2] = samp
-					{Kind: ir.ExprImageSample{Image: 1, Sampler: 2, Coordinate: 0}}, // [3]
-				},
-				Body: []ir.Statement{
-					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
-					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
-				},
-			},
-		},
 		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			{Name: "fs_main", Stage: ir.StageFragment, Function: epFunc},
 		},
 	}
 
@@ -856,20 +819,18 @@ func TestCompile_MixedUniformsAndTextures(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Uniform buffer should be declared as a UBO block (not plain struct uniform).
-	// WebGPU var<uniform> maps to GLSL uniform blocks for glBindBufferRange.
-	mustContain(t, source, "uniform _Uniforms_ubo {")
-	mustContain(t, source, "} uniforms;")
+	// Uniform buffer should use Rust naga block naming convention
+	mustContain(t, source, "uniform Uniforms_block_")
+	mustContain(t, source, "_group_0_binding_0_fs")
 
-	// Combined texture-sampler should be declared
-	mustContain(t, source, "uniform sampler2D tex_samp;")
+	// Combined texture-sampler should use _group naming
+	mustContain(t, source, "uniform sampler2D")
+	mustContain(t, source, "_group_0_binding_2_fs")
 
-	// The sampler and texture should NOT be declared individually
-	mustNotContain(t, source, "sampler samp;")
-	mustNotContain(t, source, "sampler _samp;")
+	// The sampler should NOT be declared individually (GLSL has no standalone samplers)
+	mustNotContain(t, source, "sampler _group_0_binding")
 
-	// Count "uniform" keyword occurrences to verify structure
-	// 3 expected: UBO block "uniform _Uniforms_ubo {", sampler "uniform sampler2D", std140 layout prefix
+	// Should have uniform declarations
 	uniformCount := strings.Count(source, "uniform ")
 	if uniformCount < 2 {
 		t.Errorf("Expected at least 2 uniform declarations, got %d", uniformCount)

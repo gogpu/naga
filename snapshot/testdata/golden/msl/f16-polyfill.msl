@@ -1,0 +1,216 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct F16IO {
+    half scalar_f16_;
+    char _pad1[2];
+    float scalar_f32_;
+    metal::half2 vec2_f16_;
+    char _pad3[4];
+    metal::float2 vec2_f32_;
+    metal::half3 vec3_f16_;
+    metal::float3 vec3_f32_;
+    metal::half4 vec4_f16_;
+    char _pad7[8];
+    metal::float4 vec4_f32_;
+};
+
+struct test_directInput {
+    half scalar_f16_ [[user(loc0), center_perspective]];
+    float scalar_f32_ [[user(loc1), center_perspective]];
+    metal::half2 vec2_f16_ [[user(loc2), center_perspective]];
+    metal::float2 vec2_f32_ [[user(loc3), center_perspective]];
+    metal::half3 vec3_f16_ [[user(loc4), center_perspective]];
+    metal::float3 vec3_f32_ [[user(loc5), center_perspective]];
+    metal::half4 vec4_f16_ [[user(loc6), center_perspective]];
+    metal::float4 vec4_f32_ [[user(loc7), center_perspective]];
+};
+struct test_directOutput {
+    half scalar_f16_ [[color(0)]];
+    float scalar_f32_ [[color(1)]];
+    metal::half2 vec2_f16_ [[color(2)]];
+    metal::float2 vec2_f32_ [[color(3)]];
+    metal::half3 vec3_f16_ [[color(4)]];
+    metal::float3 vec3_f32_ [[color(5)]];
+    metal::half4 vec4_f16_ [[color(6)]];
+    metal::float4 vec4_f32_ [[color(7)]];
+};
+fragment test_directOutput test_direct(
+  test_directInput varyings [[stage_in]]
+) {
+    const auto scalar_f16_ = varyings.scalar_f16_;
+    const auto scalar_f32_ = varyings.scalar_f32_;
+    const auto vec2_f16_ = varyings.vec2_f16_;
+    const auto vec2_f32_ = varyings.vec2_f32_;
+    const auto vec3_f16_ = varyings.vec3_f16_;
+    const auto vec3_f32_ = varyings.vec3_f32_;
+    const auto vec4_f16_ = varyings.vec4_f16_;
+    const auto vec4_f32_ = varyings.vec4_f32_;
+    F16IO output = {};
+    output.scalar_f16_ = scalar_f16_ + 1.0h;
+    output.scalar_f32_ = scalar_f32_ + 1.0;
+    output.vec2_f16_ = vec2_f16_ + metal::half2(1.0h);
+    output.vec2_f32_ = vec2_f32_ + metal::float2(1.0);
+    output.vec3_f16_ = vec3_f16_ + metal::half3(1.0h);
+    output.vec3_f32_ = vec3_f32_ + metal::float3(1.0);
+    output.vec4_f16_ = vec4_f16_ + metal::half4(1.0h);
+    output.vec4_f32_ = vec4_f32_ + metal::float4(1.0);
+    F16IO _e39 = output;
+    const auto _tmp = _e39;
+    return test_directOutput { _tmp.scalar_f16_, _tmp.scalar_f32_, _tmp.vec2_f16_, _tmp.vec2_f32_, _tmp.vec3_f16_, _tmp.vec3_f32_, _tmp.vec4_f16_, _tmp.vec4_f32_ };
+}
+
+
+struct test_structInput {
+    half scalar_f16_ [[user(loc0), center_perspective]];
+    float scalar_f32_ [[user(loc1), center_perspective]];
+    metal::half2 vec2_f16_ [[user(loc2), center_perspective]];
+    metal::float2 vec2_f32_ [[user(loc3), center_perspective]];
+    metal::half3 vec3_f16_ [[user(loc4), center_perspective]];
+    metal::float3 vec3_f32_ [[user(loc5), center_perspective]];
+    metal::half4 vec4_f16_ [[user(loc6), center_perspective]];
+    metal::float4 vec4_f32_ [[user(loc7), center_perspective]];
+};
+struct test_structOutput {
+    half scalar_f16_ [[color(0)]];
+    float scalar_f32_ [[color(1)]];
+    metal::half2 vec2_f16_ [[color(2)]];
+    metal::float2 vec2_f32_ [[color(3)]];
+    metal::half3 vec3_f16_ [[color(4)]];
+    metal::float3 vec3_f32_ [[color(5)]];
+    metal::half4 vec4_f16_ [[color(6)]];
+    metal::float4 vec4_f32_ [[color(7)]];
+};
+fragment test_structOutput test_struct(
+  test_structInput varyings_1 [[stage_in]]
+) {
+    const F16IO input = { varyings_1.scalar_f16_, {}, varyings_1.scalar_f32_, varyings_1.vec2_f16_, {}, varyings_1.vec2_f32_, varyings_1.vec3_f16_, varyings_1.vec3_f32_, varyings_1.vec4_f16_, {}, varyings_1.vec4_f32_ };
+    F16IO output_1 = {};
+    output_1.scalar_f16_ = input.scalar_f16_ + 1.0h;
+    output_1.scalar_f32_ = input.scalar_f32_ + 1.0;
+    output_1.vec2_f16_ = input.vec2_f16_ + metal::half2(1.0h);
+    output_1.vec2_f32_ = input.vec2_f32_ + metal::float2(1.0);
+    output_1.vec3_f16_ = input.vec3_f16_ + metal::half3(1.0h);
+    output_1.vec3_f32_ = input.vec3_f32_ + metal::float3(1.0);
+    output_1.vec4_f16_ = input.vec4_f16_ + metal::half4(1.0h);
+    output_1.vec4_f32_ = input.vec4_f32_ + metal::float4(1.0);
+    F16IO _e40 = output_1;
+    const auto _tmp = _e40;
+    return test_structOutput { _tmp.scalar_f16_, _tmp.scalar_f32_, _tmp.vec2_f16_, _tmp.vec2_f32_, _tmp.vec3_f16_, _tmp.vec3_f32_, _tmp.vec4_f16_, _tmp.vec4_f32_ };
+}
+
+
+struct test_copy_inputInput {
+    half scalar_f16_ [[user(loc0), center_perspective]];
+    float scalar_f32_ [[user(loc1), center_perspective]];
+    metal::half2 vec2_f16_ [[user(loc2), center_perspective]];
+    metal::float2 vec2_f32_ [[user(loc3), center_perspective]];
+    metal::half3 vec3_f16_ [[user(loc4), center_perspective]];
+    metal::float3 vec3_f32_ [[user(loc5), center_perspective]];
+    metal::half4 vec4_f16_ [[user(loc6), center_perspective]];
+    metal::float4 vec4_f32_ [[user(loc7), center_perspective]];
+};
+struct test_copy_inputOutput {
+    half scalar_f16_ [[color(0)]];
+    float scalar_f32_ [[color(1)]];
+    metal::half2 vec2_f16_ [[color(2)]];
+    metal::float2 vec2_f32_ [[color(3)]];
+    metal::half3 vec3_f16_ [[color(4)]];
+    metal::float3 vec3_f32_ [[color(5)]];
+    metal::half4 vec4_f16_ [[color(6)]];
+    metal::float4 vec4_f32_ [[color(7)]];
+};
+fragment test_copy_inputOutput test_copy_input(
+  test_copy_inputInput varyings_2 [[stage_in]]
+) {
+    const F16IO input_original = { varyings_2.scalar_f16_, {}, varyings_2.scalar_f32_, varyings_2.vec2_f16_, {}, varyings_2.vec2_f32_, varyings_2.vec3_f16_, varyings_2.vec3_f32_, varyings_2.vec4_f16_, {}, varyings_2.vec4_f32_ };
+    F16IO input_1 = {};
+    F16IO output_2 = {};
+    input_1 = input_original;
+    half _e5 = input_1.scalar_f16_;
+    output_2.scalar_f16_ = _e5 + 1.0h;
+    float _e10 = input_1.scalar_f32_;
+    output_2.scalar_f32_ = _e10 + 1.0;
+    metal::half2 _e15 = input_1.vec2_f16_;
+    output_2.vec2_f16_ = _e15 + metal::half2(1.0h);
+    metal::float2 _e21 = input_1.vec2_f32_;
+    output_2.vec2_f32_ = _e21 + metal::float2(1.0);
+    metal::half3 _e27 = input_1.vec3_f16_;
+    output_2.vec3_f16_ = _e27 + metal::half3(1.0h);
+    metal::float3 _e33 = input_1.vec3_f32_;
+    output_2.vec3_f32_ = _e33 + metal::float3(1.0);
+    metal::half4 _e39 = input_1.vec4_f16_;
+    output_2.vec4_f16_ = _e39 + metal::half4(1.0h);
+    metal::float4 _e45 = input_1.vec4_f32_;
+    output_2.vec4_f32_ = _e45 + metal::float4(1.0);
+    F16IO _e49 = output_2;
+    const auto _tmp = _e49;
+    return test_copy_inputOutput { _tmp.scalar_f16_, _tmp.scalar_f32_, _tmp.vec2_f16_, _tmp.vec2_f32_, _tmp.vec3_f16_, _tmp.vec3_f32_, _tmp.vec4_f16_, _tmp.vec4_f32_ };
+}
+
+
+struct test_return_partialInput {
+    half scalar_f16_ [[user(loc0), center_perspective]];
+    float scalar_f32_ [[user(loc1), center_perspective]];
+    metal::half2 vec2_f16_ [[user(loc2), center_perspective]];
+    metal::float2 vec2_f32_ [[user(loc3), center_perspective]];
+    metal::half3 vec3_f16_ [[user(loc4), center_perspective]];
+    metal::float3 vec3_f32_ [[user(loc5), center_perspective]];
+    metal::half4 vec4_f16_ [[user(loc6), center_perspective]];
+    metal::float4 vec4_f32_ [[user(loc7), center_perspective]];
+};
+struct test_return_partialOutput {
+    half member_3 [[color(0)]];
+};
+fragment test_return_partialOutput test_return_partial(
+  test_return_partialInput varyings_3 [[stage_in]]
+) {
+    const F16IO input_original_1 = { varyings_3.scalar_f16_, {}, varyings_3.scalar_f32_, varyings_3.vec2_f16_, {}, varyings_3.vec2_f32_, varyings_3.vec3_f16_, varyings_3.vec3_f32_, varyings_3.vec4_f16_, {}, varyings_3.vec4_f32_ };
+    F16IO input_2 = {};
+    input_2 = input_original_1;
+    input_2.scalar_f16_ = 0.0h;
+    half _e5 = input_2.scalar_f16_;
+    return test_return_partialOutput { _e5 };
+}
+
+
+struct test_component_accessInput {
+    half scalar_f16_ [[user(loc0), center_perspective]];
+    float scalar_f32_ [[user(loc1), center_perspective]];
+    metal::half2 vec2_f16_ [[user(loc2), center_perspective]];
+    metal::float2 vec2_f32_ [[user(loc3), center_perspective]];
+    metal::half3 vec3_f16_ [[user(loc4), center_perspective]];
+    metal::float3 vec3_f32_ [[user(loc5), center_perspective]];
+    metal::half4 vec4_f16_ [[user(loc6), center_perspective]];
+    metal::float4 vec4_f32_ [[user(loc7), center_perspective]];
+};
+struct test_component_accessOutput {
+    half scalar_f16_ [[color(0)]];
+    float scalar_f32_ [[color(1)]];
+    metal::half2 vec2_f16_ [[color(2)]];
+    metal::float2 vec2_f32_ [[color(3)]];
+    metal::half3 vec3_f16_ [[color(4)]];
+    metal::float3 vec3_f32_ [[color(5)]];
+    metal::half4 vec4_f16_ [[color(6)]];
+    metal::float4 vec4_f32_ [[color(7)]];
+};
+fragment test_component_accessOutput test_component_access(
+  test_component_accessInput varyings_4 [[stage_in]]
+) {
+    const F16IO input_3 = { varyings_4.scalar_f16_, {}, varyings_4.scalar_f32_, varyings_4.vec2_f16_, {}, varyings_4.vec2_f32_, varyings_4.vec3_f16_, varyings_4.vec3_f32_, varyings_4.vec4_f16_, {}, varyings_4.vec4_f32_ };
+    F16IO output_3 = {};
+    output_3.vec2_f16_.x = input_3.vec2_f16_.y;
+    output_3.vec2_f16_.y = input_3.vec2_f16_.x;
+    F16IO _e10 = output_3;
+    const auto _tmp = _e10;
+    return test_component_accessOutput { _tmp.scalar_f16_, _tmp.scalar_f32_, _tmp.vec2_f16_, _tmp.vec2_f32_, _tmp.vec3_f16_, _tmp.vec3_f32_, _tmp.vec4_f16_, _tmp.vec4_f32_ };
+}

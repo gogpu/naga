@@ -1,0 +1,333 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Sampler(
+                comparison: false,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("t1"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("t2"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("s1"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 1,
+            init: None,
+        ),
+        (
+            name: Some("s2"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 3,
+            )),
+            ty: 1,
+            init: None,
+        ),
+        (
+            name: Some("uniformOne"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 4,
+            )),
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("uniformTwo"),
+            space: Uniform,
+            binding: Some((
+                group: 1,
+                binding: 0,
+            )),
+            ty: 2,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "entry_point_one",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("entry_point_one"),
+                arguments: [
+                    (
+                        name: Some("pos"),
+                        ty: 3,
+                        binding: Some(BuiltIn(Position(
+                            invariant: false,
+                        ))),
+                    ),
+                ],
+                result: Some((
+                    ty: 3,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    GlobalVariable(0),
+                    GlobalVariable(2),
+                    Swizzle(
+                        size: Bi,
+                        vector: 0,
+                        pattern: (X, Y, X, X),
+                    ),
+                    ImageSample(
+                        image: 1,
+                        sampler: 2,
+                        gather: None,
+                        coordinate: 3,
+                        array_index: None,
+                        offset: None,
+                        level: Auto,
+                        depth_ref: None,
+                        clamp_to_edge: false,
+                    ),
+                ],
+                named_expressions: {
+                    0: "pos",
+                },
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 5,
+                    )),
+                    Return(
+                        value: Some(4),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "entry_point_two",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("entry_point_two"),
+                arguments: [],
+                result: Some((
+                    ty: 3,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    GlobalVariable(0),
+                    GlobalVariable(2),
+                    GlobalVariable(4),
+                    Load(
+                        pointer: 2,
+                    ),
+                    ImageSample(
+                        image: 0,
+                        sampler: 1,
+                        gather: None,
+                        coordinate: 3,
+                        array_index: None,
+                        offset: None,
+                        level: Auto,
+                        depth_ref: None,
+                        clamp_to_edge: false,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 5,
+                    )),
+                    Return(
+                        value: Some(4),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "entry_point_three",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("entry_point_three"),
+                arguments: [],
+                result: Some((
+                    ty: 3,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    GlobalVariable(0),
+                    GlobalVariable(2),
+                    GlobalVariable(5),
+                    Load(
+                        pointer: 2,
+                    ),
+                    GlobalVariable(4),
+                    Load(
+                        pointer: 4,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 3,
+                        right: 5,
+                    ),
+                    ImageSample(
+                        image: 0,
+                        sampler: 1,
+                        gather: None,
+                        coordinate: 6,
+                        array_index: None,
+                        offset: None,
+                        level: Auto,
+                        depth_ref: None,
+                        clamp_to_edge: false,
+                    ),
+                    GlobalVariable(1),
+                    GlobalVariable(3),
+                    GlobalVariable(4),
+                    Load(
+                        pointer: 10,
+                    ),
+                    ImageSample(
+                        image: 8,
+                        sampler: 9,
+                        gather: None,
+                        coordinate: 11,
+                        array_index: None,
+                        offset: None,
+                        level: Auto,
+                        depth_ref: None,
+                        clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 7,
+                        right: 12,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 5,
+                        end: 8,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 14,
+                    )),
+                    Return(
+                        value: Some(13),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

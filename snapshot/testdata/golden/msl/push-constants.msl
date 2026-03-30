@@ -1,0 +1,51 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct ImmediateData {
+    float multiplier;
+};
+struct FragmentIn {
+    metal::float4 color;
+};
+
+struct vert_mainInput {
+    metal::float2 pos [[attribute(0)]];
+};
+struct vert_mainOutput {
+    metal::float4 member [[position]];
+};
+vertex vert_mainOutput vert_main(
+  vert_mainInput varyings [[stage_in]]
+, uint ii [[instance_id]]
+, uint vi [[vertex_id]]
+, constant ImmediateData& im [[user(fake0)]]
+) {
+    const auto pos = varyings.pos;
+    float _e8 = im.multiplier;
+    return vert_mainOutput { metal::float4(((static_cast<float>(ii) * static_cast<float>(vi)) * _e8) * pos, 0.0, 1.0) };
+}
+
+
+struct main_Input {
+    metal::float4 color [[user(loc0), center_perspective]];
+};
+struct main_Output {
+    metal::float4 member_1 [[color(0)]];
+};
+fragment main_Output main_(
+  main_Input varyings_1 [[stage_in]]
+, constant ImmediateData& im [[user(fake0)]]
+) {
+    const FragmentIn in = { varyings_1.color };
+    float _e4 = im.multiplier;
+    return main_Output { in.color * _e4 };
+}

@@ -15,6 +15,8 @@ type Version struct {
 // Common SPIR-V versions
 var (
 	Version1_0 = Version{1, 0}
+	Version1_1 = Version{1, 1}
+	Version1_2 = Version{1, 2}
 	Version1_3 = Version{1, 3}
 	Version1_4 = Version{1, 4}
 	Version1_5 = Version{1, 5}
@@ -34,14 +36,74 @@ type Options struct {
 
 	// Validation enables output validation
 	Validation bool
+
+	// UseStorageInputOutput16 enables StorageInputOutput16 capability for f16
+	// types used in entry point inputs/outputs. When true, f16 I/O uses native
+	// 16-bit types; when false, a polyfill converts to/from f32.
+	UseStorageInputOutput16 bool
+
+	// ForcePointSize adds a BuiltIn PointSize output variable with value 1.0
+	// to every vertex shader entry point. Required by some Vulkan drivers.
+	ForcePointSize bool
+
+	// AdjustCoordinateSpace flips the Y coordinate of Position built-in outputs
+	// in vertex shaders to match Vulkan's coordinate system (Y pointing down).
+	AdjustCoordinateSpace bool
+
+	// ForceLoopBounding inserts a decrementing counter at every loop header
+	// that breaks when the counter reaches zero. This prevents infinite loops
+	// from hanging the GPU. Matches Rust naga's force_loop_bounding option
+	// (default true). The counter uses a vec2<u32> to simulate 64-bit range.
+	ForceLoopBounding bool
+
+	// BoundsCheckPolicies controls how out-of-bounds image accesses are handled.
+	BoundsCheckPolicies BoundsCheckPolicies
+
+	// CapabilitiesAvailable limits which capabilities may be used. When nil,
+	// all capabilities are available (the default). When non-nil, only
+	// capabilities present in the set may be used; others trigger polyfills.
+	// This matches Rust naga's Options::capabilities field.
+	CapabilitiesAvailable map[Capability]struct{}
+
+	// RayQueryInitTracking enables initialization tracking for ray queries.
+	// When true (default), ray query helper functions include validation checks
+	// that track whether the query was properly initialized before proceed/get.
+	// When false, validation checks are skipped and helper functions branch
+	// unconditionally. Matches Rust naga's ray_query_initialization_tracking.
+	RayQueryInitTracking bool
+}
+
+// BoundsCheckPolicy controls how out-of-bounds resource accesses are handled.
+type BoundsCheckPolicy uint8
+
+const (
+	// BoundsCheckUnchecked performs no bounds checking (default).
+	BoundsCheckUnchecked BoundsCheckPolicy = iota
+	// BoundsCheckRestrict clamps coordinates/level/sample to valid range.
+	BoundsCheckRestrict
+	// BoundsCheckReadZeroSkipWrite returns zero for out-of-bounds reads, skips writes.
+	BoundsCheckReadZeroSkipWrite
+)
+
+// BoundsCheckPolicies holds per-resource-type bounds check policies.
+type BoundsCheckPolicies struct {
+	// ImageLoad controls bounds checking for image load operations.
+	ImageLoad BoundsCheckPolicy
+	// ImageStore controls bounds checking for image store operations.
+	ImageStore BoundsCheckPolicy
+	// Index controls bounds checking for buffer index operations.
+	Index BoundsCheckPolicy
 }
 
 // DefaultOptions returns sensible default options.
 func DefaultOptions() Options {
 	return Options{
-		Version:    Version1_3,
-		Debug:      false,
-		Validation: true,
+		Version:                 Version1_1,
+		Debug:                   false,
+		Validation:              true,
+		UseStorageInputOutput16: true,
+		ForceLoopBounding:       true,
+		RayQueryInitTracking:    true,
 	}
 }
 
@@ -50,16 +112,42 @@ type Capability uint32
 
 // Common capabilities
 const (
-	CapabilityMatrix                      Capability = 0 // Implied by Shader
-	CapabilityShader                      Capability = 1
-	CapabilityFloat16                     Capability = 9    // Required for OpTypeFloat 16
-	CapabilityFloat64                     Capability = 10   // Required for OpTypeFloat 64
-	CapabilityInt64                       Capability = 11   // Required for OpTypeInt 64
-	CapabilityInt16                       Capability = 22   // Required for OpTypeInt 16
-	CapabilityInt8                        Capability = 39   // Required for OpTypeInt 8
-	CapabilityImageQuery                  Capability = 50   // Required for OpImageQuerySize/Lod/Levels/Samples
-	CapabilityDotProductInput4x8BitPacked Capability = 6018 // Required for packed 4x8 dot product
-	CapabilityDotProduct                  Capability = 6019 // Required for integer dot product
+	CapabilityMatrix                             Capability = 0 // Implied by Shader
+	CapabilityShader                             Capability = 1
+	CapabilityFloat16                            Capability = 9    // Required for OpTypeFloat 16
+	CapabilityFloat64                            Capability = 10   // Required for OpTypeFloat 64
+	CapabilityInt64                              Capability = 11   // Required for OpTypeInt 64
+	CapabilityInt16                              Capability = 22   // Required for OpTypeInt 16
+	CapabilityInt8                               Capability = 39   // Required for OpTypeInt 8
+	CapabilityLinkage                            Capability = 5    // Import/export linkage
+	CapabilityInt64Atomics                       Capability = 12   // 64-bit atomic operations
+	CapabilityClipDistance                       Capability = 32   // ClipDistance builtin
+	CapabilityImageCubeArray                     Capability = 34   // Cube array storage images
+	CapabilitySampleRateShading                  Capability = 35   // Sample-rate shading
+	CapabilitySampled1D                          Capability = 43   // Sampled 1D images
+	CapabilityImage1D                            Capability = 44   // 1D storage images
+	CapabilitySampledCubeArray                   Capability = 45   // Sampled cube array images
+	CapabilityStorageImageExtendedFormats        Capability = 49   // Extended storage image formats
+	CapabilityImageQuery                         Capability = 50   // Required for OpImageQuerySize/Lod/Levels/Samples
+	CapabilityDerivativeControl                  Capability = 51   // Fine/coarse derivatives
+	CapabilityStorageBuffer16BitAccess           Capability = 4433 // 16-bit storage buffer access
+	CapabilityUniformAndStorageBuffer16BitAccess Capability = 4434 // 16-bit uniform+storage buffer access
+	CapabilityStorageInputOutput16               Capability = 4436 // 16-bit input/output
+	CapabilityMultiView                          Capability = 4439 // MultiView extension
+	CapabilityFragmentBarycentricKHR             Capability = 5284 // Fragment barycentric
+	CapabilityShaderNonUniform                   Capability = 5301 // NonUniform decorations
+	CapabilityAtomicFloat32AddEXT                Capability = 6033 // Float32 atomic add extension
+	CapabilityDotProductInput4x8BitPacked        Capability = 6018 // Required for packed 4x8 dot product
+	CapabilityDotProduct                         Capability = 6019 // Required for integer dot product
+	CapabilityGroupNonUniform                    Capability = 61   // Basic subgroup operations
+	CapabilityGroupNonUniformVote                Capability = 62   // subgroupAll, subgroupAny
+	CapabilityGroupNonUniformArithmetic          Capability = 63   // subgroupAdd, etc.
+	CapabilityGroupNonUniformBallot              Capability = 64   // subgroupBallot
+	CapabilityGroupNonUniformShuffle             Capability = 65   // subgroupShuffle
+	CapabilityGroupNonUniformShuffleRel          Capability = 66   // subgroupShuffleUp/Down
+	CapabilityGroupNonUniformQuad                Capability = 68   // quad operations
+	CapabilityGeometry                           Capability = 2    // Geometry shader
+	CapabilitySubgroupBallotKHR                  Capability = 4423 // KHR subgroup ballot
 )
 
 // Writer generates SPIR-V from IR.
@@ -129,6 +217,7 @@ const (
 	OpMemberDecorate    OpCode = 72
 	OpLabel             OpCode = 248
 	OpBranch            OpCode = 249
+	OpPhi               OpCode = 245
 	OpReturn            OpCode = 253
 	OpReturnValue       OpCode = 254
 	OpUnreachable       OpCode = 255
@@ -145,12 +234,18 @@ const (
 	DecorationArrayStride   Decoration = 6
 	DecorationMatrixStride  Decoration = 7
 	DecorationBuiltIn       Decoration = 11
+	DecorationFlat          Decoration = 14
+	DecorationNoPerspective Decoration = 13
+	DecorationCentroid      Decoration = 16
+	DecorationSample        Decoration = 17
 	DecorationNonWritable   Decoration = 24
 	DecorationNonReadable   Decoration = 25
 	DecorationLocation      Decoration = 30
+	DecorationIndex         Decoration = 32 // For dual-source blending
 	DecorationBinding       Decoration = 33
 	DecorationDescriptorSet Decoration = 34
 	DecorationOffset        Decoration = 35
+	DecorationNonUniform    Decoration = 5300 // NonUniformEXT
 )
 
 // BuiltIn represents a SPIR-V built-in decoration value.
@@ -188,6 +283,12 @@ const (
 	BuiltInLocalInvocationIndex BuiltIn = 29
 	BuiltInVertexIndex          BuiltIn = 42
 	BuiltInInstanceIndex        BuiltIn = 43
+	BuiltInSubgroupSize         BuiltIn = 36
+	BuiltInSubgroupLocalInvID   BuiltIn = 41
+	BuiltInNumSubgroups         BuiltIn = 38
+	BuiltInSubgroupID           BuiltIn = 40
+	BuiltInViewIndex            BuiltIn = 4440
+	BuiltInBaryCoordKHR         BuiltIn = 5286
 )
 
 // ExecutionModel represents a SPIR-V execution model.
@@ -260,19 +361,20 @@ type StorageClass uint32
 
 // Common storage classes
 const (
-	StorageClassUniformConstant StorageClass = 0
-	StorageClassInput           StorageClass = 1
-	StorageClassUniform         StorageClass = 2
-	StorageClassOutput          StorageClass = 3
-	StorageClassWorkgroup       StorageClass = 4
-	StorageClassCrossWorkgroup  StorageClass = 5
-	StorageClassPrivate         StorageClass = 6
-	StorageClassFunction        StorageClass = 7
-	StorageClassGeneric         StorageClass = 8
-	StorageClassPushConstant    StorageClass = 9
-	StorageClassAtomicCounter   StorageClass = 10
-	StorageClassImage           StorageClass = 11
-	StorageClassStorageBuffer   StorageClass = 12
+	StorageClassUniformConstant         StorageClass = 0
+	StorageClassInput                   StorageClass = 1
+	StorageClassUniform                 StorageClass = 2
+	StorageClassOutput                  StorageClass = 3
+	StorageClassWorkgroup               StorageClass = 4
+	StorageClassCrossWorkgroup          StorageClass = 5
+	StorageClassPrivate                 StorageClass = 6
+	StorageClassFunction                StorageClass = 7
+	StorageClassGeneric                 StorageClass = 8
+	StorageClassPushConstant            StorageClass = 9
+	StorageClassAtomicCounter           StorageClass = 10
+	StorageClassImage                   StorageClass = 11
+	StorageClassStorageBuffer           StorageClass = 12
+	StorageClassTaskPayloadWorkgroupEXT StorageClass = 5328
 )
 
 // AddressingModel represents a SPIR-V addressing model.
@@ -365,6 +467,10 @@ const (
 	OpLogicalNot      OpCode = 168 // Logical not
 	OpSelect          OpCode = 169 // Select between values
 	OpNot             OpCode = 200 // Bitwise not
+	OpAny             OpCode = 154 // True if any component of boolean vector is true
+	OpAll             OpCode = 155 // True if all components of boolean vector are true
+	OpIsNan           OpCode = 156 // True if value is NaN
+	OpIsInf           OpCode = 157 // True if value is Inf
 )
 
 // Composite opcodes
@@ -418,8 +524,11 @@ const (
 	OpConvertFToS   OpCode = 110 // Float to signed int
 	OpConvertSToF   OpCode = 111 // Signed int to float
 	OpConvertUToF   OpCode = 112 // Unsigned int to float
-	OpBitcast       OpCode = 124 // Bitcast between types of same width
+	OpUConvert      OpCode = 113 // Unsigned int width conversion
+	OpSConvert      OpCode = 114 // Signed int width conversion
+	OpFConvert      OpCode = 115 // Float width conversion
 	OpQuantizeToF16 OpCode = 116 // Quantize float to f16 precision
+	OpBitcast       OpCode = 124 // Bitcast between types of same width
 )
 
 // Extended instruction set opcodes
@@ -459,6 +568,7 @@ const (
 const (
 	ScopeDevice    uint32 = 1 // Visible to all invocations in the device
 	ScopeWorkgroup uint32 = 2 // Visible to all invocations in the workgroup
+	ScopeSubgroup  uint32 = 3 // Visible to all invocations in the subgroup
 )
 
 // Memory semantics for atomic operations
@@ -477,6 +587,51 @@ const (
 const (
 	OpControlBarrier OpCode = 224 // Control barrier (execution + memory)
 	OpMemoryBarrier  OpCode = 225 // Memory barrier only
+)
+
+// Subgroup opcodes (SPV_KHR_subgroup_vote, SPV_KHR_subgroup_ballot, etc.)
+const (
+	OpGroupNonUniformElect            OpCode = 333
+	OpGroupNonUniformAll              OpCode = 334
+	OpGroupNonUniformAny              OpCode = 335
+	OpGroupNonUniformAllEqual         OpCode = 336
+	OpGroupNonUniformBroadcast        OpCode = 337
+	OpGroupNonUniformBroadcastFirst   OpCode = 338
+	OpGroupNonUniformBallot           OpCode = 339
+	OpGroupNonUniformInverseBallot    OpCode = 340
+	OpGroupNonUniformBallotBitExtract OpCode = 341
+	OpGroupNonUniformBallotBitCount   OpCode = 342
+	OpGroupNonUniformBallotFindLSB    OpCode = 343
+	OpGroupNonUniformBallotFindMSB    OpCode = 344
+	OpGroupNonUniformShuffle          OpCode = 345
+	OpGroupNonUniformShuffleXor       OpCode = 346
+	OpGroupNonUniformShuffleUp        OpCode = 347
+	OpGroupNonUniformShuffleDown      OpCode = 348
+	OpGroupNonUniformIAdd             OpCode = 349
+	OpGroupNonUniformFAdd             OpCode = 350
+	OpGroupNonUniformIMul             OpCode = 351
+	OpGroupNonUniformFMul             OpCode = 352
+	OpGroupNonUniformSMin             OpCode = 353
+	OpGroupNonUniformUMin             OpCode = 354
+	OpGroupNonUniformFMin             OpCode = 355
+	OpGroupNonUniformSMax             OpCode = 356
+	OpGroupNonUniformUMax             OpCode = 357
+	OpGroupNonUniformFMax             OpCode = 358
+	OpGroupNonUniformBitwiseAnd       OpCode = 359
+	OpGroupNonUniformBitwiseOr        OpCode = 360
+	OpGroupNonUniformBitwiseXor       OpCode = 361
+	OpGroupNonUniformLogicalAnd       OpCode = 362
+	OpGroupNonUniformLogicalOr        OpCode = 363
+	OpGroupNonUniformLogicalXor       OpCode = 364
+	OpGroupNonUniformQuadBroadcast    OpCode = 365
+	OpGroupNonUniformQuadSwap         OpCode = 366
+)
+
+// GroupOperation for subgroup collective operations.
+const (
+	GroupOperationReduce        uint32 = 0
+	GroupOperationInclusiveScan uint32 = 1
+	GroupOperationExclusiveScan uint32 = 2
 )
 
 // SelectionControl flags for OpSelectionMerge
@@ -637,8 +792,6 @@ const (
 )
 
 // StorageFormatToImageFormat converts an IR storage format to a SPIR-V image format.
-//
-//nolint:gocyclo,cyclop,funlen // Large switch for exhaustive format mapping is inherently complex
 func StorageFormatToImageFormat(format ir.StorageFormat) ImageFormat {
 	switch format {
 	// 8-bit formats

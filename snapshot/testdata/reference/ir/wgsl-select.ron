@@ -1,0 +1,153 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("x0"),
+                        ty: 1,
+                        init: Some(3),
+                    ),
+                    (
+                        name: Some("i1"),
+                        ty: 0,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    Literal(F32(1.0)),
+                    Literal(I32(1)),
+                    Literal(I32(2)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            1,
+                            2,
+                        ],
+                    ),
+                    LocalVariable(0),
+                    Literal(F32(1.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 0,
+                        components: [
+                            5,
+                            6,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 0,
+                        components: [
+                            8,
+                            9,
+                        ],
+                    ),
+                    AccessIndex(
+                        base: 4,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 11,
+                    ),
+                    AccessIndex(
+                        base: 4,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 13,
+                    ),
+                    Binary(
+                        op: Less,
+                        left: 12,
+                        right: 14,
+                    ),
+                    Select(
+                        condition: 15,
+                        accept: 10,
+                        reject: 7,
+                    ),
+                    LocalVariable(1),
+                ],
+                named_expressions: {
+                    0: "phony",
+                },
+                body: [
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Emit((
+                        start: 10,
+                        end: 17,
+                    )),
+                    Store(
+                        pointer: 17,
+                        value: 16,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

@@ -1,0 +1,8 @@
+glsl_multiview = 2
+god_mode = true
+
+[msl]
+lang_version = [2, 3]
+
+[hlsl]
+shader_model = "V6_1"

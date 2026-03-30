@@ -1,0 +1,235 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("S"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("x"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Sampler(
+                comparison: false,
+            ),
+        ),
+        (
+            name: Some("Vec2"),
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("Value"),
+            ty: 0,
+            init: 0,
+        ),
+    ],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("Texture"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("Sampler"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 3,
+            init: None,
+        ),
+    ],
+    global_expressions: [
+        Literal(I32(1)),
+    ],
+    functions: [
+        (
+            name: Some("statement"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("returns"),
+            arguments: [],
+            result: Some((
+                ty: 1,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(I32(1)),
+                Compose(
+                    ty: 1,
+                    components: [
+                        0,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("call"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                CallResult(1),
+                Literal(F32(1.0)),
+                GlobalVariable(0),
+                GlobalVariable(1),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                ImageSample(
+                    image: 2,
+                    sampler: 3,
+                    gather: None,
+                    coordinate: 4,
+                    array_index: None,
+                    offset: None,
+                    level: Auto,
+                    depth_ref: None,
+                    clamp_to_edge: false,
+                ),
+            ],
+            named_expressions: {
+                0: "x",
+                1: "vf",
+                5: "s",
+            },
+            body: [
+                Call(
+                    function: 0,
+                    arguments: [],
+                    result: None,
+                ),
+                Call(
+                    function: 1,
+                    arguments: [],
+                    result: Some(0),
+                ),
+                Emit((
+                    start: 4,
+                    end: 6,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    CallResult(1),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 2,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [],
+                        result: Some(0),
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

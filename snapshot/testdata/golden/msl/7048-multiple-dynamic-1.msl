@@ -1,0 +1,27 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct type_1 {
+    metal::float3 inner[2];
+};
+
+kernel void f(
+) {
+    metal::float4 poly = metal::float4(0.0);
+    int k = 0;
+    int j = 0;
+    int _e9 = j;
+    int _e12 = k;
+    float _e16 = poly.x;
+    poly.x = _e16 + (uint(_e9) < 2 ? type_1 {}.inner[_e9].y : DefaultConstructible() * uint(_e12) < 2 ? type_1 {}.inner[_e12].z : DefaultConstructible());
+    return;
+}

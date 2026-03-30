@@ -24,6 +24,18 @@ type Options struct {
 	// Used with SM 6.6+ bindless resources.
 	SamplerHeapTargets SamplerHeapBindTargets
 
+	// SamplerBufferBindingMap maps group numbers to bind targets for
+	// sampler index buffers (StructuredBuffer<uint>). When a sampler is
+	// encountered, the sampler heap arrays and corresponding index buffer
+	// are written. Matches Rust naga's sampler_buffer_binding_map.
+	SamplerBufferBindingMap map[uint32]BindTarget
+
+	// ExternalTextureBindingMap maps resource bindings to external texture
+	// bind targets. External textures are decomposed into 3 plane textures
+	// and a parameters cbuffer.
+	// Matches Rust naga's Options::external_texture_binding_map.
+	ExternalTextureBindingMap ExternalTextureBindingMap
+
 	// FakeMissingBindings generates automatic bindings for resources
 	// not found in BindingMap. Useful for testing or simple shaders.
 	FakeMissingBindings bool
@@ -41,17 +53,54 @@ type Options struct {
 	// Prevents infinite loops that could hang the GPU.
 	ForceLoopBounding bool
 
+	// DynamicStorageBufferOffsetsTargets maps group indices to their bind targets
+	// for dynamic storage buffer offset constant buffers. When a storage buffer
+	// binding has DynamicStorageBufferOffsetsIndex set, the generated HLSL adds
+	// the dynamic offset from the corresponding constant buffer to Load/Store addresses.
+	// Matches Rust naga's Options::dynamic_storage_buffer_offsets_targets.
+	DynamicStorageBufferOffsetsTargets map[uint32]OffsetsBindTarget
+
+	// SpecialConstantsBinding specifies the binding for the NagaConstants
+	// constant buffer. When set, the HLSL output includes a NagaConstants
+	// struct with first_vertex, first_instance, and other fields. Vertex
+	// and instance indices are offset by these values, and NumWorkGroups
+	// is replaced with a uint3 from these values.
+	// Matches Rust naga's special_constants_binding option.
+	SpecialConstantsBinding *BindTarget
+
 	// EntryPoint specifies which entry point to compile.
 	// If empty, the first entry point is used.
 	EntryPoint string
+
+	// FragmentEntryPoint specifies a fragment entry point to consider when
+	// generating the output interface of vertex entry points.
+	// If provided, vertex outputs not consumed by this fragment shader's
+	// inputs will be stripped from the vertex output struct.
+	// Matches Rust naga's FragmentEntryPoint.
+	FragmentEntryPoint *FragmentEntryPoint
+}
+
+// FragmentEntryPoint describes a fragment entry point used to filter
+// vertex shader outputs. Only vertex outputs that match fragment inputs
+// (by location) are kept in the vertex output struct.
+type FragmentEntryPoint struct {
+	// Module is the IR module containing the fragment entry point.
+	Module *ir.Module
+	// Function is the fragment entry point function.
+	Function *ir.Function
 }
 
 // DefaultOptions returns sensible default options for HLSL generation.
 // Uses Shader Model 5.1 with safe defaults enabled.
+// Matches Rust naga's Default for Options.
 func DefaultOptions() *Options {
 	return &Options{
-		ShaderModel:                   ShaderModel5_1,
-		BindingMap:                    make(map[ResourceBinding]BindTarget),
+		ShaderModel: ShaderModel5_1,
+		BindingMap:  make(map[ResourceBinding]BindTarget),
+		SamplerHeapTargets: SamplerHeapBindTargets{
+			StandardSamplers:   BindTarget{Space: 0, Register: 0},
+			ComparisonSamplers: BindTarget{Space: 1, Register: 0},
+		},
 		FakeMissingBindings:           true,
 		ZeroInitializeWorkgroupMemory: true,
 		RestrictIndexing:              false,

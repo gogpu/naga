@@ -1,0 +1,325 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("QEFResult"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("a"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("b"),
+                        ty: 1,
+                        binding: None,
+                        offset: 16,
+                    ),
+                ],
+                span: 32,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(12),
+                stride: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("foobar"),
+            arguments: [
+                (
+                    name: Some("normals"),
+                    ty: 3,
+                    binding: None,
+                ),
+                (
+                    name: Some("count"),
+                    ty: 4,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [
+                (
+                    name: Some("i"),
+                    ty: 4,
+                    init: Some(2),
+                ),
+                (
+                    name: Some("n0"),
+                    ty: 1,
+                    init: None,
+                ),
+                (
+                    name: Some("j"),
+                    ty: 4,
+                    init: Some(12),
+                ),
+                (
+                    name: Some("n1"),
+                    ty: 1,
+                    init: None,
+                ),
+            ],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                Literal(U32(0)),
+                LocalVariable(0),
+                Load(
+                    pointer: 3,
+                ),
+                Binary(
+                    op: Less,
+                    left: 4,
+                    right: 1,
+                ),
+                Load(
+                    pointer: 3,
+                ),
+                Access(
+                    base: 0,
+                    index: 6,
+                ),
+                LocalVariable(1),
+                Literal(U32(1)),
+                Load(
+                    pointer: 3,
+                ),
+                Binary(
+                    op: Add,
+                    left: 10,
+                    right: 9,
+                ),
+                Literal(U32(0)),
+                LocalVariable(2),
+                Load(
+                    pointer: 13,
+                ),
+                Binary(
+                    op: Less,
+                    left: 14,
+                    right: 1,
+                ),
+                Load(
+                    pointer: 13,
+                ),
+                Access(
+                    base: 0,
+                    index: 16,
+                ),
+                LocalVariable(3),
+                Literal(U32(1)),
+                Load(
+                    pointer: 13,
+                ),
+                Binary(
+                    op: Add,
+                    left: 20,
+                    right: 19,
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Splat(
+                    size: Tri,
+                    value: 23,
+                ),
+                Compose(
+                    ty: 2,
+                    components: [
+                        22,
+                        24,
+                    ],
+                ),
+            ],
+            named_expressions: {
+                0: "normals",
+                1: "count",
+            },
+            body: [
+                Loop(
+                    body: [
+                        Emit((
+                            start: 4,
+                            end: 6,
+                        )),
+                        If(
+                            condition: 5,
+                            accept: [],
+                            reject: [
+                                Break,
+                            ],
+                        ),
+                        Block([
+                            Emit((
+                                start: 6,
+                                end: 8,
+                            )),
+                            Store(
+                                pointer: 8,
+                                value: 7,
+                            ),
+                        ]),
+                    ],
+                    continuing: [
+                        Emit((
+                            start: 10,
+                            end: 12,
+                        )),
+                        Store(
+                            pointer: 3,
+                            value: 11,
+                        ),
+                    ],
+                    break_if: None,
+                ),
+                Loop(
+                    body: [
+                        Emit((
+                            start: 14,
+                            end: 16,
+                        )),
+                        If(
+                            condition: 15,
+                            accept: [],
+                            reject: [
+                                Break,
+                            ],
+                        ),
+                        Block([
+                            Emit((
+                                start: 16,
+                                end: 18,
+                            )),
+                            Store(
+                                pointer: 18,
+                                value: 17,
+                            ),
+                        ]),
+                    ],
+                    continuing: [
+                        Emit((
+                            start: 20,
+                            end: 22,
+                        )),
+                        Store(
+                            pointer: 13,
+                            value: 21,
+                        ),
+                    ],
+                    break_if: None,
+                ),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 24,
+                    end: 26,
+                )),
+                Return(
+                    value: Some(25),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("arr"),
+                        ty: 3,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    LocalVariable(0),
+                    Load(
+                        pointer: 0,
+                    ),
+                    Literal(U32(1)),
+                    CallResult(0),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Call(
+                        function: 0,
+                        arguments: [
+                            1,
+                            2,
+                        ],
+                        result: Some(3),
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

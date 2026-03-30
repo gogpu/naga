@@ -1,0 +1,64 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 40
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %_15 "vs" %_8 %_10 %_12
+               OpEntryPoint Fragment %_33 "fs" %_13
+               OpExecutionMode %_33 OriginUpperLeft
+               OpMemberDecorate %_6 0 Offset 0
+               OpMemberDecorate %_6 1 Offset 16
+               OpDecorate %_8 Location 0
+               OpDecorate %_10 BuiltIn Position
+               OpDecorate %_12 Location 0
+               OpDecorate %_13 Location 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeVector %_3 4
+         %_5 = OpTypeVector %_3 2
+         %_6 = OpTypeStruct %_4 %_5
+         %_7 = OpTypePointer Input %_5
+         %_9 = OpTypePointer Output %_4
+         %_11 = OpTypePointer Output %_5
+         %_14 = OpTypeFunction %_2
+         %_17 = OpTypePointer Function %_6
+         %_19 = OpTypeInt 32 0
+         %_20 = OpConstant %_19 0
+         %_21 = OpTypePointer Function %_4
+         %_25 = OpConstant %_3 0
+         %_26 = OpConstant %_3 1065353216
+         %_28 = OpConstant %_19 0
+         %_35 = OpConstant %_3 1065353216
+         %_36 = OpConstant %_3 0
+         %_37 = OpConstant %_3 0
+         %_38 = OpConstant %_3 1065353216
+         %_8 = OpVariable %_7 Input
+         %_10 = OpVariable %_9 Output
+         %_12 = OpVariable %_11 Output
+         %_13 = OpVariable %_9 Output
+         %_15 = OpFunction %_2 None %_14
+         %_16 = OpLabel
+         %_18 = OpVariable %_17 Function
+         %_22 = OpAccessChain %_21 %_18 %_20
+         %_23 = OpLoad %_4 %_22
+         %_24 = OpLoad %_5 %_8
+         %_27 = OpCompositeConstruct %_4 %_24 %_25 %_26
+         %_29 = OpAccessChain %_21 %_18 %_28
+               OpStore %_29 %_27
+         %_30 = OpLoad %_6 %_18
+         %_31 = OpCompositeExtract %_4 %_30 0
+               OpStore %_10 %_31
+         %_32 = OpCompositeExtract %_5 %_30 1
+               OpStore %_12 %_32
+               OpReturn
+               OpFunctionEnd
+         %_33 = OpFunction %_2 None %_14
+         %_34 = OpLabel
+         %_39 = OpCompositeConstruct %_4 %_35 %_36 %_37 %_38
+               OpStore %_13 %_39
+               OpReturn
+               OpFunctionEnd

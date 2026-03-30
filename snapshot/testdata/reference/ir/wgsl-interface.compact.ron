@@ -1,0 +1,567 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("VertexOutput"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("position"),
+                        ty: 1,
+                        binding: Some(BuiltIn(Position(
+                            invariant: true,
+                        ))),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("_varying"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                ],
+                span: 32,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("FragmentOutput"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("depth"),
+                        ty: 0,
+                        binding: Some(BuiltIn(FragDepth)),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("sample_mask"),
+                        ty: 3,
+                        binding: Some(BuiltIn(SampleMask)),
+                        offset: 4,
+                    ),
+                    (
+                        name: Some("color"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 8,
+                    ),
+                ],
+                span: 12,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 3,
+                size: Constant(1),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("Input1"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("index"),
+                        ty: 3,
+                        binding: Some(BuiltIn(VertexIndex)),
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+        (
+            name: Some("Input2"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("index"),
+                        ty: 3,
+                        binding: Some(BuiltIn(InstanceIndex)),
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("output"),
+            space: WorkGroup,
+            binding: None,
+            ty: 6,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "vertex",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("vertex"),
+                arguments: [
+                    (
+                        name: Some("vertex_index"),
+                        ty: 3,
+                        binding: Some(BuiltIn(VertexIndex)),
+                    ),
+                    (
+                        name: Some("instance_index"),
+                        ty: 3,
+                        binding: Some(BuiltIn(InstanceIndex)),
+                    ),
+                    (
+                        name: Some("color"),
+                        ty: 3,
+                        binding: Some(Location(
+                            location: 10,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                ],
+                result: Some((
+                    ty: 2,
+                    binding: None,
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    FunctionArgument(2),
+                    Binary(
+                        op: Add,
+                        left: 0,
+                        right: 1,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 3,
+                        right: 2,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Quad,
+                        value: 5,
+                    ),
+                    As(
+                        expr: 4,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            6,
+                            7,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "vertex_index",
+                    1: "instance_index",
+                    2: "color",
+                    4: "tmp",
+                },
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 9,
+                    )),
+                    Return(
+                        value: Some(8),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "fragment",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fragment"),
+                arguments: [
+                    (
+                        name: Some("in"),
+                        ty: 2,
+                        binding: None,
+                    ),
+                    (
+                        name: Some("front_facing"),
+                        ty: 5,
+                        binding: Some(BuiltIn(FrontFacing)),
+                    ),
+                    (
+                        name: Some("sample_index"),
+                        ty: 3,
+                        binding: Some(BuiltIn(SampleIndex)),
+                    ),
+                    (
+                        name: Some("sample_mask"),
+                        ty: 3,
+                        binding: Some(BuiltIn(SampleMask)),
+                    ),
+                ],
+                result: Some((
+                    ty: 4,
+                    binding: None,
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    FunctionArgument(2),
+                    FunctionArgument(3),
+                    Literal(U32(1)),
+                    Binary(
+                        op: ShiftLeft,
+                        left: 4,
+                        right: 2,
+                    ),
+                    Binary(
+                        op: And,
+                        left: 3,
+                        right: 5,
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Select(
+                        condition: 1,
+                        accept: 8,
+                        reject: 7,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Compose(
+                        ty: 4,
+                        components: [
+                            10,
+                            6,
+                            9,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "in",
+                    1: "front_facing",
+                    2: "sample_index",
+                    3: "sample_mask",
+                    6: "mask",
+                    9: "color",
+                },
+                body: [
+                    Emit((
+                        start: 5,
+                        end: 7,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Emit((
+                        start: 10,
+                        end: 12,
+                    )),
+                    Return(
+                        value: Some(11),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "compute",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("compute"),
+                arguments: [
+                    (
+                        name: Some("global_id"),
+                        ty: 7,
+                        binding: Some(BuiltIn(GlobalInvocationId)),
+                    ),
+                    (
+                        name: Some("local_id"),
+                        ty: 7,
+                        binding: Some(BuiltIn(LocalInvocationId)),
+                    ),
+                    (
+                        name: Some("local_index"),
+                        ty: 3,
+                        binding: Some(BuiltIn(LocalInvocationIndex)),
+                    ),
+                    (
+                        name: Some("wg_id"),
+                        ty: 7,
+                        binding: Some(BuiltIn(WorkGroupId)),
+                    ),
+                    (
+                        name: Some("num_wgs"),
+                        ty: 7,
+                        binding: Some(BuiltIn(NumWorkGroups)),
+                    ),
+                ],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    FunctionArgument(2),
+                    FunctionArgument(3),
+                    FunctionArgument(4),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 5,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 7,
+                        right: 8,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 9,
+                        right: 2,
+                    ),
+                    AccessIndex(
+                        base: 3,
+                        index: 0,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 10,
+                        right: 11,
+                    ),
+                    AccessIndex(
+                        base: 4,
+                        index: 0,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 12,
+                        right: 13,
+                    ),
+                ],
+                named_expressions: {
+                    0: "global_id",
+                    1: "local_id",
+                    2: "local_index",
+                    3: "wg_id",
+                    4: "num_wgs",
+                },
+                body: [
+                    Emit((
+                        start: 6,
+                        end: 15,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 14,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "vertex_two_structs",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("vertex_two_structs"),
+                arguments: [
+                    (
+                        name: Some("in1"),
+                        ty: 8,
+                        binding: None,
+                    ),
+                    (
+                        name: Some("in2"),
+                        ty: 9,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 1,
+                    binding: Some(BuiltIn(Position(
+                        invariant: true,
+                    ))),
+                )),
+                local_variables: [
+                    (
+                        name: Some("index"),
+                        ty: 3,
+                        init: Some(2),
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    Literal(U32(2)),
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    As(
+                        expr: 4,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    As(
+                        expr: 6,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Load(
+                        pointer: 3,
+                    ),
+                    As(
+                        expr: 8,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            5,
+                            7,
+                            9,
+                            10,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "in1",
+                    1: "in2",
+                },
+                body: [
+                    Emit((
+                        start: 4,
+                        end: 10,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Return(
+                        value: Some(11),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

@@ -167,9 +167,7 @@ func TestCompile_SimpleModule(t *testing.T) {
 	}
 
 	// Check that output contains expected content
-	if !containsSubstring(code, "SM 6.0") {
-		t.Error("expected output to contain shader model comment")
-	}
+	// Note: Rust naga HLSL doesn't emit header comments, so no SM 6.0 check
 
 	if !containsSubstring(code, "static const") {
 		t.Error("expected output to contain constant declaration")
@@ -195,9 +193,11 @@ func TestCompile_WithEntryPoint(t *testing.T) {
 		},
 		EntryPoints: []ir.EntryPoint{
 			{
-				Name:      "main",
-				Stage:     ir.StageCompute,
-				Function:  0,
+				Name:  "main",
+				Stage: ir.StageCompute,
+				Function: ir.Function{
+					Name: "compute_main",
+				},
 				Workgroup: [3]uint32{64, 1, 1},
 			},
 		},

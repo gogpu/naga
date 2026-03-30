@@ -61,6 +61,69 @@ func (v Version) SupportsCompute() bool {
 	return v.Major > 4 || (v.Major == 4 && v.Minor >= 30)
 }
 
+// supportsDerivativeControl returns true if Coarse/Fine derivative control is available.
+// GLSL 450+ desktop, ES 320+.
+func (v Version) supportsDerivativeControl() bool {
+	if v.ES {
+		return v.Major > 3 || (v.Major == 3 && v.Minor >= 20)
+	}
+	return v.Major > 4 || (v.Major == 4 && v.Minor >= 50)
+}
+
+// supportsIOLocations returns true if layout(location=N) is supported for IO.
+// Desktop GLSL 330+, ES 300+.
+func (v Version) supportsIOLocations() bool {
+	if v.ES {
+		return v.Major > 3 || (v.Major == 3 && v.Minor >= 0)
+	}
+	return v.Major > 3 || (v.Major == 3 && v.Minor >= 30)
+}
+
+// supportsExplicitLocations returns true if explicit layout locations for bindings are supported.
+// Desktop GLSL 420+, ES 310+.
+func (v Version) supportsExplicitLocations() bool {
+	if v.ES {
+		return v.Major > 3 || (v.Major == 3 && v.Minor >= 10)
+	}
+	return v.Major > 4 || (v.Major == 4 && v.Minor >= 20)
+}
+
+// supportsPack2x16snorm returns true if packSnorm2x16/unpackSnorm2x16 are available.
+// Desktop GLSL 420+, ES 300+. (Rust: Version::Desktop(420) || Version::new_gles(300))
+func (v Version) supportsPack2x16snorm() bool {
+	if v.ES {
+		return v.Major >= 3
+	}
+	return v.Major > 4 || (v.Major == 4 && v.Minor >= 20)
+}
+
+// supportsPack2x16unorm returns true if packUnorm2x16/unpackUnorm2x16 are available.
+// Desktop GLSL 400+, ES 300+. (Rust: Version::Desktop(400) || Version::new_gles(300))
+func (v Version) supportsPack2x16unorm() bool {
+	if v.ES {
+		return v.Major >= 3
+	}
+	return v.Major > 4 || (v.Major == 4 && v.Minor >= 0)
+}
+
+// supportsPack4x8 returns true if packSnorm4x8/unpackSnorm4x8 etc are available.
+// Desktop GLSL 400+, ES 310+.
+func (v Version) supportsPack4x8() bool {
+	if v.ES {
+		return v.Major > 3 || (v.Major == 3 && v.Minor >= 10)
+	}
+	return v.Major > 4 || (v.Major == 4 && v.Minor >= 0)
+}
+
+// supportsFma returns true if fma() is available.
+// Desktop GLSL 400+, ES 320+.
+func (v Version) supportsFma() bool {
+	if v.ES {
+		return v.Major > 3 || (v.Major == 3 && v.Minor >= 20)
+	}
+	return v.Major > 4 || (v.Major == 4 && v.Minor >= 0)
+}
+
 // SupportsStorageBuffers returns true if this version supports storage buffers.
 func (v Version) SupportsStorageBuffers() bool {
 	if v.ES {
@@ -84,6 +147,21 @@ const (
 
 	// WriterFlagMinify removes unnecessary whitespace.
 	WriterFlagMinify
+
+	// WriterFlagAdjustCoordinateSpace adds gl_Position coordinate adjustment
+	// at the end of vertex shaders to convert from Vulkan/WebGPU conventions
+	// (Y-down, Z in [0,1]) to OpenGL conventions (Y-up, Z in [-1,1]).
+	// Matches Rust naga's WriterFlags::ADJUST_COORDINATE_SPACE.
+	// Emits: gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);
+	WriterFlagAdjustCoordinateSpace
+
+	// WriterFlagForcePointSize emits gl_PointSize = 1.0 in vertex shaders.
+	// Required for WebGL compatibility.
+	WriterFlagForcePointSize
+
+	// WriterFlagTextureShadowLod enables GL_EXT_texture_shadow_lod extension
+	// for sampling cube/array shadow textures with explicit LOD.
+	WriterFlagTextureShadowLod
 )
 
 // Options configures GLSL code generation.
@@ -114,6 +192,47 @@ type Options struct {
 	// ForceHighPrecision forces highp precision for all float types (ES only).
 	// If false, uses default precision qualifiers.
 	ForceHighPrecision bool
+
+	// BoundsCheckPolicies controls bounds checking for resource accesses.
+	// Matches Rust naga's proc::BoundsCheckPolicies.
+	BoundsCheckPolicies BoundsCheckPolicies
+
+	// BindingMap maps resource bindings to flat GL binding indices.
+	// Matches Rust naga's back::glsl::BindingMap.
+	// When set, layout(binding = N) qualifiers are emitted.
+	BindingMap map[BindingMapKey]uint8
+
+	// PipelineConstants provides values for pipeline-overridable constants.
+	// Keys are either "@id(N)" numeric IDs as strings or override names.
+	// Values are float64 (NaN means "not set, use default").
+	// If provided, overrides are resolved before compilation.
+	PipelineConstants ir.PipelineConstants
+}
+
+// BindingMapKey identifies a resource binding for the BindingMap.
+type BindingMapKey struct {
+	Group   uint32
+	Binding uint32
+}
+
+// BoundsCheckPolicy controls how out-of-bounds resource accesses are handled.
+type BoundsCheckPolicy uint8
+
+const (
+	// BoundsCheckUnchecked performs no bounds checking.
+	BoundsCheckUnchecked BoundsCheckPolicy = iota
+	// BoundsCheckRestrict clamps indices to valid range.
+	BoundsCheckRestrict
+	// BoundsCheckReadZeroSkipWrite returns zero for reads, skips writes.
+	BoundsCheckReadZeroSkipWrite
+)
+
+// BoundsCheckPolicies holds per-resource-type bounds check policies.
+type BoundsCheckPolicies struct {
+	// ImageLoad controls bounds checking for image load operations.
+	ImageLoad BoundsCheckPolicy
+	// ImageStore controls bounds checking for image store operations.
+	ImageStore BoundsCheckPolicy
 }
 
 // DefaultOptions returns sensible default options for GLSL generation.
@@ -147,6 +266,16 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	// Apply defaults for zero values
 	if options.LangVersion.Major == 0 {
 		options.LangVersion = Version330
+	}
+
+	// Process overrides if pipeline constants are provided.
+	// This resolves all ExprOverride to concrete Literal/Constant values.
+	// Deep-clone mutable parts to avoid mutating shared state.
+	if len(options.PipelineConstants) > 0 && len(module.Overrides) > 0 {
+		module = ir.CloneModuleForOverrides(module)
+		if err := ir.ProcessOverrides(module, options.PipelineConstants); err != nil {
+			return "", TranslationInfo{}, fmt.Errorf("glsl: process overrides: %w", err)
+		}
 	}
 
 	// Create writer

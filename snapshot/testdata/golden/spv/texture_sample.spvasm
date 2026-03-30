@@ -1,94 +1,129 @@
 ; SPIR-V
-; Version: 1.3
+; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 66
+; Bound: 97
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint Vertex %_26 "vs_main" %_16 %_18 %_20
-               OpEntryPoint Fragment %_58 "fs_main" %_22 %_23
-               OpExecutionMode %_58 OriginUpperLeft
+               OpEntryPoint Vertex %_57 "vs_main" %_15 %_17 %_19
+               OpEntryPoint Fragment %_89 "fs_main" %_21 %_22
+               OpExecutionMode %_89 OriginUpperLeft
                OpMemberDecorate %_8 0 Offset 0
                OpMemberDecorate %_8 1 Offset 16
-               OpDecorate %_12 DescriptorSet 0
-               OpDecorate %_12 Binding 0
-               OpDecorate %_14 DescriptorSet 0
-               OpDecorate %_14 Binding 1
-               OpDecorate %_16 BuiltIn VertexIndex
-               OpDecorate %_18 BuiltIn Position
-               OpDecorate %_20 Location 0
+               OpDecorate %_11 DescriptorSet 0
+               OpDecorate %_11 Binding 0
+               OpDecorate %_13 DescriptorSet 0
+               OpDecorate %_13 Binding 1
+               OpDecorate %_15 BuiltIn VertexIndex
+               OpDecorate %_17 BuiltIn Position
+               OpDecorate %_19 Location 0
+               OpDecorate %_21 Location 0
                OpDecorate %_22 Location 0
-               OpDecorate %_23 Location 0
-         %_2 = OpTypeFloat 32
-         %_3 = OpTypeInt 32 1
-         %_4 = OpTypeInt 32 0
-         %_5 = OpTypeBool
-         %_6 = OpTypeVector %_2 4
-         %_7 = OpTypeVector %_2 2
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeImage %_3 2D 0 0 0 1 Unknown
+         %_5 = OpTypeSampler
+         %_6 = OpTypeVector %_3 4
+         %_7 = OpTypeVector %_3 2
          %_8 = OpTypeStruct %_6 %_7
-         %_9 = OpTypeImage %_2 2D 0 0 0 1 Unknown
-         %_10 = OpTypeSampler
-         %_11 = OpTypePointer UniformConstant %_9
-         %_13 = OpTypePointer UniformConstant %_10
-         %_15 = OpTypePointer Input %_4
-         %_17 = OpTypePointer Output %_6
-         %_19 = OpTypePointer Output %_7
-         %_21 = OpTypePointer Input %_7
-         %_24 = OpTypeVoid
-         %_25 = OpTypeFunction %_24
-         %_30 = OpConstant %_3 2
-         %_33 = OpConstant %_2 1082130432
-         %_35 = OpConstant %_2 1065353216
-         %_39 = OpConstant %_3 2
-         %_42 = OpConstant %_2 1082130432
-         %_44 = OpConstant %_2 1065353216
-         %_47 = OpConstant %_2 1065353216
-         %_50 = OpConstant %_2 1056964608
-         %_52 = OpConstant %_2 0
-         %_53 = OpConstant %_2 1065353216
-         %_63 = OpTypeSampledImage %_9
-         %_12 = OpVariable %_11 UniformConstant
-         %_14 = OpVariable %_13 UniformConstant
-         %_16 = OpVariable %_15 Input
-         %_18 = OpVariable %_17 Output
-         %_20 = OpVariable %_19 Output
-         %_22 = OpVariable %_21 Input
-         %_23 = OpVariable %_17 Output
-         %_26 = OpFunction %_24 None %_25
-         %_27 = OpLabel
-         %_28 = OpLoad %_4 %_16
-         %_29 = OpBitcast %_3 %_28
-         %_31 = OpSDiv %_3 %_29 %_30
-         %_32 = OpConvertSToF %_2 %_31
-         %_34 = OpFMul %_2 %_32 %_33
-         %_36 = OpFSub %_2 %_34 %_35
-         %_37 = OpLoad %_4 %_16
-         %_38 = OpBitcast %_3 %_37
-         %_40 = OpSMod %_3 %_38 %_39
-         %_41 = OpConvertSToF %_2 %_40
-         %_43 = OpFMul %_2 %_41 %_42
-         %_45 = OpFSub %_2 %_43 %_44
-         %_46 = OpCompositeConstruct %_7 %_36 %_45
-         %_48 = OpCompositeConstruct %_7 %_47 %_47
-         %_49 = OpFAdd %_7 %_46 %_48
-         %_51 = OpVectorTimesScalar %_7 %_49 %_50
-         %_54 = OpCompositeConstruct %_6 %_46 %_52 %_53
-         %_55 = OpCompositeConstruct %_8 %_54 %_51
-         %_56 = OpCompositeExtract %_6 %_55 0
-               OpStore %_18 %_56
-         %_57 = OpCompositeExtract %_7 %_55 1
-               OpStore %_20 %_57
+         %_9 = OpTypeInt 32 0
+         %_10 = OpTypePointer UniformConstant %_4
+         %_12 = OpTypePointer UniformConstant %_5
+         %_14 = OpTypePointer Input %_9
+         %_16 = OpTypePointer Output %_6
+         %_18 = OpTypePointer Output %_7
+         %_20 = OpTypePointer Input %_7
+         %_23 = OpTypeInt 32 1
+         %_25 = OpTypeFunction %_23 %_23 %_23
+         %_29 = OpTypeBool
+         %_30 = OpConstant %_23 0
+         %_32 = OpConstant %_23 2147483648
+         %_33 = OpConstant %_23 4294967295
+         %_38 = OpConstant %_23 1
+         %_45 = OpConstant %_23 0
+         %_47 = OpConstant %_23 2147483648
+         %_48 = OpConstant %_23 4294967295
+         %_53 = OpConstant %_23 1
+         %_56 = OpTypeFunction %_2
+         %_61 = OpConstant %_23 2
+         %_64 = OpConstant %_3 1082130432
+         %_66 = OpConstant %_3 1065353216
+         %_70 = OpConstant %_23 2
+         %_73 = OpConstant %_3 1082130432
+         %_75 = OpConstant %_3 1065353216
+         %_78 = OpConstant %_3 1065353216
+         %_81 = OpConstant %_3 1056964608
+         %_83 = OpConstant %_3 0
+         %_84 = OpConstant %_3 1065353216
+         %_94 = OpTypeSampledImage %_4
+         %_11 = OpVariable %_10 UniformConstant
+         %_13 = OpVariable %_12 UniformConstant
+         %_15 = OpVariable %_14 Input
+         %_17 = OpVariable %_16 Output
+         %_19 = OpVariable %_18 Output
+         %_21 = OpVariable %_20 Input
+         %_22 = OpVariable %_16 Output
+         %_24 = OpFunction %_23 None %_25
+         %_26 = OpFunctionParameter %_23
+         %_27 = OpFunctionParameter %_23
+         %_28 = OpLabel
+         %_31 = OpSignBitSet %_29 %_27 %_30
+         %_34 = OpSignBitSet %_29 %_26 %_32
+         %_35 = OpSignBitSet %_29 %_27 %_33
+         %_36 = OpIsInf %_29 %_34 %_35
+         %_37 = OpIsNan %_29 %_31 %_36
+         %_39 = OpIsNormal %_23 %_37 %_38 %_27
+         %_40 = OpSDiv %_23 %_26 %_39
+               OpReturnValue %_40
+               OpFunctionEnd
+         %_41 = OpFunction %_23 None %_25
+         %_42 = OpFunctionParameter %_23
+         %_43 = OpFunctionParameter %_23
+         %_44 = OpLabel
+         %_46 = OpSignBitSet %_29 %_43 %_45
+         %_49 = OpSignBitSet %_29 %_42 %_47
+         %_50 = OpSignBitSet %_29 %_43 %_48
+         %_51 = OpIsInf %_29 %_49 %_50
+         %_52 = OpIsNan %_29 %_46 %_51
+         %_54 = OpIsNormal %_23 %_52 %_53 %_43
+         %_55 = OpSRem %_23 %_42 %_54
+               OpReturnValue %_55
+               OpFunctionEnd
+         %_57 = OpFunction %_2 None %_56
+         %_58 = OpLabel
+         %_59 = OpLoad %_9 %_15
+         %_60 = OpBitcast %_23 %_59
+         %_62 = OpFunctionCall %_23 %_24 %_60 %_61
+         %_63 = OpConvertSToF %_3 %_62
+         %_65 = OpFMul %_3 %_63 %_64
+         %_67 = OpFSub %_3 %_65 %_66
+         %_68 = OpLoad %_9 %_15
+         %_69 = OpBitcast %_23 %_68
+         %_71 = OpFunctionCall %_23 %_41 %_69 %_70
+         %_72 = OpConvertSToF %_3 %_71
+         %_74 = OpFMul %_3 %_72 %_73
+         %_76 = OpFSub %_3 %_74 %_75
+         %_77 = OpCompositeConstruct %_7 %_67 %_76
+         %_79 = OpCompositeConstruct %_7 %_78 %_78
+         %_80 = OpFAdd %_7 %_77 %_79
+         %_82 = OpVectorTimesScalar %_7 %_80 %_81
+         %_85 = OpCompositeConstruct %_6 %_77 %_83 %_84
+         %_86 = OpCompositeConstruct %_8 %_85 %_82
+         %_87 = OpCompositeExtract %_6 %_86 0
+               OpStore %_17 %_87
+         %_88 = OpCompositeExtract %_7 %_86 1
+               OpStore %_19 %_88
                OpReturn
                OpFunctionEnd
-         %_58 = OpFunction %_24 None %_25
-         %_59 = OpLabel
-         %_60 = OpLoad %_9 %_12
-         %_61 = OpLoad %_10 %_14
-         %_62 = OpLoad %_7 %_22
-         %_64 = OpSampledImage %_63 %_60 %_61
-         %_65 = OpImageSampleImplicitLod %_6 %_64 %_62
-               OpStore %_23 %_65
+         %_89 = OpFunction %_2 None %_56
+         %_90 = OpLabel
+         %_91 = OpLoad %_4 %_11
+         %_92 = OpLoad %_5 %_13
+         %_93 = OpLoad %_7 %_21
+         %_95 = OpSampledImage %_94 %_91 %_92
+         %_96 = OpImageSampleImplicitLod %_6 %_95 %_93
+               OpStore %_22 %_96
                OpReturn
                OpFunctionEnd

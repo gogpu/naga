@@ -1,0 +1,46 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct S {
+    int x;
+};
+constant int Value = 1;
+
+void statement(
+) {
+    return;
+}
+
+S returns(
+) {
+    return S {1};
+}
+
+void call(
+    metal::texture2d<float, metal::access::sample> Texture,
+    metal::sampler Sampler
+) {
+    statement();
+    S _e0 = returns();
+    metal::float4 s = Texture.sample(Sampler, metal::float2(1.0));
+    return;
+}
+
+fragment void main_(
+  metal::texture2d<float, metal::access::sample> Texture [[user(fake0)]]
+, metal::sampler Sampler [[user(fake0)]]
+) {
+    call(Texture, Sampler);
+    statement();
+    S _e0 = returns();
+    return;
+}

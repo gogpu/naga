@@ -6,36 +6,192 @@
 package ir
 
 // Module represents a shader module in IR form.
+// Module is the IR representation of a shader module.
+// Structurally verified against Rust naga via TestIRReference (18/18 deep match).
+// See docs/dev/research/IR-DEEP-ANALYSIS.md for Go vs Rust comparison.
+//
+// Key architectural difference from Rust naga:
+// - Entry point functions are inline in EntryPoint.Function (not in Functions[])
+// - Go slices instead of Rust Arena<T> — cache-friendly, GC-managed
+// - Const array inlining is 1-step (Rust: 3-step create→evaluate→compact)
 type Module struct {
-	// Types holds all type definitions
+	// Types holds all type definitions. Order matches Rust naga's type arena.
 	Types []Type
 
-	// Constants holds module-scope constants
+	// Constants holds module-scope `const` declarations (NOT overrides).
+	// Rust naga also separates constants from overrides.
 	Constants []Constant
 
-	// GlobalVariables holds module-scope variables
+	// GlobalVariables holds module-scope variables (var<storage>, var<uniform>, etc.)
 	GlobalVariables []GlobalVariable
 
-	// Functions holds all function definitions
+	// GlobalExpressions holds expressions used at module scope:
+	// Constant.Init, Override.Init, and GlobalVariable.Init reference into this.
+	// Mirrors Rust naga's Module.global_expressions arena.
+	GlobalExpressions []Expression
+
+	// Functions holds regular (non-entry-point) function definitions.
+	// Entry point functions are NOT here — they're inline in EntryPoints[].Function.
 	Functions []Function
 
-	// EntryPoints holds shader entry points
+	// EntryPoints holds shader entry points with inline Function bodies.
+	// Unlike Rust naga which uses FunctionHandle into functions arena,
+	// our entry points contain the full Function struct inline.
 	EntryPoints []EntryPoint
+
+	// Overrides holds pipeline-overridable constants (WGSL `override` declarations).
+	// Separate from Constants — mirrors Rust naga's Module.overrides arena.
+	Overrides []Override
+
+	// SpecialTypes holds handles to compiler-generated types (external textures, etc.)
+	SpecialTypes SpecialTypes
+
+	// TypeAliasNames records names from type alias declarations so the namer can register them and detect collisions with variables sharing the same name.
+	TypeAliasNames []string
+
+	// TypeUseOrder records the order in which types were first registered
+	// during lowering. Used by ReorderTypes to reorder the type arena
+	// to match Rust naga's dependency-ordered type registration.
+	TypeUseOrder []TypeHandle
 }
 
-// EntryPoint represents a shader entry point.
-type EntryPoint struct {
-	Name      string
-	Stage     ShaderStage
-	Function  FunctionHandle
-	Workgroup [3]uint32 // For compute shaders
+// SpecialTypes holds handles to compiler-generated types used by backends.
+// Mirrors Rust naga's SpecialTypes struct.
+type SpecialTypes struct {
+	// ExternalTextureParams is the handle of the NagaExternalTextureParams struct type.
+	ExternalTextureParams *TypeHandle
+
+	// ExternalTextureTransferFunction is the handle of the NagaExternalTextureTransferFn struct type.
+	ExternalTextureTransferFunction *TypeHandle
+
+	// RayIntersection is the handle of the RayIntersection struct type used by ray query get intersection expressions. Mirrors Rust naga SpecialTypes ray_intersection.
+	RayIntersection *TypeHandle
 }
+
+// Override represents a pipeline-overridable constant.
+// Mirrors Rust naga's Override struct.
+type Override struct {
+	// Name is the identifier name of the override.
+	Name string
+	// ID is the numeric @id attribute value, if specified.
+	// In Rust naga this is Option<u16>; we use *uint16 for nil-ability.
+	ID *uint16
+	// Ty is the type of this override (handle into Module.Types).
+	Ty TypeHandle
+	// Init is an optional handle into Module.GlobalExpressions that holds the
+	// default value expression. None if the override has no default.
+	Init *ExpressionHandle
+}
+
+// OverrideInitExpr represents a simplified expression for override init re-evaluation.
+// Used during pipeline constant processing to re-evaluate derived overrides.
+type OverrideInitExpr interface {
+	overrideInitExpr()
+}
+
+// OverrideInitLiteral represents a literal float value.
+type OverrideInitLiteral struct {
+	Value float64
+}
+
+func (OverrideInitLiteral) overrideInitExpr() {}
+
+// OverrideInitRef represents a reference to another override.
+type OverrideInitRef struct {
+	Handle OverrideHandle
+}
+
+func (OverrideInitRef) overrideInitExpr() {}
+
+// OverrideInitBinary represents a binary operation on two override init expressions.
+type OverrideInitBinary struct {
+	Op    BinaryOperator
+	Left  OverrideInitExpr
+	Right OverrideInitExpr
+}
+
+func (OverrideInitBinary) overrideInitExpr() {}
+
+// OverrideInitUnary represents a unary operation on an override init expression.
+type OverrideInitUnary struct {
+	Op   UnaryOperator
+	Expr OverrideInitExpr
+}
+
+func (OverrideInitUnary) overrideInitExpr() {}
+
+// OverrideInitBoolLiteral represents a literal bool value for override init.
+type OverrideInitBoolLiteral struct {
+	Value bool
+}
+
+func (OverrideInitBoolLiteral) overrideInitExpr() {}
+
+// OverrideInitUintLiteral represents a literal uint value for override init.
+type OverrideInitUintLiteral struct {
+	Value uint32
+}
+
+func (OverrideInitUintLiteral) overrideInitExpr() {}
+
+// EntryPoint represents a shader entry point.
+// The Function is stored inline (not via FunctionHandle) because Rust naga
+// keeps entry-point functions separate from Module.functions[].
+type EntryPoint struct {
+	Name           string
+	Stage          ShaderStage
+	Function       Function              // Inline function (NOT in Module.Functions[])
+	Workgroup      [3]uint32             // For compute/mesh/task shaders
+	EarlyDepthTest *EarlyDepthTest       // For fragment shaders with early depth testing
+	MeshInfo       *MeshStageInfo        // For mesh shaders
+	TaskPayload    *GlobalVariableHandle // For mesh/task shaders referencing task payload variable
+}
+
+// MeshOutputTopology specifies the primitive topology for mesh shader output.
+type MeshOutputTopology uint8
+
+const (
+	MeshTopologyPoints MeshOutputTopology = iota
+	MeshTopologyLines
+	MeshTopologyTriangles
+)
+
+// MeshStageInfo holds information specific to mesh shader entry points.
+type MeshStageInfo struct {
+	Topology              MeshOutputTopology
+	MaxVertices           uint32
+	MaxVerticesOverride   *ExpressionHandle
+	MaxPrimitives         uint32
+	MaxPrimitivesOverride *ExpressionHandle
+	VertexOutputType      TypeHandle
+	PrimitiveOutputType   TypeHandle
+	OutputVariable        GlobalVariableHandle
+}
+
+// EarlyDepthTest represents early fragment test configuration.
+type EarlyDepthTest struct {
+	Conservative ConservativeDepth
+}
+
+// ConservativeDepth specifies how the depth value may be modified.
+type ConservativeDepth uint8
+
+const (
+	// ConservativeDepthUnchanged means the depth value will not be modified.
+	ConservativeDepthUnchanged ConservativeDepth = iota
+	// ConservativeDepthGreaterEqual means the depth value may be increased.
+	ConservativeDepthGreaterEqual
+	// ConservativeDepthLessEqual means the depth value may be decreased.
+	ConservativeDepthLessEqual
+)
 
 // ShaderStage represents a shader stage.
 type ShaderStage uint8
 
 const (
 	StageVertex ShaderStage = iota
+	StageTask
+	StageMesh
 	StageFragment
 	StageCompute
 )
@@ -46,6 +202,7 @@ type (
 	FunctionHandle       uint32
 	GlobalVariableHandle uint32
 	ConstantHandle       uint32
+	OverrideHandle       uint32
 	ExpressionHandle     uint32
 )
 
@@ -76,6 +233,11 @@ const (
 	ScalarUint                    // Unsigned integer
 	ScalarFloat                   // Floating point
 	ScalarBool                    // Boolean
+
+	// Abstract types: used during WGSL lowering, removed by compact before backends.
+	// Matches Rust naga: forbidden by validation, never reach backends.
+	ScalarAbstractInt   // WGSL abstract integer (unsuffixed int literals)
+	ScalarAbstractFloat // WGSL abstract float (unsuffixed float literals)
 )
 
 // VectorType represents vector types.
@@ -142,6 +304,23 @@ type PointerType struct {
 
 func (PointerType) typeInner() {}
 
+// ValuePointerType represents a pointer to a scalar or vector value.
+// Unlike PointerType (whose Base is a TypeHandle in the arena), ValuePointerType
+// stores the pointee type inline. This exists only in TypeResolution — never in
+// the type arena. Matches Rust naga's TypeInner::ValuePointer.
+//
+// Produced by the typifier when accessing components through pointers:
+//   - Pointer<Matrix>[i] → ValuePointerType{Size: &rows, Scalar, Space} (pointer to column vector)
+//   - Pointer<Vector>[i] → ValuePointerType{Size: nil, Scalar, Space} (pointer to scalar)
+//   - ValuePointerType{Size: &s}[i] → ValuePointerType{Size: nil, Scalar, Space} (pointer to element)
+type ValuePointerType struct {
+	Size   *VectorSize // nil for pointer-to-scalar, non-nil for pointer-to-vector
+	Scalar ScalarType
+	Space  AddressSpace
+}
+
+func (ValuePointerType) typeInner() {}
+
 // AtomicType represents atomic types for thread-safe operations.
 type AtomicType struct {
 	Scalar ScalarType
@@ -158,6 +337,18 @@ type BindingArrayType struct {
 
 func (BindingArrayType) typeInner() {}
 
+// AccelerationStructureType represents an opaque acceleration structure for ray tracing.
+// In SPIR-V, this maps to OpTypeAccelerationStructureKHR.
+type AccelerationStructureType struct{}
+
+func (AccelerationStructureType) typeInner() {}
+
+// RayQueryType represents an opaque ray query handle for ray tracing.
+// In SPIR-V, this maps to OpTypeRayQueryKHR.
+type RayQueryType struct{}
+
+func (RayQueryType) typeInner() {}
+
 // AddressSpace represents memory address spaces.
 type AddressSpace uint8
 
@@ -169,6 +360,8 @@ const (
 	SpaceStorage
 	SpacePushConstant
 	SpaceHandle
+	SpaceImmediate
+	SpaceTaskPayload
 )
 
 // SamplerType represents sampler types.
@@ -184,6 +377,7 @@ type ImageType struct {
 	Arrayed       bool
 	Class         ImageClass
 	Multisampled  bool
+	SampledKind   ScalarKind    // Kind of values for sampled textures (only valid when Class == ImageClassSampled)
 	StorageFormat StorageFormat // Format for storage textures (only valid when Class == ImageClassStorage)
 	StorageAccess StorageAccess // Access mode for storage textures (only valid when Class == ImageClassStorage)
 }
@@ -206,6 +400,7 @@ type ImageClass uint8
 const (
 	ImageClassSampled ImageClass = iota
 	ImageClassDepth
+	ImageClassExternal
 	ImageClassStorage
 )
 
@@ -269,7 +464,32 @@ const (
 	StorageFormatRg16Snorm
 	StorageFormatRgba16Unorm
 	StorageFormatRgba16Snorm
+
+	// 64-bit storage formats (require Metal 3.1 for atomic textures)
+	StorageFormatR64Uint
+	StorageFormatR64Sint
 )
+
+// ScalarKind returns the scalar kind associated with this storage format.
+// Unorm/Snorm/Float formats return ScalarFloat, Uint formats return ScalarUint,
+// Sint formats return ScalarSint.
+func (f StorageFormat) ScalarKind() ScalarKind {
+	switch f {
+	case StorageFormatR8Uint, StorageFormatR16Uint, StorageFormatRg8Uint,
+		StorageFormatR32Uint, StorageFormatRg16Uint, StorageFormatRgba8Uint,
+		StorageFormatRgb10a2Uint, StorageFormatRg32Uint, StorageFormatRgba16Uint,
+		StorageFormatRgba32Uint, StorageFormatR64Uint:
+		return ScalarUint
+	case StorageFormatR8Sint, StorageFormatR16Sint, StorageFormatRg8Sint,
+		StorageFormatR32Sint, StorageFormatRg16Sint, StorageFormatRgba8Sint,
+		StorageFormatRg32Sint, StorageFormatRgba16Sint, StorageFormatRgba32Sint,
+		StorageFormatR64Sint:
+		return ScalarSint
+	default:
+		// All unorm, snorm, float, ufloat formats
+		return ScalarFloat
+	}
+}
 
 // StorageAccess represents access modes for storage textures.
 type StorageAccess uint8
@@ -278,6 +498,7 @@ const (
 	StorageAccessRead StorageAccess = iota
 	StorageAccessWrite
 	StorageAccessReadWrite
+	StorageAccessAtomic
 )
 
 // Constant represents a constant value.
@@ -285,6 +506,17 @@ type Constant struct {
 	Name  string
 	Type  TypeHandle
 	Value ConstantValue
+
+	// Init is a handle into Module.GlobalExpressions that holds the init expression
+	// for this constant. This mirrors Rust naga's Constant.init field.
+	// When GlobalExpressions is populated, this is the canonical init reference.
+	Init ExpressionHandle
+
+	// IsAbstract indicates this constant originated from a WGSL `const` declaration
+	// without an explicit type (e.g., `const ONE = 1;`). In Rust naga, such constants
+	// retain abstract types and are removed by the compact pass before reaching backends.
+	// The MSL writer should skip abstract constants.
+	IsAbstract bool
 }
 
 // ConstantValue represents constant values.
@@ -307,6 +539,24 @@ type CompositeValue struct {
 
 func (CompositeValue) constantValue() {}
 
+// ZeroConstantValue represents a zero-initialized constant.
+// In MSL, this renders as "type {}" (brace initialization).
+// Matches Rust naga's use of ZeroValue for constant init expressions.
+type ZeroConstantValue struct{}
+
+func (ZeroConstantValue) constantValue() {}
+
+// StorageAccessMode represents access modes for storage buffers.
+// This is separate from StorageAccess (used for storage textures).
+type StorageAccessMode uint8
+
+const (
+	// StorageReadWrite indicates read-write access (default for storage buffers).
+	StorageReadWrite StorageAccessMode = iota
+	// StorageRead indicates read-only access.
+	StorageRead
+)
+
 // GlobalVariable represents a global variable.
 type GlobalVariable struct {
 	Name    string
@@ -314,6 +564,14 @@ type GlobalVariable struct {
 	Binding *ResourceBinding
 	Type    TypeHandle
 	Init    *ConstantHandle
+	// InitExpr is an optional handle into Module.GlobalExpressions for the
+	// init expression. This mirrors Rust naga's GlobalVariable.init field.
+	// When set, this is the canonical init reference into GlobalExpressions.
+	InitExpr *ExpressionHandle
+	// Access stores the access mode for storage address space variables.
+	// Only meaningful when Space == SpaceStorage.
+	// Rust naga: Storage { access: StorageAccess::LOAD } vs Storage { access: StorageAccess::LOAD | StorageAccess::STORE }.
+	Access StorageAccessMode
 }
 
 // ResourceBinding represents a resource binding.
@@ -331,6 +589,13 @@ type Function struct {
 	Expressions     []Expression
 	ExpressionTypes []TypeResolution // Type of each expression (parallel to Expressions)
 	Body            []Statement
+
+	// NamedExpressions maps expression handles to user-given names.
+	// This is used for let bindings and phony assignments (_ = expr).
+	// Backends use these names when baking (materializing) expressions,
+	// producing e.g. "float a = ..." instead of "float _e3 = ...".
+	// Matches Rust naga's Function::named_expressions.
+	NamedExpressions map[ExpressionHandle]string
 }
 
 // FunctionArgument represents a function argument.
@@ -360,7 +625,8 @@ type Binding interface {
 
 // BuiltinBinding represents a built-in binding.
 type BuiltinBinding struct {
-	Builtin BuiltinValue
+	Builtin   BuiltinValue
+	Invariant bool // only meaningful for Position built-in
 }
 
 func (BuiltinBinding) binding() {}
@@ -381,12 +647,33 @@ const (
 	BuiltinGlobalInvocationID
 	BuiltinWorkGroupID
 	BuiltinNumWorkGroups
+	BuiltinNumSubgroups
+	BuiltinSubgroupID
+	BuiltinSubgroupSize
+	BuiltinSubgroupInvocationID
+	BuiltinBarycentric
+	BuiltinViewIndex
+	BuiltinPrimitiveIndex
+	BuiltinPointSize
+	BuiltinMeshTaskSize
+	BuiltinCullPrimitive
+	BuiltinPointIndex
+	BuiltinLineIndices
+	BuiltinTriangleIndices
+	BuiltinVertexCount
+	BuiltinVertices
+	BuiltinPrimitiveCount
+	BuiltinPrimitives
+	BuiltinClipDistance
 )
 
 // LocationBinding represents a location binding.
 type LocationBinding struct {
 	Location      uint32
 	Interpolation *Interpolation
+	// BlendSrc is the dual-source blending index (@blend_src attribute).
+	// Nil when not using dual-source blending.
+	BlendSrc *uint32
 }
 
 func (LocationBinding) binding() {}

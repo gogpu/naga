@@ -1,0 +1,26 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+constant int gb = 4;
+constant uint gc = 4u;
+constant float gd = 4.0;
+
+void const_in_fn(
+) {
+    return;
+}
+
+kernel void main_(
+) {
+    const_in_fn();
+    return;
+}

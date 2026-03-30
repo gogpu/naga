@@ -1,0 +1,602 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Atomic((
+                kind: Sint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(128),
+                stride: 8,
+            ),
+        ),
+        (
+            name: None,
+            inner: Atomic((
+                kind: Uint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 3,
+                size: Constant(128),
+                stride: 8,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: Some("__atomic_compare_exchange_result<Sint,8>"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("old_value"),
+                        ty: 5,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("exchanged"),
+                        ty: 6,
+                        binding: None,
+                        offset: 8,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 8,
+            )),
+        ),
+        (
+            name: Some("__atomic_compare_exchange_result<Uint,8>"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("old_value"),
+                        ty: 8,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("exchanged"),
+                        ty: 6,
+                        binding: None,
+                        offset: 8,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {
+            AtomicCompareExchangeWeakResult((
+                kind: Sint,
+                width: 8,
+            )): 7,
+            AtomicCompareExchangeWeakResult((
+                kind: Uint,
+                width: 8,
+            )): 9,
+        },
+    ),
+    constants: [
+        (
+            name: Some("SIZE"),
+            ty: 0,
+            init: 0,
+        ),
+    ],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("arr_i64"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("arr_u64"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 4,
+            init: None,
+        ),
+    ],
+    global_expressions: [
+        Literal(U32(128)),
+    ],
+    functions: [],
+    entry_points: [
+        (
+            name: "test_atomic_compare_exchange_i64",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("test_atomic_compare_exchange_i64"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("i"),
+                        ty: 0,
+                        init: Some(0),
+                    ),
+                    (
+                        name: Some("old"),
+                        ty: 5,
+                        init: None,
+                    ),
+                    (
+                        name: Some("exchanged"),
+                        ty: 6,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    Literal(U32(0)),
+                    LocalVariable(0),
+                    Load(
+                        pointer: 1,
+                    ),
+                    Constant(0),
+                    Binary(
+                        op: Less,
+                        left: 2,
+                        right: 3,
+                    ),
+                    GlobalVariable(0),
+                    Load(
+                        pointer: 1,
+                    ),
+                    Access(
+                        base: 5,
+                        index: 6,
+                    ),
+                    Load(
+                        pointer: 7,
+                    ),
+                    LocalVariable(1),
+                    Literal(Bool(false)),
+                    LocalVariable(2),
+                    Load(
+                        pointer: 11,
+                    ),
+                    Unary(
+                        op: LogicalNot,
+                        expr: 12,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Literal(I64(10)),
+                    Binary(
+                        op: Add,
+                        left: 14,
+                        right: 15,
+                    ),
+                    As(
+                        expr: 16,
+                        kind: Sint,
+                        convert: None,
+                    ),
+                    GlobalVariable(0),
+                    Load(
+                        pointer: 1,
+                    ),
+                    Access(
+                        base: 18,
+                        index: 19,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    AtomicResult(
+                        ty: 7,
+                        comparison: true,
+                    ),
+                    AccessIndex(
+                        base: 22,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 22,
+                        index: 1,
+                    ),
+                    Literal(U32(1)),
+                    Load(
+                        pointer: 1,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 26,
+                        right: 25,
+                    ),
+                ],
+                named_expressions: {
+                    17: "new_",
+                    22: "result",
+                },
+                body: [
+                    Loop(
+                        body: [
+                            Emit((
+                                start: 2,
+                                end: 3,
+                            )),
+                            Emit((
+                                start: 4,
+                                end: 5,
+                            )),
+                            If(
+                                condition: 4,
+                                accept: [],
+                                reject: [
+                                    Break,
+                                ],
+                            ),
+                            Block([
+                                Emit((
+                                    start: 6,
+                                    end: 9,
+                                )),
+                                Store(
+                                    pointer: 9,
+                                    value: 8,
+                                ),
+                                Store(
+                                    pointer: 11,
+                                    value: 10,
+                                ),
+                                Loop(
+                                    body: [
+                                        Emit((
+                                            start: 12,
+                                            end: 14,
+                                        )),
+                                        If(
+                                            condition: 13,
+                                            accept: [],
+                                            reject: [
+                                                Break,
+                                            ],
+                                        ),
+                                        Block([
+                                            Emit((
+                                                start: 14,
+                                                end: 15,
+                                            )),
+                                            Emit((
+                                                start: 16,
+                                                end: 18,
+                                            )),
+                                            Emit((
+                                                start: 19,
+                                                end: 22,
+                                            )),
+                                            Atomic(
+                                                pointer: 20,
+                                                fun: Exchange(
+                                                    compare: Some(21),
+                                                ),
+                                                value: 17,
+                                                result: Some(22),
+                                            ),
+                                            Emit((
+                                                start: 23,
+                                                end: 24,
+                                            )),
+                                            Store(
+                                                pointer: 9,
+                                                value: 23,
+                                            ),
+                                            Emit((
+                                                start: 24,
+                                                end: 25,
+                                            )),
+                                            Store(
+                                                pointer: 11,
+                                                value: 24,
+                                            ),
+                                        ]),
+                                    ],
+                                    continuing: [],
+                                    break_if: None,
+                                ),
+                            ]),
+                        ],
+                        continuing: [
+                            Emit((
+                                start: 26,
+                                end: 28,
+                            )),
+                            Store(
+                                pointer: 1,
+                                value: 27,
+                            ),
+                        ],
+                        break_if: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "test_atomic_compare_exchange_u64",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("test_atomic_compare_exchange_u64"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("i"),
+                        ty: 0,
+                        init: Some(0),
+                    ),
+                    (
+                        name: Some("old"),
+                        ty: 8,
+                        init: None,
+                    ),
+                    (
+                        name: Some("exchanged"),
+                        ty: 6,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    Literal(U32(0)),
+                    LocalVariable(0),
+                    Load(
+                        pointer: 1,
+                    ),
+                    Constant(0),
+                    Binary(
+                        op: Less,
+                        left: 2,
+                        right: 3,
+                    ),
+                    GlobalVariable(1),
+                    Load(
+                        pointer: 1,
+                    ),
+                    Access(
+                        base: 5,
+                        index: 6,
+                    ),
+                    Load(
+                        pointer: 7,
+                    ),
+                    LocalVariable(1),
+                    Literal(Bool(false)),
+                    LocalVariable(2),
+                    Load(
+                        pointer: 11,
+                    ),
+                    Unary(
+                        op: LogicalNot,
+                        expr: 12,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Literal(U64(10)),
+                    Binary(
+                        op: Add,
+                        left: 14,
+                        right: 15,
+                    ),
+                    As(
+                        expr: 16,
+                        kind: Uint,
+                        convert: None,
+                    ),
+                    GlobalVariable(1),
+                    Load(
+                        pointer: 1,
+                    ),
+                    Access(
+                        base: 18,
+                        index: 19,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    AtomicResult(
+                        ty: 9,
+                        comparison: true,
+                    ),
+                    AccessIndex(
+                        base: 22,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 22,
+                        index: 1,
+                    ),
+                    Literal(U32(1)),
+                    Load(
+                        pointer: 1,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 26,
+                        right: 25,
+                    ),
+                ],
+                named_expressions: {
+                    17: "new_",
+                    22: "result",
+                },
+                body: [
+                    Loop(
+                        body: [
+                            Emit((
+                                start: 2,
+                                end: 3,
+                            )),
+                            Emit((
+                                start: 4,
+                                end: 5,
+                            )),
+                            If(
+                                condition: 4,
+                                accept: [],
+                                reject: [
+                                    Break,
+                                ],
+                            ),
+                            Block([
+                                Emit((
+                                    start: 6,
+                                    end: 9,
+                                )),
+                                Store(
+                                    pointer: 9,
+                                    value: 8,
+                                ),
+                                Store(
+                                    pointer: 11,
+                                    value: 10,
+                                ),
+                                Loop(
+                                    body: [
+                                        Emit((
+                                            start: 12,
+                                            end: 14,
+                                        )),
+                                        If(
+                                            condition: 13,
+                                            accept: [],
+                                            reject: [
+                                                Break,
+                                            ],
+                                        ),
+                                        Block([
+                                            Emit((
+                                                start: 14,
+                                                end: 15,
+                                            )),
+                                            Emit((
+                                                start: 16,
+                                                end: 18,
+                                            )),
+                                            Emit((
+                                                start: 19,
+                                                end: 22,
+                                            )),
+                                            Atomic(
+                                                pointer: 20,
+                                                fun: Exchange(
+                                                    compare: Some(21),
+                                                ),
+                                                value: 17,
+                                                result: Some(22),
+                                            ),
+                                            Emit((
+                                                start: 23,
+                                                end: 24,
+                                            )),
+                                            Store(
+                                                pointer: 9,
+                                                value: 23,
+                                            ),
+                                            Emit((
+                                                start: 24,
+                                                end: 25,
+                                            )),
+                                            Store(
+                                                pointer: 11,
+                                                value: 24,
+                                            ),
+                                        ]),
+                                    ],
+                                    continuing: [],
+                                    break_if: None,
+                                ),
+                            ]),
+                        ],
+                        continuing: [
+                            Emit((
+                                start: 26,
+                                end: 28,
+                            )),
+                            Store(
+                                pointer: 1,
+                                value: 27,
+                            ),
+                        ],
+                        break_if: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

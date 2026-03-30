@@ -1,0 +1,53 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 35
+; Schema: 0
+
+               OpCapability Shader
+               OpCapability SampledBuffer
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %_15 "fragment" %_13
+               OpExecutionMode %_15 OriginUpperLeft
+               OpDecorate %_9 DescriptorSet 0
+               OpDecorate %_9 Binding 4
+               OpDecorate %_11 DescriptorSet 0
+               OpDecorate %_11 Binding 5
+               OpDecorate %_13 Location 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeImage %_3 Cube 1 1 0 1 Unknown
+         %_5 = OpTypeSampler
+         %_6 = OpTypeVector %_3 4
+         %_7 = OpTypeVector %_3 3
+         %_8 = OpTypePointer UniformConstant %_4
+         %_10 = OpTypePointer UniformConstant %_5
+         %_12 = OpTypePointer Output %_6
+         %_14 = OpTypeFunction %_2
+         %_17 = OpConstant %_3 1065353216
+         %_18 = OpConstant %_3 1065353216
+         %_19 = OpConstant %_3 1073741824
+         %_23 = OpTypeInt 32 1
+         %_24 = OpConstant %_23 1
+         %_27 = OpTypeSampledImage %_4
+         %_30 = OpConstant %_3 1065353216
+         %_31 = OpConstant %_3 1065353216
+         %_32 = OpConstant %_3 1065353216
+         %_33 = OpConstant %_3 1065353216
+         %_9 = OpVariable %_8 UniformConstant
+         %_11 = OpVariable %_10 UniformConstant
+         %_13 = OpVariable %_12 Output
+         %_15 = OpFunction %_2 None %_14
+         %_16 = OpLabel
+         %_20 = OpCompositeConstruct %_7 %_17 %_18 %_19
+         %_21 = OpLoad %_4 %_9
+         %_22 = OpLoad %_5 %_11
+         %_25 = OpConvertSToF %_3 %_24
+         %_26 = OpCompositeConstruct %_6 %_20 %_25
+         %_28 = OpSampledImage %_27 %_21 %_22
+         %_29 = OpImageSampleDrefImplicitLod %_6 %_28 %_26 %_30
+         %_34 = OpCompositeConstruct %_6 %_29 %_31 %_32 %_33
+               OpStore %_13 %_34
+               OpReturn
+               OpFunctionEnd

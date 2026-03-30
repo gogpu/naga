@@ -1,27 +1,35 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
-}
 
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
-}
-
-kernel void main_(metal::uint3 gid [[thread_position_in_grid]],
-    metal::texture2d<float, metal::access::read_write> output_tex [[texture(0)]]) {
-    if (((gid[0] >= output_tex.get_width()[0]) || (gid[1] >= output_tex.get_width()[1]))) {
+struct main_Input {
+};
+kernel void main_(
+  metal::uint3 gid [[thread_position_in_grid]]
+, metal::texture2d<float, metal::access::write> output_tex [[user(fake0)]]
+) {
+    bool local = {};
+    metal::uint2 dims = metal::uint2(output_tex.get_width(), output_tex.get_height());
+    if (!(gid.x >= dims.x)) {
+        local = gid.y >= dims.y;
+    } else {
+        local = true;
+    }
+    bool _e13 = local;
+    if (_e13) {
         return;
     }
-    output_tex.write(metal::float4(metal::float2((float(gid[0]) / float(output_tex.get_width()[0])), (float(gid[1]) / float(output_tex.get_width()[1])))[0], metal::float2((float(gid[0]) / float(output_tex.get_width()[0])), (float(gid[1]) / float(output_tex.get_width()[1])))[1], 0.5, 1.0), uint2(int(gid.xy)));
+    metal::float2 uv = metal::float2(static_cast<float>(gid.x) / static_cast<float>(dims.x), static_cast<float>(gid.y) / static_cast<float>(dims.y));
+    metal::float4 color = metal::float4(uv.x, uv.y, 0.5, 1.0);
+    output_tex.write(color, metal::uint2(static_cast<metal::int2>(gid.xy)));
+    return;
 }
-

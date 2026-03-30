@@ -1,0 +1,165 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Image(
+                dim: Cube,
+                arrayed: true,
+                class: Depth(
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Sampler(
+                comparison: true,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("point_shadow_textures"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 4,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("point_shadow_textures_sampler"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 5,
+            )),
+            ty: 1,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "fragment",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fragment"),
+                arguments: [],
+                result: Some((
+                    ty: 2,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(2.0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            0,
+                            1,
+                            2,
+                        ],
+                    ),
+                    GlobalVariable(0),
+                    GlobalVariable(1),
+                    Literal(I32(1)),
+                    Literal(F32(1.0)),
+                    ImageSample(
+                        image: 4,
+                        sampler: 5,
+                        gather: None,
+                        coordinate: 3,
+                        array_index: Some(6),
+                        offset: None,
+                        level: Auto,
+                        depth_ref: Some(7),
+                        clamp_to_edge: false,
+                    ),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            8,
+                            9,
+                            10,
+                            11,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    3: "frag_ls",
+                    8: "a",
+                },
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 8,
+                        end: 9,
+                    )),
+                    Emit((
+                        start: 12,
+                        end: 13,
+                    )),
+                    Return(
+                        value: Some(12),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

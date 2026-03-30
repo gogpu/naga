@@ -1,0 +1,364 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("VertexOutput"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("uv"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("position"),
+                        ty: 2,
+                        binding: Some(BuiltIn(Position(
+                            invariant: false,
+                        ))),
+                        offset: 16,
+                    ),
+                ],
+                span: 32,
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Sampler(
+                comparison: false,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("c_scale"),
+            ty: 0,
+            init: 0,
+        ),
+    ],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("u_texture"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 4,
+            init: None,
+        ),
+        (
+            name: Some("u_sampler"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 5,
+            init: None,
+        ),
+    ],
+    global_expressions: [
+        Literal(F32(1.2)),
+    ],
+    functions: [],
+    entry_points: [
+        (
+            name: "vert_main",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("vert_main"),
+                arguments: [
+                    (
+                        name: Some("pos"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                    (
+                        name: Some("uv"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                ],
+                result: Some((
+                    ty: 3,
+                    binding: None,
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    Constant(0),
+                    Binary(
+                        op: Multiply,
+                        left: 2,
+                        right: 0,
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            3,
+                            4,
+                            5,
+                        ],
+                    ),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            1,
+                            6,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "pos",
+                    1: "uv",
+                },
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 8,
+                    )),
+                    Return(
+                        value: Some(7),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "frag_main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("frag_main"),
+                arguments: [
+                    (
+                        name: Some("uv"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                ],
+                result: Some((
+                    ty: 2,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    GlobalVariable(0),
+                    GlobalVariable(1),
+                    ImageSample(
+                        image: 1,
+                        sampler: 2,
+                        gather: None,
+                        coordinate: 0,
+                        array_index: None,
+                        offset: None,
+                        level: Auto,
+                        depth_ref: None,
+                        clamp_to_edge: false,
+                    ),
+                    AccessIndex(
+                        base: 3,
+                        index: 3,
+                    ),
+                    Literal(F32(0.0)),
+                    Binary(
+                        op: Equal,
+                        left: 4,
+                        right: 5,
+                    ),
+                    AccessIndex(
+                        base: 3,
+                        index: 3,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 7,
+                        right: 3,
+                    ),
+                ],
+                named_expressions: {
+                    0: "uv",
+                    3: "color",
+                    8: "premultiplied",
+                },
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 7,
+                    )),
+                    If(
+                        condition: 6,
+                        accept: [
+                            Kill,
+                        ],
+                        reject: [],
+                    ),
+                    Emit((
+                        start: 7,
+                        end: 9,
+                    )),
+                    Return(
+                        value: Some(8),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "fs_extra",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fs_extra"),
+                arguments: [],
+                result: Some((
+                    ty: 2,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    Literal(F32(0.0)),
+                    Literal(F32(0.5)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.5)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            0,
+                            1,
+                            2,
+                            3,
+                        ],
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Return(
+                        value: Some(4),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

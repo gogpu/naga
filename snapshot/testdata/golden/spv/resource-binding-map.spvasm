@@ -1,0 +1,110 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 68
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %_27 "entry_point_one" %_21 %_23
+               OpEntryPoint Fragment %_36 "entry_point_two" %_24
+               OpEntryPoint Fragment %_47 "entry_point_three" %_25
+               OpExecutionMode %_27 OriginUpperLeft
+               OpExecutionMode %_36 OriginUpperLeft
+               OpExecutionMode %_47 OriginUpperLeft
+               OpDecorate %_9 DescriptorSet 0
+               OpDecorate %_9 Binding 0
+               OpDecorate %_10 DescriptorSet 0
+               OpDecorate %_10 Binding 1
+               OpDecorate %_12 DescriptorSet 0
+               OpDecorate %_12 Binding 2
+               OpDecorate %_13 DescriptorSet 0
+               OpDecorate %_13 Binding 3
+               OpDecorate %_14 Block
+               OpMemberDecorate %_14 0 Offset 0
+               OpDecorate %_16 DescriptorSet 0
+               OpDecorate %_16 Binding 4
+               OpDecorate %_17 Block
+               OpMemberDecorate %_17 0 Offset 0
+               OpDecorate %_19 DescriptorSet 1
+               OpDecorate %_19 Binding 0
+               OpDecorate %_21 BuiltIn PointCoord
+               OpDecorate %_23 Location 0
+               OpDecorate %_24 Location 0
+               OpDecorate %_25 Location 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeImage %_3 2D 0 0 0 1 Unknown
+         %_5 = OpTypeSampler
+         %_6 = OpTypeVector %_3 2
+         %_7 = OpTypeVector %_3 4
+         %_8 = OpTypePointer UniformConstant %_4
+         %_11 = OpTypePointer UniformConstant %_5
+         %_14 = OpTypeStruct %_6
+         %_15 = OpTypePointer Uniform %_14
+         %_17 = OpTypeStruct %_6
+         %_18 = OpTypePointer Uniform %_17
+         %_20 = OpTypePointer Input %_7
+         %_22 = OpTypePointer Output %_7
+         %_26 = OpTypeFunction %_2
+         %_33 = OpTypeSampledImage %_4
+         %_38 = OpTypePointer Uniform %_6
+         %_39 = OpTypeInt 32 0
+         %_40 = OpConstant %_39 0
+         %_49 = OpConstant %_39 0
+         %_52 = OpConstant %_39 0
+         %_60 = OpConstant %_39 0
+         %_9 = OpVariable %_8 UniformConstant
+         %_10 = OpVariable %_8 UniformConstant
+         %_12 = OpVariable %_11 UniformConstant
+         %_13 = OpVariable %_11 UniformConstant
+         %_16 = OpVariable %_15 Uniform
+         %_19 = OpVariable %_18 Uniform
+         %_21 = OpVariable %_20 Input
+         %_23 = OpVariable %_22 Output
+         %_24 = OpVariable %_22 Output
+         %_25 = OpVariable %_22 Output
+         %_27 = OpFunction %_2 None %_26
+         %_28 = OpLabel
+         %_29 = OpLoad %_7 %_21
+         %_30 = OpVectorShuffle %_6 %_29 %_29 0 1
+         %_31 = OpLoad %_4 %_9
+         %_32 = OpLoad %_5 %_12
+         %_34 = OpSampledImage %_33 %_31 %_32
+         %_35 = OpImageSampleImplicitLod %_7 %_34 %_30
+               OpStore %_23 %_35
+               OpReturn
+               OpFunctionEnd
+         %_36 = OpFunction %_2 None %_26
+         %_37 = OpLabel
+         %_41 = OpAccessChain %_38 %_16 %_40
+         %_42 = OpLoad %_6 %_41
+         %_43 = OpLoad %_4 %_9
+         %_44 = OpLoad %_5 %_12
+         %_45 = OpSampledImage %_33 %_43 %_44
+         %_46 = OpImageSampleImplicitLod %_7 %_45 %_42
+               OpStore %_24 %_46
+               OpReturn
+               OpFunctionEnd
+         %_47 = OpFunction %_2 None %_26
+         %_48 = OpLabel
+         %_50 = OpAccessChain %_38 %_19 %_49
+         %_51 = OpLoad %_6 %_50
+         %_53 = OpAccessChain %_38 %_16 %_52
+         %_54 = OpLoad %_6 %_53
+         %_55 = OpFAdd %_6 %_51 %_54
+         %_56 = OpLoad %_4 %_9
+         %_57 = OpLoad %_5 %_12
+         %_58 = OpSampledImage %_33 %_56 %_57
+         %_59 = OpImageSampleImplicitLod %_7 %_58 %_55
+         %_61 = OpAccessChain %_38 %_16 %_60
+         %_62 = OpLoad %_6 %_61
+         %_63 = OpLoad %_4 %_10
+         %_64 = OpLoad %_5 %_13
+         %_65 = OpSampledImage %_33 %_63 %_64
+         %_66 = OpImageSampleImplicitLod %_7 %_65 %_62
+         %_67 = OpFAdd %_7 %_59 %_66
+               OpStore %_25 %_67
+               OpReturn
+               OpFunctionEnd

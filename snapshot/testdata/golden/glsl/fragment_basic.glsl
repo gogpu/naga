@@ -1,9 +1,10 @@
 #version 330 core
-#extension GL_ARB_separate_shader_objects : enable
-
-layout(location = 0) in vec4 color;
-layout(location = 0) out vec4 fragColor;
+smooth in vec4 _vs2fs_location0;
+layout(location = 0) out vec4 _fs2p_location0;
 
 void main() {
-    fragColor = color;
+    vec4 color = _vs2fs_location0;
+    _fs2p_location0 = color;
+    return;
 }
+

@@ -193,9 +193,6 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}
-	if len(module.Functions) != 1 {
-		t.Errorf("Expected 1 function in IR, got %d", len(module.Functions))
-	}
 	if len(module.EntryPoints) != 1 {
 		t.Errorf("Expected 1 entry point, got %d", len(module.EntryPoints))
 	}
@@ -401,9 +398,6 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 	module, err := Lower(ast)
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
-	}
-	if len(module.Functions) != 1 {
-		t.Errorf("Expected 1 function in IR, got %d", len(module.Functions))
 	}
 	if len(module.EntryPoints) != 1 {
 		t.Errorf("Expected 1 entry point, got %d", len(module.EntryPoints))

@@ -1,0 +1,208 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "vs_main",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("vs_main"),
+                arguments: [
+                    (
+                        name: Some("in_vertex_index"),
+                        ty: 0,
+                        binding: Some(BuiltIn(VertexIndex)),
+                    ),
+                ],
+                result: Some((
+                    ty: 1,
+                    binding: Some(BuiltIn(Position(
+                        invariant: false,
+                    ))),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    As(
+                        expr: 0,
+                        kind: Sint,
+                        convert: Some(4),
+                    ),
+                    Literal(I32(1)),
+                    Binary(
+                        op: Subtract,
+                        left: 1,
+                        right: 2,
+                    ),
+                    As(
+                        expr: 3,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Literal(U32(1)),
+                    Binary(
+                        op: And,
+                        left: 0,
+                        right: 5,
+                    ),
+                    As(
+                        expr: 6,
+                        kind: Sint,
+                        convert: Some(4),
+                    ),
+                    Literal(I32(2)),
+                    Binary(
+                        op: Multiply,
+                        left: 7,
+                        right: 8,
+                    ),
+                    Literal(I32(1)),
+                    Binary(
+                        op: Subtract,
+                        left: 9,
+                        right: 10,
+                    ),
+                    As(
+                        expr: 11,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            4,
+                            12,
+                            13,
+                            14,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "in_vertex_index",
+                    4: "x",
+                    12: "y",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 8,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 13,
+                    )),
+                    Emit((
+                        start: 15,
+                        end: 16,
+                    )),
+                    Return(
+                        value: Some(15),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "fs_main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fs_main"),
+                arguments: [],
+                result: Some((
+                    ty: 1,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    Literal(F32(1.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            0,
+                            1,
+                            2,
+                            3,
+                        ],
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Return(
+                        value: Some(4),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

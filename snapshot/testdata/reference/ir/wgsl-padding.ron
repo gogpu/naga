@@ -1,0 +1,262 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("S"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("a"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+        (
+            name: Some("Test"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("a"),
+                        ty: 2,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("b"),
+                        ty: 0,
+                        binding: None,
+                        offset: 16,
+                    ),
+                ],
+                span: 32,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(2),
+                stride: 16,
+            ),
+        ),
+        (
+            name: Some("Test2"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("a"),
+                        ty: 4,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("b"),
+                        ty: 0,
+                        binding: None,
+                        offset: 32,
+                    ),
+                ],
+                span: 48,
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Quad,
+                rows: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("Test3"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("a"),
+                        ty: 6,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("b"),
+                        ty: 0,
+                        binding: None,
+                        offset: 64,
+                    ),
+                ],
+                span: 80,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("input1"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 3,
+            init: None,
+        ),
+        (
+            name: Some("input2"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 5,
+            init: None,
+        ),
+        (
+            name: Some("input3"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 7,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "vertex",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("vertex"),
+                arguments: [],
+                result: Some((
+                    ty: 8,
+                    binding: Some(BuiltIn(Position(
+                        invariant: false,
+                    ))),
+                )),
+                local_variables: [],
+                expressions: [
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Quad,
+                        value: 0,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 2,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 3,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 1,
+                        right: 4,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 6,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 7,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 5,
+                        right: 8,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 10,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 11,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 9,
+                        right: 12,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 6,
+                    )),
+                    Emit((
+                        start: 7,
+                        end: 10,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 14,
+                    )),
+                    Return(
+                        value: Some(13),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

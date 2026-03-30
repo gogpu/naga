@@ -1,0 +1,53 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _mslBufferSizes {
+    uint size1;
+};
+
+typedef uint type_1[1];
+struct T {
+    uint t;
+    char _pad1[12];
+};
+struct type_2 {
+    T inner[1];
+};
+
+kernel void main_(
+  device uint const& in [[user(fake0)]]
+, device type_1& out [[user(fake0)]]
+, constant type_2& in_data_uniform [[user(fake0)]]
+, device type_2 const& in_data_storage_g0_b3_ [[user(fake0)]]
+, device type_2 const& in_data_storage_g0_b4_ [[user(fake0)]]
+, device type_2 const& in_data_storage_g1_b0_ [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    uint i = in;
+    uint _e7 = uint(i) < 1 ? in_data_uniform.inner[i].t : DefaultConstructible();
+    if (uint(0) < 1 + (_buffer_sizes.size1 - 0 - 4) / 4) {
+        out[0] = _e7;
+    }
+    uint _e13 = uint(i) < 1 ? in_data_storage_g0_b3_.inner[i].t : DefaultConstructible();
+    if (uint(1) < 1 + (_buffer_sizes.size1 - 0 - 4) / 4) {
+        out[1] = _e13;
+    }
+    uint _e19 = uint(i) < 1 ? in_data_storage_g0_b4_.inner[i].t : DefaultConstructible();
+    if (uint(2) < 1 + (_buffer_sizes.size1 - 0 - 4) / 4) {
+        out[2] = _e19;
+    }
+    uint _e25 = uint(i) < 1 ? in_data_storage_g1_b0_.inner[i].t : DefaultConstructible();
+    if (uint(3) < 1 + (_buffer_sizes.size1 - 0 - 4) / 4) {
+        out[3] = _e25;
+    }
+    return;
+}

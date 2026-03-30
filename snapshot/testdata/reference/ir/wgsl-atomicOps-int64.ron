@@ -1,0 +1,1891 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Atomic((
+                kind: Uint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Atomic((
+                kind: Sint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(2),
+                stride: 8,
+            ),
+        ),
+        (
+            name: Some("Struct"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("atomic_scalar"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("atomic_arr"),
+                        ty: 2,
+                        binding: None,
+                        offset: 8,
+                    ),
+                ],
+                span: 24,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: Some("__atomic_compare_exchange_result<Uint,8>"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("old_value"),
+                        ty: 5,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("exchanged"),
+                        ty: 7,
+                        binding: None,
+                        offset: 8,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+        (
+            name: Some("__atomic_compare_exchange_result<Sint,8>"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("old_value"),
+                        ty: 6,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("exchanged"),
+                        ty: 7,
+                        binding: None,
+                        offset: 8,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {
+            AtomicCompareExchangeWeakResult((
+                kind: Uint,
+                width: 8,
+            )): 8,
+            AtomicCompareExchangeWeakResult((
+                kind: Sint,
+                width: 8,
+            )): 9,
+        },
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("storage_atomic_scalar"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("storage_atomic_arr"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("storage_struct"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 3,
+            init: None,
+        ),
+        (
+            name: Some("workgroup_atomic_scalar"),
+            space: WorkGroup,
+            binding: None,
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("workgroup_atomic_arr"),
+            space: WorkGroup,
+            binding: None,
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("workgroup_struct"),
+            space: WorkGroup,
+            binding: None,
+            ty: 3,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "cs_main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (2, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("cs_main"),
+                arguments: [
+                    (
+                        name: Some("id"),
+                        ty: 4,
+                        binding: Some(BuiltIn(LocalInvocationId)),
+                    ),
+                ],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 3,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 6,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 9,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 10,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 15,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 18,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 21,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 22,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(0),
+                    Load(
+                        pointer: 25,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 27,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 28,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 30,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 31,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 33,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 34,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 35,
+                    ),
+                    GlobalVariable(3),
+                    Load(
+                        pointer: 37,
+                    ),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 39,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 40,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 42,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 43,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 45,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 46,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 47,
+                    ),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 52,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 56,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 60,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 61,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 68,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 72,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 76,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 77,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 84,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 88,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 92,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 93,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 100,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 104,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 108,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 109,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 115,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 118,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 121,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 122,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 127,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 130,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 133,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 134,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 139,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 142,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 145,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 146,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 151,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 154,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 157,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 158,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 164,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 168,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 172,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 173,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 180,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 184,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 188,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 189,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 196,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 200,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 204,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 205,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 212,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 216,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 220,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 221,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 228,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 232,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 236,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 237,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 244,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 248,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 252,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 253,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 260,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 264,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 268,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 269,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 276,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 280,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    AtomicResult(
+                        ty: 5,
+                        comparison: false,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 284,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 285,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    AtomicResult(
+                        ty: 6,
+                        comparison: false,
+                    ),
+                    GlobalVariable(0),
+                    Literal(U64(1)),
+                    Literal(U64(2)),
+                    AtomicResult(
+                        ty: 8,
+                        comparison: true,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 293,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    Literal(I64(2)),
+                    AtomicResult(
+                        ty: 9,
+                        comparison: true,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 298,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    Literal(U64(2)),
+                    AtomicResult(
+                        ty: 8,
+                        comparison: true,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 303,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 304,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    Literal(I64(2)),
+                    AtomicResult(
+                        ty: 9,
+                        comparison: true,
+                    ),
+                    GlobalVariable(3),
+                    Literal(U64(1)),
+                    Literal(U64(2)),
+                    AtomicResult(
+                        ty: 8,
+                        comparison: true,
+                    ),
+                    GlobalVariable(4),
+                    AccessIndex(
+                        base: 313,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    Literal(I64(2)),
+                    AtomicResult(
+                        ty: 9,
+                        comparison: true,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 318,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    Literal(U64(2)),
+                    AtomicResult(
+                        ty: 8,
+                        comparison: true,
+                    ),
+                    GlobalVariable(5),
+                    AccessIndex(
+                        base: 323,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 324,
+                        index: 1,
+                    ),
+                    Literal(I64(1)),
+                    Literal(I64(2)),
+                    AtomicResult(
+                        ty: 9,
+                        comparison: true,
+                    ),
+                ],
+                named_expressions: {
+                    0: "id",
+                    26: "l0",
+                    29: "l1",
+                    32: "l2",
+                    36: "l3",
+                    38: "l4",
+                    41: "l5",
+                    44: "l6",
+                    48: "l7",
+                    292: "cas_res_0",
+                    297: "cas_res_1",
+                    302: "cas_res_2",
+                    308: "cas_res_3",
+                    312: "cas_res_4",
+                    317: "cas_res_5",
+                    322: "cas_res_6",
+                    328: "cas_res_7",
+                },
+                body: [
+                    Store(
+                        pointer: 1,
+                        value: 2,
+                    ),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Store(
+                        pointer: 4,
+                        value: 5,
+                    ),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Store(
+                        pointer: 7,
+                        value: 8,
+                    ),
+                    Emit((
+                        start: 10,
+                        end: 11,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Store(
+                        pointer: 11,
+                        value: 12,
+                    ),
+                    Store(
+                        pointer: 13,
+                        value: 14,
+                    ),
+                    Emit((
+                        start: 16,
+                        end: 17,
+                    )),
+                    Store(
+                        pointer: 16,
+                        value: 17,
+                    ),
+                    Emit((
+                        start: 19,
+                        end: 20,
+                    )),
+                    Store(
+                        pointer: 19,
+                        value: 20,
+                    ),
+                    Emit((
+                        start: 22,
+                        end: 23,
+                    )),
+                    Emit((
+                        start: 23,
+                        end: 24,
+                    )),
+                    Store(
+                        pointer: 23,
+                        value: 24,
+                    ),
+                    ControlBarrier(("WORK_GROUP")),
+                    Emit((
+                        start: 26,
+                        end: 27,
+                    )),
+                    Emit((
+                        start: 28,
+                        end: 30,
+                    )),
+                    Emit((
+                        start: 31,
+                        end: 33,
+                    )),
+                    Emit((
+                        start: 34,
+                        end: 35,
+                    )),
+                    Emit((
+                        start: 35,
+                        end: 37,
+                    )),
+                    Emit((
+                        start: 38,
+                        end: 39,
+                    )),
+                    Emit((
+                        start: 40,
+                        end: 42,
+                    )),
+                    Emit((
+                        start: 43,
+                        end: 45,
+                    )),
+                    Emit((
+                        start: 46,
+                        end: 47,
+                    )),
+                    Emit((
+                        start: 47,
+                        end: 49,
+                    )),
+                    ControlBarrier(("WORK_GROUP")),
+                    Atomic(
+                        pointer: 49,
+                        fun: Add,
+                        value: 50,
+                        result: Some(51),
+                    ),
+                    Emit((
+                        start: 53,
+                        end: 54,
+                    )),
+                    Atomic(
+                        pointer: 53,
+                        fun: Add,
+                        value: 54,
+                        result: Some(55),
+                    ),
+                    Emit((
+                        start: 57,
+                        end: 58,
+                    )),
+                    Atomic(
+                        pointer: 57,
+                        fun: Add,
+                        value: 58,
+                        result: Some(59),
+                    ),
+                    Emit((
+                        start: 61,
+                        end: 62,
+                    )),
+                    Emit((
+                        start: 62,
+                        end: 63,
+                    )),
+                    Atomic(
+                        pointer: 62,
+                        fun: Add,
+                        value: 63,
+                        result: Some(64),
+                    ),
+                    Atomic(
+                        pointer: 65,
+                        fun: Add,
+                        value: 66,
+                        result: Some(67),
+                    ),
+                    Emit((
+                        start: 69,
+                        end: 70,
+                    )),
+                    Atomic(
+                        pointer: 69,
+                        fun: Add,
+                        value: 70,
+                        result: Some(71),
+                    ),
+                    Emit((
+                        start: 73,
+                        end: 74,
+                    )),
+                    Atomic(
+                        pointer: 73,
+                        fun: Add,
+                        value: 74,
+                        result: Some(75),
+                    ),
+                    Emit((
+                        start: 77,
+                        end: 78,
+                    )),
+                    Emit((
+                        start: 78,
+                        end: 79,
+                    )),
+                    Atomic(
+                        pointer: 78,
+                        fun: Add,
+                        value: 79,
+                        result: Some(80),
+                    ),
+                    ControlBarrier(("WORK_GROUP")),
+                    Atomic(
+                        pointer: 81,
+                        fun: Subtract,
+                        value: 82,
+                        result: Some(83),
+                    ),
+                    Emit((
+                        start: 85,
+                        end: 86,
+                    )),
+                    Atomic(
+                        pointer: 85,
+                        fun: Subtract,
+                        value: 86,
+                        result: Some(87),
+                    ),
+                    Emit((
+                        start: 89,
+                        end: 90,
+                    )),
+                    Atomic(
+                        pointer: 89,
+                        fun: Subtract,
+                        value: 90,
+                        result: Some(91),
+                    ),
+                    Emit((
+                        start: 93,
+                        end: 94,
+                    )),
+                    Emit((
+                        start: 94,
+                        end: 95,
+                    )),
+                    Atomic(
+                        pointer: 94,
+                        fun: Subtract,
+                        value: 95,
+                        result: Some(96),
+                    ),
+                    Atomic(
+                        pointer: 97,
+                        fun: Subtract,
+                        value: 98,
+                        result: Some(99),
+                    ),
+                    Emit((
+                        start: 101,
+                        end: 102,
+                    )),
+                    Atomic(
+                        pointer: 101,
+                        fun: Subtract,
+                        value: 102,
+                        result: Some(103),
+                    ),
+                    Emit((
+                        start: 105,
+                        end: 106,
+                    )),
+                    Atomic(
+                        pointer: 105,
+                        fun: Subtract,
+                        value: 106,
+                        result: Some(107),
+                    ),
+                    Emit((
+                        start: 109,
+                        end: 110,
+                    )),
+                    Emit((
+                        start: 110,
+                        end: 111,
+                    )),
+                    Atomic(
+                        pointer: 110,
+                        fun: Subtract,
+                        value: 111,
+                        result: Some(112),
+                    ),
+                    ControlBarrier(("WORK_GROUP")),
+                    Atomic(
+                        pointer: 113,
+                        fun: Max,
+                        value: 114,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 116,
+                        end: 117,
+                    )),
+                    Atomic(
+                        pointer: 116,
+                        fun: Max,
+                        value: 117,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 119,
+                        end: 120,
+                    )),
+                    Atomic(
+                        pointer: 119,
+                        fun: Max,
+                        value: 120,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 122,
+                        end: 123,
+                    )),
+                    Emit((
+                        start: 123,
+                        end: 124,
+                    )),
+                    Atomic(
+                        pointer: 123,
+                        fun: Max,
+                        value: 124,
+                        result: None,
+                    ),
+                    Atomic(
+                        pointer: 125,
+                        fun: Max,
+                        value: 126,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 128,
+                        end: 129,
+                    )),
+                    Atomic(
+                        pointer: 128,
+                        fun: Max,
+                        value: 129,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 131,
+                        end: 132,
+                    )),
+                    Atomic(
+                        pointer: 131,
+                        fun: Max,
+                        value: 132,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 134,
+                        end: 135,
+                    )),
+                    Emit((
+                        start: 135,
+                        end: 136,
+                    )),
+                    Atomic(
+                        pointer: 135,
+                        fun: Max,
+                        value: 136,
+                        result: None,
+                    ),
+                    ControlBarrier(("WORK_GROUP")),
+                    Atomic(
+                        pointer: 137,
+                        fun: Min,
+                        value: 138,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 140,
+                        end: 141,
+                    )),
+                    Atomic(
+                        pointer: 140,
+                        fun: Min,
+                        value: 141,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 143,
+                        end: 144,
+                    )),
+                    Atomic(
+                        pointer: 143,
+                        fun: Min,
+                        value: 144,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 146,
+                        end: 147,
+                    )),
+                    Emit((
+                        start: 147,
+                        end: 148,
+                    )),
+                    Atomic(
+                        pointer: 147,
+                        fun: Min,
+                        value: 148,
+                        result: None,
+                    ),
+                    Atomic(
+                        pointer: 149,
+                        fun: Min,
+                        value: 150,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 152,
+                        end: 153,
+                    )),
+                    Atomic(
+                        pointer: 152,
+                        fun: Min,
+                        value: 153,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 155,
+                        end: 156,
+                    )),
+                    Atomic(
+                        pointer: 155,
+                        fun: Min,
+                        value: 156,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 158,
+                        end: 159,
+                    )),
+                    Emit((
+                        start: 159,
+                        end: 160,
+                    )),
+                    Atomic(
+                        pointer: 159,
+                        fun: Min,
+                        value: 160,
+                        result: None,
+                    ),
+                    ControlBarrier(("WORK_GROUP")),
+                    Atomic(
+                        pointer: 161,
+                        fun: And,
+                        value: 162,
+                        result: Some(163),
+                    ),
+                    Emit((
+                        start: 165,
+                        end: 166,
+                    )),
+                    Atomic(
+                        pointer: 165,
+                        fun: And,
+                        value: 166,
+                        result: Some(167),
+                    ),
+                    Emit((
+                        start: 169,
+                        end: 170,
+                    )),
+                    Atomic(
+                        pointer: 169,
+                        fun: And,
+                        value: 170,
+                        result: Some(171),
+                    ),
+                    Emit((
+                        start: 173,
+                        end: 174,
+                    )),
+                    Emit((
+                        start: 174,
+                        end: 175,
+                    )),
+                    Atomic(
+                        pointer: 174,
+                        fun: And,
+                        value: 175,
+                        result: Some(176),
+                    ),
+                    Atomic(
+                        pointer: 177,
+                        fun: And,
+                        value: 178,
+                        result: Some(179),
+                    ),
+                    Emit((
+                        start: 181,
+                        end: 182,
+                    )),
+                    Atomic(
+                        pointer: 181,
+                        fun: And,
+                        value: 182,
+                        result: Some(183),
+                    ),
+                    Emit((
+                        start: 185,
+                        end: 186,
+                    )),
+                    Atomic(
+                        pointer: 185,
+                        fun: And,
+                        value: 186,
+                        result: Some(187),
+                    ),
+                    Emit((
+                        start: 189,
+                        end: 190,
+                    )),
+                    Emit((
+                        start: 190,
+                        end: 191,
+                    )),
+                    Atomic(
+                        pointer: 190,
+                        fun: And,
+                        value: 191,
+                        result: Some(192),
+                    ),
+                    ControlBarrier(("WORK_GROUP")),
+                    Atomic(
+                        pointer: 193,
+                        fun: InclusiveOr,
+                        value: 194,
+                        result: Some(195),
+                    ),
+                    Emit((
+                        start: 197,
+                        end: 198,
+                    )),
+                    Atomic(
+                        pointer: 197,
+                        fun: InclusiveOr,
+                        value: 198,
+                        result: Some(199),
+                    ),
+                    Emit((
+                        start: 201,
+                        end: 202,
+                    )),
+                    Atomic(
+                        pointer: 201,
+                        fun: InclusiveOr,
+                        value: 202,
+                        result: Some(203),
+                    ),
+                    Emit((
+                        start: 205,
+                        end: 206,
+                    )),
+                    Emit((
+                        start: 206,
+                        end: 207,
+                    )),
+                    Atomic(
+                        pointer: 206,
+                        fun: InclusiveOr,
+                        value: 207,
+                        result: Some(208),
+                    ),
+                    Atomic(
+                        pointer: 209,
+                        fun: InclusiveOr,
+                        value: 210,
+                        result: Some(211),
+                    ),
+                    Emit((
+                        start: 213,
+                        end: 214,
+                    )),
+                    Atomic(
+                        pointer: 213,
+                        fun: InclusiveOr,
+                        value: 214,
+                        result: Some(215),
+                    ),
+                    Emit((
+                        start: 217,
+                        end: 218,
+                    )),
+                    Atomic(
+                        pointer: 217,
+                        fun: InclusiveOr,
+                        value: 218,
+                        result: Some(219),
+                    ),
+                    Emit((
+                        start: 221,
+                        end: 222,
+                    )),
+                    Emit((
+                        start: 222,
+                        end: 223,
+                    )),
+                    Atomic(
+                        pointer: 222,
+                        fun: InclusiveOr,
+                        value: 223,
+                        result: Some(224),
+                    ),
+                    ControlBarrier(("WORK_GROUP")),
+                    Atomic(
+                        pointer: 225,
+                        fun: ExclusiveOr,
+                        value: 226,
+                        result: Some(227),
+                    ),
+                    Emit((
+                        start: 229,
+                        end: 230,
+                    )),
+                    Atomic(
+                        pointer: 229,
+                        fun: ExclusiveOr,
+                        value: 230,
+                        result: Some(231),
+                    ),
+                    Emit((
+                        start: 233,
+                        end: 234,
+                    )),
+                    Atomic(
+                        pointer: 233,
+                        fun: ExclusiveOr,
+                        value: 234,
+                        result: Some(235),
+                    ),
+                    Emit((
+                        start: 237,
+                        end: 238,
+                    )),
+                    Emit((
+                        start: 238,
+                        end: 239,
+                    )),
+                    Atomic(
+                        pointer: 238,
+                        fun: ExclusiveOr,
+                        value: 239,
+                        result: Some(240),
+                    ),
+                    Atomic(
+                        pointer: 241,
+                        fun: ExclusiveOr,
+                        value: 242,
+                        result: Some(243),
+                    ),
+                    Emit((
+                        start: 245,
+                        end: 246,
+                    )),
+                    Atomic(
+                        pointer: 245,
+                        fun: ExclusiveOr,
+                        value: 246,
+                        result: Some(247),
+                    ),
+                    Emit((
+                        start: 249,
+                        end: 250,
+                    )),
+                    Atomic(
+                        pointer: 249,
+                        fun: ExclusiveOr,
+                        value: 250,
+                        result: Some(251),
+                    ),
+                    Emit((
+                        start: 253,
+                        end: 254,
+                    )),
+                    Emit((
+                        start: 254,
+                        end: 255,
+                    )),
+                    Atomic(
+                        pointer: 254,
+                        fun: ExclusiveOr,
+                        value: 255,
+                        result: Some(256),
+                    ),
+                    Atomic(
+                        pointer: 257,
+                        fun: Exchange(
+                            compare: None,
+                        ),
+                        value: 258,
+                        result: Some(259),
+                    ),
+                    Emit((
+                        start: 261,
+                        end: 262,
+                    )),
+                    Atomic(
+                        pointer: 261,
+                        fun: Exchange(
+                            compare: None,
+                        ),
+                        value: 262,
+                        result: Some(263),
+                    ),
+                    Emit((
+                        start: 265,
+                        end: 266,
+                    )),
+                    Atomic(
+                        pointer: 265,
+                        fun: Exchange(
+                            compare: None,
+                        ),
+                        value: 266,
+                        result: Some(267),
+                    ),
+                    Emit((
+                        start: 269,
+                        end: 270,
+                    )),
+                    Emit((
+                        start: 270,
+                        end: 271,
+                    )),
+                    Atomic(
+                        pointer: 270,
+                        fun: Exchange(
+                            compare: None,
+                        ),
+                        value: 271,
+                        result: Some(272),
+                    ),
+                    Atomic(
+                        pointer: 273,
+                        fun: Exchange(
+                            compare: None,
+                        ),
+                        value: 274,
+                        result: Some(275),
+                    ),
+                    Emit((
+                        start: 277,
+                        end: 278,
+                    )),
+                    Atomic(
+                        pointer: 277,
+                        fun: Exchange(
+                            compare: None,
+                        ),
+                        value: 278,
+                        result: Some(279),
+                    ),
+                    Emit((
+                        start: 281,
+                        end: 282,
+                    )),
+                    Atomic(
+                        pointer: 281,
+                        fun: Exchange(
+                            compare: None,
+                        ),
+                        value: 282,
+                        result: Some(283),
+                    ),
+                    Emit((
+                        start: 285,
+                        end: 286,
+                    )),
+                    Emit((
+                        start: 286,
+                        end: 287,
+                    )),
+                    Atomic(
+                        pointer: 286,
+                        fun: Exchange(
+                            compare: None,
+                        ),
+                        value: 287,
+                        result: Some(288),
+                    ),
+                    Atomic(
+                        pointer: 289,
+                        fun: Exchange(
+                            compare: Some(290),
+                        ),
+                        value: 291,
+                        result: Some(292),
+                    ),
+                    Emit((
+                        start: 294,
+                        end: 295,
+                    )),
+                    Atomic(
+                        pointer: 294,
+                        fun: Exchange(
+                            compare: Some(295),
+                        ),
+                        value: 296,
+                        result: Some(297),
+                    ),
+                    Emit((
+                        start: 299,
+                        end: 300,
+                    )),
+                    Atomic(
+                        pointer: 299,
+                        fun: Exchange(
+                            compare: Some(300),
+                        ),
+                        value: 301,
+                        result: Some(302),
+                    ),
+                    Emit((
+                        start: 304,
+                        end: 305,
+                    )),
+                    Emit((
+                        start: 305,
+                        end: 306,
+                    )),
+                    Atomic(
+                        pointer: 305,
+                        fun: Exchange(
+                            compare: Some(306),
+                        ),
+                        value: 307,
+                        result: Some(308),
+                    ),
+                    Atomic(
+                        pointer: 309,
+                        fun: Exchange(
+                            compare: Some(310),
+                        ),
+                        value: 311,
+                        result: Some(312),
+                    ),
+                    Emit((
+                        start: 314,
+                        end: 315,
+                    )),
+                    Atomic(
+                        pointer: 314,
+                        fun: Exchange(
+                            compare: Some(315),
+                        ),
+                        value: 316,
+                        result: Some(317),
+                    ),
+                    Emit((
+                        start: 319,
+                        end: 320,
+                    )),
+                    Atomic(
+                        pointer: 319,
+                        fun: Exchange(
+                            compare: Some(320),
+                        ),
+                        value: 321,
+                        result: Some(322),
+                    ),
+                    Emit((
+                        start: 324,
+                        end: 325,
+                    )),
+                    Emit((
+                        start: 325,
+                        end: 326,
+                    )),
+                    Atomic(
+                        pointer: 325,
+                        fun: Exchange(
+                            compare: Some(326),
+                        ),
+                        value: 327,
+                        result: Some(328),
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

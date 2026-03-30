@@ -19,20 +19,24 @@
 
 ---
 
-## Current State: v0.14.2
+## Current State: v0.15.0
 
-✅ **Production-ready** shader compiler (~19K LOC):
-- Full WGSL frontend (lexer, parser, IR)
-- 4 backend outputs (SPIR-V, MSL, GLSL, HLSL)
+✅ **Production-ready** shader compiler (~90K LOC) with **complete Rust naga parity**:
+- Full WGSL frontend (lexer, parser, IR) — 164 test shaders (144 Rust reference + 20 custom)
+- 4 backend outputs (SPIR-V, MSL, GLSL, HLSL) — all at 100% Rust naga parity
+- Five-layer exact match: IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58
 - 100+ WGSL built-in functions (math, geometric, bit manipulation, packing, derivatives, relational)
 - Compute shaders (atomics, barriers, workgroups, runtime-sized storage buffers)
+- Ray tracing (ray query types, acceleration structures, 7 ray query builtins)
+- Subgroup operations (ballot, shuffle, broadcast, quad operations)
+- f16/i64/u64/f64 scalar types with literal suffixes
 - Texture sampling and storage textures (50+ formats)
-- Local const declarations and switch statements
-- Correct SPIR-V structured control flow (`if/else`, `switch`, `loop`)
-- HLSL codegen with row_major matrices, mul() reversal, unique entry points
-- GLSL UBO blocks, GL_ARB_separate_shader_objects for GLSL < 4.10
-- Type inference, validation, and scalar type conversions
-- Golden snapshot tests (~118 files across 4 backends)
+- Override pipeline constants with ProcessOverrides
+- SPIR-V backend with integer safety wrappers, image bounds checking, ray query helpers
+- MSL backend with vertex pulling, external textures, pipeline constants
+- GLSL backend with dead code elimination, ProcessOverrides, image bounds checking
+- HLSL backend with row_major matrices, storage operations, semantic mapping
+- 994 golden output files across 4 backends
 - Development tools (nagac with SPIR-V 1.3, spvdis)
 
 ---
@@ -40,10 +44,14 @@
 ## Upcoming
 
 ### v1.0.0 — Production Release
-- [ ] Full WGSL specification compliance
-- [ ] API stability guarantee
+- [x] Complete Rust naga parity (all 5 layers at 100%)
 - [x] Compiler allocation optimization (−32% allocs, −34% bytes)
-- [ ] Optimization passes (dead code elimination, constant folding)
+- [x] Ray tracing support (ray query types, acceleration structures)
+- [x] Subgroup operations
+- [x] Dead code elimination (GLSL entry-point reachability)
+- [ ] Full WGSL specification compliance (remaining edge cases)
+- [ ] API stability guarantee
+- [ ] Optimization passes (constant folding, inlining)
 - [ ] Source maps for debugging
 - [ ] Comprehensive documentation
 
@@ -53,9 +61,9 @@
 
 | Theme | Description |
 |-------|-------------|
-| **Optimization** | Dead code elimination, constant folding, inlining |
+| **Optimization** | Constant folding, inlining, dead store elimination |
 | **Source Maps** | Debug info mapping SPIR-V back to WGSL |
-| **WGSL Extensions** | Pointer parameters, subgroups |
+| **WGSL Extensions** | Pointer parameters, additional built-in functions |
 | **Validation** | Full WGSL spec compliance checking |
 
 ---
@@ -100,6 +108,16 @@
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **v0.15.0** | 2026-03 | ALL 5 backends 100% Rust parity: IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58. ~90K LOC. |
+| v0.14.8 | 2026-03 | GLSL bind group collision fix |
+| v0.14.7 | 2026-03 | MSL multi-group binding index collision fix |
+| v0.14.6 | 2026-03 | MSL pass-through globals for helper functions |
+| v0.14.5 | 2026-03 | MSL buffer references instead of pointers |
+| v0.14.4 | 2026-03 | MSL vertex stage_in, discard_fragment namespace |
+| v0.14.3 | 2026-02 | SPIR-V deferred stores, prologue var init splitting |
+| v0.14.2 | 2026-02 | Golden snapshot test system, 20 reference shaders |
+| v0.14.1 | 2026-02 | HLSL row_major, mul() reversal, GLSL namedExpressions fix |
+| v0.14.0 | 2026-02 | Major WGSL coverage: 15/15 Essential reference shaders |
 | **v0.13.1** | 2026-02 | SPIR-V OpArrayLength fix, 68 benchmarks, −32% allocs |
 | v0.13.0 | 2026-02 | GLSL backend, HLSL/SPIR-V fixes, all 93 WGSL builtins |
 | v0.12.1 | 2026-02 | HLSL codegen wiring fix, all 93 WGSL builtins |
@@ -137,8 +155,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Non-Goals
 
 - **Runtime compilation** — naga is compile-time only
-- **Ray tracing** — Beyond core WGSL scope
-- **Mesh shaders** — Beyond core WGSL scope
 - **Shader reflection** — Use external tools
 
 ---

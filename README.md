@@ -36,8 +36,9 @@
 |----------|--------------|
 | **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors |
 | **Outputs** | SPIR-V, MSL, GLSL, HLSL |
-| **Compute** | Storage buffers, workgroups, atomics, barriers |
-| **Compatibility** | 15/15 Essential reference shaders from Rust naga test suite |
+| **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
+| **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |
+| **Compatibility** | **144/144 (100%)** reference shaders compile. Five-layer exact match: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 58/58** — complete Rust naga parity on all backends |
 | **Build** | Zero CGO, single binary |
 
 ---
@@ -46,7 +47,7 @@
 
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`, etc.), abstract constructors (`vec3(1,2,3)`)
-- **Rust Naga Compatibility** — 15/15 Essential reference shaders from the Rust naga test suite compile to valid SPIR-V, with 17 regression tests
+- **Rust Naga Compatibility** — **144/144 (100%)** reference shaders compile. Five-layer exact match: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 58/58** — complete Rust naga parity on all backends. 164 snapshot tests with 994 golden outputs
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
 - **Atomic Operations** — atomicAdd, atomicSub, atomicMin, atomicMax, atomicCompareExchangeWeak
@@ -57,10 +58,10 @@
 - **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions, textureGather, textureSampleCompare
 - **Swizzle Operations** — Full vector swizzle support (`.xyz`, `.rgba`, `.xxyy`, etc.)
 - **Function Calls** — `OpFunctionCall` support for modular WGSL shaders with helper functions
-- **SPIR-V Backend** — Vulkan-compatible bytecode generation with correct type handling
-- **MSL Backend** — Metal Shading Language output for macOS/iOS
-- **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+
-- **HLSL Backend** — High-Level Shading Language for DirectX 11/12
+- **SPIR-V Backend** — Vulkan-compatible bytecode generation (**87/87 exact Rust naga parity**): integer div/mod safety wrappers, image bounds checking (Restrict/ReadZeroSkipWrite), ray query helpers, force loop bounding, workgroup zero-init polyfill, NonUniform decorations, capability-aware instruction emission
+- **MSL Backend** — Metal Shading Language output for macOS/iOS (**91/91 exact Rust naga parity**), vertex pulling transform, external textures, override pipeline constants
+- **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+ (**68/68 exact Rust naga parity**), dead code elimination, ProcessOverrides, image bounds checking
+- **HLSL Backend** — High-Level Shading Language for DirectX 11/12 (**58/58 exact Rust naga parity**)
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -190,47 +191,49 @@ spirvBytes, err := naga.GenerateSPIRV(module, spirvOpts)
 ## Architecture
 
 ```
-naga/
-├── wgsl/              # WGSL frontend
+naga/                              ~90K LOC total
+├── wgsl/              # WGSL frontend (~19.5K LOC)
 │   ├── token.go       # Token types (120+)
 │   ├── lexer.go       # Tokenizer
 │   ├── ast.go         # AST types
-│   ├── parser.go      # Recursive descent parser (~1400 LOC)
-│   └── lower.go       # AST → IR converter (~2500 LOC)
-├── ir/                # Intermediate representation
+│   ├── parser.go      # Recursive descent parser
+│   └── lower.go       # AST → IR converter
+├── ir/                # Intermediate representation (~6.5K LOC)
 │   ├── ir.go          # Core types (Module, Type, Function)
-│   ├── expression.go  # 24 expression types (~520 LOC)
-│   ├── statement.go   # 16 statement types (~320 LOC)
-│   ├── validate.go    # IR validation (~750 LOC)
-│   ├── resolve.go     # Type inference (~500 LOC)
-│   └── registry.go    # Type deduplication (~100 LOC)
-├── spirv/             # SPIR-V backend
+│   ├── expression.go  # 30+ expression kinds
+│   ├── statement.go   # 20+ statement kinds
+│   ├── validate.go    # IR validation
+│   ├── resolve.go     # Type inference
+│   └── registry.go    # Type deduplication
+├── spirv/             # SPIR-V backend (~10.8K LOC)
 │   ├── spirv.go       # SPIR-V constants and opcodes
-│   ├── writer.go      # Binary module builder (~670 LOC)
-│   └── backend.go     # IR → SPIR-V translator (~3700 LOC)
-├── msl/               # MSL backend (Metal)
+│   ├── block.go       # Block ownership model (Rust naga pattern)
+│   ├── writer.go      # Binary module builder
+│   ├── backend.go     # IR → SPIR-V translator
+│   └── ray_query.go   # Ray query helper functions
+├── msl/               # MSL backend (~14.2K LOC)
 │   ├── backend.go     # Public API, Options, Compile()
 │   ├── writer.go      # MSL code writer
-│   ├── types.go       # Type generation (~400 LOC)
-│   ├── expressions.go # Expression codegen (~1175 LOC)
-│   ├── statements.go  # Statement codegen (~350 LOC)
-│   ├── functions.go   # Entry points and functions (~500 LOC)
+│   ├── types.go       # Type generation
+│   ├── expressions.go # Expression codegen
+│   ├── statements.go  # Statement codegen
+│   ├── functions.go   # Entry points and functions
 │   └── keywords.go    # MSL/C++ reserved words
-├── glsl/              # GLSL backend (OpenGL)
-│   ├── backend.go     # Public API
+├── glsl/              # GLSL backend (~7.8K LOC)
+│   ├── backend.go     # Public API, version targeting
 │   ├── writer.go      # GLSL code writer
 │   ├── types.go       # Type generation
 │   ├── expressions.go # Expression codegen
 │   ├── statements.go  # Statement codegen
 │   └── keywords.go    # Reserved word escaping
-├── hlsl/              # HLSL backend (DirectX)
+├── hlsl/              # HLSL backend (~13.6K LOC)
 │   ├── backend.go     # Public API, Options, Compile()
-│   ├── writer.go      # HLSL code writer (~400 LOC)
-│   ├── types.go       # Type generation (~500 LOC)
-│   ├── expressions.go # Expression codegen (~1100 LOC)
-│   ├── statements.go  # Statement codegen (~600 LOC)
-│   ├── storage.go     # Buffer/atomic operations (~500 LOC)
-│   ├── functions.go   # Entry points with semantics (~500 LOC)
+│   ├── writer.go      # HLSL code writer
+│   ├── types.go       # Type generation
+│   ├── expressions.go # Expression codegen
+│   ├── statements.go  # Statement codegen
+│   ├── storage.go     # Buffer/atomic operations
+│   ├── functions.go   # Entry points with semantics
 │   └── keywords.go    # HLSL reserved words
 ├── naga.go            # Public API
 └── cmd/
@@ -242,7 +245,7 @@ naga/
 ## Supported WGSL Features
 
 ### Types
-- Scalars: `f16`, `f32`, `i32`, `u32`, `bool`
+- Scalars: `f16`, `f32`, `f64`, `i32`, `u32`, `i64`, `u64`, `bool`
 - Vectors: `vec2<T>`, `vec3<T>`, `vec4<T>` (and short aliases: `vec2f`, `vec3i`, `vec4u`, etc.)
 - Matrices: `mat2x2<f32>` ... `mat4x4<f32>` (and short aliases: `mat2x2f`, `mat4x4f`, etc.)
 - Arrays: `array<T, N>`, `array<T>` (runtime-sized, storage buffers)
@@ -251,7 +254,9 @@ naga/
 - Textures: `texture_2d<f32>`, `texture_3d<f32>`, `texture_cube<f32>`, `texture_depth_2d_array`
 - Samplers: `sampler`, `sampler_comparison`
 - Binding arrays: `binding_array<T, N>`
+- Ray tracing: `acceleration_structure`, `ray_query`
 - Abstract constructors: `vec3(1,2,3)`, `mat2x2(...)`, `array(...)` (without explicit template parameters)
+- Type aliases: `alias FVec3 = vec3<f32>;`
 
 ### Shader Stages
 - `@vertex` — Vertex shaders with `@builtin(position)` output
@@ -272,8 +277,10 @@ naga/
 
 ### Statements
 - Variable declarations: `var`, `let`, `const`
+- Override declarations: `@id(N) override name: type = default;`
+- Compile-time assertions: `const_assert expr;`
 - Control flow: `if`, `else`, `for`, `while`, `loop`, `switch`, `case`, `default`
-- Loop control: `break`, `continue`
+- Loop control: `break`, `continue`, `break if` (continuing blocks)
 - Functions: `return`, `discard`
 - Assignment: `=`, `+=`, `-=`, `*=`, `/=`
 
@@ -292,7 +299,10 @@ naga/
 - Selection: `select`
 - Derivatives: `dpdx`, `dpdy`, `fwidth`, `dpdxCoarse`, `dpdyCoarse`, `fwidthCoarse`, `dpdxFine`, `dpdyFine`, `fwidthFine`
 - Atomic: `atomicAdd`, `atomicSub`, `atomicMin`, `atomicMax`, `atomicAnd`, `atomicOr`, `atomicXor`, `atomicExchange`, `atomicCompareExchangeWeak`
-- Barriers: `workgroupBarrier`, `storageBarrier`, `textureBarrier`
+- Barriers: `workgroupBarrier`, `storageBarrier`, `textureBarrier`, `subgroupBarrier`
+- Subgroup: `subgroupBallot`, `subgroupAll`, `subgroupAny`, `subgroupAdd/Mul/Min/Max/And/Or/Xor`, `subgroupBroadcast/First`, `subgroupShuffle/XOR/Up/Down`, `quadSwap/Broadcast`
+- Ray Query: `rayQueryInitialize`, `rayQueryProceed`, `rayQueryGetCommittedIntersection`, `rayQueryGetCandidateIntersection`, `rayQueryTerminate`
+- Uniform Load: `workgroupUniformLoad`
 - Array: `arrayLength`
 
 ---
@@ -303,10 +313,10 @@ naga/
 
 | Backend | Status | Target Platform |
 |---------|--------|-----------------|
-| SPIR-V | ✅ Stable | Vulkan |
-| MSL | ✅ Stable | Metal (macOS/iOS) |
-| GLSL | ✅ Stable | OpenGL 3.3+, ES 3.0+ |
-| HLSL | ✅ Stable | DirectX 11/12 |
+| SPIR-V | ✅ **87/87 Rust parity** | Vulkan |
+| MSL | ✅ **91/91 Rust parity** | Metal (macOS/iOS) |
+| GLSL | ✅ **68/68 Rust parity** | OpenGL 3.3+, ES 3.0+ |
+| HLSL | ✅ **58/58 Rust parity** | DirectX 11/12 |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
@@ -320,7 +330,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
 ### Rust Naga Compatibility
 
-naga is tested against reference shaders from the [Rust naga](https://github.com/gfx-rs/naga) test suite. All 15 Essential reference shaders compile to valid SPIR-V, with 17 regression tests embedded in the CI pipeline to prevent regressions.
+naga is tested against **all 144 reference WGSL shaders** from the [Rust naga](https://github.com/gfx-rs/naga) test suite — **100% compatibility** across all five layers: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 58/58** exact output match. Total: 164 test shaders with 994 golden outputs.
 
 ---
 

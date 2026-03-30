@@ -1,0 +1,32 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+constant double k = 2.0;
+
+double f(
+    double x,
+    thread double& v
+) {
+    double z = {};
+    double w = -1.0;
+    double phony = v;
+    double y = 30.0 + 400.0;
+    z = y + 5.0;
+    return ((x + y) + k) + 5.0;
+}
+
+kernel void main_(
+) {
+    double v = 1.0;
+    double _e1 = f(6.0, v);
+    return;
+}

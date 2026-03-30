@@ -1,35 +1,39 @@
 // === Entry Point: vs_main (vertex) ===
 #version 330 core
-#extension GL_ARB_separate_shader_objects : enable
-
 struct VertexOutput {
     vec4 position;
     vec2 uv;
 };
-
-layout(binding = 0) uniform sampler2D t_diffuse_s_diffuse;
-
-layout(location = 0) out vec2 v_uv;
+smooth out vec2 _vs2fs_location0;
 
 void main() {
-    gl_Position = vec4(vec2(((float((int(uint(gl_VertexID)) / 2)) * 4.0) - 1.0), ((float(_naga_mod(int(uint(gl_VertexID)), 2)) * 4.0) - 1.0)), 0.0, 1.0);
-    v_uv = ((vec2(((float((int(uint(gl_VertexID)) / 2)) * 4.0) - 1.0), ((float(_naga_mod(int(uint(gl_VertexID)), 2)) * 4.0) - 1.0)) + 1.0) * 0.5);
+    uint vi = uint(gl_VertexID);
+    float x = ((float((int(vi) / 2)) * 4.0) - 1.0);
+    float y = ((float((int(vi) % 2)) * 4.0) - 1.0);
+    vec2 pos = vec2(x, y);
+    vec2 uv_1 = ((pos + vec2(1.0)) * 0.5);
+    VertexOutput _tmp_return = VertexOutput(vec4(pos, 0.0, 1.0), uv_1);
+    gl_Position = _tmp_return.position;
+    _vs2fs_location0 = _tmp_return.uv;
+    return;
 }
+
 
 // === Entry Point: fs_main (fragment) ===
 #version 330 core
-#extension GL_ARB_separate_shader_objects : enable
-
 struct VertexOutput {
     vec4 position;
     vec2 uv;
 };
+uniform sampler2D _group_0_binding_0_fs;
 
-layout(binding = 0) uniform sampler2D t_diffuse_s_diffuse;
-
-layout(location = 0) in vec2 uv;
-layout(location = 0) out vec4 fragColor;
+smooth in vec2 _vs2fs_location0;
+layout(location = 0) out vec4 _fs2p_location0;
 
 void main() {
-    fragColor = texture(t_diffuse_s_diffuse, uv);
+    vec2 uv = _vs2fs_location0;
+    vec4 color = texture(_group_0_binding_0_fs, vec2(uv));
+    _fs2p_location0 = color;
+    return;
 }
+

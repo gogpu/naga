@@ -630,3 +630,118 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 		t.Errorf("const should have initializer")
 	}
 }
+
+func TestParseBreakIf(t *testing.T) {
+	source := `fn foo() {
+    loop {
+        continuing {
+            break if true;
+        }
+    }
+}`
+	module := parseSource(t, source)
+	if len(module.Functions) != 1 {
+		t.Fatalf("expected 1 function, got %d", len(module.Functions))
+	}
+	fn := module.Functions[0]
+	if len(fn.Body.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(fn.Body.Statements))
+	}
+	loop, ok := fn.Body.Statements[0].(*LoopStmt)
+	if !ok {
+		t.Fatalf("expected LoopStmt, got %T", fn.Body.Statements[0])
+	}
+	if loop.Continuing == nil {
+		t.Fatal("expected continuing block")
+	}
+	if len(loop.Continuing.Statements) != 1 {
+		t.Fatalf("expected 1 continuing statement, got %d", len(loop.Continuing.Statements))
+	}
+	breakIf, ok := loop.Continuing.Statements[0].(*BreakIfStmt)
+	if !ok {
+		t.Fatalf("expected BreakIfStmt, got %T", loop.Continuing.Statements[0])
+	}
+	if breakIf.Condition == nil {
+		t.Error("break if should have condition")
+	}
+}
+
+func TestParseConstAssert(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{"module_scope", "const_assert true;"},
+		{"with_parens", "const_assert(1 == 1);"},
+		{"in_function", "fn foo() { const_assert 1 < 2; }"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tryParseSource(t, tt.source)
+			if err != nil {
+				t.Errorf("unexpected parse error: %v", err)
+			}
+		})
+	}
+}
+
+func TestParseAlias(t *testing.T) {
+	source := `alias FVec3 = vec3<f32>;`
+	module := parseSource(t, source)
+	if len(module.Aliases) != 1 {
+		t.Fatalf("expected 1 alias, got %d", len(module.Aliases))
+	}
+	alias := module.Aliases[0]
+	if alias.Name != "FVec3" {
+		t.Errorf("expected alias name 'FVec3', got %q", alias.Name)
+	}
+}
+
+func TestParseTemplateListTrailingComma(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{"sized_trailing_comma", "var<workgroup> a: array<u32, 1,>;"},
+		{"sized_no_comma", "var<workgroup> b: array<u32, 1>;"},
+		{"unsized_trailing_comma", "@group(0) @binding(0) var<storage, read_write> c: array<u32,>;"},
+		{"unsized_no_comma", "@group(0) @binding(1) var<storage, read_write> d: array<u32>;"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tryParseSource(t, tt.source)
+			if err != nil {
+				t.Errorf("unexpected parse error: %v", err)
+			}
+		})
+	}
+}
+
+func TestParseTemplateListGE(t *testing.T) {
+	// Test the >= disambiguation: array<i32, 1 << 1>=array(1, 2)
+	source := `fn main() {
+    var tmp: array<i32, 1 << 1>=array(1, 2);
+}`
+	_, err := tryParseSource(t, source)
+	if err != nil {
+		t.Errorf("unexpected parse error: %v", err)
+	}
+}
+
+func TestParseDiagnosticDirective(t *testing.T) {
+	source := `diagnostic(off, derivative_uniformity);
+fn main() {}`
+	_, err := tryParseSource(t, source)
+	if err != nil {
+		t.Errorf("unexpected parse error: %v", err)
+	}
+}
+
+func TestParseDiagnosticAttribute(t *testing.T) {
+	source := `@diagnostic(warning, derivative_uniformity)
+fn main() {}`
+	module := parseSource(t, source)
+	if len(module.Functions) != 1 {
+		t.Fatalf("expected 1 function, got %d", len(module.Functions))
+	}
+}

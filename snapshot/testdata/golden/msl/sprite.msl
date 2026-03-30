@@ -1,0 +1,28 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+struct main_Input {
+    metal::float2 uv [[user(loc0), center_perspective]];
+};
+struct main_Output {
+    metal::float4 member [[color(0)]];
+};
+fragment main_Output main_(
+  main_Input varyings [[stage_in]]
+, metal::texture2d<float, metal::access::sample> u_texture [[user(fake0)]]
+, metal::sampler u_sampler [[user(fake0)]]
+) {
+    const auto uv = varyings.uv;
+    metal::float4 _e3 = u_texture.sample(u_sampler, uv);
+    return main_Output { _e3 };
+}

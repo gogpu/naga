@@ -1,0 +1,485 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Atomic((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Atomic((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("__atomic_compare_exchange_result<Sint,4>"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("old_value"),
+                        ty: 3,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("exchanged"),
+                        ty: 2,
+                        binding: None,
+                        offset: 4,
+                    ),
+                ],
+                span: 8,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("__atomic_compare_exchange_result<Uint,4>"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("old_value"),
+                        ty: 5,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("exchanged"),
+                        ty: 2,
+                        binding: None,
+                        offset: 4,
+                    ),
+                ],
+                span: 8,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {
+            AtomicCompareExchangeWeakResult((
+                kind: Sint,
+                width: 4,
+            )): 4,
+            AtomicCompareExchangeWeakResult((
+                kind: Uint,
+                width: 4,
+            )): 6,
+        },
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("atomic_i32"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("atomic_u32"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 1,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("test_atomic_i32"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                GlobalVariable(0),
+                Literal(I32(1)),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 4,
+                    comparison: true,
+                ),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 4,
+                    comparison: true,
+                ),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 3,
+                    comparison: false,
+                ),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 3,
+                    comparison: false,
+                ),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 3,
+                    comparison: false,
+                ),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 3,
+                    comparison: false,
+                ),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 3,
+                    comparison: false,
+                ),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 3,
+                    comparison: false,
+                ),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 3,
+                    comparison: false,
+                ),
+                GlobalVariable(0),
+                Literal(I32(1)),
+                AtomicResult(
+                    ty: 3,
+                    comparison: false,
+                ),
+            ],
+            named_expressions: {
+                5: "phony",
+                9: "phony",
+                12: "phony",
+                15: "phony",
+                18: "phony",
+                21: "phony",
+                24: "phony",
+                27: "phony",
+                30: "phony",
+                33: "phony",
+            },
+            body: [
+                Store(
+                    pointer: 0,
+                    value: 1,
+                ),
+                Atomic(
+                    pointer: 2,
+                    fun: Exchange(
+                        compare: Some(3),
+                    ),
+                    value: 4,
+                    result: Some(5),
+                ),
+                Atomic(
+                    pointer: 6,
+                    fun: Exchange(
+                        compare: Some(7),
+                    ),
+                    value: 8,
+                    result: Some(9),
+                ),
+                Atomic(
+                    pointer: 10,
+                    fun: Add,
+                    value: 11,
+                    result: Some(12),
+                ),
+                Atomic(
+                    pointer: 13,
+                    fun: Subtract,
+                    value: 14,
+                    result: Some(15),
+                ),
+                Atomic(
+                    pointer: 16,
+                    fun: And,
+                    value: 17,
+                    result: Some(18),
+                ),
+                Atomic(
+                    pointer: 19,
+                    fun: ExclusiveOr,
+                    value: 20,
+                    result: Some(21),
+                ),
+                Atomic(
+                    pointer: 22,
+                    fun: InclusiveOr,
+                    value: 23,
+                    result: Some(24),
+                ),
+                Atomic(
+                    pointer: 25,
+                    fun: Min,
+                    value: 26,
+                    result: Some(27),
+                ),
+                Atomic(
+                    pointer: 28,
+                    fun: Max,
+                    value: 29,
+                    result: Some(30),
+                ),
+                Atomic(
+                    pointer: 31,
+                    fun: Exchange(
+                        compare: None,
+                    ),
+                    value: 32,
+                    result: Some(33),
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_atomic_u32"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                GlobalVariable(1),
+                Literal(U32(1)),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 6,
+                    comparison: true,
+                ),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 6,
+                    comparison: true,
+                ),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 5,
+                    comparison: false,
+                ),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 5,
+                    comparison: false,
+                ),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 5,
+                    comparison: false,
+                ),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 5,
+                    comparison: false,
+                ),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 5,
+                    comparison: false,
+                ),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 5,
+                    comparison: false,
+                ),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 5,
+                    comparison: false,
+                ),
+                GlobalVariable(1),
+                Literal(U32(1)),
+                AtomicResult(
+                    ty: 5,
+                    comparison: false,
+                ),
+            ],
+            named_expressions: {
+                5: "phony",
+                9: "phony",
+                12: "phony",
+                15: "phony",
+                18: "phony",
+                21: "phony",
+                24: "phony",
+                27: "phony",
+                30: "phony",
+                33: "phony",
+            },
+            body: [
+                Store(
+                    pointer: 0,
+                    value: 1,
+                ),
+                Atomic(
+                    pointer: 2,
+                    fun: Exchange(
+                        compare: Some(3),
+                    ),
+                    value: 4,
+                    result: Some(5),
+                ),
+                Atomic(
+                    pointer: 6,
+                    fun: Exchange(
+                        compare: Some(7),
+                    ),
+                    value: 8,
+                    result: Some(9),
+                ),
+                Atomic(
+                    pointer: 10,
+                    fun: Add,
+                    value: 11,
+                    result: Some(12),
+                ),
+                Atomic(
+                    pointer: 13,
+                    fun: Subtract,
+                    value: 14,
+                    result: Some(15),
+                ),
+                Atomic(
+                    pointer: 16,
+                    fun: And,
+                    value: 17,
+                    result: Some(18),
+                ),
+                Atomic(
+                    pointer: 19,
+                    fun: ExclusiveOr,
+                    value: 20,
+                    result: Some(21),
+                ),
+                Atomic(
+                    pointer: 22,
+                    fun: InclusiveOr,
+                    value: 23,
+                    result: Some(24),
+                ),
+                Atomic(
+                    pointer: 25,
+                    fun: Min,
+                    value: 26,
+                    result: Some(27),
+                ),
+                Atomic(
+                    pointer: 28,
+                    fun: Max,
+                    value: 29,
+                    result: Some(30),
+                ),
+                Atomic(
+                    pointer: 31,
+                    fun: Exchange(
+                        compare: None,
+                    ),
+                    value: 32,
+                    result: Some(33),
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

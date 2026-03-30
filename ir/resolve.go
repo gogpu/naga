@@ -4,8 +4,6 @@ import "fmt"
 
 // ResolveExpressionType resolves the type of an expression in a function.
 // Returns a TypeResolution that either references a module type or contains an inline type.
-//
-//nolint:gocyclo,cyclop,funlen // Type resolution requires handling all expression kinds
 func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle) (TypeResolution, error) {
 	if int(handle) >= len(fn.Expressions) {
 		return TypeResolution{}, fmt.Errorf("expression handle %d out of range (max %d)", handle, len(fn.Expressions))
@@ -18,6 +16,8 @@ func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle
 		return resolveLiteralType(kind)
 	case ExprConstant:
 		return resolveConstantType(module, kind)
+	case ExprOverride:
+		return resolveOverrideType(module, kind)
 	case ExprZeroValue:
 		h := kind.Type
 		return TypeResolution{Handle: &h}, nil
@@ -42,14 +42,22 @@ func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle
 		if int(kind.Variable) >= len(module.GlobalVariables) {
 			return TypeResolution{}, fmt.Errorf("global variable %d out of range", kind.Variable)
 		}
-		h := module.GlobalVariables[kind.Variable].Type
-		return TypeResolution{Handle: &h}, nil
+		gv := &module.GlobalVariables[kind.Variable]
+		if gv.Space == SpaceHandle {
+			h := gv.Type
+			return TypeResolution{Handle: &h}, nil
+		}
+		// Non-Handle address space: variable expression is a pointer to the variable's type.
+		// Matches Rust naga typifier: GlobalVariable -> Pointer { base: var.ty, space: var.space }
+		return TypeResolution{Value: PointerType{Base: gv.Type, Space: gv.Space}}, nil
 	case ExprLocalVariable:
 		if int(kind.Variable) >= len(fn.LocalVars) {
 			return TypeResolution{}, fmt.Errorf("local variable %d out of range", kind.Variable)
 		}
-		h := fn.LocalVars[kind.Variable].Type
-		return TypeResolution{Handle: &h}, nil
+		lv := &fn.LocalVars[kind.Variable]
+		// Local variables are always pointers in function address space.
+		// Matches Rust naga typifier: LocalVariable -> Pointer { base: var.ty, space: Function }
+		return TypeResolution{Value: PointerType{Base: lv.Type, Space: SpaceFunction}}, nil
 	case ExprLoad:
 		return resolveLoadType(module, fn, kind)
 	case ExprImageSample:
@@ -57,7 +65,7 @@ func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle
 	case ExprImageLoad:
 		return resolveImageLoadType(module, fn, kind)
 	case ExprImageQuery:
-		return resolveImageQueryType(kind)
+		return resolveImageQueryType(module, fn, kind)
 	case ExprUnary:
 		return resolveUnaryType(module, fn, kind)
 	case ExprBinary:
@@ -86,16 +94,42 @@ func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle
 		// ArrayLength returns u32
 		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
 	case ExprAtomicResult:
-		return resolveAtomicResultType(module, fn, handle)
+		// ExprAtomicResult now carries its type handle directly.
+		h := kind.Ty
+		return TypeResolution{Handle: &h}, nil
+	case ExprSubgroupBallotResult:
+		// SubgroupBallot always returns vec4<u32>
+		return TypeResolution{Value: VectorType{
+			Size:   4,
+			Scalar: ScalarType{Kind: ScalarUint, Width: 4},
+		}}, nil
+	case ExprSubgroupOperationResult:
+		h := kind.Type
+		return TypeResolution{Handle: &h}, nil
+	case ExprWorkGroupUniformLoadResult:
+		return resolveWorkGroupUniformLoadResultType(module, fn, handle)
+	case ExprRayQueryProceedResult:
+		// RayQueryProceed returns bool
+		return TypeResolution{Value: ScalarType{Kind: ScalarBool, Width: 1}}, nil
+	case ExprRayQueryGetIntersection:
+		// Returns the RayIntersection struct type — find it in module types
+		return resolveRayQueryIntersectionType(module)
 	default:
 		return TypeResolution{}, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
+}
+
+// ResolveLiteralType resolves the type of a literal expression.
+func ResolveLiteralType(lit Literal) (TypeResolution, error) {
+	return resolveLiteralType(lit)
 }
 
 func resolveLiteralType(lit Literal) (TypeResolution, error) {
 	switch v := lit.Value.(type) {
 	case LiteralF64:
 		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 8}}, nil
+	case LiteralF16:
+		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 2}}, nil
 	case LiteralF32:
 		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}, nil
 	case LiteralU32:
@@ -127,6 +161,14 @@ func resolveConstantType(module *Module, expr ExprConstant) (TypeResolution, err
 	return TypeResolution{Handle: &h}, nil
 }
 
+func resolveOverrideType(module *Module, expr ExprOverride) (TypeResolution, error) {
+	if int(expr.Override) >= len(module.Overrides) {
+		return TypeResolution{}, fmt.Errorf("override %d out of range", expr.Override)
+	}
+	h := module.Overrides[expr.Override].Ty
+	return TypeResolution{Handle: &h}, nil
+}
+
 func resolveAccessType(module *Module, fn *Function, expr ExprAccess) (TypeResolution, error) {
 	baseType, err := ResolveExpressionType(module, fn, expr.Base)
 	if err != nil {
@@ -155,11 +197,32 @@ func resolveAccessType(module *Module, fn *Function, expr ExprAccess) (TypeResol
 		// Matrix access returns a column vector
 		return TypeResolution{Value: VectorType{Size: t.Rows, Scalar: t.Scalar}}, nil
 	case PointerType:
-		// If accessing through a pointer, dereference first
+		// Access through a pointer: resolve the pointee type and index into it.
 		if int(t.Base) >= len(module.Types) {
 			return TypeResolution{}, fmt.Errorf("pointer base type %d out of range", t.Base)
 		}
-		return resolveAccessType(module, fn, ExprAccess{Base: expr.Base, Index: expr.Index})
+		pointeeInner := module.Types[t.Base].Inner
+		switch pt := pointeeInner.(type) {
+		case ArrayType:
+			return TypeResolution{Value: PointerType{Base: pt.Base, Space: t.Space}}, nil
+		case VectorType:
+			// Pointer<Vector>[i] → ValuePointer(scalar) — pointer to element
+			return TypeResolution{Value: ValuePointerType{Size: nil, Scalar: pt.Scalar, Space: t.Space}}, nil
+		case MatrixType:
+			// Pointer<Matrix>[i] → ValuePointer(vector) — pointer to column
+			rows := pt.Rows
+			return TypeResolution{Value: ValuePointerType{Size: &rows, Scalar: pt.Scalar, Space: t.Space}}, nil
+		case BindingArrayType:
+			return TypeResolution{Value: PointerType{Base: pt.Base, Space: t.Space}}, nil
+		default:
+			return TypeResolution{}, fmt.Errorf("cannot index through pointer into type %T", pt)
+		}
+	case ValuePointerType:
+		// ValuePointer(vector)[i] → ValuePointer(scalar) — pointer to element
+		if t.Size != nil {
+			return TypeResolution{Value: ValuePointerType{Size: nil, Scalar: t.Scalar, Space: t.Space}}, nil
+		}
+		return TypeResolution{}, fmt.Errorf("cannot dynamically index into scalar value pointer")
 	case BindingArrayType:
 		h := t.Base
 		return TypeResolution{Handle: &h}, nil
@@ -200,12 +263,40 @@ func resolveAccessIndexType(module *Module, fn *Function, expr ExprAccessIndex) 
 		h := t.Members[expr.Index].Type
 		return TypeResolution{Handle: &h}, nil
 	case PointerType:
-		// Dereference pointer first
+		// Access through a pointer: resolve the pointee type and index into it.
+		// Results remain pointers (ValuePointerType) per Rust naga typifier behavior.
 		if int(t.Base) >= len(module.Types) {
 			return TypeResolution{}, fmt.Errorf("pointer base type %d out of range", t.Base)
 		}
-		_ = module.Types[t.Base].Inner // Validate it exists
-		return resolveAccessIndexType(module, fn, ExprAccessIndex{Base: expr.Base, Index: expr.Index})
+		pointeeInner := module.Types[t.Base].Inner
+		switch pt := pointeeInner.(type) {
+		case ArrayType:
+			// Pointer<Array<T>>[i] → Pointer<T> (preserves pointer-ness)
+			return TypeResolution{Value: PointerType{Base: pt.Base, Space: t.Space}}, nil
+		case VectorType:
+			// Pointer<Vector>[i] → ValuePointer(scalar) — pointer to element
+			return TypeResolution{Value: ValuePointerType{Size: nil, Scalar: pt.Scalar, Space: t.Space}}, nil
+		case MatrixType:
+			// Pointer<Matrix>[i] → ValuePointer(vector) — pointer to column
+			rows := pt.Rows
+			return TypeResolution{Value: ValuePointerType{Size: &rows, Scalar: pt.Scalar, Space: t.Space}}, nil
+		case StructType:
+			if int(expr.Index) >= len(pt.Members) {
+				return TypeResolution{}, fmt.Errorf("struct member index %d out of range through pointer", expr.Index)
+			}
+			// Pointer<Struct>.member → Pointer<MemberType> (preserves pointer-ness and address space)
+			return TypeResolution{Value: PointerType{Base: pt.Members[expr.Index].Type, Space: t.Space}}, nil
+		case BindingArrayType:
+			return TypeResolution{Value: PointerType{Base: pt.Base, Space: t.Space}}, nil
+		default:
+			return TypeResolution{}, fmt.Errorf("cannot index through pointer into type %T", pt)
+		}
+	case ValuePointerType:
+		// ValuePointer(vector)[i] → ValuePointer(scalar) — pointer to element
+		if t.Size != nil {
+			return TypeResolution{Value: ValuePointerType{Size: nil, Scalar: t.Scalar, Space: t.Space}}, nil
+		}
+		return TypeResolution{}, fmt.Errorf("cannot index into scalar value pointer")
 	case BindingArrayType:
 		h := t.Base
 		return TypeResolution{Handle: &h}, nil
@@ -222,7 +313,6 @@ func resolveSplatType(module *Module, fn *Function, expr ExprSplat) (TypeResolut
 
 	// Get scalar type from value
 	var scalar ScalarType
-	//nolint:nestif // Type resolution requires nested type checking
 	if valueType.Handle != nil {
 		if int(*valueType.Handle) >= len(module.Types) {
 			return TypeResolution{}, fmt.Errorf("type handle %d out of range", *valueType.Handle)
@@ -252,7 +342,6 @@ func resolveSwizzleType(module *Module, fn *Function, expr ExprSwizzle) (TypeRes
 
 	// Get vector type
 	var vec VectorType
-	//nolint:nestif // Type resolution requires nested type checking
 	if vectorType.Handle != nil {
 		if int(*vectorType.Handle) >= len(module.Types) {
 			return TypeResolution{}, fmt.Errorf("type handle %d out of range", *vectorType.Handle)
@@ -294,20 +383,58 @@ func resolveLoadType(module *Module, fn *Function, expr ExprLoad) (TypeResolutio
 
 	// Load dereferences a pointer
 	if ptr, ok := inner.(PointerType); ok {
+		// If the base type is Atomic(scalar), resolve to Scalar(scalar).
+		// This matches Rust naga's typifier (proc/typifier.rs).
+		if int(ptr.Base) < len(module.Types) {
+			if at, ok := module.Types[ptr.Base].Inner.(AtomicType); ok {
+				return TypeResolution{Value: at.Scalar}, nil
+			}
+		}
 		h := ptr.Base
 		return TypeResolution{Handle: &h}, nil
 	}
 
-	return TypeResolution{}, fmt.Errorf("load requires pointer type, got %T", inner)
+	// Load on ValuePointer dereferences to scalar or vector value.
+	// ValuePointer{Size: nil} → ScalarType, ValuePointer{Size: &s} → VectorType.
+	if vp, ok := inner.(ValuePointerType); ok {
+		if vp.Size != nil {
+			return TypeResolution{Value: VectorType{Size: *vp.Size, Scalar: vp.Scalar}}, nil
+		}
+		return TypeResolution{Value: vp.Scalar}, nil
+	}
+
+	// If the pointer expression resolves to an Atomic type (e.g., from AccessIndex
+	// through a pointer to a struct/array containing atomics), resolve to Scalar.
+	// This matches Rust naga where Load on Atomic always gives Scalar.
+	if at, ok := inner.(AtomicType); ok {
+		return TypeResolution{Value: at.Scalar}, nil
+	}
+
+	// When the pointer expression is a variable reference (GlobalVariable, LocalVariable)
+	// that resolves directly to the value type rather than a PointerType, the Load
+	// just produces the same type. This supports the WGSL Load Rule pattern where
+	// the lowerer inserts ExprLoad after variable references to match Rust naga's
+	// expression handle numbering.
+	return pointerType, nil
 }
 
 func resolveImageSampleType(module *Module, fn *Function, expr ExprImageSample) (TypeResolution, error) {
-	imageType, err := ResolveExpressionType(module, fn, expr.Image)
+	// Gather operations always return vec4, even for depth textures.
+	// This matches Rust naga typifier: ImageSample with gather: Some(_) -> Vec4.
+	if expr.Gather != nil {
+		return resolveImageGatherType(module, fn, expr.Image)
+	}
+	return resolveImageResultType(module, fn, expr.Image, "image sample")
+}
+
+// resolveImageGatherType resolves the return type for image gather operations.
+// Gather always returns vec4, with scalar kind matching the image's sampled kind.
+func resolveImageGatherType(module *Module, fn *Function, imageHandle ExpressionHandle) (TypeResolution, error) {
+	imageType, err := ResolveExpressionType(module, fn, imageHandle)
 	if err != nil {
-		return TypeResolution{}, fmt.Errorf("image sample image: %w", err)
+		return TypeResolution{}, fmt.Errorf("image gather image: %w", err)
 	}
 
-	// Get the image type
 	var inner TypeInner
 	if imageType.Handle != nil {
 		if int(*imageType.Handle) >= len(module.Types) {
@@ -320,29 +447,32 @@ func resolveImageSampleType(module *Module, fn *Function, expr ExprImageSample) 
 
 	img, ok := inner.(ImageType)
 	if !ok {
-		return TypeResolution{}, fmt.Errorf("image sample requires image type, got %T", inner)
+		return TypeResolution{}, fmt.Errorf("image gather requires image type, got %T", inner)
 	}
 
-	// Determine result type based on image class
-	if img.Class == ImageClassDepth {
-		// Depth images return f32
-		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}, nil
+	scalar := ScalarType{Kind: ScalarFloat, Width: 4}
+	if img.Class == ImageClassSampled {
+		scalar = ScalarType{Kind: img.SampledKind, Width: 4}
 	}
 
-	// Sampled images return vec4<f32> by default
 	return TypeResolution{Value: VectorType{
 		Size:   Vec4,
-		Scalar: ScalarType{Kind: ScalarFloat, Width: 4},
+		Scalar: scalar,
 	}}, nil
 }
 
 func resolveImageLoadType(module *Module, fn *Function, expr ExprImageLoad) (TypeResolution, error) {
-	imageType, err := ResolveExpressionType(module, fn, expr.Image)
+	return resolveImageResultType(module, fn, expr.Image, "image load")
+}
+
+// resolveImageResultType resolves the return type for image sample/load operations.
+// Depth images return scalar f32, sampled/storage images return vec4<f32>.
+func resolveImageResultType(module *Module, fn *Function, imageHandle ExpressionHandle, context string) (TypeResolution, error) {
+	imageType, err := ResolveExpressionType(module, fn, imageHandle)
 	if err != nil {
-		return TypeResolution{}, fmt.Errorf("image load image: %w", err)
+		return TypeResolution{}, fmt.Errorf("%s image: %w", context, err)
 	}
 
-	// Get the image type
 	var inner TypeInner
 	if imageType.Handle != nil {
 		if int(*imageType.Handle) >= len(module.Types) {
@@ -353,27 +483,95 @@ func resolveImageLoadType(module *Module, fn *Function, expr ExprImageLoad) (Typ
 		inner = imageType.Value
 	}
 
-	_, ok := inner.(ImageType)
+	img, ok := inner.(ImageType)
 	if !ok {
-		return TypeResolution{}, fmt.Errorf("image load requires image type, got %T", inner)
+		return TypeResolution{}, fmt.Errorf("%s requires image type, got %T", context, inner)
 	}
 
-	// Image load returns vec4<f32>
+	if img.Class == ImageClassDepth {
+		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}, nil
+	}
+
+	// Determine the scalar type based on image class.
+	// For storage images, use the format's scalar kind.
+	// For sampled images, use the SampledKind.
+	// Default to float for compatibility (many images don't have SampledKind set correctly).
+	scalarKind := ScalarFloat
+	width := uint8(4)
+	switch img.Class {
+	case ImageClassStorage:
+		scalarKind = img.StorageFormat.ScalarKind()
+		// R64Uint/R64Sint use 8-byte scalars
+		if img.StorageFormat == StorageFormatR64Uint || img.StorageFormat == StorageFormatR64Sint {
+			width = 8
+		}
+	case ImageClassSampled:
+		// Only use SampledKind if explicitly set (non-zero and non-Sint default).
+		// Many image types share the same type handle and don't have SampledKind set correctly.
+		if img.SampledKind == ScalarUint {
+			scalarKind = ScalarUint
+		} else if img.SampledKind == ScalarFloat {
+			scalarKind = ScalarFloat
+		}
+		// Default to Float for ScalarSint (which is the zero value / default)
+	}
+
 	return TypeResolution{Value: VectorType{
 		Size:   Vec4,
-		Scalar: ScalarType{Kind: ScalarFloat, Width: 4},
+		Scalar: ScalarType{Kind: scalarKind, Width: width},
 	}}, nil
 }
 
-func resolveImageQueryType(expr ExprImageQuery) (TypeResolution, error) {
-	switch expr.Query.(type) {
+func resolveImageQueryType(module *Module, fn *Function, expr ExprImageQuery) (TypeResolution, error) {
+	switch q := expr.Query.(type) {
 	case ImageQuerySize:
-		// Size returns u32 for 1D, vec2<u32> for 2D, vec3<u32> for 3D/Cube
-		// For simplicity, return vec3<u32>
+		// Size returns the spatial dimensions only (no array layer count):
+		//   u32 for 1D (including 1D array)
+		//   vec2<u32> for 2D (including 2D array), Cube (including Cube array)
+		//   vec3<u32> for 3D
+		// Arrayed textures do NOT add an extra component for the layer count.
+		// The array layer count is queried separately via ImageQueryNumLayers.
+		// This matches Rust naga's proc::typifier which uses
+		// image_query_size_result_type without adding array dimensions.
+		_ = q
+		dim := Dim2D // default
+
+		// Try to resolve the image's dimension from its type.
+		if fn != nil && int(expr.Image) < len(fn.Expressions) {
+			imgType, err := ResolveExpressionType(module, fn, expr.Image)
+			if err == nil {
+				var inner TypeInner
+				if imgType.Handle != nil && int(*imgType.Handle) < len(module.Types) {
+					inner = module.Types[*imgType.Handle].Inner
+				} else if imgType.Value != nil {
+					inner = imgType.Value
+				}
+				if it, ok := inner.(ImageType); ok {
+					dim = it.Dim
+				}
+			}
+		}
+
+		uintScalar := ScalarType{Kind: ScalarUint, Width: 4}
+		var vecSize VectorSize
+		switch dim {
+		case Dim1D:
+			// 1D: returns scalar u32
+			return TypeResolution{Value: uintScalar}, nil
+		case Dim2D:
+			vecSize = Vec2
+		case Dim3D:
+			vecSize = Vec3
+		case DimCube:
+			vecSize = Vec2
+		default:
+			vecSize = Vec2
+		}
 		return TypeResolution{Value: VectorType{
-			Size:   Vec3,
-			Scalar: ScalarType{Kind: ScalarUint, Width: 4},
+			Size:   vecSize,
+			Scalar: uintScalar,
 		}}, nil
+
 	case ImageQueryNumLevels, ImageQueryNumLayers, ImageQueryNumSamples:
 		// These return u32
 		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
@@ -485,10 +683,36 @@ func resolveMulResultType(module *Module, left, right TypeResolution) TypeResolu
 		// vec(rows) * mat(cols x rows) → vec(cols)
 		return TypeResolution{Value: VectorType{Size: rightMat.Columns, Scalar: rightMat.Scalar}}
 	case leftIsMat && rightIsMat:
-		return left
+		// mat(C1 x R1) * mat(C2 x R2) where C1==R2 → mat(C2 x R1)
+		return TypeResolution{Value: MatrixType{
+			Columns: rightMat.Columns,
+			Rows:    leftMat.Rows,
+			Scalar:  leftMat.Scalar,
+		}}
 	default:
 		return left
 	}
+}
+
+// findOrInferScalarHandle finds the type handle for a scalar type in the module.
+// Returns 0 if not found (callers should handle gracefully).
+func findOrInferScalarHandle(module *Module, scalar ScalarType) TypeHandle {
+	for i, t := range module.Types {
+		if s, ok := t.Inner.(ScalarType); ok && s == scalar {
+			return TypeHandle(i)
+		}
+	}
+	return 0
+}
+
+// findOrInferVectorHandle finds the type handle for a vector type in the module.
+func findOrInferVectorHandle(module *Module, vec VectorType) TypeHandle {
+	for i, t := range module.Types {
+		if v, ok := t.Inner.(VectorType); ok && v.Size == vec.Size && v.Scalar == vec.Scalar {
+			return TypeHandle(i)
+		}
+	}
+	return 0
 }
 
 // TypeResInner returns the inner type of a TypeResolution.
@@ -561,8 +785,16 @@ func resolveMathType(module *Module, fn *Function, expr ExprMath) (TypeResolutio
 
 	// Special cases for math functions
 	switch expr.Fun {
-	case MathDot, MathDot4I8Packed, MathDot4U8Packed:
-		// Dot product returns scalar
+	case MathDot4I8Packed:
+		// Dot product of packed 4xi8 returns signed int
+		return TypeResolution{Value: ScalarType{Kind: ScalarSint, Width: 4}}, nil
+
+	case MathDot4U8Packed:
+		// Dot product of packed 4xu8 returns unsigned uint
+		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
+
+	case MathDot:
+		// Dot product returns scalar of the vector's component type
 		var inner TypeInner
 		if argType.Handle != nil {
 			if int(*argType.Handle) >= len(module.Types) {
@@ -586,10 +818,132 @@ func resolveMathType(module *Module, fn *Function, expr ExprMath) (TypeResolutio
 		// Outer product returns matrix - complex, skip for now
 		return argType, nil
 
+	case MathUnpack4xI8:
+		// unpack4xI8 returns vec4<i32>
+		return TypeResolution{Value: VectorType{Size: 4, Scalar: ScalarType{Kind: ScalarSint, Width: 4}}}, nil
+
+	case MathUnpack4xU8:
+		// unpack4xU8 returns vec4<u32>
+		return TypeResolution{Value: VectorType{Size: 4, Scalar: ScalarType{Kind: ScalarUint, Width: 4}}}, nil
+
+	case MathPack4xI8, MathPack4xU8, MathPack4xI8Clamp, MathPack4xU8Clamp:
+		// pack4x8 functions return u32
+		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
+
+	case MathCountOneBits, MathReverseBits, MathCountTrailingZeros, MathCountLeadingZeros:
+		// Bit operations preserve the argument type
+		return argType, nil
+
+	case MathModf:
+		// Modf returns a struct __modf_result_* with {fract, whole}.
+		// Search for the struct type by name in the module.
+		structName := modfResultStructName(module, argType)
+		if h := findNamedType(module, structName); h >= 0 {
+			handle := TypeHandle(h)
+			return TypeResolution{Handle: &handle}, nil
+		}
+		// Fallback: return the arg type (for cases where struct isn't created yet)
+		return argType, nil
+
+	case MathFrexp:
+		// Frexp returns a struct __frexp_result_* with {fract, exp}.
+		structName := frexpResultStructName(module, argType)
+		if h := findNamedType(module, structName); h >= 0 {
+			handle := TypeHandle(h)
+			return TypeResolution{Handle: &handle}, nil
+		}
+		return argType, nil
+
 	default:
 		// Most math functions preserve the argument type
 		return argType, nil
 	}
+}
+
+// modfResultStructName returns the name of the modf result struct for a given arg type.
+func modfResultStructName(module *Module, argType TypeResolution) string {
+	inner := resolveInner(module, argType)
+	switch t := inner.(type) {
+	case VectorType:
+		sizeStr := ""
+		switch t.Size {
+		case Vec2:
+			sizeStr = "vec2"
+		case Vec3:
+			sizeStr = "vec3"
+		case Vec4:
+			sizeStr = "vec4"
+		}
+		widthStr := "f32"
+		if t.Scalar.Width == 8 {
+			widthStr = "f64"
+		} else if t.Scalar.Width == 2 {
+			widthStr = "f16"
+		}
+		return "__modf_result_" + sizeStr + "_" + widthStr
+	default:
+		return "__modf_result_f32"
+	}
+}
+
+// frexpResultStructName returns the name of the frexp result struct for a given arg type.
+func frexpResultStructName(module *Module, argType TypeResolution) string {
+	inner := resolveInner(module, argType)
+	switch t := inner.(type) {
+	case VectorType:
+		sizeStr := ""
+		switch t.Size {
+		case Vec2:
+			sizeStr = "vec2"
+		case Vec3:
+			sizeStr = "vec3"
+		case Vec4:
+			sizeStr = "vec4"
+		}
+		widthStr := "f32"
+		if t.Scalar.Width == 8 {
+			widthStr = "f64"
+		} else if t.Scalar.Width == 2 {
+			widthStr = "f16"
+		}
+		return "__frexp_result_" + sizeStr + "_" + widthStr
+	default:
+		return "__frexp_result_f32"
+	}
+}
+
+// FindModfResultType returns the TypeHandle for the modf result struct for a given argument type.
+// Returns -1 if not found.
+func FindModfResultType(module *Module, argType TypeResolution) TypeHandle {
+	name := modfResultStructName(module, argType)
+	h := findNamedType(module, name)
+	return TypeHandle(h)
+}
+
+// FindFrexpResultType returns the TypeHandle for the frexp result struct for a given argument type.
+// Returns -1 if not found.
+func FindFrexpResultType(module *Module, argType TypeResolution) TypeHandle {
+	name := frexpResultStructName(module, argType)
+	h := findNamedType(module, name)
+	return TypeHandle(h)
+}
+
+// resolveInner gets the TypeInner from a TypeResolution.
+func resolveInner(module *Module, res TypeResolution) TypeInner {
+	if res.Handle != nil && int(*res.Handle) < len(module.Types) {
+		return module.Types[*res.Handle].Inner
+	}
+	return res.Value
+}
+
+// findNamedType searches for a type by name in the module's type arena.
+func findNamedType(module *Module, name string) int {
+	for i, t := range module.Types {
+		if t.Name == name {
+			return i
+		}
+	}
+	return -1
 }
 
 func resolveAsType(module *Module, fn *Function, expr ExprAs) (TypeResolution, error) {
@@ -616,11 +970,26 @@ func resolveAsType(module *Module, fn *Function, expr ExprAs) (TypeResolution, e
 		if vec, ok := inner.(VectorType); ok {
 			return TypeResolution{Value: VectorType{Size: vec.Size, Scalar: targetScalar}}, nil
 		}
+		if mat, ok := inner.(MatrixType); ok {
+			return TypeResolution{Value: MatrixType{Columns: mat.Columns, Rows: mat.Rows, Scalar: targetScalar}}, nil
+		}
 		return TypeResolution{Value: targetScalar}, nil
 	}
 
-	// Bitcast preserves the type structure
-	return exprType, nil
+	// Bitcast: reinterpret bits as target kind, preserving width and vector size.
+	// as_type<float>(int_val) → Float scalar, as_type<int>(float_val) → Sint scalar.
+	targetScalar := ScalarType{Kind: expr.Kind}
+	switch t := inner.(type) {
+	case ScalarType:
+		targetScalar.Width = t.Width
+		return TypeResolution{Value: targetScalar}, nil
+	case VectorType:
+		targetScalar.Width = t.Scalar.Width
+		return TypeResolution{Value: VectorType{Size: t.Size, Scalar: targetScalar}}, nil
+	default:
+		// Fallback: preserve original type
+		return exprType, nil
+	}
 }
 
 // resolveAtomicResultType resolves the type of an atomic operation result.
@@ -638,7 +1007,7 @@ func resolveAtomicResultType(module *Module, fn *Function, handle ExpressionHand
 func findAtomicTypeForResult(module *Module, fn *Function, stmts []Statement, handle ExpressionHandle) *ScalarType {
 	for _, stmt := range stmts {
 		if s, ok := stmt.Kind.(StmtAtomic); ok && s.Result != nil && *s.Result == handle {
-			return resolveAtomicPointerScalar(module, fn, s.Pointer)
+			return ResolveAtomicPointerScalar(module, fn, s.Pointer)
 		}
 		for _, sub := range stmtSubBlocks(stmt) {
 			if t := findAtomicTypeForResult(module, fn, sub, handle); t != nil {
@@ -649,8 +1018,8 @@ func findAtomicTypeForResult(module *Module, fn *Function, stmts []Statement, ha
 	return nil
 }
 
-// resolveAtomicPointerScalar resolves a pointer expression to its atomic scalar type.
-func resolveAtomicPointerScalar(module *Module, fn *Function, pointer ExpressionHandle) *ScalarType {
+// ResolveAtomicPointerScalar resolves a pointer expression to its atomic scalar type.
+func ResolveAtomicPointerScalar(module *Module, fn *Function, pointer ExpressionHandle) *ScalarType {
 	ptrType, err := ResolveExpressionType(module, fn, pointer)
 	if err != nil {
 		return nil
@@ -663,6 +1032,61 @@ func resolveAtomicPointerScalar(module *Module, fn *Function, pointer Expression
 		return &st
 	}
 	return nil
+}
+
+// resolveWorkGroupUniformLoadResultType resolves the type of a workgroup uniform load result.
+// Searches the function body for the StmtWorkGroupUniformLoad that writes to this expression handle,
+// then returns the pointee type of the pointer operand.
+func resolveWorkGroupUniformLoadResultType(module *Module, fn *Function, handle ExpressionHandle) (TypeResolution, error) {
+	if t := findWorkGroupUniformLoadType(module, fn, fn.Body, handle); t != nil {
+		return *t, nil
+	}
+	return TypeResolution{}, fmt.Errorf("workgroup uniform load result type not found for expression %d", handle)
+}
+
+// findWorkGroupUniformLoadType recursively searches for a StmtWorkGroupUniformLoad targeting the given result handle.
+func findWorkGroupUniformLoadType(module *Module, fn *Function, stmts []Statement, handle ExpressionHandle) *TypeResolution {
+	for _, stmt := range stmts {
+		if s, ok := stmt.Kind.(StmtWorkGroupUniformLoad); ok && s.Result == handle {
+			// Resolve the pointer type, then get the pointee.
+			ptrRes, err := ResolveExpressionType(module, fn, s.Pointer)
+			if err != nil {
+				return nil
+			}
+			inner := TypeResInner(module, ptrRes)
+			if pt, ok := inner.(PointerType); ok {
+				// Return the base type of the pointer.
+				if int(pt.Base) < len(module.Types) {
+					baseInner := module.Types[pt.Base].Inner
+					if arrayType, ok := baseInner.(ArrayType); ok {
+						// For array pointers, the load returns the element type.
+						_ = arrayType
+					}
+					h := pt.Base
+					return &TypeResolution{Handle: &h}
+				}
+			}
+			return nil
+		}
+		for _, sub := range stmtSubBlocks(stmt) {
+			if t := findWorkGroupUniformLoadType(module, fn, sub, handle); t != nil {
+				return t
+			}
+		}
+	}
+	return nil
+}
+
+// resolveRayQueryIntersectionType finds the RayIntersection struct type in the module.
+func resolveRayQueryIntersectionType(module *Module) (TypeResolution, error) {
+	for i, t := range module.Types {
+		if t.Name == "RayIntersection" {
+			h := TypeHandle(i)
+			return TypeResolution{Handle: &h}, nil
+		}
+	}
+	// Fallback: not found, return a generic struct placeholder
+	return TypeResolution{}, fmt.Errorf("RayIntersection type not found in module")
 }
 
 // stmtSubBlocks returns all nested statement blocks for a given statement.

@@ -1,0 +1,3816 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Tri,
+                rows: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Quad,
+                rows: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Tri,
+                rows: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("v_f32_one"),
+            ty: 1,
+            init: 4,
+        ),
+        (
+            name: Some("v_f32_zero"),
+            ty: 1,
+            init: 9,
+        ),
+        (
+            name: Some("v_f32_half"),
+            ty: 1,
+            init: 14,
+        ),
+        (
+            name: Some("v_i32_one"),
+            ty: 3,
+            init: 19,
+        ),
+    ],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [
+        Literal(F32(1.0)),
+        Literal(F32(1.0)),
+        Literal(F32(1.0)),
+        Literal(F32(1.0)),
+        Compose(
+            ty: 1,
+            components: [
+                0,
+                1,
+                2,
+                3,
+            ],
+        ),
+        Literal(F32(0.0)),
+        Literal(F32(0.0)),
+        Literal(F32(0.0)),
+        Literal(F32(0.0)),
+        Compose(
+            ty: 1,
+            components: [
+                5,
+                6,
+                7,
+                8,
+            ],
+        ),
+        Literal(F32(0.5)),
+        Literal(F32(0.5)),
+        Literal(F32(0.5)),
+        Literal(F32(0.5)),
+        Compose(
+            ty: 1,
+            components: [
+                10,
+                11,
+                12,
+                13,
+            ],
+        ),
+        Literal(I32(1)),
+        Literal(I32(1)),
+        Literal(I32(1)),
+        Literal(I32(1)),
+        Compose(
+            ty: 3,
+            components: [
+                15,
+                16,
+                17,
+                18,
+            ],
+        ),
+    ],
+    functions: [
+        (
+            name: Some("builtins"),
+            arguments: [],
+            result: Some((
+                ty: 1,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(Bool(true)),
+                Literal(I32(0)),
+                Literal(I32(1)),
+                Select(
+                    condition: 0,
+                    accept: 2,
+                    reject: 1,
+                ),
+                Constant(1),
+                Constant(0),
+                Select(
+                    condition: 0,
+                    accept: 5,
+                    reject: 4,
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(1.0)),
+                Literal(F32(1.0)),
+                Literal(F32(1.0)),
+                Compose(
+                    ty: 1,
+                    components: [
+                        7,
+                        8,
+                        9,
+                        10,
+                    ],
+                ),
+                Constant(1),
+                Constant(0),
+                Constant(2),
+                Math(
+                    fun: Mix,
+                    arg: 12,
+                    arg1: Some(13),
+                    arg2: Some(14),
+                    arg3: None,
+                ),
+                Constant(1),
+                Constant(0),
+                Literal(F32(0.1)),
+                Math(
+                    fun: Mix,
+                    arg: 16,
+                    arg1: Some(17),
+                    arg2: Some(18),
+                    arg3: None,
+                ),
+                Literal(I32(1)),
+                As(
+                    expr: 20,
+                    kind: Float,
+                    convert: None,
+                ),
+                Constant(3),
+                As(
+                    expr: 22,
+                    kind: Float,
+                    convert: None,
+                ),
+                Literal(I32(0)),
+                Literal(I32(0)),
+                Literal(I32(0)),
+                Literal(I32(0)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        24,
+                        25,
+                        26,
+                        27,
+                    ],
+                ),
+                Splat(
+                    size: Quad,
+                    value: 3,
+                ),
+                Binary(
+                    op: Add,
+                    left: 29,
+                    right: 28,
+                ),
+                As(
+                    expr: 30,
+                    kind: Float,
+                    convert: Some(4),
+                ),
+                Binary(
+                    op: Add,
+                    left: 31,
+                    right: 6,
+                ),
+                Binary(
+                    op: Add,
+                    left: 32,
+                    right: 15,
+                ),
+                Binary(
+                    op: Add,
+                    left: 33,
+                    right: 19,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 21,
+                ),
+                Binary(
+                    op: Add,
+                    left: 34,
+                    right: 35,
+                ),
+                Binary(
+                    op: Add,
+                    left: 36,
+                    right: 23,
+                ),
+            ],
+            named_expressions: {
+                0: "condition",
+                3: "s1",
+                6: "s2",
+                11: "s3",
+                15: "m1",
+                19: "m2",
+                21: "b1",
+                23: "b2",
+                28: "v_i32_zero",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 15,
+                    end: 16,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 19,
+                    end: 20,
+                )),
+                Emit((
+                    start: 21,
+                    end: 22,
+                )),
+                Emit((
+                    start: 23,
+                    end: 24,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 28,
+                    end: 29,
+                )),
+                Emit((
+                    start: 29,
+                    end: 38,
+                )),
+                Return(
+                    value: Some(37),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("splat"),
+            arguments: [
+                (
+                    name: Some("m"),
+                    ty: 0,
+                    binding: None,
+                ),
+                (
+                    name: Some("n"),
+                    ty: 2,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 1,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Literal(F32(2.0)),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Binary(
+                    op: Add,
+                    left: 4,
+                    right: 2,
+                ),
+                Literal(F32(4.0)),
+                Splat(
+                    size: Bi,
+                    value: 6,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 5,
+                    right: 7,
+                ),
+                Literal(F32(8.0)),
+                Splat(
+                    size: Bi,
+                    value: 9,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 8,
+                    right: 10,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 1,
+                ),
+                Literal(I32(2)),
+                Splat(
+                    size: Quad,
+                    value: 13,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 12,
+                    right: 14,
+                ),
+                Swizzle(
+                    size: Quad,
+                    vector: 11,
+                    pattern: (X, Y, X, Y),
+                ),
+                As(
+                    expr: 15,
+                    kind: Float,
+                    convert: Some(4),
+                ),
+                Binary(
+                    op: Add,
+                    left: 16,
+                    right: 17,
+                ),
+            ],
+            named_expressions: {
+                0: "m",
+                1: "n",
+                11: "a",
+                15: "b",
+            },
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Emit((
+                    start: 4,
+                    end: 6,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 7,
+                    end: 9,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 10,
+                    end: 12,
+                )),
+                Emit((
+                    start: 12,
+                    end: 13,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 14,
+                    end: 16,
+                )),
+                Emit((
+                    start: 16,
+                    end: 19,
+                )),
+                Return(
+                    value: Some(18),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("splat_assignment"),
+            arguments: [],
+            result: Some((
+                ty: 5,
+                binding: None,
+            )),
+            local_variables: [
+                (
+                    name: Some("a"),
+                    ty: 5,
+                    init: Some(1),
+                ),
+            ],
+            expressions: [
+                Literal(F32(2.0)),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                LocalVariable(0),
+                Literal(F32(1.0)),
+                Load(
+                    pointer: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Binary(
+                    op: Add,
+                    left: 4,
+                    right: 5,
+                ),
+                Literal(F32(3.0)),
+                Load(
+                    pointer: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 7,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 8,
+                    right: 9,
+                ),
+                Literal(F32(4.0)),
+                Load(
+                    pointer: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 11,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 12,
+                    right: 13,
+                ),
+                Load(
+                    pointer: 2,
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Emit((
+                    start: 4,
+                    end: 7,
+                )),
+                Store(
+                    pointer: 2,
+                    value: 6,
+                ),
+                Emit((
+                    start: 8,
+                    end: 11,
+                )),
+                Store(
+                    pointer: 2,
+                    value: 10,
+                ),
+                Emit((
+                    start: 12,
+                    end: 15,
+                )),
+                Store(
+                    pointer: 2,
+                    value: 14,
+                ),
+                Emit((
+                    start: 15,
+                    end: 16,
+                )),
+                Return(
+                    value: Some(15),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("bool_cast"),
+            arguments: [
+                (
+                    name: Some("x"),
+                    ty: 6,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 6,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Bool,
+                    convert: Some(1),
+                ),
+                As(
+                    expr: 1,
+                    kind: Float,
+                    convert: Some(4),
+                ),
+            ],
+            named_expressions: {
+                0: "x",
+                1: "y",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Return(
+                    value: Some(2),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("p"),
+            arguments: [],
+            result: Some((
+                ty: 4,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(Bool(true)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("q"),
+            arguments: [],
+            result: Some((
+                ty: 4,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(Bool(false)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("r"),
+            arguments: [],
+            result: Some((
+                ty: 4,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(Bool(true)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("s"),
+            arguments: [],
+            result: Some((
+                ty: 4,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(Bool(false)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("logical"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: None,
+                    ty: 4,
+                    init: None,
+                ),
+                (
+                    name: None,
+                    ty: 4,
+                    init: None,
+                ),
+                (
+                    name: None,
+                    ty: 4,
+                    init: None,
+                ),
+                (
+                    name: None,
+                    ty: 4,
+                    init: None,
+                ),
+                (
+                    name: None,
+                    ty: 4,
+                    init: None,
+                ),
+            ],
+            expressions: [
+                Literal(Bool(true)),
+                Literal(Bool(false)),
+                Unary(
+                    op: LogicalNot,
+                    expr: 0,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Unary(
+                    op: LogicalNot,
+                    expr: 3,
+                ),
+                Unary(
+                    op: LogicalNot,
+                    expr: 0,
+                ),
+                Literal(Bool(true)),
+                LocalVariable(0),
+                LocalVariable(0),
+                Load(
+                    pointer: 8,
+                ),
+                Literal(Bool(false)),
+                LocalVariable(1),
+                LocalVariable(1),
+                Load(
+                    pointer: 12,
+                ),
+                Binary(
+                    op: InclusiveOr,
+                    left: 0,
+                    right: 1,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 0,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: InclusiveOr,
+                    left: 15,
+                    right: 16,
+                ),
+                Binary(
+                    op: And,
+                    left: 0,
+                    right: 1,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 0,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 1,
+                ),
+                Binary(
+                    op: And,
+                    left: 19,
+                    right: 20,
+                ),
+                CallResult(4),
+                Unary(
+                    op: LogicalNot,
+                    expr: 22,
+                ),
+                Literal(Bool(true)),
+                LocalVariable(2),
+                CallResult(5),
+                LocalVariable(2),
+                Load(
+                    pointer: 27,
+                ),
+                Literal(Bool(false)),
+                LocalVariable(3),
+                CallResult(6),
+                Unary(
+                    op: LogicalNot,
+                    expr: 31,
+                ),
+                Literal(Bool(true)),
+                LocalVariable(4),
+                CallResult(7),
+                LocalVariable(4),
+                Load(
+                    pointer: 36,
+                ),
+                LocalVariable(3),
+                Load(
+                    pointer: 38,
+                ),
+            ],
+            named_expressions: {
+                0: "t",
+                1: "f",
+                2: "neg0",
+                4: "neg1",
+                9: "or",
+                13: "and",
+                14: "bitwise_or0",
+                17: "bitwise_or1",
+                18: "bitwise_and0",
+                21: "bitwise_and1",
+                39: "short_circuit",
+            },
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Emit((
+                    start: 3,
+                    end: 5,
+                )),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                If(
+                    condition: 5,
+                    accept: [
+                        Store(
+                            pointer: 7,
+                            value: 1,
+                        ),
+                    ],
+                    reject: [
+                        Store(
+                            pointer: 7,
+                            value: 6,
+                        ),
+                    ],
+                ),
+                Emit((
+                    start: 9,
+                    end: 10,
+                )),
+                If(
+                    condition: 0,
+                    accept: [
+                        Store(
+                            pointer: 11,
+                            value: 1,
+                        ),
+                    ],
+                    reject: [
+                        Store(
+                            pointer: 11,
+                            value: 10,
+                        ),
+                    ],
+                ),
+                Emit((
+                    start: 13,
+                    end: 14,
+                )),
+                Emit((
+                    start: 14,
+                    end: 15,
+                )),
+                Emit((
+                    start: 15,
+                    end: 18,
+                )),
+                Emit((
+                    start: 18,
+                    end: 19,
+                )),
+                Emit((
+                    start: 19,
+                    end: 22,
+                )),
+                Call(
+                    function: 4,
+                    arguments: [],
+                    result: Some(22),
+                ),
+                Emit((
+                    start: 23,
+                    end: 24,
+                )),
+                If(
+                    condition: 23,
+                    accept: [
+                        Call(
+                            function: 5,
+                            arguments: [],
+                            result: Some(26),
+                        ),
+                        Store(
+                            pointer: 25,
+                            value: 26,
+                        ),
+                    ],
+                    reject: [
+                        Store(
+                            pointer: 25,
+                            value: 24,
+                        ),
+                    ],
+                ),
+                Emit((
+                    start: 28,
+                    end: 29,
+                )),
+                If(
+                    condition: 28,
+                    accept: [
+                        Call(
+                            function: 6,
+                            arguments: [],
+                            result: Some(31),
+                        ),
+                        Emit((
+                            start: 32,
+                            end: 33,
+                        )),
+                        If(
+                            condition: 32,
+                            accept: [
+                                Call(
+                                    function: 7,
+                                    arguments: [],
+                                    result: Some(35),
+                                ),
+                                Store(
+                                    pointer: 34,
+                                    value: 35,
+                                ),
+                            ],
+                            reject: [
+                                Store(
+                                    pointer: 34,
+                                    value: 33,
+                                ),
+                            ],
+                        ),
+                        Emit((
+                            start: 37,
+                            end: 38,
+                        )),
+                        Store(
+                            pointer: 30,
+                            value: 37,
+                        ),
+                    ],
+                    reject: [
+                        Store(
+                            pointer: 30,
+                            value: 29,
+                        ),
+                    ],
+                ),
+                Emit((
+                    start: 39,
+                    end: 40,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("arithmetic"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("prevent_const_eval"),
+                    ty: 2,
+                    init: None,
+                ),
+                (
+                    name: Some("wgpu_7437"),
+                    ty: 2,
+                    init: None,
+                ),
+            ],
+            expressions: [
+                Literal(I32(1)),
+                Literal(U32(1)),
+                Literal(F32(1.0)),
+                Literal(I32(2)),
+                Literal(U32(2)),
+                Literal(F32(2.0)),
+                Unary(
+                    op: Negate,
+                    expr: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 7,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 9,
+                ),
+                Binary(
+                    op: Add,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: Add,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: Add,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Add,
+                    left: 14,
+                    right: 15,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: Add,
+                    left: 17,
+                    right: 18,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: Add,
+                    left: 20,
+                    right: 21,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 26,
+                    right: 27,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 29,
+                    right: 30,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 32,
+                    right: 33,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 38,
+                    right: 39,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 41,
+                    right: 42,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 44,
+                    right: 45,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 50,
+                    right: 51,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 53,
+                    right: 54,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 56,
+                    right: 57,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 62,
+                    right: 63,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 65,
+                    right: 66,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 68,
+                    right: 69,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Add,
+                    left: 71,
+                    right: 72,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Binary(
+                    op: Add,
+                    left: 75,
+                    right: 74,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 4,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Binary(
+                    op: Add,
+                    left: 77,
+                    right: 78,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 4,
+                ),
+                Binary(
+                    op: Add,
+                    left: 81,
+                    right: 80,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 5,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Binary(
+                    op: Add,
+                    left: 83,
+                    right: 84,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 5,
+                ),
+                Binary(
+                    op: Add,
+                    left: 87,
+                    right: 86,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 89,
+                    right: 90,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 93,
+                    right: 92,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 4,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 95,
+                    right: 96,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 4,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 99,
+                    right: 98,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 5,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 101,
+                    right: 102,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 5,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 105,
+                    right: 104,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 107,
+                    right: 0,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 3,
+                    right: 109,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 4,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 111,
+                    right: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 4,
+                    right: 113,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 5,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 115,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 5,
+                    right: 117,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 119,
+                    right: 120,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 123,
+                    right: 122,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 4,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 125,
+                    right: 126,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 4,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 129,
+                    right: 128,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 5,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 131,
+                    right: 132,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 5,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 135,
+                    right: 134,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 137,
+                    right: 138,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 141,
+                    right: 140,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 4,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 143,
+                    right: 144,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 4,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 147,
+                    right: 146,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 5,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 149,
+                    right: 150,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 5,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 153,
+                    right: 152,
+                ),
+                ZeroValue(8),
+                ZeroValue(8),
+                Binary(
+                    op: Add,
+                    left: 155,
+                    right: 156,
+                ),
+                ZeroValue(8),
+                ZeroValue(8),
+                Binary(
+                    op: Subtract,
+                    left: 158,
+                    right: 159,
+                ),
+                ZeroValue(8),
+                Binary(
+                    op: Multiply,
+                    left: 161,
+                    right: 2,
+                ),
+                ZeroValue(8),
+                Binary(
+                    op: Multiply,
+                    left: 5,
+                    right: 163,
+                ),
+                ZeroValue(9),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 165,
+                    right: 166,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 5,
+                ),
+                ZeroValue(9),
+                Binary(
+                    op: Multiply,
+                    left: 168,
+                    right: 169,
+                ),
+                ZeroValue(9),
+                ZeroValue(10),
+                Binary(
+                    op: Multiply,
+                    left: 171,
+                    right: 172,
+                ),
+                LocalVariable(0),
+                Load(
+                    pointer: 174,
+                ),
+                Literal(I32(-2147483648)),
+                Binary(
+                    op: Add,
+                    left: 175,
+                    right: 176,
+                ),
+                LocalVariable(1),
+            ],
+            named_expressions: {
+                0: "one_i",
+                1: "one_u",
+                2: "one_f",
+                3: "two_i",
+                4: "two_u",
+                5: "two_f",
+                6: "neg0",
+                8: "neg1",
+                10: "neg2",
+                11: "add0",
+                12: "add1",
+                13: "add2",
+                16: "add3",
+                19: "add4",
+                22: "add5",
+                23: "sub0",
+                24: "sub1",
+                25: "sub2",
+                28: "sub3",
+                31: "sub4",
+                34: "sub5",
+                35: "mul0",
+                36: "mul1",
+                37: "mul2",
+                40: "mul3",
+                43: "mul4",
+                46: "mul5",
+                47: "div0",
+                48: "div1",
+                49: "div2",
+                52: "div3",
+                55: "div4",
+                58: "div5",
+                59: "rem0",
+                60: "rem1",
+                61: "rem2",
+                64: "rem3",
+                67: "rem4",
+                70: "rem5",
+                73: "add0",
+                76: "add1",
+                79: "add2",
+                82: "add3",
+                85: "add4",
+                88: "add5",
+                91: "sub0",
+                94: "sub1",
+                97: "sub2",
+                100: "sub3",
+                103: "sub4",
+                106: "sub5",
+                108: "mul0",
+                110: "mul1",
+                112: "mul2",
+                114: "mul3",
+                116: "mul4",
+                118: "mul5",
+                121: "div0",
+                124: "div1",
+                127: "div2",
+                130: "div3",
+                133: "div4",
+                136: "div5",
+                139: "rem0",
+                142: "rem1",
+                145: "rem2",
+                148: "rem3",
+                151: "rem4",
+                154: "rem5",
+                157: "add",
+                160: "sub",
+                162: "mul_scalar0",
+                164: "mul_scalar1",
+                167: "mul_vector0",
+                170: "mul_vector1",
+                173: "mul",
+            },
+            body: [
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Emit((
+                    start: 7,
+                    end: 9,
+                )),
+                Emit((
+                    start: 9,
+                    end: 11,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 12,
+                    end: 13,
+                )),
+                Emit((
+                    start: 13,
+                    end: 14,
+                )),
+                Emit((
+                    start: 14,
+                    end: 17,
+                )),
+                Emit((
+                    start: 17,
+                    end: 20,
+                )),
+                Emit((
+                    start: 20,
+                    end: 23,
+                )),
+                Emit((
+                    start: 23,
+                    end: 24,
+                )),
+                Emit((
+                    start: 24,
+                    end: 25,
+                )),
+                Emit((
+                    start: 25,
+                    end: 26,
+                )),
+                Emit((
+                    start: 26,
+                    end: 29,
+                )),
+                Emit((
+                    start: 29,
+                    end: 32,
+                )),
+                Emit((
+                    start: 32,
+                    end: 35,
+                )),
+                Emit((
+                    start: 35,
+                    end: 36,
+                )),
+                Emit((
+                    start: 36,
+                    end: 37,
+                )),
+                Emit((
+                    start: 37,
+                    end: 38,
+                )),
+                Emit((
+                    start: 38,
+                    end: 41,
+                )),
+                Emit((
+                    start: 41,
+                    end: 44,
+                )),
+                Emit((
+                    start: 44,
+                    end: 47,
+                )),
+                Emit((
+                    start: 47,
+                    end: 48,
+                )),
+                Emit((
+                    start: 48,
+                    end: 49,
+                )),
+                Emit((
+                    start: 49,
+                    end: 50,
+                )),
+                Emit((
+                    start: 50,
+                    end: 53,
+                )),
+                Emit((
+                    start: 53,
+                    end: 56,
+                )),
+                Emit((
+                    start: 56,
+                    end: 59,
+                )),
+                Emit((
+                    start: 59,
+                    end: 60,
+                )),
+                Emit((
+                    start: 60,
+                    end: 61,
+                )),
+                Emit((
+                    start: 61,
+                    end: 62,
+                )),
+                Emit((
+                    start: 62,
+                    end: 65,
+                )),
+                Emit((
+                    start: 65,
+                    end: 68,
+                )),
+                Emit((
+                    start: 68,
+                    end: 71,
+                )),
+                Block([
+                    Emit((
+                        start: 71,
+                        end: 74,
+                    )),
+                    Emit((
+                        start: 74,
+                        end: 77,
+                    )),
+                    Emit((
+                        start: 77,
+                        end: 80,
+                    )),
+                    Emit((
+                        start: 80,
+                        end: 83,
+                    )),
+                    Emit((
+                        start: 83,
+                        end: 86,
+                    )),
+                    Emit((
+                        start: 86,
+                        end: 89,
+                    )),
+                    Emit((
+                        start: 89,
+                        end: 92,
+                    )),
+                    Emit((
+                        start: 92,
+                        end: 95,
+                    )),
+                    Emit((
+                        start: 95,
+                        end: 98,
+                    )),
+                    Emit((
+                        start: 98,
+                        end: 101,
+                    )),
+                    Emit((
+                        start: 101,
+                        end: 104,
+                    )),
+                    Emit((
+                        start: 104,
+                        end: 107,
+                    )),
+                    Emit((
+                        start: 107,
+                        end: 109,
+                    )),
+                    Emit((
+                        start: 109,
+                        end: 111,
+                    )),
+                    Emit((
+                        start: 111,
+                        end: 113,
+                    )),
+                    Emit((
+                        start: 113,
+                        end: 115,
+                    )),
+                    Emit((
+                        start: 115,
+                        end: 117,
+                    )),
+                    Emit((
+                        start: 117,
+                        end: 119,
+                    )),
+                    Emit((
+                        start: 119,
+                        end: 122,
+                    )),
+                    Emit((
+                        start: 122,
+                        end: 125,
+                    )),
+                    Emit((
+                        start: 125,
+                        end: 128,
+                    )),
+                    Emit((
+                        start: 128,
+                        end: 131,
+                    )),
+                    Emit((
+                        start: 131,
+                        end: 134,
+                    )),
+                    Emit((
+                        start: 134,
+                        end: 137,
+                    )),
+                    Emit((
+                        start: 137,
+                        end: 140,
+                    )),
+                    Emit((
+                        start: 140,
+                        end: 143,
+                    )),
+                    Emit((
+                        start: 143,
+                        end: 146,
+                    )),
+                    Emit((
+                        start: 146,
+                        end: 149,
+                    )),
+                    Emit((
+                        start: 149,
+                        end: 152,
+                    )),
+                    Emit((
+                        start: 152,
+                        end: 155,
+                    )),
+                ]),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 157,
+                    end: 158,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 160,
+                    end: 161,
+                )),
+                Emit((
+                    start: 162,
+                    end: 163,
+                )),
+                Emit((
+                    start: 164,
+                    end: 165,
+                )),
+                Emit((
+                    start: 166,
+                    end: 168,
+                )),
+                Emit((
+                    start: 168,
+                    end: 169,
+                )),
+                Emit((
+                    start: 170,
+                    end: 171,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 173,
+                    end: 174,
+                )),
+                Emit((
+                    start: 175,
+                    end: 176,
+                )),
+                Emit((
+                    start: 177,
+                    end: 178,
+                )),
+                Store(
+                    pointer: 178,
+                    value: 177,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("bit"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                Literal(I32(1)),
+                Literal(U32(1)),
+                Literal(I32(2)),
+                Literal(U32(2)),
+                Unary(
+                    op: BitwiseNot,
+                    expr: 0,
+                ),
+                Unary(
+                    op: BitwiseNot,
+                    expr: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Unary(
+                    op: BitwiseNot,
+                    expr: 6,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Unary(
+                    op: BitwiseNot,
+                    expr: 8,
+                ),
+                Binary(
+                    op: InclusiveOr,
+                    left: 2,
+                    right: 0,
+                ),
+                Binary(
+                    op: InclusiveOr,
+                    left: 3,
+                    right: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: InclusiveOr,
+                    left: 12,
+                    right: 13,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 3,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: InclusiveOr,
+                    left: 15,
+                    right: 16,
+                ),
+                Binary(
+                    op: And,
+                    left: 2,
+                    right: 0,
+                ),
+                Binary(
+                    op: And,
+                    left: 3,
+                    right: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: And,
+                    left: 20,
+                    right: 21,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 3,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: And,
+                    left: 23,
+                    right: 24,
+                ),
+                Binary(
+                    op: ExclusiveOr,
+                    left: 2,
+                    right: 0,
+                ),
+                Binary(
+                    op: ExclusiveOr,
+                    left: 3,
+                    right: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: ExclusiveOr,
+                    left: 28,
+                    right: 29,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 3,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: ExclusiveOr,
+                    left: 31,
+                    right: 32,
+                ),
+                Binary(
+                    op: ShiftLeft,
+                    left: 2,
+                    right: 1,
+                ),
+                Binary(
+                    op: ShiftLeft,
+                    left: 3,
+                    right: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Binary(
+                    op: ShiftLeft,
+                    left: 36,
+                    right: 37,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 3,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: ShiftLeft,
+                    left: 39,
+                    right: 40,
+                ),
+                Binary(
+                    op: ShiftRight,
+                    left: 2,
+                    right: 1,
+                ),
+                Binary(
+                    op: ShiftRight,
+                    left: 3,
+                    right: 1,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 1,
+                ),
+                Binary(
+                    op: ShiftRight,
+                    left: 44,
+                    right: 45,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 3,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: ShiftRight,
+                    left: 47,
+                    right: 48,
+                ),
+            ],
+            named_expressions: {
+                0: "one_i",
+                1: "one_u",
+                2: "two_i",
+                3: "two_u",
+                4: "flip0",
+                5: "flip1",
+                7: "flip2",
+                9: "flip3",
+                10: "or0",
+                11: "or1",
+                14: "or2",
+                17: "or3",
+                18: "and0",
+                19: "and1",
+                22: "and2",
+                25: "and3",
+                26: "xor0",
+                27: "xor1",
+                30: "xor2",
+                33: "xor3",
+                34: "shl0",
+                35: "shl1",
+                38: "shl2",
+                41: "shl3",
+                42: "shr0",
+                43: "shr1",
+                46: "shr2",
+                49: "shr3",
+            },
+            body: [
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                Emit((
+                    start: 6,
+                    end: 8,
+                )),
+                Emit((
+                    start: 8,
+                    end: 10,
+                )),
+                Emit((
+                    start: 10,
+                    end: 11,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 12,
+                    end: 15,
+                )),
+                Emit((
+                    start: 15,
+                    end: 18,
+                )),
+                Emit((
+                    start: 18,
+                    end: 19,
+                )),
+                Emit((
+                    start: 19,
+                    end: 20,
+                )),
+                Emit((
+                    start: 20,
+                    end: 23,
+                )),
+                Emit((
+                    start: 23,
+                    end: 26,
+                )),
+                Emit((
+                    start: 26,
+                    end: 27,
+                )),
+                Emit((
+                    start: 27,
+                    end: 28,
+                )),
+                Emit((
+                    start: 28,
+                    end: 31,
+                )),
+                Emit((
+                    start: 31,
+                    end: 34,
+                )),
+                Emit((
+                    start: 34,
+                    end: 35,
+                )),
+                Emit((
+                    start: 35,
+                    end: 36,
+                )),
+                Emit((
+                    start: 36,
+                    end: 39,
+                )),
+                Emit((
+                    start: 39,
+                    end: 42,
+                )),
+                Emit((
+                    start: 42,
+                    end: 43,
+                )),
+                Emit((
+                    start: 43,
+                    end: 44,
+                )),
+                Emit((
+                    start: 44,
+                    end: 47,
+                )),
+                Emit((
+                    start: 47,
+                    end: 50,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("comparison"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                Literal(I32(1)),
+                Literal(U32(1)),
+                Literal(F32(1.0)),
+                Literal(I32(2)),
+                Literal(U32(2)),
+                Literal(F32(2.0)),
+                Binary(
+                    op: Equal,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: Equal,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: Equal,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Equal,
+                    left: 9,
+                    right: 10,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: Equal,
+                    left: 12,
+                    right: 13,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: Equal,
+                    left: 15,
+                    right: 16,
+                ),
+                Binary(
+                    op: NotEqual,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: NotEqual,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: NotEqual,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: NotEqual,
+                    left: 21,
+                    right: 22,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: NotEqual,
+                    left: 24,
+                    right: 25,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: NotEqual,
+                    left: 27,
+                    right: 28,
+                ),
+                Binary(
+                    op: Less,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: Less,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: Less,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Less,
+                    left: 33,
+                    right: 34,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: Less,
+                    left: 36,
+                    right: 37,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: Less,
+                    left: 39,
+                    right: 40,
+                ),
+                Binary(
+                    op: LessEqual,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: LessEqual,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: LessEqual,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: LessEqual,
+                    left: 45,
+                    right: 46,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: LessEqual,
+                    left: 48,
+                    right: 49,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: LessEqual,
+                    left: 51,
+                    right: 52,
+                ),
+                Binary(
+                    op: Greater,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: Greater,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: Greater,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: Greater,
+                    left: 57,
+                    right: 58,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: Greater,
+                    left: 60,
+                    right: 61,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: Greater,
+                    left: 63,
+                    right: 64,
+                ),
+                Binary(
+                    op: GreaterEqual,
+                    left: 3,
+                    right: 0,
+                ),
+                Binary(
+                    op: GreaterEqual,
+                    left: 4,
+                    right: 1,
+                ),
+                Binary(
+                    op: GreaterEqual,
+                    left: 5,
+                    right: 2,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 3,
+                ),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Binary(
+                    op: GreaterEqual,
+                    left: 69,
+                    right: 70,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 4,
+                ),
+                Splat(
+                    size: Tri,
+                    value: 1,
+                ),
+                Binary(
+                    op: GreaterEqual,
+                    left: 72,
+                    right: 73,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 5,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+                Binary(
+                    op: GreaterEqual,
+                    left: 75,
+                    right: 76,
+                ),
+            ],
+            named_expressions: {
+                0: "one_i",
+                1: "one_u",
+                2: "one_f",
+                3: "two_i",
+                4: "two_u",
+                5: "two_f",
+                6: "eq0",
+                7: "eq1",
+                8: "eq2",
+                11: "eq3",
+                14: "eq4",
+                17: "eq5",
+                18: "neq0",
+                19: "neq1",
+                20: "neq2",
+                23: "neq3",
+                26: "neq4",
+                29: "neq5",
+                30: "lt0",
+                31: "lt1",
+                32: "lt2",
+                35: "lt3",
+                38: "lt4",
+                41: "lt5",
+                42: "lte0",
+                43: "lte1",
+                44: "lte2",
+                47: "lte3",
+                50: "lte4",
+                53: "lte5",
+                54: "gt0",
+                55: "gt1",
+                56: "gt2",
+                59: "gt3",
+                62: "gt4",
+                65: "gt5",
+                66: "gte0",
+                67: "gte1",
+                68: "gte2",
+                71: "gte3",
+                74: "gte4",
+                77: "gte5",
+            },
+            body: [
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Emit((
+                    start: 7,
+                    end: 8,
+                )),
+                Emit((
+                    start: 8,
+                    end: 9,
+                )),
+                Emit((
+                    start: 9,
+                    end: 12,
+                )),
+                Emit((
+                    start: 12,
+                    end: 15,
+                )),
+                Emit((
+                    start: 15,
+                    end: 18,
+                )),
+                Emit((
+                    start: 18,
+                    end: 19,
+                )),
+                Emit((
+                    start: 19,
+                    end: 20,
+                )),
+                Emit((
+                    start: 20,
+                    end: 21,
+                )),
+                Emit((
+                    start: 21,
+                    end: 24,
+                )),
+                Emit((
+                    start: 24,
+                    end: 27,
+                )),
+                Emit((
+                    start: 27,
+                    end: 30,
+                )),
+                Emit((
+                    start: 30,
+                    end: 31,
+                )),
+                Emit((
+                    start: 31,
+                    end: 32,
+                )),
+                Emit((
+                    start: 32,
+                    end: 33,
+                )),
+                Emit((
+                    start: 33,
+                    end: 36,
+                )),
+                Emit((
+                    start: 36,
+                    end: 39,
+                )),
+                Emit((
+                    start: 39,
+                    end: 42,
+                )),
+                Emit((
+                    start: 42,
+                    end: 43,
+                )),
+                Emit((
+                    start: 43,
+                    end: 44,
+                )),
+                Emit((
+                    start: 44,
+                    end: 45,
+                )),
+                Emit((
+                    start: 45,
+                    end: 48,
+                )),
+                Emit((
+                    start: 48,
+                    end: 51,
+                )),
+                Emit((
+                    start: 51,
+                    end: 54,
+                )),
+                Emit((
+                    start: 54,
+                    end: 55,
+                )),
+                Emit((
+                    start: 55,
+                    end: 56,
+                )),
+                Emit((
+                    start: 56,
+                    end: 57,
+                )),
+                Emit((
+                    start: 57,
+                    end: 60,
+                )),
+                Emit((
+                    start: 60,
+                    end: 63,
+                )),
+                Emit((
+                    start: 63,
+                    end: 66,
+                )),
+                Emit((
+                    start: 66,
+                    end: 67,
+                )),
+                Emit((
+                    start: 67,
+                    end: 68,
+                )),
+                Emit((
+                    start: 68,
+                    end: 69,
+                )),
+                Emit((
+                    start: 69,
+                    end: 72,
+                )),
+                Emit((
+                    start: 72,
+                    end: 75,
+                )),
+                Emit((
+                    start: 75,
+                    end: 78,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("assignment"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("a"),
+                    ty: 2,
+                    init: None,
+                ),
+                (
+                    name: Some("vec0"),
+                    ty: 11,
+                    init: Some(33),
+                ),
+            ],
+            expressions: [
+                Literal(I32(0)),
+                Literal(I32(1)),
+                Literal(U32(1)),
+                Literal(U32(2)),
+                LocalVariable(0),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: Add,
+                    left: 5,
+                    right: 1,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 7,
+                    right: 1,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 10,
+                    right: 9,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: Divide,
+                    left: 13,
+                    right: 12,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: Modulo,
+                    left: 15,
+                    right: 1,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: And,
+                    left: 17,
+                    right: 0,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: InclusiveOr,
+                    left: 19,
+                    right: 0,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: ExclusiveOr,
+                    left: 21,
+                    right: 0,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: ShiftLeft,
+                    left: 23,
+                    right: 3,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: ShiftRight,
+                    left: 25,
+                    right: 2,
+                ),
+                Literal(I32(1)),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: Add,
+                    left: 28,
+                    right: 27,
+                ),
+                Literal(I32(1)),
+                Load(
+                    pointer: 4,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 31,
+                    right: 30,
+                ),
+                ZeroValue(11),
+                LocalVariable(1),
+                Access(
+                    base: 34,
+                    index: 1,
+                ),
+                Literal(I32(1)),
+                Load(
+                    pointer: 35,
+                ),
+                Binary(
+                    op: Add,
+                    left: 37,
+                    right: 36,
+                ),
+                Access(
+                    base: 34,
+                    index: 1,
+                ),
+                Literal(I32(1)),
+                Load(
+                    pointer: 39,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 41,
+                    right: 40,
+                ),
+            ],
+            named_expressions: {
+                0: "zero_i",
+                1: "one_i",
+                2: "one_u",
+                3: "two_u",
+            },
+            body: [
+                Store(
+                    pointer: 4,
+                    value: 1,
+                ),
+                Emit((
+                    start: 5,
+                    end: 7,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 6,
+                ),
+                Emit((
+                    start: 7,
+                    end: 9,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 8,
+                ),
+                Emit((
+                    start: 9,
+                    end: 12,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 11,
+                ),
+                Emit((
+                    start: 12,
+                    end: 15,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 14,
+                ),
+                Emit((
+                    start: 15,
+                    end: 17,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 16,
+                ),
+                Emit((
+                    start: 17,
+                    end: 19,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 18,
+                ),
+                Emit((
+                    start: 19,
+                    end: 21,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 20,
+                ),
+                Emit((
+                    start: 21,
+                    end: 23,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 22,
+                ),
+                Emit((
+                    start: 23,
+                    end: 25,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 24,
+                ),
+                Emit((
+                    start: 25,
+                    end: 27,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 26,
+                ),
+                Emit((
+                    start: 28,
+                    end: 30,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 29,
+                ),
+                Emit((
+                    start: 31,
+                    end: 33,
+                )),
+                Store(
+                    pointer: 4,
+                    value: 32,
+                ),
+                Emit((
+                    start: 35,
+                    end: 36,
+                )),
+                Emit((
+                    start: 37,
+                    end: 39,
+                )),
+                Store(
+                    pointer: 35,
+                    value: 38,
+                ),
+                Emit((
+                    start: 39,
+                    end: 40,
+                )),
+                Emit((
+                    start: 41,
+                    end: 43,
+                )),
+                Store(
+                    pointer: 39,
+                    value: 42,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("negation_avoids_prefix_decrement"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                Literal(I32(1)),
+                Unary(
+                    op: Negate,
+                    expr: 0,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 0,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 2,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 0,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 4,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 0,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 6,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 0,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 8,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 9,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 0,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 11,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 12,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 13,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 0,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 15,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 16,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 17,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 18,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 0,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 20,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 21,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 22,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 23,
+                ),
+                Literal(F32(1.0)),
+                Unary(
+                    op: Negate,
+                    expr: 25,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 25,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 27,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 25,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 29,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 25,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 31,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 25,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 33,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 34,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 25,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 36,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 37,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 38,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 25,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 40,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 41,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 42,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 43,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 25,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 45,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 46,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 47,
+                ),
+                Unary(
+                    op: Negate,
+                    expr: 48,
+                ),
+            ],
+            named_expressions: {
+                0: "i",
+                1: "i0",
+                3: "i1",
+                5: "i2",
+                7: "i3",
+                10: "i4",
+                14: "i5",
+                19: "i6",
+                24: "i7",
+                25: "f",
+                26: "f0",
+                28: "f1",
+                30: "f2",
+                32: "f3",
+                35: "f4",
+                39: "f5",
+                44: "f6",
+                49: "f7",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Emit((
+                    start: 2,
+                    end: 4,
+                )),
+                Emit((
+                    start: 4,
+                    end: 6,
+                )),
+                Emit((
+                    start: 6,
+                    end: 8,
+                )),
+                Emit((
+                    start: 8,
+                    end: 11,
+                )),
+                Emit((
+                    start: 11,
+                    end: 15,
+                )),
+                Emit((
+                    start: 15,
+                    end: 20,
+                )),
+                Emit((
+                    start: 20,
+                    end: 25,
+                )),
+                Emit((
+                    start: 26,
+                    end: 27,
+                )),
+                Emit((
+                    start: 27,
+                    end: 29,
+                )),
+                Emit((
+                    start: 29,
+                    end: 31,
+                )),
+                Emit((
+                    start: 31,
+                    end: 33,
+                )),
+                Emit((
+                    start: 33,
+                    end: 36,
+                )),
+                Emit((
+                    start: 36,
+                    end: 40,
+                )),
+                Emit((
+                    start: 40,
+                    end: 45,
+                )),
+                Emit((
+                    start: 45,
+                    end: 50,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [
+                    (
+                        name: Some("id"),
+                        ty: 7,
+                        binding: Some(BuiltIn(WorkGroupId)),
+                    ),
+                ],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    CallResult(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    As(
+                        expr: 2,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    As(
+                        expr: 4,
+                        kind: Sint,
+                        convert: Some(4),
+                    ),
+                    CallResult(1),
+                    CallResult(2),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            8,
+                            9,
+                            10,
+                        ],
+                    ),
+                    CallResult(3),
+                ],
+                named_expressions: {
+                    0: "id",
+                },
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: Some(1),
+                    ),
+                    Emit((
+                        start: 2,
+                        end: 6,
+                    )),
+                    Call(
+                        function: 1,
+                        arguments: [
+                            3,
+                            5,
+                        ],
+                        result: Some(6),
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [],
+                        result: Some(7),
+                    ),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Call(
+                        function: 3,
+                        arguments: [
+                            11,
+                        ],
+                        result: Some(12),
+                    ),
+                    Call(
+                        function: 8,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 9,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 10,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 11,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 12,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 13,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

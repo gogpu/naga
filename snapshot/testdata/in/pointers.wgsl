@@ -1,54 +1,33 @@
-// Pointer parameters to functions, pointer deref.
-
-fn increment(p: ptr<function, i32>) {
-    *p = *p + 1;
+fn f() {
+   var v: mat2x2<f32>;
+   let px = &v[0];
+   *px = vec2<f32>(10.0);
 }
 
-fn read_value(p: ptr<function, f32>) -> f32 {
-    return *p;
+struct DynamicArray {
+    arr: array<u32>
 }
 
-fn swap(a: ptr<function, i32>, b: ptr<function, i32>) {
-    let tmp = *a;
-    *a = *b;
-    *b = tmp;
+@group(0) @binding(0)
+var<storage, read_write> dynamic_array: DynamicArray;
+
+fn index_unsized(i: i32, v: u32) {
+   let p: ptr<storage, DynamicArray, read_write> = &dynamic_array;
+
+   let val = (*p).arr[i];
+   (*p).arr[i] = val + v;
 }
 
-fn modify_array_element(arr: ptr<function, array<f32, 4>>, idx: u32, val: f32) {
-    (*arr)[idx] = val;
-}
+fn index_dynamic_array(i: i32, v: u32) {
+   let p: ptr<storage, array<u32>, read_write> = &dynamic_array.arr;
 
-struct Data {
-    value: f32,
-    count: u32,
-}
-
-fn modify_struct_field(d: ptr<function, Data>) {
-    (*d).value = (*d).value * 2.0;
-    (*d).count = (*d).count + 1u;
+   let val = (*p)[i];
+   (*p)[i] = val + v;
 }
 
 @compute @workgroup_size(1)
 fn main() {
-    // Basic pointer operations
-    var x: i32 = 10;
-    increment(&x);
-    increment(&x);
-
-    // Read through pointer
-    var f: f32 = 3.14;
-    let val = read_value(&f);
-
-    // Swap values
-    var a: i32 = 1;
-    var b: i32 = 2;
-    swap(&a, &b);
-
-    // Array through pointer
-    var arr = array<f32, 4>(1.0, 2.0, 3.0, 4.0);
-    modify_array_element(&arr, 0u, 99.0);
-
-    // Struct through pointer
-    var data = Data(1.0, 0u);
-    modify_struct_field(&data);
+    f();
+    index_unsized(1, 1);
+    index_dynamic_array(1, 1);
 }

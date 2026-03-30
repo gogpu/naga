@@ -1,0 +1,43 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 28
+; Schema: 0
+
+               OpCapability Shader
+               OpCapability 6019
+               OpCapability 6018
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_25 "main"
+               OpExecutionMode %_25 LocalSize 1 1 1
+         %_2 = OpTypeVoid
+         %_3 = OpTypeInt 32 0
+         %_4 = OpTypeFunction %_3
+         %_7 = OpConstant %_3 1
+         %_8 = OpTypeInt 32 1
+         %_9 = OpConstant %_3 2
+         %_11 = OpConstant %_3 3
+         %_12 = OpConstant %_3 4
+         %_14 = OpConstant %_3 5
+         %_16 = OpConstant %_3 6
+         %_19 = OpConstant %_3 7
+         %_21 = OpConstant %_3 8
+         %_24 = OpTypeFunction %_2
+         %_5 = OpFunction %_3 None %_4
+         %_6 = OpLabel
+         Op4450 %_8 %_10 %_7 %_9 %_0
+         Op4451 %_3 %_13 %_11 %_12 %_0
+         %_15 = OpIAdd %_3 %_14 %_13
+         %_17 = OpIAdd %_3 %_16 %_13
+         Op4450 %_8 %_18 %_15 %_17 %_0
+         %_20 = OpIAdd %_3 %_19 %_13
+         %_22 = OpIAdd %_3 %_21 %_13
+         Op4451 %_3 %_23 %_20 %_22 %_0
+               OpReturnValue %_23
+               OpFunctionEnd
+         %_25 = OpFunction %_2 None %_24
+         %_26 = OpLabel
+         %_27 = OpFunctionCall %_3 %_5
+               OpReturn
+               OpFunctionEnd

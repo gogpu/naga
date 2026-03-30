@@ -1,0 +1,33 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct FragmentIn {
+    float value;
+    float value2_;
+    char _pad2[8];
+    metal::float4 position;
+};
+
+struct fs_mainInput {
+    float value [[user(loc1), center_perspective]];
+    float value2_ [[user(loc3), center_perspective]];
+};
+struct fs_mainOutput {
+    metal::float4 member [[color(0)]];
+};
+fragment fs_mainOutput fs_main(
+  fs_mainInput varyings [[stage_in]]
+, metal::float4 position [[position]]
+) {
+    const FragmentIn v_out = { varyings.value, varyings.value2_, {}, position };
+    return fs_mainOutput { metal::float4(v_out.value, v_out.value, v_out.value2_, v_out.value2_) };
+}

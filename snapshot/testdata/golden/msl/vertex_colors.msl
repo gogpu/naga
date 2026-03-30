@@ -1,63 +1,54 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
 struct VertexInput {
-    metal::float3 position_;
-    metal::float3 color_;
+    metal::float3 position;
+    metal::float3 color;
 };
-
 struct VertexOutput {
-    metal::float4 position_;
-    metal::float3 color_;
+    metal::float4 position;
+    metal::float3 color;
 };
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
-}
-
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
-}
-
-struct vs_main_Input {
-    metal::float3 position_ [[attribute(0)]];
-    metal::float3 color_ [[attribute(1)]];
+struct vs_mainInput {
+    metal::float3 position [[attribute(0)]];
+    metal::float3 color [[attribute(1)]];
 };
-
-struct vs_main_Output {
-    metal::float4 position_ [[position]];
-    metal::float3 color_ [[user(locn0)]];
+struct vs_mainOutput {
+    metal::float4 position [[position]];
+    metal::float3 color [[user(loc0), center_perspective]];
 };
-
-vertex vs_main_Output vs_main(vs_main_Input _input [[stage_in]]) {
-    auto in_ = _input;
-    VertexOutput out_ = VertexOutput();
-    
-    vs_main_Output _output;
-    out_.position_ = metal::float4(in_.position_, 1.0);
-    out_.color_ = in_.color_;
-    auto _ret_1 = out_;
-    _output.position_ = _ret_1.position_;
-    _output.color_ = _ret_1.color_;
-    return _output;
-    return _output;
+vertex vs_mainOutput vs_main(
+  vs_mainInput varyings [[stage_in]]
+) {
+    const VertexInput in = { varyings.position, varyings.color };
+    VertexOutput out = {};
+    out.position = metal::float4(in.position, 1.0);
+    out.color = in.color;
+    VertexOutput _e8 = out;
+    const auto _tmp = _e8;
+    return vs_mainOutput { _tmp.position, _tmp.color };
 }
 
-struct fs_main_Input {
-    metal::float3 color_ [[user(locn0)]];
+
+struct fs_mainInput {
+    metal::float3 color [[user(loc0), center_perspective]];
 };
-
-fragment metal::float4 fs_main(fs_main_Input _input [[stage_in]]) {
-    auto color_ = _input.color_;
-    
-    return metal::float4(color_, 1.0);
+struct fs_mainOutput {
+    metal::float4 member_1 [[color(0)]];
+};
+fragment fs_mainOutput fs_main(
+  fs_mainInput varyings_1 [[stage_in]]
+) {
+    const auto color = varyings_1.color;
+    return fs_mainOutput { metal::float4(color, 1.0) };
 }
-

@@ -96,9 +96,136 @@ func capabilityNameForTest(c uint32) string {
 		return "DotProductInput4x8BitPacked"
 	case CapabilityDotProduct:
 		return "DotProduct"
+	case CapabilityClipDistance:
+		return "ClipDistance"
+	case CapabilityGeometry:
+		return "Geometry"
+	case CapabilityGroupNonUniform:
+		return "GroupNonUniform"
+	case CapabilityStorageBuffer16BitAccess:
+		return "StorageBuffer16BitAccess"
+	case CapabilityUniformAndStorageBuffer16BitAccess:
+		return "UniformAndStorageBuffer16BitAccess"
+	case CapabilityStorageInputOutput16:
+		return "StorageInputOutput16"
+	case CapabilityAtomicFloat32AddEXT:
+		return "AtomicFloat32AddEXT"
+	case CapabilityStorageImageExtendedFormats:
+		return "StorageImageExtendedFormats"
+	case CapabilityLinkage:
+		return "Linkage"
 	default:
 		return "Unknown"
 	}
+}
+
+// compileWGSLForCapabilityTestWithOpts compiles WGSL with custom options.
+func compileWGSLForCapabilityTestWithOpts(t *testing.T, source string, opts Options) []byte {
+	t.Helper()
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatalf("Lower: %v", err)
+	}
+
+	backend := NewBackend(opts)
+	spvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	return spvBytes
+}
+
+// compileModuleForCapabilityTest compiles an IR module directly to SPIR-V.
+func compileModuleForCapabilityTest(t *testing.T, module *ir.Module, opts Options) []byte {
+	t.Helper()
+	backend := NewBackend(opts)
+	spvBytes, err := backend.Compile(module)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	return spvBytes
+}
+
+// extractExtensions parses a SPIR-V binary and returns all OpExtension strings.
+func extractExtensions(spvBytes []byte) []string {
+	var exts []string
+	if len(spvBytes) < 20 {
+		return exts
+	}
+	offset := 20
+	for offset+4 <= len(spvBytes) {
+		word := binary.LittleEndian.Uint32(spvBytes[offset:])
+		opcode := word & 0xFFFF
+		wordCount := word >> 16
+		if wordCount == 0 || offset+int(wordCount)*4 > len(spvBytes) {
+			break
+		}
+		if opcode == uint32(OpExtension) && wordCount >= 2 {
+			// Extension name starts at word 1, null-terminated UTF-8 packed in words
+			nameBytes := spvBytes[offset+4 : offset+int(wordCount)*4]
+			name := ""
+			for _, b := range nameBytes {
+				if b == 0 {
+					break
+				}
+				name += string(b)
+			}
+			exts = append(exts, name)
+		}
+		offset += int(wordCount) * 4
+	}
+	return exts
+}
+
+// countEntryPointInterfaceVars counts total interface variables across all OpEntryPoint
+// instructions in the SPIR-V binary.
+func countEntryPointInterfaceVars(spvBytes []byte) int {
+	total := 0
+	if len(spvBytes) < 20 {
+		return total
+	}
+	offset := 20
+	for offset+4 <= len(spvBytes) {
+		word := binary.LittleEndian.Uint32(spvBytes[offset:])
+		opcode := word & 0xFFFF
+		wordCount := word >> 16
+		if wordCount == 0 || offset+int(wordCount)*4 > len(spvBytes) {
+			break
+		}
+		// OpEntryPoint = 15, format: wordCount|15, ExecModel, FuncID, Name..., InterfaceVars...
+		if opcode == 15 && wordCount >= 4 {
+			// Find end of name string (starts at word 3)
+			nameStart := offset + 12 // word 3
+			nameEnd := nameStart
+			for nameEnd < offset+int(wordCount)*4 {
+				if spvBytes[nameEnd] == 0 {
+					// Advance to next word boundary
+					nameEnd = ((nameEnd + 4) / 4) * 4
+					break
+				}
+				nameEnd++
+			}
+			// Remaining words after name are interface variable IDs
+			remaining := offset + int(wordCount)*4 - nameEnd
+			total += remaining / 4
+		}
+		offset += int(wordCount) * 4
+	}
+	return total
 }
 
 // assertCapability checks that a specific capability is present in the set.

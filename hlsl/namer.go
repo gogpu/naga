@@ -9,20 +9,40 @@ import (
 )
 
 // namer generates unique identifiers for HLSL output.
-// It tracks used names to ensure uniqueness and handles
-// HLSL's case-insensitive keyword matching.
+// Matches Rust naga's proc::Namer behavior:
+// - Per-base-name conflict counters
+// - Appends trailing underscore when base ends with digit or is a keyword
+// - Case-insensitive keyword detection
 type namer struct {
-	// usedNames tracks names that have been generated (stored in lowercase for case-insensitive comparison).
-	usedNames map[string]struct{}
+	// unique tracks each sanitized base name → conflict count.
+	// Count 0 means first use, 1 means one collision (_1), etc.
+	unique map[string]int
 
-	// counter is used to generate unique suffixes.
-	counter uint32
+	// keywords is the set of reserved HLSL keywords (case-sensitive).
+	keywords map[string]struct{}
+
+	// keywordsCaseInsensitive is the set of case-insensitive HLSL keywords (stored lowercase).
+	keywordsCaseInsensitive map[string]struct{}
+
+	// reservedPrefixes are prefixes that should be avoided.
+	reservedPrefixes []string
 }
 
 // newNamer creates a new namer instance.
 func newNamer() *namer {
 	n := &namer{
-		usedNames: make(map[string]struct{}),
+		unique:                  make(map[string]int),
+		keywords:                make(map[string]struct{}),
+		keywordsCaseInsensitive: make(map[string]struct{}),
+	}
+
+	// Register HLSL keywords (case-sensitive, matching Rust naga's KeywordSet)
+	for kw := range reservedKeywords {
+		n.keywords[kw] = struct{}{}
+	}
+	// Register case-insensitive keywords (stored lowercase, matching Rust naga's CaseInsensitiveKeywordSet)
+	for kw := range caseInsensitiveKeywords {
+		n.keywordsCaseInsensitive[strings.ToLower(kw)] = struct{}{}
 	}
 
 	// Pre-register all naga helper function names to avoid conflicts
@@ -49,93 +69,196 @@ func newNamer() *namer {
 	}
 
 	for _, name := range helperNames {
-		n.usedNames[strings.ToLower(name)] = struct{}{}
+		// Register in unique so they'll be avoided
+		sanitized := n.sanitize(name)
+		n.unique[sanitized] = 0
 	}
 
 	return n
 }
 
-// call generates a unique name based on the given base.
-// It escapes reserved keywords and adds numeric suffixes if needed.
-func (n *namer) call(base string) string {
-	// Handle empty base name
-	if base == "" {
-		base = UnnamedIdentifier
+// sanitize cleans a label into a valid identifier base.
+// Matches Rust naga's Namer::sanitize:
+// - Drop leading digits
+// - Trim trailing underscores
+// - Keep only alphanumeric and '_'
+// - Collapse consecutive underscores
+func (n *namer) sanitize(label string) string {
+	if label == "" {
+		return "unnamed"
 	}
 
-	// Escape reserved words first
-	escaped := Escape(base)
+	// Drop leading digits
+	start := 0
+	for start < len(label) && label[start] >= '0' && label[start] <= '9' {
+		start++
+	}
+	s := label[start:]
 
-	// Check if this name is available (case-insensitive for HLSL)
-	lowerEscaped := strings.ToLower(escaped)
-	if !n.isUsedLower(lowerEscaped) {
-		n.usedNames[lowerEscaped] = struct{}{}
-		return escaped
+	// Trim trailing underscores
+	s = strings.TrimRight(s, "_")
+
+	if s == "" {
+		return "unnamed"
 	}
 
-	// Add numeric suffix to make unique
-	for {
-		n.counter++
-		candidate := fmt.Sprintf("%s_%d", escaped, n.counter)
-		lowerCandidate := strings.ToLower(candidate)
-		if !n.isUsedLower(lowerCandidate) {
-			n.usedNames[lowerCandidate] = struct{}{}
-			return candidate
+	// Check if sanitization is needed
+	// Rust naga uses is_ascii_alphanumeric — only ASCII letters and digits are valid
+	needsSanitize := false
+	if strings.Contains(s, "__") {
+		needsSanitize = true
+	}
+	if !needsSanitize {
+		for _, c := range s {
+			if !isASCIIAlphanumeric(c) && c != '_' {
+				needsSanitize = true
+				break
+			}
 		}
 	}
+
+	if !needsSanitize {
+		// Check for reserved prefixes
+		for _, prefix := range n.reservedPrefixes {
+			if strings.HasPrefix(s, prefix) {
+				return "gen_" + s
+			}
+		}
+		return s
+	}
+
+	// Filter characters
+	var buf strings.Builder
+	for _, c := range s {
+		switch c {
+		case ':', '<', '>', ',':
+			// Common C++ type chars become separator
+			if buf.Len() > 0 && !strings.HasSuffix(buf.String(), "_") {
+				buf.WriteByte('_')
+			}
+		default:
+			if isASCIIAlphanumeric(c) || c == '_' {
+				if c == '_' && strings.HasSuffix(buf.String(), "_") {
+					continue // collapse consecutive underscores
+				}
+				buf.WriteRune(c)
+			} else {
+				if buf.Len() > 0 && !strings.HasSuffix(buf.String(), "_") {
+					buf.WriteByte('_')
+				}
+				fmt.Fprintf(&buf, "u%04x_", c)
+			}
+		}
+	}
+
+	result := strings.TrimRight(buf.String(), "_")
+	if result == "" {
+		return "unnamed"
+	}
+
+	// Check for reserved prefixes
+	for _, prefix := range n.reservedPrefixes {
+		if strings.HasPrefix(result, prefix) {
+			return "gen_" + result
+		}
+	}
+
+	return result
 }
 
-// isUsed checks if a name has already been used (case-insensitive).
-func (n *namer) isUsed(name string) bool {
-	return n.isUsedLower(strings.ToLower(name))
+// call generates a unique name based on the given label.
+// Matches Rust naga's Namer::call:
+// - Sanitizes the label
+// - If first occurrence AND (ends with digit or is keyword), appends '_'
+// - If collision, appends '_{count}'
+func (n *namer) call(label string) string {
+	base := n.sanitize(label)
+
+	if count, exists := n.unique[base]; exists {
+		// Collision: increment count and append suffix
+		count++
+		n.unique[base] = count
+		return fmt.Sprintf("%s_%d", base, count)
+	}
+
+	// First occurrence
+	suffixed := base
+	if endsWithDigit(base) || n.isKeyword(base) {
+		suffixed = base + "_"
+	}
+	n.unique[base] = 0
+	return suffixed
 }
 
-// isUsedLower checks if a lowercase name has already been used.
-func (n *namer) isUsedLower(lowerName string) bool {
-	_, used := n.usedNames[lowerName]
-	return used
+// callOr generates a unique name from the given base, or uses the fallback if base is empty/nil.
+func (n *namer) callOr(base, fallback string) string {
+	if base == "" {
+		return n.call(fallback)
+	}
+	return n.call(base)
+}
+
+// isKeyword checks if a name is a reserved keyword.
+// Matches Rust naga: case-sensitive check against keywords, case-insensitive check against keywordsCaseInsensitive.
+func (n *namer) isKeyword(name string) bool {
+	if _, found := n.keywords[name]; found {
+		return true
+	}
+	_, found := n.keywordsCaseInsensitive[strings.ToLower(name)]
+	return found
+}
+
+// endsWithDigit checks if a string ends with an ASCII digit.
+func endsWithDigit(s string) bool {
+	if s == "" {
+		return false
+	}
+	c := s[len(s)-1]
+	return c >= '0' && c <= '9'
 }
 
 // reserve marks a name as used without returning it.
-// This is useful for reserving names that are used externally.
 func (n *namer) reserve(name string) {
-	n.usedNames[strings.ToLower(name)] = struct{}{}
+	base := n.sanitize(name)
+	if _, exists := n.unique[base]; !exists {
+		n.unique[base] = 0
+	}
 }
 
-// reset clears all tracked names and resets the counter.
-// Primarily useful for testing.
+// namespace temporarily enters a fresh naming scope for the duration of body.
+// Used for struct members which only need to be unique among themselves.
+// Matches Rust naga's Namer::namespace.
+func (n *namer) namespace(body func()) {
+	outer := n.unique
+	n.unique = make(map[string]int)
+	body()
+	n.unique = outer
+}
+
+// reset clears all tracked names and resets state.
 func (n *namer) reset() {
-	n.usedNames = make(map[string]struct{})
-	n.counter = 0
+	n.unique = make(map[string]int)
 }
 
-// count returns the number of unique names tracked.
+// count returns the number of unique base names tracked.
 func (n *namer) count() int {
-	return len(n.usedNames)
+	return len(n.unique)
+}
+
+// isUsed checks if a name has already been used.
+func (n *namer) isUsed(name string) bool {
+	base := n.sanitize(name)
+	_, exists := n.unique[base]
+	return exists
 }
 
 // callWithPrefix generates a unique name with a specific prefix.
-// The prefix is not escaped but the resulting name is checked for uniqueness.
 func (n *namer) callWithPrefix(prefix, base string) string {
-	combined := prefix + base
+	return n.call(prefix + base)
+}
 
-	// Check if escaped name is available
-	escaped := Escape(combined)
-	lowerEscaped := strings.ToLower(escaped)
-
-	if !n.isUsedLower(lowerEscaped) {
-		n.usedNames[lowerEscaped] = struct{}{}
-		return escaped
-	}
-
-	// Add numeric suffix
-	for {
-		n.counter++
-		candidate := fmt.Sprintf("%s_%d", escaped, n.counter)
-		lowerCandidate := strings.ToLower(candidate)
-		if !n.isUsedLower(lowerCandidate) {
-			n.usedNames[lowerCandidate] = struct{}{}
-			return candidate
-		}
-	}
+// isASCIIAlphanumeric checks if a rune is an ASCII letter or digit.
+// Matches Rust's char::is_ascii_alphanumeric().
+func isASCIIAlphanumeric(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }

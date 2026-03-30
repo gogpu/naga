@@ -379,19 +379,16 @@ func findFunctionVariable(instrs []spirvInstruction, names map[uint32]string, na
 	return 0
 }
 
-// verifyInitStore checks if there is an OpStore targeting varID in the entry block
-// (before any branch/selection/loop instructions).
+// verifyInitStore checks if there is an OpStore targeting varID anywhere in the
+// function body. Var inits are emitted as body StmtStore (matching Rust naga's
+// zero-init + separate store pattern), so the OpStore may appear in any block.
 func verifyInitStore(t *testing.T, instrs []spirvInstruction, names map[uint32]string, varID uint32) bool {
 	t.Helper()
 	inFunction := false
-	entryBlock := false
-	pastVariables := false
 
 	for _, inst := range instrs {
 		if inst.opcode == OpFunction {
 			inFunction = true
-			entryBlock = false
-			pastVariables = false
 		}
 		if inst.opcode == OpFunctionEnd {
 			inFunction = false
@@ -399,32 +396,14 @@ func verifyInitStore(t *testing.T, instrs []spirvInstruction, names map[uint32]s
 		if !inFunction {
 			continue
 		}
-		if inst.opcode == OpLabel && !entryBlock {
-			entryBlock = true
-			continue
-		}
-		if !entryBlock {
-			continue
-		}
 
-		// Track when we're past OpVariable declarations
-		if inst.opcode != OpVariable && !pastVariables {
-			pastVariables = true
-		}
-
-		// An OpStore in the entry block to our variable = init store
+		// An OpStore anywhere in the function to our variable = init store
 		if inst.opcode == OpStore && inst.wordCount >= 3 {
 			if inst.words[1] == varID {
 				t.Logf("  Found init OpStore to %s(%%%d) at word %d, value=%%%d",
 					names[varID], varID, inst.offset, inst.words[2])
 				return true
 			}
-		}
-
-		// If we hit a branch/selection, we've left the entry block init region
-		if inst.opcode == OpSelectionMerge || inst.opcode == OpBranch ||
-			inst.opcode == OpBranchConditional || inst.opcode == OpReturn {
-			break
 		}
 	}
 	return false
@@ -435,26 +414,17 @@ func verifyInitStore(t *testing.T, instrs []spirvInstruction, names map[uint32]s
 func verifyInitValueFromUniform(t *testing.T, instrs []spirvInstruction, names map[uint32]string, varID uint32) {
 	t.Helper()
 
-	// Find the OpStore to varID in the entry block
+	// Find the OpStore to varID anywhere in the function
 	inFunction := false
-	entryBlock := false
 
 	for _, inst := range instrs {
 		if inst.opcode == OpFunction {
 			inFunction = true
-			entryBlock = false
 		}
 		if inst.opcode == OpFunctionEnd {
 			inFunction = false
 		}
 		if !inFunction {
-			continue
-		}
-		if inst.opcode == OpLabel && !entryBlock {
-			entryBlock = true
-			continue
-		}
-		if !entryBlock {
 			continue
 		}
 
@@ -465,11 +435,6 @@ func verifyInitValueFromUniform(t *testing.T, instrs []spirvInstruction, names m
 			// Trace the value ID back — it should be from OpLoad
 			traceValueOrigin(t, instrs, names, valueID, 0)
 			return
-		}
-
-		if inst.opcode == OpSelectionMerge || inst.opcode == OpBranch ||
-			inst.opcode == OpBranchConditional || inst.opcode == OpReturn {
-			break
 		}
 	}
 

@@ -11,16 +11,16 @@ const UnnamedIdentifier = "_unnamed"
 
 // Naga helper function names (reserved to avoid conflicts with generated code).
 const (
-	NagaModfFunction               = "_naga_modf"
-	NagaFrexpFunction              = "_naga_frexp"
+	NagaModfFunction               = "naga_modf"
+	NagaFrexpFunction              = "naga_frexp"
 	NagaExtractBitsFunction        = "_naga_extract_bits"
 	NagaInsertBitsFunction         = "_naga_insert_bits"
 	SamplerHeapVar                 = "_naga_sampler_heap"
 	ComparisonSamplerHeapVar       = "_naga_comparison_sampler_heap"
 	SampleExternalTextureFunction  = "_naga_sample_external_texture"
 	NagaAbsFunction                = "_naga_abs"
-	NagaDivFunction                = "_naga_div"
-	NagaModFunction                = "_naga_mod"
+	NagaDivFunction                = "naga_div"
+	NagaModFunction                = "naga_mod"
 	NagaNegFunction                = "_naga_neg"
 	NagaF2I32Function              = "_naga_f2i32"
 	NagaF2U32Function              = "_naga_f2u32"
@@ -205,6 +205,7 @@ var reservedKeywords = map[string]struct{}{
 	"abs":                              {},
 	"acos":                             {},
 	"all":                              {},
+	"and":                              {},
 	"AllMemoryBarrier":                 {},
 	"AllMemoryBarrierWithGroupSync":    {},
 	"any":                              {},
@@ -285,6 +286,7 @@ var reservedKeywords = map[string]struct{}{
 	"mul":                              {},
 	"noise":                            {},
 	"normalize":                        {},
+	"or":                               {},
 	"pow":                              {},
 	"printf":                           {},
 	"Process2DQuadTessFactorsAvg":      {},
@@ -614,16 +616,16 @@ var reservedKeywords = map[string]struct{}{
 	// =========================================================================
 	// Naga Helper Names (reserved to avoid conflicts)
 	// =========================================================================
-	"_naga_modf":                            {},
-	"_naga_frexp":                           {},
+	"naga_modf":                             {},
+	"naga_frexp":                            {},
 	"_naga_extract_bits":                    {},
 	"_naga_insert_bits":                     {},
 	"_naga_sampler_heap":                    {},
 	"_naga_comparison_sampler_heap":         {},
 	"_naga_sample_external_texture":         {},
 	"_naga_abs":                             {},
-	"_naga_div":                             {},
-	"_naga_mod":                             {},
+	"naga_div":                              {},
+	"naga_mod":                              {},
 	"_naga_neg":                             {},
 	"_naga_f2i32":                           {},
 	"_naga_f2u32":                           {},
@@ -720,13 +722,13 @@ func IsCaseInsensitiveReserved(name string) bool {
 }
 
 // Escape returns a safe identifier name.
-// If the name is reserved or empty, it's prefixed with underscore.
+// If the name is reserved or empty, it's suffixed with underscore (matches Rust naga).
 func Escape(name string) string {
 	if name == "" {
 		return UnnamedIdentifier
 	}
 	if IsReserved(name) || IsCaseInsensitiveReserved(name) {
-		return "_" + name
+		return name + "_"
 	}
 	return name
 }

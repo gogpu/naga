@@ -1,0 +1,132 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("break_from_loop"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("i"),
+                    ty: 0,
+                    init: Some(0),
+                ),
+            ],
+            expressions: [
+                Literal(I32(0)),
+                LocalVariable(0),
+                Load(
+                    pointer: 1,
+                ),
+                Literal(I32(4)),
+                Binary(
+                    op: Less,
+                    left: 2,
+                    right: 3,
+                ),
+                Literal(I32(1)),
+                Load(
+                    pointer: 1,
+                ),
+                Binary(
+                    op: Add,
+                    left: 6,
+                    right: 5,
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Loop(
+                    body: [
+                        Emit((
+                            start: 2,
+                            end: 3,
+                        )),
+                        Emit((
+                            start: 4,
+                            end: 5,
+                        )),
+                        If(
+                            condition: 4,
+                            accept: [],
+                            reject: [
+                                Break,
+                            ],
+                        ),
+                        Block([
+                            Break,
+                        ]),
+                    ],
+                    continuing: [
+                        Emit((
+                            start: 6,
+                            end: 8,
+                        )),
+                        Store(
+                            pointer: 1,
+                            value: 7,
+                        ),
+                    ],
+                    break_if: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

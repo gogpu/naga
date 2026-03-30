@@ -128,6 +128,10 @@ func BuiltInToSemantic(b ir.BuiltinValue) string {
 	case ir.BuiltinNumWorkGroups:
 		// NumWorkGroups requires a helper constant buffer
 		return "SV_GroupID" // Placeholder - will be replaced
+	case ir.BuiltinViewIndex:
+		return "SV_ViewID"
+	case ir.BuiltinBarycentric:
+		return "SV_Barycentrics"
 	default:
 		return semanticSVPosition // Safe fallback
 	}

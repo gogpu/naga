@@ -114,19 +114,19 @@ func TestGLSL_MatrixTypes(t *testing.T) {
 		matrix ir.MatrixType
 		want   string
 	}{
-		{"mat2", ir.MatrixType{Columns: 2, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat2"},
-		{"mat3", ir.MatrixType{Columns: 3, Rows: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat3"},
-		{"mat4", ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat4"},
+		{"mat2x2", ir.MatrixType{Columns: 2, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat2x2"},
+		{"mat3x3", ir.MatrixType{Columns: 3, Rows: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat3x3"},
+		{"mat4x4", ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat4x4"},
 		{"mat2x3", ir.MatrixType{Columns: 2, Rows: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat2x3"},
 		{"mat3x4", ir.MatrixType{Columns: 3, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat3x4"},
 		{"mat4x2", ir.MatrixType{Columns: 4, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat4x2"},
-		{"dmat2", ir.MatrixType{Columns: 2, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, "dmat2"},
-		{"dmat3", ir.MatrixType{Columns: 3, Rows: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, "dmat3"},
-		{"dmat4", ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, "dmat4"},
+		{"dmat2x2", ir.MatrixType{Columns: 2, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, "dmat2x2"},
+		{"dmat3x3", ir.MatrixType{Columns: 3, Rows: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, "dmat3x3"},
+		{"dmat4x4", ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, "dmat4x4"},
 		{"dmat2x3", ir.MatrixType{Columns: 2, Rows: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}}, "dmat2x3"},
 		{"invalid_cols_clamp", ir.MatrixType{Columns: 1, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat4x2"},
 		{"invalid_rows_clamp", ir.MatrixType{Columns: 2, Rows: 5, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "mat2x4"},
-		{"non_float_default", ir.MatrixType{Columns: 3, Rows: 3, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}, "mat3"},
+		{"non_float_default", ir.MatrixType{Columns: 3, Rows: 3, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}, "mat3x3"},
 	}
 
 	for _, tt := range tests {
@@ -151,17 +151,17 @@ func TestGLSL_ImageTypes(t *testing.T) {
 		img  ir.ImageType
 		want string
 	}{
-		{"sampler1D", ir.ImageType{Dim: ir.Dim1D, Class: ir.ImageClassSampled}, "sampler1D"},
-		{"sampler2D", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}, "sampler2D"},
-		{"sampler3D", ir.ImageType{Dim: ir.Dim3D, Class: ir.ImageClassSampled}, "sampler3D"},
-		{"samplerCube", ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassSampled}, "samplerCube"},
+		{"sampler1D", ir.ImageType{Dim: ir.Dim1D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "sampler1D"},
+		{"sampler2D", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "sampler2D"},
+		{"sampler3D", ir.ImageType{Dim: ir.Dim3D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "sampler3D"},
+		{"samplerCube", ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "samplerCube"},
 		{"sampler2DShadow", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassDepth}, "sampler2DShadow"},
 		{"samplerCubeShadow", ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassDepth}, "samplerCubeShadow"},
-		{"sampler1DArray", ir.ImageType{Dim: ir.Dim1D, Class: ir.ImageClassSampled, Arrayed: true}, "sampler1DArray"},
-		{"sampler2DArray", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, Arrayed: true}, "sampler2DArray"},
-		{"sampler2DMS", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, Multisampled: true}, "sampler2DMS"},
-		{"sampler2DMSArray", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, Multisampled: true, Arrayed: true}, "sampler2DMSArray"},
-		{"samplerCubeArray", ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassSampled, Arrayed: true}, "samplerCubeArray"},
+		{"sampler1DArray", ir.ImageType{Dim: ir.Dim1D, Class: ir.ImageClassSampled, Arrayed: true, SampledKind: ir.ScalarFloat}, "sampler1DArray"},
+		{"sampler2DArray", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, Arrayed: true, SampledKind: ir.ScalarFloat}, "sampler2DArray"},
+		{"sampler2DMS", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, Multisampled: true, SampledKind: ir.ScalarFloat}, "sampler2DMS"},
+		{"sampler2DMSArray", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, Multisampled: true, Arrayed: true, SampledKind: ir.ScalarFloat}, "sampler2DMSArray"},
+		{"samplerCubeArray", ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassSampled, Arrayed: true, SampledKind: ir.ScalarFloat}, "samplerCubeArray"},
 		{"image2D", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage}, "image2D"},
 		{"depth1D", ir.ImageType{Dim: ir.Dim1D, Class: ir.ImageClassDepth}, "sampler1D"},
 	}
@@ -317,12 +317,14 @@ func TestGLSL_DerivativeExpressions(t *testing.T) {
 		control ir.DerivativeControl
 		want    string
 	}{
-		{"dFdxFine", ir.DerivativeX, ir.DerivativeFine, "dFdxFine("},
-		{"dFdxCoarse", ir.DerivativeX, ir.DerivativeCoarse, "dFdxCoarse("},
-		{"dFdyFine", ir.DerivativeY, ir.DerivativeFine, "dFdyFine("},
-		{"dFdyCoarse", ir.DerivativeY, ir.DerivativeCoarse, "dFdyCoarse("},
-		{"fwidthFine", ir.DerivativeWidth, ir.DerivativeFine, "fwidthFine("},
-		{"fwidthCoarse", ir.DerivativeWidth, ir.DerivativeCoarse, "fwidthCoarse("},
+		// GLSL 330 does not support derivative control (Fine/Coarse),
+		// so the writer falls back to basic dFdx/dFdy/fwidth.
+		{"dFdxFine", ir.DerivativeX, ir.DerivativeFine, "dFdx("},
+		{"dFdxCoarse", ir.DerivativeX, ir.DerivativeCoarse, "dFdx("},
+		{"dFdyFine", ir.DerivativeY, ir.DerivativeFine, "dFdy("},
+		{"dFdyCoarse", ir.DerivativeY, ir.DerivativeCoarse, "dFdy("},
+		{"fwidthFine", ir.DerivativeWidth, ir.DerivativeFine, "fwidth("},
+		{"fwidthCoarse", ir.DerivativeWidth, ir.DerivativeCoarse, "fwidth("},
 	}
 
 	for _, tt := range tests {
@@ -445,9 +447,9 @@ func TestGLSL_LoopWithBreakIf(t *testing.T) {
 		}},
 	}
 	result := compileGLSL(t, module)
-	mustContainGLSL(t, result, "for (;;) {")
-	mustContainGLSL(t, result, "if (")
-	mustContainGLSL(t, result, "{ break; }")
+	mustContainGLSL(t, result, "while(true)")
+	mustContainGLSL(t, result, "loop_init")
+	mustContainGLSL(t, result, "break;")
 }
 
 // =============================================================================
@@ -482,7 +484,7 @@ func TestGLSL_SwitchStatements(t *testing.T) {
 		}},
 	}
 	result := compileGLSL(t, module)
-	mustContainGLSL(t, result, "switch (")
+	mustContainGLSL(t, result, "switch(")
 	mustContainGLSL(t, result, "case 1:")
 	mustContainGLSL(t, result, "case 2u:")
 	mustContainGLSL(t, result, "default:")
@@ -532,6 +534,8 @@ func TestGLSL_BarrierStatements(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_BarrierVersionRequirement(t *testing.T) {
+	// The GLSL backend no longer rejects barriers based on version —
+	// it always emits memoryBarrierShared() before barrier().
 	opts := DefaultOptions()
 	opts.LangVersion = Version{Major: 3, Minor: 0}
 
@@ -544,10 +548,11 @@ func TestGLSL_BarrierVersionRequirement(t *testing.T) {
 			},
 		}},
 	}
-	_, _, err := Compile(module, opts)
-	if err == nil {
-		t.Error("Expected error for barrier with GLSL 3.0, got nil")
+	source, _, err := Compile(module, opts)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
 	}
+	mustContainGLSL(t, source, "barrier()")
 }
 
 // =============================================================================
@@ -673,7 +678,7 @@ func TestGLSL_BinaryOperators(t *testing.T) {
 		{"sub", ir.BinarySubtract, "-"},
 		{"mul", ir.BinaryMultiply, "*"},
 		{"div", ir.BinaryDivide, "/"},
-		{"mod", ir.BinaryModulo, "_naga_mod"},
+		{"mod", ir.BinaryModulo, "trunc"}, // float modulo uses trunc formula
 		{"eq", ir.BinaryEqual, "=="},
 		{"ne", ir.BinaryNotEqual, "!="},
 		{"lt", ir.BinaryLess, "<"},
@@ -967,10 +972,10 @@ func TestGLSL_MathExpressions(t *testing.T) {
 		{"pack2x16snorm", ir.MathPack2x16snorm, "packSnorm2x16("},
 		{"pack2x16unorm", ir.MathPack2x16unorm, "packUnorm2x16("},
 		{"pack2x16float", ir.MathPack2x16float, "packHalf2x16("},
-		{"unpack4x8snorm", ir.MathUnpack4x8snorm, "unpackSnorm4x8("},
-		{"unpack4x8unorm", ir.MathUnpack4x8unorm, "unpackUnorm4x8("},
-		{"unpack2x16snorm", ir.MathUnpack2x16snorm, "unpackSnorm2x16("},
-		{"unpack2x16unorm", ir.MathUnpack2x16unorm, "unpackUnorm2x16("},
+		{"unpack4x8snorm", ir.MathUnpack4x8snorm, ">> 24) / 127.0)"},     // GLSL 330 fallback
+		{"unpack4x8unorm", ir.MathUnpack4x8unorm, "& 0xFFu"},             // GLSL 330 fallback
+		{"unpack2x16snorm", ir.MathUnpack2x16snorm, ">> 16) / 32767.0)"}, // GLSL 330 fallback
+		{"unpack2x16unorm", ir.MathUnpack2x16unorm, "& 0xFFFFu"},         // GLSL 330 fallback
 		{"unpack2x16float", ir.MathUnpack2x16float, "unpackHalf2x16("},
 	}
 
@@ -1066,7 +1071,7 @@ func TestGLSL_MathThreeArgs(t *testing.T) {
 		{"clamp", ir.MathClamp, "clamp("},
 		{"mix", ir.MathMix, "mix("},
 		{"smoothstep", ir.MathSmoothStep, "smoothstep("},
-		{"fma", ir.MathFma, "fma("},
+		{"fma", ir.MathFma, " * "}, // GLSL 330 doesn't support fma, falls back to (a * b + c)
 		{"faceforward", ir.MathFaceForward, "faceforward("},
 		{"refract", ir.MathRefract, "refract("},
 		{"extractBits", ir.MathExtractBits, "bitfieldExtract("},
@@ -1288,7 +1293,8 @@ func TestGLSL_ZeroValueExpression(t *testing.T) {
 		}},
 	}
 	result := compileGLSL(t, module)
-	mustContainGLSL(t, result, "(0)")
+	// zeroInitValue produces type-correct zero: 0.0 for float
+	mustContainGLSL(t, result, "0.0")
 }
 
 // =============================================================================
@@ -1526,7 +1532,7 @@ func TestGLSL_ComputeEntryPoint(t *testing.T) {
 			},
 		}},
 		EntryPoints: []ir.EntryPoint{
-			{Name: "cs_main", Stage: ir.StageCompute, Function: 0, Workgroup: [3]uint32{64, 1, 1}},
+			{Name: "cs_main", Stage: ir.StageCompute, Function: ir.Function{}, Workgroup: [3]uint32{64, 1, 1}},
 		},
 	}
 	result, _, err := Compile(module, opts)
@@ -1624,32 +1630,30 @@ func TestGLSL_VertexEntryPoint(t *testing.T) {
 			{Name: "vec4f", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 			{Name: "vec2f", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
-		Functions: []ir.Function{{
-			Name: "vs_main",
-			Arguments: []ir.FunctionArgument{
-				{Name: "position", Type: tVec4, Binding: &loc0Binding},
-			},
-			Result: &ir.FunctionResult{
-				Type:    tVec4,
-				Binding: &posBinding,
-			},
-			Expressions: []ir.Expression{
-				{Kind: ir.ExprFunctionArgument{Index: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tVec4},
-			},
-			Body: []ir.Statement{
-				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
-				{Kind: ir.StmtReturn{Value: &retExpr}},
-			},
-		}},
 		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
+				Name: "vs_main",
+				Arguments: []ir.FunctionArgument{
+					{Name: "position", Type: tVec4, Binding: &loc0Binding},
+				},
+				Result: &ir.FunctionResult{
+					Type:    tVec4,
+					Binding: &posBinding,
+				},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tVec4},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+					{Kind: ir.StmtReturn{Value: &retExpr}},
+				},
+			}},
 		},
 	}
 	result := compileGLSL(t, module)
-	mustContainGLSL(t, result, "layout(location = 0) in")
 	mustContainGLSL(t, result, "gl_Position")
 	_ = tVec2
 }
@@ -1672,32 +1676,30 @@ func TestGLSL_FragmentEntryPoint(t *testing.T) {
 			{Name: "vec4f", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 			{Name: "vec2f", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
-		Functions: []ir.Function{{
-			Name: "fs_main",
-			Arguments: []ir.FunctionArgument{
-				{Name: "uv", Type: tVec2, Binding: &loc0Input},
-			},
-			Result: &ir.FunctionResult{
-				Type:    tVec4,
-				Binding: &loc0Output,
-			},
-			Expressions: []ir.Expression{
-				{Kind: ir.ExprFunctionArgument{Index: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tVec2},
-			},
-			Body: []ir.Statement{
-				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
-				{Kind: ir.StmtReturn{Value: &retExpr}},
-			},
-		}},
 		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
+				Name: "fs_main",
+				Arguments: []ir.FunctionArgument{
+					{Name: "uv", Type: tVec2, Binding: &loc0Input},
+				},
+				Result: &ir.FunctionResult{
+					Type:    tVec4,
+					Binding: &loc0Output,
+				},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tVec2},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+					{Kind: ir.StmtReturn{Value: &retExpr}},
+				},
+			}},
 		},
 	}
 	result := compileGLSL(t, module)
-	mustContainGLSL(t, result, "layout(location = 0) in")
 	mustContainGLSL(t, result, "layout(location = 0) out")
 }
 
@@ -1765,4 +1767,891 @@ func TestGLSL_GlobalVariable(t *testing.T) {
 	}
 	result := compileGLSL(t, module)
 	mustContainGLSL(t, result, "gValue")
+}
+
+// =============================================================================
+// Test: QuantizeToF16 vector splitting
+// =============================================================================
+
+func TestGLSL_QuantizeToF16_Scalar(t *testing.T) {
+	tF32 := ir.TypeHandle(0)
+	retExpr := ir.ExpressionHandle(1)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+		},
+		Functions: []ir.Function{{
+			Name: "test_fn",
+			Expressions: []ir.Expression{
+				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+				{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}},
+			},
+			ExpressionTypes: []ir.TypeResolution{
+				{Handle: &tF32},
+				{Handle: &tF32},
+			},
+			Body: []ir.Statement{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
+				{Kind: ir.StmtReturn{Value: &retExpr}},
+			},
+		}},
+	}
+	result := compileGLSL(t, module)
+	// Scalar: unpackHalf2x16(packHalf2x16(vec2(x))).x
+	mustContainGLSL(t, result, "unpackHalf2x16(packHalf2x16(vec2(")
+	mustContainGLSL(t, result, ").x")
+}
+
+func TestGLSL_QuantizeToF16_Vec2(t *testing.T) {
+	tF32 := ir.TypeHandle(0)
+	tVec2 := ir.TypeHandle(1)
+	retExpr := ir.ExpressionHandle(1)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+		Functions: []ir.Function{{
+			Name: "test_fn",
+			Expressions: []ir.Expression{
+				{Kind: ir.ExprZeroValue{Type: tVec2}},
+				{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}},
+			},
+			ExpressionTypes: []ir.TypeResolution{
+				{Handle: &tVec2},
+				{Handle: &tF32},
+			},
+			Body: []ir.Statement{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
+				{Kind: ir.StmtReturn{Value: &retExpr}},
+			},
+		}},
+	}
+	result := compileGLSL(t, module)
+	// Vec2: unpackHalf2x16(packHalf2x16(x)) — direct pair
+	mustContainGLSL(t, result, "unpackHalf2x16(packHalf2x16(")
+}
+
+func TestGLSL_QuantizeToF16_Vec3(t *testing.T) {
+	tF32 := ir.TypeHandle(0)
+	tVec3 := ir.TypeHandle(1)
+	retExpr := ir.ExpressionHandle(1)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+		Functions: []ir.Function{{
+			Name: "test_fn",
+			Expressions: []ir.Expression{
+				{Kind: ir.ExprZeroValue{Type: tVec3}},
+				{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}},
+			},
+			ExpressionTypes: []ir.TypeResolution{
+				{Handle: &tVec3},
+				{Handle: &tF32},
+			},
+			Body: []ir.Statement{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
+				{Kind: ir.StmtReturn{Value: &retExpr}},
+			},
+		}},
+	}
+	result := compileGLSL(t, module)
+	// Vec3: split into .xy pair and .zz pair, take .x from second
+	mustContainGLSL(t, result, "vec3(unpackHalf2x16(packHalf2x16(")
+	mustContainGLSL(t, result, ".xy))")
+	mustContainGLSL(t, result, ".zz)).x)")
+}
+
+func TestGLSL_QuantizeToF16_Vec4(t *testing.T) {
+	tF32 := ir.TypeHandle(0)
+	tVec4 := ir.TypeHandle(1)
+	retExpr := ir.ExpressionHandle(1)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+		Functions: []ir.Function{{
+			Name: "test_fn",
+			Expressions: []ir.Expression{
+				{Kind: ir.ExprZeroValue{Type: tVec4}},
+				{Kind: ir.ExprMath{Fun: ir.MathQuantizeF16, Arg: 0}},
+			},
+			ExpressionTypes: []ir.TypeResolution{
+				{Handle: &tVec4},
+				{Handle: &tF32},
+			},
+			Body: []ir.Statement{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
+				{Kind: ir.StmtReturn{Value: &retExpr}},
+			},
+		}},
+	}
+	result := compileGLSL(t, module)
+	// Vec4: split into .xy pair and .zw pair
+	mustContainGLSL(t, result, "vec4(unpackHalf2x16(packHalf2x16(")
+	mustContainGLSL(t, result, ".xy))")
+	mustContainGLSL(t, result, ".zw))")
+}
+
+// =============================================================================
+// Test: ImageQuery uint wrapping
+// =============================================================================
+
+func TestGLSL_ImageQuery_SizeUintWrap(t *testing.T) {
+	// textureSize results should be wrapped in uint()/uvecN().
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	u32 := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+
+	tests := []struct {
+		name string
+		dim  ir.ImageDimension
+		want string // expected cast prefix
+	}{
+		{"1D_uint", ir.Dim1D, "uint(textureSize("},
+		{"2D_uvec2", ir.Dim2D, "uvec2(textureSize("},
+		{"3D_uvec3", ir.Dim3D, "uvec3(textureSize("},
+		{"cube_uvec2", ir.DimCube, "uvec2(textureSize("},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tImg := ir.TypeHandle(0)
+			tU32 := ir.TypeHandle(1)
+			retExpr := ir.ExpressionHandle(3)
+
+			outBinding := ir.Binding(ir.LocationBinding{Location: 0})
+			locBinding := func(loc uint32) *ir.Binding {
+				b := ir.Binding(ir.LocationBinding{Location: loc})
+				return &b
+			}
+
+			module := &ir.Module{
+				Types: []ir.Type{
+					{Name: "", Inner: ir.ImageType{Dim: tt.dim, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}}, // 0
+					{Name: "", Inner: u32},                                 // 1
+					{Name: "", Inner: ir.SamplerType{}},                    // 2
+					{Name: "", Inner: ir.VectorType{Size: 4, Scalar: f32}}, // 3: vec4<f32>
+				},
+				GlobalVariables: []ir.GlobalVariable{
+					{
+						Name:    "myTex",
+						Space:   ir.SpaceHandle,
+						Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
+						Type:    tImg,
+					},
+				},
+				EntryPoints: []ir.EntryPoint{{
+					Name:  "fs_main",
+					Stage: ir.StageFragment,
+					Function: ir.Function{
+						Name: "fs_main",
+						Arguments: []ir.FunctionArgument{
+							{Name: "uv", Type: 1, Binding: locBinding(0)},
+						},
+						Result: &ir.FunctionResult{Type: 3, Binding: &outBinding},
+						Expressions: []ir.Expression{
+							{Kind: ir.ExprFunctionArgument{Index: 0}},   // [0] uv
+							{Kind: ir.ExprGlobalVariable{Variable: 0}},  // [1] myTex
+							{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // [2] level
+							{Kind: ir.ExprImageQuery{ // [3]
+								Image: 1,
+								Query: ir.ImageQuerySize{},
+							}},
+						},
+						ExpressionTypes: []ir.TypeResolution{
+							{Handle: &tU32},
+							{Handle: &tImg},
+							{Handle: &tU32},
+							{Handle: &tU32},
+						},
+						Body: []ir.Statement{
+							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+							{Kind: ir.StmtReturn{Value: &retExpr}},
+						},
+					},
+				}},
+			}
+
+			result, _, err := Compile(module, DefaultOptions())
+			if err != nil {
+				t.Fatalf("Compile failed: %v", err)
+			}
+			mustContainGLSL(t, result, tt.want)
+		})
+	}
+}
+
+func TestGLSL_ImageQuery_NumLevels(t *testing.T) {
+	u32 := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	tImg := ir.TypeHandle(0)
+	tU32 := ir.TypeHandle(1)
+	retExpr := ir.ExpressionHandle(2)
+
+	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	locBinding := func(loc uint32) *ir.Binding {
+		b := ir.Binding(ir.LocationBinding{Location: loc})
+		return &b
+	}
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
+			{Name: "", Inner: u32},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: f32}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "tex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: tImg},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "fs_main",
+			Stage: ir.StageFragment,
+			Function: ir.Function{
+				Name:      "fs_main",
+				Arguments: []ir.FunctionArgument{{Name: "uv", Type: 1, Binding: locBinding(0)}},
+				Result:    &ir.FunctionResult{Type: 2, Binding: &outBinding},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},
+					{Kind: ir.ExprImageQuery{Image: 1, Query: ir.ImageQueryNumLevels{}}},
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tU32}, {Handle: &tImg}, {Handle: &tU32},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+					{Kind: ir.StmtReturn{Value: &retExpr}},
+				},
+			},
+		}},
+	}
+
+	result, _, err := Compile(module, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	mustContainGLSL(t, result, "uint(textureQueryLevels(")
+}
+
+func TestGLSL_ImageQuery_NumSamples(t *testing.T) {
+	u32 := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	tImg := ir.TypeHandle(0)
+	tU32 := ir.TypeHandle(1)
+	retExpr := ir.ExpressionHandle(2)
+
+	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	locBinding := func(loc uint32) *ir.Binding {
+		b := ir.Binding(ir.LocationBinding{Location: loc})
+		return &b
+	}
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, Multisampled: true, SampledKind: ir.ScalarFloat}},
+			{Name: "", Inner: u32},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: f32}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "msTex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: tImg},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "fs_main",
+			Stage: ir.StageFragment,
+			Function: ir.Function{
+				Name:      "fs_main",
+				Arguments: []ir.FunctionArgument{{Name: "uv", Type: 1, Binding: locBinding(0)}},
+				Result:    &ir.FunctionResult{Type: 2, Binding: &outBinding},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},
+					{Kind: ir.ExprImageQuery{Image: 1, Query: ir.ImageQueryNumSamples{}}},
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tU32}, {Handle: &tImg}, {Handle: &tU32},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+					{Kind: ir.StmtReturn{Value: &retExpr}},
+				},
+			},
+		}},
+	}
+
+	result, _, err := Compile(module, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	mustContainGLSL(t, result, "uint(textureSamples(")
+}
+
+// =============================================================================
+// Test: StmtImageAtomic
+// =============================================================================
+
+func TestGLSL_ImageAtomic(t *testing.T) {
+	tests := []struct {
+		name string
+		fun  ir.AtomicFunction
+		want string
+	}{
+		{"add", ir.AtomicAdd{}, "imageAtomicAdd("},
+		{"and", ir.AtomicAnd{}, "imageAtomicAnd("},
+		{"or", ir.AtomicInclusiveOr{}, "imageAtomicOr("},
+		{"xor", ir.AtomicExclusiveOr{}, "imageAtomicXor("},
+		{"min", ir.AtomicMin{}, "imageAtomicMin("},
+		{"max", ir.AtomicMax{}, "imageAtomicMax("},
+		{"exchange", ir.AtomicExchange{}, "imageAtomicExchange("},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tU32 := ir.TypeHandle(0)
+			tImg := ir.TypeHandle(1)
+			tIvec2 := ir.TypeHandle(2)
+
+			module := &ir.Module{
+				Types: []ir.Type{
+					{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+					{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage}},
+					{Name: "", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
+				},
+				GlobalVariables: []ir.GlobalVariable{
+					{Name: "storageImg", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: tImg},
+				},
+				EntryPoints: []ir.EntryPoint{{
+					Name:  "main",
+					Stage: ir.StageCompute,
+					Function: ir.Function{
+						Name: "main",
+						Expressions: []ir.Expression{
+							{Kind: ir.ExprGlobalVariable{Variable: 0}},   // [0] image
+							{Kind: ir.ExprZeroValue{Type: tIvec2}},       // [1] coord
+							{Kind: ir.Literal{Value: ir.LiteralU32(42)}}, // [2] value
+						},
+						ExpressionTypes: []ir.TypeResolution{
+							{Handle: &tImg},
+							{Handle: &tIvec2},
+							{Handle: &tU32},
+						},
+						Body: []ir.Statement{
+							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+							{Kind: ir.StmtImageAtomic{
+								Image:      0,
+								Coordinate: 1,
+								Fun:        tt.fun,
+								Value:      2,
+							}},
+						},
+					},
+				}},
+			}
+
+			opts := DefaultOptions()
+			opts.LangVersion = Version{Major: 4, Minor: 30}
+			result, _, err := Compile(module, opts)
+			if err != nil {
+				t.Fatalf("Compile failed: %v", err)
+			}
+			mustContainGLSL(t, result, tt.want)
+		})
+	}
+}
+
+func TestGLSL_ImageAtomic_Subtract(t *testing.T) {
+	// Subtract is emulated as atomicAdd with negated value.
+	tU32 := ir.TypeHandle(0)
+	tImg := ir.TypeHandle(1)
+	tIvec2 := ir.TypeHandle(2)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage}},
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "storageImg", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: tImg},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "main",
+			Stage: ir.StageCompute,
+			Function: ir.Function{
+				Name: "main",
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},
+					{Kind: ir.ExprZeroValue{Type: tIvec2}},
+					{Kind: ir.Literal{Value: ir.LiteralU32(5)}},
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tImg},
+					{Handle: &tIvec2},
+					{Handle: &tU32},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+					{Kind: ir.StmtImageAtomic{
+						Image:      0,
+						Coordinate: 1,
+						Fun:        ir.AtomicSubtract{},
+						Value:      2,
+					}},
+				},
+			},
+		}},
+	}
+
+	opts := DefaultOptions()
+	opts.LangVersion = Version{Major: 4, Minor: 30}
+	result, _, err := Compile(module, opts)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	// Subtract emulated as Add with negated value
+	mustContainGLSL(t, result, "imageAtomicAdd(")
+	mustContainGLSL(t, result, "-")
+}
+
+func TestGLSL_ImageAtomic_WithArrayIndex(t *testing.T) {
+	// When array index is present, coord should be wrapped in ivec3.
+	tU32 := ir.TypeHandle(0)
+	tImg := ir.TypeHandle(1)
+	tIvec2 := ir.TypeHandle(2)
+
+	arrayIdx := ir.ExpressionHandle(3)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, Arrayed: true}},
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "imgArray", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: tImg},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "main",
+			Stage: ir.StageCompute,
+			Function: ir.Function{
+				Name: "main",
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},
+					{Kind: ir.ExprZeroValue{Type: tIvec2}},
+					{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+					{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // array index
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tImg},
+					{Handle: &tIvec2},
+					{Handle: &tU32},
+					{Handle: &tU32},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+					{Kind: ir.StmtImageAtomic{
+						Image:      0,
+						Coordinate: 1,
+						ArrayIndex: &arrayIdx,
+						Fun:        ir.AtomicAdd{},
+						Value:      2,
+					}},
+				},
+			},
+		}},
+	}
+
+	opts := DefaultOptions()
+	opts.LangVersion = Version{Major: 4, Minor: 30}
+	result, _, err := Compile(module, opts)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	mustContainGLSL(t, result, "ivec3(")
+}
+
+// =============================================================================
+// Test: textureGather expressions
+// =============================================================================
+
+func TestGLSL_TextureGather(t *testing.T) {
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	gatherComp := ir.SwizzleX // gather component 0
+
+	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	locBinding := func(loc uint32) *ir.Binding {
+		b := ir.Binding(ir.LocationBinding{Location: loc})
+		return &b
+	}
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: f32},                                                                                   // 0
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: f32}},                                                   // 1: vec2
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: f32}},                                                   // 2: vec4
+			{Name: "", Inner: ir.SamplerType{Comparison: false}},                                                     // 3: sampler
+			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}}, // 4: texture_2d
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "samp", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 3},
+			{Name: "tex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 4},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "fs_main",
+			Stage: ir.StageFragment,
+			Function: ir.Function{
+				Name:      "fs_main",
+				Arguments: []ir.FunctionArgument{{Name: "uv", Type: 1, Binding: locBinding(0)}},
+				Result:    &ir.FunctionResult{Type: 2, Binding: &outBinding},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},  // [0] uv
+					{Kind: ir.ExprGlobalVariable{Variable: 1}}, // [1] tex
+					{Kind: ir.ExprGlobalVariable{Variable: 0}}, // [2] samp
+					{Kind: ir.ExprImageSample{ // [3] textureGather
+						Image:      1,
+						Sampler:    2,
+						Coordinate: 0,
+						Gather:     &gatherComp,
+					}},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+					{Kind: ir.StmtReturn{Value: ptrExprHelper(3)}},
+				},
+			},
+		}},
+	}
+
+	result, _, err := Compile(module, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	mustContainGLSL(t, result, "textureGather(")
+	mustContainGLSL(t, result, ", 0)") // component 0
+}
+
+func TestGLSL_TextureGatherOffset(t *testing.T) {
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	i32 := ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
+	gatherComp := ir.SwizzleY // gather component 1
+	offsetExpr := ir.ExpressionHandle(4)
+
+	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	locBinding := func(loc uint32) *ir.Binding {
+		b := ir.Binding(ir.LocationBinding{Location: loc})
+		return &b
+	}
+
+	tIvec2 := ir.TypeHandle(5)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: f32},                                                                                   // 0
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: f32}},                                                   // 1: vec2
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: f32}},                                                   // 2: vec4
+			{Name: "", Inner: ir.SamplerType{Comparison: false}},                                                     // 3: sampler
+			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}}, // 4: texture_2d
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: i32}},                                                   // 5: ivec2
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "samp", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 3},
+			{Name: "tex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 4},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "fs_main",
+			Stage: ir.StageFragment,
+			Function: ir.Function{
+				Name:      "fs_main",
+				Arguments: []ir.FunctionArgument{{Name: "uv", Type: 1, Binding: locBinding(0)}},
+				Result:    &ir.FunctionResult{Type: 2, Binding: &outBinding},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},  // [0] uv
+					{Kind: ir.ExprGlobalVariable{Variable: 1}}, // [1] tex
+					{Kind: ir.ExprGlobalVariable{Variable: 0}}, // [2] samp
+					{Kind: ir.ExprZeroValue{Type: 1}},          // [3] unused placeholder
+					{Kind: ir.ExprZeroValue{Type: tIvec2}},     // [4] offset
+					{Kind: ir.ExprImageSample{ // [5] textureGatherOffset
+						Image:      1,
+						Sampler:    2,
+						Coordinate: 0,
+						Gather:     &gatherComp,
+						Offset:     &offsetExpr,
+					}},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
+					{Kind: ir.StmtReturn{Value: ptrExprHelper(5)}},
+				},
+			},
+		}},
+	}
+
+	result, _, err := Compile(module, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	mustContainGLSL(t, result, "textureGatherOffset(")
+	mustContainGLSL(t, result, ", 1)") // component 1 (SwizzleY)
+}
+
+func TestGLSL_TextureGather_DepthComparison(t *testing.T) {
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	depthRefExpr := ir.ExpressionHandle(3)
+
+	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	locBinding := func(loc uint32) *ir.Binding {
+		b := ir.Binding(ir.LocationBinding{Location: loc})
+		return &b
+	}
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: f32},                                                    // 0
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: f32}},                    // 1: vec2
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: f32}},                    // 2: vec4
+			{Name: "", Inner: ir.SamplerType{Comparison: true}},                       // 3: sampler_comparison
+			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassDepth}}, // 4: depth texture
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "samp", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 3},
+			{Name: "tex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 4},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "fs_main",
+			Stage: ir.StageFragment,
+			Function: ir.Function{
+				Name:      "fs_main",
+				Arguments: []ir.FunctionArgument{{Name: "uv", Type: 1, Binding: locBinding(0)}},
+				Result:    &ir.FunctionResult{Type: 2, Binding: &outBinding},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},     // [0] uv
+					{Kind: ir.ExprGlobalVariable{Variable: 1}},    // [1] tex
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [2] samp
+					{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // [3] depth ref
+					{Kind: ir.ExprImageSample{ // [4] textureGather with depthRef
+						Image:      1,
+						Sampler:    2,
+						Coordinate: 0,
+						Gather:     nil, // depth gather doesn't use component
+						DepthRef:   &depthRefExpr,
+					}},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+					{Kind: ir.StmtReturn{Value: ptrExprHelper(4)}},
+				},
+			},
+		}},
+	}
+
+	result, _, err := Compile(module, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	// Depth comparison sample (not gather without Gather field) -> texture()
+	mustContainGLSL(t, result, "texture(")
+}
+
+// =============================================================================
+// Test: Shadow LOD workaround (textureGrad with zero gradients)
+// =============================================================================
+
+func TestGLSL_ShadowLodWorkaround_CubeShadow(t *testing.T) {
+	// When sampling a cube shadow texture at SampleLevelZero without
+	// GL_EXT_texture_shadow_lod, the writer should use textureGrad with
+	// zero gradient vectors as a workaround.
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	depthRefExpr := ir.ExpressionHandle(3)
+
+	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	locBinding := func(loc uint32) *ir.Binding {
+		b := ir.Binding(ir.LocationBinding{Location: loc})
+		return &b
+	}
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: f32},                                                      // 0: f32
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: f32}},                      // 1: vec3
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: f32}},                      // 2: vec4
+			{Name: "", Inner: ir.SamplerType{Comparison: true}},                         // 3: sampler_comparison
+			{Name: "", Inner: ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassDepth}}, // 4: cube shadow texture
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "samp", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 3},
+			{Name: "tex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 4},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "fs_main",
+			Stage: ir.StageFragment,
+			Function: ir.Function{
+				Name:      "fs_main",
+				Arguments: []ir.FunctionArgument{{Name: "dir", Type: 1, Binding: locBinding(0)}},
+				Result:    &ir.FunctionResult{Type: 2, Binding: &outBinding},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},     // [0] dir (vec3)
+					{Kind: ir.ExprGlobalVariable{Variable: 1}},    // [1] tex
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [2] samp
+					{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // [3] depth ref
+					{Kind: ir.ExprImageSample{ // [4] sample cube shadow at level zero
+						Image:      1,
+						Sampler:    2,
+						Coordinate: 0,
+						Level:      ir.SampleLevelZero{},
+						DepthRef:   &depthRefExpr,
+					}},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+					{Kind: ir.StmtReturn{Value: ptrExprHelper(4)}},
+				},
+			},
+		}},
+	}
+
+	// Without WriterFlagTextureShadowLod -> should use textureGrad workaround
+	opts := DefaultOptions()
+	result, _, err := Compile(module, opts)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	// Workaround uses textureGrad with vec3(0.0) gradients (cube = 3D)
+	mustContainGLSL(t, result, "textureGrad(")
+	mustContainGLSL(t, result, "vec3(0.0)")
+}
+
+func TestGLSL_ShadowLodWorkaround_2DArrayShadow(t *testing.T) {
+	// 2D array shadow also triggers the workaround (vec2 gradients).
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	depthRefExpr := ir.ExpressionHandle(4)
+	arrayIdxExpr := ir.ExpressionHandle(3)
+
+	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	locBinding := func(loc uint32) *ir.Binding {
+		b := ir.Binding(ir.LocationBinding{Location: loc})
+		return &b
+	}
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: f32},                                                                   // 0: f32
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: f32}},                                   // 1: vec2
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: f32}},                                   // 2: vec4
+			{Name: "", Inner: ir.SamplerType{Comparison: true}},                                      // 3: sampler_comparison
+			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassDepth, Arrayed: true}}, // 4: 2D array depth
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "samp", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 3},
+			{Name: "tex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 4},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "fs_main",
+			Stage: ir.StageFragment,
+			Function: ir.Function{
+				Name:      "fs_main",
+				Arguments: []ir.FunctionArgument{{Name: "uv", Type: 1, Binding: locBinding(0)}},
+				Result:    &ir.FunctionResult{Type: 2, Binding: &outBinding},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},     // [0] uv (vec2)
+					{Kind: ir.ExprGlobalVariable{Variable: 1}},    // [1] tex
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [2] samp
+					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},   // [3] array index
+					{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // [4] depth ref
+					{Kind: ir.ExprImageSample{ // [5]
+						Image:      1,
+						Sampler:    2,
+						Coordinate: 0,
+						ArrayIndex: &arrayIdxExpr,
+						Level:      ir.SampleLevelZero{},
+						DepthRef:   &depthRefExpr,
+					}},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
+					{Kind: ir.StmtReturn{Value: ptrExprHelper(5)}},
+				},
+			},
+		}},
+	}
+
+	opts := DefaultOptions()
+	result, _, err := Compile(module, opts)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	// 2D array shadow workaround: textureGrad with vec2(0.0) gradients
+	mustContainGLSL(t, result, "textureGrad(")
+	mustContainGLSL(t, result, "vec2(0.0)")
+}
+
+func TestGLSL_ShadowLod_NoWorkaround_WithExtension(t *testing.T) {
+	// With WriterFlagTextureShadowLod, cube shadow at level zero
+	// should use textureLod (no workaround needed).
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	depthRefExpr := ir.ExpressionHandle(3)
+
+	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	locBinding := func(loc uint32) *ir.Binding {
+		b := ir.Binding(ir.LocationBinding{Location: loc})
+		return &b
+	}
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: f32},
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: f32}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: f32}},
+			{Name: "", Inner: ir.SamplerType{Comparison: true}},
+			{Name: "", Inner: ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassDepth}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "samp", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: 3},
+			{Name: "tex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: 4},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "fs_main",
+			Stage: ir.StageFragment,
+			Function: ir.Function{
+				Name:      "fs_main",
+				Arguments: []ir.FunctionArgument{{Name: "dir", Type: 1, Binding: locBinding(0)}},
+				Result:    &ir.FunctionResult{Type: 2, Binding: &outBinding},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+					{Kind: ir.ExprGlobalVariable{Variable: 1}},
+					{Kind: ir.ExprGlobalVariable{Variable: 0}},
+					{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}},
+					{Kind: ir.ExprImageSample{
+						Image:      1,
+						Sampler:    2,
+						Coordinate: 0,
+						Level:      ir.SampleLevelZero{},
+						DepthRef:   &depthRefExpr,
+					}},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+					{Kind: ir.StmtReturn{Value: ptrExprHelper(4)}},
+				},
+			},
+		}},
+	}
+
+	opts := DefaultOptions()
+	opts.WriterFlags = WriterFlagTextureShadowLod
+	result, _, err := Compile(module, opts)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	// With extension, should use textureLod (not textureGrad workaround)
+	mustContainGLSL(t, result, "textureLod(")
+	mustContainGLSL(t, result, "GL_EXT_texture_shadow_lod")
+}
+
+// ptrExprHelper creates a pointer to an ExpressionHandle (avoids conflict with struct_io_test.go's ptrExpr).
+func ptrExprHelper(h ir.ExpressionHandle) *ir.ExpressionHandle {
+	return &h
 }

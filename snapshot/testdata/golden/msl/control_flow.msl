@@ -1,104 +1,135 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
-}
 
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
-}
-
-int test_if(int x) {
-    if ((x > 0)) {
+int test_if(
+    int x
+) {
+    if (x > 0) {
         return 1;
     } else {
-        if ((x < 0)) {
-            return -(1);
+        if (x < 0) {
+            return -1;
         } else {
-            {
-                return 0;
+            return 0;
+        }
+    }
+}
+
+int test_loop(
+) {
+    int sum = 0;
+    int i = 0;
+    uint2 loop_bound = uint2(4294967295u);
+    while(true) {
+        if (metal::all(loop_bound == uint2(0u))) { break; }
+        loop_bound -= uint2(loop_bound.y == 0u, 1u);
+        int _e4 = i;
+        if (_e4 >= 10) {
+            break;
+        }
+        int _e7 = sum;
+        int _e8 = i;
+        sum = as_type<int>(as_type<uint>(_e7) + as_type<uint>(_e8));
+        int _e10 = i;
+        i = as_type<int>(as_type<uint>(_e10) + as_type<uint>(1));
+    }
+    int _e13 = sum;
+    return _e13;
+}
+
+int test_for(
+) {
+    int sum_1 = 0;
+    int i_1 = 0;
+    uint2 loop_bound_1 = uint2(4294967295u);
+    bool loop_init = true;
+    while(true) {
+        if (metal::all(loop_bound_1 == uint2(0u))) { break; }
+        loop_bound_1 -= uint2(loop_bound_1.y == 0u, 1u);
+        if (!loop_init) {
+            int _e13 = i_1;
+            i_1 = as_type<int>(as_type<uint>(_e13) + as_type<uint>(1));
+        }
+        loop_init = false;
+        int _e4 = i_1;
+        if (_e4 < 5) {
+        } else {
+            break;
+        }
+        {
+            int _e7 = i_1;
+            if (_e7 == 3) {
+                continue;
             }
+            int _e10 = sum_1;
+            int _e11 = i_1;
+            sum_1 = as_type<int>(as_type<uint>(_e10) + as_type<uint>(_e11));
         }
     }
+    int _e16 = sum_1;
+    return _e16;
 }
 
-int test_loop() {
-    int sum = 0;
-    int i = 0;
-    
-    while (true) {
-        if ((i >= 10)) {
-            break;
-        }
-        sum = (sum + i);
-        i = (i + 1);
-    }
-    return sum;
-}
-
-int test_for() {
-    int sum = 0;
-    int i = 0;
-    
-    while (true) {
-        if (!((i < 5))) {
-            break;
-        }
-        if ((i == 3)) {
-            continue;
-        }
-        sum = (sum + i);
-        i = (i + 1);
-    }
-    return sum;
-}
-
-int test_while() {
+int test_while(
+) {
     int n = 10;
-    
-    while (true) {
-        if (!((n > 0))) {
+    uint2 loop_bound_2 = uint2(4294967295u);
+    while(true) {
+        if (metal::all(loop_bound_2 == uint2(0u))) { break; }
+        loop_bound_2 -= uint2(loop_bound_2.y == 0u, 1u);
+        int _e2 = n;
+        if (_e2 > 0) {
+        } else {
             break;
         }
-        n = (n - 1);
+        {
+            int _e5 = n;
+            n = as_type<int>(as_type<uint>(_e5) - as_type<uint>(1));
+        }
     }
-    return n;
+    int _e8 = n;
+    return _e8;
 }
 
-int test_switch(int x) {
-    int result = int();
-    
-    switch (x) {
-        case 1:
+int test_switch(
+    int x_1
+) {
+    int result = {};
+    switch(x_1) {
+        case 1: {
             result = 10;
             break;
+        }
         case 2:
+        case 3: {
             result = 20;
             break;
-        case 3:
-            result = 20;
-            break;
-        default:
+        }
+        default: {
             result = 0;
             break;
+        }
     }
-    return result;
+    int _e5 = result;
+    return _e5;
 }
 
-kernel void main_() {
-    int _fc1 = test_if(1);
-    int _fc2 = test_loop();
-    int _fc3 = test_for();
-    int _fc4 = test_while();
-    int _fc6 = test_switch(2);
+kernel void main_(
+) {
+    int _e1 = test_if(1);
+    int _e2 = test_loop();
+    int _e3 = test_for();
+    int _e4 = test_while();
+    int _e6 = test_switch(2);
+    return;
 }
-

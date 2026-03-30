@@ -1,0 +1,382 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Storage(
+                    format: R32Uint,
+                    access: ("LOAD | STORE | ATOMIC"),
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Storage(
+                    format: R32Sint,
+                    access: ("LOAD | STORE | ATOMIC"),
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("image_u"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("image_s"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 1,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "cs_main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (2, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("cs_main"),
+                arguments: [
+                    (
+                        name: Some("id"),
+                        ty: 2,
+                        binding: Some(BuiltIn(LocalInvocationId)),
+                    ),
+                ],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    GlobalVariable(0),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            2,
+                            3,
+                        ],
+                    ),
+                    Literal(U32(1)),
+                    GlobalVariable(0),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            7,
+                            8,
+                        ],
+                    ),
+                    Literal(U32(1)),
+                    GlobalVariable(0),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            12,
+                            13,
+                        ],
+                    ),
+                    Literal(U32(1)),
+                    GlobalVariable(0),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            17,
+                            18,
+                        ],
+                    ),
+                    Literal(U32(1)),
+                    GlobalVariable(0),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            22,
+                            23,
+                        ],
+                    ),
+                    Literal(U32(1)),
+                    GlobalVariable(0),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            27,
+                            28,
+                        ],
+                    ),
+                    Literal(U32(1)),
+                    GlobalVariable(1),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            32,
+                            33,
+                        ],
+                    ),
+                    Literal(I32(1)),
+                    GlobalVariable(1),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            37,
+                            38,
+                        ],
+                    ),
+                    Literal(I32(1)),
+                    GlobalVariable(1),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            42,
+                            43,
+                        ],
+                    ),
+                    Literal(I32(1)),
+                    GlobalVariable(1),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            47,
+                            48,
+                        ],
+                    ),
+                    Literal(I32(1)),
+                    GlobalVariable(1),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            52,
+                            53,
+                        ],
+                    ),
+                    Literal(I32(1)),
+                    GlobalVariable(1),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            57,
+                            58,
+                        ],
+                    ),
+                    Literal(I32(1)),
+                ],
+                named_expressions: {
+                    0: "id",
+                },
+                body: [
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    ImageAtomic(
+                        image: 1,
+                        coordinate: 4,
+                        array_index: None,
+                        fun: Max,
+                        value: 5,
+                    ),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    ImageAtomic(
+                        image: 6,
+                        coordinate: 9,
+                        array_index: None,
+                        fun: Min,
+                        value: 10,
+                    ),
+                    Emit((
+                        start: 14,
+                        end: 15,
+                    )),
+                    ImageAtomic(
+                        image: 11,
+                        coordinate: 14,
+                        array_index: None,
+                        fun: Add,
+                        value: 15,
+                    ),
+                    Emit((
+                        start: 19,
+                        end: 20,
+                    )),
+                    ImageAtomic(
+                        image: 16,
+                        coordinate: 19,
+                        array_index: None,
+                        fun: And,
+                        value: 20,
+                    ),
+                    Emit((
+                        start: 24,
+                        end: 25,
+                    )),
+                    ImageAtomic(
+                        image: 21,
+                        coordinate: 24,
+                        array_index: None,
+                        fun: InclusiveOr,
+                        value: 25,
+                    ),
+                    Emit((
+                        start: 29,
+                        end: 30,
+                    )),
+                    ImageAtomic(
+                        image: 26,
+                        coordinate: 29,
+                        array_index: None,
+                        fun: ExclusiveOr,
+                        value: 30,
+                    ),
+                    Emit((
+                        start: 34,
+                        end: 35,
+                    )),
+                    ImageAtomic(
+                        image: 31,
+                        coordinate: 34,
+                        array_index: None,
+                        fun: Max,
+                        value: 35,
+                    ),
+                    Emit((
+                        start: 39,
+                        end: 40,
+                    )),
+                    ImageAtomic(
+                        image: 36,
+                        coordinate: 39,
+                        array_index: None,
+                        fun: Min,
+                        value: 40,
+                    ),
+                    Emit((
+                        start: 44,
+                        end: 45,
+                    )),
+                    ImageAtomic(
+                        image: 41,
+                        coordinate: 44,
+                        array_index: None,
+                        fun: Add,
+                        value: 45,
+                    ),
+                    Emit((
+                        start: 49,
+                        end: 50,
+                    )),
+                    ImageAtomic(
+                        image: 46,
+                        coordinate: 49,
+                        array_index: None,
+                        fun: And,
+                        value: 50,
+                    ),
+                    Emit((
+                        start: 54,
+                        end: 55,
+                    )),
+                    ImageAtomic(
+                        image: 51,
+                        coordinate: 54,
+                        array_index: None,
+                        fun: InclusiveOr,
+                        value: 55,
+                    ),
+                    Emit((
+                        start: 59,
+                        end: 60,
+                    )),
+                    ImageAtomic(
+                        image: 56,
+                        coordinate: 59,
+                        array_index: None,
+                        fun: ExclusiveOr,
+                        value: 60,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

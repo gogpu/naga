@@ -1,0 +1,277 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct StructWithMat {
+    metal::float2x2 m;
+};
+struct type_1 {
+    StructWithMat inner[4];
+};
+struct StructWithArrayOfStructOfMat {
+    type_1 a;
+};
+
+void access_m(
+    device metal::float2x2& s_m,
+    constant metal::float2x2& u_m
+) {
+    int idx = 1;
+    int _e3 = idx;
+    idx = as_type<int>(as_type<uint>(_e3) - as_type<uint>(1));
+    metal::float2x2 l_s_m = s_m;
+    metal::float2 l_s_c_c = s_m[0];
+    int _e11 = idx;
+    metal::float2 l_s_c_v = uint(_e11) < 2 ? s_m[_e11] : DefaultConstructible();
+    float l_s_e_cc = s_m[0].x;
+    int _e20 = idx;
+    float l_s_e_cv = uint(_e20) < 2 ? s_m[0][_e20] : DefaultConstructible();
+    int _e24 = idx;
+    float l_s_e_vc = uint(_e24) < 2 ? s_m[_e24].x : DefaultConstructible();
+    int _e29 = idx;
+    int _e31 = idx;
+    float l_s_e_vv = uint(_e31) < 2 && uint(_e29) < 2 ? s_m[_e29][_e31] : DefaultConstructible();
+    metal::float2x2 l_u_m = u_m;
+    metal::float2 l_u_c_c = u_m[0];
+    int _e40 = idx;
+    metal::float2 l_u_c_v = uint(_e40) < 2 ? u_m[_e40] : DefaultConstructible();
+    float l_u_e_cc = u_m[0].x;
+    int _e49 = idx;
+    float l_u_e_cv = uint(_e49) < 2 ? u_m[0][_e49] : DefaultConstructible();
+    int _e53 = idx;
+    float l_u_e_vc = uint(_e53) < 2 ? u_m[_e53].x : DefaultConstructible();
+    int _e58 = idx;
+    int _e60 = idx;
+    float l_u_e_vv = uint(_e60) < 2 && uint(_e58) < 2 ? u_m[_e58][_e60] : DefaultConstructible();
+    s_m = l_u_m;
+    s_m[0] = l_u_c_c;
+    int _e67 = idx;
+    if (uint(_e67) < 2) {
+        s_m[_e67] = l_u_c_v;
+    }
+    s_m[0].x = l_u_e_cc;
+    int _e74 = idx;
+    if (uint(_e74) < 2) {
+        s_m[0][_e74] = l_u_e_cv;
+    }
+    int _e77 = idx;
+    if (uint(_e77) < 2) {
+        s_m[_e77].x = l_u_e_vc;
+    }
+    int _e81 = idx;
+    int _e83 = idx;
+    if (uint(_e83) < 2 && uint(_e81) < 2) {
+        s_m[_e81][_e83] = l_u_e_vv;
+    }
+    return;
+}
+
+void access_sm(
+    device StructWithMat& s_sm,
+    constant StructWithMat& u_sm
+) {
+    int idx_1 = 1;
+    int _e3 = idx_1;
+    idx_1 = as_type<int>(as_type<uint>(_e3) - as_type<uint>(1));
+    StructWithMat l_s_s = s_sm;
+    metal::float2x2 l_s_m_1 = s_sm.m;
+    metal::float2 l_s_c_c_1 = s_sm.m[0];
+    int _e16 = idx_1;
+    metal::float2 l_s_c_v_1 = uint(_e16) < 2 ? s_sm.m[_e16] : DefaultConstructible();
+    float l_s_e_cc_1 = s_sm.m[0].x;
+    int _e27 = idx_1;
+    float l_s_e_cv_1 = uint(_e27) < 2 ? s_sm.m[0][_e27] : DefaultConstructible();
+    int _e32 = idx_1;
+    float l_s_e_vc_1 = uint(_e32) < 2 ? s_sm.m[_e32].x : DefaultConstructible();
+    int _e38 = idx_1;
+    int _e40 = idx_1;
+    float l_s_e_vv_1 = uint(_e40) < 2 && uint(_e38) < 2 ? s_sm.m[_e38][_e40] : DefaultConstructible();
+    StructWithMat l_u_s = u_sm;
+    metal::float2x2 l_u_m_1 = u_sm.m;
+    metal::float2 l_u_c_c_1 = u_sm.m[0];
+    int _e54 = idx_1;
+    metal::float2 l_u_c_v_1 = uint(_e54) < 2 ? u_sm.m[_e54] : DefaultConstructible();
+    float l_u_e_cc_1 = u_sm.m[0].x;
+    int _e65 = idx_1;
+    float l_u_e_cv_1 = uint(_e65) < 2 ? u_sm.m[0][_e65] : DefaultConstructible();
+    int _e70 = idx_1;
+    float l_u_e_vc_1 = uint(_e70) < 2 ? u_sm.m[_e70].x : DefaultConstructible();
+    int _e76 = idx_1;
+    int _e78 = idx_1;
+    float l_u_e_vv_1 = uint(_e78) < 2 && uint(_e76) < 2 ? u_sm.m[_e76][_e78] : DefaultConstructible();
+    s_sm = l_u_s;
+    s_sm.m = l_u_m_1;
+    s_sm.m[0] = l_u_c_c_1;
+    int _e89 = idx_1;
+    if (uint(_e89) < 2) {
+        s_sm.m[_e89] = l_u_c_v_1;
+    }
+    s_sm.m[0].x = l_u_e_cc_1;
+    int _e98 = idx_1;
+    if (uint(_e98) < 2) {
+        s_sm.m[0][_e98] = l_u_e_cv_1;
+    }
+    int _e102 = idx_1;
+    if (uint(_e102) < 2) {
+        s_sm.m[_e102].x = l_u_e_vc_1;
+    }
+    int _e107 = idx_1;
+    int _e109 = idx_1;
+    if (uint(_e109) < 2 && uint(_e107) < 2) {
+        s_sm.m[_e107][_e109] = l_u_e_vv_1;
+    }
+    return;
+}
+
+void access_sasm(
+    device StructWithArrayOfStructOfMat& s_sasm,
+    constant StructWithArrayOfStructOfMat& u_sasm
+) {
+    int idx_2 = 1;
+    int _e3 = idx_2;
+    idx_2 = as_type<int>(as_type<uint>(_e3) - as_type<uint>(1));
+    StructWithArrayOfStructOfMat l_s_s_1 = s_sasm;
+    type_1 l_s_a = s_sasm.a;
+    metal::float2x2 l_s_m_c = s_sasm.a.inner[0].m;
+    int _e17 = idx_2;
+    metal::float2x2 l_s_m_v = uint(_e17) < 4 ? s_sasm.a.inner[_e17].m : DefaultConstructible();
+    metal::float2 l_s_c_cc = s_sasm.a.inner[0].m[0];
+    int _e31 = idx_2;
+    metal::float2 l_s_c_cv = uint(_e31) < 2 ? s_sasm.a.inner[0].m[_e31] : DefaultConstructible();
+    int _e36 = idx_2;
+    metal::float2 l_s_c_vc = uint(_e36) < 4 ? s_sasm.a.inner[_e36].m[0] : DefaultConstructible();
+    int _e43 = idx_2;
+    int _e46 = idx_2;
+    metal::float2 l_s_c_vv = uint(_e46) < 2 && uint(_e43) < 4 ? s_sasm.a.inner[_e43].m[_e46] : DefaultConstructible();
+    float l_s_e_ccc = s_sasm.a.inner[0].m[0].x;
+    int _e61 = idx_2;
+    float l_s_e_ccv = uint(_e61) < 2 ? s_sasm.a.inner[0].m[0][_e61] : DefaultConstructible();
+    int _e68 = idx_2;
+    float l_s_e_cvc = uint(_e68) < 2 ? s_sasm.a.inner[0].m[_e68].x : DefaultConstructible();
+    int _e76 = idx_2;
+    int _e78 = idx_2;
+    float l_s_e_cvv = uint(_e78) < 2 && uint(_e76) < 2 ? s_sasm.a.inner[0].m[_e76][_e78] : DefaultConstructible();
+    int _e83 = idx_2;
+    float l_s_e_vcc = uint(_e83) < 4 ? s_sasm.a.inner[_e83].m[0].x : DefaultConstructible();
+    int _e91 = idx_2;
+    int _e95 = idx_2;
+    float l_s_e_vcv = uint(_e95) < 2 && uint(_e91) < 4 ? s_sasm.a.inner[_e91].m[0][_e95] : DefaultConstructible();
+    int _e100 = idx_2;
+    int _e103 = idx_2;
+    float l_s_e_vvc = uint(_e103) < 2 && uint(_e100) < 4 ? s_sasm.a.inner[_e100].m[_e103].x : DefaultConstructible();
+    int _e109 = idx_2;
+    int _e112 = idx_2;
+    int _e114 = idx_2;
+    float l_s_e_vvv = uint(_e114) < 2 && uint(_e112) < 2 && uint(_e109) < 4 ? s_sasm.a.inner[_e109].m[_e112][_e114] : DefaultConstructible();
+    StructWithArrayOfStructOfMat l_u_s_1 = u_sasm;
+    type_1 l_u_a = u_sasm.a;
+    metal::float2x2 l_u_m_c = u_sasm.a.inner[0].m;
+    int _e129 = idx_2;
+    metal::float2x2 l_u_m_v = uint(_e129) < 4 ? u_sasm.a.inner[_e129].m : DefaultConstructible();
+    metal::float2 l_u_c_cc = u_sasm.a.inner[0].m[0];
+    int _e143 = idx_2;
+    metal::float2 l_u_c_cv = uint(_e143) < 2 ? u_sasm.a.inner[0].m[_e143] : DefaultConstructible();
+    int _e148 = idx_2;
+    metal::float2 l_u_c_vc = uint(_e148) < 4 ? u_sasm.a.inner[_e148].m[0] : DefaultConstructible();
+    int _e155 = idx_2;
+    int _e158 = idx_2;
+    metal::float2 l_u_c_vv = uint(_e158) < 2 && uint(_e155) < 4 ? u_sasm.a.inner[_e155].m[_e158] : DefaultConstructible();
+    float l_u_e_ccc = u_sasm.a.inner[0].m[0].x;
+    int _e173 = idx_2;
+    float l_u_e_ccv = uint(_e173) < 2 ? u_sasm.a.inner[0].m[0][_e173] : DefaultConstructible();
+    int _e180 = idx_2;
+    float l_u_e_cvc = uint(_e180) < 2 ? u_sasm.a.inner[0].m[_e180].x : DefaultConstructible();
+    int _e188 = idx_2;
+    int _e190 = idx_2;
+    float l_u_e_cvv = uint(_e190) < 2 && uint(_e188) < 2 ? u_sasm.a.inner[0].m[_e188][_e190] : DefaultConstructible();
+    int _e195 = idx_2;
+    float l_u_e_vcc = uint(_e195) < 4 ? u_sasm.a.inner[_e195].m[0].x : DefaultConstructible();
+    int _e203 = idx_2;
+    int _e207 = idx_2;
+    float l_u_e_vcv = uint(_e207) < 2 && uint(_e203) < 4 ? u_sasm.a.inner[_e203].m[0][_e207] : DefaultConstructible();
+    int _e212 = idx_2;
+    int _e215 = idx_2;
+    float l_u_e_vvc = uint(_e215) < 2 && uint(_e212) < 4 ? u_sasm.a.inner[_e212].m[_e215].x : DefaultConstructible();
+    int _e221 = idx_2;
+    int _e224 = idx_2;
+    int _e226 = idx_2;
+    float l_u_e_vvv = uint(_e226) < 2 && uint(_e224) < 2 && uint(_e221) < 4 ? u_sasm.a.inner[_e221].m[_e224][_e226] : DefaultConstructible();
+    s_sasm = l_u_s_1;
+    s_sasm.a = l_u_a;
+    s_sasm.a.inner[0].m = l_u_m_c;
+    int _e238 = idx_2;
+    if (uint(_e238) < 4) {
+        s_sasm.a.inner[_e238].m = l_u_m_v;
+    }
+    s_sasm.a.inner[0].m[0] = l_u_c_cc;
+    int _e250 = idx_2;
+    if (uint(_e250) < 2) {
+        s_sasm.a.inner[0].m[_e250] = l_u_c_cv;
+    }
+    int _e254 = idx_2;
+    if (uint(_e254) < 4) {
+        s_sasm.a.inner[_e254].m[0] = l_u_c_vc;
+    }
+    int _e260 = idx_2;
+    int _e263 = idx_2;
+    if (uint(_e263) < 2 && uint(_e260) < 4) {
+        s_sasm.a.inner[_e260].m[_e263] = l_u_c_vv;
+    }
+    s_sasm.a.inner[0].m[0].x = l_u_e_ccc;
+    int _e276 = idx_2;
+    if (uint(_e276) < 2) {
+        s_sasm.a.inner[0].m[0][_e276] = l_u_e_ccv;
+    }
+    int _e282 = idx_2;
+    if (uint(_e282) < 2) {
+        s_sasm.a.inner[0].m[_e282].x = l_u_e_cvc;
+    }
+    int _e289 = idx_2;
+    int _e291 = idx_2;
+    if (uint(_e291) < 2 && uint(_e289) < 2) {
+        s_sasm.a.inner[0].m[_e289][_e291] = l_u_e_cvv;
+    }
+    int _e295 = idx_2;
+    if (uint(_e295) < 4) {
+        s_sasm.a.inner[_e295].m[0].x = l_u_e_vcc;
+    }
+    int _e302 = idx_2;
+    int _e306 = idx_2;
+    if (uint(_e306) < 2 && uint(_e302) < 4) {
+        s_sasm.a.inner[_e302].m[0][_e306] = l_u_e_vcv;
+    }
+    int _e310 = idx_2;
+    int _e313 = idx_2;
+    if (uint(_e313) < 2 && uint(_e310) < 4) {
+        s_sasm.a.inner[_e310].m[_e313].x = l_u_e_vvc;
+    }
+    int _e318 = idx_2;
+    int _e321 = idx_2;
+    int _e323 = idx_2;
+    if (uint(_e323) < 2 && uint(_e321) < 2 && uint(_e318) < 4) {
+        s_sasm.a.inner[_e318].m[_e321][_e323] = l_u_e_vvv;
+    }
+    return;
+}
+
+kernel void main_(
+  device metal::float2x2& s_m [[user(fake0)]]
+, constant metal::float2x2& u_m [[user(fake0)]]
+, device StructWithMat& s_sm [[user(fake0)]]
+, constant StructWithMat& u_sm [[user(fake0)]]
+, device StructWithArrayOfStructOfMat& s_sasm [[user(fake0)]]
+, constant StructWithArrayOfStructOfMat& u_sasm [[user(fake0)]]
+) {
+    access_m(s_m, u_m);
+    access_sm(s_sm, u_sm);
+    access_sasm(s_sasm, u_sasm);
+    return;
+}

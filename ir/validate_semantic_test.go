@@ -252,11 +252,8 @@ func TestValidateSemantic_GlobalVariables(t *testing.T) {
 func TestValidateSemantic_EntryPoints(t *testing.T) {
 	t.Run("empty name", func(t *testing.T) {
 		module := &Module{
-			Functions: []Function{
-				{Name: "fn"},
-			},
 			EntryPoints: []EntryPoint{
-				{Name: "", Stage: StageFragment, Function: FunctionHandle(0)},
+				{Name: "", Stage: StageFragment, Function: Function{Name: "fn"}},
 			},
 		}
 		expectErrors(t, module, "has empty name")
@@ -264,34 +261,18 @@ func TestValidateSemantic_EntryPoints(t *testing.T) {
 
 	t.Run("duplicate name", func(t *testing.T) {
 		module := &Module{
-			Functions: []Function{
-				{Name: "fn0"},
-				{Name: "fn1"},
-			},
 			EntryPoints: []EntryPoint{
-				{Name: "main", Stage: StageFragment, Function: FunctionHandle(0)},
-				{Name: "main", Stage: StageFragment, Function: FunctionHandle(1)},
+				{Name: "main", Stage: StageFragment, Function: Function{Name: "fn0"}},
+				{Name: "main", Stage: StageFragment, Function: Function{Name: "fn1"}},
 			},
 		}
 		expectErrors(t, module, "duplicate entry point name")
 	})
 
-	t.Run("invalid function handle", func(t *testing.T) {
-		module := &Module{
-			EntryPoints: []EntryPoint{
-				{Name: "main", Stage: StageFragment, Function: FunctionHandle(999)},
-			},
-		}
-		expectErrors(t, module, "function 999 does not exist")
-	})
-
 	t.Run("vertex without result", func(t *testing.T) {
 		module := &Module{
-			Functions: []Function{
-				{Name: "vs", Result: nil},
-			},
 			EntryPoints: []EntryPoint{
-				{Name: "main", Stage: StageVertex, Function: FunctionHandle(0)},
+				{Name: "main", Stage: StageVertex, Function: Function{Name: "vs", Result: nil}},
 			},
 		}
 		expectErrors(t, module, "must have a return value")
@@ -299,11 +280,8 @@ func TestValidateSemantic_EntryPoints(t *testing.T) {
 
 	t.Run("compute partial zero workgroup", func(t *testing.T) {
 		module := &Module{
-			Functions: []Function{
-				{Name: "cs"},
-			},
 			EntryPoints: []EntryPoint{
-				{Name: "main", Stage: StageCompute, Function: FunctionHandle(0), Workgroup: [3]uint32{64, 0, 1}},
+				{Name: "main", Stage: StageCompute, Function: Function{Name: "cs"}, Workgroup: [3]uint32{64, 0, 1}},
 			},
 		}
 		expectErrors(t, module, "workgroup size must be non-zero")
@@ -325,14 +303,11 @@ func TestValidateSemantic_EntryPoints(t *testing.T) {
 					},
 				},
 			},
-			Functions: []Function{
-				{
+			EntryPoints: []EntryPoint{
+				{Name: "main", Stage: StageVertex, Function: Function{
 					Name:   "vs",
 					Result: &FunctionResult{Type: TypeHandle(2)},
-				},
-			},
-			EntryPoints: []EntryPoint{
-				{Name: "main", Stage: StageVertex, Function: FunctionHandle(0)},
+				}},
 			},
 		}
 		errors, err := Validate(module)
@@ -1409,11 +1384,8 @@ func TestValidateSemantic_NestedLoopBreakContinue(t *testing.T) {
 
 func TestValidateSemantic_ValidComputeWorkgroup(t *testing.T) {
 	module := &Module{
-		Functions: []Function{
-			{Name: "cs"},
-		},
 		EntryPoints: []EntryPoint{
-			{Name: "main", Stage: StageCompute, Function: FunctionHandle(0), Workgroup: [3]uint32{64, 1, 1}},
+			{Name: "main", Stage: StageCompute, Function: Function{Name: "cs"}, Workgroup: [3]uint32{64, 1, 1}},
 		},
 	}
 	errors, err := Validate(module)

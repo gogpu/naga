@@ -1,0 +1,347 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Atomic((
+                kind: Uint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(2),
+                stride: 8,
+            ),
+        ),
+        (
+            name: Some("Struct"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("atomic_scalar"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("atomic_arr"),
+                        ty: 1,
+                        binding: None,
+                        offset: 8,
+                    ),
+                ],
+                span: 24,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("storage_atomic_scalar"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("storage_atomic_arr"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 1,
+            init: None,
+        ),
+        (
+            name: Some("storage_struct"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("input"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 3,
+            )),
+            ty: 3,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "cs_main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (2, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("cs_main"),
+                arguments: [
+                    (
+                        name: Some("id"),
+                        ty: 4,
+                        binding: Some(BuiltIn(LocalInvocationId)),
+                    ),
+                ],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    GlobalVariable(0),
+                    GlobalVariable(3),
+                    Load(
+                        pointer: 2,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 4,
+                        index: 1,
+                    ),
+                    GlobalVariable(3),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Literal(U64(1)),
+                    Binary(
+                        op: Add,
+                        left: 8,
+                        right: 7,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 10,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 13,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 14,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    As(
+                        expr: 16,
+                        kind: Uint,
+                        convert: Some(8),
+                    ),
+                    GlobalVariable(0),
+                    GlobalVariable(3),
+                    Load(
+                        pointer: 19,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 21,
+                        index: 1,
+                    ),
+                    GlobalVariable(3),
+                    Load(
+                        pointer: 23,
+                    ),
+                    Literal(U64(1)),
+                    Binary(
+                        op: Add,
+                        left: 25,
+                        right: 24,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 27,
+                        index: 0,
+                    ),
+                    Literal(U64(1)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 30,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 31,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    As(
+                        expr: 33,
+                        kind: Uint,
+                        convert: Some(8),
+                    ),
+                ],
+                named_expressions: {
+                    0: "id",
+                },
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Atomic(
+                        pointer: 1,
+                        fun: Max,
+                        value: 3,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 5,
+                        end: 6,
+                    )),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Atomic(
+                        pointer: 5,
+                        fun: Max,
+                        value: 9,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Atomic(
+                        pointer: 11,
+                        fun: Max,
+                        value: 12,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 14,
+                        end: 15,
+                    )),
+                    Emit((
+                        start: 15,
+                        end: 18,
+                    )),
+                    Atomic(
+                        pointer: 15,
+                        fun: Max,
+                        value: 17,
+                        result: None,
+                    ),
+                    ControlBarrier(("WORK_GROUP")),
+                    Emit((
+                        start: 20,
+                        end: 21,
+                    )),
+                    Atomic(
+                        pointer: 18,
+                        fun: Min,
+                        value: 20,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 22,
+                        end: 23,
+                    )),
+                    Emit((
+                        start: 24,
+                        end: 25,
+                    )),
+                    Emit((
+                        start: 26,
+                        end: 27,
+                    )),
+                    Atomic(
+                        pointer: 22,
+                        fun: Min,
+                        value: 26,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 28,
+                        end: 29,
+                    )),
+                    Atomic(
+                        pointer: 28,
+                        fun: Min,
+                        value: 29,
+                        result: None,
+                    ),
+                    Emit((
+                        start: 31,
+                        end: 32,
+                    )),
+                    Emit((
+                        start: 32,
+                        end: 35,
+                    )),
+                    Atomic(
+                        pointer: 32,
+                        fun: Min,
+                        value: 34,
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

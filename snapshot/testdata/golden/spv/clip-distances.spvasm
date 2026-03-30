@@ -1,0 +1,55 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 36
+; Schema: 0
+
+               OpCapability Shader
+               OpCapability CullDistance
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %_14 "main" %_10 %_12
+               OpDecorate %_7 ArrayStride 4
+               OpMemberDecorate %_8 0 Offset 0
+               OpMemberDecorate %_8 1 Offset 16
+               OpDecorate %_10 BuiltIn Position
+               OpDecorate %_12 BuiltIn Position
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeVector %_3 4
+         %_5 = OpTypeInt 32 0
+         %_6 = OpConstant %_5 1
+         %_7 = OpTypeArray %_3 %_6
+         %_8 = OpTypeStruct %_4 %_7
+         %_9 = OpTypePointer Output %_4
+         %_11 = OpTypePointer Output %_7
+         %_13 = OpTypeFunction %_2
+         %_16 = OpTypePointer Function %_8
+         %_18 = OpConstant %_5 1
+         %_19 = OpTypePointer Function %_7
+         %_22 = OpConstant %_5 1
+         %_24 = OpConstant %_5 0
+         %_25 = OpTypePointer Function %_3
+         %_28 = OpConstant %_5 1
+         %_30 = OpConstant %_5 0
+         %_32 = OpConstant %_3 1056964608
+         %_10 = OpVariable %_9 Output
+         %_12 = OpVariable %_11 Output
+         %_14 = OpFunction %_2 None %_13
+         %_15 = OpLabel
+         %_17 = OpVariable %_16 Function
+         %_20 = OpAccessChain %_19 %_17 %_18
+         %_21 = OpLoad %_7 %_20
+         %_23 = OpAccessChain %_19 %_17 %_22
+         %_26 = OpAccessChain %_25 %_23 %_24
+         %_27 = OpLoad %_3 %_26
+         %_29 = OpAccessChain %_19 %_17 %_28
+         %_31 = OpAccessChain %_25 %_29 %_30
+               OpStore %_31 %_32
+         %_33 = OpLoad %_8 %_17
+         %_34 = OpCompositeExtract %_4 %_33 0
+               OpStore %_10 %_34
+         %_35 = OpCompositeExtract %_7 %_33 1
+               OpStore %_12 %_35
+               OpReturn
+               OpFunctionEnd

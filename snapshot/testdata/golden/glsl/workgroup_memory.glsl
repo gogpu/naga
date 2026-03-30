@@ -1,25 +1,40 @@
 #version 430 core
+#extension GL_ARB_compute_shader : require
+#extension GL_ARB_shader_storage_buffer_object : require
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 struct Params {
     uint count;
 };
+shared float shared_data[256];
 
-shared float[256] shared_data;
-layout(std140, binding = 0) uniform _Params_ubo {
-    uint count;
-} params;
-layout(std430, binding = 1) buffer _output_block { float[] _output; };
+layout(std430) buffer type_3_block_0Compute { float _group_0_binding_1_cs[]; };
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 void main() {
-    shared_data[gl_LocalInvocationIndex] = (float(gl_GlobalInvocationID[0]) * 0.5);
-    barrier();
-    if ((gl_LocalInvocationIndex < 128u)) {
-        shared_data[gl_LocalInvocationIndex] = (shared_data[gl_LocalInvocationIndex] + shared_data[(gl_LocalInvocationIndex + 128u)]);
+    if (gl_LocalInvocationID == uvec3(0u)) {
+        shared_data = float[256](0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     }
+    memoryBarrierShared();
     barrier();
-    if ((gl_LocalInvocationIndex == 0u)) {
-        _output[(gl_GlobalInvocationID[0] / 256u)] = shared_data[0];
+    uint lid = gl_LocalInvocationIndex;
+    uvec3 gid = gl_GlobalInvocationID;
+    shared_data[lid] = (float(gid.x) * 0.5);
+    memoryBarrierShared();
+    barrier();
+    if ((lid < 128u)) {
+        float _e14 = shared_data[lid];
+        float _e19 = shared_data[(lid + 128u)];
+        shared_data[lid] = (_e14 + _e19);
+    }
+    memoryBarrierShared();
+    barrier();
+    if ((lid == 0u)) {
+        float _e30 = shared_data[0];
+        _group_0_binding_1_cs[(gid.x / 256u)] = _e30;
+        return;
+    } else {
+        return;
     }
 }
+

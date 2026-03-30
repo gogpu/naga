@@ -1,0 +1,980 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Bi,
+                rows: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(2),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(2),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 2,
+                size: Constant(2),
+                stride: 4,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("func_f"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_i"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_u"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 2,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_vf"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 3,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_vi"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 4,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_vu"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 5,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_mf"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 6,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_af"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 7,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_ai"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 8,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_au"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 9,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("func_f_i"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 0,
+                    binding: None,
+                ),
+                (
+                    name: Some("b"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+            ],
+            named_expressions: {
+                0: "a",
+                1: "b",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(I32(0)),
+                    Literal(U32(0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(I32(0)),
+                    Literal(U32(0)),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 8,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 10,
+                    ),
+                    Literal(I32(0)),
+                    Splat(
+                        size: Bi,
+                        value: 12,
+                    ),
+                    Literal(U32(0)),
+                    Splat(
+                        size: Bi,
+                        value: 14,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 16,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 18,
+                    ),
+                    Literal(I32(0)),
+                    Splat(
+                        size: Bi,
+                        value: 20,
+                    ),
+                    Literal(U32(0)),
+                    Splat(
+                        size: Bi,
+                        value: 22,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 24,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 26,
+                    ),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            25,
+                            27,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 29,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 31,
+                    ),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            30,
+                            32,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 34,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 36,
+                    ),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            35,
+                            37,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 7,
+                        components: [
+                            39,
+                            40,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 7,
+                        components: [
+                            42,
+                            43,
+                        ],
+                    ),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 8,
+                        components: [
+                            45,
+                            46,
+                        ],
+                    ),
+                    Literal(U32(0)),
+                    Literal(U32(0)),
+                    Compose(
+                        ty: 9,
+                        components: [
+                            48,
+                            49,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 7,
+                        components: [
+                            51,
+                            52,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 7,
+                        components: [
+                            54,
+                            55,
+                        ],
+                    ),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Compose(
+                        ty: 8,
+                        components: [
+                            57,
+                            58,
+                        ],
+                    ),
+                    Literal(U32(0)),
+                    Literal(U32(0)),
+                    Compose(
+                        ty: 9,
+                        components: [
+                            60,
+                            61,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(I32(0)),
+                    Literal(F32(0.0)),
+                    Literal(I32(0)),
+                    Literal(F32(0.0)),
+                    Literal(I32(0)),
+                    Literal(F32(0.0)),
+                    Literal(I32(0)),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [
+                            0,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 0,
+                        arguments: [
+                            1,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [
+                            2,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [
+                            3,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 0,
+                        arguments: [
+                            4,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 0,
+                        arguments: [
+                            5,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [
+                            6,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [
+                            7,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Call(
+                        function: 3,
+                        arguments: [
+                            9,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Call(
+                        function: 3,
+                        arguments: [
+                            11,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 13,
+                        end: 14,
+                    )),
+                    Call(
+                        function: 4,
+                        arguments: [
+                            13,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 15,
+                        end: 16,
+                    )),
+                    Call(
+                        function: 5,
+                        arguments: [
+                            15,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 17,
+                        end: 18,
+                    )),
+                    Call(
+                        function: 3,
+                        arguments: [
+                            17,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 19,
+                        end: 20,
+                    )),
+                    Call(
+                        function: 3,
+                        arguments: [
+                            19,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 21,
+                        end: 22,
+                    )),
+                    Call(
+                        function: 4,
+                        arguments: [
+                            21,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 23,
+                        end: 24,
+                    )),
+                    Call(
+                        function: 5,
+                        arguments: [
+                            23,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 25,
+                        end: 26,
+                    )),
+                    Emit((
+                        start: 27,
+                        end: 29,
+                    )),
+                    Call(
+                        function: 6,
+                        arguments: [
+                            28,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 30,
+                        end: 31,
+                    )),
+                    Emit((
+                        start: 32,
+                        end: 34,
+                    )),
+                    Call(
+                        function: 6,
+                        arguments: [
+                            33,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 35,
+                        end: 36,
+                    )),
+                    Emit((
+                        start: 37,
+                        end: 39,
+                    )),
+                    Call(
+                        function: 6,
+                        arguments: [
+                            38,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 41,
+                        end: 42,
+                    )),
+                    Call(
+                        function: 7,
+                        arguments: [
+                            41,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 44,
+                        end: 45,
+                    )),
+                    Call(
+                        function: 7,
+                        arguments: [
+                            44,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 47,
+                        end: 48,
+                    )),
+                    Call(
+                        function: 8,
+                        arguments: [
+                            47,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 50,
+                        end: 51,
+                    )),
+                    Call(
+                        function: 9,
+                        arguments: [
+                            50,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 53,
+                        end: 54,
+                    )),
+                    Call(
+                        function: 7,
+                        arguments: [
+                            53,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 56,
+                        end: 57,
+                    )),
+                    Call(
+                        function: 7,
+                        arguments: [
+                            56,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 59,
+                        end: 60,
+                    )),
+                    Call(
+                        function: 8,
+                        arguments: [
+                            59,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 62,
+                        end: 63,
+                    )),
+                    Call(
+                        function: 9,
+                        arguments: [
+                            62,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 10,
+                        arguments: [
+                            63,
+                            64,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 10,
+                        arguments: [
+                            65,
+                            66,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 10,
+                        arguments: [
+                            67,
+                            68,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 10,
+                        arguments: [
+                            69,
+                            70,
+                        ],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

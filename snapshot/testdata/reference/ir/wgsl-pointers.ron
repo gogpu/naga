@@ -1,0 +1,317 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Matrix(
+                columns: Bi,
+                rows: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Dynamic,
+                stride: 4,
+            ),
+        ),
+        (
+            name: Some("DynamicArray"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("arr"),
+                        ty: 2,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("dynamic_array"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 3,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("f"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("v"),
+                    ty: 0,
+                    init: None,
+                ),
+            ],
+            expressions: [
+                LocalVariable(0),
+                AccessIndex(
+                    base: 0,
+                    index: 0,
+                ),
+                Literal(F32(10.0)),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+            ],
+            named_expressions: {
+                1: "px",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Store(
+                    pointer: 1,
+                    value: 3,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("index_unsized"),
+            arguments: [
+                (
+                    name: Some("i"),
+                    ty: 4,
+                    binding: None,
+                ),
+                (
+                    name: Some("v"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(0),
+                AccessIndex(
+                    base: 2,
+                    index: 0,
+                ),
+                Access(
+                    base: 3,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                AccessIndex(
+                    base: 2,
+                    index: 0,
+                ),
+                Access(
+                    base: 6,
+                    index: 0,
+                ),
+                Binary(
+                    op: Add,
+                    left: 5,
+                    right: 1,
+                ),
+            ],
+            named_expressions: {
+                0: "i",
+                1: "v",
+                2: "p",
+                5: "val",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 6,
+                )),
+                Emit((
+                    start: 6,
+                    end: 9,
+                )),
+                Store(
+                    pointer: 7,
+                    value: 8,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("index_dynamic_array"),
+            arguments: [
+                (
+                    name: Some("i"),
+                    ty: 4,
+                    binding: None,
+                ),
+                (
+                    name: Some("v"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(0),
+                AccessIndex(
+                    base: 2,
+                    index: 0,
+                ),
+                Access(
+                    base: 3,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 4,
+                ),
+                Access(
+                    base: 3,
+                    index: 0,
+                ),
+                Binary(
+                    op: Add,
+                    left: 5,
+                    right: 1,
+                ),
+            ],
+            named_expressions: {
+                0: "i",
+                1: "v",
+                3: "p",
+                5: "val",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Emit((
+                    start: 4,
+                    end: 6,
+                )),
+                Emit((
+                    start: 6,
+                    end: 8,
+                )),
+                Store(
+                    pointer: 6,
+                    value: 7,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    Literal(I32(1)),
+                    Literal(U32(1)),
+                    Literal(I32(1)),
+                    Literal(U32(1)),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [
+                            0,
+                            1,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [
+                            2,
+                            3,
+                        ],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

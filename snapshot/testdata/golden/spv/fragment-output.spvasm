@@ -1,0 +1,220 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 157
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %_42 "main_vec4vec3" %_18 %_20 %_22 %_24 %_26 %_28
+               OpEntryPoint Fragment %_101 "main_vec2scalar" %_30 %_32 %_34 %_36 %_38 %_40
+               OpExecutionMode %_42 OriginUpperLeft
+               OpExecutionMode %_101 OriginUpperLeft
+               OpMemberDecorate %_12 0 Offset 0
+               OpMemberDecorate %_12 1 Offset 16
+               OpMemberDecorate %_12 2 Offset 32
+               OpMemberDecorate %_12 3 Offset 48
+               OpMemberDecorate %_12 4 Offset 64
+               OpMemberDecorate %_12 5 Offset 80
+               OpMemberDecorate %_16 0 Offset 0
+               OpMemberDecorate %_16 1 Offset 8
+               OpMemberDecorate %_16 2 Offset 16
+               OpMemberDecorate %_16 3 Offset 24
+               OpMemberDecorate %_16 4 Offset 28
+               OpMemberDecorate %_16 5 Offset 32
+               OpDecorate %_18 Location 0
+               OpDecorate %_20 Location 1
+               OpDecorate %_22 Location 2
+               OpDecorate %_24 Location 3
+               OpDecorate %_26 Location 4
+               OpDecorate %_28 Location 5
+               OpDecorate %_30 Location 0
+               OpDecorate %_32 Location 1
+               OpDecorate %_34 Location 2
+               OpDecorate %_36 Location 3
+               OpDecorate %_38 Location 4
+               OpDecorate %_40 Location 5
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeVector %_3 4
+         %_5 = OpTypeInt 32 1
+         %_6 = OpTypeVector %_5 4
+         %_7 = OpTypeInt 32 0
+         %_8 = OpTypeVector %_7 4
+         %_9 = OpTypeVector %_3 3
+         %_10 = OpTypeVector %_5 3
+         %_11 = OpTypeVector %_7 3
+         %_12 = OpTypeStruct %_4 %_6 %_8 %_9 %_10 %_11
+         %_13 = OpTypeVector %_3 2
+         %_14 = OpTypeVector %_5 2
+         %_15 = OpTypeVector %_7 2
+         %_16 = OpTypeStruct %_13 %_14 %_15 %_3 %_5 %_7
+         %_17 = OpTypePointer Output %_4
+         %_19 = OpTypePointer Output %_6
+         %_21 = OpTypePointer Output %_8
+         %_23 = OpTypePointer Output %_9
+         %_25 = OpTypePointer Output %_10
+         %_27 = OpTypePointer Output %_11
+         %_29 = OpTypePointer Output %_13
+         %_31 = OpTypePointer Output %_14
+         %_33 = OpTypePointer Output %_15
+         %_35 = OpTypePointer Output %_3
+         %_37 = OpTypePointer Output %_5
+         %_39 = OpTypePointer Output %_7
+         %_41 = OpTypeFunction %_2
+         %_44 = OpTypePointer Function %_12
+         %_46 = OpConstant %_7 0
+         %_47 = OpTypePointer Function %_4
+         %_50 = OpConstant %_3 0
+         %_52 = OpConstant %_7 0
+         %_54 = OpConstant %_7 1
+         %_55 = OpTypePointer Function %_6
+         %_58 = OpConstant %_5 0
+         %_60 = OpConstant %_7 1
+         %_62 = OpConstant %_7 2
+         %_63 = OpTypePointer Function %_8
+         %_66 = OpConstant %_7 0
+         %_68 = OpConstant %_7 2
+         %_70 = OpConstant %_7 3
+         %_71 = OpTypePointer Function %_9
+         %_74 = OpConstant %_3 0
+         %_76 = OpConstant %_7 3
+         %_78 = OpConstant %_7 4
+         %_79 = OpTypePointer Function %_10
+         %_82 = OpConstant %_5 0
+         %_84 = OpConstant %_7 4
+         %_86 = OpConstant %_7 5
+         %_87 = OpTypePointer Function %_11
+         %_90 = OpConstant %_7 0
+         %_92 = OpConstant %_7 5
+         %_103 = OpTypePointer Function %_16
+         %_105 = OpConstant %_7 0
+         %_106 = OpTypePointer Function %_13
+         %_109 = OpConstant %_3 0
+         %_111 = OpConstant %_7 0
+         %_113 = OpConstant %_7 1
+         %_114 = OpTypePointer Function %_14
+         %_117 = OpConstant %_5 0
+         %_119 = OpConstant %_7 1
+         %_121 = OpConstant %_7 2
+         %_122 = OpTypePointer Function %_15
+         %_125 = OpConstant %_7 0
+         %_127 = OpConstant %_7 2
+         %_129 = OpConstant %_7 3
+         %_130 = OpTypePointer Function %_3
+         %_133 = OpConstant %_7 3
+         %_135 = OpConstant %_3 0
+         %_136 = OpConstant %_7 4
+         %_137 = OpTypePointer Function %_5
+         %_140 = OpConstant %_7 4
+         %_142 = OpConstant %_5 0
+         %_143 = OpConstant %_7 5
+         %_144 = OpTypePointer Function %_7
+         %_147 = OpConstant %_7 5
+         %_149 = OpConstant %_7 0
+         %_18 = OpVariable %_17 Output
+         %_20 = OpVariable %_19 Output
+         %_22 = OpVariable %_21 Output
+         %_24 = OpVariable %_23 Output
+         %_26 = OpVariable %_25 Output
+         %_28 = OpVariable %_27 Output
+         %_30 = OpVariable %_29 Output
+         %_32 = OpVariable %_31 Output
+         %_34 = OpVariable %_33 Output
+         %_36 = OpVariable %_35 Output
+         %_38 = OpVariable %_37 Output
+         %_40 = OpVariable %_39 Output
+         %_42 = OpFunction %_2 None %_41
+         %_43 = OpLabel
+         %_45 = OpVariable %_44 Function
+         %_48 = OpAccessChain %_47 %_45 %_46
+         %_49 = OpLoad %_4 %_48
+         %_51 = OpCompositeConstruct %_4 %_50 %_50 %_50 %_50
+         %_53 = OpAccessChain %_47 %_45 %_52
+               OpStore %_53 %_51
+         %_56 = OpAccessChain %_55 %_45 %_54
+         %_57 = OpLoad %_6 %_56
+         %_59 = OpCompositeConstruct %_6 %_58 %_58 %_58 %_58
+         %_61 = OpAccessChain %_55 %_45 %_60
+               OpStore %_61 %_59
+         %_64 = OpAccessChain %_63 %_45 %_62
+         %_65 = OpLoad %_8 %_64
+         %_67 = OpCompositeConstruct %_8 %_66 %_66 %_66 %_66
+         %_69 = OpAccessChain %_63 %_45 %_68
+               OpStore %_69 %_67
+         %_72 = OpAccessChain %_71 %_45 %_70
+         %_73 = OpLoad %_9 %_72
+         %_75 = OpCompositeConstruct %_9 %_74 %_74 %_74
+         %_77 = OpAccessChain %_71 %_45 %_76
+               OpStore %_77 %_75
+         %_80 = OpAccessChain %_79 %_45 %_78
+         %_81 = OpLoad %_10 %_80
+         %_83 = OpCompositeConstruct %_10 %_82 %_82 %_82
+         %_85 = OpAccessChain %_79 %_45 %_84
+               OpStore %_85 %_83
+         %_88 = OpAccessChain %_87 %_45 %_86
+         %_89 = OpLoad %_11 %_88
+         %_91 = OpCompositeConstruct %_11 %_90 %_90 %_90
+         %_93 = OpAccessChain %_87 %_45 %_92
+               OpStore %_93 %_91
+         %_94 = OpLoad %_12 %_45
+         %_95 = OpCompositeExtract %_4 %_94 0
+               OpStore %_18 %_95
+         %_96 = OpCompositeExtract %_6 %_94 1
+               OpStore %_20 %_96
+         %_97 = OpCompositeExtract %_8 %_94 2
+               OpStore %_22 %_97
+         %_98 = OpCompositeExtract %_9 %_94 3
+               OpStore %_24 %_98
+         %_99 = OpCompositeExtract %_10 %_94 4
+               OpStore %_26 %_99
+         %_100 = OpCompositeExtract %_11 %_94 5
+               OpStore %_28 %_100
+               OpReturn
+               OpFunctionEnd
+         %_101 = OpFunction %_2 None %_41
+         %_102 = OpLabel
+         %_104 = OpVariable %_103 Function
+         %_107 = OpAccessChain %_106 %_104 %_105
+         %_108 = OpLoad %_13 %_107
+         %_110 = OpCompositeConstruct %_13 %_109 %_109
+         %_112 = OpAccessChain %_106 %_104 %_111
+               OpStore %_112 %_110
+         %_115 = OpAccessChain %_114 %_104 %_113
+         %_116 = OpLoad %_14 %_115
+         %_118 = OpCompositeConstruct %_14 %_117 %_117
+         %_120 = OpAccessChain %_114 %_104 %_119
+               OpStore %_120 %_118
+         %_123 = OpAccessChain %_122 %_104 %_121
+         %_124 = OpLoad %_15 %_123
+         %_126 = OpCompositeConstruct %_15 %_125 %_125
+         %_128 = OpAccessChain %_122 %_104 %_127
+               OpStore %_128 %_126
+         %_131 = OpAccessChain %_130 %_104 %_129
+         %_132 = OpLoad %_3 %_131
+         %_134 = OpAccessChain %_130 %_104 %_133
+               OpStore %_134 %_135
+         %_138 = OpAccessChain %_137 %_104 %_136
+         %_139 = OpLoad %_5 %_138
+         %_141 = OpAccessChain %_137 %_104 %_140
+               OpStore %_141 %_142
+         %_145 = OpAccessChain %_144 %_104 %_143
+         %_146 = OpLoad %_7 %_145
+         %_148 = OpAccessChain %_144 %_104 %_147
+               OpStore %_148 %_149
+         %_150 = OpLoad %_16 %_104
+         %_151 = OpCompositeExtract %_13 %_150 0
+               OpStore %_30 %_151
+         %_152 = OpCompositeExtract %_14 %_150 1
+               OpStore %_32 %_152
+         %_153 = OpCompositeExtract %_15 %_150 2
+               OpStore %_34 %_153
+         %_154 = OpCompositeExtract %_3 %_150 3
+               OpStore %_36 %_154
+         %_155 = OpCompositeExtract %_5 %_150 4
+               OpStore %_38 %_155
+         %_156 = OpCompositeExtract %_7 %_150 5
+               OpStore %_40 %_156
+               OpReturn
+               OpFunctionEnd

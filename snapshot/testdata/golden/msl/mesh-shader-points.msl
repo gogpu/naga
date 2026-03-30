@@ -1,0 +1,45 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct TaskPayload {
+    uint dummy;
+};
+struct VertexOutput {
+    metal::float4 position;
+};
+struct PrimitiveOutput {
+    uint indices;
+};
+struct type_3 {
+    VertexOutput inner[1];
+};
+struct type_4 {
+    PrimitiveOutput inner[1];
+};
+struct MeshOutput {
+    type_3 vertices;
+    type_4 primitives;
+    uint vertex_count;
+    uint primitive_count;
+    char _pad4[4];
+};
+
+ metal::uint3 ts_main(
+) {
+    return metal::uint3(1u, 1u, 1u);
+}
+
+
+ void ms_main(
+) {
+    return;
+}

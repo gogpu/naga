@@ -1,0 +1,686 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("Foo"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("a"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("b"),
+                        ty: 2,
+                        binding: None,
+                        offset: 16,
+                    ),
+                ],
+                span: 32,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Bi,
+                rows: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 5,
+                size: Constant(1),
+                stride: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 3,
+                size: Constant(3),
+                stride: 32,
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Quad,
+                rows: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 2,
+                size: Constant(4),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Bi,
+                rows: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("const1"),
+            ty: 4,
+            init: 1,
+        ),
+        (
+            name: Some("const3"),
+            ty: 5,
+            init: 8,
+        ),
+        (
+            name: Some("const4"),
+            ty: 7,
+            init: 16,
+        ),
+        (
+            name: Some("cz0"),
+            ty: 8,
+            init: 17,
+        ),
+        (
+            name: Some("cz1"),
+            ty: 2,
+            init: 18,
+        ),
+        (
+            name: Some("cz2"),
+            ty: 9,
+            init: 19,
+        ),
+        (
+            name: Some("cz3"),
+            ty: 0,
+            init: 20,
+        ),
+        (
+            name: Some("cz4"),
+            ty: 10,
+            init: 21,
+        ),
+        (
+            name: Some("cz5"),
+            ty: 5,
+            init: 22,
+        ),
+        (
+            name: Some("cz6"),
+            ty: 11,
+            init: 23,
+        ),
+        (
+            name: Some("cz7"),
+            ty: 3,
+            init: 24,
+        ),
+        (
+            name: Some("cp1"),
+            ty: 10,
+            init: 26,
+        ),
+    ],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [
+        Literal(F32(0.0)),
+        Splat(
+            size: Tri,
+            value: 0,
+        ),
+        Literal(F32(0.0)),
+        Literal(F32(1.0)),
+        Literal(F32(2.0)),
+        Literal(F32(3.0)),
+        Compose(
+            ty: 6,
+            components: [
+                2,
+                3,
+            ],
+        ),
+        Compose(
+            ty: 6,
+            components: [
+                4,
+                5,
+            ],
+        ),
+        Compose(
+            ty: 5,
+            components: [
+                6,
+                7,
+            ],
+        ),
+        Literal(F32(0.0)),
+        Literal(F32(1.0)),
+        Literal(F32(2.0)),
+        Literal(F32(3.0)),
+        Compose(
+            ty: 6,
+            components: [
+                9,
+                10,
+            ],
+        ),
+        Compose(
+            ty: 6,
+            components: [
+                11,
+                12,
+            ],
+        ),
+        Compose(
+            ty: 5,
+            components: [
+                13,
+                14,
+            ],
+        ),
+        Compose(
+            ty: 7,
+            components: [
+                15,
+            ],
+        ),
+        ZeroValue(8),
+        ZeroValue(2),
+        ZeroValue(9),
+        ZeroValue(0),
+        ZeroValue(10),
+        ZeroValue(5),
+        ZeroValue(11),
+        ZeroValue(3),
+        Literal(U32(0)),
+        Splat(
+            size: Bi,
+            value: 25,
+        ),
+    ],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("foo"),
+                        ty: 3,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    LocalVariable(0),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Quad,
+                        value: 1,
+                    ),
+                    Literal(I32(1)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            2,
+                            3,
+                        ],
+                    ),
+                    Literal(F32(1.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            5,
+                            6,
+                        ],
+                    ),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            7,
+                            8,
+                        ],
+                    ),
+                    Compose(
+                        ty: 5,
+                        components: [
+                            9,
+                            10,
+                        ],
+                    ),
+                    Literal(F32(1.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            12,
+                            13,
+                            14,
+                            15,
+                        ],
+                    ),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            16,
+                            17,
+                            18,
+                            19,
+                        ],
+                    ),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            20,
+                            21,
+                            22,
+                            23,
+                        ],
+                    ),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            24,
+                            25,
+                            26,
+                            27,
+                        ],
+                    ),
+                    Compose(
+                        ty: 12,
+                        components: [
+                            28,
+                            29,
+                            30,
+                            31,
+                        ],
+                    ),
+                    ZeroValue(8),
+                    ZeroValue(2),
+                    ZeroValue(9),
+                    ZeroValue(0),
+                    ZeroValue(10),
+                    ZeroValue(5),
+                    ZeroValue(11),
+                    ZeroValue(3),
+                    Literal(U32(0)),
+                    Literal(U32(0)),
+                    Compose(
+                        ty: 10,
+                        components: [
+                            41,
+                            42,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            44,
+                            45,
+                        ],
+                    ),
+                    Literal(U32(0)),
+                    Splat(
+                        size: Bi,
+                        value: 47,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 49,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 51,
+                    ),
+                    Compose(
+                        ty: 5,
+                        components: [
+                            50,
+                            52,
+                        ],
+                    ),
+                    Literal(I32(0)),
+                    Literal(I32(1)),
+                    Literal(I32(2)),
+                    Literal(I32(3)),
+                    Compose(
+                        ty: 13,
+                        components: [
+                            54,
+                            55,
+                            56,
+                            57,
+                        ],
+                    ),
+                    Literal(Bool(false)),
+                    Literal(I32(0)),
+                    Literal(U32(0)),
+                    Literal(F32(0.0)),
+                    Literal(U32(0)),
+                    Literal(U32(0)),
+                    Compose(
+                        ty: 10,
+                        components: [
+                            63,
+                            64,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 4,
+                        components: [
+                            66,
+                            67,
+                            68,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 4,
+                        components: [
+                            70,
+                            71,
+                            72,
+                        ],
+                    ),
+                    Compose(
+                        ty: 14,
+                        components: [
+                            69,
+                            73,
+                        ],
+                    ),
+                    ZeroValue(10),
+                    ZeroValue(14),
+                    Literal(I32(1)),
+                    Literal(I32(1)),
+                    Literal(I32(1)),
+                    Literal(I32(1)),
+                    Literal(I32(1)),
+                    Literal(U32(1)),
+                    Literal(U32(1)),
+                    Literal(U32(1)),
+                    Literal(U32(1)),
+                    Literal(U32(1)),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Literal(Bool(true)),
+                    Literal(Bool(true)),
+                    Literal(Bool(true)),
+                    Literal(Bool(true)),
+                    Literal(Bool(true)),
+                ],
+                named_expressions: {
+                    11: "m0",
+                    32: "m1",
+                    33: "zvc0",
+                    34: "zvc1",
+                    35: "zvc2",
+                    36: "zvc3",
+                    37: "zvc4",
+                    38: "zvc5",
+                    39: "zvc6",
+                    40: "zvc7",
+                    43: "zvc8",
+                    46: "zvc9",
+                    48: "cit0",
+                    53: "cit1",
+                    58: "cit2",
+                    59: "ic0",
+                    60: "ic1",
+                    61: "ic2",
+                    62: "ic3",
+                    65: "ic4",
+                    74: "ic5",
+                    75: "ic6",
+                    76: "ic7",
+                    77: "cc00",
+                    78: "cc01",
+                    79: "cc02",
+                    80: "cc03",
+                    81: "cc04",
+                    82: "cc05",
+                    83: "cc06",
+                    84: "cc07",
+                    85: "cc08",
+                    86: "cc09",
+                    87: "cc10",
+                    88: "cc11",
+                    89: "cc12",
+                    90: "cc13",
+                    91: "cc14",
+                    92: "cc15",
+                    93: "cc16",
+                    94: "cc17",
+                    95: "cc18",
+                    96: "cc19",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Store(
+                        pointer: 0,
+                        value: 4,
+                    ),
+                    Emit((
+                        start: 9,
+                        end: 12,
+                    )),
+                    Emit((
+                        start: 28,
+                        end: 33,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 43,
+                        end: 44,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 46,
+                        end: 47,
+                    )),
+                    Emit((
+                        start: 48,
+                        end: 49,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 50,
+                        end: 51,
+                    )),
+                    Emit((
+                        start: 52,
+                        end: 54,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 58,
+                        end: 59,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 65,
+                        end: 66,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 69,
+                        end: 70,
+                    )),
+                    Emit((
+                        start: 73,
+                        end: 75,
+                    )),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

@@ -302,7 +302,7 @@ func TestValidateNew_StructMemberCircularRef(t *testing.T) {
 func TestValidateNew_EntryPointEmptyName(t *testing.T) {
 	m := newValidModule()
 	m.EntryPoints = []EntryPoint{
-		{Name: "", Stage: StageVertex, Function: 0},
+		{Name: "", Stage: StageVertex, Function: Function{Name: "vs"}},
 	}
 	expectValidationErrors(t, m, "entry point 0 has empty name")
 }
@@ -310,29 +310,23 @@ func TestValidateNew_EntryPointEmptyName(t *testing.T) {
 func TestValidateNew_EntryPointDuplicateName(t *testing.T) {
 	m := newValidModule()
 	m.EntryPoints = []EntryPoint{
-		{Name: "main", Stage: StageVertex, Function: 0},
-		{Name: "main", Stage: StageFragment, Function: 0},
+		{Name: "main", Stage: StageVertex, Function: Function{Name: "main"}},
+		{Name: "main", Stage: StageFragment, Function: Function{Name: "main"}},
 	}
 	expectValidationErrors(t, m, "duplicate entry point name")
-}
-
-func TestValidateNew_EntryPointInvalidFunction(t *testing.T) {
-	m := newValidModule()
-	m.EntryPoints = []EntryPoint{
-		{Name: "main", Stage: StageVertex, Function: 999},
-	}
-	expectValidationErrors(t, m, "function 999 does not exist")
 }
 
 func TestValidateNew_VertexDirectPositionBinding(t *testing.T) {
 	m := newValidModule()
 	var posBinding Binding = BuiltinBinding{Builtin: BuiltinPosition}
-	m.Functions[0].Result = &FunctionResult{
-		Type:    1, // vec4f
-		Binding: &posBinding,
-	}
 	m.EntryPoints = []EntryPoint{
-		{Name: "vs", Stage: StageVertex, Function: 0},
+		{Name: "vs", Stage: StageVertex, Function: Function{
+			Name: "vs",
+			Result: &FunctionResult{
+				Type:    1, // vec4f
+				Binding: &posBinding,
+			},
+		}},
 	}
 	expectNoValidationErrors(t, m)
 }
@@ -348,11 +342,13 @@ func TestValidateNew_VertexStructPositionBinding(t *testing.T) {
 			},
 		},
 	})
-	m.Functions[0].Result = &FunctionResult{
-		Type: TypeHandle(len(m.Types) - 1),
-	}
 	m.EntryPoints = []EntryPoint{
-		{Name: "vs", Stage: StageVertex, Function: 0},
+		{Name: "vs", Stage: StageVertex, Function: Function{
+			Name: "vs",
+			Result: &FunctionResult{
+				Type: TypeHandle(len(m.Types) - 1),
+			},
+		}},
 	}
 	expectNoValidationErrors(t, m)
 }
@@ -360,7 +356,7 @@ func TestValidateNew_VertexStructPositionBinding(t *testing.T) {
 func TestValidateNew_FragmentValid(t *testing.T) {
 	m := newValidModule()
 	m.EntryPoints = []EntryPoint{
-		{Name: "fs", Stage: StageFragment, Function: 0},
+		{Name: "fs", Stage: StageFragment, Function: Function{Name: "fs"}},
 	}
 	expectNoValidationErrors(t, m)
 }
