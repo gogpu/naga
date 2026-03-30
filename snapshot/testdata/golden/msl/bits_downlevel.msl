@@ -1,0 +1,39 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+fragment void main_(
+) {
+    int i = 0;
+    metal::int2 i2_ = metal::int2(0);
+    metal::int3 i3_ = metal::int3(0);
+    metal::int4 i4_ = metal::int4(0);
+    uint u = 0u;
+    metal::uint2 u2_ = metal::uint2(0u);
+    metal::uint3 u3_ = metal::uint3(0u);
+    metal::uint4 u4_ = metal::uint4(0u);
+    metal::float2 f2_ = metal::float2(0.0);
+    metal::float4 f4_ = metal::float4(0.0);
+    metal::int4 _e23 = i4_;
+    u = uint((_e23[0] & 0xFF) | ((_e23[1] & 0xFF) << 8) | ((_e23[2] & 0xFF) << 16) | ((_e23[3] & 0xFF) << 24));
+    metal::uint4 _e25 = u4_;
+    u = (_e25[0] & 0xFF) | ((_e25[1] & 0xFF) << 8) | ((_e25[2] & 0xFF) << 16) | ((_e25[3] & 0xFF) << 24);
+    uint _e27 = u;
+    f4_ = metal::unpack_snorm4x8_to_float(_e27);
+    uint _e29 = u;
+    f4_ = metal::unpack_unorm4x8_to_float(_e29);
+    uint _e31 = u;
+    f2_ = metal::unpack_snorm2x16_to_float(_e31);
+    uint _e33 = u;
+    f2_ = metal::unpack_unorm2x16_to_float(_e33);
+    return;
+}

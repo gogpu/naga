@@ -1,0 +1,24 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+struct main_Output {
+    float member [[color(0)]];
+};
+fragment main_Output main_(
+  metal::depth2d_array<float, metal::access::sample> texture [[user(fake0)]]
+, metal::sampler texture_sampler [[user(fake0)]]
+) {
+    metal::float2 pos = metal::float2(0.0);
+    float _e6 = texture.sample_compare(texture_sampler, pos, 0, 0.0);
+    return main_Output { _e6 };
+}

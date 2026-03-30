@@ -1,0 +1,992 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Pointer(
+                base: 0,
+                space: Function,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(4),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Pointer(
+                base: 2,
+                space: Function,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Pointer(
+                base: 4,
+                space: Function,
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Bi,
+                rows: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Pointer(
+                base: 6,
+                space: Function,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 4,
+                size: Constant(4),
+                stride: 8,
+            ),
+        ),
+        (
+            name: None,
+            inner: Pointer(
+                base: 9,
+                space: Function,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 6,
+                size: Constant(4),
+                stride: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Pointer(
+                base: 11,
+                space: Function,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 2,
+                size: Constant(4),
+                stride: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Pointer(
+                base: 13,
+                space: Function,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 13,
+                size: Constant(4),
+                stride: 64,
+            ),
+        ),
+        (
+            name: None,
+            inner: Pointer(
+                base: 15,
+                space: Function,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("takes_ptr"),
+            arguments: [
+                (
+                    name: Some("p"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "p",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("takes_array_ptr"),
+            arguments: [
+                (
+                    name: Some("p"),
+                    ty: 3,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "p",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("takes_vec_ptr"),
+            arguments: [
+                (
+                    name: Some("p"),
+                    ty: 5,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "p",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("takes_mat_ptr"),
+            arguments: [
+                (
+                    name: Some("p"),
+                    ty: 7,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+            ],
+            named_expressions: {
+                0: "p",
+            },
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("local_var"),
+            arguments: [
+                (
+                    name: Some("i"),
+                    ty: 8,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("arr"),
+                    ty: 2,
+                    init: Some(5),
+                ),
+            ],
+            expressions: [
+                FunctionArgument(0),
+                Literal(I32(1)),
+                Literal(I32(2)),
+                Literal(I32(3)),
+                Literal(I32(4)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        1,
+                        2,
+                        3,
+                        4,
+                    ],
+                ),
+                LocalVariable(0),
+                Access(
+                    base: 6,
+                    index: 0,
+                ),
+            ],
+            named_expressions: {
+                0: "i",
+            },
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                Emit((
+                    start: 7,
+                    end: 8,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        7,
+                    ],
+                    result: None,
+                ),
+                Call(
+                    function: 1,
+                    arguments: [
+                        6,
+                    ],
+                    result: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("mat_vec_ptrs"),
+            arguments: [
+                (
+                    name: Some("pv"),
+                    ty: 10,
+                    binding: None,
+                ),
+                (
+                    name: Some("pm"),
+                    ty: 12,
+                    binding: None,
+                ),
+                (
+                    name: Some("i"),
+                    ty: 8,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                Access(
+                    base: 0,
+                    index: 2,
+                ),
+                Access(
+                    base: 1,
+                    index: 2,
+                ),
+            ],
+            named_expressions: {
+                0: "pv",
+                1: "pm",
+                2: "i",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Call(
+                    function: 2,
+                    arguments: [
+                        3,
+                    ],
+                    result: None,
+                ),
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Call(
+                    function: 3,
+                    arguments: [
+                        4,
+                    ],
+                    result: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("argument"),
+            arguments: [
+                (
+                    name: Some("v"),
+                    ty: 3,
+                    binding: None,
+                ),
+                (
+                    name: Some("i"),
+                    ty: 8,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                Access(
+                    base: 0,
+                    index: 1,
+                ),
+            ],
+            named_expressions: {
+                0: "v",
+                1: "i",
+            },
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        2,
+                    ],
+                    result: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("argument_nested_x2"),
+            arguments: [
+                (
+                    name: Some("v"),
+                    ty: 14,
+                    binding: None,
+                ),
+                (
+                    name: Some("i"),
+                    ty: 8,
+                    binding: None,
+                ),
+                (
+                    name: Some("j"),
+                    ty: 8,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                Access(
+                    base: 0,
+                    index: 1,
+                ),
+                Access(
+                    base: 3,
+                    index: 2,
+                ),
+                Access(
+                    base: 0,
+                    index: 1,
+                ),
+                AccessIndex(
+                    base: 5,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 0,
+                    index: 0,
+                ),
+                Access(
+                    base: 7,
+                    index: 2,
+                ),
+                Access(
+                    base: 0,
+                    index: 1,
+                ),
+            ],
+            named_expressions: {
+                0: "v",
+                1: "i",
+                2: "j",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 5,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        4,
+                    ],
+                    result: None,
+                ),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        6,
+                    ],
+                    result: None,
+                ),
+                Emit((
+                    start: 7,
+                    end: 9,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        8,
+                    ],
+                    result: None,
+                ),
+                Emit((
+                    start: 9,
+                    end: 10,
+                )),
+                Call(
+                    function: 1,
+                    arguments: [
+                        9,
+                    ],
+                    result: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("argument_nested_x3"),
+            arguments: [
+                (
+                    name: Some("v"),
+                    ty: 16,
+                    binding: None,
+                ),
+                (
+                    name: Some("i"),
+                    ty: 8,
+                    binding: None,
+                ),
+                (
+                    name: Some("j"),
+                    ty: 8,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                Access(
+                    base: 0,
+                    index: 1,
+                ),
+                AccessIndex(
+                    base: 3,
+                    index: 0,
+                ),
+                Access(
+                    base: 4,
+                    index: 2,
+                ),
+                Access(
+                    base: 0,
+                    index: 1,
+                ),
+                Access(
+                    base: 6,
+                    index: 2,
+                ),
+                AccessIndex(
+                    base: 7,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 0,
+                    index: 0,
+                ),
+                Access(
+                    base: 9,
+                    index: 1,
+                ),
+                Access(
+                    base: 10,
+                    index: 2,
+                ),
+            ],
+            named_expressions: {
+                0: "v",
+                1: "i",
+                2: "j",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Emit((
+                    start: 4,
+                    end: 6,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        5,
+                    ],
+                    result: None,
+                ),
+                Emit((
+                    start: 6,
+                    end: 8,
+                )),
+                Emit((
+                    start: 8,
+                    end: 9,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        8,
+                    ],
+                    result: None,
+                ),
+                Emit((
+                    start: 9,
+                    end: 12,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        11,
+                    ],
+                    result: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("index_from_self"),
+            arguments: [
+                (
+                    name: Some("v"),
+                    ty: 3,
+                    binding: None,
+                ),
+                (
+                    name: Some("i"),
+                    ty: 8,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                Access(
+                    base: 0,
+                    index: 1,
+                ),
+                Load(
+                    pointer: 2,
+                ),
+                Access(
+                    base: 0,
+                    index: 3,
+                ),
+            ],
+            named_expressions: {
+                0: "v",
+                1: "i",
+            },
+            body: [
+                Emit((
+                    start: 2,
+                    end: 5,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        4,
+                    ],
+                    result: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("local_var_from_arg"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 2,
+                    binding: None,
+                ),
+                (
+                    name: Some("i"),
+                    ty: 8,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("b"),
+                    ty: 2,
+                    init: None,
+                ),
+            ],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                LocalVariable(0),
+                Access(
+                    base: 2,
+                    index: 1,
+                ),
+            ],
+            named_expressions: {
+                0: "a",
+                1: "i",
+            },
+            body: [
+                Store(
+                    pointer: 2,
+                    value: 0,
+                ),
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        3,
+                    ],
+                    result: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("let_binding"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 3,
+                    binding: None,
+                ),
+                (
+                    name: Some("i"),
+                    ty: 8,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                Access(
+                    base: 0,
+                    index: 1,
+                ),
+                AccessIndex(
+                    base: 0,
+                    index: 0,
+                ),
+            ],
+            named_expressions: {
+                0: "a",
+                1: "i",
+                2: "p0",
+                3: "p1",
+            },
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        2,
+                    ],
+                    result: None,
+                ),
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Call(
+                    function: 0,
+                    arguments: [
+                        3,
+                    ],
+                    result: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("vec"),
+                        ty: 9,
+                        init: None,
+                    ),
+                    (
+                        name: Some("mat"),
+                        ty: 11,
+                        init: None,
+                    ),
+                    (
+                        name: Some("arr1d"),
+                        ty: 2,
+                        init: None,
+                    ),
+                    (
+                        name: Some("arr2d"),
+                        ty: 13,
+                        init: None,
+                    ),
+                    (
+                        name: Some("arr3d"),
+                        ty: 15,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    LocalVariable(0),
+                    LocalVariable(1),
+                    LocalVariable(2),
+                    LocalVariable(3),
+                    LocalVariable(4),
+                    Literal(U32(1)),
+                    Literal(U32(1)),
+                    Literal(U32(1)),
+                    Literal(U32(1)),
+                    Literal(U32(2)),
+                    Literal(U32(1)),
+                    Literal(U32(2)),
+                    Literal(U32(1)),
+                    Literal(I32(1)),
+                    Literal(I32(2)),
+                    Literal(I32(3)),
+                    Literal(I32(4)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            13,
+                            14,
+                            15,
+                            16,
+                        ],
+                    ),
+                    Literal(U32(5)),
+                    Literal(U32(1)),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 4,
+                        arguments: [
+                            5,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 5,
+                        arguments: [
+                            0,
+                            1,
+                            6,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 6,
+                        arguments: [
+                            2,
+                            7,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 7,
+                        arguments: [
+                            3,
+                            8,
+                            9,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 8,
+                        arguments: [
+                            4,
+                            10,
+                            11,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 9,
+                        arguments: [
+                            2,
+                            12,
+                        ],
+                        result: None,
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 17,
+                        end: 18,
+                    )),
+                    Call(
+                        function: 10,
+                        arguments: [
+                            17,
+                            18,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 11,
+                        arguments: [
+                            2,
+                            19,
+                        ],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

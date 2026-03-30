@@ -1,0 +1,48 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 30
+; Schema: 0
+
+               OpCapability Shader
+               OpCapability SampledBuffer
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %_13 "main" %_11
+               OpExecutionMode %_13 OriginUpperLeft
+               OpDecorate %_7 DescriptorSet 0
+               OpDecorate %_7 Binding 0
+               OpDecorate %_9 DescriptorSet 0
+               OpDecorate %_9 Binding 1
+               OpDecorate %_11 Location 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeImage %_3 Cube 1 1 0 1 Unknown
+         %_5 = OpTypeSampler
+         %_6 = OpTypePointer UniformConstant %_4
+         %_8 = OpTypePointer UniformConstant %_5
+         %_10 = OpTypePointer Output %_3
+         %_12 = OpTypeFunction %_2
+         %_15 = OpTypeVector %_3 3
+         %_16 = OpConstant %_3 0
+         %_20 = OpTypeInt 32 1
+         %_21 = OpConstant %_20 0
+         %_23 = OpTypeVector %_3 4
+         %_25 = OpTypeSampledImage %_4
+         %_28 = OpConstant %_3 0
+         %_29 = OpConstant %_3 0
+         %_7 = OpVariable %_6 UniformConstant
+         %_9 = OpVariable %_8 UniformConstant
+         %_11 = OpVariable %_10 Output
+         %_13 = OpFunction %_2 None %_12
+         %_14 = OpLabel
+         %_17 = OpCompositeConstruct %_15 %_16 %_16 %_16
+         %_18 = OpLoad %_4 %_7
+         %_19 = OpLoad %_5 %_9
+         %_22 = OpConvertSToF %_3 %_21
+         %_24 = OpCompositeConstruct %_23 %_17 %_22
+         %_26 = OpSampledImage %_25 %_18 %_19
+         %_27 = OpImageSampleDrefExplicitLod %_23 %_26 %_24 %_29 %_2 %_28
+               OpStore %_11 %_27
+               OpReturn
+               OpFunctionEnd

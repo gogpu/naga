@@ -1,0 +1,56 @@
+; SPIR-V
+; Version: 1.3
+; Generator: 0x00000000
+; Bound: 36
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpDecorate %_11 ArrayStride 16
+               OpDecorate %_13 ArrayStride 16
+               OpMemberDecorate %_4 0 Offset 0
+               OpMemberDecorate %_7 0 Offset 0
+               OpMemberDecorate %_9 0 Offset 0
+               OpMemberDecorate %_14 0 Offset 0
+               OpMemberDecorate %_14 1 Offset 48
+               OpMemberDecorate %_14 2 Offset 64
+               OpMemberDecorate %_14 3 Offset 68
+         %_2 = OpTypeVoid
+         %_3 = OpTypeInt 32 0
+         %_4 = OpTypeStruct %_3
+         %_5 = OpTypeFloat 32
+         %_6 = OpTypeVector %_5 4
+         %_7 = OpTypeStruct %_6
+         %_8 = OpTypeVector %_3 3
+         %_9 = OpTypeStruct %_8
+         %_10 = OpConstant %_3 3
+         %_11 = OpTypeArray %_7 %_10
+         %_12 = OpConstant %_3 1
+         %_13 = OpTypeArray %_9 %_12
+         %_14 = OpTypeStruct %_11 %_13 %_3 %_3
+         %_15 = OpTypePointer Function %_4
+         %_17 = OpTypeStruct %_6
+         %_18 = OpConstant %_3 3
+         %_19 = OpTypeArray %_17 %_18
+         %_20 = OpTypeStruct %_8
+         %_21 = OpConstant %_3 1
+         %_22 = OpTypeArray %_20 %_21
+         %_23 = OpTypeStruct %_19 %_22 %_3 %_3
+         %_24 = OpTypePointer Workgroup %_23
+         %_26 = OpTypeFunction %_8
+         %_29 = OpConstant %_3 1
+         %_30 = OpConstant %_3 1
+         %_31 = OpConstant %_3 1
+         %_33 = OpTypeFunction %_2
+         %_16 = OpVariable %_15 Function
+         %_25 = OpVariable %_24 Workgroup
+         %_27 = OpFunction %_8 None %_26
+         %_28 = OpLabel
+         %_32 = OpCompositeConstruct %_8 %_29 %_30 %_31
+               OpReturnValue %_32
+               OpFunctionEnd
+         %_34 = OpFunction %_2 None %_33
+         %_35 = OpLabel
+               OpReturn
+               OpFunctionEnd

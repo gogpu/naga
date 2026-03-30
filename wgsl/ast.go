@@ -9,6 +9,13 @@ type Module struct {
 	GlobalVars  []*VarDecl
 	Aliases     []*AliasDecl
 	Constants   []*ConstDecl
+	Overrides   []*OverrideDecl
+
+	// Declarations preserves all top-level declarations in source order.
+	// This is used by the lowerer to register types in the same order as
+	// Rust naga, which processes declarations via topological sort that
+	// closely follows source order.
+	Declarations []Decl
 }
 
 // Enable represents an enable directive.
@@ -104,15 +111,29 @@ func (v *VarDecl) stmtNode() {}
 
 // ConstDecl represents a const declaration.
 type ConstDecl struct {
-	Name string
-	Type Type
-	Init Expr
-	Span Span
+	Name    string
+	Type    Type
+	Init    Expr
+	Span    Span
+	IsConst bool // true for `const`, false for `let`
 }
 
 func (c *ConstDecl) Pos() Span { return c.Span }
 func (c *ConstDecl) declNode() {}
 func (c *ConstDecl) stmtNode() {} // Allow const as local statement
+
+// OverrideDecl represents an override declaration (pipeline-overridable constant).
+// WGSL spec: @id(N) override name: type = default;
+type OverrideDecl struct {
+	Name       string
+	Type       Type
+	Init       Expr // May be nil (override without default value)
+	Attributes []Attribute
+	Span       Span
+}
+
+func (o *OverrideDecl) Pos() Span { return o.Span }
+func (o *OverrideDecl) declNode() {}
 
 // AliasDecl represents a type alias declaration.
 type AliasDecl struct {
@@ -123,6 +144,17 @@ type AliasDecl struct {
 
 func (a *AliasDecl) Pos() Span { return a.Span }
 func (a *AliasDecl) declNode() {}
+
+// ConstAssertDecl represents a const_assert declaration (module or function scope).
+// WGSL spec: const_assert expr; — compile-time assertion.
+type ConstAssertDecl struct {
+	Condition Expr
+	Span      Span
+}
+
+func (c *ConstAssertDecl) Pos() Span { return c.Span }
+func (c *ConstAssertDecl) declNode() {}
+func (c *ConstAssertDecl) stmtNode() {} // Also valid as a statement inside functions
 
 // Attribute represents an attribute (e.g., @location(0)).
 type Attribute struct {
@@ -249,6 +281,16 @@ type BreakStmt struct {
 func (b *BreakStmt) Pos() Span { return b.Span }
 func (b *BreakStmt) stmtNode() {}
 
+// BreakIfStmt represents a "break if" statement inside a continuing block.
+// WGSL spec: continuing { ... break if condition; }
+type BreakIfStmt struct {
+	Condition Expr
+	Span      Span
+}
+
+func (b *BreakIfStmt) Pos() Span { return b.Span }
+func (b *BreakIfStmt) stmtNode() {}
+
 // ContinueStmt represents a continue statement.
 type ContinueStmt struct {
 	Span Span
@@ -297,10 +339,11 @@ func (s *SwitchStmt) stmtNode() {}
 
 // SwitchCaseClause represents a case clause in a switch statement.
 type SwitchCaseClause struct {
-	Selectors []Expr     // Case selectors (nil or empty for default)
-	IsDefault bool       // True for default case
-	Body      *BlockStmt // Case body
-	Span      Span
+	Selectors    []Expr     // Case selectors (nil or empty for default)
+	IsDefault    bool       // True for default case
+	DefaultFirst bool       // True when default appears before selectors (case default, 6:)
+	Body         *BlockStmt // Case body
+	Span         Span
 }
 
 // Expressions

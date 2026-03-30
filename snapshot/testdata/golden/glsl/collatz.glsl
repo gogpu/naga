@@ -1,33 +1,45 @@
 #version 430 core
+#extension GL_ARB_compute_shader : require
+#extension GL_ARB_shader_storage_buffer_object : require
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-struct Data {
-    uint values[];
-};
+layout(std430) buffer PrimeIndices_block_0Compute {
+    uint data[];
+} _group_0_binding_0_cs;
 
-layout(std430, binding = 0) buffer data_block { Data data; };
 
 uint collatz_iterations(uint n_base) {
-    uint n = n_base;
+    uint n = 0u;
     uint i = 0u;
-    for (;;) {
-        if (!((n > 1u))) {
+    n = n_base;
+    while(true) {
+        uint _e4 = n;
+        if ((_e4 > 1u)) {
+        } else {
             break;
         }
-        if ((_naga_mod(n, 2u) == 0u)) {
-            n = (n / 2u);
-        } else {
-            {
-                n = ((3u * n) + 1u);
+        {
+            uint _e7 = n;
+            if (((_e7 % 2u) == 0u)) {
+                uint _e12 = n;
+                n = (_e12 / 2u);
+            } else {
+                uint _e16 = n;
+                n = ((3u * _e16) + 1u);
             }
+            uint _e20 = i;
+            i = (_e20 + 1u);
         }
-        i = (i + 1u);
     }
-    return i;
+    uint _e23 = i;
+    return _e23;
 }
-
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 void main() {
-    uint _fc9 = collatz_iterations(data.values[gl_GlobalInvocationID[0]]);
-    data.values[gl_GlobalInvocationID[0]] = _fc9;
+    uvec3 global_id = gl_GlobalInvocationID;
+    uint _e9 = _group_0_binding_0_cs.data[global_id.x];
+    uint _e10 = collatz_iterations(_e9);
+    _group_0_binding_0_cs.data[global_id.x] = _e10;
+    return;
 }
+

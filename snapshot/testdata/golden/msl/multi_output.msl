@@ -1,53 +1,45 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
 struct FragmentOutput {
-    metal::float4 color_;
-    metal::float4 normal_;
+    metal::float4 color;
+    metal::float4 normal;
 };
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
-}
-
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
-}
-
-struct vs_main_Output {
+struct vs_mainInput {
+};
+struct vs_mainOutput {
     metal::float4 member [[position]];
 };
-
-vertex vs_main_Output vs_main(uint vi [[vertex_id]]) {
-    vs_main_Output _output;
-    _output.member = metal::float4(0.0, 0.0, 0.0, 1.0);
-    return _output;
-    return _output;
+vertex vs_mainOutput vs_main(
+  uint vi [[vertex_id]]
+) {
+    return vs_mainOutput { metal::float4(0.0, 0.0, 0.0, 1.0) };
 }
 
-struct fs_main_Output {
-    metal::float4 color_ [[color(0)]];
-    metal::float4 normal_ [[color(1)]];
+
+struct fs_mainInput {
 };
-
-fragment fs_main_Output fs_main(metal::float4 frag_coord [[position]]) {
-    FragmentOutput out_ = FragmentOutput();
-    
-    fs_main_Output _output;
-    out_.color_ = metal::float4(1.0, 0.0, 0.0, 1.0);
-    out_.normal_ = metal::float4(0.0, 0.0, 1.0, 1.0);
-    auto _ret_1 = out_;
-    _output.color_ = _ret_1.color_;
-    _output.normal_ = _ret_1.normal_;
-    return _output;
-    return _output;
+struct fs_mainOutput {
+    metal::float4 color [[color(0)]];
+    metal::float4 normal [[color(1)]];
+};
+fragment fs_mainOutput fs_main(
+  metal::float4 frag_coord [[position]]
+) {
+    FragmentOutput out = {};
+    out.color = metal::float4(1.0, 0.0, 0.0, 1.0);
+    out.normal = metal::float4(0.0, 0.0, 1.0, 1.0);
+    FragmentOutput _e14 = out;
+    const auto _tmp = _e14;
+    return fs_mainOutput { _tmp.color, _tmp.normal };
 }
-

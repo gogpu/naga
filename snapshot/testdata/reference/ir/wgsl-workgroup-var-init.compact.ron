@@ -1,0 +1,147 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(512),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Atomic((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 2,
+                size: Constant(8),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 3,
+                size: Constant(8),
+                stride: 32,
+            ),
+        ),
+        (
+            name: Some("WStruct"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("arr"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("atom"),
+                        ty: 2,
+                        binding: None,
+                        offset: 2048,
+                    ),
+                    (
+                        name: Some("atom_arr"),
+                        ty: 4,
+                        binding: None,
+                        offset: 2052,
+                    ),
+                ],
+                span: 2308,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("w_mem"),
+            space: WorkGroup,
+            binding: None,
+            ty: 5,
+            init: None,
+        ),
+        (
+            name: Some("output"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 1,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    GlobalVariable(1),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 2,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 4,
+                    )),
+                    Store(
+                        pointer: 0,
+                        value: 3,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

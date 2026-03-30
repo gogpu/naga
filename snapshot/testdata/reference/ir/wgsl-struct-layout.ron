@@ -1,0 +1,476 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("NoPadding"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("v3"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("f3"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 12,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("NeedsPadding"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("f3_forces_padding"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("v3_needs_padding"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("f3"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 2,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 28,
+                    ),
+                ],
+                span: 32,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("no_padding_uniform"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("no_padding_storage"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("needs_padding_uniform"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 4,
+            init: None,
+        ),
+        (
+            name: Some("needs_padding_storage"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 3,
+            )),
+            ty: 4,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "no_padding_frag",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("no_padding_frag"),
+                arguments: [
+                    (
+                        name: Some("input"),
+                        ty: 2,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 3,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Quad,
+                        value: 1,
+                    ),
+                ],
+                named_expressions: {
+                    0: "phony",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Return(
+                        value: Some(2),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "no_padding_vert",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("no_padding_vert"),
+                arguments: [
+                    (
+                        name: Some("input"),
+                        ty: 2,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 3,
+                    binding: Some(BuiltIn(Position(
+                        invariant: false,
+                    ))),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Quad,
+                        value: 1,
+                    ),
+                ],
+                named_expressions: {
+                    0: "phony",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Return(
+                        value: Some(2),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "no_padding_comp",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (16, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("no_padding_comp"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("x"),
+                        ty: 2,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    LocalVariable(0),
+                    GlobalVariable(0),
+                    Load(
+                        pointer: 1,
+                    ),
+                    GlobalVariable(1),
+                    Load(
+                        pointer: 3,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Store(
+                        pointer: 0,
+                        value: 2,
+                    ),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Store(
+                        pointer: 0,
+                        value: 4,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "needs_padding_frag",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("needs_padding_frag"),
+                arguments: [
+                    (
+                        name: Some("input"),
+                        ty: 4,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 3,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Quad,
+                        value: 1,
+                    ),
+                ],
+                named_expressions: {
+                    0: "phony",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Return(
+                        value: Some(2),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "needs_padding_vert",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("needs_padding_vert"),
+                arguments: [
+                    (
+                        name: Some("input"),
+                        ty: 4,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 3,
+                    binding: Some(BuiltIn(Position(
+                        invariant: false,
+                    ))),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Quad,
+                        value: 1,
+                    ),
+                ],
+                named_expressions: {
+                    0: "phony",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Return(
+                        value: Some(2),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "needs_padding_comp",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (16, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("needs_padding_comp"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("x"),
+                        ty: 4,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    LocalVariable(0),
+                    GlobalVariable(2),
+                    Load(
+                        pointer: 1,
+                    ),
+                    GlobalVariable(3),
+                    Load(
+                        pointer: 3,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Store(
+                        pointer: 0,
+                        value: 2,
+                    ),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Store(
+                        pointer: 0,
+                        value: 4,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

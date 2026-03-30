@@ -1,22 +1,29 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
+
+kernel void main_(
+) {
+    float expr1_ = (1.0 * 2.0) + (3.0 * 4.0);
+    float expr2_ = (1.0 + 2.0) * (3.0 - 4.0);
+    float expr3_ = (1.0 / 2.0) - (3.0 / 4.0);
+    float expr4_ = ((1.0 + 2.0) + 3.0) * 4.0;
+    float s1_ = true ? 2.0 : 1.0;
+    metal::float3 s2_ = metal::float3(0.0);
+    int s3_ = (1.0 > 2.0) ? 20 : 10;
+    metal::float3 v1_ = metal::float3(1.0, 2.0, 3.0);
+    metal::float3 v2_ = metal::float3(4.0, 3.0, 2.0);
+    metal::float3 result = (v1_ * v2_) + metal::float3(1.0);
+    float l = metal::length(v1_) * metal::dot(v1_, v2_);
+    metal::float3 n = metal::normalize(v1_ + v2_);
+    return;
 }
-
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
-}
-
-kernel void main_() {
-}
-

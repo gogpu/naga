@@ -1,0 +1,173 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("VertexOut"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("position"),
+                        ty: 1,
+                        binding: Some(BuiltIn(Position(
+                            invariant: false,
+                        ))),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("value"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("unused_value2"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 2,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 32,
+                    ),
+                    (
+                        name: Some("unused_value"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 48,
+                    ),
+                    (
+                        name: Some("value2"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 3,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 52,
+                    ),
+                ],
+                span: 64,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "vs_main",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("vs_main"),
+                arguments: [],
+                result: Some((
+                    ty: 2,
+                    binding: None,
+                )),
+                local_variables: [],
+                expressions: [
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Quad,
+                        value: 0,
+                    ),
+                    Literal(F32(1.0)),
+                    Literal(F32(2.0)),
+                    Splat(
+                        size: Quad,
+                        value: 3,
+                    ),
+                    Literal(F32(1.0)),
+                    Literal(F32(0.5)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            1,
+                            2,
+                            4,
+                            5,
+                            6,
+                        ],
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Return(
+                        value: Some(7),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

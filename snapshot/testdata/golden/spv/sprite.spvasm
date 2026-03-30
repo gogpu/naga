@@ -1,0 +1,43 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 25
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %_17 "main" %_13 %_15
+               OpExecutionMode %_17 OriginUpperLeft
+               OpDecorate %_9 DescriptorSet 0
+               OpDecorate %_9 Binding 0
+               OpDecorate %_11 DescriptorSet 0
+               OpDecorate %_11 Binding 1
+               OpDecorate %_13 Location 0
+               OpDecorate %_15 Location 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeImage %_3 2D 0 0 0 1 Unknown
+         %_5 = OpTypeSampler
+         %_6 = OpTypeVector %_3 2
+         %_7 = OpTypeVector %_3 4
+         %_8 = OpTypePointer UniformConstant %_4
+         %_10 = OpTypePointer UniformConstant %_5
+         %_12 = OpTypePointer Input %_6
+         %_14 = OpTypePointer Output %_7
+         %_16 = OpTypeFunction %_2
+         %_22 = OpTypeSampledImage %_4
+         %_9 = OpVariable %_8 UniformConstant
+         %_11 = OpVariable %_10 UniformConstant
+         %_13 = OpVariable %_12 Input
+         %_15 = OpVariable %_14 Output
+         %_17 = OpFunction %_2 None %_16
+         %_18 = OpLabel
+         %_19 = OpLoad %_4 %_9
+         %_20 = OpLoad %_5 %_11
+         %_21 = OpLoad %_6 %_13
+         %_23 = OpSampledImage %_22 %_19 %_20
+         %_24 = OpImageSampleImplicitLod %_7 %_23 %_21
+               OpStore %_15 %_24
+               OpReturn
+               OpFunctionEnd

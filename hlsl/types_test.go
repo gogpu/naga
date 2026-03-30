@@ -159,22 +159,26 @@ func TestImageTypeToHLSL(t *testing.T) {
 		img      ir.ImageType
 		expected string
 	}{
-		// Sampled textures
-		{"Texture1D", ir.ImageType{Dim: ir.Dim1D, Class: ir.ImageClassSampled}, "Texture1D<float4>"},
-		{"Texture2D", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}, "Texture2D<float4>"},
-		{"Texture3D", ir.ImageType{Dim: ir.Dim3D, Class: ir.ImageClassSampled}, "Texture3D<float4>"},
-		{"TextureCube", ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassSampled}, "TextureCube<float4>"},
+		// Sampled textures (float)
+		{"Texture1D", ir.ImageType{Dim: ir.Dim1D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "Texture1D<float4>"},
+		{"Texture2D", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "Texture2D<float4>"},
+		{"Texture3D", ir.ImageType{Dim: ir.Dim3D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "Texture3D<float4>"},
+		{"TextureCube", ir.ImageType{Dim: ir.DimCube, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "TextureCube<float4>"},
+
+		// Sampled textures (uint/int)
+		{"Texture2D_uint", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarUint}, "Texture2D<uint4>"},
+		{"Texture2D_sint", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarSint}, "Texture2D<int4>"},
 
 		// Array textures
-		{"Texture1DArray", ir.ImageType{Dim: ir.Dim1D, Arrayed: true, Class: ir.ImageClassSampled}, "Texture1DArray<float4>"},
-		{"Texture2DArray", ir.ImageType{Dim: ir.Dim2D, Arrayed: true, Class: ir.ImageClassSampled}, "Texture2DArray<float4>"},
-		{"TextureCubeArray", ir.ImageType{Dim: ir.DimCube, Arrayed: true, Class: ir.ImageClassSampled}, "TextureCubeArray<float4>"},
+		{"Texture1DArray", ir.ImageType{Dim: ir.Dim1D, Arrayed: true, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "Texture1DArray<float4>"},
+		{"Texture2DArray", ir.ImageType{Dim: ir.Dim2D, Arrayed: true, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "Texture2DArray<float4>"},
+		{"TextureCubeArray", ir.ImageType{Dim: ir.DimCube, Arrayed: true, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "TextureCubeArray<float4>"},
 		// 3D cannot be arrayed
-		{"Texture3D_no_array", ir.ImageType{Dim: ir.Dim3D, Arrayed: true, Class: ir.ImageClassSampled}, "Texture3D<float4>"},
+		{"Texture3D_no_array", ir.ImageType{Dim: ir.Dim3D, Arrayed: true, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "Texture3D<float4>"},
 
 		// Multisampled textures
-		{"Texture2DMS", ir.ImageType{Dim: ir.Dim2D, Multisampled: true, Class: ir.ImageClassSampled}, "Texture2DMS<float4>"},
-		{"Texture2DMSArray", ir.ImageType{Dim: ir.Dim2D, Multisampled: true, Arrayed: true, Class: ir.ImageClassSampled}, "Texture2DMSArray<float4>"},
+		{"Texture2DMS", ir.ImageType{Dim: ir.Dim2D, Multisampled: true, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "Texture2DMS<float4>"},
+		{"Texture2DMSArray", ir.ImageType{Dim: ir.Dim2D, Multisampled: true, Arrayed: true, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}, "Texture2DMSArray<float4>"},
 
 		// Depth textures
 		{"Texture2D_depth", ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassDepth}, "Texture2D<float>"},
@@ -535,7 +539,7 @@ func TestGetTypeName(t *testing.T) {
 			{Name: "MyStruct", Inner: ir.StructType{Members: []ir.StructMember{{Name: "x", Type: 0}}}},
 			{Name: "", Inner: ir.SamplerType{Comparison: false}},
 			{Name: "", Inner: ir.SamplerType{Comparison: true}},
-			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}},
+			{Name: "", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}},
 			{Name: "", Inner: ir.PointerType{Base: 0, Space: ir.SpaceFunction}},
 			{Name: "", Inner: ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
 		},
@@ -601,7 +605,7 @@ func TestGetTypeNameWithArraySuffix(t *testing.T) {
 		{"scalar", 0, "float", ""},
 		{"const array", 1, "float", "[10]"},
 		{"runtime array", 2, "float", "[]"},
-		{"nested array", 3, "float", "[10][5]"},
+		{"nested array", 3, "float", "[5][10]"},
 	}
 
 	for _, tt := range tests {
@@ -619,10 +623,14 @@ func TestGetTypeNameWithArraySuffix(t *testing.T) {
 
 // TestWriteCBufferDeclaration tests cbuffer declaration generation.
 func TestWriteCBufferDeclaration(t *testing.T) {
-	module := &ir.Module{}
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "UniformData", Inner: ir.StructType{Members: nil, Span: 16}}, // 0: struct
+		},
+	}
 	w := &Writer{
 		module:           module,
-		typeNames:        make(map[ir.TypeHandle]string),
+		typeNames:        map[ir.TypeHandle]string{0: "UniformData"},
 		names:            make(map[nameKey]string),
 		registerBindings: make(map[string]string),
 	}
@@ -641,15 +649,15 @@ func TestWriteCBufferDeclaration(t *testing.T) {
 			"UniformData",
 			ir.TypeHandle(0), // not a matrix → no row_major
 			&BindTarget{Register: 0, Space: 0},
-			[]string{"cbuffer uniforms_cbuffer : register(b0, space0)", "UniformData uniforms;"},
+			[]string{"cbuffer uniforms : register(b0)", "UniformData uniforms;"},
 		},
 		{
 			"without binding",
 			"globals",
-			"GlobalData",
+			"UniformData", // ignored, type resolved from handle
 			ir.TypeHandle(0),
 			nil,
-			[]string{"cbuffer globals_cbuffer {", "GlobalData globals;"},
+			[]string{"cbuffer globals {", "UniformData globals;"},
 		},
 	}
 
@@ -685,9 +693,9 @@ func TestGetSemanticFromBinding(t *testing.T) {
 		{"position builtin", ir.BuiltinBinding{Builtin: ir.BuiltinPosition}, 0, "SV_Position"},
 		{"vertex index builtin", ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex}, 0, "SV_VertexID"},
 		{"instance index builtin", ir.BuiltinBinding{Builtin: ir.BuiltinInstanceIndex}, 0, "SV_InstanceID"},
-		{"location 0", ir.LocationBinding{Location: 0}, 0, "TEXCOORD0"},
-		{"location 3", ir.LocationBinding{Location: 3}, 0, "TEXCOORD3"},
-		{"nil binding", nil, 5, "TEXCOORD5"},
+		{"location 0", ir.LocationBinding{Location: 0}, 0, "LOC0"},
+		{"location 3", ir.LocationBinding{Location: 3}, 0, "LOC3"},
+		{"nil binding", nil, 5, "LOC5"},
 	}
 
 	for _, tt := range tests {
@@ -771,4 +779,260 @@ func TestGetInterpolationModifier(t *testing.T) {
 // Helper function to create pointer to uint32
 func ptrUint32(v uint32) *uint32 {
 	return &v
+}
+
+// TestGetInnerMatrixData tests matrix type detection through arrays.
+func TestGetInnerMatrixData(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.MatrixType{Columns: ir.Vec3, Rows: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: ptrUint32(2)}, Stride: 32}},
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Inner: ir.MatrixType{Columns: ir.Vec4, Rows: ir.Vec3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		handle     ir.TypeHandle
+		wantNil    bool
+		wantCols   ir.VectorSize
+		wantRows   ir.VectorSize
+		wantMatCx2 bool
+	}{
+		{"direct mat3x2", 0, false, ir.Vec3, ir.Vec2, true},
+		{"array of mat3x2", 1, false, ir.Vec3, ir.Vec2, true},
+		{"scalar (not matrix)", 2, true, 0, 0, false},
+		{"mat4x3 (not Cx2)", 3, false, ir.Vec4, ir.Vec3, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := getInnerMatrixData(module, tt.handle)
+			if tt.wantNil {
+				if m != nil {
+					t.Errorf("expected nil, got %+v", m)
+				}
+				return
+			}
+			if m == nil {
+				t.Fatal("expected non-nil")
+			}
+			if m.columns != tt.wantCols {
+				t.Errorf("columns = %d, want %d", m.columns, tt.wantCols)
+			}
+			if m.rows != tt.wantRows {
+				t.Errorf("rows = %d, want %d", m.rows, tt.wantRows)
+			}
+			if m.isMatCx2() != tt.wantMatCx2 {
+				t.Errorf("isMatCx2() = %v, want %v", m.isMatCx2(), tt.wantMatCx2)
+			}
+		})
+	}
+}
+
+// TestWriteMatCx2TypedefAndFunctions tests __matCx2 typedef generation.
+func TestWriteMatCx2TypedefAndFunctions(t *testing.T) {
+	w := &Writer{
+		module:        &ir.Module{},
+		wrappedMatCx2: make(map[uint8]struct{}),
+	}
+
+	w.writeMatCx2TypedefAndFunctions(3)
+	output := w.out.String()
+
+	// Check typedef
+	if !strings.Contains(output, "typedef struct { float2 _0; float2 _1; float2 _2; } __mat3x2;") {
+		t.Error("missing __mat3x2 typedef")
+	}
+	// Check getter
+	if !strings.Contains(output, "float2 __get_col_of_mat3x2(__mat3x2 mat, uint idx)") {
+		t.Error("missing __get_col_of_mat3x2")
+	}
+	// Check column setter
+	if !strings.Contains(output, "void __set_col_of_mat3x2(__mat3x2 mat, uint idx, float2 value)") {
+		t.Error("missing __set_col_of_mat3x2")
+	}
+	// Check element setter
+	if !strings.Contains(output, "void __set_el_of_mat3x2(__mat3x2 mat, uint idx, uint vec_idx, float value)") {
+		t.Error("missing __set_el_of_mat3x2")
+	}
+}
+
+// TestWriteWrappedStructMatrixAccessFunctions tests per-struct matCx2 Get/Set helper generation.
+func TestWriteWrappedStructMatrixAccessFunctions(t *testing.T) {
+	matTy := ir.Type{Name: "mat3x2<f32>", Inner: ir.MatrixType{Columns: 3, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}}
+	bazTy := ir.Type{Name: "Baz", Inner: ir.StructType{
+		Members: []ir.StructMember{
+			{Name: "m", Type: 0, Offset: 0},
+		},
+		Span: 24,
+	}}
+
+	module := &ir.Module{
+		Types: []ir.Type{matTy, bazTy},
+	}
+
+	w := newTestWriter(module, nil, nil)
+	w.typeNames[0] = "float3x2"
+	w.typeNames[1] = "Baz"
+	w.names[nameKey{kind: nameKeyStructMember, handle1: 1, handle2: 0}] = "m"
+
+	w.writeWrappedStructMatrixAccessFunctions(1, 0)
+	out := w.out.String()
+
+	if !strings.Contains(out, "float3x2 GetMatmOnBaz(Baz obj)") {
+		t.Error("missing GetMatmOnBaz")
+	}
+	if !strings.Contains(out, "void SetMatmOnBaz(Baz obj, float3x2 mat)") {
+		t.Error("missing SetMatmOnBaz")
+	}
+	if !strings.Contains(out, "void SetMatVecmOnBaz(Baz obj, float2 vec, uint mat_idx)") {
+		t.Error("missing SetMatVecmOnBaz")
+	}
+	if !strings.Contains(out, "void SetMatScalarmOnBaz(Baz obj, float scalar, uint mat_idx, uint vec_idx)") {
+		t.Error("missing SetMatScalarmOnBaz")
+	}
+
+	// Verify idempotency - calling again should not produce duplicate output
+	w.out.Reset()
+	w.writeWrappedStructMatrixAccessFunctions(1, 0)
+	if w.out.String() != "" {
+		t.Error("second call should produce no output (already written)")
+	}
+}
+
+// TestIsMatCx2Type tests the matCx2 type detection.
+func TestIsMatCx2Type(t *testing.T) {
+	mat3x2 := ir.Type{Name: "mat3x2<f32>", Inner: ir.MatrixType{Columns: 3, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}}
+	mat4x3 := ir.Type{Name: "mat4x3<f32>", Inner: ir.MatrixType{Columns: 4, Rows: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}}
+	scalar := ir.Type{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}
+
+	module := &ir.Module{
+		Types: []ir.Type{mat3x2, mat4x3, scalar},
+	}
+
+	w := newTestWriter(module, nil, nil)
+
+	if !w.isMatCx2Type(0) {
+		t.Error("mat3x2 should be matCx2")
+	}
+	if w.isMatCx2Type(1) {
+		t.Error("mat4x3 should NOT be matCx2")
+	}
+	if w.isMatCx2Type(2) {
+		t.Error("scalar should NOT be matCx2")
+	}
+}
+
+// TestIsSubgroupBuiltinBinding tests subgroup builtin detection.
+func TestIsSubgroupBuiltinBinding(t *testing.T) {
+	tests := []struct {
+		name    string
+		binding *ir.Binding
+		want    bool
+	}{
+		{"nil", nil, false},
+		{"SubgroupSize", bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinSubgroupSize}), true},
+		{"SubgroupInvocationID", bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinSubgroupInvocationID}), true},
+		{"NumSubgroups", bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinNumSubgroups}), true},
+		{"SubgroupID", bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinSubgroupID}), true},
+		{"Position (not subgroup)", bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinPosition}), false},
+		{"Location (not subgroup)", bindingPtr(ir.LocationBinding{Location: 0}), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSubgroupBuiltinBinding(tt.binding); got != tt.want {
+				t.Errorf("isSubgroupBuiltinBinding() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func bindingPtr(b ir.Binding) *ir.Binding {
+	return &b
+}
+
+// TestImageQueryFunctionName tests wrapper function naming.
+func TestImageQueryFunctionName(t *testing.T) {
+	w := &Writer{
+		module: &ir.Module{},
+	}
+
+	tests := []struct {
+		name string
+		key  wrappedImageQueryKey
+		want string
+	}{
+		{"RW Dimensions 2D", wrappedImageQueryKey{dim: ir.Dim2D, class: ir.ImageClassStorage, query: imageQuerySize}, "NagaRWDimensions2D"},
+		{"Dimensions 2D", wrappedImageQueryKey{dim: ir.Dim2D, class: ir.ImageClassSampled, query: imageQuerySize}, "NagaDimensions2D"},
+		{"MipDimensions 1D", wrappedImageQueryKey{dim: ir.Dim1D, class: ir.ImageClassSampled, query: imageQuerySizeLevel}, "NagaMipDimensions1D"},
+		{"NumLevels Cube", wrappedImageQueryKey{dim: ir.DimCube, class: ir.ImageClassSampled, query: imageQueryNumLevels}, "NagaNumLevelsCube"},
+		{"NumLayers 2DArray", wrappedImageQueryKey{dim: ir.Dim2D, arrayed: true, class: ir.ImageClassSampled, query: imageQueryNumLayers}, "NagaNumLayers2DArray"},
+		{"MS NumSamples 2D", wrappedImageQueryKey{dim: ir.Dim2D, multi: true, class: ir.ImageClassSampled, query: imageQueryNumSamples}, "NagaMSNumSamples2D"},
+		{"Depth Dimensions 2D", wrappedImageQueryKey{dim: ir.Dim2D, class: ir.ImageClassDepth, query: imageQuerySize}, "NagaDepthDimensions2D"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w.out.Reset()
+			w.writeImageQueryFunctionNameDirect(tt.key)
+			if got := w.out.String(); got != tt.want {
+				t.Errorf("writeImageQueryFunctionNameDirect() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestWriteSemantic_SkipsSubgroupBuiltins tests that writeSemantic skips subgroup builtins.
+func TestWriteSemantic_SkipsSubgroupBuiltins(t *testing.T) {
+	w := &Writer{
+		module: &ir.Module{},
+	}
+
+	// Subgroup builtin should produce no output
+	binding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinSubgroupSize})
+	w.out.Reset()
+	w.writeSemantic(&binding, nil)
+	if got := w.out.String(); got != "" {
+		t.Errorf("writeSemantic(SubgroupSize) = %q, want empty", got)
+	}
+
+	// Normal builtin should produce output
+	binding2 := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+	w.out.Reset()
+	w.writeSemantic(&binding2, nil)
+	if got := w.out.String(); got == "" {
+		t.Error("writeSemantic(Position) should produce output")
+	}
+}
+
+// TestIsArrayOfMatCx2Type tests detection of array-of-matCx2 types.
+func TestIsArrayOfMatCx2Type(t *testing.T) {
+	two := uint32(2)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.MatrixType{Columns: 4, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}}, // 0: mat4x2<f32>
+			{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &two}, Stride: 32}},                     // 1: array<mat4x2<f32>, 2>
+			{Inner: ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}}, // 2: mat4x4<f32>
+			{Inner: ir.ArrayType{Base: 2, Size: ir.ArraySize{Constant: &two}, Stride: 64}},                     // 3: array<mat4x4<f32>, 2>
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},                                             // 4: f32
+		},
+	}
+
+	w := newTestWriter(module, nil, nil)
+
+	if !w.isArrayOfMatCx2Type(1) {
+		t.Error("array<mat4x2> should be array of matCx2")
+	}
+	if w.isArrayOfMatCx2Type(0) {
+		t.Error("mat4x2 (non-array) should NOT be array of matCx2")
+	}
+	if w.isArrayOfMatCx2Type(3) {
+		t.Error("array<mat4x4> should NOT be array of matCx2")
+	}
+	if w.isArrayOfMatCx2Type(4) {
+		t.Error("f32 should NOT be array of matCx2")
+	}
 }

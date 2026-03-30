@@ -1,0 +1,24 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+struct fragment_Output {
+    metal::float4 member [[color(0)]];
+};
+fragment fragment_Output fragment_(
+  metal::depthcube_array<float, metal::access::sample> point_shadow_textures [[user(fake0)]]
+, metal::sampler point_shadow_textures_sampler [[user(fake0)]]
+) {
+    metal::float3 frag_ls = metal::float3(1.0, 1.0, 2.0);
+    float a = point_shadow_textures.sample_compare(point_shadow_textures_sampler, frag_ls, 1, 1.0);
+    return fragment_Output { metal::float4(a, 1.0, 1.0, 1.0) };
+}

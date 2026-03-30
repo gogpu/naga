@@ -1,0 +1,457 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _mslBufferSizes {
+    uint size1;
+    uint size2;
+};
+
+struct ChunkData {
+    metal::uint2 chunk_size;
+    metal::int2 chunk_corner;
+    metal::float2 min_max_height;
+};
+struct Vertex {
+    metal::float3 position;
+    metal::float3 normal;
+};
+typedef Vertex type_8[1];
+struct VertexBuffer {
+    type_8 data;
+};
+typedef uint type_9[1];
+struct IndexBuffer {
+    type_9 data;
+};
+struct GenData {
+    metal::uint2 chunk_size;
+    metal::int2 chunk_corner;
+    metal::float2 min_max_height;
+    uint texture_size;
+    uint start_index;
+};
+struct GenVertexOutput {
+    uint index;
+    char _pad1[12];
+    metal::float4 position;
+    metal::float2 uv;
+    char _pad3[8];
+};
+struct GenFragmentOutput {
+    uint vert_component;
+    uint index;
+};
+struct Camera {
+    metal::float4 view_pos;
+    metal::float4x4 view_proj;
+};
+struct Light {
+    metal::float3 position;
+    metal::float3 color;
+};
+struct VertexOutput {
+    metal::float4 clip_position;
+    metal::float3 normal;
+    metal::float3 world_pos;
+};
+
+metal::float3 permute3_(
+    metal::float3 x
+) {
+    return metal::fmod(((x * 34.0) + metal::float3(1.0)) * x, metal::float3(289.0));
+}
+
+float snoise2_(
+    metal::float2 v
+) {
+    metal::float2 i = {};
+    metal::float2 i1_ = {};
+    metal::float4 x12_ = {};
+    metal::float3 m = {};
+    metal::float4 C = metal::float4(0.21132487, 0.36602542, -0.57735026, 0.024390243);
+    i = metal::floor(v + metal::float2(metal::dot(v, C.yy)));
+    metal::float2 _e12 = i;
+    metal::float2 _e14 = i;
+    metal::float2 x0_ = (v - _e12) + metal::float2(metal::dot(_e14, C.xx));
+    i1_ = (x0_.x < x0_.y) ? metal::float2(0.0, 1.0) : metal::float2(1.0, 0.0);
+    metal::float2 _e33 = i1_;
+    x12_ = (x0_.xyxy + C.xxzz) - metal::float4(_e33, 0.0, 0.0);
+    metal::float2 _e39 = i;
+    i = metal::fmod(_e39, metal::float2(289.0));
+    float _e44 = i.y;
+    float _e46 = i1_.y;
+    metal::float3 _e52 = permute3_(metal::float3(_e44) + metal::float3(0.0, _e46, 1.0));
+    float _e54 = i.x;
+    float _e58 = i1_.x;
+    metal::float3 _e63 = permute3_((_e52 + metal::float3(_e54)) + metal::float3(0.0, _e58, 1.0));
+    metal::float4 _e65 = x12_;
+    metal::float4 _e67 = x12_;
+    metal::float4 _e70 = x12_;
+    metal::float4 _e72 = x12_;
+    m = metal::max(metal::float3(0.5) - metal::float3(metal::dot(x0_, x0_), metal::dot(_e65.xy, _e67.xy), metal::dot(_e70.zw, _e72.zw)), metal::float3(0.0));
+    metal::float3 _e83 = m;
+    metal::float3 _e84 = m;
+    m = _e83 * _e84;
+    metal::float3 _e86 = m;
+    metal::float3 _e87 = m;
+    m = _e86 * _e87;
+    metal::float3 x_2 = (2.0 * metal::fract(_e63 * C.www)) - metal::float3(1.0);
+    metal::float3 h = metal::abs(x_2) - metal::float3(0.5);
+    metal::float3 ox = metal::floor(x_2 + metal::float3(0.5));
+    metal::float3 a0_ = x_2 - ox;
+    metal::float3 _e106 = m;
+    m = _e106 * (metal::float3(1.7928429) - (0.85373473 * ((a0_ * a0_) + (h * h))));
+    metal::float4 _e124 = x12_;
+    metal::float4 _e128 = x12_;
+    metal::float3 g = metal::float3((a0_.x * x0_.x) + (h.x * x0_.y), (a0_.yz * _e124.xz) + (h.yz * _e128.yw));
+    metal::float3 _e133 = m;
+    return 130.0 * metal::dot(_e133, g);
+}
+
+float fbm(
+    metal::float2 p
+) {
+    metal::float2 x_1 = {};
+    float v_1 = 0.0;
+    float a = 0.5;
+    uint i_1 = 0u;
+    x_1 = p * 0.01;
+    metal::float2 shift = metal::float2(100.0);
+    metal::float2 cs = metal::float2(0.87758255, 0.47942555);
+    metal::float2x2 rot = metal::float2x2(metal::float2(cs.x, cs.y), metal::float2(-(cs.y), cs.x));
+    uint2 loop_bound = uint2(4294967295u);
+    bool loop_init = true;
+    while(true) {
+        if (metal::all(loop_bound == uint2(0u))) { break; }
+        loop_bound -= uint2(loop_bound.y == 0u, 1u);
+        if (!loop_init) {
+            uint _e40 = i_1;
+            i_1 = _e40 + 1u;
+        }
+        loop_init = false;
+        uint _e24 = i_1;
+        if (_e24 < 5u) {
+        } else {
+            break;
+        }
+        {
+            float _e26 = v_1;
+            float _e27 = a;
+            metal::float2 _e28 = x_1;
+            float _e29 = snoise2_(_e28);
+            v_1 = _e26 + (_e27 * _e29);
+            metal::float2 _e32 = x_1;
+            x_1 = ((rot * _e32) * 2.0) + shift;
+            float _e37 = a;
+            a = _e37 * 0.5;
+        }
+    }
+    float _e43 = v_1;
+    return _e43;
+}
+
+metal::float3 terrain_point(
+    metal::float2 p_1,
+    metal::float2 min_max_height
+) {
+    float _e5 = fbm(p_1);
+    return metal::float3(p_1.x, metal::mix(min_max_height.x, min_max_height.y, _e5), p_1.y);
+}
+
+Vertex terrain_vertex(
+    metal::float2 p_2,
+    metal::float2 min_max_height_1
+) {
+    metal::float3 _e2 = terrain_point(p_2, min_max_height_1);
+    metal::float3 _e7 = terrain_point(p_2 + metal::float2(0.1, 0.0), min_max_height_1);
+    metal::float3 tpx = _e7 - _e2;
+    metal::float3 _e13 = terrain_point(p_2 + metal::float2(0.0, 0.1), min_max_height_1);
+    metal::float3 tpz = _e13 - _e2;
+    metal::float3 _e19 = terrain_point(p_2 + metal::float2(-0.1, 0.0), min_max_height_1);
+    metal::float3 tnx = _e19 - _e2;
+    metal::float3 _e25 = terrain_point(p_2 + metal::float2(0.0, -0.1), min_max_height_1);
+    metal::float3 tnz = _e25 - _e2;
+    metal::float3 pn = metal::normalize(metal::cross(tpz, tpx));
+    metal::float3 nn = metal::normalize(metal::cross(tnz, tnx));
+    metal::float3 n = (pn + nn) * 0.5;
+    return Vertex {_e2, n};
+}
+
+uint naga_div(uint lhs, uint rhs) {
+    return lhs / metal::select(rhs, 1u, rhs == 0u);
+}
+
+metal::float2 index_to_p(
+    uint vert_index,
+    metal::uint2 chunk_size,
+    metal::int2 chunk_corner
+) {
+    return metal::float2(metal::fmod(static_cast<float>(vert_index), static_cast<float>(chunk_size.x + 1u)), static_cast<float>(naga_div(vert_index, chunk_size.x + 1u))) + static_cast<metal::float2>(chunk_corner);
+}
+
+metal::float3 color23_(
+    metal::float2 p_3
+) {
+    float _e1 = snoise2_(p_3);
+    float _e10 = snoise2_(p_3 + metal::float2(23.0, 32.0));
+    float _e19 = snoise2_(p_3 + metal::float2(-43.0, 3.0));
+    return metal::float3((_e1 * 0.5) + 0.5, (_e10 * 0.5) + 0.5, (_e19 * 0.5) + 0.5);
+}
+
+struct gen_terrain_computeInput {
+};
+kernel void gen_terrain_compute(
+  metal::uint3 gid [[thread_position_in_grid]]
+, constant ChunkData& chunk_data [[user(fake0)]]
+, device VertexBuffer& vertices [[user(fake0)]]
+, device IndexBuffer& indices [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    uint vert_index_1 = gid.x;
+    metal::uint2 _e4 = chunk_data.chunk_size;
+    metal::int2 _e7 = chunk_data.chunk_corner;
+    metal::float2 _e8 = index_to_p(vert_index_1, _e4, _e7);
+    metal::float2 _e14 = chunk_data.min_max_height;
+    Vertex _e15 = terrain_vertex(_e8, _e14);
+    if (uint(vert_index_1) < 1 + (_buffer_sizes.size1 - 0 - 32) / 32) {
+        vertices.data[vert_index_1] = _e15;
+    }
+    uint start_index = gid.x * 6u;
+    uint _e22 = chunk_data.chunk_size.x;
+    uint _e26 = chunk_data.chunk_size.y;
+    if (start_index >= ((_e22 * _e26) * 6u)) {
+        return;
+    }
+    uint _e35 = chunk_data.chunk_size.x;
+    uint v00_ = vert_index_1 + naga_div(gid.x, _e35);
+    uint v10_ = v00_ + 1u;
+    uint _e43 = chunk_data.chunk_size.x;
+    uint v01_ = (v00_ + _e43) + 1u;
+    uint v11_ = v01_ + 1u;
+    if (uint(start_index) < 1 + (_buffer_sizes.size2 - 0 - 4) / 4) {
+        indices.data[start_index] = v00_;
+    }
+    uint _e55 = start_index + 1u;
+    if (uint(_e55) < 1 + (_buffer_sizes.size2 - 0 - 4) / 4) {
+        indices.data[_e55] = v01_;
+    }
+    uint _e60 = start_index + 2u;
+    if (uint(_e60) < 1 + (_buffer_sizes.size2 - 0 - 4) / 4) {
+        indices.data[_e60] = v11_;
+    }
+    uint _e65 = start_index + 3u;
+    if (uint(_e65) < 1 + (_buffer_sizes.size2 - 0 - 4) / 4) {
+        indices.data[_e65] = v00_;
+    }
+    uint _e70 = start_index + 4u;
+    if (uint(_e70) < 1 + (_buffer_sizes.size2 - 0 - 4) / 4) {
+        indices.data[_e70] = v11_;
+    }
+    uint _e75 = start_index + 5u;
+    if (uint(_e75) < 1 + (_buffer_sizes.size2 - 0 - 4) / 4) {
+        indices.data[_e75] = v10_;
+    }
+    return;
+}
+
+uint naga_f2u32(float value) {
+    return static_cast<uint>(metal::clamp(value, 0.0, 4294967000.0));
+}
+
+uint naga_mod(uint lhs, uint rhs) {
+    return lhs % metal::select(rhs, 1u, rhs == 0u);
+}
+
+
+struct gen_terrain_vertexInput {
+};
+struct gen_terrain_vertexOutput {
+    uint index [[user(loc0), flat]];
+    metal::float4 position [[position]];
+    metal::float2 uv [[user(loc1), center_perspective]];
+};
+vertex gen_terrain_vertexOutput gen_terrain_vertex(
+  uint vindex [[vertex_id]]
+, constant GenData& gen_data [[user(fake0)]]
+) {
+    float u = static_cast<float>(naga_mod(naga_div(vindex + 2u, 3u), 2u));
+    float v_2 = static_cast<float>(naga_mod(naga_div(vindex + 1u, 3u), 2u));
+    metal::float2 uv = metal::float2(u, v_2);
+    metal::float4 position = metal::float4(metal::float2(-1.0) + (uv * 2.0), 0.0, 1.0);
+    uint _e27 = gen_data.texture_size;
+    uint _e33 = gen_data.texture_size;
+    uint _e40 = gen_data.start_index;
+    uint index_1 = naga_f2u32((uv.x * static_cast<float>(_e27)) + (uv.y * static_cast<float>(_e33))) + _e40;
+    const auto _tmp = GenVertexOutput {index_1, {}, position, uv};
+    return gen_terrain_vertexOutput { _tmp.index, _tmp.position, _tmp.uv };
+}
+
+
+struct gen_terrain_fragmentInput {
+    uint index [[user(loc0), flat]];
+    metal::float2 uv [[user(loc1), center_perspective]];
+};
+struct gen_terrain_fragmentOutput {
+    uint vert_component [[color(0)]];
+    uint index [[color(1)]];
+};
+fragment gen_terrain_fragmentOutput gen_terrain_fragment(
+  gen_terrain_fragmentInput varyings_2 [[stage_in]]
+, metal::float4 position_1 [[position]]
+, constant GenData& gen_data [[user(fake0)]]
+) {
+    const GenVertexOutput in = { varyings_2.index, {}, position_1, varyings_2.uv };
+    float vert_component = 0.0;
+    uint index = 0u;
+    uint _e5 = gen_data.texture_size;
+    uint _e12 = gen_data.texture_size;
+    uint _e15 = gen_data.texture_size;
+    uint _e23 = gen_data.start_index;
+    uint i_2 = naga_f2u32((in.uv.x * static_cast<float>(_e5)) + (in.uv.y * static_cast<float>(_e12 * _e15))) + _e23;
+    uint vert_index_2 = naga_f2u32(metal::floor(static_cast<float>(i_2) / 6.0));
+    uint comp_index = naga_mod(i_2, 6u);
+    metal::uint2 _e34 = gen_data.chunk_size;
+    metal::int2 _e37 = gen_data.chunk_corner;
+    metal::float2 _e38 = index_to_p(vert_index_2, _e34, _e37);
+    metal::float2 _e41 = gen_data.min_max_height;
+    Vertex _e42 = terrain_vertex(_e38, _e41);
+    switch(comp_index) {
+        case 0u: {
+            vert_component = _e42.position.x;
+            break;
+        }
+        case 1u: {
+            vert_component = _e42.position.y;
+            break;
+        }
+        case 2u: {
+            vert_component = _e42.position.z;
+            break;
+        }
+        case 3u: {
+            vert_component = _e42.normal.x;
+            break;
+        }
+        case 4u: {
+            vert_component = _e42.normal.y;
+            break;
+        }
+        case 5u: {
+            vert_component = _e42.normal.z;
+            break;
+        }
+        default: {
+            break;
+        }
+    }
+    uint _e60 = gen_data.chunk_size.x;
+    uint v00_1 = vert_index_2 + naga_div(vert_index_2, _e60);
+    uint v10_1 = v00_1 + 1u;
+    uint _e68 = gen_data.chunk_size.x;
+    uint v01_1 = (v00_1 + _e68) + 1u;
+    uint v11_1 = v01_1 + 1u;
+    switch(comp_index) {
+        case 0u:
+        case 3u: {
+            index = v00_1;
+            break;
+        }
+        case 2u:
+        case 4u: {
+            index = v11_1;
+            break;
+        }
+        case 1u: {
+            index = v01_1;
+            break;
+        }
+        case 5u: {
+            index = v10_1;
+            break;
+        }
+        default: {
+            break;
+        }
+    }
+    index = in.index;
+    float _e77 = vert_component;
+    uint ivert_component = as_type<uint>(_e77);
+    uint _e79 = index;
+    const auto _tmp = GenFragmentOutput {ivert_component, _e79};
+    return gen_terrain_fragmentOutput { _tmp.vert_component, _tmp.index };
+}
+
+
+struct vs_mainInput {
+    metal::float3 position [[attribute(0)]];
+    metal::float3 normal [[attribute(1)]];
+};
+struct vs_mainOutput {
+    metal::float4 clip_position [[position]];
+    metal::float3 normal [[user(loc0), center_perspective]];
+    metal::float3 world_pos [[user(loc1), center_perspective]];
+};
+vertex vs_mainOutput vs_main(
+  vs_mainInput varyings_3 [[stage_in]]
+, constant Camera& camera [[user(fake0)]]
+) {
+    const Vertex vertex_ = { varyings_3.position, varyings_3.normal };
+    metal::float4x4 _e3 = camera.view_proj;
+    metal::float4 clip_position = _e3 * metal::float4(vertex_.position, 1.0);
+    metal::float3 normal = vertex_.normal;
+    const auto _tmp = VertexOutput {clip_position, normal, vertex_.position};
+    return vs_mainOutput { _tmp.clip_position, _tmp.normal, _tmp.world_pos };
+}
+
+
+struct fs_mainInput {
+    metal::float3 normal [[user(loc0), center_perspective]];
+    metal::float3 world_pos [[user(loc1), center_perspective]];
+};
+struct fs_mainOutput {
+    metal::float4 member_4 [[color(0)]];
+};
+fragment fs_mainOutput fs_main(
+  fs_mainInput varyings_4 [[stage_in]]
+, metal::float4 clip_position_1 [[position]]
+, constant Camera& camera [[user(fake0)]]
+, constant Light& light [[user(fake0)]]
+, metal::texture2d<float, metal::access::sample> t_diffuse [[user(fake0)]]
+, metal::sampler s_diffuse [[user(fake0)]]
+, metal::texture2d<float, metal::access::sample> t_normal [[user(fake0)]]
+, metal::sampler s_normal [[user(fake0)]]
+) {
+    const VertexOutput in_1 = { clip_position_1, varyings_4.normal, varyings_4.world_pos };
+    metal::float3 color = {};
+    metal::float3 _e8 = color23_(metal::float2(1.0, 2.0));
+    color = metal::smoothstep(metal::float3(0.0), metal::float3(0.1), metal::fract(in_1.world_pos));
+    float _e26 = color.x;
+    float _e28 = color.y;
+    float _e31 = color.z;
+    color = metal::mix(metal::float3(0.5, 0.1, 0.7), metal::float3(0.2, 0.2, 0.2), metal::float3((_e26 * _e28) * _e31));
+    metal::float3 _e38 = light.color;
+    metal::float3 ambient_color = _e38 * 0.1;
+    metal::float3 _e42 = light.position;
+    metal::float3 light_dir = metal::normalize(_e42 - in_1.world_pos);
+    metal::float4 _e48 = camera.view_pos;
+    metal::float3 view_dir = metal::normalize(_e48.xyz - in_1.world_pos);
+    metal::float3 half_dir = metal::normalize(view_dir + light_dir);
+    float diffuse_strength = metal::max(metal::dot(in_1.normal, light_dir), 0.0);
+    metal::float3 _e61 = light.color;
+    metal::float3 diffuse_color = diffuse_strength * _e61;
+    float specular_strength = metal::pow(metal::max(metal::dot(in_1.normal, half_dir), 0.0), 32.0);
+    metal::float3 _e71 = light.color;
+    metal::float3 specular_color = specular_strength * _e71;
+    metal::float3 _e75 = color;
+    metal::float3 result = ((ambient_color + diffuse_color) + specular_color) * _e75;
+    return fs_mainOutput { metal::float4(result, 1.0) };
+}

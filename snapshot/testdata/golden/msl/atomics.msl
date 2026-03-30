@@ -1,0 +1,47 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _mslBufferSizes {
+    uint size1;
+};
+
+typedef uint type_2[1];
+
+struct main_Input {
+};
+kernel void main_(
+  uint lid [[thread_index_in_threadgroup]]
+, metal::uint3 __local_invocation_id [[thread_position_in_threadgroup]]
+, threadgroup metal::atomic_uint& shared_counter
+, device type_2& result [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    if (metal::all(__local_invocation_id == metal::uint3(0u))) {
+        metal::atomic_store_explicit(&shared_counter, 0, metal::memory_order_relaxed);
+    }
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+    if (lid == 0u) {
+        metal::atomic_store_explicit(&shared_counter, 0u, metal::memory_order_relaxed);
+    }
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+    uint _e7 = metal::atomic_fetch_add_explicit(&shared_counter, 1u, metal::memory_order_relaxed);
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+    if (lid == 0u) {
+        uint _e13 = metal::atomic_load_explicit(&shared_counter, metal::memory_order_relaxed);
+        if (uint(0) < 1 + (_buffer_sizes.size1 - 0 - 4) / 4) {
+            result[0] = _e13;
+        }
+        return;
+    } else {
+        return;
+    }
+}

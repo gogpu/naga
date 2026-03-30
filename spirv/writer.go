@@ -155,6 +155,13 @@ type ModuleBuilder struct {
 	globalVars     []Instruction // OpVariable (global)
 	functions      []Instruction // OpFunction...OpFunctionEnd
 
+	// funcSink redirects function-body instruction emission. When non-nil,
+	// all Add* methods that normally append to `functions` append here instead.
+	// Used by the block model: each Block's Body becomes the sink while
+	// that block is being built. Reset to nil after FunctionBuilder collects
+	// the completed function into `functions`.
+	funcSink *[]Instruction
+
 	// ID allocation
 	nextID uint32
 
@@ -193,6 +200,17 @@ func NewModuleBuilder(version Version) *ModuleBuilder {
 		arena: &mb.arena,
 	}
 	return mb
+}
+
+// funcAppend appends an instruction to the current function-body target.
+// When funcSink is set (block model active), instructions go to the current
+// block's body. Otherwise they go to the flat functions list (legacy path).
+func (b *ModuleBuilder) funcAppend(inst Instruction) {
+	if b.funcSink != nil {
+		*b.funcSink = append(*b.funcSink, inst)
+	} else {
+		b.functions = append(b.functions, inst)
+	}
 }
 
 // AllocID allocates a new SPIR-V ID.
@@ -520,7 +538,7 @@ func (b *ModuleBuilder) AddFunction(funcType uint32, returnType uint32, control 
 	b.ib.AddWord(id)
 	b.ib.AddWord(uint32(control))
 	b.ib.AddWord(funcType)
-	b.functions = append(b.functions, b.ib.Build(OpFunction))
+	b.funcAppend(b.ib.Build(OpFunction))
 	return id
 }
 
@@ -530,7 +548,7 @@ func (b *ModuleBuilder) AddFunctionParameter(typeID uint32) uint32 {
 	b.ib.Reset()
 	b.ib.AddWord(typeID)
 	b.ib.AddWord(id)
-	b.functions = append(b.functions, b.ib.Build(OpFunctionParameter))
+	b.funcAppend(b.ib.Build(OpFunctionParameter))
 	return id
 }
 
@@ -539,7 +557,7 @@ func (b *ModuleBuilder) AddLabel() uint32 {
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(id)
-	b.functions = append(b.functions, b.ib.Build(OpLabel))
+	b.funcAppend(b.ib.Build(OpLabel))
 	return id
 }
 
@@ -547,32 +565,32 @@ func (b *ModuleBuilder) AddLabel() uint32 {
 func (b *ModuleBuilder) AddLabelWithID(id uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(id)
-	b.functions = append(b.functions, b.ib.Build(OpLabel))
+	b.funcAppend(b.ib.Build(OpLabel))
 }
 
 // AddReturn adds OpReturn.
 func (b *ModuleBuilder) AddReturn() {
 	b.ib.Reset()
-	b.functions = append(b.functions, b.ib.Build(OpReturn))
+	b.funcAppend(b.ib.Build(OpReturn))
 }
 
 // AddUnreachable adds OpUnreachable (terminator for unreachable basic blocks).
 func (b *ModuleBuilder) AddUnreachable() {
 	b.ib.Reset()
-	b.functions = append(b.functions, b.ib.Build(OpUnreachable))
+	b.funcAppend(b.ib.Build(OpUnreachable))
 }
 
 // AddReturnValue adds OpReturnValue.
 func (b *ModuleBuilder) AddReturnValue(valueID uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(valueID)
-	b.functions = append(b.functions, b.ib.Build(OpReturnValue))
+	b.funcAppend(b.ib.Build(OpReturnValue))
 }
 
 // AddFunctionEnd adds OpFunctionEnd.
 func (b *ModuleBuilder) AddFunctionEnd() {
 	b.ib.Reset()
-	b.functions = append(b.functions, b.ib.Build(OpFunctionEnd))
+	b.funcAppend(b.ib.Build(OpFunctionEnd))
 }
 
 // AddBinaryOp adds a binary operation instruction.
@@ -583,7 +601,7 @@ func (b *ModuleBuilder) AddBinaryOp(opcode OpCode, resultType uint32, left uint3
 	b.ib.AddWord(resultID)
 	b.ib.AddWord(left)
 	b.ib.AddWord(right)
-	b.functions = append(b.functions, b.ib.Build(opcode))
+	b.funcAppend(b.ib.Build(opcode))
 	return resultID
 }
 
@@ -594,7 +612,7 @@ func (b *ModuleBuilder) AddUnaryOp(opcode OpCode, resultType uint32, operand uin
 	b.ib.AddWord(resultType)
 	b.ib.AddWord(resultID)
 	b.ib.AddWord(operand)
-	b.functions = append(b.functions, b.ib.Build(opcode))
+	b.funcAppend(b.ib.Build(opcode))
 	return resultID
 }
 
@@ -605,7 +623,7 @@ func (b *ModuleBuilder) AddLoad(resultType uint32, pointer uint32) uint32 {
 	b.ib.AddWord(resultType)
 	b.ib.AddWord(resultID)
 	b.ib.AddWord(pointer)
-	b.functions = append(b.functions, b.ib.Build(OpLoad))
+	b.funcAppend(b.ib.Build(OpLoad))
 	return resultID
 }
 
@@ -614,7 +632,7 @@ func (b *ModuleBuilder) AddStore(pointer uint32, value uint32) {
 	b.ib.Reset()
 	b.ib.AddWord(pointer)
 	b.ib.AddWord(value)
-	b.functions = append(b.functions, b.ib.Build(OpStore))
+	b.funcAppend(b.ib.Build(OpStore))
 }
 
 // AddAccessChain adds OpAccessChain.
@@ -627,7 +645,7 @@ func (b *ModuleBuilder) AddAccessChain(resultType uint32, base uint32, indices .
 	for _, index := range indices {
 		b.ib.AddWord(index)
 	}
-	b.functions = append(b.functions, b.ib.Build(OpAccessChain))
+	b.funcAppend(b.ib.Build(OpAccessChain))
 	return resultID
 }
 
@@ -640,7 +658,7 @@ func (b *ModuleBuilder) AddCompositeConstruct(resultType uint32, constituents ..
 	for _, constituent := range constituents {
 		b.ib.AddWord(constituent)
 	}
-	b.functions = append(b.functions, b.ib.Build(OpCompositeConstruct))
+	b.funcAppend(b.ib.Build(OpCompositeConstruct))
 	return resultID
 }
 
@@ -655,7 +673,7 @@ func (b *ModuleBuilder) AddCompositeExtract(resultType uint32, composite uint32,
 	for _, idx := range indexes {
 		b.ib.AddWord(idx)
 	}
-	b.functions = append(b.functions, b.ib.Build(OpCompositeExtract))
+	b.funcAppend(b.ib.Build(OpCompositeExtract))
 	return resultID
 }
 
@@ -668,7 +686,7 @@ func (b *ModuleBuilder) AddVectorExtractDynamic(resultType uint32, vector uint32
 	b.ib.AddWord(resultID)
 	b.ib.AddWord(vector)
 	b.ib.AddWord(index)
-	b.functions = append(b.functions, b.ib.Build(OpVectorExtractDynamic))
+	b.funcAppend(b.ib.Build(OpVectorExtractDynamic))
 	return resultID
 }
 
@@ -683,7 +701,7 @@ func (b *ModuleBuilder) AddVectorShuffle(resultType uint32, vec1 uint32, vec2 ui
 	for _, component := range components {
 		b.ib.AddWord(component)
 	}
-	b.functions = append(b.functions, b.ib.Build(OpVectorShuffle))
+	b.funcAppend(b.ib.Build(OpVectorShuffle))
 	return resultID
 }
 
@@ -696,7 +714,7 @@ func (b *ModuleBuilder) AddSelect(resultType uint32, condition uint32, accept ui
 	b.ib.AddWord(condition)
 	b.ib.AddWord(accept)
 	b.ib.AddWord(reject)
-	b.functions = append(b.functions, b.ib.Build(OpSelect))
+	b.funcAppend(b.ib.Build(OpSelect))
 	return resultID
 }
 
@@ -705,7 +723,7 @@ func (b *ModuleBuilder) AddSelectionMerge(mergeLabel uint32, control SelectionCo
 	b.ib.Reset()
 	b.ib.AddWord(mergeLabel)
 	b.ib.AddWord(uint32(control))
-	b.functions = append(b.functions, b.ib.Build(OpSelectionMerge))
+	b.funcAppend(b.ib.Build(OpSelectionMerge))
 }
 
 // AddLoopMerge adds OpLoopMerge.
@@ -714,7 +732,7 @@ func (b *ModuleBuilder) AddLoopMerge(mergeLabel uint32, continueLabel uint32, co
 	b.ib.AddWord(mergeLabel)
 	b.ib.AddWord(continueLabel)
 	b.ib.AddWord(uint32(control))
-	b.functions = append(b.functions, b.ib.Build(OpLoopMerge))
+	b.funcAppend(b.ib.Build(OpLoopMerge))
 }
 
 // AddBranchConditional adds OpBranchConditional.
@@ -723,13 +741,13 @@ func (b *ModuleBuilder) AddBranchConditional(condition uint32, trueLabel uint32,
 	b.ib.AddWord(condition)
 	b.ib.AddWord(trueLabel)
 	b.ib.AddWord(falseLabel)
-	b.functions = append(b.functions, b.ib.Build(OpBranchConditional))
+	b.funcAppend(b.ib.Build(OpBranchConditional))
 }
 
 // AddKill adds OpKill (fragment shader discard).
 func (b *ModuleBuilder) AddKill() {
 	b.ib.Reset()
-	b.functions = append(b.functions, b.ib.Build(OpKill))
+	b.funcAppend(b.ib.Build(OpKill))
 }
 
 // AddExtInst adds OpExtInst (extended instruction).
@@ -743,7 +761,7 @@ func (b *ModuleBuilder) AddExtInst(resultType uint32, extSet uint32, instruction
 	for _, operand := range operands {
 		b.ib.AddWord(operand)
 	}
-	b.functions = append(b.functions, b.ib.Build(OpExtInst))
+	b.funcAppend(b.ib.Build(OpExtInst))
 	return resultID
 }
 

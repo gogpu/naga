@@ -1,10 +1,12 @@
 package msl
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl"
 )
 
 // =============================================================================
@@ -159,7 +161,7 @@ func TestMSL_BinaryOperators(t *testing.T) {
 		{"subtract", ir.BinarySubtract, "-"},
 		{"multiply", ir.BinaryMultiply, "*"},
 		{"divide", ir.BinaryDivide, "/"},
-		{"modulo", ir.BinaryModulo, "%"},
+		{"modulo", ir.BinaryModulo, "metal::fmod("},
 		{"equal", ir.BinaryEqual, "=="},
 		{"not_equal", ir.BinaryNotEqual, "!="},
 		{"less", ir.BinaryLess, "<"},
@@ -462,7 +464,358 @@ func TestMSL_ZeroValue(t *testing.T) {
 		},
 	}
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "metal::float4()")
+	mustContainMSL(t, result, "metal::float4 {}")
+}
+
+func TestMSL_ComposeZeroLocalInit(t *testing.T) {
+	// Test: local var init with Compose(vec2<i32>, [I32(0), I32(0)])
+	// should produce metal::int2(0, 0), NOT metal::int2()
+	tVec2i := ir.TypeHandle(0)
+	lit0 := ir.ExpressionHandle(0)
+	lit1 := ir.ExpressionHandle(1)
+	composeH := ir.ExpressionHandle(2)
+	localVarH := ir.ExpressionHandle(3)
+
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},
+		},
+		Functions: []ir.Function{
+			{
+				Name: "test_fn",
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},                                         // [0]
+					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},                                         // [1]
+					{Kind: ir.ExprCompose{Type: tVec2i, Components: []ir.ExpressionHandle{lit0, lit1}}}, // [2]
+					{Kind: ir.ExprLocalVariable{Variable: 0}},                                           // [3]
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{}, {}, {Handle: &tVec2i}, {},
+				},
+				LocalVars: []ir.LocalVariable{
+					{Name: "x", Type: tVec2i, Init: &composeH},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 4}}},
+					{Kind: ir.StmtStore{Pointer: localVarH, Value: composeH}},
+				},
+			},
+		},
+	}
+	result := compileModule(t, module)
+	t.Logf("MSL output:\n%s", result)
+	mustContainMSL(t, result, "metal::int2(0, 0)")
+}
+
+func TestMSL_Vec2EmptyConstructorWithTypeAnnotation(t *testing.T) {
+	// Test the real-world case: var x: vec2<i32> = vec2()
+	// The lowerer creates Compose<vec2<f32>> then concretizes to vec2<i32>.
+	// Regression test for abstract-types-var shader.
+	src := `fn test() { var x: vec2<i32> = vec2(); _ = x; }`
+	lexer := wgsl.NewLexer(src)
+	tokens, lexErr := lexer.Tokenize()
+	if lexErr != nil {
+		t.Fatal("Lex error:", lexErr)
+	}
+	parser := wgsl.NewParser(tokens)
+	ast, parseErr := parser.Parse()
+	if parseErr != nil {
+		t.Fatal("Parse error:", parseErr)
+	}
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatal("Lower error:", err)
+	}
+
+	// Check the IR: function should have a local var with Compose init
+	if len(module.Functions) == 0 {
+		t.Fatal("no functions")
+	}
+	fn := &module.Functions[0]
+	if len(fn.LocalVars) == 0 {
+		t.Fatal("no local vars")
+	}
+	lv := &fn.LocalVars[0]
+	if lv.Init == nil {
+		t.Fatal("local var has no init — will produce '= {}' instead of '= type(0, 0)'")
+	}
+	initH := *lv.Init
+	if int(initH) >= len(fn.Expressions) {
+		t.Fatalf("init handle %d out of range (exprs: %d)", initH, len(fn.Expressions))
+	}
+	initExpr := fn.Expressions[initH]
+	compose, ok := initExpr.Kind.(ir.ExprCompose)
+	if !ok {
+		t.Fatalf("init expr is %T, expected ExprCompose", initExpr.Kind)
+	}
+	if len(compose.Components) == 0 {
+		t.Fatal("Compose has 0 components — will produce 'type()' instead of 'type(0, 0)'")
+	}
+	t.Logf("IR: Compose type=%d, %d components", compose.Type, len(compose.Components))
+
+	// Compile to MSL
+	opts := DefaultOptions()
+	opts.LangVersion = Version1_0
+	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	code, _, compileErr := Compile(module, opts)
+	if compileErr != nil {
+		t.Fatal("MSL compile error:", compileErr)
+	}
+	t.Logf("MSL output:\n%s", code)
+
+	if !strings.Contains(code, "metal::int2(0, 0)") {
+		t.Error("Expected 'metal::int2(0, 0)' in MSL output")
+	}
+	if strings.Contains(code, "metal::int2()") {
+		t.Error("Found 'metal::int2()' — empty constructor instead of explicit zeros")
+	}
+}
+
+func TestMSL_Vec2EmptyConstructorMultipleVars(t *testing.T) {
+	// Test closer to abstract-types-var: multiple typed zero-arg constructors
+	src := `
+fn test() {
+    var a: vec2<i32> = vec2(42, 43);
+    var b: vec2<u32> = vec2(44, 45);
+    var c: vec2<i32> = vec2();
+    var d: vec2<u32> = vec2();
+    var e: vec2<f32> = vec2();
+    _ = a; _ = b; _ = c; _ = d; _ = e;
+}`
+	lexer := wgsl.NewLexer(src)
+	tokens, lexErr := lexer.Tokenize()
+	if lexErr != nil {
+		t.Fatal("Lex error:", lexErr)
+	}
+	parser := wgsl.NewParser(tokens)
+	ast, parseErr := parser.Parse()
+	if parseErr != nil {
+		t.Fatal("Parse error:", parseErr)
+	}
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatal("Lower error:", err)
+	}
+
+	opts := DefaultOptions()
+	opts.LangVersion = Version1_0
+	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	code, _, compileErr := Compile(module, opts)
+	if compileErr != nil {
+		t.Fatal("MSL compile error:", compileErr)
+	}
+	t.Logf("MSL output:\n%s", code)
+
+	// All three zero-arg constructors should have explicit zeros
+	if strings.Contains(code, "metal::int2()") {
+		t.Error("Found 'metal::int2()' — should be 'metal::int2(0, 0)'")
+	}
+	if strings.Contains(code, "metal::uint2()") {
+		t.Error("Found 'metal::uint2()' — should be 'metal::uint2(0u, 0u)'")
+	}
+	if strings.Contains(code, "metal::float2()") {
+		t.Error("Found 'metal::float2()' — should be 'metal::float2(0.0, 0.0)'")
+	}
+}
+
+func TestMSL_Vec2EmptyConstructorWithPrivateGlobals(t *testing.T) {
+	// Test matching abstract-types-var structure: module-scope private vars
+	// passed through to functions, with local zero-arg constructors
+	src := `
+var<private> gx: vec2<i32> = vec2(42, 43);
+
+fn test() {
+    var c: vec2<i32> = vec2();
+    var d: vec2<u32> = vec2();
+    _ = gx; _ = c; _ = d;
+    c = vec2();
+    d = vec2();
+}`
+	lexer := wgsl.NewLexer(src)
+	tokens, lexErr := lexer.Tokenize()
+	if lexErr != nil {
+		t.Fatal("Lex error:", lexErr)
+	}
+	parser := wgsl.NewParser(tokens)
+	ast, parseErr := parser.Parse()
+	if parseErr != nil {
+		t.Fatal("Parse error:", parseErr)
+	}
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatal("Lower error:", err)
+	}
+
+	opts := DefaultOptions()
+	opts.LangVersion = Version1_0
+	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	code, _, compileErr := Compile(module, opts)
+	if compileErr != nil {
+		t.Fatal("MSL compile error:", compileErr)
+	}
+	t.Logf("MSL output:\n%s", code)
+
+	if strings.Contains(code, "metal::int2()") {
+		t.Error("Found 'metal::int2()' — should be 'metal::int2(0, 0)'")
+	}
+	if strings.Contains(code, "metal::uint2()") {
+		t.Error("Found 'metal::uint2()' — should be 'metal::uint2(0u, 0u)'")
+	}
+}
+
+func TestMSL_AbstractTypesVarFull(t *testing.T) {
+	// Use the ACTUAL abstract-types-var shader to reproduce the failure.
+	srcBytes, readErr := os.ReadFile("../snapshot/testdata/in/abstract-types-var.wgsl")
+	if readErr != nil {
+		t.Skip("shader file not found:", readErr)
+	}
+	src := string(srcBytes)
+
+	lexer := wgsl.NewLexer(src)
+	tokens, lexErr := lexer.Tokenize()
+	if lexErr != nil {
+		t.Fatal("Lex error:", lexErr)
+	}
+	parser := wgsl.NewParser(tokens)
+	ast, parseErr := parser.Parse()
+	if parseErr != nil {
+		t.Fatal("Parse error:", parseErr)
+	}
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatal("Lower error:", err)
+	}
+
+	opts := DefaultOptions()
+	opts.LangVersion = Version1_0
+	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	opts.FakeMissingBindings = true
+	code, _, compileErr := Compile(module, opts)
+	if compileErr != nil {
+		t.Fatal("MSL compile error:", compileErr)
+	}
+
+	// Dump IR for function "all_constant_arguments" to find the issue
+	for fi, fn := range module.Functions {
+		if fn.Name != "all_constant_arguments" {
+			continue
+		}
+		for li, lv := range fn.LocalVars {
+			if lv.Name != "xvip____" && lv.Name != "xvup____" && lv.Name != "xvfp____" {
+				continue
+			}
+			t.Logf("func[%d] local[%d] %s type=%d init=%v", fi, li, lv.Name, lv.Type, lv.Init)
+			if lv.Init != nil {
+				initH := *lv.Init
+				if int(initH) < len(fn.Expressions) {
+					t.Logf("  init expr[%d] = %T %+v", initH, fn.Expressions[initH].Kind, fn.Expressions[initH].Kind)
+					if compose, ok := fn.Expressions[initH].Kind.(ir.ExprCompose); ok {
+						t.Logf("  Compose components: %v (len=%d)", compose.Components, len(compose.Components))
+						for ci, ch := range compose.Components {
+							if int(ch) < len(fn.Expressions) {
+								t.Logf("    comp[%d] expr[%d] = %T %+v", ci, ch, fn.Expressions[ch].Kind, fn.Expressions[ch].Kind)
+							}
+						}
+					}
+				}
+			} else {
+				t.Logf("  init = nil (will produce '= {}')")
+			}
+		}
+	}
+
+	// Check for the specific failing patterns
+	if strings.Contains(code, "metal::int2()") {
+		// Find the line for context
+		for i, line := range strings.Split(code, "\n") {
+			if strings.Contains(line, "metal::int2()") {
+				t.Errorf("Line %d: Found 'metal::int2()' — should have explicit zeros: %s", i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+	if strings.Contains(code, "metal::uint2()") {
+		for i, line := range strings.Split(code, "\n") {
+			if strings.Contains(line, "metal::uint2()") {
+				t.Errorf("Line %d: Found 'metal::uint2()': %s", i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+	if strings.Contains(code, "metal::float2()") {
+		for i, line := range strings.Split(code, "\n") {
+			if strings.Contains(line, "metal::float2()") {
+				t.Errorf("Line %d: Found 'metal::float2()': %s", i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}
+
+func TestMSL_AbstractTypesVarPattern(t *testing.T) {
+	// Simplified pattern test
+	src := `
+var<private> xvipaiai: vec2<i32> = vec2(42, 43);
+var<private> xvupaiai: vec2<u32> = vec2(44, 45);
+var<private> xvfpaiai: vec2<f32> = vec2(46, 47);
+var<private> xvip____: vec2<i32> = vec2();
+var<private> xvup____: vec2<u32> = vec2();
+var<private> xvfp____: vec2<f32> = vec2();
+var<private> xmfp____: mat2x2f = mat2x2(vec2(), vec2());
+
+fn all_constant_arguments() {
+    var xvipaiai: vec2<i32> = vec2(42, 43);
+    var xvupaiai: vec2<u32> = vec2(44, 45);
+    var xvfpaiai: vec2<f32> = vec2(46, 47);
+    var xvfpafaf: vec2<f32> = vec2(48.0, 49.0);
+    var xvfpaiaf: vec2<f32> = vec2(48, 49.0);
+    var xvupuai: vec2<u32> = vec2(42u, 43);
+    var xvupaiu: vec2<u32> = vec2(42, 43u);
+    var xvuuai: vec2<u32> = vec2<u32>(42u, 43);
+    var xvuaiu: vec2<u32> = vec2<u32>(42, 43u);
+    var xvip: vec2<i32> = vec2();
+    var xvup: vec2<u32> = vec2();
+    var xvfp: vec2<f32> = vec2();
+    var xmfp: mat2x2f = mat2x2(vec2(), vec2());
+    _ = xvipaiai; _ = xvupaiai; _ = xvfpaiai; _ = xvfpafaf; _ = xvfpaiaf;
+    _ = xvupuai; _ = xvupaiu; _ = xvuuai; _ = xvuaiu;
+    _ = xvip; _ = xvup; _ = xvfp; _ = xmfp;
+}
+
+@compute @workgroup_size(1)
+fn main() {
+    all_constant_arguments();
+}`
+	lexer := wgsl.NewLexer(src)
+	tokens, lexErr := lexer.Tokenize()
+	if lexErr != nil {
+		t.Fatal("Lex error:", lexErr)
+	}
+	parser := wgsl.NewParser(tokens)
+	ast, parseErr := parser.Parse()
+	if parseErr != nil {
+		t.Fatal("Parse error:", parseErr)
+	}
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatal("Lower error:", err)
+	}
+
+	opts := DefaultOptions()
+	opts.LangVersion = Version1_0
+	opts.BoundsCheckPolicies = BoundsCheckPolicies{}
+	code, _, compileErr := Compile(module, opts)
+	if compileErr != nil {
+		t.Fatal("MSL compile error:", compileErr)
+	}
+	t.Logf("MSL output:\n%s", code)
+
+	if strings.Contains(code, "metal::int2()") {
+		t.Error("Found 'metal::int2()' — should be 'metal::int2(0, 0)'")
+	}
+	if strings.Contains(code, "metal::uint2()") {
+		t.Error("Found 'metal::uint2()' — should be 'metal::uint2(0u, 0u)'")
+	}
+	if strings.Contains(code, "metal::float2()") {
+		t.Error("Found 'metal::float2()' — should be 'metal::float2(0.0, 0.0)'")
+	}
 }
 
 // =============================================================================
@@ -500,7 +853,7 @@ func TestMSL_TypeCast(t *testing.T) {
 			},
 		}
 		result := compileModule(t, module)
-		mustContainMSL(t, result, "int(")
+		mustContainMSL(t, result, "static_cast<int>(")
 	})
 
 	t.Run("bitcast", func(t *testing.T) {
@@ -579,11 +932,14 @@ func TestMSL_Derivative(t *testing.T) {
 		control ir.DerivativeControl
 		want    string
 	}{
-		{"dfdx_fine", ir.DerivativeX, ir.DerivativeFine, "metal::dfdx_fine("},
-		{"dfdx_coarse", ir.DerivativeX, ir.DerivativeCoarse, "metal::dfdx_coarse("},
-		{"dfdy_fine", ir.DerivativeY, ir.DerivativeFine, "metal::dfdy_fine("},
-		{"dfdy_coarse", ir.DerivativeY, ir.DerivativeCoarse, "metal::dfdy_coarse("},
-		{"fwidth", ir.DerivativeWidth, 0, "metal::fwidth("},
+		// Rust naga ignores DerivativeControl — all map to base function name
+		{"dfdx_fine", ir.DerivativeX, ir.DerivativeFine, "metal::dfdx("},
+		{"dfdx_coarse", ir.DerivativeX, ir.DerivativeCoarse, "metal::dfdx("},
+		{"dfdx_none", ir.DerivativeX, ir.DerivativeNone, "metal::dfdx("},
+		{"dfdy_fine", ir.DerivativeY, ir.DerivativeFine, "metal::dfdy("},
+		{"dfdy_coarse", ir.DerivativeY, ir.DerivativeCoarse, "metal::dfdy("},
+		{"dfdy_none", ir.DerivativeY, ir.DerivativeNone, "metal::dfdy("},
+		{"fwidth", ir.DerivativeWidth, ir.DerivativeNone, "metal::fwidth("},
 	}
 
 	for _, tt := range tests {
@@ -695,8 +1051,8 @@ func TestMSL_MathFunctionName(t *testing.T) {
 		{ir.MathAsinh, "asinh"},
 		{ir.MathAcosh, "acosh"},
 		{ir.MathAtanh, "atanh"},
-		{ir.MathRadians, "radians"},
-		{ir.MathDegrees, "degrees"},
+		{ir.MathRadians, ""}, // handled specially (expanded to multiplication)
+		{ir.MathDegrees, ""}, // handled specially (expanded to multiplication)
 		{ir.MathCeil, "ceil"},
 		{ir.MathFloor, "floor"},
 		{ir.MathRound, "round"},
@@ -728,8 +1084,20 @@ func TestMSL_MathFunctionName(t *testing.T) {
 		{ir.MathCountLeadingZeros, "clz"},
 		{ir.MathCountOneBits, "popcount"},
 		{ir.MathReverseBits, "reverse_bits"},
-		{ir.MathExtractBits, "extract_bits"},
-		{ir.MathInsertBits, "insert_bits"},
+		{ir.MathExtractBits, ""},
+		{ir.MathInsertBits, ""},
+		{ir.MathFirstTrailingBit, ""},
+		{ir.MathFirstLeadingBit, ""},
+		{ir.MathPack4x8snorm, "pack_float_to_snorm4x8"},
+		{ir.MathPack4x8unorm, "pack_float_to_unorm4x8"},
+		{ir.MathPack2x16snorm, "pack_float_to_snorm2x16"},
+		{ir.MathPack2x16unorm, "pack_float_to_unorm2x16"},
+		{ir.MathPack2x16float, ""},
+		{ir.MathUnpack4x8snorm, "unpack_snorm4x8_to_float"},
+		{ir.MathUnpack4x8unorm, "unpack_unorm4x8_to_float"},
+		{ir.MathUnpack2x16snorm, "unpack_snorm2x16_to_float"},
+		{ir.MathUnpack2x16unorm, "unpack_unorm2x16_to_float"},
+		{ir.MathUnpack2x16float, ""},
 		{ir.MathFunction(255), "unknown_math_255"},
 	}
 
@@ -828,7 +1196,7 @@ func TestMSL_BinaryOperatorsExtended(t *testing.T) {
 		op   ir.BinaryOperator
 		want string
 	}{
-		{"modulo", ir.BinaryModulo, "%"},
+		{"modulo", ir.BinaryModulo, "metal::fmod("},
 		{"logical_and", ir.BinaryLogicalAnd, "&&"},
 		{"logical_or", ir.BinaryLogicalOr, "||"},
 		{"shift_left", ir.BinaryShiftLeft, "<<"},

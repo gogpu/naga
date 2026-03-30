@@ -1,0 +1,340 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("VertexOutput"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("position"),
+                        ty: 0,
+                        binding: Some(BuiltIn(Position(
+                            invariant: false,
+                        ))),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("color"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("texcoord"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 32,
+                    ),
+                ],
+                span: 48,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("VertexInput"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("position"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("normal"),
+                        ty: 3,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("texcoord"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 2,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 32,
+                    ),
+                ],
+                span: 48,
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Quad,
+                rows: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("mvp_matrix"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 5,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("do_lighting"),
+            arguments: [
+                (
+                    name: Some("position"),
+                    ty: 0,
+                    binding: None,
+                ),
+                (
+                    name: Some("normal"),
+                    ty: 3,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 0,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                Literal(F32(0.0)),
+                Splat(
+                    size: Quad,
+                    value: 2,
+                ),
+            ],
+            named_expressions: {
+                0: "position",
+                1: "normal",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Return(
+                    value: Some(3),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "render_vertex",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("render_vertex"),
+                arguments: [
+                    (
+                        name: Some("v_in"),
+                        ty: 4,
+                        binding: None,
+                    ),
+                    (
+                        name: Some("v_existing_id"),
+                        ty: 6,
+                        binding: Some(BuiltIn(VertexIndex)),
+                    ),
+                ],
+                result: Some((
+                    ty: 2,
+                    binding: None,
+                )),
+                local_variables: [
+                    (
+                        name: Some("v_out"),
+                        ty: 2,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 2,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    GlobalVariable(0),
+                    Load(
+                        pointer: 5,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 4,
+                        right: 6,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    CallResult(0),
+                    AccessIndex(
+                        base: 2,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    Load(
+                        pointer: 2,
+                    ),
+                ],
+                named_expressions: {
+                    0: "v_in",
+                    1: "v_existing_id",
+                },
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 8,
+                    )),
+                    Store(
+                        pointer: 3,
+                        value: 7,
+                    ),
+                    Emit((
+                        start: 8,
+                        end: 11,
+                    )),
+                    Call(
+                        function: 0,
+                        arguments: [
+                            9,
+                            10,
+                        ],
+                        result: Some(11),
+                    ),
+                    Store(
+                        pointer: 8,
+                        value: 11,
+                    ),
+                    Emit((
+                        start: 12,
+                        end: 14,
+                    )),
+                    Store(
+                        pointer: 12,
+                        value: 13,
+                    ),
+                    Emit((
+                        start: 14,
+                        end: 15,
+                    )),
+                    Return(
+                        value: Some(14),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

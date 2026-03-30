@@ -48,6 +48,8 @@ func (p *Parser) Parse() (*Module, error) {
 			continue
 		}
 		if decl != nil {
+			// Preserve source order for all declarations.
+			module.Declarations = append(module.Declarations, decl)
 			switch d := decl.(type) {
 			case *FunctionDecl:
 				module.Functions = append(module.Functions, d)
@@ -59,6 +61,8 @@ func (p *Parser) Parse() (*Module, error) {
 				module.Constants = append(module.Constants, d)
 			case *AliasDecl:
 				module.Aliases = append(module.Aliases, d)
+			case *OverrideDecl:
+				module.Overrides = append(module.Overrides, d)
 			}
 		}
 	}
@@ -88,6 +92,8 @@ func (p *Parser) declaration() (Decl, *ParseError) {
 		return p.letDecl()
 	case p.check(TokenAlias):
 		return p.aliasDecl()
+	case p.check(TokenConstAssert):
+		return p.constAssertDecl()
 	case p.check(TokenEnable):
 		// Skip enable directives for now
 		p.advance()
@@ -98,6 +104,18 @@ func (p *Parser) declaration() (Decl, *ParseError) {
 			p.advance()
 		}
 		return nil, nil
+	case p.check(TokenDiagnostic):
+		// Skip diagnostic directives for now
+		p.advance()
+		for !p.check(TokenSemicolon) && !p.isAtEnd() {
+			p.advance()
+		}
+		if p.check(TokenSemicolon) {
+			p.advance()
+		}
+		return nil, nil
+	case p.check(TokenOverride):
+		return p.overrideDecl(attrs)
 	case p.check(TokenEOF):
 		return nil, nil
 	default:
@@ -117,7 +135,9 @@ func (p *Parser) attributes() []Attribute {
 		start := p.peek()
 		p.advance() // consume @
 
-		if !p.check(TokenIdent) {
+		// Accept both identifiers and keyword tokens as attribute names.
+		// E.g., @diagnostic(...) — "diagnostic" is a keyword but valid as attr name.
+		if !p.check(TokenIdent) && !p.check(TokenDiagnostic) {
 			continue
 		}
 
@@ -411,9 +431,10 @@ func (p *Parser) constDecl() (*ConstDecl, *ParseError) {
 	p.match(TokenSemicolon)
 
 	return &ConstDecl{
-		Name: name.Lexeme,
-		Type: constType,
-		Init: init,
+		Name:    name.Lexeme,
+		Type:    constType,
+		Init:    init,
+		IsConst: true,
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
 		},
@@ -463,6 +484,53 @@ func (p *Parser) letDecl() (*ConstDecl, *ParseError) {
 	}, nil
 }
 
+// overrideDecl parses an override declaration (pipeline-overridable constant).
+// WGSL spec: @id(N) override name: type = default;
+// The initializer is optional (overrides without defaults must be set at pipeline creation).
+func (p *Parser) overrideDecl(attrs []Attribute) (*OverrideDecl, *ParseError) {
+	start := p.peek()
+	if !p.match(TokenOverride) {
+		return nil, &ParseError{Message: "expected 'override'", Token: p.peek()}
+	}
+
+	if !p.check(TokenIdent) {
+		return nil, &ParseError{Message: "expected override name", Token: p.peek()}
+	}
+	name := p.advance()
+
+	// Optional type annotation
+	var overrideType Type
+	if p.match(TokenColon) {
+		t, err := p.typeSpec()
+		if err != nil {
+			return nil, err
+		}
+		overrideType = t
+	}
+
+	// Optional initializer
+	var init Expr
+	if p.match(TokenEqual) {
+		expr, err := p.expression()
+		if err != nil {
+			return nil, err
+		}
+		init = expr
+	}
+
+	p.match(TokenSemicolon)
+
+	return &OverrideDecl{
+		Name:       name.Lexeme,
+		Type:       overrideType,
+		Init:       init,
+		Attributes: attrs,
+		Span: Span{
+			Start: Position{Line: start.Line, Column: start.Column},
+		},
+	}, nil
+}
+
 // aliasDecl parses a type alias declaration.
 func (p *Parser) aliasDecl() (*AliasDecl, *ParseError) {
 	start := p.peek()
@@ -495,6 +563,36 @@ func (p *Parser) aliasDecl() (*AliasDecl, *ParseError) {
 	}, nil
 }
 
+// constAssertDecl parses a const_assert declaration.
+// WGSL spec: const_assert expr; or const_assert(expr);
+func (p *Parser) constAssertDecl() (*ConstAssertDecl, *ParseError) {
+	start := p.peek()
+	if !p.match(TokenConstAssert) {
+		return nil, &ParseError{Message: "expected 'const_assert'", Token: p.peek()}
+	}
+
+	// const_assert can optionally have parentheses: const_assert(expr) or const_assert expr
+	hasParen := p.match(TokenLeftParen)
+	cond, err := p.expression()
+	if err != nil {
+		return nil, err
+	}
+	if hasParen {
+		if err := p.expectErr(TokenRightParen); err != nil {
+			return nil, err
+		}
+	}
+
+	p.match(TokenSemicolon)
+
+	return &ConstAssertDecl{
+		Condition: cond,
+		Span: Span{
+			Start: Position{Line: start.Line, Column: start.Column},
+		},
+	}, nil
+}
+
 // typeSpec parses a type specification.
 func (p *Parser) typeSpec() (Type, *ParseError) {
 	tok := p.peek()
@@ -512,14 +610,21 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 
 			var size Expr
 			if p.match(TokenComma) {
-				// Parse only primary expression for size to avoid > being interpreted as comparison
-				size, err = p.primary()
-				if err != nil {
-					return nil, err
+				// Trailing comma without size: array<u32,>
+				if !p.check(TokenGreater) {
+					// Parse a template argument expression for size.
+					// This uses templateArgExpr which handles shift/arithmetic but
+					// stops before > or >= to avoid consuming the template closing >.
+					size, err = p.templateArgExpr()
+					if err != nil {
+						return nil, err
+					}
+					// Allow trailing comma after size: array<u32, 1,>
+					p.match(TokenComma)
 				}
 			}
 
-			if err := p.expectErr(TokenGreater); err != nil {
+			if err := p.expectTemplateClose(); err != nil {
 				return nil, err
 			}
 
@@ -703,6 +808,8 @@ func (p *Parser) statement() (Stmt, *ParseError) {
 		return p.letStmt()
 	case p.check(TokenConst):
 		return p.localConstStmt()
+	case p.check(TokenConstAssert):
+		return p.constAssertDecl()
 	case p.check(TokenLeftBrace):
 		return p.block()
 	default:
@@ -955,6 +1062,7 @@ func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
 	start := p.peek()
 	var selectors []Expr
 	isDefault := false
+	defaultFirst := false
 
 	if p.match(TokenDefault) {
 		isDefault = true
@@ -966,6 +1074,9 @@ func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
 			if p.check(TokenDefault) {
 				p.advance()
 				isDefault = true
+				if len(selectors) == 0 {
+					defaultFirst = true
+				}
 			} else {
 				// Stop if the next token starts the body (trailing comma case)
 				if p.check(TokenColon) || p.check(TokenLeftBrace) {
@@ -994,9 +1105,10 @@ func (p *Parser) switchCaseClause() (*SwitchCaseClause, *ParseError) {
 	}
 
 	return &SwitchCaseClause{
-		Selectors: selectors,
-		IsDefault: isDefault,
-		Body:      body,
+		Selectors:    selectors,
+		IsDefault:    isDefault,
+		DefaultFirst: defaultFirst,
+		Body:         body,
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
 		},
@@ -1008,9 +1120,27 @@ func (p *Parser) localConstStmt() (*ConstDecl, *ParseError) {
 	return p.constDecl()
 }
 
-// breakStmt parses a break statement.
-func (p *Parser) breakStmt() (*BreakStmt, *ParseError) {
+// breakStmt parses a break or "break if" statement.
+// WGSL spec: "break if expr;" is valid inside a continuing block.
+func (p *Parser) breakStmt() (Stmt, *ParseError) {
 	start := p.advance() // consume 'break'
+
+	// Check for "break if expr;" syntax (inside continuing block)
+	if p.check(TokenIf) {
+		p.advance() // consume 'if'
+		cond, err := p.expression()
+		if err != nil {
+			return nil, err
+		}
+		p.match(TokenSemicolon)
+		return &BreakIfStmt{
+			Condition: cond,
+			Span: Span{
+				Start: Position{Line: start.Line, Column: start.Column},
+			},
+		}, nil
+	}
+
 	p.match(TokenSemicolon)
 	return &BreakStmt{
 		Span: Span{
@@ -1141,6 +1271,37 @@ func (p *Parser) exprOrAssignStmt() (Stmt, *ParseError) {
 // expression parses an expression.
 func (p *Parser) expression() (Expr, *ParseError) {
 	return p.logicalOr()
+}
+
+// templateArgExpr parses an expression inside a template argument list.
+// It handles shift/arithmetic operators but stops at > and >= tokens
+// to avoid consuming the template-closing >.
+func (p *Parser) templateArgExpr() (Expr, *ParseError) {
+	return p.templateShift()
+}
+
+// templateShift parses << expressions inside template args (>> would be template close).
+func (p *Parser) templateShift() (Expr, *ParseError) {
+	left, err := p.additive()
+	if err != nil {
+		return nil, err
+	}
+
+	// Only allow left-shift (<<) inside template args, not right-shift (>>)
+	for p.check(TokenLessLess) {
+		op := p.advance()
+		right, err := p.additive()
+		if err != nil {
+			return nil, err
+		}
+		left = &BinaryExpr{
+			Left:  left,
+			Op:    op.Kind,
+			Right: right,
+		}
+	}
+
+	return left, nil
 }
 
 // logicalOr parses || expressions.
@@ -1616,6 +1777,32 @@ func (p *Parser) expectErr(kind TokenKind) *ParseError {
 	}
 }
 
+// expectTemplateClose expects a > token to close a template argument list.
+// Handles >= disambiguation: splits >= into > and = tokens per WGSL spec.
+// Also handles >> splitting like expectErr(TokenGreater).
+func (p *Parser) expectTemplateClose() *ParseError {
+	if p.check(TokenGreater) {
+		p.advance()
+		return nil
+	}
+	if p.check(TokenGreaterGreater) {
+		p.splitGreaterGreater()
+		return nil
+	}
+	if p.check(TokenGreaterEqual) {
+		p.splitGreaterEqual()
+		return nil
+	}
+	if p.check(TokenGreaterGreaterEqual) {
+		p.splitGreaterGreaterEqual()
+		return nil
+	}
+	return &ParseError{
+		Message: fmt.Sprintf("expected >, got %s", p.peek().Kind),
+		Token:   p.peek(),
+	}
+}
+
 // splitGreaterGreater splits a >> token into two > tokens, consuming the first.
 // This handles the WGSL angle bracket ambiguity in nested template args (e.g., vec3<f32>>).
 func (p *Parser) splitGreaterGreater() {
@@ -1628,6 +1815,33 @@ func (p *Parser) splitGreaterGreater() {
 		Column: tok.Column + 1,
 	}
 	// Don't advance — the remaining > stays for the outer template close
+}
+
+// splitGreaterEqual splits a >= token into > and = tokens, consuming the >.
+// This handles the WGSL template disambiguation: array<i32, 1 << 1>=...
+func (p *Parser) splitGreaterEqual() {
+	tok := p.tokens[p.current]
+	// Replace >= with = at position+1
+	p.tokens[p.current] = Token{
+		Kind:   TokenEqual,
+		Lexeme: "=",
+		Line:   tok.Line,
+		Column: tok.Column + 1,
+	}
+	// Don't advance — the = stays for the next parse
+}
+
+// splitGreaterGreaterEqual splits a >>= token into > and >= tokens, consuming the >.
+func (p *Parser) splitGreaterGreaterEqual() {
+	tok := p.tokens[p.current]
+	// Replace >>= with >= at position+1
+	p.tokens[p.current] = Token{
+		Kind:   TokenGreaterEqual,
+		Lexeme: ">=",
+		Line:   tok.Line,
+		Column: tok.Column + 1,
+	}
+	// Don't advance — the >= stays for the next parse
 }
 
 func (p *Parser) synchronize() {
@@ -1646,7 +1860,7 @@ func (p *Parser) synchronize() {
 
 func (p *Parser) isTypeKeyword(kind TokenKind) bool {
 	switch kind {
-	case TokenBool, TokenF16, TokenF32, TokenI32, TokenU32,
+	case TokenBool, TokenF16, TokenF32, TokenF64, TokenI32, TokenI64, TokenU32, TokenU64,
 		TokenVec2, TokenVec3, TokenVec4,
 		TokenMat2x2, TokenMat2x3, TokenMat2x4,
 		TokenMat3x2, TokenMat3x3, TokenMat3x4,

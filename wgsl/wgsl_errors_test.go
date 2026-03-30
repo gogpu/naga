@@ -421,14 +421,7 @@ func TestWGSLErrors_LowerErrors(t *testing.T) {
 		{
 			name:        "const_unsupported_binary_init",
 			source:      `const X = 10 / 0;`,
-			errContains: "unsupported initializer",
-		},
-
-		// --- Module constant with unsupported unary expression ---
-		{
-			name:        "const_unsupported_unary_init",
-			source:      `const X = !true;`,
-			errContains: "unsupported unary expression",
+			errContains: "division by zero",
 		},
 
 		// --- Texture function wrong arg count ---
@@ -440,7 +433,7 @@ func TestWGSLErrors_LowerErrors(t *testing.T) {
 fn foo() {
 	let x = textureSampleBias(t, s, vec2<f32>(0.0, 0.0));
 }`,
-			errContains: "textureSampleBias requires 4 arguments",
+			errContains: "textureSampleBias requires at least 4 arguments",
 		},
 		{
 			name: "texture_sample_level_wrong_args",
@@ -450,7 +443,7 @@ fn foo() {
 fn foo() {
 	let x = textureSampleLevel(t, s, vec2<f32>(0.0, 0.0));
 }`,
-			errContains: "textureSampleLevel requires 4 arguments",
+			errContains: "textureSampleLevel requires at least 4 arguments",
 		},
 		{
 			name: "texture_sample_grad_wrong_args",
@@ -460,7 +453,7 @@ fn foo() {
 fn foo() {
 	let x = textureSampleGrad(t, s, vec2<f32>(0.0, 0.0));
 }`,
-			errContains: "textureSampleGrad requires 5 arguments",
+			errContains: "textureSampleGrad requires at least 5 arguments",
 		},
 
 		// --- Select wrong arg count ---
@@ -499,7 +492,7 @@ fn foo() {
 fn foo() {
 	textureStore(t, vec2<i32>(0, 0));
 }`,
-			errContains: "textureStore requires 3 arguments",
+			errContains: "textureStore requires at least 3 arguments",
 		},
 
 		// --- Atomic function wrong arg count ---

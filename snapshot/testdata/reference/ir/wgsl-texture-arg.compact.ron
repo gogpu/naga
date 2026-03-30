@@ -1,0 +1,183 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Sampler(
+                comparison: false,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("Texture"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("Sampler"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 1,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("test"),
+            arguments: [
+                (
+                    name: Some("Passed_Texture"),
+                    ty: 0,
+                    binding: None,
+                ),
+                (
+                    name: Some("Passed_Sampler"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        2,
+                        3,
+                    ],
+                ),
+                ImageSample(
+                    image: 0,
+                    sampler: 1,
+                    gather: None,
+                    coordinate: 4,
+                    array_index: None,
+                    offset: None,
+                    level: Auto,
+                    depth_ref: None,
+                    clamp_to_edge: false,
+                ),
+            ],
+            named_expressions: {
+                0: "Passed_Texture",
+                1: "Passed_Sampler",
+            },
+            body: [
+                Emit((
+                    start: 4,
+                    end: 6,
+                )),
+                Return(
+                    value: Some(5),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: Some((
+                    ty: 2,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    GlobalVariable(0),
+                    GlobalVariable(1),
+                    CallResult(0),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [
+                            0,
+                            1,
+                        ],
+                        result: Some(2),
+                    ),
+                    Return(
+                        value: Some(2),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

@@ -1,0 +1,1164 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 4,
+                size: Constant(2),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Bool,
+                    width: 1,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(9),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("TWO"),
+            ty: 0,
+            init: 0,
+        ),
+        (
+            name: Some("THREE"),
+            ty: 1,
+            init: 1,
+        ),
+        (
+            name: Some("TRUE"),
+            ty: 2,
+            init: 2,
+        ),
+        (
+            name: Some("FALSE"),
+            ty: 2,
+            init: 3,
+        ),
+        (
+            name: Some("FOUR"),
+            ty: 1,
+            init: 4,
+        ),
+        (
+            name: Some("TEXTURE_KIND_REGULAR"),
+            ty: 1,
+            init: 5,
+        ),
+        (
+            name: Some("TEXTURE_KIND_WARP"),
+            ty: 1,
+            init: 6,
+        ),
+        (
+            name: Some("TEXTURE_KIND_SKY"),
+            ty: 1,
+            init: 7,
+        ),
+        (
+            name: Some("FOUR_ALIAS"),
+            ty: 1,
+            init: 4,
+        ),
+        (
+            name: Some("TEST_CONSTANT_ADDITION"),
+            ty: 1,
+            init: 8,
+        ),
+        (
+            name: Some("TEST_CONSTANT_ALIAS_ADDITION"),
+            ty: 1,
+            init: 9,
+        ),
+        (
+            name: Some("PI"),
+            ty: 4,
+            init: 10,
+        ),
+        (
+            name: Some("phi_sun"),
+            ty: 4,
+            init: 11,
+        ),
+        (
+            name: Some("DIV"),
+            ty: 5,
+            init: 16,
+        ),
+        (
+            name: Some("add_vec"),
+            ty: 10,
+            init: 19,
+        ),
+        (
+            name: Some("compare_vec"),
+            ty: 8,
+            init: 22,
+        ),
+    ],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [
+        Literal(U32(2)),
+        Literal(I32(3)),
+        Literal(Bool(true)),
+        Literal(Bool(false)),
+        Literal(I32(4)),
+        Literal(I32(0)),
+        Literal(I32(1)),
+        Literal(I32(2)),
+        Literal(I32(8)),
+        Literal(I32(8)),
+        Literal(F32(3.141)),
+        Literal(F32(6.282)),
+        Literal(F32(0.44444445)),
+        Literal(F32(0.0)),
+        Literal(F32(0.0)),
+        Literal(F32(0.0)),
+        Compose(
+            ty: 5,
+            components: [
+                12,
+                13,
+                14,
+                15,
+            ],
+        ),
+        Literal(F32(4.0)),
+        Literal(F32(5.0)),
+        Compose(
+            ty: 10,
+            components: [
+                17,
+                18,
+            ],
+        ),
+        Literal(Bool(true)),
+        Literal(Bool(false)),
+        Compose(
+            ty: 8,
+            components: [
+                20,
+                21,
+            ],
+        ),
+    ],
+    functions: [
+        (
+            name: Some("swizzle_of_compose"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("out"),
+                    ty: 3,
+                    init: Some(4),
+                ),
+            ],
+            expressions: [
+                Literal(I32(4)),
+                Literal(I32(3)),
+                Literal(I32(2)),
+                Literal(I32(1)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        0,
+                        1,
+                        2,
+                        3,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("index_of_compose"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("out"),
+                    ty: 1,
+                    init: Some(0),
+                ),
+            ],
+            expressions: [
+                Literal(I32(2)),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("compose_three_deep"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("out"),
+                    ty: 1,
+                    init: Some(0),
+                ),
+            ],
+            expressions: [
+                Literal(I32(6)),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("non_constant_initializers"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("w"),
+                    ty: 1,
+                    init: Some(0),
+                ),
+                (
+                    name: Some("x"),
+                    ty: 1,
+                    init: None,
+                ),
+                (
+                    name: Some("y"),
+                    ty: 1,
+                    init: None,
+                ),
+                (
+                    name: Some("z"),
+                    ty: 1,
+                    init: Some(6),
+                ),
+                (
+                    name: Some("out"),
+                    ty: 3,
+                    init: None,
+                ),
+            ],
+            expressions: [
+                Literal(I32(30)),
+                LocalVariable(0),
+                Load(
+                    pointer: 1,
+                ),
+                LocalVariable(1),
+                Load(
+                    pointer: 3,
+                ),
+                LocalVariable(2),
+                Literal(I32(70)),
+                LocalVariable(3),
+                Load(
+                    pointer: 1,
+                ),
+                Load(
+                    pointer: 3,
+                ),
+                Load(
+                    pointer: 5,
+                ),
+                Load(
+                    pointer: 7,
+                ),
+                Compose(
+                    ty: 3,
+                    components: [
+                        8,
+                        9,
+                        10,
+                        11,
+                    ],
+                ),
+                LocalVariable(4),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Store(
+                    pointer: 3,
+                    value: 2,
+                ),
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Store(
+                    pointer: 5,
+                    value: 4,
+                ),
+                Emit((
+                    start: 8,
+                    end: 13,
+                )),
+                Store(
+                    pointer: 13,
+                    value: 12,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("splat_of_constant"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("out"),
+                    ty: 3,
+                    init: Some(4),
+                ),
+            ],
+            expressions: [
+                Literal(I32(-4)),
+                Literal(I32(-4)),
+                Literal(I32(-4)),
+                Literal(I32(-4)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        0,
+                        1,
+                        2,
+                        3,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("compose_of_constant"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("out"),
+                    ty: 3,
+                    init: Some(4),
+                ),
+            ],
+            expressions: [
+                Literal(I32(-4)),
+                Literal(I32(-4)),
+                Literal(I32(-4)),
+                Literal(I32(-4)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        0,
+                        1,
+                        2,
+                        3,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("map_texture_kind"),
+            arguments: [
+                (
+                    name: Some("texture_kind"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 0,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                Literal(U32(10)),
+                Literal(U32(20)),
+                Literal(U32(30)),
+                Literal(U32(0)),
+            ],
+            named_expressions: {
+                0: "texture_kind",
+            },
+            body: [
+                Switch(
+                    selector: 0,
+                    cases: [
+                        (
+                            value: I32(0),
+                            body: [
+                                Return(
+                                    value: Some(1),
+                                ),
+                            ],
+                            fall_through: false,
+                        ),
+                        (
+                            value: I32(1),
+                            body: [
+                                Return(
+                                    value: Some(2),
+                                ),
+                            ],
+                            fall_through: false,
+                        ),
+                        (
+                            value: I32(2),
+                            body: [
+                                Return(
+                                    value: Some(3),
+                                ),
+                            ],
+                            fall_through: false,
+                        ),
+                        (
+                            value: Default,
+                            body: [
+                                Return(
+                                    value: Some(4),
+                                ),
+                            ],
+                            fall_through: false,
+                        ),
+                    ],
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("compose_of_splat"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("x"),
+                    ty: 5,
+                    init: Some(2),
+                ),
+            ],
+            expressions: [
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 5,
+                    components: [
+                        1,
+                        0,
+                        0,
+                        0,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_local_const"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("arr"),
+                    ty: 6,
+                    init: None,
+                ),
+            ],
+            expressions: [],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("compose_vector_zero_val_binop"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("a"),
+                    ty: 7,
+                    init: Some(3),
+                ),
+                (
+                    name: Some("b"),
+                    ty: 7,
+                    init: Some(7),
+                ),
+                (
+                    name: Some("c"),
+                    ty: 7,
+                    init: Some(11),
+                ),
+            ],
+            expressions: [
+                Literal(I32(1)),
+                Literal(I32(1)),
+                Literal(I32(1)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        0,
+                        1,
+                        2,
+                    ],
+                ),
+                Literal(I32(0)),
+                Literal(I32(1)),
+                Literal(I32(2)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        4,
+                        5,
+                        6,
+                    ],
+                ),
+                Literal(I32(1)),
+                Literal(I32(0)),
+                Literal(I32(2)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        8,
+                        9,
+                        10,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 7,
+                    end: 8,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("relational"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("scalar_any_false"),
+                    ty: 2,
+                    init: Some(0),
+                ),
+                (
+                    name: Some("scalar_any_true"),
+                    ty: 2,
+                    init: Some(1),
+                ),
+                (
+                    name: Some("scalar_all_false"),
+                    ty: 2,
+                    init: Some(2),
+                ),
+                (
+                    name: Some("scalar_all_true"),
+                    ty: 2,
+                    init: Some(3),
+                ),
+                (
+                    name: Some("vec_any_false"),
+                    ty: 2,
+                    init: Some(4),
+                ),
+                (
+                    name: Some("vec_any_true"),
+                    ty: 2,
+                    init: Some(5),
+                ),
+                (
+                    name: Some("vec_all_false"),
+                    ty: 2,
+                    init: Some(6),
+                ),
+                (
+                    name: Some("vec_all_true"),
+                    ty: 2,
+                    init: Some(7),
+                ),
+            ],
+            expressions: [
+                Literal(Bool(false)),
+                Literal(Bool(true)),
+                Literal(Bool(false)),
+                Literal(Bool(true)),
+                Literal(Bool(false)),
+                Literal(Bool(true)),
+                Literal(Bool(false)),
+                Literal(Bool(true)),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("packed_dot_product"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("signed_four"),
+                    ty: 1,
+                    init: Some(0),
+                ),
+                (
+                    name: Some("unsigned_four"),
+                    ty: 0,
+                    init: Some(1),
+                ),
+                (
+                    name: Some("signed_twelve"),
+                    ty: 1,
+                    init: Some(2),
+                ),
+                (
+                    name: Some("unsigned_twelve"),
+                    ty: 0,
+                    init: Some(3),
+                ),
+                (
+                    name: Some("signed_seventy"),
+                    ty: 1,
+                    init: Some(4),
+                ),
+                (
+                    name: Some("unsigned_seventy"),
+                    ty: 0,
+                    init: Some(5),
+                ),
+                (
+                    name: Some("minus_four"),
+                    ty: 1,
+                    init: Some(6),
+                ),
+            ],
+            expressions: [
+                Literal(I32(4)),
+                Literal(U32(4)),
+                Literal(I32(12)),
+                Literal(U32(12)),
+                Literal(I32(70)),
+                Literal(U32(70)),
+                Literal(I32(-4)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("abstract_access"),
+            arguments: [
+                (
+                    name: Some("i"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("a"),
+                    ty: 4,
+                    init: Some(1),
+                ),
+                (
+                    name: Some("b"),
+                    ty: 0,
+                    init: Some(2),
+                ),
+                (
+                    name: Some("c"),
+                    ty: 1,
+                    init: None,
+                ),
+                (
+                    name: Some("d"),
+                    ty: 1,
+                    init: None,
+                ),
+            ],
+            expressions: [
+                FunctionArgument(0),
+                Literal(F32(1.0)),
+                Literal(U32(1)),
+                Literal(I32(1)),
+                Literal(I32(2)),
+                Literal(I32(3)),
+                Literal(I32(4)),
+                Literal(I32(5)),
+                Literal(I32(6)),
+                Literal(I32(7)),
+                Literal(I32(8)),
+                Literal(I32(9)),
+                Compose(
+                    ty: 9,
+                    components: [
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                    ],
+                ),
+                Access(
+                    base: 12,
+                    index: 0,
+                ),
+                LocalVariable(2),
+                Literal(I32(1)),
+                Literal(I32(2)),
+                Literal(I32(3)),
+                Literal(I32(4)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        15,
+                        16,
+                        17,
+                        18,
+                    ],
+                ),
+                Access(
+                    base: 19,
+                    index: 0,
+                ),
+                LocalVariable(3),
+            ],
+            named_expressions: {
+                0: "i",
+            },
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 12,
+                    end: 14,
+                )),
+                Store(
+                    pointer: 14,
+                    value: 13,
+                ),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 19,
+                    end: 21,
+                )),
+                Store(
+                    pointer: 21,
+                    value: 20,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (2, 3, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    Literal(I32(1)),
+                    CallResult(6),
+                    Literal(U32(1)),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 3,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 4,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 5,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 6,
+                        arguments: [
+                            0,
+                        ],
+                        result: Some(1),
+                    ),
+                    Call(
+                        function: 7,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 8,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 9,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 10,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 11,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 8,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 12,
+                        arguments: [
+                            2,
+                        ],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

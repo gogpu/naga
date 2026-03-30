@@ -59,40 +59,42 @@ dependencies.
 ## Package Structure
 
 ```
-naga/                              ~53K LOC total
+naga/                              ~90K LOC total
 ├── naga.go                        # Public API: Compile, Parse, Lower, Validate, GenerateSPIRV
-├── wgsl/                          # WGSL frontend (~10K LOC)
-│   ├── token.go                   # 120+ token types
-│   ├── lexer.go                   # Tokenizer (UTF-8, nested block comments)
+├── wgsl/                          # WGSL frontend (~19.5K LOC)
+│   ├── token.go                   # 120+ token types (incl. f16, i64, u64, f64)
+│   ├── lexer.go                   # Tokenizer (UTF-8, nested block comments, li/lu/lf suffixes)
 │   ├── ast.go                     # AST types (declarations, statements, expressions)
-│   ├── parser.go                  # Recursive descent parser (~1400 LOC)
-│   ├── lower.go                   # AST → IR lowerer (~2500 LOC)
+│   ├── parser.go                  # Recursive descent parser
+│   ├── lower.go                   # AST → IR lowerer
 │   └── errors.go                  # Source-located error formatting
 │
-├── ir/                            # Intermediate Representation (~4.3K LOC)
+├── ir/                            # Intermediate Representation (~6.5K LOC)
 │   ├── ir.go                      # Module, Type, Function, EntryPoint, handles
-│   ├── expression.go              # 24 expression kinds (~520 LOC)
-│   ├── statement.go               # 16 statement kinds (~320 LOC)
-│   ├── validate.go                # IR validation (~750 LOC)
-│   ├── resolve.go                 # Type inference engine (~500 LOC)
-│   └── registry.go                # Type deduplication registry (~100 LOC)
+│   ├── expression.go              # 30+ expression kinds (incl. subgroup, ray query)
+│   ├── statement.go               # 20+ statement kinds (incl. subgroup, ray query)
+│   ├── validate.go                # IR validation
+│   ├── resolve.go                 # Type inference engine
+│   └── registry.go                # Type deduplication registry
 │
-├── spirv/                         # SPIR-V backend (~17K LOC incl. tests)
-│   ├── spirv.go                   # SPIR-V constants, opcodes, capabilities
-│   ├── writer.go                  # Binary module builder with word arena (~670 LOC)
-│   ├── backend.go                 # IR → SPIR-V translator (~3700 LOC)
-│   └── reference_shaders_test.go  # 17 Essential reference shader tests
+├── spirv/                         # SPIR-V backend (~10.8K LOC, ~16.2K tests)
+│   ├── spirv.go                   # SPIR-V constants, opcodes, capabilities, subgroup ops
+│   ├── block.go                   # Block ownership model (Rust naga pattern)
+│   ├── writer.go                  # Binary module builder with word arena
+│   ├── backend.go                 # IR → SPIR-V translator
+│   ├── ray_query.go               # Ray query helper functions
+│   └── *_test.go                  # 200+ tests (shader, loop, if/else, vello, reference)
 │
-├── msl/                           # MSL backend (~4.5K LOC)
+├── msl/                           # MSL backend (~14.2K LOC)
 │   ├── backend.go                 # Public API, Options, Compile()
 │   ├── writer.go                  # MSL code writer
-│   ├── types.go                   # Type generation (~400 LOC)
-│   ├── expressions.go             # Expression codegen (~1175 LOC)
-│   ├── statements.go              # Statement codegen (~350 LOC)
-│   ├── functions.go               # Entry points and functions (~500 LOC)
+│   ├── types.go                   # Type generation
+│   ├── expressions.go             # Expression codegen
+│   ├── statements.go              # Statement codegen
+│   ├── functions.go               # Entry points and functions
 │   └── keywords.go                # MSL/C++ reserved words
 │
-├── glsl/                          # GLSL backend (~5.8K LOC)
+├── glsl/                          # GLSL backend (~7.8K LOC)
 │   ├── backend.go                 # Public API, version targeting
 │   ├── writer.go                  # GLSL code writer with UBO block syntax
 │   ├── types.go                   # Type generation
@@ -100,14 +102,14 @@ naga/                              ~53K LOC total
 │   ├── statements.go              # Statement codegen
 │   └── keywords.go                # Reserved word escaping
 │
-├── hlsl/                          # HLSL backend (~9.6K LOC)
+├── hlsl/                          # HLSL backend (~13.6K LOC)
 │   ├── backend.go                 # Public API, shader model selection
-│   ├── writer.go                  # HLSL code writer (~400 LOC)
-│   ├── types.go                   # Type generation (~500 LOC)
-│   ├── expressions.go             # Expression codegen (~1100 LOC)
-│   ├── statements.go              # Statement codegen (~600 LOC)
-│   ├── storage.go                 # Buffer/atomic operations (~500 LOC)
-│   ├── functions.go               # Entry points with semantics (~500 LOC)
+│   ├── writer.go                  # HLSL code writer
+│   ├── types.go                   # Type generation
+│   ├── expressions.go             # Expression codegen
+│   ├── statements.go              # Statement codegen
+│   ├── storage.go                 # Buffer/atomic operations
+│   ├── functions.go               # Entry points with semantics
 │   └── keywords.go                # HLSL reserved words
 │
 └── cmd/
@@ -130,19 +132,24 @@ Converts WGSL source into a stream of tokens. Handles:
 
 ### Stage 2: Parser
 
-**File:** `wgsl/parser.go` (~1400 LOC)
+**File:** `wgsl/parser.go` (~1800 LOC)
 
 Recursive descent parser that builds an AST. Key features:
 - Abstract type constructors without template params (`vec3(1,2,3)`)
 - 48 short type aliases (`vec3f` = `vec3<f32>`, `mat4x4f` = `mat4x4<f32>`)
+- Type aliases (`alias FVec3 = vec3<f32>;`)
+- Override declarations (`@id(N) override name: type = default;`)
+- `const_assert` declarations
+- `break if` syntax in continuing blocks
 - `bitcast<T>(expr)` template syntax
 - `binding_array<T, N>` descriptor array type
+- Template list edge cases (trailing commas, `>=` disambiguation)
 - Switch with `default` as case selector, trailing commas
 - `>>` token splitting for nested template closing (`vec3<vec3<f32>>`)
 
 ### Stage 3: Lowerer
 
-**File:** `wgsl/lower.go` (~2500 LOC)
+**File:** `wgsl/lower.go` (~16000 LOC)
 
 Converts AST into typed IR. This is the largest and most complex frontend stage:
 - **Type resolution** via `TypeRegistry` (deduplication by structural equality)
@@ -213,7 +220,7 @@ All types implement the `TypeInner` interface (marker pattern):
 
 | Type | WGSL | Fields |
 |------|------|--------|
-| **ScalarType** | `f32`, `i32`, `u32`, `bool`, `f16` | Kind, Width |
+| **ScalarType** | `f16`, `f32`, `f64`, `i32`, `u32`, `i64`, `u64`, `bool` | Kind, Width |
 | **VectorType** | `vec2<T>` ... `vec4<T>` | Size, Scalar |
 | **MatrixType** | `mat2x2<f32>` ... `mat4x4<f32>` | Columns, Rows, Scalar |
 | **ArrayType** | `array<T, N>`, `array<T>` | Base, Size, Stride |
@@ -223,6 +230,8 @@ All types implement the `TypeInner` interface (marker pattern):
 | **ImageType** | `texture_2d<f32>`, etc. | Dimension, Arrayed, Class |
 | **AtomicType** | `atomic<u32>`, `atomic<i32>` | Scalar |
 | **BindingArrayType** | `binding_array<T, N>` | Base, Size |
+| **AccelerationStructureType** | `acceleration_structure` | (opaque) |
+| **RayQueryType** | `ray_query` | (opaque) |
 
 ### Expression Kinds (SSA Form)
 
@@ -289,10 +298,12 @@ StmtCall             — Function call as statement (no return value used)
 
 ## SPIR-V Backend
 
-**Files:** `spirv/backend.go` (~3700 LOC), `spirv/writer.go` (~670 LOC)
+**Files:** `spirv/backend.go`, `spirv/writer.go`, `spirv/block.go`, `spirv/ray_query.go`
 
-The SPIR-V backend produces binary bytecode for Vulkan. It is the most complex backend
-because SPIR-V has strict ordering and deduplication requirements.
+The SPIR-V backend produces binary bytecode for Vulkan (**87/87 exact Rust naga parity**).
+It uses a **Block Ownership Model** (matching Rust naga) where each basic block is a
+first-class `Block` struct consumed by `FunctionBuilder`. This prevents instruction
+interleaving bugs and provides structural guarantees for control flow correctness.
 
 ### SPIR-V Module Layout
 
@@ -325,9 +336,18 @@ Sections (strict ordering per spec):
   maps prevent duplicate type emissions
 - **Capability Tracking:** `usedCapabilities` set, emitted only when referenced
 - **Extension Tracking:** `usedExtensions` for `SPV_KHR_integer_dot_product`, etc.
-- **Entry Point Interface:** Separate `OpVariable` for each Input/Output binding
+- **Entry Point Interface:** Separate `OpVariable` for each Input/Output binding (SPIR-V 1.4+ globals with ForcePointSize)
 - **Storage Buffer Wrapping:** Bare storage arrays wrapped in `Block`-decorated struct
 - **GLSL.std.450:** 100+ math functions via extended instruction set
+- **Integer Safety:** `naga_div`/`naga_mod` wrapper functions prevent division by zero and i32 MIN/-1 overflow
+- **Image Bounds Checking:** Restrict and ReadZeroSkipWrite policies with coordinate clamping
+- **Ray Query Helpers:** 6 helper functions per ray query (initialize, proceed, terminate, intersection getters)
+- **Force Loop Bounding:** Iteration counter prevents infinite loops on malformed shaders
+- **Workgroup Zero-Init:** Polyfill for zero-initializing workgroup memory
+- **NonUniform Decorations:** Correct NonUniform propagation for binding array access
+- **Capability-Aware Emission:** Polyfills for missing capabilities (e.g., dot4 without DotProduct)
+- **f16 I/O Polyfill:** Bitcast-based conversion for f16 entry point interface variables
+- **Composite Spilling:** By-value dynamic indexing spills composites to local variables
 
 ## Text Backends (MSL, GLSL, HLSL)
 
@@ -348,22 +368,28 @@ type Backend struct {
 // 5. writeEntryPoints()— Entry point wrappers with I/O structs
 ```
 
-### MSL (Metal)
+### MSL (Metal) — 91/91 Rust parity
 
 - Entry point qualifiers: `vertex`, `fragment`, `kernel`
 - Buffer bindings: `[[buffer(N)]]`, `[[texture(N)]]`, `[[sampler(N)]]`
 - Workgroup memory: `threadgroup` address space
 - Bounds check policies: Unchecked, ReadZeroSkipWrite, Restrict
+- Vertex pulling transform with buffer size structs
+- External texture support (multi-plane YUV sampling)
+- Override pipeline constants (`[[function_constant(N)]]`)
 
-### GLSL (OpenGL)
+### GLSL (OpenGL) — 68/68 Rust parity
 
 - Version targeting: `#version 330`, `#version 450`, `#version 300 es`
 - Attribute binding: `layout(location=N) in/out`
 - Uniform blocks: `layout(std140) uniform BlockName { ... }`
 - Storage blocks: `layout(std430) buffer BlockName { ... }`
 - Compute: `layout(local_size_x=X, ...) in`
+- Dead code elimination via `dominates_global_use` reachability
+- ProcessOverrides for pipeline constants
+- Image bounds checking
 
-### HLSL (DirectX)
+### HLSL (DirectX) — 58/58 Rust parity
 
 - Shader model: SM 5.0 (DX11), SM 6.0+ (DX12)
 - Semantics: `SV_Position`, `SV_DispatchThreadID`, `SV_Target0`
@@ -397,27 +423,29 @@ and eliminates redundant type definitions across all backends.
 
 | Category | Count | Approach |
 |----------|-------|----------|
-| **Reference Shaders** | 17 | 15 Essential + 2 bonus from Rust naga test suite |
-| **Unit Tests** | 28+ | Pointer access, math functions, texture gather |
-| **Backend Tests** | 40+ | GLSL, HLSL, MSL golden output comparison |
+| **Snapshot Tests** | 164 | WGSL → 4 backends, 994 golden output files |
+| **Rust Reference** | 5-layer 100% | IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58 |
+| **SPIR-V Unit Tests** | 200+ | Shader, loop, if/else, vello, block model, ray query |
+| **Backend Tests** | 50+ | GLSL, HLSL, MSL per-feature golden tests |
+| **Reachability Tests** | 11 | GLSL dead code elimination |
 | **Integration Tests** | 7 | Full pipeline: WGSL source → SPIR-V binary |
 | **Benchmarks** | 68 | All packages, throughput metrics, allocation tracking |
 
 ### Rust Naga Reference Shaders
 
-15 Essential WGSL shaders from the [Rust naga](https://github.com/gfx-rs/naga) test suite
-are embedded as string literals in `spirv/reference_shaders_test.go`. These cover:
+**All 144 WGSL reference shaders** from the [Rust naga](https://github.com/gfx-rs/naga) test
+suite are included as snapshot tests. Coverage includes:
 
-| Shader | Coverage |
-|--------|----------|
-| empty, constructors, operators | Basic language features |
-| control-flow, functions | Branching, loops, function calls |
-| globals, interface | Module-scope variables, entry point I/O |
-| texture, image-query | Texture sampling, dimensions, gather |
-| variables, pointers | Address spaces, pointer dereference |
-| shadow, terrain, water | Real-world rendering patterns |
+| Category | Shaders |
+|----------|---------|
+| Basic language | empty, constructors, operators, control-flow, functions |
+| Types | abstract-types (9 variants), f16, f64, int64, type-alias |
+| Resources | texture, image, shadow, skybox, boids, sprite |
+| Compute | atomicOps, workgroup, barriers, subgroup-operations |
+| Ray tracing | ray-query (4 variants), acceleration structures |
+| Advanced | overrides, binding-arrays, bounds-check (7 variants), mesh-shader (4 variants) |
 
-All 15 shaders compile to valid SPIR-V (magic number `0x07230203` verified).
+All 144 shaders compile across all four backends with exact Rust naga output parity: SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58.
 
 ## Key Design Decisions
 

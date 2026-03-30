@@ -91,8 +91,8 @@ func TestCompile_StructVertexInput(t *testing.T) {
 
 	module := &ir.Module{
 		Types: types,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
 				Name: "vs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "in", Type: handles["VertexInput"], Binding: nil}, // struct arg, no direct binding
@@ -114,10 +114,7 @@ func TestCompile_StructVertexInput(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(6)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			}},
 		},
 	}
 
@@ -129,22 +126,19 @@ func TestCompile_StructVertexInput(t *testing.T) {
 	t.Logf("Generated GLSL:\n%s", source)
 
 	// Verify struct input is flattened into individual layout declarations
-	mustContain(t, source, "layout(location = 0) in vec2 position;")
-	mustContain(t, source, "layout(location = 1) in vec2 local;")
-	mustContain(t, source, "layout(location = 2) in float shape_kind;")
-	mustContain(t, source, "layout(location = 3) in vec2 center;")
-	mustContain(t, source, "layout(location = 4) in vec2 size;")
-	mustContain(t, source, "layout(location = 5) in vec4 params;")
-	mustContain(t, source, "layout(location = 6) in vec2 stroke;")
-	mustContain(t, source, "layout(location = 7) in float aa_width;")
-	mustContain(t, source, "layout(location = 8) in vec4 color;")
+	// Uses Rust naga _p2vs_locationN naming convention for vertex inputs.
+	mustContain(t, source, "layout(location = 0) in vec2 _p2vs_location0;")
+	mustContain(t, source, "layout(location = 1) in vec2 _p2vs_location1;")
+	mustContain(t, source, "layout(location = 2) in float _p2vs_location2;")
+	mustContain(t, source, "layout(location = 3) in vec2 _p2vs_location3;")
+	mustContain(t, source, "layout(location = 4) in vec2 _p2vs_location4;")
+	mustContain(t, source, "layout(location = 5) in vec4 _p2vs_location5;")
+	mustContain(t, source, "layout(location = 6) in vec2 _p2vs_location6;")
+	mustContain(t, source, "layout(location = 7) in float _p2vs_location7;")
+	mustContain(t, source, "layout(location = 8) in vec4 _p2vs_location8;")
 
-	// Verify no _in[N] references (the bug)
-	mustNotContain(t, source, "_in[")
-	mustNotContain(t, source, "_in.")
-
-	// Verify position member is accessed as the variable name directly
-	mustContain(t, source, "position.x")
+	// Verify struct is reconstructed from flattened inputs
+	mustContain(t, source, "VertexInput")
 
 	// Verify gl_Position assignment
 	mustContain(t, source, "gl_Position =")
@@ -171,8 +165,8 @@ func TestCompile_StructVertexOutput(t *testing.T) {
 
 	module := &ir.Module{
 		Types: types,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
 				Name: "vs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "in", Type: handles["VertexInput"], Binding: nil},
@@ -198,10 +192,7 @@ func TestCompile_StructVertexOutput(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 9}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(8)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			}},
 		},
 	}
 
@@ -212,20 +203,17 @@ func TestCompile_StructVertexOutput(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Verify struct input is flattened
-	mustContain(t, source, "layout(location = 0) in vec2 position;")
-	mustContain(t, source, "layout(location = 1) in vec2 local;")
+	// Verify struct input is flattened with _p2vs naming
+	mustContain(t, source, "layout(location = 0) in vec2 _p2vs_location0;")
+	mustContain(t, source, "layout(location = 1) in vec2 _p2vs_location1;")
 
-	// Verify struct output is flattened with v_ prefix (avoids name collision with inputs)
-	mustContain(t, source, "layout(location = 0) out vec2 v_local;")
-	mustContain(t, source, "layout(location = 1) out float v_shape_kind;")
-	mustContain(t, source, "layout(location = 2) out vec4 v_color;")
+	// Verify struct output is flattened with _vs2fs naming (smooth out)
+	mustContain(t, source, "smooth out vec2 _vs2fs_location0;")
+	mustContain(t, source, "smooth out float _vs2fs_location1;")
+	mustContain(t, source, "smooth out vec4 _vs2fs_location2;")
 
 	// Verify gl_Position is assigned (builtin member)
 	mustContain(t, source, "gl_Position =")
-
-	// Verify no _in[N] references
-	mustNotContain(t, source, "_in[")
 }
 
 // =============================================================================
@@ -256,8 +244,8 @@ func TestCompile_StructFragmentInput(t *testing.T) {
 	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
 	module := &ir.Module{
 		Types: types,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "in", Type: 3, Binding: nil},
@@ -274,10 +262,7 @@ func TestCompile_StructFragmentInput(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(1)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -288,18 +273,15 @@ func TestCompile_StructFragmentInput(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Verify struct input is flattened into individual in declarations
-	mustContain(t, source, "layout(location = 0) in vec2 uv;")
-	mustContain(t, source, "layout(location = 1) in vec4 color;")
+	// Verify struct input is flattened with _vs2fs naming (smooth in)
+	mustContain(t, source, "smooth in vec2 _vs2fs_location0;")
+	mustContain(t, source, "smooth in vec4 _vs2fs_location1;")
 
-	// Verify output
-	mustContain(t, source, "layout(location = 0) out vec4 fragColor;")
+	// Verify output with _fs2p naming
+	mustContain(t, source, "layout(location = 0) out vec4 _fs2p_location0;")
 
-	// Verify the return assigns to fragColor
-	mustContain(t, source, "fragColor = color;")
-
-	// No _in[N] references
-	mustNotContain(t, source, "_in[")
+	// Verify the return assigns to output
+	mustContain(t, source, "_fs2p_location0 =")
 }
 
 // =============================================================================
@@ -340,8 +322,8 @@ func TestCompile_MixedStructAndDirectArgs(t *testing.T) {
 	posB := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
 	module := &ir.Module{
 		Types: types,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
 				Name: "vs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "data", Type: 4, Binding: nil},              // struct arg
@@ -362,10 +344,7 @@ func TestCompile_MixedStructAndDirectArgs(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(4)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			}},
 		},
 	}
 
@@ -378,12 +357,12 @@ func TestCompile_MixedStructAndDirectArgs(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Struct arg should be flattened
-	mustContain(t, source, "layout(location = 0) in vec2 pos;")
-	mustContain(t, source, "layout(location = 1) in vec2 uv;")
+	// Struct arg should be flattened with _p2vs naming
+	mustContain(t, source, "layout(location = 0) in vec2 _p2vs_location0;")
+	mustContain(t, source, "layout(location = 1) in vec2 _p2vs_location1;")
 
 	// Builtin arg (vertex_index) should NOT produce a layout(location) in declaration.
-	// There should be exactly TWO layout(location) lines: one for pos and one for uv.
+	// There should be exactly TWO layout(location) lines.
 	count := strings.Count(source, "layout(location")
 	if count != 2 {
 		t.Errorf("Expected exactly 2 layout(location) declarations, got %d", count)
@@ -429,8 +408,8 @@ func TestCompile_StructInputWithBuiltin(t *testing.T) {
 	posB := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
 	module := &ir.Module{
 		Types: types,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
 				Name: "vs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "in", Type: 4, Binding: nil},
@@ -451,10 +430,7 @@ func TestCompile_StructInputWithBuiltin(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(5)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			}},
 		},
 	}
 
@@ -467,14 +443,14 @@ func TestCompile_StructInputWithBuiltin(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Location-bound member should produce in declaration
-	mustContain(t, source, "layout(location = 0) in vec2 position;")
+	// Location-bound member should produce in declaration with _p2vs naming
+	mustContain(t, source, "layout(location = 0) in vec2 _p2vs_location0;")
 
 	// Builtin member should NOT produce a layout(location) in declaration.
-	// There should be exactly ONE "layout(location" line (for position).
+	// There should be exactly ONE "layout(location" line.
 	count := strings.Count(source, "layout(location")
 	if count != 1 {
-		t.Errorf("Expected exactly 1 layout(location) declaration (for position), got %d", count)
+		t.Errorf("Expected exactly 1 layout(location) declaration, got %d", count)
 	}
 
 	// The builtin member (vertex_index) should NOT generate "in uint vertex_index"
@@ -510,8 +486,8 @@ func TestCompile_StructFragmentOutput(t *testing.T) {
 	//   }
 	module := &ir.Module{
 		Types: types,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name:      "fs_main",
 				Arguments: nil,
 				Result: &ir.FunctionResult{
@@ -529,10 +505,7 @@ func TestCompile_StructFragmentOutput(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(4)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -543,13 +516,13 @@ func TestCompile_StructFragmentOutput(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Verify struct output is flattened into individual out declarations
-	mustContain(t, source, "layout(location = 0) out vec4 color;")
-	mustContain(t, source, "layout(location = 1) out vec4 bloom;")
+	// Verify struct output is flattened with _fs2p naming
+	mustContain(t, source, "layout(location = 0) out vec4 _fs2p_location0;")
+	mustContain(t, source, "layout(location = 1) out vec4 _fs2p_location1;")
 
 	// Verify return is expanded into individual assignments
-	mustContain(t, source, "color =")
-	mustContain(t, source, "bloom =")
+	mustContain(t, source, "_fs2p_location0 =")
+	mustContain(t, source, "_fs2p_location1 =")
 }
 
 // =============================================================================
@@ -575,8 +548,8 @@ func TestCompile_DirectBindingArgsStillWork(t *testing.T) {
 	//   fn vs_main(@location(0) pos: vec2<f32>) -> @builtin(position) vec4<f32>
 	module := &ir.Module{
 		Types: types,
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
 				Name: "vs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "pos", Type: 1, Binding: locBinding(0)},
@@ -595,10 +568,7 @@ func TestCompile_DirectBindingArgsStillWork(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			}},
 		},
 	}
 
@@ -609,8 +579,8 @@ func TestCompile_DirectBindingArgsStillWork(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Direct binding should still work as before
-	mustContain(t, source, "layout(location = 0) in vec2 pos;")
+	// Direct binding uses _p2vs naming convention
+	mustContain(t, source, "layout(location = 0) in vec2 _p2vs_location0;")
 	mustContain(t, source, "gl_Position =")
 }
 

@@ -1,0 +1,271 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("test_any_and_all_for_bool"),
+            arguments: [],
+            result: Some((
+                ty: 0,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(Bool(true)),
+            ],
+            named_expressions: {
+                0: "a",
+            },
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "derivatives",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("derivatives"),
+                arguments: [
+                    (
+                        name: Some("foo"),
+                        ty: 1,
+                        binding: Some(BuiltIn(Position(
+                            invariant: false,
+                        ))),
+                    ),
+                ],
+                result: Some((
+                    ty: 1,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [
+                    (
+                        name: Some("x"),
+                        ty: 1,
+                        init: None,
+                    ),
+                    (
+                        name: Some("y"),
+                        ty: 1,
+                        init: None,
+                    ),
+                    (
+                        name: Some("z"),
+                        ty: 1,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    Derivative(
+                        axis: X,
+                        ctrl: Coarse,
+                        expr: 0,
+                    ),
+                    LocalVariable(0),
+                    Derivative(
+                        axis: Y,
+                        ctrl: Coarse,
+                        expr: 0,
+                    ),
+                    LocalVariable(1),
+                    Derivative(
+                        axis: Width,
+                        ctrl: Coarse,
+                        expr: 0,
+                    ),
+                    LocalVariable(2),
+                    Derivative(
+                        axis: X,
+                        ctrl: Fine,
+                        expr: 0,
+                    ),
+                    Derivative(
+                        axis: Y,
+                        ctrl: Fine,
+                        expr: 0,
+                    ),
+                    Derivative(
+                        axis: Width,
+                        ctrl: Fine,
+                        expr: 0,
+                    ),
+                    Derivative(
+                        axis: X,
+                        ctrl: r#None,
+                        expr: 0,
+                    ),
+                    Derivative(
+                        axis: Y,
+                        ctrl: r#None,
+                        expr: 0,
+                    ),
+                    Derivative(
+                        axis: Width,
+                        ctrl: r#None,
+                        expr: 0,
+                    ),
+                    CallResult(0),
+                    Load(
+                        pointer: 2,
+                    ),
+                    Load(
+                        pointer: 4,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 14,
+                        right: 15,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 16,
+                        right: 17,
+                    ),
+                ],
+                named_expressions: {
+                    0: "foo",
+                    13: "a",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Store(
+                        pointer: 2,
+                        value: 1,
+                    ),
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Store(
+                        pointer: 4,
+                        value: 3,
+                    ),
+                    Emit((
+                        start: 5,
+                        end: 6,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 5,
+                    ),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Store(
+                        pointer: 2,
+                        value: 7,
+                    ),
+                    Emit((
+                        start: 8,
+                        end: 9,
+                    )),
+                    Store(
+                        pointer: 4,
+                        value: 8,
+                    ),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 9,
+                    ),
+                    Emit((
+                        start: 10,
+                        end: 11,
+                    )),
+                    Store(
+                        pointer: 2,
+                        value: 10,
+                    ),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Store(
+                        pointer: 4,
+                        value: 11,
+                    ),
+                    Emit((
+                        start: 12,
+                        end: 13,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 12,
+                    ),
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: Some(13),
+                    ),
+                    Emit((
+                        start: 14,
+                        end: 19,
+                    )),
+                    Return(
+                        value: Some(18),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

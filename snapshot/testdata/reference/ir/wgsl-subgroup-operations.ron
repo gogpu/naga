@@ -1,0 +1,396 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("Structure"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("num_subgroups"),
+                        ty: 0,
+                        binding: Some(BuiltIn(NumSubgroups)),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("subgroup_size"),
+                        ty: 0,
+                        binding: Some(BuiltIn(SubgroupSize)),
+                        offset: 4,
+                    ),
+                ],
+                span: 8,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [
+                    (
+                        name: Some("sizes"),
+                        ty: 1,
+                        binding: None,
+                    ),
+                    (
+                        name: Some("subgroup_id"),
+                        ty: 0,
+                        binding: Some(BuiltIn(SubgroupId)),
+                    ),
+                    (
+                        name: Some("subgroup_invocation_id"),
+                        ty: 0,
+                        binding: Some(BuiltIn(SubgroupInvocationId)),
+                    ),
+                ],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    FunctionArgument(2),
+                    Literal(U32(1)),
+                    Binary(
+                        op: And,
+                        left: 2,
+                        right: 3,
+                    ),
+                    Literal(U32(1)),
+                    Binary(
+                        op: Equal,
+                        left: 4,
+                        right: 5,
+                    ),
+                    SubgroupBallotResult,
+                    SubgroupBallotResult,
+                    Literal(U32(0)),
+                    Binary(
+                        op: NotEqual,
+                        left: 2,
+                        right: 9,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 2,
+                    ),
+                    Literal(U32(0)),
+                    Binary(
+                        op: Equal,
+                        left: 2,
+                        right: 12,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 2,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    Literal(U32(4)),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Literal(U32(1)),
+                    Binary(
+                        op: Subtract,
+                        left: 29,
+                        right: 30,
+                    ),
+                    Binary(
+                        op: Subtract,
+                        left: 31,
+                        right: 2,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    Literal(U32(1)),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    Literal(U32(1)),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Literal(U32(1)),
+                    Binary(
+                        op: Subtract,
+                        left: 38,
+                        right: 39,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    Literal(U32(4)),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                    SubgroupOperationResult(
+                        ty: 0,
+                    ),
+                ],
+                named_expressions: {
+                    0: "sizes",
+                    1: "subgroup_id",
+                    2: "subgroup_invocation_id",
+                },
+                body: [
+                    ControlBarrier(("SUB_GROUP")),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 7,
+                    )),
+                    SubgroupBallot(
+                        result: 7,
+                        predicate: Some(6),
+                    ),
+                    SubgroupBallot(
+                        result: 8,
+                        predicate: None,
+                    ),
+                    Emit((
+                        start: 10,
+                        end: 11,
+                    )),
+                    SubgroupCollectiveOperation(
+                        op: All,
+                        collective_op: Reduce,
+                        argument: 10,
+                        result: 11,
+                    ),
+                    Emit((
+                        start: 13,
+                        end: 14,
+                    )),
+                    SubgroupCollectiveOperation(
+                        op: Any,
+                        collective_op: Reduce,
+                        argument: 13,
+                        result: 14,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Add,
+                        collective_op: Reduce,
+                        argument: 2,
+                        result: 15,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Mul,
+                        collective_op: Reduce,
+                        argument: 2,
+                        result: 16,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Min,
+                        collective_op: Reduce,
+                        argument: 2,
+                        result: 17,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Max,
+                        collective_op: Reduce,
+                        argument: 2,
+                        result: 18,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: And,
+                        collective_op: Reduce,
+                        argument: 2,
+                        result: 19,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Or,
+                        collective_op: Reduce,
+                        argument: 2,
+                        result: 20,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Xor,
+                        collective_op: Reduce,
+                        argument: 2,
+                        result: 21,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Add,
+                        collective_op: ExclusiveScan,
+                        argument: 2,
+                        result: 22,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Mul,
+                        collective_op: ExclusiveScan,
+                        argument: 2,
+                        result: 23,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Add,
+                        collective_op: InclusiveScan,
+                        argument: 2,
+                        result: 24,
+                    ),
+                    SubgroupCollectiveOperation(
+                        op: Mul,
+                        collective_op: InclusiveScan,
+                        argument: 2,
+                        result: 25,
+                    ),
+                    SubgroupGather(
+                        mode: BroadcastFirst,
+                        argument: 2,
+                        result: 26,
+                    ),
+                    SubgroupGather(
+                        mode: Broadcast(27),
+                        argument: 2,
+                        result: 28,
+                    ),
+                    Emit((
+                        start: 29,
+                        end: 30,
+                    )),
+                    Emit((
+                        start: 31,
+                        end: 33,
+                    )),
+                    SubgroupGather(
+                        mode: Shuffle(32),
+                        argument: 2,
+                        result: 33,
+                    ),
+                    SubgroupGather(
+                        mode: ShuffleDown(34),
+                        argument: 2,
+                        result: 35,
+                    ),
+                    SubgroupGather(
+                        mode: ShuffleUp(36),
+                        argument: 2,
+                        result: 37,
+                    ),
+                    Emit((
+                        start: 38,
+                        end: 39,
+                    )),
+                    Emit((
+                        start: 40,
+                        end: 41,
+                    )),
+                    SubgroupGather(
+                        mode: ShuffleXor(40),
+                        argument: 2,
+                        result: 41,
+                    ),
+                    SubgroupGather(
+                        mode: QuadBroadcast(42),
+                        argument: 2,
+                        result: 43,
+                    ),
+                    SubgroupGather(
+                        mode: QuadSwap(X),
+                        argument: 2,
+                        result: 44,
+                    ),
+                    SubgroupGather(
+                        mode: QuadSwap(Y),
+                        argument: 2,
+                        result: 45,
+                    ),
+                    SubgroupGather(
+                        mode: QuadSwap(Diagonal),
+                        argument: 2,
+                        result: 46,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

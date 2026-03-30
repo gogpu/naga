@@ -1,0 +1,44 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+void derivatives(
+) {
+    float x = metal::dfdx(0.0);
+    float y = metal::dfdy(0.0);
+    float width = metal::fwidth(0.0);
+    return;
+}
+
+void barriers(
+) {
+    metal::threadgroup_barrier(metal::mem_flags::mem_device);
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+    metal::threadgroup_barrier(metal::mem_flags::mem_texture);
+    return;
+}
+
+struct fragment_Output {
+    metal::float4 member [[color(0)]];
+};
+fragment fragment_Output fragment_(
+) {
+    derivatives();
+    return fragment_Output { metal::float4 {} };
+}
+
+
+kernel void compute(
+) {
+    barriers();
+    return;
+}

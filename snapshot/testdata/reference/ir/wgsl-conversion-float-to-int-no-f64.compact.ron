@@ -1,0 +1,1188 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 2,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 2,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 8,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Uint,
+                    width: 8,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("MIN_F16"),
+            ty: 0,
+            init: 0,
+        ),
+        (
+            name: Some("MAX_F16"),
+            ty: 0,
+            init: 1,
+        ),
+        (
+            name: Some("MIN_F32"),
+            ty: 1,
+            init: 2,
+        ),
+        (
+            name: Some("MAX_F32"),
+            ty: 1,
+            init: 3,
+        ),
+    ],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [
+        Literal(F16((64511))),
+        Literal(F16((31743))),
+        Literal(F32(-340282350000000000000000000000000000000.0)),
+        Literal(F32(340282350000000000000000000000000000000.0)),
+    ],
+    functions: [
+        (
+            name: Some("test_const_eval"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("min_f16_to_i32"),
+                    ty: 2,
+                    init: Some(0),
+                ),
+                (
+                    name: Some("max_f16_to_i32"),
+                    ty: 2,
+                    init: Some(1),
+                ),
+                (
+                    name: Some("min_f16_to_u32"),
+                    ty: 3,
+                    init: Some(2),
+                ),
+                (
+                    name: Some("max_f16_to_u32"),
+                    ty: 3,
+                    init: Some(3),
+                ),
+                (
+                    name: Some("min_f16_to_i64"),
+                    ty: 4,
+                    init: Some(4),
+                ),
+                (
+                    name: Some("max_f16_to_i64"),
+                    ty: 4,
+                    init: Some(5),
+                ),
+                (
+                    name: Some("min_f16_to_u64"),
+                    ty: 5,
+                    init: Some(6),
+                ),
+                (
+                    name: Some("max_f16_to_u64"),
+                    ty: 5,
+                    init: Some(7),
+                ),
+                (
+                    name: Some("min_f32_to_i32"),
+                    ty: 2,
+                    init: Some(8),
+                ),
+                (
+                    name: Some("max_f32_to_i32"),
+                    ty: 2,
+                    init: Some(9),
+                ),
+                (
+                    name: Some("min_f32_to_u32"),
+                    ty: 3,
+                    init: Some(10),
+                ),
+                (
+                    name: Some("max_f32_to_u32"),
+                    ty: 3,
+                    init: Some(11),
+                ),
+                (
+                    name: Some("min_f32_to_i64"),
+                    ty: 4,
+                    init: Some(12),
+                ),
+                (
+                    name: Some("max_f32_to_i64"),
+                    ty: 4,
+                    init: Some(13),
+                ),
+                (
+                    name: Some("min_f32_to_u64"),
+                    ty: 5,
+                    init: Some(14),
+                ),
+                (
+                    name: Some("max_f32_to_u64"),
+                    ty: 5,
+                    init: Some(15),
+                ),
+                (
+                    name: Some("min_abstract_float_to_i32"),
+                    ty: 2,
+                    init: Some(16),
+                ),
+                (
+                    name: Some("max_abstract_float_to_i32"),
+                    ty: 2,
+                    init: Some(17),
+                ),
+                (
+                    name: Some("min_abstract_float_to_u32"),
+                    ty: 3,
+                    init: Some(18),
+                ),
+                (
+                    name: Some("max_abstract_float_to_u32"),
+                    ty: 3,
+                    init: Some(19),
+                ),
+                (
+                    name: Some("min_abstract_float_to_i64"),
+                    ty: 4,
+                    init: Some(20),
+                ),
+                (
+                    name: Some("max_abstract_float_to_i64"),
+                    ty: 4,
+                    init: Some(21),
+                ),
+                (
+                    name: Some("min_abstract_float_to_u64"),
+                    ty: 5,
+                    init: Some(22),
+                ),
+                (
+                    name: Some("max_abstract_float_to_u64"),
+                    ty: 5,
+                    init: Some(23),
+                ),
+            ],
+            expressions: [
+                Literal(I32(-65504)),
+                Literal(I32(65504)),
+                Literal(U32(0)),
+                Literal(U32(65504)),
+                Literal(I64(-65504)),
+                Literal(I64(65504)),
+                Literal(U64(0)),
+                Literal(U64(65504)),
+                Literal(I32(-2147483648)),
+                Literal(I32(2147483520)),
+                Literal(U32(0)),
+                Literal(U32(4294967040)),
+                Literal(I64(-9223372036854775808)),
+                Literal(I64(9223371487098961920)),
+                Literal(U64(0)),
+                Literal(U64(18446742974197923840)),
+                Literal(I32(-2147483648)),
+                Literal(I32(2147483647)),
+                Literal(U32(0)),
+                Literal(U32(4294967295)),
+                Literal(I64(-9223372036854775808)),
+                Literal(I64(9223372036854774784)),
+                Literal(U64(0)),
+                Literal(U64(18446744073709549568)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f16_to_i32"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Sint,
+                    convert: Some(4),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f16_to_u32"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 3,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Uint,
+                    convert: Some(4),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f16_to_i64"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 4,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Sint,
+                    convert: Some(8),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f16_to_u64"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 5,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Uint,
+                    convert: Some(8),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f32_to_i32"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Sint,
+                    convert: Some(4),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f32_to_u32"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 3,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Uint,
+                    convert: Some(4),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f32_to_i64"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 4,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Sint,
+                    convert: Some(8),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f32_to_u64"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 5,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Uint,
+                    convert: Some(8),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f16_to_i32_vec"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 6,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 7,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Sint,
+                    convert: Some(4),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f16_to_u32_vec"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 6,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 8,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Uint,
+                    convert: Some(4),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f16_to_i64_vec"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 6,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 9,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Sint,
+                    convert: Some(8),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f16_to_u64_vec"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 6,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 10,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Uint,
+                    convert: Some(8),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f32_to_i32_vec"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 11,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 7,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Sint,
+                    convert: Some(4),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f32_to_u32_vec"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 11,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 8,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Uint,
+                    convert: Some(4),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f32_to_i64_vec"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 11,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 9,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Sint,
+                    convert: Some(8),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_f32_to_u64_vec"),
+            arguments: [
+                (
+                    name: Some("f"),
+                    ty: 11,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 10,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                As(
+                    expr: 0,
+                    kind: Uint,
+                    convert: Some(8),
+                ),
+            ],
+            named_expressions: {
+                0: "f",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    Literal(F16((15360))),
+                    CallResult(1),
+                    Literal(F16((15360))),
+                    CallResult(2),
+                    Literal(F16((15360))),
+                    CallResult(3),
+                    Literal(F16((15360))),
+                    CallResult(4),
+                    Literal(F32(1.0)),
+                    CallResult(5),
+                    Literal(F32(1.0)),
+                    CallResult(6),
+                    Literal(F32(1.0)),
+                    CallResult(7),
+                    Literal(F32(1.0)),
+                    CallResult(8),
+                    Literal(F16((15360))),
+                    Literal(F16((16384))),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            16,
+                            17,
+                        ],
+                    ),
+                    CallResult(9),
+                    Literal(F16((15360))),
+                    Literal(F16((16384))),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            20,
+                            21,
+                        ],
+                    ),
+                    CallResult(10),
+                    Literal(F16((15360))),
+                    Literal(F16((16384))),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            24,
+                            25,
+                        ],
+                    ),
+                    CallResult(11),
+                    Literal(F16((15360))),
+                    Literal(F16((16384))),
+                    Compose(
+                        ty: 6,
+                        components: [
+                            28,
+                            29,
+                        ],
+                    ),
+                    CallResult(12),
+                    Literal(F32(1.0)),
+                    Literal(F32(2.0)),
+                    Compose(
+                        ty: 11,
+                        components: [
+                            32,
+                            33,
+                        ],
+                    ),
+                    CallResult(13),
+                    Literal(F32(1.0)),
+                    Literal(F32(2.0)),
+                    Compose(
+                        ty: 11,
+                        components: [
+                            36,
+                            37,
+                        ],
+                    ),
+                    CallResult(14),
+                    Literal(F32(1.0)),
+                    Literal(F32(2.0)),
+                    Compose(
+                        ty: 11,
+                        components: [
+                            40,
+                            41,
+                        ],
+                    ),
+                    CallResult(15),
+                    Literal(F32(1.0)),
+                    Literal(F32(2.0)),
+                    Compose(
+                        ty: 11,
+                        components: [
+                            44,
+                            45,
+                        ],
+                    ),
+                    CallResult(16),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [
+                            0,
+                        ],
+                        result: Some(1),
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [
+                            2,
+                        ],
+                        result: Some(3),
+                    ),
+                    Call(
+                        function: 3,
+                        arguments: [
+                            4,
+                        ],
+                        result: Some(5),
+                    ),
+                    Call(
+                        function: 4,
+                        arguments: [
+                            6,
+                        ],
+                        result: Some(7),
+                    ),
+                    Call(
+                        function: 5,
+                        arguments: [
+                            8,
+                        ],
+                        result: Some(9),
+                    ),
+                    Call(
+                        function: 6,
+                        arguments: [
+                            10,
+                        ],
+                        result: Some(11),
+                    ),
+                    Call(
+                        function: 7,
+                        arguments: [
+                            12,
+                        ],
+                        result: Some(13),
+                    ),
+                    Call(
+                        function: 8,
+                        arguments: [
+                            14,
+                        ],
+                        result: Some(15),
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 18,
+                        end: 19,
+                    )),
+                    Call(
+                        function: 9,
+                        arguments: [
+                            18,
+                        ],
+                        result: Some(19),
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 22,
+                        end: 23,
+                    )),
+                    Call(
+                        function: 10,
+                        arguments: [
+                            22,
+                        ],
+                        result: Some(23),
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 26,
+                        end: 27,
+                    )),
+                    Call(
+                        function: 11,
+                        arguments: [
+                            26,
+                        ],
+                        result: Some(27),
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 30,
+                        end: 31,
+                    )),
+                    Call(
+                        function: 12,
+                        arguments: [
+                            30,
+                        ],
+                        result: Some(31),
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 34,
+                        end: 35,
+                    )),
+                    Call(
+                        function: 13,
+                        arguments: [
+                            34,
+                        ],
+                        result: Some(35),
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 38,
+                        end: 39,
+                    )),
+                    Call(
+                        function: 14,
+                        arguments: [
+                            38,
+                        ],
+                        result: Some(39),
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 42,
+                        end: 43,
+                    )),
+                    Call(
+                        function: 15,
+                        arguments: [
+                            42,
+                        ],
+                        result: Some(43),
+                    ),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 46,
+                        end: 47,
+                    )),
+                    Call(
+                        function: 16,
+                        arguments: [
+                            46,
+                        ],
+                        result: Some(47),
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

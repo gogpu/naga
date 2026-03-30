@@ -1,0 +1,378 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("i"),
+                        ty: 0,
+                        init: Some(0),
+                    ),
+                    (
+                        name: Some("i2"),
+                        ty: 1,
+                        init: Some(2),
+                    ),
+                    (
+                        name: Some("i3"),
+                        ty: 2,
+                        init: Some(4),
+                    ),
+                    (
+                        name: Some("i4"),
+                        ty: 3,
+                        init: Some(6),
+                    ),
+                    (
+                        name: Some("u"),
+                        ty: 4,
+                        init: Some(8),
+                    ),
+                    (
+                        name: Some("u2"),
+                        ty: 5,
+                        init: Some(11),
+                    ),
+                    (
+                        name: Some("u3"),
+                        ty: 6,
+                        init: Some(13),
+                    ),
+                    (
+                        name: Some("u4"),
+                        ty: 7,
+                        init: Some(15),
+                    ),
+                    (
+                        name: Some("f2"),
+                        ty: 8,
+                        init: Some(18),
+                    ),
+                    (
+                        name: Some("f4"),
+                        ty: 9,
+                        init: Some(21),
+                    ),
+                ],
+                expressions: [
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    Splat(
+                        size: Bi,
+                        value: 1,
+                    ),
+                    Literal(I32(0)),
+                    Splat(
+                        size: Tri,
+                        value: 3,
+                    ),
+                    Literal(I32(0)),
+                    Splat(
+                        size: Quad,
+                        value: 5,
+                    ),
+                    LocalVariable(3),
+                    Literal(U32(0)),
+                    LocalVariable(4),
+                    Literal(U32(0)),
+                    Splat(
+                        size: Bi,
+                        value: 10,
+                    ),
+                    Literal(U32(0)),
+                    Splat(
+                        size: Tri,
+                        value: 12,
+                    ),
+                    Literal(U32(0)),
+                    Splat(
+                        size: Quad,
+                        value: 14,
+                    ),
+                    LocalVariable(7),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 17,
+                    ),
+                    LocalVariable(8),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Quad,
+                        value: 20,
+                    ),
+                    LocalVariable(9),
+                    Load(
+                        pointer: 7,
+                    ),
+                    Math(
+                        fun: Pack4xI8,
+                        arg: 23,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Load(
+                        pointer: 16,
+                    ),
+                    Math(
+                        fun: Pack4xU8,
+                        arg: 25,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Math(
+                        fun: Unpack4x8snorm,
+                        arg: 27,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Math(
+                        fun: Unpack4x8unorm,
+                        arg: 29,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Math(
+                        fun: Unpack2x16snorm,
+                        arg: 31,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Math(
+                        fun: Unpack2x16unorm,
+                        arg: 33,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 7,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Emit((
+                        start: 13,
+                        end: 14,
+                    )),
+                    Emit((
+                        start: 15,
+                        end: 16,
+                    )),
+                    Emit((
+                        start: 18,
+                        end: 19,
+                    )),
+                    Emit((
+                        start: 21,
+                        end: 22,
+                    )),
+                    Emit((
+                        start: 23,
+                        end: 25,
+                    )),
+                    Store(
+                        pointer: 9,
+                        value: 24,
+                    ),
+                    Emit((
+                        start: 25,
+                        end: 27,
+                    )),
+                    Store(
+                        pointer: 9,
+                        value: 26,
+                    ),
+                    Emit((
+                        start: 27,
+                        end: 29,
+                    )),
+                    Store(
+                        pointer: 22,
+                        value: 28,
+                    ),
+                    Emit((
+                        start: 29,
+                        end: 31,
+                    )),
+                    Store(
+                        pointer: 22,
+                        value: 30,
+                    ),
+                    Emit((
+                        start: 31,
+                        end: 33,
+                    )),
+                    Store(
+                        pointer: 19,
+                        value: 32,
+                    ),
+                    Emit((
+                        start: 33,
+                        end: 35,
+                    )),
+                    Store(
+                        pointer: 19,
+                        value: 34,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

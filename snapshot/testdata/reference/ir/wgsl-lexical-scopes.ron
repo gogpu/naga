@@ -1,0 +1,409 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("blockLexicalScope"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                Literal(I32(2)),
+                Literal(F32(2.0)),
+            ],
+            named_expressions: {
+                0: "test",
+                1: "test",
+                2: "a",
+            },
+            body: [
+                Block([
+                    Block([
+                        Return(
+                            value: None,
+                        ),
+                    ]),
+                ]),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("ifLexicalScope"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                Literal(F32(2.0)),
+            ],
+            named_expressions: {
+                0: "test",
+                1: "a",
+            },
+            body: [
+                If(
+                    condition: 0,
+                    accept: [
+                        Return(
+                            value: None,
+                        ),
+                    ],
+                    reject: [
+                        Return(
+                            value: None,
+                        ),
+                    ],
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("loopLexicalScope"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                Literal(F32(2.0)),
+            ],
+            named_expressions: {
+                0: "test",
+                1: "a",
+            },
+            body: [
+                Loop(
+                    body: [],
+                    continuing: [],
+                    break_if: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("forLexicalScope"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 2,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("a"),
+                    ty: 1,
+                    init: Some(1),
+                ),
+            ],
+            expressions: [
+                FunctionArgument(0),
+                Literal(I32(0)),
+                LocalVariable(0),
+                Load(
+                    pointer: 2,
+                ),
+                Literal(I32(1)),
+                Binary(
+                    op: Less,
+                    left: 3,
+                    right: 4,
+                ),
+                Literal(Bool(true)),
+                Literal(I32(1)),
+                Load(
+                    pointer: 2,
+                ),
+                Binary(
+                    op: Add,
+                    left: 8,
+                    right: 7,
+                ),
+            ],
+            named_expressions: {
+                0: "test",
+                6: "a",
+            },
+            body: [
+                Loop(
+                    body: [
+                        Emit((
+                            start: 3,
+                            end: 4,
+                        )),
+                        Emit((
+                            start: 5,
+                            end: 6,
+                        )),
+                        If(
+                            condition: 5,
+                            accept: [],
+                            reject: [
+                                Break,
+                            ],
+                        ),
+                        Block([]),
+                    ],
+                    continuing: [
+                        Emit((
+                            start: 8,
+                            end: 10,
+                        )),
+                        Store(
+                            pointer: 2,
+                            value: 9,
+                        ),
+                    ],
+                    break_if: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("whileLexicalScope"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                Literal(I32(2)),
+                Binary(
+                    op: Greater,
+                    left: 0,
+                    right: 1,
+                ),
+                Literal(Bool(false)),
+            ],
+            named_expressions: {
+                0: "test",
+                3: "a",
+            },
+            body: [
+                Loop(
+                    body: [
+                        Emit((
+                            start: 2,
+                            end: 3,
+                        )),
+                        If(
+                            condition: 2,
+                            accept: [],
+                            reject: [
+                                Break,
+                            ],
+                        ),
+                        Block([]),
+                    ],
+                    continuing: [],
+                    break_if: None,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("switchLexicalScope"),
+            arguments: [
+                (
+                    name: Some("a"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: None,
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                Literal(Bool(false)),
+                Literal(F32(2.0)),
+                Literal(Bool(true)),
+                Literal(I32(2)),
+                Binary(
+                    op: Equal,
+                    left: 0,
+                    right: 4,
+                ),
+            ],
+            named_expressions: {
+                0: "a",
+                1: "a",
+                2: "a",
+                3: "a",
+                5: "test",
+            },
+            body: [
+                Switch(
+                    selector: 0,
+                    cases: [
+                        (
+                            value: I32(0),
+                            body: [],
+                            fall_through: false,
+                        ),
+                        (
+                            value: I32(1),
+                            body: [],
+                            fall_through: false,
+                        ),
+                        (
+                            value: Default,
+                            body: [],
+                            fall_through: false,
+                        ),
+                    ],
+                ),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    Literal(Bool(false)),
+                    Literal(Bool(true)),
+                    Literal(Bool(false)),
+                    Literal(F32(1.0)),
+                    Literal(I32(1)),
+                    Literal(I32(1)),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [
+                            0,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [
+                            1,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [
+                            2,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 3,
+                        arguments: [
+                            3,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 4,
+                        arguments: [
+                            4,
+                        ],
+                        result: None,
+                    ),
+                    Call(
+                        function: 5,
+                        arguments: [
+                            5,
+                        ],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

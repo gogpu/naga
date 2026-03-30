@@ -1,0 +1,1356 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 2,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 2,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 2,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 2,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("F16IO"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("scalar_f16"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("scalar_f32"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 4,
+                    ),
+                    (
+                        name: Some("vec2_f16"),
+                        ty: 2,
+                        binding: Some(Location(
+                            location: 2,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 8,
+                    ),
+                    (
+                        name: Some("vec2_f32"),
+                        ty: 3,
+                        binding: Some(Location(
+                            location: 3,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("vec3_f16"),
+                        ty: 4,
+                        binding: Some(Location(
+                            location: 4,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 24,
+                    ),
+                    (
+                        name: Some("vec3_f32"),
+                        ty: 5,
+                        binding: Some(Location(
+                            location: 5,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 32,
+                    ),
+                    (
+                        name: Some("vec4_f16"),
+                        ty: 6,
+                        binding: Some(Location(
+                            location: 6,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 48,
+                    ),
+                    (
+                        name: Some("vec4_f32"),
+                        ty: 7,
+                        binding: Some(Location(
+                            location: 7,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 64,
+                    ),
+                ],
+                span: 80,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "test_direct",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("test_direct"),
+                arguments: [
+                    (
+                        name: Some("scalar_f16"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                    (
+                        name: Some("scalar_f32"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                    (
+                        name: Some("vec2_f16"),
+                        ty: 2,
+                        binding: Some(Location(
+                            location: 2,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                    (
+                        name: Some("vec2_f32"),
+                        ty: 3,
+                        binding: Some(Location(
+                            location: 3,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                    (
+                        name: Some("vec3_f16"),
+                        ty: 4,
+                        binding: Some(Location(
+                            location: 4,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                    (
+                        name: Some("vec3_f32"),
+                        ty: 5,
+                        binding: Some(Location(
+                            location: 5,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                    (
+                        name: Some("vec4_f16"),
+                        ty: 6,
+                        binding: Some(Location(
+                            location: 6,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                    (
+                        name: Some("vec4_f32"),
+                        ty: 7,
+                        binding: Some(Location(
+                            location: 7,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                ],
+                result: Some((
+                    ty: 8,
+                    binding: None,
+                )),
+                local_variables: [
+                    (
+                        name: Some("output"),
+                        ty: 8,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    FunctionArgument(2),
+                    FunctionArgument(3),
+                    FunctionArgument(4),
+                    FunctionArgument(5),
+                    FunctionArgument(6),
+                    FunctionArgument(7),
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 8,
+                        index: 0,
+                    ),
+                    Literal(F16((15360))),
+                    Binary(
+                        op: Add,
+                        left: 0,
+                        right: 10,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 1,
+                    ),
+                    Literal(F32(1.0)),
+                    Binary(
+                        op: Add,
+                        left: 1,
+                        right: 13,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 2,
+                    ),
+                    Literal(F16((15360))),
+                    Splat(
+                        size: Bi,
+                        value: 16,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 2,
+                        right: 17,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 3,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Bi,
+                        value: 20,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 3,
+                        right: 21,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 4,
+                    ),
+                    Literal(F16((15360))),
+                    Splat(
+                        size: Tri,
+                        value: 24,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 4,
+                        right: 25,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 5,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Tri,
+                        value: 28,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 5,
+                        right: 29,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 6,
+                    ),
+                    Literal(F16((15360))),
+                    Splat(
+                        size: Quad,
+                        value: 32,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 6,
+                        right: 33,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 7,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Quad,
+                        value: 36,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 7,
+                        right: 37,
+                    ),
+                    Load(
+                        pointer: 8,
+                    ),
+                ],
+                named_expressions: {
+                    0: "scalar_f16",
+                    1: "scalar_f32",
+                    2: "vec2_f16",
+                    3: "vec2_f32",
+                    4: "vec3_f16",
+                    5: "vec3_f32",
+                    6: "vec4_f16",
+                    7: "vec4_f32",
+                },
+                body: [
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Store(
+                        pointer: 9,
+                        value: 11,
+                    ),
+                    Emit((
+                        start: 12,
+                        end: 13,
+                    )),
+                    Emit((
+                        start: 14,
+                        end: 15,
+                    )),
+                    Store(
+                        pointer: 12,
+                        value: 14,
+                    ),
+                    Emit((
+                        start: 15,
+                        end: 16,
+                    )),
+                    Emit((
+                        start: 17,
+                        end: 19,
+                    )),
+                    Store(
+                        pointer: 15,
+                        value: 18,
+                    ),
+                    Emit((
+                        start: 19,
+                        end: 20,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 21,
+                        end: 23,
+                    )),
+                    Store(
+                        pointer: 19,
+                        value: 22,
+                    ),
+                    Emit((
+                        start: 23,
+                        end: 24,
+                    )),
+                    Emit((
+                        start: 25,
+                        end: 27,
+                    )),
+                    Store(
+                        pointer: 23,
+                        value: 26,
+                    ),
+                    Emit((
+                        start: 27,
+                        end: 28,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 29,
+                        end: 31,
+                    )),
+                    Store(
+                        pointer: 27,
+                        value: 30,
+                    ),
+                    Emit((
+                        start: 31,
+                        end: 32,
+                    )),
+                    Emit((
+                        start: 33,
+                        end: 35,
+                    )),
+                    Store(
+                        pointer: 31,
+                        value: 34,
+                    ),
+                    Emit((
+                        start: 35,
+                        end: 36,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 37,
+                        end: 39,
+                    )),
+                    Store(
+                        pointer: 35,
+                        value: 38,
+                    ),
+                    Emit((
+                        start: 39,
+                        end: 40,
+                    )),
+                    Return(
+                        value: Some(39),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "test_struct",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("test_struct"),
+                arguments: [
+                    (
+                        name: Some("input"),
+                        ty: 8,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 8,
+                    binding: None,
+                )),
+                local_variables: [
+                    (
+                        name: Some("output"),
+                        ty: 8,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    Literal(F16((15360))),
+                    Binary(
+                        op: Add,
+                        left: 3,
+                        right: 4,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Literal(F32(1.0)),
+                    Binary(
+                        op: Add,
+                        left: 7,
+                        right: 8,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    Literal(F16((15360))),
+                    Splat(
+                        size: Bi,
+                        value: 12,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 11,
+                        right: 13,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 3,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 3,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Bi,
+                        value: 17,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 16,
+                        right: 18,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 4,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 4,
+                    ),
+                    Literal(F16((15360))),
+                    Splat(
+                        size: Tri,
+                        value: 22,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 21,
+                        right: 23,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 5,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 5,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Tri,
+                        value: 27,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 26,
+                        right: 28,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 6,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 6,
+                    ),
+                    Literal(F16((15360))),
+                    Splat(
+                        size: Quad,
+                        value: 32,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 31,
+                        right: 33,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 7,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 7,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Quad,
+                        value: 37,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 36,
+                        right: 38,
+                    ),
+                    Load(
+                        pointer: 1,
+                    ),
+                ],
+                named_expressions: {
+                    0: "input",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 5,
+                        end: 6,
+                    )),
+                    Store(
+                        pointer: 2,
+                        value: 5,
+                    ),
+                    Emit((
+                        start: 6,
+                        end: 8,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 9,
+                    ),
+                    Emit((
+                        start: 10,
+                        end: 12,
+                    )),
+                    Emit((
+                        start: 13,
+                        end: 15,
+                    )),
+                    Store(
+                        pointer: 10,
+                        value: 14,
+                    ),
+                    Emit((
+                        start: 15,
+                        end: 17,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 18,
+                        end: 20,
+                    )),
+                    Store(
+                        pointer: 15,
+                        value: 19,
+                    ),
+                    Emit((
+                        start: 20,
+                        end: 22,
+                    )),
+                    Emit((
+                        start: 23,
+                        end: 25,
+                    )),
+                    Store(
+                        pointer: 20,
+                        value: 24,
+                    ),
+                    Emit((
+                        start: 25,
+                        end: 27,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 28,
+                        end: 30,
+                    )),
+                    Store(
+                        pointer: 25,
+                        value: 29,
+                    ),
+                    Emit((
+                        start: 30,
+                        end: 32,
+                    )),
+                    Emit((
+                        start: 33,
+                        end: 35,
+                    )),
+                    Store(
+                        pointer: 30,
+                        value: 34,
+                    ),
+                    Emit((
+                        start: 35,
+                        end: 37,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 38,
+                        end: 40,
+                    )),
+                    Store(
+                        pointer: 35,
+                        value: 39,
+                    ),
+                    Emit((
+                        start: 40,
+                        end: 41,
+                    )),
+                    Return(
+                        value: Some(40),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "test_copy_input",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("test_copy_input"),
+                arguments: [
+                    (
+                        name: Some("input_original"),
+                        ty: 8,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 8,
+                    binding: None,
+                )),
+                local_variables: [
+                    (
+                        name: Some("input"),
+                        ty: 8,
+                        init: None,
+                    ),
+                    (
+                        name: Some("output"),
+                        ty: 8,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    LocalVariable(0),
+                    LocalVariable(1),
+                    AccessIndex(
+                        base: 2,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 4,
+                    ),
+                    Literal(F16((15360))),
+                    Binary(
+                        op: Add,
+                        left: 5,
+                        right: 6,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 9,
+                    ),
+                    Literal(F32(1.0)),
+                    Binary(
+                        op: Add,
+                        left: 10,
+                        right: 11,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 2,
+                    ),
+                    Load(
+                        pointer: 14,
+                    ),
+                    Literal(F16((15360))),
+                    Splat(
+                        size: Bi,
+                        value: 16,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 15,
+                        right: 17,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 3,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 3,
+                    ),
+                    Load(
+                        pointer: 20,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Bi,
+                        value: 22,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 21,
+                        right: 23,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 4,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 4,
+                    ),
+                    Load(
+                        pointer: 26,
+                    ),
+                    Literal(F16((15360))),
+                    Splat(
+                        size: Tri,
+                        value: 28,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 27,
+                        right: 29,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 5,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 5,
+                    ),
+                    Load(
+                        pointer: 32,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Tri,
+                        value: 34,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 33,
+                        right: 35,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 6,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 6,
+                    ),
+                    Load(
+                        pointer: 38,
+                    ),
+                    Literal(F16((15360))),
+                    Splat(
+                        size: Quad,
+                        value: 40,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 39,
+                        right: 41,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 7,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 7,
+                    ),
+                    Load(
+                        pointer: 44,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Quad,
+                        value: 46,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 45,
+                        right: 47,
+                    ),
+                    Load(
+                        pointer: 2,
+                    ),
+                ],
+                named_expressions: {
+                    0: "input_original",
+                },
+                body: [
+                    Store(
+                        pointer: 1,
+                        value: 0,
+                    ),
+                    Emit((
+                        start: 3,
+                        end: 6,
+                    )),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Store(
+                        pointer: 3,
+                        value: 7,
+                    ),
+                    Emit((
+                        start: 8,
+                        end: 11,
+                    )),
+                    Emit((
+                        start: 12,
+                        end: 13,
+                    )),
+                    Store(
+                        pointer: 8,
+                        value: 12,
+                    ),
+                    Emit((
+                        start: 13,
+                        end: 16,
+                    )),
+                    Emit((
+                        start: 17,
+                        end: 19,
+                    )),
+                    Store(
+                        pointer: 13,
+                        value: 18,
+                    ),
+                    Emit((
+                        start: 19,
+                        end: 22,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 23,
+                        end: 25,
+                    )),
+                    Store(
+                        pointer: 19,
+                        value: 24,
+                    ),
+                    Emit((
+                        start: 25,
+                        end: 28,
+                    )),
+                    Emit((
+                        start: 29,
+                        end: 31,
+                    )),
+                    Store(
+                        pointer: 25,
+                        value: 30,
+                    ),
+                    Emit((
+                        start: 31,
+                        end: 34,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 35,
+                        end: 37,
+                    )),
+                    Store(
+                        pointer: 31,
+                        value: 36,
+                    ),
+                    Emit((
+                        start: 37,
+                        end: 40,
+                    )),
+                    Emit((
+                        start: 41,
+                        end: 43,
+                    )),
+                    Store(
+                        pointer: 37,
+                        value: 42,
+                    ),
+                    Emit((
+                        start: 43,
+                        end: 46,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 47,
+                        end: 49,
+                    )),
+                    Store(
+                        pointer: 43,
+                        value: 48,
+                    ),
+                    Emit((
+                        start: 49,
+                        end: 50,
+                    )),
+                    Return(
+                        value: Some(49),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "test_return_partial",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("test_return_partial"),
+                arguments: [
+                    (
+                        name: Some("input_original"),
+                        ty: 8,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 0,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [
+                    (
+                        name: Some("input"),
+                        ty: 8,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    Literal(F16((0))),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 4,
+                    ),
+                ],
+                named_expressions: {
+                    0: "input_original",
+                },
+                body: [
+                    Store(
+                        pointer: 1,
+                        value: 0,
+                    ),
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Store(
+                        pointer: 2,
+                        value: 3,
+                    ),
+                    Emit((
+                        start: 4,
+                        end: 6,
+                    )),
+                    Return(
+                        value: Some(5),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "test_component_access",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("test_component_access"),
+                arguments: [
+                    (
+                        name: Some("input"),
+                        ty: 8,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 8,
+                    binding: None,
+                )),
+                local_variables: [
+                    (
+                        name: Some("output"),
+                        ty: 8,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 1,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 4,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 6,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 1,
+                    ),
+                ],
+                named_expressions: {
+                    0: "input",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 6,
+                    )),
+                    Store(
+                        pointer: 3,
+                        value: 5,
+                    ),
+                    Emit((
+                        start: 6,
+                        end: 10,
+                    )),
+                    Store(
+                        pointer: 7,
+                        value: 9,
+                    ),
+                    Emit((
+                        start: 10,
+                        end: 11,
+                    )),
+                    Return(
+                        value: Some(10),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

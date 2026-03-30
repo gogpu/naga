@@ -24,8 +24,17 @@ func NewTypeRegistry() *TypeRegistry {
 
 // GetOrCreate returns an existing handle for the type if it exists,
 // or creates a new one if it's unique.
+// Named struct types are never deduplicated with each other (different names
+// mean different types), matching Rust naga's Arena behavior.
 func (r *TypeRegistry) GetOrCreate(name string, inner TypeInner) TypeHandle {
 	key := r.normalizeType(inner)
+	// In Rust naga, UniqueArena deduplicates on the full Type{name, inner} pair.
+	// Type{name: None, inner: X} and Type{name: Some("A"), inner: X} are distinct.
+	// We replicate this by including the name in the dedup key for ALL named types,
+	// not just structs. Anonymous types (name="") still dedup on inner alone.
+	if name != "" {
+		key = "named:" + name + ":" + key
+	}
 
 	// Check if type already exists
 	if handle, exists := r.typeMap[key]; exists {
@@ -40,6 +49,43 @@ func (r *TypeRegistry) GetOrCreate(name string, inner TypeInner) TypeHandle {
 	})
 	r.typeMap[key] = handle
 
+	return handle
+}
+
+// SetName renames an existing type in the registry and updates the dedup key.
+// Used when a type alias renames an anonymous type in-place (e.g., `alias rq = ray_query;`
+// renames the anonymous RayQuery entry to "rq").
+func (r *TypeRegistry) SetName(handle TypeHandle, name string) {
+	if int(handle) >= len(r.types) {
+		return
+	}
+	oldName := r.types[handle].Name
+	r.types[handle].Name = name
+
+	// Update dedup key: remove old key, add new one
+	oldKey := r.normalizeType(r.types[handle].Inner)
+	if oldName != "" {
+		oldKey = "named:" + oldName + ":" + oldKey
+	}
+	delete(r.typeMap, oldKey)
+
+	newKey := r.normalizeType(r.types[handle].Inner)
+	if name != "" {
+		newKey = "named:" + name + ":" + newKey
+	}
+	r.typeMap[newKey] = handle
+}
+
+// Append adds a type without deduplication, always creating a new entry.
+// This matches Rust naga's Arena behavior where each append() creates a new
+// entry even for structurally identical types. Use this for array types that
+// Rust naga does not deduplicate.
+func (r *TypeRegistry) Append(name string, inner TypeInner) TypeHandle {
+	handle := TypeHandle(len(r.types))
+	r.types = append(r.types, Type{
+		Name:  name,
+		Inner: inner,
+	})
 	return handle
 }
 
@@ -99,7 +145,7 @@ func (r *TypeRegistry) normalizeType(inner TypeInner) string {
 		return "sampler:false"
 
 	case ImageType:
-		return fmt.Sprintf("image:%d:%v:%d:%v", t.Dim, t.Arrayed, t.Class, t.Multisampled)
+		return fmt.Sprintf("image:%d:%v:%d:%v:%d:%d:%d", t.Dim, t.Arrayed, t.Class, t.Multisampled, t.StorageFormat, t.StorageAccess, t.SampledKind)
 
 	case AtomicType:
 		b = append(b, "atomic:"...)
@@ -108,6 +154,19 @@ func (r *TypeRegistry) normalizeType(inner TypeInner) string {
 		b = strconv.AppendUint(b, uint64(t.Scalar.Width), 10)
 		r.keyBuf = b
 		return string(b)
+
+	case AccelerationStructureType:
+		return "acceleration_structure"
+
+	case RayQueryType:
+		return "ray_query"
+
+	case BindingArrayType:
+		sizeKey := "unbounded"
+		if t.Size != nil {
+			sizeKey = strconv.FormatUint(uint64(*t.Size), 10)
+		}
+		return "binding_array:" + strconv.FormatInt(int64(t.Base), 10) + ":" + sizeKey
 
 	default:
 		return fmt.Sprintf("unknown:%T", inner)

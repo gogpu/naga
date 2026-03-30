@@ -63,8 +63,8 @@ func TestIsReserved(t *testing.T) {
 		{"semantic_dispatchThread", "SV_DispatchThreadID", true},
 
 		// Naga helper names
-		{"naga_modf", "_naga_modf", true},
-		{"naga_div", "_naga_div", true},
+		{"naga_modf", "naga_modf", true},
+		{"naga_div", "naga_div", true},
 		{"naga_sampler_heap", "_naga_sampler_heap", true},
 
 		// Type shorthands - scalars
@@ -160,29 +160,29 @@ func TestEscape(t *testing.T) {
 		// Empty string
 		{"empty", "", UnnamedIdentifier},
 
-		// Reserved keywords get prefixed
-		{"escape_float", "float", "_float"},
-		{"escape_int", "int", "_int"},
-		{"escape_struct", "struct", "_struct"},
-		{"escape_cbuffer", "cbuffer", "_cbuffer"},
-		{"escape_bool", "bool", "_bool"},
-		{"escape_void", "void", "_void"},
+		// Reserved keywords get suffixed (matches Rust naga)
+		{"escape_float", "float", "float_"},
+		{"escape_int", "int", "int_"},
+		{"escape_struct", "struct", "struct_"},
+		{"escape_cbuffer", "cbuffer", "cbuffer_"},
+		{"escape_bool", "bool", "bool_"},
+		{"escape_void", "void", "void_"},
 
-		// Intrinsics get prefixed
-		{"escape_abs", "abs", "_abs"},
-		{"escape_sin", "sin", "_sin"},
-		{"escape_cos", "cos", "_cos"},
-		{"escape_dot", "dot", "_dot"},
+		// Intrinsics get suffixed
+		{"escape_abs", "abs", "abs_"},
+		{"escape_sin", "sin", "sin_"},
+		{"escape_cos", "cos", "cos_"},
+		{"escape_dot", "dot", "dot_"},
 
-		// Type shorthands get prefixed
-		{"escape_float4", "float4", "_float4"},
-		{"escape_int3", "int3", "_int3"},
-		{"escape_float4x4", "float4x4", "_float4x4"},
+		// Type shorthands get suffixed
+		{"escape_float4", "float4", "float4_"},
+		{"escape_int3", "int3", "int3_"},
+		{"escape_float4x4", "float4x4", "float4x4_"},
 
-		// Case-insensitive keywords get prefixed
-		{"escape_asm_lower", "asm", "_asm"},
-		{"escape_ASM_upper", "ASM", "_ASM"},
-		{"escape_Technique", "Technique", "_Technique"},
+		// Case-insensitive keywords get suffixed
+		{"escape_asm_lower", "asm", "asm_"},
+		{"escape_ASM_upper", "ASM", "ASM_"},
+		{"escape_Technique", "Technique", "Technique_"},
 
 		// Non-reserved names pass through
 		{"pass_myVar", "myVar", "myVar"},
@@ -256,16 +256,16 @@ func TestNagaHelperConstants(t *testing.T) {
 		constant string
 		expected string
 	}{
-		{"NagaModfFunction", NagaModfFunction, "_naga_modf"},
-		{"NagaFrexpFunction", NagaFrexpFunction, "_naga_frexp"},
+		{"NagaModfFunction", NagaModfFunction, "naga_modf"},
+		{"NagaFrexpFunction", NagaFrexpFunction, "naga_frexp"},
 		{"NagaExtractBitsFunction", NagaExtractBitsFunction, "_naga_extract_bits"},
 		{"NagaInsertBitsFunction", NagaInsertBitsFunction, "_naga_insert_bits"},
 		{"SamplerHeapVar", SamplerHeapVar, "_naga_sampler_heap"},
 		{"ComparisonSamplerHeapVar", ComparisonSamplerHeapVar, "_naga_comparison_sampler_heap"},
 		{"SampleExternalTextureFunction", SampleExternalTextureFunction, "_naga_sample_external_texture"},
 		{"NagaAbsFunction", NagaAbsFunction, "_naga_abs"},
-		{"NagaDivFunction", NagaDivFunction, "_naga_div"},
-		{"NagaModFunction", NagaModFunction, "_naga_mod"},
+		{"NagaDivFunction", NagaDivFunction, "naga_div"},
+		{"NagaModFunction", NagaModFunction, "naga_mod"},
 		{"NagaNegFunction", NagaNegFunction, "_naga_neg"},
 		{"NagaF2I32Function", NagaF2I32Function, "_naga_f2i32"},
 		{"NagaF2U32Function", NagaF2U32Function, "_naga_f2u32"},
@@ -365,7 +365,7 @@ func BenchmarkIsReserved(b *testing.B) {
 		"float4",        // Type shorthand
 		"myVariable",    // Not reserved
 		"WaveActiveSum", // DXC intrinsic
-		"_naga_modf",    // Naga helper
+		"naga_modf",     // Naga helper
 	}
 
 	b.ResetTimer()

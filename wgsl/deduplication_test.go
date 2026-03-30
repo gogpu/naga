@@ -44,16 +44,15 @@ func TestTypeDeduplication(t *testing.T) {
 	// Count types
 	typeCount := len(module.Types)
 
-	// Expected types:
-	// Built-ins: f32, i32, u32, bool (4 types)
-	// Note: f16 and samplers are NOT pre-registered (only created on-demand when used)
-	// User types:
+	// Expected types (matching Rust naga post-compaction):
 	// 1. vec4<f32> (vector) - deduplicated, should appear only once
 	// 2. Vertex (struct)
-	// Total: 6 unique types
+	// Note: f32 scalar is registered during vec4<f32> resolution but removed
+	// by compaction since it's only embedded (not handle-referenced).
+	// Total: 2 unique types
 
-	if typeCount != 6 {
-		t.Errorf("Expected 6 unique types, got %d", typeCount)
+	if typeCount != 2 {
+		t.Errorf("Expected 2 unique types, got %d", typeCount)
 		for i, typ := range module.Types {
 			t.Logf("Type %d: %s (%T)", i, typ.Name, typ.Inner)
 		}
@@ -101,17 +100,15 @@ func TestTypeDeduplicationMultipleStructs(t *testing.T) {
 		t.Fatalf("Lower failed: %v", err)
 	}
 
-	// Expected types:
-	// Built-ins: f32, i32, u32, bool (4 types)
-	// Note: f16 and samplers are NOT pre-registered (only created on-demand when used)
-	// User types:
+	// Expected types (matching Rust naga post-compaction):
 	// 1. vec4<f32> (vector) - used in both structs but deduplicated
 	// 2. A (struct)
 	// 3. B (struct)
-	// Total: 7 unique types
+	// Note: f32 scalar is compacted away (only embedded in vec).
+	// Total: 3 unique types
 
-	if len(module.Types) != 7 {
-		t.Errorf("Expected 7 unique types, got %d", len(module.Types))
+	if len(module.Types) != 3 {
+		t.Errorf("Expected 3 unique types, got %d", len(module.Types))
 		for i, typ := range module.Types {
 			t.Logf("Type %d: %s (%T)", i, typ.Name, typ.Inner)
 		}

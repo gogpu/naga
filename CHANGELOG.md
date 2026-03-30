@@ -5,6 +5,139 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-03-30
+
+### Highlights
+
+- **ALL 5 backends at 100% Rust naga parity** — complete exact output match
+- **IR Reference: 144/144 (100%)** — complete structural match with Rust naga on ALL shaders
+- **SPIR-V Backend: 87/87 (100%)** — exact output match with Rust naga (was 40/87)
+- **MSL Backend: 91/91 (100%)** — exact output match with Rust naga
+- **GLSL Backend: 68/68 (100%)** — exact output match with Rust naga
+- **HLSL Backend: 58/58 (100%)** — exact output match with Rust naga
+- **ir/ test coverage: 82%** — up from 24%, with 148 new unit tests
+- **994 golden output files** across 4 backends, 164 test shaders
+- **Quake 1** renders on gogpu/wgpu Pure Go Vulkan backend (gogpu#157)
+
+### Added
+
+#### IR Level
+- **needsPreEmit auto-interrupt** — `addExpression` automatically interrupts emitter for
+  Literal, Constant, ZeroValue, GlobalVariable, FunctionArgument, LocalVariable, Override
+  expressions, matching Rust naga's `constant_evaluator::append_expr`
+- **Splat in GlobalExpressions** — single-arg vector constructors produce `ExprSplat` GE
+- **ZeroValue in GlobalExpressions** — zero-arg constructors produce `ExprZeroValue` GE
+- **Swizzle const-fold** — `vec4(vec2(1,2), vec2(3,4)).wzyx` fully evaluated at compile time
+- **dot4I8Packed/dot4U8Packed const-fold** — packed dot product evaluated at compile time
+- **Abstract composite constant inline** — `ABSTRACT_ARRAY[i]` inlines array literals
+- **Binary const eval → GE** — `vec2(1.0f) + vec2(3.0f, 4.0f)` produces GlobalExpressions directly
+- **Constant alias GE sharing** — `const ALIAS = ORIGINAL` reuses GE handle
+- **Void call emitter restart** — proper emitter state after void function calls
+- **Matrix column grouping** in nested constructor GlobalExpressions
+- **As conversion for scalar type mismatch** — `vec4f(u32_value)` inserts `ExprAs` convert
+
+#### SPIR-V Backend
+- **87/87 (100%) Rust naga parity** — exact binary output match on all reference shaders
+- **Integer div/mod safety wrappers** — `naga_div`/`naga_mod` helper functions prevent
+  division by zero and i32 MIN/-1 overflow, matching Rust naga behavior
+- **Image bounds checking** — Restrict and ReadZeroSkipWrite policies with coordinate
+  clamping for texture load/store operations
+- **Ray query helper functions** — 6 helper functions per ray query (initialize, proceed,
+  terminate, committed/candidate intersection getters)
+- **Force loop bounding** — iteration counter prevents infinite loops on malformed shaders
+- **Workgroup zero-init polyfill** — zero-initializes workgroup memory at entry point start
+- **20+ new capabilities** — ClipDistance, Geometry, GroupNonUniform, Float16 storage,
+  AtomicFloat32AddEXT, StorageImageExtendedFormats, SampleMaskPostDepthCoverage,
+  SubgroupBallotKHR, and more
+- **NonWritable/Flat/NonUniform decorations** — correct propagation for binding arrays
+  and storage buffer access
+- **OpLoad dereferencePointerType fix** — correct type resolution for pointer loads
+- **Float16 constant emission** — proper OpConstant for f16 values
+- **ModfStruct/FrexpStruct fix** — correct result struct types for decomposition functions
+- **Saturate FClamp fix** — `saturate()` emits FClamp with 0.0/1.0 bounds
+- **f16 I/O polyfill** — bitcast-based conversion for f16 entry point interface variables
+- **Composite spilling** — by-value dynamic indexing spills composites to local variables
+- **SSA entry point struct args** — correct argument handling for entry point structs
+- **Capability-aware dot4 polyfill** — software emulation when DotProduct unavailable
+- **Entry point interface vars** — SPIR-V 1.4+ globals, ForcePointSize decoration
+
+#### GLSL Backend
+- **68/68 (100%) Rust naga parity** — exact text output match on all reference shaders
+- **`dominates_global_use` reachability** — correct global variable emission per entry point
+- **ProcessOverrides** — pipeline constant specialization for GLSL output
+- **Image bounds checking** — coordinate clamping for texture operations
+
+#### MSL Backend
+- **Vertex Pulling Transform** — complete implementation in `msl/vertex_pulling.go`:
+  `_mslBufferSizes` struct, 42 vertex format unpacking functions, buffer type structs,
+  bounds-checked byte unpacking from raw vertex buffers
+- **External Texture Support** — `NagaExternalTextureWrapper` struct, multi-plane YUV
+  sampling (`nagaTextureSampleBaseClampToEdge`), texture load (`nagaTextureLoadExternal`),
+  dimensions query (`nagaTextureDimensionsExternal`), transfer function color space conversion
+- **TOML inline table parsing** — `msl_pipeline = { key = val }` format support
+
+#### WGSL Frontend
+- **Ray query support** — `acceleration_structure`, `ray_query` types, `RayDesc`/
+  `RayIntersection` predeclared structs, `RAY_FLAG_*` constants, 7 ray query
+  builtins. Full SPIR-V + HLSL + MSL backend emission.
+- **Subgroup operations** — `subgroupBallot`, `subgroupAdd/Mul/Min/Max/And/Or/Xor`,
+  `subgroupBroadcast/First`, `subgroupShuffle*`, `quadSwap*`, `subgroupBarrier`.
+  Full SPIR-V backend with correct capabilities. HLSL/MSL/GLSL placeholders.
+- **Vector const-exprs** — component-wise binary operations at module scope
+  (`const X = vec2(1.0) + vec2(3.0, 4.0)`). Splat expansion for scalar→vector.
+- **Override declarations** — `@id(N) override name: type = default;`
+- **f16/i64/u64/f64 scalar types** — `enable f16/int64;` directives, literal
+  suffixes (`1.0h`, `42li`, `42lu`, `1.0lf`), type constructors
+- **`break if` syntax** — continuing block `break if condition;`
+- **Type aliases** — `alias FVec3 = vec3<f32>;` with constructor support
+- **`const_assert` declarations** — compile-time assertions (evaluated as no-op)
+- **`workgroupUniformLoad` builtin** — maps to `ir.StmtWorkGroupUniformLoad`
+- **`atomicCompareExchange` result struct** — `.old_value`/`.exchanged` member access
+- **Template list edge cases** — trailing commas, `>=` disambiguation
+- **`diagnostic` directive** — top-level `diagnostic(...)` skipping
+- **164 WGSL test shaders** — 144/144 Rust reference (100%) + 20 custom
+
+### Changed
+
+#### SPIR-V Backend
+- **Block Ownership Model (NAGA-ARCH-001)** — refactored function emission
+  from flat instruction list to block-based architecture matching Rust naga.
+  Each SPIR-V basic block is now a first-class `Block` struct consumed by
+  `FunctionBuilder`. `LoopContext` passed by value for isolated nested loop
+  contexts. Eliminates `loopStack`/`breakStack` mutable state and
+  `blockEndsWithTerminator()` post-hoc checks. Produces identical SPIR-V
+  output — zero behavioral changes.
+
+### Performance
+
+#### GLSL Backend
+- **Dead code elimination via entry-point reachability (GLSL-001)** — GLSL
+  writer now walks the call graph from the target entry point and only emits
+  reachable types, constants, globals, and functions. SDF fragment shader
+  output reduced from 639KB to target <50KB. Fixes 5-10 second startup
+  delay on GLES backend ([naga#42](https://github.com/gogpu/naga/issues/42)).
+
+### Fixed
+
+#### SPIR-V Backend
+- **Workgroup Offset decoration removed (SPIRV-001)** — `emitTypeNoLayout()`
+  now handles struct types by creating separate type IDs without Offset,
+  ColMajor, or MatrixStride member decorations. Fixes Vulkan validation error
+  `VUID-StandaloneSpirv-None-10684` on all Vello compute shaders. Matches
+  Rust naga `global_needs_wrapper()` pattern.
+
+#### MSL Backend
+- **Workgroup variables emitted as entry point parameters (MSL-002)** —
+  `var<workgroup>` globals now appear as `threadgroup T& name` parameters
+  in compute entry points. Previously skipped because they have no resource
+  binding. Fixes `undeclared identifier 'sh_scratch'` on macOS Metal.
+- **Barrier calls fully namespace-qualified** — `threadgroup_barrier()` and
+  `mem_flags` now prefixed with `metal::`. Fixes `undeclared identifier
+  'mem_flags'` on strict Metal compilers.
+- **Runtime-sized array typedef** — dynamic arrays (`array<T>`) now emit
+  `typedef T name[1];` in MSL output. Fixes `unknown type name 'type_6'`
+  for storage buffer parameters.
+
 ## [0.14.8] - 2026-03-16
 
 ### Fixed
@@ -891,7 +1024,13 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.14.3...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/gogpu/naga/compare/v0.14.8...v0.15.0
+[0.14.8]: https://github.com/gogpu/naga/compare/v0.14.7...v0.14.8
+[0.14.7]: https://github.com/gogpu/naga/compare/v0.14.6...v0.14.7
+[0.14.6]: https://github.com/gogpu/naga/compare/v0.14.5...v0.14.6
+[0.14.5]: https://github.com/gogpu/naga/compare/v0.14.4...v0.14.5
+[0.14.4]: https://github.com/gogpu/naga/compare/v0.14.3...v0.14.4
 [0.14.3]: https://github.com/gogpu/naga/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/gogpu/naga/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/gogpu/naga/compare/v0.14.0...v0.14.1

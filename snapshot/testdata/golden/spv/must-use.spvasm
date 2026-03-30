@@ -1,0 +1,52 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 30
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_24 "main"
+               OpExecutionMode %_24 LocalSize 1 1 1
+         %_2 = OpTypeVoid
+         %_3 = OpTypeInt 32 1
+         %_4 = OpTypeFunction %_3
+         %_7 = OpConstant %_3 10
+         %_13 = OpTypePointer Function %_3
+         %_20 = OpTypeFunction %_2
+         %_5 = OpFunction %_3 None %_4
+         %_6 = OpLabel
+               OpReturnValue %_7
+               OpFunctionEnd
+         %_8 = OpFunction %_3 None %_4
+         %_9 = OpLabel
+         %_10 = OpFunctionCall %_3 %_5
+               OpReturnValue %_10
+               OpFunctionEnd
+         %_11 = OpFunction %_3 None %_4
+         %_12 = OpLabel
+         %_14 = OpVariable %_13 Function
+         %_15 = OpFunctionCall %_3 %_5
+               OpStore %_14 %_15
+         %_16 = OpLoad %_3 %_14
+               OpReturnValue %_16
+               OpFunctionEnd
+         %_17 = OpFunction %_3 None %_4
+         %_18 = OpLabel
+         %_19 = OpFunctionCall %_3 %_5
+               OpReturnValue %_19
+               OpFunctionEnd
+         %_21 = OpFunction %_2 None %_20
+         %_22 = OpLabel
+         %_23 = OpFunctionCall %_3 %_5
+               OpReturn
+               OpFunctionEnd
+         %_24 = OpFunction %_2 None %_20
+         %_25 = OpLabel
+         %_26 = OpFunctionCall %_3 %_8
+         %_27 = OpFunctionCall %_3 %_11
+         %_28 = OpFunctionCall %_3 %_17
+         %_29 = OpFunctionCall %_2 %_21
+               OpReturn
+               OpFunctionEnd

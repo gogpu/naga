@@ -237,9 +237,9 @@ func TestSpanIRDump(t *testing.T) {
 
 	// Dump entry points
 	for i, ep := range module.EntryPoints {
-		fn := &module.Functions[ep.Function]
-		t.Logf("EntryPoint[%d]: %s (func=%d, args=%d, locals=%d, exprs=%d, stmts=%d)",
-			i, ep.Name, ep.Function, len(fn.Arguments), len(fn.LocalVars),
+		fn := &ep.Function
+		t.Logf("EntryPoint[%d]: %s (args=%d, locals=%d, exprs=%d, stmts=%d)",
+			i, ep.Name, len(fn.Arguments), len(fn.LocalVars),
 			len(fn.Expressions), len(fn.Body))
 
 		t.Logf("  LocalVars:")

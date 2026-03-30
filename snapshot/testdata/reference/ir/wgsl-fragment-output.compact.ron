@@ -1,0 +1,603 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("FragmentOutputVec4Vec3"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("vec4f"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("vec4i"),
+                        ty: 3,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("vec4u"),
+                        ty: 5,
+                        binding: Some(Location(
+                            location: 2,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 32,
+                    ),
+                    (
+                        name: Some("vec3f"),
+                        ty: 6,
+                        binding: Some(Location(
+                            location: 3,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 48,
+                    ),
+                    (
+                        name: Some("vec3i"),
+                        ty: 7,
+                        binding: Some(Location(
+                            location: 4,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 64,
+                    ),
+                    (
+                        name: Some("vec3u"),
+                        ty: 8,
+                        binding: Some(Location(
+                            location: 5,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 80,
+                    ),
+                ],
+                span: 96,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("FragmentOutputVec2Scalar"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("vec2f"),
+                        ty: 10,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("vec2i"),
+                        ty: 11,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 8,
+                    ),
+                    (
+                        name: Some("vec2u"),
+                        ty: 12,
+                        binding: Some(Location(
+                            location: 2,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("scalarf"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 3,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 24,
+                    ),
+                    (
+                        name: Some("scalari"),
+                        ty: 2,
+                        binding: Some(Location(
+                            location: 4,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 28,
+                    ),
+                    (
+                        name: Some("scalaru"),
+                        ty: 4,
+                        binding: Some(Location(
+                            location: 5,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 32,
+                    ),
+                ],
+                span: 40,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main_vec4vec3",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main_vec4vec3"),
+                arguments: [],
+                result: Some((
+                    ty: 9,
+                    binding: None,
+                )),
+                local_variables: [
+                    (
+                        name: Some("output"),
+                        ty: 9,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Quad,
+                        value: 2,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Literal(I32(0)),
+                    Splat(
+                        size: Quad,
+                        value: 5,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    Literal(U32(0)),
+                    Splat(
+                        size: Quad,
+                        value: 8,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 3,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Tri,
+                        value: 11,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 4,
+                    ),
+                    Literal(I32(0)),
+                    Splat(
+                        size: Tri,
+                        value: 14,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 5,
+                    ),
+                    Literal(U32(0)),
+                    Splat(
+                        size: Tri,
+                        value: 17,
+                    ),
+                    Load(
+                        pointer: 0,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Store(
+                        pointer: 1,
+                        value: 3,
+                    ),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 7,
+                    )),
+                    Store(
+                        pointer: 4,
+                        value: 6,
+                    ),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Store(
+                        pointer: 7,
+                        value: 9,
+                    ),
+                    Emit((
+                        start: 10,
+                        end: 11,
+                    )),
+                    Emit((
+                        start: 12,
+                        end: 13,
+                    )),
+                    Store(
+                        pointer: 10,
+                        value: 12,
+                    ),
+                    Emit((
+                        start: 13,
+                        end: 14,
+                    )),
+                    Emit((
+                        start: 15,
+                        end: 16,
+                    )),
+                    Store(
+                        pointer: 13,
+                        value: 15,
+                    ),
+                    Emit((
+                        start: 16,
+                        end: 17,
+                    )),
+                    Emit((
+                        start: 18,
+                        end: 19,
+                    )),
+                    Store(
+                        pointer: 16,
+                        value: 18,
+                    ),
+                    Emit((
+                        start: 19,
+                        end: 20,
+                    )),
+                    Return(
+                        value: Some(19),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "main_vec2scalar",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main_vec2scalar"),
+                arguments: [],
+                result: Some((
+                    ty: 13,
+                    binding: None,
+                )),
+                local_variables: [
+                    (
+                        name: Some("output"),
+                        ty: 13,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Bi,
+                        value: 2,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Literal(I32(0)),
+                    Splat(
+                        size: Bi,
+                        value: 5,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    Literal(U32(0)),
+                    Splat(
+                        size: Bi,
+                        value: 8,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 3,
+                    ),
+                    Literal(F32(0.0)),
+                    AccessIndex(
+                        base: 0,
+                        index: 4,
+                    ),
+                    Literal(I32(0)),
+                    AccessIndex(
+                        base: 0,
+                        index: 5,
+                    ),
+                    Literal(U32(0)),
+                    Load(
+                        pointer: 0,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Store(
+                        pointer: 1,
+                        value: 3,
+                    ),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 7,
+                    )),
+                    Store(
+                        pointer: 4,
+                        value: 6,
+                    ),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Store(
+                        pointer: 7,
+                        value: 9,
+                    ),
+                    Emit((
+                        start: 10,
+                        end: 11,
+                    )),
+                    Store(
+                        pointer: 10,
+                        value: 11,
+                    ),
+                    Emit((
+                        start: 12,
+                        end: 13,
+                    )),
+                    Store(
+                        pointer: 12,
+                        value: 13,
+                    ),
+                    Emit((
+                        start: 14,
+                        end: 15,
+                    )),
+                    Store(
+                        pointer: 14,
+                        value: 15,
+                    ),
+                    Emit((
+                        start: 16,
+                        end: 17,
+                    )),
+                    Return(
+                        value: Some(16),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

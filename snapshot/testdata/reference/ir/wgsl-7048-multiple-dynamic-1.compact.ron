@@ -1,0 +1,161 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(2),
+                stride: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "f",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("f"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("poly"),
+                        ty: 2,
+                        init: Some(2),
+                    ),
+                    (
+                        name: Some("k"),
+                        ty: 3,
+                        init: Some(4),
+                    ),
+                    (
+                        name: Some("j"),
+                        ty: 3,
+                        init: Some(6),
+                    ),
+                ],
+                expressions: [
+                    ZeroValue(1),
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Quad,
+                        value: 1,
+                    ),
+                    LocalVariable(0),
+                    Literal(I32(0)),
+                    LocalVariable(1),
+                    Literal(I32(0)),
+                    LocalVariable(2),
+                    AccessIndex(
+                        base: 3,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 7,
+                    ),
+                    Access(
+                        base: 0,
+                        index: 9,
+                    ),
+                    AccessIndex(
+                        base: 10,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 5,
+                    ),
+                    Access(
+                        base: 0,
+                        index: 12,
+                    ),
+                    AccessIndex(
+                        base: 13,
+                        index: 2,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 11,
+                        right: 14,
+                    ),
+                    Load(
+                        pointer: 8,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 16,
+                        right: 15,
+                    ),
+                ],
+                named_expressions: {
+                    0: "b",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 8,
+                        end: 18,
+                    )),
+                    Store(
+                        pointer: 8,
+                        value: 17,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

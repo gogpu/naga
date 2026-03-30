@@ -1,0 +1,29 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct type_2 {
+    metal::float2 inner[2];
+};
+
+struct fs_mainOutput {
+    metal::float4 member [[color(0)]];
+};
+fragment fs_mainOutput fs_main(
+) {
+    int index_0_ = 0;
+    type_2 my_array = type_2 {metal::float2(0.0, 0.0), metal::float2(0.0, 0.0)};
+    int _e9 = index_0_;
+    metal::float2 val_0_ = uint(_e9) < 2 ? my_array.inner[_e9] : DefaultConstructible();
+    int _e11 = index_0_;
+    metal::float2 val_1_ = uint(_e11) < 2 ? my_array.inner[_e11] : DefaultConstructible();
+    return fs_mainOutput { val_0_ * val_1_.xxyy };
+}

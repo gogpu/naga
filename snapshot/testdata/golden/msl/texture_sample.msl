@@ -1,52 +1,60 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
 struct VertexOutput {
-    metal::float4 position_;
+    metal::float4 position;
     metal::float2 uv;
+    char _pad2[8];
 };
-
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
+int naga_div(int lhs, int rhs) {
+    return lhs / metal::select(rhs, 1, (lhs == (-2147483647 - 1) & rhs == -1) | (rhs == 0));
 }
 
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
+int naga_mod(int lhs, int rhs) {
+    int divisor = metal::select(rhs, 1, (lhs == (-2147483647 - 1) & rhs == -1) | (rhs == 0));
+    return lhs - (lhs / divisor) * divisor;
 }
 
-struct vs_main_Output {
-    metal::float4 position_ [[position]];
-    metal::float2 uv [[user(locn0)]];
+
+struct vs_mainInput {
 };
-
-vertex vs_main_Output vs_main(uint vi [[vertex_id]],
-    metal::texture2d<float, metal::access::sample> t_diffuse [[texture(0)]],
-    metal::sampler s_diffuse [[sampler(0)]]) {
-    vs_main_Output _output;
-    auto _ret_25 = VertexOutput{metal::float4(metal::float2(((float(_naga_div(int(vi), 2)) * 4.0) - 1.0), ((float(_naga_mod(int(vi), 2)) * 4.0) - 1.0)), 0.0, 1.0), ((metal::float2(((float(_naga_div(int(vi), 2)) * 4.0) - 1.0), ((float(_naga_mod(int(vi), 2)) * 4.0) - 1.0)) + 1.0) * 0.5)};
-    _output.position_ = _ret_25.position_;
-    _output.uv = _ret_25.uv;
-    return _output;
-    return _output;
-}
-
-struct fs_main_Input {
-    metal::float2 uv [[user(locn0)]];
+struct vs_mainOutput {
+    metal::float4 position [[position]];
+    metal::float2 uv [[user(loc0), center_perspective]];
 };
-
-fragment metal::float4 fs_main(fs_main_Input _input [[stage_in]],
-    metal::texture2d<float, metal::access::sample> t_diffuse [[texture(0)]],
-    metal::sampler s_diffuse [[sampler(0)]]) {
-    auto uv = _input.uv;
-    
-    return t_diffuse.sample(s_diffuse, uv);
+vertex vs_mainOutput vs_main(
+  uint vi [[vertex_id]]
+) {
+    float x = (static_cast<float>(naga_div(static_cast<int>(vi), 2)) * 4.0) - 1.0;
+    float y = (static_cast<float>(naga_mod(static_cast<int>(vi), 2)) * 4.0) - 1.0;
+    metal::float2 pos = metal::float2(x, y);
+    metal::float2 uv_1 = (pos + metal::float2(1.0)) * 0.5;
+    const auto _tmp = VertexOutput {metal::float4(pos, 0.0, 1.0), uv_1};
+    return vs_mainOutput { _tmp.position, _tmp.uv };
 }
 
+
+struct fs_mainInput {
+    metal::float2 uv [[user(loc0), center_perspective]];
+};
+struct fs_mainOutput {
+    metal::float4 member_1 [[color(0)]];
+};
+fragment fs_mainOutput fs_main(
+  fs_mainInput varyings_1 [[stage_in]]
+, metal::texture2d<float, metal::access::sample> t_diffuse [[user(fake0)]]
+, metal::sampler s_diffuse [[user(fake0)]]
+) {
+    const auto uv = varyings_1.uv;
+    metal::float4 color = t_diffuse.sample(s_diffuse, uv);
+    return fs_mainOutput { color };
+}

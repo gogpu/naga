@@ -1,0 +1,171 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(2),
+                stride: 8,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "fs_main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fs_main"),
+                arguments: [],
+                result: Some((
+                    ty: 0,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [
+                    (
+                        name: Some("index_0"),
+                        ty: 3,
+                        init: Some(7),
+                    ),
+                ],
+                expressions: [
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            0,
+                            1,
+                        ],
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            3,
+                            4,
+                        ],
+                    ),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            2,
+                            5,
+                        ],
+                    ),
+                    Literal(I32(0)),
+                    LocalVariable(0),
+                    Load(
+                        pointer: 8,
+                    ),
+                    Access(
+                        base: 6,
+                        index: 9,
+                    ),
+                    Load(
+                        pointer: 8,
+                    ),
+                    Access(
+                        base: 6,
+                        index: 11,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 10,
+                        right: 12,
+                    ),
+                    Swizzle(
+                        size: Quad,
+                        vector: 13,
+                        pattern: (X, X, Y, Y),
+                    ),
+                ],
+                named_expressions: {
+                    6: "my_array",
+                    10: "val_0",
+                    12: "val_1",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 5,
+                        end: 7,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 11,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 13,
+                    )),
+                    Emit((
+                        start: 13,
+                        end: 15,
+                    )),
+                    Return(
+                        value: Some(14),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

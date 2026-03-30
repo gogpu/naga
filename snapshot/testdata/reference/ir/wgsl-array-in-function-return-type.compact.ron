@@ -1,0 +1,223 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(2),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(3),
+                stride: 8,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("ret_array"),
+            arguments: [],
+            result: Some((
+                ty: 1,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 1,
+                    components: [
+                        0,
+                        1,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Return(
+                    value: Some(2),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("ret_array_array"),
+            arguments: [],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                CallResult(0),
+                CallResult(0),
+                CallResult(0),
+                Compose(
+                    ty: 2,
+                    components: [
+                        0,
+                        1,
+                        2,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Call(
+                    function: 0,
+                    arguments: [],
+                    result: Some(0),
+                ),
+                Call(
+                    function: 0,
+                    arguments: [],
+                    result: Some(1),
+                ),
+                Call(
+                    function: 0,
+                    arguments: [],
+                    result: Some(2),
+                ),
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Return(
+                    value: Some(3),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: Some((
+                    ty: 3,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    CallResult(1),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 3,
+                        index: 1,
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            2,
+                            4,
+                            5,
+                            6,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "a",
+                },
+                body: [
+                    Call(
+                        function: 1,
+                        arguments: [],
+                        result: Some(0),
+                    ),
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Return(
+                        value: Some(7),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

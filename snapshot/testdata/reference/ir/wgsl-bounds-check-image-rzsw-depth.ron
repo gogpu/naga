@@ -1,0 +1,421 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Depth(
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: true,
+                class: Depth(
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Depth(
+                    multi: true,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("image_depth_2d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("image_depth_2d_array"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 4,
+            init: None,
+        ),
+        (
+            name: Some("image_depth_multisampled_2d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 6,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("test_textureLoad_depth_2d"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 2,
+                    binding: None,
+                ),
+                (
+                    name: Some("level"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 3,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(0),
+                ImageLoad(
+                    image: 2,
+                    coordinate: 0,
+                    array_index: None,
+                    sample: None,
+                    level: Some(1),
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "level",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Return(
+                    value: Some(3),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureLoad_depth_2d_array_u"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 2,
+                    binding: None,
+                ),
+                (
+                    name: Some("index"),
+                    ty: 5,
+                    binding: None,
+                ),
+                (
+                    name: Some("level"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 3,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                GlobalVariable(1),
+                ImageLoad(
+                    image: 3,
+                    coordinate: 0,
+                    array_index: Some(1),
+                    sample: None,
+                    level: Some(2),
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "index",
+                2: "level",
+            },
+            body: [
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Return(
+                    value: Some(4),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureLoad_depth_2d_array_s"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 2,
+                    binding: None,
+                ),
+                (
+                    name: Some("index"),
+                    ty: 1,
+                    binding: None,
+                ),
+                (
+                    name: Some("level"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 3,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                GlobalVariable(1),
+                ImageLoad(
+                    image: 3,
+                    coordinate: 0,
+                    array_index: Some(1),
+                    sample: None,
+                    level: Some(2),
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "index",
+                2: "level",
+            },
+            body: [
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Return(
+                    value: Some(4),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_textureLoad_depth_multisampled_2d"),
+            arguments: [
+                (
+                    name: Some("coords"),
+                    ty: 2,
+                    binding: None,
+                ),
+                (
+                    name: Some("_sample"),
+                    ty: 1,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 3,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                GlobalVariable(2),
+                ImageLoad(
+                    image: 2,
+                    coordinate: 0,
+                    array_index: None,
+                    sample: Some(1),
+                    level: None,
+                ),
+            ],
+            named_expressions: {
+                0: "coords",
+                1: "_sample",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Return(
+                    value: Some(3),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "fragment_shader",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fragment_shader"),
+                arguments: [],
+                result: Some((
+                    ty: 7,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    ZeroValue(2),
+                    Literal(I32(0)),
+                    CallResult(0),
+                    ZeroValue(2),
+                    Literal(U32(0)),
+                    Literal(I32(0)),
+                    CallResult(1),
+                    ZeroValue(2),
+                    Literal(I32(0)),
+                    Literal(I32(0)),
+                    CallResult(2),
+                    ZeroValue(2),
+                    Literal(I32(0)),
+                    CallResult(3),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 7,
+                        components: [
+                            14,
+                            15,
+                            16,
+                            17,
+                        ],
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [
+                            0,
+                            1,
+                        ],
+                        result: Some(2),
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [
+                            3,
+                            4,
+                            5,
+                        ],
+                        result: Some(6),
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [
+                            7,
+                            8,
+                            9,
+                        ],
+                        result: Some(10),
+                    ),
+                    Call(
+                        function: 3,
+                        arguments: [
+                            11,
+                            12,
+                        ],
+                        result: Some(13),
+                    ),
+                    Emit((
+                        start: 18,
+                        end: 19,
+                    )),
+                    Return(
+                        value: Some(18),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

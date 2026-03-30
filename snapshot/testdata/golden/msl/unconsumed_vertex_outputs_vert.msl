@@ -1,0 +1,34 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct VertexOut {
+    metal::float4 position;
+    float value;
+    char _pad2[12];
+    metal::float4 unused_value2_;
+    float unused_value;
+    float value2_;
+    char _pad5[8];
+};
+
+struct vs_mainOutput {
+    metal::float4 position [[position]];
+    float value [[user(loc1), center_perspective]];
+    metal::float4 unused_value2_ [[user(loc2), center_perspective]];
+    float unused_value [[user(loc0), center_perspective]];
+    float value2_ [[user(loc3), center_perspective]];
+};
+vertex vs_mainOutput vs_main(
+) {
+    const auto _tmp = VertexOut {metal::float4(1.0), 1.0, {}, metal::float4(2.0), 1.0, 0.5};
+    return vs_mainOutput { _tmp.position, _tmp.value, _tmp.unused_value2_, _tmp.unused_value, _tmp.value2_ };
+}

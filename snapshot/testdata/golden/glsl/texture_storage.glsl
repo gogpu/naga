@@ -1,12 +1,26 @@
 #version 430 core
-
-image2D output_tex;
-
+#extension GL_ARB_compute_shader : require
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
+layout(rgba8) writeonly uniform image2D _group_0_binding_0_cs;
+
+
 void main() {
-    if (((gl_GlobalInvocationID[0] >= textureSize(output_tex, 0)[0]) || (gl_GlobalInvocationID[1] >= textureSize(output_tex, 0)[1]))) {
+    uvec3 gid = gl_GlobalInvocationID;
+    bool unnamed = false;
+    uvec2 dims = uvec2(imageSize(_group_0_binding_0_cs).xy);
+    if (!((gid.x >= dims.x))) {
+        unnamed = (gid.y >= dims.y);
+    } else {
+        unnamed = true;
+    }
+    bool _e13 = unnamed;
+    if (_e13) {
         return;
     }
-    imageStore(output_tex, int(gl_GlobalInvocationID.xy), vec4(vec2((float(gl_GlobalInvocationID[0]) / float(textureSize(output_tex, 0)[0])), (float(gl_GlobalInvocationID[1]) / float(textureSize(output_tex, 0)[1])))[0], vec2((float(gl_GlobalInvocationID[0]) / float(textureSize(output_tex, 0)[0])), (float(gl_GlobalInvocationID[1]) / float(textureSize(output_tex, 0)[1])))[1], 0.5, 1.0));
+    vec2 uv = vec2((float(gid.x) / float(dims.x)), (float(gid.y) / float(dims.y)));
+    vec4 color = vec4(uv.x, uv.y, 0.5, 1.0);
+    imageStore(_group_0_binding_0_cs, ivec2(gid.xy), color);
+    return;
 }
+

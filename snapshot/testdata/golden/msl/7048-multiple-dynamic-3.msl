@@ -1,0 +1,79 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct QEFResult {
+    float a;
+    char _pad1[12];
+    metal::float3 b;
+};
+struct type_2 {
+    metal::float3 inner[12];
+};
+
+QEFResult foobar(
+    type_2 normals,
+    uint count
+) {
+    uint i = 0u;
+    metal::float3 n0_ = {};
+    uint j = 0u;
+    metal::float3 n1_ = {};
+    uint2 loop_bound = uint2(4294967295u);
+    bool loop_init = true;
+    while(true) {
+        if (metal::all(loop_bound == uint2(0u))) { break; }
+        loop_bound -= uint2(loop_bound.y == 0u, 1u);
+        if (!loop_init) {
+            uint _e10 = i;
+            i = _e10 + 1u;
+        }
+        loop_init = false;
+        uint _e4 = i;
+        if (_e4 < count) {
+        } else {
+            break;
+        }
+        {
+            uint _e6 = i;
+            n0_ = uint(_e6) < 12 ? normals.inner[_e6] : DefaultConstructible();
+        }
+    }
+    uint2 loop_bound_1 = uint2(4294967295u);
+    bool loop_init_1 = true;
+    while(true) {
+        if (metal::all(loop_bound_1 == uint2(0u))) { break; }
+        loop_bound_1 -= uint2(loop_bound_1.y == 0u, 1u);
+        if (!loop_init_1) {
+            uint _e20 = j;
+            j = _e20 + 1u;
+        }
+        loop_init_1 = false;
+        uint _e14 = j;
+        if (_e14 < count) {
+        } else {
+            break;
+        }
+        {
+            uint _e16 = j;
+            n1_ = uint(_e16) < 12 ? normals.inner[_e16] : DefaultConstructible();
+        }
+    }
+    return QEFResult {0.0, {}, metal::float3(0.0)};
+}
+
+fragment void main_(
+) {
+    type_2 arr = {};
+    type_2 _e1 = arr;
+    QEFResult _e3 = foobar(_e1, 1u);
+    return;
+}

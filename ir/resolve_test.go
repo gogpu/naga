@@ -320,8 +320,9 @@ func TestResolveExpressionType_ImageSample(t *testing.T) {
 	module := &Module{
 		Types: []Type{
 			{Name: "texture_2d<f32>", Inner: ImageType{
-				Dim:   Dim2D,
-				Class: ImageClassSampled,
+				Dim:         Dim2D,
+				Class:       ImageClassSampled,
+				SampledKind: ScalarFloat,
 			}},
 		},
 	}

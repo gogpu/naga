@@ -1,0 +1,641 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Sampler(
+                comparison: false,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Depth(
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Sampler(
+                comparison: true,
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: false,
+                class: Storage(
+                    format: Rgba8Unorm,
+                    access: ("LOAD | STORE"),
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("t"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("s"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 1,
+            init: None,
+        ),
+        (
+            name: Some("d"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 4,
+            init: None,
+        ),
+        (
+            name: Some("c"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 3,
+            )),
+            ty: 5,
+            init: None,
+        ),
+        (
+            name: Some("st"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 4,
+            )),
+            ty: 6,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("color"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                GlobalVariable(0),
+                GlobalVariable(1),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        2,
+                        3,
+                    ],
+                ),
+                ImageSample(
+                    image: 0,
+                    sampler: 1,
+                    gather: None,
+                    coordinate: 4,
+                    array_index: None,
+                    offset: None,
+                    level: Auto,
+                    depth_ref: None,
+                    clamp_to_edge: false,
+                ),
+                GlobalVariable(0),
+                GlobalVariable(1),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        8,
+                        9,
+                    ],
+                ),
+                Literal(I32(3)),
+                Literal(I32(4)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        11,
+                        12,
+                    ],
+                ),
+                ImageSample(
+                    image: 6,
+                    sampler: 7,
+                    gather: None,
+                    coordinate: 10,
+                    array_index: None,
+                    offset: Some(13),
+                    level: Auto,
+                    depth_ref: None,
+                    clamp_to_edge: false,
+                ),
+                GlobalVariable(0),
+                GlobalVariable(1),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        17,
+                        18,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                ImageSample(
+                    image: 15,
+                    sampler: 16,
+                    gather: None,
+                    coordinate: 19,
+                    array_index: None,
+                    offset: None,
+                    level: Exact(20),
+                    depth_ref: None,
+                    clamp_to_edge: false,
+                ),
+                GlobalVariable(0),
+                GlobalVariable(1),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        24,
+                        25,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                ImageSample(
+                    image: 22,
+                    sampler: 23,
+                    gather: None,
+                    coordinate: 26,
+                    array_index: None,
+                    offset: None,
+                    level: Exact(27),
+                    depth_ref: None,
+                    clamp_to_edge: false,
+                ),
+                GlobalVariable(0),
+                GlobalVariable(1),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        31,
+                        32,
+                    ],
+                ),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        34,
+                        35,
+                    ],
+                ),
+                Literal(F32(5.0)),
+                Literal(F32(6.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        37,
+                        38,
+                    ],
+                ),
+                ImageSample(
+                    image: 29,
+                    sampler: 30,
+                    gather: None,
+                    coordinate: 33,
+                    array_index: None,
+                    offset: None,
+                    level: Gradient(
+                        x: 36,
+                        y: 39,
+                    ),
+                    depth_ref: None,
+                    clamp_to_edge: false,
+                ),
+                GlobalVariable(0),
+                GlobalVariable(1),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        43,
+                        44,
+                    ],
+                ),
+                Literal(F32(1.0)),
+                ImageSample(
+                    image: 41,
+                    sampler: 42,
+                    gather: None,
+                    coordinate: 45,
+                    array_index: None,
+                    offset: None,
+                    level: Bias(46),
+                    depth_ref: None,
+                    clamp_to_edge: false,
+                ),
+            ],
+            named_expressions: {
+                5: "phony",
+                14: "phony",
+                21: "phony",
+                28: "phony",
+                40: "phony",
+                47: "phony",
+            },
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 4,
+                    end: 6,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 10,
+                    end: 11,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 13,
+                    end: 15,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 19,
+                    end: 20,
+                )),
+                Emit((
+                    start: 21,
+                    end: 22,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 26,
+                    end: 27,
+                )),
+                Emit((
+                    start: 28,
+                    end: 29,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 33,
+                    end: 34,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 36,
+                    end: 37,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 39,
+                    end: 41,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 45,
+                    end: 46,
+                )),
+                Emit((
+                    start: 47,
+                    end: 48,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("depth"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                GlobalVariable(2),
+                GlobalVariable(1),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        2,
+                        3,
+                    ],
+                ),
+                Literal(I32(1)),
+                ImageSample(
+                    image: 0,
+                    sampler: 1,
+                    gather: None,
+                    coordinate: 4,
+                    array_index: None,
+                    offset: None,
+                    level: Exact(5),
+                    depth_ref: None,
+                    clamp_to_edge: false,
+                ),
+                GlobalVariable(2),
+                GlobalVariable(3),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        9,
+                        10,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                ImageSample(
+                    image: 7,
+                    sampler: 8,
+                    gather: None,
+                    coordinate: 11,
+                    array_index: None,
+                    offset: None,
+                    level: Auto,
+                    depth_ref: Some(12),
+                    clamp_to_edge: false,
+                ),
+                GlobalVariable(2),
+                GlobalVariable(3),
+                Literal(F32(1.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 2,
+                    components: [
+                        16,
+                        17,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                ImageSample(
+                    image: 14,
+                    sampler: 15,
+                    gather: Some(X),
+                    coordinate: 18,
+                    array_index: None,
+                    offset: None,
+                    level: Zero,
+                    depth_ref: Some(19),
+                    clamp_to_edge: false,
+                ),
+            ],
+            named_expressions: {
+                6: "phony",
+                13: "phony",
+                20: "phony",
+            },
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 13,
+                    end: 14,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 18,
+                    end: 19,
+                )),
+                Emit((
+                    start: 20,
+                    end: 21,
+                )),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("storage"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [
+                GlobalVariable(4),
+                Literal(I32(0)),
+                Literal(I32(1)),
+                Compose(
+                    ty: 3,
+                    components: [
+                        1,
+                        2,
+                    ],
+                ),
+                Literal(F32(2.0)),
+                Literal(F32(3.0)),
+                Literal(F32(4.0)),
+                Literal(F32(5.0)),
+                Compose(
+                    ty: 7,
+                    components: [
+                        4,
+                        5,
+                        6,
+                        7,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 8,
+                    end: 9,
+                )),
+                ImageStore(
+                    image: 0,
+                    coordinate: 3,
+                    array_index: None,
+                    value: 8,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

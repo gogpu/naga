@@ -1,37 +1,39 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
-}
 
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
-}
-
-kernel void main_() {
+kernel void main_(
+) {
     float a = 10.0;
     uint counter = 0u;
-    int temp = 20;
-    float uninit_f = float();
-    metal::uint2 uninit_v = metal::uint2();
-    
-    a = (a + 1.0);
-    a = (a * 2.0);
-    counter = (counter + 1u);
-    counter = (counter + 1u);
+    int temp = {};
+    float uninit_f = {};
+    metal::uint2 uninit_v = {};
+    float z = 1.0 + 2.0;
+    float _e5 = a;
+    a = _e5 + 1.0;
+    float _e8 = a;
+    a = _e8 * 2.0;
+    metal::float3 v = metal::float3(1.0, 2.0, 3.0);
+    uint _e20 = counter;
+    counter = _e20 + 1u;
+    uint _e23 = counter;
+    counter = _e23 + 1u;
     {
-        temp = (temp + 1);
+        temp = 20;
+        int _e29 = temp;
+        temp = as_type<int>(as_type<uint>(_e29) + as_type<uint>(1));
     }
     uninit_f = 5.0;
     uninit_v = metal::uint2(1u, 2u);
+    return;
 }
-

@@ -1,66 +1,63 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
-
-struct Data {
-    float value;
-    uint count;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
 };
 
-struct type_7 {
-    float inner[4];
+struct _mslBufferSizes {
+    uint size0;
 };
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
+typedef uint type_2[1];
+struct DynamicArray {
+    type_2 arr;
+};
+
+void f(
+) {
+    metal::float2x2 v = {};
+    v[0] = metal::float2(10.0);
+    return;
 }
 
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
+void index_unsized(
+    int i,
+    uint v_1,
+    device DynamicArray& dynamic_array,
+    constant _mslBufferSizes& _buffer_sizes
+) {
+    uint val = uint(i) < 1 + (_buffer_sizes.size0 - 0 - 4) / 4 ? dynamic_array.arr[i] : DefaultConstructible();
+    if (uint(i) < 1 + (_buffer_sizes.size0 - 0 - 4) / 4) {
+        dynamic_array.arr[i] = val + v_1;
+    }
+    return;
 }
 
-void increment(thread int& p) {
-    p = (p + 1);
+void index_dynamic_array(
+    int i_1,
+    uint v_2,
+    device DynamicArray& dynamic_array,
+    constant _mslBufferSizes& _buffer_sizes
+) {
+    uint val_1 = uint(i_1) < 1 + (_buffer_sizes.size0 - 0 - 4) / 4 ? dynamic_array.arr[i_1] : DefaultConstructible();
+    if (uint(i_1) < 1 + (_buffer_sizes.size0 - 0 - 4) / 4) {
+        dynamic_array.arr[i_1] = val_1 + v_2;
+    }
+    return;
 }
 
-float read_value(thread float& p) {
-    return p;
+kernel void main_(
+  device DynamicArray& dynamic_array [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    f();
+    index_unsized(1, 1u, dynamic_array, _buffer_sizes);
+    index_dynamic_array(1, 1u, dynamic_array, _buffer_sizes);
+    return;
 }
-
-void swap(thread int& a, thread int& b) {
-    a = b;
-    b = a;
-}
-
-void modify_array_element(thread type_7& arr, uint idx, float val) {
-    arr.inner[idx] = val;
-}
-
-void modify_struct_field(thread Data& d) {
-    d.value = (d.value * 2.0);
-    d.count = (d.count + 1u);
-}
-
-kernel void main_() {
-    int x = 10;
-    float f = 3.14;
-    int a = 1;
-    int b = 2;
-    type_7 arr = type_7{{1.0, 2.0, 3.0, 4.0}};
-    Data data = Data{1.0, 0u};
-    
-    auto _fc2 = increment(x);
-    auto _fc3 = increment(x);
-    float _fc6 = read_value(f);
-    auto _fc11 = swap(a, b);
-    auto _fc20 = modify_array_element(arr, 0u, 99.0);
-    auto _fc25 = modify_struct_field(data);
-}
-

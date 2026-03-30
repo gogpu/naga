@@ -1,0 +1,181 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(2),
+                stride: 4,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("out"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 1,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("tmp"),
+                        ty: 1,
+                        init: Some(2),
+                    ),
+                    (
+                        name: Some("i"),
+                        ty: 0,
+                        init: Some(4),
+                    ),
+                ],
+                expressions: [
+                    Literal(I32(1)),
+                    Literal(I32(2)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            0,
+                            1,
+                        ],
+                    ),
+                    LocalVariable(0),
+                    Literal(I32(0)),
+                    LocalVariable(1),
+                    Load(
+                        pointer: 5,
+                    ),
+                    Literal(I32(2)),
+                    Binary(
+                        op: Less,
+                        left: 6,
+                        right: 7,
+                    ),
+                    GlobalVariable(0),
+                    Load(
+                        pointer: 5,
+                    ),
+                    Access(
+                        base: 9,
+                        index: 10,
+                    ),
+                    Load(
+                        pointer: 5,
+                    ),
+                    Access(
+                        base: 3,
+                        index: 12,
+                    ),
+                    Load(
+                        pointer: 13,
+                    ),
+                    Literal(I32(1)),
+                    Load(
+                        pointer: 5,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 16,
+                        right: 15,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Loop(
+                        body: [
+                            Emit((
+                                start: 6,
+                                end: 7,
+                            )),
+                            Emit((
+                                start: 8,
+                                end: 9,
+                            )),
+                            If(
+                                condition: 8,
+                                accept: [],
+                                reject: [
+                                    Break,
+                                ],
+                            ),
+                            Block([
+                                Emit((
+                                    start: 10,
+                                    end: 15,
+                                )),
+                                Store(
+                                    pointer: 11,
+                                    value: 14,
+                                ),
+                            ]),
+                        ],
+                        continuing: [
+                            Emit((
+                                start: 16,
+                                end: 18,
+                            )),
+                            Store(
+                                pointer: 5,
+                                value: 17,
+                            ),
+                        ],
+                        break_if: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

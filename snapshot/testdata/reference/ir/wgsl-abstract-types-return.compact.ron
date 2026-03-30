@@ -1,0 +1,330 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 2,
+                size: Constant(4),
+                stride: 4,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("return_i32_ai"),
+            arguments: [],
+            result: Some((
+                ty: 0,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(I32(1)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("return_u32_ai"),
+            arguments: [],
+            result: Some((
+                ty: 1,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(U32(1)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("return_f32_ai"),
+            arguments: [],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(F32(1.0)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("return_f32_af"),
+            arguments: [],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(F32(1.0)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("return_vec2f32_ai"),
+            arguments: [],
+            result: Some((
+                ty: 3,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(F32(1.0)),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("return_arrf32_ai"),
+            arguments: [],
+            result: Some((
+                ty: 4,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(F32(1.0)),
+                Literal(F32(1.0)),
+                Literal(F32(1.0)),
+                Literal(F32(1.0)),
+                Compose(
+                    ty: 4,
+                    components: [
+                        0,
+                        1,
+                        2,
+                        3,
+                    ],
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Return(
+                    value: Some(4),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("return_const_f32_const_ai"),
+            arguments: [],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(F32(1.0)),
+            ],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: Some(0),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("return_vec2f32_const_ai"),
+            arguments: [],
+            result: Some((
+                ty: 3,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(F32(1.0)),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+            ],
+            named_expressions: {},
+            body: [
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Return(
+                    value: Some(1),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    CallResult(0),
+                    CallResult(1),
+                    CallResult(2),
+                    CallResult(3),
+                    CallResult(4),
+                    CallResult(5),
+                    CallResult(6),
+                    CallResult(7),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: Some(0),
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [],
+                        result: Some(1),
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [],
+                        result: Some(2),
+                    ),
+                    Call(
+                        function: 3,
+                        arguments: [],
+                        result: Some(3),
+                    ),
+                    Call(
+                        function: 4,
+                        arguments: [],
+                        result: Some(4),
+                    ),
+                    Call(
+                        function: 5,
+                        arguments: [],
+                        result: Some(5),
+                    ),
+                    Call(
+                        function: 6,
+                        arguments: [],
+                        result: Some(6),
+                    ),
+                    Call(
+                        function: 7,
+                        arguments: [],
+                        result: Some(7),
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

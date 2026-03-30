@@ -1,0 +1,67 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct type_1 {
+    int inner[5];
+};
+struct type_2 {
+    int inner[2];
+};
+struct type_3 {
+    type_2 inner[2];
+};
+
+int index_arg_array(
+    type_1 a,
+    int i
+) {
+    return uint(i) < 5 ? a.inner[i] : DefaultConstructible();
+}
+
+int index_let_array(
+    int i_1,
+    int j
+) {
+    type_3 a_1 = type_3 {type_2 {1, 2}, type_2 {3, 4}};
+    return uint(j) < 2 && uint(i_1) < 2 ? a_1.inner[i_1].inner[j] : DefaultConstructible();
+}
+
+float index_let_matrix(
+    int i_2,
+    int j_1
+) {
+    metal::float2x2 a_2 = metal::float2x2(metal::float2(1.0, 2.0), metal::float2(3.0, 4.0));
+    return uint(j_1) < 2 && uint(i_2) < 2 ? a_2[i_2][j_1] : DefaultConstructible();
+}
+
+metal::float4 index_let_array_1d(
+    uint vi_1
+) {
+    type_1 arr = type_1 {1, 2, 3, 4, 5};
+    int value = uint(vi_1) < 5 ? arr.inner[vi_1] : DefaultConstructible();
+    return static_cast<metal::float4>(metal::int4(value));
+}
+
+struct main_Input {
+};
+struct main_Output {
+    metal::float4 member [[position]];
+};
+vertex main_Output main_(
+  uint vi [[vertex_id]]
+) {
+    int _e8 = index_arg_array(type_1 {1, 2, 3, 4, 5}, 6);
+    int _e11 = index_let_array(1, 2);
+    float _e14 = index_let_matrix(1, 2);
+    metal::float4 _e15 = index_let_array_1d(vi);
+    return main_Output { _e15 };
+}

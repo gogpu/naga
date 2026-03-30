@@ -16,6 +16,27 @@ type BindTarget struct {
 	// BindingArraySize is the array size for binding arrays.
 	// If nil, the resource is not an array.
 	BindingArraySize *uint32
+
+	// DynamicStorageBufferOffsetsIndex is the index into the dynamic buffer offsets
+	// constant buffer for this binding. When set, the generated HLSL adds the
+	// dynamic offset to ByteAddressBuffer Load/Store addresses.
+	// This is the index in the buffer at Options.DynamicStorageBufferOffsetsTargets.
+	// Matches Rust naga's BindTarget::dynamic_storage_buffer_offsets_index.
+	DynamicStorageBufferOffsetsIndex *uint32
+
+	// RestrictIndexing indicates that this specific binding should have bounds
+	// checking applied to array indices, even for Uniform address space.
+	// Matches Rust naga's BindTarget::restrict_indexing.
+	RestrictIndexing bool
+}
+
+// OffsetsBindTarget specifies the HLSL register binding for a dynamic buffer
+// offsets constant buffer. Each group of dynamic storage buffers gets one of these.
+// Matches Rust naga's OffsetsBindTarget.
+type OffsetsBindTarget struct {
+	Space    uint8
+	Register uint32
+	Size     uint32
 }
 
 // SamplerHeapBindTargets specifies bind targets for sampler heaps.
@@ -98,3 +119,17 @@ func (bt BindTarget) WithArraySize(size uint32) BindTarget {
 	bt.BindingArraySize = &size
 	return bt
 }
+
+// ExternalTextureBindTarget specifies HLSL binding information for an external
+// texture global variable. External textures are decomposed into 3 plane
+// textures and a parameters cbuffer.
+// Matches Rust naga's ExternalTextureBindTarget.
+type ExternalTextureBindTarget struct {
+	// Planes contains the bind targets for the 3 plane textures.
+	Planes [3]BindTarget
+	// Params is the bind target for the parameters cbuffer.
+	Params BindTarget
+}
+
+// ExternalTextureBindingMap maps resource bindings to external texture bind targets.
+type ExternalTextureBindingMap map[ResourceBinding]ExternalTextureBindTarget

@@ -1,0 +1,34 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+struct vs_mainInput {
+};
+struct vs_mainOutput {
+    metal::float4 member [[position]];
+};
+vertex vs_mainOutput vs_main(
+  uint in_vertex_index [[vertex_id]]
+) {
+    float x = static_cast<float>(as_type<int>(as_type<uint>(static_cast<int>(in_vertex_index)) - as_type<uint>(1)));
+    float y = static_cast<float>(as_type<int>(as_type<uint>(as_type<int>(as_type<uint>(static_cast<int>(in_vertex_index & 1u)) * as_type<uint>(2))) - as_type<uint>(1)));
+    return vs_mainOutput { metal::float4(x, y, 0.0, 1.0) };
+}
+
+
+struct fs_mainOutput {
+    metal::float4 member_1 [[color(0)]];
+};
+fragment fs_mainOutput fs_main(
+) {
+    return fs_mainOutput { metal::float4(1.0, 0.0, 0.0, 1.0) };
+}

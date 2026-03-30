@@ -172,8 +172,8 @@ func TestMSL_SamplerType(t *testing.T) {
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 1},
 			},
 		},
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
 				Name: "vs_main",
 				Result: &ir.FunctionResult{
 					Type:    tVec4,
@@ -190,10 +190,7 @@ func TestMSL_SamplerType(t *testing.T) {
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			}},
 		},
 	}
 	result := compileModule(t, module)
@@ -282,19 +279,16 @@ func TestMSL_LocalVariableType(t *testing.T) {
 func TestMSL_ComputeEntryPoint(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{},
-		Functions: []ir.Function{
-			{
-				Name: "cs_main",
-				Body: []ir.Statement{
-					{Kind: ir.StmtReturn{}},
-				},
-			},
-		},
 		EntryPoints: []ir.EntryPoint{
 			{
-				Name:      "cs_main",
-				Stage:     ir.StageCompute,
-				Function:  0,
+				Name:  "cs_main",
+				Stage: ir.StageCompute,
+				Function: ir.Function{
+					Name: "cs_main",
+					Body: []ir.Statement{
+						{Kind: ir.StmtReturn{}},
+					},
+				},
 				Workgroup: [3]uint32{64, 1, 1},
 			},
 		},
@@ -317,29 +311,26 @@ func TestMSL_FragmentEntryPoint(t *testing.T) {
 		Types: []ir.Type{
 			{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
-		Functions: []ir.Function{
-			{
-				Name: "fs_main",
-				Result: &ir.FunctionResult{
-					Type:    tVec4,
-					Binding: &fragBinding,
-				},
-				Expressions: []ir.Expression{
-					{Kind: ir.ExprZeroValue{Type: tVec4}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec4},
-				},
-				Body: []ir.Statement{
-					{Kind: ir.StmtReturn{Value: &retExpr}},
-				},
-			},
-		},
 		EntryPoints: []ir.EntryPoint{
 			{
-				Name:     "fs_main",
-				Stage:    ir.StageFragment,
-				Function: 0,
+				Name:  "fs_main",
+				Stage: ir.StageFragment,
+				Function: ir.Function{
+					Name: "fs_main",
+					Result: &ir.FunctionResult{
+						Type:    tVec4,
+						Binding: &fragBinding,
+					},
+					Expressions: []ir.Expression{
+						{Kind: ir.ExprZeroValue{Type: tVec4}},
+					},
+					ExpressionTypes: []ir.TypeResolution{
+						{Handle: &tVec4},
+					},
+					Body: []ir.Statement{
+						{Kind: ir.StmtReturn{Value: &retExpr}},
+					},
+				},
 			},
 		},
 	}
@@ -371,8 +362,8 @@ func TestMSL_GlobalVariableAsEntryParam(t *testing.T) {
 				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
 			},
 		},
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
 				Name: "vs_main",
 				Result: &ir.FunctionResult{
 					Type:    tVec4,
@@ -389,10 +380,7 @@ func TestMSL_GlobalVariableAsEntryParam(t *testing.T) {
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			}},
 		},
 	}
 	result := compileModule(t, module)
@@ -471,8 +459,14 @@ func TestMSL_ImageType(t *testing.T) {
 			ir.ImageType{Dim: ir.Dim1D, Class: ir.ImageClassSampled, Arrayed: true},
 			"texture1d_array"},
 		{"storage_rw",
-			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage},
+			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, StorageAccess: ir.StorageAccessReadWrite},
 			"read_write"},
+		{"storage_read",
+			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, StorageAccess: ir.StorageAccessRead},
+			"access::read"},
+		{"storage_write",
+			ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage, StorageAccess: ir.StorageAccessWrite},
+			"access::write"},
 	}
 
 	// Create a minimal writer with an empty module
@@ -516,10 +510,10 @@ func TestMSL_AtomicTypeName(t *testing.T) {
 		want   string
 	}{
 		{"sint32", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}, "atomic_int"},
-		{"sint64", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}}, "atomic<long>"},
+		{"sint64", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}}, "atomic_long"},
 		{"uint32", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, "atomic_uint"},
-		{"uint64", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}}, "atomic<ulong>"},
-		{"default", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "atomic_uint"},
+		{"uint64", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}}, "atomic_ulong"},
+		{"float32", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, "atomic_float"},
 	}
 
 	for _, tt := range tests {
@@ -592,30 +586,29 @@ func TestMSL_VertexEntryPointWithInputs(t *testing.T) {
 			{Name: "vec4f", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 			{Name: "vec2f", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
-		Functions: []ir.Function{{
-			Name: "vs_main",
-			Arguments: []ir.FunctionArgument{
-				{Name: "position", Type: tVec4, Binding: &loc0Binding},
-				{Name: "texcoord", Type: tVec2, Binding: &loc1Binding},
-				{Name: "vid", Type: tF32, Binding: &vertIdxBinding},
-			},
-			Result: &ir.FunctionResult{
-				Type:    tVec4,
-				Binding: &posBinding,
-			},
-			Expressions: []ir.Expression{
-				{Kind: ir.ExprFunctionArgument{Index: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tVec4},
-			},
-			Body: []ir.Statement{
-				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
-				{Kind: ir.StmtReturn{Value: &retExpr}},
-			},
-		}},
 		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
+				Name: "vs_main",
+				Arguments: []ir.FunctionArgument{
+					{Name: "position", Type: tVec4, Binding: &loc0Binding},
+					{Name: "texcoord", Type: tVec2, Binding: &loc1Binding},
+					{Name: "vid", Type: tF32, Binding: &vertIdxBinding},
+				},
+				Result: &ir.FunctionResult{
+					Type:    tVec4,
+					Binding: &posBinding,
+				},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tVec4},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+					{Kind: ir.StmtReturn{Value: &retExpr}},
+				},
+			}},
 		},
 	}
 	result := compileModule(t, module)
@@ -647,30 +640,29 @@ func TestMSL_FragmentEntryPointWithInputs(t *testing.T) {
 			{Name: "vec2f", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 			{Name: "bool", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
 		},
-		Functions: []ir.Function{{
-			Name: "fs_main",
-			Arguments: []ir.FunctionArgument{
-				{Name: "uv", Type: tVec2, Binding: &loc0Binding},
-				{Name: "frag_pos", Type: tVec4, Binding: &fragPosBinding},
-				{Name: "front_facing", Type: ir.TypeHandle(2), Binding: &fragFacingBinding},
-			},
-			Result: &ir.FunctionResult{
-				Type:    tVec4,
-				Binding: &loc0Binding,
-			},
-			Expressions: []ir.Expression{
-				{Kind: ir.ExprFunctionArgument{Index: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tVec2},
-			},
-			Body: []ir.Statement{
-				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
-				{Kind: ir.StmtReturn{Value: &retExpr}},
-			},
-		}},
 		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
+				Name: "fs_main",
+				Arguments: []ir.FunctionArgument{
+					{Name: "uv", Type: tVec2, Binding: &loc0Binding},
+					{Name: "frag_pos", Type: tVec4, Binding: &fragPosBinding},
+					{Name: "front_facing", Type: ir.TypeHandle(2), Binding: &fragFacingBinding},
+				},
+				Result: &ir.FunctionResult{
+					Type:    tVec4,
+					Binding: &loc0Binding,
+				},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &tVec2},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+					{Kind: ir.StmtReturn{Value: &retExpr}},
+				},
+			}},
 		},
 	}
 	result := compileModule(t, module)
@@ -694,19 +686,18 @@ func TestMSL_ComputeEntryPointWithBuiltins(t *testing.T) {
 		Types: []ir.Type{
 			{Name: "vec3u", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
 		},
-		Functions: []ir.Function{{
-			Name: "cs_main",
-			Arguments: []ir.FunctionArgument{
-				{Name: "global_id", Type: tVec3U32, Binding: &globalIDBinding},
-				{Name: "local_id", Type: tVec3U32, Binding: &localIDBinding},
-				{Name: "workgroup_id", Type: tVec3U32, Binding: &workgroupIDBinding},
-			},
-			Body: []ir.Statement{
-				{Kind: ir.StmtReturn{}},
-			},
-		}},
 		EntryPoints: []ir.EntryPoint{
-			{Name: "cs_main", Stage: ir.StageCompute, Function: 0, Workgroup: [3]uint32{64, 1, 1}},
+			{Name: "cs_main", Stage: ir.StageCompute, Function: ir.Function{
+				Name: "cs_main",
+				Arguments: []ir.FunctionArgument{
+					{Name: "global_id", Type: tVec3U32, Binding: &globalIDBinding},
+					{Name: "local_id", Type: tVec3U32, Binding: &localIDBinding},
+					{Name: "workgroup_id", Type: tVec3U32, Binding: &workgroupIDBinding},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtReturn{}},
+				},
+			}, Workgroup: [3]uint32{64, 1, 1}},
 		},
 	}
 	result := compileModule(t, module)
@@ -747,24 +738,23 @@ func TestMSL_VertexStructOutput(t *testing.T) {
 				},
 			},
 		},
-		Functions: []ir.Function{{
-			Name: "vs_main",
-			Result: &ir.FunctionResult{
-				Type: outStructIdx,
-			},
-			Expressions: []ir.Expression{
-				{Kind: ir.ExprZeroValue{Type: outStructIdx}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &outStructIdx},
-			},
-			Body: []ir.Statement{
-				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
-				{Kind: ir.StmtReturn{Value: &retExpr}},
-			},
-		}},
 		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
+				Name: "vs_main",
+				Result: &ir.FunctionResult{
+					Type: outStructIdx,
+				},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprZeroValue{Type: outStructIdx}},
+				},
+				ExpressionTypes: []ir.TypeResolution{
+					{Handle: &outStructIdx},
+				},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+					{Kind: ir.StmtReturn{Value: &retExpr}},
+				},
+			}},
 		},
 	}
 	result := compileModule(t, module)

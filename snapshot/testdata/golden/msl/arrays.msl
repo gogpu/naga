@@ -1,62 +1,78 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
-struct type_4 {
+struct type_2 {
     float inner[4];
 };
-
-struct type_5 {
+struct type_4 {
     int inner[3];
 };
-
-struct type_7 {
+struct type_6 {
     metal::float2 inner[2];
 };
-
-struct type_8 {
+struct type_7 {
     uint inner[4];
 };
-
 constant uint DATA_SIZE = 8u;
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
-}
-
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
-}
-
-float sum_array(type_4 arr) {
+float sum_array(
+    type_2 arr
+) {
     float total = 0.0;
     uint i = 0u;
-    
-    while (true) {
-        if (!((i < 4u))) {
+    uint2 loop_bound = uint2(4294967295u);
+    bool loop_init = true;
+    while(true) {
+        if (metal::all(loop_bound == uint2(0u))) { break; }
+        loop_bound -= uint2(loop_bound.y == 0u, 1u);
+        if (!loop_init) {
+            uint _e12 = i;
+            i = _e12 + 1u;
+        }
+        loop_init = false;
+        uint _e5 = i;
+        if (_e5 < 4u) {
+        } else {
             break;
         }
-        total = (total + arr.inner[i]);
-        i = (i + 1u);
+        {
+            float _e8 = total;
+            uint _e9 = i;
+            total = _e8 + uint(_e9) < 4 ? arr.inner[_e9] : DefaultConstructible();
+        }
     }
-    return total;
+    float _e15 = total;
+    return _e15;
 }
 
-kernel void main_() {
-    type_8 data = type_8();
+kernel void main_(
+) {
+    type_7 data = {};
     uint idx = 2u;
-    
+    type_2 arr1_ = type_2 {1.0, 2.0, 3.0, 4.0};
+    type_4 arr2_ = type_4 {10, 20, 30};
+    type_6 arr3_ = type_6 {metal::float2(1.0, 2.0), metal::float2(3.0, 4.0)};
+    float first = arr1_.inner[0];
+    float last = arr1_.inner[3];
+    float vec_elem = arr3_.inner[1].y;
     data.inner[0] = 100u;
     data.inner[1] = 200u;
-    data.inner[2] = (data.inner[0] + data.inner[1]);
-    data.inner[3] = (data.inner[2] * 2u);
-    float _fc46 = sum_array(type_4{{1.0, 2.0, 3.0, 4.0}});
+    uint _e27 = data.inner[0];
+    uint _e29 = data.inner[1];
+    data.inner[2] = _e27 + _e29;
+    uint _e33 = data.inner[2];
+    data.inner[3] = _e33 * 2u;
+    uint _e38 = idx;
+    uint dynamic_val = uint(_e38) < 4 ? data.inner[_e38] : DefaultConstructible();
+    float _e41 = sum_array(arr1_);
+    return;
 }
-

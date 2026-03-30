@@ -5,6 +5,7 @@ package glsl
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gogpu/naga/ir"
 )
@@ -49,6 +50,10 @@ func (w *Writer) typeInnerToGLSL(inner ir.TypeInner) string {
 		return w.getTypeName(t.Base)
 	case ir.AtomicType:
 		return w.atomicToGLSL(t)
+	case ir.AccelerationStructureType:
+		return "accelerationStructureEXT"
+	case ir.RayQueryType:
+		return "rayQueryEXT"
 	default:
 		return "unknown_type"
 	}
@@ -57,6 +62,10 @@ func (w *Writer) typeInnerToGLSL(inner ir.TypeInner) string {
 // scalarToGLSL returns the GLSL name for a scalar type.
 func scalarToGLSL(t ir.ScalarType) string {
 	switch t.Kind {
+	case ir.ScalarAbstractInt:
+		return glslTypeInt // Concretize to int
+	case ir.ScalarAbstractFloat:
+		return glslTypeFloat // Concretize to float
 	case ir.ScalarBool:
 		return "bool"
 	case ir.ScalarSint:
@@ -124,38 +133,44 @@ func matrixToGLSL(t ir.MatrixType) string {
 		rows = 4
 	}
 
+	// Rust naga always writes the full matCxR form, never the shorthand matN.
 	switch t.Scalar.Kind {
 	case ir.ScalarFloat:
 		switch t.Scalar.Width {
 		case 8:
-			// Double precision matrix
-			if cols == rows {
-				return fmt.Sprintf("dmat%d", cols)
-			}
 			return fmt.Sprintf("dmat%dx%d", cols, rows)
 		default:
-			// Float matrix
-			if cols == rows {
-				return fmt.Sprintf("mat%d", cols)
-			}
 			return fmt.Sprintf("mat%dx%d", cols, rows)
 		}
 	default:
-		// GLSL only supports float and double matrices
-		if cols == rows {
-			return fmt.Sprintf("mat%d", cols)
-		}
 		return fmt.Sprintf("mat%dx%d", cols, rows)
 	}
 }
 
 // arrayToGLSL returns the GLSL name for an array type.
 func (w *Writer) arrayToGLSL(t ir.ArrayType) string {
-	baseType := w.getTypeName(t.Base)
-	if t.Size.Constant != nil {
-		return fmt.Sprintf("%s[%d]", baseType, *t.Size.Constant)
+	// For nested arrays: outer dimension comes first in GLSL.
+	// array<array<float, 2>, 3> → float[3][2]
+	// Build all dimensions outer→inner by collecting sizes
+	var dims []string
+	current := t
+	for {
+		if current.Size.Constant != nil {
+			dims = append(dims, fmt.Sprintf("[%d]", *current.Size.Constant))
+		} else {
+			dims = append(dims, "[]")
+		}
+		if int(current.Base) < len(w.module.Types) {
+			if inner, ok := w.module.Types[current.Base].Inner.(ir.ArrayType); ok {
+				current = inner
+				continue
+			}
+		}
+		break
 	}
-	return fmt.Sprintf("%s[]", baseType)
+	// Base type is the innermost non-array type
+	innerBase := w.getTypeName(current.Base)
+	return innerBase + strings.Join(dims, "")
 }
 
 // imageToGLSL returns the GLSL name for an image/texture type.
@@ -164,11 +179,35 @@ func (w *Writer) imageToGLSL(t ir.ImageType) string {
 	var prefix string
 	switch t.Class {
 	case ir.ImageClassSampled:
-		prefix = glslTypeSampler
+		// Sampled textures need scalar prefix: usampler for uint, isampler for sint.
+		scalarPrefix := ""
+		switch t.SampledKind {
+		case ir.ScalarUint:
+			scalarPrefix = "u"
+		case ir.ScalarFloat:
+			// Float is the default — no prefix
+		default:
+			// ScalarSint (Go iota 0) could be either sint or uninitialized zero value.
+			// Real sint textures (texture_2d<i32>) set this explicitly.
+			// However, Go zero value of ImageType also has SampledKind=0=ScalarSint.
+			// To distinguish: if Multisampled is set or any other field hints at real usage,
+			// trust it. Otherwise treat as float (no prefix).
+			// In practice, our lowerer always sets ScalarFloat for float textures.
+			scalarPrefix = "i"
+		}
+		prefix = scalarPrefix + glslTypeSampler
 	case ir.ImageClassDepth:
 		prefix = glslTypeSampler
 	case ir.ImageClassStorage:
-		prefix = "image"
+		// Storage images need scalar prefix: uimage for uint, iimage for sint, image for float
+		scalarPrefix := ""
+		switch t.StorageFormat.ScalarKind() {
+		case ir.ScalarUint:
+			scalarPrefix = "u"
+		case ir.ScalarSint:
+			scalarPrefix = "i"
+		}
+		prefix = scalarPrefix + "image"
 	default:
 		prefix = glslTypeSampler
 	}
@@ -188,9 +227,11 @@ func (w *Writer) imageToGLSL(t ir.ImageType) string {
 			return fmt.Sprintf("%s2DMS", prefix)
 		}
 		if t.Arrayed {
+			if t.Class == ir.ImageClassDepth {
+				return "sampler2DArrayShadow"
+			}
 			return fmt.Sprintf("%s2DArray", prefix)
 		}
-		// Handle shadow samplers
 		if t.Class == ir.ImageClassDepth {
 			return "sampler2DShadow"
 		}
@@ -199,9 +240,11 @@ func (w *Writer) imageToGLSL(t ir.ImageType) string {
 		return fmt.Sprintf("%s3D", prefix)
 	case ir.DimCube:
 		if t.Arrayed {
+			if t.Class == ir.ImageClassDepth {
+				return "samplerCubeArrayShadow"
+			}
 			return fmt.Sprintf("%sCubeArray", prefix)
 		}
-		// Handle shadow samplers
 		if t.Class == ir.ImageClassDepth {
 			return "samplerCubeShadow"
 		}

@@ -1,0 +1,184 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 8,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("k"),
+            ty: 0,
+            init: 1,
+        ),
+    ],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("v"),
+            space: Private,
+            binding: None,
+            ty: 0,
+            init: Some(0),
+        ),
+    ],
+    global_expressions: [
+        Literal(F64(1.0)),
+        Literal(F64(2.0)),
+    ],
+    functions: [
+        (
+            name: Some("f"),
+            arguments: [
+                (
+                    name: Some("x"),
+                    ty: 0,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 0,
+                binding: None,
+            )),
+            local_variables: [
+                (
+                    name: Some("z"),
+                    ty: 0,
+                    init: None,
+                ),
+                (
+                    name: Some("w"),
+                    ty: 0,
+                    init: Some(9),
+                ),
+            ],
+            expressions: [
+                FunctionArgument(0),
+                GlobalVariable(0),
+                Load(
+                    pointer: 1,
+                ),
+                Literal(F64(30.0)),
+                Literal(F64(400.0)),
+                Binary(
+                    op: Add,
+                    left: 3,
+                    right: 4,
+                ),
+                Literal(F64(5.0)),
+                Binary(
+                    op: Add,
+                    left: 5,
+                    right: 6,
+                ),
+                LocalVariable(0),
+                Literal(F64(-1.0)),
+                Binary(
+                    op: Add,
+                    left: 0,
+                    right: 5,
+                ),
+                Constant(0),
+                Binary(
+                    op: Add,
+                    left: 10,
+                    right: 11,
+                ),
+                Literal(F64(5.0)),
+                Binary(
+                    op: Add,
+                    left: 12,
+                    right: 13,
+                ),
+            ],
+            named_expressions: {
+                0: "x",
+                2: "phony",
+                5: "y",
+            },
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                Emit((
+                    start: 7,
+                    end: 8,
+                )),
+                Store(
+                    pointer: 8,
+                    value: 7,
+                ),
+                Emit((
+                    start: 10,
+                    end: 11,
+                )),
+                Emit((
+                    start: 12,
+                    end: 13,
+                )),
+                Emit((
+                    start: 14,
+                    end: 15,
+                )),
+                Return(
+                    value: Some(14),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    Literal(F64(6.0)),
+                    CallResult(0),
+                ],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [
+                            0,
+                        ],
+                        result: Some(1),
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

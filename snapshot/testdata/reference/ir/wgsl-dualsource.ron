@@ -1,0 +1,140 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("FragmentOutput"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("output0"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: Some(0),
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("output1"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: Some(1),
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                ],
+                span: 32,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: Some((
+                    ty: 1,
+                    binding: None,
+                )),
+                local_variables: [],
+                expressions: [
+                    Literal(F32(0.4)),
+                    Literal(F32(0.3)),
+                    Literal(F32(0.2)),
+                    Literal(F32(0.1)),
+                    Compose(
+                        ty: 0,
+                        components: [
+                            0,
+                            1,
+                            2,
+                            3,
+                        ],
+                    ),
+                    Literal(F32(0.9)),
+                    Literal(F32(0.8)),
+                    Literal(F32(0.7)),
+                    Literal(F32(0.6)),
+                    Compose(
+                        ty: 0,
+                        components: [
+                            5,
+                            6,
+                            7,
+                            8,
+                        ],
+                    ),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            4,
+                            9,
+                        ],
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 11,
+                    )),
+                    Return(
+                        value: Some(10),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

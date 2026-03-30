@@ -102,8 +102,11 @@ const (
 	TokenBool
 	TokenF16
 	TokenF32
+	TokenF64
 	TokenI32
+	TokenI64
 	TokenU32
+	TokenU64
 	TokenVec2
 	TokenVec3
 	TokenVec4

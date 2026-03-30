@@ -1,0 +1,112 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct VertexOutput {
+    metal::float4 position;
+};
+struct VertexInput {
+    uint v_uint8_;
+    uint v_uint8x2_;
+    uint v_uint8x4_;
+    int v_sint8_;
+    int v_sint8x2_;
+    int v_sint8x4_;
+    float v_unorm8_;
+    float v_unorm8x2_;
+    float v_unorm8x4_;
+    float v_snorm8_;
+    float v_snorm8x2_;
+    float v_snorm8x4_;
+    uint v_uint16_;
+    uint v_uint16x2_;
+    uint v_uint16x4_;
+    int v_sint16_;
+    int v_sint16x2_;
+    int v_sint16x4_;
+    float v_unorm16_;
+    float v_unorm16x2_;
+    float v_unorm16x4_;
+    float v_snorm16_;
+    float v_snorm16x2_;
+    float v_snorm16x4_;
+    float v_float16_;
+    float v_float16x2_;
+    float v_float16x4_;
+    float v_float32_;
+    float v_float32x2_;
+    float v_float32x3_;
+    float v_float32x4_;
+    uint v_uint32_;
+    uint v_uint32x2_;
+    uint v_uint32x3_;
+    uint v_uint32x4_;
+    int v_sint32_;
+    int v_sint32x2_;
+    int v_sint32x3_;
+    int v_sint32x4_;
+    float v_unorm10_10_10_2_;
+    float v_unorm8x4_bgra;
+};
+
+struct render_vertexInput {
+    uint v_uint8_ [[attribute(0)]];
+    uint v_uint8x2_ [[attribute(1)]];
+    uint v_uint8x4_ [[attribute(2)]];
+    int v_sint8_ [[attribute(3)]];
+    int v_sint8x2_ [[attribute(4)]];
+    int v_sint8x4_ [[attribute(5)]];
+    float v_unorm8_ [[attribute(6)]];
+    float v_unorm8x2_ [[attribute(7)]];
+    float v_unorm8x4_ [[attribute(8)]];
+    float v_snorm8_ [[attribute(9)]];
+    float v_snorm8x2_ [[attribute(10)]];
+    float v_snorm8x4_ [[attribute(11)]];
+    uint v_uint16_ [[attribute(12)]];
+    uint v_uint16x2_ [[attribute(13)]];
+    uint v_uint16x4_ [[attribute(14)]];
+    int v_sint16_ [[attribute(15)]];
+    int v_sint16x2_ [[attribute(16)]];
+    int v_sint16x4_ [[attribute(17)]];
+    float v_unorm16_ [[attribute(18)]];
+    float v_unorm16x2_ [[attribute(19)]];
+    float v_unorm16x4_ [[attribute(20)]];
+    float v_snorm16_ [[attribute(21)]];
+    float v_snorm16x2_ [[attribute(22)]];
+    float v_snorm16x4_ [[attribute(23)]];
+    float v_float16_ [[attribute(24)]];
+    float v_float16x2_ [[attribute(25)]];
+    float v_float16x4_ [[attribute(26)]];
+    float v_float32_ [[attribute(27)]];
+    float v_float32x2_ [[attribute(28)]];
+    float v_float32x3_ [[attribute(29)]];
+    float v_float32x4_ [[attribute(30)]];
+    uint v_uint32_ [[attribute(31)]];
+    uint v_uint32x2_ [[attribute(32)]];
+    uint v_uint32x3_ [[attribute(33)]];
+    uint v_uint32x4_ [[attribute(34)]];
+    int v_sint32_ [[attribute(35)]];
+    int v_sint32x2_ [[attribute(36)]];
+    int v_sint32x3_ [[attribute(37)]];
+    int v_sint32x4_ [[attribute(38)]];
+    float v_unorm10_10_10_2_ [[attribute(39)]];
+    float v_unorm8x4_bgra [[attribute(40)]];
+};
+struct render_vertexOutput {
+    metal::float4 position [[position]];
+};
+vertex render_vertexOutput render_vertex(
+  render_vertexInput varyings [[stage_in]]
+) {
+    const VertexInput v_in = { varyings.v_uint8_, varyings.v_uint8x2_, varyings.v_uint8x4_, varyings.v_sint8_, varyings.v_sint8x2_, varyings.v_sint8x4_, varyings.v_unorm8_, varyings.v_unorm8x2_, varyings.v_unorm8x4_, varyings.v_snorm8_, varyings.v_snorm8x2_, varyings.v_snorm8x4_, varyings.v_uint16_, varyings.v_uint16x2_, varyings.v_uint16x4_, varyings.v_sint16_, varyings.v_sint16x2_, varyings.v_sint16x4_, varyings.v_unorm16_, varyings.v_unorm16x2_, varyings.v_unorm16x4_, varyings.v_snorm16_, varyings.v_snorm16x2_, varyings.v_snorm16x4_, varyings.v_float16_, varyings.v_float16x2_, varyings.v_float16x4_, varyings.v_float32_, varyings.v_float32x2_, varyings.v_float32x3_, varyings.v_float32x4_, varyings.v_uint32_, varyings.v_uint32x2_, varyings.v_uint32x3_, varyings.v_uint32x4_, varyings.v_sint32_, varyings.v_sint32x2_, varyings.v_sint32x3_, varyings.v_sint32x4_, varyings.v_unorm10_10_10_2_, varyings.v_unorm8x4_bgra };
+    const auto _tmp = VertexOutput {metal::float4(static_cast<float>(v_in.v_uint8_))};
+    return render_vertexOutput { _tmp.position };
+}

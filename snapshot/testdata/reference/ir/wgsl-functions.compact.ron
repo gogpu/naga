@@ -1,0 +1,365 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("test_fma"),
+            arguments: [],
+            result: Some((
+                ty: 0,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(F32(2.0)),
+                Literal(F32(2.0)),
+                Compose(
+                    ty: 0,
+                    components: [
+                        0,
+                        1,
+                    ],
+                ),
+                Literal(F32(0.5)),
+                Literal(F32(0.5)),
+                Compose(
+                    ty: 0,
+                    components: [
+                        3,
+                        4,
+                    ],
+                ),
+                Literal(F32(0.5)),
+                Literal(F32(0.5)),
+                Compose(
+                    ty: 0,
+                    components: [
+                        6,
+                        7,
+                    ],
+                ),
+                Math(
+                    fun: Fma,
+                    arg: 2,
+                    arg1: Some(5),
+                    arg2: Some(8),
+                    arg3: None,
+                ),
+            ],
+            named_expressions: {
+                2: "a",
+                5: "b",
+                8: "c",
+            },
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                Emit((
+                    start: 8,
+                    end: 9,
+                )),
+                Emit((
+                    start: 9,
+                    end: 10,
+                )),
+                Return(
+                    value: Some(9),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_integer_dot_product"),
+            arguments: [],
+            result: Some((
+                ty: 1,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(I32(1)),
+                Splat(
+                    size: Bi,
+                    value: 0,
+                ),
+                Literal(I32(1)),
+                Splat(
+                    size: Bi,
+                    value: 2,
+                ),
+                Math(
+                    fun: Dot,
+                    arg: 1,
+                    arg1: Some(3),
+                    arg2: None,
+                    arg3: None,
+                ),
+                Literal(U32(1)),
+                Splat(
+                    size: Tri,
+                    value: 5,
+                ),
+                Literal(U32(1)),
+                Splat(
+                    size: Tri,
+                    value: 7,
+                ),
+                Math(
+                    fun: Dot,
+                    arg: 6,
+                    arg1: Some(8),
+                    arg2: None,
+                    arg3: None,
+                ),
+                Literal(I32(32)),
+            ],
+            named_expressions: {
+                1: "a_2",
+                3: "b_2",
+                4: "c_2",
+                6: "a_3",
+                8: "b_3",
+                9: "c_3",
+                10: "c_4",
+            },
+            body: [
+                Emit((
+                    start: 1,
+                    end: 2,
+                )),
+                Emit((
+                    start: 3,
+                    end: 4,
+                )),
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Emit((
+                    start: 8,
+                    end: 9,
+                )),
+                Emit((
+                    start: 9,
+                    end: 10,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Return(
+                    value: Some(10),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("test_packed_integer_dot_product"),
+            arguments: [],
+            result: Some((
+                ty: 2,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                Literal(U32(1)),
+                Literal(U32(2)),
+                Math(
+                    fun: Dot4I8Packed,
+                    arg: 0,
+                    arg1: Some(1),
+                    arg2: None,
+                    arg3: None,
+                ),
+                Literal(U32(3)),
+                Literal(U32(4)),
+                Math(
+                    fun: Dot4U8Packed,
+                    arg: 3,
+                    arg1: Some(4),
+                    arg2: None,
+                    arg3: None,
+                ),
+                Literal(U32(5)),
+                Binary(
+                    op: Add,
+                    left: 6,
+                    right: 5,
+                ),
+                Literal(U32(6)),
+                Binary(
+                    op: Add,
+                    left: 8,
+                    right: 5,
+                ),
+                Math(
+                    fun: Dot4I8Packed,
+                    arg: 7,
+                    arg1: Some(9),
+                    arg2: None,
+                    arg3: None,
+                ),
+                Literal(U32(7)),
+                Binary(
+                    op: Add,
+                    left: 11,
+                    right: 5,
+                ),
+                Literal(U32(8)),
+                Binary(
+                    op: Add,
+                    left: 13,
+                    right: 5,
+                ),
+                Math(
+                    fun: Dot4U8Packed,
+                    arg: 12,
+                    arg1: Some(14),
+                    arg2: None,
+                    arg3: None,
+                ),
+            ],
+            named_expressions: {
+                0: "a_5",
+                1: "b_5",
+                2: "c_5",
+                3: "a_6",
+                4: "b_6",
+                5: "c_6",
+                10: "c_7",
+                15: "c_8",
+            },
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Emit((
+                    start: 5,
+                    end: 6,
+                )),
+                Emit((
+                    start: 7,
+                    end: 8,
+                )),
+                Emit((
+                    start: 9,
+                    end: 11,
+                )),
+                Emit((
+                    start: 12,
+                    end: 13,
+                )),
+                Emit((
+                    start: 14,
+                    end: 16,
+                )),
+                Return(
+                    value: Some(15),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    CallResult(0),
+                    CallResult(1),
+                    CallResult(2),
+                ],
+                named_expressions: {
+                    0: "a",
+                    1: "b",
+                    2: "c",
+                },
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: Some(0),
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [],
+                        result: Some(1),
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [],
+                        result: Some(2),
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

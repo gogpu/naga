@@ -1,42 +1,44 @@
+// language: metal1.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
 
 struct Inner {
     float value;
     uint flag;
 };
-
 struct Outer {
-    metal::packed_float3 position_;
+    metal::packed_float3 position;
     Inner inner;
     float scale;
+    char _pad3[8];
 };
 
-// Safe division helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_div(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs / (nz * rhs + D(!nz));
+float process_struct(
+    Outer s
+) {
+    return (s.position[0] * s.scale) + s.inner.value;
 }
 
-// Safe modulo helper (handles zero divisor)
-template <typename T, typename D>
-T _naga_mod(T lhs, D rhs) {
-    D nz = D(rhs != D(0));
-    return lhs % (nz * rhs + D(!nz));
-}
-
-float process_struct(Outer s) {
-    return ((s.position_[0] * s.scale) + s.inner.value);
-}
-
-kernel void main_() {
-    Outer mutable_outer = Outer{metal::float3(1.0, 2.0, 3.0), Inner{3.14, 1u}, 2.0};
-    
+kernel void main_(
+) {
+    Outer mutable_outer = {};
+    Inner inner = Inner {3.14, 1u};
+    Outer outer = Outer {metal::float3(1.0, 2.0, 3.0), inner, 2.0};
+    metal::float3 pos = outer.position;
+    float val = outer.inner.value;
+    uint flag = outer.inner.flag;
+    mutable_outer = outer;
     mutable_outer.scale = 5.0;
     mutable_outer.inner.value = 42.0;
-    float _fc20 = process_struct(mutable_outer);
+    Outer _e20 = mutable_outer;
+    float _e21 = process_struct(_e20);
+    return;
 }
-

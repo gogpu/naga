@@ -1,0 +1,2741 @@
+(
+    types: [
+        (
+            name: Some("Mat"),
+            inner: Matrix(
+                columns: Bi,
+                rows: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("StructWithMat"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("m"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 2,
+                size: Constant(4),
+                stride: 16,
+            ),
+        ),
+        (
+            name: Some("StructWithArrayOfStructOfMat"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("a"),
+                        ty: 3,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 64,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("s_m"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("u_m"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 0,
+            init: None,
+        ),
+        (
+            name: Some("s_sm"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 1,
+                binding: 0,
+            )),
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("u_sm"),
+            space: Uniform,
+            binding: Some((
+                group: 1,
+                binding: 1,
+            )),
+            ty: 2,
+            init: None,
+        ),
+        (
+            name: Some("s_sasm"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 2,
+                binding: 0,
+            )),
+            ty: 4,
+            init: None,
+        ),
+        (
+            name: Some("u_sasm"),
+            space: Uniform,
+            binding: Some((
+                group: 2,
+                binding: 1,
+            )),
+            ty: 4,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("access_m"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("idx"),
+                    ty: 1,
+                    init: Some(0),
+                ),
+            ],
+            expressions: [
+                Literal(I32(1)),
+                LocalVariable(0),
+                Literal(I32(1)),
+                Load(
+                    pointer: 1,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 3,
+                    right: 2,
+                ),
+                GlobalVariable(0),
+                Load(
+                    pointer: 5,
+                ),
+                GlobalVariable(0),
+                AccessIndex(
+                    base: 7,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 8,
+                ),
+                GlobalVariable(0),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 10,
+                    index: 11,
+                ),
+                Load(
+                    pointer: 12,
+                ),
+                GlobalVariable(0),
+                AccessIndex(
+                    base: 14,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 15,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 16,
+                ),
+                GlobalVariable(0),
+                AccessIndex(
+                    base: 18,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 19,
+                    index: 20,
+                ),
+                Load(
+                    pointer: 21,
+                ),
+                GlobalVariable(0),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 23,
+                    index: 24,
+                ),
+                AccessIndex(
+                    base: 25,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 26,
+                ),
+                GlobalVariable(0),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 28,
+                    index: 29,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 30,
+                    index: 31,
+                ),
+                Load(
+                    pointer: 32,
+                ),
+                GlobalVariable(1),
+                Load(
+                    pointer: 34,
+                ),
+                GlobalVariable(1),
+                AccessIndex(
+                    base: 36,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 37,
+                ),
+                GlobalVariable(1),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 39,
+                    index: 40,
+                ),
+                Load(
+                    pointer: 41,
+                ),
+                GlobalVariable(1),
+                AccessIndex(
+                    base: 43,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 44,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 45,
+                ),
+                GlobalVariable(1),
+                AccessIndex(
+                    base: 47,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 48,
+                    index: 49,
+                ),
+                Load(
+                    pointer: 50,
+                ),
+                GlobalVariable(1),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 52,
+                    index: 53,
+                ),
+                AccessIndex(
+                    base: 54,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 55,
+                ),
+                GlobalVariable(1),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 57,
+                    index: 58,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 59,
+                    index: 60,
+                ),
+                Load(
+                    pointer: 61,
+                ),
+                GlobalVariable(0),
+                GlobalVariable(0),
+                AccessIndex(
+                    base: 64,
+                    index: 0,
+                ),
+                GlobalVariable(0),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 66,
+                    index: 67,
+                ),
+                GlobalVariable(0),
+                AccessIndex(
+                    base: 69,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 70,
+                    index: 0,
+                ),
+                GlobalVariable(0),
+                AccessIndex(
+                    base: 72,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 73,
+                    index: 74,
+                ),
+                GlobalVariable(0),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 76,
+                    index: 77,
+                ),
+                AccessIndex(
+                    base: 78,
+                    index: 0,
+                ),
+                GlobalVariable(0),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 80,
+                    index: 81,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 82,
+                    index: 83,
+                ),
+            ],
+            named_expressions: {
+                6: "l_s_m",
+                9: "l_s_c_c",
+                13: "l_s_c_v",
+                17: "l_s_e_cc",
+                22: "l_s_e_cv",
+                27: "l_s_e_vc",
+                33: "l_s_e_vv",
+                35: "l_u_m",
+                38: "l_u_c_c",
+                42: "l_u_c_v",
+                46: "l_u_e_cc",
+                51: "l_u_e_cv",
+                56: "l_u_e_vc",
+                62: "l_u_e_vv",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 5,
+                )),
+                Store(
+                    pointer: 1,
+                    value: 4,
+                ),
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Emit((
+                    start: 8,
+                    end: 10,
+                )),
+                Emit((
+                    start: 11,
+                    end: 14,
+                )),
+                Emit((
+                    start: 15,
+                    end: 16,
+                )),
+                Emit((
+                    start: 16,
+                    end: 18,
+                )),
+                Emit((
+                    start: 19,
+                    end: 23,
+                )),
+                Emit((
+                    start: 24,
+                    end: 26,
+                )),
+                Emit((
+                    start: 26,
+                    end: 28,
+                )),
+                Emit((
+                    start: 29,
+                    end: 34,
+                )),
+                Emit((
+                    start: 35,
+                    end: 36,
+                )),
+                Emit((
+                    start: 37,
+                    end: 39,
+                )),
+                Emit((
+                    start: 40,
+                    end: 43,
+                )),
+                Emit((
+                    start: 44,
+                    end: 45,
+                )),
+                Emit((
+                    start: 45,
+                    end: 47,
+                )),
+                Emit((
+                    start: 48,
+                    end: 52,
+                )),
+                Emit((
+                    start: 53,
+                    end: 55,
+                )),
+                Emit((
+                    start: 55,
+                    end: 57,
+                )),
+                Emit((
+                    start: 58,
+                    end: 63,
+                )),
+                Store(
+                    pointer: 63,
+                    value: 35,
+                ),
+                Emit((
+                    start: 65,
+                    end: 66,
+                )),
+                Store(
+                    pointer: 65,
+                    value: 38,
+                ),
+                Emit((
+                    start: 67,
+                    end: 69,
+                )),
+                Store(
+                    pointer: 68,
+                    value: 42,
+                ),
+                Emit((
+                    start: 70,
+                    end: 71,
+                )),
+                Emit((
+                    start: 71,
+                    end: 72,
+                )),
+                Store(
+                    pointer: 71,
+                    value: 46,
+                ),
+                Emit((
+                    start: 73,
+                    end: 76,
+                )),
+                Store(
+                    pointer: 75,
+                    value: 51,
+                ),
+                Emit((
+                    start: 77,
+                    end: 79,
+                )),
+                Emit((
+                    start: 79,
+                    end: 80,
+                )),
+                Store(
+                    pointer: 79,
+                    value: 56,
+                ),
+                Emit((
+                    start: 81,
+                    end: 85,
+                )),
+                Store(
+                    pointer: 84,
+                    value: 62,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("access_sm"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("idx"),
+                    ty: 1,
+                    init: Some(0),
+                ),
+            ],
+            expressions: [
+                Literal(I32(1)),
+                LocalVariable(0),
+                Literal(I32(1)),
+                Load(
+                    pointer: 1,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 3,
+                    right: 2,
+                ),
+                GlobalVariable(2),
+                Load(
+                    pointer: 5,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 7,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 8,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 10,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 11,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 12,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 14,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 15,
+                    index: 16,
+                ),
+                Load(
+                    pointer: 17,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 19,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 20,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 21,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 22,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 24,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 25,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 26,
+                    index: 27,
+                ),
+                Load(
+                    pointer: 28,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 30,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 31,
+                    index: 32,
+                ),
+                AccessIndex(
+                    base: 33,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 34,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 36,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 37,
+                    index: 38,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 39,
+                    index: 40,
+                ),
+                Load(
+                    pointer: 41,
+                ),
+                GlobalVariable(3),
+                Load(
+                    pointer: 43,
+                ),
+                GlobalVariable(3),
+                AccessIndex(
+                    base: 45,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 46,
+                ),
+                GlobalVariable(3),
+                AccessIndex(
+                    base: 48,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 49,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 50,
+                ),
+                GlobalVariable(3),
+                AccessIndex(
+                    base: 52,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 53,
+                    index: 54,
+                ),
+                Load(
+                    pointer: 55,
+                ),
+                GlobalVariable(3),
+                AccessIndex(
+                    base: 57,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 58,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 59,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 60,
+                ),
+                GlobalVariable(3),
+                AccessIndex(
+                    base: 62,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 63,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 64,
+                    index: 65,
+                ),
+                Load(
+                    pointer: 66,
+                ),
+                GlobalVariable(3),
+                AccessIndex(
+                    base: 68,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 69,
+                    index: 70,
+                ),
+                AccessIndex(
+                    base: 71,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 72,
+                ),
+                GlobalVariable(3),
+                AccessIndex(
+                    base: 74,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 75,
+                    index: 76,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 77,
+                    index: 78,
+                ),
+                Load(
+                    pointer: 79,
+                ),
+                GlobalVariable(2),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 82,
+                    index: 0,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 84,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 85,
+                    index: 0,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 87,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 88,
+                    index: 89,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 91,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 92,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 93,
+                    index: 0,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 95,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 96,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 97,
+                    index: 98,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 100,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 101,
+                    index: 102,
+                ),
+                AccessIndex(
+                    base: 103,
+                    index: 0,
+                ),
+                GlobalVariable(2),
+                AccessIndex(
+                    base: 105,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 106,
+                    index: 107,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 108,
+                    index: 109,
+                ),
+            ],
+            named_expressions: {
+                6: "l_s_s",
+                9: "l_s_m",
+                13: "l_s_c_c",
+                18: "l_s_c_v",
+                23: "l_s_e_cc",
+                29: "l_s_e_cv",
+                35: "l_s_e_vc",
+                42: "l_s_e_vv",
+                44: "l_u_s",
+                47: "l_u_m",
+                51: "l_u_c_c",
+                56: "l_u_c_v",
+                61: "l_u_e_cc",
+                67: "l_u_e_cv",
+                73: "l_u_e_vc",
+                80: "l_u_e_vv",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 5,
+                )),
+                Store(
+                    pointer: 1,
+                    value: 4,
+                ),
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Emit((
+                    start: 8,
+                    end: 10,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 12,
+                    end: 14,
+                )),
+                Emit((
+                    start: 15,
+                    end: 19,
+                )),
+                Emit((
+                    start: 20,
+                    end: 21,
+                )),
+                Emit((
+                    start: 21,
+                    end: 22,
+                )),
+                Emit((
+                    start: 22,
+                    end: 24,
+                )),
+                Emit((
+                    start: 25,
+                    end: 26,
+                )),
+                Emit((
+                    start: 26,
+                    end: 30,
+                )),
+                Emit((
+                    start: 31,
+                    end: 34,
+                )),
+                Emit((
+                    start: 34,
+                    end: 36,
+                )),
+                Emit((
+                    start: 37,
+                    end: 43,
+                )),
+                Emit((
+                    start: 44,
+                    end: 45,
+                )),
+                Emit((
+                    start: 46,
+                    end: 48,
+                )),
+                Emit((
+                    start: 49,
+                    end: 50,
+                )),
+                Emit((
+                    start: 50,
+                    end: 52,
+                )),
+                Emit((
+                    start: 53,
+                    end: 57,
+                )),
+                Emit((
+                    start: 58,
+                    end: 59,
+                )),
+                Emit((
+                    start: 59,
+                    end: 60,
+                )),
+                Emit((
+                    start: 60,
+                    end: 62,
+                )),
+                Emit((
+                    start: 63,
+                    end: 64,
+                )),
+                Emit((
+                    start: 64,
+                    end: 68,
+                )),
+                Emit((
+                    start: 69,
+                    end: 72,
+                )),
+                Emit((
+                    start: 72,
+                    end: 74,
+                )),
+                Emit((
+                    start: 75,
+                    end: 81,
+                )),
+                Store(
+                    pointer: 81,
+                    value: 44,
+                ),
+                Emit((
+                    start: 83,
+                    end: 84,
+                )),
+                Store(
+                    pointer: 83,
+                    value: 47,
+                ),
+                Emit((
+                    start: 85,
+                    end: 86,
+                )),
+                Emit((
+                    start: 86,
+                    end: 87,
+                )),
+                Store(
+                    pointer: 86,
+                    value: 51,
+                ),
+                Emit((
+                    start: 88,
+                    end: 91,
+                )),
+                Store(
+                    pointer: 90,
+                    value: 56,
+                ),
+                Emit((
+                    start: 92,
+                    end: 93,
+                )),
+                Emit((
+                    start: 93,
+                    end: 94,
+                )),
+                Emit((
+                    start: 94,
+                    end: 95,
+                )),
+                Store(
+                    pointer: 94,
+                    value: 61,
+                ),
+                Emit((
+                    start: 96,
+                    end: 97,
+                )),
+                Emit((
+                    start: 97,
+                    end: 100,
+                )),
+                Store(
+                    pointer: 99,
+                    value: 67,
+                ),
+                Emit((
+                    start: 101,
+                    end: 104,
+                )),
+                Emit((
+                    start: 104,
+                    end: 105,
+                )),
+                Store(
+                    pointer: 104,
+                    value: 73,
+                ),
+                Emit((
+                    start: 106,
+                    end: 111,
+                )),
+                Store(
+                    pointer: 110,
+                    value: 80,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+        (
+            name: Some("access_sasm"),
+            arguments: [],
+            result: None,
+            local_variables: [
+                (
+                    name: Some("idx"),
+                    ty: 1,
+                    init: Some(0),
+                ),
+            ],
+            expressions: [
+                Literal(I32(1)),
+                LocalVariable(0),
+                Literal(I32(1)),
+                Load(
+                    pointer: 1,
+                ),
+                Binary(
+                    op: Subtract,
+                    left: 3,
+                    right: 2,
+                ),
+                GlobalVariable(4),
+                Load(
+                    pointer: 5,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 7,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 8,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 10,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 11,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 12,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 13,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 15,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 16,
+                    index: 17,
+                ),
+                AccessIndex(
+                    base: 18,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 19,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 21,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 22,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 23,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 24,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 25,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 27,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 28,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 29,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 30,
+                    index: 31,
+                ),
+                Load(
+                    pointer: 32,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 34,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 35,
+                    index: 36,
+                ),
+                AccessIndex(
+                    base: 37,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 38,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 39,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 41,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 42,
+                    index: 43,
+                ),
+                AccessIndex(
+                    base: 44,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 45,
+                    index: 46,
+                ),
+                Load(
+                    pointer: 47,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 49,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 50,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 51,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 52,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 53,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 54,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 56,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 57,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 58,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 59,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 60,
+                    index: 61,
+                ),
+                Load(
+                    pointer: 62,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 64,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 65,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 66,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 67,
+                    index: 68,
+                ),
+                AccessIndex(
+                    base: 69,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 70,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 72,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 73,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 74,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 75,
+                    index: 76,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 77,
+                    index: 78,
+                ),
+                Load(
+                    pointer: 79,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 81,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 82,
+                    index: 83,
+                ),
+                AccessIndex(
+                    base: 84,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 85,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 86,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 87,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 89,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 90,
+                    index: 91,
+                ),
+                AccessIndex(
+                    base: 92,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 93,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 94,
+                    index: 95,
+                ),
+                Load(
+                    pointer: 96,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 98,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 99,
+                    index: 100,
+                ),
+                AccessIndex(
+                    base: 101,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 102,
+                    index: 103,
+                ),
+                AccessIndex(
+                    base: 104,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 105,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 107,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 108,
+                    index: 109,
+                ),
+                AccessIndex(
+                    base: 110,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 111,
+                    index: 112,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 113,
+                    index: 114,
+                ),
+                Load(
+                    pointer: 115,
+                ),
+                GlobalVariable(5),
+                Load(
+                    pointer: 117,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 119,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 120,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 122,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 123,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 124,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 125,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 127,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 128,
+                    index: 129,
+                ),
+                AccessIndex(
+                    base: 130,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 131,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 133,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 134,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 135,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 136,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 137,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 139,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 140,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 141,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 142,
+                    index: 143,
+                ),
+                Load(
+                    pointer: 144,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 146,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 147,
+                    index: 148,
+                ),
+                AccessIndex(
+                    base: 149,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 150,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 151,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 153,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 154,
+                    index: 155,
+                ),
+                AccessIndex(
+                    base: 156,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 157,
+                    index: 158,
+                ),
+                Load(
+                    pointer: 159,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 161,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 162,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 163,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 164,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 165,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 166,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 168,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 169,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 170,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 171,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 172,
+                    index: 173,
+                ),
+                Load(
+                    pointer: 174,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 176,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 177,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 178,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 179,
+                    index: 180,
+                ),
+                AccessIndex(
+                    base: 181,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 182,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 184,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 185,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 186,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 187,
+                    index: 188,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 189,
+                    index: 190,
+                ),
+                Load(
+                    pointer: 191,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 193,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 194,
+                    index: 195,
+                ),
+                AccessIndex(
+                    base: 196,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 197,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 198,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 199,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 201,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 202,
+                    index: 203,
+                ),
+                AccessIndex(
+                    base: 204,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 205,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 206,
+                    index: 207,
+                ),
+                Load(
+                    pointer: 208,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 210,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 211,
+                    index: 212,
+                ),
+                AccessIndex(
+                    base: 213,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 214,
+                    index: 215,
+                ),
+                AccessIndex(
+                    base: 216,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 217,
+                ),
+                GlobalVariable(5),
+                AccessIndex(
+                    base: 219,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 220,
+                    index: 221,
+                ),
+                AccessIndex(
+                    base: 222,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 223,
+                    index: 224,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 225,
+                    index: 226,
+                ),
+                Load(
+                    pointer: 227,
+                ),
+                GlobalVariable(4),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 230,
+                    index: 0,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 232,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 233,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 234,
+                    index: 0,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 236,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 237,
+                    index: 238,
+                ),
+                AccessIndex(
+                    base: 239,
+                    index: 0,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 241,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 242,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 243,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 244,
+                    index: 0,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 246,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 247,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 248,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 249,
+                    index: 250,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 252,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 253,
+                    index: 254,
+                ),
+                AccessIndex(
+                    base: 255,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 256,
+                    index: 0,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 258,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 259,
+                    index: 260,
+                ),
+                AccessIndex(
+                    base: 261,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 262,
+                    index: 263,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 265,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 266,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 267,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 268,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 269,
+                    index: 0,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 271,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 272,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 273,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 274,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 275,
+                    index: 276,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 278,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 279,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 280,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 281,
+                    index: 282,
+                ),
+                AccessIndex(
+                    base: 283,
+                    index: 0,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 285,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 286,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 287,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 288,
+                    index: 289,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 290,
+                    index: 291,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 293,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 294,
+                    index: 295,
+                ),
+                AccessIndex(
+                    base: 296,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 297,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 298,
+                    index: 0,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 300,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 301,
+                    index: 302,
+                ),
+                AccessIndex(
+                    base: 303,
+                    index: 0,
+                ),
+                AccessIndex(
+                    base: 304,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 305,
+                    index: 306,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 308,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 309,
+                    index: 310,
+                ),
+                AccessIndex(
+                    base: 311,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 312,
+                    index: 313,
+                ),
+                AccessIndex(
+                    base: 314,
+                    index: 0,
+                ),
+                GlobalVariable(4),
+                AccessIndex(
+                    base: 316,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 317,
+                    index: 318,
+                ),
+                AccessIndex(
+                    base: 319,
+                    index: 0,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 320,
+                    index: 321,
+                ),
+                Load(
+                    pointer: 1,
+                ),
+                Access(
+                    base: 322,
+                    index: 323,
+                ),
+            ],
+            named_expressions: {
+                6: "l_s_s",
+                9: "l_s_a",
+                14: "l_s_m_c",
+                20: "l_s_m_v",
+                26: "l_s_c_cc",
+                33: "l_s_c_cv",
+                40: "l_s_c_vc",
+                48: "l_s_c_vv",
+                55: "l_s_e_ccc",
+                63: "l_s_e_ccv",
+                71: "l_s_e_cvc",
+                80: "l_s_e_cvv",
+                88: "l_s_e_vcc",
+                97: "l_s_e_vcv",
+                106: "l_s_e_vvc",
+                116: "l_s_e_vvv",
+                118: "l_u_s",
+                121: "l_u_a",
+                126: "l_u_m_c",
+                132: "l_u_m_v",
+                138: "l_u_c_cc",
+                145: "l_u_c_cv",
+                152: "l_u_c_vc",
+                160: "l_u_c_vv",
+                167: "l_u_e_ccc",
+                175: "l_u_e_ccv",
+                183: "l_u_e_cvc",
+                192: "l_u_e_cvv",
+                200: "l_u_e_vcc",
+                209: "l_u_e_vcv",
+                218: "l_u_e_vvc",
+                228: "l_u_e_vvv",
+            },
+            body: [
+                Emit((
+                    start: 3,
+                    end: 5,
+                )),
+                Store(
+                    pointer: 1,
+                    value: 4,
+                ),
+                Emit((
+                    start: 6,
+                    end: 7,
+                )),
+                Emit((
+                    start: 8,
+                    end: 10,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 12,
+                    end: 15,
+                )),
+                Emit((
+                    start: 16,
+                    end: 21,
+                )),
+                Emit((
+                    start: 22,
+                    end: 23,
+                )),
+                Emit((
+                    start: 23,
+                    end: 25,
+                )),
+                Emit((
+                    start: 25,
+                    end: 27,
+                )),
+                Emit((
+                    start: 28,
+                    end: 29,
+                )),
+                Emit((
+                    start: 29,
+                    end: 34,
+                )),
+                Emit((
+                    start: 35,
+                    end: 39,
+                )),
+                Emit((
+                    start: 39,
+                    end: 41,
+                )),
+                Emit((
+                    start: 42,
+                    end: 49,
+                )),
+                Emit((
+                    start: 50,
+                    end: 51,
+                )),
+                Emit((
+                    start: 51,
+                    end: 53,
+                )),
+                Emit((
+                    start: 53,
+                    end: 54,
+                )),
+                Emit((
+                    start: 54,
+                    end: 56,
+                )),
+                Emit((
+                    start: 57,
+                    end: 58,
+                )),
+                Emit((
+                    start: 58,
+                    end: 60,
+                )),
+                Emit((
+                    start: 60,
+                    end: 64,
+                )),
+                Emit((
+                    start: 65,
+                    end: 66,
+                )),
+                Emit((
+                    start: 66,
+                    end: 70,
+                )),
+                Emit((
+                    start: 70,
+                    end: 72,
+                )),
+                Emit((
+                    start: 73,
+                    end: 74,
+                )),
+                Emit((
+                    start: 74,
+                    end: 81,
+                )),
+                Emit((
+                    start: 82,
+                    end: 86,
+                )),
+                Emit((
+                    start: 86,
+                    end: 87,
+                )),
+                Emit((
+                    start: 87,
+                    end: 89,
+                )),
+                Emit((
+                    start: 90,
+                    end: 94,
+                )),
+                Emit((
+                    start: 94,
+                    end: 98,
+                )),
+                Emit((
+                    start: 99,
+                    end: 105,
+                )),
+                Emit((
+                    start: 105,
+                    end: 107,
+                )),
+                Emit((
+                    start: 108,
+                    end: 117,
+                )),
+                Emit((
+                    start: 118,
+                    end: 119,
+                )),
+                Emit((
+                    start: 120,
+                    end: 122,
+                )),
+                Emit((
+                    start: 123,
+                    end: 124,
+                )),
+                Emit((
+                    start: 124,
+                    end: 127,
+                )),
+                Emit((
+                    start: 128,
+                    end: 133,
+                )),
+                Emit((
+                    start: 134,
+                    end: 135,
+                )),
+                Emit((
+                    start: 135,
+                    end: 137,
+                )),
+                Emit((
+                    start: 137,
+                    end: 139,
+                )),
+                Emit((
+                    start: 140,
+                    end: 141,
+                )),
+                Emit((
+                    start: 141,
+                    end: 146,
+                )),
+                Emit((
+                    start: 147,
+                    end: 151,
+                )),
+                Emit((
+                    start: 151,
+                    end: 153,
+                )),
+                Emit((
+                    start: 154,
+                    end: 161,
+                )),
+                Emit((
+                    start: 162,
+                    end: 163,
+                )),
+                Emit((
+                    start: 163,
+                    end: 165,
+                )),
+                Emit((
+                    start: 165,
+                    end: 166,
+                )),
+                Emit((
+                    start: 166,
+                    end: 168,
+                )),
+                Emit((
+                    start: 169,
+                    end: 170,
+                )),
+                Emit((
+                    start: 170,
+                    end: 172,
+                )),
+                Emit((
+                    start: 172,
+                    end: 176,
+                )),
+                Emit((
+                    start: 177,
+                    end: 178,
+                )),
+                Emit((
+                    start: 178,
+                    end: 182,
+                )),
+                Emit((
+                    start: 182,
+                    end: 184,
+                )),
+                Emit((
+                    start: 185,
+                    end: 186,
+                )),
+                Emit((
+                    start: 186,
+                    end: 193,
+                )),
+                Emit((
+                    start: 194,
+                    end: 198,
+                )),
+                Emit((
+                    start: 198,
+                    end: 199,
+                )),
+                Emit((
+                    start: 199,
+                    end: 201,
+                )),
+                Emit((
+                    start: 202,
+                    end: 206,
+                )),
+                Emit((
+                    start: 206,
+                    end: 210,
+                )),
+                Emit((
+                    start: 211,
+                    end: 217,
+                )),
+                Emit((
+                    start: 217,
+                    end: 219,
+                )),
+                Emit((
+                    start: 220,
+                    end: 229,
+                )),
+                Store(
+                    pointer: 229,
+                    value: 118,
+                ),
+                Emit((
+                    start: 231,
+                    end: 232,
+                )),
+                Store(
+                    pointer: 231,
+                    value: 121,
+                ),
+                Emit((
+                    start: 233,
+                    end: 234,
+                )),
+                Emit((
+                    start: 234,
+                    end: 236,
+                )),
+                Store(
+                    pointer: 235,
+                    value: 126,
+                ),
+                Emit((
+                    start: 237,
+                    end: 241,
+                )),
+                Store(
+                    pointer: 240,
+                    value: 132,
+                ),
+                Emit((
+                    start: 242,
+                    end: 243,
+                )),
+                Emit((
+                    start: 243,
+                    end: 245,
+                )),
+                Emit((
+                    start: 245,
+                    end: 246,
+                )),
+                Store(
+                    pointer: 245,
+                    value: 138,
+                ),
+                Emit((
+                    start: 247,
+                    end: 248,
+                )),
+                Emit((
+                    start: 248,
+                    end: 252,
+                )),
+                Store(
+                    pointer: 251,
+                    value: 145,
+                ),
+                Emit((
+                    start: 253,
+                    end: 257,
+                )),
+                Emit((
+                    start: 257,
+                    end: 258,
+                )),
+                Store(
+                    pointer: 257,
+                    value: 152,
+                ),
+                Emit((
+                    start: 259,
+                    end: 265,
+                )),
+                Store(
+                    pointer: 264,
+                    value: 160,
+                ),
+                Emit((
+                    start: 266,
+                    end: 267,
+                )),
+                Emit((
+                    start: 267,
+                    end: 269,
+                )),
+                Emit((
+                    start: 269,
+                    end: 270,
+                )),
+                Emit((
+                    start: 270,
+                    end: 271,
+                )),
+                Store(
+                    pointer: 270,
+                    value: 167,
+                ),
+                Emit((
+                    start: 272,
+                    end: 273,
+                )),
+                Emit((
+                    start: 273,
+                    end: 275,
+                )),
+                Emit((
+                    start: 275,
+                    end: 278,
+                )),
+                Store(
+                    pointer: 277,
+                    value: 175,
+                ),
+                Emit((
+                    start: 279,
+                    end: 280,
+                )),
+                Emit((
+                    start: 280,
+                    end: 284,
+                )),
+                Emit((
+                    start: 284,
+                    end: 285,
+                )),
+                Store(
+                    pointer: 284,
+                    value: 183,
+                ),
+                Emit((
+                    start: 286,
+                    end: 287,
+                )),
+                Emit((
+                    start: 287,
+                    end: 293,
+                )),
+                Store(
+                    pointer: 292,
+                    value: 192,
+                ),
+                Emit((
+                    start: 294,
+                    end: 298,
+                )),
+                Emit((
+                    start: 298,
+                    end: 299,
+                )),
+                Emit((
+                    start: 299,
+                    end: 300,
+                )),
+                Store(
+                    pointer: 299,
+                    value: 200,
+                ),
+                Emit((
+                    start: 301,
+                    end: 305,
+                )),
+                Emit((
+                    start: 305,
+                    end: 308,
+                )),
+                Store(
+                    pointer: 307,
+                    value: 209,
+                ),
+                Emit((
+                    start: 309,
+                    end: 315,
+                )),
+                Emit((
+                    start: 315,
+                    end: 316,
+                )),
+                Store(
+                    pointer: 315,
+                    value: 218,
+                ),
+                Emit((
+                    start: 317,
+                    end: 325,
+                )),
+                Store(
+                    pointer: 324,
+                    value: 228,
+                ),
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [],
+                named_expressions: {},
+                body: [
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 1,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Call(
+                        function: 2,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

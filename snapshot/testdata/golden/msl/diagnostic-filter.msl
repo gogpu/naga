@@ -1,0 +1,29 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+void thing(
+) {
+    return;
+}
+
+void with_diagnostic(
+) {
+    return;
+}
+
+kernel void main_(
+) {
+    thing();
+    with_diagnostic();
+    return;
+}

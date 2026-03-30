@@ -1,0 +1,105 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 78
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %_57 "fragment_shader" %_18
+               OpExecutionMode %_57 OriginUpperLeft
+               OpDecorate %_12 DescriptorSet 0
+               OpDecorate %_12 Binding 0
+               OpDecorate %_14 DescriptorSet 0
+               OpDecorate %_14 Binding 1
+               OpDecorate %_16 DescriptorSet 0
+               OpDecorate %_16 Binding 2
+               OpDecorate %_18 Location 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeImage %_3 2D 1 0 0 1 Unknown
+         %_5 = OpTypeInt 32 1
+         %_6 = OpTypeVector %_5 2
+         %_7 = OpTypeImage %_3 2D 1 1 0 1 Unknown
+         %_8 = OpTypeInt 32 0
+         %_9 = OpTypeImage %_3 2D 1 0 1 1 Unknown
+         %_10 = OpTypeVector %_3 4
+         %_11 = OpTypePointer UniformConstant %_4
+         %_13 = OpTypePointer UniformConstant %_7
+         %_15 = OpTypePointer UniformConstant %_9
+         %_17 = OpTypePointer Output %_10
+         %_19 = OpTypeFunction %_3 %_6 %_5
+         %_27 = OpTypeFunction %_3 %_6 %_8 %_5
+         %_35 = OpTypeVector %_5 3
+         %_39 = OpTypeFunction %_3 %_6 %_5 %_5
+         %_56 = OpTypeFunction %_2
+         %_59 = OpConstantNull %_6
+         %_60 = OpConstant %_5 0
+         %_62 = OpConstantNull %_6
+         %_63 = OpConstant %_8 0
+         %_64 = OpConstant %_5 0
+         %_66 = OpConstantNull %_6
+         %_67 = OpConstant %_5 0
+         %_68 = OpConstant %_5 0
+         %_70 = OpConstantNull %_6
+         %_71 = OpConstant %_5 0
+         %_73 = OpConstant %_3 0
+         %_74 = OpConstant %_3 0
+         %_75 = OpConstant %_3 0
+         %_76 = OpConstant %_3 0
+         %_12 = OpVariable %_11 UniformConstant
+         %_14 = OpVariable %_13 UniformConstant
+         %_16 = OpVariable %_15 UniformConstant
+         %_18 = OpVariable %_17 Output
+         %_20 = OpFunction %_3 None %_19
+         %_21 = OpFunctionParameter %_6
+         %_22 = OpFunctionParameter %_5
+         %_23 = OpLabel
+         %_24 = OpLoad %_4 %_12
+         %_25 = OpImageFetch %_10 %_24 %_21 %_2 %_22
+         %_26 = OpCompositeExtract %_3 %_25 0
+               OpReturnValue %_26
+               OpFunctionEnd
+         %_28 = OpFunction %_3 None %_27
+         %_29 = OpFunctionParameter %_6
+         %_30 = OpFunctionParameter %_8
+         %_31 = OpFunctionParameter %_5
+         %_32 = OpLabel
+         %_33 = OpLoad %_7 %_14
+         %_34 = OpBitcast %_5 %_30
+         %_36 = OpCompositeConstruct %_35 %_29 %_34
+         %_37 = OpImageFetch %_10 %_33 %_36 %_2 %_31
+         %_38 = OpCompositeExtract %_3 %_37 0
+               OpReturnValue %_38
+               OpFunctionEnd
+         %_40 = OpFunction %_3 None %_39
+         %_41 = OpFunctionParameter %_6
+         %_42 = OpFunctionParameter %_5
+         %_43 = OpFunctionParameter %_5
+         %_44 = OpLabel
+         %_45 = OpLoad %_7 %_14
+         %_46 = OpCompositeConstruct %_35 %_41 %_42
+         %_47 = OpImageFetch %_10 %_45 %_46 %_2 %_43
+         %_48 = OpCompositeExtract %_3 %_47 0
+               OpReturnValue %_48
+               OpFunctionEnd
+         %_49 = OpFunction %_3 None %_19
+         %_50 = OpFunctionParameter %_6
+         %_51 = OpFunctionParameter %_5
+         %_52 = OpLabel
+         %_53 = OpLoad %_9 %_16
+         %_54 = OpImageFetch %_10 %_53 %_50 %_64 %_51
+         %_55 = OpCompositeExtract %_3 %_54 0
+               OpReturnValue %_55
+               OpFunctionEnd
+         %_57 = OpFunction %_2 None %_56
+         %_58 = OpLabel
+         %_61 = OpFunctionCall %_3 %_20 %_59 %_60
+         %_65 = OpFunctionCall %_3 %_28 %_62 %_63 %_64
+         %_69 = OpFunctionCall %_3 %_40 %_66 %_67 %_68
+         %_72 = OpFunctionCall %_3 %_49 %_70 %_71
+         %_77 = OpCompositeConstruct %_10 %_73 %_74 %_75 %_76
+               OpStore %_18 %_77
+               OpReturn
+               OpFunctionEnd

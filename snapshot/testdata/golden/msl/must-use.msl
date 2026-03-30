@@ -1,0 +1,53 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+int use_me(
+) {
+    return 10;
+}
+
+int use_return(
+) {
+    int _e0 = use_me();
+    return _e0;
+}
+
+int use_assign_var(
+) {
+    int q = {};
+    int _e0 = use_me();
+    q = _e0;
+    int _e2 = q;
+    return _e2;
+}
+
+int use_assign_let(
+) {
+    int _e0 = use_me();
+    return _e0;
+}
+
+void use_phony_assign(
+) {
+    int _e0 = use_me();
+    return;
+}
+
+kernel void main_(
+) {
+    int _e0 = use_return();
+    int _e1 = use_assign_var();
+    int _e2 = use_assign_let();
+    use_phony_assign();
+    return;
+}

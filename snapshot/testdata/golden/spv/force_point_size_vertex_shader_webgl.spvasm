@@ -1,0 +1,58 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 39
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %_12 "vs_main" %_7 %_9
+               OpEntryPoint Fragment %_32 "fs_main" %_10
+               OpExecutionMode %_32 OriginUpperLeft
+               OpDecorate %_7 BuiltIn VertexIndex
+               OpDecorate %_9 BuiltIn Position
+               OpDecorate %_10 Location 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeInt 32 0
+         %_4 = OpTypeFloat 32
+         %_5 = OpTypeVector %_4 4
+         %_6 = OpTypePointer Input %_3
+         %_8 = OpTypePointer Output %_5
+         %_11 = OpTypeFunction %_2
+         %_15 = OpTypeInt 32 1
+         %_17 = OpConstant %_15 1
+         %_21 = OpConstant %_3 1
+         %_24 = OpConstant %_15 2
+         %_26 = OpConstant %_15 1
+         %_29 = OpConstant %_4 0
+         %_30 = OpConstant %_4 1065353216
+         %_34 = OpConstant %_4 1065353216
+         %_35 = OpConstant %_4 0
+         %_36 = OpConstant %_4 0
+         %_37 = OpConstant %_4 1065353216
+         %_7 = OpVariable %_6 Input
+         %_9 = OpVariable %_8 Output
+         %_10 = OpVariable %_8 Output
+         %_12 = OpFunction %_2 None %_11
+         %_13 = OpLabel
+         %_14 = OpLoad %_3 %_7
+         %_16 = OpBitcast %_15 %_14
+         %_18 = OpISub %_15 %_16 %_17
+         %_19 = OpConvertSToF %_4 %_18
+         %_20 = OpLoad %_3 %_7
+         %_22 = OpBitwiseAnd %_3 %_20 %_21
+         %_23 = OpBitcast %_15 %_22
+         %_25 = OpIMul %_15 %_23 %_24
+         %_27 = OpISub %_15 %_25 %_26
+         %_28 = OpConvertSToF %_4 %_27
+         %_31 = OpCompositeConstruct %_5 %_19 %_28 %_29 %_30
+               OpStore %_9 %_31
+               OpReturn
+               OpFunctionEnd
+         %_32 = OpFunction %_2 None %_11
+         %_33 = OpLabel
+         %_38 = OpCompositeConstruct %_5 %_34 %_35 %_36 %_37
+               OpStore %_10 %_38
+               OpReturn
+               OpFunctionEnd

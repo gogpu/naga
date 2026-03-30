@@ -316,8 +316,8 @@ func TestCompile_ArrayWrapperAccess(t *testing.T) {
 	if !strings.Contains(result, "struct Positions") {
 		t.Error("Expected array wrapper struct definition in output")
 	}
-	if !strings.Contains(result, "Positions positions = Positions{{") {
-		t.Error("Expected array wrapper initialization with nested braces")
+	if !strings.Contains(result, "Positions positions = Positions {") {
+		t.Error("Expected array wrapper initialization with braces")
 	}
 	if !strings.Contains(result, ".inner[") {
 		t.Error("Expected array wrapper indexing to use .inner")
@@ -364,8 +364,8 @@ func TestCompile_EntryPointStructReturnMapping(t *testing.T) {
 				},
 			},
 		},
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
 				Name: "vs_main",
 				Result: &ir.FunctionResult{
 					Type: tStruct,
@@ -380,10 +380,7 @@ func TestCompile_EntryPointStructReturnMapping(t *testing.T) {
 					{Kind: ir.StmtStore{Pointer: 2, Value: 4}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
+			}},
 		},
 	}
 
@@ -395,8 +392,12 @@ func TestCompile_EntryPointStructReturnMapping(t *testing.T) {
 	if strings.Contains(result, "return output;") {
 		t.Error("Did not expect entry point to return the undecorated struct")
 	}
-	if !strings.Contains(result, "return _output;") {
-		t.Error("Expected entry point to return the output struct with attributes")
+	// Expect Rust naga pattern: const auto _tmp = ...; return OutputStruct { _tmp.field1, _tmp.field2 };
+	if !strings.Contains(result, "const auto _tmp = ") {
+		t.Error("Expected 'const auto _tmp = ...' for output struct return")
+	}
+	if !strings.Contains(result, "return ") {
+		t.Error("Expected inline return with output struct")
 	}
 	if strings.Contains(result, "*output.position_") {
 		t.Error("Did not expect pointer dereference for struct member stores")
@@ -423,6 +424,8 @@ func TestCompile_FragmentStageInStructInput(t *testing.T) {
 
 	retExpr := ir.ExpressionHandle(1)
 	var fragmentBinding ir.Binding = ir.LocationBinding{Location: 0}
+	var posBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinPosition}
+	var colorBinding ir.Binding = ir.LocationBinding{Location: 0}
 
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -432,15 +435,15 @@ func TestCompile_FragmentStageInStructInput(t *testing.T) {
 				Name: "VertexOutput",
 				Inner: ir.StructType{
 					Members: []ir.StructMember{
-						{Name: "position", Type: tVec4, Offset: 0},
-						{Name: "color", Type: tVec3, Offset: 16},
+						{Name: "position", Type: tVec4, Offset: 0, Binding: &posBinding},
+						{Name: "color", Type: tVec3, Offset: 16, Binding: &colorBinding},
 					},
 					Span: 28,
 				},
 			},
 		},
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Arguments: []ir.FunctionArgument{
 					{Name: "input", Type: tStruct},
@@ -454,10 +457,7 @@ func TestCompile_FragmentStageInStructInput(t *testing.T) {
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -466,13 +466,19 @@ func TestCompile_FragmentStageInStructInput(t *testing.T) {
 		t.Fatalf("Compile failed: %v", err)
 	}
 
-	if !strings.Contains(result, "fs_main_Input _input [[stage_in]]") {
-		t.Error("Expected stage_in struct parameter for fragment input")
+	// Rust naga pattern: stage_in struct has ONLY location members
+	if !strings.Contains(result, "fs_mainInput") {
+		t.Error("Expected input struct for fragment entry point")
 	}
-	if !strings.Contains(result, "auto input = _input;") {
-		t.Error("Expected fragment input alias to stage_in struct")
+	// Position should be a SEPARATE parameter, not in the stage_in struct
+	if !strings.Contains(result, "position [[position]]") {
+		t.Error("Expected position as separate parameter")
 	}
-	if !strings.Contains(result, "input.color_") {
+	// Struct should be reconstructed via aggregate init
+	if !strings.Contains(result, "const VertexOutput input = {") {
+		t.Error("Expected struct reconstruction via aggregate init")
+	}
+	if !strings.Contains(result, "input.color") {
 		t.Error("Expected fragment shader to access input struct member")
 	}
 	if runtime.GOOS == "darwin" {
@@ -498,8 +504,8 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 		Types: []ir.Type{
 			{Name: "", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
 				Name:            "vs_main",
 				Result:          &ir.FunctionResult{Type: tVec4, Binding: &vertexBinding},
 				Expressions:     expressions,
@@ -507,8 +513,8 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
-			},
-			{
+			}},
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name:            "fs_main",
 				Result:          &ir.FunctionResult{Type: tVec4, Binding: &fragmentBinding},
 				Expressions:     expressions,
@@ -516,11 +522,7 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "vs_main", Stage: ir.StageVertex, Function: 0},
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 1},
+			}},
 		},
 	}
 
@@ -531,17 +533,17 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 
 	// MSL requires [[position]] on struct member, not on function return
 	// So we expect an output struct to be generated
-	if !strings.Contains(result, "struct vs_main_Output") {
+	if !strings.Contains(result, "struct vs_mainOutput") {
 		t.Error("Expected output struct for vertex shader with builtin position")
 	}
 	if !strings.Contains(result, "[[position]]") {
 		t.Error("Expected position attribute in output struct")
 	}
-	if !strings.Contains(result, "vertex vs_main_Output vs_main(") {
+	if !strings.Contains(result, "vertex vs_mainOutput vs_main(") {
 		t.Error("Expected vertex entry point to return output struct")
 	}
-	if !strings.Contains(result, "fragment metal::float4 fs_main(") {
-		t.Error("Expected fragment entry point signature")
+	if !strings.Contains(result, "fragment fs_mainOutput fs_main(") {
+		t.Error("Expected fragment entry point to return output struct")
 	}
 	// [[position]] should NOT be on function signature, only on struct member
 	if strings.Contains(result, ") [[position]] {") {
@@ -606,42 +608,41 @@ func TestMSL_PassThroughGlobals(t *testing.T) {
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
 				},
 			},
-			{
-				// Entry point function: calls sample_tex with hardcoded UV
-				Name: "fs_entry",
-				Result: &ir.FunctionResult{
-					Type:    tVec4,
-					Binding: bindingPtr(ir.LocationBinding{Location: 0}),
-				},
-				Expressions: []ir.Expression{
-					{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // 0: 0.5
-					{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // 1: 0.5
-					{Kind: ir.ExprCompose{ // 2: vec2(0.5, 0.5)
-						Type: tVec2, Components: []ir.ExpressionHandle{0, 1},
-					}},
-					{Kind: ir.ExprCallResult{Function: 0}}, // 3: result of call
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},  // 0: literal
-					{Handle: &tF32},  // 1: literal
-					{Handle: &tVec2}, // 2: compose
-					{Handle: &tVec4}, // 3: call result
-				},
-				Body: []ir.Statement{
-					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
-					{Kind: ir.StmtCall{
-						Function:  0, // call sample_tex
-						Arguments: []ir.ExpressionHandle{2},
-						Result:    ptrExpr(3),
-					}},
-					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
-				},
-			},
 		},
 		EntryPoints: []ir.EntryPoint{
 			{
 				Name: "fs_main", Stage: ir.StageFragment,
-				Function: 1, // references Functions[1]
+				Function: ir.Function{
+					// Entry point function: calls sample_tex with hardcoded UV
+					Name: "fs_entry",
+					Result: &ir.FunctionResult{
+						Type:    tVec4,
+						Binding: bindingPtr(ir.LocationBinding{Location: 0}),
+					},
+					Expressions: []ir.Expression{
+						{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // 0: 0.5
+						{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // 1: 0.5
+						{Kind: ir.ExprCompose{ // 2: vec2(0.5, 0.5)
+							Type: tVec2, Components: []ir.ExpressionHandle{0, 1},
+						}},
+						{Kind: ir.ExprCallResult{Function: 0}}, // 3: result of call
+					},
+					ExpressionTypes: []ir.TypeResolution{
+						{Handle: &tF32},  // 0: literal
+						{Handle: &tF32},  // 1: literal
+						{Handle: &tVec2}, // 2: compose
+						{Handle: &tVec4}, // 3: call result
+					},
+					Body: []ir.Statement{
+						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+						{Kind: ir.StmtCall{
+							Function:  0, // call sample_tex
+							Arguments: []ir.ExpressionHandle{2},
+							Result:    ptrExpr(3),
+						}},
+						{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
+					},
+				},
 			},
 		},
 	}
@@ -768,8 +769,8 @@ func TestMSL_MultiGroupBindingIndices(t *testing.T) {
 			{Name: "uniforms", Space: ir.SpaceUniform, Type: tUniforms, Binding: group0Binding0},
 			{Name: "clip_params", Space: ir.SpaceUniform, Type: tClipParams, Binding: group1Binding0},
 		},
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Result: &ir.FunctionResult{
 					Type:    tVec4,
@@ -781,10 +782,7 @@ func TestMSL_MultiGroupBindingIndices(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -872,8 +870,8 @@ func TestMSL_MultiGroupMixedResourceTypes(t *testing.T) {
 			{Name: "atlas_sampler", Space: ir.SpaceHandle, Type: tSamp, Binding: g0b2},
 			{Name: "clip_params", Space: ir.SpaceUniform, Type: tClipParams, Binding: g1b0},
 		},
-		Functions: []ir.Function{
-			{
+		EntryPoints: []ir.EntryPoint{
+			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
 				Name: "fs_main",
 				Result: &ir.FunctionResult{
 					Type:    tVec4,
@@ -885,10 +883,7 @@ func TestMSL_MultiGroupMixedResourceTypes(t *testing.T) {
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
-			},
-		},
-		EntryPoints: []ir.EntryPoint{
-			{Name: "fs_main", Stage: ir.StageFragment, Function: 0},
+			}},
 		},
 	}
 
@@ -897,22 +892,20 @@ func TestMSL_MultiGroupMixedResourceTypes(t *testing.T) {
 		t.Fatalf("Compile failed: %v", err)
 	}
 
-	// Buffers: sequential across groups.
-	// group(0) binding(0) Uniforms → buffer(0)
-	// group(1) binding(0) ClipParams → buffer(1)
+	// Only resources referenced by the entry point are emitted (per-entry-point filtering).
+	// This entry point only uses global 0 (uniforms), so only buffer(0) should appear.
 	if strings.Count(result, "[[buffer(0)]]") != 1 {
 		t.Errorf("Expected exactly 1 [[buffer(0)]], got %d", strings.Count(result, "[[buffer(0)]]"))
 	}
-	if strings.Count(result, "[[buffer(1)]]") != 1 {
-		t.Errorf("Expected exactly 1 [[buffer(1)]], got %d", strings.Count(result, "[[buffer(1)]]"))
+	// Unused resources should NOT be emitted.
+	if strings.Contains(result, "[[buffer(1)]]") {
+		t.Error("Unexpected [[buffer(1)]] — clip_params is not referenced by the entry point")
 	}
-
-	// Textures and samplers: independent namespaces, each starts at 0.
-	if !strings.Contains(result, "[[texture(0)]]") {
-		t.Error("Expected [[texture(0)]] for atlas")
+	if strings.Contains(result, "[[texture(0)]]") {
+		t.Error("Unexpected [[texture(0)]] — atlas is not referenced by the entry point")
 	}
-	if !strings.Contains(result, "[[sampler(0)]]") {
-		t.Error("Expected [[sampler(0)]] for atlas_sampler")
+	if strings.Contains(result, "[[sampler(0)]]") {
+		t.Error("Unexpected [[sampler(0)]] — atlas_sampler is not referenced by the entry point")
 	}
 
 	// Verify no duplicate indices within same resource type.

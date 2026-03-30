@@ -1,0 +1,380 @@
+(
+    types: [
+        (
+            name: Some("rq"),
+            inner: RayQuery(
+                vertex_return: false,
+            ),
+        ),
+        (
+            name: None,
+            inner: AccelerationStructure(
+                vertex_return: false,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("RayDesc"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("flags"),
+                        ty: 4,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("cull_mask"),
+                        ty: 4,
+                        binding: None,
+                        offset: 4,
+                    ),
+                    (
+                        name: Some("tmin"),
+                        ty: 2,
+                        binding: None,
+                        offset: 8,
+                    ),
+                    (
+                        name: Some("tmax"),
+                        ty: 2,
+                        binding: None,
+                        offset: 12,
+                    ),
+                    (
+                        name: Some("origin"),
+                        ty: 3,
+                        binding: None,
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("dir"),
+                        ty: 3,
+                        binding: None,
+                        offset: 32,
+                    ),
+                ],
+                span: 48,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Quad,
+                rows: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("RayIntersection"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("kind"),
+                        ty: 4,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("t"),
+                        ty: 2,
+                        binding: None,
+                        offset: 4,
+                    ),
+                    (
+                        name: Some("instance_custom_data"),
+                        ty: 4,
+                        binding: None,
+                        offset: 8,
+                    ),
+                    (
+                        name: Some("instance_index"),
+                        ty: 4,
+                        binding: None,
+                        offset: 12,
+                    ),
+                    (
+                        name: Some("sbt_record_offset"),
+                        ty: 4,
+                        binding: None,
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("geometry_index"),
+                        ty: 4,
+                        binding: None,
+                        offset: 20,
+                    ),
+                    (
+                        name: Some("primitive_index"),
+                        ty: 4,
+                        binding: None,
+                        offset: 24,
+                    ),
+                    (
+                        name: Some("barycentrics"),
+                        ty: 6,
+                        binding: None,
+                        offset: 28,
+                    ),
+                    (
+                        name: Some("front_face"),
+                        ty: 7,
+                        binding: None,
+                        offset: 36,
+                    ),
+                    (
+                        name: Some("object_to_world"),
+                        ty: 8,
+                        binding: None,
+                        offset: 48,
+                    ),
+                    (
+                        name: Some("world_to_object"),
+                        ty: 8,
+                        binding: None,
+                        offset: 112,
+                    ),
+                ],
+                span: 176,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: Some(5),
+        ray_intersection: Some(9),
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("acc_struct"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 1,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main_candidate",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main_candidate"),
+                arguments: [],
+                result: None,
+                local_variables: [
+                    (
+                        name: Some("rq"),
+                        ty: 0,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    Literal(F32(0.0)),
+                    Splat(
+                        size: Tri,
+                        value: 0,
+                    ),
+                    Literal(F32(0.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(0.0)),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            2,
+                            3,
+                            4,
+                        ],
+                    ),
+                    LocalVariable(0),
+                    GlobalVariable(0),
+                    Literal(U32(4)),
+                    Literal(U32(255)),
+                    Literal(F32(0.1)),
+                    Literal(F32(100.0)),
+                    Compose(
+                        ty: 5,
+                        components: [
+                            8,
+                            9,
+                            10,
+                            11,
+                            1,
+                            5,
+                        ],
+                    ),
+                    RayQueryGetIntersection(
+                        query: 6,
+                        committed: false,
+                    ),
+                    AccessIndex(
+                        base: 13,
+                        index: 0,
+                    ),
+                    Literal(U32(3)),
+                    Binary(
+                        op: Equal,
+                        left: 14,
+                        right: 15,
+                    ),
+                    Literal(F32(10.0)),
+                    AccessIndex(
+                        base: 13,
+                        index: 0,
+                    ),
+                    Literal(U32(1)),
+                    Binary(
+                        op: Equal,
+                        left: 18,
+                        right: 19,
+                    ),
+                ],
+                named_expressions: {
+                    1: "pos",
+                    5: "dir",
+                    13: "intersection",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 5,
+                        end: 6,
+                    )),
+                    Emit((
+                        start: 12,
+                        end: 13,
+                    )),
+                    RayQuery(
+                        query: 6,
+                        fun: Initialize(
+                            acceleration_structure: 7,
+                            descriptor: 12,
+                        ),
+                    ),
+                    Emit((
+                        start: 13,
+                        end: 14,
+                    )),
+                    Emit((
+                        start: 14,
+                        end: 15,
+                    )),
+                    Emit((
+                        start: 16,
+                        end: 17,
+                    )),
+                    If(
+                        condition: 16,
+                        accept: [
+                            RayQuery(
+                                query: 6,
+                                fun: GenerateIntersection(
+                                    hit_t: 17,
+                                ),
+                            ),
+                            Return(
+                                value: None,
+                            ),
+                        ],
+                        reject: [
+                            Emit((
+                                start: 18,
+                                end: 19,
+                            )),
+                            Emit((
+                                start: 20,
+                                end: 21,
+                            )),
+                            If(
+                                condition: 20,
+                                accept: [
+                                    RayQuery(
+                                        query: 6,
+                                        fun: ConfirmIntersection,
+                                    ),
+                                    Return(
+                                        value: None,
+                                    ),
+                                ],
+                                reject: [
+                                    RayQuery(
+                                        query: 6,
+                                        fun: Terminate,
+                                    ),
+                                    Return(
+                                        value: None,
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

@@ -1,0 +1,35 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+constant bool has_point_light = true;
+constant float specular_param = 2.3;
+constant float gain = float {};
+constant float width = 0.0;
+constant float depth = float {};
+constant float height = {};
+constant float inferred_f32_ = 2.718;
+constant uint auto_conversion = 0.0;
+
+kernel void main_(
+) {
+    float gain_x_10_ = {};
+    float store_override = {};
+    float t = height * 5.0;
+    bool x = {};
+    float gain_x_100_ = {};
+    bool a = !(has_point_light);
+    x = a;
+    float _e7 = gain_x_10_;
+    gain_x_100_ = _e7 * 10.0;
+    store_override = gain;
+    return;
+}

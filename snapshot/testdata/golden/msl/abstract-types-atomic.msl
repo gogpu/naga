@@ -1,0 +1,115 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _atomic_compare_exchange_result_Sint_4_ {
+    int old_value;
+    bool exchanged;
+    char _pad2[3];
+};
+struct _atomic_compare_exchange_result_Uint_4_ {
+    uint old_value;
+    bool exchanged;
+    char _pad2[3];
+};
+
+template <typename A>
+_atomic_compare_exchange_result_Sint_4_ naga_atomic_compare_exchange_weak_explicit(
+    device A *atomic_ptr,
+    int cmp,
+    int v
+) {
+    bool swapped = metal::atomic_compare_exchange_weak_explicit(
+        atomic_ptr, &cmp, v,
+        metal::memory_order_relaxed, metal::memory_order_relaxed
+    );
+    return _atomic_compare_exchange_result_Sint_4_{cmp, swapped};
+}
+template <typename A>
+_atomic_compare_exchange_result_Sint_4_ naga_atomic_compare_exchange_weak_explicit(
+    threadgroup A *atomic_ptr,
+    int cmp,
+    int v
+) {
+    bool swapped = metal::atomic_compare_exchange_weak_explicit(
+        atomic_ptr, &cmp, v,
+        metal::memory_order_relaxed, metal::memory_order_relaxed
+    );
+    return _atomic_compare_exchange_result_Sint_4_{cmp, swapped};
+}
+
+template <typename A>
+_atomic_compare_exchange_result_Uint_4_ naga_atomic_compare_exchange_weak_explicit(
+    device A *atomic_ptr,
+    uint cmp,
+    uint v
+) {
+    bool swapped = metal::atomic_compare_exchange_weak_explicit(
+        atomic_ptr, &cmp, v,
+        metal::memory_order_relaxed, metal::memory_order_relaxed
+    );
+    return _atomic_compare_exchange_result_Uint_4_{cmp, swapped};
+}
+template <typename A>
+_atomic_compare_exchange_result_Uint_4_ naga_atomic_compare_exchange_weak_explicit(
+    threadgroup A *atomic_ptr,
+    uint cmp,
+    uint v
+) {
+    bool swapped = metal::atomic_compare_exchange_weak_explicit(
+        atomic_ptr, &cmp, v,
+        metal::memory_order_relaxed, metal::memory_order_relaxed
+    );
+    return _atomic_compare_exchange_result_Uint_4_{cmp, swapped};
+}
+
+void test_atomic_i32_(
+    device metal::atomic_int& atomic_i32_
+) {
+    metal::atomic_store_explicit(&atomic_i32_, 1, metal::memory_order_relaxed);
+    _atomic_compare_exchange_result_Sint_4_ _e5 = naga_atomic_compare_exchange_weak_explicit(&atomic_i32_, 1, 1);
+    _atomic_compare_exchange_result_Sint_4_ _e9 = naga_atomic_compare_exchange_weak_explicit(&atomic_i32_, 1, 1);
+    int _e12 = metal::atomic_fetch_add_explicit(&atomic_i32_, 1, metal::memory_order_relaxed);
+    int _e15 = metal::atomic_fetch_sub_explicit(&atomic_i32_, 1, metal::memory_order_relaxed);
+    int _e18 = metal::atomic_fetch_and_explicit(&atomic_i32_, 1, metal::memory_order_relaxed);
+    int _e21 = metal::atomic_fetch_xor_explicit(&atomic_i32_, 1, metal::memory_order_relaxed);
+    int _e24 = metal::atomic_fetch_or_explicit(&atomic_i32_, 1, metal::memory_order_relaxed);
+    int _e27 = metal::atomic_fetch_min_explicit(&atomic_i32_, 1, metal::memory_order_relaxed);
+    int _e30 = metal::atomic_fetch_max_explicit(&atomic_i32_, 1, metal::memory_order_relaxed);
+    int _e33 = metal::atomic_exchange_explicit(&atomic_i32_, 1, metal::memory_order_relaxed);
+    return;
+}
+
+void test_atomic_u32_(
+    device metal::atomic_uint& atomic_u32_
+) {
+    metal::atomic_store_explicit(&atomic_u32_, 1u, metal::memory_order_relaxed);
+    _atomic_compare_exchange_result_Uint_4_ _e5 = naga_atomic_compare_exchange_weak_explicit(&atomic_u32_, 1u, 1u);
+    _atomic_compare_exchange_result_Uint_4_ _e9 = naga_atomic_compare_exchange_weak_explicit(&atomic_u32_, 1u, 1u);
+    uint _e12 = metal::atomic_fetch_add_explicit(&atomic_u32_, 1u, metal::memory_order_relaxed);
+    uint _e15 = metal::atomic_fetch_sub_explicit(&atomic_u32_, 1u, metal::memory_order_relaxed);
+    uint _e18 = metal::atomic_fetch_and_explicit(&atomic_u32_, 1u, metal::memory_order_relaxed);
+    uint _e21 = metal::atomic_fetch_xor_explicit(&atomic_u32_, 1u, metal::memory_order_relaxed);
+    uint _e24 = metal::atomic_fetch_or_explicit(&atomic_u32_, 1u, metal::memory_order_relaxed);
+    uint _e27 = metal::atomic_fetch_min_explicit(&atomic_u32_, 1u, metal::memory_order_relaxed);
+    uint _e30 = metal::atomic_fetch_max_explicit(&atomic_u32_, 1u, metal::memory_order_relaxed);
+    uint _e33 = metal::atomic_exchange_explicit(&atomic_u32_, 1u, metal::memory_order_relaxed);
+    return;
+}
+
+kernel void main_(
+  device metal::atomic_int& atomic_i32_ [[user(fake0)]]
+, device metal::atomic_uint& atomic_u32_ [[user(fake0)]]
+) {
+    test_atomic_i32_(atomic_i32_);
+    test_atomic_u32_(atomic_u32_);
+    return;
+}

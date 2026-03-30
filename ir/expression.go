@@ -28,6 +28,13 @@ type LiteralF64 float64
 
 func (LiteralF64) literalValue() {}
 
+// LiteralF16 represents a 16-bit float literal stored as float32.
+// The value has been rounded to half precision, but is stored as float32
+// for ease of use. Backends should emit with the appropriate f16 suffix.
+type LiteralF16 float32
+
+func (LiteralF16) literalValue() {}
+
 // LiteralF32 represents a 32-bit float literal (may not be NaN or infinity).
 type LiteralF32 float32
 
@@ -74,6 +81,16 @@ type ExprConstant struct {
 }
 
 func (ExprConstant) expressionKind() {}
+
+// ExprOverride references a pipeline-overridable constant.
+// Used in global_expressions and function expressions for override references.
+// Mirrors Rust naga's Expression::Override(Handle<Override>).
+type ExprOverride struct {
+	// Override is the index into Module.Overrides.
+	Override OverrideHandle
+}
+
+func (ExprOverride) expressionKind() {}
 
 // ExprZeroValue represents a zero-initialized value of a given type.
 type ExprZeroValue struct {
@@ -519,6 +536,139 @@ func (ExprArrayLength) expressionKind() {}
 
 // ExprAtomicResult represents the result of an atomic operation.
 // This is created by StmtAtomic and holds the previous value.
-type ExprAtomicResult struct{}
+// For CompareExchange, Comparison=true and Ty is the result struct type.
+// For other atomics, Comparison=false and Ty is the scalar type.
+type ExprAtomicResult struct {
+	Ty         TypeHandle
+	Comparison bool
+}
 
 func (ExprAtomicResult) expressionKind() {}
+
+// ExprWorkGroupUniformLoadResult represents the result of a workgroup uniform load.
+// Created by StmtWorkGroupUniformLoad, holds the loaded value.
+type ExprWorkGroupUniformLoadResult struct{}
+
+func (ExprWorkGroupUniformLoadResult) expressionKind() {}
+
+// ExprRayQueryProceedResult represents the result of a RayQueryProceed statement.
+// The result is a bool indicating whether there are more intersection candidates.
+type ExprRayQueryProceedResult struct{}
+
+func (ExprRayQueryProceedResult) expressionKind() {}
+
+// ExprRayQueryGetIntersection returns the intersection found by a ray query.
+// If Committed is true, returns the committed intersection (after Proceed returns false).
+// If Committed is false, returns the candidate intersection (during Proceed).
+type ExprRayQueryGetIntersection struct {
+	Query     ExpressionHandle
+	Committed bool
+}
+
+func (ExprRayQueryGetIntersection) expressionKind() {}
+
+// ExprSubgroupBallotResult represents the result of a SubgroupBallot statement.
+// The result type is always vec4<u32>.
+type ExprSubgroupBallotResult struct{}
+
+func (ExprSubgroupBallotResult) expressionKind() {}
+
+// ExprSubgroupOperationResult represents the result of a SubgroupCollectiveOperation
+// or SubgroupGather statement. The Type field holds the result type.
+type ExprSubgroupOperationResult struct {
+	Type TypeHandle
+}
+
+func (ExprSubgroupOperationResult) expressionKind() {}
+
+// SubgroupOperation represents the kind of subgroup collective operation.
+type SubgroupOperation uint8
+
+const (
+	SubgroupOperationAll SubgroupOperation = iota
+	SubgroupOperationAny
+	SubgroupOperationAdd
+	SubgroupOperationMul
+	SubgroupOperationMin
+	SubgroupOperationMax
+	SubgroupOperationAnd
+	SubgroupOperationOr
+	SubgroupOperationXor
+)
+
+// CollectiveOperation represents how subgroup results are combined.
+type CollectiveOperation uint8
+
+const (
+	CollectiveReduce        CollectiveOperation = iota // Reduce across all invocations
+	CollectiveInclusiveScan                            // Inclusive prefix scan
+	CollectiveExclusiveScan                            // Exclusive prefix scan
+)
+
+// GatherMode represents the specific behavior of a SubgroupGather statement.
+type GatherMode interface {
+	gatherMode()
+}
+
+// GatherBroadcastFirst gathers from the active lane with the smallest index.
+type GatherBroadcastFirst struct{}
+
+func (GatherBroadcastFirst) gatherMode() {}
+
+// GatherBroadcast gathers from the same lane at the given index.
+type GatherBroadcast struct {
+	Index ExpressionHandle
+}
+
+func (GatherBroadcast) gatherMode() {}
+
+// GatherShuffle gathers from a different lane at the given index.
+type GatherShuffle struct {
+	Index ExpressionHandle
+}
+
+func (GatherShuffle) gatherMode() {}
+
+// GatherShuffleDown gathers from the lane plus the given shift.
+type GatherShuffleDown struct {
+	Delta ExpressionHandle
+}
+
+func (GatherShuffleDown) gatherMode() {}
+
+// GatherShuffleUp gathers from the lane minus the given shift.
+type GatherShuffleUp struct {
+	Delta ExpressionHandle
+}
+
+func (GatherShuffleUp) gatherMode() {}
+
+// GatherShuffleXor gathers from the lane xored with the given value.
+type GatherShuffleXor struct {
+	Mask ExpressionHandle
+}
+
+func (GatherShuffleXor) gatherMode() {}
+
+// GatherQuadBroadcast gathers from the same quad lane at the given index.
+type GatherQuadBroadcast struct {
+	Index ExpressionHandle
+}
+
+func (GatherQuadBroadcast) gatherMode() {}
+
+// GatherQuadSwap gathers from the opposite quad lane along the given direction.
+type GatherQuadSwap struct {
+	Direction QuadDirection
+}
+
+func (GatherQuadSwap) gatherMode() {}
+
+// QuadDirection represents the direction for quad swap operations.
+type QuadDirection uint8
+
+const (
+	QuadDirectionX        QuadDirection = iota // Horizontal swap
+	QuadDirectionY                             // Vertical swap
+	QuadDirectionDiagonal                      // Diagonal swap
+)

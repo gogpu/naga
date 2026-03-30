@@ -1,0 +1,54 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 29
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Vertex %_14 "vs_main" %_7 %_9 %_10 %_11 %_12
+               OpMemberDecorate %_5 0 Offset 0
+               OpMemberDecorate %_5 1 Offset 16
+               OpMemberDecorate %_5 2 Offset 32
+               OpMemberDecorate %_5 3 Offset 48
+               OpMemberDecorate %_5 4 Offset 52
+               OpDecorate %_7 BuiltIn Position
+               OpDecorate %_9 Location 1
+               OpDecorate %_10 Location 2
+               OpDecorate %_11 Location 0
+               OpDecorate %_12 Location 3
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeVector %_3 4
+         %_5 = OpTypeStruct %_4 %_3 %_4 %_3 %_3
+         %_6 = OpTypePointer Output %_4
+         %_8 = OpTypePointer Output %_3
+         %_13 = OpTypeFunction %_2
+         %_16 = OpConstant %_3 1065353216
+         %_18 = OpConstant %_3 1073741824
+         %_20 = OpConstant %_3 1065353216
+         %_21 = OpConstant %_3 1065353216
+         %_22 = OpConstant %_3 1056964608
+         %_7 = OpVariable %_6 Output
+         %_9 = OpVariable %_8 Output
+         %_10 = OpVariable %_6 Output
+         %_11 = OpVariable %_8 Output
+         %_12 = OpVariable %_8 Output
+         %_14 = OpFunction %_2 None %_13
+         %_15 = OpLabel
+         %_17 = OpCompositeConstruct %_4 %_16 %_16 %_16 %_16
+         %_19 = OpCompositeConstruct %_4 %_18 %_18 %_18 %_18
+         %_23 = OpCompositeConstruct %_5 %_17 %_20 %_19 %_21 %_22
+         %_24 = OpCompositeExtract %_4 %_23 0
+               OpStore %_7 %_24
+         %_25 = OpCompositeExtract %_3 %_23 1
+               OpStore %_9 %_25
+         %_26 = OpCompositeExtract %_4 %_23 2
+               OpStore %_10 %_26
+         %_27 = OpCompositeExtract %_3 %_23 3
+               OpStore %_11 %_27
+         %_28 = OpCompositeExtract %_3 %_23 4
+               OpStore %_12 %_28
+               OpReturn
+               OpFunctionEnd

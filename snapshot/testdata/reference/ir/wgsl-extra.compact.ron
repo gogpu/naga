@@ -1,0 +1,226 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("ImmediateData"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("index"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("double"),
+                        ty: 1,
+                        binding: None,
+                        offset: 8,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("FragmentIn"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("color"),
+                        ty: 3,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("primitive_index"),
+                        ty: 0,
+                        binding: Some(BuiltIn(PrimitiveIndex)),
+                        offset: 16,
+                    ),
+                ],
+                span: 32,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("im"),
+            space: Immediate,
+            binding: None,
+            ty: 2,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [
+                    (
+                        name: Some("in"),
+                        ty: 4,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 3,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 2,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 3,
+                    ),
+                    Binary(
+                        op: Equal,
+                        left: 1,
+                        right: 4,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    Literal(F32(1.0)),
+                    Splat(
+                        size: Tri,
+                        value: 7,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 9,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    Binary(
+                        op: Subtract,
+                        left: 8,
+                        right: 10,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 12,
+                        index: 3,
+                    ),
+                    Compose(
+                        ty: 3,
+                        components: [
+                            11,
+                            13,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "in",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 6,
+                    )),
+                    If(
+                        condition: 5,
+                        accept: [
+                            Emit((
+                                start: 6,
+                                end: 7,
+                            )),
+                            Return(
+                                value: Some(6),
+                            ),
+                        ],
+                        reject: [
+                            Emit((
+                                start: 8,
+                                end: 15,
+                            )),
+                            Return(
+                                value: Some(14),
+                            ),
+                        ],
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

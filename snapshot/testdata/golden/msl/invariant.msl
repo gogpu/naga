@@ -1,0 +1,29 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+struct vsOutput {
+    metal::float4 member [[position, invariant]];
+};
+vertex vsOutput vs(
+) {
+    return vsOutput { metal::float4(0.0) };
+}
+
+
+struct fsInput {
+};
+fragment void fs(
+  metal::float4 position [[position]]
+) {
+    return;
+}

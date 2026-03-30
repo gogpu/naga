@@ -1,0 +1,144 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 119
+; Schema: 0
+
+               OpCapability Shader
+               OpCapability GroupNonUniformVote
+               OpCapability GroupNonUniformShuffle
+               OpCapability GroupNonUniformArithmetic
+               OpCapability GroupNonUniformBallot
+               OpCapability GroupNonUniformShuffleRelative
+               OpCapability GroupNonUniformClustered
+               OpCapability 68
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_12 "main" %_7 %_8 %_9 %_10
+               OpExecutionMode %_12 LocalSize 1 1 1
+               OpMemberDecorate %_4 0 Offset 0
+               OpMemberDecorate %_4 1 Offset 4
+               OpDecorate %_7 BuiltIn 38
+               OpDecorate %_8 BuiltIn 36
+               OpDecorate %_9 BuiltIn 40
+               OpDecorate %_10 BuiltIn 41
+         %_2 = OpTypeVoid
+         %_3 = OpTypeInt 32 0
+         %_4 = OpTypeStruct %_3 %_3
+         %_5 = OpTypeBool
+         %_6 = OpTypePointer Input %_3
+         %_11 = OpTypeFunction %_2
+         %_17 = OpConstant %_3 2
+         %_18 = OpConstant %_3 2
+         %_19 = OpConstant %_3 8
+         %_21 = OpConstant %_3 1
+         %_23 = OpConstant %_3 1
+         %_25 = OpTypeVector %_3 4
+         %_26 = OpConstant %_3 3
+         %_28 = OpConstant %_3 3
+         %_29 = OpConstantTrue %_5
+         %_32 = OpConstant %_3 0
+         %_34 = OpConstant %_3 3
+         %_37 = OpConstant %_3 0
+         %_39 = OpConstant %_3 3
+         %_41 = OpConstant %_3 3
+         %_44 = OpConstant %_3 3
+         %_47 = OpConstant %_3 3
+         %_50 = OpConstant %_3 3
+         %_53 = OpConstant %_3 3
+         %_56 = OpConstant %_3 3
+         %_59 = OpConstant %_3 3
+         %_62 = OpConstant %_3 3
+         %_65 = OpConstant %_3 3
+         %_68 = OpConstant %_3 3
+         %_71 = OpConstant %_3 3
+         %_74 = OpConstant %_3 3
+         %_77 = OpConstant %_3 3
+         %_80 = OpConstant %_3 4
+         %_82 = OpConstant %_3 1
+         %_86 = OpConstant %_3 3
+         %_89 = OpConstant %_3 3
+         %_92 = OpConstant %_3 1
+         %_93 = OpConstant %_3 3
+         %_96 = OpConstant %_3 1
+         %_98 = OpConstant %_3 1
+         %_100 = OpConstant %_3 3
+         %_103 = OpConstant %_3 3
+         %_106 = OpConstant %_3 4
+         %_107 = OpConstant %_3 3
+         %_110 = OpConstant %_3 0
+         %_111 = OpConstant %_3 3
+         %_114 = OpConstant %_3 1
+         %_115 = OpConstant %_3 3
+         %_118 = OpConstant %_3 2
+         %_7 = OpVariable %_6 Input
+         %_8 = OpVariable %_6 Input
+         %_9 = OpVariable %_6 Input
+         %_10 = OpVariable %_6 Input
+         %_12 = OpFunction %_2 None %_11
+         %_13 = OpLabel
+         %_14 = OpLoad %_3 %_7
+         %_15 = OpLoad %_3 %_8
+         %_16 = OpCompositeConstruct %_4 %_14 %_15
+         OpControlBarrier %_17 %_18 %_19
+         %_20 = OpLoad %_3 %_10
+         %_22 = OpBitwiseAnd %_3 %_20 %_21
+         %_24 = OpSignBitSet %_5 %_22 %_23
+         Op339 %_25 %_27 %_26 %_24
+         Op339 %_25 %_30 %_28 %_29
+         %_31 = OpLoad %_3 %_10
+         %_33 = OpLessOrGreater %_5 %_31 %_32
+         Op334 %_5 %_35 %_34 %_33
+         %_36 = OpLoad %_3 %_10
+         %_38 = OpSignBitSet %_5 %_36 %_37
+         Op335 %_5 %_40 %_39 %_38
+         %_42 = OpLoad %_3 %_10
+         Op349 %_3 %_43 %_41 %_0 %_42
+         %_45 = OpLoad %_3 %_10
+         Op351 %_3 %_46 %_44 %_0 %_45
+         %_48 = OpLoad %_3 %_10
+         Op354 %_3 %_49 %_47 %_0 %_48
+         %_51 = OpLoad %_3 %_10
+         Op357 %_3 %_52 %_50 %_0 %_51
+         %_54 = OpLoad %_3 %_10
+         Op359 %_3 %_55 %_53 %_0 %_54
+         %_57 = OpLoad %_3 %_10
+         Op360 %_3 %_58 %_56 %_0 %_57
+         %_60 = OpLoad %_3 %_10
+         Op361 %_3 %_61 %_59 %_0 %_60
+         %_63 = OpLoad %_3 %_10
+         Op349 %_3 %_64 %_62 %_2 %_63
+         %_66 = OpLoad %_3 %_10
+         Op351 %_3 %_67 %_65 %_2 %_66
+         %_69 = OpLoad %_3 %_10
+         Op349 %_3 %_70 %_68 %_1 %_69
+         %_72 = OpLoad %_3 %_10
+         Op351 %_3 %_73 %_71 %_1 %_72
+         %_75 = OpLoad %_3 %_10
+         Op338 %_3 %_76 %_74 %_75
+         %_78 = OpLoad %_3 %_10
+         Op337 %_3 %_79 %_77 %_78 %_80
+         %_81 = OpCompositeExtract %_3 %_16 1
+         %_83 = OpISub %_3 %_81 %_82
+         %_84 = OpLoad %_3 %_10
+         %_85 = OpISub %_3 %_83 %_84
+         %_87 = OpLoad %_3 %_10
+         Op345 %_3 %_88 %_86 %_87 %_85
+         %_90 = OpLoad %_3 %_10
+         Op348 %_3 %_91 %_89 %_90 %_92
+         %_94 = OpLoad %_3 %_10
+         Op347 %_3 %_95 %_93 %_94 %_96
+         %_97 = OpCompositeExtract %_3 %_16 1
+         %_99 = OpISub %_3 %_97 %_98
+         %_101 = OpLoad %_3 %_10
+         Op346 %_3 %_102 %_100 %_101 %_99
+         %_104 = OpLoad %_3 %_10
+         Op365 %_3 %_105 %_103 %_104 %_106
+         %_108 = OpLoad %_3 %_10
+         Op366 %_3 %_109 %_107 %_108 %_110
+         %_112 = OpLoad %_3 %_10
+         Op366 %_3 %_113 %_111 %_112 %_114
+         %_116 = OpLoad %_3 %_10
+         Op366 %_3 %_117 %_115 %_116 %_118
+               OpReturn
+               OpFunctionEnd

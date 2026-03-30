@@ -1,0 +1,88 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 51
+; Schema: 0
+
+               OpCapability Shader
+               OpCapability ImageQuery
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_17 "csLoad"
+               OpEntryPoint GLCompute %_34 "csStore"
+               OpExecutionMode %_17 LocalSize 1 1 1
+               OpExecutionMode %_34 LocalSize 1 1 1
+               OpDecorate %_8 DescriptorSet 0
+               OpDecorate %_8 Binding 0
+               OpDecorate %_8 NonWritable
+               OpDecorate %_10 DescriptorSet 0
+               OpDecorate %_10 Binding 1
+               OpDecorate %_10 NonWritable
+               OpDecorate %_12 DescriptorSet 0
+               OpDecorate %_12 Binding 2
+               OpDecorate %_12 NonWritable
+               OpDecorate %_13 DescriptorSet 1
+               OpDecorate %_13 Binding 0
+               OpDecorate %_13 NonReadable
+               OpDecorate %_14 DescriptorSet 1
+               OpDecorate %_14 Binding 1
+               OpDecorate %_14 NonReadable
+               OpDecorate %_15 DescriptorSet 1
+               OpDecorate %_15 Binding 2
+               OpDecorate %_15 NonReadable
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeImage %_3 2D 0 0 0 2 Unknown 3
+         %_5 = OpTypeImage %_3 2D 0 0 0 2 Unknown 6
+         %_6 = OpTypeImage %_3 2D 0 0 0 2 Unknown 1
+         %_7 = OpTypePointer UniformConstant %_4
+         %_9 = OpTypePointer UniformConstant %_5
+         %_11 = OpTypePointer UniformConstant %_6
+         %_16 = OpTypeFunction %_2
+         %_19 = OpTypeInt 32 0
+         %_20 = OpTypeVector %_19 2
+         %_21 = OpConstant %_19 0
+         %_24 = OpTypeVector %_3 4
+         %_26 = OpConstant %_19 0
+         %_30 = OpConstant %_19 0
+         %_36 = OpConstant %_19 0
+         %_38 = OpConstant %_3 0
+         %_41 = OpConstant %_19 0
+         %_43 = OpConstant %_3 0
+         %_46 = OpConstant %_19 0
+         %_48 = OpConstant %_3 0
+         %_8 = OpVariable %_7 UniformConstant
+         %_10 = OpVariable %_9 UniformConstant
+         %_12 = OpVariable %_11 UniformConstant
+         %_13 = OpVariable %_7 UniformConstant
+         %_14 = OpVariable %_9 UniformConstant
+         %_15 = OpVariable %_11 UniformConstant
+         %_17 = OpFunction %_2 None %_16
+         %_18 = OpLabel
+         %_22 = OpCompositeConstruct %_20 %_21 %_21
+         %_23 = OpLoad %_4 %_8
+         %_25 = OpImageRead %_24 %_23 %_22
+         %_27 = OpCompositeConstruct %_20 %_26 %_26
+         %_28 = OpLoad %_5 %_10
+         %_29 = OpImageRead %_24 %_28 %_27
+         %_31 = OpCompositeConstruct %_20 %_30 %_30
+         %_32 = OpLoad %_6 %_12
+         %_33 = OpImageRead %_24 %_32 %_31
+               OpReturn
+               OpFunctionEnd
+         %_34 = OpFunction %_2 None %_16
+         %_35 = OpLabel
+         %_37 = OpCompositeConstruct %_20 %_36 %_36
+         %_39 = OpCompositeConstruct %_24 %_38 %_38 %_38 %_38
+         %_40 = OpLoad %_4 %_13
+               OpImageWrite %_40 %_37 %_39
+         %_42 = OpCompositeConstruct %_20 %_41 %_41
+         %_44 = OpCompositeConstruct %_24 %_43 %_43 %_43 %_43
+         %_45 = OpLoad %_5 %_14
+               OpImageWrite %_45 %_42 %_44
+         %_47 = OpCompositeConstruct %_20 %_46 %_46
+         %_49 = OpCompositeConstruct %_24 %_48 %_48 %_48 %_48
+         %_50 = OpLoad %_6 %_15
+               OpImageWrite %_50 %_47 %_49
+               OpReturn
+               OpFunctionEnd

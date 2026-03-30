@@ -1,0 +1,1362 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Quad,
+                rows: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("Globals"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("view_proj"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("num_lights"),
+                        ty: 3,
+                        binding: None,
+                        offset: 64,
+                    ),
+                ],
+                span: 80,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("Entity"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("world"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("color"),
+                        ty: 5,
+                        binding: None,
+                        offset: 64,
+                    ),
+                ],
+                span: 80,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("VertexOutput"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("proj_position"),
+                        ty: 5,
+                        binding: Some(BuiltIn(Position(
+                            invariant: false,
+                        ))),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("world_normal"),
+                        ty: 7,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 16,
+                    ),
+                    (
+                        name: Some("world_position"),
+                        ty: 5,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 32,
+                    ),
+                ],
+                span: 48,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Tri,
+                rows: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("Light"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("proj"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("pos"),
+                        ty: 5,
+                        binding: None,
+                        offset: 64,
+                    ),
+                    (
+                        name: Some("color"),
+                        ty: 5,
+                        binding: None,
+                        offset: 80,
+                    ),
+                ],
+                span: 96,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 11,
+                size: Dynamic,
+                stride: 96,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 11,
+                size: Constant(10),
+                stride: 96,
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: true,
+                class: Depth(
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Sampler(
+                comparison: true,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("c_ambient"),
+            ty: 7,
+            init: 3,
+        ),
+        (
+            name: Some("c_max_lights"),
+            ty: 2,
+            init: 4,
+        ),
+    ],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("u_globals"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 4,
+            init: None,
+        ),
+        (
+            name: Some("u_entity"),
+            space: Uniform,
+            binding: Some((
+                group: 1,
+                binding: 0,
+            )),
+            ty: 6,
+            init: None,
+        ),
+        (
+            name: Some("s_lights"),
+            space: Storage(
+                access: ("LOAD"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 12,
+            init: None,
+        ),
+        (
+            name: Some("u_lights"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 13,
+            init: None,
+        ),
+        (
+            name: Some("t_shadow"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 14,
+            init: None,
+        ),
+        (
+            name: Some("sampler_shadow"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 3,
+            )),
+            ty: 15,
+            init: None,
+        ),
+    ],
+    global_expressions: [
+        Literal(F32(0.05)),
+        Literal(F32(0.05)),
+        Literal(F32(0.05)),
+        Compose(
+            ty: 7,
+            components: [
+                0,
+                1,
+                2,
+            ],
+        ),
+        Literal(U32(10)),
+    ],
+    functions: [
+        (
+            name: Some("fetch_shadow"),
+            arguments: [
+                (
+                    name: Some("light_id"),
+                    ty: 2,
+                    binding: None,
+                ),
+                (
+                    name: Some("homogeneous_coords"),
+                    ty: 5,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 0,
+                binding: None,
+            )),
+            local_variables: [],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                AccessIndex(
+                    base: 1,
+                    index: 3,
+                ),
+                Literal(F32(0.0)),
+                Binary(
+                    op: LessEqual,
+                    left: 2,
+                    right: 3,
+                ),
+                Literal(F32(1.0)),
+                Literal(F32(0.5)),
+                Literal(F32(-0.5)),
+                Compose(
+                    ty: 16,
+                    components: [
+                        6,
+                        7,
+                    ],
+                ),
+                AccessIndex(
+                    base: 1,
+                    index: 3,
+                ),
+                Literal(F32(1.0)),
+                Binary(
+                    op: Divide,
+                    left: 10,
+                    right: 9,
+                ),
+                Swizzle(
+                    size: Bi,
+                    vector: 1,
+                    pattern: (X, Y, X, X),
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 12,
+                    right: 8,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 13,
+                    right: 11,
+                ),
+                Literal(F32(0.5)),
+                Literal(F32(0.5)),
+                Compose(
+                    ty: 16,
+                    components: [
+                        15,
+                        16,
+                    ],
+                ),
+                Binary(
+                    op: Add,
+                    left: 14,
+                    right: 17,
+                ),
+                GlobalVariable(4),
+                GlobalVariable(5),
+                As(
+                    expr: 0,
+                    kind: Sint,
+                    convert: Some(4),
+                ),
+                AccessIndex(
+                    base: 1,
+                    index: 2,
+                ),
+                Binary(
+                    op: Multiply,
+                    left: 22,
+                    right: 11,
+                ),
+                ImageSample(
+                    image: 19,
+                    sampler: 20,
+                    gather: None,
+                    coordinate: 18,
+                    array_index: Some(21),
+                    offset: None,
+                    level: Zero,
+                    depth_ref: Some(23),
+                    clamp_to_edge: false,
+                ),
+            ],
+            named_expressions: {
+                0: "light_id",
+                1: "homogeneous_coords",
+                8: "flip_correction",
+                11: "proj_correction",
+                18: "light_local",
+            },
+            body: [
+                Emit((
+                    start: 2,
+                    end: 3,
+                )),
+                Emit((
+                    start: 4,
+                    end: 5,
+                )),
+                If(
+                    condition: 4,
+                    accept: [
+                        Return(
+                            value: Some(5),
+                        ),
+                    ],
+                    reject: [],
+                ),
+                Emit((
+                    start: 8,
+                    end: 9,
+                )),
+                Emit((
+                    start: 9,
+                    end: 10,
+                )),
+                Emit((
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 12,
+                    end: 15,
+                )),
+                Emit((
+                    start: 17,
+                    end: 19,
+                )),
+                Emit((
+                    start: 21,
+                    end: 25,
+                )),
+                Return(
+                    value: Some(24),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "vs_main",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("vs_main"),
+                arguments: [
+                    (
+                        name: Some("position"),
+                        ty: 9,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                    (
+                        name: Some("normal"),
+                        ty: 9,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: Some(Flat),
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                    ),
+                ],
+                result: Some((
+                    ty: 8,
+                    binding: None,
+                )),
+                local_variables: [
+                    (
+                        name: Some("out"),
+                        ty: 8,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 2,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 3,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 5,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    As(
+                        expr: 0,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 7,
+                        right: 8,
+                    ),
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 10,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 4,
+                        index: 0,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 12,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    AccessIndex(
+                        base: 4,
+                        index: 1,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 14,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    AccessIndex(
+                        base: 4,
+                        index: 2,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 16,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    Compose(
+                        ty: 10,
+                        components: [
+                            13,
+                            15,
+                            17,
+                        ],
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 1,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    As(
+                        expr: 19,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 18,
+                        right: 20,
+                    ),
+                    AccessIndex(
+                        base: 10,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 10,
+                        index: 0,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 24,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 25,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 26,
+                        right: 9,
+                    ),
+                    Load(
+                        pointer: 10,
+                    ),
+                ],
+                named_expressions: {
+                    0: "position",
+                    1: "normal",
+                    4: "w",
+                    9: "world_pos",
+                },
+                body: [
+                    Emit((
+                        start: 3,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 10,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Emit((
+                        start: 12,
+                        end: 14,
+                    )),
+                    Emit((
+                        start: 14,
+                        end: 16,
+                    )),
+                    Emit((
+                        start: 16,
+                        end: 22,
+                    )),
+                    Store(
+                        pointer: 11,
+                        value: 21,
+                    ),
+                    Emit((
+                        start: 22,
+                        end: 23,
+                    )),
+                    Store(
+                        pointer: 22,
+                        value: 9,
+                    ),
+                    Emit((
+                        start: 23,
+                        end: 24,
+                    )),
+                    Emit((
+                        start: 25,
+                        end: 28,
+                    )),
+                    Store(
+                        pointer: 23,
+                        value: 27,
+                    ),
+                    Emit((
+                        start: 28,
+                        end: 29,
+                    )),
+                    Return(
+                        value: Some(28),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "fs_main",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fs_main"),
+                arguments: [
+                    (
+                        name: Some("in"),
+                        ty: 8,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 5,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [
+                    (
+                        name: Some("color"),
+                        ty: 7,
+                        init: Some(3),
+                    ),
+                    (
+                        name: Some("i"),
+                        ty: 2,
+                        init: Some(5),
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Math(
+                        fun: Normalize,
+                        arg: 1,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Constant(0),
+                    LocalVariable(0),
+                    Literal(U32(0)),
+                    LocalVariable(1),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 8,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 9,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 10,
+                    ),
+                    Constant(1),
+                    Math(
+                        fun: Min,
+                        arg: 11,
+                        arg1: Some(12),
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Binary(
+                        op: Less,
+                        left: 7,
+                        right: 13,
+                    ),
+                    GlobalVariable(2),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Access(
+                        base: 15,
+                        index: 16,
+                    ),
+                    Load(
+                        pointer: 17,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    AccessIndex(
+                        base: 18,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 20,
+                        right: 21,
+                    ),
+                    CallResult(0),
+                    AccessIndex(
+                        base: 18,
+                        index: 1,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 24,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 26,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    Binary(
+                        op: Subtract,
+                        left: 25,
+                        right: 27,
+                    ),
+                    Math(
+                        fun: Normalize,
+                        arg: 28,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Math(
+                        fun: Dot,
+                        arg: 2,
+                        arg1: Some(29),
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Literal(F32(0.0)),
+                    Math(
+                        fun: Max,
+                        arg: 31,
+                        arg1: Some(30),
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 23,
+                        right: 32,
+                    ),
+                    AccessIndex(
+                        base: 18,
+                        index: 2,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 34,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 33,
+                        right: 35,
+                    ),
+                    Load(
+                        pointer: 4,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 37,
+                        right: 36,
+                    ),
+                    Literal(U32(1)),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 40,
+                        right: 39,
+                    ),
+                    Load(
+                        pointer: 4,
+                    ),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 5,
+                        components: [
+                            42,
+                            43,
+                        ],
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 45,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 46,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 44,
+                        right: 47,
+                    ),
+                ],
+                named_expressions: {
+                    0: "in",
+                    2: "normal",
+                    18: "light",
+                    23: "shadow",
+                    29: "light_dir",
+                    32: "diffuse",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 3,
+                    )),
+                    Loop(
+                        body: [
+                            Emit((
+                                start: 7,
+                                end: 8,
+                            )),
+                            Emit((
+                                start: 9,
+                                end: 12,
+                            )),
+                            Emit((
+                                start: 13,
+                                end: 15,
+                            )),
+                            If(
+                                condition: 14,
+                                accept: [],
+                                reject: [
+                                    Break,
+                                ],
+                            ),
+                            Block([
+                                Emit((
+                                    start: 16,
+                                    end: 19,
+                                )),
+                                Emit((
+                                    start: 19,
+                                    end: 23,
+                                )),
+                                Call(
+                                    function: 0,
+                                    arguments: [
+                                        19,
+                                        22,
+                                    ],
+                                    result: Some(23),
+                                ),
+                                Emit((
+                                    start: 24,
+                                    end: 30,
+                                )),
+                                Emit((
+                                    start: 30,
+                                    end: 31,
+                                )),
+                                Emit((
+                                    start: 32,
+                                    end: 33,
+                                )),
+                                Emit((
+                                    start: 33,
+                                    end: 39,
+                                )),
+                                Store(
+                                    pointer: 4,
+                                    value: 38,
+                                ),
+                            ]),
+                        ],
+                        continuing: [
+                            Emit((
+                                start: 40,
+                                end: 42,
+                            )),
+                            Store(
+                                pointer: 6,
+                                value: 41,
+                            ),
+                        ],
+                        break_if: None,
+                    ),
+                    Emit((
+                        start: 42,
+                        end: 43,
+                    )),
+                    Emit((
+                        start: 44,
+                        end: 45,
+                    )),
+                    Emit((
+                        start: 46,
+                        end: 49,
+                    )),
+                    Return(
+                        value: Some(48),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+        (
+            name: "fs_main_without_storage",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fs_main_without_storage"),
+                arguments: [
+                    (
+                        name: Some("in"),
+                        ty: 8,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 5,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [
+                    (
+                        name: Some("color"),
+                        ty: 7,
+                        init: Some(3),
+                    ),
+                    (
+                        name: Some("i"),
+                        ty: 2,
+                        init: Some(5),
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Math(
+                        fun: Normalize,
+                        arg: 1,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Constant(0),
+                    LocalVariable(0),
+                    Literal(U32(0)),
+                    LocalVariable(1),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 8,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 9,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 10,
+                    ),
+                    Constant(1),
+                    Math(
+                        fun: Min,
+                        arg: 11,
+                        arg1: Some(12),
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Binary(
+                        op: Less,
+                        left: 7,
+                        right: 13,
+                    ),
+                    GlobalVariable(3),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Access(
+                        base: 15,
+                        index: 16,
+                    ),
+                    Load(
+                        pointer: 17,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    AccessIndex(
+                        base: 18,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 20,
+                        right: 21,
+                    ),
+                    CallResult(0),
+                    AccessIndex(
+                        base: 18,
+                        index: 1,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 24,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 26,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    Binary(
+                        op: Subtract,
+                        left: 25,
+                        right: 27,
+                    ),
+                    Math(
+                        fun: Normalize,
+                        arg: 28,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Math(
+                        fun: Dot,
+                        arg: 2,
+                        arg1: Some(29),
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Literal(F32(0.0)),
+                    Math(
+                        fun: Max,
+                        arg: 31,
+                        arg1: Some(30),
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 23,
+                        right: 32,
+                    ),
+                    AccessIndex(
+                        base: 18,
+                        index: 2,
+                    ),
+                    Swizzle(
+                        size: Tri,
+                        vector: 34,
+                        pattern: (X, Y, Z, X),
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 33,
+                        right: 35,
+                    ),
+                    Load(
+                        pointer: 4,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 37,
+                        right: 36,
+                    ),
+                    Literal(U32(1)),
+                    Load(
+                        pointer: 6,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 40,
+                        right: 39,
+                    ),
+                    Load(
+                        pointer: 4,
+                    ),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 5,
+                        components: [
+                            42,
+                            43,
+                        ],
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 45,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 46,
+                    ),
+                    Binary(
+                        op: Multiply,
+                        left: 44,
+                        right: 47,
+                    ),
+                ],
+                named_expressions: {
+                    0: "in",
+                    2: "normal",
+                    18: "light",
+                    23: "shadow",
+                    29: "light_dir",
+                    32: "diffuse",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 3,
+                    )),
+                    Loop(
+                        body: [
+                            Emit((
+                                start: 7,
+                                end: 8,
+                            )),
+                            Emit((
+                                start: 9,
+                                end: 12,
+                            )),
+                            Emit((
+                                start: 13,
+                                end: 15,
+                            )),
+                            If(
+                                condition: 14,
+                                accept: [],
+                                reject: [
+                                    Break,
+                                ],
+                            ),
+                            Block([
+                                Emit((
+                                    start: 16,
+                                    end: 19,
+                                )),
+                                Emit((
+                                    start: 19,
+                                    end: 23,
+                                )),
+                                Call(
+                                    function: 0,
+                                    arguments: [
+                                        19,
+                                        22,
+                                    ],
+                                    result: Some(23),
+                                ),
+                                Emit((
+                                    start: 24,
+                                    end: 30,
+                                )),
+                                Emit((
+                                    start: 30,
+                                    end: 31,
+                                )),
+                                Emit((
+                                    start: 32,
+                                    end: 33,
+                                )),
+                                Emit((
+                                    start: 33,
+                                    end: 39,
+                                )),
+                                Store(
+                                    pointer: 4,
+                                    value: 38,
+                                ),
+                            ]),
+                        ],
+                        continuing: [
+                            Emit((
+                                start: 40,
+                                end: 42,
+                            )),
+                            Store(
+                                pointer: 6,
+                                value: 41,
+                            ),
+                        ],
+                        break_if: None,
+                    ),
+                    Emit((
+                        start: 42,
+                        end: 43,
+                    )),
+                    Emit((
+                        start: 44,
+                        end: 45,
+                    )),
+                    Emit((
+                        start: 46,
+                        end: 49,
+                    )),
+                    Return(
+                        value: Some(48),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

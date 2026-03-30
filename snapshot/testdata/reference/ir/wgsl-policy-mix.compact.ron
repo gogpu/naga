@@ -1,0 +1,433 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(10),
+                stride: 16,
+            ),
+        ),
+        (
+            name: Some("InStorage"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("a"),
+                        ty: 2,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 160,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(20),
+                stride: 16,
+            ),
+        ),
+        (
+            name: Some("InUniform"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("a"),
+                        ty: 4,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 320,
+            ),
+        ),
+        (
+            name: None,
+            inner: Image(
+                dim: D2,
+                arrayed: true,
+                class: Sampled(
+                    kind: Float,
+                    multi: false,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(30),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(40),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 1,
+                size: Constant(2),
+                stride: 16,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("in_storage"),
+            space: Storage(
+                access: ("LOAD"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 3,
+            init: None,
+        ),
+        (
+            name: Some("in_uniform"),
+            space: Uniform,
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 5,
+            init: None,
+        ),
+        (
+            name: Some("image_2d_array"),
+            space: Handle,
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 6,
+            init: None,
+        ),
+        (
+            name: Some("in_workgroup"),
+            space: WorkGroup,
+            binding: None,
+            ty: 7,
+            init: None,
+        ),
+        (
+            name: Some("in_private"),
+            space: Private,
+            binding: None,
+            ty: 8,
+            init: None,
+        ),
+    ],
+    global_expressions: [],
+    functions: [
+        (
+            name: Some("mock_function"),
+            arguments: [
+                (
+                    name: Some("c"),
+                    ty: 10,
+                    binding: None,
+                ),
+                (
+                    name: Some("i"),
+                    ty: 9,
+                    binding: None,
+                ),
+                (
+                    name: Some("l"),
+                    ty: 9,
+                    binding: None,
+                ),
+            ],
+            result: Some((
+                ty: 1,
+                binding: None,
+            )),
+            local_variables: [
+                (
+                    name: Some("in_function"),
+                    ty: 11,
+                    init: Some(13),
+                ),
+            ],
+            expressions: [
+                FunctionArgument(0),
+                FunctionArgument(1),
+                FunctionArgument(2),
+                Literal(F32(0.707)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(1.0)),
+                Compose(
+                    ty: 1,
+                    components: [
+                        3,
+                        4,
+                        5,
+                        6,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.707)),
+                Literal(F32(0.0)),
+                Literal(F32(1.0)),
+                Compose(
+                    ty: 1,
+                    components: [
+                        8,
+                        9,
+                        10,
+                        11,
+                    ],
+                ),
+                Compose(
+                    ty: 11,
+                    components: [
+                        7,
+                        12,
+                    ],
+                ),
+                LocalVariable(0),
+                GlobalVariable(0),
+                AccessIndex(
+                    base: 15,
+                    index: 0,
+                ),
+                Access(
+                    base: 16,
+                    index: 1,
+                ),
+                Load(
+                    pointer: 17,
+                ),
+                GlobalVariable(1),
+                AccessIndex(
+                    base: 19,
+                    index: 0,
+                ),
+                Access(
+                    base: 20,
+                    index: 1,
+                ),
+                Load(
+                    pointer: 21,
+                ),
+                Binary(
+                    op: Add,
+                    left: 18,
+                    right: 22,
+                ),
+                GlobalVariable(2),
+                ImageLoad(
+                    image: 24,
+                    coordinate: 0,
+                    array_index: Some(1),
+                    sample: None,
+                    level: Some(2),
+                ),
+                Binary(
+                    op: Add,
+                    left: 23,
+                    right: 25,
+                ),
+                GlobalVariable(3),
+                Access(
+                    base: 27,
+                    index: 1,
+                ),
+                Load(
+                    pointer: 28,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 29,
+                ),
+                Binary(
+                    op: Add,
+                    left: 26,
+                    right: 30,
+                ),
+                GlobalVariable(4),
+                Access(
+                    base: 32,
+                    index: 1,
+                ),
+                Load(
+                    pointer: 33,
+                ),
+                Splat(
+                    size: Quad,
+                    value: 34,
+                ),
+                Binary(
+                    op: Add,
+                    left: 31,
+                    right: 35,
+                ),
+                Access(
+                    base: 14,
+                    index: 1,
+                ),
+                Load(
+                    pointer: 37,
+                ),
+                Binary(
+                    op: Add,
+                    left: 36,
+                    right: 38,
+                ),
+            ],
+            named_expressions: {
+                0: "c",
+                1: "i",
+                2: "l",
+            },
+            body: [
+                Emit((
+                    start: 7,
+                    end: 8,
+                )),
+                Emit((
+                    start: 12,
+                    end: 14,
+                )),
+                Emit((
+                    start: 16,
+                    end: 19,
+                )),
+                Emit((
+                    start: 20,
+                    end: 24,
+                )),
+                Emit((
+                    start: 25,
+                    end: 27,
+                )),
+                Emit((
+                    start: 28,
+                    end: 32,
+                )),
+                Emit((
+                    start: 33,
+                    end: 40,
+                )),
+                Return(
+                    value: Some(39),
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    Literal(I32(1)),
+                    Literal(I32(2)),
+                    Compose(
+                        ty: 10,
+                        components: [
+                            0,
+                            1,
+                        ],
+                    ),
+                    Literal(I32(3)),
+                    Literal(I32(4)),
+                    CallResult(0),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Call(
+                        function: 0,
+                        arguments: [
+                            2,
+                            3,
+                            4,
+                        ],
+                        result: Some(5),
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)
