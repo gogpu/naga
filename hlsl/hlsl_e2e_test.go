@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/hlsl"
+	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -859,7 +860,7 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 }
 
 // =============================================================================
-// Sampler Direct Register Binding — verifies DX12 HAL compatibility
+// Sampler Heap Indirection — verifies sampler heap pattern matching Rust wgpu-hal
 // =============================================================================
 
 // compileWGSLToHLSLWithOpts compiles WGSL source to HLSL with custom options.
@@ -891,11 +892,11 @@ func compileWGSLToHLSLWithOpts(t *testing.T, source string, opts *hlsl.Options) 
 	return code
 }
 
-// TestE2E_SamplerDirectRegisterBinding verifies that when BindingMap has explicit
-// entries and SamplerBufferBindingMap is nil, samplers use direct register binding
-// instead of the sampler heap indirection pattern. This matches the DX12 HAL's
-// per-group sampler descriptor table layout.
-func TestE2E_SamplerDirectRegisterBinding(t *testing.T) {
+// TestE2E_SamplerHeapIndirection verifies that samplers always use the sampler
+// heap indirection pattern (nagaSamplerHeap[indexBuffer[N]]), matching Rust
+// wgpu-hal architecture. The DX12 HAL provides SamplerBufferBindingMap to
+// specify where each group's sampler index buffer is bound.
+func TestE2E_SamplerHeapIndirection(t *testing.T) {
 	// WGSL shader with a texture and sampler (typical MSDF text shader pattern).
 	source := `
 @group(0) @binding(0)
@@ -929,12 +930,27 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 		t.Fatalf("Lower failed: %v", err)
 	}
 
-	// Build BindingMap from global variables (same logic as DX12 HAL).
+	// Build BindingMap from global variables — samplers get space=255
+	// and register=index_within_group, matching Rust wgpu-hal.
 	bindingMap := make(map[hlsl.ResourceBinding]hlsl.BindTarget)
+	var samplerIdx uint32
 	for i := range module.GlobalVariables {
 		gv := &module.GlobalVariables[i]
 		if gv.Binding == nil {
 			continue
+		}
+		if int(gv.Type) < len(module.Types) {
+			if _, isSampler := module.Types[gv.Type].Inner.(ir.SamplerType); isSampler {
+				bindingMap[hlsl.ResourceBinding{
+					Group:   gv.Binding.Group,
+					Binding: gv.Binding.Binding,
+				}] = hlsl.BindTarget{
+					Space:    255,
+					Register: samplerIdx,
+				}
+				samplerIdx++
+				continue
+			}
 		}
 		bindingMap[hlsl.ResourceBinding{
 			Group:   gv.Binding.Group,
@@ -945,31 +961,12 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 		}
 	}
 
-	t.Run("direct_binding_no_sampler_buffer_map", func(t *testing.T) {
-		opts := hlsl.DefaultOptions()
-		opts.BindingMap = bindingMap
-		opts.FakeMissingBindings = false
-		opts.SamplerBufferBindingMap = nil // No sampler buffer → direct binding
-
-		code := compileWGSLToHLSLWithOpts(t, source, opts)
-		t.Logf("HLSL output (direct binding):\n%s", code)
-
-		// Sampler should use direct register binding (space 0 is implicit in HLSL).
-		assertContains(t, code, "register(s2)")
-		// Should NOT contain sampler heap infrastructure.
-		assertNotContains(t, code, "nagaSamplerHeap")
-		assertNotContains(t, code, "SamplerIndexArray")
-		// Texture and CBV should still have direct register bindings.
-		assertContains(t, code, "register(t1)")
-		assertContains(t, code, "register(b0)")
-	})
-
 	t.Run("heap_indirection_with_sampler_buffer_map", func(t *testing.T) {
 		opts := hlsl.DefaultOptions()
 		opts.BindingMap = bindingMap
 		opts.FakeMissingBindings = false
 		opts.SamplerBufferBindingMap = map[uint32]hlsl.BindTarget{
-			0: {Space: 255, Register: 0}, // Group 0 has sampler index buffer
+			0: {Space: 255, Register: 0}, // Group 0 has sampler index buffer at t0, space255
 		}
 
 		code := compileWGSLToHLSLWithOpts(t, source, opts)
@@ -977,6 +974,11 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
 		// With SamplerBufferBindingMap, should use heap indirection.
 		assertContains(t, code, "nagaSamplerHeap")
+		assertContains(t, code, "nagaGroup0SamplerIndexArray")
+		assertContains(t, code, "static const SamplerState")
+		// Texture and CBV should still have direct register bindings.
+		assertContains(t, code, "register(t1)")
+		assertContains(t, code, "register(b0)")
 	})
 
 	t.Run("heap_indirection_with_fake_missing", func(t *testing.T) {
@@ -986,7 +988,22 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 		t.Logf("HLSL output (fake missing):\n%s", code)
 
 		// Default options use FakeMissingBindings with no explicit BindingMap entries,
-		// so the sampler binding is not explicitly mapped → heap indirection (legacy).
+		// so samplers still use heap indirection (this is always the case now).
+		assertContains(t, code, "nagaSamplerHeap")
+	})
+
+	t.Run("always_heap_even_without_sampler_buffer_map", func(t *testing.T) {
+		opts := hlsl.DefaultOptions()
+		opts.BindingMap = bindingMap
+		opts.FakeMissingBindings = false
+		opts.SamplerBufferBindingMap = nil // No sampler buffer map
+
+		code := compileWGSLToHLSLWithOpts(t, source, opts)
+		t.Logf("HLSL output (no sampler buffer map):\n%s", code)
+
+		// Even without SamplerBufferBindingMap, samplers ALWAYS use heap indirection.
+		// The index buffer gets fake binding from FakeMissingBindings or falls back
+		// to default space=255 behavior.
 		assertContains(t, code, "nagaSamplerHeap")
 	})
 }

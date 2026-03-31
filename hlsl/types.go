@@ -966,46 +966,19 @@ func (w *Writer) writeResourceHandle(name string, typeHandle ir.TypeHandle, glob
 				group = global.Binding.Group
 			}
 
-			// Check if this group uses sampler heap indirection (SamplerBufferBindingMap).
-			// When SamplerBufferBindingMap has no entry for this group, emit a direct
-			// register binding (SamplerState name : register(sN, spaceG)) instead of
-			// the sampler heap pattern. This allows backends that use per-group sampler
-			// descriptor tables (like our DX12 HAL) to work without a global sampler
-			// heap and index buffer infrastructure.
-			useHeapIndirection := true
-			if len(w.options.SamplerBufferBindingMap) == 0 {
-				// No sampler buffer bindings at all — use direct register binding
-				// if the binding was found in the explicit BindingMap.
-				key := ResourceBinding{Group: global.Binding.Group, Binding: global.Binding.Binding}
-				if _, hasExplicit := w.options.BindingMap[key]; hasExplicit {
-					useHeapIndirection = false
-				}
-			} else if _, hasBuf := w.options.SamplerBufferBindingMap[group]; !hasBuf {
-				// SamplerBufferBindingMap exists but has no entry for this group —
-				// use direct register binding if the binding was explicitly mapped.
-				key := ResourceBinding{Group: global.Binding.Group, Binding: global.Binding.Binding}
-				if _, hasExplicit := w.options.BindingMap[key]; hasExplicit {
-					useHeapIndirection = false
-				}
-			}
+			// Always use sampler heap indirection. The DX12 HAL must provide
+			// SamplerBufferBindingMap so that naga generates the correct
+			// nagaSamplerHeap[indexBuffer[N]] pattern. This matches Rust wgpu-hal.
+			w.writeSamplerHeaps()
+			w.writeSamplerIndexBuffer(group)
 
-			if useHeapIndirection {
-				// Write sampler heap and index buffer if not yet written
-				w.writeSamplerHeaps()
-				w.writeSamplerIndexBuffer(group)
-
-				// Write static const sampler variable that indexes into the heap
-				heapVar := "nagaSamplerHeap"
-				if inner.Comparison {
-					heapVar = "nagaComparisonSamplerHeap"
-				}
-				indexBufName := w.samplerIndexBuffers[group]
-				w.writeLine("static const %s %s = %s[%s[%d]];", samplerType, name, heapVar, indexBufName, binding.Register)
-			} else {
-				// Direct register binding — sampler declared with explicit register.
-				regStr := formatRegister("s", binding.Register, binding.Space)
-				w.writeLine("%s %s : %s;", samplerType, name, regStr)
+			// Write static const sampler variable that indexes into the heap
+			heapVar := "nagaSamplerHeap"
+			if inner.Comparison {
+				heapVar = "nagaComparisonSamplerHeap"
 			}
+			indexBufName := w.samplerIndexBuffers[group]
+			w.writeLine("static const %s %s = %s[%s[%d]];", samplerType, name, heapVar, indexBufName, binding.Register)
 		} else {
 			w.writeLine("%s %s;", samplerType, name)
 		}
