@@ -145,6 +145,9 @@ func TestSamplerTypeToHLSL(t *testing.T) {
 	}
 }
 
+// TestSamplerDirectRegisterBinding is tested via the E2E test in hlsl_e2e_test.go
+// (TestE2E_SamplerDirectRegisterBinding) which uses WGSL parsing to build a proper IR module.
+
 // TestImageTypeToHLSL tests image/texture type conversion.
 func TestImageTypeToHLSL(t *testing.T) {
 	// Create a minimal writer for testing

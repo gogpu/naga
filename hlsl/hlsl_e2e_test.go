@@ -857,3 +857,136 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 
 	t.Logf("HLSL output:\n%s", code)
 }
+
+// =============================================================================
+// Sampler Direct Register Binding — verifies DX12 HAL compatibility
+// =============================================================================
+
+// compileWGSLToHLSLWithOpts compiles WGSL source to HLSL with custom options.
+func compileWGSLToHLSLWithOpts(t *testing.T, source string, opts *hlsl.Options) string {
+	t.Helper()
+
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	module, err := wgsl.LowerWithSource(ast, source)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	code, _, err := hlsl.Compile(module, opts)
+	if err != nil {
+		t.Fatalf("HLSL Compile failed: %v", err)
+	}
+
+	return code
+}
+
+// TestE2E_SamplerDirectRegisterBinding verifies that when BindingMap has explicit
+// entries and SamplerBufferBindingMap is nil, samplers use direct register binding
+// instead of the sampler heap indirection pattern. This matches the DX12 HAL's
+// per-group sampler descriptor table layout.
+func TestE2E_SamplerDirectRegisterBinding(t *testing.T) {
+	// WGSL shader with a texture and sampler (typical MSDF text shader pattern).
+	source := `
+@group(0) @binding(0)
+var<uniform> color: vec4<f32>;
+
+@group(0) @binding(1)
+var my_texture: texture_2d<f32>;
+
+@group(0) @binding(2)
+var my_sampler: sampler;
+
+@fragment
+fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return textureSample(my_texture, my_sampler, uv) * color;
+}
+`
+
+	// Parse and lower the WGSL to get the IR module for building BindingMap.
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+	parser := wgsl.NewParser(tokens)
+	ast, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	module, err := wgsl.LowerWithSource(ast, source)
+	if err != nil {
+		t.Fatalf("Lower failed: %v", err)
+	}
+
+	// Build BindingMap from global variables (same logic as DX12 HAL).
+	bindingMap := make(map[hlsl.ResourceBinding]hlsl.BindTarget)
+	for i := range module.GlobalVariables {
+		gv := &module.GlobalVariables[i]
+		if gv.Binding == nil {
+			continue
+		}
+		bindingMap[hlsl.ResourceBinding{
+			Group:   gv.Binding.Group,
+			Binding: gv.Binding.Binding,
+		}] = hlsl.BindTarget{
+			Space:    uint8(gv.Binding.Group),
+			Register: gv.Binding.Binding,
+		}
+	}
+
+	t.Run("direct_binding_no_sampler_buffer_map", func(t *testing.T) {
+		opts := hlsl.DefaultOptions()
+		opts.BindingMap = bindingMap
+		opts.FakeMissingBindings = false
+		opts.SamplerBufferBindingMap = nil // No sampler buffer → direct binding
+
+		code := compileWGSLToHLSLWithOpts(t, source, opts)
+		t.Logf("HLSL output (direct binding):\n%s", code)
+
+		// Sampler should use direct register binding (space 0 is implicit in HLSL).
+		assertContains(t, code, "register(s2)")
+		// Should NOT contain sampler heap infrastructure.
+		assertNotContains(t, code, "nagaSamplerHeap")
+		assertNotContains(t, code, "SamplerIndexArray")
+		// Texture and CBV should still have direct register bindings.
+		assertContains(t, code, "register(t1)")
+		assertContains(t, code, "register(b0)")
+	})
+
+	t.Run("heap_indirection_with_sampler_buffer_map", func(t *testing.T) {
+		opts := hlsl.DefaultOptions()
+		opts.BindingMap = bindingMap
+		opts.FakeMissingBindings = false
+		opts.SamplerBufferBindingMap = map[uint32]hlsl.BindTarget{
+			0: {Space: 255, Register: 0}, // Group 0 has sampler index buffer
+		}
+
+		code := compileWGSLToHLSLWithOpts(t, source, opts)
+		t.Logf("HLSL output (heap indirection):\n%s", code)
+
+		// With SamplerBufferBindingMap, should use heap indirection.
+		assertContains(t, code, "nagaSamplerHeap")
+	})
+
+	t.Run("heap_indirection_with_fake_missing", func(t *testing.T) {
+		opts := hlsl.DefaultOptions() // FakeMissingBindings=true, empty BindingMap
+
+		code := compileWGSLToHLSLWithOpts(t, source, opts)
+		t.Logf("HLSL output (fake missing):\n%s", code)
+
+		// Default options use FakeMissingBindings with no explicit BindingMap entries,
+		// so the sampler binding is not explicitly mapped → heap indirection (legacy).
+		assertContains(t, code, "nagaSamplerHeap")
+	})
+}

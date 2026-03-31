@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-03-31
+
+### Fixed
+
+- **HLSL: direct sampler register binding mode** — When `BindingMap` has explicit
+  entries and `SamplerBufferBindingMap` is nil, emit direct `SamplerState name :
+  register(sN, spaceG)` instead of sampler heap indirection. Fixes DX12 text/texture
+  invisibility in gogpu/wgpu. Backward compatible — heap mode unchanged when
+  `SamplerBufferBindingMap` is provided.
+
 ## [0.15.0] - 2026-03-30
 
 ### Highlights
