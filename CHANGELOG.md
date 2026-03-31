@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **HLSL: direct sampler register binding mode** — When `BindingMap` has explicit
-  entries and `SamplerBufferBindingMap` is nil, emit direct `SamplerState name :
-  register(sN, spaceG)` instead of sampler heap indirection. Fixes DX12 text/texture
-  invisibility in gogpu/wgpu. Backward compatible — heap mode unchanged when
-  `SamplerBufferBindingMap` is provided.
+- **HLSL: revert direct sampler register binding mode** — Samplers always use the
+  sampler heap indirection pattern (`nagaSamplerHeap[indexBuffer[N]]`), matching
+  Rust wgpu-hal architecture. The DX12 HAL now properly implements the global
+  sampler heap with per-bind-group sampler index buffers and provides
+  `SamplerBufferBindingMap` to naga during shader compilation.
 
 ## [0.15.0] - 2026-03-30
 
