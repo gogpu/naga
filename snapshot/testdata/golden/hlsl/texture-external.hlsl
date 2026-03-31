@@ -22,10 +22,7 @@ Texture2D<float4> tex_plane0_: register(t0);
 Texture2D<float4> tex_plane1_: register(t1);
 Texture2D<float4> tex_plane2_: register(t2);
 cbuffer tex_params: register(b3) { NagaExternalTextureParams tex_params; };
-SamplerState nagaSamplerHeap[2048]: register(s0, space0);
-SamplerComparisonState nagaComparisonSamplerHeap[2048]: register(s0, space1);
-StructuredBuffer<uint> nagaGroup0SamplerIndexArray : register(t0, space255);
-static const SamplerState samp = nagaSamplerHeap[nagaGroup0SamplerIndexArray[0]];
+SamplerState samp : register(s0);
 
 float4 nagaTextureSampleBaseClampToEdge(
     Texture2D<float4> plane0,
