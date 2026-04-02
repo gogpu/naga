@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **GLSL: TextureMappings in TranslationInfo** — Reports texture-sampler
+  binding pairs for combined sampler2D, enabling GLES HAL SamplerBindMap
+  construction. Matches Rust naga ReflectionInfo pattern.
+
+### Fixed
+
+- **SPIR-V: SPV_KHR_storage_buffer_storage_class extension** — StorageBuffer
+  storage class requires this extension for SPIR-V < 1.3 (default version is 1.1).
+  All shaders with storage buffers were missing the declaration. Matches Rust naga
+  writer.rs:2580.
+
+- **SPIR-V: Workgroup ArrayStride decoration** — Workgroup variables must not have
+  explicit layout decorations (ArrayStride, Offset) per VUID-StandaloneSpirv-None-10684.
+  Added layout-free type emission for Workgroup address space.
+
+- **SPIR-V: OpLoad on runtime-sized arrays** — SPIR-V forbids loading entire
+  runtime-sized arrays. Global variables containing runtime arrays now return
+  pointers instead of loaded values.
+
+- **SPIR-V: OpImageFetch result type** — Hardcoded vec4<f32> replaced with
+  correct type derived from image SampledKind (e.g., vec4<u32> for texture_2d<u32>).
+
+- **SPIR-V: spirv-val 9/9 shader tests pass** (was 0/9).
+
+## [0.15.2] - 2026-04-01
+
+### Fixed
+
+- **HLSL: revert direct sampler kostyl, restore heap pattern** — Reverted the
+  direct sampler register binding from v0.15.1. DX12 HAL now implements proper
+  sampler heap.
+
 ## [0.15.1] - 2026-03-31
 
 ### Fixed
