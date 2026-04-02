@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 1051
+; Bound: 1059
 ; Schema: 0
 
                OpCapability Shader
@@ -559,59 +559,67 @@
          %_954 = OpConstant %_5 72
          %_955 = OpConstant %_3 2 0
          %_956 = OpConstant %_3 1 0
-         %_958 = OpConstant %_5 0
-         %_960 = OpConstant %_5 1
-         %_963 = OpConstant %_5 0
-         %_965 = OpConstant %_5 1
-         %_967 = OpConstant %_5 1
-         %_968 = OpConstant %_5 72
-         %_969 = OpConstant %_4 2 0
-         %_970 = OpConstant %_4 1 0
-         %_972 = OpConstant %_5 0
+         %_958 = OpConstant %_5 66
+         %_959 = OpConstant %_5 0
+         %_961 = OpConstant %_5 1
+         %_964 = OpConstant %_5 0
+         %_966 = OpConstant %_5 1
+         %_968 = OpConstant %_5 1
+         %_969 = OpConstant %_5 72
+         %_970 = OpConstant %_4 2 0
+         %_971 = OpConstant %_4 1 0
+         %_973 = OpConstant %_5 66
          %_974 = OpConstant %_5 0
-         %_977 = OpConstant %_5 0
+         %_976 = OpConstant %_5 0
          %_979 = OpConstant %_5 0
-         %_981 = OpConstant %_5 1
-         %_982 = OpConstant %_5 72
-         %_983 = OpConstant %_3 2 0
-         %_984 = OpConstant %_3 1 0
-         %_986 = OpConstant %_5 0
-         %_988 = OpConstant %_5 1
-         %_991 = OpConstant %_5 0
-         %_993 = OpConstant %_5 1
-         %_995 = OpConstant %_5 1
-         %_998 = OpConstant %_5 0
-         %_1000 = OpConstant %_5 1
-         %_1002 = OpConstant %_5 1
-         %_1004 = OpConstant %_5 1
-         %_1005 = OpConstant %_5 72
-         %_1006 = OpConstant %_4 2 0
-         %_1007 = OpConstant %_4 1 0
-         %_1009 = OpConstant %_5 1
-         %_1010 = OpConstant %_5 72
-         %_1011 = OpConstant %_3 2 0
-         %_1012 = OpConstant %_3 1 0
-         %_1014 = OpConstant %_5 1
-         %_1017 = OpConstant %_5 1
+         %_981 = OpConstant %_5 0
+         %_983 = OpConstant %_5 1
+         %_984 = OpConstant %_5 72
+         %_985 = OpConstant %_3 2 0
+         %_986 = OpConstant %_3 1 0
+         %_988 = OpConstant %_5 66
+         %_989 = OpConstant %_5 0
+         %_991 = OpConstant %_5 1
+         %_994 = OpConstant %_5 0
+         %_996 = OpConstant %_5 1
+         %_998 = OpConstant %_5 1
+         %_1001 = OpConstant %_5 0
+         %_1003 = OpConstant %_5 1
+         %_1005 = OpConstant %_5 1
+         %_1007 = OpConstant %_5 1
+         %_1008 = OpConstant %_5 72
+         %_1009 = OpConstant %_4 2 0
+         %_1010 = OpConstant %_4 1 0
+         %_1012 = OpConstant %_5 66
+         %_1013 = OpConstant %_5 1
+         %_1014 = OpConstant %_5 72
+         %_1015 = OpConstant %_3 2 0
+         %_1016 = OpConstant %_3 1 0
+         %_1018 = OpConstant %_5 66
          %_1019 = OpConstant %_5 1
-         %_1020 = OpConstant %_5 72
-         %_1021 = OpConstant %_4 2 0
-         %_1022 = OpConstant %_4 1 0
-         %_1024 = OpConstant %_5 0
-         %_1027 = OpConstant %_5 0
-         %_1029 = OpConstant %_5 1
-         %_1030 = OpConstant %_5 72
-         %_1031 = OpConstant %_3 2 0
-         %_1032 = OpConstant %_3 1 0
-         %_1034 = OpConstant %_5 1
-         %_1037 = OpConstant %_5 1
-         %_1039 = OpConstant %_5 1
-         %_1042 = OpConstant %_5 1
+         %_1022 = OpConstant %_5 1
+         %_1024 = OpConstant %_5 1
+         %_1025 = OpConstant %_5 72
+         %_1026 = OpConstant %_4 2 0
+         %_1027 = OpConstant %_4 1 0
+         %_1029 = OpConstant %_5 66
+         %_1030 = OpConstant %_5 0
+         %_1033 = OpConstant %_5 0
+         %_1035 = OpConstant %_5 1
+         %_1036 = OpConstant %_5 72
+         %_1037 = OpConstant %_3 2 0
+         %_1038 = OpConstant %_3 1 0
+         %_1040 = OpConstant %_5 66
+         %_1041 = OpConstant %_5 1
          %_1044 = OpConstant %_5 1
          %_1046 = OpConstant %_5 1
-         %_1047 = OpConstant %_5 72
-         %_1048 = OpConstant %_4 2 0
-         %_1049 = OpConstant %_4 1 0
+         %_1049 = OpConstant %_5 1
+         %_1051 = OpConstant %_5 1
+         %_1053 = OpConstant %_5 1
+         %_1054 = OpConstant %_5 72
+         %_1055 = OpConstant %_4 2 0
+         %_1056 = OpConstant %_4 1 0
+         %_1058 = OpConstant %_5 66
          %_15 = OpVariable %_14 StorageBuffer
          %_18 = OpVariable %_17 StorageBuffer
          %_21 = OpVariable %_20 StorageBuffer
@@ -1064,46 +1072,46 @@
          %_946 = OpAccessChain %_97 %_944 %_945
          OpAtomicExchange %_211 %_950 %_946 %_947 %_948 %_949
          %_952 = OpAccessChain %_49 %_15 %_951
-         OpAtomicCompareExchange %_5 %_957 %_952 %_953 %_954 %_954 %_955 %_956
-         %_959 = OpAccessChain %_53 %_18 %_958
-         %_961 = OpAccessChain %_57 %_959 %_960
-         %_962 = OpLoad %_4 %_961
-         %_964 = OpAccessChain %_53 %_18 %_963
-         %_966 = OpAccessChain %_57 %_964 %_965
-         OpAtomicCompareExchange %_211 %_971 %_966 %_967 %_968 %_968 %_969 %_970
-         %_973 = OpAccessChain %_65 %_21 %_972
-         %_975 = OpAccessChain %_49 %_973 %_974
-         %_976 = OpLoad %_3 %_975
-         %_978 = OpAccessChain %_65 %_21 %_977
-         %_980 = OpAccessChain %_49 %_978 %_979
-         OpAtomicCompareExchange %_5 %_985 %_980 %_981 %_982 %_982 %_983 %_984
-         %_987 = OpAccessChain %_65 %_21 %_986
-         %_989 = OpAccessChain %_53 %_987 %_988
-         %_990 = OpLoad %_7 %_989
-         %_992 = OpAccessChain %_65 %_21 %_991
-         %_994 = OpAccessChain %_53 %_992 %_993
-         %_996 = OpAccessChain %_57 %_994 %_995
-         %_997 = OpLoad %_4 %_996
-         %_999 = OpAccessChain %_65 %_21 %_998
-         %_1001 = OpAccessChain %_53 %_999 %_1000
-         %_1003 = OpAccessChain %_57 %_1001 %_1002
-         OpAtomicCompareExchange %_211 %_1008 %_1003 %_1004 %_1005 %_1005 %_1006 %_1007
-         OpAtomicCompareExchange %_5 %_1013 %_23 %_1009 %_1010 %_1010 %_1011 %_1012
-         %_1015 = OpAccessChain %_97 %_27 %_1014
-         %_1016 = OpLoad %_4 %_1015
-         %_1018 = OpAccessChain %_97 %_27 %_1017
-         OpAtomicCompareExchange %_211 %_1023 %_1018 %_1019 %_1020 %_1020 %_1021 %_1022
-         %_1025 = OpAccessChain %_22 %_30 %_1024
-         %_1026 = OpLoad %_3 %_1025
-         %_1028 = OpAccessChain %_22 %_30 %_1027
-         OpAtomicCompareExchange %_5 %_1033 %_1028 %_1029 %_1030 %_1030 %_1031 %_1032
-         %_1035 = OpAccessChain %_26 %_30 %_1034
-         %_1036 = OpLoad %_25 %_1035
-         %_1038 = OpAccessChain %_26 %_30 %_1037
-         %_1040 = OpAccessChain %_97 %_1038 %_1039
-         %_1041 = OpLoad %_4 %_1040
-         %_1043 = OpAccessChain %_26 %_30 %_1042
-         %_1045 = OpAccessChain %_97 %_1043 %_1044
-         OpAtomicCompareExchange %_211 %_1050 %_1045 %_1046 %_1047 %_1047 %_1048 %_1049
+         OpAtomicCompareExchange %_5 %_957 %_952 %_953 %_954 %_958 %_955 %_956
+         %_960 = OpAccessChain %_53 %_18 %_959
+         %_962 = OpAccessChain %_57 %_960 %_961
+         %_963 = OpLoad %_4 %_962
+         %_965 = OpAccessChain %_53 %_18 %_964
+         %_967 = OpAccessChain %_57 %_965 %_966
+         OpAtomicCompareExchange %_211 %_972 %_967 %_968 %_969 %_973 %_970 %_971
+         %_975 = OpAccessChain %_65 %_21 %_974
+         %_977 = OpAccessChain %_49 %_975 %_976
+         %_978 = OpLoad %_3 %_977
+         %_980 = OpAccessChain %_65 %_21 %_979
+         %_982 = OpAccessChain %_49 %_980 %_981
+         OpAtomicCompareExchange %_5 %_987 %_982 %_983 %_984 %_988 %_985 %_986
+         %_990 = OpAccessChain %_65 %_21 %_989
+         %_992 = OpAccessChain %_53 %_990 %_991
+         %_993 = OpLoad %_7 %_992
+         %_995 = OpAccessChain %_65 %_21 %_994
+         %_997 = OpAccessChain %_53 %_995 %_996
+         %_999 = OpAccessChain %_57 %_997 %_998
+         %_1000 = OpLoad %_4 %_999
+         %_1002 = OpAccessChain %_65 %_21 %_1001
+         %_1004 = OpAccessChain %_53 %_1002 %_1003
+         %_1006 = OpAccessChain %_57 %_1004 %_1005
+         OpAtomicCompareExchange %_211 %_1011 %_1006 %_1007 %_1008 %_1012 %_1009 %_1010
+         OpAtomicCompareExchange %_5 %_1017 %_23 %_1013 %_1014 %_1018 %_1015 %_1016
+         %_1020 = OpAccessChain %_97 %_27 %_1019
+         %_1021 = OpLoad %_4 %_1020
+         %_1023 = OpAccessChain %_97 %_27 %_1022
+         OpAtomicCompareExchange %_211 %_1028 %_1023 %_1024 %_1025 %_1029 %_1026 %_1027
+         %_1031 = OpAccessChain %_22 %_30 %_1030
+         %_1032 = OpLoad %_3 %_1031
+         %_1034 = OpAccessChain %_22 %_30 %_1033
+         OpAtomicCompareExchange %_5 %_1039 %_1034 %_1035 %_1036 %_1040 %_1037 %_1038
+         %_1042 = OpAccessChain %_26 %_30 %_1041
+         %_1043 = OpLoad %_25 %_1042
+         %_1045 = OpAccessChain %_26 %_30 %_1044
+         %_1047 = OpAccessChain %_97 %_1045 %_1046
+         %_1048 = OpLoad %_4 %_1047
+         %_1050 = OpAccessChain %_26 %_30 %_1049
+         %_1052 = OpAccessChain %_97 %_1050 %_1051
+         OpAtomicCompareExchange %_211 %_1057 %_1052 %_1053 %_1054 %_1058 %_1055 %_1056
                OpReturn
                OpFunctionEnd

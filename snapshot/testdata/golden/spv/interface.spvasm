@@ -13,6 +13,7 @@
                OpEntryPoint GLCompute %_90 "compute" %_44 %_45 %_46 %_47 %_48
                OpEntryPoint Vertex %_126 "vertex_two_structs" %_49 %_50 %_51
                OpExecutionMode %_66 OriginUpperLeft
+               OpExecutionMode %_66 DepthReplacing
                OpExecutionMode %_90 LocalSize 1 1 1
                OpDecorate %_10 ArrayStride 4
                OpMemberDecorate %_5 0 Offset 0
