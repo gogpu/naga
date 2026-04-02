@@ -545,7 +545,8 @@ const (
 	OpAtomicCompareExch OpCode = 230 // Atomic compare-exchange
 	OpAtomicIIncrement  OpCode = 232 // Atomic integer increment
 	OpAtomicIDecrement  OpCode = 233 // Atomic integer decrement
-	OpAtomicIAdd        OpCode = 234 // Atomic integer add
+	OpAtomicIAdd        OpCode = 234  // Atomic integer add
+	OpAtomicFAddEXT     OpCode = 6035 // Atomic float add (SPV_EXT_shader_atomic_float_add)
 	OpAtomicISub        OpCode = 235 // Atomic integer subtract
 	OpAtomicSMin        OpCode = 236 // Atomic signed min
 	OpAtomicUMin        OpCode = 237 // Atomic unsigned min

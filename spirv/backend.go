@@ -147,6 +147,13 @@ type Backend struct {
 	// Ray query helper function cache.
 	// Key: rayQueryFuncKind, Value: SPIR-V function ID.
 	rayQueryFuncIDs map[rayQueryFuncKind]uint32
+
+	// Cached OpTypeSampler ID (only one sampler type allowed in SPIR-V).
+	samplerTypeID uint32
+
+	// Set of struct type handles whose global variables use Uniform address space.
+	// Used to apply std140 MatrixStride rules (column stride >= 16 for f32).
+	uniformStructTypes map[ir.TypeHandle]bool
 }
 
 // wrappedBinaryOp is the dedup key for wrapped binary operation functions.
@@ -186,6 +193,7 @@ func NewBackend(options Options) *Backend {
 		f16PolyfillVars:     make(map[uint32]uint32, 4),
 		sampleMaskVars:      make(map[uint32]bool, 2),
 		rayQueryFuncIDs:     make(map[rayQueryFuncKind]uint32, 6),
+		uniformStructTypes:  make(map[ir.TypeHandle]bool, 4),
 	}
 }
 
@@ -568,11 +576,17 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		id = b.emitPointerType(storageClass, baseID)
 
 	case ir.SamplerType:
-		// OpTypeSampler has no operands
+		// OpTypeSampler must be emitted exactly once (SPIR-V forbids duplicate
+		// non-aggregate type declarations). Cache and reuse.
+		if b.samplerTypeID != 0 {
+			b.typeIDs[handle] = b.samplerTypeID
+			return b.samplerTypeID, nil
+		}
 		id = b.builder.AllocID()
 		builder := b.newIB()
 		builder.AddWord(id)
 		b.builder.types = append(b.builder.types, builder.Build(OpTypeSampler))
+		b.samplerTypeID = id
 
 	case ir.ImageType:
 		// Derive sampled type from image class.
@@ -1836,6 +1850,10 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 		return BuiltInSubgroupSize
 	case ir.BuiltinSubgroupInvocationID:
 		return BuiltInSubgroupLocalInvID
+	case ir.BuiltinClipDistance:
+		return BuiltInClipDistance
+	case ir.BuiltinPrimitiveIndex:
+		return BuiltInPrimitiveID
 	case ir.BuiltinBarycentric:
 		return BuiltInBaryCoordKHR
 	case ir.BuiltinViewIndex:
@@ -7196,12 +7214,14 @@ func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
 	return nil
 }
 
-// resolveAtomicScalarKind extracts the scalar kind from an atomic pointer expression.
-// Returns ScalarUint as default if the type cannot be resolved.
-func (e *ExpressionEmitter) resolveAtomicScalarKind(pointer ir.ExpressionHandle) ir.ScalarKind {
+// resolveAtomicScalar extracts the full scalar type (kind + width) from an atomic pointer expression.
+// Returns {ScalarUint, 4} as default if the type cannot be resolved.
+func (e *ExpressionEmitter) resolveAtomicScalar(pointer ir.ExpressionHandle) ir.ScalarType {
+	defaultScalar := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+
 	pointerType, err := ir.ResolveExpressionType(e.backend.module, e.function, pointer)
 	if err != nil {
-		return ir.ScalarUint
+		return defaultScalar
 	}
 
 	// Get the inner type from TypeResolution (either from Handle or Value)
@@ -7215,20 +7235,26 @@ func (e *ExpressionEmitter) resolveAtomicScalarKind(pointer ir.ExpressionHandle)
 	// ResolveExpressionType may return the atomic type directly (e.g., for
 	// struct field access like tiles[i].backdrop) or wrapped in a PointerType.
 	if atomicType, ok := inner.(ir.AtomicType); ok {
-		return atomicType.Scalar.Kind
+		return atomicType.Scalar
 	}
 
 	ptrType, ok := inner.(ir.PointerType)
 	if !ok || int(ptrType.Base) >= len(e.backend.module.Types) {
-		return ir.ScalarUint
+		return defaultScalar
 	}
 
 	atomicType, ok := e.backend.module.Types[ptrType.Base].Inner.(ir.AtomicType)
 	if !ok {
-		return ir.ScalarUint
+		return defaultScalar
 	}
 
-	return atomicType.Scalar.Kind
+	return atomicType.Scalar
+}
+
+// resolveAtomicScalarKind extracts the scalar kind from an atomic pointer expression.
+// Returns ScalarUint as default if the type cannot be resolved.
+func (e *ExpressionEmitter) resolveAtomicScalarKind(pointer ir.ExpressionHandle) ir.ScalarKind {
+	return e.resolveAtomicScalar(pointer).Kind
 }
 
 // atomicOpcode returns the SPIR-V opcode for an atomic function.
@@ -7236,8 +7262,12 @@ func (e *ExpressionEmitter) resolveAtomicScalarKind(pointer ir.ExpressionHandle)
 func atomicOpcode(fun ir.AtomicFunction, scalarKind ir.ScalarKind) (OpCode, bool) {
 	switch fun.(type) {
 	case ir.AtomicAdd:
+		if scalarKind == ir.ScalarFloat {
+			return OpAtomicFAddEXT, true
+		}
 		return OpAtomicIAdd, true
 	case ir.AtomicSubtract:
+		// Float subtract uses FNegate + AtomicFAddEXT (handled in emitAtomic).
 		return OpAtomicISub, true
 	case ir.AtomicAnd:
 		return OpAtomicAnd, true
