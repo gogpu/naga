@@ -1032,6 +1032,39 @@ func (b *Backend) requestImageFormatCapabilities(format ir.StorageFormat) {
 	}
 }
 
+// entryPointWritesFragDepth checks if a fragment shader entry point writes FragDepth.
+// Vulkan requires ExecutionModeDepthReplacing when FragDepth is written.
+func (b *Backend) entryPointWritesFragDepth(ep ir.EntryPoint) bool {
+	fn := &ep.Function
+	if fn.Result == nil {
+		return false
+	}
+
+	// Check direct binding (scalar result with BuiltinBinding).
+	if fn.Result.Binding != nil {
+		if bb, ok := (*fn.Result.Binding).(ir.BuiltinBinding); ok && bb.Builtin == ir.BuiltinFragDepth {
+			return true
+		}
+	}
+
+	// Check struct members (result struct may contain FragDepth as a member).
+	typeHandle := fn.Result.Type
+	if int(typeHandle) < len(b.module.Types) {
+		if st, ok := b.module.Types[typeHandle].Inner.(ir.StructType); ok {
+			for _, member := range st.Members {
+				if member.Binding == nil {
+					continue
+				}
+				if bb, ok := (*member.Binding).(ir.BuiltinBinding); ok && bb.Builtin == ir.BuiltinFragDepth {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
 // addressSpaceToStorageClass converts IR AddressSpace to SPIR-V StorageClass.
 func addressSpaceToStorageClass(space ir.AddressSpace) StorageClass {
 	switch space {
@@ -1960,6 +1993,11 @@ func (b *Backend) emitEntryPoints() error {
 		case ir.StageFragment:
 			// Fragment shaders need OriginUpperLeft
 			b.builder.AddExecutionMode(funcID, ExecutionModeOriginUpperLeft)
+			// DepthReplacing is required when fragment shader writes FragDepth.
+			// Matches Rust naga writer.rs execution mode emission.
+			if b.entryPointWritesFragDepth(entryPoint) {
+				b.builder.AddExecutionMode(funcID, ExecutionModeDepthReplacing)
+			}
 
 		case ir.StageCompute:
 			// Compute shaders need LocalSize
@@ -7407,8 +7445,14 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	builder.AddWord(resultID)
 	builder.AddWord(pointerID)
 	builder.AddWord(scopeID)
-	builder.AddWord(semanticsID) // MemSemEqual
-	builder.AddWord(semanticsID) // MemSemUnequal (same for simplicity)
+	builder.AddWord(semanticsID) // MemSemEqual (AcquireRelease)
+	// MemSemUnequal: SPIR-V spec (VUID-10875) forbids Release/AcquireRelease
+	// for the "unequal" operand. Use Acquire instead. Matches Vulkan requirements.
+	unequalSemID := e.backend.builder.AddConstant(
+		e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
+		MemorySemanticsAcquire|MemorySemanticsUniformMemory,
+	)
+	builder.AddWord(unequalSemID)
 	builder.AddWord(valueID)
 	builder.AddWord(compareID)
 	e.backend.builder.funcAppend(builder.Build(OpAtomicCompareExch))

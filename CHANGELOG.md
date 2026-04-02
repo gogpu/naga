@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.16.0] - 2026-04-02
 
 ### Added
 
@@ -15,26 +15,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **SPIR-V: SPV_KHR_storage_buffer_storage_class extension** — StorageBuffer
-  storage class requires this extension for SPIR-V < 1.3 (default version is 1.1).
-  All shaders with storage buffers were missing the declaration. Matches Rust naga
-  writer.rs:2580.
+#### SPIR-V binary validation: 63 → 29 failures (−34 fixed)
 
-- **SPIR-V: Workgroup ArrayStride decoration** — Workgroup variables must not have
-  explicit layout decorations (ArrayStride, Offset) per VUID-StandaloneSpirv-None-10684.
-  Added layout-free type emission for Workgroup address space.
+All fixes validated against Rust naga reference (`naga/src/back/spv/`).
 
-- **SPIR-V: OpLoad on runtime-sized arrays** — SPIR-V forbids loading entire
+- **SPV_KHR_storage_buffer_storage_class extension** — StorageBuffer storage
+  class requires this extension for SPIR-V < 1.3 (default version is 1.1).
+  Matches Rust naga writer.rs:2580. (5 shaders)
+
+- **Workgroup ArrayStride decoration** — Workgroup variables must not have
+  explicit layout decorations per VUID-StandaloneSpirv-None-10684. Added
+  layout-free type emission for Workgroup address space. (1 shader)
+
+- **OpLoad on runtime-sized arrays** — SPIR-V forbids loading entire
   runtime-sized arrays. Global variables containing runtime arrays now return
-  pointers instead of loaded values.
+  pointers instead of loaded values. (2 shaders)
 
-- **SPIR-V: OpImageFetch result type** — Hardcoded vec4<f32> replaced with
-  correct type derived from image SampledKind (e.g., vec4<u32> for texture_2d<u32>).
+- **OpImageFetch result type** — Hardcoded vec4<f32> replaced with correct
+  type derived from image SampledKind. (1 shader)
 
-- **SPIR-V: spirv-val 9/9 shader tests pass** (was 0/9).
-- **SPIR-V binary validation:** 114/166 shaders pass spirv-val (was 108). 36 remaining
-  val failures (atomic semantics, function pointer args, depth texture types, uniform
-  layout) and 16 compile failures (unimplemented features) tracked for v0.16.1 hotfix.
+- **SPV_KHR_multiview, SPV_KHR_fragment_shader_barycentric,
+  SPV_KHR_integer_dot_product extensions** — Added when corresponding
+  capabilities are used. (6 shaders)
+
+- **CapabilityImageGatherExtended** — Added for textureGather with offset. (2 shaders)
+
+- **SampleMask BuiltIn** — Wrapped in array<u32,1> per SPIR-V spec. (1 shader)
+
+- **SPIR-V version 1.3 requirement** — RequireVersion(1.3) for subgroup/
+  GroupNonUniform capabilities. (1 shader)
+
+- **Duplicate OpTypeSampler** — Cached to emit exactly once. (3 shaders)
+
+- **ClipDistance/PrimitiveIndex builtins** — Added to builtinToSPIRV mapping. (1 shader)
+
+- **OpAtomicFAddEXT (6035)** — Float32 atomics use OpAtomicFAddEXT instead
+  of OpAtomicIAdd. Atomic scalar resolution returns kind+width for int64. (4 shaders)
+
+- **AtomicCompareExchange unequal semantics** — Unequal operand uses Acquire
+  (not AcquireRelease) per VUID-StandaloneSpirv-UnequalMemorySemantics-10875. (3 shaders)
+
+- **ExecutionModeDepthReplacing** — Fragment shaders writing FragDepth now
+  emit DepthReplacing per VUID-FragDepth-FragDepth-04216. (2 shaders)
+
+- **SPV_KHR_integer_dot_product version comparison** — Fixed 0x10006 → 0x10600
+  (SPIR-V version encoding is major<<16|minor<<8). (2 shaders)
+
+#### GLSL
+
+- **Depth texture combined sampler naming** — When a depth texture is used with
+  both regular and comparison samplers, the combined sampler names were swapped
+  due to non-deterministic Go map iteration. Fixed with deterministic sorting. (1 shader)
+
+### Known Issues
+
+- **29 SPIR-V binary validation failures** remain: function pointer arguments (4),
+  depth texture result types (4), type mismatches (6), execution modes (4),
+  atomic pointer types (4), uniform layout (2), other (5). Tracked for v0.16.1.
+
+- **16 SPIR-V compile failures**: unimplemented features (mesh shaders, overrides,
+  image atomics, workgroup uniform load). Tracked as backlog.
 
 ## [0.15.2] - 2026-04-01
 

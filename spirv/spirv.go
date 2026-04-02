@@ -539,22 +539,22 @@ const (
 
 // Atomic operation opcodes
 const (
-	OpAtomicLoad        OpCode = 227 // Atomic load
-	OpAtomicStore       OpCode = 228 // Atomic store
-	OpAtomicExchange    OpCode = 229 // Atomic exchange
-	OpAtomicCompareExch OpCode = 230 // Atomic compare-exchange
-	OpAtomicIIncrement  OpCode = 232 // Atomic integer increment
-	OpAtomicIDecrement  OpCode = 233 // Atomic integer decrement
+	OpAtomicLoad        OpCode = 227  // Atomic load
+	OpAtomicStore       OpCode = 228  // Atomic store
+	OpAtomicExchange    OpCode = 229  // Atomic exchange
+	OpAtomicCompareExch OpCode = 230  // Atomic compare-exchange
+	OpAtomicIIncrement  OpCode = 232  // Atomic integer increment
+	OpAtomicIDecrement  OpCode = 233  // Atomic integer decrement
 	OpAtomicIAdd        OpCode = 234  // Atomic integer add
 	OpAtomicFAddEXT     OpCode = 6035 // Atomic float add (SPV_EXT_shader_atomic_float_add)
-	OpAtomicISub        OpCode = 235 // Atomic integer subtract
-	OpAtomicSMin        OpCode = 236 // Atomic signed min
-	OpAtomicUMin        OpCode = 237 // Atomic unsigned min
-	OpAtomicSMax        OpCode = 238 // Atomic signed max
-	OpAtomicUMax        OpCode = 239 // Atomic unsigned max
-	OpAtomicAnd         OpCode = 240 // Atomic bitwise and
-	OpAtomicOr          OpCode = 241 // Atomic bitwise or
-	OpAtomicXor         OpCode = 242 // Atomic bitwise xor
+	OpAtomicISub        OpCode = 235  // Atomic integer subtract
+	OpAtomicSMin        OpCode = 236  // Atomic signed min
+	OpAtomicUMin        OpCode = 237  // Atomic unsigned min
+	OpAtomicSMax        OpCode = 238  // Atomic signed max
+	OpAtomicUMax        OpCode = 239  // Atomic unsigned max
+	OpAtomicAnd         OpCode = 240  // Atomic bitwise and
+	OpAtomicOr          OpCode = 241  // Atomic bitwise or
+	OpAtomicXor         OpCode = 242  // Atomic bitwise xor
 )
 
 // Integer dot product opcodes (SPV_KHR_integer_dot_product)
