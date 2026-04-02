@@ -1160,6 +1160,14 @@ func (b *Backend) emitGlobals() error {
 
 		// Create pointer type for the variable
 		storageClass := addressSpaceToStorageClass(global.Space)
+
+		// StorageBuffer storage class is core in SPIR-V 1.3+.
+		// For earlier versions, declare the required extension.
+		// Matches Rust naga writer.rs:2580.
+		if storageClass == StorageClassStorageBuffer && b.langVersion() < 0x00010300 {
+			b.addExtension("SPV_KHR_storage_buffer_storage_class")
+		}
+
 		ptrType := b.emitPointerType(storageClass, varType)
 
 		// Emit the variable
