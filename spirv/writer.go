@@ -202,6 +202,16 @@ func NewModuleBuilder(version Version) *ModuleBuilder {
 	return mb
 }
 
+// RequireVersion bumps the module's SPIR-V version to at least minVersion.
+// If the current version is already >= minVersion, this is a no-op.
+func (b *ModuleBuilder) RequireVersion(minVersion Version) {
+	minWord := versionToWord(minVersion)
+	curWord := versionToWord(b.version)
+	if minWord > curWord {
+		b.version = minVersion
+	}
+}
+
 // funcAppend appends an instruction to the current function-body target.
 // When funcSink is set (block model active), instructions go to the current
 // block's body. Otherwise they go to the flat functions list (legacy path).

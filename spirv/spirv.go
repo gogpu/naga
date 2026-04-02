@@ -118,6 +118,7 @@ const (
 	CapabilityFloat64                            Capability = 10   // Required for OpTypeFloat 64
 	CapabilityInt64                              Capability = 11   // Required for OpTypeInt 64
 	CapabilityInt16                              Capability = 22   // Required for OpTypeInt 16
+	CapabilityImageGatherExtended                Capability = 25   // Offset on image gather/sample
 	CapabilityInt8                               Capability = 39   // Required for OpTypeInt 8
 	CapabilityLinkage                            Capability = 5    // Import/export linkage
 	CapabilityInt64Atomics                       Capability = 12   // 64-bit atomic operations

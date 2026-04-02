@@ -130,6 +130,11 @@ type Backend struct {
 	// f32 types, and OpFConvert is emitted at load/store time.
 	f16PolyfillVars map[uint32]uint32
 
+	// SampleMask builtin variables. Per SPIR-V spec (VUID-SampleMask-SampleMask-04359),
+	// the SampleMask BuiltIn must be typed as array<u32, 1>, not scalar u32.
+	// These variables need AccessChain[0] when loading/storing.
+	sampleMaskVars map[uint32]bool
+
 	// Shared instruction builder reused across emit methods that don't call
 	// other emit functions between Reset() and Build().
 	ib InstructionBuilder
@@ -179,6 +184,7 @@ func NewBackend(options Options) *Backend {
 		workgroupInitVars:   make(map[int]uint32, 2),
 		wrappedFuncIDs:      make(map[wrappedBinaryOp]uint32, 4),
 		f16PolyfillVars:     make(map[uint32]uint32, 4),
+		sampleMaskVars:      make(map[uint32]bool, 2),
 		rayQueryFuncIDs:     make(map[rayQueryFuncKind]uint32, 6),
 	}
 }
@@ -352,6 +358,11 @@ func (b *Backend) requireAllCapabilities(caps ...Capability) bool {
 		b.addCapability(cap)
 	}
 	return true
+}
+
+// requireVersion bumps the SPIR-V module version to at least minVersion.
+func (b *Backend) requireVersion(minVersion Version) {
+	b.builder.RequireVersion(minVersion)
 }
 
 // addExtension adds a SPIR-V extension without duplicates.
@@ -1439,10 +1450,17 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 				if b.needsF16Polyfill(arg.Type) {
 					ioTypeID = b.getF16PolyfillTypeID(arg.Type)
 				}
+				// SampleMask BuiltIn must be array<u32, 1> per Vulkan spec.
+				if isSampleMaskBinding(arg.Binding) {
+					ioTypeID = b.emitSampleMaskArrayType()
+				}
 				ptrType := b.emitPointerType(StorageClassInput, ioTypeID)
 				varID := b.builder.AddVariable(ptrType, StorageClassInput)
 				input.singleVarID = varID
-				if ioTypeID != argTypeID {
+				if isSampleMaskBinding(arg.Binding) {
+					b.sampleMaskVars[varID] = true
+				}
+				if ioTypeID != argTypeID && !isSampleMaskBinding(arg.Binding) {
 					b.f16PolyfillVars[varID] = ioTypeID
 				}
 
@@ -1495,10 +1513,18 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 							if b.needsF16Polyfill(member.Type) {
 								ioMemberTypeID = b.getF16PolyfillTypeID(member.Type)
 							}
+							// SampleMask BuiltIn must be array<u32, 1> per Vulkan spec.
+							isSM := isSampleMaskBinding(member.Binding)
+							if isSM {
+								ioMemberTypeID = b.emitSampleMaskArrayType()
+							}
 							ptrType := b.emitPointerType(StorageClassInput, ioMemberTypeID)
 							varID := b.builder.AddVariable(ptrType, StorageClassInput)
 							input.memberVarIDs[j] = varID
-							if ioMemberTypeID != memberTypeID {
+							if isSM {
+								b.sampleMaskVars[varID] = true
+							}
+							if ioMemberTypeID != memberTypeID && !isSM {
 								b.f16PolyfillVars[varID] = ioMemberTypeID
 							}
 
@@ -1551,10 +1577,17 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 				if b.needsF16Polyfill(fn.Result.Type) {
 					ioResultTypeID = b.getF16PolyfillTypeID(fn.Result.Type)
 				}
+				// SampleMask BuiltIn must be array<u32, 1> per Vulkan spec.
+				if isSampleMaskBinding(fn.Result.Binding) {
+					ioResultTypeID = b.emitSampleMaskArrayType()
+				}
 				ptrType := b.emitPointerType(StorageClassOutput, ioResultTypeID)
 				varID := b.builder.AddVariable(ptrType, StorageClassOutput)
 				output.singleVarID = varID
-				if ioResultTypeID != resultTypeID {
+				if isSampleMaskBinding(fn.Result.Binding) {
+					b.sampleMaskVars[varID] = true
+				}
+				if ioResultTypeID != resultTypeID && !isSampleMaskBinding(fn.Result.Binding) {
 					b.f16PolyfillVars[varID] = ioResultTypeID
 				}
 
@@ -1587,10 +1620,18 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 						if b.needsF16Polyfill(member.Type) {
 							ioMemberTypeID = b.getF16PolyfillTypeID(member.Type)
 						}
+						// SampleMask BuiltIn must be array<u32, 1> per Vulkan spec.
+						isSM := isSampleMaskBinding(member.Binding)
+						if isSM {
+							ioMemberTypeID = b.emitSampleMaskArrayType()
+						}
 						ptrType := b.emitPointerType(StorageClassOutput, ioMemberTypeID)
 						varID := b.builder.AddVariable(ptrType, StorageClassOutput)
 						output.memberVarIDs[i] = varID
-						if ioMemberTypeID != memberTypeID {
+						if isSM {
+							b.sampleMaskVars[varID] = true
+						}
+						if ioMemberTypeID != memberTypeID && !isSM {
 							b.f16PolyfillVars[varID] = ioMemberTypeID
 						}
 
@@ -1709,6 +1750,25 @@ func (b *Backend) typeNeedsFlat(typeHandle ir.TypeHandle) bool {
 	}
 }
 
+// isSampleMaskBinding returns true if the binding is a BuiltinSampleMask builtin.
+func isSampleMaskBinding(binding *ir.Binding) bool {
+	if binding == nil {
+		return false
+	}
+	if bb, ok := (*binding).(ir.BuiltinBinding); ok {
+		return bb.Builtin == ir.BuiltinSampleMask
+	}
+	return false
+}
+
+// emitSampleMaskArrayType returns the SPIR-V type ID for array<u32, 1>,
+// which is required for SampleMask BuiltIn variables per the Vulkan spec.
+func (b *Backend) emitSampleMaskArrayType() uint32 {
+	u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	sizeID := b.builder.AddConstant(u32TypeID, 1)
+	return b.builder.AddTypeArray(u32TypeID, sizeID)
+}
+
 // addBuiltinCapabilities adds required capabilities for specific builtins.
 func (b *Backend) addBuiltinCapabilities(builtin ir.BuiltinValue) {
 	switch builtin {
@@ -1716,8 +1776,10 @@ func (b *Backend) addBuiltinCapabilities(builtin ir.BuiltinValue) {
 		b.addCapability(CapabilitySampleRateShading)
 	case ir.BuiltinViewIndex:
 		b.addCapability(CapabilityMultiView)
+		b.addExtension("SPV_KHR_multiview")
 	case ir.BuiltinBarycentric:
 		b.addCapability(CapabilityFragmentBarycentricKHR)
+		b.addExtension("SPV_KHR_fragment_shader_barycentric")
 	case ir.BuiltinClipDistance:
 		b.addCapability(CapabilityClipDistance)
 	case ir.BuiltinPrimitiveIndex:
@@ -1727,6 +1789,7 @@ func (b *Backend) addBuiltinCapabilities(builtin ir.BuiltinValue) {
 		// Rust require_any picks first from [GroupNonUniform, SubgroupBallotKHR]
 		// when capabilities_available is None (default), so only GroupNonUniform.
 		b.addCapability(CapabilityGroupNonUniform)
+		b.requireVersion(Version1_3)
 	}
 }
 
@@ -2710,6 +2773,13 @@ func (b *Backend) emitFunctionImpl(fn *ir.Function, isEntryPoint bool, handle ir
 						b.ib.AddWord(f32Value)
 						b.builder.funcAppend(b.ib.Build(OpFConvert))
 						memberIDs[j] = convertedID
+					} else if b.sampleMaskVars[memberVarID] {
+						// SampleMask: variable is array<u32, 1>, need AccessChain[0]
+						elemPtrType := b.emitPointerType(StorageClassInput, memberTypeID)
+						u32Type := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+						idx0 := b.builder.AddConstant(u32Type, 0)
+						elemPtr := b.builder.AddAccessChain(elemPtrType, memberVarID, idx0)
+						memberIDs[j] = b.builder.AddLoad(memberTypeID, elemPtr)
 					} else {
 						memberIDs[j] = b.builder.AddLoad(memberTypeID, memberVarID)
 					}
@@ -3465,6 +3535,15 @@ func (e *ExpressionEmitter) emitFunctionArgValue(kind ir.ExprFunctionArgument) (
 	typeID, err := e.backend.emitType(arg.Type)
 	if err != nil {
 		return 0, err
+	}
+
+	// SampleMask: variable is array<u32, 1>, need AccessChain[0] to get u32 element
+	if e.backend.sampleMaskVars[ptrID] {
+		elemPtrType := e.backend.emitPointerType(StorageClassInput, typeID)
+		u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		idx0 := e.backend.builder.AddConstant(u32Type, 0)
+		elemPtr := e.backend.builder.AddAccessChain(elemPtrType, ptrID, idx0)
+		return e.backend.builder.AddLoad(typeID, elemPtr), nil
 	}
 
 	// Check if the variable needs f16 polyfill conversion
@@ -5045,8 +5124,16 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 							e.backend.builder.funcAppend(e.backend.ib.Build(OpFConvert))
 							memberValue = convertedID
 						}
-						// Store to output variable
-						e.backend.builder.AddStore(varID, memberValue)
+						// Store to output variable (SampleMask needs AccessChain[0])
+						if e.backend.sampleMaskVars[varID] {
+							elemPtrType := e.backend.emitPointerType(StorageClassOutput, memberTypeID)
+							u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+							idx0 := e.backend.builder.AddConstant(u32Type, 0)
+							elemPtr := e.backend.builder.AddAccessChain(elemPtrType, varID, idx0)
+							e.backend.builder.AddStore(elemPtr, memberValue)
+						} else {
+							e.backend.builder.AddStore(varID, memberValue)
+						}
 					}
 				} else if e.output.singleVarID != 0 {
 					// Single output variable
@@ -5061,7 +5148,17 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 						e.backend.builder.funcAppend(e.backend.ib.Build(OpFConvert))
 						storeValue = convertedID
 					}
-					e.backend.builder.AddStore(e.output.singleVarID, storeValue)
+					// SampleMask output needs AccessChain[0]
+					if e.backend.sampleMaskVars[e.output.singleVarID] {
+						resultTypeID, _ := e.backend.emitType(e.function.Result.Type)
+						elemPtrType := e.backend.emitPointerType(StorageClassOutput, resultTypeID)
+						u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+						idx0 := e.backend.builder.AddConstant(u32Type, 0)
+						elemPtr := e.backend.builder.AddAccessChain(elemPtrType, e.output.singleVarID, idx0)
+						e.backend.builder.AddStore(elemPtr, storeValue)
+					} else {
+						e.backend.builder.AddStore(e.output.singleVarID, storeValue)
+					}
 				}
 				e.consumeBlock(Instruction{Opcode: OpReturn})
 			} else {
@@ -6004,7 +6101,7 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		if mathExpr.Fun == ir.MathDot4I8Packed || mathExpr.Fun == ir.MathDot4U8Packed {
 			if e.backend.requireAllCapabilities(CapabilityDotProduct, CapabilityDotProductInput4x8BitPacked) {
 				// Optimized path: use native packed dot product opcodes
-				if e.backend.langVersion() < 0x00010006 {
+				if e.backend.langVersion() < 0x00010600 {
 					e.backend.addExtension("SPV_KHR_integer_dot_product")
 				}
 				resultID := e.backend.builder.AllocID()
@@ -6280,6 +6377,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 
 		// Append optional image operands (Offset)
 		if sample.Offset != nil {
+			e.backend.addCapability(CapabilityImageGatherExtended)
 			offsetID, offsetErr := e.emitExpression(*sample.Offset)
 			if offsetErr != nil {
 				return 0, offsetErr
@@ -6303,6 +6401,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	var imageOperandMask uint32
 	var imageOperandValues []uint32
 	if sample.Offset != nil {
+		e.backend.addCapability(CapabilityImageGatherExtended)
 		offsetID, offsetErr := e.emitExpression(*sample.Offset)
 		if offsetErr != nil {
 			return 0, offsetErr
@@ -7563,6 +7662,7 @@ func (e *ExpressionEmitter) emitSubgroupResultRef(handle ir.ExpressionHandle) (u
 
 // emitSubgroupBallot emits a SubgroupBallot statement.
 func (e *ExpressionEmitter) emitSubgroupBallot(stmt ir.StmtSubgroupBallot) error {
+	e.backend.requireVersion(Version1_3)
 	e.backend.addCapability(CapabilityGroupNonUniformBallot)
 	u32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	vec4u32TypeID := e.backend.emitVectorType(u32TypeID, 4)
@@ -7599,6 +7699,7 @@ func (e *ExpressionEmitter) emitSubgroupBallot(stmt ir.StmtSubgroupBallot) error
 
 // emitSubgroupCollectiveOperation emits a SubgroupCollectiveOperation statement.
 func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroupCollectiveOperation) error {
+	e.backend.requireVersion(Version1_3)
 	u32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	scopeID := e.backend.builder.AddConstant(u32TypeID, ScopeSubgroup)
 
@@ -7711,6 +7812,7 @@ func (e *ExpressionEmitter) emitSubgroupCollectiveOperation(stmt ir.StmtSubgroup
 
 // emitSubgroupGather emits a SubgroupGather statement.
 func (e *ExpressionEmitter) emitSubgroupGather(stmt ir.StmtSubgroupGather) error {
+	e.backend.requireVersion(Version1_3)
 	u32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	scopeID := e.backend.builder.AddConstant(u32TypeID, ScopeSubgroup)
 

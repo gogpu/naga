@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   correct type derived from image SampledKind (e.g., vec4<u32> for texture_2d<u32>).
 
 - **SPIR-V: spirv-val 9/9 shader tests pass** (was 0/9).
+- **SPIR-V binary validation:** 114/166 shaders pass spirv-val (was 108). 36 remaining
+  val failures (atomic semantics, function pointer args, depth texture types, uniform
+  layout) and 16 compile failures (unimplemented features) tracked for v0.16.1 hotfix.
 
 ## [0.15.2] - 2026-04-01
 

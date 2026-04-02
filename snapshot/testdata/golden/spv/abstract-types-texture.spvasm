@@ -5,6 +5,7 @@
 ; Schema: 0
 
                OpCapability Shader
+               OpCapability ImageGatherExtended
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint Fragment %_119 "main"

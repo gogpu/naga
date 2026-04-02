@@ -9,6 +9,7 @@
                OpCapability Image1D
                OpCapability SampledBuffer
                OpCapability DerivativeControl
+               OpCapability ImageGatherExtended
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint GLCompute %_105 "main" %_72
