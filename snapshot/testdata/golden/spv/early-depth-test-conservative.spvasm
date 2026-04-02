@@ -9,6 +9,7 @@
                OpMemoryModel Logical GLSL450
                OpEntryPoint Fragment %_10 "main" %_6 %_8
                OpExecutionMode %_10 OriginUpperLeft
+               OpExecutionMode %_10 DepthReplacing
                OpDecorate %_6 BuiltIn PointCoord
                OpDecorate %_8 BuiltIn FragDepth
          %_2 = OpTypeVoid

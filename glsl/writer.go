@@ -6,6 +6,7 @@ package glsl
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/gogpu/naga/ir"
@@ -910,10 +911,27 @@ func (w *Writer) writeGlobalVariables() error {
 	// Reset block ID counter — Rust generates IDs at write time, not registration
 	w.blockIDCounter = 0
 
-	// Build a map from texture handle to combined sampler info for in-place emission.
-	textureToCombined := make(map[ir.GlobalVariableHandle]*combinedSamplerInfo)
+	// Build a map from texture handle to all combined sampler infos for that texture.
+	// A depth texture may be paired with both a regular sampler and a comparison sampler,
+	// producing two separate combined sampler entries for the same texture global.
+	textureToCombined := make(map[ir.GlobalVariableHandle][]*combinedSamplerInfo)
 	for _, info := range w.combinedSamplers {
-		textureToCombined[info.textureHandle] = info
+		textureToCombined[info.textureHandle] = append(textureToCombined[info.textureHandle], info)
+	}
+	// Sort each texture's pairs so that the non-comparison sampler pair comes first.
+	// The first pair gets the in-place declaration (texture-only name); additional pairs
+	// are emitted as separate declarations with combined (texture__sampler) names.
+	for _, infos := range textureToCombined {
+		if len(infos) > 1 {
+			sort.Slice(infos, func(i, j int) bool {
+				iComp := w.isSamplerComparison(infos[i].samplerHandle)
+				jComp := w.isSamplerComparison(infos[j].samplerHandle)
+				if iComp != jComp {
+					return !iComp // non-comparison first
+				}
+				return infos[i].samplerHandle < infos[j].samplerHandle
+			})
+		}
 	}
 
 	for handle, global := range w.module.GlobalVariables {
@@ -975,9 +993,15 @@ func (w *Writer) writeGlobalVariables() error {
 				case ir.SamplerType:
 					continue // GLSL has no standalone samplers
 				case ir.ImageType:
-					// Check if this texture has a combined sampler — if so, emit combined declaration
-					if info, hasCombined := textureToCombined[ir.GlobalVariableHandle(handle)]; hasCombined {
-						w.writeCombinedSamplerDecl(info)
+					// Check if this texture has combined sampler pair(s) — if so, emit declarations.
+					if infos, hasCombined := textureToCombined[ir.GlobalVariableHandle(handle)]; hasCombined {
+						// First pair gets the in-place declaration (texture-only name).
+						w.writeCombinedSamplerDecl(infos[0])
+						// Additional pairs get separate declarations with combined names.
+						for _, extra := range infos[1:] {
+							w.writeLine("")
+							w.writeExtraCombinedSamplerDecl(extra)
+						}
 					} else {
 						w.writeImageGlobalDecl(global, name, typeName)
 					}
@@ -1053,6 +1077,34 @@ func (w *Writer) writeCombinedSamplerDecl(info *combinedSamplerInfo) {
 
 	// Track for TranslationInfo
 	w.textureSamplerPairs = append(w.textureSamplerPairs, varName)
+}
+
+// writeExtraCombinedSamplerDecl emits an additional combined sampler declaration
+// for a texture-sampler pair that is NOT the primary (in-place) pair for its texture.
+// The combined name (texture__sampler) is kept as-is.
+func (w *Writer) writeExtraCombinedSamplerDecl(info *combinedSamplerInfo) {
+	highp := ""
+	if w.options.LangVersion.ES {
+		highp = "highp "
+	}
+	w.writeLine("uniform %s%s %s;", highp, info.glslTypeName, info.glslName)
+	w.textureSamplerPairs = append(w.textureSamplerPairs, info.glslName)
+}
+
+// isSamplerComparison checks whether the global variable at the given handle
+// is a comparison sampler (sampler_comparison in WGSL).
+func (w *Writer) isSamplerComparison(handle ir.GlobalVariableHandle) bool {
+	if int(handle) >= len(w.module.GlobalVariables) {
+		return false
+	}
+	global := &w.module.GlobalVariables[handle]
+	if int(global.Type) >= len(w.module.Types) {
+		return false
+	}
+	if st, ok := w.module.Types[global.Type].Inner.(ir.SamplerType); ok {
+		return st.Comparison
+	}
+	return false
 }
 
 // writeCombinedSamplerDeclarations emits "uniform sampler2D name;" declarations

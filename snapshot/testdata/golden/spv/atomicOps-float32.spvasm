@@ -7,6 +7,7 @@
                OpCapability Shader
                OpCapability 6033
          OpExtension %_1599492179 %_1599363141 %_1684105331 %_1633645157 %_1768779636 %_1818648419 %_1601462639 %_6579297
+         OpExtension %_1599492179 %_1599227979 %_1919906931 %_1600481121 %_1717990754 %_1935635045 %_1634889588 %_1667196263 %_1936941420 %_0
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint GLCompute %_21 "cs_main" %_19
@@ -209,19 +210,19 @@
          %_112 = OpLoad %_3 %_111
          OpControlBarrier %_113 %_114 %_115
          %_117 = OpAccessChain %_23 %_11 %_116
-         OpAtomicIAdd %_3 %_121 %_117 %_118 %_119 %_120
+         Op6035 %_3 %_121 %_117 %_118 %_119 %_120
          %_123 = OpAccessChain %_27 %_14 %_122
          %_125 = OpAccessChain %_23 %_123 %_124
          %_126 = OpLoad %_3 %_125
          %_128 = OpAccessChain %_27 %_14 %_127
          %_130 = OpAccessChain %_23 %_128 %_129
-         OpAtomicIAdd %_3 %_134 %_130 %_131 %_132 %_133
+         Op6035 %_3 %_134 %_130 %_131 %_132 %_133
          %_136 = OpAccessChain %_38 %_17 %_135
          %_138 = OpAccessChain %_23 %_136 %_137
          %_139 = OpLoad %_3 %_138
          %_141 = OpAccessChain %_38 %_17 %_140
          %_143 = OpAccessChain %_23 %_141 %_142
-         OpAtomicIAdd %_3 %_147 %_143 %_144 %_145 %_146
+         Op6035 %_3 %_147 %_143 %_144 %_145 %_146
          %_149 = OpAccessChain %_38 %_17 %_148
          %_151 = OpAccessChain %_27 %_149 %_150
          %_152 = OpLoad %_6 %_151
@@ -232,7 +233,7 @@
          %_161 = OpAccessChain %_38 %_17 %_160
          %_163 = OpAccessChain %_27 %_161 %_162
          %_165 = OpAccessChain %_23 %_163 %_164
-         OpAtomicIAdd %_3 %_169 %_165 %_166 %_167 %_168
+         Op6035 %_3 %_169 %_165 %_166 %_167 %_168
          OpControlBarrier %_170 %_171 %_172
          %_174 = OpAccessChain %_23 %_11 %_173
          OpAtomicExchange %_3 %_178 %_174 %_175 %_176 %_177

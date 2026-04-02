@@ -13,7 +13,7 @@
                OpMemberDecorate %_8 0 Offset 0
                OpMemberDecorate %_8 1 Offset 16
                OpDecorate %_10 BuiltIn Position
-               OpDecorate %_12 BuiltIn Position
+               OpDecorate %_12 BuiltIn CullDistance
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
          %_4 = OpTypeVector %_3 4

@@ -6,6 +6,7 @@
 
                OpCapability Shader
                OpCapability 5284
+         OpExtension %_1599492179 %_1599227979 %_1734439526 %_1953391981 %_1634235231 %_1601332580 %_2037539170 %_1953391971 %_6515058
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint Fragment %_11 "fs_main" %_7 %_9

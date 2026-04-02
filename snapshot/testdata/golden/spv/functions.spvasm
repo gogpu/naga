@@ -7,6 +7,7 @@
                OpCapability Shader
                OpCapability 6019
                OpCapability 6018
+         OpExtension %_1599492179 %_1599227979 %_1702129257 %_1601332583 %_1601466212 %_1685025392 %_7627637
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint GLCompute %_56 "main"

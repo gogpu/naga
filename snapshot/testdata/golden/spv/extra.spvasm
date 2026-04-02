@@ -17,7 +17,7 @@
                OpDecorate %_9 Block
                OpMemberDecorate %_9 0 Offset 0
                OpDecorate %_13 Location 0
-               OpDecorate %_15 BuiltIn Position
+               OpDecorate %_15 BuiltIn InvocationId
                OpDecorate %_15 Flat
                OpDecorate %_17 Location 0
          %_2 = OpTypeVoid

@@ -380,11 +380,14 @@ type Backend struct {
 
 ### GLSL (OpenGL) — 68/68 Rust parity
 
-- Version targeting: `#version 330`, `#version 450`, `#version 300 es`
+- Version targeting: `#version 330`, `#version 430`, `#version 300 es`
 - Attribute binding: `layout(location=N) in/out`
-- Uniform blocks: `layout(std140) uniform BlockName { ... }`
-- Storage blocks: `layout(std430) buffer BlockName { ... }`
+- Uniform blocks: `layout(std140, binding=N) uniform BlockName { ... }`
+- Storage blocks: `layout(std430, binding=N) buffer BlockName { ... }`
 - Compute: `layout(local_size_x=X, ...) in`
+- BindingMap: remaps (group, binding) to flat GL binding indices (`group*16 + binding`)
+- Combined texture-sampler: separate WGSL `texture_2d` + `sampler` merged into GLSL `sampler2D` at texture's binding
+- TextureMappings in TranslationInfo: maps each combined sampler2D to its texture/sampler bindings (used by GLES HAL for SamplerBindMap)
 - Dead code elimination via `dominates_global_use` reachability
 - ProcessOverrides for pipeline constants
 - Image bounds checking
