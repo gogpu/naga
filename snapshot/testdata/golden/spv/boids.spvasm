@@ -11,6 +11,7 @@
                OpEntryPoint GLCompute %_22 "main" %_20
                OpExecutionMode %_22 LocalSize 64 1 1
                OpDecorate %_8 ArrayStride 16
+               OpDecorate %_9 Block
                OpMemberDecorate %_6 0 Offset 0
                OpMemberDecorate %_6 1 Offset 8
                OpMemberDecorate %_7 0 Offset 0
@@ -25,7 +26,6 @@
                OpMemberDecorate %_13 0 Offset 0
                OpDecorate %_15 DescriptorSet 0
                OpDecorate %_15 Binding 0
-               OpDecorate %_9 Block
                OpDecorate %_17 DescriptorSet 0
                OpDecorate %_17 Binding 1
                OpDecorate %_17 NonWritable

@@ -310,8 +310,15 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 		return nil, err
 	}
 
-	// 13. Linkage capability for modules without entry points
-	if len(b.module.EntryPoints) == 0 {
+	// 13. Linkage capability for modules without compilable entry points
+	// Count non-mesh/task entry points (mesh/task are skipped in SPIR-V)
+	compilableEPs := 0
+	for _, ep := range b.module.EntryPoints {
+		if ep.Stage != ir.StageTask && ep.Stage != ir.StageMesh {
+			compilableEPs++
+		}
+	}
+	if compilableEPs == 0 {
 		b.addCapability(CapabilityLinkage)
 	}
 
@@ -554,17 +561,31 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		}
 
 	case ir.StructType:
-		// Emit all member types first
+		// Emit all member types first, checking for runtime arrays.
+		// Matches Rust naga writer.rs:1534-1559.
 		memberIDs := make([]uint32, len(inner.Members))
+		hasRuntimeArray := false
 		for i, member := range inner.Members {
 			memberID, err := b.emitType(member.Type)
 			if err != nil {
 				return 0, err
 			}
 			memberIDs[i] = memberID
+			// Check if this member is a runtime-sized array
+			if arr, ok := b.module.Types[member.Type].Inner.(ir.ArrayType); ok {
+				if arr.Size.Constant == nil {
+					hasRuntimeArray = true
+				}
+			}
 		}
 
 		id = b.builder.AddTypeStruct(memberIDs...)
+		// Structs with runtime arrays get Block decoration during type emission.
+		// Matches Rust naga writer.rs:1556-1558.
+		if hasRuntimeArray {
+			b.builder.AddDecorate(id, DecorationBlock)
+			b.blockDecoratedTypes[id] = true
+		}
 
 	case ir.PointerType:
 		baseID, err := b.emitType(inner.Base)
@@ -1000,19 +1021,7 @@ func (b *Backend) emitImageType(sampledTypeID uint32, img ir.ImageType) uint32 {
 // storageFormatToScalar maps a storage texture format to its sampled scalar type.
 // Float formats → f32, unsigned int formats → u32, signed int formats → i32.
 func storageFormatToScalar(format ir.StorageFormat) ir.ScalarType {
-	switch format {
-	case ir.StorageFormatR8Uint, ir.StorageFormatRg8Uint, ir.StorageFormatR16Uint,
-		ir.StorageFormatRg16Uint, ir.StorageFormatR32Uint, ir.StorageFormatRg32Uint,
-		ir.StorageFormatRgba8Uint, ir.StorageFormatRgba16Uint, ir.StorageFormatRgba32Uint,
-		ir.StorageFormatRgb10a2Uint:
-		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
-	case ir.StorageFormatR8Sint, ir.StorageFormatRg8Sint, ir.StorageFormatR16Sint,
-		ir.StorageFormatRg16Sint, ir.StorageFormatR32Sint, ir.StorageFormatRg32Sint,
-		ir.StorageFormatRgba8Sint, ir.StorageFormatRgba16Sint, ir.StorageFormatRgba32Sint:
-		return ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
-	default:
-		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-	}
+	return format.Scalar()
 }
 
 // requestImageFormatCapabilities adds StorageImageExtendedFormats capability
@@ -1027,6 +1036,10 @@ func (b *Backend) requestImageFormatCapabilities(format ir.StorageFormat) {
 		ir.StorageFormatRgba32Sint, ir.StorageFormatRgba16Sint, ir.StorageFormatRgba8Sint, ir.StorageFormatR32Sint,
 		ir.StorageFormatRgba32Uint, ir.StorageFormatRgba16Uint, ir.StorageFormatRgba8Uint, ir.StorageFormatR32Uint:
 		// Basic formats — no extra capability needed
+	case ir.StorageFormatR64Uint, ir.StorageFormatR64Sint:
+		// 64-bit integer storage image formats require extension and capability
+		b.addExtension("SPV_EXT_shader_image_int64")
+		b.addCapability(CapabilityInt64ImageEXT)
 	default:
 		b.addCapability(CapabilityStorageImageExtendedFormats)
 	}
@@ -1266,18 +1279,15 @@ const OpArrayLength OpCode = 68
 // emitGlobals emits all global variables to SPIR-V.
 func (b *Backend) emitGlobals() error {
 	for handle, global := range b.module.GlobalVariables {
+		// Skip TaskPayload globals — mesh/task shaders not supported in SPIR-V (matches Rust naga)
+		if global.Space == ir.SpaceTaskPayload {
+			continue
+		}
+
 		// Get the variable type.
 		varType, err := b.emitType(global.Type)
 		if err != nil {
 			return err
-		}
-
-		// Workgroup variables must NOT have explicit layout decorations
-		// (ArrayStride, Offset) per VUID-StandaloneSpirv-None-10684.
-		// If the type is an array that was emitted with ArrayStride, create
-		// a separate array type without the decoration for Workgroup use.
-		if global.Space == ir.SpaceWorkGroup {
-			varType = b.emitTypeWithoutLayout(global.Type)
 		}
 
 		// Determine if this variable needs a wrapper struct (matching Rust naga's
@@ -1297,6 +1307,33 @@ func (b *Backend) emitGlobals() error {
 			// still needs Block decoration directly.
 			b.builder.AddDecorate(varType, DecorationBlock)
 			b.blockDecoratedTypes[varType] = true
+		} else if global.Space == ir.SpaceStorage {
+			// For Storage BindingArray globals, the base type needs Block decoration.
+			// Matches Rust naga writer.rs:2404-2428.
+			if ba, ok := b.module.Types[global.Type].Inner.(ir.BindingArrayType); ok {
+				shouldDecorate := true
+				// Check if the base type is a struct with a runtime array as last member
+				if st, ok := b.module.Types[ba.Base].Inner.(ir.StructType); ok {
+					if len(st.Members) > 0 {
+						lastMember := st.Members[len(st.Members)-1]
+						if arr, ok := b.module.Types[lastMember.Type].Inner.(ir.ArrayType); ok {
+							if arr.Size.Constant == nil { // Dynamic (runtime-sized)
+								shouldDecorate = false
+							}
+						}
+					}
+				}
+				if shouldDecorate {
+					baseTypeID, err := b.emitType(ba.Base)
+					if err != nil {
+						return err
+					}
+					if !b.blockDecoratedTypes[baseTypeID] {
+						b.builder.AddDecorate(baseTypeID, DecorationBlock)
+						b.blockDecoratedTypes[baseTypeID] = true
+					}
+				}
+			}
 		}
 
 		// Create pointer type for the variable
@@ -1476,6 +1513,11 @@ func (b *Backend) addMatrixLayoutIfNeeded(structID uint32, memberIdx uint32, typ
 func (b *Backend) emitEntryPointInterfaceVars() error {
 	for epIdx := range b.module.EntryPoints {
 		entryPoint := &b.module.EntryPoints[epIdx]
+		// Rust naga does not support mesh/task shaders in SPIR-V backend
+		// (marked unreachable! in write_entry_point). Skip them gracefully.
+		if entryPoint.Stage == ir.StageTask || entryPoint.Stage == ir.StageMesh {
+			continue
+		}
 		fn := &entryPoint.Function
 		inputVars := make([]*entryPointInput, len(fn.Arguments))
 
@@ -1899,6 +1941,11 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 // emitEntryPoints emits all entry points with their execution modes.
 func (b *Backend) emitEntryPoints() error {
 	for epIdx, entryPoint := range b.module.EntryPoints {
+		// Skip mesh/task entry points — not supported in SPIR-V (matches Rust naga)
+		if entryPoint.Stage == ir.StageTask || entryPoint.Stage == ir.StageMesh {
+			continue
+		}
+
 		// Get function ID (entry point functions have their own ID map)
 		funcID, ok := b.entryPointFuncIDs[epIdx]
 		if !ok {
@@ -2098,8 +2145,7 @@ func (b *Backend) emitWorkgroupInitPolyfill(epIdx int, fn *ir.Function, emitter 
 				continue
 			}
 			// Get the type of the variable (not the pointer type, the actual type).
-			// Workgroup variables use layout-free types (no ArrayStride/Offset).
-			typeID := b.emitTypeWithoutLayout(gv.Type)
+			typeID, _ := b.emitType(gv.Type)
 			workgroupVars = append(workgroupVars, wgVar{varID: varID, typeID: typeID})
 		}
 	}
@@ -2501,6 +2547,10 @@ func (b *Backend) emitFunctions() error {
 		}
 	}
 	for epIdx := range b.module.EntryPoints {
+		// Skip mesh/task entry points — not supported in SPIR-V (matches Rust naga)
+		if b.module.EntryPoints[epIdx].Stage == ir.StageTask || b.module.EntryPoints[epIdx].Stage == ir.StageMesh {
+			continue
+		}
 		fn := &b.module.EntryPoints[epIdx].Function
 		if err := b.emitWrappedFunctions(fn); err != nil {
 			return err
@@ -2516,6 +2566,10 @@ func (b *Backend) emitFunctions() error {
 	}
 	// Emit entry point functions (stored inline in EntryPoints, not in Functions[])
 	for epIdx := range b.module.EntryPoints {
+		// Skip mesh/task entry points — not supported in SPIR-V (matches Rust naga)
+		if b.module.EntryPoints[epIdx].Stage == ir.StageTask || b.module.EntryPoints[epIdx].Stage == ir.StageMesh {
+			continue
+		}
 		fn := &b.module.EntryPoints[epIdx].Function
 		if err := b.emitEntryPointFunction(epIdx, fn); err != nil {
 			return err
@@ -3369,6 +3423,12 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		return e.emitRayQueryResultRef(handle)
 	case ir.ExprRayQueryGetIntersection:
 		id, err = e.emitRayQueryGetIntersection(kind)
+	case ir.ExprWorkGroupUniformLoadResult:
+		// Result was pre-cached by emitWorkGroupUniformLoad
+		if cached, ok := e.exprIDs[handle]; ok && cached != 0 {
+			return cached, nil
+		}
+		return 0, fmt.Errorf("WorkGroupUniformLoadResult not yet cached for handle %d", handle)
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -3378,6 +3438,84 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 	}
 
 	// Cache the result
+	e.exprIDs[handle] = id
+	return id, nil
+}
+
+// emitConstExpression emits an expression as a SPIR-V constant (in the declarations section).
+// This is required for SPIR-V operands that must be constant, such as ConstOffset for image sampling.
+// WGSL guarantees texture offsets are const-expressions, so this handles Literal, Compose of constants,
+// ZeroValue, and Constant expression kinds.
+func (e *ExpressionEmitter) emitConstExpression(handle ir.ExpressionHandle) (uint32, error) {
+	// NOTE: We intentionally do NOT check the expression cache here.
+	// The cache may contain a runtime OpCompositeConstruct ID for the same expression
+	// if it was previously emitted via emitExpression. For SPIR-V ConstOffset operands,
+	// we must produce OpConstantComposite (in the declarations section), so we always
+	// emit fresh constants. Literals and scalar constants are already deduplicated
+	// by the builder's AddConstant methods.
+
+	expr := &e.function.Expressions[handle]
+	var id uint32
+	var err error
+
+	switch kind := expr.Kind.(type) {
+	case ir.Literal:
+		// Literals already emit as constants
+		id, err = e.emitLiteral(kind.Value)
+	case ir.ExprConstant:
+		return e.emitConstantRef(kind)
+	case ir.ExprZeroValue:
+		typeID, zErr := e.backend.emitType(kind.Type)
+		if zErr != nil {
+			return 0, fmt.Errorf("zero value type: %w", zErr)
+		}
+		id = e.backend.builder.AddConstantNull(typeID)
+	case ir.ExprCompose:
+		typeID, tErr := e.backend.emitType(kind.Type)
+		if tErr != nil {
+			return 0, tErr
+		}
+		componentIDs := make([]uint32, len(kind.Components))
+		for i, component := range kind.Components {
+			componentIDs[i], err = e.emitConstExpression(component)
+			if err != nil {
+				return 0, err
+			}
+		}
+		id = e.backend.builder.AddConstantComposite(typeID, componentIDs...)
+	case ir.ExprSplat:
+		// Splat as constant composite
+		valueType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, kind.Value)
+		if rErr != nil {
+			return 0, fmt.Errorf("splat value type: %w", rErr)
+		}
+		var scalar ir.ScalarType
+		inner := ir.TypeResInner(e.backend.module, valueType)
+		if s, ok := inner.(ir.ScalarType); ok {
+			scalar = s
+		} else {
+			return 0, fmt.Errorf("splat value must be scalar, got %T", inner)
+		}
+		scalarID := e.backend.emitScalarType(scalar)
+		typeID := e.backend.emitVectorType(scalarID, uint32(kind.Size))
+		valueID, vErr := e.emitConstExpression(kind.Value)
+		if vErr != nil {
+			return 0, vErr
+		}
+		n := int(kind.Size)
+		componentIDs := make([]uint32, n)
+		for i := 0; i < n; i++ {
+			componentIDs[i] = valueID
+		}
+		id = e.backend.builder.AddConstantComposite(typeID, componentIDs...)
+	default:
+		// Fallback to runtime emission for unsupported const expression kinds
+		return e.emitExpression(handle)
+	}
+
+	if err != nil {
+		return 0, err
+	}
 	e.exprIDs[handle] = id
 	return id, nil
 }
@@ -3811,12 +3949,8 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 			return 0, err
 		}
 
-		// Workgroup variables use layout-free types (no ArrayStride/Offset).
 		storageClass := e.getExpressionStorageClass(access.Base)
 		accessElementTypeID := elementTypeID
-		if storageClass == StorageClassWorkgroup && elementType.Handle != nil {
-			accessElementTypeID = e.backend.emitTypeWithoutLayout(*elementType.Handle)
-		}
 
 		// Create pointer type for OpAccessChain result
 		ptrType := e.backend.emitPointerType(storageClass, accessElementTypeID)
@@ -3909,12 +4043,21 @@ func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool
 	case ir.ExprLocalVariable, ir.ExprGlobalVariable:
 		return true
 	case ir.ExprFunctionArgument:
-		// For regular functions, OpFunctionParameter produces values, not pointers.
-		// For entry points, paramIDs holds Input variable pointers, EXCEPT for
-		// struct arguments that are composed via CompositeConstruct (SSA values).
 		if !e.isEntryPoint {
+			// For regular functions, check if the argument type is a pointer.
+			// WGSL allows ptr<function, T> parameters — OpFunctionParameter
+			// with pointer type produces a pointer, not a value.
+			if int(k.Index) < len(e.function.Arguments) {
+				argType := e.backend.module.Types[e.function.Arguments[k.Index].Type].Inner
+				switch argType.(type) {
+				case ir.PointerType, ir.ValuePointerType:
+					return true
+				}
+			}
 			return false
 		}
+		// For entry points, paramIDs holds Input variable pointers, EXCEPT for
+		// struct arguments that are composed via CompositeConstruct (SSA values).
 		if e.ssaEntryArgs != nil && e.ssaEntryArgs[int(k.Index)] {
 			return false
 		}
@@ -4002,12 +4145,6 @@ func (e *ExpressionEmitter) emitAccessIndexAsPointer(access ir.ExprAccessIndex) 
 
 	storageClass := e.getExpressionStorageClass(access.Base)
 
-	// Workgroup variables use layout-free types (no ArrayStride/Offset).
-	// OpAccessChain result types must match the variable's type hierarchy.
-	if storageClass == StorageClassWorkgroup && elementType.Handle != nil {
-		elementTypeID = e.backend.emitTypeWithoutLayout(*elementType.Handle)
-	}
-
 	u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	indexID := e.backend.builder.AddConstant(u32Type, access.Index)
 
@@ -4041,11 +4178,6 @@ func (e *ExpressionEmitter) emitAccessAsPointer(access ir.ExprAccess) (uint32, e
 
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
 	storageClass := e.getExpressionStorageClass(access.Base)
-
-	// Workgroup variables use layout-free types (no ArrayStride/Offset).
-	if storageClass == StorageClassWorkgroup && elementType.Handle != nil {
-		elementTypeID = e.backend.emitTypeWithoutLayout(*elementType.Handle)
-	}
 
 	ptrType := e.backend.emitPointerType(storageClass, elementTypeID)
 	return e.backend.builder.AddAccessChain(ptrType, baseID, indexID), nil
@@ -4086,11 +4218,7 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 
 		storageClass := e.getExpressionStorageClass(access.Base)
 
-		// Workgroup variables use layout-free types (no ArrayStride/Offset).
 		accessElementTypeID := elementTypeID
-		if storageClass == StorageClassWorkgroup && elementType.Handle != nil {
-			accessElementTypeID = e.backend.emitTypeWithoutLayout(*elementType.Handle)
-		}
 
 		ptrType := e.backend.emitPointerType(storageClass, accessElementTypeID)
 		ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
@@ -4350,7 +4478,7 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 		dstMatrixType := e.backend.emitInlineType(ir.MatrixType{Columns: matrixSrc.Columns, Rows: matrixSrc.Rows, Scalar: targetScalar})
 
 		columnIDs := make([]uint32, matrixSrc.Columns)
-		convOp, convErr := selectConversionOp(srcScalar.Kind, targetScalar.Kind)
+		convOp, convErr := selectConversionOp(srcScalar.Kind, targetScalar.Kind, srcScalar.Width, targetScalar.Width)
 		if convErr != nil {
 			return 0, convErr
 		}
@@ -4385,7 +4513,7 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 	}
 
 	// Select conversion opcode based on source → target scalar kinds
-	op, err := selectConversionOp(srcScalar.Kind, as.Kind)
+	op, err := selectConversionOp(srcScalar.Kind, as.Kind, srcScalar.Width, targetScalar.Width)
 	if err != nil {
 		return 0, err
 	}
@@ -4473,7 +4601,10 @@ func (e *ExpressionEmitter) emitNumericToBool(targetTypeID uint32, srcScalar ir.
 }
 
 // selectConversionOp returns the SPIR-V opcode for a scalar type conversion.
-func selectConversionOp(src, dst ir.ScalarKind) (OpCode, error) {
+// srcWidth and dstWidth are the byte widths of the source and destination scalars.
+// When widths differ for int↔int conversions, OpSConvert/OpUConvert must be used
+// instead of OpBitcast (which requires matching total bit width per SPIR-V spec).
+func selectConversionOp(src, dst ir.ScalarKind, srcWidth, dstWidth uint8) (OpCode, error) {
 	switch {
 	case src == ir.ScalarUint && dst == ir.ScalarFloat:
 		return OpConvertUToF, nil
@@ -4483,7 +4614,15 @@ func selectConversionOp(src, dst ir.ScalarKind) (OpCode, error) {
 		return OpConvertFToU, nil
 	case src == ir.ScalarFloat && dst == ir.ScalarSint:
 		return OpConvertFToS, nil
-	case (src == ir.ScalarUint && dst == ir.ScalarSint) || (src == ir.ScalarSint && dst == ir.ScalarUint):
+	case src == ir.ScalarSint && dst == ir.ScalarUint:
+		if srcWidth != dstWidth {
+			return OpUConvert, nil
+		}
+		return OpBitcast, nil
+	case src == ir.ScalarUint && dst == ir.ScalarSint:
+		if srcWidth != dstWidth {
+			return OpSConvert, nil
+		}
 		return OpBitcast, nil
 	case src == ir.ScalarFloat && dst == ir.ScalarFloat:
 		// Same kind, different width (e.g. f32→f16, f32→f64)
@@ -4723,6 +4862,13 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	switch binary.Op {
 	case ir.BinaryAdd:
 		if scalarKind == ir.ScalarFloat {
+			// Matrix + Matrix: decompose into column-wise FAdd, then reassemble.
+			// SPIR-V FAdd only works on scalar/vector, not matrix types.
+			// Matches Rust naga's write_matrix_matrix_column_op (block.rs:2493).
+			leftInner := typeResolutionInner(e.backend.module, leftType)
+			if mat, ok := leftInner.(ir.MatrixType); ok {
+				return e.emitMatrixColumnOp(OpFAdd, resultType, leftID, rightID, mat), nil
+			}
 			opcode = OpFAdd
 			// vec + scalar or scalar + vec: splat scalar to matching vector
 			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
@@ -4734,6 +4880,11 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		}
 	case ir.BinarySubtract:
 		if scalarKind == ir.ScalarFloat {
+			// Matrix - Matrix: decompose into column-wise FSub
+			leftInner := typeResolutionInner(e.backend.module, leftType)
+			if mat, ok := leftInner.(ir.MatrixType); ok {
+				return e.emitMatrixColumnOp(OpFSub, resultType, leftID, rightID, mat), nil
+			}
 			opcode = OpFSub
 			// vec - scalar or scalar - vec: splat scalar to matching vector
 			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
@@ -4758,7 +4909,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			_, leftIsScalar := leftInner.(ir.ScalarType)
 			_, rightIsScalar := rightInner.(ir.ScalarType)
 			leftMat, leftIsMat := leftInner.(ir.MatrixType)
-			_, rightIsMat := rightInner.(ir.MatrixType)
+			rightMat, rightIsMat := rightInner.(ir.MatrixType)
 
 			switch {
 			case leftIsMat && rightIsVec:
@@ -4769,12 +4920,17 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 				return e.backend.builder.AddBinaryOp(OpMatrixTimesVector, vecTypeID, leftID, rightID), nil
 			case leftIsVec && rightIsMat:
 				// vec * mat -> OpVectorTimesMatrix
-				// Result type is the vector type matching matrix columns.
-				vecResultType := e.backend.resolveTypeResolution(leftType)
-				return e.backend.builder.AddBinaryOp(OpVectorTimesMatrix, vecResultType, leftID, rightID), nil
+				// Result type is a vector with size = number of columns in the matrix.
+				vecScalarID := e.backend.emitScalarType(rightMat.Scalar)
+				vecTypeID := e.backend.emitVectorType(vecScalarID, uint32(rightMat.Columns))
+				return e.backend.builder.AddBinaryOp(OpVectorTimesMatrix, vecTypeID, leftID, rightID), nil
 			case leftIsMat && rightIsMat:
 				// mat * mat -> OpMatrixTimesMatrix
-				return e.backend.builder.AddBinaryOp(OpMatrixTimesMatrix, resultType, leftID, rightID), nil
+				// Result type is mat<Columns=right.Columns, Rows=left.Rows>
+				colScalarID := e.backend.emitScalarType(leftMat.Scalar)
+				colVecID := e.backend.emitVectorType(colScalarID, uint32(leftMat.Rows))
+				matTypeID := e.backend.emitMatrixType(colVecID, uint32(rightMat.Columns))
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesMatrix, matTypeID, leftID, rightID), nil
 			case leftIsMat && rightIsScalar:
 				// mat * scalar -> OpMatrixTimesScalar
 				return e.backend.builder.AddBinaryOp(OpMatrixTimesScalar, resultType, leftID, rightID), nil
@@ -4794,7 +4950,31 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 				opcode = OpFMul
 			}
 		} else {
-			opcode = OpIMul
+			// Integer multiplication: OpIMul requires matching types.
+			// For vector*scalar or scalar*vector, splat the scalar to match.
+			// Matches Rust naga's write_vector_scalar_mult (block.rs:2548).
+			rightType, _ := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			leftInner := typeResolutionInner(e.backend.module, leftType)
+			rightInner := typeResolutionInner(e.backend.module, rightType)
+			leftVec, leftIsVec := leftInner.(ir.VectorType)
+			rightVec, rightIsVec := rightInner.(ir.VectorType)
+			_, leftIsScalar := leftInner.(ir.ScalarType)
+			_, rightIsScalar := rightInner.(ir.ScalarType)
+
+			switch {
+			case leftIsVec && rightIsScalar:
+				// vec * scalar -> splat scalar, then IMul
+				vecTypeID := e.backend.resolveTypeResolution(leftType)
+				splatID := e.splatScalarToVector(rightID, leftVec)
+				return e.backend.builder.AddBinaryOp(OpIMul, vecTypeID, leftID, splatID), nil
+			case leftIsScalar && rightIsVec:
+				// scalar * vec -> splat scalar, then IMul
+				vecTypeID := e.backend.resolveTypeResolution(rightType)
+				splatID := e.splatScalarToVector(leftID, rightVec)
+				return e.backend.builder.AddBinaryOp(OpIMul, vecTypeID, splatID, rightID), nil
+			default:
+				opcode = OpIMul
+			}
 		}
 	case ir.BinaryDivide:
 		if scalarKind == ir.ScalarFloat {
@@ -5261,7 +5441,7 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		return e.emitImageStore(kind)
 
 	case ir.StmtImageAtomic:
-		return fmt.Errorf("SPIR-V backend does not yet support StmtImageAtomic")
+		return e.emitImageAtomic(kind)
 
 	case ir.StmtSubgroupBallot:
 		return e.emitSubgroupBallot(kind)
@@ -5274,6 +5454,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 
 	case ir.StmtRayQuery:
 		return e.emitRayQuery(kind)
+
+	case ir.StmtWorkGroupUniformLoad:
+		return e.emitWorkGroupUniformLoad(kind)
 
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", kind)
@@ -5787,6 +5970,18 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	var glslInst uint32
 	var useNativeOpcode bool
 	var nativeOpcode OpCode
+	// Integer dot product expansion (when OpDot can't be used)
+	var useIntegerDot bool
+	var intDotScalar ir.ScalarType
+	var intDotSize int
+	// FMix: may need to splat scalar selector to vector
+	var needsMixSplat bool
+	// Pack/Unpack 4x8 integer polyfill (matching Rust naga block.rs:2725/2869)
+	var usePack4x8 bool
+	var pack4x8Signed bool
+	var pack4x8Clamp bool
+	var useUnpack4x8 bool
+	var unpack4x8Signed bool
 
 	switch mathExpr.Fun {
 	// Comparison functions
@@ -5927,9 +6122,19 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Geometric functions
 	case ir.MathDot:
-		// OpDot is a native SPIR-V instruction
-		useNativeOpcode = true
-		nativeOpcode = OpDot
+		// OpDot is a native SPIR-V instruction, but ONLY for float vectors.
+		// For integer vectors, we must manually expand: sum of component-wise products.
+		// Matches Rust naga's write_dot_product fallback (block.rs).
+		argInner := ir.TypeResInner(e.backend.module, argType)
+		if vecType, ok := argInner.(ir.VectorType); ok && vecType.Scalar.Kind != ir.ScalarFloat {
+			// Integer dot product — manual expansion
+			useIntegerDot = true
+			intDotScalar = vecType.Scalar
+			intDotSize = int(vecType.Size)
+		} else {
+			useNativeOpcode = true
+			nativeOpcode = OpDot
+		}
 	case ir.MathCross:
 		glslInst = GLSLstd450Cross
 	case ir.MathDistance:
@@ -5955,6 +6160,10 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	case ir.MathFma:
 		glslInst = GLSLstd450Fma
 	case ir.MathMix:
+		// FMix requires all operands to match Result Type.
+		// When selector (arg2) is scalar but args are vector, splat the selector.
+		// Matches Rust naga's Mix handling (block.rs:1263).
+		needsMixSplat = true
 		glslInst = GLSLstd450FMix
 	case ir.MathStep:
 		glslInst = GLSLstd450Step
@@ -6052,6 +6261,29 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	case ir.MathUnpack2x16float:
 		glslInst = GLSLstd450UnpackHalf2x16
 
+	// Pack 4x8 integer functions (polyfill via BitFieldInsert)
+	// Matches Rust naga block.rs:1554 (write_pack4x8_polyfill)
+	case ir.MathPack4xI8:
+		usePack4x8 = true
+		pack4x8Signed = true
+	case ir.MathPack4xU8:
+		usePack4x8 = true
+	case ir.MathPack4xI8Clamp:
+		usePack4x8 = true
+		pack4x8Signed = true
+		pack4x8Clamp = true
+	case ir.MathPack4xU8Clamp:
+		usePack4x8 = true
+		pack4x8Clamp = true
+
+	// Unpack 4x8 integer functions (polyfill via BitFieldExtract)
+	// Matches Rust naga block.rs:1586 (write_unpack4x8_polyfill)
+	case ir.MathUnpack4xI8:
+		useUnpack4x8 = true
+		unpack4x8Signed = true
+	case ir.MathUnpack4xU8:
+		useUnpack4x8 = true
+
 	// Packed dot product (SPV_KHR_integer_dot_product extension)
 	case ir.MathDot4I8Packed:
 		nativeOpcode = OpSDotKHR
@@ -6086,8 +6318,16 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 			// Fallback: create inline struct type
 			resultType = e.backend.emitFrexpStructType(argType)
 		}
-	case ir.MathLength, ir.MathDistance, ir.MathDot, ir.MathDeterminant:
+	case ir.MathLength, ir.MathDistance, ir.MathDeterminant:
 		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}})
+	case ir.MathDot:
+		// Dot product result type matches the scalar kind of the input vector.
+		argInner := ir.TypeResInner(e.backend.module, argType)
+		if vecType, ok := argInner.(ir.VectorType); ok {
+			resultType = e.backend.resolveTypeResolution(ir.TypeResolution{Value: vecType.Scalar})
+		} else {
+			resultType = e.backend.resolveTypeResolution(ir.TypeResolution{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}})
+		}
 	case ir.MathTranspose:
 		// transpose(matRxC) -> matCxR: swap columns and rows
 		inner := ir.TypeResInner(e.backend.module, argType)
@@ -6099,7 +6339,8 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Packing functions: vec -> u32
 	case ir.MathPack4x8snorm, ir.MathPack4x8unorm,
-		ir.MathPack2x16snorm, ir.MathPack2x16unorm, ir.MathPack2x16float:
+		ir.MathPack2x16snorm, ir.MathPack2x16unorm, ir.MathPack2x16float,
+		ir.MathPack4xI8, ir.MathPack4xU8, ir.MathPack4xI8Clamp, ir.MathPack4xU8Clamp:
 		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
 			Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
 		})
@@ -6108,6 +6349,17 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	case ir.MathUnpack4x8snorm, ir.MathUnpack4x8unorm:
 		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
 			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, Size: 4},
+		})
+
+	// Unpack 4xI8: u32 -> vec4<i32>
+	case ir.MathUnpack4xI8:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, Size: 4},
+		})
+	// Unpack 4xU8: u32 -> vec4<u32>
+	case ir.MathUnpack4xU8:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, Size: 4},
 		})
 
 	// Unpacking 2x16 functions: u32 -> vec2<f32>
@@ -6149,6 +6401,56 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 			return 0, err
 		}
 		operands = append(operands, arg3ID)
+	}
+
+	// Pack 4x8 integer polyfill: extract components, bitcast if signed, clamp if needed,
+	// then BitFieldInsert to build u32. Matches Rust naga write_pack4x8_polyfill (block.rs:2725).
+	if usePack4x8 {
+		return e.emitPack4x8Polyfill(resultType, operands[0], pack4x8Signed, pack4x8Clamp)
+	}
+
+	// Unpack 4x8 integer polyfill: bitcast if signed, then BitFieldExtract for each byte,
+	// then CompositeConstruct. Matches Rust naga write_unpack4x8_polyfill (block.rs:2869).
+	if useUnpack4x8 {
+		return e.emitUnpack4x8Polyfill(resultType, operands[0], unpack4x8Signed)
+	}
+
+	// Integer dot product: manual expansion (extract + multiply + accumulate).
+	// Matches Rust naga's write_dot_product (block.rs:2596).
+	if useIntegerDot {
+		arg0ID := operands[0]
+		arg1ID := operands[1]
+		scalarTypeID := e.backend.emitScalarType(intDotScalar)
+		// Start with zero
+		partialSum := e.backend.builder.AddConstantNull(scalarTypeID)
+		mulOp := OpIMul
+		addOp := OpIAdd
+		for i := 0; i < intDotSize; i++ {
+			// Extract components
+			aID := e.backend.builder.AllocID()
+			ib := e.newIB()
+			ib.AddWord(scalarTypeID)
+			ib.AddWord(aID)
+			ib.AddWord(arg0ID)
+			ib.AddWord(uint32(i))
+			e.backend.builder.funcAppend(ib.Build(OpCompositeExtract))
+
+			bID := e.backend.builder.AllocID()
+			ib2 := e.newIB()
+			ib2.AddWord(scalarTypeID)
+			ib2.AddWord(bID)
+			ib2.AddWord(arg1ID)
+			ib2.AddWord(uint32(i))
+			e.backend.builder.funcAppend(ib2.Build(OpCompositeExtract))
+
+			// Multiply
+			prodID := e.backend.builder.AddBinaryOp(mulOp, scalarTypeID, aID, bID)
+
+			// Accumulate
+			sumID := e.backend.builder.AddBinaryOp(addOp, scalarTypeID, partialSum, prodID)
+			partialSum = sumID
+		}
+		return partialSum, nil
 	}
 
 	// Emit instruction
@@ -6193,8 +6495,225 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		return resultID, nil
 	}
 
+	// FMix: if selector (arg2) is scalar but result is vector, splat the selector.
+	// SPIR-V FMix requires all operands to match Result Type.
+	if needsMixSplat && len(operands) >= 3 && mathExpr.Arg2 != nil {
+		selectorType, _ := ir.ResolveExpressionType(e.backend.module, e.function, *mathExpr.Arg2)
+		selectorInner := ir.TypeResInner(e.backend.module, selectorType)
+		argInner2 := ir.TypeResInner(e.backend.module, argType)
+		if _, isScalar := selectorInner.(ir.ScalarType); isScalar {
+			if vecType, isVec := argInner2.(ir.VectorType); isVec {
+				// Splat scalar to vector: OpCompositeConstruct with N copies
+				vecTypeID := e.backend.resolveTypeResolution(ir.TypeResolution{Value: vecType})
+				splatID := e.backend.builder.AllocID()
+				ib := e.newIB()
+				ib.AddWord(vecTypeID)
+				ib.AddWord(splatID)
+				for j := 0; j < int(vecType.Size); j++ {
+					ib.AddWord(operands[2])
+				}
+				e.backend.builder.funcAppend(ib.Build(OpCompositeConstruct))
+				operands[2] = splatID
+			}
+		}
+	}
+
 	// Use GLSL.std.450 extended instruction
 	return e.backend.builder.AddExtInst(resultType, e.backend.glslExtID, glslInst, operands...), nil
+}
+
+// emitMatrixColumnOp decomposes a matrix binary operation into column-wise vector ops.
+// SPIR-V FAdd/FSub don't work on matrix types directly.
+// Matches Rust naga's write_matrix_matrix_column_op (block.rs:2493).
+func (e *ExpressionEmitter) emitMatrixColumnOp(op OpCode, resultTypeID, leftID, rightID uint32, mat ir.MatrixType) uint32 {
+	// Get column vector type
+	colVecType := ir.VectorType{Scalar: mat.Scalar, Size: mat.Rows}
+	colVecTypeID := e.backend.resolveTypeResolution(ir.TypeResolution{Value: colVecType})
+
+	// Process each column
+	columnIDs := make([]uint32, int(mat.Columns))
+	for i := 0; i < int(mat.Columns); i++ {
+		// Extract column from left matrix
+		leftColID := e.backend.builder.AllocID()
+		ib1 := e.newIB()
+		ib1.AddWord(colVecTypeID)
+		ib1.AddWord(leftColID)
+		ib1.AddWord(leftID)
+		ib1.AddWord(uint32(i))
+		e.backend.builder.funcAppend(ib1.Build(OpCompositeExtract))
+
+		// Extract column from right matrix
+		rightColID := e.backend.builder.AllocID()
+		ib2 := e.newIB()
+		ib2.AddWord(colVecTypeID)
+		ib2.AddWord(rightColID)
+		ib2.AddWord(rightID)
+		ib2.AddWord(uint32(i))
+		e.backend.builder.funcAppend(ib2.Build(OpCompositeExtract))
+
+		// Apply op to columns
+		columnIDs[i] = e.backend.builder.AddBinaryOp(op, colVecTypeID, leftColID, rightColID)
+	}
+
+	// Reassemble matrix from columns
+	resultID := e.backend.builder.AllocID()
+	ib := e.newIB()
+	ib.AddWord(resultTypeID)
+	ib.AddWord(resultID)
+	for _, colID := range columnIDs {
+		ib.AddWord(colID)
+	}
+	e.backend.builder.funcAppend(ib.Build(OpCompositeConstruct))
+	return resultID
+}
+
+// splatScalarToVector creates an OpCompositeConstruct that replicates a scalar ID
+// to fill a vector type. Used when SPIR-V requires matching vector operands but
+// WGSL allows mixed scalar/vector (e.g., integer vec*scalar multiply).
+func (e *ExpressionEmitter) splatScalarToVector(scalarID uint32, vecType ir.VectorType) uint32 {
+	vecTypeID := e.backend.resolveTypeResolution(ir.TypeResolution{Value: vecType})
+	splatID := e.backend.builder.AllocID()
+	ib := e.newIB()
+	ib.AddWord(vecTypeID)
+	ib.AddWord(splatID)
+	for i := 0; i < int(vecType.Size); i++ {
+		ib.AddWord(scalarID)
+	}
+	e.backend.builder.funcAppend(ib.Build(OpCompositeConstruct))
+	return splatID
+}
+
+// emitPack4x8Polyfill emits a polyfill for pack4xI8/U8/I8Clamp/U8Clamp.
+// Extracts each component, optionally clamps, bitcasts if signed, then uses
+// OpBitFieldInsert to build a u32. Matches Rust naga write_pack4x8_polyfill (block.rs:2725).
+func (e *ExpressionEmitter) emitPack4x8Polyfill(resultTypeID, arg0ID uint32, isSigned, shouldClamp bool) (uint32, error) {
+	uint32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	var intTypeID uint32
+	if isSigned {
+		intTypeID = e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+	} else {
+		intTypeID = uint32TypeID
+	}
+
+	eight := e.backend.builder.AddConstant(uint32TypeID, 8)
+	zero := e.backend.builder.AddConstant(uint32TypeID, 0)
+	preresult := zero
+
+	for i := uint32(0); i < 4; i++ {
+		offset := e.backend.builder.AddConstant(uint32TypeID, i*8)
+
+		// Extract component
+		extracted := e.backend.builder.AddCompositeExtract(intTypeID, arg0ID, i)
+
+		// Bitcast to u32 if signed
+		if isSigned {
+			extracted = e.backend.builder.AddUnaryOp(OpBitcast, uint32TypeID, extracted)
+		}
+
+		// Clamp if needed
+		if shouldClamp {
+			var clampOp uint32
+			var minID, maxID uint32
+			if isSigned {
+				// SClamp to [-128, 127] — clamp operates on the original int type
+				// But Rust clamps on result_type_id (u32) with SClamp... actually Rust
+				// clamps on int_type_id BEFORE bitcast. Let me re-check.
+				// Rust: clamps extracted (before bitcast for signed), with result_type_id.
+				// Wait — for the clamp variant, Rust does clamp BEFORE bitcast.
+				// Let me re-read: in Rust polyfill, extraction is done first, then
+				// if is_signed, bitcast. But clamp happens AFTER extraction AND bitcast.
+				// Actually no, let me re-read Rust carefully:
+				//   1. CompositeExtract -> extracted (int_type_id)
+				//   2. if is_signed: Bitcast -> casted (uint_type_id); extracted = casted
+				//   3. if should_clamp: clamp extracted
+				// So clamp operates on the bitcasted uint if signed. And uses result_type_id.
+				// Clamp SClamp on i32: min=-128, max=127
+				clampOp = GLSLstd450SClamp
+				sint32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+				minID = e.backend.builder.AddConstant(sint32TypeID, 0xFFFFFF80) // -128 as u32 bits
+				maxID = e.backend.builder.AddConstant(sint32TypeID, uint32(int32(127)))
+			} else {
+				// UClamp to [0, 255]
+				clampOp = GLSLstd450UClamp
+				minID = e.backend.builder.AddConstant(uint32TypeID, 0)
+				maxID = e.backend.builder.AddConstant(uint32TypeID, 255)
+			}
+			clampID := e.backend.builder.AddExtInst(resultTypeID, e.backend.glslExtID, clampOp, extracted, minID, maxID)
+			extracted = clampID
+		}
+
+		// BitFieldInsert: insert 8 bits at offset
+		if i == 3 {
+			// Last iteration: this is the final result with the target ID
+			resultID := e.backend.builder.AllocID()
+			ib := e.newIB()
+			ib.AddWord(resultTypeID)
+			ib.AddWord(resultID)
+			ib.AddWord(preresult)
+			ib.AddWord(extracted)
+			ib.AddWord(offset)
+			ib.AddWord(eight)
+			e.backend.builder.funcAppend(ib.Build(OpBitFieldInsert))
+			return resultID, nil
+		}
+		// Intermediate results
+		newPreresult := e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(resultTypeID)
+		ib.AddWord(newPreresult)
+		ib.AddWord(preresult)
+		ib.AddWord(extracted)
+		ib.AddWord(offset)
+		ib.AddWord(eight)
+		e.backend.builder.funcAppend(ib.Build(OpBitFieldInsert))
+		preresult = newPreresult
+	}
+	// Should not reach here
+	return 0, fmt.Errorf("pack4x8 polyfill: unexpected end of loop")
+}
+
+// emitUnpack4x8Polyfill emits a polyfill for unpack4xI8/U8.
+// Uses BitFieldSExtract (signed) or BitFieldUExtract (unsigned) for each byte,
+// then CompositeConstruct. Matches Rust naga write_unpack4x8_polyfill (block.rs:2869).
+func (e *ExpressionEmitter) emitUnpack4x8Polyfill(resultTypeID, arg0ID uint32, isSigned bool) (uint32, error) {
+	var extractOp OpCode
+	var intKind ir.ScalarKind
+	if isSigned {
+		extractOp = OpBitFieldSExtract
+		intKind = ir.ScalarSint
+	} else {
+		extractOp = OpBitFieldUExtract
+		intKind = ir.ScalarUint
+	}
+
+	uint32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	sint32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+	intTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: intKind, Width: 4})
+	eight := e.backend.builder.AddConstant(uint32TypeID, 8)
+
+	// If signed, bitcast input u32 to i32 first (Rust: block.rs:2893-2901)
+	argID := arg0ID
+	if isSigned {
+		argID = e.backend.builder.AddUnaryOp(OpBitcast, sint32TypeID, arg0ID)
+	}
+
+	// Extract 4 bytes
+	var parts [4]uint32
+	for i := uint32(0); i < 4; i++ {
+		index := e.backend.builder.AddConstant(uint32TypeID, i*8)
+		partID := e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(intTypeID)
+		ib.AddWord(partID)
+		ib.AddWord(argID)
+		ib.AddWord(index)
+		ib.AddWord(eight)
+		e.backend.builder.funcAppend(ib.Build(extractOp))
+		parts[i] = partID
+	}
+
+	// CompositeConstruct vec4
+	return e.backend.builder.AddCompositeConstruct(resultTypeID, parts[0], parts[1], parts[2], parts[3]), nil
 }
 
 // emitDot4PackedPolyfill emits a software polyfill for dot4I8Packed/dot4U8Packed
@@ -6351,6 +6870,7 @@ const (
 	OpImageDrefGather             OpCode = 97
 	OpImageRead                   OpCode = 98
 	OpImageWrite                  OpCode = 99
+	OpImageTexelPointer           OpCode = 60
 	OpImageQuerySizeLod           OpCode = 103
 	OpImageQuerySize              OpCode = 104
 	OpImageQueryLod               OpCode = 105
@@ -6389,6 +6909,52 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	imageID := imagePtrID
 	samplerID := samplerPtrID
 
+	// Determine if this is a depth image — affects result type.
+	// SPIR-V Dref sampling instructions return scalar f32, not vec4.
+	// For non-Dref depth sampling (without gather), SPIR-V returns vec4
+	// but we need scalar, so we CompositeExtract the first component.
+	isDepthImage := false
+	exprType, resolveErr := ir.ResolveExpressionType(e.backend.module, e.function, sample.Image)
+	if resolveErr == nil {
+		inner := typeResolutionInner(e.backend.module, exprType)
+		if imgType, ok := inner.(ir.ImageType); ok {
+			isDepthImage = imgType.Class == ir.ImageClassDepth
+		}
+	}
+
+	// Determine the proper result type for the sample operation.
+	// Rust naga (image.rs line 830): if needs_sub_access, use vec4<f32>;
+	// otherwise, use the expression's result type (result_type_id).
+	// - Dref sampling (non-Gather) → scalar f32
+	// - Depth image without Dref/Gather → vec4<f32> (then extract component 0)
+	// - Everything else → use the actual result type (vec4<f32>, vec4<u32>, vec4<i32>, etc.)
+	needsSubAccess := isDepthImage && sample.DepthRef == nil && sample.Gather == nil
+	var sampleResultType uint32
+	if sample.DepthRef != nil && sample.Gather == nil {
+		// Dref sampling (non-Gather) → scalar f32 result
+		sampleResultType = e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	} else if needsSubAccess {
+		// Depth image without Dref or Gather → sample as vec4<f32>, extract later
+		sampleResultType = e.backend.emitVec4F32Type()
+	} else {
+		// Use the image's sampled type to build the correct vec4 result type.
+		// For float images → vec4<f32>, for uint → vec4<u32>, for int → vec4<i32>.
+		sampleResultType = e.backend.emitVec4F32Type() // default
+		if resolveErr == nil {
+			inner := typeResolutionInner(e.backend.module, exprType)
+			if imgType, ok := inner.(ir.ImageType); ok {
+				if imgType.Class == ir.ImageClassSampled {
+					texelScalar := ir.ScalarType{Kind: imgType.SampledKind, Width: 4}
+					scalarID := e.backend.emitScalarType(texelScalar)
+					sampleResultType = e.backend.emitVectorType(scalarID, 4)
+				}
+				// For depth/external/storage, vec4<f32> is correct
+			}
+		}
+	}
+	resultType := sampleResultType
+	resultID := e.backend.builder.AllocID()
+
 	// Create SampledImage by combining image and sampler
 	sampledImageTypeID := e.backend.getSampledImageType(e.function, sample.Image)
 	sampledImageID := e.backend.builder.AllocID()
@@ -6399,10 +6965,6 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	sampledImageBuilder.AddWord(imageID)
 	sampledImageBuilder.AddWord(samplerID)
 	e.backend.builder.funcAppend(sampledImageBuilder.Build(OpSampledImage))
-
-	// Result type is vec4<f32> for sampled images
-	resultType := e.backend.emitVec4F32Type()
-	resultID := e.backend.builder.AllocID()
 
 	// Handle gather operations (textureGather / textureGatherCompare)
 	if sample.Gather != nil {
@@ -6433,12 +6995,11 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 
 		// Append optional image operands (Offset)
 		if sample.Offset != nil {
-			e.backend.addCapability(CapabilityImageGatherExtended)
-			offsetID, offsetErr := e.emitExpression(*sample.Offset)
+			offsetID, offsetErr := e.emitConstExpression(*sample.Offset)
 			if offsetErr != nil {
 				return 0, offsetErr
 			}
-			builder.AddWord(0x20) // ImageOperands::ConstOffset
+			builder.AddWord(0x08) // ImageOperands::ConstOffset (bit 3)
 			builder.AddWord(offsetID)
 		}
 
@@ -6457,12 +7018,11 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	var imageOperandMask uint32
 	var imageOperandValues []uint32
 	if sample.Offset != nil {
-		e.backend.addCapability(CapabilityImageGatherExtended)
-		offsetID, offsetErr := e.emitExpression(*sample.Offset)
+		offsetID, offsetErr := e.emitConstExpression(*sample.Offset)
 		if offsetErr != nil {
 			return 0, offsetErr
 		}
-		imageOperandMask |= 0x20 // ImageOperands::ConstOffset
+		imageOperandMask |= 0x08 // ImageOperands::ConstOffset (bit 3)
 		imageOperandValues = append(imageOperandValues, offsetID)
 	}
 
@@ -6497,6 +7057,29 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		levelID, levelErr := e.emitExpression(level.Level)
 		if levelErr != nil {
 			return 0, levelErr
+		}
+		// SPIR-V requires the Lod operand to be float for ExplicitLod.
+		// For depth images, the WGSL Lod is integer (i32/u32), so we must convert.
+		// Matches Rust naga image.rs line 1010-1044.
+		if isDepthImage {
+			lodType, lodErr := ir.ResolveExpressionType(e.backend.module, e.function, level.Level)
+			if lodErr == nil {
+				lodInner := ir.TypeResInner(e.backend.module, lodType)
+				if sc, ok := lodInner.(ir.ScalarType); ok && (sc.Kind == ir.ScalarSint || sc.Kind == ir.ScalarUint) {
+					f32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+					convertedID := e.backend.builder.AllocID()
+					convertOp := OpConvertSToF
+					if sc.Kind == ir.ScalarUint {
+						convertOp = OpConvertUToF
+					}
+					ib := e.newIB()
+					ib.AddWord(f32TypeID)
+					ib.AddWord(convertedID)
+					ib.AddWord(levelID)
+					e.backend.builder.funcAppend(ib.Build(convertOp))
+					levelID = convertedID
+				}
+			}
 		}
 		imageOperandMask |= 0x02 // ImageOperands::Lod
 		builder.AddWord(imageOperandMask)
@@ -6568,6 +7151,20 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 
 	default:
 		return 0, fmt.Errorf("unsupported sample level: %T", level)
+	}
+
+	// For depth images without Dref (non-comparison sampling), SPIR-V returns
+	// vec4<f32> but naga IR expects scalar f32. Extract the first component.
+	if needsSubAccess {
+		scalarF32 := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		extractedID := e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(scalarF32)
+		ib.AddWord(extractedID)
+		ib.AddWord(resultID)
+		ib.AddWord(0) // index 0 = first component
+		e.backend.builder.funcAppend(ib.Build(OpCompositeExtract))
+		return extractedID, nil
 	}
 
 	return resultID, nil
@@ -6727,6 +7324,9 @@ func (e *ExpressionEmitter) emitImageLoad(load ir.ExprImageLoad) (uint32, error)
 		switch imgType.Class {
 		case ir.ImageClassStorage:
 			sampledScalar = storageFormatToScalar(imgType.StorageFormat)
+		case ir.ImageClassExternal:
+			// External textures always use float sampled type
+			sampledScalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 		default:
 			sampledScalar = ir.ScalarType{Kind: imgType.SampledKind, Width: 4}
 		}
@@ -7103,25 +7703,110 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 	var resultID uint32
 	builder := e.newIB()
 
+	// Resolve image type for dimension-dependent queries.
+	imageType, err := ir.ResolveExpressionType(e.backend.module, e.function, query.Image)
+	if err != nil {
+		return 0, fmt.Errorf("emitImageQuery: resolve image type: %w", err)
+	}
+	imageInner := typeResolutionInner(e.backend.module, imageType)
+	imgType, _ := imageInner.(ir.ImageType)
+
 	switch q := query.Query.(type) {
 	case ir.ImageQuerySize:
-		// Returns uvec2 or uvec3 depending on image dimension
+		// Determine the number of coordinate components based on image dimension.
+		// Matches Rust naga: dim_coords + array_coords for the extended SPIR-V result,
+		// then shuffle down to dim_coords for the IR result type.
+		dimCoords := 2 // default for Dim2D
+		switch imgType.Dim {
+		case ir.Dim1D:
+			dimCoords = 1
+		case ir.Dim2D, ir.DimCube:
+			dimCoords = 2
+		case ir.Dim3D:
+			dimCoords = 3
+		}
+		arrayCoords := 0
+		if imgType.Arrayed {
+			arrayCoords = 1
+		}
+		extendedSize := dimCoords + arrayCoords
+
 		scalarID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-		resultType := e.backend.emitVectorType(scalarID, uint32(ir.Vec3))
-		resultID = e.backend.builder.AllocID()
-		builder.AddWord(resultType)
-		builder.AddWord(resultID)
+
+		// The type for OpImageQuerySize result (includes array dimension if arrayed).
+		var extendedTypeID uint32
+		if extendedSize == 1 {
+			extendedTypeID = scalarID
+		} else {
+			extendedTypeID = e.backend.emitVectorType(scalarID, uint32(extendedSize))
+		}
+
+		// The type for the IR result (spatial dimensions only, no array layer).
+		var resultTypeID uint32
+		if dimCoords == 1 {
+			resultTypeID = scalarID
+		} else {
+			resultTypeID = e.backend.emitVectorType(scalarID, uint32(dimCoords))
+		}
+
+		extendedID := e.backend.builder.AllocID()
+		builder.AddWord(extendedTypeID)
+		builder.AddWord(extendedID)
 		builder.AddWord(imageID)
 
-		if q.Level != nil {
-			levelID, err := e.emitExpression(*q.Level)
-			if err != nil {
-				return 0, err
+		// Matching Rust naga: multisampled or storage images use OpImageQuerySize (no level).
+		// Sampled/depth non-multisampled images use OpImageQuerySizeLod (with explicit or default level 0).
+		// SPIR-V spec: OpImageQuerySize requires MS=1 or Sampled!=1.
+		useQuerySize := false
+		switch imgType.Class {
+		case ir.ImageClassSampled:
+			useQuerySize = imgType.Multisampled
+		case ir.ImageClassDepth:
+			useQuerySize = imgType.Multisampled
+		case ir.ImageClassExternal:
+			// External textures have Sampled=1, need OpImageQuerySizeLod like sampled
+			useQuerySize = false
+		case ir.ImageClassStorage:
+			useQuerySize = true
+		default:
+			useQuerySize = true
+		}
+
+		if useQuerySize {
+			e.backend.builder.funcAppend(builder.Build(OpImageQuerySize))
+		} else {
+			// Sampled/depth non-multisampled: use OpImageQuerySizeLod
+			var levelID uint32
+			if q.Level != nil {
+				lid, err := e.emitExpression(*q.Level)
+				if err != nil {
+					return 0, err
+				}
+				levelID = lid
+			} else {
+				// Default level 0 (matching Rust naga)
+				i32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+				levelID = e.backend.builder.AddConstant(i32TypeID, 0)
 			}
 			builder.AddWord(levelID)
 			e.backend.builder.funcAppend(builder.Build(OpImageQuerySizeLod))
+		}
+
+		// If arrayed, we need to shuffle to extract only spatial dimensions.
+		if resultTypeID != extendedTypeID {
+			var components []uint32
+			if imgType.Dim == ir.DimCube {
+				// Cube: always pick first component duplicated for both dims
+				components = []uint32{0, 0}
+			} else {
+				components = make([]uint32, dimCoords)
+				for i := 0; i < dimCoords; i++ {
+					components[i] = uint32(i)
+				}
+			}
+			resultID = e.backend.builder.AddVectorShuffle(resultTypeID, extendedID, extendedID, components)
 		} else {
-			e.backend.builder.funcAppend(builder.Build(OpImageQuerySize))
+			resultID = extendedID
 		}
 
 	case ir.ImageQueryNumLevels:
@@ -7133,13 +7818,36 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 		e.backend.builder.funcAppend(builder.Build(OpImageQueryLevels))
 
 	case ir.ImageQueryNumLayers:
-		// NumLayers is part of ImageQuerySize for array textures
-		resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-		resultID = e.backend.builder.AllocID()
-		builder.AddWord(resultType)
-		builder.AddWord(resultID)
+		// NumLayers uses OpImageQuerySizeLod to get the extended size vector,
+		// then extracts the last component (the layer count).
+		// Matches Rust naga: vec_size based on dim, then CompositeExtract last element.
+		var vecSize uint32
+		switch imgType.Dim {
+		case ir.Dim1D:
+			vecSize = 2 // Bi
+		case ir.Dim2D, ir.DimCube:
+			vecSize = 3 // Tri
+		case ir.Dim3D:
+			vecSize = 4 // Quad
+		default:
+			vecSize = 3
+		}
+
+		scalarID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		extendedTypeID := e.backend.emitVectorType(scalarID, vecSize)
+
+		extendedID := e.backend.builder.AllocID()
+		builder.AddWord(extendedTypeID)
+		builder.AddWord(extendedID)
 		builder.AddWord(imageID)
-		e.backend.builder.funcAppend(builder.Build(OpImageQuerySize))
+		// Always use level 0 for NumLayers query
+		zeroID := e.backend.builder.AddConstant(scalarID, 0)
+		builder.AddWord(zeroID)
+		e.backend.builder.funcAppend(builder.Build(OpImageQuerySizeLod))
+
+		// Extract the last component (layer count)
+		resultType := scalarID
+		resultID = e.backend.builder.AddCompositeExtract(resultType, extendedID, vecSize-1)
 
 	case ir.ImageQueryNumSamples:
 		resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
@@ -7223,23 +7931,44 @@ const OpTypeSampledImage OpCode = 27
 func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
 	u32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 
-	// Execution scope - workgroup for workgroupBarrier
-	execScopeID := e.backend.builder.AddConstant(u32TypeID, ScopeWorkgroup)
+	// Memory scope: Device if STORAGE, Subgroup if SUB_GROUP, else Workgroup.
+	// Matches Rust naga writer.rs:1816-1822.
+	var memoryScope uint32
+	if stmt.Flags&ir.BarrierStorage != 0 {
+		memoryScope = ScopeDevice
+	} else if stmt.Flags&ir.BarrierSubGroup != 0 {
+		memoryScope = ScopeSubgroup
+	} else {
+		memoryScope = ScopeWorkgroup
+	}
 
-	// Memory scope - also workgroup
-	memScopeID := e.backend.builder.AddConstant(u32TypeID, ScopeWorkgroup)
-
-	// Memory semantics based on barrier flags
+	// Memory semantics based on barrier flags.
+	// Matches Rust naga writer.rs:1823-1839.
 	semantics := MemorySemanticsAcquireRelease
+	if stmt.Flags&ir.BarrierStorage != 0 {
+		semantics |= MemorySemanticsUniformMemory
+	}
 	if stmt.Flags&ir.BarrierWorkGroup != 0 {
 		semantics |= MemorySemanticsWorkgroupMemory
 	}
-	if stmt.Flags&ir.BarrierStorage != 0 {
-		semantics |= MemorySemanticsUniformMemory
+	if stmt.Flags&ir.BarrierSubGroup != 0 {
+		semantics |= MemorySemanticsSubgroupMemory
 	}
 	if stmt.Flags&ir.BarrierTexture != 0 {
 		semantics |= MemorySemanticsImageMemory
 	}
+
+	// Execution scope: Subgroup if SUB_GROUP, else Workgroup.
+	// Matches Rust naga writer.rs:1840-1844.
+	var execScope uint32
+	if stmt.Flags&ir.BarrierSubGroup != 0 {
+		execScope = ScopeSubgroup
+	} else {
+		execScope = ScopeWorkgroup
+	}
+
+	execScopeID := e.backend.builder.AddConstant(u32TypeID, execScope)
+	memScopeID := e.backend.builder.AddConstant(u32TypeID, memoryScope)
 	semanticsID := e.backend.builder.AddConstant(u32TypeID, semantics)
 
 	// OpControlBarrier Execution Memory Semantics
@@ -7248,6 +7977,35 @@ func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
 	builder.AddWord(memScopeID)
 	builder.AddWord(semanticsID)
 	e.backend.builder.funcAppend(builder.Build(OpControlBarrier))
+
+	return nil
+}
+
+// emitWorkGroupUniformLoad emits a workgroup uniform load:
+// barrier -> load -> barrier. Matches Rust naga block.rs:3614.
+func (e *ExpressionEmitter) emitWorkGroupUniformLoad(stmt ir.StmtWorkGroupUniformLoad) error {
+	// Emit workgroup barrier before load
+	_ = e.emitBarrier(ir.StmtBarrier{Flags: ir.BarrierWorkGroup})
+
+	// Resolve the result type from the result expression
+	resultType, err := ir.ResolveExpressionType(e.backend.module, e.function, stmt.Result)
+	if err != nil {
+		return fmt.Errorf("workgroup uniform load: cannot resolve result type: %w", err)
+	}
+	resultTypeID := e.backend.resolveTypeResolution(resultType)
+
+	// Load from the pointer (need raw pointer, not loaded value)
+	pointerID, err := e.emitPointerExpression(stmt.Pointer)
+	if err != nil {
+		return fmt.Errorf("workgroup uniform load: cannot emit pointer: %w", err)
+	}
+	loadID := e.backend.builder.AddLoad(resultTypeID, pointerID)
+
+	// Cache the result
+	e.exprIDs[stmt.Result] = loadID
+
+	// Emit workgroup barrier after load
+	_ = e.emitBarrier(ir.StmtBarrier{Flags: ir.BarrierWorkGroup})
 
 	return nil
 }
@@ -7338,9 +8096,10 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		return err
 	}
 
-	// Determine scalar kind from pointer type (atomic<i32> vs atomic<u32>)
-	scalarKind := e.resolveAtomicScalarKind(stmt.Pointer)
-	resultTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: scalarKind, Width: 4})
+	// Determine scalar type from pointer type (atomic<i32> vs atomic<u32> vs atomic<i64>)
+	atomicScalar := e.resolveAtomicScalar(stmt.Pointer)
+	scalarKind := atomicScalar.Kind
+	resultTypeID := e.backend.emitScalarType(atomicScalar)
 
 	// Scope and memory semantics constants
 	scopeID := e.backend.builder.AddConstant(
@@ -7429,9 +8188,13 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 }
 
 // emitAtomicCompareExchange emits an atomic compare-exchange operation.
+// SPIR-V OpAtomicCompareExchange returns a scalar (the old value), not a struct.
+// WGSL wraps the result in a struct {old_value: T, exchanged: bool}.
+// We emit: OpAtomicCompareExchange (scalar), OpIEqual (bool), OpCompositeConstruct (struct).
+// This matches Rust naga's approach in back/spv/block.rs.
 func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	stmt ir.StmtAtomic,
-	pointerID, valueID, resultTypeID, scopeID, semanticsID uint32,
+	pointerID, valueID, scalarTypeID, scopeID, semanticsID uint32,
 	compare ir.ExpressionHandle,
 ) error {
 	compareID, err := e.emitExpression(compare)
@@ -7439,26 +8202,60 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 		return err
 	}
 
-	resultID := e.backend.builder.AllocID()
+	// 1. OpAtomicCompareExchange returns the OLD scalar value
+	casResultID := e.backend.builder.AllocID()
 	builder := e.newIB()
-	builder.AddWord(resultTypeID)
-	builder.AddWord(resultID)
+	builder.AddWord(scalarTypeID)
+	builder.AddWord(casResultID)
 	builder.AddWord(pointerID)
 	builder.AddWord(scopeID)
-	builder.AddWord(semanticsID) // MemSemEqual (AcquireRelease)
+	builder.AddWord(semanticsID) // MemSemEqual
 	// MemSemUnequal: SPIR-V spec (VUID-10875) forbids Release/AcquireRelease
-	// for the "unequal" operand. Use Acquire instead. Matches Vulkan requirements.
+	// for the "unequal" operand. Use Acquire instead (satisfies VUID-10871 which
+	// requires non-relaxed order when storage class semantics bits are set).
 	unequalSemID := e.backend.builder.AddConstant(
 		e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
 		MemorySemanticsAcquire|MemorySemanticsUniformMemory,
 	)
-	builder.AddWord(unequalSemID)
+	builder.AddWord(unequalSemID) // MemSemUnequal (Acquire, not AcquireRelease)
 	builder.AddWord(valueID)
 	builder.AddWord(compareID)
 	e.backend.builder.funcAppend(builder.Build(OpAtomicCompareExch))
 
+	// 2. OpIEqual: exchanged = (old_value == compare)
+	boolTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	equalityResultID := e.backend.builder.AllocID()
+	eqBuilder := e.newIB()
+	eqBuilder.AddWord(boolTypeID)
+	eqBuilder.AddWord(equalityResultID)
+	eqBuilder.AddWord(casResultID)
+	eqBuilder.AddWord(compareID)
+	e.backend.builder.funcAppend(eqBuilder.Build(OpIEqual))
+
+	// 3. OpCompositeConstruct: build the result struct {old_value, exchanged}
 	if stmt.Result != nil {
-		e.exprIDs[*stmt.Result] = resultID
+		resultExpr := e.function.Expressions[*stmt.Result]
+		atomicResult, ok := resultExpr.Kind.(ir.ExprAtomicResult)
+		if !ok {
+			return fmt.Errorf("atomic compare-exchange result expression is not ExprAtomicResult")
+		}
+		structTypeID, err := e.backend.emitType(atomicResult.Ty)
+		if err != nil {
+			return fmt.Errorf("failed to emit atomic result struct type: %w", err)
+		}
+
+		compositeID := e.backend.builder.AllocID()
+		ccBuilder := e.newIB()
+		ccBuilder.AddWord(structTypeID)
+		ccBuilder.AddWord(compositeID)
+		ccBuilder.AddWord(casResultID)
+		ccBuilder.AddWord(equalityResultID)
+		e.backend.builder.funcAppend(ccBuilder.Build(OpCompositeConstruct))
+
+		e.exprIDs[*stmt.Result] = compositeID
+		if err := e.processDeferredStores(*stmt.Result, compositeID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -7512,17 +8309,12 @@ func (e *ExpressionEmitter) emitImageStore(store ir.StmtImageStore) error {
 		return fmt.Errorf("image store image: %w", err)
 	}
 
-	coordID, err := e.emitExpression(store.Coordinate)
+	// Build combined coordinates with array index (integer coords, matching Rust naga).
+	// Image store uses integer coordinates, NOT float — so we use emitImageCoordinates
+	// which does bitcast (e.g. u32→i32) instead of appendArrayIndex which converts to float.
+	coords, err := e.emitImageCoordinates(store.Coordinate, store.ArrayIndex)
 	if err != nil {
 		return fmt.Errorf("image store coordinate: %w", err)
-	}
-
-	// Handle array index for arrayed storage textures
-	if store.ArrayIndex != nil {
-		coordID, err = e.appendArrayIndex(coordID, *store.ArrayIndex, store.Coordinate)
-		if err != nil {
-			return err
-		}
 	}
 
 	valueID, err := e.emitExpression(store.Value)
@@ -7533,15 +8325,166 @@ func (e *ExpressionEmitter) emitImageStore(store ir.StmtImageStore) error {
 	// OpImageWrite: no result type, no result ID
 	builder := e.newIB()
 	builder.AddWord(imageID)
-	builder.AddWord(coordID)
+	builder.AddWord(coords.valueID)
 	builder.AddWord(valueID)
 	e.backend.builder.funcAppend(builder.Build(OpImageWrite))
 
 	return nil
 }
 
+// emitImageAtomic emits an atomic operation on a storage texture texel.
+// Uses OpImageTexelPointer to get a pointer to the texel, then a standard
+// atomic op (OpAtomicIAdd, etc.) on that pointer.
+// Matches Rust naga back/spv/image.rs write_image_atomic.
+func (e *ExpressionEmitter) emitImageAtomic(stmt ir.StmtImageAtomic) error {
+	// Find the global variable for the image (OpImageTexelPointer needs the variable, not loaded value).
+	imageGlobalHandle, err := e.resolveImageGlobalVar(stmt.Image)
+	if err != nil {
+		return fmt.Errorf("image atomic: %w", err)
+	}
+	imageVarID, ok := e.backend.globalIDs[imageGlobalHandle]
+	if !ok {
+		return fmt.Errorf("image atomic: global variable %d not found", imageGlobalHandle)
+	}
+
+	// Get the storage format from the image type to determine scalar type.
+	gv := e.backend.module.GlobalVariables[imageGlobalHandle]
+	imageInner := e.backend.module.Types[gv.Type].Inner
+	imgType, ok := imageInner.(ir.ImageType)
+	if !ok {
+		return fmt.Errorf("image atomic: expected ImageType, got %T", imageInner)
+	}
+	scalar := imgType.StorageFormat.Scalar()
+	scalarTypeID := e.backend.emitScalarType(scalar)
+
+	// For 64-bit image atomics, require Int64Atomics capability.
+	if scalar.Width == 8 {
+		e.backend.addCapability(CapabilityInt64Atomics)
+	}
+
+	// Build pointer type: OpTypePointer Image <scalar>
+	pointerTypeID := e.backend.emitPointerType(StorageClassImage, scalarTypeID)
+
+	// Build combined coordinates (integer coords with optional array index).
+	coords, err := e.emitImageCoordinates(stmt.Coordinate, stmt.ArrayIndex)
+	if err != nil {
+		return fmt.Errorf("image atomic coordinate: %w", err)
+	}
+
+	// Sample index is always 0 for storage textures.
+	sampleID := e.backend.emitU32Constant(0)
+
+	// Emit OpImageTexelPointer: result is a pointer to the texel.
+	pointerID := e.backend.builder.AllocID()
+	{
+		ib := e.newIB()
+		ib.AddWord(pointerTypeID)
+		ib.AddWord(pointerID)
+		ib.AddWord(imageVarID)
+		ib.AddWord(coords.valueID)
+		ib.AddWord(sampleID)
+		e.backend.builder.funcAppend(ib.Build(OpImageTexelPointer))
+	}
+
+	// Scope and memory semantics for Handle address space:
+	// Rust naga uses (MemorySemantics::empty(), Scope::Device) for Handle space.
+	scopeID := e.backend.emitI32Constant(int32(ScopeDevice))
+	semanticsID := e.backend.emitU32Constant(0) // MemorySemantics::empty()
+
+	// Emit the value operand.
+	valueID, err := e.emitExpression(stmt.Value)
+	if err != nil {
+		return fmt.Errorf("image atomic value: %w", err)
+	}
+
+	// Determine the atomic opcode.
+	opcode, ok := atomicOpcode(stmt.Fun, scalar.Kind)
+	if !ok {
+		return fmt.Errorf("image atomic: unsupported atomic function: %T", stmt.Fun)
+	}
+
+	// Emit the atomic operation: OpAtomic* ResultType Result Pointer Scope Semantics Value
+	resultID := e.backend.builder.AllocID()
+	{
+		ib := e.newIB()
+		ib.AddWord(scalarTypeID)
+		ib.AddWord(resultID)
+		ib.AddWord(pointerID)
+		ib.AddWord(scopeID)
+		ib.AddWord(semanticsID)
+		ib.AddWord(valueID)
+		e.backend.builder.funcAppend(ib.Build(opcode))
+	}
+
+	// Image atomic results are unused (void statement), so we don't cache the result.
+	return nil
+}
+
+// resolveImageGlobalVar walks through the expression tree to find the
+// GlobalVariable handle that an image expression refers to.
+func (e *ExpressionEmitter) resolveImageGlobalVar(handle ir.ExpressionHandle) (ir.GlobalVariableHandle, error) {
+	expr := e.function.Expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		return k.Variable, nil
+	default:
+		return 0, fmt.Errorf("expected GlobalVariable for image, got %T", expr.Kind)
+	}
+}
+
+// emitI32Constant emits or reuses a signed 32-bit integer constant.
+func (b *Backend) emitI32Constant(val int32) uint32 {
+	typeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+	return b.builder.AddConstant(typeID, uint32(val))
+}
+
+// emitU32Constant emits or reuses an unsigned 32-bit integer constant.
+func (b *Backend) emitU32Constant(val uint32) uint32 {
+	typeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	return b.builder.AddConstant(typeID, val)
+}
+
+// spilledPointerArg tracks a pointer argument that was spilled to a temporary
+// variable for an OpFunctionCall. After the call, we must write-back from the
+// temp to the original location (copy-out).
+type spilledPointerArg struct {
+	tempVarID     uint32 // OpVariable in Function storage
+	originalPtrID uint32 // original OpAccessChain result (or similar)
+	pointeeTypeID uint32 // the pointee type (for OpLoad)
+}
+
+// isMemoryObjectDeclaration returns true if the expression produces a SPIR-V
+// memory object declaration (OpVariable or OpFunctionParameter), which can be
+// passed directly as pointer arguments to OpFunctionCall.
+// Returns false for OpAccessChain results (ExprAccess, ExprAccessIndex) which
+// are NOT valid pointer operands per the SPIR-V spec.
+func (e *ExpressionEmitter) isMemoryObjectDeclaration(handle ir.ExpressionHandle) bool {
+	expr := e.function.Expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		return true
+	case ir.ExprGlobalVariable:
+		return true
+	case ir.ExprFunctionArgument:
+		return true
+	case ir.ExprLoad:
+		// ExprLoad chains through -- check the underlying pointer
+		return e.isMemoryObjectDeclaration(k.Pointer)
+	default:
+		return false
+	}
+}
+
 // emitCall emits a function call statement (OpFunctionCall).
 // If the call has a result, the SPIR-V result ID is cached for later ExprCallResult lookup.
+//
+// For pointer parameters whose arguments are not memory object declarations
+// (e.g. OpAccessChain results from array/struct indexing), we use the
+// copy-in/copy-out (spill) pattern:
+//  1. Create a temporary OpVariable in Function storage
+//  2. OpLoad from the original location and OpStore into the temp
+//  3. Pass the temp variable to OpFunctionCall
+//  4. After the call, OpLoad from temp and OpStore back (write-back)
 func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 	// Look up the SPIR-V function ID
 	funcID, ok := e.backend.functionIDs[call.Function]
@@ -7549,12 +8492,73 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 		return fmt.Errorf("function %d not found in functionIDs", call.Function)
 	}
 
-	// Collect argument SPIR-V IDs
+	// Collect argument SPIR-V IDs.
+	// For pointer parameters, pass the pointer directly (emitPointerExpression).
+	// For value parameters, pass the loaded value (emitExpression).
+	targetFn := e.backend.module.Functions[call.Function]
 	argIDs := make([]uint32, 0, len(call.Arguments))
-	for _, arg := range call.Arguments {
-		argID, err := e.emitExpression(arg)
-		if err != nil {
-			return fmt.Errorf("call argument: %w", err)
+	var spills []spilledPointerArg
+	for i, arg := range call.Arguments {
+		// Check if the corresponding parameter expects a pointer type
+		var ptrType ir.PointerType
+		isPointerParam := false
+		if i < len(targetFn.Arguments) {
+			paramType := e.backend.module.Types[targetFn.Arguments[i].Type].Inner
+			switch pt := paramType.(type) {
+			case ir.PointerType:
+				isPointerParam = true
+				ptrType = pt
+			case ir.ValuePointerType:
+				isPointerParam = true
+			}
+		}
+
+		var argID uint32
+		var err error
+		if isPointerParam {
+			argID, err = e.emitPointerExpression(arg)
+			if err != nil {
+				return fmt.Errorf("call argument: %w", err)
+			}
+
+			// Check if this pointer is a memory object declaration.
+			// If not (e.g. OpAccessChain from array indexing), we must spill
+			// to a temporary variable per the SPIR-V spec.
+			if !e.isMemoryObjectDeclaration(arg) {
+				// Get the pointee type ID
+				pointeeTypeID, typeErr := e.backend.emitType(ptrType.Base)
+				if typeErr != nil {
+					return fmt.Errorf("call spill pointee type: %w", typeErr)
+				}
+
+				// Create a Function-scope temporary variable
+				ptrTypeID := e.backend.emitPointerType(StorageClassFunction, pointeeTypeID)
+				tempVarID := e.backend.builder.AllocID()
+				ib := e.newIB()
+				ib.AddWord(ptrTypeID)
+				ib.AddWord(tempVarID)
+				ib.AddWord(uint32(StorageClassFunction))
+				e.funcBuilder.Variables = append(e.funcBuilder.Variables, ib.Build(OpVariable))
+
+				// Copy-in: OpLoad from original, OpStore to temp
+				loadedValue := e.backend.builder.AddLoad(pointeeTypeID, argID)
+				e.backend.builder.AddStore(tempVarID, loadedValue)
+
+				// Track for write-back after the call
+				spills = append(spills, spilledPointerArg{
+					tempVarID:     tempVarID,
+					originalPtrID: argID,
+					pointeeTypeID: pointeeTypeID,
+				})
+
+				// Use temp variable as the argument
+				argID = tempVarID
+			}
+		} else {
+			argID, err = e.emitExpression(arg)
+			if err != nil {
+				return fmt.Errorf("call argument: %w", err)
+			}
 		}
 		argIDs = append(argIDs, argID)
 	}
@@ -7582,6 +8586,13 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 		builder.AddWord(argID)
 	}
 	e.backend.builder.funcAppend(builder.Build(OpFunctionCall))
+
+	// Copy-out (write-back): for each spilled pointer argument, load from
+	// the temp variable and store back to the original location.
+	for _, spill := range spills {
+		wb := e.backend.builder.AddLoad(spill.pointeeTypeID, spill.tempVarID)
+		e.backend.builder.AddStore(spill.originalPtrID, wb)
+	}
 
 	// Cache the result ID for ExprCallResult and handle deferred stores.
 	if call.Result != nil {
@@ -7641,79 +8652,112 @@ func (e *ExpressionEmitter) emitCallResultRef(handle ir.ExpressionHandle) (uint3
 //   - ExprArrayLength { Array: ExprAccessIndex { Base: ExprGlobalVariable, Index: N } }
 //     -- global is a struct whose member N is the runtime array
 func (e *ExpressionEmitter) emitArrayLength(expr ir.ExprArrayLength) (uint32, error) {
-	// Walk the Array expression to find the global variable and optional member index.
+	// Walk the Array expression to find the global variable, optional member index,
+	// and optional binding array index. Matches Rust naga back/spv/index.rs.
 	var globalHandle ir.GlobalVariableHandle
-	var memberIndex *uint32 // nil if the array expression refers to the global directly
+	var optLastMemberIndex *uint32
+	var bindingArrayIndexID *uint32
 
 	arrayExpr := e.function.Expressions[expr.Array]
 	switch k := arrayExpr.Kind.(type) {
 	case ir.ExprAccessIndex:
-		// Array is a member of a struct: arrayLength(&buf.data)
-		// The base must be a global variable.
 		baseExpr := e.function.Expressions[k.Base]
 		switch bk := baseExpr.Kind.(type) {
+		case ir.ExprAccessIndex:
+			// AccessIndex(AccessIndex(Global)) -- binding array with constant index
+			baseOuterExpr := e.function.Expressions[bk.Base]
+			gv, ok := baseOuterExpr.Kind.(ir.ExprGlobalVariable)
+			if !ok {
+				return 0, fmt.Errorf("array length: AccessIndex(AccessIndex(x)): expected GlobalVariable, got %T", baseOuterExpr.Kind)
+			}
+			indexID := e.backend.emitU32Constant(bk.Index)
+			bindingArrayIndexID = &indexID
+			globalHandle = gv.Variable
+			idx := k.Index
+			optLastMemberIndex = &idx
+
+		case ir.ExprAccess:
+			// AccessIndex(Access(Global)) -- binding array with dynamic index
+			baseOuterExpr := e.function.Expressions[bk.Base]
+			gv, ok := baseOuterExpr.Kind.(ir.ExprGlobalVariable)
+			if !ok {
+				return 0, fmt.Errorf("array length: AccessIndex(Access(x)): expected GlobalVariable, got %T", baseOuterExpr.Kind)
+			}
+			dynIndexID, err := e.emitExpression(bk.Index)
+			if err != nil {
+				return 0, fmt.Errorf("array length: dynamic index: %w", err)
+			}
+			bindingArrayIndexID = &dynIndexID
+			globalHandle = gv.Variable
+			idx := k.Index
+			optLastMemberIndex = &idx
+
 		case ir.ExprGlobalVariable:
 			globalHandle = bk.Variable
 			idx := k.Index
-			memberIndex = &idx
+			optLastMemberIndex = &idx
+
 		default:
-			return 0, fmt.Errorf("array length: AccessIndex base must be GlobalVariable, got %T", bk)
+			return 0, fmt.Errorf("array length: AccessIndex base: expected GlobalVariable, got %T", bk)
 		}
 	case ir.ExprGlobalVariable:
-		// Array IS the global variable directly: arrayLength(&output)
 		globalHandle = k.Variable
-		memberIndex = nil
+		optLastMemberIndex = nil
 	default:
 		return 0, fmt.Errorf("array length: expected GlobalVariable or AccessIndex, got %T", k)
 	}
 
-	// Get the SPIR-V variable ID for the global.
 	varID, ok := e.backend.globalIDs[globalHandle]
 	if !ok {
 		return 0, fmt.Errorf("array length: global variable %d not found", globalHandle)
 	}
 
-	// Determine the struct pointer ID and member index for OpArrayLength.
-	//
-	// SPIR-V requires that OpArrayLength operates on a pointer to an
-	// OpTypeStruct whose last member is a runtime-sized array.
-	//
-	// Case 1: The Naga IR global type is already a struct.
-	//   The struct was decorated with Block directly. Use the global var
-	//   pointer and the member index from the AccessIndex expression.
-	//
-	// Case 2: The Naga IR global type is a bare runtime array.
-	//   The backend wrapped it in a synthetic struct (see emitGlobals).
-	//   The wrapper struct has the array at member 0. Use the global var
-	//   pointer (which points to the wrapper struct) and member index 0.
-	var structID uint32
-	var lastMemberIndex uint32
-
 	isWrapped := e.backend.wrappedStorageVars[globalHandle]
 
+	var lastMemberIndex uint32
+	var gvarID uint32
+
 	switch {
-	case memberIndex != nil && !isWrapped:
-		// Naga struct type, not wrapped. The runtime array is at the given member index.
-		structID = varID
-		lastMemberIndex = *memberIndex
-	case memberIndex == nil && isWrapped:
-		// Bare runtime array, wrapped in a synthetic struct. Member index is 0.
-		structID = varID
+	case optLastMemberIndex != nil && !isWrapped:
+		lastMemberIndex = *optLastMemberIndex
+		gvarID = varID
+	case optLastMemberIndex == nil && isWrapped:
 		lastMemberIndex = 0
-	case memberIndex != nil && isWrapped:
+		gvarID = varID
+	case optLastMemberIndex != nil && isWrapped:
 		return 0, fmt.Errorf("array length: unexpected wrapped variable with AccessIndex")
 	default:
-		// memberIndex == nil && !isWrapped: the global is not wrapped and not accessed
-		// through a struct member. This means the global type itself must be a struct
-		// whose last member is the runtime array. This shouldn't happen in valid IR
-		// since the lowerer always creates an AccessIndex for struct members.
 		return 0, fmt.Errorf("array length: global variable is not a struct and was not wrapped")
 	}
 
-	// Result type is always u32.
+	// If we have a binding array index, emit OpAccessChain to index into the array.
+	var structID uint32
+	if bindingArrayIndexID != nil {
+		gv := e.backend.module.GlobalVariables[globalHandle]
+		ba, ok := e.backend.module.Types[gv.Type].Inner.(ir.BindingArrayType)
+		if !ok {
+			return 0, fmt.Errorf("array length: expected BindingArray type for binding array access")
+		}
+		baseTypeID, err := e.backend.emitType(ba.Base)
+		if err != nil {
+			return 0, fmt.Errorf("array length: emit base type: %w", err)
+		}
+		sc := addressSpaceToStorageClass(gv.Space)
+		ptrTypeID := e.backend.emitPointerType(sc, baseTypeID)
+
+		structID = e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(ptrTypeID)
+		ib.AddWord(structID)
+		ib.AddWord(gvarID)
+		ib.AddWord(*bindingArrayIndexID)
+		e.backend.builder.funcAppend(ib.Build(OpAccessChain))
+	} else {
+		structID = gvarID
+	}
+
 	resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 
-	// Emit OpArrayLength: result-type result-id struct-pointer member-index
 	resultID := e.backend.builder.AllocID()
 	ib := e.newIB()
 	ib.AddWord(resultType)

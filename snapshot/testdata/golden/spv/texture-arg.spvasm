@@ -26,7 +26,7 @@
          %_14 = OpTypeFunction %_6 %_4 %_5
          %_19 = OpConstant %_3 0
          %_20 = OpConstant %_3 0
-         %_22 = OpTypeSampledImage %_4
+         %_23 = OpTypeSampledImage %_4
          %_25 = OpTypeFunction %_2
          %_9 = OpVariable %_8 UniformConstant
          %_11 = OpVariable %_10 UniformConstant
@@ -36,9 +36,9 @@
          %_17 = OpFunctionParameter %_5
          %_18 = OpLabel
          %_21 = OpCompositeConstruct %_7 %_19 %_20
-         %_23 = OpSampledImage %_22 %_16 %_17
-         %_24 = OpImageSampleImplicitLod %_6 %_23 %_21
-               OpReturnValue %_24
+         %_24 = OpSampledImage %_23 %_16 %_17
+         %_22 = OpImageSampleImplicitLod %_6 %_24 %_21
+               OpReturnValue %_22
                OpFunctionEnd
          %_26 = OpFunction %_2 None %_25
          %_27 = OpLabel

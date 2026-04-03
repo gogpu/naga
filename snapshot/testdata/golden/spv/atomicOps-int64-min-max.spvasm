@@ -127,7 +127,7 @@
          %_28 = OpAccessChain %_26 %_20 %_27
          %_29 = OpLoad %_3 %_28
          %_32 = OpAccessChain %_30 %_11 %_31
-         OpAtomicUMax %_4 %_35 %_32 %_33 %_34 %_29
+         OpAtomicUMax %_3 %_35 %_32 %_33 %_34 %_29
          %_38 = OpAccessChain %_36 %_14 %_37
          %_40 = OpAccessChain %_30 %_38 %_39
          %_41 = OpLoad %_3 %_40
@@ -136,13 +136,13 @@
          %_46 = OpIAdd %_3 %_45 %_44
          %_48 = OpAccessChain %_36 %_14 %_47
          %_50 = OpAccessChain %_30 %_48 %_49
-         OpAtomicUMax %_4 %_53 %_50 %_51 %_52 %_46
+         OpAtomicUMax %_3 %_53 %_50 %_51 %_52 %_46
          %_56 = OpAccessChain %_54 %_17 %_55
          %_58 = OpAccessChain %_30 %_56 %_57
          %_59 = OpLoad %_3 %_58
          %_61 = OpAccessChain %_54 %_17 %_60
          %_63 = OpAccessChain %_30 %_61 %_62
-         OpAtomicUMax %_4 %_67 %_63 %_64 %_65 %_66
+         OpAtomicUMax %_3 %_67 %_63 %_64 %_65 %_66
          %_69 = OpAccessChain %_54 %_17 %_68
          %_71 = OpAccessChain %_36 %_69 %_70
          %_72 = OpLoad %_6 %_71
@@ -156,12 +156,12 @@
          %_86 = OpAccessChain %_54 %_17 %_85
          %_88 = OpAccessChain %_36 %_86 %_87
          %_90 = OpAccessChain %_30 %_88 %_89
-         OpAtomicUMax %_4 %_93 %_90 %_91 %_92 %_84
+         OpAtomicUMax %_3 %_93 %_90 %_91 %_92 %_84
          OpControlBarrier %_94 %_95 %_96
          %_98 = OpAccessChain %_26 %_20 %_97
          %_99 = OpLoad %_3 %_98
          %_101 = OpAccessChain %_30 %_11 %_100
-         OpAtomicUMin %_4 %_104 %_101 %_102 %_103 %_99
+         OpAtomicUMin %_3 %_104 %_101 %_102 %_103 %_99
          %_106 = OpAccessChain %_36 %_14 %_105
          %_108 = OpAccessChain %_30 %_106 %_107
          %_109 = OpLoad %_3 %_108
@@ -170,13 +170,13 @@
          %_114 = OpIAdd %_3 %_113 %_112
          %_116 = OpAccessChain %_36 %_14 %_115
          %_118 = OpAccessChain %_30 %_116 %_117
-         OpAtomicUMin %_4 %_121 %_118 %_119 %_120 %_114
+         OpAtomicUMin %_3 %_121 %_118 %_119 %_120 %_114
          %_123 = OpAccessChain %_54 %_17 %_122
          %_125 = OpAccessChain %_30 %_123 %_124
          %_126 = OpLoad %_3 %_125
          %_128 = OpAccessChain %_54 %_17 %_127
          %_130 = OpAccessChain %_30 %_128 %_129
-         OpAtomicUMin %_4 %_134 %_130 %_131 %_132 %_133
+         OpAtomicUMin %_3 %_134 %_130 %_131 %_132 %_133
          %_136 = OpAccessChain %_54 %_17 %_135
          %_138 = OpAccessChain %_36 %_136 %_137
          %_139 = OpLoad %_6 %_138
@@ -190,6 +190,6 @@
          %_152 = OpAccessChain %_54 %_17 %_151
          %_154 = OpAccessChain %_36 %_152 %_153
          %_156 = OpAccessChain %_30 %_154 %_155
-         OpAtomicUMin %_4 %_159 %_156 %_157 %_158 %_150
+         OpAtomicUMin %_3 %_159 %_156 %_157 %_158 %_150
                OpReturn
                OpFunctionEnd

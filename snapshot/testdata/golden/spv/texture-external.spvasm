@@ -1,18 +1,18 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 73
+; Bound: 72
 ; Schema: 0
 
                OpCapability Shader
                OpCapability DerivativeControl
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint Fragment %_61 "fragment_main" %_21
-               OpEntryPoint Vertex %_65 "vertex_main" %_22
-               OpEntryPoint GLCompute %_69 "compute_main"
-               OpExecutionMode %_61 OriginUpperLeft
-               OpExecutionMode %_69 LocalSize 1 1 1
+               OpEntryPoint Fragment %_60 "fragment_main" %_21
+               OpEntryPoint Vertex %_64 "vertex_main" %_22
+               OpEntryPoint GLCompute %_68 "compute_main"
+               OpExecutionMode %_60 OriginUpperLeft
+               OpExecutionMode %_68 LocalSize 1 1 1
                OpMemberDecorate %_12 0 Offset 0
                OpMemberDecorate %_12 1 Offset 4
                OpMemberDecorate %_12 2 Offset 8
@@ -60,15 +60,14 @@
          %_27 = OpTypePointer Function %_10
          %_31 = OpTypePointer Function %_5
          %_33 = OpConstant %_3 0
-         %_36 = OpTypeSampledImage %_14
+         %_37 = OpTypeSampledImage %_14
          %_39 = OpConstant %_3 0
          %_40 = OpTypeInt 32 1
          %_41 = OpTypeVector %_40 2
          %_42 = OpConstant %_40 0
-         %_44 = OpTypeVector %_40 4
-         %_46 = OpConstant %_4 0
-         %_49 = OpTypeVector %_4 3
-         %_60 = OpTypeFunction %_2
+         %_45 = OpConstant %_4 0
+         %_49 = OpConstant %_40 0
+         %_59 = OpTypeFunction %_2
          %_17 = OpVariable %_16 UniformConstant
          %_19 = OpVariable %_18 UniformConstant
          %_21 = OpVariable %_20 Output
@@ -82,45 +81,45 @@
          %_32 = OpVariable %_31 Function
          %_34 = OpCompositeConstruct %_6 %_33 %_33
          %_35 = OpLoad %_15 %_19
-         %_37 = OpSampledImage %_36 %_25 %_35
-         %_38 = OpImageSampleExplicitLod %_10 %_37 %_34 %_2 %_39
-               OpStore %_28 %_38
+         %_38 = OpSampledImage %_37 %_25 %_35
+         %_36 = OpImageSampleExplicitLod %_10 %_38 %_34 %_2 %_39
+               OpStore %_28 %_36
          %_43 = OpCompositeConstruct %_41 %_42 %_42
-         %_45 = OpImageFetch %_44 %_25 %_43
-               OpStore %_29 %_45
-         %_47 = OpCompositeConstruct %_5 %_46 %_46
-         %_48 = OpImageFetch %_44 %_25 %_47
-               OpStore %_30 %_48
-         %_50 = OpImageQuerySize %_49 %_25
-               OpStore %_32 %_50
-         %_51 = OpLoad %_10 %_28
-         %_52 = OpLoad %_10 %_29
-         %_53 = OpFAdd %_10 %_51 %_52
-         %_54 = OpLoad %_10 %_30
-         %_55 = OpFAdd %_10 %_53 %_54
-         %_56 = OpLoad %_5 %_32
-         %_57 = OpConvertUToF %_6 %_56
-         %_58 = OpVectorShuffle %_10 %_57 %_57 0 1 0 1
-         %_59 = OpFAdd %_10 %_55 %_58
-               OpReturnValue %_59
+         %_44 = OpImageFetch %_10 %_25 %_43
+               OpStore %_29 %_44
+         %_46 = OpCompositeConstruct %_5 %_45 %_45
+         %_47 = OpImageFetch %_10 %_25 %_46
+               OpStore %_30 %_47
+         %_48 = OpImageQuerySizeLod %_5 %_25 %_49
+               OpStore %_32 %_48
+         %_50 = OpLoad %_10 %_28
+         %_51 = OpLoad %_10 %_29
+         %_52 = OpFAdd %_10 %_50 %_51
+         %_53 = OpLoad %_10 %_30
+         %_54 = OpFAdd %_10 %_52 %_53
+         %_55 = OpLoad %_5 %_32
+         %_56 = OpConvertUToF %_6 %_55
+         %_57 = OpVectorShuffle %_10 %_56 %_56 0 1 0 1
+         %_58 = OpFAdd %_10 %_54 %_57
+               OpReturnValue %_58
                OpFunctionEnd
-         %_61 = OpFunction %_2 None %_60
-         %_62 = OpLabel
-         %_63 = OpLoad %_14 %_17
-         %_64 = OpFunctionCall %_10 %_24 %_63
-               OpStore %_21 %_64
+         %_60 = OpFunction %_2 None %_59
+         %_61 = OpLabel
+         %_62 = OpLoad %_14 %_17
+         %_63 = OpFunctionCall %_10 %_24 %_62
+               OpStore %_21 %_63
                OpReturn
                OpFunctionEnd
-         %_65 = OpFunction %_2 None %_60
-         %_66 = OpLabel
-         %_67 = OpLoad %_14 %_17
-         %_68 = OpFunctionCall %_10 %_24 %_67
-               OpStore %_22 %_68
+         %_64 = OpFunction %_2 None %_59
+         %_65 = OpLabel
+         %_66 = OpLoad %_14 %_17
+         %_67 = OpFunctionCall %_10 %_24 %_66
+               OpStore %_22 %_67
                OpReturn
                OpFunctionEnd
-         %_69 = OpFunction %_2 None %_60
-         %_70 = OpLabel
-         %_71 = OpLoad %_14 %_17
-         %_72 = OpFunctionCall %_10 %_24 %_71
+         %_68 = OpFunction %_2 None %_59
+         %_69 = OpLabel
+         %_70 = OpLoad %_14 %_17
+         %_71 = OpFunctionCall %_10 %_24 %_70
                OpReturn
                OpFunctionEnd

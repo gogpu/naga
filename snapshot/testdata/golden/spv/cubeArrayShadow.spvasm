@@ -30,7 +30,7 @@
          %_19 = OpConstant %_3 1073741824
          %_23 = OpTypeInt 32 1
          %_24 = OpConstant %_23 1
-         %_27 = OpTypeSampledImage %_4
+         %_28 = OpTypeSampledImage %_4
          %_30 = OpConstant %_3 1065353216
          %_31 = OpConstant %_3 1065353216
          %_32 = OpConstant %_3 1065353216
@@ -45,9 +45,9 @@
          %_22 = OpLoad %_5 %_11
          %_25 = OpConvertSToF %_3 %_24
          %_26 = OpCompositeConstruct %_6 %_20 %_25
-         %_28 = OpSampledImage %_27 %_21 %_22
-         %_29 = OpImageSampleDrefImplicitLod %_6 %_28 %_26 %_30
-         %_34 = OpCompositeConstruct %_6 %_29 %_31 %_32 %_33
+         %_29 = OpSampledImage %_28 %_21 %_22
+         %_27 = OpImageSampleDrefImplicitLod %_3 %_29 %_26 %_30
+         %_34 = OpCompositeConstruct %_6 %_27 %_31 %_32 %_33
                OpStore %_13 %_34
                OpReturn
                OpFunctionEnd

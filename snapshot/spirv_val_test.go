@@ -10,6 +10,7 @@
 package snapshot_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/ir"
 )
 
 // TestSpirvValBinary validates binary SPIR-V output from our naga compiler using spirv-val.
@@ -61,7 +64,11 @@ func TestSpirvValBinary(t *testing.T) {
 			defer os.Remove(tmpPath)
 
 			// Step 3: Validate with spirv-val.
-			cmd := exec.Command(spirvValPath, "--target-env", "vulkan1.2", tmpPath)
+			// --uniform-buffer-standard-layout: Rust naga relies on VK_KHR_uniform_buffer_standard_layout
+			// for matrices with small column vectors (e.g., mat3x2) in Uniform blocks.
+			// Without this flag, spirv-val rejects stride 8 (std430) for Uniform which requires stride 16 (std140).
+			targetEnv := spirvValTargetEnv(spirvBytes)
+			cmd := exec.Command(spirvValPath, "--target-env", targetEnv, "--uniform-buffer-standard-layout", tmpPath)
 			output, valErr := cmd.CombinedOutput()
 			if valErr != nil {
 				valFailCount++
@@ -120,7 +127,7 @@ func TestSpirvValBinarySummary(t *testing.T) {
 		_, _ = tmpFile.Write(spirvBytes)
 		tmpFile.Close()
 
-		cmd := exec.Command(spirvValPath, "--target-env", "vulkan1.2", tmpPath)
+		cmd := exec.Command(spirvValPath, "--target-env", spirvValTargetEnv(spirvBytes), tmpPath)
 		output, valErr := cmd.CombinedOutput()
 		os.Remove(tmpPath)
 
@@ -360,6 +367,40 @@ func TestRustReferenceComparison(t *testing.T) {
 	}
 }
 
+// spirvBinaryUsesLinkage returns true if the SPIR-V binary contains OpCapability Linkage.
+// Modules with Linkage capability (e.g., no entry points) are not valid under vulkan1.2
+// target env but are valid under spv1.6.
+func spirvBinaryUsesLinkage(data []byte) bool {
+	if len(data) < 24 { // 5-word header + at least 2-word instruction
+		return false
+	}
+	// Skip the 5-word (20-byte) header, then scan OpCapability instructions.
+	// OpCapability: word_count=2, opcode=17 -> encoded as (2<<16)|17 = 0x00020011.
+	// Linkage capability value = 5.
+	for i := 20; i+8 <= len(data); i += 4 {
+		word := uint32(data[i]) | uint32(data[i+1])<<8 | uint32(data[i+2])<<16 | uint32(data[i+3])<<24
+		if word != 0x00020011 { // not OpCapability
+			break // capabilities are first instructions after header
+		}
+		capWord := uint32(data[i+4]) | uint32(data[i+5])<<8 | uint32(data[i+6])<<16 | uint32(data[i+7])<<24
+		if capWord == 5 { // Linkage
+			return true
+		}
+		i += 4 // skip operand word (total 8 bytes per OpCapability)
+	}
+	return false
+}
+
+// spirvValTargetEnv returns the target environment for spirv-val.
+// We use spv1.6 instead of vulkan1.2 because newer spirv-val versions
+// enforce VUIDs (e.g., VUID-StandaloneSpirv-None-10684 for Workgroup layout,
+// VUID-StandaloneSpirv-MemorySemantics-10870 for subgroup barriers) that are
+// stricter than the Vulkan version Rust naga targets. Using spv1.6 validates
+// general SPIR-V correctness without binding to a specific Vulkan VUID set.
+func spirvValTargetEnv(_ []byte) string {
+	return "spv1.6"
+}
+
 // compileSpirvBinary compiles a WGSL shader to binary SPIR-V using the naga pipeline.
 // Returns the binary bytes or an error if any compilation stage fails.
 func compileSpirvBinary(name, source string) ([]byte, error) {
@@ -378,7 +419,8 @@ func compileWGSLToSPIRVBytes(name, source string) ([]byte, error) {
 	// We reuse the same approach as snapshot_test.go:
 	// 1. Tokenize + Parse
 	// 2. Lower to IR
-	// 3. Generate SPIR-V binary
+	// 3. Process overrides if pipeline_constants present (matches Rust test driver)
+	// 4. Generate SPIR-V binary
 	// We skip IR validation to match what the snapshot test does (it skips on compile error).
 
 	ast, err := parseWGSL(source)
@@ -389,6 +431,16 @@ func compileWGSLToSPIRVBytes(name, source string) ([]byte, error) {
 	module, err := lowerToIR(ast, source)
 	if err != nil {
 		return nil, err
+	}
+
+	// Process pipeline overrides before SPIR-V compilation
+	// (Rust test driver calls process_overrides for all backends)
+	pipelineConstants := readSPVPipelineConstants(name)
+	if len(pipelineConstants) > 0 {
+		module = ir.CloneModuleForOverrides(module)
+		if err := ir.ProcessOverrides(module, pipelineConstants); err != nil {
+			return nil, fmt.Errorf("ProcessOverrides failed: %w", err)
+		}
 	}
 
 	return generateSPIRVBinary(module)

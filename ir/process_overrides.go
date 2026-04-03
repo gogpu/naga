@@ -647,6 +647,11 @@ func remapBlockHandles(block Block, handleMap []ExpressionHandle) {
 			if k.Result != nil {
 				*k.Result = remap(*k.Result)
 			}
+			// Remap Compare handle inside AtomicExchange
+			if exchange, ok := k.Fun.(AtomicExchange); ok && exchange.Compare != nil {
+				*exchange.Compare = remap(*exchange.Compare)
+				k.Fun = exchange
+			}
 			block[i].Kind = k
 		case StmtBlock:
 			remapBlockHandles(k.Block, handleMap)
@@ -654,6 +659,21 @@ func remapBlockHandles(block Block, handleMap []ExpressionHandle) {
 		case StmtWorkGroupUniformLoad:
 			k.Pointer = remap(k.Pointer)
 			k.Result = remap(k.Result)
+			block[i].Kind = k
+		case StmtRayQuery:
+			k.Query = remap(k.Query)
+			switch f := k.Fun.(type) {
+			case RayQueryInitialize:
+				f.AccelerationStructure = remap(f.AccelerationStructure)
+				f.Descriptor = remap(f.Descriptor)
+				k.Fun = f
+			case RayQueryProceed:
+				f.Result = remap(f.Result)
+				k.Fun = f
+			case RayQueryGenerateIntersection:
+				f.HitT = remap(f.HitT)
+				k.Fun = f
+			}
 			block[i].Kind = k
 		}
 	}

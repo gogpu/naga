@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 31
+; Bound: 30
 ; Schema: 0
 
                OpCapability Shader
@@ -27,10 +27,9 @@
          %_20 = OpTypeInt 32 1
          %_21 = OpConstant %_20 0
          %_23 = OpTypeVector %_3 3
-         %_25 = OpTypeSampledImage %_4
-         %_27 = OpTypeVector %_3 4
+         %_26 = OpTypeSampledImage %_4
+         %_28 = OpConstant %_3 0
          %_29 = OpConstant %_3 0
-         %_30 = OpConstant %_3 0
          %_7 = OpVariable %_6 UniformConstant
          %_9 = OpVariable %_8 UniformConstant
          %_11 = OpVariable %_10 Output
@@ -41,8 +40,8 @@
          %_19 = OpLoad %_5 %_9
          %_22 = OpConvertSToF %_3 %_21
          %_24 = OpCompositeConstruct %_23 %_17 %_22
-         %_26 = OpSampledImage %_25 %_18 %_19
-         %_28 = OpImageSampleDrefExplicitLod %_27 %_26 %_24 %_30 %_2 %_29
-               OpStore %_11 %_28
+         %_27 = OpSampledImage %_26 %_18 %_19
+         %_25 = OpImageSampleDrefExplicitLod %_3 %_27 %_24 %_29 %_2 %_28
+               OpStore %_11 %_25
                OpReturn
                OpFunctionEnd

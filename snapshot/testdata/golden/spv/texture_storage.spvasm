@@ -26,15 +26,15 @@
          %_12 = OpTypePointer Input %_6
          %_14 = OpTypeFunction %_2
          %_17 = OpTypePointer Function %_7
-         %_21 = OpConstant %_5 0
-         %_22 = OpTypePointer Input %_5
-         %_31 = OpConstant %_5 1
-         %_36 = OpConstantTrue %_7
-         %_41 = OpConstant %_5 0
-         %_48 = OpConstant %_5 1
-         %_58 = OpConstant %_3 1056964608
-         %_59 = OpConstant %_3 1065353216
-         %_62 = OpTypeVector %_5 2
+         %_20 = OpTypeVector %_5 2
+         %_22 = OpConstant %_5 0
+         %_23 = OpTypePointer Input %_5
+         %_32 = OpConstant %_5 1
+         %_37 = OpConstantTrue %_7
+         %_42 = OpConstant %_5 0
+         %_49 = OpConstant %_5 1
+         %_59 = OpConstant %_3 1056964608
+         %_60 = OpConstant %_3 1065353216
          %_64 = OpTypeInt 32 1
          %_65 = OpTypeVector %_64 2
          %_11 = OpVariable %_10 UniformConstant
@@ -43,53 +43,53 @@
          %_16 = OpLabel
          %_18 = OpVariable %_17 Function
          %_19 = OpLoad %_4 %_11
-         %_20 = OpImageQuerySize %_6 %_19
-         %_23 = OpAccessChain %_22 %_13 %_21
-         %_24 = OpLoad %_5 %_23
-         %_25 = OpCompositeExtract %_5 %_20 0
-         %_26 = OpLogicalEqual %_7 %_24 %_25
-         %_27 = OpIsFinite %_7 %_26
-               OpSelectionMerge %_30 0
-               OpBranchConditional %_27 %_28 %_29
-         %_28 = OpLabel
-         %_32 = OpAccessChain %_22 %_13 %_31
-         %_33 = OpLoad %_5 %_32
-         %_34 = OpCompositeExtract %_5 %_20 1
-         %_35 = OpLogicalEqual %_7 %_33 %_34
-               OpStore %_18 %_35
-               OpBranch %_30
+         %_21 = OpImageQuerySize %_20 %_19
+         %_24 = OpAccessChain %_23 %_13 %_22
+         %_25 = OpLoad %_5 %_24
+         %_26 = OpCompositeExtract %_5 %_21 0
+         %_27 = OpLogicalEqual %_7 %_25 %_26
+         %_28 = OpIsFinite %_7 %_27
+               OpSelectionMerge %_31 0
+               OpBranchConditional %_28 %_29 %_30
          %_29 = OpLabel
+         %_33 = OpAccessChain %_23 %_13 %_32
+         %_34 = OpLoad %_5 %_33
+         %_35 = OpCompositeExtract %_5 %_21 1
+         %_36 = OpLogicalEqual %_7 %_34 %_35
                OpStore %_18 %_36
-               OpBranch %_30
+               OpBranch %_31
          %_30 = OpLabel
-         %_37 = OpLoad %_7 %_18
-               OpSelectionMerge %_40 0
-               OpBranchConditional %_37 %_38 %_39
-         %_38 = OpLabel
-               OpReturn
+               OpStore %_18 %_37
+               OpBranch %_31
+         %_31 = OpLabel
+         %_38 = OpLoad %_7 %_18
+               OpSelectionMerge %_41 0
+               OpBranchConditional %_38 %_39 %_40
          %_39 = OpLabel
-               OpBranch %_40
+               OpReturn
          %_40 = OpLabel
-         %_42 = OpAccessChain %_22 %_13 %_41
-         %_43 = OpLoad %_5 %_42
-         %_44 = OpConvertUToF %_3 %_43
-         %_45 = OpCompositeExtract %_5 %_20 0
-         %_46 = OpConvertUToF %_3 %_45
-         %_47 = OpFDiv %_3 %_44 %_46
-         %_49 = OpAccessChain %_22 %_13 %_48
-         %_50 = OpLoad %_5 %_49
-         %_51 = OpConvertUToF %_3 %_50
-         %_52 = OpCompositeExtract %_5 %_20 1
-         %_53 = OpConvertUToF %_3 %_52
-         %_54 = OpFDiv %_3 %_51 %_53
-         %_55 = OpCompositeConstruct %_8 %_47 %_54
-         %_56 = OpCompositeExtract %_3 %_55 0
-         %_57 = OpCompositeExtract %_3 %_55 1
-         %_60 = OpCompositeConstruct %_9 %_56 %_57 %_58 %_59
-         %_61 = OpLoad %_6 %_13
-         %_63 = OpVectorShuffle %_62 %_61 %_61 0 1
+               OpBranch %_41
+         %_41 = OpLabel
+         %_43 = OpAccessChain %_23 %_13 %_42
+         %_44 = OpLoad %_5 %_43
+         %_45 = OpConvertUToF %_3 %_44
+         %_46 = OpCompositeExtract %_5 %_21 0
+         %_47 = OpConvertUToF %_3 %_46
+         %_48 = OpFDiv %_3 %_45 %_47
+         %_50 = OpAccessChain %_23 %_13 %_49
+         %_51 = OpLoad %_5 %_50
+         %_52 = OpConvertUToF %_3 %_51
+         %_53 = OpCompositeExtract %_5 %_21 1
+         %_54 = OpConvertUToF %_3 %_53
+         %_55 = OpFDiv %_3 %_52 %_54
+         %_56 = OpCompositeConstruct %_8 %_48 %_55
+         %_57 = OpCompositeExtract %_3 %_56 0
+         %_58 = OpCompositeExtract %_3 %_56 1
+         %_61 = OpCompositeConstruct %_9 %_57 %_58 %_59 %_60
+         %_62 = OpLoad %_6 %_13
+         %_63 = OpVectorShuffle %_20 %_62 %_62 0 1
          %_66 = OpBitcast %_65 %_63
          %_67 = OpLoad %_4 %_11
-               OpImageWrite %_67 %_66 %_60
+               OpImageWrite %_67 %_66 %_61
                OpReturn
                OpFunctionEnd

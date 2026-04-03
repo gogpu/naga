@@ -28,9 +28,9 @@
          %_5 = OpTypeBool
          %_6 = OpTypePointer Input %_3
          %_11 = OpTypeFunction %_2
-         %_17 = OpConstant %_3 2
-         %_18 = OpConstant %_3 2
-         %_19 = OpConstant %_3 8
+         %_17 = OpConstant %_3 3
+         %_18 = OpConstant %_3 3
+         %_19 = OpConstant %_3 136
          %_21 = OpConstant %_3 1
          %_23 = OpConstant %_3 1
          %_25 = OpTypeVector %_3 4

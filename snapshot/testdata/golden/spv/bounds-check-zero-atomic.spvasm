@@ -12,10 +12,10 @@
                OpExecutionMode %_139 LocalSize 1 1 1
                OpDecorate %_5 ArrayStride 4
                OpDecorate %_6 ArrayStride 4
+               OpDecorate %_7 Block
                OpMemberDecorate %_7 0 Offset 0
                OpMemberDecorate %_7 1 Offset 4
                OpMemberDecorate %_7 2 Offset 44
-               OpDecorate %_7 Block
                OpDecorate %_10 DescriptorSet 0
                OpDecorate %_10 Binding 0
          %_2 = OpTypeVoid

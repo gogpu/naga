@@ -149,6 +149,7 @@ const (
 	CapabilityGroupNonUniformQuad                Capability = 68   // quad operations
 	CapabilityGeometry                           Capability = 2    // Geometry shader
 	CapabilitySubgroupBallotKHR                  Capability = 4423 // KHR subgroup ballot
+	CapabilityInt64ImageEXT                      Capability = 5016 // 64-bit image types (SPV_EXT_shader_image_int64)
 )
 
 // Writer generates SPIR-V from IR.
@@ -580,9 +581,10 @@ const (
 	MemorySemanticsRelease             uint32 = 0x4
 	MemorySemanticsAcquireRelease      uint32 = 0x8
 	MemorySemanticsUniformMemory       uint32 = 0x40
+	MemorySemanticsSubgroupMemory      uint32 = 0x80
 	MemorySemanticsWorkgroupMemory     uint32 = 0x100
-	MemorySemanticsImageMemory         uint32 = 0x800
 	MemorySemanticsAtomicCounterMemory uint32 = 0x400
+	MemorySemanticsImageMemory         uint32 = 0x800
 )
 
 // Barrier opcodes
@@ -706,6 +708,8 @@ const (
 	ImageFormatRg8ui        ImageFormat = 37
 	ImageFormatR16ui        ImageFormat = 38
 	ImageFormatR8ui         ImageFormat = 39
+	ImageFormatR64ui        ImageFormat = 40
+	ImageFormatR64i         ImageFormat = 41
 )
 
 // GLSL.std.450 extended instruction set constants
@@ -889,6 +893,12 @@ func StorageFormatToImageFormat(format ir.StorageFormat) ImageFormat {
 		return ImageFormatRgba16
 	case ir.StorageFormatRgba16Snorm:
 		return ImageFormatRgba16Snorm
+
+	// 64-bit integer formats (SPV_EXT_shader_image_int64)
+	case ir.StorageFormatR64Uint:
+		return ImageFormatR64ui
+	case ir.StorageFormatR64Sint:
+		return ImageFormatR64i
 
 	default:
 		return ImageFormatUnknown

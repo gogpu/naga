@@ -41,7 +41,7 @@
          %_24 = OpTypeFunction %_2
          %_29 = OpConstant %_3 0
          %_30 = OpConstant %_3 1065353216
-         %_41 = OpTypeSampledImage %_7
+         %_42 = OpTypeSampledImage %_7
          %_45 = OpConstant %_3 0
          %_46 = OpTypeBool
          %_55 = OpConstant %_3 0
@@ -75,9 +75,9 @@
          %_38 = OpLoad %_7 %_11
          %_39 = OpLoad %_8 %_13
          %_40 = OpLoad %_4 %_21
-         %_42 = OpSampledImage %_41 %_38 %_39
-         %_43 = OpImageSampleImplicitLod %_5 %_42 %_40
-         %_44 = OpCompositeExtract %_3 %_43 3
+         %_43 = OpSampledImage %_42 %_38 %_39
+         %_41 = OpImageSampleImplicitLod %_5 %_43 %_40
+         %_44 = OpCompositeExtract %_3 %_41 3
          %_47 = OpIEqual %_46 %_44 %_45
                OpSelectionMerge %_50 0
                OpBranchConditional %_47 %_48 %_49
@@ -86,8 +86,8 @@
          %_49 = OpLabel
                OpBranch %_50
          %_50 = OpLabel
-         %_51 = OpCompositeExtract %_3 %_43 3
-         %_52 = OpVectorTimesScalar %_5 %_43 %_51
+         %_51 = OpCompositeExtract %_3 %_41 3
+         %_52 = OpVectorTimesScalar %_5 %_41 %_51
                OpStore %_22 %_52
                OpReturn
                OpFunctionEnd

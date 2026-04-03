@@ -12,13 +12,13 @@
                OpExecutionMode %_356 LocalSize 1 1 1
                OpDecorate %_6 ArrayStride 4
                OpDecorate %_9 ArrayStride 4
+               OpDecorate %_10 Block
                OpMemberDecorate %_10 0 Offset 0
                OpMemberDecorate %_10 1 Offset 48
                OpMemberDecorate %_10 2 Offset 64
                OpMemberDecorate %_10 2 ColMajor
                OpMemberDecorate %_10 2 MatrixStride 16
                OpMemberDecorate %_10 3 Offset 112
-               OpDecorate %_10 Block
                OpDecorate %_13 DescriptorSet 0
                OpDecorate %_13 Binding 0
          %_2 = OpTypeVoid
