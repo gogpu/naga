@@ -78,10 +78,18 @@ SPIR-V TestRustReference: 4/87 → 87/87 (100%).
 - **spirv-val target env** — Uses spv1.6 for general SPIR-V correctness
   validation, with --uniform-buffer-standard-layout for std430 matrix stride.
 
+- **Pointer function arguments** — Copy-in/copy-out (spill) pattern for passing
+  OpAccessChain results to OpFunctionCall. SPIR-V requires memory object declarations
+  (OpVariable/OpFunctionParameter) as pointer arguments. (3 shaders)
+
+- **Image Lod float conversion** — SPIR-V ExplicitLod requires float Lod operand.
+  Integer level converted via OpConvertSToF/OpConvertUToF. (2 shaders)
+
+- **Binding arrays RuntimeArray** — Proper wrapping in Block-decorated struct. (1 shader)
+
 ### Known Issues
 
-- **6 SPIR-V binary validation failures** remain: ConstOffset not const object (2),
-  binding-arrays RuntimeArray (1), pointer-function-arg (3, known SPIR-V limitation).
+- **0 SPIR-V binary validation failures.** All 148 compilable shaders pass spirv-val.
 
 - **16 SPIR-V compile failures**: unimplemented features (mesh shaders, overrides,
   image atomics, bit manipulation, workgroup uniform load). Tracked as backlog.

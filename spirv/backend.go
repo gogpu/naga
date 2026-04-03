@@ -3373,6 +3373,84 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 	return id, nil
 }
 
+// emitConstExpression emits an expression as a SPIR-V constant (in the declarations section).
+// This is required for SPIR-V operands that must be constant, such as ConstOffset for image sampling.
+// WGSL guarantees texture offsets are const-expressions, so this handles Literal, Compose of constants,
+// ZeroValue, and Constant expression kinds.
+func (e *ExpressionEmitter) emitConstExpression(handle ir.ExpressionHandle) (uint32, error) {
+	// NOTE: We intentionally do NOT check the expression cache here.
+	// The cache may contain a runtime OpCompositeConstruct ID for the same expression
+	// if it was previously emitted via emitExpression. For SPIR-V ConstOffset operands,
+	// we must produce OpConstantComposite (in the declarations section), so we always
+	// emit fresh constants. Literals and scalar constants are already deduplicated
+	// by the builder's AddConstant methods.
+
+	expr := &e.function.Expressions[handle]
+	var id uint32
+	var err error
+
+	switch kind := expr.Kind.(type) {
+	case ir.Literal:
+		// Literals already emit as constants
+		id, err = e.emitLiteral(kind.Value)
+	case ir.ExprConstant:
+		return e.emitConstantRef(kind)
+	case ir.ExprZeroValue:
+		typeID, zErr := e.backend.emitType(kind.Type)
+		if zErr != nil {
+			return 0, fmt.Errorf("zero value type: %w", zErr)
+		}
+		id = e.backend.builder.AddConstantNull(typeID)
+	case ir.ExprCompose:
+		typeID, tErr := e.backend.emitType(kind.Type)
+		if tErr != nil {
+			return 0, tErr
+		}
+		componentIDs := make([]uint32, len(kind.Components))
+		for i, component := range kind.Components {
+			componentIDs[i], err = e.emitConstExpression(component)
+			if err != nil {
+				return 0, err
+			}
+		}
+		id = e.backend.builder.AddConstantComposite(typeID, componentIDs...)
+	case ir.ExprSplat:
+		// Splat as constant composite
+		valueType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, kind.Value)
+		if rErr != nil {
+			return 0, fmt.Errorf("splat value type: %w", rErr)
+		}
+		var scalar ir.ScalarType
+		inner := ir.TypeResInner(e.backend.module, valueType)
+		if s, ok := inner.(ir.ScalarType); ok {
+			scalar = s
+		} else {
+			return 0, fmt.Errorf("splat value must be scalar, got %T", inner)
+		}
+		scalarID := e.backend.emitScalarType(scalar)
+		typeID := e.backend.emitVectorType(scalarID, uint32(kind.Size))
+		valueID, vErr := e.emitConstExpression(kind.Value)
+		if vErr != nil {
+			return 0, vErr
+		}
+		n := int(kind.Size)
+		componentIDs := make([]uint32, n)
+		for i := 0; i < n; i++ {
+			componentIDs[i] = valueID
+		}
+		id = e.backend.builder.AddConstantComposite(typeID, componentIDs...)
+	default:
+		// Fallback to runtime emission for unsupported const expression kinds
+		return e.emitExpression(handle)
+	}
+
+	if err != nil {
+		return 0, err
+	}
+	e.exprIDs[handle] = id
+	return id, nil
+}
+
 // emitLiteral emits a literal value.
 func (e *ExpressionEmitter) emitLiteral(value ir.LiteralValue) (uint32, error) {
 	switch v := value.(type) {
@@ -6585,17 +6663,35 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		}
 	}
 
-	// For Dref operations, result type is scalar f32 (SPIR-V spec requirement).
-	// For non-Dref depth images without gather, we sample as vec4 then extract component 0.
-	// For everything else, result type is vec4<f32>.
+	// Determine the proper result type for the sample operation.
+	// Rust naga (image.rs line 830): if needs_sub_access, use vec4<f32>;
+	// otherwise, use the expression's result type (result_type_id).
+	// - Dref sampling (non-Gather) → scalar f32
+	// - Depth image without Dref/Gather → vec4<f32> (then extract component 0)
+	// - Everything else → use the actual result type (vec4<f32>, vec4<u32>, vec4<i32>, etc.)
 	needsSubAccess := isDepthImage && sample.DepthRef == nil && sample.Gather == nil
 	var sampleResultType uint32
-	if sample.DepthRef != nil {
-		// Dref sampling → scalar f32 result
+	if sample.DepthRef != nil && sample.Gather == nil {
+		// Dref sampling (non-Gather) → scalar f32 result
 		sampleResultType = e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-	} else {
-		// Non-Dref → vec4<f32> result (even for depth, we extract later)
+	} else if needsSubAccess {
+		// Depth image without Dref or Gather → sample as vec4<f32>, extract later
 		sampleResultType = e.backend.emitVec4F32Type()
+	} else {
+		// Use the image's sampled type to build the correct vec4 result type.
+		// For float images → vec4<f32>, for uint → vec4<u32>, for int → vec4<i32>.
+		sampleResultType = e.backend.emitVec4F32Type() // default
+		if resolveErr == nil {
+			inner := typeResolutionInner(e.backend.module, exprType)
+			if imgType, ok := inner.(ir.ImageType); ok {
+				if imgType.Class == ir.ImageClassSampled {
+					texelScalar := ir.ScalarType{Kind: imgType.SampledKind, Width: 4}
+					scalarID := e.backend.emitScalarType(texelScalar)
+					sampleResultType = e.backend.emitVectorType(scalarID, 4)
+				}
+				// For depth/external/storage, vec4<f32> is correct
+			}
+		}
 	}
 	resultType := sampleResultType
 	resultID := e.backend.builder.AllocID()
@@ -6640,7 +6736,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 
 		// Append optional image operands (Offset)
 		if sample.Offset != nil {
-			offsetID, offsetErr := e.emitExpression(*sample.Offset)
+			offsetID, offsetErr := e.emitConstExpression(*sample.Offset)
 			if offsetErr != nil {
 				return 0, offsetErr
 			}
@@ -6663,7 +6759,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	var imageOperandMask uint32
 	var imageOperandValues []uint32
 	if sample.Offset != nil {
-		offsetID, offsetErr := e.emitExpression(*sample.Offset)
+		offsetID, offsetErr := e.emitConstExpression(*sample.Offset)
 		if offsetErr != nil {
 			return 0, offsetErr
 		}
@@ -6702,6 +6798,29 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		levelID, levelErr := e.emitExpression(level.Level)
 		if levelErr != nil {
 			return 0, levelErr
+		}
+		// SPIR-V requires the Lod operand to be float for ExplicitLod.
+		// For depth images, the WGSL Lod is integer (i32/u32), so we must convert.
+		// Matches Rust naga image.rs line 1010-1044.
+		if isDepthImage {
+			lodType, lodErr := ir.ResolveExpressionType(e.backend.module, e.function, level.Level)
+			if lodErr == nil {
+				lodInner := ir.TypeResInner(e.backend.module, lodType)
+				if sc, ok := lodInner.(ir.ScalarType); ok && (sc.Kind == ir.ScalarSint || sc.Kind == ir.ScalarUint) {
+					f32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+					convertedID := e.backend.builder.AllocID()
+					convertOp := OpConvertSToF
+					if sc.Kind == ir.ScalarUint {
+						convertOp = OpConvertUToF
+					}
+					ib := e.newIB()
+					ib.AddWord(f32TypeID)
+					ib.AddWord(convertedID)
+					ib.AddWord(levelID)
+					e.backend.builder.funcAppend(ib.Build(convertOp))
+					levelID = convertedID
+				}
+			}
 		}
 		imageOperandMask |= 0x02 // ImageOperands::Lod
 		builder.AddWord(imageOperandMask)
@@ -7925,8 +8044,47 @@ func (e *ExpressionEmitter) emitImageStore(store ir.StmtImageStore) error {
 	return nil
 }
 
+// spilledPointerArg tracks a pointer argument that was spilled to a temporary
+// variable for an OpFunctionCall. After the call, we must write-back from the
+// temp to the original location (copy-out).
+type spilledPointerArg struct {
+	tempVarID     uint32 // OpVariable in Function storage
+	originalPtrID uint32 // original OpAccessChain result (or similar)
+	pointeeTypeID uint32 // the pointee type (for OpLoad)
+}
+
+// isMemoryObjectDeclaration returns true if the expression produces a SPIR-V
+// memory object declaration (OpVariable or OpFunctionParameter), which can be
+// passed directly as pointer arguments to OpFunctionCall.
+// Returns false for OpAccessChain results (ExprAccess, ExprAccessIndex) which
+// are NOT valid pointer operands per the SPIR-V spec.
+func (e *ExpressionEmitter) isMemoryObjectDeclaration(handle ir.ExpressionHandle) bool {
+	expr := e.function.Expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		return true
+	case ir.ExprGlobalVariable:
+		return true
+	case ir.ExprFunctionArgument:
+		return true
+	case ir.ExprLoad:
+		// ExprLoad chains through -- check the underlying pointer
+		return e.isMemoryObjectDeclaration(k.Pointer)
+	default:
+		return false
+	}
+}
+
 // emitCall emits a function call statement (OpFunctionCall).
 // If the call has a result, the SPIR-V result ID is cached for later ExprCallResult lookup.
+//
+// For pointer parameters whose arguments are not memory object declarations
+// (e.g. OpAccessChain results from array/struct indexing), we use the
+// copy-in/copy-out (spill) pattern:
+//  1. Create a temporary OpVariable in Function storage
+//  2. OpLoad from the original location and OpStore into the temp
+//  3. Pass the temp variable to OpFunctionCall
+//  4. After the call, OpLoad from temp and OpStore back (write-back)
 func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 	// Look up the SPIR-V function ID
 	funcID, ok := e.backend.functionIDs[call.Function]
@@ -7939,13 +8097,18 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 	// For value parameters, pass the loaded value (emitExpression).
 	targetFn := e.backend.module.Functions[call.Function]
 	argIDs := make([]uint32, 0, len(call.Arguments))
+	var spills []spilledPointerArg
 	for i, arg := range call.Arguments {
 		// Check if the corresponding parameter expects a pointer type
+		var ptrType ir.PointerType
 		isPointerParam := false
 		if i < len(targetFn.Arguments) {
 			paramType := e.backend.module.Types[targetFn.Arguments[i].Type].Inner
-			switch paramType.(type) {
-			case ir.PointerType, ir.ValuePointerType:
+			switch pt := paramType.(type) {
+			case ir.PointerType:
+				isPointerParam = true
+				ptrType = pt
+			case ir.ValuePointerType:
 				isPointerParam = true
 			}
 		}
@@ -7954,11 +8117,48 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 		var err error
 		if isPointerParam {
 			argID, err = e.emitPointerExpression(arg)
+			if err != nil {
+				return fmt.Errorf("call argument: %w", err)
+			}
+
+			// Check if this pointer is a memory object declaration.
+			// If not (e.g. OpAccessChain from array indexing), we must spill
+			// to a temporary variable per the SPIR-V spec.
+			if !e.isMemoryObjectDeclaration(arg) {
+				// Get the pointee type ID
+				pointeeTypeID, typeErr := e.backend.emitType(ptrType.Base)
+				if typeErr != nil {
+					return fmt.Errorf("call spill pointee type: %w", typeErr)
+				}
+
+				// Create a Function-scope temporary variable
+				ptrTypeID := e.backend.emitPointerType(StorageClassFunction, pointeeTypeID)
+				tempVarID := e.backend.builder.AllocID()
+				ib := e.newIB()
+				ib.AddWord(ptrTypeID)
+				ib.AddWord(tempVarID)
+				ib.AddWord(uint32(StorageClassFunction))
+				e.funcBuilder.Variables = append(e.funcBuilder.Variables, ib.Build(OpVariable))
+
+				// Copy-in: OpLoad from original, OpStore to temp
+				loadedValue := e.backend.builder.AddLoad(pointeeTypeID, argID)
+				e.backend.builder.AddStore(tempVarID, loadedValue)
+
+				// Track for write-back after the call
+				spills = append(spills, spilledPointerArg{
+					tempVarID:     tempVarID,
+					originalPtrID: argID,
+					pointeeTypeID: pointeeTypeID,
+				})
+
+				// Use temp variable as the argument
+				argID = tempVarID
+			}
 		} else {
 			argID, err = e.emitExpression(arg)
-		}
-		if err != nil {
-			return fmt.Errorf("call argument: %w", err)
+			if err != nil {
+				return fmt.Errorf("call argument: %w", err)
+			}
 		}
 		argIDs = append(argIDs, argID)
 	}
@@ -7986,6 +8186,13 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 		builder.AddWord(argID)
 	}
 	e.backend.builder.funcAppend(builder.Build(OpFunctionCall))
+
+	// Copy-out (write-back): for each spilled pointer argument, load from
+	// the temp variable and store back to the original location.
+	for _, spill := range spills {
+		wb := e.backend.builder.AddLoad(spill.pointeeTypeID, spill.tempVarID)
+		e.backend.builder.AddStore(spill.originalPtrID, wb)
+	}
 
 	// Cache the result ID for ExprCallResult and handle deferred stores.
 	if call.Result != nil {
