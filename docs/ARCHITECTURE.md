@@ -300,10 +300,11 @@ StmtCall             — Function call as statement (no return value used)
 
 **Files:** `spirv/backend.go`, `spirv/writer.go`, `spirv/block.go`, `spirv/ray_query.go`
 
-The SPIR-V backend produces binary bytecode for Vulkan (**87/87 exact Rust naga parity**).
-It uses a **Block Ownership Model** (matching Rust naga) where each basic block is a
-first-class `Block` struct consumed by `FunctionBuilder`. This prevents instruction
-interleaving bugs and provides structural guarantees for control flow correctness.
+The SPIR-V backend produces binary bytecode for Vulkan (**87/87 exact Rust naga parity,
+164/164 pass spirv-val binary validation**). It uses a **Block Ownership Model** (matching
+Rust naga) where each basic block is a first-class `Block` struct consumed by
+`FunctionBuilder`. This prevents instruction interleaving bugs and provides structural
+guarantees for control flow correctness.
 
 ### SPIR-V Module Layout
 
@@ -348,6 +349,14 @@ Sections (strict ordering per spec):
 - **Capability-Aware Emission:** Polyfills for missing capabilities (e.g., dot4 without DotProduct)
 - **f16 I/O Polyfill:** Bitcast-based conversion for f16 entry point interface variables
 - **Composite Spilling:** By-value dynamic indexing spills composites to local variables
+- **Pointer Function Args:** Copy-in/copy-out spill pattern for OpAccessChain results passed to OpFunctionCall (SPIR-V requires memory object declarations)
+- **Integer Dot Product:** Manual expansion (extract + IMul + IAdd) when OpDot is not available for integer vectors
+- **Matrix Add/Sub:** Column-wise decomposition (SPIR-V FAdd/FSub don't support matrix types)
+- **Integer Vec×Scalar:** Scalar splatting before OpIMul (SPIR-V requires matching types)
+- **Mesh Shaders:** MeshEXT/TaskEXT execution models with SPV_EXT_mesh_shader extension
+- **Pipeline Overrides:** OpSpecConstant/OpSpecConstantComposite with SpecId decoration
+- **Image Atomics:** OpImageTexelPointer + standard atomic ops on texel pointers
+- **Pack/Unpack 4×8-bit:** Shift+mask polyfill for pack4xI8/U8 and unpack4xI8/U8
 
 ## Text Backends (MSL, GLSL, HLSL)
 
@@ -426,7 +435,8 @@ and eliminates redundant type definitions across all backends.
 
 | Category | Count | Approach |
 |----------|-------|----------|
-| **Snapshot Tests** | 164 | WGSL → 4 backends, 994 golden output files |
+| **Snapshot Tests** | 164 | WGSL → 4 backends, 994+ golden output files |
+| **SPIR-V Validation** | 164/164 | All shaders pass spirv-val binary validation (100%) |
 | **Rust Reference** | 5-layer 100% | IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58 |
 | **SPIR-V Unit Tests** | 200+ | Shader, loop, if/else, vello, block model, ray query |
 | **Backend Tests** | 50+ | GLSL, HLSL, MSL per-feature golden tests |
@@ -448,7 +458,8 @@ suite are included as snapshot tests. Coverage includes:
 | Ray tracing | ray-query (4 variants), acceleration structures |
 | Advanced | overrides, binding-arrays, bounds-check (7 variants), mesh-shader (4 variants) |
 
-All 144 shaders compile across all four backends with exact Rust naga output parity: SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58.
+All 164 shaders compile to SPIR-V and pass spirv-val binary validation (100%).
+Golden output parity with Rust naga: SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58.
 
 ## Key Design Decisions
 
