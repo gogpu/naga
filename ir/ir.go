@@ -491,6 +491,16 @@ func (f StorageFormat) ScalarKind() ScalarKind {
 	}
 }
 
+// Scalar returns the full ScalarType (kind + width) for this storage format.
+// Width is 8 for R64Uint/R64Sint, 4 for all other formats.
+func (f StorageFormat) Scalar() ScalarType {
+	width := uint8(4)
+	if f == StorageFormatR64Uint || f == StorageFormatR64Sint {
+		width = 8
+	}
+	return ScalarType{Kind: f.ScalarKind(), Width: width}
+}
+
 // StorageAccess represents access modes for storage textures.
 type StorageAccess uint8
 

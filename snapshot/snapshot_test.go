@@ -125,7 +125,19 @@ func TestRustReference(t *testing.T) {
 					t.Skip("spirv-dis not found in PATH")
 				}
 				spvOpts := readRustSPVConfig(shader.name)
-				spvBytes := compileSPIRVWithOpts(t, module, spvOpts)
+				// Process pipeline overrides before SPIR-V compilation
+				// (Rust test driver calls process_overrides for all backends)
+				spvModule := module
+				spvPipelineConstants := readSPVPipelineConstants(shader.name)
+				if len(spvPipelineConstants) > 0 {
+					spvModule = ir.CloneModuleForOverrides(module)
+					if err := ir.ProcessOverrides(spvModule, spvPipelineConstants); err != nil {
+						spvFail++
+						t.Errorf("ProcessOverrides failed: %v", err)
+						return
+					}
+				}
+				spvBytes := compileSPIRVWithOpts(t, spvModule, spvOpts)
 
 				// Write binary to temp file and disassemble with spirv-dis
 				tmpFile, tmpErr := os.CreateTemp("", "spirv-cmp-*.spv")
@@ -546,6 +558,17 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 	opts.BoundsCheckPolicies = parseSPVBoundsCheckPolicies(content)
 
 	return opts
+}
+
+// readSPVPipelineConstants reads pipeline_constants from a Rust TOML config.
+// Used to process overrides before SPIR-V compilation (same as Rust test driver).
+func readSPVPipelineConstants(shaderName string) ir.PipelineConstants {
+	tomlPath := filepath.Join(rustTomlDir, shaderName+".toml")
+	data, err := os.ReadFile(tomlPath)
+	if err != nil {
+		return nil
+	}
+	return ir.PipelineConstants(parsePipelineConstants(string(data)))
 }
 
 // spvCapabilityByName maps SPIR-V capability names (as used in Rust TOML configs)

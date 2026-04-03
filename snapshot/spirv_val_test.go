@@ -10,6 +10,7 @@
 package snapshot_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/ir"
 )
 
 // TestSpirvValBinary validates binary SPIR-V output from our naga compiler using spirv-val.
@@ -416,7 +419,8 @@ func compileWGSLToSPIRVBytes(name, source string) ([]byte, error) {
 	// We reuse the same approach as snapshot_test.go:
 	// 1. Tokenize + Parse
 	// 2. Lower to IR
-	// 3. Generate SPIR-V binary
+	// 3. Process overrides if pipeline_constants present (matches Rust test driver)
+	// 4. Generate SPIR-V binary
 	// We skip IR validation to match what the snapshot test does (it skips on compile error).
 
 	ast, err := parseWGSL(source)
@@ -427,6 +431,16 @@ func compileWGSLToSPIRVBytes(name, source string) ([]byte, error) {
 	module, err := lowerToIR(ast, source)
 	if err != nil {
 		return nil, err
+	}
+
+	// Process pipeline overrides before SPIR-V compilation
+	// (Rust test driver calls process_overrides for all backends)
+	pipelineConstants := readSPVPipelineConstants(name)
+	if len(pipelineConstants) > 0 {
+		module = ir.CloneModuleForOverrides(module)
+		if err := ir.ProcessOverrides(module, pipelineConstants); err != nil {
+			return nil, fmt.Errorf("ProcessOverrides failed: %w", err)
+		}
 	}
 
 	return generateSPIRVBinary(module)

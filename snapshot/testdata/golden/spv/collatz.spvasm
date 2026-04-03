@@ -11,8 +11,8 @@
                OpEntryPoint GLCompute %_89 "main" %_10
                OpExecutionMode %_89 LocalSize 1 1 1
                OpDecorate %_4 ArrayStride 4
-               OpMemberDecorate %_5 0 Offset 0
                OpDecorate %_5 Block
+               OpMemberDecorate %_5 0 Offset 0
                OpDecorate %_8 DescriptorSet 0
                OpDecorate %_8 Binding 0
                OpDecorate %_10 BuiltIn GlobalInvocationId

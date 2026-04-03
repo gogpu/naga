@@ -1,0 +1,79 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 52
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_14 "test_workgroupUniformLoad" %_12 %_16
+               OpExecutionMode %_14 LocalSize 4 1 1
+               OpDecorate %_6 ArrayStride 4
+               OpDecorate %_12 BuiltIn WorkgroupId
+               OpDecorate %_16 BuiltIn LocalInvocationId
+         %_2 = OpTypeVoid
+         %_3 = OpTypeInt 32 0
+         %_4 = OpTypeInt 32 1
+         %_5 = OpConstant %_3 128
+         %_6 = OpTypeArray %_4 %_5
+         %_7 = OpTypeVector %_3 3
+         %_8 = OpConstant %_3 128
+         %_9 = OpTypePointer Workgroup %_6
+         %_11 = OpTypePointer Input %_7
+         %_13 = OpTypeFunction %_2
+         %_18 = OpTypeBool
+         %_19 = OpTypeVector %_18 3
+         %_20 = OpConstantNull %_7
+         %_25 = OpConstantNull %_6
+         %_26 = OpConstant %_3 2
+         %_27 = OpConstant %_3 264
+         %_29 = OpConstant %_3 0
+         %_30 = OpTypePointer Input %_3
+         %_33 = OpTypePointer Workgroup %_4
+         %_36 = OpConstant %_3 2
+         %_37 = OpConstant %_3 2
+         %_38 = OpConstant %_3 264
+         %_41 = OpConstant %_3 2
+         %_42 = OpConstant %_3 2
+         %_43 = OpConstant %_3 264
+         %_44 = OpConstant %_4 10
+         %_49 = OpConstant %_3 2
+         %_50 = OpConstant %_3 2
+         %_51 = OpConstant %_3 264
+         %_10 = OpVariable %_9 Workgroup
+         %_12 = OpVariable %_11 Input
+         %_16 = OpVariable %_11 Input
+         %_14 = OpFunction %_2 None %_13
+         %_15 = OpLabel
+         %_17 = OpLoad %_7 %_16
+         %_21 = OpSignBitSet %_19 %_17 %_20
+         %_22 = Op155 %_18 %_21
+               OpSelectionMerge %_23 0
+               OpBranchConditional %_22 %_24 %_23
+         %_24 = OpLabel
+               OpStore %_10 %_25
+               OpBranch %_23
+         %_23 = OpLabel
+         OpControlBarrier %_26 %_26 %_27
+               OpBranch %_28
+         %_28 = OpLabel
+         %_31 = OpAccessChain %_30 %_12 %_29
+         %_32 = OpLoad %_3 %_31
+         %_34 = OpAccessChain %_33 %_10 %_32
+         %_35 = OpLoad %_4 %_34
+         OpControlBarrier %_36 %_37 %_38
+         %_39 = OpAccessChain %_33 %_10 %_32
+         %_40 = OpLoad %_4 %_39
+         OpControlBarrier %_41 %_42 %_43
+         %_45 = OpUnordered %_18 %_40 %_44
+               OpSelectionMerge %_48 0
+               OpBranchConditional %_45 %_46 %_47
+         %_46 = OpLabel
+         OpControlBarrier %_49 %_50 %_51
+               OpReturn
+         %_47 = OpLabel
+               OpReturn
+         %_48 = OpLabel
+               OpUnreachable
+               OpFunctionEnd

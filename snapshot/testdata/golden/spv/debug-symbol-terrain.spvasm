@@ -17,7 +17,9 @@
                OpExecutionMode %_733 OriginUpperLeft
                OpExecutionMode %_943 OriginUpperLeft
                OpDecorate %_14 ArrayStride 32
+               OpDecorate %_15 Block
                OpDecorate %_16 ArrayStride 4
+               OpDecorate %_17 Block
                OpMemberDecorate %_12 0 Offset 0
                OpMemberDecorate %_12 1 Offset 8
                OpMemberDecorate %_12 2 Offset 16
@@ -48,10 +50,8 @@
                OpMemberDecorate %_28 0 Offset 0
                OpDecorate %_30 DescriptorSet 0
                OpDecorate %_30 Binding 0
-               OpDecorate %_15 Block
                OpDecorate %_32 DescriptorSet 0
                OpDecorate %_32 Binding 1
-               OpDecorate %_17 Block
                OpDecorate %_34 DescriptorSet 0
                OpDecorate %_34 Binding 2
                OpDecorate %_35 Block

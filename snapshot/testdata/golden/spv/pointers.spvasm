@@ -11,8 +11,8 @@
                OpEntryPoint GLCompute %_74 "main"
                OpExecutionMode %_74 LocalSize 1 1 1
                OpDecorate %_7 ArrayStride 4
-               OpMemberDecorate %_8 0 Offset 0
                OpDecorate %_8 Block
+               OpMemberDecorate %_8 0 Offset 0
                OpDecorate %_11 DescriptorSet 0
                OpDecorate %_11 Binding 0
          %_2 = OpTypeVoid

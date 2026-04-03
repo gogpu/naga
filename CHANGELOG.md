@@ -87,12 +87,30 @@ SPIR-V TestRustReference: 4/87 → 87/87 (100%).
 
 - **Binding arrays RuntimeArray** — Proper wrapping in Block-decorated struct. (1 shader)
 
+- **Mesh shaders** — MeshEXT/TaskEXT execution models, SPV_EXT_mesh_shader
+  extension, OutputVertices/OutputPrimitivesEXT execution modes. (4 shaders)
+
+- **Pipeline overrides (OpSpecConstant)** — ExprOverride expressions emitted as
+  OpSpecConstant/OpSpecConstantComposite with SpecId decoration. (3 shaders)
+
+- **Image atomics (OpImageTexelPointer)** — StmtImageAtomic emits
+  OpImageTexelPointer then standard atomic ops on the texel pointer. (2 shaders)
+
+- **WorkGroupUniformLoad** — Emitted as ControlBarrier + OpLoad + ControlBarrier
+  matching Rust naga's pattern. (1 shader)
+
+- **Pack4xI8/U8/Clamp + Unpack4xI8/U8** — Shift+mask pack/unpack polyfills
+  for 4×8-bit integer packing. (5 shaders)
+
+- **ProcessOverrides remap fixes** — StmtAtomic.Compare and StmtRayQuery
+  fields now correctly remapped during override processing. (2 shaders)
+
 ### Known Issues
 
-- **0 SPIR-V binary validation failures.** All 148 compilable shaders pass spirv-val.
+- **0 SPIR-V binary validation failures.** All 164 shaders compile and pass spirv-val.
 
-- **16 SPIR-V compile failures**: unimplemented features (mesh shaders, overrides,
-  image atomics, bit manipulation, workgroup uniform load). Tracked as backlog.
+- **3 SPIR-V structural differences** from Rust reference (Int8 capability,
+  decoration counts) — not validation or compilation issues.
 
 ## [0.16.0] - 2026-04-02
 

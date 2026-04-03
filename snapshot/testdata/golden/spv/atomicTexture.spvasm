@@ -1,7 +1,7 @@
 ; SPIR-V
-; Version: 1.3
+; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 90
+; Bound: 128
 ; Schema: 0
 
                OpCapability Shader
@@ -9,8 +9,8 @@
                OpMemoryModel Logical GLSL450
                OpEntryPoint GLCompute %_16 "cs_main" %_14
                OpExecutionMode %_16 LocalSize 2 1 1
-               OpDecorate %_11 DescriptorSet 0
-               OpDecorate %_11 Binding 0
+               OpDecorate %_10 DescriptorSet 0
+               OpDecorate %_10 Binding 0
                OpDecorate %_12 DescriptorSet 0
                OpDecorate %_12 Binding 1
                OpDecorate %_14 BuiltIn LocalInvocationId
@@ -18,89 +18,127 @@
          %_3 = OpTypeInt 32 0
          %_4 = OpTypeImage %_3 2D 0 0 0 2 Unknown 33
          %_5 = OpTypeInt 32 1
-         %_6 = OpTypeVector %_3 3
-         %_7 = OpTypeFloat 32
-         %_8 = OpTypeImage %_7 2D 0 0 0 1 Unknown
-         %_9 = OpTypeVector %_5 2
-         %_10 = OpTypePointer UniformConstant %_4
-         %_13 = OpTypePointer Input %_6
+         %_6 = OpTypeImage %_5 2D 0 0 0 2 Unknown 24
+         %_7 = OpTypeVector %_3 3
+         %_8 = OpTypeVector %_5 2
+         %_9 = OpTypePointer UniformConstant %_4
+         %_11 = OpTypePointer UniformConstant %_6
+         %_13 = OpTypePointer Input %_7
          %_15 = OpTypeFunction %_2
          %_18 = OpConstant %_5 0
          %_19 = OpConstant %_5 0
-         %_22 = OpConstant %_3 1
-         %_24 = OpConstant %_5 0
-         %_25 = OpConstant %_5 0
-         %_28 = OpConstant %_3 1
-         %_30 = OpConstant %_5 0
-         %_31 = OpConstant %_5 0
-         %_34 = OpConstant %_3 1
-         %_36 = OpConstant %_5 0
+         %_21 = OpTypePointer Image %_3
+         %_22 = OpConstant %_3 0
+         %_24 = OpConstant %_5 1
+         %_25 = OpConstant %_3 0
+         %_26 = OpConstant %_3 1
+         %_28 = OpConstant %_5 0
+         %_29 = OpConstant %_5 0
+         %_31 = OpConstant %_3 0
+         %_33 = OpConstant %_5 1
+         %_34 = OpConstant %_3 0
+         %_35 = OpConstant %_3 1
          %_37 = OpConstant %_5 0
-         %_40 = OpConstant %_3 1
-         %_42 = OpConstant %_5 0
-         %_43 = OpConstant %_5 0
-         %_46 = OpConstant %_3 1
-         %_48 = OpConstant %_5 0
-         %_49 = OpConstant %_5 0
-         %_52 = OpConstant %_3 1
-         %_54 = OpConstant %_5 0
+         %_38 = OpConstant %_5 0
+         %_40 = OpConstant %_3 0
+         %_42 = OpConstant %_5 1
+         %_43 = OpConstant %_3 0
+         %_44 = OpConstant %_3 1
+         %_46 = OpConstant %_5 0
+         %_47 = OpConstant %_5 0
+         %_49 = OpConstant %_3 0
+         %_51 = OpConstant %_5 1
+         %_52 = OpConstant %_3 0
+         %_53 = OpConstant %_3 1
          %_55 = OpConstant %_5 0
-         %_58 = OpConstant %_5 1
-         %_60 = OpConstant %_5 0
-         %_61 = OpConstant %_5 0
-         %_64 = OpConstant %_5 1
-         %_66 = OpConstant %_5 0
-         %_67 = OpConstant %_5 0
-         %_70 = OpConstant %_5 1
-         %_72 = OpConstant %_5 0
+         %_56 = OpConstant %_5 0
+         %_58 = OpConstant %_3 0
+         %_60 = OpConstant %_5 1
+         %_61 = OpConstant %_3 0
+         %_62 = OpConstant %_3 1
+         %_64 = OpConstant %_5 0
+         %_65 = OpConstant %_5 0
+         %_67 = OpConstant %_3 0
+         %_69 = OpConstant %_5 1
+         %_70 = OpConstant %_3 0
+         %_71 = OpConstant %_3 1
          %_73 = OpConstant %_5 0
-         %_76 = OpConstant %_5 1
-         %_78 = OpConstant %_5 0
-         %_79 = OpConstant %_5 0
-         %_82 = OpConstant %_5 1
+         %_74 = OpConstant %_5 0
+         %_76 = OpTypePointer Image %_5
+         %_77 = OpConstant %_3 0
+         %_79 = OpConstant %_5 1
+         %_80 = OpConstant %_3 0
+         %_81 = OpConstant %_5 1
+         %_83 = OpConstant %_5 0
          %_84 = OpConstant %_5 0
-         %_85 = OpConstant %_5 0
+         %_86 = OpConstant %_3 0
          %_88 = OpConstant %_5 1
-         %_11 = OpVariable %_10 UniformConstant
-         %_12 = OpVariable %_10 UniformConstant
+         %_89 = OpConstant %_3 0
+         %_90 = OpConstant %_5 1
+         %_92 = OpConstant %_5 0
+         %_93 = OpConstant %_5 0
+         %_95 = OpConstant %_3 0
+         %_97 = OpConstant %_5 1
+         %_98 = OpConstant %_3 0
+         %_99 = OpConstant %_5 1
+         %_101 = OpConstant %_5 0
+         %_102 = OpConstant %_5 0
+         %_104 = OpConstant %_3 0
+         %_106 = OpConstant %_5 1
+         %_107 = OpConstant %_3 0
+         %_108 = OpConstant %_5 1
+         %_110 = OpConstant %_5 0
+         %_111 = OpConstant %_5 0
+         %_113 = OpConstant %_3 0
+         %_115 = OpConstant %_5 1
+         %_116 = OpConstant %_3 0
+         %_117 = OpConstant %_5 1
+         %_119 = OpConstant %_5 0
+         %_120 = OpConstant %_5 0
+         %_122 = OpConstant %_3 0
+         %_124 = OpConstant %_5 1
+         %_125 = OpConstant %_3 0
+         %_126 = OpConstant %_5 1
+         %_10 = OpVariable %_9 UniformConstant
+         %_12 = OpVariable %_11 UniformConstant
          %_14 = OpVariable %_13 Input
          %_16 = OpFunction %_2 None %_15
          %_17 = OpLabel
-         %_20 = OpCompositeConstruct %_9 %_18 %_19
-         %_21 = OpLoad %_4 %_11
-         %_23 = OpCompositeConstruct %_8 %_21 %_20 %_22
-         %_26 = OpCompositeConstruct %_9 %_24 %_25
-         %_27 = OpLoad %_4 %_11
-         %_29 = OpCompositeConstruct %_8 %_27 %_26 %_28
-         %_32 = OpCompositeConstruct %_9 %_30 %_31
-         %_33 = OpLoad %_4 %_11
-         %_35 = OpCompositeConstruct %_8 %_33 %_32 %_34
-         %_38 = OpCompositeConstruct %_9 %_36 %_37
-         %_39 = OpLoad %_4 %_11
-         %_41 = OpCompositeConstruct %_8 %_39 %_38 %_40
-         %_44 = OpCompositeConstruct %_9 %_42 %_43
-         %_45 = OpLoad %_4 %_11
-         %_47 = OpCompositeConstruct %_8 %_45 %_44 %_46
-         %_50 = OpCompositeConstruct %_9 %_48 %_49
-         %_51 = OpLoad %_4 %_11
-         %_53 = OpCompositeConstruct %_8 %_51 %_50 %_52
-         %_56 = OpCompositeConstruct %_9 %_54 %_55
-         %_57 = OpLoad %_4 %_12
-         %_59 = OpCompositeConstruct %_8 %_57 %_56 %_58
-         %_62 = OpCompositeConstruct %_9 %_60 %_61
-         %_63 = OpLoad %_4 %_12
-         %_65 = OpCompositeConstruct %_8 %_63 %_62 %_64
-         %_68 = OpCompositeConstruct %_9 %_66 %_67
-         %_69 = OpLoad %_4 %_12
-         %_71 = OpCompositeConstruct %_8 %_69 %_68 %_70
-         %_74 = OpCompositeConstruct %_9 %_72 %_73
-         %_75 = OpLoad %_4 %_12
-         %_77 = OpCompositeConstruct %_8 %_75 %_74 %_76
-         %_80 = OpCompositeConstruct %_9 %_78 %_79
-         %_81 = OpLoad %_4 %_12
-         %_83 = OpCompositeConstruct %_8 %_81 %_80 %_82
-         %_86 = OpCompositeConstruct %_9 %_84 %_85
-         %_87 = OpLoad %_4 %_12
-         %_89 = OpCompositeConstruct %_8 %_87 %_86 %_88
+         %_20 = OpCompositeConstruct %_8 %_18 %_19
+         OpImageTexelPointer %_21 %_23 %_10 %_20 %_22
+         OpAtomicUMax %_3 %_27 %_23 %_24 %_25 %_26
+         %_30 = OpCompositeConstruct %_8 %_28 %_29
+         OpImageTexelPointer %_21 %_32 %_10 %_30 %_31
+         OpAtomicUMin %_3 %_36 %_32 %_33 %_34 %_35
+         %_39 = OpCompositeConstruct %_8 %_37 %_38
+         OpImageTexelPointer %_21 %_41 %_10 %_39 %_40
+         OpAtomicIAdd %_3 %_45 %_41 %_42 %_43 %_44
+         %_48 = OpCompositeConstruct %_8 %_46 %_47
+         OpImageTexelPointer %_21 %_50 %_10 %_48 %_49
+         OpAtomicAnd %_3 %_54 %_50 %_51 %_52 %_53
+         %_57 = OpCompositeConstruct %_8 %_55 %_56
+         OpImageTexelPointer %_21 %_59 %_10 %_57 %_58
+         OpAtomicOr %_3 %_63 %_59 %_60 %_61 %_62
+         %_66 = OpCompositeConstruct %_8 %_64 %_65
+         OpImageTexelPointer %_21 %_68 %_10 %_66 %_67
+         OpAtomicXor %_3 %_72 %_68 %_69 %_70 %_71
+         %_75 = OpCompositeConstruct %_8 %_73 %_74
+         OpImageTexelPointer %_76 %_78 %_12 %_75 %_77
+         OpAtomicSMax %_5 %_82 %_78 %_79 %_80 %_81
+         %_85 = OpCompositeConstruct %_8 %_83 %_84
+         OpImageTexelPointer %_76 %_87 %_12 %_85 %_86
+         OpAtomicSMin %_5 %_91 %_87 %_88 %_89 %_90
+         %_94 = OpCompositeConstruct %_8 %_92 %_93
+         OpImageTexelPointer %_76 %_96 %_12 %_94 %_95
+         OpAtomicIAdd %_5 %_100 %_96 %_97 %_98 %_99
+         %_103 = OpCompositeConstruct %_8 %_101 %_102
+         OpImageTexelPointer %_76 %_105 %_12 %_103 %_104
+         OpAtomicAnd %_5 %_109 %_105 %_106 %_107 %_108
+         %_112 = OpCompositeConstruct %_8 %_110 %_111
+         OpImageTexelPointer %_76 %_114 %_12 %_112 %_113
+         OpAtomicOr %_5 %_118 %_114 %_115 %_116 %_117
+         %_121 = OpCompositeConstruct %_8 %_119 %_120
+         OpImageTexelPointer %_76 %_123 %_12 %_121 %_122
+         OpAtomicXor %_5 %_127 %_123 %_124 %_125 %_126
                OpReturn
                OpFunctionEnd

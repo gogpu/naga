@@ -310,8 +310,15 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 		return nil, err
 	}
 
-	// 13. Linkage capability for modules without entry points
-	if len(b.module.EntryPoints) == 0 {
+	// 13. Linkage capability for modules without compilable entry points
+	// Count non-mesh/task entry points (mesh/task are skipped in SPIR-V)
+	compilableEPs := 0
+	for _, ep := range b.module.EntryPoints {
+		if ep.Stage != ir.StageTask && ep.Stage != ir.StageMesh {
+			compilableEPs++
+		}
+	}
+	if compilableEPs == 0 {
 		b.addCapability(CapabilityLinkage)
 	}
 
@@ -554,17 +561,31 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		}
 
 	case ir.StructType:
-		// Emit all member types first
+		// Emit all member types first, checking for runtime arrays.
+		// Matches Rust naga writer.rs:1534-1559.
 		memberIDs := make([]uint32, len(inner.Members))
+		hasRuntimeArray := false
 		for i, member := range inner.Members {
 			memberID, err := b.emitType(member.Type)
 			if err != nil {
 				return 0, err
 			}
 			memberIDs[i] = memberID
+			// Check if this member is a runtime-sized array
+			if arr, ok := b.module.Types[member.Type].Inner.(ir.ArrayType); ok {
+				if arr.Size.Constant == nil {
+					hasRuntimeArray = true
+				}
+			}
 		}
 
 		id = b.builder.AddTypeStruct(memberIDs...)
+		// Structs with runtime arrays get Block decoration during type emission.
+		// Matches Rust naga writer.rs:1556-1558.
+		if hasRuntimeArray {
+			b.builder.AddDecorate(id, DecorationBlock)
+			b.blockDecoratedTypes[id] = true
+		}
 
 	case ir.PointerType:
 		baseID, err := b.emitType(inner.Base)
@@ -1000,19 +1021,7 @@ func (b *Backend) emitImageType(sampledTypeID uint32, img ir.ImageType) uint32 {
 // storageFormatToScalar maps a storage texture format to its sampled scalar type.
 // Float formats → f32, unsigned int formats → u32, signed int formats → i32.
 func storageFormatToScalar(format ir.StorageFormat) ir.ScalarType {
-	switch format {
-	case ir.StorageFormatR8Uint, ir.StorageFormatRg8Uint, ir.StorageFormatR16Uint,
-		ir.StorageFormatRg16Uint, ir.StorageFormatR32Uint, ir.StorageFormatRg32Uint,
-		ir.StorageFormatRgba8Uint, ir.StorageFormatRgba16Uint, ir.StorageFormatRgba32Uint,
-		ir.StorageFormatRgb10a2Uint:
-		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
-	case ir.StorageFormatR8Sint, ir.StorageFormatRg8Sint, ir.StorageFormatR16Sint,
-		ir.StorageFormatRg16Sint, ir.StorageFormatR32Sint, ir.StorageFormatRg32Sint,
-		ir.StorageFormatRgba8Sint, ir.StorageFormatRgba16Sint, ir.StorageFormatRgba32Sint:
-		return ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
-	default:
-		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-	}
+	return format.Scalar()
 }
 
 // requestImageFormatCapabilities adds StorageImageExtendedFormats capability
@@ -1027,6 +1036,10 @@ func (b *Backend) requestImageFormatCapabilities(format ir.StorageFormat) {
 		ir.StorageFormatRgba32Sint, ir.StorageFormatRgba16Sint, ir.StorageFormatRgba8Sint, ir.StorageFormatR32Sint,
 		ir.StorageFormatRgba32Uint, ir.StorageFormatRgba16Uint, ir.StorageFormatRgba8Uint, ir.StorageFormatR32Uint:
 		// Basic formats — no extra capability needed
+	case ir.StorageFormatR64Uint, ir.StorageFormatR64Sint:
+		// 64-bit integer storage image formats require extension and capability
+		b.addExtension("SPV_EXT_shader_image_int64")
+		b.addCapability(CapabilityInt64ImageEXT)
 	default:
 		b.addCapability(CapabilityStorageImageExtendedFormats)
 	}
@@ -1266,6 +1279,11 @@ const OpArrayLength OpCode = 68
 // emitGlobals emits all global variables to SPIR-V.
 func (b *Backend) emitGlobals() error {
 	for handle, global := range b.module.GlobalVariables {
+		// Skip TaskPayload globals — mesh/task shaders not supported in SPIR-V (matches Rust naga)
+		if global.Space == ir.SpaceTaskPayload {
+			continue
+		}
+
 		// Get the variable type.
 		varType, err := b.emitType(global.Type)
 		if err != nil {
@@ -1289,6 +1307,33 @@ func (b *Backend) emitGlobals() error {
 			// still needs Block decoration directly.
 			b.builder.AddDecorate(varType, DecorationBlock)
 			b.blockDecoratedTypes[varType] = true
+		} else if global.Space == ir.SpaceStorage {
+			// For Storage BindingArray globals, the base type needs Block decoration.
+			// Matches Rust naga writer.rs:2404-2428.
+			if ba, ok := b.module.Types[global.Type].Inner.(ir.BindingArrayType); ok {
+				shouldDecorate := true
+				// Check if the base type is a struct with a runtime array as last member
+				if st, ok := b.module.Types[ba.Base].Inner.(ir.StructType); ok {
+					if len(st.Members) > 0 {
+						lastMember := st.Members[len(st.Members)-1]
+						if arr, ok := b.module.Types[lastMember.Type].Inner.(ir.ArrayType); ok {
+							if arr.Size.Constant == nil { // Dynamic (runtime-sized)
+								shouldDecorate = false
+							}
+						}
+					}
+				}
+				if shouldDecorate {
+					baseTypeID, err := b.emitType(ba.Base)
+					if err != nil {
+						return err
+					}
+					if !b.blockDecoratedTypes[baseTypeID] {
+						b.builder.AddDecorate(baseTypeID, DecorationBlock)
+						b.blockDecoratedTypes[baseTypeID] = true
+					}
+				}
+			}
 		}
 
 		// Create pointer type for the variable
@@ -1468,6 +1513,11 @@ func (b *Backend) addMatrixLayoutIfNeeded(structID uint32, memberIdx uint32, typ
 func (b *Backend) emitEntryPointInterfaceVars() error {
 	for epIdx := range b.module.EntryPoints {
 		entryPoint := &b.module.EntryPoints[epIdx]
+		// Rust naga does not support mesh/task shaders in SPIR-V backend
+		// (marked unreachable! in write_entry_point). Skip them gracefully.
+		if entryPoint.Stage == ir.StageTask || entryPoint.Stage == ir.StageMesh {
+			continue
+		}
 		fn := &entryPoint.Function
 		inputVars := make([]*entryPointInput, len(fn.Arguments))
 
@@ -1891,6 +1941,11 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 // emitEntryPoints emits all entry points with their execution modes.
 func (b *Backend) emitEntryPoints() error {
 	for epIdx, entryPoint := range b.module.EntryPoints {
+		// Skip mesh/task entry points — not supported in SPIR-V (matches Rust naga)
+		if entryPoint.Stage == ir.StageTask || entryPoint.Stage == ir.StageMesh {
+			continue
+		}
+
 		// Get function ID (entry point functions have their own ID map)
 		funcID, ok := b.entryPointFuncIDs[epIdx]
 		if !ok {
@@ -2492,6 +2547,10 @@ func (b *Backend) emitFunctions() error {
 		}
 	}
 	for epIdx := range b.module.EntryPoints {
+		// Skip mesh/task entry points — not supported in SPIR-V (matches Rust naga)
+		if b.module.EntryPoints[epIdx].Stage == ir.StageTask || b.module.EntryPoints[epIdx].Stage == ir.StageMesh {
+			continue
+		}
 		fn := &b.module.EntryPoints[epIdx].Function
 		if err := b.emitWrappedFunctions(fn); err != nil {
 			return err
@@ -2507,6 +2566,10 @@ func (b *Backend) emitFunctions() error {
 	}
 	// Emit entry point functions (stored inline in EntryPoints, not in Functions[])
 	for epIdx := range b.module.EntryPoints {
+		// Skip mesh/task entry points — not supported in SPIR-V (matches Rust naga)
+		if b.module.EntryPoints[epIdx].Stage == ir.StageTask || b.module.EntryPoints[epIdx].Stage == ir.StageMesh {
+			continue
+		}
 		fn := &b.module.EntryPoints[epIdx].Function
 		if err := b.emitEntryPointFunction(epIdx, fn); err != nil {
 			return err
@@ -3360,6 +3423,12 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		return e.emitRayQueryResultRef(handle)
 	case ir.ExprRayQueryGetIntersection:
 		id, err = e.emitRayQueryGetIntersection(kind)
+	case ir.ExprWorkGroupUniformLoadResult:
+		// Result was pre-cached by emitWorkGroupUniformLoad
+		if cached, ok := e.exprIDs[handle]; ok && cached != 0 {
+			return cached, nil
+		}
+		return 0, fmt.Errorf("WorkGroupUniformLoadResult not yet cached for handle %d", handle)
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -5372,7 +5441,7 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		return e.emitImageStore(kind)
 
 	case ir.StmtImageAtomic:
-		return fmt.Errorf("SPIR-V backend does not yet support StmtImageAtomic")
+		return e.emitImageAtomic(kind)
 
 	case ir.StmtSubgroupBallot:
 		return e.emitSubgroupBallot(kind)
@@ -5385,6 +5454,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 
 	case ir.StmtRayQuery:
 		return e.emitRayQuery(kind)
+
+	case ir.StmtWorkGroupUniformLoad:
+		return e.emitWorkGroupUniformLoad(kind)
 
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", kind)
@@ -5904,6 +5976,12 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	var intDotSize int
 	// FMix: may need to splat scalar selector to vector
 	var needsMixSplat bool
+	// Pack/Unpack 4x8 integer polyfill (matching Rust naga block.rs:2725/2869)
+	var usePack4x8 bool
+	var pack4x8Signed bool
+	var pack4x8Clamp bool
+	var useUnpack4x8 bool
+	var unpack4x8Signed bool
 
 	switch mathExpr.Fun {
 	// Comparison functions
@@ -6183,6 +6261,29 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	case ir.MathUnpack2x16float:
 		glslInst = GLSLstd450UnpackHalf2x16
 
+	// Pack 4x8 integer functions (polyfill via BitFieldInsert)
+	// Matches Rust naga block.rs:1554 (write_pack4x8_polyfill)
+	case ir.MathPack4xI8:
+		usePack4x8 = true
+		pack4x8Signed = true
+	case ir.MathPack4xU8:
+		usePack4x8 = true
+	case ir.MathPack4xI8Clamp:
+		usePack4x8 = true
+		pack4x8Signed = true
+		pack4x8Clamp = true
+	case ir.MathPack4xU8Clamp:
+		usePack4x8 = true
+		pack4x8Clamp = true
+
+	// Unpack 4x8 integer functions (polyfill via BitFieldExtract)
+	// Matches Rust naga block.rs:1586 (write_unpack4x8_polyfill)
+	case ir.MathUnpack4xI8:
+		useUnpack4x8 = true
+		unpack4x8Signed = true
+	case ir.MathUnpack4xU8:
+		useUnpack4x8 = true
+
 	// Packed dot product (SPV_KHR_integer_dot_product extension)
 	case ir.MathDot4I8Packed:
 		nativeOpcode = OpSDotKHR
@@ -6238,7 +6339,8 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Packing functions: vec -> u32
 	case ir.MathPack4x8snorm, ir.MathPack4x8unorm,
-		ir.MathPack2x16snorm, ir.MathPack2x16unorm, ir.MathPack2x16float:
+		ir.MathPack2x16snorm, ir.MathPack2x16unorm, ir.MathPack2x16float,
+		ir.MathPack4xI8, ir.MathPack4xU8, ir.MathPack4xI8Clamp, ir.MathPack4xU8Clamp:
 		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
 			Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
 		})
@@ -6247,6 +6349,17 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	case ir.MathUnpack4x8snorm, ir.MathUnpack4x8unorm:
 		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
 			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, Size: 4},
+		})
+
+	// Unpack 4xI8: u32 -> vec4<i32>
+	case ir.MathUnpack4xI8:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, Size: 4},
+		})
+	// Unpack 4xU8: u32 -> vec4<u32>
+	case ir.MathUnpack4xU8:
+		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{
+			Value: ir.VectorType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, Size: 4},
 		})
 
 	// Unpacking 2x16 functions: u32 -> vec2<f32>
@@ -6288,6 +6401,18 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 			return 0, err
 		}
 		operands = append(operands, arg3ID)
+	}
+
+	// Pack 4x8 integer polyfill: extract components, bitcast if signed, clamp if needed,
+	// then BitFieldInsert to build u32. Matches Rust naga write_pack4x8_polyfill (block.rs:2725).
+	if usePack4x8 {
+		return e.emitPack4x8Polyfill(resultType, operands[0], pack4x8Signed, pack4x8Clamp)
+	}
+
+	// Unpack 4x8 integer polyfill: bitcast if signed, then BitFieldExtract for each byte,
+	// then CompositeConstruct. Matches Rust naga write_unpack4x8_polyfill (block.rs:2869).
+	if useUnpack4x8 {
+		return e.emitUnpack4x8Polyfill(resultType, operands[0], unpack4x8Signed)
 	}
 
 	// Integer dot product: manual expansion (extract + multiply + accumulate).
@@ -6458,6 +6583,139 @@ func (e *ExpressionEmitter) splatScalarToVector(scalarID uint32, vecType ir.Vect
 	return splatID
 }
 
+// emitPack4x8Polyfill emits a polyfill for pack4xI8/U8/I8Clamp/U8Clamp.
+// Extracts each component, optionally clamps, bitcasts if signed, then uses
+// OpBitFieldInsert to build a u32. Matches Rust naga write_pack4x8_polyfill (block.rs:2725).
+func (e *ExpressionEmitter) emitPack4x8Polyfill(resultTypeID, arg0ID uint32, isSigned, shouldClamp bool) (uint32, error) {
+	uint32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	var intTypeID uint32
+	if isSigned {
+		intTypeID = e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+	} else {
+		intTypeID = uint32TypeID
+	}
+
+	eight := e.backend.builder.AddConstant(uint32TypeID, 8)
+	zero := e.backend.builder.AddConstant(uint32TypeID, 0)
+	preresult := zero
+
+	for i := uint32(0); i < 4; i++ {
+		offset := e.backend.builder.AddConstant(uint32TypeID, i*8)
+
+		// Extract component
+		extracted := e.backend.builder.AddCompositeExtract(intTypeID, arg0ID, i)
+
+		// Bitcast to u32 if signed
+		if isSigned {
+			extracted = e.backend.builder.AddUnaryOp(OpBitcast, uint32TypeID, extracted)
+		}
+
+		// Clamp if needed
+		if shouldClamp {
+			var clampOp uint32
+			var minID, maxID uint32
+			if isSigned {
+				// SClamp to [-128, 127] — clamp operates on the original int type
+				// But Rust clamps on result_type_id (u32) with SClamp... actually Rust
+				// clamps on int_type_id BEFORE bitcast. Let me re-check.
+				// Rust: clamps extracted (before bitcast for signed), with result_type_id.
+				// Wait — for the clamp variant, Rust does clamp BEFORE bitcast.
+				// Let me re-read: in Rust polyfill, extraction is done first, then
+				// if is_signed, bitcast. But clamp happens AFTER extraction AND bitcast.
+				// Actually no, let me re-read Rust carefully:
+				//   1. CompositeExtract -> extracted (int_type_id)
+				//   2. if is_signed: Bitcast -> casted (uint_type_id); extracted = casted
+				//   3. if should_clamp: clamp extracted
+				// So clamp operates on the bitcasted uint if signed. And uses result_type_id.
+				// Clamp SClamp on i32: min=-128, max=127
+				clampOp = GLSLstd450SClamp
+				sint32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+				minID = e.backend.builder.AddConstant(sint32TypeID, 0xFFFFFF80) // -128 as u32 bits
+				maxID = e.backend.builder.AddConstant(sint32TypeID, uint32(int32(127)))
+			} else {
+				// UClamp to [0, 255]
+				clampOp = GLSLstd450UClamp
+				minID = e.backend.builder.AddConstant(uint32TypeID, 0)
+				maxID = e.backend.builder.AddConstant(uint32TypeID, 255)
+			}
+			clampID := e.backend.builder.AddExtInst(resultTypeID, e.backend.glslExtID, clampOp, extracted, minID, maxID)
+			extracted = clampID
+		}
+
+		// BitFieldInsert: insert 8 bits at offset
+		if i == 3 {
+			// Last iteration: this is the final result with the target ID
+			resultID := e.backend.builder.AllocID()
+			ib := e.newIB()
+			ib.AddWord(resultTypeID)
+			ib.AddWord(resultID)
+			ib.AddWord(preresult)
+			ib.AddWord(extracted)
+			ib.AddWord(offset)
+			ib.AddWord(eight)
+			e.backend.builder.funcAppend(ib.Build(OpBitFieldInsert))
+			return resultID, nil
+		}
+		// Intermediate results
+		newPreresult := e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(resultTypeID)
+		ib.AddWord(newPreresult)
+		ib.AddWord(preresult)
+		ib.AddWord(extracted)
+		ib.AddWord(offset)
+		ib.AddWord(eight)
+		e.backend.builder.funcAppend(ib.Build(OpBitFieldInsert))
+		preresult = newPreresult
+	}
+	// Should not reach here
+	return 0, fmt.Errorf("pack4x8 polyfill: unexpected end of loop")
+}
+
+// emitUnpack4x8Polyfill emits a polyfill for unpack4xI8/U8.
+// Uses BitFieldSExtract (signed) or BitFieldUExtract (unsigned) for each byte,
+// then CompositeConstruct. Matches Rust naga write_unpack4x8_polyfill (block.rs:2869).
+func (e *ExpressionEmitter) emitUnpack4x8Polyfill(resultTypeID, arg0ID uint32, isSigned bool) (uint32, error) {
+	var extractOp OpCode
+	var intKind ir.ScalarKind
+	if isSigned {
+		extractOp = OpBitFieldSExtract
+		intKind = ir.ScalarSint
+	} else {
+		extractOp = OpBitFieldUExtract
+		intKind = ir.ScalarUint
+	}
+
+	uint32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	sint32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+	intTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: intKind, Width: 4})
+	eight := e.backend.builder.AddConstant(uint32TypeID, 8)
+
+	// If signed, bitcast input u32 to i32 first (Rust: block.rs:2893-2901)
+	argID := arg0ID
+	if isSigned {
+		argID = e.backend.builder.AddUnaryOp(OpBitcast, sint32TypeID, arg0ID)
+	}
+
+	// Extract 4 bytes
+	var parts [4]uint32
+	for i := uint32(0); i < 4; i++ {
+		index := e.backend.builder.AddConstant(uint32TypeID, i*8)
+		partID := e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(intTypeID)
+		ib.AddWord(partID)
+		ib.AddWord(argID)
+		ib.AddWord(index)
+		ib.AddWord(eight)
+		e.backend.builder.funcAppend(ib.Build(extractOp))
+		parts[i] = partID
+	}
+
+	// CompositeConstruct vec4
+	return e.backend.builder.AddCompositeConstruct(resultTypeID, parts[0], parts[1], parts[2], parts[3]), nil
+}
+
 // emitDot4PackedPolyfill emits a software polyfill for dot4I8Packed/dot4U8Packed
 // when DotProduct/DotProductInput4x8BitPacked capabilities are not available.
 // Algorithm: extract 4 bytes from each packed arg, multiply pairwise, accumulate.
@@ -6612,6 +6870,7 @@ const (
 	OpImageDrefGather             OpCode = 97
 	OpImageRead                   OpCode = 98
 	OpImageWrite                  OpCode = 99
+	OpImageTexelPointer           OpCode = 60
 	OpImageQuerySizeLod           OpCode = 103
 	OpImageQuerySize              OpCode = 104
 	OpImageQueryLod               OpCode = 105
@@ -7722,6 +7981,35 @@ func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
 	return nil
 }
 
+// emitWorkGroupUniformLoad emits a workgroup uniform load:
+// barrier -> load -> barrier. Matches Rust naga block.rs:3614.
+func (e *ExpressionEmitter) emitWorkGroupUniformLoad(stmt ir.StmtWorkGroupUniformLoad) error {
+	// Emit workgroup barrier before load
+	_ = e.emitBarrier(ir.StmtBarrier{Flags: ir.BarrierWorkGroup})
+
+	// Resolve the result type from the result expression
+	resultType, err := ir.ResolveExpressionType(e.backend.module, e.function, stmt.Result)
+	if err != nil {
+		return fmt.Errorf("workgroup uniform load: cannot resolve result type: %w", err)
+	}
+	resultTypeID := e.backend.resolveTypeResolution(resultType)
+
+	// Load from the pointer (need raw pointer, not loaded value)
+	pointerID, err := e.emitPointerExpression(stmt.Pointer)
+	if err != nil {
+		return fmt.Errorf("workgroup uniform load: cannot emit pointer: %w", err)
+	}
+	loadID := e.backend.builder.AddLoad(resultTypeID, pointerID)
+
+	// Cache the result
+	e.exprIDs[stmt.Result] = loadID
+
+	// Emit workgroup barrier after load
+	_ = e.emitBarrier(ir.StmtBarrier{Flags: ir.BarrierWorkGroup})
+
+	return nil
+}
+
 // resolveAtomicScalar extracts the full scalar type (kind + width) from an atomic pointer expression.
 // Returns {ScalarUint, 4} as default if the type cannot be resolved.
 func (e *ExpressionEmitter) resolveAtomicScalar(pointer ir.ExpressionHandle) ir.ScalarType {
@@ -8044,6 +8332,118 @@ func (e *ExpressionEmitter) emitImageStore(store ir.StmtImageStore) error {
 	return nil
 }
 
+// emitImageAtomic emits an atomic operation on a storage texture texel.
+// Uses OpImageTexelPointer to get a pointer to the texel, then a standard
+// atomic op (OpAtomicIAdd, etc.) on that pointer.
+// Matches Rust naga back/spv/image.rs write_image_atomic.
+func (e *ExpressionEmitter) emitImageAtomic(stmt ir.StmtImageAtomic) error {
+	// Find the global variable for the image (OpImageTexelPointer needs the variable, not loaded value).
+	imageGlobalHandle, err := e.resolveImageGlobalVar(stmt.Image)
+	if err != nil {
+		return fmt.Errorf("image atomic: %w", err)
+	}
+	imageVarID, ok := e.backend.globalIDs[imageGlobalHandle]
+	if !ok {
+		return fmt.Errorf("image atomic: global variable %d not found", imageGlobalHandle)
+	}
+
+	// Get the storage format from the image type to determine scalar type.
+	gv := e.backend.module.GlobalVariables[imageGlobalHandle]
+	imageInner := e.backend.module.Types[gv.Type].Inner
+	imgType, ok := imageInner.(ir.ImageType)
+	if !ok {
+		return fmt.Errorf("image atomic: expected ImageType, got %T", imageInner)
+	}
+	scalar := imgType.StorageFormat.Scalar()
+	scalarTypeID := e.backend.emitScalarType(scalar)
+
+	// For 64-bit image atomics, require Int64Atomics capability.
+	if scalar.Width == 8 {
+		e.backend.addCapability(CapabilityInt64Atomics)
+	}
+
+	// Build pointer type: OpTypePointer Image <scalar>
+	pointerTypeID := e.backend.emitPointerType(StorageClassImage, scalarTypeID)
+
+	// Build combined coordinates (integer coords with optional array index).
+	coords, err := e.emitImageCoordinates(stmt.Coordinate, stmt.ArrayIndex)
+	if err != nil {
+		return fmt.Errorf("image atomic coordinate: %w", err)
+	}
+
+	// Sample index is always 0 for storage textures.
+	sampleID := e.backend.emitU32Constant(0)
+
+	// Emit OpImageTexelPointer: result is a pointer to the texel.
+	pointerID := e.backend.builder.AllocID()
+	{
+		ib := e.newIB()
+		ib.AddWord(pointerTypeID)
+		ib.AddWord(pointerID)
+		ib.AddWord(imageVarID)
+		ib.AddWord(coords.valueID)
+		ib.AddWord(sampleID)
+		e.backend.builder.funcAppend(ib.Build(OpImageTexelPointer))
+	}
+
+	// Scope and memory semantics for Handle address space:
+	// Rust naga uses (MemorySemantics::empty(), Scope::Device) for Handle space.
+	scopeID := e.backend.emitI32Constant(int32(ScopeDevice))
+	semanticsID := e.backend.emitU32Constant(0) // MemorySemantics::empty()
+
+	// Emit the value operand.
+	valueID, err := e.emitExpression(stmt.Value)
+	if err != nil {
+		return fmt.Errorf("image atomic value: %w", err)
+	}
+
+	// Determine the atomic opcode.
+	opcode, ok := atomicOpcode(stmt.Fun, scalar.Kind)
+	if !ok {
+		return fmt.Errorf("image atomic: unsupported atomic function: %T", stmt.Fun)
+	}
+
+	// Emit the atomic operation: OpAtomic* ResultType Result Pointer Scope Semantics Value
+	resultID := e.backend.builder.AllocID()
+	{
+		ib := e.newIB()
+		ib.AddWord(scalarTypeID)
+		ib.AddWord(resultID)
+		ib.AddWord(pointerID)
+		ib.AddWord(scopeID)
+		ib.AddWord(semanticsID)
+		ib.AddWord(valueID)
+		e.backend.builder.funcAppend(ib.Build(opcode))
+	}
+
+	// Image atomic results are unused (void statement), so we don't cache the result.
+	return nil
+}
+
+// resolveImageGlobalVar walks through the expression tree to find the
+// GlobalVariable handle that an image expression refers to.
+func (e *ExpressionEmitter) resolveImageGlobalVar(handle ir.ExpressionHandle) (ir.GlobalVariableHandle, error) {
+	expr := e.function.Expressions[handle]
+	switch k := expr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		return k.Variable, nil
+	default:
+		return 0, fmt.Errorf("expected GlobalVariable for image, got %T", expr.Kind)
+	}
+}
+
+// emitI32Constant emits or reuses a signed 32-bit integer constant.
+func (b *Backend) emitI32Constant(val int32) uint32 {
+	typeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+	return b.builder.AddConstant(typeID, uint32(val))
+}
+
+// emitU32Constant emits or reuses an unsigned 32-bit integer constant.
+func (b *Backend) emitU32Constant(val uint32) uint32 {
+	typeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	return b.builder.AddConstant(typeID, val)
+}
+
 // spilledPointerArg tracks a pointer argument that was spilled to a temporary
 // variable for an OpFunctionCall. After the call, we must write-back from the
 // temp to the original location (copy-out).
@@ -8252,79 +8652,112 @@ func (e *ExpressionEmitter) emitCallResultRef(handle ir.ExpressionHandle) (uint3
 //   - ExprArrayLength { Array: ExprAccessIndex { Base: ExprGlobalVariable, Index: N } }
 //     -- global is a struct whose member N is the runtime array
 func (e *ExpressionEmitter) emitArrayLength(expr ir.ExprArrayLength) (uint32, error) {
-	// Walk the Array expression to find the global variable and optional member index.
+	// Walk the Array expression to find the global variable, optional member index,
+	// and optional binding array index. Matches Rust naga back/spv/index.rs.
 	var globalHandle ir.GlobalVariableHandle
-	var memberIndex *uint32 // nil if the array expression refers to the global directly
+	var optLastMemberIndex *uint32
+	var bindingArrayIndexID *uint32
 
 	arrayExpr := e.function.Expressions[expr.Array]
 	switch k := arrayExpr.Kind.(type) {
 	case ir.ExprAccessIndex:
-		// Array is a member of a struct: arrayLength(&buf.data)
-		// The base must be a global variable.
 		baseExpr := e.function.Expressions[k.Base]
 		switch bk := baseExpr.Kind.(type) {
+		case ir.ExprAccessIndex:
+			// AccessIndex(AccessIndex(Global)) -- binding array with constant index
+			baseOuterExpr := e.function.Expressions[bk.Base]
+			gv, ok := baseOuterExpr.Kind.(ir.ExprGlobalVariable)
+			if !ok {
+				return 0, fmt.Errorf("array length: AccessIndex(AccessIndex(x)): expected GlobalVariable, got %T", baseOuterExpr.Kind)
+			}
+			indexID := e.backend.emitU32Constant(bk.Index)
+			bindingArrayIndexID = &indexID
+			globalHandle = gv.Variable
+			idx := k.Index
+			optLastMemberIndex = &idx
+
+		case ir.ExprAccess:
+			// AccessIndex(Access(Global)) -- binding array with dynamic index
+			baseOuterExpr := e.function.Expressions[bk.Base]
+			gv, ok := baseOuterExpr.Kind.(ir.ExprGlobalVariable)
+			if !ok {
+				return 0, fmt.Errorf("array length: AccessIndex(Access(x)): expected GlobalVariable, got %T", baseOuterExpr.Kind)
+			}
+			dynIndexID, err := e.emitExpression(bk.Index)
+			if err != nil {
+				return 0, fmt.Errorf("array length: dynamic index: %w", err)
+			}
+			bindingArrayIndexID = &dynIndexID
+			globalHandle = gv.Variable
+			idx := k.Index
+			optLastMemberIndex = &idx
+
 		case ir.ExprGlobalVariable:
 			globalHandle = bk.Variable
 			idx := k.Index
-			memberIndex = &idx
+			optLastMemberIndex = &idx
+
 		default:
-			return 0, fmt.Errorf("array length: AccessIndex base must be GlobalVariable, got %T", bk)
+			return 0, fmt.Errorf("array length: AccessIndex base: expected GlobalVariable, got %T", bk)
 		}
 	case ir.ExprGlobalVariable:
-		// Array IS the global variable directly: arrayLength(&output)
 		globalHandle = k.Variable
-		memberIndex = nil
+		optLastMemberIndex = nil
 	default:
 		return 0, fmt.Errorf("array length: expected GlobalVariable or AccessIndex, got %T", k)
 	}
 
-	// Get the SPIR-V variable ID for the global.
 	varID, ok := e.backend.globalIDs[globalHandle]
 	if !ok {
 		return 0, fmt.Errorf("array length: global variable %d not found", globalHandle)
 	}
 
-	// Determine the struct pointer ID and member index for OpArrayLength.
-	//
-	// SPIR-V requires that OpArrayLength operates on a pointer to an
-	// OpTypeStruct whose last member is a runtime-sized array.
-	//
-	// Case 1: The Naga IR global type is already a struct.
-	//   The struct was decorated with Block directly. Use the global var
-	//   pointer and the member index from the AccessIndex expression.
-	//
-	// Case 2: The Naga IR global type is a bare runtime array.
-	//   The backend wrapped it in a synthetic struct (see emitGlobals).
-	//   The wrapper struct has the array at member 0. Use the global var
-	//   pointer (which points to the wrapper struct) and member index 0.
-	var structID uint32
-	var lastMemberIndex uint32
-
 	isWrapped := e.backend.wrappedStorageVars[globalHandle]
 
+	var lastMemberIndex uint32
+	var gvarID uint32
+
 	switch {
-	case memberIndex != nil && !isWrapped:
-		// Naga struct type, not wrapped. The runtime array is at the given member index.
-		structID = varID
-		lastMemberIndex = *memberIndex
-	case memberIndex == nil && isWrapped:
-		// Bare runtime array, wrapped in a synthetic struct. Member index is 0.
-		structID = varID
+	case optLastMemberIndex != nil && !isWrapped:
+		lastMemberIndex = *optLastMemberIndex
+		gvarID = varID
+	case optLastMemberIndex == nil && isWrapped:
 		lastMemberIndex = 0
-	case memberIndex != nil && isWrapped:
+		gvarID = varID
+	case optLastMemberIndex != nil && isWrapped:
 		return 0, fmt.Errorf("array length: unexpected wrapped variable with AccessIndex")
 	default:
-		// memberIndex == nil && !isWrapped: the global is not wrapped and not accessed
-		// through a struct member. This means the global type itself must be a struct
-		// whose last member is the runtime array. This shouldn't happen in valid IR
-		// since the lowerer always creates an AccessIndex for struct members.
 		return 0, fmt.Errorf("array length: global variable is not a struct and was not wrapped")
 	}
 
-	// Result type is always u32.
+	// If we have a binding array index, emit OpAccessChain to index into the array.
+	var structID uint32
+	if bindingArrayIndexID != nil {
+		gv := e.backend.module.GlobalVariables[globalHandle]
+		ba, ok := e.backend.module.Types[gv.Type].Inner.(ir.BindingArrayType)
+		if !ok {
+			return 0, fmt.Errorf("array length: expected BindingArray type for binding array access")
+		}
+		baseTypeID, err := e.backend.emitType(ba.Base)
+		if err != nil {
+			return 0, fmt.Errorf("array length: emit base type: %w", err)
+		}
+		sc := addressSpaceToStorageClass(gv.Space)
+		ptrTypeID := e.backend.emitPointerType(sc, baseTypeID)
+
+		structID = e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(ptrTypeID)
+		ib.AddWord(structID)
+		ib.AddWord(gvarID)
+		ib.AddWord(*bindingArrayIndexID)
+		e.backend.builder.funcAppend(ib.Build(OpAccessChain))
+	} else {
+		structID = gvarID
+	}
+
 	resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 
-	// Emit OpArrayLength: result-type result-id struct-pointer member-index
 	resultID := e.backend.builder.AllocID()
 	ib := e.newIB()
 	ib.AddWord(resultType)

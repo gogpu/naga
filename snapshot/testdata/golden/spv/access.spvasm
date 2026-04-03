@@ -17,6 +17,7 @@
                OpDecorate %_16 ArrayStride 4
                OpDecorate %_19 ArrayStride 8
                OpDecorate %_20 ArrayStride 8
+               OpDecorate %_21 Block
                OpDecorate %_27 ArrayStride 32
                OpDecorate %_31 ArrayStride 4
                OpDecorate %_33 ArrayStride 40
@@ -49,7 +50,6 @@
                OpMemberDecorate %_50 0 Offset 0
                OpMemberDecorate %_51 0 Offset 0
                OpMemberDecorate %_51 1 Offset 4
-               OpDecorate %_21 Block
                OpDecorate %_55 DescriptorSet 0
                OpDecorate %_55 Binding 0
                OpDecorate %_56 Block
