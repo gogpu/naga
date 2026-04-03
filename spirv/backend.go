@@ -3909,12 +3909,21 @@ func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool
 	case ir.ExprLocalVariable, ir.ExprGlobalVariable:
 		return true
 	case ir.ExprFunctionArgument:
-		// For regular functions, OpFunctionParameter produces values, not pointers.
-		// For entry points, paramIDs holds Input variable pointers, EXCEPT for
-		// struct arguments that are composed via CompositeConstruct (SSA values).
 		if !e.isEntryPoint {
+			// For regular functions, check if the argument type is a pointer.
+			// WGSL allows ptr<function, T> parameters — OpFunctionParameter
+			// with pointer type produces a pointer, not a value.
+			if int(k.Index) < len(e.function.Arguments) {
+				argType := e.backend.module.Types[e.function.Arguments[k.Index].Type].Inner
+				switch argType.(type) {
+				case ir.PointerType, ir.ValuePointerType:
+					return true
+				}
+			}
 			return false
 		}
+		// For entry points, paramIDs holds Input variable pointers, EXCEPT for
+		// struct arguments that are composed via CompositeConstruct (SSA values).
 		if e.ssaEntryArgs != nil && e.ssaEntryArgs[int(k.Index)] {
 			return false
 		}
@@ -4723,6 +4732,13 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	switch binary.Op {
 	case ir.BinaryAdd:
 		if scalarKind == ir.ScalarFloat {
+			// Matrix + Matrix: decompose into column-wise FAdd, then reassemble.
+			// SPIR-V FAdd only works on scalar/vector, not matrix types.
+			// Matches Rust naga's write_matrix_matrix_column_op (block.rs:2493).
+			leftInner := typeResolutionInner(e.backend.module, leftType)
+			if mat, ok := leftInner.(ir.MatrixType); ok {
+				return e.emitMatrixColumnOp(OpFAdd, resultType, leftID, rightID, mat), nil
+			}
 			opcode = OpFAdd
 			// vec + scalar or scalar + vec: splat scalar to matching vector
 			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
@@ -4734,6 +4750,11 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		}
 	case ir.BinarySubtract:
 		if scalarKind == ir.ScalarFloat {
+			// Matrix - Matrix: decompose into column-wise FSub
+			leftInner := typeResolutionInner(e.backend.module, leftType)
+			if mat, ok := leftInner.(ir.MatrixType); ok {
+				return e.emitMatrixColumnOp(OpFSub, resultType, leftID, rightID, mat), nil
+			}
 			opcode = OpFSub
 			// vec - scalar or scalar - vec: splat scalar to matching vector
 			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
@@ -4794,7 +4815,31 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 				opcode = OpFMul
 			}
 		} else {
-			opcode = OpIMul
+			// Integer multiplication: OpIMul requires matching types.
+			// For vector*scalar or scalar*vector, splat the scalar to match.
+			// Matches Rust naga's write_vector_scalar_mult (block.rs:2548).
+			rightType, _ := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			leftInner := typeResolutionInner(e.backend.module, leftType)
+			rightInner := typeResolutionInner(e.backend.module, rightType)
+			leftVec, leftIsVec := leftInner.(ir.VectorType)
+			rightVec, rightIsVec := rightInner.(ir.VectorType)
+			_, leftIsScalar := leftInner.(ir.ScalarType)
+			_, rightIsScalar := rightInner.(ir.ScalarType)
+
+			switch {
+			case leftIsVec && rightIsScalar:
+				// vec * scalar -> splat scalar, then IMul
+				vecTypeID := e.backend.resolveTypeResolution(leftType)
+				splatID := e.splatScalarToVector(rightID, leftVec)
+				return e.backend.builder.AddBinaryOp(OpIMul, vecTypeID, leftID, splatID), nil
+			case leftIsScalar && rightIsVec:
+				// scalar * vec -> splat scalar, then IMul
+				vecTypeID := e.backend.resolveTypeResolution(rightType)
+				splatID := e.splatScalarToVector(leftID, rightVec)
+				return e.backend.builder.AddBinaryOp(OpIMul, vecTypeID, splatID, rightID), nil
+			default:
+				opcode = OpIMul
+			}
 		}
 	case ir.BinaryDivide:
 		if scalarKind == ir.ScalarFloat {
@@ -5787,6 +5832,12 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	var glslInst uint32
 	var useNativeOpcode bool
 	var nativeOpcode OpCode
+	// Integer dot product expansion (when OpDot can't be used)
+	var useIntegerDot bool
+	var intDotScalar ir.ScalarType
+	var intDotSize int
+	// FMix: may need to splat scalar selector to vector
+	var needsMixSplat bool
 
 	switch mathExpr.Fun {
 	// Comparison functions
@@ -5927,9 +5978,19 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Geometric functions
 	case ir.MathDot:
-		// OpDot is a native SPIR-V instruction
-		useNativeOpcode = true
-		nativeOpcode = OpDot
+		// OpDot is a native SPIR-V instruction, but ONLY for float vectors.
+		// For integer vectors, we must manually expand: sum of component-wise products.
+		// Matches Rust naga's write_dot_product fallback (block.rs).
+		argInner := ir.TypeResInner(e.backend.module, argType)
+		if vecType, ok := argInner.(ir.VectorType); ok && vecType.Scalar.Kind != ir.ScalarFloat {
+			// Integer dot product — manual expansion
+			useIntegerDot = true
+			intDotScalar = vecType.Scalar
+			intDotSize = int(vecType.Size)
+		} else {
+			useNativeOpcode = true
+			nativeOpcode = OpDot
+		}
 	case ir.MathCross:
 		glslInst = GLSLstd450Cross
 	case ir.MathDistance:
@@ -5955,6 +6016,10 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	case ir.MathFma:
 		glslInst = GLSLstd450Fma
 	case ir.MathMix:
+		// FMix requires all operands to match Result Type.
+		// When selector (arg2) is scalar but args are vector, splat the selector.
+		// Matches Rust naga's Mix handling (block.rs:1263).
+		needsMixSplat = true
 		glslInst = GLSLstd450FMix
 	case ir.MathStep:
 		glslInst = GLSLstd450Step
@@ -6086,8 +6151,16 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 			// Fallback: create inline struct type
 			resultType = e.backend.emitFrexpStructType(argType)
 		}
-	case ir.MathLength, ir.MathDistance, ir.MathDot, ir.MathDeterminant:
+	case ir.MathLength, ir.MathDistance, ir.MathDeterminant:
 		resultType = e.backend.resolveTypeResolution(ir.TypeResolution{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}})
+	case ir.MathDot:
+		// Dot product result type matches the scalar kind of the input vector.
+		argInner := ir.TypeResInner(e.backend.module, argType)
+		if vecType, ok := argInner.(ir.VectorType); ok {
+			resultType = e.backend.resolveTypeResolution(ir.TypeResolution{Value: vecType.Scalar})
+		} else {
+			resultType = e.backend.resolveTypeResolution(ir.TypeResolution{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}})
+		}
 	case ir.MathTranspose:
 		// transpose(matRxC) -> matCxR: swap columns and rows
 		inner := ir.TypeResInner(e.backend.module, argType)
@@ -6151,6 +6224,44 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		operands = append(operands, arg3ID)
 	}
 
+	// Integer dot product: manual expansion (extract + multiply + accumulate).
+	// Matches Rust naga's write_dot_product (block.rs:2596).
+	if useIntegerDot {
+		arg0ID := operands[0]
+		arg1ID := operands[1]
+		scalarTypeID := e.backend.emitScalarType(intDotScalar)
+		// Start with zero
+		partialSum := e.backend.builder.AddConstantNull(scalarTypeID)
+		mulOp := OpIMul
+		addOp := OpIAdd
+		for i := 0; i < intDotSize; i++ {
+			// Extract components
+			aID := e.backend.builder.AllocID()
+			ib := e.newIB()
+			ib.AddWord(scalarTypeID)
+			ib.AddWord(aID)
+			ib.AddWord(arg0ID)
+			ib.AddWord(uint32(i))
+			e.backend.builder.funcAppend(ib.Build(OpCompositeExtract))
+
+			bID := e.backend.builder.AllocID()
+			ib2 := e.newIB()
+			ib2.AddWord(scalarTypeID)
+			ib2.AddWord(bID)
+			ib2.AddWord(arg1ID)
+			ib2.AddWord(uint32(i))
+			e.backend.builder.funcAppend(ib2.Build(OpCompositeExtract))
+
+			// Multiply
+			prodID := e.backend.builder.AddBinaryOp(mulOp, scalarTypeID, aID, bID)
+
+			// Accumulate
+			sumID := e.backend.builder.AddBinaryOp(addOp, scalarTypeID, partialSum, prodID)
+			partialSum = sumID
+		}
+		return partialSum, nil
+	}
+
 	// Emit instruction
 	if useNativeOpcode {
 		// Special case: packed dot product needs extension and capability
@@ -6193,8 +6304,92 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		return resultID, nil
 	}
 
+	// FMix: if selector (arg2) is scalar but result is vector, splat the selector.
+	// SPIR-V FMix requires all operands to match Result Type.
+	if needsMixSplat && len(operands) >= 3 && mathExpr.Arg2 != nil {
+		selectorType, _ := ir.ResolveExpressionType(e.backend.module, e.function, *mathExpr.Arg2)
+		selectorInner := ir.TypeResInner(e.backend.module, selectorType)
+		argInner2 := ir.TypeResInner(e.backend.module, argType)
+		if _, isScalar := selectorInner.(ir.ScalarType); isScalar {
+			if vecType, isVec := argInner2.(ir.VectorType); isVec {
+				// Splat scalar to vector: OpCompositeConstruct with N copies
+				vecTypeID := e.backend.resolveTypeResolution(ir.TypeResolution{Value: vecType})
+				splatID := e.backend.builder.AllocID()
+				ib := e.newIB()
+				ib.AddWord(vecTypeID)
+				ib.AddWord(splatID)
+				for j := 0; j < int(vecType.Size); j++ {
+					ib.AddWord(operands[2])
+				}
+				e.backend.builder.funcAppend(ib.Build(OpCompositeConstruct))
+				operands[2] = splatID
+			}
+		}
+	}
+
 	// Use GLSL.std.450 extended instruction
 	return e.backend.builder.AddExtInst(resultType, e.backend.glslExtID, glslInst, operands...), nil
+}
+
+// emitMatrixColumnOp decomposes a matrix binary operation into column-wise vector ops.
+// SPIR-V FAdd/FSub don't work on matrix types directly.
+// Matches Rust naga's write_matrix_matrix_column_op (block.rs:2493).
+func (e *ExpressionEmitter) emitMatrixColumnOp(op OpCode, resultTypeID, leftID, rightID uint32, mat ir.MatrixType) uint32 {
+	// Get column vector type
+	colVecType := ir.VectorType{Scalar: mat.Scalar, Size: mat.Rows}
+	colVecTypeID := e.backend.resolveTypeResolution(ir.TypeResolution{Value: colVecType})
+
+	// Process each column
+	columnIDs := make([]uint32, int(mat.Columns))
+	for i := 0; i < int(mat.Columns); i++ {
+		// Extract column from left matrix
+		leftColID := e.backend.builder.AllocID()
+		ib1 := e.newIB()
+		ib1.AddWord(colVecTypeID)
+		ib1.AddWord(leftColID)
+		ib1.AddWord(leftID)
+		ib1.AddWord(uint32(i))
+		e.backend.builder.funcAppend(ib1.Build(OpCompositeExtract))
+
+		// Extract column from right matrix
+		rightColID := e.backend.builder.AllocID()
+		ib2 := e.newIB()
+		ib2.AddWord(colVecTypeID)
+		ib2.AddWord(rightColID)
+		ib2.AddWord(rightID)
+		ib2.AddWord(uint32(i))
+		e.backend.builder.funcAppend(ib2.Build(OpCompositeExtract))
+
+		// Apply op to columns
+		columnIDs[i] = e.backend.builder.AddBinaryOp(op, colVecTypeID, leftColID, rightColID)
+	}
+
+	// Reassemble matrix from columns
+	resultID := e.backend.builder.AllocID()
+	ib := e.newIB()
+	ib.AddWord(resultTypeID)
+	ib.AddWord(resultID)
+	for _, colID := range columnIDs {
+		ib.AddWord(colID)
+	}
+	e.backend.builder.funcAppend(ib.Build(OpCompositeConstruct))
+	return resultID
+}
+
+// splatScalarToVector creates an OpCompositeConstruct that replicates a scalar ID
+// to fill a vector type. Used when SPIR-V requires matching vector operands but
+// WGSL allows mixed scalar/vector (e.g., integer vec*scalar multiply).
+func (e *ExpressionEmitter) splatScalarToVector(scalarID uint32, vecType ir.VectorType) uint32 {
+	vecTypeID := e.backend.resolveTypeResolution(ir.TypeResolution{Value: vecType})
+	splatID := e.backend.builder.AllocID()
+	ib := e.newIB()
+	ib.AddWord(vecTypeID)
+	ib.AddWord(splatID)
+	for i := 0; i < int(vecType.Size); i++ {
+		ib.AddWord(scalarID)
+	}
+	e.backend.builder.funcAppend(ib.Build(OpCompositeConstruct))
+	return splatID
 }
 
 // emitDot4PackedPolyfill emits a software polyfill for dot4I8Packed/dot4U8Packed
@@ -6389,6 +6584,34 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	imageID := imagePtrID
 	samplerID := samplerPtrID
 
+	// Determine if this is a depth image — affects result type.
+	// SPIR-V Dref sampling instructions return scalar f32, not vec4.
+	// For non-Dref depth sampling (without gather), SPIR-V returns vec4
+	// but we need scalar, so we CompositeExtract the first component.
+	isDepthImage := false
+	exprType, resolveErr := ir.ResolveExpressionType(e.backend.module, e.function, sample.Image)
+	if resolveErr == nil {
+		inner := typeResolutionInner(e.backend.module, exprType)
+		if imgType, ok := inner.(ir.ImageType); ok {
+			isDepthImage = imgType.Class == ir.ImageClassDepth
+		}
+	}
+
+	// For Dref operations, result type is scalar f32 (SPIR-V spec requirement).
+	// For non-Dref depth images without gather, we sample as vec4 then extract component 0.
+	// For everything else, result type is vec4<f32>.
+	needsSubAccess := isDepthImage && sample.DepthRef == nil && sample.Gather == nil
+	var sampleResultType uint32
+	if sample.DepthRef != nil {
+		// Dref sampling → scalar f32 result
+		sampleResultType = e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	} else {
+		// Non-Dref → vec4<f32> result (even for depth, we extract later)
+		sampleResultType = e.backend.emitVec4F32Type()
+	}
+	resultType := sampleResultType
+	resultID := e.backend.builder.AllocID()
+
 	// Create SampledImage by combining image and sampler
 	sampledImageTypeID := e.backend.getSampledImageType(e.function, sample.Image)
 	sampledImageID := e.backend.builder.AllocID()
@@ -6399,10 +6622,6 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	sampledImageBuilder.AddWord(imageID)
 	sampledImageBuilder.AddWord(samplerID)
 	e.backend.builder.funcAppend(sampledImageBuilder.Build(OpSampledImage))
-
-	// Result type is vec4<f32> for sampled images
-	resultType := e.backend.emitVec4F32Type()
-	resultID := e.backend.builder.AllocID()
 
 	// Handle gather operations (textureGather / textureGatherCompare)
 	if sample.Gather != nil {
@@ -6568,6 +6787,20 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 
 	default:
 		return 0, fmt.Errorf("unsupported sample level: %T", level)
+	}
+
+	// For depth images without Dref (non-comparison sampling), SPIR-V returns
+	// vec4<f32> but naga IR expects scalar f32. Extract the first component.
+	if needsSubAccess {
+		scalarF32 := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		extractedID := e.backend.builder.AllocID()
+		ib := e.newIB()
+		ib.AddWord(scalarF32)
+		ib.AddWord(extractedID)
+		ib.AddWord(resultID)
+		ib.AddWord(0) // index 0 = first component
+		e.backend.builder.funcAppend(ib.Build(OpCompositeExtract))
+		return extractedID, nil
 	}
 
 	return resultID, nil
@@ -7549,10 +7782,29 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 		return fmt.Errorf("function %d not found in functionIDs", call.Function)
 	}
 
-	// Collect argument SPIR-V IDs
+	// Collect argument SPIR-V IDs.
+	// For pointer parameters, pass the pointer directly (emitPointerExpression).
+	// For value parameters, pass the loaded value (emitExpression).
+	targetFn := e.backend.module.Functions[call.Function]
 	argIDs := make([]uint32, 0, len(call.Arguments))
-	for _, arg := range call.Arguments {
-		argID, err := e.emitExpression(arg)
+	for i, arg := range call.Arguments {
+		// Check if the corresponding parameter expects a pointer type
+		isPointerParam := false
+		if i < len(targetFn.Arguments) {
+			paramType := e.backend.module.Types[targetFn.Arguments[i].Type].Inner
+			switch paramType.(type) {
+			case ir.PointerType, ir.ValuePointerType:
+				isPointerParam = true
+			}
+		}
+
+		var argID uint32
+		var err error
+		if isPointerParam {
+			argID, err = e.emitPointerExpression(arg)
+		} else {
+			argID, err = e.emitExpression(arg)
+		}
 		if err != nil {
 			return fmt.Errorf("call argument: %w", err)
 		}

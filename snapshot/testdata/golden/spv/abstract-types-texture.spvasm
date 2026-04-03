@@ -1,15 +1,15 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 122
+; Bound: 123
 ; Schema: 0
 
                OpCapability Shader
                OpCapability ImageGatherExtended
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint Fragment %_117 "main"
-               OpExecutionMode %_117 OriginUpperLeft
+               OpEntryPoint Fragment %_118 "main"
+               OpExecutionMode %_118 OriginUpperLeft
                OpDecorate %_13 DescriptorSet 0
                OpDecorate %_13 Binding 0
                OpDecorate %_15 DescriptorSet 0
@@ -37,7 +37,7 @@
          %_21 = OpTypeFunction %_2
          %_24 = OpConstant %_3 1065353216
          %_25 = OpConstant %_3 1073741824
-         %_29 = OpTypeSampledImage %_4
+         %_30 = OpTypeSampledImage %_4
          %_32 = OpConstant %_3 1065353216
          %_33 = OpConstant %_3 1073741824
          %_35 = OpConstant %_6 3
@@ -59,20 +59,20 @@
          %_78 = OpConstant %_3 1065353216
          %_81 = OpConstant %_3 1065353216
          %_82 = OpConstant %_3 1073741824
-         %_86 = OpTypeSampledImage %_9
+         %_87 = OpTypeSampledImage %_9
          %_89 = OpConstant %_6 1
-         %_90 = OpConstant %_3 1065353216
-         %_91 = OpConstant %_3 1073741824
-         %_97 = OpConstant %_3 0
-         %_98 = OpConstant %_3 1065353216
-         %_99 = OpConstant %_3 1073741824
-         %_105 = OpConstant %_3 0
-         %_108 = OpConstant %_6 0
-         %_109 = OpConstant %_6 1
-         %_111 = OpConstant %_3 1073741824
-         %_112 = OpConstant %_3 1077936128
-         %_113 = OpConstant %_3 1082130432
-         %_114 = OpConstant %_3 1084227584
+         %_91 = OpConstant %_3 1065353216
+         %_92 = OpConstant %_3 1073741824
+         %_98 = OpConstant %_3 0
+         %_99 = OpConstant %_3 1065353216
+         %_100 = OpConstant %_3 1073741824
+         %_106 = OpConstant %_3 0
+         %_109 = OpConstant %_6 0
+         %_110 = OpConstant %_6 1
+         %_112 = OpConstant %_3 1073741824
+         %_113 = OpConstant %_3 1077936128
+         %_114 = OpConstant %_3 1082130432
+         %_115 = OpConstant %_3 1084227584
          %_13 = OpVariable %_12 UniformConstant
          %_15 = OpVariable %_14 UniformConstant
          %_17 = OpVariable %_16 UniformConstant
@@ -83,36 +83,36 @@
          %_26 = OpCompositeConstruct %_8 %_24 %_25
          %_27 = OpLoad %_4 %_13
          %_28 = OpLoad %_5 %_15
-         %_30 = OpSampledImage %_29 %_27 %_28
-         %_31 = OpImageSampleImplicitLod %_11 %_30 %_26
+         %_31 = OpSampledImage %_30 %_27 %_28
+         %_29 = OpImageSampleImplicitLod %_11 %_31 %_26
          %_34 = OpCompositeConstruct %_8 %_32 %_33
          %_37 = OpCompositeConstruct %_7 %_35 %_36
          %_38 = OpLoad %_4 %_13
          %_39 = OpLoad %_5 %_15
-         %_40 = OpSampledImage %_29 %_38 %_39
-         %_41 = OpImageSampleImplicitLod %_11 %_40 %_34 %_32 %_37
+         %_41 = OpSampledImage %_30 %_38 %_39
+         %_40 = OpImageSampleImplicitLod %_11 %_41 %_34 %_32 %_37
          %_44 = OpCompositeConstruct %_8 %_42 %_43
          %_45 = OpLoad %_4 %_13
          %_46 = OpLoad %_5 %_15
-         %_47 = OpSampledImage %_29 %_45 %_46
-         %_48 = OpImageSampleExplicitLod %_11 %_47 %_44 %_2 %_49
+         %_48 = OpSampledImage %_30 %_45 %_46
+         %_47 = OpImageSampleExplicitLod %_11 %_48 %_44 %_2 %_49
          %_52 = OpCompositeConstruct %_8 %_50 %_51
          %_53 = OpLoad %_4 %_13
          %_54 = OpLoad %_5 %_15
-         %_55 = OpSampledImage %_29 %_53 %_54
-         %_56 = OpImageSampleExplicitLod %_11 %_55 %_52 %_2 %_57
+         %_56 = OpSampledImage %_30 %_53 %_54
+         %_55 = OpImageSampleExplicitLod %_11 %_56 %_52 %_2 %_57
          %_60 = OpCompositeConstruct %_8 %_58 %_59
          %_63 = OpCompositeConstruct %_8 %_61 %_62
          %_66 = OpCompositeConstruct %_8 %_64 %_65
          %_67 = OpLoad %_4 %_13
          %_68 = OpLoad %_5 %_15
-         %_69 = OpSampledImage %_29 %_67 %_68
-         %_70 = OpImageSampleExplicitLod %_11 %_69 %_60 %_4 %_63 %_66
+         %_70 = OpSampledImage %_30 %_67 %_68
+         %_69 = OpImageSampleExplicitLod %_11 %_70 %_60 %_4 %_63 %_66
          %_73 = OpCompositeConstruct %_8 %_71 %_72
          %_74 = OpLoad %_4 %_13
          %_75 = OpLoad %_5 %_15
-         %_76 = OpSampledImage %_29 %_74 %_75
-         %_77 = OpImageSampleImplicitLod %_11 %_76 %_73 %_1 %_78
+         %_77 = OpSampledImage %_30 %_74 %_75
+         %_76 = OpImageSampleImplicitLod %_11 %_77 %_73 %_1 %_78
                OpReturn
                OpFunctionEnd
          %_79 = OpFunction %_2 None %_21
@@ -120,32 +120,33 @@
          %_83 = OpCompositeConstruct %_8 %_81 %_82
          %_84 = OpLoad %_9 %_17
          %_85 = OpLoad %_5 %_15
-         %_87 = OpSampledImage %_86 %_84 %_85
-         %_88 = OpImageSampleExplicitLod %_11 %_87 %_83 %_2 %_89
-         %_92 = OpCompositeConstruct %_8 %_90 %_91
-         %_93 = OpLoad %_9 %_17
-         %_94 = OpLoad %_5 %_18
-         %_95 = OpSampledImage %_86 %_93 %_94
-         %_96 = OpImageSampleDrefImplicitLod %_11 %_95 %_92 %_97
-         %_100 = OpCompositeConstruct %_8 %_98 %_99
-         %_101 = OpLoad %_9 %_17
-         %_102 = OpLoad %_5 %_18
-         %_103 = OpSampledImage %_86 %_101 %_102
-         %_104 = OpImageDrefGather %_11 %_103 %_100 %_105
+         %_88 = OpSampledImage %_87 %_84 %_85
+         %_86 = OpImageSampleExplicitLod %_11 %_88 %_83 %_2 %_89
+         %_90 = OpCompositeExtract %_3 %_86 0
+         %_93 = OpCompositeConstruct %_8 %_91 %_92
+         %_94 = OpLoad %_9 %_17
+         %_95 = OpLoad %_5 %_18
+         %_97 = OpSampledImage %_87 %_94 %_95
+         %_96 = OpImageSampleDrefImplicitLod %_3 %_97 %_93 %_98
+         %_101 = OpCompositeConstruct %_8 %_99 %_100
+         %_102 = OpLoad %_9 %_17
+         %_103 = OpLoad %_5 %_18
+         %_105 = OpSampledImage %_87 %_102 %_103
+         %_104 = OpImageDrefGather %_3 %_105 %_101 %_106
                OpReturn
                OpFunctionEnd
-         %_106 = OpFunction %_2 None %_21
-         %_107 = OpLabel
-         %_110 = OpCompositeConstruct %_7 %_108 %_109
-         %_115 = OpCompositeConstruct %_11 %_111 %_112 %_113 %_114
-         %_116 = OpLoad %_10 %_20
-               OpImageWrite %_116 %_110 %_115
+         %_107 = OpFunction %_2 None %_21
+         %_108 = OpLabel
+         %_111 = OpCompositeConstruct %_7 %_109 %_110
+         %_116 = OpCompositeConstruct %_11 %_112 %_113 %_114 %_115
+         %_117 = OpLoad %_10 %_20
+               OpImageWrite %_117 %_111 %_116
                OpReturn
                OpFunctionEnd
-         %_117 = OpFunction %_2 None %_21
-         %_118 = OpLabel
-         %_119 = OpFunctionCall %_2 %_22
-         %_120 = OpFunctionCall %_2 %_79
-         %_121 = OpFunctionCall %_2 %_106
+         %_118 = OpFunction %_2 None %_21
+         %_119 = OpLabel
+         %_120 = OpFunctionCall %_2 %_22
+         %_121 = OpFunctionCall %_2 %_79
+         %_122 = OpFunctionCall %_2 %_107
                OpReturn
                OpFunctionEnd

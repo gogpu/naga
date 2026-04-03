@@ -57,7 +57,7 @@
          %_81 = OpConstant %_3 1056964608
          %_83 = OpConstant %_3 0
          %_84 = OpConstant %_3 1065353216
-         %_94 = OpTypeSampledImage %_4
+         %_95 = OpTypeSampledImage %_4
          %_11 = OpVariable %_10 UniformConstant
          %_13 = OpVariable %_12 UniformConstant
          %_15 = OpVariable %_14 Input
@@ -122,8 +122,8 @@
          %_91 = OpLoad %_4 %_11
          %_92 = OpLoad %_5 %_13
          %_93 = OpLoad %_7 %_21
-         %_95 = OpSampledImage %_94 %_91 %_92
-         %_96 = OpImageSampleImplicitLod %_6 %_95 %_93
-               OpStore %_22 %_96
+         %_96 = OpSampledImage %_95 %_91 %_92
+         %_94 = OpImageSampleImplicitLod %_6 %_96 %_93
+               OpStore %_22 %_94
                OpReturn
                OpFunctionEnd

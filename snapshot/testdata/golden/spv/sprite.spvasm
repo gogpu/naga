@@ -26,7 +26,7 @@
          %_12 = OpTypePointer Input %_6
          %_14 = OpTypePointer Output %_7
          %_16 = OpTypeFunction %_2
-         %_22 = OpTypeSampledImage %_4
+         %_23 = OpTypeSampledImage %_4
          %_9 = OpVariable %_8 UniformConstant
          %_11 = OpVariable %_10 UniformConstant
          %_13 = OpVariable %_12 Input
@@ -36,8 +36,8 @@
          %_19 = OpLoad %_4 %_9
          %_20 = OpLoad %_5 %_11
          %_21 = OpLoad %_6 %_13
-         %_23 = OpSampledImage %_22 %_19 %_20
-         %_24 = OpImageSampleImplicitLod %_7 %_23 %_21
-               OpStore %_15 %_24
+         %_24 = OpSampledImage %_23 %_19 %_20
+         %_22 = OpImageSampleImplicitLod %_7 %_24 %_21
+               OpStore %_15 %_22
                OpReturn
                OpFunctionEnd

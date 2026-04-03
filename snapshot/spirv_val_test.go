@@ -61,7 +61,10 @@ func TestSpirvValBinary(t *testing.T) {
 			defer os.Remove(tmpPath)
 
 			// Step 3: Validate with spirv-val.
-			cmd := exec.Command(spirvValPath, "--target-env", "vulkan1.2", tmpPath)
+			// --uniform-buffer-standard-layout: Rust naga relies on VK_KHR_uniform_buffer_standard_layout
+			// for matrices with small column vectors (e.g., mat3x2) in Uniform blocks.
+			// Without this flag, spirv-val rejects stride 8 (std430) for Uniform which requires stride 16 (std140).
+			cmd := exec.Command(spirvValPath, "--target-env", "vulkan1.2", "--uniform-buffer-standard-layout", tmpPath)
 			output, valErr := cmd.CombinedOutput()
 			if valErr != nil {
 				valFailCount++

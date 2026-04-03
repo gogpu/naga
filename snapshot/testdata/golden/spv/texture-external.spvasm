@@ -60,7 +60,7 @@
          %_27 = OpTypePointer Function %_10
          %_31 = OpTypePointer Function %_5
          %_33 = OpConstant %_3 0
-         %_36 = OpTypeSampledImage %_14
+         %_37 = OpTypeSampledImage %_14
          %_39 = OpConstant %_3 0
          %_40 = OpTypeInt 32 1
          %_41 = OpTypeVector %_40 2
@@ -82,9 +82,9 @@
          %_32 = OpVariable %_31 Function
          %_34 = OpCompositeConstruct %_6 %_33 %_33
          %_35 = OpLoad %_15 %_19
-         %_37 = OpSampledImage %_36 %_25 %_35
-         %_38 = OpImageSampleExplicitLod %_10 %_37 %_34 %_2 %_39
-               OpStore %_28 %_38
+         %_38 = OpSampledImage %_37 %_25 %_35
+         %_36 = OpImageSampleExplicitLod %_10 %_38 %_34 %_2 %_39
+               OpStore %_28 %_36
          %_43 = OpCompositeConstruct %_41 %_42 %_42
          %_45 = OpImageFetch %_44 %_25 %_43
                OpStore %_29 %_45
