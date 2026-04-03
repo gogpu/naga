@@ -648,8 +648,8 @@
          %_530 = OpCompositeConstruct %_4 %_343 %_343 %_343 %_343
          %_532 = OpMatrixTimesVector %_9 %_531 %_530
          %_533 = OpCompositeConstruct %_9 %_355 %_355 %_355
-         %_535 = OpVectorTimesMatrix %_9 %_533 %_534
-         %_538 = OpMatrixTimesMatrix %_13 %_536 %_537
+         %_535 = OpVectorTimesMatrix %_4 %_533 %_534
+         %_538 = OpMatrixTimesMatrix %_12 %_536 %_537
          %_539 = OpLoad %_5 %_341
          %_541 = OpIAdd %_5 %_539 %_540
                OpStore %_342 %_541

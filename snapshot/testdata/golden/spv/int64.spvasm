@@ -332,9 +332,9 @@
          %_68 = OpAccessChain %_62 %_66 %_67
          %_69 = OpLoad %_5 %_68
          %_70 = OpLoad %_3 %_43
-         %_71 = OpBitcast %_5 %_70
+         %_71 = OpUConvert %_5 %_70
          %_72 = OpIAdd %_5 %_69 %_71
-         %_73 = OpBitcast %_3 %_72
+         %_73 = OpSConvert %_3 %_72
          %_74 = OpLoad %_3 %_43
          %_75 = OpIAdd %_3 %_74 %_73
                OpStore %_43 %_75
@@ -591,9 +591,9 @@
          %_419 = OpAccessChain %_79 %_417 %_418
          %_420 = OpLoad %_6 %_419
          %_421 = OpLoad %_4 %_381
-         %_422 = OpBitcast %_6 %_421
+         %_422 = OpSConvert %_6 %_421
          %_423 = OpIAdd %_6 %_420 %_422
-         %_424 = OpBitcast %_4 %_423
+         %_424 = OpUConvert %_4 %_423
          %_425 = OpLoad %_4 %_381
          %_426 = OpIAdd %_4 %_425 %_424
                OpStore %_381 %_426

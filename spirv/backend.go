@@ -4359,7 +4359,7 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 		dstMatrixType := e.backend.emitInlineType(ir.MatrixType{Columns: matrixSrc.Columns, Rows: matrixSrc.Rows, Scalar: targetScalar})
 
 		columnIDs := make([]uint32, matrixSrc.Columns)
-		convOp, convErr := selectConversionOp(srcScalar.Kind, targetScalar.Kind)
+		convOp, convErr := selectConversionOp(srcScalar.Kind, targetScalar.Kind, srcScalar.Width, targetScalar.Width)
 		if convErr != nil {
 			return 0, convErr
 		}
@@ -4394,7 +4394,7 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 	}
 
 	// Select conversion opcode based on source → target scalar kinds
-	op, err := selectConversionOp(srcScalar.Kind, as.Kind)
+	op, err := selectConversionOp(srcScalar.Kind, as.Kind, srcScalar.Width, targetScalar.Width)
 	if err != nil {
 		return 0, err
 	}
@@ -4482,7 +4482,10 @@ func (e *ExpressionEmitter) emitNumericToBool(targetTypeID uint32, srcScalar ir.
 }
 
 // selectConversionOp returns the SPIR-V opcode for a scalar type conversion.
-func selectConversionOp(src, dst ir.ScalarKind) (OpCode, error) {
+// srcWidth and dstWidth are the byte widths of the source and destination scalars.
+// When widths differ for int↔int conversions, OpSConvert/OpUConvert must be used
+// instead of OpBitcast (which requires matching total bit width per SPIR-V spec).
+func selectConversionOp(src, dst ir.ScalarKind, srcWidth, dstWidth uint8) (OpCode, error) {
 	switch {
 	case src == ir.ScalarUint && dst == ir.ScalarFloat:
 		return OpConvertUToF, nil
@@ -4492,7 +4495,15 @@ func selectConversionOp(src, dst ir.ScalarKind) (OpCode, error) {
 		return OpConvertFToU, nil
 	case src == ir.ScalarFloat && dst == ir.ScalarSint:
 		return OpConvertFToS, nil
-	case (src == ir.ScalarUint && dst == ir.ScalarSint) || (src == ir.ScalarSint && dst == ir.ScalarUint):
+	case src == ir.ScalarSint && dst == ir.ScalarUint:
+		if srcWidth != dstWidth {
+			return OpUConvert, nil
+		}
+		return OpBitcast, nil
+	case src == ir.ScalarUint && dst == ir.ScalarSint:
+		if srcWidth != dstWidth {
+			return OpSConvert, nil
+		}
 		return OpBitcast, nil
 	case src == ir.ScalarFloat && dst == ir.ScalarFloat:
 		// Same kind, different width (e.g. f32→f16, f32→f64)
@@ -4779,7 +4790,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			_, leftIsScalar := leftInner.(ir.ScalarType)
 			_, rightIsScalar := rightInner.(ir.ScalarType)
 			leftMat, leftIsMat := leftInner.(ir.MatrixType)
-			_, rightIsMat := rightInner.(ir.MatrixType)
+			rightMat, rightIsMat := rightInner.(ir.MatrixType)
 
 			switch {
 			case leftIsMat && rightIsVec:
@@ -4790,12 +4801,17 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 				return e.backend.builder.AddBinaryOp(OpMatrixTimesVector, vecTypeID, leftID, rightID), nil
 			case leftIsVec && rightIsMat:
 				// vec * mat -> OpVectorTimesMatrix
-				// Result type is the vector type matching matrix columns.
-				vecResultType := e.backend.resolveTypeResolution(leftType)
-				return e.backend.builder.AddBinaryOp(OpVectorTimesMatrix, vecResultType, leftID, rightID), nil
+				// Result type is a vector with size = number of columns in the matrix.
+				vecScalarID := e.backend.emitScalarType(rightMat.Scalar)
+				vecTypeID := e.backend.emitVectorType(vecScalarID, uint32(rightMat.Columns))
+				return e.backend.builder.AddBinaryOp(OpVectorTimesMatrix, vecTypeID, leftID, rightID), nil
 			case leftIsMat && rightIsMat:
 				// mat * mat -> OpMatrixTimesMatrix
-				return e.backend.builder.AddBinaryOp(OpMatrixTimesMatrix, resultType, leftID, rightID), nil
+				// Result type is mat<Columns=right.Columns, Rows=left.Rows>
+				colScalarID := e.backend.emitScalarType(leftMat.Scalar)
+				colVecID := e.backend.emitVectorType(colScalarID, uint32(leftMat.Rows))
+				matTypeID := e.backend.emitMatrixType(colVecID, uint32(rightMat.Columns))
+				return e.backend.builder.AddBinaryOp(OpMatrixTimesMatrix, matTypeID, leftID, rightID), nil
 			case leftIsMat && rightIsScalar:
 				// mat * scalar -> OpMatrixTimesScalar
 				return e.backend.builder.AddBinaryOp(OpMatrixTimesScalar, resultType, leftID, rightID), nil
@@ -7336,14 +7352,55 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 	var resultID uint32
 	builder := e.newIB()
 
+	// Resolve image type for dimension-dependent queries.
+	imageType, err := ir.ResolveExpressionType(e.backend.module, e.function, query.Image)
+	if err != nil {
+		return 0, fmt.Errorf("emitImageQuery: resolve image type: %w", err)
+	}
+	imageInner := typeResolutionInner(e.backend.module, imageType)
+	imgType, _ := imageInner.(ir.ImageType)
+
 	switch q := query.Query.(type) {
 	case ir.ImageQuerySize:
-		// Returns uvec2 or uvec3 depending on image dimension
+		// Determine the number of coordinate components based on image dimension.
+		// Matches Rust naga: dim_coords + array_coords for the extended SPIR-V result,
+		// then shuffle down to dim_coords for the IR result type.
+		dimCoords := 2 // default for Dim2D
+		switch imgType.Dim {
+		case ir.Dim1D:
+			dimCoords = 1
+		case ir.Dim2D, ir.DimCube:
+			dimCoords = 2
+		case ir.Dim3D:
+			dimCoords = 3
+		}
+		arrayCoords := 0
+		if imgType.Arrayed {
+			arrayCoords = 1
+		}
+		extendedSize := dimCoords + arrayCoords
+
 		scalarID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-		resultType := e.backend.emitVectorType(scalarID, uint32(ir.Vec3))
-		resultID = e.backend.builder.AllocID()
-		builder.AddWord(resultType)
-		builder.AddWord(resultID)
+
+		// The type for OpImageQuerySize result (includes array dimension if arrayed).
+		var extendedTypeID uint32
+		if extendedSize == 1 {
+			extendedTypeID = scalarID
+		} else {
+			extendedTypeID = e.backend.emitVectorType(scalarID, uint32(extendedSize))
+		}
+
+		// The type for the IR result (spatial dimensions only, no array layer).
+		var resultTypeID uint32
+		if dimCoords == 1 {
+			resultTypeID = scalarID
+		} else {
+			resultTypeID = e.backend.emitVectorType(scalarID, uint32(dimCoords))
+		}
+
+		extendedID := e.backend.builder.AllocID()
+		builder.AddWord(extendedTypeID)
+		builder.AddWord(extendedID)
 		builder.AddWord(imageID)
 
 		if q.Level != nil {
@@ -7357,6 +7414,23 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 			e.backend.builder.funcAppend(builder.Build(OpImageQuerySize))
 		}
 
+		// If arrayed, we need to shuffle to extract only spatial dimensions.
+		if resultTypeID != extendedTypeID {
+			var components []uint32
+			if imgType.Dim == ir.DimCube {
+				// Cube: always pick first component duplicated for both dims
+				components = []uint32{0, 0}
+			} else {
+				components = make([]uint32, dimCoords)
+				for i := 0; i < dimCoords; i++ {
+					components[i] = uint32(i)
+				}
+			}
+			resultID = e.backend.builder.AddVectorShuffle(resultTypeID, extendedID, extendedID, components)
+		} else {
+			resultID = extendedID
+		}
+
 	case ir.ImageQueryNumLevels:
 		resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 		resultID = e.backend.builder.AllocID()
@@ -7366,13 +7440,36 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 		e.backend.builder.funcAppend(builder.Build(OpImageQueryLevels))
 
 	case ir.ImageQueryNumLayers:
-		// NumLayers is part of ImageQuerySize for array textures
-		resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-		resultID = e.backend.builder.AllocID()
-		builder.AddWord(resultType)
-		builder.AddWord(resultID)
+		// NumLayers uses OpImageQuerySizeLod to get the extended size vector,
+		// then extracts the last component (the layer count).
+		// Matches Rust naga: vec_size based on dim, then CompositeExtract last element.
+		var vecSize uint32
+		switch imgType.Dim {
+		case ir.Dim1D:
+			vecSize = 2 // Bi
+		case ir.Dim2D, ir.DimCube:
+			vecSize = 3 // Tri
+		case ir.Dim3D:
+			vecSize = 4 // Quad
+		default:
+			vecSize = 3
+		}
+
+		scalarID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		extendedTypeID := e.backend.emitVectorType(scalarID, vecSize)
+
+		extendedID := e.backend.builder.AllocID()
+		builder.AddWord(extendedTypeID)
+		builder.AddWord(extendedID)
 		builder.AddWord(imageID)
-		e.backend.builder.funcAppend(builder.Build(OpImageQuerySize))
+		// Always use level 0 for NumLayers query
+		zeroID := e.backend.builder.AddConstant(scalarID, 0)
+		builder.AddWord(zeroID)
+		e.backend.builder.funcAppend(builder.Build(OpImageQuerySizeLod))
+
+		// Extract the last component (layer count)
+		resultType := scalarID
+		resultID = e.backend.builder.AddCompositeExtract(resultType, extendedID, vecSize-1)
 
 	case ir.ImageQueryNumSamples:
 		resultType := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
