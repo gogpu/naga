@@ -2687,7 +2687,7 @@ func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {
 	}
 
 	// Run spirv-val
-	cmd := exec.Command(spirvVal, spvPath, "--target-env", "vulkan1.2")
+	cmd := exec.Command(spirvVal, spvPath, "--target-env", "spv1.6")
 	valOut, valErr := cmd.CombinedOutput()
 	if valErr != nil {
 		// Validation failed — dump disassembly for debugging

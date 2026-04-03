@@ -22,7 +22,7 @@
          %_14 = OpConstant %_3 0
          %_18 = OpTypeInt 32 0
          %_19 = OpConstant %_18 2
-         %_20 = OpConstant %_18 2
+         %_20 = OpConstant %_18 1
          %_21 = OpConstant %_18 72
          %_22 = OpConstant %_18 2
          %_23 = OpConstant %_18 2

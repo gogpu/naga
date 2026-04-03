@@ -65,8 +65,8 @@
          %_40 = OpTypeInt 32 1
          %_41 = OpTypeVector %_40 2
          %_42 = OpConstant %_40 0
-         %_44 = OpTypeVector %_40 4
-         %_46 = OpConstant %_4 0
+         %_45 = OpConstant %_4 0
+         %_49 = OpConstant %_40 0
          %_59 = OpTypeFunction %_2
          %_17 = OpVariable %_16 UniformConstant
          %_19 = OpVariable %_18 UniformConstant
@@ -85,13 +85,13 @@
          %_36 = OpImageSampleExplicitLod %_10 %_38 %_34 %_2 %_39
                OpStore %_28 %_36
          %_43 = OpCompositeConstruct %_41 %_42 %_42
-         %_45 = OpImageFetch %_44 %_25 %_43
-               OpStore %_29 %_45
-         %_47 = OpCompositeConstruct %_5 %_46 %_46
-         %_48 = OpImageFetch %_44 %_25 %_47
-               OpStore %_30 %_48
-         %_49 = OpImageQuerySize %_5 %_25
-               OpStore %_32 %_49
+         %_44 = OpImageFetch %_10 %_25 %_43
+               OpStore %_29 %_44
+         %_46 = OpCompositeConstruct %_5 %_45 %_45
+         %_47 = OpImageFetch %_10 %_25 %_46
+               OpStore %_30 %_47
+         %_48 = OpImageQuerySizeLod %_5 %_25 %_49
+               OpStore %_32 %_48
          %_50 = OpLoad %_10 %_28
          %_51 = OpLoad %_10 %_29
          %_52 = OpFAdd %_10 %_50 %_51

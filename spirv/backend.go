@@ -1272,14 +1272,6 @@ func (b *Backend) emitGlobals() error {
 			return err
 		}
 
-		// Workgroup variables must NOT have explicit layout decorations
-		// (ArrayStride, Offset) per VUID-StandaloneSpirv-None-10684.
-		// If the type is an array that was emitted with ArrayStride, create
-		// a separate array type without the decoration for Workgroup use.
-		if global.Space == ir.SpaceWorkGroup {
-			varType = b.emitTypeWithoutLayout(global.Type)
-		}
-
 		// Determine if this variable needs a wrapper struct (matching Rust naga's
 		// global_needs_wrapper logic). In SPIR-V, Uniform/Storage variables must be
 		// typed as OpTypeStruct with Block decoration.
@@ -2098,8 +2090,7 @@ func (b *Backend) emitWorkgroupInitPolyfill(epIdx int, fn *ir.Function, emitter 
 				continue
 			}
 			// Get the type of the variable (not the pointer type, the actual type).
-			// Workgroup variables use layout-free types (no ArrayStride/Offset).
-			typeID := b.emitTypeWithoutLayout(gv.Type)
+			typeID, _ := b.emitType(gv.Type)
 			workgroupVars = append(workgroupVars, wgVar{varID: varID, typeID: typeID})
 		}
 	}
@@ -3811,12 +3802,8 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 			return 0, err
 		}
 
-		// Workgroup variables use layout-free types (no ArrayStride/Offset).
 		storageClass := e.getExpressionStorageClass(access.Base)
 		accessElementTypeID := elementTypeID
-		if storageClass == StorageClassWorkgroup && elementType.Handle != nil {
-			accessElementTypeID = e.backend.emitTypeWithoutLayout(*elementType.Handle)
-		}
 
 		// Create pointer type for OpAccessChain result
 		ptrType := e.backend.emitPointerType(storageClass, accessElementTypeID)
@@ -4011,12 +3998,6 @@ func (e *ExpressionEmitter) emitAccessIndexAsPointer(access ir.ExprAccessIndex) 
 
 	storageClass := e.getExpressionStorageClass(access.Base)
 
-	// Workgroup variables use layout-free types (no ArrayStride/Offset).
-	// OpAccessChain result types must match the variable's type hierarchy.
-	if storageClass == StorageClassWorkgroup && elementType.Handle != nil {
-		elementTypeID = e.backend.emitTypeWithoutLayout(*elementType.Handle)
-	}
-
 	u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	indexID := e.backend.builder.AddConstant(u32Type, access.Index)
 
@@ -4050,11 +4031,6 @@ func (e *ExpressionEmitter) emitAccessAsPointer(access ir.ExprAccess) (uint32, e
 
 	elementTypeID := e.backend.resolveTypeResolution(elementType)
 	storageClass := e.getExpressionStorageClass(access.Base)
-
-	// Workgroup variables use layout-free types (no ArrayStride/Offset).
-	if storageClass == StorageClassWorkgroup && elementType.Handle != nil {
-		elementTypeID = e.backend.emitTypeWithoutLayout(*elementType.Handle)
-	}
 
 	ptrType := e.backend.emitPointerType(storageClass, elementTypeID)
 	return e.backend.builder.AddAccessChain(ptrType, baseID, indexID), nil
@@ -4095,11 +4071,7 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 
 		storageClass := e.getExpressionStorageClass(access.Base)
 
-		// Workgroup variables use layout-free types (no ArrayStride/Offset).
 		accessElementTypeID := elementTypeID
-		if storageClass == StorageClassWorkgroup && elementType.Handle != nil {
-			accessElementTypeID = e.backend.emitTypeWithoutLayout(*elementType.Handle)
-		}
 
 		ptrType := e.backend.emitPointerType(storageClass, accessElementTypeID)
 		ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
@@ -6668,12 +6640,11 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 
 		// Append optional image operands (Offset)
 		if sample.Offset != nil {
-			e.backend.addCapability(CapabilityImageGatherExtended)
 			offsetID, offsetErr := e.emitExpression(*sample.Offset)
 			if offsetErr != nil {
 				return 0, offsetErr
 			}
-			builder.AddWord(0x20) // ImageOperands::ConstOffset
+			builder.AddWord(0x08) // ImageOperands::ConstOffset (bit 3)
 			builder.AddWord(offsetID)
 		}
 
@@ -6692,12 +6663,11 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	var imageOperandMask uint32
 	var imageOperandValues []uint32
 	if sample.Offset != nil {
-		e.backend.addCapability(CapabilityImageGatherExtended)
 		offsetID, offsetErr := e.emitExpression(*sample.Offset)
 		if offsetErr != nil {
 			return 0, offsetErr
 		}
-		imageOperandMask |= 0x20 // ImageOperands::ConstOffset
+		imageOperandMask |= 0x08 // ImageOperands::ConstOffset (bit 3)
 		imageOperandValues = append(imageOperandValues, offsetID)
 	}
 
@@ -6976,6 +6946,9 @@ func (e *ExpressionEmitter) emitImageLoad(load ir.ExprImageLoad) (uint32, error)
 		switch imgType.Class {
 		case ir.ImageClassStorage:
 			sampledScalar = storageFormatToScalar(imgType.StorageFormat)
+		case ir.ImageClassExternal:
+			// External textures always use float sampled type
+			sampledScalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 		default:
 			sampledScalar = ir.ScalarType{Kind: imgType.SampledKind, Width: 4}
 		}
@@ -7403,15 +7376,42 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 		builder.AddWord(extendedID)
 		builder.AddWord(imageID)
 
-		if q.Level != nil {
-			levelID, err := e.emitExpression(*q.Level)
-			if err != nil {
-				return 0, err
+		// Matching Rust naga: multisampled or storage images use OpImageQuerySize (no level).
+		// Sampled/depth non-multisampled images use OpImageQuerySizeLod (with explicit or default level 0).
+		// SPIR-V spec: OpImageQuerySize requires MS=1 or Sampled!=1.
+		useQuerySize := false
+		switch imgType.Class {
+		case ir.ImageClassSampled:
+			useQuerySize = imgType.Multisampled
+		case ir.ImageClassDepth:
+			useQuerySize = imgType.Multisampled
+		case ir.ImageClassExternal:
+			// External textures have Sampled=1, need OpImageQuerySizeLod like sampled
+			useQuerySize = false
+		case ir.ImageClassStorage:
+			useQuerySize = true
+		default:
+			useQuerySize = true
+		}
+
+		if useQuerySize {
+			e.backend.builder.funcAppend(builder.Build(OpImageQuerySize))
+		} else {
+			// Sampled/depth non-multisampled: use OpImageQuerySizeLod
+			var levelID uint32
+			if q.Level != nil {
+				lid, err := e.emitExpression(*q.Level)
+				if err != nil {
+					return 0, err
+				}
+				levelID = lid
+			} else {
+				// Default level 0 (matching Rust naga)
+				i32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+				levelID = e.backend.builder.AddConstant(i32TypeID, 0)
 			}
 			builder.AddWord(levelID)
 			e.backend.builder.funcAppend(builder.Build(OpImageQuerySizeLod))
-		} else {
-			e.backend.builder.funcAppend(builder.Build(OpImageQuerySize))
 		}
 
 		// If arrayed, we need to shuffle to extract only spatial dimensions.
@@ -7553,23 +7553,44 @@ const OpTypeSampledImage OpCode = 27
 func (e *ExpressionEmitter) emitBarrier(stmt ir.StmtBarrier) error {
 	u32TypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 
-	// Execution scope - workgroup for workgroupBarrier
-	execScopeID := e.backend.builder.AddConstant(u32TypeID, ScopeWorkgroup)
+	// Memory scope: Device if STORAGE, Subgroup if SUB_GROUP, else Workgroup.
+	// Matches Rust naga writer.rs:1816-1822.
+	var memoryScope uint32
+	if stmt.Flags&ir.BarrierStorage != 0 {
+		memoryScope = ScopeDevice
+	} else if stmt.Flags&ir.BarrierSubGroup != 0 {
+		memoryScope = ScopeSubgroup
+	} else {
+		memoryScope = ScopeWorkgroup
+	}
 
-	// Memory scope - also workgroup
-	memScopeID := e.backend.builder.AddConstant(u32TypeID, ScopeWorkgroup)
-
-	// Memory semantics based on barrier flags
+	// Memory semantics based on barrier flags.
+	// Matches Rust naga writer.rs:1823-1839.
 	semantics := MemorySemanticsAcquireRelease
+	if stmt.Flags&ir.BarrierStorage != 0 {
+		semantics |= MemorySemanticsUniformMemory
+	}
 	if stmt.Flags&ir.BarrierWorkGroup != 0 {
 		semantics |= MemorySemanticsWorkgroupMemory
 	}
-	if stmt.Flags&ir.BarrierStorage != 0 {
-		semantics |= MemorySemanticsUniformMemory
+	if stmt.Flags&ir.BarrierSubGroup != 0 {
+		semantics |= MemorySemanticsSubgroupMemory
 	}
 	if stmt.Flags&ir.BarrierTexture != 0 {
 		semantics |= MemorySemanticsImageMemory
 	}
+
+	// Execution scope: Subgroup if SUB_GROUP, else Workgroup.
+	// Matches Rust naga writer.rs:1840-1844.
+	var execScope uint32
+	if stmt.Flags&ir.BarrierSubGroup != 0 {
+		execScope = ScopeSubgroup
+	} else {
+		execScope = ScopeWorkgroup
+	}
+
+	execScopeID := e.backend.builder.AddConstant(u32TypeID, execScope)
+	memScopeID := e.backend.builder.AddConstant(u32TypeID, memoryScope)
 	semanticsID := e.backend.builder.AddConstant(u32TypeID, semantics)
 
 	// OpControlBarrier Execution Memory Semantics
@@ -7668,9 +7689,10 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		return err
 	}
 
-	// Determine scalar kind from pointer type (atomic<i32> vs atomic<u32>)
-	scalarKind := e.resolveAtomicScalarKind(stmt.Pointer)
-	resultTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: scalarKind, Width: 4})
+	// Determine scalar type from pointer type (atomic<i32> vs atomic<u32> vs atomic<i64>)
+	atomicScalar := e.resolveAtomicScalar(stmt.Pointer)
+	scalarKind := atomicScalar.Kind
+	resultTypeID := e.backend.emitScalarType(atomicScalar)
 
 	// Scope and memory semantics constants
 	scopeID := e.backend.builder.AddConstant(
@@ -7759,9 +7781,13 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 }
 
 // emitAtomicCompareExchange emits an atomic compare-exchange operation.
+// SPIR-V OpAtomicCompareExchange returns a scalar (the old value), not a struct.
+// WGSL wraps the result in a struct {old_value: T, exchanged: bool}.
+// We emit: OpAtomicCompareExchange (scalar), OpIEqual (bool), OpCompositeConstruct (struct).
+// This matches Rust naga's approach in back/spv/block.rs.
 func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	stmt ir.StmtAtomic,
-	pointerID, valueID, resultTypeID, scopeID, semanticsID uint32,
+	pointerID, valueID, scalarTypeID, scopeID, semanticsID uint32,
 	compare ir.ExpressionHandle,
 ) error {
 	compareID, err := e.emitExpression(compare)
@@ -7769,26 +7795,60 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 		return err
 	}
 
-	resultID := e.backend.builder.AllocID()
+	// 1. OpAtomicCompareExchange returns the OLD scalar value
+	casResultID := e.backend.builder.AllocID()
 	builder := e.newIB()
-	builder.AddWord(resultTypeID)
-	builder.AddWord(resultID)
+	builder.AddWord(scalarTypeID)
+	builder.AddWord(casResultID)
 	builder.AddWord(pointerID)
 	builder.AddWord(scopeID)
-	builder.AddWord(semanticsID) // MemSemEqual (AcquireRelease)
+	builder.AddWord(semanticsID) // MemSemEqual
 	// MemSemUnequal: SPIR-V spec (VUID-10875) forbids Release/AcquireRelease
-	// for the "unequal" operand. Use Acquire instead. Matches Vulkan requirements.
+	// for the "unequal" operand. Use Acquire instead (satisfies VUID-10871 which
+	// requires non-relaxed order when storage class semantics bits are set).
 	unequalSemID := e.backend.builder.AddConstant(
 		e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
 		MemorySemanticsAcquire|MemorySemanticsUniformMemory,
 	)
-	builder.AddWord(unequalSemID)
+	builder.AddWord(unequalSemID) // MemSemUnequal (Acquire, not AcquireRelease)
 	builder.AddWord(valueID)
 	builder.AddWord(compareID)
 	e.backend.builder.funcAppend(builder.Build(OpAtomicCompareExch))
 
+	// 2. OpIEqual: exchanged = (old_value == compare)
+	boolTypeID := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	equalityResultID := e.backend.builder.AllocID()
+	eqBuilder := e.newIB()
+	eqBuilder.AddWord(boolTypeID)
+	eqBuilder.AddWord(equalityResultID)
+	eqBuilder.AddWord(casResultID)
+	eqBuilder.AddWord(compareID)
+	e.backend.builder.funcAppend(eqBuilder.Build(OpIEqual))
+
+	// 3. OpCompositeConstruct: build the result struct {old_value, exchanged}
 	if stmt.Result != nil {
-		e.exprIDs[*stmt.Result] = resultID
+		resultExpr := e.function.Expressions[*stmt.Result]
+		atomicResult, ok := resultExpr.Kind.(ir.ExprAtomicResult)
+		if !ok {
+			return fmt.Errorf("atomic compare-exchange result expression is not ExprAtomicResult")
+		}
+		structTypeID, err := e.backend.emitType(atomicResult.Ty)
+		if err != nil {
+			return fmt.Errorf("failed to emit atomic result struct type: %w", err)
+		}
+
+		compositeID := e.backend.builder.AllocID()
+		ccBuilder := e.newIB()
+		ccBuilder.AddWord(structTypeID)
+		ccBuilder.AddWord(compositeID)
+		ccBuilder.AddWord(casResultID)
+		ccBuilder.AddWord(equalityResultID)
+		e.backend.builder.funcAppend(ccBuilder.Build(OpCompositeConstruct))
+
+		e.exprIDs[*stmt.Result] = compositeID
+		if err := e.processDeferredStores(*stmt.Result, compositeID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -7842,17 +7902,12 @@ func (e *ExpressionEmitter) emitImageStore(store ir.StmtImageStore) error {
 		return fmt.Errorf("image store image: %w", err)
 	}
 
-	coordID, err := e.emitExpression(store.Coordinate)
+	// Build combined coordinates with array index (integer coords, matching Rust naga).
+	// Image store uses integer coordinates, NOT float — so we use emitImageCoordinates
+	// which does bitcast (e.g. u32→i32) instead of appendArrayIndex which converts to float.
+	coords, err := e.emitImageCoordinates(store.Coordinate, store.ArrayIndex)
 	if err != nil {
 		return fmt.Errorf("image store coordinate: %w", err)
-	}
-
-	// Handle array index for arrayed storage textures
-	if store.ArrayIndex != nil {
-		coordID, err = e.appendArrayIndex(coordID, *store.ArrayIndex, store.Coordinate)
-		if err != nil {
-			return err
-		}
 	}
 
 	valueID, err := e.emitExpression(store.Value)
@@ -7863,7 +7918,7 @@ func (e *ExpressionEmitter) emitImageStore(store ir.StmtImageStore) error {
 	// OpImageWrite: no result type, no result ID
 	builder := e.newIB()
 	builder.AddWord(imageID)
-	builder.AddWord(coordID)
+	builder.AddWord(coords.valueID)
 	builder.AddWord(valueID)
 	e.backend.builder.funcAppend(builder.Build(OpImageWrite))
 

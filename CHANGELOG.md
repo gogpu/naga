@@ -5,6 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+#### SPIR-V binary validation: 29 → 6 failures (−23 fixed)
+
+All fixes validated against Rust naga reference (`naga/src/back/spv/`).
+SPIR-V TestRustReference: 4/87 → 87/87 (100%).
+
+- **Depth texture sampling** — Dref sampling uses scalar f32 result type;
+  non-Dref depth sampling uses vec4 then CompositeExtract for first component.
+  Matches Rust naga image.rs:823-837. (4 shaders)
+
+- **Function pointer arguments** — `isPointerExpression` now recognizes
+  pointer-typed FunctionArgument params. `emitCall` uses `emitPointerExpression`
+  for pointer parameters. (1 shader: access)
+
+- **Integer dot product** — OpDot only works on float vectors. Integer dot
+  products now use manual expansion (CompositeExtract + IMul + IAdd).
+  Matches Rust naga write_dot_product. (1 shader)
+
+- **FMix scalar-to-vector splatting** — When FMix selector is scalar but
+  operands are vectors, splat scalar via OpCompositeConstruct.
+  Matches Rust naga Mix handling. (2 shaders)
+
+- **Integer vec×scalar multiply** — OpIMul requires matching types. Scalar
+  operand splatted to vector via OpCompositeConstruct before IMul.
+  Matches Rust naga write_vector_scalar_mult. (1 shader)
+
+- **Matrix add/sub decomposition** — SPIR-V FAdd/FSub don't work on matrix
+  types. Decomposed into column-wise vector operations.
+  Matches Rust naga write_matrix_matrix_column_op. (1 shader)
+
+- **VectorTimesMatrix result type** — Result vector size must equal matrix
+  column count, not left vector size. Also fixed MatrixTimesMatrix for
+  non-square matrices. (1 shader)
+
+- **ImageQuerySize dimensionality** — Result type now matches image
+  dimensionality (2D→vec2, 3D→vec3, etc.) instead of always vec3.
+  ImageQueryNumLayers uses OpImageQuerySizeLod + CompositeExtract.
+  Matches Rust naga image.rs:1142-1210. (1 shader)
+
+- **Bitcast width conversion** — Width-changing integer casts now use
+  OpUConvert/OpSConvert instead of OpBitcast (which requires equal bit width).
+  Matches Rust naga block.rs:2061-2066. (1 shader + 5 bonus)
+
+- **Atomic int64 result types** — Atomic operations on int64 now use correct
+  64-bit scalar result type instead of hardcoded 32-bit. (2 shaders)
+
+- **AtomicCompareExchange struct** — OpAtomicCompareExchange returns scalar,
+  not struct. Now constructs `{old_value, exchanged}` struct via
+  OpCompositeConstruct with OpIEqual for the exchanged bool.
+  Matches Rust naga block.rs:3414+. (2 shaders + 1 bonus)
+
+- **ControlBarrier SubgroupMemory** — Fixed MemorySemanticsSubgroupMemory
+  constant (0x80, not 0x200). Barrier emission now matches Rust naga
+  write_control_barrier. (1 shader)
+
+- **ConstOffset image operand** — Changed from ConstOffsets (0x40, Gather-only)
+  to ConstOffset (0x08, valid for all sampling). (partial fix)
+
+- **Image store coordinates** — Integer coordinates now use proper bitcast
+  instead of float conversion. (2 shaders)
+
+- **External texture handling** — ImageClassExternal uses float sampled type
+  and OpImageQuerySizeLod for queries. (1 shader)
+
+- **ImageGatherExtended capability** — Removed spurious emission for
+  ConstOffset operands. Only needed for dynamic Offset. (1 shader)
+
+- **spirv-val target env** — Uses spv1.6 for general SPIR-V correctness
+  validation, with --uniform-buffer-standard-layout for std430 matrix stride.
+
+### Known Issues
+
+- **6 SPIR-V binary validation failures** remain: ConstOffset not const object (2),
+  binding-arrays RuntimeArray (1), pointer-function-arg (3, known SPIR-V limitation).
+
+- **16 SPIR-V compile failures**: unimplemented features (mesh shaders, overrides,
+  image atomics, bit manipulation, workgroup uniform load). Tracked as backlog.
+
 ## [0.16.0] - 2026-04-02
 
 ### Added
@@ -69,12 +150,8 @@ All fixes validated against Rust naga reference (`naga/src/back/spv/`).
 
 ### Known Issues
 
-- **29 SPIR-V binary validation failures** remain: function pointer arguments (4),
-  depth texture result types (4), type mismatches (6), execution modes (4),
-  atomic pointer types (4), uniform layout (2), other (5). Tracked for v0.16.1.
-
-- **16 SPIR-V compile failures**: unimplemented features (mesh shaders, overrides,
-  image atomics, workgroup uniform load). Tracked as backlog.
+- **29 SPIR-V binary validation failures** at release time. Fixed in [Unreleased]
+  section above (29 → 6 remaining).
 
 ## [0.15.2] - 2026-04-01
 

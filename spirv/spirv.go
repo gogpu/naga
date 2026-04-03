@@ -580,9 +580,10 @@ const (
 	MemorySemanticsRelease             uint32 = 0x4
 	MemorySemanticsAcquireRelease      uint32 = 0x8
 	MemorySemanticsUniformMemory       uint32 = 0x40
+	MemorySemanticsSubgroupMemory      uint32 = 0x80
 	MemorySemanticsWorkgroupMemory     uint32 = 0x100
-	MemorySemanticsImageMemory         uint32 = 0x800
 	MemorySemanticsAtomicCounterMemory uint32 = 0x400
+	MemorySemanticsImageMemory         uint32 = 0x800
 )
 
 // Barrier opcodes

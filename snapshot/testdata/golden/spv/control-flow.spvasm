@@ -15,7 +15,7 @@
          %_7 = OpTypePointer Function %_3
          %_9 = OpTypeInt 32 0
          %_10 = OpConstant %_9 2
-         %_11 = OpConstant %_9 2
+         %_11 = OpConstant %_9 1
          %_12 = OpConstant %_9 72
          %_13 = OpConstant %_9 2
          %_14 = OpConstant %_9 2
