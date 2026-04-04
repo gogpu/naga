@@ -1017,7 +1017,7 @@ func TestWriteStorageStore(t *testing.T) {
 		w.out.Reset()
 		w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
 		sv := storeValue{kind: storeValueTempIndex, depth: 1, index: 0}
-		err := w.writeStorageStore(0, sv, 0)
+		err := w.writeStorageStore(0, sv, 0, nil)
 		if err != nil {
 			t.Fatalf("writeStorageStore: %v", err)
 		}
@@ -1035,7 +1035,7 @@ func TestWriteStorageStore(t *testing.T) {
 		// sv.base should be the vec2<f32> type handle
 		w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 8}}
 		sv := storeValue{kind: storeValueTempIndex, depth: 1, index: 0, base: 2} // base=2 -> vec2<f32>
-		err := w.writeStorageStore(0, sv, 0)
+		err := w.writeStorageStore(0, sv, 0, nil)
 		if err != nil {
 			t.Fatalf("writeStorageStore: %v", err)
 		}
@@ -1484,6 +1484,91 @@ func TestNeedsRestrictIndexingPerBinding(t *testing.T) {
 			t.Error("should return true when per-binding restrict_indexing is true")
 		}
 	})
+}
+
+// =============================================================================
+// TestComputeSubAccess_ValuePointerType — stride from scalar width
+// =============================================================================
+
+func TestComputeSubAccess_ValuePointerType(t *testing.T) {
+	// ValuePointerType should use scalar width as stride, matching Rust's
+	// TypeInner::ValuePointer { scalar, .. } => Parent::Array { stride: scalar.width }
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ValuePointerType{Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, Space: ir.SpaceStorage}}, // 0: ptr to f32 (width=4)
+			{Inner: ir.ValuePointerType{
+				Size:   ptrVecSize(ir.Vec4),
+				Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+				Space:  ir.SpaceStorage,
+			}}, // 1: ptr to vec4<f32> (scalar width=4)
+		},
+	}
+
+	vpScalarHandle := ir.TypeHandle(0)
+	vpVecHandle := ir.TypeHandle(1)
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 0: base expr (scalar ptr)
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 1: base expr (vector ptr)
+			{Kind: ir.Literal{Value: ir.LiteralU32(3)}}, // 2: runtime index
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vpScalarHandle},
+			{Handle: &vpVecHandle},
+			{Handle: &vpScalarHandle},
+		},
+		NamedExpressions: make(map[ir.ExpressionHandle]string),
+	}
+
+	w := newTestWriter(module, nil, nil)
+	setCurrentFunction(w, fn)
+
+	t.Run("scalar_const_index", func(t *testing.T) {
+		sa, err := w.computeSubAccess(0, false, 0, 2)
+		if err != nil {
+			t.Fatalf("computeSubAccess: %v", err)
+		}
+		if sa.kind != subAccessOffset {
+			t.Errorf("expected subAccessOffset, got %d", sa.kind)
+		}
+		// stride=4, constIndex=2 => offset=8
+		if sa.offset != 8 {
+			t.Errorf("expected offset 8, got %d", sa.offset)
+		}
+	})
+
+	t.Run("scalar_runtime_index", func(t *testing.T) {
+		sa, err := w.computeSubAccess(0, true, 2, 0)
+		if err != nil {
+			t.Fatalf("computeSubAccess: %v", err)
+		}
+		if sa.kind != subAccessIndex {
+			t.Errorf("expected subAccessIndex, got %d", sa.kind)
+		}
+		// stride = scalar width = 4
+		if sa.stride != 4 {
+			t.Errorf("expected stride 4, got %d", sa.stride)
+		}
+	})
+
+	t.Run("vector_ptr_uses_scalar_width", func(t *testing.T) {
+		sa, err := w.computeSubAccess(1, false, 0, 3)
+		if err != nil {
+			t.Fatalf("computeSubAccess: %v", err)
+		}
+		if sa.kind != subAccessOffset {
+			t.Errorf("expected subAccessOffset, got %d", sa.kind)
+		}
+		// stride=4 (scalar width, not vector size), constIndex=3 => offset=12
+		if sa.offset != 12 {
+			t.Errorf("expected offset 12, got %d", sa.offset)
+		}
+	})
+}
+
+func ptrVecSize(s ir.VectorSize) *ir.VectorSize {
+	return &s
 }
 
 // =============================================================================

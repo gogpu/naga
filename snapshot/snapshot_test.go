@@ -70,7 +70,16 @@ func TestSnapshots(t *testing.T) {
 			})
 
 			t.Run("hlsl", func(t *testing.T) {
-				code := compileHLSL(t, module, shader.name)
+				hlslModule := module
+				hlslPipelineConstants := readSPVPipelineConstants(shader.name)
+				if len(hlslPipelineConstants) > 0 {
+					hlslModule = ir.CloneModuleForOverrides(module)
+					if err := ir.ProcessOverrides(hlslModule, hlslPipelineConstants); err != nil {
+						t.Errorf("ProcessOverrides failed: %v", err)
+						return
+					}
+				}
+				code := compileHLSL(t, hlslModule, shader.name)
 				compareGolden(t, filepath.Join("testdata", "golden", "hlsl", shader.name+".hlsl"), code)
 			})
 
@@ -754,13 +763,21 @@ func readHLSLConfig(opts *hlsl.Options, shaderName string) {
 	content := string(data)
 
 	// Parse [hlsl] section for special_constants_binding
+	// Handles both { register = N, space = N } and { space = N, register = N } orders
 	if strings.Contains(content, "special_constants_binding") {
-		// Parse: special_constants_binding = { register = N, space = N }
-		re := regexp.MustCompile(`special_constants_binding\s*=\s*\{\s*register\s*=\s*(\d+)\s*,\s*space\s*=\s*(\d+)\s*\}`)
-		if m := re.FindStringSubmatch(content); m != nil {
+		// Try register-first order
+		re1 := regexp.MustCompile(`special_constants_binding\s*=\s*\{\s*register\s*=\s*(\d+)\s*,\s*space\s*=\s*(\d+)\s*\}`)
+		// Try space-first order
+		re2 := regexp.MustCompile(`special_constants_binding\s*=\s*\{\s*space\s*=\s*(\d+)\s*,\s*register\s*=\s*(\d+)\s*\}`)
+		if m := re1.FindStringSubmatch(content); m != nil {
 			var reg, space uint32
 			fmt.Sscanf(m[1], "%d", &reg)
 			fmt.Sscanf(m[2], "%d", &space)
+			opts.SpecialConstantsBinding = &hlsl.BindTarget{Register: reg, Space: uint8(space)}
+		} else if m := re2.FindStringSubmatch(content); m != nil {
+			var space, reg uint32
+			fmt.Sscanf(m[1], "%d", &space)
+			fmt.Sscanf(m[2], "%d", &reg)
 			opts.SpecialConstantsBinding = &hlsl.BindTarget{Register: reg, Space: uint8(space)}
 		}
 	}

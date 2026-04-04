@@ -821,8 +821,9 @@ func (w *Writer) writeStorageLoad(varHandle ir.GlobalVariableHandle, resultTy ir
 }
 
 // writeStorageStore emits HLSL to store a value to an RWByteAddressBuffer.
+// withinStruct is the containing struct type when storing a struct member (for matCx2 optimization).
 // Matches Rust naga's Writer::write_storage_store.
-func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeValue, level int) error {
+func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeValue, level int, withinStruct *ir.TypeHandle) error {
 	if level > 20 {
 		return fmt.Errorf("writeStorageStore: recursion depth limit exceeded (level=%d)", level)
 	}
@@ -933,7 +934,7 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 				base:      *structTy,
 				memberIdx: uint32(i),
 			}
-			if err := w.writeStorageStore(varHandle, memberSv, depth); err != nil {
+			if err := w.writeStorageStore(varHandle, memberSv, depth, structTy); err != nil {
 				return err
 			}
 			w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
@@ -943,6 +944,34 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 	case ir.MatrixType:
 		rowStride := alignmentFromVectorSize(inner.Rows) * uint32(inner.Scalar.Width)
 		fmt.Fprintf(&w.out, "%s{\n", indent)
+		// matCx2 optimization: when within a struct, directly access decomposed columns
+		// (e.g., _value2.m_0, _value2.m_1) instead of creating a matrix temporary.
+		// Matches Rust naga: within_struct.is_some() && rows == Bi path.
+		if withinStruct != nil && inner.Rows == 2 && sv.kind == storeValueTempAccess {
+			innerIndent := w.indentStr(level + 1)
+			for i := ir.VectorSize(0); i < inner.Columns; i++ {
+				w.tempAccessChain = append(w.tempAccessChain, subAccess{kind: subAccessOffset, offset: uint32(i) * rowStride})
+				vecSize := uint8(inner.Rows)
+				memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(*withinStruct), handle2: sv.memberIdx}]
+				if memberName == "" {
+					memberName = fmt.Sprintf("member_%d", sv.memberIdx)
+				}
+				if inner.Scalar.Width == 4 && vecSize >= 2 {
+					fmt.Fprintf(&w.out, "%s%s.Store%d(", innerIndent, varName, vecSize)
+					chain := w.tempAccessChain
+					w.tempAccessChain = nil
+					if err := w.writeStorageAddress(chain); err != nil {
+						return err
+					}
+					// TempColumnAccess: _valueN.member_column (depth = level, NOT level+1)
+					fmt.Fprintf(&w.out, ", asuint(_value%d.%s_%d));\n", sv.depth, memberName, uint8(i))
+					w.tempAccessChain = chain
+				}
+				w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
+			}
+			fmt.Fprintf(&w.out, "%s}\n", indent)
+			return nil
+		}
 		depth := level + 1
 		innerIndent := w.indentStr(depth)
 		typeName := scalarToHLSLStr(inner.Scalar)
@@ -965,13 +994,14 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 				fmt.Fprintf(&w.out, ", asuint(_value%d[%d]));\n", depth, uint8(i))
 				w.tempAccessChain = chain
 			} else {
+				// Non-4-byte scalars (e.g. f16): no asuint() wrapping, matches Rust naga
 				fmt.Fprintf(&w.out, "%s%s.Store(", innerIndent, varName)
 				chain := w.tempAccessChain
 				w.tempAccessChain = nil
 				if err := w.writeStorageAddress(chain); err != nil {
 					return err
 				}
-				fmt.Fprintf(&w.out, ", asuint(_value%d[%d]));\n", depth, uint8(i))
+				fmt.Fprintf(&w.out, ", _value%d[%d]);\n", depth, uint8(i))
 				w.tempAccessChain = chain
 			}
 			w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
@@ -1003,7 +1033,7 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 					index: i,
 					base:  inner.Base,
 				}
-				if err := w.writeStorageStore(varHandle, elemSv, depth); err != nil {
+				if err := w.writeStorageStore(varHandle, elemSv, depth, nil); err != nil {
 					return err
 				}
 				w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
@@ -1093,7 +1123,6 @@ func (w *Writer) getTypeHandleForInner(inner ir.TypeInner) *ir.TypeHandle {
 
 // typesMatch checks if two TypeInner values are the same.
 func typesMatch(a, b ir.TypeInner) bool {
-	// Simple type identity check
 	switch at := a.(type) {
 	case ir.ScalarType:
 		if bt, ok := b.(ir.ScalarType); ok {
@@ -1103,8 +1132,29 @@ func typesMatch(a, b ir.TypeInner) bool {
 		if bt, ok := b.(ir.VectorType); ok {
 			return at.Size == bt.Size && at.Scalar.Kind == bt.Scalar.Kind && at.Scalar.Width == bt.Scalar.Width
 		}
+	case ir.MatrixType:
+		if bt, ok := b.(ir.MatrixType); ok {
+			return at.Columns == bt.Columns && at.Rows == bt.Rows && at.Scalar.Kind == bt.Scalar.Kind && at.Scalar.Width == bt.Scalar.Width
+		}
+	case ir.StructType:
+		if bt, ok := b.(ir.StructType); ok {
+			if at.Span != bt.Span || len(at.Members) != len(bt.Members) {
+				return false
+			}
+			for i := range at.Members {
+				if at.Members[i].Name != bt.Members[i].Name ||
+					at.Members[i].Type != bt.Members[i].Type ||
+					at.Members[i].Offset != bt.Members[i].Offset {
+					return false
+				}
+			}
+			return true
+		}
+	case ir.ArrayType:
+		if bt, ok := b.(ir.ArrayType); ok {
+			return at.Base == bt.Base && at.Stride == bt.Stride && at.Size == bt.Size
+		}
 	}
-	// For struct/array/matrix, pointer equality of the type
 	return false
 }
 

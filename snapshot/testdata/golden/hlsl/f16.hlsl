@@ -1,3 +1,10 @@
+struct NagaConstants {
+    int first_vertex;
+    int first_instance;
+    uint other;
+};
+ConstantBuffer<NagaConstants> _NagaConstants: register(b0, space1);
+
 struct UniformCompatible {
     uint val_u32_;
     int val_i32_;
@@ -11,17 +18,13 @@ struct UniformCompatible {
     half2 val_mat2x2__0; half2 val_mat2x2__1;
     int _pad9_0;
     row_major half2x3 val_mat2x3_;
-    int _pad10_0;
     row_major half2x4 val_mat2x4_;
     half2 val_mat3x2__0; half2 val_mat3x2__1; half2 val_mat3x2__2;
     int _pad12_0;
     row_major half3x3 val_mat3x3_;
-    int _pad13_0;
     row_major half3x4 val_mat3x4_;
     half2 val_mat4x2__0; half2 val_mat4x2__1; half2 val_mat4x2__2; half2 val_mat4x2__3;
     row_major half4x3 val_mat4x3_;
-    int _pad16_0;
-    int _pad16_1;
     row_major half4x4 val_mat4x4_;
 };
 
@@ -172,73 +175,73 @@ half f16_function(half x)
     half2x2 _e90 = half2x2(input_storage.Load<half2>(44+0), input_storage.Load<half2>(44+4));
     {
         half2x2 _value2 = (_e87 + _e90);
-        output.Store(44+0, asuint(_value2[0]));
-        output.Store(44+4, asuint(_value2[1]));
+        output.Store(44+0, _value2[0]);
+        output.Store(44+4, _value2[1]);
     }
     half2x3 _e96 = input_uniform.val_mat2x3_;
     half2x3 _e99 = half2x3(input_storage.Load<half3>(56+0), input_storage.Load<half3>(56+8));
     {
         half2x3 _value2 = (_e96 + _e99);
-        output.Store(56+0, asuint(_value2[0]));
-        output.Store(56+8, asuint(_value2[1]));
+        output.Store(56+0, _value2[0]);
+        output.Store(56+8, _value2[1]);
     }
     half2x4 _e105 = input_uniform.val_mat2x4_;
     half2x4 _e108 = half2x4(input_storage.Load<half4>(72+0), input_storage.Load<half4>(72+8));
     {
         half2x4 _value2 = (_e105 + _e108);
-        output.Store(72+0, asuint(_value2[0]));
-        output.Store(72+8, asuint(_value2[1]));
+        output.Store(72+0, _value2[0]);
+        output.Store(72+8, _value2[1]);
     }
     half3x2 _e114 = GetMatval_mat3x2_OnUniformCompatible(input_uniform);
     half3x2 _e117 = half3x2(input_storage.Load<half2>(88+0), input_storage.Load<half2>(88+4), input_storage.Load<half2>(88+8));
     {
         half3x2 _value2 = (_e114 + _e117);
-        output.Store(88+0, asuint(_value2[0]));
-        output.Store(88+4, asuint(_value2[1]));
-        output.Store(88+8, asuint(_value2[2]));
+        output.Store(88+0, _value2[0]);
+        output.Store(88+4, _value2[1]);
+        output.Store(88+8, _value2[2]);
     }
     half3x3 _e123 = input_uniform.val_mat3x3_;
     half3x3 _e126 = half3x3(input_storage.Load<half3>(104+0), input_storage.Load<half3>(104+8), input_storage.Load<half3>(104+16));
     {
         half3x3 _value2 = (_e123 + _e126);
-        output.Store(104+0, asuint(_value2[0]));
-        output.Store(104+8, asuint(_value2[1]));
-        output.Store(104+16, asuint(_value2[2]));
+        output.Store(104+0, _value2[0]);
+        output.Store(104+8, _value2[1]);
+        output.Store(104+16, _value2[2]);
     }
     half3x4 _e132 = input_uniform.val_mat3x4_;
     half3x4 _e135 = half3x4(input_storage.Load<half4>(128+0), input_storage.Load<half4>(128+8), input_storage.Load<half4>(128+16));
     {
         half3x4 _value2 = (_e132 + _e135);
-        output.Store(128+0, asuint(_value2[0]));
-        output.Store(128+8, asuint(_value2[1]));
-        output.Store(128+16, asuint(_value2[2]));
+        output.Store(128+0, _value2[0]);
+        output.Store(128+8, _value2[1]);
+        output.Store(128+16, _value2[2]);
     }
     half4x2 _e141 = GetMatval_mat4x2_OnUniformCompatible(input_uniform);
     half4x2 _e144 = half4x2(input_storage.Load<half2>(152+0), input_storage.Load<half2>(152+4), input_storage.Load<half2>(152+8), input_storage.Load<half2>(152+12));
     {
         half4x2 _value2 = (_e141 + _e144);
-        output.Store(152+0, asuint(_value2[0]));
-        output.Store(152+4, asuint(_value2[1]));
-        output.Store(152+8, asuint(_value2[2]));
-        output.Store(152+12, asuint(_value2[3]));
+        output.Store(152+0, _value2[0]);
+        output.Store(152+4, _value2[1]);
+        output.Store(152+8, _value2[2]);
+        output.Store(152+12, _value2[3]);
     }
     half4x3 _e150 = input_uniform.val_mat4x3_;
     half4x3 _e153 = half4x3(input_storage.Load<half3>(168+0), input_storage.Load<half3>(168+8), input_storage.Load<half3>(168+16), input_storage.Load<half3>(168+24));
     {
         half4x3 _value2 = (_e150 + _e153);
-        output.Store(168+0, asuint(_value2[0]));
-        output.Store(168+8, asuint(_value2[1]));
-        output.Store(168+16, asuint(_value2[2]));
-        output.Store(168+24, asuint(_value2[3]));
+        output.Store(168+0, _value2[0]);
+        output.Store(168+8, _value2[1]);
+        output.Store(168+16, _value2[2]);
+        output.Store(168+24, _value2[3]);
     }
     half4x4 _e159 = input_uniform.val_mat4x4_;
     half4x4 _e162 = half4x4(input_storage.Load<half4>(200+0), input_storage.Load<half4>(200+8), input_storage.Load<half4>(200+16), input_storage.Load<half4>(200+24));
     {
         half4x4 _value2 = (_e159 + _e162);
-        output.Store(200+0, asuint(_value2[0]));
-        output.Store(200+8, asuint(_value2[1]));
-        output.Store(200+16, asuint(_value2[2]));
-        output.Store(200+24, asuint(_value2[3]));
+        output.Store(200+0, _value2[0]);
+        output.Store(200+8, _value2[1]);
+        output.Store(200+16, _value2[2]);
+        output.Store(200+24, _value2[3]);
     }
     half _e168[2] = Constructarray2_half_(input_arrays.Load<half>(0+0), input_arrays.Load<half>(0+2));
     {
@@ -283,65 +286,65 @@ half f16_function(half x)
     half2x2 _e228 = GetMatval_mat2x2_OnUniformCompatible(input_uniform);
     {
         half2x2 _value2 = half2x2(float2x2(_e228));
-        output.Store(44+0, asuint(_value2[0]));
-        output.Store(44+4, asuint(_value2[1]));
+        output.Store(44+0, _value2[0]);
+        output.Store(44+4, _value2[1]);
     }
     half2x3 _e235 = input_uniform.val_mat2x3_;
     {
         half2x3 _value2 = half2x3(float2x3(_e235));
-        output.Store(56+0, asuint(_value2[0]));
-        output.Store(56+8, asuint(_value2[1]));
+        output.Store(56+0, _value2[0]);
+        output.Store(56+8, _value2[1]);
     }
     half2x4 _e242 = input_uniform.val_mat2x4_;
     {
         half2x4 _value2 = half2x4(float2x4(_e242));
-        output.Store(72+0, asuint(_value2[0]));
-        output.Store(72+8, asuint(_value2[1]));
+        output.Store(72+0, _value2[0]);
+        output.Store(72+8, _value2[1]);
     }
     half3x2 _e249 = GetMatval_mat3x2_OnUniformCompatible(input_uniform);
     {
         half3x2 _value2 = half3x2(float3x2(_e249));
-        output.Store(88+0, asuint(_value2[0]));
-        output.Store(88+4, asuint(_value2[1]));
-        output.Store(88+8, asuint(_value2[2]));
+        output.Store(88+0, _value2[0]);
+        output.Store(88+4, _value2[1]);
+        output.Store(88+8, _value2[2]);
     }
     half3x3 _e256 = input_uniform.val_mat3x3_;
     {
         half3x3 _value2 = half3x3(float3x3(_e256));
-        output.Store(104+0, asuint(_value2[0]));
-        output.Store(104+8, asuint(_value2[1]));
-        output.Store(104+16, asuint(_value2[2]));
+        output.Store(104+0, _value2[0]);
+        output.Store(104+8, _value2[1]);
+        output.Store(104+16, _value2[2]);
     }
     half3x4 _e263 = input_uniform.val_mat3x4_;
     {
         half3x4 _value2 = half3x4(float3x4(_e263));
-        output.Store(128+0, asuint(_value2[0]));
-        output.Store(128+8, asuint(_value2[1]));
-        output.Store(128+16, asuint(_value2[2]));
+        output.Store(128+0, _value2[0]);
+        output.Store(128+8, _value2[1]);
+        output.Store(128+16, _value2[2]);
     }
     half4x2 _e270 = GetMatval_mat4x2_OnUniformCompatible(input_uniform);
     {
         half4x2 _value2 = half4x2(float4x2(_e270));
-        output.Store(152+0, asuint(_value2[0]));
-        output.Store(152+4, asuint(_value2[1]));
-        output.Store(152+8, asuint(_value2[2]));
-        output.Store(152+12, asuint(_value2[3]));
+        output.Store(152+0, _value2[0]);
+        output.Store(152+4, _value2[1]);
+        output.Store(152+8, _value2[2]);
+        output.Store(152+12, _value2[3]);
     }
     half4x3 _e277 = input_uniform.val_mat4x3_;
     {
         half4x3 _value2 = half4x3(float4x3(_e277));
-        output.Store(168+0, asuint(_value2[0]));
-        output.Store(168+8, asuint(_value2[1]));
-        output.Store(168+16, asuint(_value2[2]));
-        output.Store(168+24, asuint(_value2[3]));
+        output.Store(168+0, _value2[0]);
+        output.Store(168+8, _value2[1]);
+        output.Store(168+16, _value2[2]);
+        output.Store(168+24, _value2[3]);
     }
     half4x4 _e284 = input_uniform.val_mat4x4_;
     {
         half4x4 _value2 = half4x4(float4x4(_e284));
-        output.Store(200+0, asuint(_value2[0]));
-        output.Store(200+8, asuint(_value2[1]));
-        output.Store(200+16, asuint(_value2[2]));
-        output.Store(200+24, asuint(_value2[3]));
+        output.Store(200+0, _value2[0]);
+        output.Store(200+8, _value2[1]);
+        output.Store(200+16, _value2[2]);
+        output.Store(200+24, _value2[3]);
     }
     half _e287 = val;
     return _e287;

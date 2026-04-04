@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.2] - 2026-04-04
+
+### Fixed
+
+#### HLSL backend: 58 → 68+ pass (+10 shaders)
+
+- **Dot4I8Packed/Dot4U8Packed** — dot4add intrinsics (SM 6.4+) with polyfill. (3 shaders)
+- **Pack4xI8/U8/Clamp + Unpack4xI8/U8** — shift+mask polyfills. (2 shaders)
+- **LiteralF16** — float16_t with h suffix. (2 shaders)
+- **ValuePointerType** — storage access stride computation. (1 shader)
+- **StmtImageAtomic** — InterlockedXxx on RWTexture coordinates. (2 shaders)
+- **ExprWorkGroupUniformLoadResult** — barrier + typed load + barrier. (1 shader)
+- **ExprBinary in global scope** — const binary expressions. (1 shader)
+- **Float exponent formatting** — removed spurious '+' in exponents. (1 shader)
+- **naga_extractBits/naga_insertBits** — per-type overloads matching Rust. (1 shader)
+- **Pack/Unpack 2x16/4x8 snorm/unorm/float** — all 10 inline polyfills. (1 shader)
+- **f16 infrastructure** — NagaConstants struct, matrix padding, storage Store patterns. (1 shader)
+- **Demand-driven StorageLoadHelpers** — match Rust approach. (1 shader)
+
 ## [0.16.1] - 2026-04-04
 
 ### Fixed

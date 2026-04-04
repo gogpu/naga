@@ -569,30 +569,26 @@ func (w *Writer) writeSwizzleExpression(e ir.ExprSwizzle) error {
 
 // writeAccessExpression writes array/vector/matrix access with computed index.
 func (w *Writer) writeAccessExpression(e ir.ExprAccess) error {
-	// Dynamic column access on matCx2 inside array-of-matCx2 struct members:
+	// Dynamic column access on matCx2 inside array-of-matCx2 struct members
+	// or on a global uniform matCx2:
 	// use __get_col_of_matCx2(base, index) instead of base[index].
-	// Matches Rust naga's find_matrix_in_access_chain path.
-	if m := w.getInnerMatrixOfStructArrayMember(e.Base); m != nil && m.isMatCx2() {
-		// Check if the base type is a matCx2 (meaning we're accessing columns)
-		baseInner := w.getExpressionTypeInner(e.Base)
-		if baseInner != nil {
-			if ptr, ok := baseInner.(ir.PointerType); ok {
-				if int(ptr.Base) < len(w.module.Types) {
-					baseInner = w.module.Types[ptr.Base].Inner
-				}
+	// Matches Rust naga: get_inner_matrix_of_struct_array_member || get_global_uniform_matrix.
+	{
+		m := w.getInnerMatrixOfStructArrayMember(e.Base)
+		if m == nil || !m.isMatCx2() {
+			m = w.getGlobalUniformMatrix(e.Base)
+		}
+		if m != nil && m.isMatCx2() {
+			fmt.Fprintf(&w.out, "__get_col_of_mat%dx2(", m.columns)
+			if err := w.writeExpression(e.Base); err != nil {
+				return fmt.Errorf("matCx2 dynamic col base: %w", err)
 			}
-			if mat, ok := baseInner.(ir.MatrixType); ok && mat.Rows == 2 {
-				fmt.Fprintf(&w.out, "__get_col_of_mat%dx2(", mat.Columns)
-				if err := w.writeExpression(e.Base); err != nil {
-					return fmt.Errorf("matCx2 dynamic col base: %w", err)
-				}
-				w.out.WriteString(", ")
-				if err := w.writeExpression(e.Index); err != nil {
-					return fmt.Errorf("matCx2 dynamic col index: %w", err)
-				}
-				w.out.WriteByte(')')
-				return nil
+			w.out.WriteString(", ")
+			if err := w.writeExpression(e.Index); err != nil {
+				return fmt.Errorf("matCx2 dynamic col index: %w", err)
 			}
+			w.out.WriteByte(')')
+			return nil
 		}
 	}
 
@@ -941,10 +937,15 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 		}
 
 	case ir.MatrixType:
-		// Matrix column access. For matCx2 inside array-of-matCx2 struct members,
+		// Matrix column access. For matCx2 in struct array members or global uniform,
 		// use ._N notation matching the __matCx2 decomposed struct layout.
+		// Matches Rust: get_inner_matrix_of_struct_array_member || get_global_uniform_matrix.
 		if inner.Rows == 2 {
-			if m := w.getInnerMatrixOfStructArrayMember(e.Base); m != nil && m.isMatCx2() {
+			m := w.getInnerMatrixOfStructArrayMember(e.Base)
+			if m == nil || !m.isMatCx2() {
+				m = w.getGlobalUniformMatrix(e.Base)
+			}
+			if m != nil && m.isMatCx2() {
 				if err := w.writeExpression(e.Base); err != nil {
 					return fmt.Errorf("matCx2 column access base: %w", err)
 				}
@@ -1219,6 +1220,48 @@ func (w *Writer) getInnerMatrixOfGlobalUniform(handle ir.ExpressionHandle) *matr
 			return nil
 		}
 	}
+}
+
+// getGlobalUniformMatrix checks if the given expression is a direct reference to a
+// global uniform variable of matrix type. Returns the matrix info if so.
+// Matches Rust naga's get_global_uniform_matrix.
+func (w *Writer) getGlobalUniformMatrix(handle ir.ExpressionHandle) *matrixTypeInfo {
+	if w.currentFunction == nil {
+		return nil
+	}
+	if int(handle) >= len(w.currentFunction.Expressions) {
+		return nil
+	}
+	expr := w.currentFunction.Expressions[handle]
+	gv, ok := expr.Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return nil
+	}
+	if int(gv.Variable) >= len(w.module.GlobalVariables) {
+		return nil
+	}
+	global := &w.module.GlobalVariables[gv.Variable]
+	if global.Space != ir.SpaceUniform {
+		return nil
+	}
+	// Resolve the type (dereference pointer if needed)
+	resolved := w.getExpressionTypeInner(handle)
+	if resolved == nil {
+		return nil
+	}
+	if ptr, ok := resolved.(ir.PointerType); ok {
+		if int(ptr.Base) < len(w.module.Types) {
+			resolved = w.module.Types[ptr.Base].Inner
+		}
+	}
+	if mat, ok := resolved.(ir.MatrixType); ok {
+		return &matrixTypeInfo{
+			columns: mat.Columns,
+			rows:    mat.Rows,
+			width:   mat.Scalar.Width,
+		}
+	}
+	return nil
 }
 
 // writeMatrixValueType writes the HLSL value type for a matrix (e.g., "float3x2").
