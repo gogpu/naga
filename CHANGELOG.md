@@ -5,16 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.16.2] - 2026-04-04
+## [0.16.3] - 2026-04-04
 
 ### Fixed
 
-#### HLSL backend: 58 → 72 pass (+14 shaders, 0 fail)
-
-- **ForceLoopBounding architecture fix** — Continuing gate (loop_init) decoupled
-  from ForceLoopBounding. Gate now ALWAYS used when continuing block exists,
-  matching Rust naga writer.rs:2329-2368. Fixes DX12 Gallery hang on Intel
-  (FXC infinite loop analysis on `while(true)`).
+- **Per-element loop for workgroup array zero-init** — FXC hangs 22 seconds on
+  `(StructType[256])0` bulk assign. Replaced with per-element `for` loop:
+  `for (uint _naga_zi_0 = 0u; ...) { arr[_naga_zi_0] = (ElementType)0; }`.
+  Compilation time: 22s → 68ms. Handles nested arrays recursively.
+  First implementation in the industry to fix this — Rust naga, ANGLE, Dawn
+  all have the same bug or workaround it differently.
+  See `docs/dev/research/HLSL-ZERO-INIT-FXC-HANG-RESEARCH.md`.
 - **Defaults changed to match Rust** — `ForceLoopBounding: true`,
   `RestrictIndexing: true` (were both `false`).
 

@@ -126,9 +126,7 @@ func dumpShaderIR(t *testing.T, shaderName string) {
 	dumpModule(&sb, module)
 	dump := sb.String()
 
-	t.Log("\n" + dump)
-
-	// Save to file for easy diffing.
+	// Save to file for easy diffing (dump is NOT logged to avoid flooding CI output).
 	outDir := filepath.Join("..", "tmp")
 	if info, statErr := os.Stat(outDir); statErr == nil && info.IsDir() {
 		outPath := filepath.Join(outDir, "go_ir_"+shaderName+".txt")

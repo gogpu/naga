@@ -14,7 +14,9 @@ uint naga_div(uint lhs, uint rhs) {
 void main(uint lid : SV_GroupIndex, uint3 gid : SV_DispatchThreadID, uint3 __local_invocation_id : SV_GroupThreadID)
 {
     if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
-        shared_data = (float[256])0;
+        for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++) {
+            shared_data[_naga_zi_0] = (float)0;
+        }
     }
     GroupMemoryBarrierWithGroupSync();
     shared_data[min(uint(lid), 255u)] = (float(gid.x) * 0.5);
