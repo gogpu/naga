@@ -1,22 +1,3 @@
-float2 test_fma()
-{
-    float2 a = float2(2.0, 2.0);
-    float2 b = float2(0.5, 0.5);
-    float2 c = float2(0.5, 0.5);
-    return mad(a, b, c);
-}
-
-int test_integer_dot_product()
-{
-    int2 a_2_ = (int(1)).xx;
-    int2 b_2_ = (int(1)).xx;
-    int c_2_ = dot(a_2_, b_2_);
-    uint3 a_3_ = (1u).xxx;
-    uint3 b_3_ = (1u).xxx;
-    uint c_3_ = dot(a_3_, b_3_);
-    return int(32);
-}
-
 uint test_packed_integer_dot_product()
 {
     int c_5_ = dot(int4(1u, 1u >> 8, 1u >> 16, 1u >> 24) << 24 >> 24, int4(2u, 2u >> 8, 2u >> 16, 2u >> 24) << 24 >> 24);
@@ -33,8 +14,6 @@ uint test_packed_integer_dot_product()
 [numthreads(1, 1, 1)]
 void main()
 {
-    const float2 _e0 = test_fma();
-    const int _e1 = test_integer_dot_product();
-    const uint _e2 = test_packed_integer_dot_product();
+    const uint _e0 = test_packed_integer_dot_product();
     return;
 }

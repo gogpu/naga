@@ -132,12 +132,30 @@ func (w *Writer) updateExpressionsToBake(fn *ir.Function) {
 
 	// Additional force-bake rules (matches Rust's update_expressions_to_bake):
 	// - Derivative Width+Coarse/Fine: force bake the inner expr
+	// - Pack/Unpack/Dot4 args: force bake because they are emitted multiple times in polyfills
+	// - CountLeadingZeros on sint: force bake
 	for i := range fn.Expressions {
 		e := fn.Expressions[i].Kind
 		if d, ok := e.(ir.ExprDerivative); ok {
 			if d.Axis == ir.DerivativeWidth &&
 				(d.Control == ir.DerivativeCoarse || d.Control == ir.DerivativeFine) {
 				w.needBakeExpressions[d.Expr] = struct{}{}
+			}
+		}
+		if m, ok := e.(ir.ExprMath); ok {
+			switch m.Fun {
+			case ir.MathPack4x8snorm, ir.MathPack4x8unorm,
+				ir.MathPack4xI8, ir.MathPack4xU8, ir.MathPack4xI8Clamp, ir.MathPack4xU8Clamp,
+				ir.MathUnpack4x8snorm, ir.MathUnpack4x8unorm,
+				ir.MathUnpack4xI8, ir.MathUnpack4xU8,
+				ir.MathUnpack2x16float, ir.MathUnpack2x16snorm, ir.MathUnpack2x16unorm,
+				ir.MathPack2x16float, ir.MathPack2x16snorm, ir.MathPack2x16unorm:
+				w.needBakeExpressions[m.Arg] = struct{}{}
+			case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
+				w.needBakeExpressions[m.Arg] = struct{}{}
+				if m.Arg1 != nil {
+					w.needBakeExpressions[*m.Arg1] = struct{}{}
+				}
 			}
 		}
 	}
@@ -265,7 +283,7 @@ func (w *Writer) writeStatement(kind ir.StatementKind) error {
 	case ir.StmtImageStore:
 		return w.writeImageStoreStatement(s)
 	case ir.StmtImageAtomic:
-		return fmt.Errorf("HLSL backend does not yet support StmtImageAtomic")
+		return w.writeImageAtomicStatement(s)
 	case ir.StmtAtomic:
 		return w.writeAtomicStatement(s)
 	case ir.StmtWorkGroupUniformLoad:
@@ -1542,6 +1560,59 @@ func (w *Writer) writeImageStoreStatement(s ir.StmtImageStore) error {
 	return nil
 }
 
+// writeImageAtomicStatement writes an atomic operation on a storage texture texel.
+// Matches Rust naga: InterlockedXxx(image[coord], value);
+func (w *Writer) writeImageAtomicStatement(s ir.StmtImageAtomic) error {
+	w.writeIndent()
+
+	funSuffix := atomicFunSuffix(s.Fun)
+	fmt.Fprintf(&w.out, "Interlocked%s(", funSuffix)
+
+	// Write image[coord]
+	if err := w.writeExpression(s.Image); err != nil {
+		return fmt.Errorf("image atomic: image: %w", err)
+	}
+	w.out.WriteByte('[')
+
+	// Write texture coordinates, merging array_index if present
+	// Matches Rust: write_texture_coordinates("int", coordinate, array_index, None, ...)
+	if s.ArrayIndex != nil {
+		// Need to compose coordinate with array index
+		numCoords := 1
+		if w.currentFunction != nil && int(s.Coordinate) < len(w.currentFunction.ExpressionTypes) {
+			res := &w.currentFunction.ExpressionTypes[s.Coordinate]
+			if res.Value != nil {
+				if vec, ok := res.Value.(ir.VectorType); ok {
+					numCoords = int(vec.Size)
+				}
+			}
+		}
+		fmt.Fprintf(&w.out, "int%d(", numCoords+1)
+		if err := w.writeExpression(s.Coordinate); err != nil {
+			return fmt.Errorf("image atomic: coordinate: %w", err)
+		}
+		w.out.WriteString(", ")
+		if err := w.writeExpression(*s.ArrayIndex); err != nil {
+			return fmt.Errorf("image atomic: array index: %w", err)
+		}
+		w.out.WriteByte(')')
+	} else {
+		if err := w.writeExpression(s.Coordinate); err != nil {
+			return fmt.Errorf("image atomic: coordinate: %w", err)
+		}
+	}
+
+	w.out.WriteString("],")
+
+	// Write value
+	if err := w.writeExpression(s.Value); err != nil {
+		return fmt.Errorf("image atomic: value: %w", err)
+	}
+	w.out.WriteString(");\n")
+
+	return nil
+}
+
 // =============================================================================
 // Atomic Statements
 // =============================================================================
@@ -1811,17 +1882,42 @@ func (w *Writer) writeCallStatement(s ir.StmtCall) error {
 }
 
 // writeWorkGroupUniformLoadStatement writes a workgroup uniform load statement.
+// Matches Rust naga: barrier, typed named expression (type _eN = pointer;), barrier.
 func (w *Writer) writeWorkGroupUniformLoadStatement(s ir.StmtWorkGroupUniformLoad) error {
-	// WGSL workgroupUniformLoad is a load with implicit barrier semantics
-	// In HLSL, we emit a barrier followed by a load
+	// First barrier
 	w.writeLine("GroupMemoryBarrierWithGroupSync();")
 
+	// Write the named expression: type _eN = pointer_value;
+	name := fmt.Sprintf("_e%d", s.Result)
+
 	w.writeIndent()
-	w.out.WriteString("_workgroup_uniform_result = ")
+
+	// Write the type of the result expression
+	if int(s.Result) < len(w.currentFunction.ExpressionTypes) {
+		resolution := &w.currentFunction.ExpressionTypes[s.Result]
+		if resolution.Handle != nil {
+			h := *resolution.Handle
+			if int(h) < len(w.module.Types) {
+				w.out.WriteString(w.getTypeName(h))
+			}
+		} else if resolution.Value != nil {
+			w.out.WriteString(w.typeInnerToHLSLStr(resolution.Value))
+		}
+	}
+
+	fmt.Fprintf(&w.out, " %s", name)
+
+	w.out.WriteString(" = ")
 	if err := w.writeExpression(s.Pointer); err != nil {
 		return fmt.Errorf("workgroup uniform load: %w", err)
 	}
 	w.out.WriteString(";\n")
+
+	// Cache as named expression so ExprWorkGroupUniformLoadResult references it
+	w.namedExpressions[s.Result] = name
+
+	// Second barrier
+	w.writeLine("GroupMemoryBarrierWithGroupSync();")
 
 	return nil
 }

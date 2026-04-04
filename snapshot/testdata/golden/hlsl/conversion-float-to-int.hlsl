@@ -1,229 +1,287 @@
-static const half MIN_F16 = 3.18727e-319;
-static const half MAX_F16 = 1.5683e-319;
-static const float MIN_F32 = -3.4028235e+38;
-static const float MAX_F32 = 3.4028235e+38;
-static const double MIN_F64 = -1.7976931348623157e+308;
-static const double MAX_F64 = 1.7976931348623157e+308;
-static const float MIN_ABSTRACT_FLOAT = -1.#INF;
-static const float MAX_ABSTRACT_FLOAT = 1.#INF;
+static const half MIN_F16_ = -65504.0h;
+static const half MAX_F16_ = 65504.0h;
+static const float MIN_F32_ = -3.4028235e+38;
+static const float MAX_F32_ = 3.4028235e+38;
+static const double MIN_F64_ = -1.7976931348623157e+308L;
+static const double MAX_F64_ = 1.7976931348623157e+308L;
 
 void test_const_eval()
 {
-    int min_f16_to_i32 = -65504;
-    int max_f16_to_i32 = 65504;
-    uint min_f16_to_u32 = 0u;
-    uint max_f16_to_u32 = 65504u;
-    int64_t min_f16_to_i64 = -65504L;
-    int64_t max_f16_to_i64 = 65504L;
-    uint64_t min_f16_to_u64 = 0UL;
-    uint64_t max_f16_to_u64 = 65504UL;
-    int min_f32_to_i32 = -2147483648;
-    int max_f32_to_i32 = 2147483520;
-    uint min_f32_to_u32 = 0u;
-    uint max_f32_to_u32 = 4294967040u;
-    int64_t min_f32_to_i64 = -9223372036854775808L;
-    int64_t max_f32_to_i64 = 9223371487098961920L;
-    uint64_t min_f32_to_u64 = 0UL;
-    uint64_t max_f32_to_u64 = 18446742974197923840UL;
-    int64_t min_f64_to_i64 = -9223372036854775808L;
-    int64_t max_f64_to_i64 = 9223372036854774784L;
-    uint64_t min_f64_to_u64 = 0UL;
-    uint64_t max_f64_to_u64 = 18446744073709549568UL;
-    int min_abstract_float_to_i32 = -2147483648;
-    int max_abstract_float_to_i32 = 2147483647;
-    uint min_abstract_float_to_u32 = 0u;
-    uint max_abstract_float_to_u32 = 4294967295u;
-    int64_t min_abstract_float_to_i64 = -9223372036854775808L;
-    int64_t max_abstract_float_to_i64 = 9223372036854774784L;
-    uint64_t min_abstract_float_to_u64 = 0UL;
-    uint64_t max_abstract_float_to_u64 = 18446744073709549568UL;
-    
+    int min_f16_to_i32_ = int(-65504);
+    int max_f16_to_i32_ = int(65504);
+    uint min_f16_to_u32_ = 0u;
+    uint max_f16_to_u32_ = 65504u;
+    int64_t min_f16_to_i64_ = -65504L;
+    int64_t max_f16_to_i64_ = 65504L;
+    uint64_t min_f16_to_u64_ = 0uL;
+    uint64_t max_f16_to_u64_ = 65504uL;
+    int min_f32_to_i32_ = int(-2147483647 - 1);
+    int max_f32_to_i32_ = int(2147483520);
+    uint min_f32_to_u32_ = 0u;
+    uint max_f32_to_u32_ = 4294967040u;
+    int64_t min_f32_to_i64_ = (-9223372036854775807L - 1L);
+    int64_t max_f32_to_i64_ = 9223371487098961920L;
+    uint64_t min_f32_to_u64_ = 0uL;
+    uint64_t max_f32_to_u64_ = 18446742974197923840uL;
+    int64_t min_f64_to_i64_ = (-9223372036854775807L - 1L);
+    int64_t max_f64_to_i64_ = 9223372036854774784L;
+    uint64_t min_f64_to_u64_ = 0uL;
+    uint64_t max_f64_to_u64_ = 18446744073709549568uL;
+    int min_abstract_float_to_i32_ = int(-2147483647 - 1);
+    int max_abstract_float_to_i32_ = int(2147483647);
+    uint min_abstract_float_to_u32_ = 0u;
+    uint max_abstract_float_to_u32_ = 4294967295u;
+    int64_t min_abstract_float_to_i64_ = (-9223372036854775807L - 1L);
+    int64_t max_abstract_float_to_i64_ = 9223372036854774784L;
+    uint64_t min_abstract_float_to_u64_ = 0uL;
+    uint64_t max_abstract_float_to_u64_ = 18446744073709549568uL;
+
     return;
 }
 
-int test_f16_to_i32(half f)
-{
-    int _e1 = (int)(f);
-    return _e1;
+int naga_f2i32(half value) {
+    return int(clamp(value, -65504.0h, 65504.0h));
 }
 
-uint test_f16_to_u32(half f)
+int test_f16_to_i32_(half f)
 {
-    uint _e1 = (uint)(f);
-    return _e1;
+    return naga_f2i32(f);
 }
 
-int64_t test_f16_to_i64(half f)
-{
-    int64_t _e1 = (int64_t)(f);
-    return _e1;
+uint naga_f2u32(half value) {
+    return uint(clamp(value, 0.0h, 65504.0h));
 }
 
-uint64_t test_f16_to_u64(half f)
+uint test_f16_to_u32_(half f_1)
 {
-    uint64_t _e1 = (uint64_t)(f);
-    return _e1;
+    return naga_f2u32(f_1);
 }
 
-int test_f32_to_i32(float f)
-{
-    int _e1 = (int)(f);
-    return _e1;
+int64_t naga_f2i64(half value) {
+    return int64_t(clamp(value, -65504.0h, 65504.0h));
 }
 
-uint test_f32_to_u32(float f)
+int64_t test_f16_to_i64_(half f_2)
 {
-    uint _e1 = (uint)(f);
-    return _e1;
+    return naga_f2i64(f_2);
 }
 
-int64_t test_f32_to_i64(float f)
-{
-    int64_t _e1 = (int64_t)(f);
-    return _e1;
+uint64_t naga_f2u64(half value) {
+    return uint64_t(clamp(value, 0.0h, 65504.0h));
 }
 
-uint64_t test_f32_to_u64(float f)
+uint64_t test_f16_to_u64_(half f_3)
 {
-    uint64_t _e1 = (uint64_t)(f);
-    return _e1;
+    return naga_f2u64(f_3);
 }
 
-int test_f64_to_i32(double f)
-{
-    int _e1 = (int)(f);
-    return _e1;
+int naga_f2i32(float value) {
+    return int(clamp(value, -2147483600.0, 2147483500.0));
 }
 
-uint test_f64_to_u32(double f)
+int test_f32_to_i32_(float f_4)
 {
-    uint _e1 = (uint)(f);
-    return _e1;
+    return naga_f2i32(f_4);
 }
 
-int64_t test_f64_to_i64(double f)
-{
-    int64_t _e1 = (int64_t)(f);
-    return _e1;
+uint naga_f2u32(float value) {
+    return uint(clamp(value, 0.0, 4294967000.0));
 }
 
-uint64_t test_f64_to_u64(double f)
+uint test_f32_to_u32_(float f_5)
 {
-    uint64_t _e1 = (uint64_t)(f);
-    return _e1;
+    return naga_f2u32(f_5);
 }
 
-int2 test_f16_to_i32_vec(half2 f)
-{
-    int2 _e1 = (int)(f);
-    return _e1;
+int64_t naga_f2i64(float value) {
+    return int64_t(clamp(value, -9.223372e18, 9.2233715e18));
 }
 
-uint2 test_f16_to_u32_vec(half2 f)
+int64_t test_f32_to_i64_(float f_6)
 {
-    uint2 _e1 = (uint)(f);
-    return _e1;
+    return naga_f2i64(f_6);
 }
 
-int64_t2 test_f16_to_i64_vec(half2 f)
-{
-    int64_t2 _e1 = (int64_t)(f);
-    return _e1;
+uint64_t naga_f2u64(float value) {
+    return uint64_t(clamp(value, 0.0, 1.8446743e19));
 }
 
-uint64_t2 test_f16_to_u64_vec(half2 f)
+uint64_t test_f32_to_u64_(float f_7)
 {
-    uint64_t2 _e1 = (uint64_t)(f);
-    return _e1;
+    return naga_f2u64(f_7);
 }
 
-int2 test_f32_to_i32_vec(float2 f)
-{
-    int2 _e1 = (int)(f);
-    return _e1;
+int naga_f2i32(double value) {
+    return int(clamp(value, -2147483648.0L, 2147483647.0L));
 }
 
-uint2 test_f32_to_u32_vec(float2 f)
+int test_f64_to_i32_(double f_8)
 {
-    uint2 _e1 = (uint)(f);
-    return _e1;
+    return naga_f2i32(f_8);
 }
 
-int64_t2 test_f32_to_i64_vec(float2 f)
-{
-    int64_t2 _e1 = (int64_t)(f);
-    return _e1;
+uint naga_f2u32(double value) {
+    return uint(clamp(value, 0.0L, 4294967295.0L));
 }
 
-uint64_t2 test_f32_to_u64_vec(float2 f)
+uint test_f64_to_u32_(double f_9)
 {
-    uint64_t2 _e1 = (uint64_t)(f);
-    return _e1;
+    return naga_f2u32(f_9);
 }
 
-int2 test_f64_to_i32_vec(double2 f)
-{
-    int2 _e1 = (int)(f);
-    return _e1;
+int64_t naga_f2i64(double value) {
+    return int64_t(clamp(value, -9.223372036854776e18L, 9.223372036854776e18L));
 }
 
-uint2 test_f64_to_u32_vec(double2 f)
+int64_t test_f64_to_i64_(double f_10)
 {
-    uint2 _e1 = (uint)(f);
-    return _e1;
+    return naga_f2i64(f_10);
 }
 
-int64_t2 test_f64_to_i64_vec(double2 f)
-{
-    int64_t2 _e1 = (int64_t)(f);
-    return _e1;
+uint64_t naga_f2u64(double value) {
+    return uint64_t(clamp(value, 0.0L, 1.8446744073709552e19L));
 }
 
-uint64_t2 test_f64_to_u64_vec(double2 f)
+uint64_t test_f64_to_u64_(double f_11)
 {
-    uint64_t2 _e1 = (uint64_t)(f);
-    return _e1;
+    return naga_f2u64(f_11);
+}
+
+int2 naga_f2i32(half2 value) {
+    return int2(clamp(value, -65504.0h, 65504.0h));
+}
+
+int2 test_f16_to_i32_vec(half2 f_12)
+{
+    return naga_f2i32(f_12);
+}
+
+uint2 naga_f2u32(half2 value) {
+    return uint2(clamp(value, 0.0h, 65504.0h));
+}
+
+uint2 test_f16_to_u32_vec(half2 f_13)
+{
+    return naga_f2u32(f_13);
+}
+
+int64_t2 naga_f2i64(half2 value) {
+    return int64_t2(clamp(value, -65504.0h, 65504.0h));
+}
+
+int64_t2 test_f16_to_i64_vec(half2 f_14)
+{
+    return naga_f2i64(f_14);
+}
+
+uint64_t2 naga_f2u64(half2 value) {
+    return uint64_t2(clamp(value, 0.0h, 65504.0h));
+}
+
+uint64_t2 test_f16_to_u64_vec(half2 f_15)
+{
+    return naga_f2u64(f_15);
+}
+
+int2 naga_f2i32(float2 value) {
+    return int2(clamp(value, -2147483600.0, 2147483500.0));
+}
+
+int2 test_f32_to_i32_vec(float2 f_16)
+{
+    return naga_f2i32(f_16);
+}
+
+uint2 naga_f2u32(float2 value) {
+    return uint2(clamp(value, 0.0, 4294967000.0));
+}
+
+uint2 test_f32_to_u32_vec(float2 f_17)
+{
+    return naga_f2u32(f_17);
+}
+
+int64_t2 naga_f2i64(float2 value) {
+    return int64_t2(clamp(value, -9.223372e18, 9.2233715e18));
+}
+
+int64_t2 test_f32_to_i64_vec(float2 f_18)
+{
+    return naga_f2i64(f_18);
+}
+
+uint64_t2 naga_f2u64(float2 value) {
+    return uint64_t2(clamp(value, 0.0, 1.8446743e19));
+}
+
+uint64_t2 test_f32_to_u64_vec(float2 f_19)
+{
+    return naga_f2u64(f_19);
+}
+
+int2 naga_f2i32(double2 value) {
+    return int2(clamp(value, -2147483648.0L, 2147483647.0L));
+}
+
+int2 test_f64_to_i32_vec(double2 f_20)
+{
+    return naga_f2i32(f_20);
+}
+
+uint2 naga_f2u32(double2 value) {
+    return uint2(clamp(value, 0.0L, 4294967295.0L));
+}
+
+uint2 test_f64_to_u32_vec(double2 f_21)
+{
+    return naga_f2u32(f_21);
+}
+
+int64_t2 naga_f2i64(double2 value) {
+    return int64_t2(clamp(value, -9.223372036854776e18L, 9.223372036854776e18L));
+}
+
+int64_t2 test_f64_to_i64_vec(double2 f_22)
+{
+    return naga_f2i64(f_22);
+}
+
+uint64_t2 naga_f2u64(double2 value) {
+    return uint64_t2(clamp(value, 0.0L, 1.8446744073709552e19L));
+}
+
+uint64_t2 test_f64_to_u64_vec(double2 f_23)
+{
+    return naga_f2u64(f_23);
 }
 
 [numthreads(1, 1, 1)]
 void main()
 {
     test_const_eval();
-    int _cr1 = test_f16_to_i32(1.0);
-    uint _cr3 = test_f16_to_u32(1.0);
-    int64_t _cr5 = test_f16_to_i64(1.0);
-    uint64_t _cr7 = test_f16_to_u64(1.0);
-    int _cr9 = test_f32_to_i32(1.0);
-    uint _cr11 = test_f32_to_u32(1.0);
-    int64_t _cr13 = test_f32_to_i64(1.0);
-    uint64_t _cr15 = test_f32_to_u64(1.0);
-    int _cr17 = test_f64_to_i32(1.0);
-    uint _cr19 = test_f64_to_u32(1.0);
-    int64_t _cr21 = test_f64_to_i64(1.0);
-    uint64_t _cr23 = test_f64_to_u64(1.0);
-    half2 _e26 = half2(1.0, 2.0);
-    int2 _cr27 = test_f16_to_i32_vec(_e26);
-    half2 _e30 = half2(1.0, 2.0);
-    uint2 _cr31 = test_f16_to_u32_vec(_e30);
-    half2 _e34 = half2(1.0, 2.0);
-    int64_t2 _cr35 = test_f16_to_i64_vec(_e34);
-    half2 _e38 = half2(1.0, 2.0);
-    uint64_t2 _cr39 = test_f16_to_u64_vec(_e38);
-    float2 _e42 = float2(1.0, 2.0);
-    int2 _cr43 = test_f32_to_i32_vec(_e42);
-    float2 _e46 = float2(1.0, 2.0);
-    uint2 _cr47 = test_f32_to_u32_vec(_e46);
-    float2 _e50 = float2(1.0, 2.0);
-    int64_t2 _cr51 = test_f32_to_i64_vec(_e50);
-    float2 _e54 = float2(1.0, 2.0);
-    uint64_t2 _cr55 = test_f32_to_u64_vec(_e54);
-    double2 _e58 = double2(1.0, 2.0);
-    int2 _cr59 = test_f64_to_i32_vec(_e58);
-    double2 _e62 = double2(1.0, 2.0);
-    uint2 _cr63 = test_f64_to_u32_vec(_e62);
-    double2 _e66 = double2(1.0, 2.0);
-    int64_t2 _cr67 = test_f64_to_i64_vec(_e66);
-    double2 _e70 = double2(1.0, 2.0);
-    uint64_t2 _cr71 = test_f64_to_u64_vec(_e70);
+    const int _e1 = test_f16_to_i32_(1.0h);
+    const uint _e3 = test_f16_to_u32_(1.0h);
+    const int64_t _e5 = test_f16_to_i64_(1.0h);
+    const uint64_t _e7 = test_f16_to_u64_(1.0h);
+    const int _e9 = test_f32_to_i32_(1.0);
+    const uint _e11 = test_f32_to_u32_(1.0);
+    const int64_t _e13 = test_f32_to_i64_(1.0);
+    const uint64_t _e15 = test_f32_to_u64_(1.0);
+    const int _e17 = test_f64_to_i32_(1.0L);
+    const uint _e19 = test_f64_to_u32_(1.0L);
+    const int64_t _e21 = test_f64_to_i64_(1.0L);
+    const uint64_t _e23 = test_f64_to_u64_(1.0L);
+    const int2 _e27 = test_f16_to_i32_vec(half2(1.0h, 2.0h));
+    const uint2 _e31 = test_f16_to_u32_vec(half2(1.0h, 2.0h));
+    const int64_t2 _e35 = test_f16_to_i64_vec(half2(1.0h, 2.0h));
+    const uint64_t2 _e39 = test_f16_to_u64_vec(half2(1.0h, 2.0h));
+    const int2 _e43 = test_f32_to_i32_vec(float2(1.0, 2.0));
+    const uint2 _e47 = test_f32_to_u32_vec(float2(1.0, 2.0));
+    const int64_t2 _e51 = test_f32_to_i64_vec(float2(1.0, 2.0));
+    const uint64_t2 _e55 = test_f32_to_u64_vec(float2(1.0, 2.0));
+    const int2 _e59 = test_f64_to_i32_vec(double2(1.0L, 2.0L));
+    const uint2 _e63 = test_f64_to_u32_vec(double2(1.0L, 2.0L));
+    const int64_t2 _e67 = test_f64_to_i64_vec(double2(1.0L, 2.0L));
+    const uint64_t2 _e71 = test_f64_to_u64_vec(double2(1.0L, 2.0L));
     return;
 }

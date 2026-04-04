@@ -1984,22 +1984,63 @@ func (w *Writer) writeStorageLoadHelpers() {
 
 // scanStorageTextureHelpers scans for storage textures with scalar formats
 // that need LoadedStorageValueFrom{type} helper functions.
+// Matches Rust naga: only generates helpers when ExprImageLoad references
+// a single-component storage texture, not for all storage textures globally.
 func (w *Writer) scanStorageTextureHelpers() {
 	w.needsStorageLoadHelpers = make(map[string]bool)
-	for _, gv := range w.module.GlobalVariables {
-		if int(gv.Type) >= len(w.module.Types) {
-			continue
-		}
-		inner := w.module.Types[gv.Type].Inner
-		img, ok := inner.(ir.ImageType)
-		if !ok || img.Class != ir.ImageClassStorage {
-			continue
-		}
-		scalarName := storageFormatScalarName(img.StorageFormat)
-		if scalarName != "" {
-			w.needsStorageLoadHelpers[scalarName] = true
+	// Scan all functions (including entry points) for ImageLoad expressions
+	// on single-component storage textures.
+	allFuncs := make([]*ir.Function, 0, len(w.module.Functions)+len(w.module.EntryPoints))
+	for i := range w.module.Functions {
+		allFuncs = append(allFuncs, &w.module.Functions[i])
+	}
+	for i := range w.module.EntryPoints {
+		allFuncs = append(allFuncs, &w.module.EntryPoints[i].Function)
+	}
+	for _, fn := range allFuncs {
+		for _, expr := range fn.Expressions {
+			imgLoad, ok := expr.Kind.(ir.ExprImageLoad)
+			if !ok {
+				continue
+			}
+			// Resolve the image expression to find its type
+			imgType := w.resolveImageType(fn, imgLoad.Image)
+			if imgType == nil {
+				continue
+			}
+			if imgType.Class != ir.ImageClassStorage {
+				continue
+			}
+			scalarName := storageFormatScalarName(imgType.StorageFormat)
+			if scalarName != "" {
+				w.needsStorageLoadHelpers[scalarName] = true
+			}
 		}
 	}
+}
+
+// resolveImageType resolves the ImageType for an expression handle in a function.
+func (w *Writer) resolveImageType(fn *ir.Function, handle ir.ExpressionHandle) *ir.ImageType {
+	if int(handle) >= len(fn.Expressions) {
+		return nil
+	}
+	expr := fn.Expressions[handle]
+	gv, ok := expr.Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return nil
+	}
+	if int(gv.Variable) >= len(w.module.GlobalVariables) {
+		return nil
+	}
+	tyHandle := w.module.GlobalVariables[gv.Variable].Type
+	if int(tyHandle) >= len(w.module.Types) {
+		return nil
+	}
+	img, ok := w.module.Types[tyHandle].Inner.(ir.ImageType)
+	if !ok {
+		return nil
+	}
+	return &img
 }
 
 // storageFormatScalarName returns the HLSL scalar type name for scalar storage formats.

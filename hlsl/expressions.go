@@ -8,6 +8,7 @@ package hlsl
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/gogpu/naga/ir"
@@ -164,6 +165,10 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind) error {
 		// Subgroup operation results are written by the subgroup statement
 		w.out.WriteString("_subgroup_op_result")
 		return nil
+	case ir.ExprWorkGroupUniformLoadResult:
+		// WorkGroupUniformLoadResult is written by the WorkGroupUniformLoad statement
+		// as a named expression. Nothing to emit here.
+		return nil
 	case ir.ExprRayQueryProceedResult:
 		w.out.WriteString("_rq_proceed_result")
 		return nil
@@ -255,6 +260,23 @@ func (w *Writer) writeLiteralValue(v ir.LiteralValue) error {
 	case ir.LiteralAbstractInt:
 		fmt.Fprintf(&w.out, "%d", int64(val))
 
+	case ir.LiteralF16:
+		fval := float32(val)
+		if math.IsInf(float64(fval), 1) {
+			w.out.WriteString("1.#INF")
+		} else if math.IsInf(float64(fval), -1) {
+			w.out.WriteString("-1.#INF")
+		} else if math.IsNaN(float64(fval)) {
+			w.out.WriteString("0.0/0.0")
+		} else {
+			s := strconv.FormatFloat(float64(fval), 'f', -1, 32)
+			if !strings.Contains(s, ".") {
+				s += ".0"
+			}
+			w.out.WriteString(s)
+			w.out.WriteByte('h')
+		}
+
 	case ir.LiteralAbstractFloat:
 		w.out.WriteString(formatFloat64(float64(val)))
 
@@ -286,9 +308,27 @@ func (w *Writer) writeGlobalConstExpression(handle ir.ExpressionHandle) error {
 		return w.writeConstantExpression(e)
 	case ir.ExprSplat:
 		return w.writeGlobalSplatExpression(e)
+	case ir.ExprBinary:
+		return w.writeGlobalBinaryExpression(e, handle)
 	default:
 		return fmt.Errorf("unsupported global expression type: %T", expr.Kind)
 	}
+}
+
+// writeGlobalBinaryExpression writes a binary expression from global expressions.
+// This handles cases like pipeline override arithmetic (e.g., override X + 1).
+func (w *Writer) writeGlobalBinaryExpression(e ir.ExprBinary, _ ir.ExpressionHandle) error {
+	op := binaryOpStr(e.Op)
+	w.out.WriteByte('(')
+	if err := w.writeGlobalConstExpression(e.Left); err != nil {
+		return fmt.Errorf("global binary left: %w", err)
+	}
+	fmt.Fprintf(&w.out, " %s ", op)
+	if err := w.writeGlobalConstExpression(e.Right); err != nil {
+		return fmt.Errorf("global binary right: %w", err)
+	}
+	w.out.WriteByte(')')
+	return nil
 }
 
 // writeGlobalComposeExpression writes a compose from global expressions.
@@ -1351,6 +1391,50 @@ func (w *Writer) writeBinaryExpression(e ir.ExprBinary) error {
 	return nil
 }
 
+// binaryOpStr returns the HLSL operator string for a binary operation.
+func binaryOpStr(op ir.BinaryOperator) string {
+	switch op {
+	case ir.BinaryAdd:
+		return "+"
+	case ir.BinarySubtract:
+		return "-"
+	case ir.BinaryMultiply:
+		return "*"
+	case ir.BinaryDivide:
+		return "/"
+	case ir.BinaryModulo:
+		return "%"
+	case ir.BinaryEqual:
+		return "=="
+	case ir.BinaryNotEqual:
+		return "!="
+	case ir.BinaryLess:
+		return "<"
+	case ir.BinaryLessEqual:
+		return "<="
+	case ir.BinaryGreater:
+		return ">"
+	case ir.BinaryGreaterEqual:
+		return ">="
+	case ir.BinaryAnd:
+		return "&"
+	case ir.BinaryExclusiveOr:
+		return "^"
+	case ir.BinaryInclusiveOr:
+		return "|"
+	case ir.BinaryLogicalAnd:
+		return "&&"
+	case ir.BinaryLogicalOr:
+		return "||"
+	case ir.BinaryShiftLeft:
+		return "<<"
+	case ir.BinaryShiftRight:
+		return ">>"
+	default:
+		return "?"
+	}
+}
+
 // isIntegerBinaryOp checks if a binary op's result type is integer (Sint or Uint).
 func (w *Writer) isIntegerBinaryOp(e ir.ExprBinary) bool {
 	// Check left operand type for scalar kind
@@ -1462,6 +1546,17 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 		return nil
 	}
 
+	// Special case: Pack4xI8/U8/I8Clamp/U8Clamp — inline polyfill
+	// Matches Rust naga's Function::Pack4x{I8,U8,I8Clamp,U8Clamp} handling.
+	switch e.Fun {
+	case ir.MathPack4xI8, ir.MathPack4xU8, ir.MathPack4xI8Clamp, ir.MathPack4xU8Clamp:
+		return w.writePack4xI8U8(e)
+	case ir.MathUnpack4xI8, ir.MathUnpack4xU8:
+		return w.writeUnpack4xI8U8(e)
+	case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
+		return w.writeDot4Packed(e)
+	}
+
 	funcName, err := mathFunctionToHLSL(e.Fun)
 	if err != nil {
 		return err
@@ -1490,6 +1585,163 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 		}
 	}
 	w.out.WriteByte(')')
+	return nil
+}
+
+// writePack4xI8U8 writes inline polyfill for Pack4xI8/U8/I8Clamp/U8Clamp.
+// Matches Rust naga: (arg[0] & 0xFF) | ((arg[1] & 0xFF) << 8) | ((arg[2] & 0xFF) << 16) | ((arg[3] & 0xFF) << 24)
+// For signed variants, wraps in uint(). For clamp variants, wraps arg in clamp().
+func (w *Writer) writePack4xI8U8(e ir.ExprMath) error {
+	isSigned := e.Fun == ir.MathPack4xI8 || e.Fun == ir.MathPack4xI8Clamp
+
+	var clampMin, clampMax string
+	switch e.Fun {
+	case ir.MathPack4xI8Clamp:
+		clampMin, clampMax = "-128", "127"
+	case ir.MathPack4xU8Clamp:
+		clampMin, clampMax = "0", "255"
+	}
+
+	writeArg := func() error {
+		if clampMin != "" {
+			w.out.WriteString("clamp(")
+			if err := w.writeExpression(e.Arg); err != nil {
+				return err
+			}
+			fmt.Fprintf(&w.out, ", %s, %s)", clampMin, clampMax)
+		} else {
+			return w.writeExpression(e.Arg)
+		}
+		return nil
+	}
+
+	if isSigned {
+		w.out.WriteString("uint(")
+	}
+	// (arg[0] & 0xFF) | ((arg[1] & 0xFF) << 8) | ((arg[2] & 0xFF) << 16) | ((arg[3] & 0xFF) << 24)
+	w.out.WriteString("(")
+	if err := writeArg(); err != nil {
+		return err
+	}
+	w.out.WriteString("[0] & 0xFF) | ((")
+	if err := writeArg(); err != nil {
+		return err
+	}
+	w.out.WriteString("[1] & 0xFF) << 8) | ((")
+	if err := writeArg(); err != nil {
+		return err
+	}
+	w.out.WriteString("[2] & 0xFF) << 16) | ((")
+	if err := writeArg(); err != nil {
+		return err
+	}
+	w.out.WriteString("[3] & 0xFF) << 24)")
+	if isSigned {
+		w.out.WriteByte(')')
+	}
+	return nil
+}
+
+// writeUnpack4xI8U8 writes inline polyfill for Unpack4xI8/U8.
+// Matches Rust naga: (int4(arg, arg >> 8, arg >> 16, arg >> 24) << 24 >> 24)
+// For unsigned: (uint4(arg, arg >> 8, arg >> 16, arg >> 24) << 24 >> 24)
+func (w *Writer) writeUnpack4xI8U8(e ir.ExprMath) error {
+	w.out.WriteString("(")
+	if e.Fun == ir.MathUnpack4xU8 {
+		w.out.WriteString("uint4(")
+	} else {
+		w.out.WriteString("int4(")
+	}
+	if err := w.writeExpression(e.Arg); err != nil {
+		return err
+	}
+	w.out.WriteString(", ")
+	if err := w.writeExpression(e.Arg); err != nil {
+		return err
+	}
+	w.out.WriteString(" >> 8, ")
+	if err := w.writeExpression(e.Arg); err != nil {
+		return err
+	}
+	w.out.WriteString(" >> 16, ")
+	if err := w.writeExpression(e.Arg); err != nil {
+		return err
+	}
+	w.out.WriteString(" >> 24) << 24 >> 24)")
+	return nil
+}
+
+// writeDot4Packed writes Dot4I8Packed/Dot4U8Packed.
+// For SM 6.4+: dot4add_{i,u}8packed(arg, arg1, 0)
+// For older SM: dot(int4(arg...) << 24 >> 24, int4(arg1...) << 24 >> 24)
+func (w *Writer) writeDot4Packed(e ir.ExprMath) error {
+	if e.Arg1 == nil {
+		return fmt.Errorf("dot4 packed requires arg1")
+	}
+	arg1 := *e.Arg1
+
+	if w.options.ShaderModel >= ShaderModel6_4 {
+		if e.Fun == ir.MathDot4I8Packed {
+			w.out.WriteString("dot4add_i8packed(")
+		} else {
+			w.out.WriteString("dot4add_u8packed(")
+		}
+		if err := w.writeExpression(e.Arg); err != nil {
+			return err
+		}
+		w.out.WriteString(", ")
+		if err := w.writeExpression(arg1); err != nil {
+			return err
+		}
+		w.out.WriteString(", 0)")
+		return nil
+	}
+
+	// Polyfill for older shader models
+	w.out.WriteString("dot(")
+
+	typePrefix := "int4"
+	if e.Fun == ir.MathDot4U8Packed {
+		typePrefix = "uint4"
+	}
+
+	// First operand
+	w.out.WriteString(typePrefix + "(")
+	if err := w.writeExpression(e.Arg); err != nil {
+		return err
+	}
+	w.out.WriteString(", ")
+	if err := w.writeExpression(e.Arg); err != nil {
+		return err
+	}
+	w.out.WriteString(" >> 8, ")
+	if err := w.writeExpression(e.Arg); err != nil {
+		return err
+	}
+	w.out.WriteString(" >> 16, ")
+	if err := w.writeExpression(e.Arg); err != nil {
+		return err
+	}
+	w.out.WriteString(" >> 24) << 24 >> 24, ")
+
+	// Second operand
+	w.out.WriteString(typePrefix + "(")
+	if err := w.writeExpression(arg1); err != nil {
+		return err
+	}
+	w.out.WriteString(", ")
+	if err := w.writeExpression(arg1); err != nil {
+		return err
+	}
+	w.out.WriteString(" >> 8, ")
+	if err := w.writeExpression(arg1); err != nil {
+		return err
+	}
+	w.out.WriteString(" >> 16, ")
+	if err := w.writeExpression(arg1); err != nil {
+		return err
+	}
+	w.out.WriteString(" >> 24) << 24 >> 24)")
 	return nil
 }
 

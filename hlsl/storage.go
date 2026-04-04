@@ -621,6 +621,15 @@ func (w *Writer) computeSubAccess(base ir.ExpressionHandle, isRuntime bool, runt
 		}
 		return subAccess{kind: subAccessOffset, offset: rowStride * constIndex}, nil
 
+	case ir.ValuePointerType:
+		// ValuePointer is pointer to scalar/vector, stride = scalar width.
+		// Matches Rust: TypeInner::ValuePointer { scalar, .. } => Parent::Array { stride: scalar.width }
+		scalarWidth := uint32(inner.Scalar.Width)
+		if isRuntime {
+			return subAccess{kind: subAccessIndex, value: runtimeIndex, stride: scalarWidth}, nil
+		}
+		return subAccess{kind: subAccessOffset, offset: scalarWidth * constIndex}, nil
+
 	default:
 		return subAccess{}, fmt.Errorf("computeSubAccess: unsupported base type %T", baseInner)
 	}
