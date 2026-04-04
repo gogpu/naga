@@ -679,18 +679,25 @@ func (w *Writer) writeSwitchCase(c *ir.SwitchCase) error {
 
 // writeLoopStatement writes a loop statement.
 // Naga loops are while(true) with explicit break conditions.
-// When ForceLoopBounding is enabled, adds loop_bound counter to prevent infinite loops.
+//
+// Architecture (matches Rust naga writer.rs:2323-2368):
+//   - loop_init gate: ALWAYS when continuing block exists (independent of ForceLoopBounding)
+//   - uint2 counter:  ONLY when ForceLoopBounding=true
+//   - continuing at top of loop body, guarded by if (!loop_init): ALWAYS when continuing exists
 func (w *Writer) writeLoopStatement(s ir.StmtLoop) error {
 	hasContinuing := len(s.Continuing) > 0 || s.BreakIf != nil
 	const maxIter = uint32(4294967295) // u32::MAX
 
-	// Loop bounding: declare counter before loop
-	var loopBoundName, loopInitName string
+	// Loop bounding: declare uint2 counter before loop (only when ForceLoopBounding)
+	var loopBoundName string
 	if w.options.ForceLoopBounding {
 		loopBoundName = w.namer.call("loop_bound")
 		w.writeLine("uint2 %s = uint2(%du, %du);", loopBoundName, maxIter, maxIter)
 	}
-	if hasContinuing && w.options.ForceLoopBounding {
+
+	// Continuing gate: ALWAYS when continuing block exists (independent of ForceLoopBounding)
+	var loopInitName string
+	if hasContinuing {
 		loopInitName = w.namer.call("loop_init")
 		w.writeLine("bool %s = true;", loopInitName)
 	}
@@ -706,8 +713,9 @@ func (w *Writer) writeLoopStatement(s ir.StmtLoop) error {
 		w.writeLine("%s -= uint2(%s.y == 0u, 1u);", loopBoundName, loopBoundName)
 	}
 
-	// If there's a continuing block, wrap it in a gate
-	if hasContinuing && w.options.ForceLoopBounding {
+	// Continuing block at top of loop body, guarded by if (!loop_init)
+	// This ALWAYS runs when continuing exists, independent of ForceLoopBounding
+	if hasContinuing {
 		w.writeLine("if (!%s) {", loopInitName)
 		w.pushIndent()
 		// Write continuing block
@@ -736,38 +744,12 @@ func (w *Writer) writeLoopStatement(s ir.StmtLoop) error {
 		w.popIndent()
 		w.writeLine("}")
 		w.writeLine("%s = false;", loopInitName)
-	} else if hasContinuing && !w.options.ForceLoopBounding {
-		// Without loop bounding, just write continuing after body
-		// (handled below after body)
 	}
 
 	// Write main body
 	if err := w.writeBlock(s.Body); err != nil {
 		w.popIndent()
 		return fmt.Errorf("loop body: %w", err)
-	}
-
-	// Write continuing block without force loop bounding
-	if hasContinuing && !w.options.ForceLoopBounding {
-		if len(s.Continuing) > 0 {
-			if err := w.writeBlock(s.Continuing); err != nil {
-				w.popIndent()
-				return fmt.Errorf("loop continuing: %w", err)
-			}
-		}
-		if s.BreakIf != nil {
-			w.writeIndent()
-			w.out.WriteString("if (")
-			if err := w.writeExpression(*s.BreakIf); err != nil {
-				w.popIndent()
-				return fmt.Errorf("loop break-if: %w", err)
-			}
-			w.out.WriteString(") {\n")
-			w.pushIndent()
-			w.writeLine("break;")
-			w.popIndent()
-			w.writeLine("}")
-		}
 	}
 
 	w.popIndent()

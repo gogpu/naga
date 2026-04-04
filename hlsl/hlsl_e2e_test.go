@@ -493,6 +493,108 @@ fn main(@location(0) x: f32) -> @location(0) vec4<f32> {
 }
 
 // =============================================================================
+// Loop bounding + continuing gate (NAGA-HLSL-001)
+// =============================================================================
+
+// TestE2E_LoopContinuingGate verifies that the continuing gate (loop_init)
+// is ALWAYS used when a continuing block exists, independent of ForceLoopBounding.
+// Matches Rust naga writer.rs:2329-2368 architecture.
+func TestE2E_LoopContinuingGate(t *testing.T) {
+	source := `
+@compute @workgroup_size(1)
+fn main() {
+    var i: i32 = 0;
+    loop {
+        if i >= 10 {
+            break;
+        }
+        i = i + 1;
+        continuing {
+            i = i + 0;
+        }
+    }
+}
+`
+	t.Run("with_force_loop_bounding", func(t *testing.T) {
+		opts := hlsl.DefaultOptions()
+		opts.ForceLoopBounding = true
+		code := compileWGSLToHLSLWithOpts(t, source, opts)
+
+		// Must have loop_init gate
+		if !strings.Contains(code, "loop_init") {
+			t.Errorf("expected loop_init gate with ForceLoopBounding=true\n\nGot:\n%s", code)
+		}
+		// Must have uint2 loop_bound counter
+		if !strings.Contains(code, "uint2") {
+			t.Errorf("expected uint2 loop_bound counter with ForceLoopBounding=true\n\nGot:\n%s", code)
+		}
+		t.Logf("HLSL output:\n%s", code)
+	})
+
+	t.Run("without_force_loop_bounding", func(t *testing.T) {
+		opts := hlsl.DefaultOptions()
+		opts.ForceLoopBounding = false
+		code := compileWGSLToHLSLWithOpts(t, source, opts)
+
+		// Must STILL have loop_init gate (continuing gate is independent)
+		if !strings.Contains(code, "loop_init") {
+			t.Errorf("expected loop_init gate even without ForceLoopBounding\n\nGot:\n%s", code)
+		}
+		// Must NOT have uint2 loop_bound counter
+		if strings.Contains(code, "uint2") {
+			t.Errorf("should not have uint2 loop_bound counter without ForceLoopBounding\n\nGot:\n%s", code)
+		}
+		t.Logf("HLSL output:\n%s", code)
+	})
+}
+
+// TestE2E_LoopBreakIf verifies that break_if is correctly handled with the
+// continuing gate pattern, both with and without ForceLoopBounding.
+func TestE2E_LoopBreakIf(t *testing.T) {
+	source := `
+@compute @workgroup_size(1)
+fn main() {
+    var i: i32 = 0;
+    loop {
+        i = i + 1;
+        continuing {
+            break if i >= 10;
+        }
+    }
+}
+`
+	t.Run("with_force_loop_bounding", func(t *testing.T) {
+		opts := hlsl.DefaultOptions()
+		opts.ForceLoopBounding = true
+		code := compileWGSLToHLSLWithOpts(t, source, opts)
+
+		if !strings.Contains(code, "loop_init") {
+			t.Errorf("expected loop_init gate\n\nGot:\n%s", code)
+		}
+		// break_if should be inside the gate block, not at bottom
+		if !strings.Contains(code, "break;") {
+			t.Errorf("expected break statement\n\nGot:\n%s", code)
+		}
+		t.Logf("HLSL output:\n%s", code)
+	})
+
+	t.Run("without_force_loop_bounding", func(t *testing.T) {
+		opts := hlsl.DefaultOptions()
+		opts.ForceLoopBounding = false
+		code := compileWGSLToHLSLWithOpts(t, source, opts)
+
+		// Must STILL have loop_init gate
+		if !strings.Contains(code, "loop_init") {
+			t.Errorf("expected loop_init gate even without ForceLoopBounding\n\nGot:\n%s", code)
+		}
+		if !strings.Contains(code, "break;") {
+			t.Errorf("expected break statement\n\nGot:\n%s", code)
+		}
+		t.Logf("HLSL output:\n%s", code)
+	})
+}
+
+// =============================================================================
 // Struct argument entry point (the gogpu shader pattern)
 // =============================================================================
 

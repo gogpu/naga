@@ -30,12 +30,12 @@ func TestDefaultOptions(t *testing.T) {
 		t.Error("ZeroInitializeWorkgroupMemory should be true by default")
 	}
 
-	if opts.RestrictIndexing {
-		t.Error("RestrictIndexing should be false by default")
+	if !opts.RestrictIndexing {
+		t.Error("RestrictIndexing should be true by default")
 	}
 
-	if opts.ForceLoopBounding {
-		t.Error("ForceLoopBounding should be false by default")
+	if !opts.ForceLoopBounding {
+		t.Error("ForceLoopBounding should be true by default")
 	}
 
 	if opts.BindingMap == nil {

@@ -9,7 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-#### HLSL backend: 58 → 68+ pass (+10 shaders)
+#### HLSL backend: 58 → 72 pass (+14 shaders, 0 fail)
+
+- **ForceLoopBounding architecture fix** — Continuing gate (loop_init) decoupled
+  from ForceLoopBounding. Gate now ALWAYS used when continuing block exists,
+  matching Rust naga writer.rs:2329-2368. Fixes DX12 Gallery hang on Intel
+  (FXC infinite loop analysis on `while(true)`).
+- **Defaults changed to match Rust** — `ForceLoopBounding: true`,
+  `RestrictIndexing: true` (were both `false`).
+
+#### HLSL backend: parity fixes
 
 - **Dot4I8Packed/Dot4U8Packed** — dot4add intrinsics (SM 6.4+) with polyfill. (3 shaders)
 - **Pack4xI8/U8/Clamp + Unpack4xI8/U8** — shift+mask polyfills. (2 shaders)
