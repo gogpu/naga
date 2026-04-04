@@ -258,8 +258,8 @@ func TestNagaHelperConstants(t *testing.T) {
 	}{
 		{"NagaModfFunction", NagaModfFunction, "naga_modf"},
 		{"NagaFrexpFunction", NagaFrexpFunction, "naga_frexp"},
-		{"NagaExtractBitsFunction", NagaExtractBitsFunction, "_naga_extract_bits"},
-		{"NagaInsertBitsFunction", NagaInsertBitsFunction, "_naga_insert_bits"},
+		{"NagaExtractBitsFunction", NagaExtractBitsFunction, "naga_extractBits"},
+		{"NagaInsertBitsFunction", NagaInsertBitsFunction, "naga_insertBits"},
 		{"SamplerHeapVar", SamplerHeapVar, "_naga_sampler_heap"},
 		{"ComparisonSamplerHeapVar", ComparisonSamplerHeapVar, "_naga_comparison_sampler_heap"},
 		{"SampleExternalTextureFunction", SampleExternalTextureFunction, "_naga_sample_external_texture"},

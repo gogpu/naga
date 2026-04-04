@@ -285,7 +285,7 @@ func TestFormatFloat32(t *testing.T) {
 		{"one", 1.0, "1.0"},
 		{"negative", -1.0, "-1.0"},
 		{"small", 0.5, "0.5"},
-		{"large", 1000000.0, "1e+06"},
+		{"large", 1000000.0, "1e06"},
 		{"small_exp", 0.0001, "0.0001"},
 	}
 
@@ -310,7 +310,7 @@ func TestFormatFloat64(t *testing.T) {
 		{"one", 1.0, "1.0"},
 		{"negative", -1.0, "-1.0"},
 		{"small", 0.5, "0.5"},
-		{"large", 1e15, "1e+15"},
+		{"large", 1e15, "1e15"},
 	}
 
 	for _, tt := range tests {

@@ -205,7 +205,19 @@ func TestRustReference(t *testing.T) {
 					hlslSkip++
 					t.Skipf("no Rust reference: %s", rustHLSL)
 				}
-				code := compileHLSL(t, module, shader.name)
+				// Process pipeline overrides before HLSL compilation
+				// (Rust test driver calls process_overrides for all backends)
+				hlslModule := module
+				hlslPipelineConstants := readSPVPipelineConstants(shader.name)
+				if len(hlslPipelineConstants) > 0 {
+					hlslModule = ir.CloneModuleForOverrides(module)
+					if err := ir.ProcessOverrides(hlslModule, hlslPipelineConstants); err != nil {
+						hlslFail++
+						t.Errorf("ProcessOverrides failed: %v", err)
+						return
+					}
+				}
+				code := compileHLSL(t, hlslModule, shader.name)
 				rustExpected, err := os.ReadFile(rustHLSL)
 				if err != nil {
 					t.Fatalf("read Rust reference: %v", err)

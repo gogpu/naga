@@ -1115,6 +1115,9 @@ func formatFloat32(f float32) string {
 	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
 		s += ".0"
 	}
+	// Remove '+' from exponent to match Rust {:?} format (e.g., "e+38" -> "e38")
+	s = strings.Replace(s, "e+", "e", 1)
+	s = strings.Replace(s, "E+", "E", 1)
 	return s
 }
 
@@ -1133,6 +1136,9 @@ func formatFloat64(f float64) string {
 	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
 		s += ".0"
 	}
+	// Remove '+' from exponent to match Rust {:?} format (e.g., "e+308" -> "e308")
+	s = strings.Replace(s, "e+", "e", 1)
+	s = strings.Replace(s, "E+", "E", 1)
 	return s
 }
 

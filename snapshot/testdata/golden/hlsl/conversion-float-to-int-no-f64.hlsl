@@ -1,7 +1,7 @@
 static const half MIN_F16_ = -65504.0h;
 static const half MAX_F16_ = 65504.0h;
-static const float MIN_F32_ = -3.4028235e+38;
-static const float MAX_F32_ = 3.4028235e+38;
+static const float MIN_F32_ = -3.4028235e38;
+static const float MAX_F32_ = 3.4028235e38;
 
 void test_const_eval()
 {

@@ -1363,6 +1363,66 @@ func (w *Writer) writeWrappedMathHelpers(fn *ir.Function) {
 			fmt.Fprintf(&w.out, "}\n\n")
 		}
 	}
+
+	// Scan for ExtractBits/InsertBits and generate per-type overloads.
+	// Matches Rust naga's write_wrapped_math_functions for ExtractBits/InsertBits.
+	type wrappedMathKey struct {
+		fun    ir.MathFunction
+		scalar ir.ScalarType
+		vecStr string // "" for scalar, "2"/"3"/"4" for vectors
+	}
+	wrappedMath := make(map[wrappedMathKey]struct{})
+	for _, expr := range fn.Expressions {
+		mathExpr, ok := expr.Kind.(ir.ExprMath)
+		if !ok {
+			continue
+		}
+		if mathExpr.Fun != ir.MathExtractBits && mathExpr.Fun != ir.MathInsertBits {
+			continue
+		}
+		argInner := w.resolveExprTypeInner(fn, mathExpr.Arg)
+		if argInner == nil {
+			continue
+		}
+		var scalar ir.ScalarType
+		var vecStr string
+		switch t := argInner.(type) {
+		case ir.ScalarType:
+			scalar = t
+		case ir.VectorType:
+			scalar = t.Scalar
+			vecStr = fmt.Sprintf("%d", t.Size)
+		default:
+			continue
+		}
+		key := wrappedMathKey{fun: mathExpr.Fun, scalar: scalar, vecStr: vecStr}
+		if _, done := wrappedMath[key]; done {
+			continue
+		}
+		wrappedMath[key] = struct{}{}
+
+		// Build HLSL type name
+		var typeName string
+		if vecStr == "" {
+			if scalar.Kind == ir.ScalarSint {
+				typeName = "int"
+			} else {
+				typeName = "uint"
+			}
+		} else {
+			if scalar.Kind == ir.ScalarSint {
+				typeName = "int" + vecStr
+			} else {
+				typeName = "uint" + vecStr
+			}
+		}
+
+		if mathExpr.Fun == ir.MathExtractBits {
+			w.writeExtractBitsOverload(typeName, scalar.Width)
+		} else {
+			w.writeInsertBitsOverload(typeName, scalar.Width)
+		}
+	}
 }
 
 // writeWrappedBinaryOps scans function expressions for integer Divide/Modulo
@@ -1560,10 +1620,10 @@ func f2iClampValues(srcWidth uint8, dstKind ir.ScalarKind, dstWidth uint8) (stri
 		return "0.0L", "4294967295.0L"
 	// f64 -> i64
 	case srcWidth == 8 && dstKind == ir.ScalarSint && dstWidth == 8:
-		return "-9.223372036854776e18L", "9.223372036854776e18L"
+		return "-9.223372036854776e18L", "9.223372036854775e18L"
 	// f64 -> u64
 	case srcWidth == 8 && dstKind == ir.ScalarUint && dstWidth == 8:
-		return "0.0L", "1.8446744073709552e19L"
+		return "0.0L", "1.844674407370955e19L"
 	default:
 		return "0.0", "0.0"
 	}

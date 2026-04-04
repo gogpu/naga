@@ -1,9 +1,9 @@
 static const half MIN_F16_ = -65504.0h;
 static const half MAX_F16_ = 65504.0h;
-static const float MIN_F32_ = -3.4028235e+38;
-static const float MAX_F32_ = 3.4028235e+38;
-static const double MIN_F64_ = -1.7976931348623157e+308L;
-static const double MAX_F64_ = 1.7976931348623157e+308L;
+static const float MIN_F32_ = -3.4028235e38;
+static const float MAX_F32_ = 3.4028235e38;
+static const double MIN_F64_ = -1.7976931348623157e308L;
+static const double MAX_F64_ = 1.7976931348623157e308L;
 
 void test_const_eval()
 {
@@ -130,7 +130,7 @@ uint test_f64_to_u32_(double f_9)
 }
 
 int64_t naga_f2i64(double value) {
-    return int64_t(clamp(value, -9.223372036854776e18L, 9.223372036854776e18L));
+    return int64_t(clamp(value, -9.223372036854776e18L, 9.223372036854775e18L));
 }
 
 int64_t test_f64_to_i64_(double f_10)
@@ -139,7 +139,7 @@ int64_t test_f64_to_i64_(double f_10)
 }
 
 uint64_t naga_f2u64(double value) {
-    return uint64_t(clamp(value, 0.0L, 1.8446744073709552e19L));
+    return uint64_t(clamp(value, 0.0L, 1.844674407370955e19L));
 }
 
 uint64_t test_f64_to_u64_(double f_11)
@@ -238,7 +238,7 @@ uint2 test_f64_to_u32_vec(double2 f_21)
 }
 
 int64_t2 naga_f2i64(double2 value) {
-    return int64_t2(clamp(value, -9.223372036854776e18L, 9.223372036854776e18L));
+    return int64_t2(clamp(value, -9.223372036854776e18L, 9.223372036854775e18L));
 }
 
 int64_t2 test_f64_to_i64_vec(double2 f_22)
@@ -247,7 +247,7 @@ int64_t2 test_f64_to_i64_vec(double2 f_22)
 }
 
 uint64_t2 naga_f2u64(double2 value) {
-    return uint64_t2(clamp(value, 0.0L, 1.8446744073709552e19L));
+    return uint64_t2(clamp(value, 0.0L, 1.844674407370955e19L));
 }
 
 uint64_t2 test_f64_to_u64_vec(double2 f_23)
