@@ -7,12 +7,8 @@ RWByteAddressBuffer unsized_no_comma : register(u1);
 void main(uint3 __local_invocation_id : SV_GroupThreadID)
 {
     if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
-        for (uint _naga_zi_0 = 0u; _naga_zi_0 < 1u; _naga_zi_0++) {
-            sized_comma[_naga_zi_0] = (uint)0;
-        }
-        for (uint _naga_zi_0 = 0u; _naga_zi_0 < 1u; _naga_zi_0++) {
-            sized_no_comma[_naga_zi_0] = (uint)0;
-        }
+        sized_comma = (uint[1])0;
+        sized_no_comma = (uint[1])0;
     }
     GroupMemoryBarrierWithGroupSync();
     uint _e4 = asuint(unsized_comma.Load(0));

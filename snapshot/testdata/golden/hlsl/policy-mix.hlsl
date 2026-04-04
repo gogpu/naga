@@ -35,9 +35,7 @@ float4 mock_function(int2 c, int i, int l)
 void main(uint3 __local_invocation_id : SV_GroupThreadID)
 {
     if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
-        for (uint _naga_zi_0 = 0u; _naga_zi_0 < 30u; _naga_zi_0++) {
-            in_workgroup[_naga_zi_0] = (float)0;
-        }
+        in_workgroup = (float[30])0;
     }
     GroupMemoryBarrierWithGroupSync();
     const float4 _e5 = mock_function(int2(int(1), int(2)), int(3), int(4));

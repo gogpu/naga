@@ -2034,6 +2034,98 @@ func TestPredeclaredHelpers_SkipsUnrelated(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Workgroup Zero-Init Loop Tests
+// =============================================================================
+
+func TestWriteWorkgroupZeroInit_SmallArray(t *testing.T) {
+	// Small array (< 256) should use inline constructor, not a loop.
+	size := uint32(4)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                          // 0: i32
+			{Name: "", Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &size}, Stride: 4}}, // 1: array<i32, 4>
+		},
+	}
+	opts := DefaultOptions()
+	w := newWriter(module, &opts)
+	w.typeNames[ir.TypeHandle(0)] = "int"
+	w.typeNames[ir.TypeHandle(1)] = "int[4]"
+
+	w.writeWorkgroupZeroInit("myvar", ir.TypeHandle(1), 0)
+	output := w.String()
+
+	if strings.Contains(output, "for (") {
+		t.Errorf("small array should NOT use a for loop, got:\n%s", output)
+	}
+	mustContainStr(t, output, "myvar = int[4](0, 0, 0, 0);")
+}
+
+func TestWriteWorkgroupZeroInit_LargeArray(t *testing.T) {
+	// Large array (>= 256) should use a per-element for loop.
+	size := uint32(256)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                          // 0: i32
+			{Name: "", Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &size}, Stride: 4}}, // 1: array<i32, 256>
+		},
+	}
+	opts := DefaultOptions()
+	w := newWriter(module, &opts)
+	w.typeNames[ir.TypeHandle(0)] = "int"
+	w.typeNames[ir.TypeHandle(1)] = "int[256]"
+
+	w.writeWorkgroupZeroInit("myvar", ir.TypeHandle(1), 0)
+	output := w.String()
+
+	mustContainStr(t, output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)")
+	mustContainStr(t, output, "myvar[_naga_zi_0] = 0;")
+	if strings.Contains(output, "int[256](") {
+		t.Errorf("large array should NOT use inline constructor, got:\n%s", output)
+	}
+}
+
+func TestWriteWorkgroupZeroInit_NestedLargeArray(t *testing.T) {
+	// Nested arrays: outer large, inner small — outer loops, inner inline.
+	innerSize := uint32(4)
+	outerSize := uint32(512)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},                               // 0: f32
+			{Name: "", Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &innerSize}, Stride: 4}},  // 1: array<f32, 4>
+			{Name: "", Inner: ir.ArrayType{Base: 1, Size: ir.ArraySize{Constant: &outerSize}, Stride: 16}}, // 2: array<array<f32, 4>, 512>
+		},
+	}
+	opts := DefaultOptions()
+	w := newWriter(module, &opts)
+	w.typeNames[ir.TypeHandle(0)] = "float"
+	w.typeNames[ir.TypeHandle(1)] = "float[4]"
+	w.typeNames[ir.TypeHandle(2)] = "float[4][512]"
+
+	w.writeWorkgroupZeroInit("nested", ir.TypeHandle(2), 0)
+	output := w.String()
+
+	mustContainStr(t, output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 512u; _naga_zi_0++)")
+	mustContainStr(t, output, "nested[_naga_zi_0] = float[4](0.0, 0.0, 0.0, 0.0);")
+}
+
+func TestWriteWorkgroupZeroInit_NonArray(t *testing.T) {
+	// Non-array type should use inline zero init directly.
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 0: f32
+		},
+	}
+	opts := DefaultOptions()
+	w := newWriter(module, &opts)
+	w.typeNames[ir.TypeHandle(0)] = "float"
+
+	w.writeWorkgroupZeroInit("scalar_var", ir.TypeHandle(0), 0)
+	output := w.String()
+
+	mustContainStr(t, output, "scalar_var = 0.0;")
+}
+
 // mustContainStr is a helper for non-compile tests.
 func mustContainStr(t *testing.T, source, expected string) {
 	t.Helper()
