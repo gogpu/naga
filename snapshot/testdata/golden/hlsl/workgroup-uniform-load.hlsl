@@ -6,7 +6,9 @@ groupshared int arr_i32_[128];
 void test_workgroupUniformLoad(uint3 workgroup_id : SV_GroupID, uint3 __local_invocation_id : SV_GroupThreadID)
 {
     if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
-        arr_i32_ = (int[128])0;
+        for (uint _naga_zi_0 = 0u; _naga_zi_0 < 128u; _naga_zi_0++) {
+            arr_i32_[_naga_zi_0] = (int)0;
+        }
     }
     GroupMemoryBarrierWithGroupSync();
     GroupMemoryBarrierWithGroupSync();

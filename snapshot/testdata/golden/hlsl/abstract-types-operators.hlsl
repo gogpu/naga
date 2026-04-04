@@ -103,7 +103,9 @@ void wgpu_4435_()
 void main(uint3 __local_invocation_id : SV_GroupThreadID)
 {
     if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
-        a = (uint[64])0;
+        for (uint _naga_zi_0 = 0u; _naga_zi_0 < 64u; _naga_zi_0++) {
+            a[_naga_zi_0] = (uint)0;
+        }
     }
     GroupMemoryBarrierWithGroupSync();
     runtime_values();

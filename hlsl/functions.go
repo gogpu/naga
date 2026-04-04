@@ -922,6 +922,10 @@ func (w *Writer) needWorkgroupInit(ep *ir.EntryPoint) bool {
 
 // writeWorkgroupInit writes the workgroup variable zero-initialization code.
 // Matches Rust naga's write_workgroup_variables_initialization.
+//
+// For array types, generates per-element loops instead of (Type[N])0 to avoid
+// FXC compilation hangs (e.g. (PathMonoid[256])0 hangs 22s, loop takes 68ms).
+// Nested arrays produce nested loops.
 func (w *Writer) writeWorkgroupInit() {
 	w.writeLine("if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {")
 	w.pushIndent()
@@ -930,10 +934,35 @@ func (w *Writer) writeWorkgroupInit() {
 			continue
 		}
 		varName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(i)}]
-		typeName := w.getTypeName(gv.Type)
-		w.writeLine("%s = (%s)0;", varName, typeName)
+		w.writeWorkgroupZeroInit(varName, gv.Type, 0)
 	}
 	w.popIndent()
 	w.writeLine("}")
 	w.writeLine("GroupMemoryBarrierWithGroupSync();")
+}
+
+// writeWorkgroupZeroInit writes zero-initialization for a workgroup variable.
+// For array types, it generates a for-loop over elements (recursively for nested arrays).
+// For non-array types, it generates a simple (Type)0 assignment.
+// The depth parameter controls the loop variable suffix to avoid collisions in nested loops.
+func (w *Writer) writeWorkgroupZeroInit(varExpr string, typeHandle ir.TypeHandle, depth int) {
+	if int(typeHandle) >= len(w.module.Types) {
+		typeName := w.getTypeName(typeHandle)
+		w.writeLine("%s = (%s)0;", varExpr, typeName)
+		return
+	}
+	typ := w.module.Types[typeHandle]
+	if arr, ok := typ.Inner.(ir.ArrayType); ok && arr.Size.Constant != nil {
+		size := *arr.Size.Constant
+		loopVar := fmt.Sprintf("_naga_zi_%d", depth)
+		w.writeLine("for (uint %s = 0u; %s < %du; %s++) {", loopVar, loopVar, size, loopVar)
+		w.pushIndent()
+		elemExpr := fmt.Sprintf("%s[%s]", varExpr, loopVar)
+		w.writeWorkgroupZeroInit(elemExpr, arr.Base, depth+1)
+		w.popIndent()
+		w.writeLine("}")
+	} else {
+		typeName := w.getTypeName(typeHandle)
+		w.writeLine("%s = (%s)0;", varExpr, typeName)
+	}
 }

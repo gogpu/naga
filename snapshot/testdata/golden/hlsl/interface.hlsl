@@ -78,7 +78,9 @@ FragmentOutput fragment(FragmentInput_fragment fragmentinput_fragment)
 void compute(uint3 global_id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uint local_index : SV_GroupIndex, uint3 wg_id : SV_GroupID, uint3 num_wgs : SV_GroupID, uint3 __local_invocation_id : SV_GroupThreadID)
 {
     if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
-        output = (uint[1])0;
+        for (uint _naga_zi_0 = 0u; _naga_zi_0 < 1u; _naga_zi_0++) {
+            output[_naga_zi_0] = (uint)0;
+        }
     }
     GroupMemoryBarrierWithGroupSync();
     output[0] = ((((global_id.x + local_id.x) + local_index) + wg_id.x) + uint3(_NagaConstants.first_vertex, _NagaConstants.first_instance, _NagaConstants.other).x);

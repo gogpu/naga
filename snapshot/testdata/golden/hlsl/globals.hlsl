@@ -113,7 +113,9 @@ uint NagaBufferLength(ByteAddressBuffer buffer)
 void main(uint3 __local_invocation_id : SV_GroupThreadID)
 {
     if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {
-        wg = (float[10])0;
+        for (uint _naga_zi_0 = 0u; _naga_zi_0 < 10u; _naga_zi_0++) {
+            wg[_naga_zi_0] = (float)0;
+        }
         at_1 = (uint)0;
     }
     GroupMemoryBarrierWithGroupSync();

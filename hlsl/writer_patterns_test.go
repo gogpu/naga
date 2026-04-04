@@ -257,6 +257,146 @@ func TestHLSL_WriteSpecialConstants(t *testing.T) {
 	}
 }
 
+// TestHLSL_WorkgroupZeroInitArrayLoop verifies that workgroup array variables
+// use per-element loops instead of (Type[N])0, which causes FXC to hang.
+func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
+	size4 := uint32(4)
+	size256 := uint32(256)
+
+	t.Run("scalar_no_loop", func(t *testing.T) {
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0: uint
+			},
+			GlobalVariables: []ir.GlobalVariable{
+				{Name: "wg_counter", Space: ir.SpaceWorkGroup, Type: 0},
+			},
+		}
+		names := map[nameKey]string{
+			{kind: nameKeyGlobalVariable, handle1: 0}: "wg_counter",
+		}
+		w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
+		w.options.ZeroInitializeWorkgroupMemory = true
+		w.writeWorkgroupInit()
+		output := w.out.String()
+		if !strings.Contains(output, "wg_counter = (uint)0;") {
+			t.Errorf("scalar should use (Type)0, got:\n%s", output)
+		}
+		if strings.Contains(output, "for (uint") {
+			t.Errorf("scalar should NOT use loop, got:\n%s", output)
+		}
+	})
+
+	t.Run("array_uses_loop", func(t *testing.T) {
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},                  // 0: uint
+				{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &size256}}}, // 1: array<uint, 256>
+			},
+			GlobalVariables: []ir.GlobalVariable{
+				{Name: "wg_data", Space: ir.SpaceWorkGroup, Type: 1},
+			},
+		}
+		names := map[nameKey]string{
+			{kind: nameKeyGlobalVariable, handle1: 0}: "wg_data",
+		}
+		w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
+		w.options.ZeroInitializeWorkgroupMemory = true
+		w.writeWorkgroupInit()
+		output := w.out.String()
+		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
+			t.Errorf("array should use loop, got:\n%s", output)
+		}
+		if !strings.Contains(output, "wg_data[_naga_zi_0] = (uint)0;") {
+			t.Errorf("array element should use (ElementType)0, got:\n%s", output)
+		}
+	})
+
+	t.Run("nested_array_nested_loops", func(t *testing.T) {
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},                 // 0: float
+				{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &size4}}},   // 1: array<float, 4>
+				{Inner: ir.ArrayType{Base: 1, Size: ir.ArraySize{Constant: &size256}}}, // 2: array<array<float, 4>, 256>
+			},
+			GlobalVariables: []ir.GlobalVariable{
+				{Name: "wg_matrix", Space: ir.SpaceWorkGroup, Type: 2},
+			},
+		}
+		names := map[nameKey]string{
+			{kind: nameKeyGlobalVariable, handle1: 0}: "wg_matrix",
+		}
+		w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "float"})
+		w.options.ZeroInitializeWorkgroupMemory = true
+		w.writeWorkgroupInit()
+		output := w.out.String()
+		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
+			t.Errorf("outer loop missing, got:\n%s", output)
+		}
+		if !strings.Contains(output, "for (uint _naga_zi_1 = 0u; _naga_zi_1 < 4u; _naga_zi_1++)") {
+			t.Errorf("inner loop missing, got:\n%s", output)
+		}
+		if !strings.Contains(output, "wg_matrix[_naga_zi_0][_naga_zi_1] = (float)0;") {
+			t.Errorf("nested element init missing, got:\n%s", output)
+		}
+	})
+
+	t.Run("struct_no_loop", func(t *testing.T) {
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0: uint
+				{Name: "MyStruct", Inner: ir.StructType{
+					Members: []ir.StructMember{{Name: "x", Type: 0, Offset: 0}},
+				}}, // 1: struct
+			},
+			GlobalVariables: []ir.GlobalVariable{
+				{Name: "wg_struct", Space: ir.SpaceWorkGroup, Type: 1},
+			},
+		}
+		names := map[nameKey]string{
+			{kind: nameKeyGlobalVariable, handle1: 0}: "wg_struct",
+		}
+		w := newTestWriter(module, names, map[ir.TypeHandle]string{1: "MyStruct"})
+		w.options.ZeroInitializeWorkgroupMemory = true
+		w.writeWorkgroupInit()
+		output := w.out.String()
+		if !strings.Contains(output, "wg_struct = (MyStruct)0;") {
+			t.Errorf("struct should use (Type)0, got:\n%s", output)
+		}
+		if strings.Contains(output, "for (uint") {
+			t.Errorf("struct should NOT use loop, got:\n%s", output)
+		}
+	})
+
+	t.Run("array_of_structs_uses_loop", func(t *testing.T) {
+		module := &ir.Module{
+			Types: []ir.Type{
+				{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0: uint
+				{Name: "PathMonoid", Inner: ir.StructType{
+					Members: []ir.StructMember{{Name: "x", Type: 0, Offset: 0}},
+				}}, // 1: struct PathMonoid
+				{Inner: ir.ArrayType{Base: 1, Size: ir.ArraySize{Constant: &size256}}}, // 2: array<PathMonoid, 256>
+			},
+			GlobalVariables: []ir.GlobalVariable{
+				{Name: "sh_scratch", Space: ir.SpaceWorkGroup, Type: 2},
+			},
+		}
+		names := map[nameKey]string{
+			{kind: nameKeyGlobalVariable, handle1: 0}: "sh_scratch",
+		}
+		w := newTestWriter(module, names, map[ir.TypeHandle]string{1: "PathMonoid"})
+		w.options.ZeroInitializeWorkgroupMemory = true
+		w.writeWorkgroupInit()
+		output := w.out.String()
+		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
+			t.Errorf("array of structs should use loop, got:\n%s", output)
+		}
+		if !strings.Contains(output, "sh_scratch[_naga_zi_0] = (PathMonoid)0;") {
+			t.Errorf("element should use (StructType)0, got:\n%s", output)
+		}
+	})
+}
+
 // TestHLSL_NeedWorkgroupInit verifies workgroup init detection.
 func TestHLSL_NeedWorkgroupInit(t *testing.T) {
 	module := &ir.Module{
