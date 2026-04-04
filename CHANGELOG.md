@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.4] - 2026-04-04
+
+### Fixed
+
+- **GLSL: per-element loop for workgroup array zero-init** — Same fix as HLSL:
+  arrays >= 256 elements use `for` loop instead of inline constructor list
+  (`Type[256](elem, elem, ... ×256)` = 12KB single line). Prevents GL driver
+  compiler slowdown and potential crashes on mobile/embedded GL drivers.
+
 ## [0.16.3] - 2026-04-04
 
 ### Fixed

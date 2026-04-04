@@ -2200,16 +2200,55 @@ func (w *Writer) writeWorkgroupVarInit() {
 	w.pushIndent()
 	for _, wv := range workgroupVars {
 		name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(wv.handle)}]
-		zeroVal := w.zeroInitValue(wv.global.Type)
-		if zeroVal == "" {
-			zeroVal = "0"
-		}
-		w.writeLine("%s = %s;", name, zeroVal)
+		w.writeWorkgroupZeroInit(name, wv.global.Type, 0)
 	}
 	w.popIndent()
 	w.writeLine("}")
 	w.writeLine("memoryBarrierShared();")
 	w.writeLine("barrier();")
+}
+
+// workgroupZeroInitLoopThreshold is the minimum array size (in elements) above
+// which we use a per-element for loop instead of an inline constructor.
+// Large arrays (e.g., array<PathMonoid, 256>) produce enormous inline expressions
+// that can cause compiler hangs or OOM in downstream GLSL compilers.
+// Threshold 256 matches the HLSL backend.
+const workgroupZeroInitLoopThreshold = 256
+
+// writeWorkgroupZeroInit writes zero-initialization for a workgroup variable.
+// For large array types (>= threshold), generates a per-element for loop.
+// Small arrays and non-arrays use inline constructor via zeroInitValue().
+// The depth parameter controls the loop variable suffix for nested arrays.
+func (w *Writer) writeWorkgroupZeroInit(varExpr string, typeHandle ir.TypeHandle, depth int) {
+	if int(typeHandle) >= len(w.module.Types) {
+		zeroVal := w.zeroInitValue(typeHandle)
+		if zeroVal == "" {
+			zeroVal = "0"
+		}
+		w.writeLine("%s = %s;", varExpr, zeroVal)
+		return
+	}
+	typ := w.module.Types[typeHandle]
+	if arr, ok := typ.Inner.(ir.ArrayType); ok && arr.Size.Constant != nil {
+		size := *arr.Size.Constant
+		if size >= workgroupZeroInitLoopThreshold {
+			// Large array: per-element loop
+			loopVar := fmt.Sprintf("_naga_zi_%d", depth)
+			w.writeLine("for (uint %s = 0u; %s < %du; %s++) {", loopVar, loopVar, size, loopVar)
+			w.pushIndent()
+			elemExpr := fmt.Sprintf("%s[%s]", varExpr, loopVar)
+			w.writeWorkgroupZeroInit(elemExpr, arr.Base, depth+1)
+			w.popIndent()
+			w.writeLine("}")
+			return
+		}
+	}
+	// Small array or non-array: inline constructor
+	zeroVal := w.zeroInitValue(typeHandle)
+	if zeroVal == "" {
+		zeroVal = "0"
+	}
+	w.writeLine("%s = %s;", varExpr, zeroVal)
 }
 
 // writeEntryPointArgLocals writes local variable declarations for entry point arguments.
