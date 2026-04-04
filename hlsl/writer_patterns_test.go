@@ -333,11 +333,9 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
 			t.Errorf("outer loop missing, got:\n%s", output)
 		}
-		if !strings.Contains(output, "for (uint _naga_zi_1 = 0u; _naga_zi_1 < 4u; _naga_zi_1++)") {
-			t.Errorf("inner loop missing, got:\n%s", output)
-		}
-		if !strings.Contains(output, "wg_matrix[_naga_zi_0][_naga_zi_1] = (float)0;") {
-			t.Errorf("nested element init missing, got:\n%s", output)
+		// Inner array (size 4) is below threshold — uses bulk assign, not loop
+		if !strings.Contains(output, "wg_matrix[_naga_zi_0] = (float[4])0;") {
+			t.Errorf("inner bulk assign missing, got:\n%s", output)
 		}
 	})
 
