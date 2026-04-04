@@ -1,17 +1,17 @@
-RWTexture2D<float4> image : register(u0, space0);
-
-struct cs_main_Input {
-    uint3 id : SV_GroupThreadID;
+struct NagaConstants {
+    int first_vertex;
+    int first_instance;
+    uint other;
 };
+ConstantBuffer<NagaConstants> _NagaConstants: register(b0, space1);
+
+RWTexture2D<uint64_t> image : register(u0);
 
 [numthreads(2, 1, 1)]
-void cs_main(cs_main_Input _input, uint3 id : SV_GroupThreadID)
+void cs_main(uint3 id : SV_GroupThreadID)
 {
-    
-    int2 _e4 = int2(0, 0);
-    Texture2D<float4> _e6 = Texture2D<float4>(image, _e4, 1UL);
+    InterlockedMax(image[int2(int(0), int(0))],1uL);
     GroupMemoryBarrierWithGroupSync();
-    int2 _e10 = int2(0, 0);
-    Texture2D<float4> _e12 = Texture2D<float4>(image, _e10, 1UL);
+    InterlockedMin(image[int2(int(0), int(0))],1uL);
     return;
 }

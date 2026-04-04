@@ -507,3 +507,158 @@ func TestResolveExpressionTypeFallback(t *testing.T) {
 		t.Errorf("expected float scalar, got %v", vec.Scalar.Kind)
 	}
 }
+
+// =============================================================================
+// TestWriteImageAtomicStatement — InterlockedXxx on storage textures
+// =============================================================================
+
+func TestWriteImageAtomicStatement(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},                                       // 0: u32
+			{Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassStorage}},                           // 1: texture_storage_2d
+			{Inner: ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}}, // 2: vec2<i32>
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "img", Type: ir.TypeHandle(1), Space: ir.SpaceHandle},
+		},
+	}
+
+	u32Handle := ir.TypeHandle(0)
+	imgHandle := ir.TypeHandle(1)
+	vec2iHandle := ir.TypeHandle(2)
+
+	names := map[nameKey]string{
+		{kind: nameKeyGlobalVariable, handle1: 0}: "img",
+	}
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},                                                    // 0: img
+			{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{ir.ExpressionHandle(3), 3}}}, // 1: coord
+			{Kind: ir.Literal{Value: ir.LiteralU32(42)}},                                                  // 2: value
+			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},                                                   // 3: coord component
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &imgHandle},
+			{Handle: &vec2iHandle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+		},
+		NamedExpressions: make(map[ir.ExpressionHandle]string),
+	}
+
+	tests := []struct {
+		name        string
+		fun         ir.AtomicFunction
+		wantContain string
+	}{
+		{"add", ir.AtomicAdd{}, "InterlockedAdd("},
+		{"exchange", ir.AtomicExchange{}, "InterlockedExchange("},
+		{"min", ir.AtomicMin{}, "InterlockedMin("},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
+			setCurrentFunction(w, fn)
+			w.out.Reset()
+			w.indent = 0
+
+			stmt := ir.StmtImageAtomic{
+				Image:      0,
+				Coordinate: 1,
+				Fun:        tt.fun,
+				Value:      2,
+			}
+			err := w.writeImageAtomicStatement(stmt)
+			if err != nil {
+				t.Fatalf("writeImageAtomicStatement: %v", err)
+			}
+			got := w.out.String()
+
+			if !strings.Contains(got, tt.wantContain) {
+				t.Errorf("expected to contain %q, got %q", tt.wantContain, got)
+			}
+			// Must reference the image with bracket indexing
+			if !strings.Contains(got, "img[") {
+				t.Errorf("expected image bracket access img[, got %q", got)
+			}
+			// Must end with semicolon + newline
+			if !strings.HasSuffix(got, ");\n") {
+				t.Errorf("expected to end with );\\n, got %q", got)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// TestWriteWorkGroupUniformLoadStatement — barrier+load+barrier pattern
+// =============================================================================
+
+func TestWriteWorkGroupUniformLoadStatement(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},      // 0: u32
+			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceWorkGroup}}, // 1: ptr<workgroup, u32>
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "wg_data", Space: ir.SpaceWorkGroup, Type: 0},
+		},
+	}
+
+	wgPtrHandle := ir.TypeHandle(1)
+	u32Handle := ir.TypeHandle(0)
+
+	names := map[nameKey]string{
+		{kind: nameKeyGlobalVariable, handle1: 0}: "wg_data",
+	}
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},  // 0: wg_data ptr
+			{Kind: ir.ExprWorkGroupUniformLoadResult{}}, // 1: result
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &wgPtrHandle},
+			{Handle: &u32Handle},
+		},
+		NamedExpressions: make(map[ir.ExpressionHandle]string),
+	}
+
+	w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
+	setCurrentFunction(w, fn)
+	w.out.Reset()
+	w.indent = 0
+
+	stmt := ir.StmtWorkGroupUniformLoad{
+		Pointer: 0,
+		Result:  1,
+	}
+	err := w.writeWorkGroupUniformLoadStatement(stmt)
+	if err != nil {
+		t.Fatalf("writeWorkGroupUniformLoadStatement: %v", err)
+	}
+	got := w.out.String()
+
+	// Must contain two barriers
+	barrierCount := strings.Count(got, "GroupMemoryBarrierWithGroupSync()")
+	if barrierCount != 2 {
+		t.Errorf("expected 2 barriers, got %d in:\n%s", barrierCount, got)
+	}
+
+	// Must contain the assignment with result name
+	if !strings.Contains(got, "_e1") {
+		t.Errorf("expected result name _e1, got:\n%s", got)
+	}
+
+	// Must contain the load from pointer
+	if !strings.Contains(got, "wg_data") {
+		t.Errorf("expected pointer reference wg_data, got:\n%s", got)
+	}
+
+	// Verify the named expression was cached
+	if w.namedExpressions[1] != "_e1" {
+		t.Errorf("expected namedExpressions[1] = _e1, got %q", w.namedExpressions[1])
+	}
+}

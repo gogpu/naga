@@ -4,6 +4,7 @@
 package hlsl
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -536,5 +537,282 @@ func TestIsAbstractIntLiteral(t *testing.T) {
 	}
 	if w.isAbstractIntLiteral(3) {
 		t.Error("expected NOT abstract int literal for f32")
+	}
+}
+
+// =============================================================================
+// TestWritePack4xI8U8 — Pack4xI8/U8/I8Clamp/U8Clamp polyfills
+// =============================================================================
+
+func TestWritePack4xI8U8(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}}, // 0: vec4<i32>
+		},
+	}
+	ivec4Handle := ir.TypeHandle(0)
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // 0: placeholder arg
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &ivec4Handle},
+		},
+		NamedExpressions: make(map[ir.ExpressionHandle]string),
+	}
+
+	tests := []struct {
+		name        string
+		fun         ir.MathFunction
+		wantPrefix  string // signed variants start with "uint("
+		wantContain string // clamp variants contain "clamp("
+	}{
+		{"pack4xI8_signed", ir.MathPack4xI8, "uint(", ""},
+		{"pack4xU8_unsigned", ir.MathPack4xU8, "(int(0)", ""},
+		{"pack4xI8Clamp_signed_clamp", ir.MathPack4xI8Clamp, "uint(", "clamp("},
+		{"pack4xU8Clamp_unsigned_clamp", ir.MathPack4xU8Clamp, "(clamp(", "clamp("},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newTestWriter(module, nil, nil)
+			setCurrentFunction(w, fn)
+			w.out.Reset()
+
+			e := ir.ExprMath{Fun: tt.fun, Arg: 0}
+			err := w.writePack4xI8U8(e)
+			if err != nil {
+				t.Fatalf("writePack4xI8U8: %v", err)
+			}
+			got := w.out.String()
+
+			if len(got) < len(tt.wantPrefix) || got[:len(tt.wantPrefix)] != tt.wantPrefix {
+				t.Errorf("expected prefix %q, got %q", tt.wantPrefix, got)
+			}
+			if tt.wantContain != "" && !strings.Contains(got, tt.wantContain) {
+				t.Errorf("expected to contain %q, got %q", tt.wantContain, got)
+			}
+			// All variants must contain the shift pattern
+			if !strings.Contains(got, "<< 8") || !strings.Contains(got, "<< 24") {
+				t.Errorf("expected shift pattern (<< 8, << 24), got %q", got)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// TestWriteUnpack4xI8U8 — Unpack4xI8/U8 polyfills
+// =============================================================================
+
+func TestWriteUnpack4xI8U8(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0: u32
+		},
+	}
+	u32Handle := ir.TypeHandle(0)
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 0: placeholder
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &u32Handle},
+		},
+		NamedExpressions: make(map[ir.ExpressionHandle]string),
+	}
+
+	tests := []struct {
+		name        string
+		fun         ir.MathFunction
+		wantContain string
+	}{
+		{"unpack4xI8_signed", ir.MathUnpack4xI8, "int4("},
+		{"unpack4xU8_unsigned", ir.MathUnpack4xU8, "uint4("},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newTestWriter(module, nil, nil)
+			setCurrentFunction(w, fn)
+			w.out.Reset()
+
+			e := ir.ExprMath{Fun: tt.fun, Arg: 0}
+			err := w.writeUnpack4xI8U8(e)
+			if err != nil {
+				t.Fatalf("writeUnpack4xI8U8: %v", err)
+			}
+			got := w.out.String()
+
+			if !strings.Contains(got, tt.wantContain) {
+				t.Errorf("expected to contain %q, got %q", tt.wantContain, got)
+			}
+			// Must contain the shift-mask pattern
+			if !strings.Contains(got, ">> 8") || !strings.Contains(got, "<< 24 >> 24)") {
+				t.Errorf("expected shift-mask pattern, got %q", got)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// TestWriteDot4Packed — Dot4I8Packed/Dot4U8Packed (SM 6.4+ and polyfill)
+// =============================================================================
+
+func TestWriteDot4Packed(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0: u32
+		},
+	}
+	u32Handle := ir.TypeHandle(0)
+
+	arg1Handle := ir.ExpressionHandle(1)
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 0: arg
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 1: arg1
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+		},
+		NamedExpressions: make(map[ir.ExpressionHandle]string),
+	}
+
+	tests := []struct {
+		name        string
+		fun         ir.MathFunction
+		sm          ShaderModel
+		wantContain string
+	}{
+		{"dot4i8_sm64_intrinsic", ir.MathDot4I8Packed, ShaderModel6_4, "dot4add_i8packed("},
+		{"dot4u8_sm64_intrinsic", ir.MathDot4U8Packed, ShaderModel6_4, "dot4add_u8packed("},
+		{"dot4i8_sm60_polyfill", ir.MathDot4I8Packed, ShaderModel6_0, "dot(int4("},
+		{"dot4u8_sm60_polyfill", ir.MathDot4U8Packed, ShaderModel6_0, "dot(uint4("},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newTestWriter(module, nil, nil)
+			w.options.ShaderModel = tt.sm
+			setCurrentFunction(w, fn)
+			w.out.Reset()
+
+			e := ir.ExprMath{Fun: tt.fun, Arg: 0, Arg1: &arg1Handle}
+			err := w.writeDot4Packed(e)
+			if err != nil {
+				t.Fatalf("writeDot4Packed: %v", err)
+			}
+			got := w.out.String()
+
+			if !strings.Contains(got, tt.wantContain) {
+				t.Errorf("expected to contain %q, got %q", tt.wantContain, got)
+			}
+		})
+	}
+
+	// Error case: missing arg1
+	t.Run("missing_arg1_error", func(t *testing.T) {
+		w := newTestWriter(module, nil, nil)
+		setCurrentFunction(w, fn)
+		w.out.Reset()
+
+		e := ir.ExprMath{Fun: ir.MathDot4I8Packed, Arg: 0, Arg1: nil}
+		err := w.writeDot4Packed(e)
+		if err == nil {
+			t.Error("expected error for missing arg1")
+		}
+	})
+}
+
+// =============================================================================
+// TestLiteralF16Formatting — f16 literal with 'h' suffix
+// =============================================================================
+
+func TestLiteralF16Formatting(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}}, // 0: f16
+		},
+	}
+	f16Handle := ir.TypeHandle(0)
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF16(1.5)}},
+			{Kind: ir.Literal{Value: ir.LiteralF16(0.0)}},
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f16Handle},
+			{Handle: &f16Handle},
+		},
+		NamedExpressions: make(map[ir.ExpressionHandle]string),
+	}
+
+	tests := []struct {
+		name   string
+		handle ir.ExpressionHandle
+		want   string
+	}{
+		{"f16_1.5", 0, "1.5h"},
+		{"f16_0.0", 1, "0.0h"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newTestWriter(module, nil, nil)
+			setCurrentFunction(w, fn)
+			w.out.Reset()
+
+			err := w.writeExpression(tt.handle)
+			if err != nil {
+				t.Fatalf("writeExpression: %v", err)
+			}
+			got := w.out.String()
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// TestExprWorkGroupUniformLoadResult — named expression reference
+// =============================================================================
+
+func TestExprWorkGroupUniformLoadResult(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0: u32
+		},
+	}
+	u32Handle := ir.TypeHandle(0)
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprWorkGroupUniformLoadResult{}}, // 0: result
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &u32Handle},
+		},
+		NamedExpressions: make(map[ir.ExpressionHandle]string),
+	}
+
+	w := newTestWriter(module, nil, nil)
+	setCurrentFunction(w, fn)
+
+	// Simulate what writeWorkGroupUniformLoadStatement does: cache the name
+	w.namedExpressions[0] = "_e0"
+
+	w.out.Reset()
+	err := w.writeExpression(0)
+	if err != nil {
+		t.Fatalf("writeExpression(WorkGroupUniformLoadResult): %v", err)
+	}
+	got := w.out.String()
+	if got != "_e0" {
+		t.Errorf("WorkGroupUniformLoadResult: got %q, want %q", got, "_e0")
 	}
 }

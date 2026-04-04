@@ -70,7 +70,16 @@ func TestSnapshots(t *testing.T) {
 			})
 
 			t.Run("hlsl", func(t *testing.T) {
-				code := compileHLSL(t, module, shader.name)
+				hlslModule := module
+				hlslPipelineConstants := readSPVPipelineConstants(shader.name)
+				if len(hlslPipelineConstants) > 0 {
+					hlslModule = ir.CloneModuleForOverrides(module)
+					if err := ir.ProcessOverrides(hlslModule, hlslPipelineConstants); err != nil {
+						t.Errorf("ProcessOverrides failed: %v", err)
+						return
+					}
+				}
+				code := compileHLSL(t, hlslModule, shader.name)
 				compareGolden(t, filepath.Join("testdata", "golden", "hlsl", shader.name+".hlsl"), code)
 			})
 
@@ -205,7 +214,19 @@ func TestRustReference(t *testing.T) {
 					hlslSkip++
 					t.Skipf("no Rust reference: %s", rustHLSL)
 				}
-				code := compileHLSL(t, module, shader.name)
+				// Process pipeline overrides before HLSL compilation
+				// (Rust test driver calls process_overrides for all backends)
+				hlslModule := module
+				hlslPipelineConstants := readSPVPipelineConstants(shader.name)
+				if len(hlslPipelineConstants) > 0 {
+					hlslModule = ir.CloneModuleForOverrides(module)
+					if err := ir.ProcessOverrides(hlslModule, hlslPipelineConstants); err != nil {
+						hlslFail++
+						t.Errorf("ProcessOverrides failed: %v", err)
+						return
+					}
+				}
+				code := compileHLSL(t, hlslModule, shader.name)
 				rustExpected, err := os.ReadFile(rustHLSL)
 				if err != nil {
 					t.Fatalf("read Rust reference: %v", err)
@@ -742,13 +763,21 @@ func readHLSLConfig(opts *hlsl.Options, shaderName string) {
 	content := string(data)
 
 	// Parse [hlsl] section for special_constants_binding
+	// Handles both { register = N, space = N } and { space = N, register = N } orders
 	if strings.Contains(content, "special_constants_binding") {
-		// Parse: special_constants_binding = { register = N, space = N }
-		re := regexp.MustCompile(`special_constants_binding\s*=\s*\{\s*register\s*=\s*(\d+)\s*,\s*space\s*=\s*(\d+)\s*\}`)
-		if m := re.FindStringSubmatch(content); m != nil {
+		// Try register-first order
+		re1 := regexp.MustCompile(`special_constants_binding\s*=\s*\{\s*register\s*=\s*(\d+)\s*,\s*space\s*=\s*(\d+)\s*\}`)
+		// Try space-first order
+		re2 := regexp.MustCompile(`special_constants_binding\s*=\s*\{\s*space\s*=\s*(\d+)\s*,\s*register\s*=\s*(\d+)\s*\}`)
+		if m := re1.FindStringSubmatch(content); m != nil {
 			var reg, space uint32
 			fmt.Sscanf(m[1], "%d", &reg)
 			fmt.Sscanf(m[2], "%d", &space)
+			opts.SpecialConstantsBinding = &hlsl.BindTarget{Register: reg, Space: uint8(space)}
+		} else if m := re2.FindStringSubmatch(content); m != nil {
+			var space, reg uint32
+			fmt.Sscanf(m[1], "%d", &space)
+			fmt.Sscanf(m[2], "%d", &reg)
 			opts.SpecialConstantsBinding = &hlsl.BindTarget{Register: reg, Space: uint8(space)}
 		}
 	}
@@ -760,6 +789,36 @@ func readHLSLConfig(opts *hlsl.Options, shaderName string) {
 			re := regexp.MustCompile(`(?m)^\s*fake_missing_bindings\s*=\s*(true|false)`)
 			if m := re.FindStringSubmatch(hlslSection); m != nil {
 				opts.FakeMissingBindings = m[1] == "true"
+			}
+		}
+	}
+
+	// Parse shader_model in [hlsl] section
+	{
+		hlslSection := extractHLSLSection(content)
+		if hlslSection != "" {
+			re := regexp.MustCompile(`(?m)^\s*shader_model\s*=\s*"([^"]+)"`)
+			if m := re.FindStringSubmatch(hlslSection); m != nil {
+				switch m[1] {
+				case "V5_0":
+					opts.ShaderModel = hlsl.ShaderModel5_0
+				case "V5_1":
+					opts.ShaderModel = hlsl.ShaderModel5_1
+				case "V6_0":
+					opts.ShaderModel = hlsl.ShaderModel6_0
+				case "V6_1":
+					opts.ShaderModel = hlsl.ShaderModel6_1
+				case "V6_2":
+					opts.ShaderModel = hlsl.ShaderModel6_2
+				case "V6_3":
+					opts.ShaderModel = hlsl.ShaderModel6_3
+				case "V6_4":
+					opts.ShaderModel = hlsl.ShaderModel6_4
+				case "V6_5":
+					opts.ShaderModel = hlsl.ShaderModel6_5
+				case "V6_6":
+					opts.ShaderModel = hlsl.ShaderModel6_6
+				}
 			}
 		}
 	}

@@ -132,12 +132,30 @@ func (w *Writer) updateExpressionsToBake(fn *ir.Function) {
 
 	// Additional force-bake rules (matches Rust's update_expressions_to_bake):
 	// - Derivative Width+Coarse/Fine: force bake the inner expr
+	// - Pack/Unpack/Dot4 args: force bake because they are emitted multiple times in polyfills
+	// - CountLeadingZeros on sint: force bake
 	for i := range fn.Expressions {
 		e := fn.Expressions[i].Kind
 		if d, ok := e.(ir.ExprDerivative); ok {
 			if d.Axis == ir.DerivativeWidth &&
 				(d.Control == ir.DerivativeCoarse || d.Control == ir.DerivativeFine) {
 				w.needBakeExpressions[d.Expr] = struct{}{}
+			}
+		}
+		if m, ok := e.(ir.ExprMath); ok {
+			switch m.Fun {
+			case ir.MathPack4x8snorm, ir.MathPack4x8unorm,
+				ir.MathPack4xI8, ir.MathPack4xU8, ir.MathPack4xI8Clamp, ir.MathPack4xU8Clamp,
+				ir.MathUnpack4x8snorm, ir.MathUnpack4x8unorm,
+				ir.MathUnpack4xI8, ir.MathUnpack4xU8,
+				ir.MathUnpack2x16float, ir.MathUnpack2x16snorm, ir.MathUnpack2x16unorm,
+				ir.MathPack2x16float, ir.MathPack2x16snorm, ir.MathPack2x16unorm:
+				w.needBakeExpressions[m.Arg] = struct{}{}
+			case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
+				w.needBakeExpressions[m.Arg] = struct{}{}
+				if m.Arg1 != nil {
+					w.needBakeExpressions[*m.Arg1] = struct{}{}
+				}
 			}
 		}
 	}
@@ -265,7 +283,7 @@ func (w *Writer) writeStatement(kind ir.StatementKind) error {
 	case ir.StmtImageStore:
 		return w.writeImageStoreStatement(s)
 	case ir.StmtImageAtomic:
-		return fmt.Errorf("HLSL backend does not yet support StmtImageAtomic")
+		return w.writeImageAtomicStatement(s)
 	case ir.StmtAtomic:
 		return w.writeAtomicStatement(s)
 	case ir.StmtWorkGroupUniformLoad:
@@ -661,18 +679,25 @@ func (w *Writer) writeSwitchCase(c *ir.SwitchCase) error {
 
 // writeLoopStatement writes a loop statement.
 // Naga loops are while(true) with explicit break conditions.
-// When ForceLoopBounding is enabled, adds loop_bound counter to prevent infinite loops.
+//
+// Architecture (matches Rust naga writer.rs:2323-2368):
+//   - loop_init gate: ALWAYS when continuing block exists (independent of ForceLoopBounding)
+//   - uint2 counter:  ONLY when ForceLoopBounding=true
+//   - continuing at top of loop body, guarded by if (!loop_init): ALWAYS when continuing exists
 func (w *Writer) writeLoopStatement(s ir.StmtLoop) error {
 	hasContinuing := len(s.Continuing) > 0 || s.BreakIf != nil
 	const maxIter = uint32(4294967295) // u32::MAX
 
-	// Loop bounding: declare counter before loop
-	var loopBoundName, loopInitName string
+	// Loop bounding: declare uint2 counter before loop (only when ForceLoopBounding)
+	var loopBoundName string
 	if w.options.ForceLoopBounding {
 		loopBoundName = w.namer.call("loop_bound")
 		w.writeLine("uint2 %s = uint2(%du, %du);", loopBoundName, maxIter, maxIter)
 	}
-	if hasContinuing && w.options.ForceLoopBounding {
+
+	// Continuing gate: ALWAYS when continuing block exists (independent of ForceLoopBounding)
+	var loopInitName string
+	if hasContinuing {
 		loopInitName = w.namer.call("loop_init")
 		w.writeLine("bool %s = true;", loopInitName)
 	}
@@ -688,8 +713,9 @@ func (w *Writer) writeLoopStatement(s ir.StmtLoop) error {
 		w.writeLine("%s -= uint2(%s.y == 0u, 1u);", loopBoundName, loopBoundName)
 	}
 
-	// If there's a continuing block, wrap it in a gate
-	if hasContinuing && w.options.ForceLoopBounding {
+	// Continuing block at top of loop body, guarded by if (!loop_init)
+	// This ALWAYS runs when continuing exists, independent of ForceLoopBounding
+	if hasContinuing {
 		w.writeLine("if (!%s) {", loopInitName)
 		w.pushIndent()
 		// Write continuing block
@@ -718,38 +744,12 @@ func (w *Writer) writeLoopStatement(s ir.StmtLoop) error {
 		w.popIndent()
 		w.writeLine("}")
 		w.writeLine("%s = false;", loopInitName)
-	} else if hasContinuing && !w.options.ForceLoopBounding {
-		// Without loop bounding, just write continuing after body
-		// (handled below after body)
 	}
 
 	// Write main body
 	if err := w.writeBlock(s.Body); err != nil {
 		w.popIndent()
 		return fmt.Errorf("loop body: %w", err)
-	}
-
-	// Write continuing block without force loop bounding
-	if hasContinuing && !w.options.ForceLoopBounding {
-		if len(s.Continuing) > 0 {
-			if err := w.writeBlock(s.Continuing); err != nil {
-				w.popIndent()
-				return fmt.Errorf("loop continuing: %w", err)
-			}
-		}
-		if s.BreakIf != nil {
-			w.writeIndent()
-			w.out.WriteString("if (")
-			if err := w.writeExpression(*s.BreakIf); err != nil {
-				w.popIndent()
-				return fmt.Errorf("loop break-if: %w", err)
-			}
-			w.out.WriteString(") {\n")
-			w.pushIndent()
-			w.writeLine("break;")
-			w.popIndent()
-			w.writeLine("}")
-		}
 	}
 
 	w.popIndent()
@@ -933,7 +933,7 @@ func (w *Writer) writeStoreStatement(s ir.StmtStore) error {
 			return fmt.Errorf("storage store: %w", err)
 		}
 		sv := storeValue{kind: storeValueExpression, expr: s.Value}
-		return w.writeStorageStore(varHandle, sv, w.indent)
+		return w.writeStorageStore(varHandle, sv, w.indent, nil)
 	}
 
 	// Check for matCx2 struct member store — use SetMat/SetMatVec/SetMatScalar helpers.
@@ -1542,6 +1542,59 @@ func (w *Writer) writeImageStoreStatement(s ir.StmtImageStore) error {
 	return nil
 }
 
+// writeImageAtomicStatement writes an atomic operation on a storage texture texel.
+// Matches Rust naga: InterlockedXxx(image[coord], value);
+func (w *Writer) writeImageAtomicStatement(s ir.StmtImageAtomic) error {
+	w.writeIndent()
+
+	funSuffix := atomicFunSuffix(s.Fun)
+	fmt.Fprintf(&w.out, "Interlocked%s(", funSuffix)
+
+	// Write image[coord]
+	if err := w.writeExpression(s.Image); err != nil {
+		return fmt.Errorf("image atomic: image: %w", err)
+	}
+	w.out.WriteByte('[')
+
+	// Write texture coordinates, merging array_index if present
+	// Matches Rust: write_texture_coordinates("int", coordinate, array_index, None, ...)
+	if s.ArrayIndex != nil {
+		// Need to compose coordinate with array index
+		numCoords := 1
+		if w.currentFunction != nil && int(s.Coordinate) < len(w.currentFunction.ExpressionTypes) {
+			res := &w.currentFunction.ExpressionTypes[s.Coordinate]
+			if res.Value != nil {
+				if vec, ok := res.Value.(ir.VectorType); ok {
+					numCoords = int(vec.Size)
+				}
+			}
+		}
+		fmt.Fprintf(&w.out, "int%d(", numCoords+1)
+		if err := w.writeExpression(s.Coordinate); err != nil {
+			return fmt.Errorf("image atomic: coordinate: %w", err)
+		}
+		w.out.WriteString(", ")
+		if err := w.writeExpression(*s.ArrayIndex); err != nil {
+			return fmt.Errorf("image atomic: array index: %w", err)
+		}
+		w.out.WriteByte(')')
+	} else {
+		if err := w.writeExpression(s.Coordinate); err != nil {
+			return fmt.Errorf("image atomic: coordinate: %w", err)
+		}
+	}
+
+	w.out.WriteString("],")
+
+	// Write value
+	if err := w.writeExpression(s.Value); err != nil {
+		return fmt.Errorf("image atomic: value: %w", err)
+	}
+	w.out.WriteString(");\n")
+
+	return nil
+}
+
 // =============================================================================
 // Atomic Statements
 // =============================================================================
@@ -1811,17 +1864,42 @@ func (w *Writer) writeCallStatement(s ir.StmtCall) error {
 }
 
 // writeWorkGroupUniformLoadStatement writes a workgroup uniform load statement.
+// Matches Rust naga: barrier, typed named expression (type _eN = pointer;), barrier.
 func (w *Writer) writeWorkGroupUniformLoadStatement(s ir.StmtWorkGroupUniformLoad) error {
-	// WGSL workgroupUniformLoad is a load with implicit barrier semantics
-	// In HLSL, we emit a barrier followed by a load
+	// First barrier
 	w.writeLine("GroupMemoryBarrierWithGroupSync();")
 
+	// Write the named expression: type _eN = pointer_value;
+	name := fmt.Sprintf("_e%d", s.Result)
+
 	w.writeIndent()
-	w.out.WriteString("_workgroup_uniform_result = ")
+
+	// Write the type of the result expression
+	if int(s.Result) < len(w.currentFunction.ExpressionTypes) {
+		resolution := &w.currentFunction.ExpressionTypes[s.Result]
+		if resolution.Handle != nil {
+			h := *resolution.Handle
+			if int(h) < len(w.module.Types) {
+				w.out.WriteString(w.getTypeName(h))
+			}
+		} else if resolution.Value != nil {
+			w.out.WriteString(w.typeInnerToHLSLStr(resolution.Value))
+		}
+	}
+
+	fmt.Fprintf(&w.out, " %s", name)
+
+	w.out.WriteString(" = ")
 	if err := w.writeExpression(s.Pointer); err != nil {
 		return fmt.Errorf("workgroup uniform load: %w", err)
 	}
 	w.out.WriteString(";\n")
+
+	// Cache as named expression so ExprWorkGroupUniformLoadResult references it
+	w.namedExpressions[s.Result] = name
+
+	// Second barrier
+	w.writeLine("GroupMemoryBarrierWithGroupSync();")
 
 	return nil
 }

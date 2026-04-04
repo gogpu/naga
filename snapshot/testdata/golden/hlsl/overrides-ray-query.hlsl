@@ -4,49 +4,48 @@ struct RayDesc_ {
     float tmin;
     float tmax;
     float3 origin;
+    int _pad5_0;
     float3 dir;
+    int _end_pad_0;
 };
 
-struct RayIntersection {
-    uint kind;
-    float t;
-    uint instance_custom_data;
-    uint instance_index;
-    uint sbt_record_offset;
-    uint geometry_index;
-    uint primitive_index;
-    float2 barycentrics;
-    bool front_face;
-    row_major float4x3 object_to_world;
-    row_major float4x3 world_to_object;
-};
+static const float o = 2.0;
 
-static const float o = 0.0;
+RaytracingAccelerationStructure acc_struct : register(t0);
 
-// Unsupported resource type for acc_struct: ir.AccelerationStructureType
+RayDesc_ ConstructRayDesc_(uint arg0, uint arg1, float arg2, float arg3, float3 arg4, float3 arg5) {
+    RayDesc_ ret = (RayDesc_)0;
+    ret.flags = arg0;
+    ret.cull_mask = arg1;
+    ret.tmin = arg2;
+    ret.tmax = arg3;
+    ret.origin = arg4;
+    ret.dir = arg5;
+    return ret;
+}
+
+RayDesc RayDescFromRayDesc_(RayDesc_ arg0) {
+    RayDesc ret = (RayDesc)0;
+    ret.Origin = arg0.origin;
+    ret.TMin = arg0.tmin;
+    ret.Direction = arg0.dir;
+    ret.TMax = arg0.tmax;
+    return ret;
+}
 
 [numthreads(1, 1, 1)]
 void main()
 {
     RayQuery<RAY_FLAG_NONE> rq;
-    
-    float _e5 = (o * 17.0);
-    float _e8 = (o * 19.0);
-    float _e11 = (o * 23.0);
-    float3 _e12 = (_e11).xxx;
-    float _e15 = (o * 29.0);
-    float _e18 = (o * 31.0);
-    float _e21 = (o * 37.0);
-    float3 _e22 = float3(_e15, _e18, _e21);
-    RayDesc_ desc = RayDesc_(4u, 255u, _e5, _e8, _e12, _e22);
-    RayQuery<RAY_FLAG_NONE> _e24 = rq;
-    _e24.TraceRayInline(acc_struct, RAY_FLAG_NONE, 0xFF, desc);
-    [loop]
-    while (true) {
-        _ray_query_proceed_result = rq.Proceed();
-        RayQuery<RAY_FLAG_NONE> _e26 = rq;
-        bool _e27 = _rq_proceed_result;
-        if (_e27) {
+
+    RayDesc_ desc = ConstructRayDesc_(4u, 255u, 34.0, 38.0, (46.0).xxx, float3(58.0, 62.0, 74.0));
+    rq.TraceRayInline(acc_struct, desc.flags, desc.cull_mask, RayDescFromRayDesc_(desc));
+    uint2 loop_bound = uint2(4294967295u, 4294967295u);
+    while(true) {
+        if (all(loop_bound == uint2(0u, 0u))) { break; }
+        loop_bound -= uint2(loop_bound.y == 0u, 1u);
+        const bool _e31 = rq.Proceed();
+        if (_e31) {
         } else {
             break;
         }

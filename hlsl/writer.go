@@ -907,28 +907,211 @@ func (w *Writer) writePerFunctionWrappedHelpers(fn *ir.Function) {
 	w.writeWrappedUnaryOps(fn)
 	// 3. Binary ops (naga_div, naga_mod)
 	w.writeWrappedBinaryOps(fn)
-	// 4. Expression functions: Compose-based constructors (struct/array from Compose expressions)
+	// 4. Expression functions: Compose-based constructors + ImageLoad scalar helpers
+	// (struct/array from Compose expressions only — NOT Load from storage)
+	// Matches Rust: write_wrapped_expression_functions handles Compose + ImageLoad scalar.
 	w.writeComposeConstructors(fn)
-	// 4b. Storage load helpers (LoadedStorageValueFrom)
 	w.writeStorageLoadHelpers()
 	// 5. ZeroValue wrapper functions
 	w.writeZeroValueWrapperFunctions(fn.Expressions)
 	// 6. Cast functions (naga_f2i32, naga_f2i64, etc.)
 	w.writeWrappedCastFunctions(fn)
-	// 6b. Struct matrix access helpers (GetMat/SetMat/SetMatVec/SetMatScalar)
-	w.writeStructMatrixAccessHelpers(fn)
-	// 7. Storage Load constructors, ArrayLength, ImageQuery, matrix access
-	w.writeStorageLoadConstructors(fn)
-	// 7b. Ray query helpers (RayDescFromRayDesc_, GetCommitted/CandidateIntersection)
-	w.writeRayQueryHelpers(fn)
-	// 8. NagaBufferLength helper for ArrayLength expressions
-	w.writeNagaBufferLengthHelpers(fn)
-	// 9. ClampToEdge / external sample helper for textureSampleBaseClampToEdge
-	w.writeClampToEdgeHelper(fn)
-	// 10. External texture load helper (nagaTextureLoadExternal)
-	w.writeExternalTextureLoadHelperIfNeeded(fn)
-	// 11. Image query wrapper functions (NagaDimensions2D, NagaNumLevels2D, etc.)
-	w.writeWrappedImageQueryFunctions(fn)
+	// 7. Combined inline loop: iterates expressions in handle order, matching Rust's
+	// write_wrapped_functions single loop that handles ArrayLength, ImageLoad, ImageSample,
+	// ImageQuery, Load-from-storage constructors, and AccessIndex (matCx2) all interleaved
+	// by expression handle order.
+	w.writeWrappedFunctionsInlineLoop(fn)
+}
+
+// writeWrappedFunctionsInlineLoop iterates all expressions in handle order,
+// handling ArrayLength, ImageLoad, ImageSample, ImageQuery, Load-from-storage
+// constructors, AccessIndex (matCx2), and RayQuery helpers - all interleaved
+// by expression handle order. This matches Rust naga's single inline loop
+// in write_wrapped_functions (help.rs line 1841+).
+func (w *Writer) writeWrappedFunctionsInlineLoop(fn *ir.Function) {
+	// First, scan for ray query init in statements (needed before the expression loop)
+	w.scanForRayQueryInit(fn.Body)
+
+	for i, expr := range fn.Expressions {
+		switch e := expr.Kind.(type) {
+		case ir.ExprArrayLength:
+			w.handleArrayLengthHelper(fn, e)
+		case ir.ExprImageLoad:
+			w.handleImageLoadHelper(fn, e)
+		case ir.ExprImageSample:
+			w.handleClampToEdgeHelper(fn, e)
+		case ir.ExprImageQuery:
+			w.handleImageQueryHelper(fn, ir.ExpressionHandle(i), e)
+		case ir.ExprLoad:
+			w.handleStorageLoadConstructor(fn, ir.ExpressionHandle(i), e)
+		case ir.ExprAccessIndex:
+			w.handleStructMatrixAccessHelper(fn, e)
+		case ir.ExprRayQueryGetIntersection:
+			// Track ray query intersection needs (helpers written after loop)
+			if e.Committed {
+				w.needsCommittedIntersectionHelper = true
+			} else {
+				w.needsCandidateIntersectionHelper = true
+			}
+		}
+	}
+
+	// Write ray query helpers after scanning all expressions
+	w.writeRayQueryHelpersFromFlags()
+}
+
+// handleArrayLengthHelper handles a single ArrayLength expression for the inline loop.
+func (w *Writer) handleArrayLengthHelper(fn *ir.Function, alExpr ir.ExprArrayLength) {
+	writable := false
+	if int(alExpr.Array) < len(fn.Expressions) {
+		arrExpr := fn.Expressions[alExpr.Array]
+		var gvHandle ir.GlobalVariableHandle
+		switch kind := arrExpr.Kind.(type) {
+		case ir.ExprGlobalVariable:
+			gvHandle = kind.Variable
+		case ir.ExprAccessIndex:
+			if int(kind.Base) < len(fn.Expressions) {
+				if gv, ok := fn.Expressions[kind.Base].Kind.(ir.ExprGlobalVariable); ok {
+					gvHandle = gv.Variable
+				}
+			}
+		}
+		if int(gvHandle) < len(w.module.GlobalVariables) {
+			gv := &w.module.GlobalVariables[gvHandle]
+			writable = gv.Space == ir.SpaceStorage && gv.Access == ir.StorageReadWrite
+		}
+	}
+
+	if w.nagaBufferLengthWritten == nil {
+		w.nagaBufferLengthWritten = make(map[bool]struct{})
+	}
+	if _, written := w.nagaBufferLengthWritten[writable]; written {
+		return
+	}
+	w.nagaBufferLengthWritten[writable] = struct{}{}
+
+	accessStr := ""
+	if writable {
+		accessStr = "RW"
+	}
+	fmt.Fprintf(&w.out, "uint NagaBufferLength%s(%sByteAddressBuffer buffer)\n", accessStr, accessStr)
+	fmt.Fprintf(&w.out, "{\n")
+	fmt.Fprintf(&w.out, "    uint ret;\n")
+	fmt.Fprintf(&w.out, "    buffer.GetDimensions(ret);\n")
+	fmt.Fprintf(&w.out, "    return ret;\n")
+	fmt.Fprintf(&w.out, "}\n\n")
+}
+
+// handleClampToEdgeHelper handles a single ImageSample expression for the inline loop.
+func (w *Writer) handleClampToEdgeHelper(fn *ir.Function, is ir.ExprImageSample) {
+	if !is.ClampToEdge || w.clampToEdgeHelperWritten {
+		return
+	}
+	w.clampToEdgeHelperWritten = true
+
+	// Check if the image is an external texture
+	imgType := w.resolveImageTypeFromFn(fn, is.Image)
+	if imgType != nil && imgType.Class == ir.ImageClassExternal {
+		w.writeExternalTextureSampleHelper()
+	} else {
+		w.out.WriteString("float4 nagaTextureSampleBaseClampToEdge(Texture2D<float4> tex, SamplerState samp, float2 coords) {\n")
+		w.out.WriteString("    float2 size;\n")
+		w.out.WriteString("    tex.GetDimensions(size.x, size.y);\n")
+		w.out.WriteString("    float2 half_texel = float2(0.5, 0.5) / size;\n")
+		w.out.WriteString("    return tex.SampleLevel(samp, clamp(coords, half_texel, 1.0 - half_texel), 0.0);\n")
+		w.out.WriteString("}\n\n")
+	}
+}
+
+// handleImageQueryHelper handles a single ImageQuery expression for the inline loop.
+func (w *Writer) handleImageQueryHelper(fn *ir.Function, _ ir.ExpressionHandle, iq ir.ExprImageQuery) {
+	imgType := w.resolveImageTypeFromFn(fn, iq.Image)
+	if imgType == nil {
+		return
+	}
+
+	var qt imageQueryType
+	switch q := iq.Query.(type) {
+	case ir.ImageQuerySize:
+		if q.Level != nil {
+			qt = imageQuerySizeLevel
+		} else {
+			qt = imageQuerySize
+		}
+	case ir.ImageQueryNumLevels:
+		qt = imageQueryNumLevels
+	case ir.ImageQueryNumLayers:
+		qt = imageQueryNumLayers
+	case ir.ImageQueryNumSamples:
+		qt = imageQueryNumSamples
+	default:
+		return
+	}
+
+	key := wrappedImageQueryKey{
+		dim:     imgType.Dim,
+		arrayed: imgType.Arrayed,
+		class:   imgType.Class,
+		multi:   imgType.Multisampled,
+		query:   qt,
+	}
+
+	if _, exists := w.wrappedImageQueries[key]; exists {
+		return
+	}
+	w.wrappedImageQueries[key] = struct{}{}
+
+	w.writeWrappedImageQueryFunction(key, imgType)
+}
+
+// handleImageLoadHelper handles a single ImageLoad expression for the inline loop.
+// Writes nagaTextureLoadExternal helper if the image is an external texture.
+func (w *Writer) handleImageLoadHelper(fn *ir.Function, il ir.ExprImageLoad) {
+	imgType := w.resolveImageTypeFromFn(fn, il.Image)
+	if imgType != nil && imgType.Class == ir.ImageClassExternal {
+		w.writeExternalTextureLoadHelper()
+	}
+}
+
+// handleStorageLoadConstructor handles a single Load expression for the inline loop.
+func (w *Writer) handleStorageLoadConstructor(fn *ir.Function, handle ir.ExpressionHandle, loadExpr ir.ExprLoad) {
+	w.registerStorageLoadConstructors(fn, loadExpr.Pointer)
+}
+
+// handleStructMatrixAccessHelper handles a single AccessIndex expression for the inline loop.
+func (w *Writer) handleStructMatrixAccessHelper(fn *ir.Function, ai ir.ExprAccessIndex) {
+	baseTyHandle := w.resolveExpressionTypeHandle(fn, ai.Base)
+	if baseTyHandle == nil {
+		return
+	}
+	tyHandle := *baseTyHandle
+	// Dereference pointer
+	if ptr, ok := w.module.Types[tyHandle].Inner.(ir.PointerType); ok {
+		tyHandle = ptr.Base
+	}
+	st, ok := w.module.Types[tyHandle].Inner.(ir.StructType)
+	if !ok {
+		return
+	}
+	if int(ai.Index) >= len(st.Members) {
+		return
+	}
+	member := st.Members[ai.Index]
+	if member.Binding != nil {
+		return
+	}
+	mat, ok := w.module.Types[member.Type].Inner.(ir.MatrixType)
+	if !ok || mat.Rows != 2 {
+		return
+	}
+	w.writeWrappedStructMatrixAccessFunctions(tyHandle, ai.Index)
+}
+
+// writeRayQueryHelpersFromFlags writes ray query helpers based on flags
+// already set by the inline expression loop and scanForRayQueryInit.
+// Delegates to writeRayQueryOutputHelpers for the actual output.
+func (w *Writer) writeRayQueryHelpersFromFlags() {
+	w.writeRayQueryOutputHelpers()
 }
 
 // writeStructMatrixAccessHelpers scans a function for AccessIndex expressions
@@ -1363,6 +1546,66 @@ func (w *Writer) writeWrappedMathHelpers(fn *ir.Function) {
 			fmt.Fprintf(&w.out, "}\n\n")
 		}
 	}
+
+	// Scan for ExtractBits/InsertBits and generate per-type overloads.
+	// Matches Rust naga's write_wrapped_math_functions for ExtractBits/InsertBits.
+	type wrappedMathKey struct {
+		fun    ir.MathFunction
+		scalar ir.ScalarType
+		vecStr string // "" for scalar, "2"/"3"/"4" for vectors
+	}
+	wrappedMath := make(map[wrappedMathKey]struct{})
+	for _, expr := range fn.Expressions {
+		mathExpr, ok := expr.Kind.(ir.ExprMath)
+		if !ok {
+			continue
+		}
+		if mathExpr.Fun != ir.MathExtractBits && mathExpr.Fun != ir.MathInsertBits {
+			continue
+		}
+		argInner := w.resolveExprTypeInner(fn, mathExpr.Arg)
+		if argInner == nil {
+			continue
+		}
+		var scalar ir.ScalarType
+		var vecStr string
+		switch t := argInner.(type) {
+		case ir.ScalarType:
+			scalar = t
+		case ir.VectorType:
+			scalar = t.Scalar
+			vecStr = fmt.Sprintf("%d", t.Size)
+		default:
+			continue
+		}
+		key := wrappedMathKey{fun: mathExpr.Fun, scalar: scalar, vecStr: vecStr}
+		if _, done := wrappedMath[key]; done {
+			continue
+		}
+		wrappedMath[key] = struct{}{}
+
+		// Build HLSL type name
+		var typeName string
+		if vecStr == "" {
+			if scalar.Kind == ir.ScalarSint {
+				typeName = "int"
+			} else {
+				typeName = "uint"
+			}
+		} else {
+			if scalar.Kind == ir.ScalarSint {
+				typeName = "int" + vecStr
+			} else {
+				typeName = "uint" + vecStr
+			}
+		}
+
+		if mathExpr.Fun == ir.MathExtractBits {
+			w.writeExtractBitsOverload(typeName, scalar.Width)
+		} else {
+			w.writeInsertBitsOverload(typeName, scalar.Width)
+		}
+	}
 }
 
 // writeWrappedBinaryOps scans function expressions for integer Divide/Modulo
@@ -1560,10 +1803,10 @@ func f2iClampValues(srcWidth uint8, dstKind ir.ScalarKind, dstWidth uint8) (stri
 		return "0.0L", "4294967295.0L"
 	// f64 -> i64
 	case srcWidth == 8 && dstKind == ir.ScalarSint && dstWidth == 8:
-		return "-9.223372036854776e18L", "9.223372036854776e18L"
+		return "-9.223372036854776e18L", "9.223372036854775e18L"
 	// f64 -> u64
 	case srcWidth == 8 && dstKind == ir.ScalarUint && dstWidth == 8:
-		return "0.0L", "1.8446744073709552e19L"
+		return "0.0L", "1.844674407370955e19L"
 	default:
 		return "0.0", "0.0"
 	}
@@ -1687,7 +1930,7 @@ func (w *Writer) writeStorageLoadConstructors(fn *ir.Function) {
 
 // writeRayQueryHelpers writes ray query helper functions needed by this function.
 // Scans for RayQueryGetIntersection expressions and RayQuery Initialize statements
-// to determine which helpers are needed.
+// to determine which helpers are needed, then writes them.
 func (w *Writer) writeRayQueryHelpers(fn *ir.Function) {
 	// Scan for ray query expressions/statements
 	for _, expr := range fn.Expressions {
@@ -1702,6 +1945,12 @@ func (w *Writer) writeRayQueryHelpers(fn *ir.Function) {
 	// Check for Initialize statements (need RayDescFromRayDesc_)
 	w.scanForRayQueryInit(fn.Body)
 
+	w.writeRayQueryOutputHelpers()
+}
+
+// writeRayQueryOutputHelpers writes the actual ray query helper functions
+// based on flags already set (needsRayDescHelper, needsCommittedIntersectionHelper, etc.).
+func (w *Writer) writeRayQueryOutputHelpers() {
 	// Write RayDescFromRayDesc_ helper
 	if w.needsRayDescHelper && !w.rayDescHelperWritten {
 		w.rayDescHelperWritten = true
@@ -1984,22 +2233,63 @@ func (w *Writer) writeStorageLoadHelpers() {
 
 // scanStorageTextureHelpers scans for storage textures with scalar formats
 // that need LoadedStorageValueFrom{type} helper functions.
+// Matches Rust naga: only generates helpers when ExprImageLoad references
+// a single-component storage texture, not for all storage textures globally.
 func (w *Writer) scanStorageTextureHelpers() {
 	w.needsStorageLoadHelpers = make(map[string]bool)
-	for _, gv := range w.module.GlobalVariables {
-		if int(gv.Type) >= len(w.module.Types) {
-			continue
-		}
-		inner := w.module.Types[gv.Type].Inner
-		img, ok := inner.(ir.ImageType)
-		if !ok || img.Class != ir.ImageClassStorage {
-			continue
-		}
-		scalarName := storageFormatScalarName(img.StorageFormat)
-		if scalarName != "" {
-			w.needsStorageLoadHelpers[scalarName] = true
+	// Scan all functions (including entry points) for ImageLoad expressions
+	// on single-component storage textures.
+	allFuncs := make([]*ir.Function, 0, len(w.module.Functions)+len(w.module.EntryPoints))
+	for i := range w.module.Functions {
+		allFuncs = append(allFuncs, &w.module.Functions[i])
+	}
+	for i := range w.module.EntryPoints {
+		allFuncs = append(allFuncs, &w.module.EntryPoints[i].Function)
+	}
+	for _, fn := range allFuncs {
+		for _, expr := range fn.Expressions {
+			imgLoad, ok := expr.Kind.(ir.ExprImageLoad)
+			if !ok {
+				continue
+			}
+			// Resolve the image expression to find its type
+			imgType := w.resolveImageType(fn, imgLoad.Image)
+			if imgType == nil {
+				continue
+			}
+			if imgType.Class != ir.ImageClassStorage {
+				continue
+			}
+			scalarName := storageFormatScalarName(imgType.StorageFormat)
+			if scalarName != "" {
+				w.needsStorageLoadHelpers[scalarName] = true
+			}
 		}
 	}
+}
+
+// resolveImageType resolves the ImageType for an expression handle in a function.
+func (w *Writer) resolveImageType(fn *ir.Function, handle ir.ExpressionHandle) *ir.ImageType {
+	if int(handle) >= len(fn.Expressions) {
+		return nil
+	}
+	expr := fn.Expressions[handle]
+	gv, ok := expr.Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return nil
+	}
+	if int(gv.Variable) >= len(w.module.GlobalVariables) {
+		return nil
+	}
+	tyHandle := w.module.GlobalVariables[gv.Variable].Type
+	if int(tyHandle) >= len(w.module.Types) {
+		return nil
+	}
+	img, ok := w.module.Types[tyHandle].Inner.(ir.ImageType)
+	if !ok {
+		return nil
+	}
+	return &img
 }
 
 // storageFormatScalarName returns the HLSL scalar type name for scalar storage formats.

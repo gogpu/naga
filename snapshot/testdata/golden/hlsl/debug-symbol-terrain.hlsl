@@ -9,14 +9,6 @@ struct Vertex {
     float3 normal : LOC1;
 };
 
-struct VertexBuffer {
-    Vertex data[];
-};
-
-struct IndexBuffer {
-    uint data[];
-};
-
 struct GenData {
     uint2 chunk_size;
     int2 chunk_corner;
@@ -55,15 +47,18 @@ struct VertexOutput {
 };
 
 cbuffer chunk_data : register(b0) { ChunkData chunk_data; }
-RWStructuredBuffer<VertexBuffer> vertices_ : register(u1);
-RWStructuredBuffer<IndexBuffer> indices_ : register(u2);
+RWByteAddressBuffer vertices_ : register(u1);
+RWByteAddressBuffer indices_ : register(u2);
 cbuffer gen_data : register(b0) { GenData gen_data; }
 cbuffer camera : register(b0) { Camera camera; }
 cbuffer light : register(b0, space1) { Light light; }
 Texture2D<float4> t_diffuse : register(t0, space2);
-SamplerState s_diffuse : register(s1, space2);
+SamplerState nagaSamplerHeap[2048]: register(s0, space0);
+SamplerComparisonState nagaComparisonSamplerHeap[2048]: register(s0, space1);
+StructuredBuffer<uint> nagaGroup2SamplerIndexArray : register(t2, space255);
+static const SamplerState s_diffuse = nagaSamplerHeap[nagaGroup2SamplerIndexArray[1]];
 Texture2D<float4> t_normal : register(t2, space2);
-SamplerState s_normal : register(s3, space2);
+static const SamplerState s_normal = nagaSamplerHeap[nagaGroup2SamplerIndexArray[3]];
 
 struct VertexOutput_gen_terrain_vertex {
     nointerpolation uint index_1 : LOC0;
@@ -89,9 +84,17 @@ struct FragmentInput_fs_main {
     float4 clip_position_1 : SV_Position;
 };
 
+float3 naga_mod(float3 lhs, float3 rhs) {
+    return lhs - rhs * trunc(lhs / rhs);
+}
+
 float3 permute3_(float3 x)
 {
-    return ((((x * 34.0) + (1.0).xxx) * x) % (289.0).xxx);
+    return naga_mod((((x * 34.0) + (1.0).xxx) * x), (289.0).xxx);
+}
+
+float2 naga_mod(float2 lhs, float2 rhs) {
+    return lhs - rhs * trunc(lhs / rhs);
 }
 
 float snoise2_(float2 v)
@@ -110,7 +113,7 @@ float snoise2_(float2 v)
     float2 _e33 = i1_;
     x12_ = ((x0_.xyxy + C.xxzz) - float4(_e33, 0.0, 0.0));
     float2 _e39 = i;
-    i = (_e39 % (289.0).xx);
+    i = naga_mod(_e39, (289.0).xx);
     float _e44 = i.y;
     float _e46 = i1_.y;
     const float3 _e52 = permute3_(((_e44).xxx + float3(0.0, _e46, 1.0)));
@@ -214,9 +217,17 @@ Vertex terrain_vertex(float2 p_2, float2 min_max_height_1)
     return vertex_1;
 }
 
+float naga_mod(float lhs, float rhs) {
+    return lhs - rhs * trunc(lhs / rhs);
+}
+
+uint naga_div(uint lhs, uint rhs) {
+    return lhs / (rhs == 0u ? 1u : rhs);
+}
+
 float2 index_to_p(uint vert_index, uint2 chunk_size, int2 chunk_corner)
 {
-    return (float2((float(vert_index) % float((chunk_size.x + 1u))), float((vert_index / (chunk_size.x + 1u)))) + float(chunk_corner));
+    return (float2(naga_mod(float(vert_index), float((chunk_size.x + 1u))), float(naga_div(vert_index, (chunk_size.x + 1u)))) + float2(chunk_corner));
 }
 
 float3 color23_(float2 p_3)
@@ -236,7 +247,11 @@ void gen_terrain_compute(uint3 gid : SV_DispatchThreadID)
     const float2 _e8 = index_to_p(vert_index_1, _e4, _e7);
     float2 _e14 = chunk_data.min_max_height;
     const Vertex _e15 = terrain_vertex(_e8, _e14);
-    vertices_.data[vert_index_1] = _e15;
+    {
+        Vertex _value2 = _e15;
+        vertices_.Store3(vert_index_1*32+0+0, asuint(_value2.position));
+        vertices_.Store3(vert_index_1*32+0+16, asuint(_value2.normal));
+    }
     uint start_index = (gid.x * 6u);
     uint _e22 = chunk_data.chunk_size.x;
     uint _e26 = chunk_data.chunk_size.y;
@@ -244,18 +259,22 @@ void gen_terrain_compute(uint3 gid : SV_DispatchThreadID)
         return;
     }
     uint _e35 = chunk_data.chunk_size.x;
-    uint v00_ = (vert_index_1 + (gid.x / _e35));
+    uint v00_ = (vert_index_1 + naga_div(gid.x, _e35));
     uint v10_ = (v00_ + 1u);
     uint _e43 = chunk_data.chunk_size.x;
     uint v01_ = ((v00_ + _e43) + 1u);
     uint v11_ = (v01_ + 1u);
-    indices_.data[start_index] = v00_;
-    indices_.data[(start_index + 1u)] = v01_;
-    indices_.data[(start_index + 2u)] = v11_;
-    indices_.data[(start_index + 3u)] = v00_;
-    indices_.data[(start_index + 4u)] = v11_;
-    indices_.data[(start_index + 5u)] = v10_;
+    indices_.Store(start_index*4+0, asuint(v00_));
+    indices_.Store((start_index + 1u)*4+0, asuint(v01_));
+    indices_.Store((start_index + 2u)*4+0, asuint(v11_));
+    indices_.Store((start_index + 3u)*4+0, asuint(v00_));
+    indices_.Store((start_index + 4u)*4+0, asuint(v11_));
+    indices_.Store((start_index + 5u)*4+0, asuint(v10_));
     return;
+}
+
+uint naga_mod(uint lhs, uint rhs) {
+    return lhs % (rhs == 0u ? 1u : rhs);
 }
 
 GenVertexOutput ConstructGenVertexOutput(uint arg0, float4 arg1, float2 arg2) {
@@ -266,16 +285,20 @@ GenVertexOutput ConstructGenVertexOutput(uint arg0, float4 arg1, float2 arg2) {
     return ret;
 }
 
+uint naga_f2u32(float value) {
+    return uint(clamp(value, 0.0, 4294967000.0));
+}
+
 VertexOutput_gen_terrain_vertex gen_terrain_vertex(uint vindex : SV_VertexID)
 {
-    float u = float((((vindex + 2u) / 3u) % 2u));
-    float v_2 = float((((vindex + 1u) / 3u) % 2u));
+    float u = float(naga_mod(naga_div((vindex + 2u), 3u), 2u));
+    float v_2 = float(naga_mod(naga_div((vindex + 1u), 3u), 2u));
     float2 uv_2 = float2(u, v_2);
     float4 position_2 = float4(((-1.0).xx + (uv_2 * 2.0)), 0.0, 1.0);
     uint _e27 = gen_data.texture_size;
     uint _e33 = gen_data.texture_size;
     uint _e40 = gen_data.start_index;
-    uint index_3 = (uint(((uv_2.x * float(_e27)) + (uv_2.y * float(_e33)))) + _e40);
+    uint index_3 = (naga_f2u32(((uv_2.x * float(_e27)) + (uv_2.y * float(_e33)))) + _e40);
     const GenVertexOutput genvertexoutput = ConstructGenVertexOutput(index_3, position_2, uv_2);
     const VertexOutput_gen_terrain_vertex genvertexoutput_1 = { genvertexoutput.index, genvertexoutput.uv, genvertexoutput.position };
     return genvertexoutput_1;
@@ -298,9 +321,9 @@ GenFragmentOutput gen_terrain_fragment(FragmentInput_gen_terrain_fragment fragme
     uint _e12 = gen_data.texture_size;
     uint _e15 = gen_data.texture_size;
     uint _e23 = gen_data.start_index;
-    uint i_2 = (uint(((in_.uv.x * float(_e5)) + (in_.uv.y * float((_e12 * _e15))))) + _e23);
-    uint vert_index_2 = uint(floor((float(i_2) / 6.0)));
-    uint comp_index = (i_2 % 6u);
+    uint i_2 = (naga_f2u32(((in_.uv.x * float(_e5)) + (in_.uv.y * float((_e12 * _e15))))) + _e23);
+    uint vert_index_2 = naga_f2u32(floor((float(i_2) / 6.0)));
+    uint comp_index = naga_mod(i_2, 6u);
     uint2 _e34 = gen_data.chunk_size;
     int2 _e37 = gen_data.chunk_corner;
     const float2 _e38 = index_to_p(vert_index_2, _e34, _e37);
@@ -336,7 +359,7 @@ GenFragmentOutput gen_terrain_fragment(FragmentInput_gen_terrain_fragment fragme
         }
     }
     uint _e60 = gen_data.chunk_size.x;
-    uint v00_1 = (vert_index_2 + (vert_index_2 / _e60));
+    uint v00_1 = (vert_index_2 + naga_div(vert_index_2, _e60));
     uint v10_1 = (v00_1 + 1u);
     uint _e68 = gen_data.chunk_size.x;
     uint v01_1 = ((v00_1 + _e68) + 1u);

@@ -780,52 +780,50 @@ func (w *Writer) writeFrexpHelper() {
 	w.writeLine("")
 }
 
-// writeExtractBitsHelper writes the extractBits helper for SM < 6.0.
-func (w *Writer) writeExtractBitsHelper() {
-	w.writeLine("// extractBits helper for older shader models")
-	w.writeLine("uint %s(uint e, uint offset, uint count) {", NagaExtractBitsFunction)
-	w.pushIndent()
-	w.writeLine("uint mask = count == 32u ? 0xffffffffu : ((1u << count) - 1u);")
-	w.writeLine("return (e >> offset) & mask;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
-
-	// Signed version
-	w.writeLine("int %s(int e, uint offset, uint count) {", NagaExtractBitsFunction)
-	w.pushIndent()
-	w.writeLine("uint bits = %s(uint(e), offset, count);", NagaExtractBitsFunction)
-	w.writeLine("uint signBit = (bits >> (count - 1u)) & 1u;")
-	w.writeLine("if (signBit != 0u && count < 32u) {")
-	w.pushIndent()
-	w.writeLine("uint signExtend = ~((1u << count) - 1u);")
-	w.writeLine("bits |= signExtend;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("return int(bits);")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+// writeExtractBitsOverload writes a single naga_extractBits overload for a type.
+// Matches Rust naga's write_wrapped_math_functions for ExtractBits.
+func (w *Writer) writeExtractBitsOverload(typeName string, scalarWidth uint8) {
+	fmt.Fprintf(&w.out, "%s %s(\n", typeName, NagaExtractBitsFunction)
+	fmt.Fprintf(&w.out, "    %s e,\n", typeName)
+	fmt.Fprintf(&w.out, "    uint offset,\n")
+	fmt.Fprintf(&w.out, "    uint count\n")
+	fmt.Fprintf(&w.out, ") {\n")
+	fmt.Fprintf(&w.out, "    uint w = %d;\n", scalarWidth*8)
+	fmt.Fprintf(&w.out, "    uint o = min(offset, w);\n")
+	fmt.Fprintf(&w.out, "    uint c = min(count, w - o);\n")
+	fmt.Fprintf(&w.out, "    return (c == 0 ? 0 : (e << (w - c - o)) >> (w - c));\n")
+	fmt.Fprintf(&w.out, "}\n")
 }
 
-// writeInsertBitsHelper writes the insertBits helper for SM < 6.0.
-func (w *Writer) writeInsertBitsHelper() {
-	w.writeLine("// insertBits helper for older shader models")
-	w.writeLine("uint %s(uint e, uint newbits, uint offset, uint count) {", NagaInsertBitsFunction)
-	w.pushIndent()
-	w.writeLine("uint mask = count == 32u ? 0xffffffffu : ((1u << count) - 1u);")
-	w.writeLine("return (e & ~(mask << offset)) | ((newbits & mask) << offset);")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
-
-	// Signed version
-	w.writeLine("int %s(int e, int newbits, uint offset, uint count) {", NagaInsertBitsFunction)
-	w.pushIndent()
-	w.writeLine("return int(%s(uint(e), uint(newbits), offset, count));", NagaInsertBitsFunction)
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+// writeInsertBitsOverload writes a single naga_insertBits overload for a type.
+// Matches Rust naga's write_wrapped_math_functions for InsertBits.
+func (w *Writer) writeInsertBitsOverload(typeName string, scalarWidth uint8) {
+	scalarBits := uint64(scalarWidth) * 8
+	var scalarMax uint64
+	switch scalarWidth {
+	case 1:
+		scalarMax = 0xFF
+	case 2:
+		scalarMax = 0xFFFF
+	case 4:
+		scalarMax = 0xFFFFFFFF
+	case 8:
+		scalarMax = 0xFFFFFFFFFFFFFFFF
+	default:
+		scalarMax = 0xFFFFFFFF
+	}
+	fmt.Fprintf(&w.out, "%s %s(\n", typeName, NagaInsertBitsFunction)
+	fmt.Fprintf(&w.out, "    %s e,\n", typeName)
+	fmt.Fprintf(&w.out, "    %s newbits,\n", typeName)
+	fmt.Fprintf(&w.out, "    uint offset,\n")
+	fmt.Fprintf(&w.out, "    uint count\n")
+	fmt.Fprintf(&w.out, ") {\n")
+	fmt.Fprintf(&w.out, "    uint w = %du;\n", scalarBits)
+	fmt.Fprintf(&w.out, "    uint o = min(offset, w);\n")
+	fmt.Fprintf(&w.out, "    uint c = min(count, w - o);\n")
+	fmt.Fprintf(&w.out, "    uint mask = ((%du >> (%du - c)) << o);\n", scalarMax, scalarBits)
+	fmt.Fprintf(&w.out, "    return (c == 0 ? e : ((e & ~mask) | ((newbits << o) & mask)));\n")
+	fmt.Fprintf(&w.out, "}\n")
 }
 
 // writeF2I32Helper writes the float-to-i32 conversion helper with clamping.

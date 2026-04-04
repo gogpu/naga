@@ -396,6 +396,10 @@ func rebuildFunctionExpressions(fn *Function, module *Module, overrideToConstant
 	// Remap ALL handles in function body statements
 	remapBlockHandles(fn.Body, handleMap)
 
+	// Filter emit ranges to exclude expressions that don't need emitting
+	// (Literal, Constant, etc.) — matches Rust's filter_emits_in_block.
+	fn.Body = filterEmitsInBlock(fn.Body, fn.Expressions)
+
 	// Remap local var init handles
 	for i := range fn.LocalVars {
 		if fn.LocalVars[i].Init != nil {
@@ -677,6 +681,70 @@ func remapBlockHandles(block Block, handleMap []ExpressionHandle) {
 			block[i].Kind = k
 		}
 	}
+}
+
+// needsPreEmit returns true if the expression kind does not need a Statement::Emit
+// to be present. Matches Rust naga Expression::needs_pre_emit().
+func needsPreEmit(kind ExpressionKind) bool {
+	switch kind.(type) {
+	case Literal, ExprConstant, ExprOverride, ExprZeroValue,
+		ExprFunctionArgument, ExprGlobalVariable, ExprLocalVariable:
+		return true
+	}
+	return false
+}
+
+// filterEmitsInBlock rebuilds a block, splitting emit statements to exclude
+// expressions that needsPreEmit (Literal, Constant, etc.).
+// Matches Rust naga's filter_emits_in_block in pipeline_constants.rs.
+// Modifies the block slice in place by rebuilding it.
+func filterEmitsInBlock(block Block, expressions []Expression) Block {
+	result := make(Block, 0, len(block))
+	for _, stmt := range block {
+		switch s := stmt.Kind.(type) {
+		case StmtEmit:
+			// Split emit range, excluding needs_pre_emit expressions
+			inRange := false
+			var rangeStart, rangeLast ExpressionHandle
+			for h := s.Range.Start; h < s.Range.End; h++ {
+				if int(h) < len(expressions) && needsPreEmit(expressions[h].Kind) {
+					// Flush current range
+					if inRange {
+						result = append(result, Statement{Kind: StmtEmit{Range: Range{Start: rangeStart, End: rangeLast + 1}}})
+						inRange = false
+					}
+				} else {
+					if !inRange {
+						rangeStart = h
+						inRange = true
+					}
+					rangeLast = h
+				}
+			}
+			if inRange {
+				result = append(result, Statement{Kind: StmtEmit{Range: Range{Start: rangeStart, End: rangeLast + 1}}})
+			}
+		case StmtBlock:
+			s.Block = filterEmitsInBlock(s.Block, expressions)
+			result = append(result, Statement{Kind: s})
+		case StmtIf:
+			s.Accept = filterEmitsInBlock(s.Accept, expressions)
+			s.Reject = filterEmitsInBlock(s.Reject, expressions)
+			result = append(result, Statement{Kind: s})
+		case StmtSwitch:
+			for j := range s.Cases {
+				s.Cases[j].Body = filterEmitsInBlock(s.Cases[j].Body, expressions)
+			}
+			result = append(result, Statement{Kind: s})
+		case StmtLoop:
+			s.Body = filterEmitsInBlock(s.Body, expressions)
+			s.Continuing = filterEmitsInBlock(s.Continuing, expressions)
+			result = append(result, Statement{Kind: s})
+		default:
+			result = append(result, stmt)
+		}
+	}
+	return result
 }
 
 // evalFuncExprAsFloat evaluates a function expression to a float64, recursing through

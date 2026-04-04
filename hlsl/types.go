@@ -1115,6 +1115,9 @@ func formatFloat32(f float32) string {
 	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
 		s += ".0"
 	}
+	// Remove '+' from exponent to match Rust {:?} format (e.g., "e+38" -> "e38")
+	s = strings.Replace(s, "e+", "e", 1)
+	s = strings.Replace(s, "E+", "E", 1)
 	return s
 }
 
@@ -1133,6 +1136,9 @@ func formatFloat64(f float64) string {
 	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
 		s += ".0"
 	}
+	// Remove '+' from exponent to match Rust {:?} format (e.g., "e+308" -> "e308")
+	s = strings.Replace(s, "e+", "e", 1)
+	s = strings.Replace(s, "E+", "E", 1)
 	return s
 }
 
@@ -1338,18 +1344,16 @@ func (w *Writer) hlslTypeSize(handle ir.TypeHandle) uint32 {
 		return uint32(inner.Size) * uint32(inner.Scalar.Width)
 	case ir.MatrixType:
 		// HLSL matrix size: (columns-1) * stride + lastRowSize
-		// stride = alignment(rows) * width
+		// stride = Alignment::from(rows) * scalar.width
 		// lastRowSize = rows * width
+		// Matches Rust naga's size_hlsl in conv.rs
 		rows := uint32(inner.Rows)
 		cols := uint32(inner.Columns)
 		width := uint32(inner.Scalar.Width)
-		// Alignment for vectors: round up to power of 2
-		alignment := rows * width
-		if alignment == 12 { // vec3 alignment = 16
-			alignment = 16
-		}
+		// Alignment::from(VectorSize): Bi=2, Tri=4, Quad=4
+		stride := alignmentFromVectorSize(inner.Rows) * width
 		lastRowSize := rows * width
-		return (cols-1)*alignment + lastRowSize
+		return (cols-1)*stride + lastRowSize
 	case ir.ArrayType:
 		if inner.Size.Constant != nil {
 			count := *inner.Size.Constant

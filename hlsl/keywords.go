@@ -13,8 +13,8 @@ const UnnamedIdentifier = "_unnamed"
 const (
 	NagaModfFunction               = "naga_modf"
 	NagaFrexpFunction              = "naga_frexp"
-	NagaExtractBitsFunction        = "_naga_extract_bits"
-	NagaInsertBitsFunction         = "_naga_insert_bits"
+	NagaExtractBitsFunction        = "naga_extractBits"
+	NagaInsertBitsFunction         = "naga_insertBits"
 	SamplerHeapVar                 = "_naga_sampler_heap"
 	ComparisonSamplerHeapVar       = "_naga_comparison_sampler_heap"
 	SampleExternalTextureFunction  = "_naga_sample_external_texture"
@@ -618,8 +618,8 @@ var reservedKeywords = map[string]struct{}{
 	// =========================================================================
 	"naga_modf":                             {},
 	"naga_frexp":                            {},
-	"_naga_extract_bits":                    {},
-	"_naga_insert_bits":                     {},
+	"naga_extractBits":                      {},
+	"naga_insertBits":                       {},
 	"_naga_sampler_heap":                    {},
 	"_naga_comparison_sampler_heap":         {},
 	"_naga_sample_external_texture":         {},

@@ -1,305 +1,359 @@
+struct NagaConstants {
+    int first_vertex;
+    int first_instance;
+    uint other;
+};
+ConstantBuffer<NagaConstants> _NagaConstants: register(b0, space1);
+
 struct UniformCompatible {
-    uint val_u32;
-    int val_i32;
-    float val_f32;
-    half val_f16;
-    half2 val_f16_2;
-    half3 val_f16_3;
-    half4 val_f16_4;
+    uint val_u32_;
+    int val_i32_;
+    float val_f32_;
+    half val_f16_;
+    half2 val_f16_2_;
+    int _pad5_0;
+    half3 val_f16_3_;
+    half4 val_f16_4_;
     half final_value;
-    row_major half2x2 val_mat2x2;
-    row_major half2x3 val_mat2x3;
-    row_major half2x4 val_mat2x4;
-    row_major half3x2 val_mat3x2;
-    row_major half3x3 val_mat3x3;
-    row_major half3x4 val_mat3x4;
-    row_major half4x2 val_mat4x2;
-    row_major half4x3 val_mat4x3;
-    row_major half4x4 val_mat4x4;
+    half2 val_mat2x2__0; half2 val_mat2x2__1;
+    int _pad9_0;
+    row_major half2x3 val_mat2x3_;
+    row_major half2x4 val_mat2x4_;
+    half2 val_mat3x2__0; half2 val_mat3x2__1; half2 val_mat3x2__2;
+    int _pad12_0;
+    row_major half3x3 val_mat3x3_;
+    row_major half3x4 val_mat3x4_;
+    half2 val_mat4x2__0; half2 val_mat4x2__1; half2 val_mat4x2__2; half2 val_mat4x2__3;
+    row_major half4x3 val_mat4x3_;
+    row_major half4x4 val_mat4x4_;
 };
 
 struct StorageCompatible {
-    half val_f16_array_2[2];
+    half val_f16_array_2_[2];
 };
 
 struct LayoutTest {
-    half scalar1;
-    half scalar2;
-    half3 v3;
+    half scalar1_;
+    half scalar2_;
+    int _pad2_0;
+    half3 v3_;
     half tuck_in;
-    half scalar4;
+    half scalar4_;
     uint larger;
 };
 
-static const half constant_variable = 9.562e-320;
+static const half constant_variable = 15.203125h;
 
-static half private_variable;
-cbuffer input_uniform_cbuffer : register(b0, space0) {
-    UniformCompatible input_uniform;
-};
-RWStructuredBuffer<UniformCompatible> input_storage : register(u1, space0);
-RWStructuredBuffer<StorageCompatible> input_arrays : register(u2, space0);
-RWStructuredBuffer<UniformCompatible> output : register(u3, space0);
-RWStructuredBuffer<StorageCompatible> output_arrays : register(u4, space0);
+static half private_variable = 1.0h;
+cbuffer input_uniform : register(b0) { UniformCompatible input_uniform; }
+ByteAddressBuffer input_storage : register(t1);
+ByteAddressBuffer input_arrays : register(t2);
+RWByteAddressBuffer output : register(u3);
+RWByteAddressBuffer output_arrays : register(u4);
+
+half2x2 GetMatval_mat2x2_OnUniformCompatible(UniformCompatible obj) {
+    return half2x2(obj.val_mat2x2__0, obj.val_mat2x2__1);
+}
+
+void SetMatval_mat2x2_OnUniformCompatible(UniformCompatible obj, half2x2 mat) {
+    obj.val_mat2x2__0 = mat[0];
+    obj.val_mat2x2__1 = mat[1];
+}
+
+void SetMatVecval_mat2x2_OnUniformCompatible(UniformCompatible obj, half2 vec, uint mat_idx) {
+    switch(mat_idx) {
+    case 0: { obj.val_mat2x2__0 = vec; break; }
+    case 1: { obj.val_mat2x2__1 = vec; break; }
+    }
+}
+
+void SetMatScalarval_mat2x2_OnUniformCompatible(UniformCompatible obj, half scalar, uint mat_idx, uint vec_idx) {
+    switch(mat_idx) {
+    case 0: { obj.val_mat2x2__0[vec_idx] = scalar; break; }
+    case 1: { obj.val_mat2x2__1[vec_idx] = scalar; break; }
+    }
+}
+
+half3x2 GetMatval_mat3x2_OnUniformCompatible(UniformCompatible obj) {
+    return half3x2(obj.val_mat3x2__0, obj.val_mat3x2__1, obj.val_mat3x2__2);
+}
+
+void SetMatval_mat3x2_OnUniformCompatible(UniformCompatible obj, half3x2 mat) {
+    obj.val_mat3x2__0 = mat[0];
+    obj.val_mat3x2__1 = mat[1];
+    obj.val_mat3x2__2 = mat[2];
+}
+
+void SetMatVecval_mat3x2_OnUniformCompatible(UniformCompatible obj, half2 vec, uint mat_idx) {
+    switch(mat_idx) {
+    case 0: { obj.val_mat3x2__0 = vec; break; }
+    case 1: { obj.val_mat3x2__1 = vec; break; }
+    case 2: { obj.val_mat3x2__2 = vec; break; }
+    }
+}
+
+void SetMatScalarval_mat3x2_OnUniformCompatible(UniformCompatible obj, half scalar, uint mat_idx, uint vec_idx) {
+    switch(mat_idx) {
+    case 0: { obj.val_mat3x2__0[vec_idx] = scalar; break; }
+    case 1: { obj.val_mat3x2__1[vec_idx] = scalar; break; }
+    case 2: { obj.val_mat3x2__2[vec_idx] = scalar; break; }
+    }
+}
+
+half4x2 GetMatval_mat4x2_OnUniformCompatible(UniformCompatible obj) {
+    return half4x2(obj.val_mat4x2__0, obj.val_mat4x2__1, obj.val_mat4x2__2, obj.val_mat4x2__3);
+}
+
+void SetMatval_mat4x2_OnUniformCompatible(UniformCompatible obj, half4x2 mat) {
+    obj.val_mat4x2__0 = mat[0];
+    obj.val_mat4x2__1 = mat[1];
+    obj.val_mat4x2__2 = mat[2];
+    obj.val_mat4x2__3 = mat[3];
+}
+
+void SetMatVecval_mat4x2_OnUniformCompatible(UniformCompatible obj, half2 vec, uint mat_idx) {
+    switch(mat_idx) {
+    case 0: { obj.val_mat4x2__0 = vec; break; }
+    case 1: { obj.val_mat4x2__1 = vec; break; }
+    case 2: { obj.val_mat4x2__2 = vec; break; }
+    case 3: { obj.val_mat4x2__3 = vec; break; }
+    }
+}
+
+void SetMatScalarval_mat4x2_OnUniformCompatible(UniformCompatible obj, half scalar, uint mat_idx, uint vec_idx) {
+    switch(mat_idx) {
+    case 0: { obj.val_mat4x2__0[vec_idx] = scalar; break; }
+    case 1: { obj.val_mat4x2__1[vec_idx] = scalar; break; }
+    case 2: { obj.val_mat4x2__2[vec_idx] = scalar; break; }
+    case 3: { obj.val_mat4x2__3[vec_idx] = scalar; break; }
+    }
+}
+
+typedef half ret_Constructarray2_half_[2];
+ret_Constructarray2_half_ Constructarray2_half_(half arg0, half arg1) {
+    half ret[2] = { arg0, arg1 };
+    return ret;
+}
 
 half f16_function(half x)
 {
-    LayoutTest l;
-    half val = 15.203125;
-    
+    LayoutTest l = (LayoutTest)0;
+    half val = 15.203125h;
+
     half phony = private_variable;
-    half _e7 = val;
-    half _e8 = (_e7 + -33332.0);
-    val = _e8;
-    half _e9 = val;
-    half _e11 = (_e9 + 5.0);
-    half _e12 = val;
-    half _e13 = (_e12 + _e11);
-    val = _e13;
-    float _e15 = input_uniform[2];
-    float _e16 = _e15;
-    half _e17 = val;
-    float _e18 = (float)(_e17);
-    float _e19 = (_e16 + _e18);
-    half _e20 = (half)(_e19);
-    half _e21 = val;
-    half _e22 = (_e21 + _e20);
-    val = _e22;
-    half _e24 = input_uniform[3];
-    half _e25 = _e24;
-    half3 _e26 = (_e25).xxx;
-    half _e27 = _e26.z;
-    half _e28 = val;
-    half _e29 = (_e28 + _e27);
-    val = _e29;
-    int _e31 = output[1];
-    _e31 = 65504;
-    int _e34 = output[1];
-    _e34 = -65504;
-    uint _e37 = output[0];
-    _e37 = 65504u;
-    uint _e40 = output[0];
-    _e40 = 0u;
-    float _e43 = output[2];
-    _e43 = 65504.0;
-    float _e46 = output[2];
-    _e46 = -65504.0;
-    half _e49 = output[3];
-    half _e51 = input_uniform[3];
-    half _e52 = _e51;
-    half _e54 = input_storage[3];
-    half _e55 = _e54;
-    half _e56 = (_e52 + _e55);
-    _e49 = _e56;
-    half2 _e58 = output[4];
-    half2 _e60 = input_uniform[4];
-    half2 _e61 = _e60;
-    half2 _e63 = input_storage[4];
-    half2 _e64 = _e63;
-    half2 _e65 = (_e61 + _e64);
-    _e58 = _e65;
-    half3 _e67 = output[5];
-    half3 _e69 = input_uniform[5];
-    half3 _e70 = _e69;
-    half3 _e72 = input_storage[5];
-    half3 _e73 = _e72;
-    half3 _e74 = (_e70 + _e73);
-    _e67 = _e74;
-    half4 _e76 = output[6];
-    half4 _e78 = input_uniform[6];
-    half4 _e79 = _e78;
-    half4 _e81 = input_storage[6];
-    half4 _e82 = _e81;
-    half4 _e83 = (_e79 + _e82);
-    _e76 = _e83;
-    half2x2 _e85 = output[8];
-    half2x2 _e87 = input_uniform[8];
-    half2x2 _e88 = _e87;
-    half2x2 _e90 = input_storage[8];
-    half2x2 _e91 = _e90;
-    half2x2 _e92 = (_e88 + _e91);
-    _e85 = _e92;
-    half2x3 _e94 = output[9];
-    half2x3 _e96 = input_uniform[9];
-    half2x3 _e97 = _e96;
-    half2x3 _e99 = input_storage[9];
-    half2x3 _e100 = _e99;
-    half2x3 _e101 = (_e97 + _e100);
-    _e94 = _e101;
-    half2x4 _e103 = output[10];
-    half2x4 _e105 = input_uniform[10];
-    half2x4 _e106 = _e105;
-    half2x4 _e108 = input_storage[10];
-    half2x4 _e109 = _e108;
-    half2x4 _e110 = (_e106 + _e109);
-    _e103 = _e110;
-    half3x2 _e112 = output[11];
-    half3x2 _e114 = input_uniform[11];
-    half3x2 _e115 = _e114;
-    half3x2 _e117 = input_storage[11];
-    half3x2 _e118 = _e117;
-    half3x2 _e119 = (_e115 + _e118);
-    _e112 = _e119;
-    half3x3 _e121 = output[12];
-    half3x3 _e123 = input_uniform[12];
-    half3x3 _e124 = _e123;
-    half3x3 _e126 = input_storage[12];
-    half3x3 _e127 = _e126;
-    half3x3 _e128 = (_e124 + _e127);
-    _e121 = _e128;
-    half3x4 _e130 = output[13];
-    half3x4 _e132 = input_uniform[13];
-    half3x4 _e133 = _e132;
-    half3x4 _e135 = input_storage[13];
-    half3x4 _e136 = _e135;
-    half3x4 _e137 = (_e133 + _e136);
-    _e130 = _e137;
-    half4x2 _e139 = output[14];
-    half4x2 _e141 = input_uniform[14];
-    half4x2 _e142 = _e141;
-    half4x2 _e144 = input_storage[14];
-    half4x2 _e145 = _e144;
-    half4x2 _e146 = (_e142 + _e145);
-    _e139 = _e146;
-    half4x3 _e148 = output[15];
-    half4x3 _e150 = input_uniform[15];
-    half4x3 _e151 = _e150;
-    half4x3 _e153 = input_storage[15];
-    half4x3 _e154 = _e153;
-    half4x3 _e155 = (_e151 + _e154);
-    _e148 = _e155;
-    half4x4 _e157 = output[16];
-    half4x4 _e159 = input_uniform[16];
-    half4x4 _e160 = _e159;
-    half4x4 _e162 = input_storage[16];
-    half4x4 _e163 = _e162;
-    half4x4 _e164 = (_e160 + _e163);
-    _e157 = _e164;
-    half _e166[2] = output_arrays[0];
-    half _e168[2] = input_arrays[0];
-    half _e169[2] = _e168;
-    _e166 = _e169;
-    half _e170 = val;
-    half _e171 = abs(_e170);
-    half _e172 = val;
-    half _e173 = (_e172 + _e171);
-    val = _e173;
+    half _e6 = val;
+    val = (_e6 + -33344.0h);
+    half _e8 = val;
+    half _e11 = val;
+    val = (_e11 + (_e8 + 5.0h));
+    float _e15 = input_uniform.val_f32_;
+    half _e16 = val;
+    half _e20 = val;
+    val = (_e20 + half((_e15 + float(_e16))));
+    half _e24 = input_uniform.val_f16_;
+    half _e27 = val;
+    val = (_e27 + (_e24).xxx.z);
+    output.Store(4, asuint(int(65504)));
+    output.Store(4, asuint(int(-65504)));
+    output.Store(0, asuint(65504u));
+    output.Store(0, asuint(0u));
+    output.Store(8, asuint(65504.0));
+    output.Store(8, asuint(-65504.0));
+    half _e51 = input_uniform.val_f16_;
+    half _e54 = input_storage.Load<half>(12);
+    output.Store(12, (_e51 + _e54));
+    half2 _e60 = input_uniform.val_f16_2_;
+    half2 _e63 = input_storage.Load<half2>(16);
+    output.Store(16, (_e60 + _e63));
+    half3 _e69 = input_uniform.val_f16_3_;
+    half3 _e72 = input_storage.Load<half3>(24);
+    output.Store(24, (_e69 + _e72));
+    half4 _e78 = input_uniform.val_f16_4_;
+    half4 _e81 = input_storage.Load<half4>(32);
+    output.Store(32, (_e78 + _e81));
+    half2x2 _e87 = GetMatval_mat2x2_OnUniformCompatible(input_uniform);
+    half2x2 _e90 = half2x2(input_storage.Load<half2>(44+0), input_storage.Load<half2>(44+4));
+    {
+        half2x2 _value2 = (_e87 + _e90);
+        output.Store(44+0, _value2[0]);
+        output.Store(44+4, _value2[1]);
+    }
+    half2x3 _e96 = input_uniform.val_mat2x3_;
+    half2x3 _e99 = half2x3(input_storage.Load<half3>(56+0), input_storage.Load<half3>(56+8));
+    {
+        half2x3 _value2 = (_e96 + _e99);
+        output.Store(56+0, _value2[0]);
+        output.Store(56+8, _value2[1]);
+    }
+    half2x4 _e105 = input_uniform.val_mat2x4_;
+    half2x4 _e108 = half2x4(input_storage.Load<half4>(72+0), input_storage.Load<half4>(72+8));
+    {
+        half2x4 _value2 = (_e105 + _e108);
+        output.Store(72+0, _value2[0]);
+        output.Store(72+8, _value2[1]);
+    }
+    half3x2 _e114 = GetMatval_mat3x2_OnUniformCompatible(input_uniform);
+    half3x2 _e117 = half3x2(input_storage.Load<half2>(88+0), input_storage.Load<half2>(88+4), input_storage.Load<half2>(88+8));
+    {
+        half3x2 _value2 = (_e114 + _e117);
+        output.Store(88+0, _value2[0]);
+        output.Store(88+4, _value2[1]);
+        output.Store(88+8, _value2[2]);
+    }
+    half3x3 _e123 = input_uniform.val_mat3x3_;
+    half3x3 _e126 = half3x3(input_storage.Load<half3>(104+0), input_storage.Load<half3>(104+8), input_storage.Load<half3>(104+16));
+    {
+        half3x3 _value2 = (_e123 + _e126);
+        output.Store(104+0, _value2[0]);
+        output.Store(104+8, _value2[1]);
+        output.Store(104+16, _value2[2]);
+    }
+    half3x4 _e132 = input_uniform.val_mat3x4_;
+    half3x4 _e135 = half3x4(input_storage.Load<half4>(128+0), input_storage.Load<half4>(128+8), input_storage.Load<half4>(128+16));
+    {
+        half3x4 _value2 = (_e132 + _e135);
+        output.Store(128+0, _value2[0]);
+        output.Store(128+8, _value2[1]);
+        output.Store(128+16, _value2[2]);
+    }
+    half4x2 _e141 = GetMatval_mat4x2_OnUniformCompatible(input_uniform);
+    half4x2 _e144 = half4x2(input_storage.Load<half2>(152+0), input_storage.Load<half2>(152+4), input_storage.Load<half2>(152+8), input_storage.Load<half2>(152+12));
+    {
+        half4x2 _value2 = (_e141 + _e144);
+        output.Store(152+0, _value2[0]);
+        output.Store(152+4, _value2[1]);
+        output.Store(152+8, _value2[2]);
+        output.Store(152+12, _value2[3]);
+    }
+    half4x3 _e150 = input_uniform.val_mat4x3_;
+    half4x3 _e153 = half4x3(input_storage.Load<half3>(168+0), input_storage.Load<half3>(168+8), input_storage.Load<half3>(168+16), input_storage.Load<half3>(168+24));
+    {
+        half4x3 _value2 = (_e150 + _e153);
+        output.Store(168+0, _value2[0]);
+        output.Store(168+8, _value2[1]);
+        output.Store(168+16, _value2[2]);
+        output.Store(168+24, _value2[3]);
+    }
+    half4x4 _e159 = input_uniform.val_mat4x4_;
+    half4x4 _e162 = half4x4(input_storage.Load<half4>(200+0), input_storage.Load<half4>(200+8), input_storage.Load<half4>(200+16), input_storage.Load<half4>(200+24));
+    {
+        half4x4 _value2 = (_e159 + _e162);
+        output.Store(200+0, _value2[0]);
+        output.Store(200+8, _value2[1]);
+        output.Store(200+16, _value2[2]);
+        output.Store(200+24, _value2[3]);
+    }
+    half _e168[2] = Constructarray2_half_(input_arrays.Load<half>(0+0), input_arrays.Load<half>(0+2));
+    {
+        half _value2[2] = _e168;
+        output_arrays.Store(0+0, _value2[0]);
+        output_arrays.Store(0+2, _value2[1]);
+    }
+    half _e169 = val;
+    half _e171 = val;
+    val = (_e171 + abs(_e169));
+    half _e173 = val;
     half _e174 = val;
     half _e175 = val;
-    half _e176 = val;
-    half _e177 = clamp(_e174, _e175, _e176);
-    half _e178 = val;
-    half _e179 = (_e178 + _e177);
-    val = _e179;
-    half _e180 = val;
-    half2 _e181 = (_e180).xx;
-    half _e182 = val;
-    half2 _e183 = (_e182).xx;
-    half _e184 = dot(_e181, _e183);
-    half _e185 = val;
-    half _e186 = (_e185 + _e184);
-    val = _e186;
+    half _e177 = val;
+    val = (_e177 + clamp(_e173, _e174, _e175));
+    half _e179 = val;
+    half _e181 = val;
+    half _e184 = val;
+    val = (_e184 + dot((_e179).xx, (_e181).xx));
+    half _e186 = val;
     half _e187 = val;
-    half _e188 = val;
-    half _e189 = max(_e187, _e188);
-    half _e190 = val;
-    half _e191 = (_e190 + _e189);
-    val = _e191;
+    half _e189 = val;
+    val = (_e189 + max(_e186, _e187));
+    half _e191 = val;
     half _e192 = val;
-    half _e193 = val;
-    half _e194 = min(_e192, _e193);
-    half _e195 = val;
-    half _e196 = (_e195 + _e194);
-    val = _e196;
-    half _e197 = val;
-    half _e198 = sign(_e197);
-    half _e199 = val;
-    half _e200 = (_e199 + _e198);
-    val = _e200;
-    half _e202 = val;
-    half _e203 = (_e202 + 1.0);
-    val = _e203;
-    half2 _e205 = input_uniform[4];
-    half2 _e206 = _e205;
-    float2 float_vec2 = float2(_e206, _e206);
-    half2 _e209 = output[4];
-    half2 _e210 = half2(float_vec2, float_vec2);
-    _e209 = _e210;
-    half3 _e212 = input_uniform[5];
-    half3 _e213 = _e212;
-    float3 float_vec3 = float3(_e213, _e213, _e213);
-    half3 _e216 = output[5];
-    half3 _e217 = half3(float_vec3, float_vec3, float_vec3);
-    _e216 = _e217;
-    half4 _e219 = input_uniform[6];
-    half4 _e220 = _e219;
-    float4 float_vec4 = float4(_e220, _e220, _e220, _e220);
-    half4 _e223 = output[6];
-    half4 _e224 = half4(float_vec4, float_vec4, float_vec4, float_vec4);
-    _e223 = _e224;
-    half2x2 _e226 = output[8];
-    half2x2 _e228 = input_uniform[8];
-    half2x2 _e229 = _e228;
-    float2x2 _e230 = float2x2(_e229);
-    half2x2 _e231 = half2x2(_e230);
-    _e226 = _e231;
-    half2x3 _e233 = output[9];
-    half2x3 _e235 = input_uniform[9];
-    half2x3 _e236 = _e235;
-    float2x3 _e237 = float2x3(_e236);
-    half2x3 _e238 = half2x3(_e237);
-    _e233 = _e238;
-    half2x4 _e240 = output[10];
-    half2x4 _e242 = input_uniform[10];
-    half2x4 _e243 = _e242;
-    float2x4 _e244 = float2x4(_e243);
-    half2x4 _e245 = half2x4(_e244);
-    _e240 = _e245;
-    half3x2 _e247 = output[11];
-    half3x2 _e249 = input_uniform[11];
-    half3x2 _e250 = _e249;
-    float3x2 _e251 = float3x2(_e250);
-    half3x2 _e252 = half3x2(_e251);
-    _e247 = _e252;
-    half3x3 _e254 = output[12];
-    half3x3 _e256 = input_uniform[12];
-    half3x3 _e257 = _e256;
-    float3x3 _e258 = float3x3(_e257);
-    half3x3 _e259 = half3x3(_e258);
-    _e254 = _e259;
-    half3x4 _e261 = output[13];
-    half3x4 _e263 = input_uniform[13];
-    half3x4 _e264 = _e263;
-    float3x4 _e265 = float3x4(_e264);
-    half3x4 _e266 = half3x4(_e265);
-    _e261 = _e266;
-    half4x2 _e268 = output[14];
-    half4x2 _e270 = input_uniform[14];
-    half4x2 _e271 = _e270;
-    float4x2 _e272 = float4x2(_e271);
-    half4x2 _e273 = half4x2(_e272);
-    _e268 = _e273;
-    half4x3 _e275 = output[15];
-    half4x3 _e277 = input_uniform[15];
-    half4x3 _e278 = _e277;
-    float4x3 _e279 = float4x3(_e278);
-    half4x3 _e280 = half4x3(_e279);
-    _e275 = _e280;
-    half4x4 _e282 = output[16];
-    half4x4 _e284 = input_uniform[16];
-    half4x4 _e285 = _e284;
-    float4x4 _e286 = float4x4(_e285);
-    half4x4 _e287 = half4x4(_e286);
-    _e282 = _e287;
-    half _e288 = val;
-    return _e288;
+    half _e194 = val;
+    val = (_e194 + min(_e191, _e192));
+    half _e196 = val;
+    half _e198 = val;
+    val = (_e198 + sign(_e196));
+    half _e201 = val;
+    val = (_e201 + 1.0h);
+    half2 _e205 = input_uniform.val_f16_2_;
+    float2 float_vec2_ = float2(_e205);
+    output.Store(16, half2(float_vec2_));
+    half3 _e212 = input_uniform.val_f16_3_;
+    float3 float_vec3_ = float3(_e212);
+    output.Store(24, half3(float_vec3_));
+    half4 _e219 = input_uniform.val_f16_4_;
+    float4 float_vec4_ = float4(_e219);
+    output.Store(32, half4(float_vec4_));
+    half2x2 _e228 = GetMatval_mat2x2_OnUniformCompatible(input_uniform);
+    {
+        half2x2 _value2 = half2x2(float2x2(_e228));
+        output.Store(44+0, _value2[0]);
+        output.Store(44+4, _value2[1]);
+    }
+    half2x3 _e235 = input_uniform.val_mat2x3_;
+    {
+        half2x3 _value2 = half2x3(float2x3(_e235));
+        output.Store(56+0, _value2[0]);
+        output.Store(56+8, _value2[1]);
+    }
+    half2x4 _e242 = input_uniform.val_mat2x4_;
+    {
+        half2x4 _value2 = half2x4(float2x4(_e242));
+        output.Store(72+0, _value2[0]);
+        output.Store(72+8, _value2[1]);
+    }
+    half3x2 _e249 = GetMatval_mat3x2_OnUniformCompatible(input_uniform);
+    {
+        half3x2 _value2 = half3x2(float3x2(_e249));
+        output.Store(88+0, _value2[0]);
+        output.Store(88+4, _value2[1]);
+        output.Store(88+8, _value2[2]);
+    }
+    half3x3 _e256 = input_uniform.val_mat3x3_;
+    {
+        half3x3 _value2 = half3x3(float3x3(_e256));
+        output.Store(104+0, _value2[0]);
+        output.Store(104+8, _value2[1]);
+        output.Store(104+16, _value2[2]);
+    }
+    half3x4 _e263 = input_uniform.val_mat3x4_;
+    {
+        half3x4 _value2 = half3x4(float3x4(_e263));
+        output.Store(128+0, _value2[0]);
+        output.Store(128+8, _value2[1]);
+        output.Store(128+16, _value2[2]);
+    }
+    half4x2 _e270 = GetMatval_mat4x2_OnUniformCompatible(input_uniform);
+    {
+        half4x2 _value2 = half4x2(float4x2(_e270));
+        output.Store(152+0, _value2[0]);
+        output.Store(152+4, _value2[1]);
+        output.Store(152+8, _value2[2]);
+        output.Store(152+12, _value2[3]);
+    }
+    half4x3 _e277 = input_uniform.val_mat4x3_;
+    {
+        half4x3 _value2 = half4x3(float4x3(_e277));
+        output.Store(168+0, _value2[0]);
+        output.Store(168+8, _value2[1]);
+        output.Store(168+16, _value2[2]);
+        output.Store(168+24, _value2[3]);
+    }
+    half4x4 _e284 = input_uniform.val_mat4x4_;
+    {
+        half4x4 _value2 = half4x4(float4x4(_e284));
+        output.Store(200+0, _value2[0]);
+        output.Store(200+8, _value2[1]);
+        output.Store(200+16, _value2[2]);
+        output.Store(200+24, _value2[3]);
+    }
+    half _e287 = val;
+    return _e287;
 }
 
 [numthreads(1, 1, 1)]
 void main()
 {
-    half _e1 = output[7];
-    half _cr3 = f16_function(2.0);
-    _e1 = _cr3;
+    const half _e3 = f16_function(2.0h);
+    output.Store(40, _e3);
     return;
 }

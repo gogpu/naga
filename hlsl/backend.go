@@ -103,8 +103,8 @@ func DefaultOptions() *Options {
 		},
 		FakeMissingBindings:           true,
 		ZeroInitializeWorkgroupMemory: true,
-		RestrictIndexing:              false,
-		ForceLoopBounding:             false,
+		RestrictIndexing:              true,
+		ForceLoopBounding:             true,
 	}
 }
 
