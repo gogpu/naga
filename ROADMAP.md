@@ -62,7 +62,7 @@ and **100% SPIR-V binary validation**:
 
 | Task | Priority | Effort | Description |
 |------|----------|--------|-------------|
-| **DXIL-000: Bitcode writer** | P1 | 8 | LLVM 3.7 bitcode writer in pure Go (`dxil/internal/bitcode/`) |
+| **DXIL-000: Bitcode writer** | P1 | 8 | ✅ Done. LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash. 47 tests. |
 | **DXIL-001: MVP vertex+fragment** | P1 | 13 | naga IR → DXIL for basic rendering (`dxil/internal/emit/`) |
 | **DXIL-002: Compute shaders** | P2 | 5 | UAV, atomics, barriers for GPU compute |
 | **DXIL-003: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, mesh shaders, dynamic resources |

@@ -112,6 +112,13 @@ naga/                              ~90K LOC total
 │   ├── functions.go               # Entry points with semantics
 │   └── keywords.go                # HLSL reserved words
 │
+├── dxil/                          # DXIL backend (Phase 0 — bitcode PoC, ~3K LOC)
+│   ├── dxil.go                    # Public API: Compile, Options (2 symbols only)
+│   └── internal/                  # ALL implementation internal
+│       ├── bitcode/               # LLVM 3.7 bit-level writer (VBR, blocks, records)
+│       ├── module/                # In-memory DXIL module + bitcode serialization
+│       └── container/             # DXBC container assembly + BYPASS hash
+│
 └── cmd/
     ├── nagac/                     # CLI compiler
     ├── spvdis/                    # SPIR-V disassembler

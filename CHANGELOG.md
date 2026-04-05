@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **DXIL backend Phase 0** — LLVM 3.7 bitcode writer + DXBC container PoC.
+  Pure Go, zero external dependencies. Bit-level bitcode writer (VBR, blocks,
+  records), module builder (types, functions, metadata), full serialization,
+  DXBC container assembly with BYPASS hash. 47 tests, 2959 LOC.
+  Public API: `dxil.Compile()`, `dxil.DefaultOptions()` (stub).
+  All implementation in `dxil/internal/` from day one.
+
 ## [0.16.6] - 2026-04-05
 
 ### Performance
