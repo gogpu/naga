@@ -108,6 +108,17 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	c := container.New()
 	c.AddFeaturesPart(0)
 	c.AddDXILPart(shaderKind, 1, opts.ShaderModel.Minor, bitcodeData)
+
+	// Step 4: Add I/O signatures and pipeline state.
+	isFragment := ep.Stage == ir.StageFragment
+	inputSig, outputSig := buildSignatures(irModule, ep, isFragment)
+	if len(inputSig) > 0 {
+		c.AddInputSignature(inputSig)
+	}
+	if len(outputSig) > 0 {
+		c.AddOutputSignature(outputSig)
+	}
+	c.AddPSV0(buildPSV(ep, isFragment, len(inputSig), len(outputSig)))
 	c.AddHashPart()
 
 	containerData := c.Bytes()
@@ -118,6 +129,88 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	}
 
 	return containerData, nil
+}
+
+// buildSignatures extracts input/output signature elements from an entry point.
+func buildSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool) ([]container.SignatureElement, []container.SignatureElement) {
+	var inputs, outputs []container.SignatureElement
+	register := uint32(0)
+
+	// Inputs from function arguments.
+	for _, arg := range ep.Function.Arguments {
+		if arg.Binding == nil {
+			continue
+		}
+		elems := bindingToSignatureElements(irMod, *arg.Binding, arg.Type, register, false, isFragment)
+		inputs = append(inputs, elems...)
+		register += uint32(len(elems)) //nolint:gosec // bounded by argument count
+	}
+
+	// Outputs from function result.
+	if ep.Function.Result != nil {
+		resultType := irMod.Types[ep.Function.Result.Type]
+		if st, ok := resultType.Inner.(ir.StructType); ok {
+			// Struct result: each member is a separate output.
+			outReg := uint32(0)
+			for _, member := range st.Members {
+				if member.Binding == nil {
+					continue
+				}
+				elems := bindingToSignatureElements(irMod, *member.Binding, member.Type, outReg, true, isFragment)
+				outputs = append(outputs, elems...)
+				outReg += uint32(len(elems)) //nolint:gosec // bounded by struct members
+			}
+		} else if ep.Function.Result.Binding != nil {
+			// Scalar/vector result with binding.
+			outputs = bindingToSignatureElements(irMod, *ep.Function.Result.Binding, ep.Function.Result.Type, 0, true, isFragment)
+		}
+	}
+
+	return inputs, outputs
+}
+
+// bindingToSignatureElements converts a naga binding to signature elements.
+func bindingToSignatureElements(_ *ir.Module, binding ir.Binding, typeHandle ir.TypeHandle, register uint32, isOutput, isFragment bool) []container.SignatureElement {
+	var sem container.SemanticMapping
+	if isOutput {
+		sem = container.MapBindingToSemantic(binding, true, isFragment)
+	} else {
+		sem = container.MapBindingToSemantic(binding, false, isFragment)
+	}
+
+	// Default: float32, xyzw mask for vec4.
+	elem := container.SignatureElement{
+		SemanticName:  sem.SemanticName,
+		SemanticIndex: sem.SemanticIndex,
+		SystemValue:   sem.SystemValue,
+		CompType:      container.CompTypeFloat32,
+		Register:      register,
+		Mask:          0x0F, // xyzw
+		RWMask:        0x0F,
+	}
+	_ = typeHandle // TODO: refine mask/compType from actual type
+
+	return []container.SignatureElement{elem}
+}
+
+// buildPSV creates pipeline state validation info for an entry point.
+func buildPSV(ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int) container.PSVInfo {
+	info := container.PSVInfo{
+		ShaderStage:       container.PSVVertex,
+		MinWaveLaneCount:  0,
+		MaxWaveLaneCount:  0xFFFFFFFF,
+		SigInputElements:  uint8(inputCount),  //nolint:gosec // bounded by entry point args
+		SigOutputElements: uint8(outputCount), //nolint:gosec // bounded by entry point results
+	}
+	if isFragment {
+		info.ShaderStage = container.PSVPixel
+	} else {
+		// Vertex shader: check if SV_Position is in outputs.
+		if ep.Function.Result != nil {
+			info.OutputPositionPresent = true
+		}
+	}
+	return info
 }
 
 // stageToContainerKind maps naga ShaderStage to the DXIL shader kind

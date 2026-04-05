@@ -14,6 +14,9 @@ import (
 //
 // Reference: Mesa nir_to_dxil.c emit_resources(), emit_createhandle_call_pre_6_6()
 
+// dx.op function name for resource handle creation.
+const dxOpCreateHandleName = "dx.op.createHandle"
+
 // DXIL resource classes (matches DXIL spec D3D12_SHADER_INPUT_BIND_DESC).
 const (
 	resourceClassSRV     uint8 = 0
@@ -253,8 +256,7 @@ func (e *Emitter) getDxResRetType(ol overloadType) *module.Type {
 // getDxOpCreateHandleFunc creates the dx.op.createHandle function declaration.
 // Signature: %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1)
 func (e *Emitter) getDxOpCreateHandleFunc() *module.Function {
-	name := "dx.op.createHandle"
-	key := dxOpKey{name: name, overload: overloadVoid}
+	key := dxOpKey{name: dxOpCreateHandleName, overload: overloadVoid}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
 	}
@@ -266,7 +268,7 @@ func (e *Emitter) getDxOpCreateHandleFunc() *module.Function {
 
 	params := []*module.Type{i32Ty, i8Ty, i32Ty, i32Ty, i1Ty}
 	funcTy := e.mod.GetFunctionType(handleTy, params)
-	fn := e.mod.AddFunction(name, funcTy, true)
+	fn := e.mod.AddFunction(dxOpCreateHandleName, funcTy, true)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
