@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lexer token preallocation** — Token slice estimate `len(source)/4` (was `/6`).
   Prevents slice regrowth for typical shaders.
 - **Overall: 594 → 569 allocs/op (-4.2%), ~23% faster median.**
+- **SPIR-V Backend reuse** — `Backend.Reset()` + `ModuleBuilder.Reset()` clear
+  all state without deallocating (Go 1.21+ `clear()` keeps map capacity).
+  `Compile()` calls `Reset()` internally. Small shaders: 4.9× fewer allocs
+  (68→14), 14× fewer bytes (17KB→1.2KB). Reuse benchmarks included.
 
 ## [0.16.4] - 2026-04-04
 

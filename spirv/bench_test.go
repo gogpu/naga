@@ -156,6 +156,37 @@ func BenchmarkSPIRVEmit(b *testing.B) {
 	}
 }
 
+// BenchmarkSPIRVEmitReuse benchmarks SPIR-V code generation with a reused
+// Backend instance. Compile() calls Reset() internally, so the same Backend
+// can be used across iterations without allocating new maps/slices.
+func BenchmarkSPIRVEmitReuse(b *testing.B) {
+	for _, bc := range spirvBenchShaders {
+		b.Run(bc.name, func(b *testing.B) {
+			module := parseToIR(b, bc.source)
+			opts := Options{
+				Version: Version1_3,
+				Debug:   false,
+			}
+
+			backend := NewBackend(opts)
+
+			b.ReportAllocs()
+			b.SetBytes(int64(len(bc.source)))
+			b.ResetTimer()
+
+			var result []byte
+			for i := 0; i < b.N; i++ {
+				var err error
+				result, err = backend.Compile(module)
+				if err != nil {
+					b.Fatalf("spirv emit reuse failed: %v", err)
+				}
+			}
+			runtime.KeepAlive(result)
+		})
+	}
+}
+
 // BenchmarkSPIRVEmitWithDebug benchmarks SPIR-V code generation with debug
 // info (OpName instructions) to measure the overhead of debug output.
 func BenchmarkSPIRVEmitWithDebug(b *testing.B) {
