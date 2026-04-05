@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **DXIL backend Phase 0** — LLVM 3.7 bitcode writer + DXBC container PoC.
-  Pure Go, zero external dependencies. Bit-level bitcode writer (VBR, blocks,
-  records), module builder (types, functions, metadata), full serialization,
-  DXBC container assembly with BYPASS hash. 47 tests, 2959 LOC.
-  Public API: `dxil.Compile()`, `dxil.DefaultOptions()` (stub).
+- **DXIL backend Phase 0+1** — Direct DXIL generation from naga IR. Pure Go,
+  zero external dependencies. Phase 0: LLVM 3.7 bitcode writer, module builder,
+  DXBC container, BYPASS hash (47 tests). Phase 1: naga IR → DXIL lowering for
+  vertex + fragment shaders — type mapping (scalarized vectors), entry point I/O
+  (dx.op.loadInput/storeOutput), expression lowering, statement lowering.
+  82 tests, 6357 LOC. All output validated via `dxc.exe -dumpbin`.
+  Public API: `dxil.Compile()`, `dxil.DefaultOptions()`.
   All implementation in `dxil/internal/` from day one.
 
 ## [0.16.6] - 2026-04-05

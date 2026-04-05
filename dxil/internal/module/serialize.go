@@ -1,6 +1,8 @@
 package module
 
 import (
+	"math"
+
 	"github.com/gogpu/naga/dxil/internal/bitcode"
 )
 
@@ -68,8 +70,11 @@ const (
 	funcCodeDeclareBlocks = 1
 	funcCodeInstBinop     = 2
 	funcCodeInstCast      = 3
+	funcCodeInstGEP       = 9
 	funcCodeInstRet       = 10
 	funcCodeInstBr        = 11
+	funcCodeInstSelect    = 29 // FUNC_CODE_INST_VSELECT
+	funcCodeInstCmp2      = 28 // FUNC_CODE_INST_CMP2
 	funcCodeInstCall      = 34
 )
 
@@ -162,7 +167,7 @@ func (s *serializer) emitModule() {
 	// MODULE_BLOCK.
 	s.w.EnterBlock(moduleBlockID, 3)
 
-	// VERSION record: value=1 means LLVM 3.7 bitcode.
+	// VERSION record: value=1 means relative IDs (LLVM 3.7 bitcode).
 	s.w.EmitRecord(moduleCodeVersion, []uint64{1})
 
 	// TRIPLE record.
@@ -353,8 +358,11 @@ func (s *serializer) emitConstants() {
 			// positive N → 2*N, negative N → 2*(-N)-1
 			encoded := encodeSignRotated(c.IntValue)
 			s.w.EmitRecord(constCodeInteger, []uint64{encoded})
+		} else if c.ConstType.Kind == TypeFloat {
+			// Float constants are stored as IEEE 754 bit patterns.
+			bits := floatBits(c)
+			s.w.EmitRecord(constCodeFloat, []uint64{bits})
 		} else {
-			// For now, emit as null for non-integer types.
 			s.w.EmitRecord(constCodeNull, nil)
 		}
 	}
@@ -369,6 +377,18 @@ func encodeSignRotated(v int64) uint64 {
 		return uint64(v) << 1
 	}
 	return (uint64(-v) << 1) - 1
+}
+
+// floatBits returns the IEEE 754 bit pattern for a float constant.
+// For f16 and f32, returns 32-bit pattern; for f64, returns 64-bit pattern.
+func floatBits(c *Constant) uint64 {
+	switch c.ConstType.FloatBits {
+	case 64:
+		return math.Float64bits(c.FloatValue)
+	default:
+		// f16 and f32 are stored as 32-bit float bit patterns.
+		return uint64(math.Float32bits(float32(c.FloatValue)))
+	}
 }
 
 // emitMetadata writes the METADATA_BLOCK containing all metadata nodes
@@ -449,34 +469,131 @@ func (s *serializer) emitNamedMetadata(named *NamedMetadataNode) {
 }
 
 // emitFunctionBody writes a FUNCTION_BLOCK for one function definition.
+//
+// Within a function body, value IDs are assigned sequentially starting
+// from the next ID after all global values (globals, functions, constants).
+// Operand references use relative encoding: current_value_id - operand_id.
+//
+// Reference: Mesa dxil_module.c emit_function()
 func (s *serializer) emitFunctionBody(fn *Function) {
 	s.w.EnterBlock(functionBlockID, 4)
 
 	// DECLAREBLOCKS: number of basic blocks.
 	s.w.EmitRecord(funcCodeDeclareBlocks, []uint64{uint64(len(fn.BasicBlocks))})
 
+	// The current value ID counter starts after all global values.
+	// Each instruction that produces a value increments this counter.
+	nextValueID := s.globalValueCount()
+
 	for _, bb := range fn.BasicBlocks {
 		for _, instr := range bb.Instructions {
-			s.emitInstruction(instr)
+			s.emitInstruction(instr, nextValueID)
+			if instr.HasValue {
+				nextValueID++
+			}
 		}
 	}
 
 	s.w.ExitBlock()
 }
 
+// globalValueCount returns the total number of global values
+// (global vars + functions + constants).
+func (s *serializer) globalValueCount() int {
+	return len(s.mod.GlobalVars) + len(s.mod.Functions) + len(s.mod.Constants)
+}
+
 // emitInstruction writes a single instruction record.
-func (s *serializer) emitInstruction(instr *Instruction) {
+//
+// Reference: Mesa dxil_module.c emit_instr()
+func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 	switch instr.Kind {
 	case InstrRet:
 		if instr.ReturnValue < 0 {
-			// void return: INST_RET with no operands
 			s.w.EmitRecord(funcCodeInstRet, nil)
 		} else {
-			s.w.EmitRecord(funcCodeInstRet, []uint64{uint64(instr.ReturnValue)})
+			// Relative encoding for return value.
+			s.w.EmitRecord(funcCodeInstRet, []uint64{uint64(currentValueID - instr.ReturnValue)}) //nolint:gosec // delta always positive
 		}
-	default:
-		// Other instruction types will be implemented in Phase 1.
-		// For now, skip them.
+
+	case InstrBinOp:
+		// BINOP: [opval_delta, opval_delta, opcode]
+		// Operands: [lhs, rhs, opcode_as_int]
+		if len(instr.Operands) >= 3 {
+			lhsDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always non-negative
+			rhsDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always non-negative
+			opcode := uint64(instr.Operands[2])                    //nolint:gosec // opcode is small positive int
+			s.w.EmitRecord(funcCodeInstBinop, []uint64{lhsDelta, rhsDelta, opcode})
+		}
+
+	case InstrCmp:
+		// CMP2: [opval_delta, opval_delta, pred]
+		// Operands: [lhs, rhs, pred_as_int]
+		if len(instr.Operands) >= 3 {
+			lhsDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always non-negative
+			rhsDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always non-negative
+			pred := uint64(instr.Operands[2])                      //nolint:gosec // predicate is small positive int
+			s.w.EmitRecord(funcCodeInstCmp2, []uint64{lhsDelta, rhsDelta, pred})
+		}
+
+	case InstrCall:
+		// CALL: [attr, cc, fnty, fn_delta, ...arg_deltas]
+		// With explicit function type (bit 15 set).
+		// Reference: Mesa emit_call(), LLVM 3.7 bitcode format.
+		if instr.CalledFunc != nil {
+			fnDelta := uint64(currentValueID - instr.CalledFunc.ValueID) //nolint:gosec // delta always positive
+
+			// Build record with explicit function type.
+			// cc: bit 15 = explicit function type present.
+			data := make([]uint64, 4, 4+len(instr.Operands))
+			data[0] = 0                                 // paramattr
+			data[1] = 1 << 15                           // calling convention (explicit fn type)
+			data[2] = uid(instr.CalledFunc.FuncType.ID) // function type
+			data[3] = fnDelta                           // callee value delta
+			for _, op := range instr.Operands {
+				data = append(data, uint64(currentValueID-op)) //nolint:gosec // delta always positive
+			}
+			s.w.EmitRecord(funcCodeInstCall, data)
+		}
+
+	case InstrSelect:
+		// VSELECT: [cond_delta, true_delta, false_delta]
+		// Operands: [cond, trueVal, falseVal]
+		if len(instr.Operands) >= 3 {
+			trueDelta := uint64(currentValueID - instr.Operands[1])  //nolint:gosec // delta always positive
+			falseDelta := uint64(currentValueID - instr.Operands[2]) //nolint:gosec // same
+			condDelta := uint64(currentValueID - instr.Operands[0])  //nolint:gosec // same
+			s.w.EmitRecord(funcCodeInstSelect, []uint64{trueDelta, falseDelta, condDelta})
+		}
+
+	case InstrCast:
+		// CAST: [opval_delta, destty, castopc]
+		if len(instr.Operands) >= 2 && instr.ResultType != nil {
+			opDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
+			castOp := uint64(instr.Operands[1])                   //nolint:gosec // cast opcode is small positive int
+			s.w.EmitRecord(funcCodeInstCast, []uint64{opDelta, uid(instr.ResultType.ID), castOp})
+		}
+
+	case InstrBr:
+		// BR: [bb#] for unconditional, [bb#true, bb#false, cond_delta] for conditional
+		if len(instr.Operands) == 1 {
+			s.w.EmitRecord(funcCodeInstBr, []uint64{uint64(instr.Operands[0])}) //nolint:gosec // basic block index
+		} else if len(instr.Operands) >= 3 {
+			condDelta := uint64(currentValueID - instr.Operands[2]) //nolint:gosec // delta always positive
+			s.w.EmitRecord(funcCodeInstBr, []uint64{
+				uint64(instr.Operands[0]), //nolint:gosec // true BB index
+				uint64(instr.Operands[1]), //nolint:gosec // false BB index
+				condDelta,
+			})
+		}
+
+	case InstrExtractVal:
+		// EXTRACTVALUE: [opval_delta, idx]
+		if len(instr.Operands) >= 2 {
+			opDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
+			idx := uint64(instr.Operands[1])                      //nolint:gosec // index is small positive int
+			s.w.EmitRecord(26, []uint64{opDelta, idx})            // FUNC_CODE_INST_EXTRACTVAL = 26
+		}
 	}
 }
 

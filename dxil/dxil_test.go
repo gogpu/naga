@@ -8,12 +8,21 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/container"
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/ir"
 )
 
-func TestCompile_NotImplemented(t *testing.T) {
+func TestCompile_NilModule(t *testing.T) {
 	_, err := Compile(nil, DefaultOptions())
 	if err == nil {
-		t.Fatal("expected error from unimplemented Compile")
+		t.Fatal("expected error for nil module")
+	}
+}
+
+func TestCompile_NoEntryPoints(t *testing.T) {
+	irMod := &ir.Module{}
+	_, err := Compile(irMod, DefaultOptions())
+	if err == nil {
+		t.Fatal("expected error for module with no entry points")
 	}
 }
 
@@ -194,4 +203,162 @@ func TestBypassHash(t *testing.T) {
 			t.Errorf("byte %d: got 0x%02X, want 0x01", i, data[i])
 		}
 	}
+}
+
+// TestCompile_PassthroughVertex tests the full compilation pipeline
+// for a passthrough vertex shader.
+func TestCompile_PassthroughVertex(t *testing.T) {
+	vec4f32Handle := ir.TypeHandle(0)
+
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+	resultBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+	retHandle := ir.ExpressionHandle(0)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "pos", Type: vec4f32Handle, Binding: &posBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec4f32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	irMod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageVertex, Function: fn},
+	}
+
+	data, err := Compile(irMod, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	// Verify DXBC container structure.
+	if len(data) < 32 {
+		t.Fatalf("output too small: %d bytes", len(data))
+	}
+	magic := binary.LittleEndian.Uint32(data[0:4])
+	if magic != container.FourCCDXBC {
+		t.Errorf("container magic: got 0x%08X, want DXBC", magic)
+	}
+
+	fileSize := binary.LittleEndian.Uint32(data[24:28])
+	if fileSize != uint32(len(data)) {
+		t.Errorf("file size: header=%d, actual=%d", fileSize, len(data))
+	}
+
+	// Verify BYPASS hash.
+	for i := 4; i < 20; i++ {
+		if data[i] != 0x01 {
+			t.Errorf("bypass hash byte %d: got 0x%02X, want 0x01", i, data[i])
+			break
+		}
+	}
+
+	// Write to tmp/ for manual DXC validation.
+	tmpDir := filepath.Join("..", "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		t.Logf("warning: could not create tmp dir: %v", err)
+	} else {
+		outPath := filepath.Join(tmpDir, "test_passthrough_vs.dxil")
+		if err := os.WriteFile(outPath, data, 0o644); err != nil {
+			t.Logf("warning: could not write test file: %v", err)
+		} else {
+			t.Logf("wrote %d bytes to %s", len(data), outPath)
+		}
+	}
+
+	t.Logf("passthrough vertex shader compiled: %d bytes", len(data))
+}
+
+// TestCompile_SimpleFragment tests compilation of a minimal fragment shader.
+func TestCompile_SimpleFragment(t *testing.T) {
+	vec4f32Handle := ir.TypeHandle(0)
+	f32Handle := ir.TypeHandle(1)
+
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(4)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 1, 2, 3}}},
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &vec4f32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	irMod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	data, err := Compile(irMod, DefaultOptions())
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	if len(data) < 32 {
+		t.Fatalf("output too small: %d bytes", len(data))
+	}
+
+	magic := binary.LittleEndian.Uint32(data[0:4])
+	if magic != container.FourCCDXBC {
+		t.Errorf("container magic: got 0x%08X, want DXBC", magic)
+	}
+
+	// Write to tmp/ for manual DXC validation.
+	tmpDir := filepath.Join("..", "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		t.Logf("warning: could not create tmp dir: %v", err)
+	} else {
+		outPath := filepath.Join(tmpDir, "test_simple_ps.dxil")
+		if err := os.WriteFile(outPath, data, 0o644); err != nil {
+			t.Logf("warning: could not write test file: %v", err)
+		} else {
+			t.Logf("wrote %d bytes to %s", len(data), outPath)
+		}
+	}
+
+	t.Logf("simple fragment shader compiled: %d bytes", len(data))
 }

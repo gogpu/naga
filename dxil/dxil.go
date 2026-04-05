@@ -10,8 +10,8 @@
 // details (bitcode writer, module builder, container assembly) are in
 // internal sub-packages.
 //
-// Current status: Phase 0 — bitcode writer and container PoC.
-// The Compile function is not yet implemented; it will be added in Phase 1.
+// Current status: Phase 1 — vertex + fragment shader lowering (SM 6.0).
+// The Compile function translates naga IR entry points to DXIL bytecode.
 //
 // Reference implementations:
 //   - Mesa's src/microsoft/compiler/ (C, MIT license)
@@ -22,6 +22,9 @@ package dxil
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/dxil/internal/container"
+	"github.com/gogpu/naga/dxil/internal/emit"
+	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -67,8 +70,67 @@ func DefaultOptions() Options {
 // Compile translates a naga IR module to DXIL bytecode wrapped in
 // a DXBC container.
 //
-// This function is not yet implemented (Phase 0). It will be available
-// in Phase 1 when the naga IR to DXIL lowering is complete.
-func Compile(_ *ir.Module, _ Options) ([]byte, error) {
-	return nil, fmt.Errorf("dxil: backend not yet implemented (Phase 0)")
+// The compilation pipeline:
+//  1. Emit: naga IR -> DXIL module (types, expressions, statements)
+//  2. Serialize: DXIL module -> LLVM 3.7 bitcode
+//  3. Container: wrap bitcode in DXBC with program header and hash
+//
+// The result is a valid DXBC container that can be loaded by D3D12
+// or inspected with dxc.exe -dumpbin.
+func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
+	if irModule == nil {
+		return nil, fmt.Errorf("dxil: nil IR module")
+	}
+	if len(irModule.EntryPoints) == 0 {
+		return nil, fmt.Errorf("dxil: module has no entry points")
+	}
+
+	// Step 1: Emit naga IR -> DXIL module.
+	emitOpts := emit.EmitOptions{
+		ShaderModelMajor: opts.ShaderModel.Major,
+		ShaderModelMinor: opts.ShaderModel.Minor,
+	}
+	mod, err := emit.Emit(irModule, emitOpts)
+	if err != nil {
+		return nil, fmt.Errorf("dxil: emit: %w", err)
+	}
+
+	// Step 2: Serialize DXIL module -> LLVM 3.7 bitcode.
+	bitcodeData := module.Serialize(mod)
+	if len(bitcodeData) == 0 {
+		return nil, fmt.Errorf("dxil: serialization produced empty bitcode")
+	}
+
+	// Step 3: Wrap in DXBC container.
+	ep := &irModule.EntryPoints[0]
+	shaderKind := stageToContainerKind(ep.Stage)
+
+	c := container.New()
+	c.AddFeaturesPart(0)
+	c.AddDXILPart(shaderKind, 1, opts.ShaderModel.Minor, bitcodeData)
+	c.AddHashPart()
+
+	containerData := c.Bytes()
+
+	// Apply BYPASS hash if requested.
+	if opts.UseBypassHash {
+		container.SetBypassHash(containerData)
+	}
+
+	return containerData, nil
+}
+
+// stageToContainerKind maps naga ShaderStage to the DXIL shader kind
+// value used in the DXBC container program header.
+func stageToContainerKind(stage ir.ShaderStage) uint32 {
+	switch stage {
+	case ir.StageVertex:
+		return uint32(module.VertexShader)
+	case ir.StageFragment:
+		return uint32(module.PixelShader)
+	case ir.StageCompute:
+		return uint32(module.ComputeShader)
+	default:
+		return uint32(module.VertexShader)
+	}
 }
