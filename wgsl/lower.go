@@ -135,18 +135,49 @@ func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 
 // LowerWithWarnings converts a WGSL AST module to Naga IR, returning warnings.
 func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
+	// Pre-size module-level slices based on AST declaration counts.
+	// This avoids repeated slice growth during lowering.
+	nFuncs := len(ast.Functions)
+	nStructs := len(ast.Structs)
+	nGlobals := len(ast.GlobalVars)
+	nConsts := len(ast.Constants)
+	nOverrides := len(ast.Overrides)
+	// Types: builtins (~15) + struct types + param/return types.
+	estTypes := 16 // default matches NewTypeRegistry
+	if nStructs > 1 || nFuncs > 2 || nGlobals > 2 {
+		estTypes = nStructs*2 + nFuncs + nGlobals + 16
+	}
+	// Global expressions: roughly 1 per constant/override + 1 per global var init.
+	estGlobalExprs := nConsts + nOverrides + nGlobals + 4
+
+	// Build module with pre-sized slices. Only pre-allocate slices that
+	// have enough expected items to benefit from avoiding regrowth.
+	// For small counts (0-2), nil slice append is fine — Go allocates
+	// on first append with no regrowth for single-element slices.
+	mod := &ir.Module{}
+	if nConsts > 2 {
+		mod.Constants = make([]ir.Constant, 0, nConsts)
+	}
+	if nGlobals > 2 {
+		mod.GlobalVariables = make([]ir.GlobalVariable, 0, nGlobals)
+		mod.GlobalExpressions = make([]ir.Expression, 0, estGlobalExprs)
+	}
+	if nOverrides > 2 {
+		mod.Overrides = make([]ir.Override, 0, nOverrides)
+	}
+
 	l := &Lowerer{
-		module:            &ir.Module{},
+		module:            mod,
 		source:            source,
-		registry:          ir.NewTypeRegistry(),
+		registry:          ir.NewTypeRegistryWithCap(estTypes),
 		types:             make(map[string]ir.TypeHandle, 16),
-		globals:           make(map[string]ir.GlobalVariableHandle, 8),
+		globals:           make(map[string]ir.GlobalVariableHandle, max(nGlobals, 8)),
 		locals:            make(map[string]ir.ExpressionHandle, 16),
-		moduleConstants:   make(map[string]ir.ConstantHandle, 16),
-		moduleOverrides:   make(map[string]ir.OverrideHandle, 8),
+		moduleConstants:   make(map[string]ir.ConstantHandle, max(nConsts, 16)),
+		moduleOverrides:   make(map[string]ir.OverrideHandle, max(nOverrides, 8)),
 		inlineConstants:   make(map[string]ir.LiteralValue, 32),
 		abstractConstants: make(map[string]*abstractConstInfo, 4),
-		functions:         make(map[string]ir.FunctionHandle, len(ast.Functions)),
+		functions:         make(map[string]ir.FunctionHandle, nFuncs),
 		entryPointFuncs:   make(map[string]bool, 4),
 		localDecls:        make(map[string]Span, 16),
 		usedLocals:        make(map[string]bool, 16),
@@ -3671,11 +3702,14 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 	l.currentExprIdx = 0
 
 	// Estimate sizes based on function complexity.
+	// Each AST statement typically produces ~3 IR expressions (binary ops, loads, etc.).
+	// Parameters each produce 1 expression. Globals referenced add ~1 each.
 	var bodySize int
 	if f.Body != nil {
-		bodySize = len(f.Body.Statements)
+		bodySize = countStatementsDeep(f.Body)
 	}
-	estExprs := bodySize * 3 // rough: ~3 expressions per statement
+	nParams := len(f.Params)
+	estExprs := bodySize*3 + nParams + len(l.globals) + 4
 	if estExprs < 8 {
 		estExprs = 8
 	}
@@ -3687,10 +3721,17 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 		Expressions:      make([]ir.Expression, 0, estExprs),
 		ExpressionTypes:  make([]ir.TypeResolution, 0, estExprs),
 		Body:             make([]ir.Statement, 0, bodySize),
-		NamedExpressions: make(map[ir.ExpressionHandle]string),
+		NamedExpressions: make(map[ir.ExpressionHandle]string, nParams+4),
 	}
 	l.currentFunc = fn
-	l.nonConstExprs = make(map[ir.ExpressionHandle]bool)
+	// Reuse nonConstExprs map — clear instead of reallocating.
+	if l.nonConstExprs == nil {
+		l.nonConstExprs = make(map[ir.ExpressionHandle]bool, 8)
+	} else {
+		for k := range l.nonConstExprs {
+			delete(l.nonConstExprs, k)
+		}
+	}
 
 	// Lower parameters
 	for i, p := range f.Params {
@@ -9589,6 +9630,38 @@ func (l *Lowerer) interruptEmitter(expr ir.Expression) ir.ExpressionHandle {
 	}
 
 	return handle
+}
+
+// countStatementsDeep returns a rough count of statements in a block,
+// recursively counting sub-blocks. Used to estimate IR expression count
+// for slice pre-allocation.
+func countStatementsDeep(block *BlockStmt) int {
+	if block == nil {
+		return 0
+	}
+	count := len(block.Statements)
+	for _, s := range block.Statements {
+		switch stmt := s.(type) {
+		case *IfStmt:
+			count += countStatementsDeep(stmt.Body)
+			if elseBlock, ok := stmt.Else.(*BlockStmt); ok {
+				count += countStatementsDeep(elseBlock)
+			}
+		case *ForStmt:
+			count += countStatementsDeep(stmt.Body)
+		case *WhileStmt:
+			count += countStatementsDeep(stmt.Body)
+		case *LoopStmt:
+			count += countStatementsDeep(stmt.Body)
+		case *SwitchStmt:
+			for _, c := range stmt.Cases {
+				count += countStatementsDeep(c.Body)
+			}
+		case *BlockStmt:
+			count += countStatementsDeep(stmt)
+		}
+	}
+	return count
 }
 
 // ensureBlockReturns ensures every control flow path in a block ends with a Return.

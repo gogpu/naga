@@ -15,9 +15,18 @@ type TypeRegistry struct {
 
 // NewTypeRegistry creates a new type registry for deduplication.
 func NewTypeRegistry() *TypeRegistry {
+	return NewTypeRegistryWithCap(16)
+}
+
+// NewTypeRegistryWithCap creates a new type registry with pre-allocated capacity.
+// Use this when the expected number of types is known to avoid slice regrowth.
+func NewTypeRegistryWithCap(initialCap int) *TypeRegistry {
+	if initialCap < 16 {
+		initialCap = 16
+	}
 	return &TypeRegistry{
-		types:   make([]Type, 0, 16),
-		typeMap: make(map[string]TypeHandle, 16),
+		types:   make([]Type, 0, initialCap),
+		typeMap: make(map[string]TypeHandle, initialCap),
 		keyBuf:  make([]byte, 0, 64),
 	}
 }
