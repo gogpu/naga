@@ -68,8 +68,7 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 		return e.emitStmtCall(fn, sk)
 
 	default:
-		// Unsupported statement kinds are silently skipped for MVP.
-		return nil
+		return fmt.Errorf("unsupported statement kind: %T", sk)
 	}
 }
 

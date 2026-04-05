@@ -11,6 +11,8 @@ import (
 // For vector types, returns the ID of the first component.
 //
 // Reference: Mesa nir_to_dxil.c emit_alu()
+//
+//nolint:gocyclo,cyclop // expression dispatch requires handling all expression kinds
 func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (int, error) {
 	// Check if already emitted.
 	if v, ok := e.exprValues[handle]; ok {
@@ -69,9 +71,20 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 	case ir.ExprAs:
 		valueID, err = e.emitAs(fn, ek)
 
+	case ir.ExprSwizzle:
+		valueID, err = e.emitSwizzle(fn, ek)
+
+	case ir.ExprDerivative:
+		valueID, err = e.emitDerivative(fn, ek)
+
+	case ir.ExprRelational:
+		valueID, err = e.emitRelational(fn, ek)
+
+	case ir.ExprArrayLength:
+		return 0, fmt.Errorf("ExprArrayLength not yet implemented in DXIL backend")
+
 	default:
-		// Unsupported expression kind — allocate a placeholder value.
-		valueID = e.allocValue()
+		return 0, fmt.Errorf("unsupported expression kind: %T", expr.Kind)
 	}
 
 	if err != nil {
@@ -1440,5 +1453,145 @@ func literalType(lit ir.Literal) ir.TypeInner {
 		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}
 	default:
 		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+}
+
+// emitSwizzle reorders or duplicates vector components.
+// In DXIL (scalarized), this remaps component IDs from the source vector.
+func (e *Emitter) emitSwizzle(fn *ir.Function, sw ir.ExprSwizzle) (int, error) {
+	// Ensure the source vector is emitted.
+	if _, err := e.emitExpression(fn, sw.Vector); err != nil {
+		return 0, err
+	}
+
+	size := int(sw.Size)
+	comps := make([]int, size)
+	for i := 0; i < size; i++ {
+		srcComp := int(sw.Pattern[i]) // 0=X, 1=Y, 2=Z, 3=W
+		comps[i] = e.getComponentID(sw.Vector, srcComp)
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitDerivative emits a fragment shader derivative as a dx.op call.
+//
+// Maps naga DerivativeAxis + DerivativeControl to dx.op opcodes:
+//
+//	X + Coarse → dx.op.derivCoarseX (83)
+//	Y + Coarse → dx.op.derivCoarseY (84)
+//	X + Fine   → dx.op.derivFineX   (85)
+//	Y + Fine   → dx.op.derivFineY   (86)
+//	Width      → derivCoarseX + derivCoarseY (abs sum, fwidth)
+func (e *Emitter) emitDerivative(fn *ir.Function, deriv ir.ExprDerivative) (int, error) {
+	arg, err := e.emitExpression(fn, deriv.Expr)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, deriv.Expr)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+
+	// fwidth = abs(dFdx) + abs(dFdy) — needs decomposition.
+	if deriv.Axis == ir.DerivativeWidth {
+		return e.emitDerivativeWidth(arg, ol)
+	}
+
+	opcode, opName := derivativeOp(deriv.Axis, deriv.Control)
+	dxFn := e.getDxOpUnaryFunc(opName, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg}), nil
+}
+
+// emitDerivativeWidth emits fwidth(v) = abs(dFdx(v)) + abs(dFdy(v)).
+func (e *Emitter) emitDerivativeWidth(arg int, ol overloadType) (int, error) {
+	resultTy := e.overloadReturnType(ol)
+
+	// dFdx
+	dxFnX := e.getDxOpUnaryFunc("dx.op.derivCoarseX", ol)
+	opcodeX := e.getIntConstID(int64(OpDerivCoarseX))
+	dfdx := e.addCallInstr(dxFnX, dxFnX.FuncType.RetType, []int{opcodeX, arg})
+
+	// dFdy
+	dxFnY := e.getDxOpUnaryFunc("dx.op.derivCoarseY", ol)
+	opcodeY := e.getIntConstID(int64(OpDerivCoarseY))
+	dfdy := e.addCallInstr(dxFnY, dxFnY.FuncType.RetType, []int{opcodeY, arg})
+
+	// abs(dFdx)
+	absFn := e.getDxOpUnaryFunc("dx.op.fabs", ol)
+	absOp := e.getIntConstID(int64(OpFAbs))
+	absDx := e.addCallInstr(absFn, absFn.FuncType.RetType, []int{absOp, dfdx})
+
+	// abs(dFdy)
+	absDy := e.addCallInstr(absFn, absFn.FuncType.RetType, []int{absOp, dfdy})
+
+	// abs(dFdx) + abs(dFdy)
+	return e.addBinOpInstr(resultTy, BinOpFAdd, absDx, absDy), nil
+}
+
+// derivativeOp returns the dx.op opcode and name for a derivative axis + control.
+func derivativeOp(axis ir.DerivativeAxis, control ir.DerivativeControl) (DXILOpcode, string) {
+	switch {
+	case axis == ir.DerivativeX && control == ir.DerivativeFine:
+		return OpDerivFineX, "dx.op.derivFineX"
+	case axis == ir.DerivativeY && control == ir.DerivativeFine:
+		return OpDerivFineY, "dx.op.derivFineY"
+	case axis == ir.DerivativeX: // Coarse or None
+		return OpDerivCoarseX, "dx.op.derivCoarseX"
+	case axis == ir.DerivativeY: // Coarse or None
+		return OpDerivCoarseY, "dx.op.derivCoarseY"
+	default:
+		return OpDerivCoarseX, "dx.op.derivCoarseX"
+	}
+}
+
+// emitRelational emits a relational test function as a dx.op call.
+//
+// Maps naga RelationalFunction to dx.op:
+//
+//	IsNan → dx.op.isNaN (8)
+//	IsInf → dx.op.isInf (9)
+//
+// All/Any are boolean vector reductions (not dx.op intrinsics).
+func (e *Emitter) emitRelational(fn *ir.Function, rel ir.ExprRelational) (int, error) {
+	arg, err := e.emitExpression(fn, rel.Argument)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, rel.Argument)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+
+	switch rel.Fun {
+	case ir.RelationalIsNan:
+		ol := overloadForScalar(scalar)
+		dxFn := e.getDxOpUnaryFunc("dx.op.isNaN", ol)
+		opcodeVal := e.getIntConstID(int64(OpIsNaN))
+		return e.addCallInstr(dxFn, e.mod.GetIntType(1), []int{opcodeVal, arg}), nil
+
+	case ir.RelationalIsInf:
+		ol := overloadForScalar(scalar)
+		dxFn := e.getDxOpUnaryFunc("dx.op.isInf", ol)
+		opcodeVal := e.getIntConstID(int64(OpIsInf))
+		return e.addCallInstr(dxFn, e.mod.GetIntType(1), []int{opcodeVal, arg}), nil
+
+	case ir.RelationalAll:
+		// All components are true: for scalar bool, just return the value.
+		return arg, nil
+
+	case ir.RelationalAny:
+		// Any component is true: for scalar bool, just return the value.
+		return arg, nil
+
+	default:
+		return 0, fmt.Errorf("unsupported relational function: %d", rel.Fun)
 	}
 }

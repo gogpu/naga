@@ -2811,3 +2811,519 @@ func TestEmitLocalInLoop(t *testing.T) {
 	t.Logf("local-in-loop: %d BBs, alloca=%d, store=%d, load=%d, %d bytes bitcode",
 		len(mainFn.BasicBlocks), allocaCount, storeCount, loadCount, len(bc))
 }
+
+// --- Swizzle tests ---
+
+// buildSwizzleShader creates a fragment shader that swizzles vec4.xzy:
+//
+//	@fragment fn main(@location(0) v: vec4<f32>) -> @location(0) vec4<f32> {
+//	    return v.xzy;  // actually returns vec4(v.xzy, 1.0) for valid output
+//	}
+func buildSwizzleShader() *ir.Module {
+	vec4Handle := ir.TypeHandle(0)
+	vec3Handle := ir.TypeHandle(1)
+	f32Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+		},
+	}
+
+	vBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(3)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: vec4Handle, Binding: &vBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] v (vec4)
+			{Kind: ir.ExprSwizzle{ // [1] v.xzy (vec3)
+				Vector:  0,
+				Pattern: [4]ir.SwizzleComponent{0, 2, 1, 0}, // x, z, y
+				Size:    3,
+			}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [2] 1.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 1, 1, 2}}}, // [3] vec4 result (simplified)
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec4Handle}, // v
+			{Handle: &vec3Handle}, // swizzle
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &vec4Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+func TestEmitSwizzle(t *testing.T) {
+	irMod := buildSwizzleShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := findMainFunc(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("swizzle: %d functions, %d constants, %d bytes", len(mod.Functions), len(mod.Constants), len(bc))
+}
+
+// --- Derivative tests ---
+
+// buildDerivativeShader creates a fragment shader with a derivative expression.
+func buildDerivativeShader(axis ir.DerivativeAxis, control ir.DerivativeControl) *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	vBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(4)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: f32Handle, Binding: &vBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] v
+			{Kind: ir.ExprDerivative{Axis: axis, Control: control, Expr: 0}},      // [1] derivative
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [2] 0.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 2, 2, 3}}}, // [4] vec4
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},  // v
+			{Handle: &f32Handle},  // derivative
+			{Handle: &f32Handle},  // 0.0
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &vec4Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+func TestEmitDerivativeCoarseX(t *testing.T) {
+	irMod := buildDerivativeShader(ir.DerivativeX, ir.DerivativeCoarse)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify dx.op.derivCoarseX function was created.
+	found := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.derivCoarseX.f32" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("dx.op.derivCoarseX.f32 function not found")
+	}
+
+	mainFn := findMainFunc(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	hasCall := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil && instr.CalledFunc.Name == "dx.op.derivCoarseX.f32" {
+				hasCall = true
+			}
+		}
+	}
+	if !hasCall {
+		t.Error("no call to dx.op.derivCoarseX.f32 found in main")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("derivCoarseX: %d functions, %d bytes", len(mod.Functions), len(bc))
+}
+
+func TestEmitDerivativeFineY(t *testing.T) {
+	irMod := buildDerivativeShader(ir.DerivativeY, ir.DerivativeFine)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	found := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.derivFineY.f32" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("dx.op.derivFineY.f32 function not found")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("derivFineY: %d functions, %d bytes", len(mod.Functions), len(bc))
+}
+
+func TestEmitDerivativeWidth(t *testing.T) {
+	irMod := buildDerivativeShader(ir.DerivativeWidth, ir.DerivativeNone)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// fwidth decomposes into derivCoarseX + derivCoarseY + fabs + fadd.
+	hasDerivX := false
+	hasDerivY := false
+	hasFAbs := false
+	for _, fn := range mod.Functions {
+		switch fn.Name {
+		case "dx.op.derivCoarseX.f32":
+			hasDerivX = true
+		case "dx.op.derivCoarseY.f32":
+			hasDerivY = true
+		case "dx.op.fabs.f32":
+			hasFAbs = true
+		}
+	}
+	if !hasDerivX {
+		t.Error("dx.op.derivCoarseX.f32 not found (needed for fwidth)")
+	}
+	if !hasDerivY {
+		t.Error("dx.op.derivCoarseY.f32 not found (needed for fwidth)")
+	}
+	if !hasFAbs {
+		t.Error("dx.op.fabs.f32 not found (needed for fwidth)")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("fwidth: %d functions, %d bytes", len(mod.Functions), len(bc))
+}
+
+// --- Relational tests ---
+
+// buildRelationalShader creates a fragment shader with a relational expression.
+func buildRelationalShader(relFn ir.RelationalFunction) *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	boolHandle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+	}
+
+	vBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(5)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: f32Handle, Binding: &vBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] v
+			{Kind: ir.ExprRelational{Fun: relFn, Argument: 0}},                    // [1] relational(v)
+			{Kind: ir.ExprAs{Expr: 1, Kind: ir.ScalarFloat, Convert: ptrU8(4)}},   // [2] f32(result)
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3] 0.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4] 1.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 3, 3, 4}}}, // [5] vec4
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},  // v
+			{Handle: &boolHandle}, // relational result
+			{Handle: &f32Handle},  // cast to f32
+			{Handle: &f32Handle},  // 0.0
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &vec4Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+func TestEmitRelationalIsNaN(t *testing.T) {
+	irMod := buildRelationalShader(ir.RelationalIsNan)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	found := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.isNaN.f32" {
+			found = true
+			// Unary dx.op: ret(i32, TYPE) = 2 params.
+			if len(fn.FuncType.ParamTypes) != 2 {
+				t.Errorf("dx.op.isNaN.f32 params: got %d, want 2", len(fn.FuncType.ParamTypes))
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("dx.op.isNaN.f32 function not found")
+	}
+
+	mainFn := findMainFunc(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	hasCall := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil && instr.CalledFunc.Name == "dx.op.isNaN.f32" {
+				hasCall = true
+			}
+		}
+	}
+	if !hasCall {
+		t.Error("no call to dx.op.isNaN.f32 found in main")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("isNaN: %d functions, %d bytes", len(mod.Functions), len(bc))
+}
+
+func TestEmitRelationalIsInf(t *testing.T) {
+	irMod := buildRelationalShader(ir.RelationalIsInf)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	found := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.isInf.f32" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("dx.op.isInf.f32 function not found")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("isInf: %d functions, %d bytes", len(mod.Functions), len(bc))
+}
+
+// --- Error handling tests ---
+
+func TestEmitUnsupportedExpression(t *testing.T) {
+	// ExprArrayLength should return an error, not a placeholder.
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	vBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(1)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: f32Handle, Binding: &vBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] v
+			{Kind: ir.ExprArrayLength{Array: 0}},      // [1] arrayLength — not implemented
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	_, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err == nil {
+		t.Fatal("expected error for ExprArrayLength, got nil")
+	}
+	t.Logf("got expected error: %v", err)
+}
+
+func TestEmitUnsupportedStatement(t *testing.T) {
+	// StmtSwitch should return an error (not silently skip).
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	vBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(0)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: f32Handle, Binding: &vBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] v
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtSwitch{Selector: 0}}, // unsupported
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	_, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err == nil {
+		t.Fatal("expected error for StmtSwitch, got nil")
+	}
+	t.Logf("got expected error: %v", err)
+}
+
+func TestEmitStmtKillSilentSkip(t *testing.T) {
+	// StmtKill should be silently skipped (not error) since it's Phase 2.
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	vBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(0)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: f32Handle, Binding: &vBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] v
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+			{Kind: ir.StmtKill{}}, // should be silently skipped
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	_, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("StmtKill should be silently skipped, got error: %v", err)
+	}
+	t.Log("StmtKill correctly silently skipped")
+}
