@@ -28,6 +28,9 @@ type Emitter struct {
 	mainFn    *module.Function // the current function definition (for adding BBs)
 	nextValue int              // next value ID to assign within a function
 
+	// Maps local variable index to its alloca value ID (pointer).
+	localVarPtrs map[uint32]int
+
 	// Loop context stack for break/continue targets.
 	loopStack []loopContext
 
@@ -168,6 +171,7 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.currentBB = bb
 	e.exprValues = make(map[ir.ExpressionHandle]int)
 	e.exprComponents = make(map[ir.ExpressionHandle][]int)
+	e.localVarPtrs = make(map[uint32]int)
 	e.loopStack = e.loopStack[:0]
 
 	fn := &ep.Function

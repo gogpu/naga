@@ -76,6 +76,9 @@ const (
 	funcCodeInstSelect    = 29 // FUNC_CODE_INST_VSELECT
 	funcCodeInstCmp2      = 28 // FUNC_CODE_INST_CMP2
 	funcCodeInstCall      = 34
+	funcCodeInstAlloca    = 19
+	funcCodeInstLoad      = 20
+	funcCodeInstStore     = 44
 )
 
 // Metadata record codes.
@@ -506,6 +509,8 @@ func (s *serializer) globalValueCount() int {
 // emitInstruction writes a single instruction record.
 //
 // Reference: Mesa dxil_module.c emit_instr()
+//
+//nolint:gocyclo,cyclop,funlen // instruction dispatch requires handling all LLVM instruction kinds
 func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 	switch instr.Kind {
 	case InstrRet:
@@ -593,6 +598,42 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 			opDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
 			idx := uint64(instr.Operands[1])                      //nolint:gosec // index is small positive int
 			s.w.EmitRecord(26, []uint64{opDelta, idx})            // FUNC_CODE_INST_EXTRACTVAL = 26
+		}
+
+	case InstrAlloca:
+		// ALLOCA: [alloc_type_id, size_type_id, size_value_delta, align_flags]
+		// Operands: [allocTypeID, sizeTypeID, sizeValueID, alignFlags]
+		if len(instr.Operands) >= 4 {
+			allocTypeID := uint64(instr.Operands[0]) //nolint:gosec // type ID
+			sizeTypeID := uint64(instr.Operands[1])  //nolint:gosec // type ID
+			sizeID := uint64(instr.Operands[2])      //nolint:gosec // value ID (absolute, not delta)
+			alignFlags := uint64(instr.Operands[3])  //nolint:gosec // alignment flags
+			s.w.EmitRecord(funcCodeInstAlloca, []uint64{allocTypeID, sizeTypeID, sizeID, alignFlags})
+		}
+
+	case InstrLoad:
+		// LOAD: [ptr_delta, type_id, align, is_volatile]
+		// Operands: [ptrValueID, typeID, align, isVolatile]
+		if len(instr.Operands) >= 4 {
+			ptrDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
+			typeID := uint64(instr.Operands[1])                    //nolint:gosec // type ID
+			align := uint64(instr.Operands[2])                     //nolint:gosec // alignment
+			isVolatile := uint64(instr.Operands[3])                //nolint:gosec // 0 or 1
+			s.w.EmitRecord(funcCodeInstLoad, []uint64{ptrDelta, typeID, align, isVolatile})
+		}
+
+	case InstrStore:
+		// STORE: [ptr_delta, value_delta, align, is_volatile]
+		// Operands: [ptrValueID, valueID, align, isVolatile]
+		// Store does not produce a value, but uses currentValueID for deltas.
+		// Mesa uses instr->value.id for delta computation even though store has no result.
+		// In our model, the "virtual" ID is currentValueID (next would-be value).
+		if len(instr.Operands) >= 4 {
+			ptrDelta := uint64(currentValueID - instr.Operands[0])   //nolint:gosec // delta always positive
+			valueDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always positive
+			align := uint64(instr.Operands[2])                       //nolint:gosec // alignment
+			isVolatile := uint64(instr.Operands[3])                  //nolint:gosec // 0 or 1
+			s.w.EmitRecord(funcCodeInstStore, []uint64{ptrDelta, valueDelta, align, isVolatile})
 		}
 	}
 }

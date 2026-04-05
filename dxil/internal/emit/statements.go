@@ -160,20 +160,38 @@ func (e *Emitter) emitReturnComposite(fn *ir.Function, valueID int, inner ir.Typ
 }
 
 // emitStmtStore handles store statements.
+//
 // In naga IR, stores write a value through a pointer expression.
+// In DXIL, this emits an LLVM store instruction:
+//
+//	store TYPE %value, TYPE* %ptr, align N
+//
+// Reference: Mesa nir_to_dxil.c dxil_emit_store()
 func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
-	// Evaluate pointer and value.
-	_, err := e.emitExpression(fn, store.Pointer)
+	ptr, err := e.emitExpression(fn, store.Pointer)
 	if err != nil {
 		return fmt.Errorf("store pointer: %w", err)
 	}
-	_, err = e.emitExpression(fn, store.Value)
+	value, err := e.emitExpression(fn, store.Value)
 	if err != nil {
 		return fmt.Errorf("store value: %w", err)
 	}
-	// In the simplified model, stores through local variables are
-	// handled implicitly via value numbering. The pointer expression
-	// is mapped to the same value as the stored value.
+
+	// Resolve the stored value's type for alignment.
+	storedTy, err := e.resolveLoadType(fn, store.Pointer)
+	if err != nil {
+		return fmt.Errorf("store type resolution: %w", err)
+	}
+	align := e.alignForType(storedTy)
+
+	// Emit LLVM store instruction (no value produced).
+	instr := &module.Instruction{
+		Kind:        module.InstrStore,
+		HasValue:    false,
+		Operands:    []int{ptr, value, align, 0}, // ptr, value, align, isVolatile
+		ReturnValue: -1,
+	}
+	e.currentBB.AddInstruction(instr)
 	return nil
 }
 

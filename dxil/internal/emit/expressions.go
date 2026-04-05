@@ -54,8 +54,7 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		valueID, err = e.emitLoad(fn, ek)
 
 	case ir.ExprLocalVariable:
-		// Pointer to local variable. For now, treat as the value itself.
-		valueID = e.allocValue()
+		valueID, err = e.emitLocalVariable(fn, ek)
 
 	case ir.ExprGlobalVariable:
 		// Global variable reference. For now, treat as a constant.
@@ -999,8 +998,162 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	// In the simplified model, just return the pointer value.
-	return ptr, nil
+
+	// Resolve the loaded type from the pointer's target type.
+	loadedTy, err := e.resolveLoadType(fn, load.Pointer)
+	if err != nil {
+		return 0, fmt.Errorf("load type resolution: %w", err)
+	}
+
+	// Emit LLVM load instruction: %val = load TYPE, TYPE* %ptr, align N
+	valueID := e.allocValue()
+	align := e.alignForType(loadedTy)
+	instr := &module.Instruction{
+		Kind:       module.InstrLoad,
+		HasValue:   true,
+		ResultType: loadedTy,
+		Operands:   []int{ptr, loadedTy.ID, align, 0}, // ptr, typeID, align, isVolatile
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return valueID, nil
+}
+
+// emitLocalVariable emits an alloca for the local variable (on first use)
+// and returns the pointer value ID.
+//
+// DXIL uses the standard LLVM stack allocation pattern:
+//
+//	%ptr = alloca TYPE, i32 1, align N
+//
+// Reference: Mesa nir_to_dxil.c emit_scratch() — dxil_emit_alloca(mod, type, 1, 16)
+func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (int, error) {
+	// Return cached alloca pointer if already emitted.
+	if ptr, ok := e.localVarPtrs[lv.Variable]; ok {
+		return ptr, nil
+	}
+
+	if int(lv.Variable) >= len(fn.LocalVars) {
+		return 0, fmt.Errorf("local variable index %d out of range (function has %d vars)", lv.Variable, len(fn.LocalVars))
+	}
+
+	localVar := &fn.LocalVars[lv.Variable]
+	irType := e.ir.Types[localVar.Type]
+
+	// Resolve the DXIL element type for the allocation.
+	elemTy, err := typeToDXIL(e.mod, e.ir, irType.Inner)
+	if err != nil {
+		return 0, fmt.Errorf("local var %q type: %w", localVar.Name, err)
+	}
+
+	// Create pointer type for the result.
+	ptrTy := e.mod.GetPointerType(elemTy)
+
+	// Size operand: i32 constant 1 (allocate a single element).
+	sizeID := e.getIntConstID(1)
+
+	// Alignment: log2(align) + 1, with bit 6 set (Mesa convention).
+	// Mesa uses 16-byte alignment for scratch variables.
+	align := e.alignForType(elemTy)
+	alignFlags := align | (1 << 6) // bit 6 = InAlloca flag in LLVM encoding
+
+	valueID := e.allocValue()
+	i32Ty := e.mod.GetIntType(32)
+	instr := &module.Instruction{
+		Kind:       module.InstrAlloca,
+		HasValue:   true,
+		ResultType: ptrTy,
+		Operands:   []int{elemTy.ID, i32Ty.ID, sizeID, alignFlags},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+
+	e.localVarPtrs[lv.Variable] = valueID
+	return valueID, nil
+}
+
+// resolveLoadType determines the DXIL type produced by loading from the given
+// pointer expression. It examines the pointer expression kind (local variable
+// or global variable) to find the element type.
+func (e *Emitter) resolveLoadType(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*module.Type, error) {
+	expr := fn.Expressions[ptrHandle]
+	switch pk := expr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		if int(pk.Variable) >= len(fn.LocalVars) {
+			return nil, fmt.Errorf("local variable %d out of range", pk.Variable)
+		}
+		lv := &fn.LocalVars[pk.Variable]
+		irType := e.ir.Types[lv.Type]
+		return typeToDXIL(e.mod, e.ir, irType.Inner)
+
+	case ir.ExprGlobalVariable:
+		if int(pk.Variable) >= len(e.ir.GlobalVariables) {
+			return nil, fmt.Errorf("global variable %d out of range", pk.Variable)
+		}
+		gv := &e.ir.GlobalVariables[pk.Variable]
+		irType := e.ir.Types[gv.Type]
+		return typeToDXIL(e.mod, e.ir, irType.Inner)
+
+	default:
+		return e.resolveLoadTypeFromExpressionInfo(fn, ptrHandle)
+	}
+}
+
+// resolveLoadTypeFromExpressionInfo resolves the loaded type by examining
+// the ExpressionTypes metadata for the pointer expression.
+func (e *Emitter) resolveLoadTypeFromExpressionInfo(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*module.Type, error) {
+	if int(ptrHandle) >= len(fn.ExpressionTypes) {
+		return e.mod.GetIntType(32), nil
+	}
+	res := fn.ExpressionTypes[ptrHandle]
+
+	if res.Handle != nil && int(*res.Handle) < len(e.ir.Types) {
+		irType := e.ir.Types[*res.Handle]
+		if pt, ok := irType.Inner.(ir.PointerType); ok {
+			baseType := e.ir.Types[pt.Base]
+			return typeToDXIL(e.mod, e.ir, baseType.Inner)
+		}
+		return typeToDXIL(e.mod, e.ir, irType.Inner)
+	}
+
+	if res.Value != nil {
+		if pt, ok := res.Value.(ir.PointerType); ok {
+			baseType := e.ir.Types[pt.Base]
+			return typeToDXIL(e.mod, e.ir, baseType.Inner)
+		}
+	}
+
+	return e.mod.GetIntType(32), nil
+}
+
+// alignForType returns the alignment value for a DXIL type.
+// For alloca this is encoded as log2(bytes)+1, for load/store it's log2(bytes).
+// Uses the natural alignment of the type.
+func (e *Emitter) alignForType(ty *module.Type) int {
+	switch ty.Kind {
+	case module.TypeFloat:
+		switch ty.FloatBits {
+		case 16:
+			return 1 // log2(2) = 1
+		case 64:
+			return 3 // log2(8) = 3
+		default:
+			return 2 // log2(4) = 2 for f32
+		}
+	case module.TypeInteger:
+		switch ty.IntBits {
+		case 1, 8:
+			return 0 // log2(1) = 0
+		case 16:
+			return 1 // log2(2) = 1
+		case 64:
+			return 3 // log2(8) = 3
+		default:
+			return 2 // log2(4) = 2 for i32
+		}
+	default:
+		return 2 // default 4-byte alignment
+	}
 }
 
 // emitZeroValue emits a zero-initialized constant.

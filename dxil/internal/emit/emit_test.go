@@ -2361,3 +2361,453 @@ func TestEmitNestedIfLoop(t *testing.T) {
 	t.Logf("nested if/loop: %d BBs, %d branches, %d bytes bitcode",
 		len(mainFn.BasicBlocks), brCount, len(bc))
 }
+
+// --- Local Variable Tests (alloca + load + store) ---
+
+// buildLocalVarShader creates a shader with a local variable:
+//
+//	@fragment fn main() -> @location(0) vec4<f32> {
+//	    var x: f32 = 1.0;
+//	    x = 2.0;
+//	    return vec4(x, x, x, 1.0);
+//	}
+//
+// IR pattern:
+//
+//	LocalVars: [{Name: "x", Type: f32, Init: nil}]
+//	Expressions:
+//	  [0] ExprLocalVariable{Variable: 0}  → pointer to x
+//	  [1] Literal(1.0)
+//	  [2] ExprLocalVariable{Variable: 0}  → pointer to x (for second store)
+//	  [3] Literal(2.0)
+//	  [4] ExprLocalVariable{Variable: 0}  → pointer to x (for load)
+//	  [5] ExprLoad{Pointer: 4}            → loaded value of x
+//	  [6] Literal(1.0)
+//	  [7] ExprCompose{5, 5, 5, 6}         → vec4(x, x, x, 1.0)
+//	Body:
+//	  StmtStore{Pointer: 0, Value: 1}     → x = 1.0
+//	  StmtEmit{Range: 2..4}
+//	  StmtStore{Pointer: 2, Value: 3}     → x = 2.0
+//	  StmtEmit{Range: 4..8}
+//	  StmtReturn{Value: 7}
+func buildLocalVarShader() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4f32Handle := ir.TypeHandle(1)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(7)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		LocalVars: []ir.LocalVariable{
+			{Name: "x", Type: f32Handle},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                             // [0] &x
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [1] 1.0
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                             // [2] &x
+			{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},                         // [3] 2.0
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                             // [4] &x
+			{Kind: ir.ExprLoad{Pointer: 4}},                                       // [5] load x
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [6] 1.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{5, 5, 5, 6}}}, // [7] vec4(x, x, x, 1.0)
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},     // &x → pointer
+			{Handle: &f32Handle},     // 1.0
+			{Handle: &f32Handle},     // &x
+			{Handle: &f32Handle},     // 2.0
+			{Handle: &f32Handle},     // &x
+			{Handle: &f32Handle},     // load x → f32
+			{Handle: &f32Handle},     // 1.0
+			{Handle: &vec4f32Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 4}}},
+			{Kind: ir.StmtStore{Pointer: 2, Value: 3}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 8}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildMultipleLocalsShader creates a shader with two independent local variables:
+//
+//	@fragment fn main() -> @location(0) vec4<f32> {
+//	    var a: f32 = 1.0;
+//	    var b: f32 = 2.0;
+//	    return vec4(a, b, 0.0, 1.0);
+//	}
+func buildMultipleLocalsShader() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4f32Handle := ir.TypeHandle(1)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(10)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		LocalVars: []ir.LocalVariable{
+			{Name: "a", Type: f32Handle},
+			{Name: "b", Type: f32Handle},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                             // [0] &a
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [1] 1.0
+			{Kind: ir.ExprLocalVariable{Variable: 1}},                             // [2] &b
+			{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},                         // [3] 2.0
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                             // [4] &a (for load)
+			{Kind: ir.ExprLoad{Pointer: 4}},                                       // [5] load a
+			{Kind: ir.ExprLocalVariable{Variable: 1}},                             // [6] &b (for load)
+			{Kind: ir.ExprLoad{Pointer: 6}},                                       // [7] load b
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [8] 0.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [9] 1.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{5, 7, 8, 9}}}, // [10] vec4(a, b, 0, 1)
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &f32Handle},
+			{Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &f32Handle},
+			{Handle: &f32Handle}, {Handle: &f32Handle}, {Handle: &vec4f32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
+			{Kind: ir.StmtStore{Pointer: 2, Value: 3}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 11}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildLocalInLoopShader creates a shader with a local variable modified inside a loop:
+//
+//	@fragment fn main() -> @location(0) vec4<f32> {
+//	    var acc: f32 = 0.0;
+//	    var i: i32 = 0;
+//	    loop {
+//	        if i >= 4 { break; }
+//	        acc = acc + 1.0;
+//	        continuing { i = i + 1; }
+//	    }
+//	    return vec4(acc, acc, acc, 1.0);
+//	}
+func buildLocalInLoopShader() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4f32Handle := ir.TypeHandle(1)
+	i32Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		LocalVars: []ir.LocalVariable{
+			{Name: "acc", Type: f32Handle},
+			{Name: "i", Type: i32Handle},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                           // [0] &acc
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                       // [1] 0.0
+			{Kind: ir.ExprLocalVariable{Variable: 1}},                           // [2] &i
+			{Kind: ir.Literal{Value: ir.LiteralI32(0)}},                         // [3] 0
+			{Kind: ir.ExprLocalVariable{Variable: 1}},                           // [4] &i (for load)
+			{Kind: ir.ExprLoad{Pointer: 4}},                                     // [5] load i
+			{Kind: ir.Literal{Value: ir.LiteralI32(4)}},                         // [6] 4
+			{Kind: ir.ExprBinary{Op: ir.BinaryGreaterEqual, Left: 5, Right: 6}}, // [7] i >= 4
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                           // [8] &acc (for load)
+			{Kind: ir.ExprLoad{Pointer: 8}},                                     // [9] load acc
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                       // [10] 1.0
+			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 9, Right: 10}},         // [11] acc + 1.0
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                           // [12] &acc (for store)
+			{Kind: ir.ExprLocalVariable{Variable: 1}},                           // [13] &i (for load in continuing)
+			{Kind: ir.ExprLoad{Pointer: 13}},                                    // [14] load i
+			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},                         // [15] 1
+			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 14, Right: 15}},        // [16] i + 1
+			// After loop: load acc, compose, return
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                                 // [17] &acc
+			{Kind: ir.ExprLoad{Pointer: 17}},                                          // [18] load acc (final)
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                             // [19] 1.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{18, 18, 18, 19}}}, // [20] vec4(acc, acc, acc, 1.0)
+		},
+		ExpressionTypes: func() []ir.TypeResolution {
+			res := make([]ir.TypeResolution, 21)
+			for i := range res {
+				res[i] = ir.TypeResolution{Handle: &f32Handle}
+			}
+			// Fix types for i32 expressions.
+			res[2] = ir.TypeResolution{Handle: &i32Handle}
+			res[3] = ir.TypeResolution{Handle: &i32Handle}
+			res[4] = ir.TypeResolution{Handle: &i32Handle}
+			res[5] = ir.TypeResolution{Handle: &i32Handle}
+			res[6] = ir.TypeResolution{Handle: &i32Handle}
+			res[13] = ir.TypeResolution{Handle: &i32Handle}
+			res[14] = ir.TypeResolution{Handle: &i32Handle}
+			res[15] = ir.TypeResolution{Handle: &i32Handle}
+			res[16] = ir.TypeResolution{Handle: &i32Handle}
+			res[20] = ir.TypeResolution{Handle: &vec4f32Handle}
+			return res
+		}(),
+		Body: []ir.Statement{
+			// Initialize locals.
+			{Kind: ir.StmtStore{Pointer: 0, Value: 1}}, // acc = 0.0
+			{Kind: ir.StmtStore{Pointer: 2, Value: 3}}, // i = 0
+			// Loop.
+			{Kind: ir.StmtLoop{
+				Body: ir.Block{
+					// if i >= 4 { break; }
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 8}}},
+					{Kind: ir.StmtIf{
+						Condition: 7,
+						Accept:    ir.Block{{Kind: ir.StmtBreak{}}},
+					}},
+					// acc = acc + 1.0
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 8, End: 12}}},
+					{Kind: ir.StmtStore{Pointer: 12, Value: 11}},
+				},
+				Continuing: ir.Block{
+					// i = i + 1
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 13, End: 17}}},
+					{Kind: ir.StmtStore{Pointer: 13, Value: 16}},
+				},
+			}},
+			// After loop: return vec4(acc, acc, acc, 1.0).
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 17, End: 21}}},
+			{Kind: ir.StmtReturn{Value: func() *ir.ExpressionHandle { h := ir.ExpressionHandle(20); return &h }()}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+func TestEmitLocalVariable(t *testing.T) {
+	irMod := buildLocalVarShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Verify alloca instruction was emitted.
+	allocaCount := countInstrKind(mod, module.InstrAlloca)
+	if allocaCount != 1 {
+		t.Errorf("expected 1 alloca instruction, got %d", allocaCount)
+	}
+
+	// Verify store instructions were emitted (2 stores: x = 1.0 and x = 2.0).
+	storeCount := countInstrKind(mod, module.InstrStore)
+	if storeCount != 2 {
+		t.Errorf("expected 2 store instructions, got %d", storeCount)
+	}
+
+	// Verify load instruction was emitted.
+	loadCount := countInstrKind(mod, module.InstrLoad)
+	if loadCount != 1 {
+		t.Errorf("expected 1 load instruction, got %d", loadCount)
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("local-var: alloca=%d, store=%d, load=%d, %d bytes bitcode",
+		allocaCount, storeCount, loadCount, len(bc))
+}
+
+func TestEmitStoreLoad(t *testing.T) {
+	irMod := buildLocalVarShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Verify that store and load produce different instruction kinds.
+	foundStore := false
+	foundLoad := false
+	foundAlloca := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			switch instr.Kind {
+			case module.InstrStore:
+				foundStore = true
+				// Store should NOT have a value (it's a void operation).
+				if instr.HasValue {
+					t.Error("store instruction should not produce a value")
+				}
+			case module.InstrLoad:
+				foundLoad = true
+				// Load SHOULD produce a value.
+				if !instr.HasValue {
+					t.Error("load instruction should produce a value")
+				}
+			case module.InstrAlloca:
+				foundAlloca = true
+				// Alloca produces a pointer value.
+				if !instr.HasValue {
+					t.Error("alloca instruction should produce a value")
+				}
+				if instr.ResultType == nil || instr.ResultType.Kind != module.TypePointer {
+					t.Error("alloca result type should be a pointer")
+				}
+			}
+		}
+	}
+
+	if !foundAlloca {
+		t.Error("expected to find alloca instruction")
+	}
+	if !foundStore {
+		t.Error("expected to find store instruction")
+	}
+	if !foundLoad {
+		t.Error("expected to find load instruction")
+	}
+}
+
+func TestEmitMultipleLocals(t *testing.T) {
+	irMod := buildMultipleLocalsShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Two local variables should produce exactly 2 alloca instructions.
+	allocaCount := countInstrKind(mod, module.InstrAlloca)
+	if allocaCount != 2 {
+		t.Errorf("expected 2 alloca instructions for 2 local vars, got %d", allocaCount)
+	}
+
+	// 2 stores (a = 1.0, b = 2.0).
+	storeCount := countInstrKind(mod, module.InstrStore)
+	if storeCount != 2 {
+		t.Errorf("expected 2 store instructions, got %d", storeCount)
+	}
+
+	// 2 loads (load a, load b).
+	loadCount := countInstrKind(mod, module.InstrLoad)
+	if loadCount != 2 {
+		t.Errorf("expected 2 load instructions, got %d", loadCount)
+	}
+
+	// Verify alloca result types are pointer types to f32.
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrAlloca {
+				if instr.ResultType == nil || instr.ResultType.Kind != module.TypePointer {
+					t.Errorf("alloca should produce pointer type, got %v", instr.ResultType)
+				}
+			}
+		}
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("multiple-locals: alloca=%d, store=%d, load=%d, %d bytes bitcode",
+		allocaCount, storeCount, loadCount, len(bc))
+}
+
+func TestEmitLocalInLoop(t *testing.T) {
+	irMod := buildLocalInLoopShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Two local variables: acc (f32) and i (i32).
+	allocaCount := countInstrKind(mod, module.InstrAlloca)
+	if allocaCount != 2 {
+		t.Errorf("expected 2 alloca instructions (acc + i), got %d", allocaCount)
+	}
+
+	// Multiple stores: initial stores + stores inside loop body and continuing.
+	storeCount := countInstrKind(mod, module.InstrStore)
+	if storeCount < 4 {
+		t.Errorf("expected at least 4 store instructions, got %d", storeCount)
+	}
+
+	// Multiple loads: loop condition + loop body + after loop.
+	loadCount := countInstrKind(mod, module.InstrLoad)
+	if loadCount >= 1 {
+		t.Logf("local-in-loop: alloca=%d, store=%d, load=%d", allocaCount, storeCount, loadCount)
+	} else {
+		t.Errorf("expected at least 1 load instruction, got %d", loadCount)
+	}
+
+	// Verify loop structure (multiple basic blocks).
+	if len(mainFn.BasicBlocks) < 5 {
+		t.Errorf("expected at least 5 basic blocks for loop, got %d", len(mainFn.BasicBlocks))
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("local-in-loop: %d BBs, alloca=%d, store=%d, load=%d, %d bytes bitcode",
+		len(mainFn.BasicBlocks), allocaCount, storeCount, loadCount, len(bc))
+}
