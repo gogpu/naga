@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (398 symbols scanned across 6 packages): `flattenBinding` (glsl), 
   `concretizeTypeInner` (ir/compact), `resolveLiteralTypeInner` (ir/process_overrides).
 
+### Performance
+
+- **TypeRegistry zero-alloc lookups** — Refactored `normalizeType()` to `appendTypeKey()`
+  using `keyBuf []byte` with inline `string(keyBuf)` map index (Go compiler optimization).
+  Eliminates heap string allocation per type lookup. large_pbr: -59 allocs/op.
+- **Lexer token preallocation** — Token slice estimate `len(source)/4` (was `/6`).
+  Prevents slice regrowth for typical shaders.
+- **Overall: 594 → 569 allocs/op (-4.2%), ~23% faster median.**
+
 ## [0.16.4] - 2026-04-04
 
 ### Fixed
