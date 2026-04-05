@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Pure Go Shader Compiler</strong><br>
-  WGSL to SPIR-V, MSL, GLSL, and HLSL. Zero CGO.
+  WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.
 </p>
 
 <p align="center">
@@ -35,10 +35,10 @@
 | Category | Capabilities |
 |----------|--------------|
 | **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors |
-| **Outputs** | SPIR-V, MSL, GLSL, HLSL |
+| **Outputs** | SPIR-V, MSL, GLSL, HLSL, DXIL (experimental) |
 | **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
 | **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |
-| **Compatibility** | **144/144 (100%)** reference shaders compile. Five-layer exact match: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 58/58** — complete Rust naga parity on all backends |
+| **Compatibility** | **144/144 (100%)** reference shaders compile. Five-layer exact match: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 72/72** — complete Rust naga parity on all backends |
 | **Build** | Zero CGO, single binary |
 
 ---
@@ -47,7 +47,7 @@
 
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`, etc.), abstract constructors (`vec3(1,2,3)`)
-- **Rust Naga Compatibility** — **144/144 (100%)** reference shaders compile. Five-layer exact match: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 58/58** — complete Rust naga parity on all backends. 164 snapshot tests with 994 golden outputs
+- **Rust Naga Compatibility** — **144/144 (100%)** reference shaders compile. Five-layer exact match: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 72/72** — complete Rust naga parity on all backends. 164 snapshot tests with 994 golden outputs
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
 - **Atomic Operations** — atomicAdd, atomicSub, atomicMin, atomicMax, atomicCompareExchangeWeak
@@ -62,6 +62,7 @@
 - **MSL Backend** — Metal Shading Language output for macOS/iOS (**91/91 exact Rust naga parity**), vertex pulling transform, external textures, override pipeline constants
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+ (**68/68 exact Rust naga parity**), dead code elimination, ProcessOverrides, image bounds checking
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12 (**58/58 exact Rust naga parity**)
+- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR. LLVM 3.7 bitcode with dx.op intrinsics, DXBC container with BYPASS hash. Vertex + fragment shaders, SM 6.0. Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~12K LOC, 190 tests.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -165,8 +166,11 @@ mslCode, _, _ := msl.Compile(module, msl.DefaultOptions())
 // Generate GLSL (OpenGL)
 glslCode, _, _ := glsl.Compile(module, glsl.DefaultOptions())
 
-// Generate HLSL (DirectX)
+// Generate HLSL (DirectX 11/12)
 hlslCode, _, _ := hlsl.Compile(module, hlsl.DefaultOptions())
+
+// Generate DXIL (DirectX 12, SM 6.0 — experimental)
+dxilBytes, _ := dxil.Compile(module, dxil.DefaultOptions())
 ```
 
 ### Individual Stages
@@ -330,7 +334,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
 ### Rust Naga Compatibility
 
-naga is tested against **all 144 reference WGSL shaders** from the [Rust naga](https://github.com/gfx-rs/naga) test suite — **100% compatibility** across all five layers: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 58/58** exact output match. Total: 164 test shaders with 994 golden outputs.
+naga is tested against **all 144 reference WGSL shaders** from the [Rust naga](https://github.com/gfx-rs/naga) test suite — **100% compatibility** across all five layers: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 72/72** exact output match. Total: 164 test shaders with 994 golden outputs.
 
 ---
 

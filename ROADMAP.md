@@ -19,17 +19,18 @@
 
 ---
 
-## Current State: v0.16.1 (2026-04-04)
+## Current State: v0.17.0 (2026-04-06)
 
-✅ **Production-ready** shader compiler (~90K LOC) with **complete Rust naga parity**
-and **100% SPIR-V binary validation**:
+✅ **Production-ready** shader compiler (~102K LOC) with **complete Rust naga parity**,
+**100% SPIR-V binary validation**, and **experimental DXIL backend**:
 
 ### What We Have
 
 - **Full WGSL frontend** — Lexer (120+ tokens), parser, AST → IR lowerer
-- **4 backend outputs** — SPIR-V, MSL, GLSL, HLSL — all at 100% Rust naga golden parity
+- **5 backend outputs** — SPIR-V, MSL, GLSL, HLSL — all at 100% Rust naga golden parity. DXIL (experimental) — first Pure Go DXIL generator
 - **164/164 SPIR-V binary validation** — every shader compiles and passes spirv-val (100%)
-- **Five-layer exact match** — IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58
+- **Five-layer exact match** — IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 72/72
+- **DXIL backend** — Direct DXIL generation (SM 6.0), verified 2400+ frames at 60 FPS on D3D12. Eliminates FXC/DXC dependency. ~12.5K LOC, 190 tests. Rust naga has not implemented this (open issue since 2020)
 - **100+ WGSL built-in functions** — math, geometric, bit manipulation, packing, derivatives
 - **Compute shaders** — atomics (int32/int64/float32), barriers, workgroups, runtime-sized arrays
 - **Ray tracing** — ray query types, acceleration structures, 7 ray query builtins
@@ -62,10 +63,10 @@ and **100% SPIR-V binary validation**:
 
 | Task | Priority | Effort | Description |
 |------|----------|--------|-------------|
-| **DXIL-000: Bitcode writer** | P1 | 8 | LLVM 3.7 bitcode writer in pure Go (`dxil/internal/bitcode/`) |
-| **DXIL-001: MVP vertex+fragment** | P1 | 13 | naga IR → DXIL for basic rendering (`dxil/internal/emit/`) |
-| **DXIL-002: Compute shaders** | P2 | 5 | UAV, atomics, barriers for GPU compute |
-| **DXIL-003: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, mesh shaders, dynamic resources |
+| **DXIL Phase 0: Bitcode writer** | P1 | 8 | ✅ Done. LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash. |
+| **DXIL Phase 1: Vertex+fragment** | P1 | 21 | ✅ Done. Full IR → DXIL lowering: math, casts, control flow, locals, resources, signatures. 190 tests, ~12.5K LOC. |
+| **DXIL Phase 2: Compute shaders** | P2 | 5 | UAV, atomics, barriers, thread ID intrinsics |
+| **DXIL Phase 3: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, mesh shaders, dynamic resources |
 
 ### v1.0.0 — Stable Release
 
@@ -78,7 +79,7 @@ and **100% SPIR-V binary validation**:
 | Subgroup operations | ✅ Done | Ballot, shuffle, broadcast, quad |
 | Mesh shaders | ✅ Done | MeshEXT/TaskEXT |
 | Internal packages | Planned | ARCH-001: `internal/` for all backends |
-| DXIL backend | Planned | Direct DXIL, no FXC dependency |
+| DXIL backend | ✅ Phase 1 done | Direct DXIL, no FXC dependency (~12.5K LOC, 190 tests) |
 | API stability guarantee | Planned | Semantic versioning contract |
 | Test coverage 80%+ | Planned | awesome-go requirement, after ARCH-001 |
 
