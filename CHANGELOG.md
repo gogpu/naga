@@ -5,13 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.16.5] - 2026-04-05
-
-### Changed
-
-- **Dead code removal** — Removed 3 unused functions found by full codebase audit
-  (398 symbols scanned across 6 packages): `flattenBinding` (glsl), 
-  `concretizeTypeInner` (ir/compact), `resolveLiteralTypeInner` (ir/process_overrides).
+## [0.16.6] - 2026-04-05
 
 ### Performance
 
@@ -20,14 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Eliminates heap string allocation per type lookup. large_pbr: -59 allocs/op.
 - **Lexer token preallocation** — Token slice estimate `len(source)/4` (was `/6`).
   Prevents slice regrowth for typical shaders.
-- **Overall: 594 → 569 allocs/op (-4.2%), ~23% faster median.**
 - **SPIR-V Backend reuse** — `Backend.Reset()` + `ModuleBuilder.Reset()` clear
   all state without deallocating (Go 1.21+ `clear()` keeps map capacity).
   `Compile()` calls `Reset()` internally. Small shaders: 4.9× fewer allocs
   (68→14), 14× fewer bytes (17KB→1.2KB). Reuse benchmarks included.
 - **Lowerer/Parser pre-sizing** — Expression, statement, declaration slices
   pre-allocated based on AST size estimates. TypeRegistry capacity hints.
-  Modest improvement (-6 allocs/op) — interface boxing remains the main bottleneck.
+- **Overall: 594 → 562 allocs/op (-5.4%). SPIR-V reuse: 68 → 14 allocs (4.9×).**
+
+## [0.16.5] - 2026-04-05
+
+### Changed
+
+- **Dead code removal** — Removed 3 unused functions found by full codebase audit
+  (398 symbols scanned across 6 packages): `flattenBinding` (glsl), 
+  `concretizeTypeInner` (ir/compact), `resolveLiteralTypeInner` (ir/process_overrides).
 
 ## [0.16.4] - 2026-04-04
 
