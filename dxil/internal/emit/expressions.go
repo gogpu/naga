@@ -59,8 +59,16 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		valueID, err = e.emitLocalVariable(fn, ek)
 
 	case ir.ExprGlobalVariable:
-		// Global variable reference. For now, treat as a constant.
-		valueID = e.allocValue()
+		// If this is a resource binding, return the pre-created handle ID.
+		if handleID, found := e.getResourceHandleID(ek.Variable); found {
+			valueID = handleID
+		} else {
+			// Non-resource global variable — allocate a placeholder value.
+			valueID = e.allocValue()
+		}
+
+	case ir.ExprImageSample:
+		valueID, err = e.emitImageSample(fn, ek)
 
 	case ir.ExprZeroValue:
 		valueID, err = e.emitZeroValue(ek)

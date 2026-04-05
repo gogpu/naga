@@ -49,6 +49,13 @@ type Emitter struct {
 	// pendingComponents holds per-component IDs from the last
 	// emitCompose call. Used by emitExpression to store in exprComponents.
 	pendingComponents []int
+
+	// Resource bindings: analyzed from GlobalVariables.
+	resources       []resourceInfo
+	resourceHandles map[ir.GlobalVariableHandle]int // global var handle -> index in resources
+
+	// Cached DXIL resource types (lazily created).
+	dxHandleType *module.Type
 }
 
 // loopContext holds the branch targets for the innermost loop,
@@ -108,15 +115,16 @@ func Emit(irMod *ir.Module, opts EmitOptions) (*module.Module, error) {
 	mod.MinorVersion = opts.ShaderModelMinor
 
 	e := &Emitter{
-		ir:          irMod,
-		mod:         mod,
-		opts:        opts,
-		exprValues:  make(map[ir.ExpressionHandle]int),
-		dxOpFuncs:   make(map[dxOpKey]*module.Function),
-		intConsts:   make(map[int64]int),
-		floatConsts: make(map[uint64]int),
-		undefID:     -1,
-		constMap:    make(map[int]*module.Constant),
+		ir:              irMod,
+		mod:             mod,
+		opts:            opts,
+		exprValues:      make(map[ir.ExpressionHandle]int),
+		dxOpFuncs:       make(map[dxOpKey]*module.Function),
+		intConsts:       make(map[int64]int),
+		floatConsts:     make(map[uint64]int),
+		undefID:         -1,
+		constMap:        make(map[int]*module.Constant),
+		resourceHandles: make(map[ir.GlobalVariableHandle]int),
 	}
 
 	if err := e.emitEntryPoint(ep); err != nil {
@@ -176,10 +184,16 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 
 	fn := &ep.Function
 
+	// Analyze and create resource bindings before function body emission.
+	e.analyzeResources()
+
 	// Emit I/O: load inputs into value map, then emit function body,
 	// then store outputs. At this point we use temporary IDs starting
 	// from 0. These will be adjusted in finalize().
 	e.nextValue = 0
+
+	e.emitResourceHandles()
+
 	if err := e.emitInputLoads(fn, ep.Stage); err != nil {
 		return fmt.Errorf("input loads: %w", err)
 	}
@@ -310,14 +324,17 @@ func (e *Emitter) emitMetadata(_ *ir.EntryPoint, kind module.ShaderKind) {
 	mdSM := e.mod.AddMetadataTuple([]*module.MetadataNode{mdKind, mdSMMajor, mdSMMinor})
 	e.mod.AddNamedMetadata("dx.shaderModel", []*module.MetadataNode{mdSM})
 
-	// dx.entryPoints = !{!{null, !"main", null, null, null}}
+	// Emit resource metadata if we have any resources.
+	mdResources := e.emitResourceMetadata()
+
+	// dx.entryPoints = !{!{null, !"main", null, !resources, null}}
 	mdName := e.mod.AddMetadataString("main")
 	mdEntry := e.mod.AddMetadataTuple([]*module.MetadataNode{
-		nil,    // function ref (simplified)
-		mdName, // entry point name
-		nil,    // signatures
-		nil,    // resources
-		nil,    // properties
+		nil,         // function ref (simplified)
+		mdName,      // entry point name
+		nil,         // signatures
+		mdResources, // resources (nil if none)
+		nil,         // properties
 	})
 	e.mod.AddNamedMetadata("dx.entryPoints", []*module.MetadataNode{mdEntry})
 
