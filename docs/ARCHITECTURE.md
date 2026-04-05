@@ -8,7 +8,7 @@ naga is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shadi
 to multiple backend formats (SPIR-V, MSL, GLSL, HLSL) without requiring CGO or external
 dependencies.
 
-**Core principle: one IR, four backends.**
+**Core principle: one IR, five backends.**
 
 ```
                      ┌──────────────────┐
@@ -46,20 +46,20 @@ dependencies.
                      │    Validator     │  ir/validate.go
                      └────────┬─────────┘
                               │
-           ┌──────────┬───────┴───────┬──────────┐
-           │          │               │          │
-    ┌──────▼──────┐ ┌─▼───┐      ┌────▼───┐ ┌────▼───┐
-    │   SPIR-V    │ │ MSL │      │  GLSL  │ │  HLSL  │
-    │  (binary)   │ │     │      │        │ │        │
-    └──────┬──────┘ └──┬──┘      └────┬───┘ └────┬───┘
-           │           │              │          │
-        Vulkan      Metal          OpenGL     DirectX
+           ┌──────────┬───────┴───────┬──────────┬─────────┐
+           │          │               │          │         │
+    ┌──────▼──────┐ ┌─▼───┐      ┌────▼───┐ ┌────▼───┐ ┌───▼────┐
+    │   SPIR-V    │ │ MSL │      │  GLSL  │ │  HLSL  │ │  DXIL  │
+    │  (binary)   │ │     │      │        │ │  (text)│ │(binary)│
+    └──────┬──────┘ └──┬──┘      └────┬───┘ └────┬───┘ └───┬────┘
+           │           │              │          │         │
+        Vulkan      Metal          OpenGL    DX11/12    DX12 (SM6)
 ```
 
 ## Package Structure
 
 ```
-naga/                              ~90K LOC total
+naga/                              ~102K LOC total
 ├── naga.go                        # Public API: Compile, Parse, Lower, Validate, GenerateSPIRV
 ├── wgsl/                          # WGSL frontend (~19.5K LOC)
 │   ├── token.go                   # 120+ token types (incl. f16, i64, u64, f64)
@@ -112,12 +112,13 @@ naga/                              ~90K LOC total
 │   ├── functions.go               # Entry points with semantics
 │   └── keywords.go                # HLSL reserved words
 │
-├── dxil/                          # DXIL backend (Phase 0 — bitcode PoC, ~3K LOC)
+├── dxil/                          # DXIL backend (experimental, ~12.5K LOC)
 │   ├── dxil.go                    # Public API: Compile, Options (2 symbols only)
 │   └── internal/                  # ALL implementation internal
 │       ├── bitcode/               # LLVM 3.7 bit-level writer (VBR, blocks, records)
 │       ├── module/                # In-memory DXIL module + bitcode serialization
-│       └── container/             # DXBC container assembly + BYPASS hash
+│       ├── container/             # DXBC container (DXIL, ISG1, OSG1, PSV0, SFI0, HASH)
+│       └── emit/                  # naga IR → DXIL lowering (expressions, statements, I/O, resources)
 │
 └── cmd/
     ├── nagac/                     # CLI compiler

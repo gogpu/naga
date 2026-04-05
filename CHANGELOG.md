@@ -9,14 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **DXIL backend Phase 0+1** — Direct DXIL generation from naga IR. Pure Go,
-  zero external dependencies. Phase 0: LLVM 3.7 bitcode writer, module builder,
-  DXBC container, BYPASS hash (47 tests). Phase 1: naga IR → DXIL lowering for
-  vertex + fragment shaders — type mapping (scalarized vectors), entry point I/O
-  (dx.op.loadInput/storeOutput), expression lowering, statement lowering.
-  82 tests, 6357 LOC. All output validated via `dxc.exe -dumpbin`.
-  Public API: `dxil.Compile()`, `dxil.DefaultOptions()`.
-  All implementation in `dxil/internal/` from day one.
+- **DXIL backend (experimental)** — Direct DXIL generation from naga IR for DX12
+  Shader Model 6.0. Eliminates FXC/DXC dependency entirely. Pure Go, zero external
+  dependencies. 190 tests, ~12.5K LOC. Public API: `dxil.Compile()`, `dxil.DefaultOptions()`.
+  - Phase 0: LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash
+  - Phase 1a: naga IR → DXIL lowering (type mapping, scalarized vectors, I/O via dx.op)
+  - Phase 1b: multi-arg math (min/max/clamp/dot/cross/mix/fma/smoothstep), type casts
+    (10 LLVM cast opcodes), control flow (basic blocks with br/br_cond, loops with
+    back edges, break/continue), local variables (alloca+load+store), swizzle,
+    derivatives (dx.op.derivCoarseX/Y, derivFineX/Y), relational (isNaN, isInf),
+    error hardening (unsupported features return errors, not silent skip)
+  - Phase 1c: resource bindings (dx.op.createHandle for CBV/SRV/Sampler), texture
+    sampling (dx.op.sample), I/O signatures (ISG1/OSG1), pipeline state validation
+    (PSV0), semantic mapping (SV_Position, TEXCOORD, SV_Target), dx.resources metadata
 
 ## [0.16.6] - 2026-04-05
 

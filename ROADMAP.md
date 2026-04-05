@@ -19,7 +19,7 @@
 
 ---
 
-## Current State: v0.16.1 (2026-04-04)
+## Current State: v0.16.6 (2026-04-05)
 
 ✅ **Production-ready** shader compiler (~90K LOC) with **complete Rust naga parity**
 and **100% SPIR-V binary validation**:
@@ -62,10 +62,10 @@ and **100% SPIR-V binary validation**:
 
 | Task | Priority | Effort | Description |
 |------|----------|--------|-------------|
-| **DXIL-000: Bitcode writer** | P1 | 8 | ✅ Done. LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash. 47 tests. |
-| **DXIL-001: MVP vertex+fragment** | P1 | 13 | naga IR → DXIL for basic rendering (`dxil/internal/emit/`) |
-| **DXIL-002: Compute shaders** | P2 | 5 | UAV, atomics, barriers for GPU compute |
-| **DXIL-003: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, mesh shaders, dynamic resources |
+| **DXIL Phase 0: Bitcode writer** | P1 | 8 | ✅ Done. LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash. |
+| **DXIL Phase 1: Vertex+fragment** | P1 | 21 | ✅ Done. Full IR → DXIL lowering: math, casts, control flow, locals, resources, signatures. 190 tests, ~12.5K LOC. |
+| **DXIL Phase 2: Compute shaders** | P2 | 5 | UAV, atomics, barriers, thread ID intrinsics |
+| **DXIL Phase 3: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, mesh shaders, dynamic resources |
 
 ### v1.0.0 — Stable Release
 
@@ -78,7 +78,7 @@ and **100% SPIR-V binary validation**:
 | Subgroup operations | ✅ Done | Ballot, shuffle, broadcast, quad |
 | Mesh shaders | ✅ Done | MeshEXT/TaskEXT |
 | Internal packages | Planned | ARCH-001: `internal/` for all backends |
-| DXIL backend | Planned | Direct DXIL, no FXC dependency |
+| DXIL backend | ✅ Phase 1 done | Direct DXIL, no FXC dependency (~12.5K LOC, 190 tests) |
 | API stability guarantee | Planned | Semantic versioning contract |
 | Test coverage 80%+ | Planned | awesome-go requirement, after ARCH-001 |
 
