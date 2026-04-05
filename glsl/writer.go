@@ -34,19 +34,6 @@ const (
 	nameKeyFunctionLocal
 )
 
-// maxBindingsPerGroup is the maximum number of bindings per bind group
-// used when flattening (group, binding) to a single GL binding point.
-// WebGPU allows up to 16 bindings per group across 4 groups (0..3).
-// Flattened binding = group * maxBindingsPerGroup + binding.
-const maxBindingsPerGroup = 16
-
-// flattenBinding converts a WebGPU (group, binding) pair to a single GL binding
-// index. GLSL has no concept of bind groups -- only flat binding indices.
-// The formula is: group * maxBindingsPerGroup + binding + base.
-func flattenBinding(group, binding, base uint32) uint32 {
-	return group*maxBindingsPerGroup + binding + base
-}
-
 // Writer generates GLSL source code from IR.
 type Writer struct {
 	module  *ir.Module
