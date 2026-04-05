@@ -197,6 +197,53 @@ func NewBackend(options Options) *Backend {
 	}
 }
 
+// Reset clears all state in the Backend without deallocating.
+// This allows reuse of the same Backend instance across compilations,
+// avoiding repeated allocation of maps and slices. After Reset, the
+// Backend is in the same logical state as a freshly created one.
+//
+// Reset is called automatically at the start of Compile, so callers
+// do not need to call it explicitly.
+func (b *Backend) Reset() {
+	b.module = nil
+
+	// Clear maps — Go 1.21+ clear() keeps capacity, removes all entries
+	clear(b.typeIDs)
+	clear(b.constantIDs)
+	clear(b.globalIDs)
+	clear(b.functionIDs)
+	clear(b.entryInputVars)
+	clear(b.entryOutputVars)
+	clear(b.entryPointFuncIDs)
+	clear(b.sampledImageTypeIDs)
+	clear(b.imageTypeIDs)
+	clear(b.scalarTypeIDs)
+	clear(b.pointerTypeIDs)
+	clear(b.vectorTypeIDs)
+	clear(b.matrixTypeIDs)
+	clear(b.usedCapabilities)
+	clear(b.usedExtensions)
+	clear(b.funcTypeIDs)
+	clear(b.wrappedStorageVars)
+	clear(b.blockDecoratedTypes)
+	clear(b.layoutFreeTypeIDs)
+	clear(b.forcePointSizeVars)
+	clear(b.workgroupInitVars)
+	clear(b.wrappedFuncIDs)
+	clear(b.f16PolyfillVars)
+	clear(b.sampleMaskVars)
+	clear(b.rayQueryFuncIDs)
+	clear(b.uniformStructTypes)
+
+	// Reset scalar IDs
+	b.glslExtID = 0
+	b.voidTypeID = 0
+	b.samplerTypeID = 0
+
+	// Reset instruction builder scratch space
+	b.ib.words = b.ib.words[:0]
+}
+
 // needsF16Polyfill checks if a type is f16-related and needs polyfill
 // (converting to f32) for Input/Output variables when StorageInputOutput16
 // is not available.
@@ -245,12 +292,23 @@ func (b *Backend) newIB() *InstructionBuilder {
 }
 
 // Compile translates an IR module to SPIR-V binary.
+// The Backend is automatically reset before each compilation, so
+// a single Backend instance can be reused across multiple Compile calls.
 func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
+	// Reset all per-compilation state (maps cleared, slices truncated).
+	b.Reset()
 	b.module = module
-	b.builder = NewModuleBuilder(b.options.Version)
+
+	// Reuse or create the ModuleBuilder.
+	if b.builder != nil {
+		b.builder.Reset(b.options.Version)
+	} else {
+		b.builder = NewModuleBuilder(b.options.Version)
+	}
+
 	// Initialize shared instruction builder with module builder's arena for zero-alloc builds.
 	b.ib = InstructionBuilder{
-		words: make([]uint32, 0, 16),
+		words: b.ib.words[:0], // reuse existing scratch buffer
 		arena: &b.builder.arena,
 	}
 

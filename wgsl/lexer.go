@@ -17,8 +17,10 @@ type Lexer struct {
 
 // NewLexer creates a new lexer for the given source.
 func NewLexer(source string) *Lexer {
-	// Estimate ~1 token per 6 characters of source.
-	estTokens := len(source) / 6
+	// Estimate ~1 token per 4 characters of source.
+	// WGSL averages ~4 chars/token (operators, keywords, punctuation).
+	// Slight overallocation is cheap — it's one slice, and avoids regrowth.
+	estTokens := len(source) / 4
 	if estTokens < 16 {
 		estTokens = 16
 	}

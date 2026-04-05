@@ -202,6 +202,41 @@ func NewModuleBuilder(version Version) *ModuleBuilder {
 	return mb
 }
 
+// Reset clears all state in the ModuleBuilder without deallocating.
+// This allows reuse of the builder across compilations, avoiding
+// repeated allocation of instruction slices and the word arena.
+func (b *ModuleBuilder) Reset(version Version) {
+	b.version = version
+	b.generator = GeneratorID
+	b.bound = 0
+	b.schema = 0
+
+	// Reset instruction slices — keep backing arrays, set length to 0
+	b.capabilities = b.capabilities[:0]
+	b.extensions = b.extensions[:0]
+	b.extInstImports = b.extInstImports[:0]
+	b.memoryModel = nil
+	b.entryPoints = b.entryPoints[:0]
+	b.executionModes = b.executionModes[:0]
+	b.debugStrings = b.debugStrings[:0]
+	b.debugNames = b.debugNames[:0]
+	b.annotations = b.annotations[:0]
+	b.types = b.types[:0]
+	b.globalVars = b.globalVars[:0]
+	b.functions = b.functions[:0]
+	b.funcSink = nil
+
+	// Reset ID allocation
+	b.nextID = 1
+
+	// Reset word arena position — keep the backing buffer
+	b.arena.pos = 0
+
+	// Reset instruction builder scratch space — keep capacity
+	b.ib.words = b.ib.words[:0]
+	// arena pointer stays valid (points to b.arena)
+}
+
 // RequireVersion bumps the module's SPIR-V version to at least minVersion.
 // If the current version is already >= minVersion, this is a no-op.
 func (b *ModuleBuilder) RequireVersion(minVersion Version) {

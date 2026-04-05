@@ -1343,3 +1343,170 @@ func TestF16PolyfillConvertsIO(t *testing.T) {
 		t.Error("f16 polyfill produced empty/invalid SPIR-V")
 	}
 }
+
+// TestBackendReuse verifies that reusing a Backend instance across multiple
+// compilations produces identical output to using a fresh Backend each time.
+// This is the correctness gate for the Reset() optimization.
+func TestBackendReuse(t *testing.T) {
+	// Two different modules to compile sequentially with the same backend.
+	module1 := buildVertexModule()
+	module2 := buildFragModule()
+
+	opts := DefaultOptions()
+
+	// --- Fresh backends (reference) ---
+	fresh1 := NewBackend(opts)
+	out1Fresh, err := fresh1.Compile(module1)
+	if err != nil {
+		t.Fatalf("fresh compile module1: %v", err)
+	}
+
+	fresh2 := NewBackend(opts)
+	out2Fresh, err := fresh2.Compile(module2)
+	if err != nil {
+		t.Fatalf("fresh compile module2: %v", err)
+	}
+
+	// --- Reused backend ---
+	reused := NewBackend(opts)
+
+	// First compilation
+	out1Reused, err := reused.Compile(module1)
+	if err != nil {
+		t.Fatalf("reused compile module1: %v", err)
+	}
+
+	// Second compilation (different module, same backend)
+	out2Reused, err := reused.Compile(module2)
+	if err != nil {
+		t.Fatalf("reused compile module2: %v", err)
+	}
+
+	// Verify: reused output must be identical to fresh output
+	if len(out1Fresh) != len(out1Reused) {
+		t.Fatalf("module1: fresh len=%d, reused len=%d", len(out1Fresh), len(out1Reused))
+	}
+	for i := range out1Fresh {
+		if out1Fresh[i] != out1Reused[i] {
+			t.Errorf("module1: byte %d differs: fresh=0x%02x reused=0x%02x", i, out1Fresh[i], out1Reused[i])
+			break
+		}
+	}
+
+	if len(out2Fresh) != len(out2Reused) {
+		t.Fatalf("module2: fresh len=%d, reused len=%d", len(out2Fresh), len(out2Reused))
+	}
+	for i := range out2Fresh {
+		if out2Fresh[i] != out2Reused[i] {
+			t.Errorf("module2: byte %d differs: fresh=0x%02x reused=0x%02x", i, out2Fresh[i], out2Reused[i])
+			break
+		}
+	}
+
+	// Third compilation: re-compile module1 again to verify no leftover state from module2.
+	out1Again, err := reused.Compile(module1)
+	if err != nil {
+		t.Fatalf("reused compile module1 again: %v", err)
+	}
+	if len(out1Fresh) != len(out1Again) {
+		t.Fatalf("module1 again: fresh len=%d, reused len=%d", len(out1Fresh), len(out1Again))
+	}
+	for i := range out1Fresh {
+		if out1Fresh[i] != out1Again[i] {
+			t.Errorf("module1 again: byte %d differs: fresh=0x%02x reused=0x%02x", i, out1Fresh[i], out1Again[i])
+			break
+		}
+	}
+}
+
+// buildVertexModule builds a minimal vertex shader IR module for reuse testing.
+func buildVertexModule() *ir.Module {
+	vertexIndexBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex})
+	positionBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+
+	return &ir.Module{
+		Types: []ir.Type{
+			{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},  // 0
+			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 1
+			{Name: "vec4f", Inner: ir.VectorType{ // 2
+				Size:   ir.Vec4,
+				Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+			}},
+		},
+		Constants: []ir.Constant{
+			{Name: "zero", Type: 1, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0}},                 // 0
+			{Name: "one", Type: 1, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}},         // 1
+			{Name: "pos", Type: 2, Value: ir.CompositeValue{Components: []ir.ConstantHandle{0, 0, 0, 1}}}, // 2
+		},
+		GlobalVariables: []ir.GlobalVariable{},
+		Functions:       []ir.Function{},
+		EntryPoints: []ir.EntryPoint{
+			{
+				Name:  "vs_main",
+				Stage: ir.StageVertex,
+				Function: ir.Function{
+					Name: "vs_main",
+					Arguments: []ir.FunctionArgument{
+						{Name: "idx", Type: 0, Binding: &vertexIndexBinding},
+					},
+					Result: &ir.FunctionResult{
+						Type: 2, Binding: &positionBinding,
+					},
+					LocalVars: []ir.LocalVariable{},
+					Expressions: []ir.Expression{
+						{Kind: ir.ExprConstant{Constant: 2}},
+					},
+					NamedExpressions: map[ir.ExpressionHandle]string{},
+					Body: []ir.Statement{
+						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+						{Kind: ir.StmtReturn{Value: ptrExprHandle(0)}},
+					},
+				},
+			},
+		},
+	}
+}
+
+// buildFragModule builds a minimal fragment shader IR module for reuse testing.
+func buildFragModule() *ir.Module {
+	locationBinding := ir.Binding(ir.LocationBinding{Location: 0})
+
+	return &ir.Module{
+		Types: []ir.Type{
+			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 0
+			{Name: "vec4f", Inner: ir.VectorType{ // 1
+				Size:   ir.Vec4,
+				Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+			}},
+		},
+		Constants: []ir.Constant{
+			{Name: "one", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}},           // 0
+			{Name: "zero", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0}},                   // 1
+			{Name: "color", Type: 1, Value: ir.CompositeValue{Components: []ir.ConstantHandle{0, 1, 1, 0}}}, // 2
+		},
+		GlobalVariables: []ir.GlobalVariable{},
+		Functions:       []ir.Function{},
+		EntryPoints: []ir.EntryPoint{
+			{
+				Name:  "fs_main",
+				Stage: ir.StageFragment,
+				Function: ir.Function{
+					Name:      "fs_main",
+					Arguments: []ir.FunctionArgument{},
+					Result: &ir.FunctionResult{
+						Type: 1, Binding: &locationBinding,
+					},
+					LocalVars: []ir.LocalVariable{},
+					Expressions: []ir.Expression{
+						{Kind: ir.ExprConstant{Constant: 2}},
+					},
+					NamedExpressions: map[ir.ExpressionHandle]string{},
+					Body: []ir.Statement{
+						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+						{Kind: ir.StmtReturn{Value: ptrExprHandle(0)}},
+					},
+				},
+			},
+		},
+	}
+}

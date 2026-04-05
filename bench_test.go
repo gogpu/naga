@@ -579,3 +579,40 @@ func BenchmarkGenerateSPIRV(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkGenerateSPIRVReuse benchmarks SPIR-V code generation with a reused
+// Backend instance. The Backend.Reset() is called internally by Compile(),
+// eliminating map and slice re-allocation across iterations.
+func BenchmarkGenerateSPIRVReuse(b *testing.B) {
+	for _, sc := range shadersByComplexity {
+		b.Run(sc.name, func(b *testing.B) {
+			ast, err := Parse(sc.source)
+			if err != nil {
+				b.Fatalf("parse failed: %v", err)
+			}
+			module, err := Lower(ast)
+			if err != nil {
+				b.Fatalf("lower failed: %v", err)
+			}
+
+			opts := spirv.Options{
+				Version: spirv.Version1_3,
+				Debug:   false,
+			}
+			backend := spirv.NewBackend(opts)
+
+			b.ReportAllocs()
+			b.SetBytes(int64(len(sc.source)))
+			b.ResetTimer()
+
+			var result []byte
+			for i := 0; i < b.N; i++ {
+				result, err = backend.Compile(module)
+				if err != nil {
+					b.Fatalf("spirv generate reuse failed: %v", err)
+				}
+			}
+			runtime.KeepAlive(result)
+		})
+	}
+}

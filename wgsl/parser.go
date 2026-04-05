@@ -31,7 +31,17 @@ func NewParser(tokens []Token) *Parser {
 
 // Parse parses the tokens and returns a Module AST.
 func (p *Parser) Parse() (*Module, error) {
+	// Estimate declaration counts from token count for pre-allocation.
+	// Only pre-allocate for shaders with enough tokens to benefit from
+	// avoiding slice regrowth. Small shaders (< ~100 tokens) are fine
+	// with nil slice append growth.
+	nTokens := len(p.tokens)
 	module := &Module{}
+	if nTokens > 100 {
+		estDecls := nTokens/20 + 1
+		module.Declarations = make([]Decl, 0, estDecls)
+		module.Functions = make([]*FunctionDecl, 0, estDecls/3+1)
+	}
 
 	for !p.isAtEnd() {
 		// Skip optional semicolons between declarations (e.g., struct Foo { ... };)

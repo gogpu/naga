@@ -15,9 +15,18 @@ type TypeRegistry struct {
 
 // NewTypeRegistry creates a new type registry for deduplication.
 func NewTypeRegistry() *TypeRegistry {
+	return NewTypeRegistryWithCap(16)
+}
+
+// NewTypeRegistryWithCap creates a new type registry with pre-allocated capacity.
+// Use this when the expected number of types is known to avoid slice regrowth.
+func NewTypeRegistryWithCap(initialCap int) *TypeRegistry {
+	if initialCap < 16 {
+		initialCap = 16
+	}
 	return &TypeRegistry{
-		types:   make([]Type, 0, 16),
-		typeMap: make(map[string]TypeHandle, 16),
+		types:   make([]Type, 0, initialCap),
+		typeMap: make(map[string]TypeHandle, initialCap),
 		keyBuf:  make([]byte, 0, 64),
 	}
 }
@@ -27,19 +36,18 @@ func NewTypeRegistry() *TypeRegistry {
 // Named struct types are never deduplicated with each other (different names
 // mean different types), matching Rust naga's Arena behavior.
 func (r *TypeRegistry) GetOrCreate(name string, inner TypeInner) TypeHandle {
-	key := r.normalizeType(inner)
-	// In Rust naga, UniqueArena deduplicates on the full Type{name, inner} pair.
-	// Type{name: None, inner: X} and Type{name: Some("A"), inner: X} are distinct.
-	// We replicate this by including the name in the dedup key for ALL named types,
-	// not just structs. Anonymous types (name="") still dedup on inner alone.
-	if name != "" {
-		key = "named:" + name + ":" + key
-	}
+	// Build the full key in keyBuf. normalizeType writes the type portion,
+	// and we prepend the name prefix if needed.
+	r.buildKey(name, inner)
 
-	// Check if type already exists
-	if handle, exists := r.typeMap[key]; exists {
+	// Use string(r.keyBuf) directly in the map index expression.
+	// Go compiler optimizes m[string(b)] to avoid heap allocation for lookups.
+	if handle, exists := r.typeMap[string(r.keyBuf)]; exists {
 		return handle
 	}
+
+	// Cache miss — allocate key string for storage in map.
+	key := string(r.keyBuf)
 
 	// Create new type
 	handle := TypeHandle(len(r.types))
@@ -52,6 +60,21 @@ func (r *TypeRegistry) GetOrCreate(name string, inner TypeInner) TypeHandle {
 	return handle
 }
 
+// buildKey writes the full dedup key into r.keyBuf.
+// In Rust naga, UniqueArena deduplicates on the full Type{name, inner} pair.
+// Type{name: None, inner: X} and Type{name: Some("A"), inner: X} are distinct.
+// We replicate this by including the name in the dedup key for ALL named types,
+// not just structs. Anonymous types (name="") still dedup on inner alone.
+func (r *TypeRegistry) buildKey(name string, inner TypeInner) {
+	r.keyBuf = r.keyBuf[:0]
+	if name != "" {
+		r.keyBuf = append(r.keyBuf, "named:"...)
+		r.keyBuf = append(r.keyBuf, name...)
+		r.keyBuf = append(r.keyBuf, ':')
+	}
+	r.appendTypeKey(inner)
+}
+
 // SetName renames an existing type in the registry and updates the dedup key.
 // Used when a type alias renames an anonymous type in-place (e.g., `alias rq = ray_query;`
 // renames the anonymous RayQuery entry to "rq").
@@ -62,18 +85,13 @@ func (r *TypeRegistry) SetName(handle TypeHandle, name string) {
 	oldName := r.types[handle].Name
 	r.types[handle].Name = name
 
-	// Update dedup key: remove old key, add new one
-	oldKey := r.normalizeType(r.types[handle].Inner)
-	if oldName != "" {
-		oldKey = "named:" + oldName + ":" + oldKey
-	}
-	delete(r.typeMap, oldKey)
+	// Remove old key
+	r.buildKey(oldName, r.types[handle].Inner)
+	delete(r.typeMap, string(r.keyBuf))
 
-	newKey := r.normalizeType(r.types[handle].Inner)
-	if name != "" {
-		newKey = "named:" + name + ":" + newKey
-	}
-	r.typeMap[newKey] = handle
+	// Add new key
+	r.buildKey(name, r.types[handle].Inner)
+	r.typeMap[string(r.keyBuf)] = handle
 }
 
 // Append adds a type without deduplication, always creating a new entry.
@@ -94,82 +112,122 @@ func (r *TypeRegistry) GetTypes() []Type {
 	return r.types
 }
 
-// normalizeType creates a unique key for a type based on its structure.
+// appendTypeKey appends a unique key for the type to r.keyBuf.
 // Two structurally identical types will produce the same key.
-// Uses a reusable byte buffer to avoid fmt.Sprintf allocations for common types.
-func (r *TypeRegistry) normalizeType(inner TypeInner) string {
-	b := r.keyBuf[:0]
-
+// All output goes to keyBuf to enable the Go map[string([]byte)] optimization
+// in callers, avoiding heap allocations for cache-hit lookups.
+func (r *TypeRegistry) appendTypeKey(inner TypeInner) {
 	switch t := inner.(type) {
 	case ScalarType:
-		b = append(b, "scalar:"...)
-		b = strconv.AppendInt(b, int64(t.Kind), 10)
-		b = append(b, ':')
-		b = strconv.AppendUint(b, uint64(t.Width), 10)
-		r.keyBuf = b
-		return string(b)
+		r.keyBuf = append(r.keyBuf, "scalar:"...)
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.Kind), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(t.Width), 10)
 
 	case VectorType:
-		// Recursive call clobbers keyBuf, so build with string concat.
-		scalarKey := r.normalizeType(t.Scalar)
-		return "vec:" + strconv.FormatUint(uint64(t.Size), 10) + ":" + scalarKey
+		r.keyBuf = append(r.keyBuf, "vec:"...)
+		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(t.Size), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.appendTypeKey(t.Scalar)
 
 	case MatrixType:
-		scalarKey := r.normalizeType(t.Scalar)
-		return "mat:" + strconv.FormatUint(uint64(t.Columns), 10) + "x" + strconv.FormatUint(uint64(t.Rows), 10) + ":" + scalarKey
+		r.keyBuf = append(r.keyBuf, "mat:"...)
+		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(t.Columns), 10)
+		r.keyBuf = append(r.keyBuf, 'x')
+		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(t.Rows), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.appendTypeKey(t.Scalar)
 
 	case ArrayType:
-		var sizeKey string
+		r.keyBuf = append(r.keyBuf, "array:"...)
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.Base), 10)
+		r.keyBuf = append(r.keyBuf, ':')
 		if t.Size.Constant != nil {
-			sizeKey = strconv.FormatUint(uint64(*t.Size.Constant), 10)
+			r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(*t.Size.Constant), 10)
 		} else {
-			sizeKey = "runtime"
+			r.keyBuf = append(r.keyBuf, "runtime"...)
 		}
-		return "array:" + strconv.FormatInt(int64(t.Base), 10) + ":" + sizeKey + ":" + strconv.FormatUint(uint64(t.Stride), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(t.Stride), 10)
 
 	case StructType:
-		// Structs use fmt.Sprintf since they're less frequent and more complex.
-		key := fmt.Sprintf("struct:%d:%d", len(t.Members), t.Span)
+		r.keyBuf = append(r.keyBuf, "struct:"...)
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(len(t.Members)), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(t.Span), 10)
 		for _, member := range t.Members {
-			key += fmt.Sprintf(":m(%s,%d,%d)", member.Name, member.Type, member.Offset)
+			r.keyBuf = append(r.keyBuf, ":m("...)
+			r.keyBuf = append(r.keyBuf, member.Name...)
+			r.keyBuf = append(r.keyBuf, ',')
+			r.keyBuf = strconv.AppendInt(r.keyBuf, int64(member.Type), 10)
+			r.keyBuf = append(r.keyBuf, ',')
+			r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(member.Offset), 10)
+			r.keyBuf = append(r.keyBuf, ')')
 		}
-		return key
 
 	case PointerType:
-		return "ptr:" + strconv.FormatInt(int64(t.Base), 10) + ":" + strconv.FormatInt(int64(t.Space), 10)
+		r.keyBuf = append(r.keyBuf, "ptr:"...)
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.Base), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.Space), 10)
 
 	case SamplerType:
+		r.keyBuf = append(r.keyBuf, "sampler:"...)
 		if t.Comparison {
-			return "sampler:true"
+			r.keyBuf = append(r.keyBuf, "true"...)
+		} else {
+			r.keyBuf = append(r.keyBuf, "false"...)
 		}
-		return "sampler:false"
 
 	case ImageType:
-		return fmt.Sprintf("image:%d:%v:%d:%v:%d:%d:%d", t.Dim, t.Arrayed, t.Class, t.Multisampled, t.StorageFormat, t.StorageAccess, t.SampledKind)
+		r.keyBuf = append(r.keyBuf, "image:"...)
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.Dim), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		if t.Arrayed {
+			r.keyBuf = append(r.keyBuf, "true"...)
+		} else {
+			r.keyBuf = append(r.keyBuf, "false"...)
+		}
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.Class), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		if t.Multisampled {
+			r.keyBuf = append(r.keyBuf, "true"...)
+		} else {
+			r.keyBuf = append(r.keyBuf, "false"...)
+		}
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.StorageFormat), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(t.StorageAccess), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.SampledKind), 10)
 
 	case AtomicType:
-		b = append(b, "atomic:"...)
-		b = strconv.AppendInt(b, int64(t.Scalar.Kind), 10)
-		b = append(b, ':')
-		b = strconv.AppendUint(b, uint64(t.Scalar.Width), 10)
-		r.keyBuf = b
-		return string(b)
+		r.keyBuf = append(r.keyBuf, "atomic:"...)
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.Scalar.Kind), 10)
+		r.keyBuf = append(r.keyBuf, ':')
+		r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(t.Scalar.Width), 10)
 
 	case AccelerationStructureType:
-		return "acceleration_structure"
+		r.keyBuf = append(r.keyBuf, "acceleration_structure"...)
 
 	case RayQueryType:
-		return "ray_query"
+		r.keyBuf = append(r.keyBuf, "ray_query"...)
 
 	case BindingArrayType:
-		sizeKey := "unbounded"
+		r.keyBuf = append(r.keyBuf, "binding_array:"...)
+		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.Base), 10)
+		r.keyBuf = append(r.keyBuf, ':')
 		if t.Size != nil {
-			sizeKey = strconv.FormatUint(uint64(*t.Size), 10)
+			r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(*t.Size), 10)
+		} else {
+			r.keyBuf = append(r.keyBuf, "unbounded"...)
 		}
-		return "binding_array:" + strconv.FormatInt(int64(t.Base), 10) + ":" + sizeKey
 
 	default:
-		return fmt.Sprintf("unknown:%T", inner)
+		r.keyBuf = append(r.keyBuf, "unknown:"...)
+		r.keyBuf = fmt.Appendf(r.keyBuf, "%T", inner)
 	}
 }
 
