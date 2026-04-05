@@ -3,6 +3,7 @@ package emit
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -47,19 +48,16 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 		return e.emitBlock(fn, sk.Block)
 
 	case ir.StmtIf:
-		// Simplified: emit both branches sequentially.
-		// Proper implementation needs basic block splitting.
-		// For MVP, we emit only the accept block (assumes simple cases).
-		return e.emitBlock(fn, sk.Accept)
+		return e.emitIfStatement(fn, sk)
 
 	case ir.StmtLoop:
-		// Simplified: emit loop body once.
-		// Proper loops need back-edge basic blocks.
-		return e.emitBlock(fn, sk.Body)
+		return e.emitLoopStatement(fn, sk)
 
-	case ir.StmtBreak, ir.StmtContinue:
-		// Control flow stubs — handled by loop/switch structure.
-		return nil
+	case ir.StmtBreak:
+		return e.emitBreak()
+
+	case ir.StmtContinue:
+		return e.emitContinue()
 
 	case ir.StmtKill:
 		// Fragment shader discard — not yet implemented.
@@ -188,6 +186,193 @@ func (e *Emitter) emitStmtCall(fn *ir.Function, call ir.StmtCall) error {
 		}
 	}
 	return nil
+}
+
+// emitIfStatement emits an if/else construct using LLVM basic blocks.
+//
+// DXIL uses basic block branching for control flow:
+//
+//	current_bb:
+//	  br i1 %cond, label %then, label %else_or_merge
+//	then_bb:
+//	  <accept block>
+//	  br label %merge
+//	else_bb: (only if reject block is non-empty)
+//	  <reject block>
+//	  br label %merge
+//	merge_bb:
+//	  <continues>
+//
+// Reference: Mesa nir_to_dxil.c emit_cf_list / emit_if
+func (e *Emitter) emitIfStatement(fn *ir.Function, stmt ir.StmtIf) error {
+	// Emit the condition expression.
+	condID, err := e.emitExpression(fn, stmt.Condition)
+	if err != nil {
+		return fmt.Errorf("if condition: %w", err)
+	}
+
+	hasReject := len(stmt.Reject) > 0
+
+	// Create basic blocks. We add them to mainFn now so we can
+	// reference their indices for branch instructions.
+	thenBB := e.mainFn.AddBasicBlock("if.then")
+	thenBBIndex := len(e.mainFn.BasicBlocks) - 1
+
+	var elseBBIndex int
+	if hasReject {
+		elseBB := e.mainFn.AddBasicBlock("if.else")
+		elseBBIndex = len(e.mainFn.BasicBlocks) - 1
+		_ = elseBB // used below via index
+	}
+
+	mergeBB := e.mainFn.AddBasicBlock("if.merge")
+	mergeBBIndex := len(e.mainFn.BasicBlocks) - 1
+
+	// Emit conditional branch from the current BB.
+	falseBBIndex := mergeBBIndex
+	if hasReject {
+		falseBBIndex = elseBBIndex
+	}
+	e.currentBB.AddInstruction(module.NewBrCondInstr(thenBBIndex, falseBBIndex, condID))
+
+	// Emit accept (then) block.
+	e.currentBB = thenBB
+	if err := e.emitBlock(fn, stmt.Accept); err != nil {
+		return fmt.Errorf("if accept: %w", err)
+	}
+	// Branch from then to merge (unless block already ends with a terminator).
+	if !e.blockHasTerminator(e.currentBB) {
+		e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
+	}
+
+	// Emit reject (else) block if present.
+	if hasReject {
+		e.currentBB = e.mainFn.BasicBlocks[elseBBIndex]
+		if err := e.emitBlock(fn, stmt.Reject); err != nil {
+			return fmt.Errorf("if reject: %w", err)
+		}
+		if !e.blockHasTerminator(e.currentBB) {
+			e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
+		}
+	}
+
+	// Continue emitting into the merge block.
+	e.currentBB = mergeBB
+	return nil
+}
+
+// emitLoopStatement emits a loop construct using LLVM basic blocks.
+//
+// DXIL loop structure:
+//
+//	current_bb:
+//	  br label %loop_header
+//	loop_header:
+//	  br label %loop_body
+//	loop_body:
+//	  <body statements>
+//	  br label %loop_continuing  (or break → br %loop_merge)
+//	loop_continuing:
+//	  <continuing statements>
+//	  br label %loop_header      (back edge)
+//	loop_merge:
+//	  <continues after loop>
+//
+// Reference: Mesa nir_to_dxil.c emit_cf_list / emit_loop
+func (e *Emitter) emitLoopStatement(fn *ir.Function, stmt ir.StmtLoop) error {
+	// Create basic blocks for the loop structure.
+	headerBB := e.mainFn.AddBasicBlock("loop.header")
+	headerBBIndex := len(e.mainFn.BasicBlocks) - 1
+
+	bodyBB := e.mainFn.AddBasicBlock("loop.body")
+	bodyBBIndex := len(e.mainFn.BasicBlocks) - 1
+	_ = bodyBBIndex // used implicitly via headerBB branch
+
+	continuingBB := e.mainFn.AddBasicBlock("loop.continuing")
+	continuingBBIndex := len(e.mainFn.BasicBlocks) - 1
+
+	mergeBB := e.mainFn.AddBasicBlock("loop.merge")
+	mergeBBIndex := len(e.mainFn.BasicBlocks) - 1
+
+	// Branch from current BB to loop header.
+	e.currentBB.AddInstruction(module.NewBrInstr(headerBBIndex))
+
+	// Header branches unconditionally to body.
+	headerBB.AddInstruction(module.NewBrInstr(bodyBBIndex))
+
+	// Push loop context for break/continue.
+	e.loopStack = append(e.loopStack, loopContext{
+		continuingBBIndex: continuingBBIndex,
+		mergeBBIndex:      mergeBBIndex,
+	})
+
+	// Emit body.
+	e.currentBB = bodyBB
+	if err := e.emitBlock(fn, stmt.Body); err != nil {
+		return fmt.Errorf("loop body: %w", err)
+	}
+	// After body, branch to continuing (unless terminated by break/continue/return).
+	if !e.blockHasTerminator(e.currentBB) {
+		e.currentBB.AddInstruction(module.NewBrInstr(continuingBBIndex))
+	}
+
+	// Emit continuing block.
+	e.currentBB = continuingBB
+	if len(stmt.Continuing) > 0 {
+		if err := e.emitBlock(fn, stmt.Continuing); err != nil {
+			return fmt.Errorf("loop continuing: %w", err)
+		}
+	}
+
+	// Handle break_if: conditional back-edge vs break.
+	if stmt.BreakIf != nil {
+		breakCondID, err := e.emitExpression(fn, *stmt.BreakIf)
+		if err != nil {
+			return fmt.Errorf("loop break_if: %w", err)
+		}
+		// If break condition is true, go to merge; otherwise loop back.
+		e.currentBB.AddInstruction(module.NewBrCondInstr(mergeBBIndex, headerBBIndex, breakCondID))
+	} else if !e.blockHasTerminator(e.currentBB) {
+		// Unconditional back edge.
+		e.currentBB.AddInstruction(module.NewBrInstr(headerBBIndex))
+	}
+
+	// Pop loop context.
+	e.loopStack = e.loopStack[:len(e.loopStack)-1]
+
+	// Continue emitting into merge block.
+	e.currentBB = mergeBB
+	return nil
+}
+
+// emitBreak emits a branch to the loop merge block (exits the loop).
+func (e *Emitter) emitBreak() error {
+	if len(e.loopStack) == 0 {
+		return fmt.Errorf("break outside of loop")
+	}
+	ctx := e.loopStack[len(e.loopStack)-1]
+	e.currentBB.AddInstruction(module.NewBrInstr(ctx.mergeBBIndex))
+	return nil
+}
+
+// emitContinue emits a branch to the loop continuing block.
+func (e *Emitter) emitContinue() error {
+	if len(e.loopStack) == 0 {
+		return fmt.Errorf("continue outside of loop")
+	}
+	ctx := e.loopStack[len(e.loopStack)-1]
+	e.currentBB.AddInstruction(module.NewBrInstr(ctx.continuingBBIndex))
+	return nil
+}
+
+// blockHasTerminator checks whether the basic block already ends with
+// a terminator instruction (return or branch).
+func (e *Emitter) blockHasTerminator(bb *module.BasicBlock) bool {
+	if len(bb.Instructions) == 0 {
+		return false
+	}
+	last := bb.Instructions[len(bb.Instructions)-1]
+	return last.Kind == module.InstrRet || last.Kind == module.InstrBr
 }
 
 // outputLocationFromBinding extracts the output location from a binding.

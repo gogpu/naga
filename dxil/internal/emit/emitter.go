@@ -25,7 +25,11 @@ type Emitter struct {
 
 	// Current function being emitted.
 	currentBB *module.BasicBlock
-	nextValue int // next value ID to assign within a function
+	mainFn    *module.Function // the current function definition (for adding BBs)
+	nextValue int              // next value ID to assign within a function
+
+	// Loop context stack for break/continue targets.
+	loopStack []loopContext
 
 	// dx.op function declarations (lazily created).
 	dxOpFuncs map[dxOpKey]*module.Function
@@ -42,6 +46,13 @@ type Emitter struct {
 	// pendingComponents holds per-component IDs from the last
 	// emitCompose call. Used by emitExpression to store in exprComponents.
 	pendingComponents []int
+}
+
+// loopContext holds the branch targets for the innermost loop,
+// used by break and continue statements to emit correct branches.
+type loopContext struct {
+	continuingBBIndex int // basic block index for the continuing block
+	mergeBBIndex      int // basic block index for the merge (after-loop) block
 }
 
 // dxOpKey uniquely identifies a dx.op function declaration.
@@ -152,10 +163,12 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	funcTy := e.mod.GetFunctionType(voidTy, nil)
 
 	mainFn := e.mod.AddFunction("main", funcTy, false)
+	e.mainFn = mainFn
 	bb := mainFn.AddBasicBlock("entry")
 	e.currentBB = bb
 	e.exprValues = make(map[ir.ExpressionHandle]int)
 	e.exprComponents = make(map[ir.ExpressionHandle][]int)
+	e.loopStack = e.loopStack[:0]
 
 	fn := &ep.Function
 

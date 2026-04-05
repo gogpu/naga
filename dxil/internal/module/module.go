@@ -348,6 +348,30 @@ func NewRetVoidInstr() *Instruction {
 	}
 }
 
+// NewBrInstr creates an unconditional branch to the target basic block.
+// The operand is the basic block index within the parent function.
+func NewBrInstr(targetBBIndex int) *Instruction {
+	return &Instruction{
+		Kind:        InstrBr,
+		HasValue:    false,
+		Operands:    []int{targetBBIndex},
+		ReturnValue: -1,
+	}
+}
+
+// NewBrCondInstr creates a conditional branch.
+// If cond is true, branches to trueBBIndex; otherwise to falseBBIndex.
+// cond is an emitter value ID (i1 type). The BB indices are positions
+// within the parent function's BasicBlocks slice.
+func NewBrCondInstr(trueBBIndex, falseBBIndex, cond int) *Instruction {
+	return &Instruction{
+		Kind:        InstrBr,
+		HasValue:    false,
+		Operands:    []int{trueBBIndex, falseBBIndex, cond},
+		ReturnValue: -1,
+	}
+}
+
 // Constant represents a constant value in the module.
 type Constant struct {
 	// ConstType is the type of this constant.

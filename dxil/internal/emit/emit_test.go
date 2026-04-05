@@ -1802,3 +1802,562 @@ func TestEmitAsIntToBool(t *testing.T) {
 	}
 	t.Logf("i32→bool: %d cmps, %d casts", cmpCount, countInstrKind(mod, module.InstrCast))
 }
+
+// --- Control Flow Tests ---
+
+// buildIfElseShader creates a fragment shader with if/else:
+//
+//	@fragment fn main(@location(0) v: f32) -> @location(0) vec4<f32> {
+//	    var r: f32;
+//	    if (v > 0.5) {
+//	        r = 1.0;
+//	    } else {
+//	        r = 0.0;
+//	    }
+//	    return vec4(r, r, r, 1.0);
+//	}
+func buildIfElseShader() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	boolHandle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+	}
+
+	vBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+
+	retHandle := ir.ExpressionHandle(6)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: f32Handle, Binding: &vBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] v
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}},                         // [1] 0.5
+			{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},        // [2] v > 0.5 (bool)
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [4] 0.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5] 1.0 (alpha)
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 3, 3, 5}}}, // [6] vec4(r, r, r, 1.0)
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},  // v
+			{Handle: &f32Handle},  // 0.5
+			{Handle: &boolHandle}, // v > 0.5
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &f32Handle},  // 0.0
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &vec4Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+			{Kind: ir.StmtIf{
+				Condition: 2,
+				Accept: ir.Block{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 4}}},
+				},
+				Reject: ir.Block{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 5}}},
+				},
+			}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 5, End: 7}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildIfNoElseShader creates a shader with if but no else.
+func buildIfNoElseShader() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	boolHandle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+	}
+
+	vBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(5)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: f32Handle, Binding: &vBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] v
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}},                         // [1] 0.5
+			{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},        // [2] v > 0.5
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [4] 0.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 3, 3, 4}}}, // [5] vec4
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &boolHandle},
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &vec4Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+			{Kind: ir.StmtIf{
+				Condition: 2,
+				Accept: ir.Block{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 4}}},
+				},
+				Reject: nil, // no else
+			}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 6}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildSimpleLoopShader creates a shader with a simple loop:
+//
+//	loop {
+//	    if (i >= 10) { break; }
+//	    // body
+//	}
+func buildSimpleLoopShader() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	boolHandle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(4)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [0] 1.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}},                         // [1] 0.5
+			{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},        // [2] 1.0 > 0.5
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3] 0.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 0, 0, 0}}}, // [4] vec4
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &boolHandle},
+			{Handle: &f32Handle},
+			{Handle: &vec4Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtLoop{
+				Body: ir.Block{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+					{Kind: ir.StmtIf{
+						Condition: 2,
+						Accept:    ir.Block{{Kind: ir.StmtBreak{}}},
+						Reject:    nil,
+					}},
+				},
+				Continuing: nil,
+			}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 5}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildLoopContinueShader creates a shader with continue in loop body.
+func buildLoopContinueShader() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	boolHandle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(4)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [0]
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}},                         // [1]
+			{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},        // [2] cond
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3]
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 0, 0, 0}}}, // [4] vec4
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &boolHandle},
+			{Handle: &f32Handle},
+			{Handle: &vec4Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtLoop{
+				Body: ir.Block{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+					{Kind: ir.StmtIf{
+						Condition: 2,
+						Accept:    ir.Block{{Kind: ir.StmtContinue{}}},
+						Reject:    nil,
+					}},
+					// After continue, the rest is skipped for that iteration.
+					{Kind: ir.StmtIf{
+						Condition: 2,
+						Accept:    ir.Block{{Kind: ir.StmtBreak{}}},
+						Reject:    nil,
+					}},
+				},
+				Continuing: nil,
+			}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 5}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildNestedIfLoopShader creates a shader with if inside a loop.
+func buildNestedIfLoopShader() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	boolHandle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(4)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [0]
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}},                         // [1]
+			{Kind: ir.ExprBinary{Op: ir.BinaryGreater, Left: 0, Right: 1}},        // [2]
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3]
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 0, 0, 0}}}, // [4]
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &boolHandle},
+			{Handle: &f32Handle},
+			{Handle: &vec4Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtLoop{
+				Body: ir.Block{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+					{Kind: ir.StmtIf{
+						Condition: 2,
+						Accept: ir.Block{
+							{Kind: ir.StmtIf{
+								Condition: 2,
+								Accept:    ir.Block{{Kind: ir.StmtBreak{}}},
+								Reject:    ir.Block{{Kind: ir.StmtContinue{}}},
+							}},
+						},
+						Reject: ir.Block{
+							{Kind: ir.StmtBreak{}},
+						},
+					}},
+				},
+				Continuing: nil,
+			}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 5}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// countBranchInstrs counts branch instructions across all basic blocks.
+func countBranchInstrs(mod *module.Module) int {
+	count := 0
+	for _, fn := range mod.Functions {
+		if fn.IsDeclaration {
+			continue
+		}
+		for _, bb := range fn.BasicBlocks {
+			for _, instr := range bb.Instructions {
+				if instr.Kind == module.InstrBr {
+					count++
+				}
+			}
+		}
+	}
+	return count
+}
+
+// getMainFn finds the main function in the module.
+func getMainFn(mod *module.Module) *module.Function {
+	for i := range mod.Functions {
+		if mod.Functions[i].Name == "main" {
+			return mod.Functions[i]
+		}
+	}
+	return nil
+}
+
+func TestEmitIfElse(t *testing.T) {
+	irMod := buildIfElseShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Expect at least 4 basic blocks: entry, then, else, merge.
+	if len(mainFn.BasicBlocks) < 4 {
+		t.Errorf("expected at least 4 basic blocks (entry/then/else/merge), got %d", len(mainFn.BasicBlocks))
+	}
+
+	// Expect at least 3 branch instructions: cond br, br-from-then, br-from-else.
+	brCount := countBranchInstrs(mod)
+	if brCount < 3 {
+		t.Errorf("expected at least 3 branch instructions, got %d", brCount)
+	}
+
+	// Verify serialization still works.
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+
+	t.Logf("if/else: %d BBs, %d branches, %d bytes bitcode",
+		len(mainFn.BasicBlocks), brCount, len(bc))
+}
+
+func TestEmitIfNoElse(t *testing.T) {
+	irMod := buildIfNoElseShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// No else: entry, then, merge (3 BBs minimum).
+	if len(mainFn.BasicBlocks) < 3 {
+		t.Errorf("expected at least 3 basic blocks (entry/then/merge), got %d", len(mainFn.BasicBlocks))
+	}
+
+	// Cond br + br-from-then = at least 2 branches.
+	brCount := countBranchInstrs(mod)
+	if brCount < 2 {
+		t.Errorf("expected at least 2 branch instructions, got %d", brCount)
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+
+	t.Logf("if-no-else: %d BBs, %d branches, %d bytes bitcode",
+		len(mainFn.BasicBlocks), brCount, len(bc))
+}
+
+func TestEmitLoop(t *testing.T) {
+	irMod := buildSimpleLoopShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Loop creates: header, body, continuing, merge + entry and if blocks.
+	// Minimum: entry + header + body + continuing + merge = 5.
+	if len(mainFn.BasicBlocks) < 5 {
+		t.Errorf("expected at least 5 basic blocks for loop, got %d", len(mainFn.BasicBlocks))
+	}
+
+	// Must have back-edge branch (continuing -> header).
+	brCount := countBranchInstrs(mod)
+	if brCount < 3 {
+		t.Errorf("expected at least 3 branch instructions for loop, got %d", brCount)
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+
+	t.Logf("loop: %d BBs, %d branches, %d bytes bitcode",
+		len(mainFn.BasicBlocks), brCount, len(bc))
+}
+
+func TestEmitLoopBreak(t *testing.T) {
+	irMod := buildSimpleLoopShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// The break inside the if should generate a branch to the merge BB.
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Find a branch that targets the loop merge block.
+	// The loop merge block is the last block before the return block.
+	foundBreakBranch := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrBr && len(instr.Operands) == 1 {
+				// Unconditional branch — could be the break.
+				foundBreakBranch = true
+			}
+		}
+	}
+	if !foundBreakBranch {
+		t.Error("no unconditional branch found (expected break -> merge)")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("loop-break: %d BBs, %d bytes bitcode", len(mainFn.BasicBlocks), len(bc))
+}
+
+func TestEmitLoopContinue(t *testing.T) {
+	irMod := buildLoopContinueShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Continue generates a branch to continuing BB.
+	brCount := countBranchInstrs(mod)
+	if brCount < 4 {
+		t.Errorf("expected at least 4 branch instructions (continue + break + back-edge + entry->header), got %d", brCount)
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("loop-continue: %d BBs, %d branches, %d bytes bitcode",
+		len(mainFn.BasicBlocks), brCount, len(bc))
+}
+
+func TestEmitNestedIfLoop(t *testing.T) {
+	irMod := buildNestedIfLoopShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := getMainFn(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Nested if inside loop creates many BBs.
+	if len(mainFn.BasicBlocks) < 7 {
+		t.Errorf("expected at least 7 basic blocks for nested if/loop, got %d", len(mainFn.BasicBlocks))
+	}
+
+	brCount := countBranchInstrs(mod)
+	if brCount < 5 {
+		t.Errorf("expected at least 5 branch instructions, got %d", brCount)
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("nested if/loop: %d BBs, %d branches, %d bytes bitcode",
+		len(mainFn.BasicBlocks), brCount, len(bc))
+}
