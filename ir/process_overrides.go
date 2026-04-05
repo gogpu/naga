@@ -856,23 +856,6 @@ func makeLiteralFromProto(proto Literal, val float64) Literal {
 	}
 }
 
-func resolveLiteralTypeInner(lit Literal) TypeResolution {
-	switch lit.Value.(type) {
-	case LiteralBool:
-		return TypeResolution{Value: ScalarType{Kind: ScalarBool, Width: 1}}
-	case LiteralI32:
-		return TypeResolution{Value: ScalarType{Kind: ScalarSint, Width: 4}}
-	case LiteralU32:
-		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}
-	case LiteralF32:
-		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}
-	case LiteralF64:
-		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 8}}
-	default:
-		return TypeResolution{}
-	}
-}
-
 // evaluateGlobalInitializers re-evaluates global variable initializers that
 // may reference override-dependent expressions.
 func evaluateGlobalInitializers(module *Module, resolved []float64) {

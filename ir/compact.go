@@ -349,33 +349,6 @@ func remapFunctionTypes(f *Function, remap []TypeHandle) {
 	}
 }
 
-// concretizeTypeInner converts abstract scalar kinds to concrete equivalents.
-// AbstractInt → Sint(4), AbstractFloat → Float(4).
-func concretizeTypeInner(inner TypeInner) TypeInner {
-	concretize := func(s ScalarType) ScalarType {
-		switch s.Kind {
-		case ScalarAbstractInt:
-			return ScalarType{Kind: ScalarSint, Width: 4}
-		case ScalarAbstractFloat:
-			return ScalarType{Kind: ScalarFloat, Width: 4}
-		default:
-			return s
-		}
-	}
-	switch t := inner.(type) {
-	case ScalarType:
-		return concretize(t)
-	case VectorType:
-		t.Scalar = concretize(t.Scalar)
-		return t
-	case MatrixType:
-		t.Scalar = concretize(t.Scalar)
-		return t
-	default:
-		return inner
-	}
-}
-
 // markTypeInnerRefs marks type handles referenced by a TypeInner.
 // Only types that use handles (not embedded values) are marked.
 // Abstract types are removed by compact and must never reach backends.
