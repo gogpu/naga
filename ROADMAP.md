@@ -50,12 +50,22 @@ and **100% SPIR-V binary validation**:
 
 ## Next Up
 
-### v0.16.2 — Quality & Coverage
+### Next: Internal Packages Refactor (ARCH-001)
 
 | Task | Priority | Effort | Description |
 |------|----------|--------|-------------|
-| **Test coverage 80%** | P2 | 8 | Per-package coverage: wgsl 40%→80%, msl 40%→80%, hlsl 50%→80% |
-| **SPIR-V structural parity** | P3 | 3 | 90/93 → 93/93 Rust match (Int8 native types, extra Block decoration) |
+| **Internal packages refactor** | P2 | 13 | Move implementations to `internal/`, reduce public API 398→~118 symbols |
+| **SPIR-V structural parity** | P3 | 3 | 90/93 → 93/93 Rust match (Int8 native, extra Block decoration) |
+| **Test coverage 80%** | P2 | 8 | After ARCH-001 — wgsl 40%→80%, msl 40%→80%, hlsl 48%→80% |
+
+### Next: DXIL Backend (direct DXIL generation, no FXC)
+
+| Task | Priority | Effort | Description |
+|------|----------|--------|-------------|
+| **DXIL-000: Bitcode writer** | P1 | 8 | LLVM 3.7 bitcode writer in pure Go (`dxil/internal/bitcode/`) |
+| **DXIL-001: MVP vertex+fragment** | P1 | 13 | naga IR → DXIL for basic rendering (`dxil/internal/emit/`) |
+| **DXIL-002: Compute shaders** | P2 | 5 | UAV, atomics, barriers for GPU compute |
+| **DXIL-003: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, mesh shaders, dynamic resources |
 
 ### v1.0.0 — Stable Release
 
@@ -67,10 +77,10 @@ and **100% SPIR-V binary validation**:
 | Ray tracing | ✅ Done | Ray query types, acceleration structures |
 | Subgroup operations | ✅ Done | Ballot, shuffle, broadcast, quad |
 | Mesh shaders | ✅ Done | MeshEXT/TaskEXT |
-| Full WGSL spec compliance | In progress | Remaining edge cases |
+| Internal packages | Planned | ARCH-001: `internal/` for all backends |
+| DXIL backend | Planned | Direct DXIL, no FXC dependency |
 | API stability guarantee | Planned | Semantic versioning contract |
-| Test coverage 80%+ | Planned | awesome-go requirement |
-| Comprehensive documentation | In progress | ARCHITECTURE.md, pkg.go.dev |
+| Test coverage 80%+ | Planned | awesome-go requirement, after ARCH-001 |
 
 ---
 
@@ -150,7 +160,10 @@ and **100% SPIR-V binary validation**:
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **v0.16.1** | 2026-04 | **164/164 spirv-val pass (100%).** 45 SPIR-V fixes: mesh shaders, overrides, image atomics, pack/unpack, pointer spill, integer ops, matrix decomposition, depth sampling. |
+| **v0.16.4** | 2026-04 | GLSL workgroup zero-init per-element loop (12KB → compact) |
+| **v0.16.3** | 2026-04 | HLSL FXC workgroup zero-init fix (330× faster). First in industry. |
+| **v0.16.2** | 2026-04 | HLSL 72/72 parity (100%). ForceLoopBounding architecture fix. +14 shaders. |
+| **v0.16.1** | 2026-04 | **164/164 spirv-val pass (100%).** +45 SPIR-V fixes. |
 | **v0.16.0** | 2026-04 | GLSL TextureMappings + 34 SPIR-V validation fixes (119/164 pass) |
 | **v0.15.0** | 2026-03 | ALL 5 backends 100% Rust parity: IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58. ~90K LOC |
 | v0.14.8 | 2026-03 | GLSL bind group collision fix |
