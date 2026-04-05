@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   all state without deallocating (Go 1.21+ `clear()` keeps map capacity).
   `Compile()` calls `Reset()` internally. Small shaders: 4.9× fewer allocs
   (68→14), 14× fewer bytes (17KB→1.2KB). Reuse benchmarks included.
+- **Lowerer/Parser pre-sizing** — Expression, statement, declaration slices
+  pre-allocated based on AST size estimates. TypeRegistry capacity hints.
+  Modest improvement (-6 allocs/op) — interface boxing remains the main bottleneck.
 
 ## [0.16.4] - 2026-04-04
 
