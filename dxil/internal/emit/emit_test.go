@@ -566,3 +566,1239 @@ func TestBuiltinSemanticIndex(t *testing.T) {
 		}
 	}
 }
+
+// buildMathBinaryShader creates a fragment shader with a binary math function:
+//
+//	@fragment fn main(@location(0) a: f32, @location(1) b: f32) -> @location(0) vec4<f32> {
+//	    let r = mathFn(a, b);
+//	    return vec4(r, r, r, 1.0);
+//	}
+func buildMathBinaryShader(mathFn ir.MathFunction, scalarKind ir.ScalarKind) *ir.Module {
+	var scalarWidth byte = 4
+	scalar := ir.ScalarType{Kind: scalarKind, Width: scalarWidth}
+	scalarHandle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: scalar},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	aBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	bBinding := ir.Binding(ir.LocationBinding{Location: 1})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+
+	arg1Handle := ir.ExpressionHandle(1)
+	retHandle := ir.ExpressionHandle(5)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "a", Type: scalarHandle, Binding: &aBinding},
+			{Name: "b", Type: scalarHandle, Binding: &bBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] a
+			{Kind: ir.ExprFunctionArgument{Index: 1}},                             // [1] b
+			{Kind: ir.ExprMath{Fun: mathFn, Arg: 0, Arg1: &arg1Handle}},           // [2] mathFn(a, b)
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [4] 0.0 (padding)
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 2, 2, 3}}}, // [5] vec4(r, r, r, 1.0)
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &scalarHandle}, // a
+			{Handle: &scalarHandle}, // b
+			{Handle: &scalarHandle}, // result
+			{Handle: &scalarHandle}, // 1.0
+			{Handle: &scalarHandle}, // 0.0
+			{Handle: &vec4Handle},   // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildMathTernaryShader creates a fragment shader with a ternary math function.
+func buildMathTernaryShader(mathFn ir.MathFunction) *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	aBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	bBinding := ir.Binding(ir.LocationBinding{Location: 1})
+	cBinding := ir.Binding(ir.LocationBinding{Location: 2})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+
+	arg1Handle := ir.ExpressionHandle(1)
+	arg2Handle := ir.ExpressionHandle(2)
+	retHandle := ir.ExpressionHandle(6)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "a", Type: f32Handle, Binding: &aBinding},
+			{Name: "b", Type: f32Handle, Binding: &bBinding},
+			{Name: "c", Type: f32Handle, Binding: &cBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                                      // [0] a
+			{Kind: ir.ExprFunctionArgument{Index: 1}},                                      // [1] b
+			{Kind: ir.ExprFunctionArgument{Index: 2}},                                      // [2] c
+			{Kind: ir.ExprMath{Fun: mathFn, Arg: 0, Arg1: &arg1Handle, Arg2: &arg2Handle}}, // [3] mathFn(a, b, c)
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                                  // [4] 1.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                                  // [5] 0.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 3, 3, 4}}},          // [6] vec4(r, r, r, 1.0)
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle},  // a
+			{Handle: &f32Handle},  // b
+			{Handle: &f32Handle},  // c
+			{Handle: &f32Handle},  // result
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &f32Handle},  // 0.0
+			{Handle: &vec4Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildDotProductShader creates a fragment shader with dot product:
+//
+//	@fragment fn main(@location(0) a: vec3<f32>, @location(1) b: vec3<f32>) -> @location(0) vec4<f32> {
+//	    let d = dot(a, b);
+//	    return vec4(d, d, d, 1.0);
+//	}
+func buildDotProductShader(vecSize ir.VectorSize) *ir.Module {
+	vecHandle := ir.TypeHandle(0)
+	f32Handle := ir.TypeHandle(1)
+	vec4Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: vecSize, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	aBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	bBinding := ir.Binding(ir.LocationBinding{Location: 1})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+
+	arg1Handle := ir.ExpressionHandle(1)
+	retHandle := ir.ExpressionHandle(4)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "a", Type: vecHandle, Binding: &aBinding},
+			{Name: "b", Type: vecHandle, Binding: &bBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] a
+			{Kind: ir.ExprFunctionArgument{Index: 1}},                             // [1] b
+			{Kind: ir.ExprMath{Fun: ir.MathDot, Arg: 0, Arg1: &arg1Handle}},       // [2] dot(a, b)
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3] 1.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{2, 2, 2, 3}}}, // [4] vec4(d, d, d, 1.0)
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vecHandle},  // a
+			{Handle: &vecHandle},  // b
+			{Handle: &f32Handle},  // dot result (scalar)
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &vec4Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildCrossProductShader creates a fragment shader with cross product.
+func buildCrossProductShader() *ir.Module {
+	vec3Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	f32Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+		},
+	}
+
+	aBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	bBinding := ir.Binding(ir.LocationBinding{Location: 1})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+
+	arg1Handle := ir.ExpressionHandle(1)
+	retHandle := ir.ExpressionHandle(6)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "a", Type: vec3Handle, Binding: &aBinding},
+			{Name: "b", Type: vec3Handle, Binding: &bBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] a (vec3)
+			{Kind: ir.ExprFunctionArgument{Index: 1}},                             // [1] b (vec3)
+			{Kind: ir.ExprMath{Fun: ir.MathCross, Arg: 0, Arg1: &arg1Handle}},     // [2] cross(a, b) -> vec3
+			{Kind: ir.ExprAccessIndex{Base: 2, Index: 0}},                         // [3] cross.x
+			{Kind: ir.ExprAccessIndex{Base: 2, Index: 1}},                         // [4] cross.y
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [5] 1.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{3, 4, 3, 5}}}, // [6] vec4
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3Handle}, // a
+			{Handle: &vec3Handle}, // b
+			{Handle: &vec3Handle}, // cross result
+			{Handle: &f32Handle},  // cross.x
+			{Handle: &f32Handle},  // cross.y
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &vec4Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// buildLengthShader creates a fragment shader with length(vec3).
+func buildLengthShader() *ir.Module {
+	vec3Handle := ir.TypeHandle(0)
+	f32Handle := ir.TypeHandle(1)
+	vec4Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	aBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(3)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: vec3Handle, Binding: &aBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] v (vec3)
+			{Kind: ir.ExprMath{Fun: ir.MathLength, Arg: 0}},                       // [1] length(v) -> scalar
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [2] 1.0
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 1, 1, 2}}}, // [3] vec4(l, l, l, 1.0)
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3Handle}, // v
+			{Handle: &f32Handle},  // length result
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &vec4Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+func TestEmitMathMinFloat(t *testing.T) {
+	irMod := buildMathBinaryShader(ir.MathMin, ir.ScalarFloat)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify dx.op.fmin function was created.
+	hasFMin := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.fmin.f32" {
+			hasFMin = true
+			// Binary dx.op: ret(i32, TYPE, TYPE) = 3 params.
+			if len(fn.FuncType.ParamTypes) != 3 {
+				t.Errorf("dx.op.fmin.f32 params: got %d, want 3", len(fn.FuncType.ParamTypes))
+			}
+			break
+		}
+	}
+	if !hasFMin {
+		t.Error("dx.op.fmin.f32 function not found")
+	}
+
+	// Must have call instructions for the dx.op.
+	mainFn := findMainFunc(mod)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+	hasCall := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil && instr.CalledFunc.Name == "dx.op.fmin.f32" {
+				hasCall = true
+			}
+		}
+	}
+	if !hasCall {
+		t.Error("no call to dx.op.fmin.f32 found in main")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("min(f32): %d functions, %d constants, %d bytes", len(mod.Functions), len(mod.Constants), len(bc))
+}
+
+func TestEmitMathMaxSint(t *testing.T) {
+	irMod := buildMathBinaryShader(ir.MathMax, ir.ScalarSint)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	hasIMax := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.imax.i32" {
+			hasIMax = true
+			break
+		}
+	}
+	if !hasIMax {
+		t.Error("dx.op.imax.i32 function not found")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("max(i32): %d functions, %d constants, %d bytes", len(mod.Functions), len(mod.Constants), len(bc))
+}
+
+func TestEmitMathMaxUint(t *testing.T) {
+	irMod := buildMathBinaryShader(ir.MathMax, ir.ScalarUint)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	hasUMax := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.umax.i32" {
+			hasUMax = true
+			break
+		}
+	}
+	if !hasUMax {
+		t.Error("dx.op.umax.i32 function not found")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+}
+
+func TestEmitMathClamp(t *testing.T) {
+	irMod := buildMathTernaryShader(ir.MathClamp)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Clamp(float) uses fmax + fmin.
+	hasFMax := false
+	hasFMin := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.fmax.f32" {
+			hasFMax = true
+		}
+		if fn.Name == "dx.op.fmin.f32" {
+			hasFMin = true
+		}
+	}
+	if !hasFMax {
+		t.Error("dx.op.fmax.f32 function not found (needed for clamp)")
+	}
+	if !hasFMin {
+		t.Error("dx.op.fmin.f32 function not found (needed for clamp)")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("clamp(f32): %d functions, %d constants, %d bytes", len(mod.Functions), len(mod.Constants), len(bc))
+}
+
+func TestEmitMathMix(t *testing.T) {
+	irMod := buildMathTernaryShader(ir.MathMix)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Mix uses fmad (b-a subtraction + fmad(t, b-a, a)).
+	hasFMad := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.fmad.f32" {
+			hasFMad = true
+			// Ternary dx.op: ret(i32, TYPE, TYPE, TYPE) = 4 params.
+			if len(fn.FuncType.ParamTypes) != 4 {
+				t.Errorf("dx.op.fmad.f32 params: got %d, want 4", len(fn.FuncType.ParamTypes))
+			}
+			break
+		}
+	}
+	if !hasFMad {
+		t.Error("dx.op.fmad.f32 function not found")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("mix(f32): %d functions, %d constants, %d bytes", len(mod.Functions), len(mod.Constants), len(bc))
+}
+
+func TestEmitMathFma(t *testing.T) {
+	irMod := buildMathTernaryShader(ir.MathFma)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	hasFma := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.fma.f32" {
+			hasFma = true
+			break
+		}
+	}
+	if !hasFma {
+		t.Error("dx.op.fma.f32 function not found")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+}
+
+func TestEmitMathPow(t *testing.T) {
+	irMod := buildMathBinaryShader(ir.MathPow, ir.ScalarFloat)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Pow decomposes into log2 + fmul + exp2.
+	hasLog := false
+	hasExp := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.log.f32" {
+			hasLog = true
+		}
+		if fn.Name == "dx.op.exp.f32" {
+			hasExp = true
+		}
+	}
+	if !hasLog {
+		t.Error("dx.op.log.f32 function not found (needed for pow)")
+	}
+	if !hasExp {
+		t.Error("dx.op.exp.f32 function not found (needed for pow)")
+	}
+
+	// Check for binary op instruction (fmul for log2(base)*exp).
+	mainFn := findMainFunc(mod)
+	hasBinOp := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrBinOp {
+				hasBinOp = true
+			}
+		}
+	}
+	if !hasBinOp {
+		t.Error("no binary op instruction found (needed for pow log*exp)")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("pow(f32): %d functions, %d constants, %d bytes", len(mod.Functions), len(mod.Constants), len(bc))
+}
+
+func TestEmitMathStep(t *testing.T) {
+	irMod := buildMathBinaryShader(ir.MathStep, ir.ScalarFloat)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Step uses fcmp + select.
+	mainFn := findMainFunc(mod)
+	hasCmp := false
+	hasSelect := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCmp {
+				hasCmp = true
+			}
+			if instr.Kind == module.InstrSelect {
+				hasSelect = true
+			}
+		}
+	}
+	if !hasCmp {
+		t.Error("no comparison instruction found (needed for step)")
+	}
+	if !hasSelect {
+		t.Error("no select instruction found (needed for step)")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+}
+
+func TestEmitMathSmoothStep(t *testing.T) {
+	irMod := buildMathTernaryShader(ir.MathSmoothStep)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// SmoothStep uses fmax, fmin (for clamp), plus several fmul/fsub.
+	hasFMax := false
+	hasFMin := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.fmax.f32" {
+			hasFMax = true
+		}
+		if fn.Name == "dx.op.fmin.f32" {
+			hasFMin = true
+		}
+	}
+	if !hasFMax {
+		t.Error("dx.op.fmax.f32 not found (needed for smoothstep clamp)")
+	}
+	if !hasFMin {
+		t.Error("dx.op.fmin.f32 not found (needed for smoothstep clamp)")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("smoothstep(f32): %d functions, %d constants, %d bytes", len(mod.Functions), len(mod.Constants), len(bc))
+}
+
+func TestEmitDotProduct(t *testing.T) {
+	tests := []struct {
+		name    string
+		vecSize ir.VectorSize
+		dotName string
+	}{
+		{"dot2", 2, "dx.op.dot2.f32"},
+		{"dot3", 3, "dx.op.dot3.f32"},
+		{"dot4", 4, "dx.op.dot4.f32"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			irMod := buildDotProductShader(tt.vecSize)
+			mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+			if err != nil {
+				t.Fatalf("Emit failed: %v", err)
+			}
+
+			hasDot := false
+			for _, fn := range mod.Functions {
+				if fn.Name == tt.dotName {
+					hasDot = true
+					// Dot params: i32 + 2*size scalar values.
+					wantParams := 1 + 2*int(tt.vecSize)
+					if len(fn.FuncType.ParamTypes) != wantParams {
+						t.Errorf("%s params: got %d, want %d", tt.dotName, len(fn.FuncType.ParamTypes), wantParams)
+					}
+					break
+				}
+			}
+			if !hasDot {
+				t.Errorf("%s function not found", tt.dotName)
+			}
+
+			bc := module.Serialize(mod)
+			if len(bc) == 0 {
+				t.Fatal("serialization produced empty bitcode")
+			}
+			t.Logf("%s: %d functions, %d constants, %d bytes", tt.name, len(mod.Functions), len(mod.Constants), len(bc))
+		})
+	}
+}
+
+func TestEmitCrossProduct(t *testing.T) {
+	irMod := buildCrossProductShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Cross product uses 6 fmul + 3 fsub = 9 binary ops total.
+	// Note: finalize remaps operand values including the binop code,
+	// so we count InstrBinOp instructions rather than checking op codes.
+	mainFn := findMainFunc(mod)
+	binOpCount := 0
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrBinOp {
+				binOpCount++
+			}
+		}
+	}
+	// Cross product should generate at least 9 binary ops (6 mul + 3 sub).
+	if binOpCount < 9 {
+		t.Errorf("cross product: expected >= 9 binary ops, got %d", binOpCount)
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("cross(vec3): %d binops, %d functions, %d bytes", binOpCount, len(mod.Functions), len(bc))
+}
+
+func TestEmitMathLength(t *testing.T) {
+	irMod := buildLengthShader()
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Length(vec3) = sqrt(dot3(v, v)).
+	hasDot3 := false
+	hasSqrt := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.dot3.f32" {
+			hasDot3 = true
+		}
+		if fn.Name == "dx.op.sqrt.f32" {
+			hasSqrt = true
+		}
+	}
+	if !hasDot3 {
+		t.Error("dx.op.dot3.f32 not found (needed for length)")
+	}
+	if !hasSqrt {
+		t.Error("dx.op.sqrt.f32 not found (needed for length)")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	t.Logf("length(vec3): %d functions, %d constants, %d bytes", len(mod.Functions), len(mod.Constants), len(bc))
+}
+
+func TestEmitMathAtan2(t *testing.T) {
+	irMod := buildMathBinaryShader(ir.MathAtan2, ir.ScalarFloat)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Atan2 decomposes into fdiv + atan.
+	hasAtan := false
+	for _, fn := range mod.Functions {
+		if fn.Name == "dx.op.atan.f32" {
+			hasAtan = true
+			break
+		}
+	}
+	if !hasAtan {
+		t.Error("dx.op.atan.f32 not found (needed for atan2)")
+	}
+
+	// Check for binary op instruction (fdiv for y/x).
+	mainFn := findMainFunc(mod)
+	hasBinOp := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrBinOp {
+				hasBinOp = true
+			}
+		}
+	}
+	if !hasBinOp {
+		t.Error("no binary op instruction found (needed for atan2 y/x)")
+	}
+
+	bc := module.Serialize(mod)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+}
+
+func TestOverloadSuffix(t *testing.T) {
+	tests := []struct {
+		ol   overloadType
+		want string
+	}{
+		{overloadF32, ".f32"},
+		{overloadF64, ".f64"},
+		{overloadF16, ".f16"},
+		{overloadI32, ".i32"},
+		{overloadI64, ".i64"},
+		{overloadI16, ".i16"},
+		{overloadI1, ".i1"},
+		{overloadVoid, ""},
+	}
+	for _, tt := range tests {
+		got := overloadSuffix(tt.ol)
+		if got != tt.want {
+			t.Errorf("overloadSuffix(%d) = %q, want %q", tt.ol, got, tt.want)
+		}
+	}
+}
+
+func TestGetDxOpBinaryFunc(t *testing.T) {
+	mod := module.NewModule(module.VertexShader)
+	irMod := &ir.Module{}
+	e := &Emitter{
+		ir:          irMod,
+		mod:         mod,
+		exprValues:  make(map[ir.ExpressionHandle]int),
+		dxOpFuncs:   make(map[dxOpKey]*module.Function),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+		undefID:     -1,
+		constMap:    make(map[int]*module.Constant),
+	}
+
+	fn := e.getDxOpBinaryFunc("dx.op.fmin", overloadF32)
+	if fn.Name != "dx.op.fmin.f32" {
+		t.Errorf("name: got %q, want %q", fn.Name, "dx.op.fmin.f32")
+	}
+	if len(fn.FuncType.ParamTypes) != 3 {
+		t.Errorf("params: got %d, want 3", len(fn.FuncType.ParamTypes))
+	}
+
+	// Second call should return cached.
+	fn2 := e.getDxOpBinaryFunc("dx.op.fmin", overloadF32)
+	if fn != fn2 {
+		t.Error("getDxOpBinaryFunc did not return cached function")
+	}
+}
+
+func TestGetDxOpTernaryFunc(t *testing.T) {
+	mod := module.NewModule(module.VertexShader)
+	irMod := &ir.Module{}
+	e := &Emitter{
+		ir:          irMod,
+		mod:         mod,
+		exprValues:  make(map[ir.ExpressionHandle]int),
+		dxOpFuncs:   make(map[dxOpKey]*module.Function),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+		undefID:     -1,
+		constMap:    make(map[int]*module.Constant),
+	}
+
+	fn := e.getDxOpTernaryFunc("dx.op.fmad", overloadF32)
+	if fn.Name != "dx.op.fmad.f32" {
+		t.Errorf("name: got %q, want %q", fn.Name, "dx.op.fmad.f32")
+	}
+	if len(fn.FuncType.ParamTypes) != 4 {
+		t.Errorf("params: got %d, want 4", len(fn.FuncType.ParamTypes))
+	}
+}
+
+func TestGetDxOpDotFunc(t *testing.T) {
+	mod := module.NewModule(module.VertexShader)
+	irMod := &ir.Module{}
+	e := &Emitter{
+		ir:          irMod,
+		mod:         mod,
+		exprValues:  make(map[ir.ExpressionHandle]int),
+		dxOpFuncs:   make(map[dxOpKey]*module.Function),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+		undefID:     -1,
+		constMap:    make(map[int]*module.Constant),
+	}
+
+	fn := e.getDxOpDotFunc(3, overloadF32)
+	if fn.Name != "dx.op.dot3.f32" {
+		t.Errorf("name: got %q, want %q", fn.Name, "dx.op.dot3.f32")
+	}
+	// dot3: i32 + 3*2 = 7 params
+	if len(fn.FuncType.ParamTypes) != 7 {
+		t.Errorf("params: got %d, want 7", len(fn.FuncType.ParamTypes))
+	}
+
+	fn4 := e.getDxOpDotFunc(4, overloadF32)
+	if fn4.Name != "dx.op.dot4.f32" {
+		t.Errorf("name: got %q, want %q", fn4.Name, "dx.op.dot4.f32")
+	}
+	if len(fn4.FuncType.ParamTypes) != 9 {
+		t.Errorf("params: got %d, want 9", len(fn4.FuncType.ParamTypes))
+	}
+}
+
+// findMainFunc finds the "main" function in a module.
+func findMainFunc(mod *module.Module) *module.Function {
+	for _, fn := range mod.Functions {
+		if fn.Name == "main" {
+			return fn
+		}
+	}
+	return nil
+}
+
+// --- Type cast (ExprAs) tests ---
+
+// buildCastShader creates a fragment shader that casts a scalar input to a different type:
+//
+//	@fragment fn main(@location(0) v: srcType) -> @location(0) vec4<f32> {
+//	    let c = dstType(v);
+//	    return vec4(f32(c), 0.0, 0.0, 1.0);
+//	}
+//
+// The ExprAs is at expression [1] with the given kind and convert width.
+func buildCastShader(srcScalar ir.ScalarType, dstKind ir.ScalarKind, convertWidth *uint8) *ir.Module {
+	srcHandle := ir.TypeHandle(0)
+	f32Handle := ir.TypeHandle(1)
+	vec4Handle := ir.TypeHandle(2)
+
+	// Determine dst scalar for type resolution.
+	var dstWidth uint8
+	if convertWidth != nil {
+		dstWidth = *convertWidth
+	} else {
+		dstWidth = srcScalar.Width
+	}
+	dstScalar := ir.ScalarType{Kind: dstKind, Width: dstWidth}
+	dstHandle := ir.TypeHandle(3)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: srcScalar},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: dstScalar},
+		},
+	}
+
+	aBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(6)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v", Type: srcHandle, Binding: &aBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                             // [0] v
+			{Kind: ir.ExprAs{Expr: 0, Kind: dstKind, Convert: convertWidth}},      // [1] cast(v)
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [2] 0.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [3] 0.0
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [4] 1.0
+			{Kind: ir.ExprAs{Expr: 1, Kind: ir.ScalarFloat, Convert: ptrU8(4)}},   // [5] f32(c) - for output
+			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{5, 2, 3, 4}}}, // [6] vec4(...)
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &srcHandle},  // v
+			{Handle: &dstHandle},  // cast(v)
+			{Handle: &f32Handle},  // 0.0
+			{Handle: &f32Handle},  // 0.0
+			{Handle: &f32Handle},  // 1.0
+			{Handle: &f32Handle},  // f32(c)
+			{Handle: &vec4Handle}, // compose
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+	return mod
+}
+
+// ptrU8 returns a pointer to a uint8 value.
+func ptrU8(v uint8) *uint8 { return &v }
+
+// countInstrKind counts the number of instructions of the given kind in the main function.
+func countInstrKind(mod *module.Module, kind module.InstrKind) int {
+	mainFn := findMainFunc(mod)
+	if mainFn == nil {
+		return 0
+	}
+	count := 0
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == kind {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func TestSelectDXILCastOp(t *testing.T) {
+	tests := []struct {
+		name string
+		src  ir.ScalarType
+		dst  ir.ScalarType
+		want CastOpKind
+	}{
+		// Float → Int
+		{"f32_to_i32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, CastFPToSI},
+		{"f32_to_u32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, CastFPToUI},
+		{"f64_to_i32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, CastFPToSI},
+
+		// Int → Float
+		{"i32_to_f32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, CastSIToFP},
+		{"u32_to_f32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, CastUIToFP},
+		{"i32_to_f64", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, CastSIToFP},
+
+		// Float → Float
+		{"f64_to_f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, CastFPTrunc},
+		{"f32_to_f64", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, CastFPExt},
+		{"f32_to_f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}, CastFPTrunc},
+		{"f16_to_f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}, ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, CastFPExt},
+
+		// Int → Int (same signedness)
+		{"i32_to_i64", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, ir.ScalarType{Kind: ir.ScalarSint, Width: 8}, CastSExt},
+		{"i64_to_i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 8}, ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, CastTrunc},
+		{"u32_to_u64", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, ir.ScalarType{Kind: ir.ScalarUint, Width: 8}, CastZExt},
+		{"u64_to_u32", ir.ScalarType{Kind: ir.ScalarUint, Width: 8}, ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, CastTrunc},
+
+		// Int → Int (different signedness, same width)
+		{"i32_to_u32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, CastBitcast},
+		{"u32_to_i32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, CastBitcast},
+
+		// Int → Int (different signedness, different width)
+		{"i32_to_u64", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, ir.ScalarType{Kind: ir.ScalarUint, Width: 8}, CastZExt},
+		{"u64_to_i32", ir.ScalarType{Kind: ir.ScalarUint, Width: 8}, ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, CastTrunc},
+		{"u32_to_i64", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, ir.ScalarType{Kind: ir.ScalarSint, Width: 8}, CastSExt},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := selectDXILCastOp(tt.src, tt.dst)
+			if err != nil {
+				t.Fatalf("selectDXILCastOp: unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEmitAsF32ToI32(t *testing.T) {
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+		ir.ScalarSint,
+		ptrU8(4),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction, got %d", castCount)
+	}
+	t.Logf("f32→i32: %d casts, %d functions, %d constants", castCount, len(mod.Functions), len(mod.Constants))
+}
+
+func TestEmitAsF32ToU32(t *testing.T) {
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+		ir.ScalarUint,
+		ptrU8(4),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction, got %d", castCount)
+	}
+	t.Logf("f32→u32: %d casts, %d functions, %d constants", castCount, len(mod.Functions), len(mod.Constants))
+}
+
+func TestEmitAsI32ToF32(t *testing.T) {
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
+		ir.ScalarFloat,
+		ptrU8(4),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction, got %d", castCount)
+	}
+	t.Logf("i32→f32: %d casts, %d functions, %d constants", castCount, len(mod.Functions), len(mod.Constants))
+}
+
+func TestEmitAsU32ToF32(t *testing.T) {
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
+		ir.ScalarFloat,
+		ptrU8(4),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction, got %d", castCount)
+	}
+	t.Logf("u32→f32: %d casts, %d functions, %d constants", castCount, len(mod.Functions), len(mod.Constants))
+}
+
+func TestEmitAsF64ToF32(t *testing.T) {
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 8},
+		ir.ScalarFloat,
+		ptrU8(4),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction (FPTrunc), got %d", castCount)
+	}
+	t.Logf("f64→f32: %d casts, %d functions, %d constants", castCount, len(mod.Functions), len(mod.Constants))
+}
+
+func TestEmitAsF32ToF64(t *testing.T) {
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+		ir.ScalarFloat,
+		ptrU8(8),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction (FPExt), got %d", castCount)
+	}
+	t.Logf("f32→f64: %d casts, %d functions, %d constants", castCount, len(mod.Functions), len(mod.Constants))
+}
+
+func TestEmitAsBitcastF32U32(t *testing.T) {
+	// Convert == nil means bitcast.
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+		ir.ScalarUint,
+		nil, // bitcast
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction (bitcast), got %d", castCount)
+	}
+	t.Logf("f32↔u32 bitcast: %d casts, %d functions, %d constants", castCount, len(mod.Functions), len(mod.Constants))
+}
+
+func TestEmitAsI32ToI64(t *testing.T) {
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
+		ir.ScalarSint,
+		ptrU8(8),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction (SExt), got %d", castCount)
+	}
+	t.Logf("i32→i64: %d casts, %d functions, %d constants", castCount, len(mod.Functions), len(mod.Constants))
+}
+
+func TestEmitAsI64ToI32(t *testing.T) {
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarSint, Width: 8},
+		ir.ScalarSint,
+		ptrU8(4),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction (Trunc), got %d", castCount)
+	}
+	t.Logf("i64→i32: %d casts, %d functions, %d constants", castCount, len(mod.Functions), len(mod.Constants))
+}
+
+func TestEmitAsSameType(t *testing.T) {
+	// Casting f32 to f32 should be a no-op (no cast instructions for the primary cast).
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
+		ir.ScalarFloat,
+		ptrU8(4), // same width
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	// The primary cast (f32→f32) should be a no-op, but the second ExprAs
+	// (expression [5]: dstType→f32 for output) is also f32→f32, so no casts at all.
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount != 0 {
+		t.Errorf("expected 0 cast instructions for identity cast, got %d", castCount)
+	}
+	t.Logf("f32→f32 (no-op): %d casts", castCount)
+}
+
+func TestEmitAsBoolToInt(t *testing.T) {
+	// bool → i32 should produce ZExt.
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
+		ir.ScalarSint,
+		ptrU8(4),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	if castCount < 1 {
+		t.Errorf("expected at least 1 cast instruction (ZExt for bool→int), got %d", castCount)
+	}
+	t.Logf("bool→i32: %d casts", castCount)
+}
+
+func TestEmitAsBoolToFloat(t *testing.T) {
+	// bool → f32 should produce two-step: ZExt i1→i32, then UIToFP i32→f32.
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
+		ir.ScalarFloat,
+		ptrU8(4),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	castCount := countInstrKind(mod, module.InstrCast)
+	// Two casts from bool→f32 (ZExt + UIToFP), plus one for the f32(c)→f32 output
+	// which is a no-op, so minimum 2.
+	if castCount < 2 {
+		t.Errorf("expected at least 2 cast instructions (ZExt + UIToFP for bool→float), got %d", castCount)
+	}
+	t.Logf("bool→f32: %d casts", castCount)
+}
+
+func TestEmitAsIntToBool(t *testing.T) {
+	// i32 → bool should produce ICmp NE (comparison, not cast instruction).
+	irMod := buildCastShader(
+		ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
+		ir.ScalarBool,
+		ptrU8(1),
+	)
+	mod, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+	// int→bool uses CmpInstr (ICmpNE), not CastInstr.
+	cmpCount := countInstrKind(mod, module.InstrCmp)
+	if cmpCount < 1 {
+		t.Errorf("expected at least 1 cmp instruction (ICmpNE for int→bool), got %d", cmpCount)
+	}
+	t.Logf("i32→bool: %d cmps, %d casts", cmpCount, countInstrKind(mod, module.InstrCast))
+}

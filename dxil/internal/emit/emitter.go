@@ -524,6 +524,28 @@ func (e *Emitter) getDxOpLoadFunc(ol overloadType) *module.Function {
 	return fn
 }
 
+// overloadSuffix returns the type suffix string for a given overload.
+func overloadSuffix(ol overloadType) string {
+	switch ol {
+	case overloadF16:
+		return ".f16"
+	case overloadF32:
+		return suffixF32
+	case overloadF64:
+		return suffixF64
+	case overloadI16:
+		return ".i16"
+	case overloadI32:
+		return suffixI32
+	case overloadI64:
+		return ".i64"
+	case overloadI1:
+		return ".i1"
+	default:
+		return ""
+	}
+}
+
 // getDxOpUnaryFunc creates a dx.op unary function declaration.
 // Signature: TYPE @dx.op.NAME.TYPE(i32 opcode, TYPE value)
 func (e *Emitter) getDxOpUnaryFunc(name string, ol overloadType) *module.Function {
@@ -535,15 +557,77 @@ func (e *Emitter) getDxOpUnaryFunc(name string, ol overloadType) *module.Functio
 	retTy := e.overloadReturnType(ol)
 	i32Ty := e.mod.GetIntType(32)
 
-	fullName := name
-	switch ol {
-	case overloadF32:
-		fullName += suffixF32
-	case overloadI32:
-		fullName += suffixI32
-	}
+	fullName := name + overloadSuffix(ol)
 
 	params := []*module.Type{i32Ty, retTy}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpBinaryFunc creates a dx.op binary function declaration.
+// Signature: TYPE @dx.op.NAME.TYPE(i32 opcode, TYPE a, TYPE b)
+func (e *Emitter) getDxOpBinaryFunc(name string, ol overloadType) *module.Function {
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	retTy := e.overloadReturnType(ol)
+	i32Ty := e.mod.GetIntType(32)
+
+	fullName := name + overloadSuffix(ol)
+
+	params := []*module.Type{i32Ty, retTy, retTy}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpTernaryFunc creates a dx.op ternary function declaration.
+// Signature: TYPE @dx.op.NAME.TYPE(i32 opcode, TYPE a, TYPE b, TYPE c)
+func (e *Emitter) getDxOpTernaryFunc(name string, ol overloadType) *module.Function {
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	retTy := e.overloadReturnType(ol)
+	i32Ty := e.mod.GetIntType(32)
+
+	fullName := name + overloadSuffix(ol)
+
+	params := []*module.Type{i32Ty, retTy, retTy, retTy}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpDotFunc creates a dx.op dot product function declaration.
+// Dot products take 2*size scalar params and return a scalar.
+// Signature: float @dx.op.dotN.f32(i32 opcode, float ax, float ay, ..., float bx, float by, ...)
+func (e *Emitter) getDxOpDotFunc(size int, ol overloadType) *module.Function {
+	name := fmt.Sprintf("dx.op.dot%d", size)
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	retTy := e.overloadReturnType(ol)
+	i32Ty := e.mod.GetIntType(32)
+
+	fullName := name + overloadSuffix(ol)
+
+	// params: i32 opcode, then 2*size scalar values
+	params := make([]*module.Type, 1+2*size)
+	params[0] = i32Ty
+	for i := 1; i < len(params); i++ {
+		params[i] = retTy
+	}
+
 	funcTy := e.mod.GetFunctionType(retTy, params)
 	fn := e.mod.AddFunction(fullName, funcTy, true)
 	e.dxOpFuncs[key] = fn

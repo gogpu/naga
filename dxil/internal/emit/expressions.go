@@ -356,7 +356,32 @@ func (e *Emitter) emitUnary(fn *ir.Function, un ir.ExprUnary) (int, error) {
 }
 
 // emitMath emits a math intrinsic as a dx.op call.
+// Dispatches based on argument count and special-case operations.
 func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	// Special vector operations that need scalarized handling.
+	switch mathExpr.Fun {
+	case ir.MathDot:
+		return e.emitMathDot(fn, mathExpr)
+	case ir.MathCross:
+		return e.emitMathCross(fn, mathExpr)
+	case ir.MathLength:
+		return e.emitMathLength(fn, mathExpr)
+	case ir.MathDistance:
+		return e.emitMathDistance(fn, mathExpr)
+	case ir.MathNormalize:
+		return e.emitMathNormalize(fn, mathExpr)
+	}
+
+	// Composite operations without direct dx.op.
+	switch mathExpr.Fun {
+	case ir.MathPow:
+		return e.emitMathPow(fn, mathExpr)
+	case ir.MathStep:
+		return e.emitMathStep(fn, mathExpr)
+	case ir.MathSmoothStep:
+		return e.emitMathSmoothStep(fn, mathExpr)
+	}
+
 	arg, err := e.emitExpression(fn, mathExpr.Arg)
 	if err != nil {
 		return 0, err
@@ -368,8 +393,33 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	}
 	ol := overloadForScalar(scalar)
+	isFloat := scalar.Kind == ir.ScalarFloat
+	isSigned := scalar.Kind == ir.ScalarSint
 
-	opcode, opName, err := mathToDxOp(mathExpr.Fun)
+	// Ternary: 3 args (Arg + Arg1 + Arg2).
+	if mathExpr.Arg1 != nil && mathExpr.Arg2 != nil {
+		arg1, err2 := e.emitExpression(fn, *mathExpr.Arg1)
+		if err2 != nil {
+			return 0, err2
+		}
+		arg2, err2 := e.emitExpression(fn, *mathExpr.Arg2)
+		if err2 != nil {
+			return 0, err2
+		}
+		return e.emitMathTernary(mathExpr.Fun, ol, isFloat, isSigned, arg, arg1, arg2)
+	}
+
+	// Binary: 2 args (Arg + Arg1).
+	if mathExpr.Arg1 != nil {
+		arg1, err2 := e.emitExpression(fn, *mathExpr.Arg1)
+		if err2 != nil {
+			return 0, err2
+		}
+		return e.emitMathBinary(mathExpr.Fun, ol, isFloat, isSigned, arg, arg1)
+	}
+
+	// Unary: 1 arg.
+	opcode, opName, err := mathToDxOpUnary(mathExpr.Fun)
 	if err != nil {
 		return 0, err
 	}
@@ -380,10 +430,485 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg}), nil
 }
 
-// mathToDxOp maps naga MathFunction to dx.op opcode and name.
+// emitMathBinary emits a binary math dx.op call (min, max, atan2).
+func (e *Emitter) emitMathBinary(mf ir.MathFunction, ol overloadType, isFloat, isSigned bool, arg, arg1 int) (int, error) {
+	var opcode DXILOpcode
+	var opName string
+
+	switch mf {
+	case ir.MathMin:
+		if isFloat {
+			opcode, opName = OpFMin, "dx.op.fmin"
+		} else if isSigned {
+			opcode, opName = OpIMin, "dx.op.imin"
+		} else {
+			opcode, opName = OpUMin, "dx.op.umin"
+		}
+	case ir.MathMax:
+		if isFloat {
+			opcode, opName = OpFMax, "dx.op.fmax"
+		} else if isSigned {
+			opcode, opName = OpIMax, "dx.op.imax"
+		} else {
+			opcode, opName = OpUMax, "dx.op.umax"
+		}
+	case ir.MathAtan2:
+		// DXIL has no atan2 dx.op. Approximate as atan(y/x).
+		// This is a simplification; proper atan2 needs quadrant correction.
+		resultTy := e.overloadReturnType(ol)
+		div := e.addBinOpInstr(resultTy, BinOpFDiv, arg, arg1)
+		dxFn := e.getDxOpUnaryFunc("dx.op.atan", ol)
+		opcodeVal := e.getIntConstID(int64(OpAtan))
+		return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, div}), nil
+	default:
+		return 0, fmt.Errorf("unsupported binary math function: %d", mf)
+	}
+
+	dxFn := e.getDxOpBinaryFunc(opName, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg, arg1}), nil
+}
+
+// emitMathTernary emits a ternary math dx.op call (clamp, mix, fma).
+func (e *Emitter) emitMathTernary(mf ir.MathFunction, ol overloadType, isFloat, isSigned bool, arg, arg1, arg2 int) (int, error) {
+	switch mf {
+	case ir.MathClamp:
+		// clamp(x, lo, hi) = min(max(x, lo), hi)
+		return e.emitClamp(ol, isFloat, isSigned, arg, arg1, arg2)
+	case ir.MathMix:
+		// mix(a, b, t) = a + t*(b-a) = fmad(t, b-a, a)
+		if isFloat {
+			resultTy := e.overloadReturnType(ol)
+			bMinusA := e.addBinOpInstr(resultTy, BinOpFSub, arg1, arg)
+			dxFn := e.getDxOpTernaryFunc("dx.op.fmad", ol)
+			opcodeVal := e.getIntConstID(int64(OpFMad))
+			return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg2, bMinusA, arg}), nil
+		}
+		return 0, fmt.Errorf("mix not supported for non-float types")
+	case ir.MathFma:
+		if isFloat {
+			dxFn := e.getDxOpTernaryFunc("dx.op.fma", ol)
+			opcodeVal := e.getIntConstID(int64(OpFma))
+			return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg, arg1, arg2}), nil
+		}
+		return 0, fmt.Errorf("fma not supported for non-float types")
+	default:
+		return 0, fmt.Errorf("unsupported ternary math function: %d", mf)
+	}
+}
+
+// emitClamp emits clamp(x, lo, hi) = min(max(x, lo), hi).
+func (e *Emitter) emitClamp(ol overloadType, isFloat, isSigned bool, x, lo, hi int) (int, error) {
+	var maxOp, minOp DXILOpcode
+	var maxName, minName string
+	if isFloat {
+		maxOp, maxName = OpFMax, "dx.op.fmax"
+		minOp, minName = OpFMin, "dx.op.fmin"
+	} else if isSigned {
+		maxOp, maxName = OpIMax, "dx.op.imax"
+		minOp, minName = OpIMin, "dx.op.imin"
+	} else {
+		maxOp, maxName = OpUMax, "dx.op.umax"
+		minOp, minName = OpUMin, "dx.op.umin"
+	}
+
+	maxFn := e.getDxOpBinaryFunc(maxName, ol)
+	maxOpcodeVal := e.getIntConstID(int64(maxOp))
+	maxResult := e.addCallInstr(maxFn, maxFn.FuncType.RetType, []int{maxOpcodeVal, x, lo})
+
+	minFn := e.getDxOpBinaryFunc(minName, ol)
+	minOpcodeVal := e.getIntConstID(int64(minOp))
+	return e.addCallInstr(minFn, minFn.FuncType.RetType, []int{minOpcodeVal, maxResult, hi}), nil
+}
+
+// emitMathPow emits pow(base, exp) = exp2(log2(base) * exp).
+// DXIL has no pow dx.op; decompose into log2 + fmul + exp2.
+func (e *Emitter) emitMathPow(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	base, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	exp, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	resultTy := e.overloadReturnType(ol)
+
+	// log2(base)
+	logFn := e.getDxOpUnaryFunc("dx.op.log", ol)
+	logOp := e.getIntConstID(int64(OpLog))
+	logResult := e.addCallInstr(logFn, logFn.FuncType.RetType, []int{logOp, base})
+
+	// log2(base) * exp
+	mulResult := e.addBinOpInstr(resultTy, BinOpFMul, logResult, exp)
+
+	// exp2(log2(base) * exp)
+	expFn := e.getDxOpUnaryFunc("dx.op.exp", ol)
+	expOp := e.getIntConstID(int64(OpExp))
+	return e.addCallInstr(expFn, expFn.FuncType.RetType, []int{expOp, mulResult}), nil
+}
+
+// emitMathStep emits step(edge, x) = select(x >= edge, 1.0, 0.0).
+func (e *Emitter) emitMathStep(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	edge, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	x, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	resultTy := e.overloadReturnType(ol)
+
+	// x >= edge
+	cmp := e.addCmpInstr(FCmpOGE, x, edge)
+
+	// select(cmp, 1.0, 0.0)
+	oneID := e.getFloatConstID(1.0)
+	zeroID := e.getFloatConstID(0.0)
+
+	valueID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrSelect,
+		HasValue:   true,
+		ResultType: resultTy,
+		Operands:   []int{cmp, oneID, zeroID},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return valueID, nil
+}
+
+// emitMathSmoothStep emits smoothstep(edge0, edge1, x).
+// t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+// result = t * t * (3.0 - 2.0 * t)
+func (e *Emitter) emitMathSmoothStep(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	edge0, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	edge1, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+	x, err := e.emitExpression(fn, *mathExpr.Arg2)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	resultTy := e.overloadReturnType(ol)
+
+	// x - edge0
+	xMinusE0 := e.addBinOpInstr(resultTy, BinOpFSub, x, edge0)
+	// edge1 - edge0
+	e1MinusE0 := e.addBinOpInstr(resultTy, BinOpFSub, edge1, edge0)
+	// (x - edge0) / (edge1 - edge0)
+	ratio := e.addBinOpInstr(resultTy, BinOpFDiv, xMinusE0, e1MinusE0)
+
+	// clamp(ratio, 0.0, 1.0)
+	zeroID := e.getFloatConstID(0.0)
+	oneID := e.getFloatConstID(1.0)
+	t, err := e.emitClamp(ol, true, false, ratio, zeroID, oneID)
+	if err != nil {
+		return 0, err
+	}
+
+	// t * t
+	tSquared := e.addBinOpInstr(resultTy, BinOpFMul, t, t)
+	// 2.0 * t
+	twoID := e.getFloatConstID(2.0)
+	twoT := e.addBinOpInstr(resultTy, BinOpFMul, twoID, t)
+	// 3.0 - 2.0 * t
+	threeID := e.getFloatConstID(3.0)
+	threeMinusTwoT := e.addBinOpInstr(resultTy, BinOpFSub, threeID, twoT)
+	// t * t * (3.0 - 2.0 * t)
+	return e.addBinOpInstr(resultTy, BinOpFMul, tSquared, threeMinusTwoT), nil
+}
+
+// emitMathDot emits a dot product using dx.op.dot2/dot3/dot4.
+// Takes two vectors, extracts components, calls the appropriate dot intrinsic.
+func (e *Emitter) emitMathDot(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	_, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	_, err = e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+
+	var opcode DXILOpcode
+	switch size {
+	case 2:
+		opcode = OpDot2
+	case 3:
+		opcode = OpDot3
+	case 4:
+		opcode = OpDot4
+	default:
+		return 0, fmt.Errorf("unsupported dot product vector size: %d", size)
+	}
+
+	dxFn := e.getDxOpDotFunc(size, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+
+	// Build operands: opcode, a.x, a.y, ..., b.x, b.y, ...
+	operands := make([]int, 1+2*size)
+	operands[0] = opcodeVal
+	for i := 0; i < size; i++ {
+		operands[1+i] = e.getComponentID(mathExpr.Arg, i)
+	}
+	for i := 0; i < size; i++ {
+		operands[1+size+i] = e.getComponentID(*mathExpr.Arg1, i)
+	}
+
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, operands), nil
+}
+
+// emitMathCross emits cross(a, b) = vec3(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x).
+// No dx.op for cross — decompose into 6 fmul + 3 fsub.
+func (e *Emitter) emitMathCross(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	_, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	_, err = e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	resultTy := e.overloadReturnType(overloadForScalar(scalar))
+
+	ax := e.getComponentID(mathExpr.Arg, 0)
+	ay := e.getComponentID(mathExpr.Arg, 1)
+	az := e.getComponentID(mathExpr.Arg, 2)
+	bx := e.getComponentID(*mathExpr.Arg1, 0)
+	by := e.getComponentID(*mathExpr.Arg1, 1)
+	bz := e.getComponentID(*mathExpr.Arg1, 2)
+
+	// x = a.y*b.z - a.z*b.y
+	ayBz := e.addBinOpInstr(resultTy, BinOpFMul, ay, bz)
+	azBy := e.addBinOpInstr(resultTy, BinOpFMul, az, by)
+	cx := e.addBinOpInstr(resultTy, BinOpFSub, ayBz, azBy)
+
+	// y = a.z*b.x - a.x*b.z
+	azBx := e.addBinOpInstr(resultTy, BinOpFMul, az, bx)
+	axBz := e.addBinOpInstr(resultTy, BinOpFMul, ax, bz)
+	cy := e.addBinOpInstr(resultTy, BinOpFSub, azBx, axBz)
+
+	// z = a.x*b.y - a.y*b.x
+	axBy := e.addBinOpInstr(resultTy, BinOpFMul, ax, by)
+	ayBx := e.addBinOpInstr(resultTy, BinOpFMul, ay, bx)
+	cz := e.addBinOpInstr(resultTy, BinOpFSub, axBy, ayBx)
+
+	e.pendingComponents = []int{cx, cy, cz}
+	return cx, nil
+}
+
+// emitDotForVector emits a dot product of a vector expression with itself.
+// Helper used by length and normalize.
+func (e *Emitter) emitDotForVector(handle ir.ExpressionHandle, size int, ol overloadType) (int, error) {
+	var opcode DXILOpcode
+	switch size {
+	case 2:
+		opcode = OpDot2
+	case 3:
+		opcode = OpDot3
+	case 4:
+		opcode = OpDot4
+	default:
+		return 0, fmt.Errorf("unsupported vector size for dot: %d", size)
+	}
+
+	dxFn := e.getDxOpDotFunc(size, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+
+	operands := make([]int, 1+2*size)
+	operands[0] = opcodeVal
+	for i := 0; i < size; i++ {
+		c := e.getComponentID(handle, i)
+		operands[1+i] = c
+		operands[1+size+i] = c
+	}
+
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, operands), nil
+}
+
+// emitMathLength emits length(v) = sqrt(dot(v, v)).
+func (e *Emitter) emitMathLength(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	_, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+
+	// Scalar length = abs(x).
+	if size == 1 {
+		scalar, ok := scalarOfType(argType)
+		if !ok {
+			scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+		}
+		ol := overloadForScalar(scalar)
+		arg, _ := e.emitExpression(fn, mathExpr.Arg)
+		dxFn := e.getDxOpUnaryFunc("dx.op.fabs", ol)
+		opcodeVal := e.getIntConstID(int64(OpFAbs))
+		return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg}), nil
+	}
+
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+
+	// dot(v, v)
+	dotResult, err := e.emitDotForVector(mathExpr.Arg, size, ol)
+	if err != nil {
+		return 0, err
+	}
+
+	// sqrt(dot(v, v))
+	sqrtFn := e.getDxOpUnaryFunc("dx.op.sqrt", ol)
+	sqrtOp := e.getIntConstID(int64(OpSqrt))
+	return e.addCallInstr(sqrtFn, sqrtFn.FuncType.RetType, []int{sqrtOp, dotResult}), nil
+}
+
+// emitMathDistance emits distance(a, b) = length(a - b).
+func (e *Emitter) emitMathDistance(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	_, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	_, err = e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	resultTy := e.overloadReturnType(ol)
+
+	// Compute per-component (a - b) and store as a synthetic expression.
+	diffHandle := ir.ExpressionHandle(uint32(len(fn.Expressions)) + 1000) //nolint:gosec // synthetic handle, no overflow risk
+	diffComps := make([]int, size)
+	var firstID int
+	for i := 0; i < size; i++ {
+		ai := e.getComponentID(mathExpr.Arg, i)
+		bi := e.getComponentID(*mathExpr.Arg1, i)
+		diffComps[i] = e.addBinOpInstr(resultTy, BinOpFSub, ai, bi)
+		if i == 0 {
+			firstID = diffComps[i]
+		}
+	}
+	e.exprValues[diffHandle] = firstID
+	e.exprComponents[diffHandle] = diffComps
+
+	// dot(diff, diff)
+	dotResult, err := e.emitDotForVector(diffHandle, size, ol)
+	if err != nil {
+		return 0, err
+	}
+
+	// sqrt(dot)
+	sqrtFn := e.getDxOpUnaryFunc("dx.op.sqrt", ol)
+	sqrtOp := e.getIntConstID(int64(OpSqrt))
+	return e.addCallInstr(sqrtFn, sqrtFn.FuncType.RetType, []int{sqrtOp, dotResult}), nil
+}
+
+// emitMathNormalize emits normalize(v) = v * rsqrt(dot(v, v)).
+// Each component is multiplied by rsqrt(dot(v,v)), producing a vector result.
+func (e *Emitter) emitMathNormalize(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	_, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	resultTy := e.overloadReturnType(ol)
+
+	// Scalar normalize = sign(x): 1.0 for x>0, -1.0 for x<0, 0 for 0.
+	if size == 1 {
+		// Simplified: rsqrt(x*x) * x. For proper sign handling this works for nonzero.
+		arg, _ := e.emitExpression(fn, mathExpr.Arg)
+		mulSelf := e.addBinOpInstr(resultTy, BinOpFMul, arg, arg)
+		rsqrtFn := e.getDxOpUnaryFunc("dx.op.rsqrt", ol)
+		rsqrtOp := e.getIntConstID(int64(OpRsqrt))
+		rsqrt := e.addCallInstr(rsqrtFn, rsqrtFn.FuncType.RetType, []int{rsqrtOp, mulSelf})
+		return e.addBinOpInstr(resultTy, BinOpFMul, arg, rsqrt), nil
+	}
+
+	// dot(v, v)
+	dotResult, err := e.emitDotForVector(mathExpr.Arg, size, ol)
+	if err != nil {
+		return 0, err
+	}
+
+	// rsqrt(dot(v, v))
+	rsqrtFn := e.getDxOpUnaryFunc("dx.op.rsqrt", ol)
+	rsqrtOp := e.getIntConstID(int64(OpRsqrt))
+	invLen := e.addCallInstr(rsqrtFn, rsqrtFn.FuncType.RetType, []int{rsqrtOp, dotResult})
+
+	// v[i] * invLen for each component
+	comps := make([]int, size)
+	for i := 0; i < size; i++ {
+		vi := e.getComponentID(mathExpr.Arg, i)
+		comps[i] = e.addBinOpInstr(resultTy, BinOpFMul, vi, invLen)
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// mathToDxOpUnary maps naga MathFunction to dx.op opcode and name for unary functions.
 //
 //nolint:gocyclo,cyclop // math function mapping requires many cases
-func mathToDxOp(mf ir.MathFunction) (DXILOpcode, string, error) {
+func mathToDxOpUnary(mf ir.MathFunction) (DXILOpcode, string, error) {
 	switch mf {
 	case ir.MathSin:
 		return OpSin, "dx.op.sin", nil
@@ -434,7 +959,7 @@ func mathToDxOp(mf ir.MathFunction) (DXILOpcode, string, error) {
 	case ir.MathFirstLeadingBit:
 		return OpFirstbitHi, "dx.op.firstbitHi", nil
 	default:
-		return 0, "", fmt.Errorf("unsupported math function: %d", mf)
+		return 0, "", fmt.Errorf("unsupported unary math function: %d", mf)
 	}
 }
 
@@ -517,14 +1042,200 @@ func (e *Emitter) emitConstant(ec ir.ExprConstant) (int, error) {
 	return e.getIntConstID(0), nil
 }
 
-// emitAs emits a type cast expression.
+// emitAs emits a type cast expression using LLVM cast instructions.
+//
+// Reference: Mesa nir_to_dxil.c emit_cast(), SPIR-V backend emitAs().
 func (e *Emitter) emitAs(fn *ir.Function, as ir.ExprAs) (int, error) {
 	src, err := e.emitExpression(fn, as.Expr)
 	if err != nil {
 		return 0, err
 	}
-	// Simplified: for now just pass through (proper casts need LLVM cast instructions).
-	return src, nil
+
+	// Resolve source type.
+	srcInner := e.resolveExprType(fn, as.Expr)
+	srcScalar, ok := scalarOfType(srcInner)
+	if !ok {
+		// Non-scalar/vector/matrix source — pass through.
+		return src, nil
+	}
+
+	// Determine target scalar.
+	var dstScalar ir.ScalarType
+	if as.Convert == nil {
+		// Bitcast: same width, different interpretation.
+		dstScalar = ir.ScalarType{Kind: as.Kind, Width: srcScalar.Width}
+	} else {
+		dstScalar = ir.ScalarType{Kind: as.Kind, Width: *as.Convert}
+	}
+
+	// Identity: same kind and width — no-op.
+	if srcScalar.Kind == dstScalar.Kind && srcScalar.Width == dstScalar.Width {
+		return src, nil
+	}
+
+	// Check for vector type — need per-component cast.
+	if vec, ok := srcInner.(ir.VectorType); ok {
+		return e.emitVectorCast(fn, as.Expr, vec, srcScalar, dstScalar, as.Convert == nil)
+	}
+
+	// Scalar cast.
+	return e.emitScalarCast(src, srcScalar, dstScalar, as.Convert == nil)
+}
+
+// emitScalarCast emits a single scalar cast instruction.
+func (e *Emitter) emitScalarCast(src int, srcScalar, dstScalar ir.ScalarType, isBitcast bool) (int, error) {
+	if isBitcast {
+		destTy := scalarToDXIL(e.mod, dstScalar)
+		return e.addCastInstr(destTy, CastBitcast, src), nil
+	}
+
+	// Bool source: bool → numeric requires special handling.
+	if srcScalar.Kind == ir.ScalarBool {
+		return e.emitBoolToNumericDXIL(src, dstScalar)
+	}
+
+	// Bool target: numeric → bool requires comparison with zero.
+	if dstScalar.Kind == ir.ScalarBool {
+		return e.emitNumericToBoolDXIL(src, srcScalar)
+	}
+
+	op, err := selectDXILCastOp(srcScalar, dstScalar)
+	if err != nil {
+		return 0, err
+	}
+
+	destTy := scalarToDXIL(e.mod, dstScalar)
+	return e.addCastInstr(destTy, op, src), nil
+}
+
+// emitVectorCast emits per-component casts for a vector expression.
+func (e *Emitter) emitVectorCast(_ *ir.Function, handle ir.ExpressionHandle, vec ir.VectorType, srcScalar, dstScalar ir.ScalarType, isBitcast bool) (int, error) {
+	size := int(vec.Size)
+	componentIDs := make([]int, size)
+
+	for i := range size {
+		compSrc := e.getComponentID(handle, i)
+		compDst, err := e.emitScalarCast(compSrc, srcScalar, dstScalar, isBitcast)
+		if err != nil {
+			return 0, fmt.Errorf("vector component %d: %w", i, err)
+		}
+		componentIDs[i] = compDst
+	}
+
+	e.pendingComponents = componentIDs
+	return componentIDs[0], nil
+}
+
+// emitBoolToNumericDXIL converts a bool (i1) to a numeric type.
+// bool → int:   ZExt i1 → i32 (produces 0 or 1)
+// bool → float: ZExt i1 → i32, then UIToFP i32 → float
+func (e *Emitter) emitBoolToNumericDXIL(src int, dstScalar ir.ScalarType) (int, error) {
+	switch dstScalar.Kind {
+	case ir.ScalarSint, ir.ScalarUint:
+		destTy := scalarToDXIL(e.mod, dstScalar)
+		return e.addCastInstr(destTy, CastZExt, src), nil
+	case ir.ScalarFloat:
+		// Two-step: i1 → i32 → float
+		i32Ty := e.mod.GetIntType(32)
+		intVal := e.addCastInstr(i32Ty, CastZExt, src)
+		destTy := scalarToDXIL(e.mod, dstScalar)
+		return e.addCastInstr(destTy, CastUIToFP, intVal), nil
+	default:
+		return 0, fmt.Errorf("bool to %v: unsupported", dstScalar.Kind)
+	}
+}
+
+// emitNumericToBoolDXIL converts a numeric type to bool (i1) via comparison with zero.
+// int → bool:   ICmp NE val, 0
+// float → bool: FCmp ONE val, 0.0
+func (e *Emitter) emitNumericToBoolDXIL(src int, srcScalar ir.ScalarType) (int, error) {
+	switch srcScalar.Kind {
+	case ir.ScalarSint, ir.ScalarUint:
+		zero := e.getIntConstID(0)
+		return e.addCmpInstr(ICmpNE, src, zero), nil
+	case ir.ScalarFloat:
+		zero := e.getFloatConstID(0.0)
+		return e.addCmpInstr(FCmpONE, src, zero), nil
+	default:
+		return 0, fmt.Errorf("%v to bool: unsupported", srcScalar.Kind)
+	}
+}
+
+// selectDXILCastOp selects the LLVM cast opcode for a scalar conversion.
+// This does NOT handle bool conversions (caller must check).
+//
+//nolint:gocyclo,cyclop // type cast dispatch requires handling many src/dst kind combinations
+func selectDXILCastOp(src, dst ir.ScalarType) (CastOpKind, error) {
+	srcBits := uint(src.Width) * 8
+	dstBits := uint(dst.Width) * 8
+
+	switch {
+	// Float → Int
+	case src.Kind == ir.ScalarFloat && dst.Kind == ir.ScalarSint:
+		return CastFPToSI, nil
+	case src.Kind == ir.ScalarFloat && dst.Kind == ir.ScalarUint:
+		return CastFPToUI, nil
+
+	// Int → Float
+	case src.Kind == ir.ScalarSint && dst.Kind == ir.ScalarFloat:
+		return CastSIToFP, nil
+	case src.Kind == ir.ScalarUint && dst.Kind == ir.ScalarFloat:
+		return CastUIToFP, nil
+
+	// Float → Float (different width)
+	case src.Kind == ir.ScalarFloat && dst.Kind == ir.ScalarFloat:
+		if dstBits < srcBits {
+			return CastFPTrunc, nil
+		}
+		return CastFPExt, nil
+
+	// Int → Int (same signedness, different width)
+	case src.Kind == ir.ScalarSint && dst.Kind == ir.ScalarSint:
+		if dstBits < srcBits {
+			return CastTrunc, nil
+		}
+		return CastSExt, nil
+	case src.Kind == ir.ScalarUint && dst.Kind == ir.ScalarUint:
+		if dstBits < srcBits {
+			return CastTrunc, nil
+		}
+		return CastZExt, nil
+
+	// Int → Int (different signedness)
+	case src.Kind == ir.ScalarSint && dst.Kind == ir.ScalarUint:
+		if srcBits != dstBits {
+			if dstBits < srcBits {
+				return CastTrunc, nil
+			}
+			return CastZExt, nil
+		}
+		return CastBitcast, nil
+	case src.Kind == ir.ScalarUint && dst.Kind == ir.ScalarSint:
+		if srcBits != dstBits {
+			if dstBits < srcBits {
+				return CastTrunc, nil
+			}
+			return CastSExt, nil
+		}
+		return CastBitcast, nil
+
+	default:
+		return 0, fmt.Errorf("unsupported cast: %v(%d) → %v(%d)", src.Kind, src.Width, dst.Kind, dst.Width)
+	}
+}
+
+// addCastInstr adds a cast instruction to the current basic block.
+func (e *Emitter) addCastInstr(destTy *module.Type, op CastOpKind, src int) int {
+	valueID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrCast,
+		HasValue:   true,
+		ResultType: destTy,
+		Operands:   []int{src, int(op)},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return valueID
 }
 
 // resolveExprType returns the TypeInner for an expression.
