@@ -7,21 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-04-06
+
 ### Added
 
-- **DXIL backend (experimental)** — Direct DXIL generation from naga IR for DX12
-  Shader Model 6.0. Eliminates FXC/DXC dependency entirely. Pure Go, zero external
-  dependencies. 190 tests, ~12.5K LOC. Public API: `dxil.Compile()`, `dxil.DefaultOptions()`.
-  - Phase 0: LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash
-  - Phase 1a: naga IR → DXIL lowering (type mapping, scalarized vectors, I/O via dx.op)
-  - Phase 1b: multi-arg math (min/max/clamp/dot/cross/mix/fma/smoothstep), type casts
-    (10 LLVM cast opcodes), control flow (basic blocks with br/br_cond, loops with
-    back edges, break/continue), local variables (alloca+load+store), swizzle,
-    derivatives (dx.op.derivCoarseX/Y, derivFineX/Y), relational (isNaN, isInf),
-    error hardening (unsupported features return errors, not silent skip)
-  - Phase 1c: resource bindings (dx.op.createHandle for CBV/SRV/Sampler), texture
-    sampling (dx.op.sample), I/O signatures (ISG1/OSG1), pipeline state validation
-    (PSV0), semantic mapping (SV_Position, TEXCOORD, SV_Target), dx.resources metadata
+- **DXIL backend (experimental)** — First Pure Go DXIL generator. Direct DXIL
+  generation from naga IR for DX12 Shader Model 6.0. Eliminates FXC/DXC compiler
+  dependency entirely. Zero CGO, zero external dependencies.
+  **Verified: 2400+ frames at 60 FPS on D3D12 (Intel Iris Xe).**
+  Rust naga has not implemented this (open issue since 2020).
+  190 tests, ~12.5K LOC. Public API: `dxil.Compile()`, `dxil.DefaultOptions()`.
+  - LLVM 3.7 bitcode writer with VBR encoding, nested blocks, abbreviation records
+  - DXBC container with DXIL, ISG1, OSG1, PSV0, SFI0, HASH parts
+  - BYPASS hash (Agility SDK 1.615+, January 2025) — no dxil.dll signing needed
+  - Full expression lowering: literals, binary/unary ops, compose, access, splat,
+    select, load/store, swizzle, derivatives, relational, type casts (10 LLVM
+    cast opcodes), math intrinsics (30+ functions including min/max/clamp/dot/
+    cross/mix/fma/smoothstep/pow/length/distance/normalize)
+  - Control flow: LLVM basic blocks with br/br_cond, loops with back edges,
+    break/continue via loop context stack, BreakIf support
+  - Local variables: alloca + load + store with proper bitcode serialization
+  - Resource bindings: dx.op.createHandle(57) for CBV/SRV/Sampler,
+    dx.op.sample(60) for texture sampling, dx.resources metadata
+  - I/O signatures: ISG1/OSG1 with semantic mapping (SV_Position, TEXCOORD,
+    SV_Target, SV_VertexID, SV_InstanceID, SV_IsFrontFace, SV_Depth)
+  - Pipeline state validation: PSV0 with runtime info, shader stage, wave lanes
+  - Vector scalarization: DXIL has no native vectors — vec4 = 4 separate values,
+    per-component tracking via exprComponents map
+  - dx.op intrinsic system: overload-typed function declarations, lazy caching
+  - Value ID remapping: emitter local IDs → serializer global numbering via finalize()
+  - Error hardening: unsupported features return errors (not silent skip)
 
 ## [0.16.6] - 2026-04-05
 

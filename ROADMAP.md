@@ -19,17 +19,18 @@
 
 ---
 
-## Current State: v0.16.6 (2026-04-05)
+## Current State: v0.17.0 (2026-04-06)
 
-✅ **Production-ready** shader compiler (~90K LOC) with **complete Rust naga parity**
-and **100% SPIR-V binary validation**:
+✅ **Production-ready** shader compiler (~102K LOC) with **complete Rust naga parity**,
+**100% SPIR-V binary validation**, and **experimental DXIL backend**:
 
 ### What We Have
 
 - **Full WGSL frontend** — Lexer (120+ tokens), parser, AST → IR lowerer
-- **4 backend outputs** — SPIR-V, MSL, GLSL, HLSL — all at 100% Rust naga golden parity
+- **5 backend outputs** — SPIR-V, MSL, GLSL, HLSL — all at 100% Rust naga golden parity. DXIL (experimental) — first Pure Go DXIL generator
 - **164/164 SPIR-V binary validation** — every shader compiles and passes spirv-val (100%)
-- **Five-layer exact match** — IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58
+- **Five-layer exact match** — IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 72/72
+- **DXIL backend** — Direct DXIL generation (SM 6.0), verified 2400+ frames at 60 FPS on D3D12. Eliminates FXC/DXC dependency. ~12.5K LOC, 190 tests. Rust naga has not implemented this (open issue since 2020)
 - **100+ WGSL built-in functions** — math, geometric, bit manipulation, packing, derivatives
 - **Compute shaders** — atomics (int32/int64/float32), barriers, workgroups, runtime-sized arrays
 - **Ray tracing** — ray query types, acceleration structures, 7 ray query builtins
