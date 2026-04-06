@@ -61,7 +61,7 @@
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation (**87/87 exact Rust naga parity**): integer div/mod safety wrappers, image bounds checking (Restrict/ReadZeroSkipWrite), ray query helpers, force loop bounding, workgroup zero-init polyfill, NonUniform decorations, capability-aware instruction emission
 - **MSL Backend** — Metal Shading Language output for macOS/iOS (**91/91 exact Rust naga parity**), vertex pulling transform, external textures, override pipeline constants
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+ (**68/68 exact Rust naga parity**), dead code elimination, ProcessOverrides, image bounds checking
-- **HLSL Backend** — High-Level Shading Language for DirectX 11/12 (**58/58 exact Rust naga parity**)
+- **HLSL Backend** — High-Level Shading Language for DirectX 11/12 (**72/72 exact Rust naga parity**)
 - **DXIL Backend** (experimental) — Direct DXIL generation from naga IR. LLVM 3.7 bitcode with dx.op intrinsics, DXBC container with BYPASS hash. Vertex + fragment shaders, SM 6.0. Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~12K LOC, 190 tests.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
@@ -195,7 +195,7 @@ spirvBytes, err := naga.GenerateSPIRV(module, spirvOpts)
 ## Architecture
 
 ```
-naga/                              ~90K LOC total
+naga/                              ~189K LOC total
 ├── wgsl/              # WGSL frontend (~19.5K LOC)
 │   ├── token.go       # Token types (120+)
 │   ├── lexer.go       # Tokenizer
@@ -239,6 +239,13 @@ naga/                              ~90K LOC total
 │   ├── storage.go     # Buffer/atomic operations
 │   ├── functions.go   # Entry points with semantics
 │   └── keywords.go    # HLSL reserved words
+├── dxil/              # DXIL backend, experimental (~12.5K LOC)
+│   ├── dxil.go        # Public API: Compile(), DefaultOptions()
+│   └── internal/      # All implementation internal
+│       ├── bitcode/   # LLVM 3.7 bit-level writer
+│       ├── module/    # DXIL module + bitcode serialization
+│       ├── container/ # DXBC container (ISG1/OSG1/PSV0/SFI0/HASH)
+│       └── emit/      # naga IR → DXIL lowering
 ├── naga.go            # Public API
 └── cmd/
     ├── nagac/         # CLI compiler
@@ -320,7 +327,8 @@ naga/                              ~90K LOC total
 | SPIR-V | ✅ **87/87 Rust parity** | Vulkan |
 | MSL | ✅ **91/91 Rust parity** | Metal (macOS/iOS) |
 | GLSL | ✅ **68/68 Rust parity** | OpenGL 3.3+, ES 3.0+ |
-| HLSL | ✅ **58/58 Rust parity** | DirectX 11/12 |
+| HLSL | ✅ **72/72 Rust parity** | DirectX 11/12 |
+| DXIL | Experimental | DirectX 12 (SM 6.0) |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
@@ -348,7 +356,7 @@ naga is tested against **all 144 reference WGSL shaders** from the [Rust naga](h
 | [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU implementation |
 | **gogpu/naga** | **Shader compiler (this repo)** |
 | [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics library |
-| [gogpu/ui](https://github.com/gogpu/ui) | GUI toolkit (planned) |
+| [gogpu/ui](https://github.com/gogpu/ui) | GUI toolkit (22 widgets, M3/Fluent/Cupertino) |
 
 ---
 
