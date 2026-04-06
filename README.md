@@ -195,7 +195,7 @@ spirvBytes, err := naga.GenerateSPIRV(module, spirvOpts)
 ## Architecture
 
 ```
-naga/                              ~90K LOC total
+naga/                              ~189K LOC total
 ├── wgsl/              # WGSL frontend (~19.5K LOC)
 │   ├── token.go       # Token types (120+)
 │   ├── lexer.go       # Tokenizer
@@ -239,6 +239,13 @@ naga/                              ~90K LOC total
 │   ├── storage.go     # Buffer/atomic operations
 │   ├── functions.go   # Entry points with semantics
 │   └── keywords.go    # HLSL reserved words
+├── dxil/              # DXIL backend, experimental (~12.5K LOC)
+│   ├── dxil.go        # Public API: Compile(), DefaultOptions()
+│   └── internal/      # All implementation internal
+│       ├── bitcode/   # LLVM 3.7 bit-level writer
+│       ├── module/    # DXIL module + bitcode serialization
+│       ├── container/ # DXBC container (ISG1/OSG1/PSV0/SFI0/HASH)
+│       └── emit/      # naga IR → DXIL lowering
 ├── naga.go            # Public API
 └── cmd/
     ├── nagac/         # CLI compiler
