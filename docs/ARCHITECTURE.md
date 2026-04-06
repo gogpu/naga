@@ -5,7 +5,7 @@ This document describes the architecture of the naga shader compiler.
 ## Overview
 
 naga is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language)
-to multiple backend formats (SPIR-V, MSL, GLSL, HLSL) without requiring CGO or external
+to multiple backend formats (SPIR-V, MSL, GLSL, HLSL, DXIL) without requiring CGO or external
 dependencies.
 
 **Core principle: one IR, five backends.**
@@ -59,7 +59,7 @@ dependencies.
 ## Package Structure
 
 ```
-naga/                              ~102K LOC total
+naga/                              ~189K LOC total
 ├── naga.go                        # Public API: Compile, Parse, Lower, Validate, GenerateSPIRV
 ├── wgsl/                          # WGSL frontend (~19.5K LOC)
 │   ├── token.go                   # 120+ token types (incl. f16, i64, u64, f64)
@@ -113,7 +113,7 @@ naga/                              ~102K LOC total
 │   └── keywords.go                # HLSL reserved words
 │
 ├── dxil/                          # DXIL backend (experimental, ~12.5K LOC)
-│   ├── dxil.go                    # Public API: Compile, Options (2 symbols only)
+│   ├── dxil.go                    # Public API: Compile, DefaultOptions, Options, ShaderModel
 │   └── internal/                  # ALL implementation internal
 │       ├── bitcode/               # LLVM 3.7 bit-level writer (VBR, blocks, records)
 │       ├── module/                # In-memory DXIL module + bitcode serialization
@@ -184,7 +184,7 @@ Validates the IR module for correctness:
 
 ### Stage 5: Backend Code Generation
 
-Four backends share the same IR but produce different outputs:
+Five backends share the same IR but produce different outputs:
 
 | Backend | Output | Target | Key Feature |
 |---------|--------|--------|-------------|
@@ -192,6 +192,7 @@ Four backends share the same IR but produce different outputs:
 | **MSL** | Text (C++ dialect) | Metal | Bounds check policies |
 | **GLSL** | Text | OpenGL 3.3+, ES 3.0+ | Version targeting, UBO blocks |
 | **HLSL** | Text | DirectX 11/12 | Shader model selection, semantics |
+| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0) | Vector scalarization, dx.op intrinsics |
 
 ## Intermediate Representation
 
@@ -409,7 +410,7 @@ type Backend struct {
 - ProcessOverrides for pipeline constants
 - Image bounds checking
 
-### HLSL (DirectX) — 58/58 Rust parity
+### HLSL (DirectX) — 72/72 Rust parity
 
 - Shader model: SM 5.0 (DX11), SM 6.0+ (DX12)
 - Semantics: `SV_Position`, `SV_DispatchThreadID`, `SV_Target0`
@@ -445,7 +446,7 @@ and eliminates redundant type definitions across all backends.
 |----------|-------|----------|
 | **Snapshot Tests** | 164 | WGSL → 4 backends, 994+ golden output files |
 | **SPIR-V Validation** | 164/164 | All shaders pass spirv-val binary validation (100%) |
-| **Rust Reference** | 5-layer 100% | IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58 |
+| **Rust Reference** | 5-layer 100% | IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 72/72 |
 | **SPIR-V Unit Tests** | 200+ | Shader, loop, if/else, vello, block model, ray query |
 | **Backend Tests** | 50+ | GLSL, HLSL, MSL per-feature golden tests |
 | **Reachability Tests** | 11 | GLSL dead code elimination |
@@ -467,7 +468,7 @@ suite are included as snapshot tests. Coverage includes:
 | Advanced | overrides, binding-arrays, bounds-check (7 variants), mesh-shader (4 variants) |
 
 All 164 shaders compile to SPIR-V and pass spirv-val binary validation (100%).
-Golden output parity with Rust naga: SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58.
+Golden output parity with Rust naga: SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 72/72.
 
 ## Key Design Decisions
 

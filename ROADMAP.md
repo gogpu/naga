@@ -166,7 +166,7 @@
 | **v0.16.2** | 2026-04 | HLSL 72/72 parity (100%). ForceLoopBounding architecture fix. +14 shaders. |
 | **v0.16.1** | 2026-04 | **164/164 spirv-val pass (100%).** +45 SPIR-V fixes. |
 | **v0.16.0** | 2026-04 | GLSL TextureMappings + 34 SPIR-V validation fixes (119/164 pass) |
-| **v0.15.0** | 2026-03 | ALL 5 backends 100% Rust parity: IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 58/58. ~90K LOC |
+| **v0.15.0** | 2026-03 | ALL 5 backends 100% Rust parity: IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 72/72. ~90K LOC |
 | v0.14.8 | 2026-03 | GLSL bind group collision fix |
 | v0.14.0 | 2026-02 | Major WGSL coverage: 15/15 Essential reference shaders |
 | **v0.13.1** | 2026-02 | SPIR-V OpArrayLength fix, 68 benchmarks, −32% allocs |
