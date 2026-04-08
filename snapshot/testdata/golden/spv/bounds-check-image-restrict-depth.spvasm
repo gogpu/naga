@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 78
+; Bound: 71
 ; Schema: 0
 
                OpCapability Shader
@@ -38,16 +38,9 @@
          %_60 = OpConstant %_5 0
          %_62 = OpConstantNull %_6
          %_63 = OpConstant %_8 0
-         %_64 = OpConstant %_5 0
-         %_66 = OpConstantNull %_6
-         %_67 = OpConstant %_5 0
-         %_68 = OpConstant %_5 0
-         %_70 = OpConstantNull %_6
-         %_71 = OpConstant %_5 0
-         %_73 = OpConstant %_3 0
-         %_74 = OpConstant %_3 0
-         %_75 = OpConstant %_3 0
-         %_76 = OpConstant %_3 0
+         %_65 = OpConstantNull %_6
+         %_67 = OpConstantNull %_6
+         %_69 = OpConstant %_3 0
          %_12 = OpVariable %_11 UniformConstant
          %_14 = OpVariable %_13 UniformConstant
          %_16 = OpVariable %_15 UniformConstant
@@ -96,10 +89,10 @@
          %_57 = OpFunction %_2 None %_56
          %_58 = OpLabel
          %_61 = OpFunctionCall %_3 %_20 %_59 %_60
-         %_65 = OpFunctionCall %_3 %_28 %_62 %_63 %_64
-         %_69 = OpFunctionCall %_3 %_40 %_66 %_67 %_68
-         %_72 = OpFunctionCall %_3 %_49 %_70 %_71
-         %_77 = OpCompositeConstruct %_10 %_73 %_74 %_75 %_76
-               OpStore %_18 %_77
+         %_64 = OpFunctionCall %_3 %_28 %_62 %_63 %_60
+         %_66 = OpFunctionCall %_3 %_40 %_65 %_60 %_60
+         %_68 = OpFunctionCall %_3 %_49 %_67 %_60
+         %_70 = OpCompositeConstruct %_10 %_69 %_69 %_69 %_69
+               OpStore %_18 %_70
                OpReturn
                OpFunctionEnd

@@ -1,17 +1,17 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 166
+; Bound: 121
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_62 "main"
-               OpExecutionMode %_62 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_60 "main"
+               OpExecutionMode %_60 LocalSize 1 1 1
                OpDecorate %_11 ArrayStride 4
+               OpDecorate %_12 ArrayStride 4
                OpDecorate %_13 ArrayStride 4
-               OpDecorate %_15 ArrayStride 4
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
          %_4 = OpTypeInt 32 1
@@ -22,181 +22,136 @@
          %_9 = OpTypeMatrix %_6 2
          %_10 = OpConstant %_5 2
          %_11 = OpTypeArray %_3 %_10
-         %_12 = OpConstant %_5 2
-         %_13 = OpTypeArray %_4 %_12
-         %_14 = OpConstant %_5 2
-         %_15 = OpTypeArray %_5 %_14
-         %_16 = OpTypeFunction %_2 %_3
-         %_20 = OpTypeFunction %_2 %_4
-         %_24 = OpTypeFunction %_2 %_5
-         %_28 = OpTypeFunction %_2 %_6
-         %_32 = OpTypeFunction %_2 %_7
-         %_36 = OpTypeFunction %_2 %_8
-         %_40 = OpTypeFunction %_2 %_9
-         %_44 = OpTypeFunction %_2 %_11
-         %_48 = OpTypeFunction %_2 %_13
-         %_52 = OpTypeFunction %_2 %_15
-         %_56 = OpTypeFunction %_2 %_3 %_4
-         %_61 = OpTypeFunction %_2
-         %_64 = OpConstant %_3 0
-         %_66 = OpConstant %_3 0
-         %_68 = OpConstant %_4 0
-         %_70 = OpConstant %_5 0
-         %_72 = OpConstant %_3 0
-         %_74 = OpConstant %_3 0
-         %_76 = OpConstant %_4 0
-         %_78 = OpConstant %_5 0
-         %_80 = OpConstant %_3 0
-         %_83 = OpConstant %_3 0
-         %_86 = OpConstant %_4 0
-         %_89 = OpConstant %_5 0
-         %_92 = OpConstant %_3 0
-         %_95 = OpConstant %_3 0
-         %_98 = OpConstant %_4 0
-         %_101 = OpConstant %_5 0
-         %_104 = OpConstant %_3 0
-         %_106 = OpConstant %_3 0
-         %_110 = OpConstant %_3 0
-         %_112 = OpConstant %_3 0
-         %_116 = OpConstant %_3 0
-         %_118 = OpConstant %_3 0
-         %_122 = OpConstant %_3 0
-         %_123 = OpConstant %_3 0
-         %_126 = OpConstant %_3 0
-         %_127 = OpConstant %_3 0
-         %_130 = OpConstant %_4 0
-         %_131 = OpConstant %_4 0
-         %_134 = OpConstant %_5 0
-         %_135 = OpConstant %_5 0
-         %_138 = OpConstant %_3 0
-         %_139 = OpConstant %_3 0
-         %_142 = OpConstant %_3 0
-         %_143 = OpConstant %_3 0
-         %_146 = OpConstant %_4 0
-         %_147 = OpConstant %_4 0
-         %_150 = OpConstant %_5 0
-         %_151 = OpConstant %_5 0
-         %_154 = OpConstant %_3 0
-         %_155 = OpConstant %_4 0
-         %_157 = OpConstant %_3 0
-         %_158 = OpConstant %_4 0
-         %_160 = OpConstant %_3 0
-         %_161 = OpConstant %_4 0
-         %_163 = OpConstant %_3 0
-         %_164 = OpConstant %_4 0
-         %_17 = OpFunction %_2 None %_16
-         %_18 = OpFunctionParameter %_3
-         %_19 = OpLabel
+         %_12 = OpTypeArray %_4 %_10
+         %_13 = OpTypeArray %_5 %_10
+         %_14 = OpTypeFunction %_2 %_3
+         %_18 = OpTypeFunction %_2 %_4
+         %_22 = OpTypeFunction %_2 %_5
+         %_26 = OpTypeFunction %_2 %_6
+         %_30 = OpTypeFunction %_2 %_7
+         %_34 = OpTypeFunction %_2 %_8
+         %_38 = OpTypeFunction %_2 %_9
+         %_42 = OpTypeFunction %_2 %_11
+         %_46 = OpTypeFunction %_2 %_12
+         %_50 = OpTypeFunction %_2 %_13
+         %_54 = OpTypeFunction %_2 %_3 %_4
+         %_59 = OpTypeFunction %_2
+         %_62 = OpConstant %_3 0
+         %_65 = OpConstant %_4 0
+         %_67 = OpConstant %_5 0
+         %_15 = OpFunction %_2 None %_14
+         %_16 = OpFunctionParameter %_3
+         %_17 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_21 = OpFunction %_2 None %_20
-         %_22 = OpFunctionParameter %_4
-         %_23 = OpLabel
+         %_19 = OpFunction %_2 None %_18
+         %_20 = OpFunctionParameter %_4
+         %_21 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_25 = OpFunction %_2 None %_24
-         %_26 = OpFunctionParameter %_5
-         %_27 = OpLabel
+         %_23 = OpFunction %_2 None %_22
+         %_24 = OpFunctionParameter %_5
+         %_25 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_29 = OpFunction %_2 None %_28
-         %_30 = OpFunctionParameter %_6
-         %_31 = OpLabel
+         %_27 = OpFunction %_2 None %_26
+         %_28 = OpFunctionParameter %_6
+         %_29 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_33 = OpFunction %_2 None %_32
-         %_34 = OpFunctionParameter %_7
-         %_35 = OpLabel
+         %_31 = OpFunction %_2 None %_30
+         %_32 = OpFunctionParameter %_7
+         %_33 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_37 = OpFunction %_2 None %_36
-         %_38 = OpFunctionParameter %_8
-         %_39 = OpLabel
+         %_35 = OpFunction %_2 None %_34
+         %_36 = OpFunctionParameter %_8
+         %_37 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_41 = OpFunction %_2 None %_40
-         %_42 = OpFunctionParameter %_9
-         %_43 = OpLabel
+         %_39 = OpFunction %_2 None %_38
+         %_40 = OpFunctionParameter %_9
+         %_41 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_45 = OpFunction %_2 None %_44
-         %_46 = OpFunctionParameter %_11
-         %_47 = OpLabel
+         %_43 = OpFunction %_2 None %_42
+         %_44 = OpFunctionParameter %_11
+         %_45 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_49 = OpFunction %_2 None %_48
-         %_50 = OpFunctionParameter %_13
-         %_51 = OpLabel
+         %_47 = OpFunction %_2 None %_46
+         %_48 = OpFunctionParameter %_12
+         %_49 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_53 = OpFunction %_2 None %_52
-         %_54 = OpFunctionParameter %_15
-         %_55 = OpLabel
+         %_51 = OpFunction %_2 None %_50
+         %_52 = OpFunctionParameter %_13
+         %_53 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_57 = OpFunction %_2 None %_56
-         %_58 = OpFunctionParameter %_3
-         %_59 = OpFunctionParameter %_4
-         %_60 = OpLabel
+         %_55 = OpFunction %_2 None %_54
+         %_56 = OpFunctionParameter %_3
+         %_57 = OpFunctionParameter %_4
+         %_58 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_62 = OpFunction %_2 None %_61
-         %_63 = OpLabel
-         %_65 = OpFunctionCall %_2 %_17 %_64
-         %_67 = OpFunctionCall %_2 %_17 %_66
-         %_69 = OpFunctionCall %_2 %_21 %_68
-         %_71 = OpFunctionCall %_2 %_25 %_70
-         %_73 = OpFunctionCall %_2 %_17 %_72
-         %_75 = OpFunctionCall %_2 %_17 %_74
-         %_77 = OpFunctionCall %_2 %_21 %_76
-         %_79 = OpFunctionCall %_2 %_25 %_78
-         %_81 = OpCompositeConstruct %_6 %_80 %_80
-         %_82 = OpFunctionCall %_2 %_29 %_81
-         %_84 = OpCompositeConstruct %_6 %_83 %_83
-         %_85 = OpFunctionCall %_2 %_29 %_84
-         %_87 = OpCompositeConstruct %_7 %_86 %_86
-         %_88 = OpFunctionCall %_2 %_33 %_87
-         %_90 = OpCompositeConstruct %_8 %_89 %_89
-         %_91 = OpFunctionCall %_2 %_37 %_90
-         %_93 = OpCompositeConstruct %_6 %_92 %_92
-         %_94 = OpFunctionCall %_2 %_29 %_93
-         %_96 = OpCompositeConstruct %_6 %_95 %_95
-         %_97 = OpFunctionCall %_2 %_29 %_96
-         %_99 = OpCompositeConstruct %_7 %_98 %_98
-         %_100 = OpFunctionCall %_2 %_33 %_99
-         %_102 = OpCompositeConstruct %_8 %_101 %_101
-         %_103 = OpFunctionCall %_2 %_37 %_102
-         %_105 = OpCompositeConstruct %_6 %_104 %_104
-         %_107 = OpCompositeConstruct %_6 %_106 %_106
-         %_108 = OpCompositeConstruct %_9 %_105 %_107
-         %_109 = OpFunctionCall %_2 %_41 %_108
-         %_111 = OpCompositeConstruct %_6 %_110 %_110
-         %_113 = OpCompositeConstruct %_6 %_112 %_112
-         %_114 = OpCompositeConstruct %_9 %_111 %_113
-         %_115 = OpFunctionCall %_2 %_41 %_114
-         %_117 = OpCompositeConstruct %_6 %_116 %_116
-         %_119 = OpCompositeConstruct %_6 %_118 %_118
-         %_120 = OpCompositeConstruct %_9 %_117 %_119
-         %_121 = OpFunctionCall %_2 %_41 %_120
-         %_124 = OpCompositeConstruct %_11 %_122 %_123
-         %_125 = OpFunctionCall %_2 %_45 %_124
-         %_128 = OpCompositeConstruct %_11 %_126 %_127
-         %_129 = OpFunctionCall %_2 %_45 %_128
-         %_132 = OpCompositeConstruct %_13 %_130 %_131
-         %_133 = OpFunctionCall %_2 %_49 %_132
-         %_136 = OpCompositeConstruct %_15 %_134 %_135
-         %_137 = OpFunctionCall %_2 %_53 %_136
-         %_140 = OpCompositeConstruct %_11 %_138 %_139
-         %_141 = OpFunctionCall %_2 %_45 %_140
-         %_144 = OpCompositeConstruct %_11 %_142 %_143
-         %_145 = OpFunctionCall %_2 %_45 %_144
-         %_148 = OpCompositeConstruct %_13 %_146 %_147
-         %_149 = OpFunctionCall %_2 %_49 %_148
-         %_152 = OpCompositeConstruct %_15 %_150 %_151
-         %_153 = OpFunctionCall %_2 %_53 %_152
-         %_156 = OpFunctionCall %_2 %_57 %_154 %_155
-         %_159 = OpFunctionCall %_2 %_57 %_157 %_158
-         %_162 = OpFunctionCall %_2 %_57 %_160 %_161
-         %_165 = OpFunctionCall %_2 %_57 %_163 %_164
+         %_60 = OpFunction %_2 None %_59
+         %_61 = OpLabel
+         %_63 = OpFunctionCall %_2 %_15 %_62
+         %_64 = OpFunctionCall %_2 %_15 %_62
+         %_66 = OpFunctionCall %_2 %_19 %_65
+         %_68 = OpFunctionCall %_2 %_23 %_67
+         %_69 = OpFunctionCall %_2 %_15 %_62
+         %_70 = OpFunctionCall %_2 %_15 %_62
+         %_71 = OpFunctionCall %_2 %_19 %_65
+         %_72 = OpFunctionCall %_2 %_23 %_67
+         %_73 = OpCompositeConstruct %_6 %_62 %_62
+         %_74 = OpFunctionCall %_2 %_27 %_73
+         %_75 = OpCompositeConstruct %_6 %_62 %_62
+         %_76 = OpFunctionCall %_2 %_27 %_75
+         %_77 = OpCompositeConstruct %_7 %_65 %_65
+         %_78 = OpFunctionCall %_2 %_31 %_77
+         %_79 = OpCompositeConstruct %_8 %_67 %_67
+         %_80 = OpFunctionCall %_2 %_35 %_79
+         %_81 = OpCompositeConstruct %_6 %_62 %_62
+         %_82 = OpFunctionCall %_2 %_27 %_81
+         %_83 = OpCompositeConstruct %_6 %_62 %_62
+         %_84 = OpFunctionCall %_2 %_27 %_83
+         %_85 = OpCompositeConstruct %_7 %_65 %_65
+         %_86 = OpFunctionCall %_2 %_31 %_85
+         %_87 = OpCompositeConstruct %_8 %_67 %_67
+         %_88 = OpFunctionCall %_2 %_35 %_87
+         %_89 = OpCompositeConstruct %_6 %_62 %_62
+         %_90 = OpCompositeConstruct %_6 %_62 %_62
+         %_91 = OpCompositeConstruct %_9 %_89 %_90
+         %_92 = OpFunctionCall %_2 %_39 %_91
+         %_93 = OpCompositeConstruct %_6 %_62 %_62
+         %_94 = OpCompositeConstruct %_6 %_62 %_62
+         %_95 = OpCompositeConstruct %_9 %_93 %_94
+         %_96 = OpFunctionCall %_2 %_39 %_95
+         %_97 = OpCompositeConstruct %_6 %_62 %_62
+         %_98 = OpCompositeConstruct %_6 %_62 %_62
+         %_99 = OpCompositeConstruct %_9 %_97 %_98
+         %_100 = OpFunctionCall %_2 %_39 %_99
+         %_101 = OpCompositeConstruct %_11 %_62 %_62
+         %_102 = OpFunctionCall %_2 %_43 %_101
+         %_103 = OpCompositeConstruct %_11 %_62 %_62
+         %_104 = OpFunctionCall %_2 %_43 %_103
+         %_105 = OpCompositeConstruct %_12 %_65 %_65
+         %_106 = OpFunctionCall %_2 %_47 %_105
+         %_107 = OpCompositeConstruct %_13 %_67 %_67
+         %_108 = OpFunctionCall %_2 %_51 %_107
+         %_109 = OpCompositeConstruct %_11 %_62 %_62
+         %_110 = OpFunctionCall %_2 %_43 %_109
+         %_111 = OpCompositeConstruct %_11 %_62 %_62
+         %_112 = OpFunctionCall %_2 %_43 %_111
+         %_113 = OpCompositeConstruct %_12 %_65 %_65
+         %_114 = OpFunctionCall %_2 %_47 %_113
+         %_115 = OpCompositeConstruct %_13 %_67 %_67
+         %_116 = OpFunctionCall %_2 %_51 %_115
+         %_117 = OpFunctionCall %_2 %_55 %_62 %_65
+         %_118 = OpFunctionCall %_2 %_55 %_62 %_65
+         %_119 = OpFunctionCall %_2 %_55 %_62 %_65
+         %_120 = OpFunctionCall %_2 %_55 %_62 %_65
                OpReturn
                OpFunctionEnd

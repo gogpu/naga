@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 97
+; Bound: 81
 ; Schema: 0
 
                OpCapability Shader
@@ -33,27 +33,11 @@
          %_33 = OpTypePointer Function %_12
          %_35 = OpTypePointer Function %_13
          %_37 = OpConstant %_3 0
-         %_38 = OpConstant %_3 0
-         %_40 = OpConstant %_3 0
-         %_42 = OpConstant %_3 0
-         %_44 = OpConstant %_7 0
-         %_45 = OpConstant %_7 0
-         %_47 = OpConstant %_7 0
-         %_49 = OpConstant %_7 0
-         %_51 = OpConstant %_11 0
-         %_53 = OpConstant %_11 0
-         %_56 = OpConstant %_7 8
-         %_57 = OpConstant %_7 0
-         %_58 = OpConstant %_7 0
-         %_62 = OpConstant %_7 8
-         %_66 = OpConstant %_7 16
-         %_70 = OpConstant %_7 24
-         %_75 = OpConstant %_7 8
-         %_76 = OpConstant %_7 0
-         %_77 = OpConstant %_7 0
-         %_80 = OpConstant %_7 8
-         %_83 = OpConstant %_7 16
-         %_86 = OpConstant %_7 24
+         %_41 = OpConstant %_7 0
+         %_45 = OpConstant %_11 0
+         %_49 = OpConstant %_7 8
+         %_56 = OpConstant %_7 16
+         %_60 = OpConstant %_7 24
          %_15 = OpFunction %_2 None %_14
          %_16 = OpLabel
          %_18 = OpVariable %_17 Function
@@ -67,58 +51,58 @@
          %_34 = OpVariable %_33 Function
          %_36 = OpVariable %_35 Function
                OpStore %_18 %_37
-         %_39 = OpCompositeConstruct %_4 %_38 %_38
-               OpStore %_20 %_39
-         %_41 = OpCompositeConstruct %_5 %_40 %_40 %_40
-               OpStore %_22 %_41
-         %_43 = OpCompositeConstruct %_6 %_42 %_42 %_42 %_42
-               OpStore %_24 %_43
-               OpStore %_26 %_44
-         %_46 = OpCompositeConstruct %_8 %_45 %_45
-               OpStore %_28 %_46
-         %_48 = OpCompositeConstruct %_9 %_47 %_47 %_47
-               OpStore %_30 %_48
-         %_50 = OpCompositeConstruct %_10 %_49 %_49 %_49 %_49
-               OpStore %_32 %_50
-         %_52 = OpCompositeConstruct %_12 %_51 %_51
-               OpStore %_34 %_52
-         %_54 = OpCompositeConstruct %_13 %_53 %_53 %_53 %_53
-               OpStore %_36 %_54
-         %_55 = OpLoad %_6 %_24
-         %_59 = OpCompositeExtract %_3 %_55 0
-         %_60 = OpBitcast %_7 %_59
-         %_61 = OpBitFieldInsert %_7 %_57 %_60 %_58 %_56
-         %_63 = OpCompositeExtract %_3 %_55 1
-         %_64 = OpBitcast %_7 %_63
-         %_65 = OpBitFieldInsert %_7 %_61 %_64 %_62 %_56
-         %_67 = OpCompositeExtract %_3 %_55 2
-         %_68 = OpBitcast %_7 %_67
-         %_69 = OpBitFieldInsert %_7 %_65 %_68 %_66 %_56
-         %_71 = OpCompositeExtract %_3 %_55 3
-         %_72 = OpBitcast %_7 %_71
-         %_73 = OpBitFieldInsert %_7 %_69 %_72 %_70 %_56
-               OpStore %_26 %_73
-         %_74 = OpLoad %_10 %_32
-         %_78 = OpCompositeExtract %_7 %_74 0
-         %_79 = OpBitFieldInsert %_7 %_76 %_78 %_77 %_75
-         %_81 = OpCompositeExtract %_7 %_74 1
-         %_82 = OpBitFieldInsert %_7 %_79 %_81 %_80 %_75
-         %_84 = OpCompositeExtract %_7 %_74 2
-         %_85 = OpBitFieldInsert %_7 %_82 %_84 %_83 %_75
-         %_87 = OpCompositeExtract %_7 %_74 3
-         %_88 = OpBitFieldInsert %_7 %_85 %_87 %_86 %_75
-               OpStore %_26 %_88
-         %_89 = OpLoad %_7 %_26
-         %_90 = OpExtInst %_13 %_1 %_63 %_89
-               OpStore %_36 %_90
-         %_91 = OpLoad %_7 %_26
-         %_92 = OpExtInst %_13 %_1 %_64 %_91
-               OpStore %_36 %_92
-         %_93 = OpLoad %_7 %_26
-         %_94 = OpExtInst %_12 %_1 %_60 %_93
-               OpStore %_34 %_94
-         %_95 = OpLoad %_7 %_26
-         %_96 = OpExtInst %_12 %_1 %_61 %_95
-               OpStore %_34 %_96
+         %_38 = OpCompositeConstruct %_4 %_37 %_37
+               OpStore %_20 %_38
+         %_39 = OpCompositeConstruct %_5 %_37 %_37 %_37
+               OpStore %_22 %_39
+         %_40 = OpCompositeConstruct %_6 %_37 %_37 %_37 %_37
+               OpStore %_24 %_40
+               OpStore %_26 %_41
+         %_42 = OpCompositeConstruct %_8 %_41 %_41
+               OpStore %_28 %_42
+         %_43 = OpCompositeConstruct %_9 %_41 %_41 %_41
+               OpStore %_30 %_43
+         %_44 = OpCompositeConstruct %_10 %_41 %_41 %_41 %_41
+               OpStore %_32 %_44
+         %_46 = OpCompositeConstruct %_12 %_45 %_45
+               OpStore %_34 %_46
+         %_47 = OpCompositeConstruct %_13 %_45 %_45 %_45 %_45
+               OpStore %_36 %_47
+         %_48 = OpLoad %_6 %_24
+         %_50 = OpCompositeExtract %_3 %_48 0
+         %_51 = OpBitcast %_7 %_50
+         %_52 = OpBitFieldInsert %_7 %_41 %_51 %_41 %_49
+         %_53 = OpCompositeExtract %_3 %_48 1
+         %_54 = OpBitcast %_7 %_53
+         %_55 = OpBitFieldInsert %_7 %_52 %_54 %_49 %_49
+         %_57 = OpCompositeExtract %_3 %_48 2
+         %_58 = OpBitcast %_7 %_57
+         %_59 = OpBitFieldInsert %_7 %_55 %_58 %_56 %_49
+         %_61 = OpCompositeExtract %_3 %_48 3
+         %_62 = OpBitcast %_7 %_61
+         %_63 = OpBitFieldInsert %_7 %_59 %_62 %_60 %_49
+               OpStore %_26 %_63
+         %_64 = OpLoad %_10 %_32
+         %_65 = OpCompositeExtract %_7 %_64 0
+         %_66 = OpBitFieldInsert %_7 %_41 %_65 %_41 %_49
+         %_67 = OpCompositeExtract %_7 %_64 1
+         %_68 = OpBitFieldInsert %_7 %_66 %_67 %_49 %_49
+         %_69 = OpCompositeExtract %_7 %_64 2
+         %_70 = OpBitFieldInsert %_7 %_68 %_69 %_56 %_49
+         %_71 = OpCompositeExtract %_7 %_64 3
+         %_72 = OpBitFieldInsert %_7 %_70 %_71 %_60 %_49
+               OpStore %_26 %_72
+         %_73 = OpLoad %_7 %_26
+         %_74 = OpExtInst %_13 %_1 %_63 %_73
+               OpStore %_36 %_74
+         %_75 = OpLoad %_7 %_26
+         %_76 = OpExtInst %_13 %_1 %_64 %_75
+               OpStore %_36 %_76
+         %_77 = OpLoad %_7 %_26
+         %_78 = OpExtInst %_12 %_1 %_60 %_77
+               OpStore %_34 %_78
+         %_79 = OpLoad %_7 %_26
+         %_80 = OpExtInst %_12 %_1 %_61 %_79
+               OpStore %_34 %_80
                OpReturn
                OpFunctionEnd

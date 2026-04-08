@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 37
+; Bound: 30
 ; Schema: 0
 
                OpCapability Shader
@@ -20,29 +20,22 @@
          %_10 = OpTypeVector %_5 2
          %_11 = OpTypeFunction %_2
          %_14 = OpConstant %_3 0
-         %_15 = OpConstant %_3 0
-         %_16 = OpConstant %_3 0
-         %_18 = OpConstant %_3 0
-         %_20 = OpConstant %_3 0
-         %_22 = OpConstant %_3 0
-         %_24 = OpConstant %_3 0
-         %_26 = OpConstant %_3 0
-         %_29 = OpConstant %_3 1065353216
-         %_30 = OpConstant %_3 1073741824
-         %_32 = OpConstant %_3 1077936128
-         %_33 = OpConstant %_3 1082130432
+         %_22 = OpConstant %_3 1065353216
+         %_23 = OpConstant %_3 1073741824
+         %_25 = OpConstant %_3 1077936128
+         %_26 = OpConstant %_3 1082130432
          %_12 = OpFunction %_2 None %_11
          %_13 = OpLabel
-         %_17 = OpCompositeConstruct %_4 %_14 %_15 %_16
-         %_19 = OpCompositeConstruct %_4 %_18 %_18 %_18
-         %_21 = OpCompositeConstruct %_7 %_20 %_20
-         %_23 = OpCompositeConstruct %_4 %_21 %_22
-         %_25 = OpCompositeConstruct %_7 %_24 %_24
-         %_27 = OpCompositeConstruct %_4 %_25 %_26
-         %_28 = OpConvertFToS %_6 %_27
-         %_31 = OpCompositeConstruct %_7 %_29 %_30
-         %_34 = OpCompositeConstruct %_7 %_32 %_33
-         %_35 = OpCompositeConstruct %_8 %_31 %_34
-         %_36 = OpCompositeConstruct %_9 %_17 %_17 %_17
+         %_15 = OpCompositeConstruct %_4 %_14 %_14 %_14
+         %_16 = OpCompositeConstruct %_4 %_14 %_14 %_14
+         %_17 = OpCompositeConstruct %_7 %_14 %_14
+         %_18 = OpCompositeConstruct %_4 %_17 %_14
+         %_19 = OpCompositeConstruct %_7 %_14 %_14
+         %_20 = OpCompositeConstruct %_4 %_19 %_14
+         %_21 = OpConvertFToS %_6 %_20
+         %_24 = OpCompositeConstruct %_7 %_22 %_23
+         %_27 = OpCompositeConstruct %_7 %_25 %_26
+         %_28 = OpCompositeConstruct %_8 %_24 %_27
+         %_29 = OpCompositeConstruct %_9 %_15 %_15 %_15
                OpReturn
                OpFunctionEnd

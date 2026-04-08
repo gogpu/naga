@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 36
+; Bound: 33
 ; Schema: 0
 
                OpCapability Shader
@@ -24,29 +24,26 @@
          %_15 = OpTypePointer Function %_9
          %_17 = OpConstant %_9 0
          %_18 = OpConstant %_3 0
-         %_19 = OpConstant %_3 0
-         %_21 = OpConstant %_3 0
-         %_22 = OpConstant %_3 0
-         %_26 = OpTypePointer Function %_8
-         %_28 = OpTypePointer Function %_5
+         %_23 = OpTypePointer Function %_8
+         %_25 = OpTypePointer Function %_5
          %_11 = OpVariable %_10 Output
          %_13 = OpFunction %_2 None %_12
          %_14 = OpLabel
          %_16 = OpVariable %_15 Function
-         %_27 = OpVariable %_26 Function
+         %_24 = OpVariable %_23 Function
                OpStore %_16 %_17
-         %_20 = OpCompositeConstruct %_5 %_18 %_19
-         %_23 = OpCompositeConstruct %_5 %_21 %_22
-         %_24 = OpCompositeConstruct %_8 %_20 %_23
-         %_25 = OpLoad %_9 %_16
-               OpStore %_27 %_24
-         %_29 = OpAccessChain %_28 %_27 %_25
+         %_19 = OpCompositeConstruct %_5 %_18 %_18
+         %_20 = OpCompositeConstruct %_5 %_18 %_18
+         %_21 = OpCompositeConstruct %_8 %_19 %_20
+         %_22 = OpLoad %_9 %_16
+               OpStore %_24 %_21
+         %_26 = OpAccessChain %_25 %_24 %_22
+         %_27 = OpLoad %_5 %_26
+         %_28 = OpLoad %_9 %_16
+         %_29 = OpAccessChain %_25 %_24 %_28
          %_30 = OpLoad %_5 %_29
-         %_31 = OpLoad %_9 %_16
-         %_32 = OpAccessChain %_28 %_27 %_31
-         %_33 = OpLoad %_5 %_32
-         %_34 = OpFMul %_5 %_30 %_33
-         %_35 = OpVectorShuffle %_4 %_34 %_34 0 0 1 1
-               OpStore %_11 %_35
+         %_31 = OpFMul %_5 %_27 %_30
+         %_32 = OpVectorShuffle %_4 %_31 %_31 0 0 1 1
+               OpStore %_11 %_32
                OpReturn
                OpFunctionEnd

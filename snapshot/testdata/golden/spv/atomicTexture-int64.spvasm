@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 38
+; Bound: 30
 ; Schema: 0
 
                OpCapability Shader
@@ -27,31 +27,23 @@
          %_11 = OpTypePointer Input %_6
          %_13 = OpTypeFunction %_2
          %_16 = OpConstant %_7 0
-         %_17 = OpConstant %_7 0
-         %_19 = OpTypePointer Image %_3
-         %_20 = OpConstant %_5 0
-         %_22 = OpConstant %_7 1
-         %_23 = OpConstant %_5 0
-         %_24 = OpConstant %_3 1 0
-         %_26 = OpConstant %_5 2
-         %_27 = OpConstant %_5 2
-         %_28 = OpConstant %_5 264
-         %_29 = OpConstant %_7 0
-         %_30 = OpConstant %_7 0
-         %_32 = OpConstant %_5 0
-         %_34 = OpConstant %_7 1
-         %_35 = OpConstant %_5 0
-         %_36 = OpConstant %_3 1 0
+         %_18 = OpTypePointer Image %_3
+         %_19 = OpConstant %_5 0
+         %_21 = OpConstant %_7 1
+         %_22 = OpConstant %_3 1 0
+         %_24 = OpConstant %_5 2
+         %_25 = OpConstant %_5 264
+         %_28 = OpConstant %_3 1 0
          %_10 = OpVariable %_9 UniformConstant
          %_12 = OpVariable %_11 Input
          %_14 = OpFunction %_2 None %_13
          %_15 = OpLabel
-         %_18 = OpCompositeConstruct %_8 %_16 %_17
-         OpImageTexelPointer %_19 %_21 %_10 %_18 %_20
-         OpAtomicUMax %_3 %_25 %_21 %_22 %_23 %_24
-         OpControlBarrier %_26 %_27 %_28
-         %_31 = OpCompositeConstruct %_8 %_29 %_30
-         OpImageTexelPointer %_19 %_33 %_10 %_31 %_32
-         OpAtomicUMin %_3 %_37 %_33 %_34 %_35 %_36
+         %_17 = OpCompositeConstruct %_8 %_16 %_16
+         OpImageTexelPointer %_18 %_20 %_10 %_17 %_19
+         OpAtomicUMax %_3 %_23 %_20 %_21 %_19 %_22
+         OpControlBarrier %_24 %_24 %_25
+         %_26 = OpCompositeConstruct %_8 %_16 %_16
+         OpImageTexelPointer %_18 %_27 %_10 %_26 %_19
+         OpAtomicUMin %_3 %_29 %_27 %_21 %_19 %_28
                OpReturn
                OpFunctionEnd

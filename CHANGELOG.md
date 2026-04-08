@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-04-08
+
+### Fixed
+
+- **SPIR-V: Workgroup ArrayStride violation (VUID-StandaloneSpirv-None-10684)** — SPIR-V backend
+  emitted `ArrayStride` decoration on array types used in `Workgroup` storage class, which is
+  forbidden without `SPV_KHR_workgroup_memory_explicit_layout`. Intel Vulkan silently accepted this,
+  but Qualcomm Adreno correctly rejected it — causing invisible text on Snapdragon X Elite.
+  Fix: emit separate layout-free type declarations for Workgroup variables (arrays without
+  `ArrayStride`, structs without `Offset`/`MatrixStride`). Uses `OpCopyLogical` (SPIR-V 1.4+)
+  to bridge Workgroup ↔ Storage type mismatches. Constant deduplication added to prevent
+  duplicate `OpConstant` IDs that break `OpCopyLogical` type equivalence.
+  Rust naga has the same bug ([gfx-rs/wgpu#7696](https://github.com/gfx-rs/wgpu/issues/7696),
+  fix PR [#9295](https://github.com/gfx-rs/wgpu/pull/9295) still open).
+  (gogpu/wgpu#134, reported by @SideFx via gogpu/ui#67)
+
 ## [0.17.0] - 2026-04-06
 
 ### Added

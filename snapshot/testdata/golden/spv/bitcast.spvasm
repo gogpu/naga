@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 72
+; Bound: 66
 ; Schema: 0
 
                OpCapability Shader
@@ -33,14 +33,8 @@
          %_32 = OpTypePointer Function %_13
          %_34 = OpTypePointer Function %_14
          %_36 = OpConstant %_3 0
-         %_38 = OpConstant %_3 0
-         %_40 = OpConstant %_3 0
-         %_42 = OpConstant %_7 0
-         %_44 = OpConstant %_7 0
-         %_46 = OpConstant %_7 0
-         %_48 = OpConstant %_11 0
-         %_50 = OpConstant %_11 0
-         %_52 = OpConstant %_11 0
+         %_40 = OpConstant %_7 0
+         %_44 = OpConstant %_11 0
          %_16 = OpFunction %_2 None %_15
          %_17 = OpLabel
          %_19 = OpVariable %_18 Function
@@ -54,48 +48,48 @@
          %_35 = OpVariable %_34 Function
          %_37 = OpCompositeConstruct %_4 %_36 %_36
                OpStore %_19 %_37
-         %_39 = OpCompositeConstruct %_5 %_38 %_38 %_38
-               OpStore %_21 %_39
-         %_41 = OpCompositeConstruct %_6 %_40 %_40 %_40 %_40
-               OpStore %_23 %_41
-         %_43 = OpCompositeConstruct %_8 %_42 %_42
-               OpStore %_25 %_43
-         %_45 = OpCompositeConstruct %_9 %_44 %_44 %_44
-               OpStore %_27 %_45
-         %_47 = OpCompositeConstruct %_10 %_46 %_46 %_46 %_46
-               OpStore %_29 %_47
-         %_49 = OpCompositeConstruct %_12 %_48 %_48
-               OpStore %_31 %_49
-         %_51 = OpCompositeConstruct %_13 %_50 %_50 %_50
-               OpStore %_33 %_51
-         %_53 = OpCompositeConstruct %_14 %_52 %_52 %_52 %_52
-               OpStore %_35 %_53
-         %_54 = OpLoad %_4 %_19
-         %_55 = OpBitcast %_8 %_54
-               OpStore %_25 %_55
-         %_56 = OpLoad %_5 %_21
-         %_57 = OpBitcast %_9 %_56
-               OpStore %_27 %_57
-         %_58 = OpLoad %_6 %_23
-         %_59 = OpBitcast %_10 %_58
-               OpStore %_29 %_59
-         %_60 = OpLoad %_8 %_25
-         %_61 = OpBitcast %_4 %_60
-               OpStore %_19 %_61
-         %_62 = OpLoad %_9 %_27
-         %_63 = OpBitcast %_5 %_62
-               OpStore %_21 %_63
-         %_64 = OpLoad %_10 %_29
-         %_65 = OpBitcast %_6 %_64
-               OpStore %_23 %_65
-         %_66 = OpLoad %_4 %_19
-         %_67 = OpBitcast %_12 %_66
-               OpStore %_31 %_67
-         %_68 = OpLoad %_5 %_21
-         %_69 = OpBitcast %_13 %_68
-               OpStore %_33 %_69
-         %_70 = OpLoad %_6 %_23
-         %_71 = OpBitcast %_14 %_70
-               OpStore %_35 %_71
+         %_38 = OpCompositeConstruct %_5 %_36 %_36 %_36
+               OpStore %_21 %_38
+         %_39 = OpCompositeConstruct %_6 %_36 %_36 %_36 %_36
+               OpStore %_23 %_39
+         %_41 = OpCompositeConstruct %_8 %_40 %_40
+               OpStore %_25 %_41
+         %_42 = OpCompositeConstruct %_9 %_40 %_40 %_40
+               OpStore %_27 %_42
+         %_43 = OpCompositeConstruct %_10 %_40 %_40 %_40 %_40
+               OpStore %_29 %_43
+         %_45 = OpCompositeConstruct %_12 %_44 %_44
+               OpStore %_31 %_45
+         %_46 = OpCompositeConstruct %_13 %_44 %_44 %_44
+               OpStore %_33 %_46
+         %_47 = OpCompositeConstruct %_14 %_44 %_44 %_44 %_44
+               OpStore %_35 %_47
+         %_48 = OpLoad %_4 %_19
+         %_49 = OpBitcast %_8 %_48
+               OpStore %_25 %_49
+         %_50 = OpLoad %_5 %_21
+         %_51 = OpBitcast %_9 %_50
+               OpStore %_27 %_51
+         %_52 = OpLoad %_6 %_23
+         %_53 = OpBitcast %_10 %_52
+               OpStore %_29 %_53
+         %_54 = OpLoad %_8 %_25
+         %_55 = OpBitcast %_4 %_54
+               OpStore %_19 %_55
+         %_56 = OpLoad %_9 %_27
+         %_57 = OpBitcast %_5 %_56
+               OpStore %_21 %_57
+         %_58 = OpLoad %_10 %_29
+         %_59 = OpBitcast %_6 %_58
+               OpStore %_23 %_59
+         %_60 = OpLoad %_4 %_19
+         %_61 = OpBitcast %_12 %_60
+               OpStore %_31 %_61
+         %_62 = OpLoad %_5 %_21
+         %_63 = OpBitcast %_13 %_62
+               OpStore %_33 %_63
+         %_64 = OpLoad %_6 %_23
+         %_65 = OpBitcast %_14 %_64
+               OpStore %_35 %_65
                OpReturn
                OpFunctionEnd

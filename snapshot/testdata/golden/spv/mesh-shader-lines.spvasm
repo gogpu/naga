@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 18
+; Bound: 23
 ; Schema: 0
 
                OpCapability Shader
@@ -31,5 +31,10 @@
          %_13 = OpConstant %_3 1
          %_14 = OpTypeArray %_9 %_13
          %_15 = OpTypeStruct %_12 %_14 %_3 %_3
-         %_16 = OpTypePointer Workgroup %_15
-         %_17 = OpVariable %_16 Workgroup
+         %_16 = OpTypeStruct %_6
+         %_17 = OpTypeArray %_16 %_11
+         %_18 = OpTypeStruct %_8
+         %_19 = OpTypeArray %_18 %_13
+         %_20 = OpTypeStruct %_17 %_19 %_3 %_3
+         %_21 = OpTypePointer Workgroup %_20
+         %_22 = OpVariable %_21 Workgroup

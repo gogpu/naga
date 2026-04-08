@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 81
+; Bound: 74
 ; Schema: 0
 
                OpCapability Shader
@@ -10,8 +10,8 @@
          OpExtension %_1599492179 %_1599227979 %_1702129257 %_1601332583 %_1601466212 %_1685025392 %_7627637
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_76 "main"
-               OpExecutionMode %_76 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_69 "main"
+               OpExecutionMode %_69 LocalSize 1 1 1
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
          %_4 = OpTypeVector %_3 2
@@ -19,83 +19,76 @@
          %_6 = OpTypeInt 32 0
          %_7 = OpTypeFunction %_4
          %_10 = OpConstant %_3 1073741824
-         %_11 = OpConstant %_3 1073741824
-         %_13 = OpConstant %_3 1056964608
-         %_14 = OpConstant %_3 1056964608
-         %_16 = OpConstant %_3 1056964608
-         %_17 = OpConstant %_3 1056964608
-         %_20 = OpTypeFunction %_5
-         %_23 = OpTypeVector %_5 2
-         %_24 = OpConstant %_5 1
-         %_26 = OpConstant %_5 1
-         %_28 = OpConstantNull %_5
-         %_37 = OpTypeVector %_6 3
-         %_38 = OpConstant %_6 1
-         %_40 = OpConstant %_6 1
-         %_42 = OpConstantNull %_6
-         %_55 = OpConstant %_5 32
-         %_56 = OpTypeFunction %_6
-         %_59 = OpConstant %_6 1
-         %_60 = OpConstant %_6 2
-         %_62 = OpConstant %_6 3
-         %_63 = OpConstant %_6 4
-         %_65 = OpConstant %_6 5
-         %_67 = OpConstant %_6 6
-         %_70 = OpConstant %_6 7
-         %_72 = OpConstant %_6 8
-         %_75 = OpTypeFunction %_2
+         %_12 = OpConstant %_3 1056964608
+         %_16 = OpTypeFunction %_5
+         %_19 = OpTypeVector %_5 2
+         %_20 = OpConstant %_5 1
+         %_23 = OpConstantNull %_5
+         %_32 = OpTypeVector %_6 3
+         %_33 = OpConstant %_6 1
+         %_36 = OpConstantNull %_6
+         %_49 = OpConstant %_5 32
+         %_50 = OpTypeFunction %_6
+         %_53 = OpConstant %_6 2
+         %_55 = OpConstant %_6 3
+         %_56 = OpConstant %_6 4
+         %_58 = OpConstant %_6 5
+         %_60 = OpConstant %_6 6
+         %_63 = OpConstant %_6 7
+         %_65 = OpConstant %_6 8
+         %_68 = OpTypeFunction %_2
          %_8 = OpFunction %_4 None %_7
          %_9 = OpLabel
-         %_12 = OpCompositeConstruct %_4 %_10 %_11
-         %_15 = OpCompositeConstruct %_4 %_13 %_14
-         %_18 = OpCompositeConstruct %_4 %_16 %_17
-         %_19 = OpExtInst %_4 %_1 %_50 %_12 %_15 %_18
-               OpReturnValue %_19
+         %_11 = OpCompositeConstruct %_4 %_10 %_10
+         %_13 = OpCompositeConstruct %_4 %_12 %_12
+         %_14 = OpCompositeConstruct %_4 %_12 %_12
+         %_15 = OpExtInst %_4 %_1 %_50 %_11 %_13 %_14
+               OpReturnValue %_15
                OpFunctionEnd
-         %_21 = OpFunction %_5 None %_20
-         %_22 = OpLabel
-         %_25 = OpCompositeConstruct %_23 %_24 %_24
-         %_27 = OpCompositeConstruct %_23 %_26 %_26
-         %_29 = OpCompositeExtract %_5 %_25 0
-         %_30 = OpCompositeExtract %_5 %_27 0
-         %_31 = OpIMul %_5 %_29 %_30
-         %_32 = OpIAdd %_5 %_28 %_31
-         %_33 = OpCompositeExtract %_5 %_25 1
-         %_34 = OpCompositeExtract %_5 %_27 1
-         %_35 = OpIMul %_5 %_33 %_34
-         %_36 = OpIAdd %_5 %_32 %_35
-         %_39 = OpCompositeConstruct %_37 %_38 %_38 %_38
-         %_41 = OpCompositeConstruct %_37 %_40 %_40 %_40
-         %_43 = OpCompositeExtract %_6 %_39 0
-         %_44 = OpCompositeExtract %_6 %_41 0
-         %_45 = OpIMul %_6 %_43 %_44
-         %_46 = OpIAdd %_6 %_42 %_45
-         %_47 = OpCompositeExtract %_6 %_39 1
-         %_48 = OpCompositeExtract %_6 %_41 1
-         %_49 = OpIMul %_6 %_47 %_48
-         %_50 = OpIAdd %_6 %_46 %_49
-         %_51 = OpCompositeExtract %_6 %_39 2
-         %_52 = OpCompositeExtract %_6 %_41 2
-         %_53 = OpIMul %_6 %_51 %_52
-         %_54 = OpIAdd %_6 %_50 %_53
-               OpReturnValue %_55
+         %_17 = OpFunction %_5 None %_16
+         %_18 = OpLabel
+         %_21 = OpCompositeConstruct %_19 %_20 %_20
+         %_22 = OpCompositeConstruct %_19 %_20 %_20
+         %_24 = OpCompositeExtract %_5 %_21 0
+         %_25 = OpCompositeExtract %_5 %_22 0
+         %_26 = OpIMul %_5 %_24 %_25
+         %_27 = OpIAdd %_5 %_23 %_26
+         %_28 = OpCompositeExtract %_5 %_21 1
+         %_29 = OpCompositeExtract %_5 %_22 1
+         %_30 = OpIMul %_5 %_28 %_29
+         %_31 = OpIAdd %_5 %_27 %_30
+         %_34 = OpCompositeConstruct %_32 %_33 %_33 %_33
+         %_35 = OpCompositeConstruct %_32 %_33 %_33 %_33
+         %_37 = OpCompositeExtract %_6 %_34 0
+         %_38 = OpCompositeExtract %_6 %_35 0
+         %_39 = OpIMul %_6 %_37 %_38
+         %_40 = OpIAdd %_6 %_36 %_39
+         %_41 = OpCompositeExtract %_6 %_34 1
+         %_42 = OpCompositeExtract %_6 %_35 1
+         %_43 = OpIMul %_6 %_41 %_42
+         %_44 = OpIAdd %_6 %_40 %_43
+         %_45 = OpCompositeExtract %_6 %_34 2
+         %_46 = OpCompositeExtract %_6 %_35 2
+         %_47 = OpIMul %_6 %_45 %_46
+         %_48 = OpIAdd %_6 %_44 %_47
+               OpReturnValue %_49
                OpFunctionEnd
-         %_57 = OpFunction %_6 None %_56
-         %_58 = OpLabel
-         Op4450 %_5 %_61 %_59 %_60 %_0
-         Op4451 %_6 %_64 %_62 %_63 %_0
-         %_66 = OpIAdd %_6 %_65 %_64
-         %_68 = OpIAdd %_6 %_67 %_64
-         Op4450 %_5 %_69 %_66 %_68 %_0
-         %_71 = OpIAdd %_6 %_70 %_64
-         %_73 = OpIAdd %_6 %_72 %_64
-         Op4451 %_6 %_74 %_71 %_73 %_0
-               OpReturnValue %_74
+         %_51 = OpFunction %_6 None %_50
+         %_52 = OpLabel
+         Op4450 %_5 %_54 %_33 %_53 %_0
+         Op4451 %_6 %_57 %_55 %_56 %_0
+         %_59 = OpIAdd %_6 %_58 %_57
+         %_61 = OpIAdd %_6 %_60 %_57
+         Op4450 %_5 %_62 %_59 %_61 %_0
+         %_64 = OpIAdd %_6 %_63 %_57
+         %_66 = OpIAdd %_6 %_65 %_57
+         Op4451 %_6 %_67 %_64 %_66 %_0
+               OpReturnValue %_67
                OpFunctionEnd
-         %_76 = OpFunction %_2 None %_75
-         %_77 = OpLabel
-         %_78 = OpFunctionCall %_4 %_8
-         %_79 = OpFunctionCall %_5 %_21
-         %_80 = OpFunctionCall %_6 %_57
+         %_69 = OpFunction %_2 None %_68
+         %_70 = OpLabel
+         %_71 = OpFunctionCall %_4 %_8
+         %_72 = OpFunctionCall %_5 %_17
+         %_73 = OpFunctionCall %_6 %_51
                OpReturn
                OpFunctionEnd

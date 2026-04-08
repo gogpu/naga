@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 164
+; Bound: 151
 ; Schema: 0
 
                OpCapability Shader
@@ -72,35 +72,22 @@
          %_113 = OpTypeFunction %_2 %_12 %_6
          %_119 = OpTypeFunction %_2
          %_122 = OpConstant %_5 0
-         %_123 = OpConstant %_5 0
-         %_125 = OpConstantNull %_8
-         %_126 = OpConstant %_5 0
-         %_128 = OpConstantNull %_8
-         %_129 = OpConstant %_10 0
-         %_130 = OpConstant %_5 0
-         %_132 = OpConstantNull %_8
-         %_133 = OpConstant %_5 0
-         %_134 = OpConstant %_5 0
-         %_136 = OpConstantNull %_12
-         %_137 = OpConstant %_5 0
-         %_139 = OpConstantNull %_8
-         %_140 = OpConstant %_5 0
-         %_142 = OpConstant %_5 0
-         %_143 = OpConstantNull %_6
-         %_145 = OpConstantNull %_8
-         %_146 = OpConstantNull %_6
-         %_148 = OpConstantNull %_8
-         %_149 = OpConstant %_10 0
-         %_150 = OpConstantNull %_6
-         %_152 = OpConstantNull %_8
-         %_153 = OpConstant %_5 0
-         %_154 = OpConstantNull %_6
-         %_156 = OpConstantNull %_12
-         %_157 = OpConstantNull %_6
-         %_159 = OpConstant %_3 0
-         %_160 = OpConstant %_3 0
-         %_161 = OpConstant %_3 0
-         %_162 = OpConstant %_3 0
+         %_124 = OpConstantNull %_8
+         %_126 = OpConstantNull %_8
+         %_127 = OpConstant %_10 0
+         %_129 = OpConstantNull %_8
+         %_131 = OpConstantNull %_12
+         %_133 = OpConstantNull %_8
+         %_135 = OpConstantNull %_6
+         %_137 = OpConstantNull %_8
+         %_138 = OpConstantNull %_6
+         %_140 = OpConstantNull %_8
+         %_141 = OpConstantNull %_6
+         %_143 = OpConstantNull %_8
+         %_144 = OpConstantNull %_6
+         %_146 = OpConstantNull %_12
+         %_147 = OpConstantNull %_6
+         %_149 = OpConstant %_3 0
          %_19 = OpVariable %_18 UniformConstant
          %_21 = OpVariable %_20 UniformConstant
          %_23 = OpVariable %_22 UniformConstant
@@ -211,18 +198,18 @@
                OpFunctionEnd
          %_120 = OpFunction %_2 None %_119
          %_121 = OpLabel
-         %_124 = OpFunctionCall %_6 %_39 %_122 %_123
-         %_127 = OpFunctionCall %_6 %_46 %_125 %_126
-         %_131 = OpFunctionCall %_6 %_53 %_128 %_129 %_130
-         %_135 = OpFunctionCall %_6 %_63 %_132 %_133 %_134
-         %_138 = OpFunctionCall %_6 %_72 %_136 %_137
-         %_141 = OpFunctionCall %_6 %_78 %_139 %_140
-         %_144 = OpFunctionCall %_2 %_85 %_142 %_143
-         %_147 = OpFunctionCall %_2 %_91 %_145 %_146
-         %_151 = OpFunctionCall %_2 %_97 %_148 %_149 %_150
-         %_155 = OpFunctionCall %_2 %_106 %_152 %_153 %_154
-         %_158 = OpFunctionCall %_2 %_114 %_156 %_157
-         %_163 = OpCompositeConstruct %_6 %_159 %_160 %_161 %_162
-               OpStore %_37 %_163
+         %_123 = OpFunctionCall %_6 %_39 %_122 %_122
+         %_125 = OpFunctionCall %_6 %_46 %_124 %_122
+         %_128 = OpFunctionCall %_6 %_53 %_126 %_127 %_122
+         %_130 = OpFunctionCall %_6 %_63 %_129 %_122 %_122
+         %_132 = OpFunctionCall %_6 %_72 %_131 %_122
+         %_134 = OpFunctionCall %_6 %_78 %_133 %_122
+         %_136 = OpFunctionCall %_2 %_85 %_122 %_135
+         %_139 = OpFunctionCall %_2 %_91 %_137 %_138
+         %_142 = OpFunctionCall %_2 %_97 %_140 %_127 %_141
+         %_145 = OpFunctionCall %_2 %_106 %_143 %_122 %_144
+         %_148 = OpFunctionCall %_2 %_114 %_146 %_147
+         %_150 = OpCompositeConstruct %_6 %_149 %_149 %_149 %_149
+               OpStore %_37 %_150
                OpReturn
                OpFunctionEnd

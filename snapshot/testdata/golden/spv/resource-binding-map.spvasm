@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 68
+; Bound: 65
 ; Schema: 0
 
                OpCapability Shader
@@ -52,9 +52,6 @@
          %_38 = OpTypePointer Uniform %_6
          %_39 = OpTypeInt 32 0
          %_40 = OpConstant %_39 0
-         %_49 = OpConstant %_39 0
-         %_52 = OpConstant %_39 0
-         %_60 = OpConstant %_39 0
          %_9 = OpVariable %_8 UniformConstant
          %_10 = OpVariable %_8 UniformConstant
          %_12 = OpVariable %_11 UniformConstant
@@ -89,22 +86,22 @@
                OpFunctionEnd
          %_47 = OpFunction %_2 None %_26
          %_48 = OpLabel
-         %_50 = OpAccessChain %_38 %_19 %_49
-         %_51 = OpLoad %_6 %_50
-         %_53 = OpAccessChain %_38 %_16 %_52
-         %_54 = OpLoad %_6 %_53
-         %_55 = OpFAdd %_6 %_51 %_54
-         %_56 = OpLoad %_4 %_9
-         %_57 = OpLoad %_5 %_12
-         %_59 = OpSampledImage %_34 %_56 %_57
-         %_58 = OpImageSampleImplicitLod %_7 %_59 %_55
-         %_61 = OpAccessChain %_38 %_16 %_60
-         %_62 = OpLoad %_6 %_61
-         %_63 = OpLoad %_4 %_10
-         %_64 = OpLoad %_5 %_13
-         %_66 = OpSampledImage %_34 %_63 %_64
-         %_65 = OpImageSampleImplicitLod %_7 %_66 %_62
-         %_67 = OpFAdd %_7 %_58 %_65
-               OpStore %_25 %_67
+         %_49 = OpAccessChain %_38 %_19 %_40
+         %_50 = OpLoad %_6 %_49
+         %_51 = OpAccessChain %_38 %_16 %_40
+         %_52 = OpLoad %_6 %_51
+         %_53 = OpFAdd %_6 %_50 %_52
+         %_54 = OpLoad %_4 %_9
+         %_55 = OpLoad %_5 %_12
+         %_57 = OpSampledImage %_34 %_54 %_55
+         %_56 = OpImageSampleImplicitLod %_7 %_57 %_53
+         %_58 = OpAccessChain %_38 %_16 %_40
+         %_59 = OpLoad %_6 %_58
+         %_60 = OpLoad %_4 %_10
+         %_61 = OpLoad %_5 %_13
+         %_63 = OpSampledImage %_34 %_60 %_61
+         %_62 = OpImageSampleImplicitLod %_7 %_63 %_59
+         %_64 = OpFAdd %_7 %_56 %_62
+               OpStore %_25 %_64
                OpReturn
                OpFunctionEnd

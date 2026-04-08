@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 52
+; Bound: 43
 ; Schema: 0
 
                OpCapability Shader
@@ -18,29 +18,20 @@
          %_5 = OpConstant %_3 128
          %_6 = OpTypeArray %_4 %_5
          %_7 = OpTypeVector %_3 3
-         %_8 = OpConstant %_3 128
-         %_9 = OpTypePointer Workgroup %_6
+         %_8 = OpTypeArray %_4 %_5
+         %_9 = OpTypePointer Workgroup %_8
          %_11 = OpTypePointer Input %_7
          %_13 = OpTypeFunction %_2
          %_18 = OpTypeBool
          %_19 = OpTypeVector %_18 3
          %_20 = OpConstantNull %_7
-         %_25 = OpConstantNull %_6
+         %_25 = OpConstantNull %_8
          %_26 = OpConstant %_3 2
          %_27 = OpConstant %_3 264
          %_29 = OpConstant %_3 0
          %_30 = OpTypePointer Input %_3
          %_33 = OpTypePointer Workgroup %_4
-         %_36 = OpConstant %_3 2
-         %_37 = OpConstant %_3 2
-         %_38 = OpConstant %_3 264
-         %_41 = OpConstant %_3 2
-         %_42 = OpConstant %_3 2
-         %_43 = OpConstant %_3 264
-         %_44 = OpConstant %_4 10
-         %_49 = OpConstant %_3 2
-         %_50 = OpConstant %_3 2
-         %_51 = OpConstant %_3 264
+         %_38 = OpConstant %_4 10
          %_10 = OpVariable %_9 Workgroup
          %_12 = OpVariable %_11 Input
          %_16 = OpVariable %_11 Input
@@ -62,18 +53,18 @@
          %_32 = OpLoad %_3 %_31
          %_34 = OpAccessChain %_33 %_10 %_32
          %_35 = OpLoad %_4 %_34
-         OpControlBarrier %_36 %_37 %_38
-         %_39 = OpAccessChain %_33 %_10 %_32
-         %_40 = OpLoad %_4 %_39
-         OpControlBarrier %_41 %_42 %_43
-         %_45 = OpUnordered %_18 %_40 %_44
-               OpSelectionMerge %_48 0
-               OpBranchConditional %_45 %_46 %_47
-         %_46 = OpLabel
-         OpControlBarrier %_49 %_50 %_51
+         OpControlBarrier %_26 %_26 %_27
+         %_36 = OpAccessChain %_33 %_10 %_32
+         %_37 = OpLoad %_4 %_36
+         OpControlBarrier %_26 %_26 %_27
+         %_39 = OpUnordered %_18 %_37 %_38
+               OpSelectionMerge %_42 0
+               OpBranchConditional %_39 %_40 %_41
+         %_40 = OpLabel
+         OpControlBarrier %_26 %_26 %_27
                OpReturn
-         %_47 = OpLabel
+         %_41 = OpLabel
                OpReturn
-         %_48 = OpLabel
+         %_42 = OpLabel
                OpUnreachable
                OpFunctionEnd

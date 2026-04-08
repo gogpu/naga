@@ -1,123 +1,105 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 90
+; Bound: 72
 ; Schema: 0
 
                OpCapability Shader
          OpExtension %_1599492179 %_1599227979 %_1919906931 %_1600481121 %_1717990754 %_1935635045 %_1634889588 %_1667196263 %_1936941420 %_0
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_17 "main" %_21
-               OpExecutionMode %_17 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_18 "main" %_22
+               OpExecutionMode %_18 LocalSize 1 1 1
                OpDecorate %_5 ArrayStride 4
                OpDecorate %_6 ArrayStride 4
-               OpDecorate %_10 Block
-               OpMemberDecorate %_10 0 Offset 0
-               OpDecorate %_12 DescriptorSet 0
-               OpDecorate %_12 Binding 0
-               OpDecorate %_13 Block
-               OpMemberDecorate %_13 0 Offset 0
-               OpDecorate %_15 DescriptorSet 0
-               OpDecorate %_15 Binding 1
-               OpDecorate %_21 BuiltIn LocalInvocationId
+               OpDecorate %_11 Block
+               OpMemberDecorate %_11 0 Offset 0
+               OpDecorate %_13 DescriptorSet 0
+               OpDecorate %_13 Binding 0
+               OpDecorate %_14 Block
+               OpMemberDecorate %_14 0 Offset 0
+               OpDecorate %_16 DescriptorSet 0
+               OpDecorate %_16 Binding 1
+               OpDecorate %_22 BuiltIn LocalInvocationId
          %_2 = OpTypeVoid
          %_3 = OpTypeInt 32 0
          %_4 = OpConstant %_3 1
          %_5 = OpTypeArray %_3 %_4
          %_6 = OpTypeRuntimeArray %_3
-         %_7 = OpTypePointer Workgroup %_5
-         %_10 = OpTypeStruct %_6
-         %_11 = OpTypePointer StorageBuffer %_10
-         %_13 = OpTypeStruct %_6
-         %_14 = OpTypePointer StorageBuffer %_13
-         %_16 = OpTypeFunction %_2
-         %_19 = OpTypeVector %_3 3
-         %_20 = OpTypePointer Input %_19
-         %_23 = OpTypeBool
-         %_24 = OpTypeVector %_23 3
-         %_25 = OpConstantNull %_19
-         %_30 = OpConstantNull %_5
-         %_31 = OpConstantNull %_5
-         %_32 = OpConstant %_3 2
-         %_33 = OpConstant %_3 264
-         %_35 = OpConstant %_3 0
-         %_36 = OpTypePointer Workgroup %_3
-         %_39 = OpTypePointer StorageBuffer %_6
-         %_40 = OpConstant %_3 0
-         %_42 = OpConstant %_3 0
-         %_43 = OpTypePointer StorageBuffer %_3
-         %_46 = OpConstant %_3 0
-         %_48 = OpConstant %_3 0
-         %_51 = OpConstant %_3 0
-         %_53 = OpConstant %_3 0
-         %_56 = OpConstant %_3 0
-         %_58 = OpConstant %_3 0
-         %_61 = OpConstant %_3 0
-         %_63 = OpConstant %_3 0
-         %_66 = OpConstant %_3 0
-         %_68 = OpConstant %_3 0
-         %_70 = OpConstant %_3 0
-         %_73 = OpConstant %_3 0
-         %_76 = OpConstant %_3 0
-         %_79 = OpConstant %_3 0
-         %_82 = OpConstant %_3 0
-         %_86 = OpConstant %_3 0
-         %_88 = OpConstant %_3 0
-         %_8 = OpVariable %_7 Workgroup
-         %_9 = OpVariable %_7 Workgroup
-         %_12 = OpVariable %_11 StorageBuffer
-         %_15 = OpVariable %_14 StorageBuffer
-         %_21 = OpVariable %_20 Input
-         %_17 = OpFunction %_2 None %_16
-         %_18 = OpLabel
-         %_22 = OpLoad %_19 %_21
-         %_26 = OpSignBitSet %_24 %_22 %_25
-         %_27 = Op155 %_23 %_26
-               OpSelectionMerge %_28 0
-               OpBranchConditional %_27 %_29 %_28
-         %_29 = OpLabel
-               OpStore %_8 %_30
+         %_7 = OpTypeArray %_3 %_4
+         %_8 = OpTypePointer Workgroup %_7
+         %_11 = OpTypeStruct %_6
+         %_12 = OpTypePointer StorageBuffer %_11
+         %_14 = OpTypeStruct %_6
+         %_15 = OpTypePointer StorageBuffer %_14
+         %_17 = OpTypeFunction %_2
+         %_20 = OpTypeVector %_3 3
+         %_21 = OpTypePointer Input %_20
+         %_24 = OpTypeBool
+         %_25 = OpTypeVector %_24 3
+         %_26 = OpConstantNull %_20
+         %_31 = OpConstantNull %_7
+         %_32 = OpConstantNull %_7
+         %_33 = OpConstant %_3 2
+         %_34 = OpConstant %_3 264
+         %_36 = OpConstant %_3 0
+         %_37 = OpTypePointer Workgroup %_3
+         %_40 = OpTypePointer StorageBuffer %_6
+         %_42 = OpTypePointer StorageBuffer %_3
+         %_9 = OpVariable %_8 Workgroup
+         %_10 = OpVariable %_8 Workgroup
+         %_13 = OpVariable %_12 StorageBuffer
+         %_16 = OpVariable %_15 StorageBuffer
+         %_22 = OpVariable %_21 Input
+         %_18 = OpFunction %_2 None %_17
+         %_19 = OpLabel
+         %_23 = OpLoad %_20 %_22
+         %_27 = OpSignBitSet %_25 %_23 %_26
+         %_28 = Op155 %_24 %_27
+               OpSelectionMerge %_29 0
+               OpBranchConditional %_28 %_30 %_29
+         %_30 = OpLabel
                OpStore %_9 %_31
-               OpBranch %_28
-         %_28 = OpLabel
-         OpControlBarrier %_32 %_32 %_33
-               OpBranch %_34
-         %_34 = OpLabel
-         %_37 = OpAccessChain %_36 %_8 %_35
-         %_38 = OpLoad %_3 %_37
-         %_41 = OpAccessChain %_39 %_12 %_40
-         %_44 = OpAccessChain %_43 %_41 %_42
-         %_45 = OpLoad %_3 %_44
-         %_47 = OpAccessChain %_39 %_12 %_46
-         %_49 = OpAccessChain %_43 %_47 %_48
+               OpStore %_10 %_32
+               OpBranch %_29
+         %_29 = OpLabel
+         OpControlBarrier %_33 %_33 %_34
+               OpBranch %_35
+         %_35 = OpLabel
+         %_38 = OpAccessChain %_37 %_9 %_36
+         %_39 = OpLoad %_3 %_38
+         %_41 = OpAccessChain %_40 %_13 %_36
+         %_43 = OpAccessChain %_42 %_41 %_36
+         %_44 = OpLoad %_3 %_43
+         %_45 = OpAccessChain %_40 %_13 %_36
+         %_46 = OpAccessChain %_42 %_45 %_36
+         %_47 = OpLoad %_3 %_46
+         %_48 = OpAccessChain %_37 %_9 %_36
+               OpStore %_48 %_47
+         %_49 = OpAccessChain %_37 %_10 %_36
          %_50 = OpLoad %_3 %_49
-         %_52 = OpAccessChain %_36 %_8 %_51
-               OpStore %_52 %_50
-         %_54 = OpAccessChain %_36 %_9 %_53
-         %_55 = OpLoad %_3 %_54
-         %_57 = OpAccessChain %_39 %_15 %_56
-         %_59 = OpAccessChain %_43 %_57 %_58
+         %_51 = OpAccessChain %_40 %_16 %_36
+         %_52 = OpAccessChain %_42 %_51 %_36
+         %_53 = OpLoad %_3 %_52
+         %_54 = OpAccessChain %_40 %_16 %_36
+         %_55 = OpAccessChain %_42 %_54 %_36
+         %_56 = OpLoad %_3 %_55
+         %_57 = OpAccessChain %_37 %_10 %_36
+               OpStore %_57 %_56
+         %_58 = OpAccessChain %_40 %_16 %_36
+         %_59 = OpAccessChain %_42 %_58 %_36
          %_60 = OpLoad %_3 %_59
-         %_62 = OpAccessChain %_39 %_15 %_61
-         %_64 = OpAccessChain %_43 %_62 %_63
-         %_65 = OpLoad %_3 %_64
-         %_67 = OpAccessChain %_36 %_9 %_66
-               OpStore %_67 %_65
-         %_69 = OpAccessChain %_39 %_15 %_68
-         %_71 = OpAccessChain %_43 %_69 %_70
-         %_72 = OpLoad %_3 %_71
-         %_74 = OpAccessChain %_36 %_8 %_73
-         %_75 = OpLoad %_3 %_74
-         %_77 = OpAccessChain %_36 %_8 %_76
-         %_78 = OpLoad %_3 %_77
-         %_80 = OpAccessChain %_36 %_9 %_79
-         %_81 = OpLoad %_3 %_80
-         %_83 = OpAccessChain %_36 %_9 %_82
-         %_84 = OpLoad %_3 %_83
-         %_85 = OpIAdd %_3 %_78 %_84
-         %_87 = OpAccessChain %_39 %_15 %_86
-         %_89 = OpAccessChain %_43 %_87 %_88
-               OpStore %_89 %_85
+         %_61 = OpAccessChain %_37 %_9 %_36
+         %_62 = OpLoad %_3 %_61
+         %_63 = OpAccessChain %_37 %_9 %_36
+         %_64 = OpLoad %_3 %_63
+         %_65 = OpAccessChain %_37 %_10 %_36
+         %_66 = OpLoad %_3 %_65
+         %_67 = OpAccessChain %_37 %_10 %_36
+         %_68 = OpLoad %_3 %_67
+         %_69 = OpIAdd %_3 %_64 %_68
+         %_70 = OpAccessChain %_40 %_16 %_36
+         %_71 = OpAccessChain %_42 %_70 %_36
+               OpStore %_71 %_69
                OpReturn
                OpFunctionEnd

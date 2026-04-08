@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 60
+; Bound: 56
 ; Schema: 0
 
                OpCapability Shader
@@ -9,9 +9,9 @@
                OpMemoryModel Logical GLSL450
                OpEntryPoint Vertex %_25 "vert_main" %_15 %_16 %_18 %_20
                OpEntryPoint Fragment %_36 "frag_main" %_21 %_22
-               OpEntryPoint Fragment %_53 "fs_extra" %_23
+               OpEntryPoint Fragment %_52 "fs_extra" %_23
                OpExecutionMode %_36 OriginUpperLeft
-               OpExecutionMode %_53 OriginUpperLeft
+               OpExecutionMode %_52 OriginUpperLeft
                OpMemberDecorate %_6 0 Offset 0
                OpMemberDecorate %_6 1 Offset 16
                OpDecorate %_11 DescriptorSet 0
@@ -42,12 +42,8 @@
          %_29 = OpConstant %_3 0
          %_30 = OpConstant %_3 1065353216
          %_42 = OpTypeSampledImage %_7
-         %_45 = OpConstant %_3 0
-         %_46 = OpTypeBool
-         %_55 = OpConstant %_3 0
-         %_56 = OpConstant %_3 1056964608
-         %_57 = OpConstant %_3 0
-         %_58 = OpConstant %_3 1056964608
+         %_45 = OpTypeBool
+         %_54 = OpConstant %_3 1056964608
          %_11 = OpVariable %_10 UniformConstant
          %_13 = OpVariable %_12 UniformConstant
          %_15 = OpVariable %_14 Input
@@ -78,22 +74,22 @@
          %_43 = OpSampledImage %_42 %_38 %_39
          %_41 = OpImageSampleImplicitLod %_5 %_43 %_40
          %_44 = OpCompositeExtract %_3 %_41 3
-         %_47 = OpIEqual %_46 %_44 %_45
-               OpSelectionMerge %_50 0
-               OpBranchConditional %_47 %_48 %_49
-         %_48 = OpLabel
+         %_46 = OpIEqual %_45 %_44 %_29
+               OpSelectionMerge %_49 0
+               OpBranchConditional %_46 %_47 %_48
+         %_47 = OpLabel
                OpKill
+         %_48 = OpLabel
+               OpBranch %_49
          %_49 = OpLabel
-               OpBranch %_50
-         %_50 = OpLabel
-         %_51 = OpCompositeExtract %_3 %_41 3
-         %_52 = OpVectorTimesScalar %_5 %_41 %_51
-               OpStore %_22 %_52
+         %_50 = OpCompositeExtract %_3 %_41 3
+         %_51 = OpVectorTimesScalar %_5 %_41 %_50
+               OpStore %_22 %_51
                OpReturn
                OpFunctionEnd
-         %_53 = OpFunction %_2 None %_24
-         %_54 = OpLabel
-         %_59 = OpCompositeConstruct %_5 %_55 %_56 %_57 %_58
-               OpStore %_23 %_59
+         %_52 = OpFunction %_2 None %_24
+         %_53 = OpLabel
+         %_55 = OpCompositeConstruct %_5 %_29 %_54 %_29 %_54
+               OpStore %_23 %_55
                OpReturn
                OpFunctionEnd

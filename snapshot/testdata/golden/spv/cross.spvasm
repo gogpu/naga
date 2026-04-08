@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 12
+; Bound: 11
 ; Schema: 0
 
                OpCapability Shader
@@ -14,10 +14,9 @@
          %_4 = OpTypeVector %_3 3
          %_5 = OpTypeFunction %_2
          %_8 = OpConstant %_3 0
-         %_9 = OpConstant %_3 0
-         %_10 = OpConstant %_3 1065353216
+         %_9 = OpConstant %_3 1065353216
          %_6 = OpFunction %_2 None %_5
          %_7 = OpLabel
-         %_11 = OpCompositeConstruct %_4 %_8 %_9 %_10
+         %_10 = OpCompositeConstruct %_4 %_8 %_8 %_9
                OpReturn
                OpFunctionEnd

@@ -1,14 +1,14 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 38
+; Bound: 43
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint Fragment %_28 "fs_main" %_22 %_23 %_24 %_26
-               OpExecutionMode %_28 OriginUpperLeft
+               OpEntryPoint Fragment %_33 "fs_main" %_27 %_28 %_29 %_31
+               OpExecutionMode %_33 OriginUpperLeft
                OpDecorate %_13 ArrayStride 32
                OpDecorate %_15 ArrayStride 32
                OpMemberDecorate %_6 0 Offset 0
@@ -23,10 +23,10 @@
                OpMemberDecorate %_16 1 Offset 96
                OpMemberDecorate %_16 2 Offset 128
                OpMemberDecorate %_16 3 Offset 132
-               OpDecorate %_22 BuiltIn PointCoord
-               OpDecorate %_23 Location 0
-               OpDecorate %_24 Location 1
-               OpDecorate %_26 Location 0
+               OpDecorate %_27 BuiltIn PointCoord
+               OpDecorate %_28 Location 0
+               OpDecorate %_29 Location 1
+               OpDecorate %_31 Location 0
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
          %_4 = OpTypeVector %_3 4
@@ -43,26 +43,31 @@
          %_15 = OpTypeArray %_10 %_14
          %_16 = OpTypeStruct %_13 %_15 %_8 %_8
          %_17 = OpTypePointer Workgroup %_3
-         %_19 = OpTypePointer Workgroup %_16
-         %_21 = OpTypePointer Input %_4
-         %_25 = OpTypePointer Output %_4
-         %_27 = OpTypeFunction %_2
+         %_19 = OpTypeStruct %_4 %_4
+         %_20 = OpTypeArray %_19 %_12
+         %_21 = OpTypeStruct %_9 %_5 %_4
+         %_22 = OpTypeArray %_21 %_14
+         %_23 = OpTypeStruct %_20 %_22 %_8 %_8
+         %_24 = OpTypePointer Workgroup %_23
+         %_26 = OpTypePointer Input %_4
+         %_30 = OpTypePointer Output %_4
+         %_32 = OpTypeFunction %_2
          %_18 = OpVariable %_17 Workgroup
-         %_20 = OpVariable %_19 Workgroup
-         %_22 = OpVariable %_21 Input
-         %_23 = OpVariable %_21 Input
-         %_24 = OpVariable %_21 Input
-         %_26 = OpVariable %_25 Output
-         %_28 = OpFunction %_2 None %_27
-         %_29 = OpLabel
-         %_30 = OpLoad %_4 %_22
-         %_31 = OpLoad %_4 %_23
-         %_32 = OpCompositeConstruct %_7 %_30 %_31
-         %_33 = OpLoad %_4 %_24
-         %_34 = OpCompositeConstruct %_11 %_33
-         %_35 = OpCompositeExtract %_4 %_32 1
-         %_36 = OpCompositeExtract %_4 %_34 0
-         %_37 = OpFMul %_4 %_35 %_36
-               OpStore %_26 %_37
+         %_25 = OpVariable %_24 Workgroup
+         %_27 = OpVariable %_26 Input
+         %_28 = OpVariable %_26 Input
+         %_29 = OpVariable %_26 Input
+         %_31 = OpVariable %_30 Output
+         %_33 = OpFunction %_2 None %_32
+         %_34 = OpLabel
+         %_35 = OpLoad %_4 %_27
+         %_36 = OpLoad %_4 %_28
+         %_37 = OpCompositeConstruct %_7 %_35 %_36
+         %_38 = OpLoad %_4 %_29
+         %_39 = OpCompositeConstruct %_11 %_38
+         %_40 = OpCompositeExtract %_4 %_37 1
+         %_41 = OpCompositeExtract %_4 %_39 0
+         %_42 = OpFMul %_4 %_40 %_41
+               OpStore %_31 %_42
                OpReturn
                OpFunctionEnd
