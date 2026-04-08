@@ -170,6 +170,12 @@ type ModuleBuilder struct {
 
 	// Word arena for bulk allocation of instruction word slices.
 	arena wordArena
+
+	// constantCache deduplicates OpConstant by (typeID, value) for single-word constants.
+	// Without this, identical constants get different IDs, making OpTypeArray
+	// with same element+length appear as different types to spirv-val.
+	// Key: (typeID << 32) | value. Only used for single-word constants (covers 99% of cases).
+	constantCache map[uint64]uint32
 }
 
 // NewModuleBuilder creates a new SPIR-V module builder.
@@ -235,6 +241,9 @@ func (b *ModuleBuilder) Reset(version Version) {
 	// Reset instruction builder scratch space — keep capacity
 	b.ib.words = b.ib.words[:0]
 	// arena pointer stays valid (points to b.arena)
+
+	// Reset constant cache — keep map allocated
+	clear(b.constantCache)
 }
 
 // RequireVersion bumps the module's SPIR-V version to at least minVersion.
@@ -504,6 +513,31 @@ func (b *ModuleBuilder) AddTypeStruct(memberTypes ...uint32) uint32 {
 
 // AddConstant adds OpConstant.
 func (b *ModuleBuilder) AddConstant(typeID uint32, values ...uint32) uint32 {
+	// Deduplicate single-word constants (covers array lengths, integer literals).
+	// Without this, identical constants get different SPIR-V IDs, making
+	// layout-free and decorated OpTypeArray appear as non-equivalent types
+	// to spirv-val, which rejects OpCopyLogical (VUID-StandaloneSpirv-None-10684).
+	if len(values) == 1 {
+		key := uint64(typeID)<<32 | uint64(values[0])
+		if cached, ok := b.constantCache[key]; ok {
+			return cached
+		}
+
+		id := b.AllocID()
+		b.ib.Reset()
+		b.ib.AddWord(typeID)
+		b.ib.AddWord(id)
+		b.ib.AddWord(values[0])
+		b.types = append(b.types, b.ib.Build(OpConstant))
+
+		if b.constantCache == nil {
+			b.constantCache = make(map[uint64]uint32)
+		}
+		b.constantCache[key] = id
+		return id
+	}
+
+	// Multi-word constants (f64, etc.) — no dedup, rare case.
 	id := b.AllocID()
 	b.ib.Reset()
 	b.ib.AddWord(typeID)
@@ -678,6 +712,18 @@ func (b *ModuleBuilder) AddStore(pointer uint32, value uint32) {
 	b.ib.AddWord(pointer)
 	b.ib.AddWord(value)
 	b.funcAppend(b.ib.Build(OpStore))
+}
+
+// AddCopyLogical adds OpCopyLogical (opcode 400, SPIR-V 1.4+).
+// Copies a composite value to a logically equivalent type with different decorations.
+func (b *ModuleBuilder) AddCopyLogical(resultType uint32, operand uint32) uint32 {
+	resultID := b.AllocID()
+	b.ib.Reset()
+	b.ib.AddWord(resultType)
+	b.ib.AddWord(resultID)
+	b.ib.AddWord(operand)
+	b.funcAppend(b.ib.Build(OpCopyLogical))
+	return resultID
 }
 
 // AddAccessChain adds OpAccessChain.

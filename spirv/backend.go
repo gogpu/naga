@@ -776,13 +776,8 @@ func (b *Backend) emitTypeWithoutLayout(handle ir.TypeHandle) uint32 {
 
 	switch inner := typ.Inner.(type) {
 	case ir.ArrayType:
-		baseID, err := b.emitType(inner.Base)
-		if err != nil {
-			// Fall back to the decorated type if base emission fails.
-			id, _ = b.emitType(handle)
-			b.layoutFreeTypeIDs[handle] = id
-			return id
-		}
+		// Recursively emit base type without layout — handles nested structs/arrays.
+		baseID := b.emitTypeWithoutLayout(inner.Base)
 
 		if inner.Size.Constant != nil {
 			// Fixed-size array without ArrayStride
@@ -1334,6 +1329,11 @@ const OpTypeRayQueryKHR OpCode = 4472
 // Result type must be u32. Operands: struct pointer, member index.
 const OpArrayLength OpCode = 68
 
+// OpCopyLogical performs a logical copy between composite types with different
+// decorations (e.g., layout-free Workgroup type → decorated Storage type).
+// Requires SPIR-V 1.4+. Both types must be logically equivalent (same structure).
+const OpCopyLogical OpCode = 400
+
 // emitGlobals emits all global variables to SPIR-V.
 func (b *Backend) emitGlobals() error {
 	for handle, global := range b.module.GlobalVariables {
@@ -1343,9 +1343,17 @@ func (b *Backend) emitGlobals() error {
 		}
 
 		// Get the variable type.
-		varType, err := b.emitType(global.Type)
-		if err != nil {
-			return err
+		// Workgroup variables must NOT have layout decorations (ArrayStride, Offset,
+		// MatrixStride) per VUID-StandaloneSpirv-None-10684. Use layout-free types.
+		var varType uint32
+		if global.Space == ir.SpaceWorkGroup {
+			varType = b.emitTypeWithoutLayout(global.Type)
+		} else {
+			var err error
+			varType, err = b.emitType(global.Type)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Determine if this variable needs a wrapper struct (matching Rust naga's
@@ -2203,7 +2211,8 @@ func (b *Backend) emitWorkgroupInitPolyfill(epIdx int, fn *ir.Function, emitter 
 				continue
 			}
 			// Get the type of the variable (not the pointer type, the actual type).
-			typeID, _ := b.emitType(gv.Type)
+			// Use layout-free type for Workgroup — must match what emitGlobals used.
+			typeID := b.emitTypeWithoutLayout(gv.Type)
 			workgroupVars = append(workgroupVars, wgVar{varID: varID, typeID: typeID})
 		}
 	}
@@ -3356,6 +3365,15 @@ func (b *Backend) resolveTypeResolution(res ir.TypeResolution) uint32 {
 	return b.emitInlineType(res.Value)
 }
 
+// resolveTypeForStorageClass resolves a type resolution, using layout-free types
+// for Workgroup storage class per VUID-StandaloneSpirv-None-10684.
+func (b *Backend) resolveTypeForStorageClass(res ir.TypeResolution, storageClass StorageClass) uint32 {
+	if storageClass == StorageClassWorkgroup && res.Handle != nil {
+		return b.emitTypeWithoutLayout(*res.Handle)
+	}
+	return b.resolveTypeResolution(res)
+}
+
 // emitInlineType emits an inline TypeInner and returns its SPIR-V ID.
 // Used for types that don't exist in the module's type arena (e.g., temporary vector types).
 func (b *Backend) emitInlineType(inner ir.TypeInner) uint32 {
@@ -3914,6 +3932,106 @@ func (e *ExpressionEmitter) getExpressionStorageClass(handle ir.ExpressionHandle
 	return StorageClassFunction
 }
 
+// maybeCopyLogicalForStore inserts OpCopyLogical when a store crosses the Workgroup
+// boundary (VUID-StandaloneSpirv-None-10684). Workgroup variables use layout-free types
+// (no ArrayStride/Offset), while Storage/Uniform use decorated types. When storing a
+// Workgroup-loaded value into a non-Workgroup pointer (or vice versa), the SPIR-V type
+// IDs differ even though the types are logically equivalent. OpCopyLogical (SPIR-V 1.4+)
+// converts between them. Returns the (possibly converted) value ID.
+func (e *ExpressionEmitter) maybeCopyLogicalForStore(pointerExpr, valueExpr ir.ExpressionHandle, valueID uint32) uint32 {
+	valueSC := e.getExpressionStorageClass(valueExpr)
+	pointerSC := e.getExpressionStorageClass(pointerExpr)
+
+	valueIsWG := valueSC == StorageClassWorkgroup
+	pointerIsWG := pointerSC == StorageClassWorkgroup
+
+	// Only need conversion when crossing the Workgroup boundary.
+	if valueIsWG == pointerIsWG {
+		return valueID
+	}
+
+	// Resolve the value expression's IR type to check if it's a composite needing layout.
+	valueTypeRes, err := ir.ResolveExpressionType(e.backend.module, e.function, valueExpr)
+	if err != nil {
+		return valueID
+	}
+
+	// Unwrap pointer types to get the value type handle.
+	valueTypeHandle := e.unwrapToValueTypeHandle(valueTypeRes)
+	if valueTypeHandle == nil {
+		return valueID
+	}
+
+	// Only composite types (arrays, structs) have layout decorations.
+	if !e.backend.typeNeedsLayoutDecoration(*valueTypeHandle) {
+		return valueID
+	}
+
+	// Determine the target SPIR-V type ID (what the store pointer expects).
+	var targetTypeID uint32
+	if valueIsWG {
+		// Value is layout-free (from Workgroup), target needs decorated type.
+		var emitErr error
+		targetTypeID, emitErr = e.backend.emitType(*valueTypeHandle)
+		if emitErr != nil {
+			return valueID
+		}
+	} else {
+		// Value is decorated, target needs layout-free type (for Workgroup pointer).
+		targetTypeID = e.backend.emitTypeWithoutLayout(*valueTypeHandle)
+	}
+
+	// Bump SPIR-V version to 1.4 (minimum for OpCopyLogical).
+	e.backend.requireSpirvVersion14()
+
+	return e.backend.builder.AddCopyLogical(targetTypeID, valueID)
+}
+
+// unwrapToValueTypeHandle resolves a TypeResolution to the underlying value
+// type handle, unwrapping pointer types. Returns nil if no handle can be determined.
+func (e *ExpressionEmitter) unwrapToValueTypeHandle(res ir.TypeResolution) *ir.TypeHandle {
+	if res.Handle != nil {
+		inner := e.backend.module.Types[*res.Handle].Inner
+		if pt, ok := inner.(ir.PointerType); ok {
+			return &pt.Base
+		}
+		return res.Handle
+	}
+	if res.Value != nil {
+		if pt, ok := res.Value.(ir.PointerType); ok {
+			return &pt.Base
+		}
+	}
+	return nil
+}
+
+// typeNeedsLayoutDecoration returns true if the type has layout decorations
+// (ArrayStride, Offset, MatrixStride) that differ between Workgroup and non-Workgroup.
+func (b *Backend) typeNeedsLayoutDecoration(handle ir.TypeHandle) bool {
+	if int(handle) >= len(b.module.Types) {
+		return false
+	}
+	switch b.module.Types[handle].Inner.(type) {
+	case ir.ArrayType:
+		return true
+	case ir.StructType:
+		return true
+	default:
+		return false
+	}
+}
+
+// requireSpirvVersion14 ensures the output SPIR-V version is at least 1.4.
+// Called when OpCopyLogical or other 1.4+ features are needed.
+func (b *Backend) requireSpirvVersion14() {
+	b.builder.RequireVersion(Version1_4)
+	// Also update options so emitEntryPoints sees the bumped version
+	// for SPIR-V 1.4+ interface variable requirements.
+	if b.options.Version.Major < 1 || (b.options.Version.Major == 1 && b.options.Version.Minor < 4) {
+		b.options.Version = Version1_4
+	}
+}
+
 // resolveAccessElementType determines the element type when indexing into a base type.
 // It handles both handle-based and inline types, and unwraps pointer types.
 // For dynamic access (Access), pass index=-1. For static access (AccessIndex), pass the index.
@@ -4008,7 +4126,8 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 		}
 
 		storageClass := e.getExpressionStorageClass(access.Base)
-		accessElementTypeID := elementTypeID
+		// Use layout-free element type for Workgroup (VUID-StandaloneSpirv-None-10684).
+		accessElementTypeID := e.backend.resolveTypeForStorageClass(elementType, storageClass)
 
 		// Create pointer type for OpAccessChain result
 		ptrType := e.backend.emitPointerType(storageClass, accessElementTypeID)
@@ -4199,9 +4318,9 @@ func (e *ExpressionEmitter) emitAccessIndexAsPointer(access ir.ExprAccessIndex) 
 		return 0, fmt.Errorf("access index as pointer element type: %w", err)
 	}
 
-	elementTypeID := e.backend.resolveTypeResolution(elementType)
-
 	storageClass := e.getExpressionStorageClass(access.Base)
+	// Use layout-free element type for Workgroup (VUID-StandaloneSpirv-None-10684).
+	elementTypeID := e.backend.resolveTypeForStorageClass(elementType, storageClass)
 
 	u32Type := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	indexID := e.backend.builder.AddConstant(u32Type, access.Index)
@@ -4234,8 +4353,9 @@ func (e *ExpressionEmitter) emitAccessAsPointer(access ir.ExprAccess) (uint32, e
 		return 0, fmt.Errorf("access as pointer element type: %w", err)
 	}
 
-	elementTypeID := e.backend.resolveTypeResolution(elementType)
 	storageClass := e.getExpressionStorageClass(access.Base)
+	// Use layout-free element type for Workgroup (VUID-StandaloneSpirv-None-10684).
+	elementTypeID := e.backend.resolveTypeForStorageClass(elementType, storageClass)
 
 	ptrType := e.backend.emitPointerType(storageClass, elementTypeID)
 	return e.backend.builder.AddAccessChain(ptrType, baseID, indexID), nil
@@ -4275,8 +4395,8 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 		indexID := e.backend.builder.AddConstant(u32Type, access.Index)
 
 		storageClass := e.getExpressionStorageClass(access.Base)
-
-		accessElementTypeID := elementTypeID
+		// Use layout-free element type for Workgroup (VUID-StandaloneSpirv-None-10684).
+		accessElementTypeID := e.backend.resolveTypeForStorageClass(elementType, storageClass)
 
 		ptrType := e.backend.emitPointerType(storageClass, accessElementTypeID)
 		ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
@@ -4724,9 +4844,36 @@ func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
 		return 0, fmt.Errorf("load pointer type: %w", err)
 	}
 
-	// Dereference pointer type to get the value type for OpLoad result.
-	resultType := e.dereferencePointerType(pointerType)
+	// For Workgroup pointers, use layout-free types (VUID-StandaloneSpirv-None-10684).
+	// The OpLoad result type must match the pointer's pointee type, which is layout-free.
+	storageClass := e.getExpressionStorageClass(load.Pointer)
+	resultType := e.dereferencePointerTypeForStorageClass(pointerType, storageClass)
 	return e.backend.builder.AddLoad(resultType, pointerID), nil
+}
+
+// dereferencePointerTypeForStorageClass extracts the base type, using layout-free types
+// for Workgroup storage class per VUID-StandaloneSpirv-None-10684.
+func (e *ExpressionEmitter) dereferencePointerTypeForStorageClass(res ir.TypeResolution, storageClass StorageClass) uint32 {
+	if storageClass == StorageClassWorkgroup {
+		var inner ir.TypeInner
+		if res.Handle != nil {
+			if int(*res.Handle) < len(e.backend.module.Types) {
+				inner = e.backend.module.Types[*res.Handle].Inner
+			}
+		} else {
+			inner = res.Value
+		}
+		if pt, ok := inner.(ir.PointerType); ok {
+			// For Atomic base types, resolve to the underlying scalar (matches Rust).
+			if int(pt.Base) < len(e.backend.module.Types) {
+				if at, ok := e.backend.module.Types[pt.Base].Inner.(ir.AtomicType); ok {
+					return e.backend.emitInlineType(at.Scalar)
+				}
+			}
+			return e.backend.emitTypeWithoutLayout(pt.Base)
+		}
+	}
+	return e.dereferencePointerType(res)
 }
 
 // dereferencePointerType extracts the base (value) type from a pointer type resolution.
@@ -5479,6 +5626,12 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		if err != nil {
 			return err
 		}
+
+		// Check for Workgroup ↔ non-Workgroup type mismatch (VUID-StandaloneSpirv-None-10684).
+		// When storing a value loaded from Workgroup (layout-free types) into a non-Workgroup
+		// pointer (decorated types), or vice versa, the SPIR-V type IDs differ even though
+		// the types are logically equivalent. OpCopyLogical (SPIR-V 1.4+) bridges this gap.
+		valueID = e.maybeCopyLogicalForStore(kind.Pointer, kind.Value, valueID)
 
 		e.backend.builder.AddStore(pointerID, valueID)
 		return nil
