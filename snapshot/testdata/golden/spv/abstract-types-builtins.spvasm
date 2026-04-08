@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 120
+; Bound: 67
 ; Schema: 0
 
                OpCapability Shader
@@ -17,59 +17,6 @@
          %_10 = OpTypePointer Function %_4
          %_65 = OpConstant %_3 1
          %_66 = OpConstant %_4 1065353216
-         %_67 = OpConstant %_3 1
-         %_68 = OpConstant %_4 1065353216
-         %_69 = OpConstant %_4 1065353216
-         %_70 = OpConstant %_4 1065353216
-         %_71 = OpConstant %_4 1065353216
-         %_72 = OpConstant %_3 1
-         %_73 = OpConstant %_3 1
-         %_74 = OpConstant %_4 1065353216
-         %_75 = OpConstant %_4 1065353216
-         %_76 = OpConstant %_4 1065353216
-         %_77 = OpConstant %_4 1065353216
-         %_78 = OpConstant %_4 1065353216
-         %_79 = OpConstant %_4 1065353216
-         %_80 = OpConstant %_4 1065353216
-         %_81 = OpConstant %_4 1065353216
-         %_82 = OpConstant %_4 1065353216
-         %_83 = OpConstant %_4 1065353216
-         %_84 = OpConstant %_4 1065353216
-         %_85 = OpConstant %_4 1065353216
-         %_86 = OpConstant %_3 1
-         %_87 = OpConstant %_3 1
-         %_88 = OpConstant %_3 1
-         %_89 = OpConstant %_3 1
-         %_90 = OpConstant %_4 1065353216
-         %_91 = OpConstant %_4 1065353216
-         %_92 = OpConstant %_4 1065353216
-         %_93 = OpConstant %_4 1065353216
-         %_94 = OpConstant %_4 1065353216
-         %_95 = OpConstant %_4 1065353216
-         %_96 = OpConstant %_4 1065353216
-         %_97 = OpConstant %_4 1065353216
-         %_98 = OpConstant %_4 1065353216
-         %_99 = OpConstant %_3 1
-         %_100 = OpConstant %_4 1065353216
-         %_101 = OpConstant %_3 1
-         %_102 = OpConstant %_4 1065353216
-         %_103 = OpConstant %_4 1065353216
-         %_104 = OpConstant %_4 1065353216
-         %_105 = OpConstant %_4 1065353216
-         %_106 = OpConstant %_3 1
-         %_107 = OpConstant %_3 1
-         %_108 = OpConstant %_4 1065353216
-         %_109 = OpConstant %_4 1065353216
-         %_110 = OpConstant %_4 1065353216
-         %_111 = OpConstant %_4 1065353216
-         %_112 = OpConstant %_4 1065353216
-         %_113 = OpConstant %_4 1065353216
-         %_114 = OpConstant %_4 1065353216
-         %_115 = OpConstant %_4 1065353216
-         %_116 = OpConstant %_4 1065353216
-         %_117 = OpConstant %_4 1065353216
-         %_118 = OpConstant %_4 1065353216
-         %_119 = OpConstant %_4 1065353216
          %_6 = OpFunction %_2 None %_5
          %_7 = OpLabel
          %_9 = OpVariable %_8 Function
@@ -129,58 +76,58 @@
          %_64 = OpVariable %_10 Function
                OpStore %_9 %_65
                OpStore %_11 %_66
-               OpStore %_12 %_67
-               OpStore %_13 %_68
-               OpStore %_14 %_69
-               OpStore %_15 %_70
-               OpStore %_16 %_71
-               OpStore %_17 %_72
-               OpStore %_18 %_73
-               OpStore %_19 %_74
-               OpStore %_20 %_75
-               OpStore %_21 %_76
-               OpStore %_22 %_77
-               OpStore %_23 %_78
-               OpStore %_24 %_79
-               OpStore %_25 %_80
-               OpStore %_26 %_81
-               OpStore %_27 %_82
-               OpStore %_28 %_83
-               OpStore %_29 %_84
-               OpStore %_30 %_85
-               OpStore %_31 %_86
-               OpStore %_32 %_87
-               OpStore %_33 %_88
-               OpStore %_34 %_89
-               OpStore %_35 %_90
-               OpStore %_36 %_91
-               OpStore %_37 %_92
-               OpStore %_38 %_93
-               OpStore %_39 %_94
-               OpStore %_40 %_95
-               OpStore %_41 %_96
-               OpStore %_42 %_97
-               OpStore %_43 %_98
-               OpStore %_44 %_99
-               OpStore %_45 %_100
-               OpStore %_46 %_101
-               OpStore %_47 %_102
-               OpStore %_48 %_103
-               OpStore %_49 %_104
-               OpStore %_50 %_105
-               OpStore %_51 %_106
-               OpStore %_52 %_107
-               OpStore %_53 %_108
-               OpStore %_54 %_109
-               OpStore %_55 %_110
-               OpStore %_56 %_111
-               OpStore %_57 %_112
-               OpStore %_58 %_113
-               OpStore %_59 %_114
-               OpStore %_60 %_115
-               OpStore %_61 %_116
-               OpStore %_62 %_117
-               OpStore %_63 %_118
-               OpStore %_64 %_119
+               OpStore %_12 %_65
+               OpStore %_13 %_66
+               OpStore %_14 %_66
+               OpStore %_15 %_66
+               OpStore %_16 %_66
+               OpStore %_17 %_65
+               OpStore %_18 %_65
+               OpStore %_19 %_66
+               OpStore %_20 %_66
+               OpStore %_21 %_66
+               OpStore %_22 %_66
+               OpStore %_23 %_66
+               OpStore %_24 %_66
+               OpStore %_25 %_66
+               OpStore %_26 %_66
+               OpStore %_27 %_66
+               OpStore %_28 %_66
+               OpStore %_29 %_66
+               OpStore %_30 %_66
+               OpStore %_31 %_65
+               OpStore %_32 %_65
+               OpStore %_33 %_65
+               OpStore %_34 %_65
+               OpStore %_35 %_66
+               OpStore %_36 %_66
+               OpStore %_37 %_66
+               OpStore %_38 %_66
+               OpStore %_39 %_66
+               OpStore %_40 %_66
+               OpStore %_41 %_66
+               OpStore %_42 %_66
+               OpStore %_43 %_66
+               OpStore %_44 %_65
+               OpStore %_45 %_66
+               OpStore %_46 %_65
+               OpStore %_47 %_66
+               OpStore %_48 %_66
+               OpStore %_49 %_66
+               OpStore %_50 %_66
+               OpStore %_51 %_65
+               OpStore %_52 %_65
+               OpStore %_53 %_66
+               OpStore %_54 %_66
+               OpStore %_55 %_66
+               OpStore %_56 %_66
+               OpStore %_57 %_66
+               OpStore %_58 %_66
+               OpStore %_59 %_66
+               OpStore %_60 %_66
+               OpStore %_61 %_66
+               OpStore %_62 %_66
+               OpStore %_63 %_66
+               OpStore %_64 %_66
                OpReturn
                OpFunctionEnd

@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 86
+; Bound: 44
 ; Schema: 0
 
                OpCapability Shader
@@ -21,77 +21,35 @@
          %_11 = OpTypeFunction %_2
          %_14 = OpConstant %_3 1065353216
          %_15 = OpConstant %_3 0
-         %_16 = OpConstant %_3 0
-         %_17 = OpConstant %_3 0
-         %_19 = OpConstant %_3 0
-         %_20 = OpConstant %_3 1065353216
-         %_21 = OpConstant %_3 0
-         %_22 = OpConstant %_3 0
-         %_24 = OpConstant %_3 0
-         %_25 = OpConstant %_3 0
-         %_26 = OpConstant %_3 1065353216
-         %_27 = OpConstant %_3 0
-         %_29 = OpConstant %_3 0
-         %_30 = OpConstant %_3 0
-         %_31 = OpConstant %_3 0
-         %_32 = OpConstant %_3 1065353216
-         %_35 = OpConstant %_3 1065353216
-         %_36 = OpConstant %_3 0
-         %_38 = OpConstant %_3 0
-         %_39 = OpConstant %_3 1065353216
-         %_42 = OpConstant %_3 1065353216
-         %_43 = OpConstant %_3 0
-         %_44 = OpConstant %_3 0
-         %_46 = OpConstant %_3 0
-         %_47 = OpConstant %_3 1065353216
-         %_48 = OpConstant %_3 0
-         %_50 = OpConstant %_3 0
-         %_51 = OpConstant %_3 0
-         %_52 = OpConstant %_3 1065353216
-         %_55 = OpConstant %_3 1065353216
-         %_56 = OpConstant %_3 0
-         %_57 = OpConstant %_3 0
-         %_59 = OpConstant %_3 0
-         %_60 = OpConstant %_3 1065353216
-         %_61 = OpConstant %_3 0
-         %_63 = OpConstant %_3 0
-         %_64 = OpConstant %_3 0
-         %_65 = OpConstant %_3 1065353216
-         %_67 = OpConstant %_3 0
-         %_68 = OpConstant %_3 0
-         %_69 = OpConstant %_3 0
-         %_72 = OpConstant %_3 1065353216
-         %_73 = OpConstant %_3 1073741824
-         %_74 = OpConstant %_3 1077936128
-         %_75 = OpConstant %_3 1065353216
-         %_84 = OpConstant %_3 1073741824
+         %_33 = OpConstant %_3 1073741824
+         %_34 = OpConstant %_3 1077936128
          %_12 = OpFunction %_2 None %_11
          %_13 = OpLabel
-         %_18 = OpCompositeConstruct %_4 %_14 %_15 %_16 %_17
-         %_23 = OpCompositeConstruct %_4 %_19 %_20 %_21 %_22
-         %_28 = OpCompositeConstruct %_4 %_24 %_25 %_26 %_27
-         %_33 = OpCompositeConstruct %_4 %_29 %_30 %_31 %_32
-         %_34 = OpCompositeConstruct %_5 %_18 %_23 %_28 %_33
-         %_37 = OpCompositeConstruct %_6 %_35 %_36
-         %_40 = OpCompositeConstruct %_6 %_38 %_39
-         %_41 = OpCompositeConstruct %_7 %_37 %_40
-         %_45 = OpCompositeConstruct %_8 %_42 %_43 %_44
-         %_49 = OpCompositeConstruct %_8 %_46 %_47 %_48
-         %_53 = OpCompositeConstruct %_8 %_50 %_51 %_52
-         %_54 = OpCompositeConstruct %_9 %_45 %_49 %_53
-         %_58 = OpCompositeConstruct %_8 %_55 %_56 %_57
-         %_62 = OpCompositeConstruct %_8 %_59 %_60 %_61
-         %_66 = OpCompositeConstruct %_8 %_63 %_64 %_65
-         %_70 = OpCompositeConstruct %_8 %_67 %_68 %_69
-         %_71 = OpCompositeConstruct %_10 %_58 %_62 %_66 %_70
-         %_76 = OpCompositeConstruct %_4 %_72 %_73 %_74 %_75
-         %_77 = OpMatrixTimesVector %_4 %_34 %_76
-         %_78 = OpMatrixTimesMatrix %_5 %_34 %_34
-         %_79 = OpTranspose %_7 %_41
-         %_80 = OpCompositeExtract %_4 %_34 0
-         %_81 = OpCompositeExtract %_4 %_34 1
-         %_82 = OpCompositeExtract %_4 %_34 2
-         %_83 = OpCompositeExtract %_3 %_82 3
-         %_85 = OpMatrixTimesScalar %_7 %_41 %_84
+         %_16 = OpCompositeConstruct %_4 %_14 %_15 %_15 %_15
+         %_17 = OpCompositeConstruct %_4 %_15 %_14 %_15 %_15
+         %_18 = OpCompositeConstruct %_4 %_15 %_15 %_14 %_15
+         %_19 = OpCompositeConstruct %_4 %_15 %_15 %_15 %_14
+         %_20 = OpCompositeConstruct %_5 %_16 %_17 %_18 %_19
+         %_21 = OpCompositeConstruct %_6 %_14 %_15
+         %_22 = OpCompositeConstruct %_6 %_15 %_14
+         %_23 = OpCompositeConstruct %_7 %_21 %_22
+         %_24 = OpCompositeConstruct %_8 %_14 %_15 %_15
+         %_25 = OpCompositeConstruct %_8 %_15 %_14 %_15
+         %_26 = OpCompositeConstruct %_8 %_15 %_15 %_14
+         %_27 = OpCompositeConstruct %_9 %_24 %_25 %_26
+         %_28 = OpCompositeConstruct %_8 %_14 %_15 %_15
+         %_29 = OpCompositeConstruct %_8 %_15 %_14 %_15
+         %_30 = OpCompositeConstruct %_8 %_15 %_15 %_14
+         %_31 = OpCompositeConstruct %_8 %_15 %_15 %_15
+         %_32 = OpCompositeConstruct %_10 %_28 %_29 %_30 %_31
+         %_35 = OpCompositeConstruct %_4 %_14 %_33 %_34 %_14
+         %_36 = OpMatrixTimesVector %_4 %_20 %_35
+         %_37 = OpMatrixTimesMatrix %_5 %_20 %_20
+         %_38 = OpTranspose %_7 %_23
+         %_39 = OpCompositeExtract %_4 %_20 0
+         %_40 = OpCompositeExtract %_4 %_20 1
+         %_41 = OpCompositeExtract %_4 %_20 2
+         %_42 = OpCompositeExtract %_3 %_41 3
+         %_43 = OpMatrixTimesScalar %_7 %_23 %_33
                OpReturn
                OpFunctionEnd

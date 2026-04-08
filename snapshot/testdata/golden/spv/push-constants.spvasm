@@ -1,15 +1,15 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 64
+; Bound: 57
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint Vertex %_23 "vert_main" %_13 %_15 %_16 %_18
-               OpEntryPoint Fragment %_48 "main" %_20 %_21
-               OpExecutionMode %_48 OriginUpperLeft
+               OpEntryPoint Fragment %_45 "main" %_20 %_21
+               OpExecutionMode %_45 OriginUpperLeft
                OpMemberDecorate %_4 0 Offset 0
                OpMemberDecorate %_6 0 Offset 0
                OpDecorate %_9 Block
@@ -36,16 +36,9 @@
          %_22 = OpTypeFunction %_2
          %_30 = OpTypePointer PushConstant %_4
          %_31 = OpConstant %_8 0
-         %_33 = OpConstant %_8 0
-         %_34 = OpTypePointer PushConstant %_3
-         %_37 = OpConstant %_8 0
-         %_39 = OpConstant %_8 0
-         %_45 = OpConstant %_3 0
-         %_46 = OpConstant %_3 1065353216
-         %_53 = OpConstant %_8 0
-         %_55 = OpConstant %_8 0
-         %_58 = OpConstant %_8 0
-         %_60 = OpConstant %_8 0
+         %_33 = OpTypePointer PushConstant %_3
+         %_42 = OpConstant %_3 0
+         %_43 = OpConstant %_3 1065353216
          %_11 = OpVariable %_10 PushConstant
          %_13 = OpVariable %_12 Input
          %_15 = OpVariable %_14 Input
@@ -61,30 +54,30 @@
          %_28 = OpConvertUToF %_3 %_27
          %_29 = OpFMul %_3 %_26 %_28
          %_32 = OpAccessChain %_30 %_11 %_31
-         %_35 = OpAccessChain %_34 %_32 %_33
-         %_36 = OpLoad %_3 %_35
-         %_38 = OpAccessChain %_30 %_11 %_37
-         %_40 = OpAccessChain %_34 %_38 %_39
-         %_41 = OpLoad %_3 %_40
-         %_42 = OpFMul %_3 %_29 %_41
-         %_43 = OpLoad %_7 %_13
-         %_44 = OpVectorTimesScalar %_7 %_43 %_42
-         %_47 = OpCompositeConstruct %_5 %_44 %_45 %_46
-               OpStore %_18 %_47
+         %_34 = OpAccessChain %_33 %_32 %_31
+         %_35 = OpLoad %_3 %_34
+         %_36 = OpAccessChain %_30 %_11 %_31
+         %_37 = OpAccessChain %_33 %_36 %_31
+         %_38 = OpLoad %_3 %_37
+         %_39 = OpFMul %_3 %_29 %_38
+         %_40 = OpLoad %_7 %_13
+         %_41 = OpVectorTimesScalar %_7 %_40 %_39
+         %_44 = OpCompositeConstruct %_5 %_41 %_42 %_43
+               OpStore %_18 %_44
                OpReturn
                OpFunctionEnd
-         %_48 = OpFunction %_2 None %_22
-         %_49 = OpLabel
-         %_50 = OpLoad %_5 %_20
-         %_51 = OpCompositeConstruct %_6 %_50
-         %_52 = OpCompositeExtract %_5 %_51 0
-         %_54 = OpAccessChain %_30 %_11 %_53
-         %_56 = OpAccessChain %_34 %_54 %_55
-         %_57 = OpLoad %_3 %_56
-         %_59 = OpAccessChain %_30 %_11 %_58
-         %_61 = OpAccessChain %_34 %_59 %_60
-         %_62 = OpLoad %_3 %_61
-         %_63 = OpVectorTimesScalar %_5 %_52 %_62
-               OpStore %_21 %_63
+         %_45 = OpFunction %_2 None %_22
+         %_46 = OpLabel
+         %_47 = OpLoad %_5 %_20
+         %_48 = OpCompositeConstruct %_6 %_47
+         %_49 = OpCompositeExtract %_5 %_48 0
+         %_50 = OpAccessChain %_30 %_11 %_31
+         %_51 = OpAccessChain %_33 %_50 %_31
+         %_52 = OpLoad %_3 %_51
+         %_53 = OpAccessChain %_30 %_11 %_31
+         %_54 = OpAccessChain %_33 %_53 %_31
+         %_55 = OpLoad %_3 %_54
+         %_56 = OpVectorTimesScalar %_5 %_49 %_55
+               OpStore %_21 %_56
                OpReturn
                OpFunctionEnd

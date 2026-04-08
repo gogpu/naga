@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 36
+; Bound: 29
 ; Schema: 0
 
                OpCapability Shader
@@ -17,31 +17,24 @@
          %_9 = OpTypeVector %_8 4
          %_10 = OpConstant %_6 8
          %_12 = OpConstant %_6 0
-         %_14 = OpConstant %_6 8
-         %_16 = OpConstant %_6 16
-         %_18 = OpConstant %_6 24
-         %_21 = OpConstant %_8 2
-         %_23 = OpConstant %_6 12
-         %_24 = OpTypeVector %_6 4
-         %_25 = OpConstant %_6 8
-         %_26 = OpConstant %_6 0
-         %_28 = OpConstant %_6 8
-         %_30 = OpConstant %_6 16
-         %_32 = OpConstant %_6 24
+         %_15 = OpConstant %_6 16
+         %_17 = OpConstant %_6 24
+         %_20 = OpConstant %_8 2
+         %_22 = OpTypeVector %_6 4
          %_4 = OpFunction %_2 None %_3
          %_5 = OpLabel
          %_11 = OpBitcast %_8 %_7
          %_13 = OpBitFieldSExtract %_8 %_11 %_12 %_10
-         %_15 = OpBitFieldSExtract %_8 %_11 %_14 %_10
-         %_17 = OpBitFieldSExtract %_8 %_11 %_16 %_10
-         %_19 = OpBitFieldSExtract %_8 %_11 %_18 %_10
-         %_20 = OpCompositeConstruct %_9 %_13 %_15 %_17 %_19
-         %_22 = OpVectorExtractDynamic %_8 %_20 %_21
-         %_27 = OpBitFieldUExtract %_6 %_23 %_26 %_25
-         %_29 = OpBitFieldUExtract %_6 %_23 %_28 %_25
-         %_31 = OpBitFieldUExtract %_6 %_23 %_30 %_25
-         %_33 = OpBitFieldUExtract %_6 %_23 %_32 %_25
-         %_34 = OpCompositeConstruct %_24 %_27 %_29 %_31 %_33
-         %_35 = OpCompositeExtract %_6 %_34 1
+         %_14 = OpBitFieldSExtract %_8 %_11 %_10 %_10
+         %_16 = OpBitFieldSExtract %_8 %_11 %_15 %_10
+         %_18 = OpBitFieldSExtract %_8 %_11 %_17 %_10
+         %_19 = OpCompositeConstruct %_9 %_13 %_14 %_16 %_18
+         %_21 = OpVectorExtractDynamic %_8 %_19 %_20
+         %_23 = OpBitFieldUExtract %_6 %_7 %_12 %_10
+         %_24 = OpBitFieldUExtract %_6 %_7 %_10 %_10
+         %_25 = OpBitFieldUExtract %_6 %_7 %_15 %_10
+         %_26 = OpBitFieldUExtract %_6 %_7 %_17 %_10
+         %_27 = OpCompositeConstruct %_22 %_23 %_24 %_25 %_26
+         %_28 = OpCompositeExtract %_6 %_27 1
                OpReturn
                OpFunctionEnd

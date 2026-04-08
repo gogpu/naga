@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 65
+; Bound: 52
 ; Schema: 0
 
                OpCapability Shader
@@ -34,23 +34,10 @@
          %_27 = OpConstant %_3 2
          %_28 = OpConstant %_3 264
          %_31 = OpConstant %_3 0
-         %_36 = OpConstant %_3 0
-         %_37 = OpConstant %_3 2
-         %_38 = OpConstant %_3 2
-         %_39 = OpConstant %_3 264
-         %_40 = OpConstant %_3 1
-         %_41 = OpConstant %_3 72
-         %_42 = OpConstant %_3 1
-         %_44 = OpConstant %_3 2
-         %_45 = OpConstant %_3 2
-         %_46 = OpConstant %_3 264
-         %_48 = OpConstant %_3 0
-         %_53 = OpTypePointer StorageBuffer %_4
-         %_54 = OpConstant %_3 0
-         %_56 = OpConstant %_3 0
-         %_57 = OpTypePointer StorageBuffer %_3
-         %_61 = OpConstant %_3 0
-         %_63 = OpConstant %_3 0
+         %_36 = OpConstant %_3 1
+         %_37 = OpConstant %_3 72
+         %_44 = OpTypePointer StorageBuffer %_4
+         %_46 = OpTypePointer StorageBuffer %_3
          %_6 = OpVariable %_5 Workgroup
          %_9 = OpVariable %_8 StorageBuffer
          %_11 = OpVariable %_10 Input
@@ -74,29 +61,29 @@
                OpSelectionMerge %_35 0
                OpBranchConditional %_32 %_33 %_34
          %_33 = OpLabel
-               OpStore %_6 %_36
+               OpStore %_6 %_31
                OpBranch %_35
          %_34 = OpLabel
                OpBranch %_35
          %_35 = OpLabel
-         OpControlBarrier %_37 %_38 %_39
-         OpAtomicIAdd %_3 %_43 %_6 %_40 %_41 %_42
-         OpControlBarrier %_44 %_45 %_46
-         %_47 = OpLoad %_3 %_11
-         %_49 = OpSignBitSet %_19 %_47 %_48
-               OpSelectionMerge %_52 0
-               OpBranchConditional %_49 %_50 %_51
-         %_50 = OpLabel
-         %_55 = OpAccessChain %_53 %_9 %_54
-         %_58 = OpAccessChain %_57 %_55 %_56
-         %_59 = OpLoad %_3 %_58
-         %_60 = OpLoad %_3 %_6
-         %_62 = OpAccessChain %_53 %_9 %_61
-         %_64 = OpAccessChain %_57 %_62 %_63
-               OpStore %_64 %_60
+         OpControlBarrier %_27 %_27 %_28
+         OpAtomicIAdd %_3 %_38 %_6 %_36 %_37 %_36
+         OpControlBarrier %_27 %_27 %_28
+         %_39 = OpLoad %_3 %_11
+         %_40 = OpSignBitSet %_19 %_39 %_31
+               OpSelectionMerge %_43 0
+               OpBranchConditional %_40 %_41 %_42
+         %_41 = OpLabel
+         %_45 = OpAccessChain %_44 %_9 %_31
+         %_47 = OpAccessChain %_46 %_45 %_31
+         %_48 = OpLoad %_3 %_47
+         %_49 = OpLoad %_3 %_6
+         %_50 = OpAccessChain %_44 %_9 %_31
+         %_51 = OpAccessChain %_46 %_50 %_31
+               OpStore %_51 %_49
                OpReturn
-         %_51 = OpLabel
+         %_42 = OpLabel
                OpReturn
-         %_52 = OpLabel
+         %_43 = OpLabel
                OpUnreachable
                OpFunctionEnd

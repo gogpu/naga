@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 61
+; Bound: 55
 ; Schema: 0
 
                OpCapability Shader
@@ -28,18 +28,12 @@
          %_27 = OpConstant %_3 1065353216
          %_28 = OpConstant %_3 1073741824
          %_29 = OpConstant %_3 1077936128
-         %_31 = OpConstant %_3 1073741824
-         %_38 = OpConstant %_4 2
-         %_39 = OpTypePointer Function %_3
-         %_42 = OpConstant %_4 2
-         %_44 = OpConstant %_3 1084227584
-         %_45 = OpConstant %_4 1
-         %_46 = OpTypePointer Function %_5
-         %_49 = OpConstant %_4 1
-         %_51 = OpConstant %_4 0
-         %_54 = OpConstant %_4 1
-         %_56 = OpConstant %_4 0
-         %_58 = OpConstant %_3 1109917696
+         %_37 = OpConstant %_4 2
+         %_38 = OpTypePointer Function %_3
+         %_42 = OpConstant %_3 1084227584
+         %_43 = OpTypePointer Function %_5
+         %_47 = OpConstant %_4 0
+         %_52 = OpConstant %_3 1109917696
          %_9 = OpFunction %_3 None %_8
          %_10 = OpFunctionParameter %_7
          %_11 = OpLabel
@@ -57,26 +51,26 @@
          %_23 = OpVariable %_22 Function
          %_26 = OpCompositeConstruct %_5 %_24 %_25
          %_30 = OpCompositeConstruct %_6 %_27 %_28 %_29
-         %_32 = OpCompositeConstruct %_7 %_30 %_26 %_31
-         %_33 = OpCompositeExtract %_6 %_32 0
-         %_34 = OpCompositeExtract %_5 %_32 1
-         %_35 = OpCompositeExtract %_3 %_34 0
-         %_36 = OpCompositeExtract %_5 %_32 1
-         %_37 = OpCompositeExtract %_4 %_36 1
-               OpStore %_23 %_32
-         %_40 = OpAccessChain %_39 %_23 %_38
-         %_41 = OpLoad %_3 %_40
-         %_43 = OpAccessChain %_39 %_23 %_42
-               OpStore %_43 %_44
-         %_47 = OpAccessChain %_46 %_23 %_45
-         %_48 = OpLoad %_5 %_47
-         %_50 = OpAccessChain %_46 %_23 %_49
-         %_52 = OpAccessChain %_39 %_50 %_51
-         %_53 = OpLoad %_3 %_52
-         %_55 = OpAccessChain %_46 %_23 %_54
-         %_57 = OpAccessChain %_39 %_55 %_56
-               OpStore %_57 %_58
-         %_59 = OpLoad %_7 %_23
-         %_60 = OpFunctionCall %_3 %_9 %_59
+         %_31 = OpCompositeConstruct %_7 %_30 %_26 %_28
+         %_32 = OpCompositeExtract %_6 %_31 0
+         %_33 = OpCompositeExtract %_5 %_31 1
+         %_34 = OpCompositeExtract %_3 %_33 0
+         %_35 = OpCompositeExtract %_5 %_31 1
+         %_36 = OpCompositeExtract %_4 %_35 1
+               OpStore %_23 %_31
+         %_39 = OpAccessChain %_38 %_23 %_37
+         %_40 = OpLoad %_3 %_39
+         %_41 = OpAccessChain %_38 %_23 %_37
+               OpStore %_41 %_42
+         %_44 = OpAccessChain %_43 %_23 %_25
+         %_45 = OpLoad %_5 %_44
+         %_46 = OpAccessChain %_43 %_23 %_25
+         %_48 = OpAccessChain %_38 %_46 %_47
+         %_49 = OpLoad %_3 %_48
+         %_50 = OpAccessChain %_43 %_23 %_25
+         %_51 = OpAccessChain %_38 %_50 %_47
+               OpStore %_51 %_52
+         %_53 = OpLoad %_7 %_23
+         %_54 = OpFunctionCall %_3 %_9 %_53
                OpReturn
                OpFunctionEnd

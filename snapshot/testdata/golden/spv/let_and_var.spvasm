@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 49
+; Bound: 43
 ; Schema: 0
 
                OpCapability Shader
@@ -24,18 +24,12 @@
          %_21 = OpConstant %_5 0
          %_22 = OpConstant %_3 1065353216
          %_23 = OpConstant %_3 1073741824
-         %_26 = OpConstant %_3 1065353216
-         %_29 = OpConstant %_3 1073741824
-         %_31 = OpConstant %_3 1065353216
-         %_32 = OpConstant %_3 1073741824
-         %_33 = OpConstant %_3 1077936128
-         %_36 = OpConstant %_5 1
-         %_39 = OpConstant %_5 1
-         %_41 = OpConstant %_4 20
-         %_43 = OpConstant %_4 1
-         %_45 = OpConstant %_3 1084227584
-         %_46 = OpConstant %_5 1
-         %_47 = OpConstant %_5 2
+         %_29 = OpConstant %_3 1077936128
+         %_32 = OpConstant %_5 1
+         %_36 = OpConstant %_4 20
+         %_38 = OpConstant %_4 1
+         %_40 = OpConstant %_3 1084227584
+         %_41 = OpConstant %_5 2
          %_9 = OpFunction %_2 None %_8
          %_10 = OpLabel
          %_12 = OpVariable %_11 Function
@@ -47,24 +41,24 @@
                OpStore %_14 %_21
          %_24 = OpFAdd %_3 %_22 %_23
          %_25 = OpLoad %_3 %_12
-         %_27 = OpFAdd %_3 %_25 %_26
-               OpStore %_12 %_27
-         %_28 = OpLoad %_3 %_12
-         %_30 = OpFMul %_3 %_28 %_29
-               OpStore %_12 %_30
-         %_34 = OpCompositeConstruct %_6 %_31 %_32 %_33
-         %_35 = OpLoad %_5 %_14
-         %_37 = OpIAdd %_5 %_35 %_36
-               OpStore %_14 %_37
-         %_38 = OpLoad %_5 %_14
-         %_40 = OpIAdd %_5 %_38 %_39
-               OpStore %_14 %_40
-               OpStore %_16 %_41
-         %_42 = OpLoad %_4 %_16
-         %_44 = OpIAdd %_4 %_42 %_43
-               OpStore %_16 %_44
-               OpStore %_17 %_45
-         %_48 = OpCompositeConstruct %_7 %_46 %_47
-               OpStore %_19 %_48
+         %_26 = OpFAdd %_3 %_25 %_22
+               OpStore %_12 %_26
+         %_27 = OpLoad %_3 %_12
+         %_28 = OpFMul %_3 %_27 %_23
+               OpStore %_12 %_28
+         %_30 = OpCompositeConstruct %_6 %_22 %_23 %_29
+         %_31 = OpLoad %_5 %_14
+         %_33 = OpIAdd %_5 %_31 %_32
+               OpStore %_14 %_33
+         %_34 = OpLoad %_5 %_14
+         %_35 = OpIAdd %_5 %_34 %_32
+               OpStore %_14 %_35
+               OpStore %_16 %_36
+         %_37 = OpLoad %_4 %_16
+         %_39 = OpIAdd %_4 %_37 %_38
+               OpStore %_16 %_39
+               OpStore %_17 %_40
+         %_42 = OpCompositeConstruct %_7 %_32 %_41
+               OpStore %_19 %_42
                OpReturn
                OpFunctionEnd

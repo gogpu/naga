@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 45
+; Bound: 44
 ; Schema: 0
 
                OpCapability Shader
@@ -23,7 +23,6 @@
          %_30 = OpTypeInt 32 1
          %_31 = OpConstant %_30 20
          %_32 = OpConstant %_30 10
-         %_37 = OpConstant %_3 1065353216
          %_6 = OpFunction %_2 None %_5
          %_7 = OpLabel
          %_10 = OpFMul %_3 %_8 %_9
@@ -45,12 +44,12 @@
          %_34 = OpCompositeConstruct %_4 %_8 %_9 %_11
          %_35 = OpCompositeConstruct %_4 %_12 %_11 %_9
          %_36 = OpFMul %_4 %_34 %_35
-         %_38 = OpCompositeConstruct %_4 %_37 %_37 %_37
-         %_39 = OpFAdd %_4 %_36 %_38
-         %_40 = OpExtInst %_3 %_1 %_66 %_34
-         %_41 = OpDot %_3 %_34 %_35
-         %_42 = OpFMul %_3 %_40 %_41
-         %_43 = OpFAdd %_4 %_34 %_35
-         %_44 = OpExtInst %_4 %_1 %_69 %_43
+         %_37 = OpCompositeConstruct %_4 %_8 %_8 %_8
+         %_38 = OpFAdd %_4 %_36 %_37
+         %_39 = OpExtInst %_3 %_1 %_66 %_34
+         %_40 = OpDot %_3 %_34 %_35
+         %_41 = OpFMul %_3 %_39 %_40
+         %_42 = OpFAdd %_4 %_34 %_35
+         %_43 = OpExtInst %_4 %_1 %_69 %_42
                OpReturn
                OpFunctionEnd

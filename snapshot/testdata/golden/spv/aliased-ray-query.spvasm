@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 287
+; Bound: 243
 ; Schema: 0
 
                OpCapability Shader
@@ -52,303 +52,259 @@
          %_21 = OpTypePointer Function %_5
          %_23 = OpConstant %_7 0
          %_25 = OpConstant %_5 0
-         %_26 = OpConstant %_5 0
-         %_28 = OpConstant %_5 0
-         %_29 = OpConstant %_5 1065353216
-         %_30 = OpConstant %_5 0
-         %_32 = OpConstant %_7 4
-         %_33 = OpConstant %_7 255
-         %_34 = OpConstant %_5 1036831949
-         %_35 = OpConstant %_5 1120403456
-         %_38 = OpTypeVector %_10 3
-         %_39 = OpTypeFunction %_2 %_18 %_4 %_8 %_20 %_21
-         %_53 = OpConstant %_5 0
-         %_54 = OpConstant %_7 0
-         %_69 = OpConstant %_7 256
-         %_70 = OpConstant %_7 0
-         %_73 = OpConstant %_7 512
-         %_74 = OpConstant %_7 0
-         %_79 = OpConstant %_7 16
-         %_80 = OpConstant %_7 0
-         %_83 = OpConstant %_7 32
-         %_84 = OpConstant %_7 0
-         %_93 = OpConstant %_7 1
-         %_94 = OpConstant %_7 0
-         %_97 = OpConstant %_7 2
-         %_98 = OpConstant %_7 0
-         %_101 = OpConstant %_7 64
-         %_102 = OpConstant %_7 0
-         %_105 = OpConstant %_7 128
-         %_106 = OpConstant %_7 0
-         %_130 = OpConstant %_7 1
-         %_132 = OpTypePointer Function %_12
-         %_133 = OpTypePointer Function %_10
-         %_134 = OpTypePointer Function %_9
-         %_135 = OpTypePointer Function %_11
-         %_136 = OpTypeFunction %_12 %_18 %_20
-         %_141 = OpConstantNull %_12
-         %_143 = OpConstant %_7 0
-         %_145 = OpConstant %_7 2
-         %_146 = OpConstant %_7 0
-         %_149 = OpConstant %_7 4
-         %_150 = OpConstant %_7 0
-         %_158 = OpConstant %_7 0
-         %_161 = OpConstant %_7 1
-         %_162 = OpConstant %_7 3
-         %_163 = OpConstant %_7 0
-         %_165 = OpConstant %_7 0
-         %_176 = OpConstant %_7 2
-         %_177 = OpConstant %_7 3
-         %_178 = OpConstant %_7 4
-         %_179 = OpConstant %_7 5
-         %_180 = OpConstant %_7 6
-         %_181 = OpConstant %_7 9
-         %_182 = OpConstant %_7 10
-         %_190 = OpConstant %_7 1
-         %_195 = OpConstant %_7 1
-         %_199 = OpConstant %_7 7
-         %_200 = OpConstant %_7 8
-         %_206 = OpConstant %_7 3
-         %_211 = OpConstant %_5 1092616192
-         %_212 = OpTypeFunction %_2 %_18 %_20 %_5 %_21
-         %_224 = OpConstant %_7 2
-         %_225 = OpConstant %_7 0
-         %_228 = OpConstant %_7 4
-         %_229 = OpConstant %_7 0
-         %_234 = OpConstant %_7 0
-         %_235 = OpConstant %_7 1
-         %_237 = OpConstant %_7 1
-         %_241 = OpConstant %_7 0
-         %_257 = OpConstant %_7 1
-         %_262 = OpTypeFunction %_2 %_18 %_20
-         %_270 = OpConstant %_7 2
-         %_271 = OpConstant %_7 0
-         %_274 = OpConstant %_7 4
-         %_275 = OpConstant %_7 0
-         %_280 = OpConstant %_7 0
-         %_282 = OpConstant %_7 0
+         %_27 = OpConstant %_5 1065353216
+         %_29 = OpConstant %_7 4
+         %_30 = OpConstant %_7 255
+         %_31 = OpConstant %_5 1036831949
+         %_32 = OpConstant %_5 1120403456
+         %_35 = OpTypeVector %_10 3
+         %_36 = OpTypeFunction %_2 %_18 %_4 %_8 %_20 %_21
+         %_64 = OpConstant %_7 256
+         %_67 = OpConstant %_7 512
+         %_72 = OpConstant %_7 16
+         %_75 = OpConstant %_7 32
+         %_84 = OpConstant %_7 1
+         %_87 = OpConstant %_7 2
+         %_90 = OpConstant %_7 64
+         %_93 = OpConstant %_7 128
+         %_118 = OpTypePointer Function %_12
+         %_119 = OpTypePointer Function %_10
+         %_120 = OpTypePointer Function %_9
+         %_121 = OpTypePointer Function %_11
+         %_122 = OpTypeFunction %_12 %_18 %_20
+         %_127 = OpConstantNull %_12
+         %_141 = OpConstant %_7 3
+         %_153 = OpConstant %_7 5
+         %_154 = OpConstant %_7 6
+         %_155 = OpConstant %_7 9
+         %_156 = OpConstant %_7 10
+         %_171 = OpConstant %_7 7
+         %_172 = OpConstant %_7 8
+         %_182 = OpConstant %_5 1092616192
+         %_183 = OpTypeFunction %_2 %_18 %_20 %_5 %_21
+         %_224 = OpTypeFunction %_2 %_18 %_20
          %_14 = OpVariable %_13 UniformConstant
-         %_40 = OpFunction %_2 None %_39
-         %_41 = OpFunctionParameter %_18
-         %_42 = OpFunctionParameter %_4
-         %_43 = OpFunctionParameter %_8
-         %_44 = OpFunctionParameter %_20
-         %_45 = OpFunctionParameter %_21
-         %_46 = OpLabel
-         %_47 = OpCompositeExtract %_7 %_43 0
-         %_48 = OpCompositeExtract %_7 %_43 1
-         %_49 = OpCompositeExtract %_5 %_43 2
-         %_50 = OpCompositeExtract %_5 %_43 3
-               OpStore %_45 %_50
-         %_51 = OpCompositeExtract %_6 %_43 4
-         %_52 = OpCompositeExtract %_6 %_43 5
-         %_55 = OpULessThanEqual %_10 %_49 %_50
-         %_56 = OpFOrdEqual %_10 %_49 %_53
-         %_57 = Op157 %_38 %_51
-         %_58 = Op154 %_10 %_57
-         %_59 = Op156 %_38 %_51
-         %_60 = Op154 %_10 %_59
-         %_61 = OpIsNan %_10 %_60 %_58
-         %_62 = OpIsFinite %_10 %_61
-         %_63 = Op157 %_38 %_52
-         %_64 = Op154 %_10 %_63
-         %_65 = Op156 %_38 %_52
-         %_66 = Op154 %_10 %_65
-         %_67 = OpIsNan %_10 %_66 %_64
-         %_68 = OpIsFinite %_10 %_67
-         %_71 = OpBitwiseAnd %_7 %_47 %_69
-         %_72 = OpLessOrGreater %_10 %_71 %_70
-         %_75 = OpBitwiseAnd %_7 %_47 %_73
-         %_76 = OpLessOrGreater %_10 %_75 %_74
-         %_77 = OpIsInf %_10 %_76 %_72
-         %_78 = OpIsFinite %_10 %_77
-         %_81 = OpBitwiseAnd %_7 %_47 %_79
-         %_82 = OpLessOrGreater %_10 %_81 %_80
-         %_85 = OpBitwiseAnd %_7 %_47 %_83
-         %_86 = OpLessOrGreater %_10 %_85 %_84
-         %_87 = OpIsInf %_10 %_86 %_72
-         %_88 = OpIsInf %_10 %_86 %_82
-         %_89 = OpIsInf %_10 %_82 %_72
-         %_90 = OpIsNan %_10 %_89 %_88
-         %_91 = OpIsNan %_10 %_90 %_87
-         %_92 = OpIsFinite %_10 %_91
-         %_95 = OpBitwiseAnd %_7 %_47 %_93
-         %_96 = OpLessOrGreater %_10 %_95 %_94
-         %_99 = OpBitwiseAnd %_7 %_47 %_97
-         %_100 = OpLessOrGreater %_10 %_99 %_98
-         %_103 = OpBitwiseAnd %_7 %_47 %_101
-         %_104 = OpLessOrGreater %_10 %_103 %_102
-         %_107 = OpBitwiseAnd %_7 %_47 %_105
-         %_108 = OpLessOrGreater %_10 %_107 %_106
-         %_109 = OpIsInf %_10 %_108 %_96
-         %_110 = OpIsInf %_10 %_108 %_100
-         %_111 = OpIsInf %_10 %_108 %_104
-         %_112 = OpIsInf %_10 %_104 %_96
-         %_113 = OpIsInf %_10 %_104 %_100
-         %_114 = OpIsInf %_10 %_100 %_96
-         %_115 = OpIsNan %_10 %_114 %_113
-         %_116 = OpIsNan %_10 %_115 %_112
-         %_117 = OpIsNan %_10 %_116 %_111
-         %_118 = OpIsNan %_10 %_117 %_110
-         %_119 = OpIsNan %_10 %_118 %_109
-         %_120 = OpIsFinite %_10 %_119
-         %_121 = OpIsInf %_10 %_120 %_92
-         %_122 = OpIsInf %_10 %_121 %_78
-         %_123 = OpIsInf %_10 %_122 %_68
-         %_124 = OpIsInf %_10 %_123 %_62
-         %_125 = OpIsInf %_10 %_124 %_56
-         %_126 = OpIsInf %_10 %_125 %_55
-               OpSelectionMerge %_127 0
-               OpBranchConditional %_126 %_129 %_128
-         %_129 = OpLabel
-         Op4473 %_41 %_42 %_47 %_48 %_51 %_49 %_52 %_50
-               OpStore %_44 %_130
-               OpBranch %_127
-         %_128 = OpLabel
-               OpBranch %_127
-         %_127 = OpLabel
+         %_37 = OpFunction %_2 None %_36
+         %_38 = OpFunctionParameter %_18
+         %_39 = OpFunctionParameter %_4
+         %_40 = OpFunctionParameter %_8
+         %_41 = OpFunctionParameter %_20
+         %_42 = OpFunctionParameter %_21
+         %_43 = OpLabel
+         %_44 = OpCompositeExtract %_7 %_40 0
+         %_45 = OpCompositeExtract %_7 %_40 1
+         %_46 = OpCompositeExtract %_5 %_40 2
+         %_47 = OpCompositeExtract %_5 %_40 3
+               OpStore %_42 %_47
+         %_48 = OpCompositeExtract %_6 %_40 4
+         %_49 = OpCompositeExtract %_6 %_40 5
+         %_50 = OpULessThanEqual %_10 %_46 %_47
+         %_51 = OpFOrdEqual %_10 %_46 %_25
+         %_52 = Op157 %_35 %_48
+         %_53 = Op154 %_10 %_52
+         %_54 = Op156 %_35 %_48
+         %_55 = Op154 %_10 %_54
+         %_56 = OpIsNan %_10 %_55 %_53
+         %_57 = OpIsFinite %_10 %_56
+         %_58 = Op157 %_35 %_49
+         %_59 = Op154 %_10 %_58
+         %_60 = Op156 %_35 %_49
+         %_61 = Op154 %_10 %_60
+         %_62 = OpIsNan %_10 %_61 %_59
+         %_63 = OpIsFinite %_10 %_62
+         %_65 = OpBitwiseAnd %_7 %_44 %_64
+         %_66 = OpLessOrGreater %_10 %_65 %_23
+         %_68 = OpBitwiseAnd %_7 %_44 %_67
+         %_69 = OpLessOrGreater %_10 %_68 %_23
+         %_70 = OpIsInf %_10 %_69 %_66
+         %_71 = OpIsFinite %_10 %_70
+         %_73 = OpBitwiseAnd %_7 %_44 %_72
+         %_74 = OpLessOrGreater %_10 %_73 %_23
+         %_76 = OpBitwiseAnd %_7 %_44 %_75
+         %_77 = OpLessOrGreater %_10 %_76 %_23
+         %_78 = OpIsInf %_10 %_77 %_66
+         %_79 = OpIsInf %_10 %_77 %_74
+         %_80 = OpIsInf %_10 %_74 %_66
+         %_81 = OpIsNan %_10 %_80 %_79
+         %_82 = OpIsNan %_10 %_81 %_78
+         %_83 = OpIsFinite %_10 %_82
+         %_85 = OpBitwiseAnd %_7 %_44 %_84
+         %_86 = OpLessOrGreater %_10 %_85 %_23
+         %_88 = OpBitwiseAnd %_7 %_44 %_87
+         %_89 = OpLessOrGreater %_10 %_88 %_23
+         %_91 = OpBitwiseAnd %_7 %_44 %_90
+         %_92 = OpLessOrGreater %_10 %_91 %_23
+         %_94 = OpBitwiseAnd %_7 %_44 %_93
+         %_95 = OpLessOrGreater %_10 %_94 %_23
+         %_96 = OpIsInf %_10 %_95 %_86
+         %_97 = OpIsInf %_10 %_95 %_89
+         %_98 = OpIsInf %_10 %_95 %_92
+         %_99 = OpIsInf %_10 %_92 %_86
+         %_100 = OpIsInf %_10 %_92 %_89
+         %_101 = OpIsInf %_10 %_89 %_86
+         %_102 = OpIsNan %_10 %_101 %_100
+         %_103 = OpIsNan %_10 %_102 %_99
+         %_104 = OpIsNan %_10 %_103 %_98
+         %_105 = OpIsNan %_10 %_104 %_97
+         %_106 = OpIsNan %_10 %_105 %_96
+         %_107 = OpIsFinite %_10 %_106
+         %_108 = OpIsInf %_10 %_107 %_83
+         %_109 = OpIsInf %_10 %_108 %_71
+         %_110 = OpIsInf %_10 %_109 %_63
+         %_111 = OpIsInf %_10 %_110 %_57
+         %_112 = OpIsInf %_10 %_111 %_51
+         %_113 = OpIsInf %_10 %_112 %_50
+               OpSelectionMerge %_114 0
+               OpBranchConditional %_113 %_116 %_115
+         %_116 = OpLabel
+         Op4473 %_38 %_39 %_44 %_45 %_48 %_46 %_49 %_47
+               OpStore %_41 %_84
+               OpBranch %_114
+         %_115 = OpLabel
+               OpBranch %_114
+         %_114 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_137 = OpFunction %_12 None %_136
-         %_138 = OpFunctionParameter %_18
-         %_139 = OpFunctionParameter %_20
-         %_140 = OpLabel
-         %_142 = OpVariable %_132 Function
-         %_144 = OpLoad %_7 %_139
-         %_147 = OpBitwiseAnd %_7 %_144 %_145
-         %_148 = OpLessOrGreater %_10 %_147 %_146
-         %_151 = OpBitwiseAnd %_7 %_144 %_149
-         %_152 = OpLessOrGreater %_10 %_151 %_150
-         %_153 = OpIsFinite %_10 %_152
-         %_154 = OpIsInf %_10 %_153 %_148
-               OpSelectionMerge %_156 0
-               OpBranchConditional %_154 %_155 %_156
-         %_155 = OpLabel
-         Op4479 %_7 %_157 %_138 %_143
-         %_159 = OpSignBitSet %_10 %_157 %_158
-         %_160 = OpIsNormal %_7 %_159 %_161 %_162
-         %_164 = OpAccessChain %_20 %_142 %_163
-               OpStore %_164 %_160
-         %_166 = OpLessOrGreater %_10 %_160 %_165
-               OpSelectionMerge %_168 0
-               OpBranchConditional %_166 %_167 %_168
-         %_167 = OpLabel
-         Op6019 %_7 %_169 %_138 %_143
-         Op6020 %_7 %_170 %_138 %_143
-         Op6021 %_7 %_171 %_138 %_143
-         Op6022 %_7 %_172 %_138 %_143
-         Op6023 %_7 %_173 %_138 %_143
-         Op6031 %_11 %_174 %_138 %_143
-         Op6032 %_11 %_175 %_138 %_143
-         %_183 = OpAccessChain %_20 %_142 %_176
-               OpStore %_183 %_169
-         %_184 = OpAccessChain %_20 %_142 %_177
-               OpStore %_184 %_170
-         %_185 = OpAccessChain %_20 %_142 %_178
-               OpStore %_185 %_171
-         %_186 = OpAccessChain %_20 %_142 %_179
-               OpStore %_186 %_172
-         %_187 = OpAccessChain %_20 %_142 %_180
-               OpStore %_187 %_173
-         %_188 = OpAccessChain %_135 %_142 %_181
-               OpStore %_188 %_174
-         %_189 = OpAccessChain %_135 %_142 %_182
-               OpStore %_189 %_175
-         %_191 = OpSignBitSet %_10 %_160 %_190
+         %_123 = OpFunction %_12 None %_122
+         %_124 = OpFunctionParameter %_18
+         %_125 = OpFunctionParameter %_20
+         %_126 = OpLabel
+         %_128 = OpVariable %_118 Function
+         %_129 = OpLoad %_7 %_125
+         %_130 = OpBitwiseAnd %_7 %_129 %_87
+         %_131 = OpLessOrGreater %_10 %_130 %_23
+         %_132 = OpBitwiseAnd %_7 %_129 %_29
+         %_133 = OpLessOrGreater %_10 %_132 %_23
+         %_134 = OpIsFinite %_10 %_133
+         %_135 = OpIsInf %_10 %_134 %_131
+               OpSelectionMerge %_137 0
+               OpBranchConditional %_135 %_136 %_137
+         %_136 = OpLabel
+         Op4479 %_7 %_138 %_124 %_23
+         %_139 = OpSignBitSet %_10 %_138 %_23
+         %_140 = OpIsNormal %_7 %_139 %_84 %_141
+         %_142 = OpAccessChain %_20 %_128 %_23
+               OpStore %_142 %_140
+         %_143 = OpLessOrGreater %_10 %_140 %_23
+               OpSelectionMerge %_145 0
+               OpBranchConditional %_143 %_144 %_145
+         %_144 = OpLabel
+         Op6019 %_7 %_146 %_124 %_23
+         Op6020 %_7 %_147 %_124 %_23
+         Op6021 %_7 %_148 %_124 %_23
+         Op6022 %_7 %_149 %_124 %_23
+         Op6023 %_7 %_150 %_124 %_23
+         Op6031 %_11 %_151 %_124 %_23
+         Op6032 %_11 %_152 %_124 %_23
+         %_157 = OpAccessChain %_20 %_128 %_87
+               OpStore %_157 %_146
+         %_158 = OpAccessChain %_20 %_128 %_141
+               OpStore %_158 %_147
+         %_159 = OpAccessChain %_20 %_128 %_29
+               OpStore %_159 %_148
+         %_160 = OpAccessChain %_20 %_128 %_153
+               OpStore %_160 %_149
+         %_161 = OpAccessChain %_20 %_128 %_154
+               OpStore %_161 %_150
+         %_162 = OpAccessChain %_121 %_128 %_155
+               OpStore %_162 %_151
+         %_163 = OpAccessChain %_121 %_128 %_156
+               OpStore %_163 %_152
+         %_164 = OpSignBitSet %_10 %_140 %_84
+               OpSelectionMerge %_166 0
+               OpBranchConditional %_143 %_165 %_166
+         %_165 = OpLabel
+         Op6018 %_5 %_167 %_124 %_23
+         %_168 = OpAccessChain %_21 %_128 %_84
+               OpStore %_168 %_167
+         Op6024 %_9 %_169 %_124 %_23
+         Op6025 %_10 %_170 %_124 %_23
+         %_173 = OpAccessChain %_120 %_128 %_171
+               OpStore %_173 %_169
+         %_174 = OpAccessChain %_119 %_128 %_172
+               OpStore %_174 %_170
+               OpBranch %_166
+         %_166 = OpLabel
+               OpBranch %_145
+         %_145 = OpLabel
+               OpBranch %_137
+         %_137 = OpLabel
+         %_175 = OpLoad %_12 %_128
+               OpReturnValue %_175
+               OpFunctionEnd
+         %_184 = OpFunction %_2 None %_183
+         %_185 = OpFunctionParameter %_18
+         %_186 = OpFunctionParameter %_20
+         %_187 = OpFunctionParameter %_5
+         %_188 = OpFunctionParameter %_21
+         %_189 = OpLabel
+         %_190 = OpVariable %_21 Function
+         %_191 = OpVariable %_21 Function
+         %_194 = OpLoad %_7 %_186
+         %_195 = OpBitwiseAnd %_7 %_194 %_87
+         %_196 = OpLessOrGreater %_10 %_195 %_23
+         %_197 = OpBitwiseAnd %_7 %_194 %_29
+         %_198 = OpLessOrGreater %_10 %_197 %_23
+         %_199 = OpIsFinite %_10 %_198
+         %_200 = OpIsInf %_10 %_199 %_196
                OpSelectionMerge %_193 0
-               OpBranchConditional %_166 %_192 %_193
+               OpBranchConditional %_200 %_192 %_193
          %_192 = OpLabel
-         Op6018 %_5 %_194 %_138 %_143
-         %_196 = OpAccessChain %_21 %_142 %_195
-               OpStore %_196 %_194
-         Op6024 %_9 %_197 %_138 %_143
-         Op6025 %_10 %_198 %_138 %_143
-         %_201 = OpAccessChain %_134 %_142 %_199
-               OpStore %_201 %_197
-         %_202 = OpAccessChain %_133 %_142 %_200
-               OpStore %_202 %_198
+         Op4479 %_7 %_201 %_185 %_23
+         %_202 = OpSignBitSet %_10 %_201 %_84
+         Op6016 %_5 %_203 %_185
+         Op4479 %_7 %_204 %_185 %_84
+         %_205 = OpSignBitSet %_10 %_204 %_23
+               OpSelectionMerge %_206 0
+               OpBranchConditional %_205 %_207 %_208
+         %_207 = OpLabel
+         %_209 = OpLoad %_5 %_188
+               OpStore %_191 %_209
+               OpBranch %_206
+         %_208 = OpLabel
+         Op6018 %_5 %_210 %_185 %_23
+               OpStore %_191 %_210
+               OpBranch %_206
+         %_206 = OpLabel
+         %_211 = OpFOrdEqual %_10 %_187 %_203
+         %_212 = OpLoad %_5 %_191
+         %_213 = OpULessThanEqual %_10 %_187 %_212
+         %_214 = OpIsInf %_10 %_211 %_213
+         %_215 = OpIsInf %_10 %_214 %_202
+               OpSelectionMerge %_217 0
+               OpBranchConditional %_215 %_216 %_217
+         %_216 = OpLabel
+         Op4475 %_185 %_187
+               OpBranch %_217
+         %_217 = OpLabel
                OpBranch %_193
          %_193 = OpLabel
-               OpBranch %_168
-         %_168 = OpLabel
-               OpBranch %_156
-         %_156 = OpLabel
-         %_203 = OpLoad %_12 %_142
-               OpReturnValue %_203
-               OpFunctionEnd
-         %_213 = OpFunction %_2 None %_212
-         %_214 = OpFunctionParameter %_18
-         %_215 = OpFunctionParameter %_20
-         %_216 = OpFunctionParameter %_5
-         %_217 = OpFunctionParameter %_21
-         %_218 = OpLabel
-         %_219 = OpVariable %_21 Function
-         %_220 = OpVariable %_21 Function
-         %_223 = OpLoad %_7 %_215
-         %_226 = OpBitwiseAnd %_7 %_223 %_224
-         %_227 = OpLessOrGreater %_10 %_226 %_225
-         %_230 = OpBitwiseAnd %_7 %_223 %_228
-         %_231 = OpLessOrGreater %_10 %_230 %_229
-         %_232 = OpIsFinite %_10 %_231
-         %_233 = OpIsInf %_10 %_232 %_227
-               OpSelectionMerge %_222 0
-               OpBranchConditional %_233 %_221 %_222
-         %_221 = OpLabel
-         Op4479 %_7 %_236 %_214 %_234
-         %_238 = OpSignBitSet %_10 %_236 %_237
-         Op6016 %_5 %_239 %_214
-         Op4479 %_7 %_240 %_214 %_235
-         %_242 = OpSignBitSet %_10 %_240 %_241
-               OpSelectionMerge %_243 0
-               OpBranchConditional %_242 %_244 %_245
-         %_244 = OpLabel
-         %_246 = OpLoad %_5 %_217
-               OpStore %_220 %_246
-               OpBranch %_243
-         %_245 = OpLabel
-         Op6018 %_5 %_247 %_214 %_234
-               OpStore %_220 %_247
-               OpBranch %_243
-         %_243 = OpLabel
-         %_248 = OpFOrdEqual %_10 %_216 %_239
-         %_249 = OpLoad %_5 %_220
-         %_250 = OpULessThanEqual %_10 %_216 %_249
-         %_251 = OpIsInf %_10 %_248 %_250
-         %_252 = OpIsInf %_10 %_251 %_238
-               OpSelectionMerge %_254 0
-               OpBranchConditional %_252 %_253 %_254
-         %_253 = OpLabel
-         Op4475 %_214 %_216
-               OpBranch %_254
-         %_254 = OpLabel
-               OpBranch %_222
-         %_222 = OpLabel
                OpReturn
                OpFunctionEnd
-         %_263 = OpFunction %_2 None %_262
-         %_264 = OpFunctionParameter %_18
-         %_265 = OpFunctionParameter %_20
-         %_266 = OpLabel
-         %_269 = OpLoad %_7 %_265
-         %_272 = OpBitwiseAnd %_7 %_269 %_270
-         %_273 = OpLessOrGreater %_10 %_272 %_271
-         %_276 = OpBitwiseAnd %_7 %_269 %_274
-         %_277 = OpLessOrGreater %_10 %_276 %_275
-         %_278 = OpIsFinite %_10 %_277
-         %_279 = OpIsInf %_10 %_278 %_273
-               OpSelectionMerge %_268 0
-               OpBranchConditional %_279 %_267 %_268
-         %_267 = OpLabel
-         Op4479 %_7 %_281 %_264 %_280
-         %_283 = OpSignBitSet %_10 %_281 %_282
-               OpSelectionMerge %_285 0
-               OpBranchConditional %_283 %_284 %_285
-         %_284 = OpLabel
-         Op4476 %_264
-               OpBranch %_285
-         %_285 = OpLabel
-               OpBranch %_268
-         %_268 = OpLabel
+         %_225 = OpFunction %_2 None %_224
+         %_226 = OpFunctionParameter %_18
+         %_227 = OpFunctionParameter %_20
+         %_228 = OpLabel
+         %_231 = OpLoad %_7 %_227
+         %_232 = OpBitwiseAnd %_7 %_231 %_87
+         %_233 = OpLessOrGreater %_10 %_232 %_23
+         %_234 = OpBitwiseAnd %_7 %_231 %_29
+         %_235 = OpLessOrGreater %_10 %_234 %_23
+         %_236 = OpIsFinite %_10 %_235
+         %_237 = OpIsInf %_10 %_236 %_233
+               OpSelectionMerge %_230 0
+               OpBranchConditional %_237 %_229 %_230
+         %_229 = OpLabel
+         Op4479 %_7 %_238 %_226 %_23
+         %_239 = OpSignBitSet %_10 %_238 %_23
+               OpSelectionMerge %_241 0
+               OpBranchConditional %_239 %_240 %_241
+         %_240 = OpLabel
+         Op4476 %_226
+               OpBranch %_241
+         %_241 = OpLabel
+               OpBranch %_230
+         %_230 = OpLabel
                OpReturn
                OpFunctionEnd
          %_16 = OpFunction %_2 None %_15
@@ -356,31 +312,31 @@
          %_19 = OpVariable %_18 Function
          %_22 = OpVariable %_20 Function
          %_24 = OpVariable %_21 Function
-         %_27 = OpCompositeConstruct %_6 %_26 %_26 %_26
-         %_31 = OpCompositeConstruct %_6 %_28 %_29 %_30
-         %_36 = OpCompositeConstruct %_8 %_32 %_33 %_34 %_35 %_27 %_31
-         %_37 = OpLoad %_4 %_14
-         %_131 = OpFunctionCall %_2 %_40 %_19 %_37 %_36 %_22 %_24
-         %_204 = OpFunctionCall %_12 %_137 %_19 %_22
-         %_205 = OpCompositeExtract %_7 %_204 0
-         %_207 = OpSignBitSet %_10 %_205 %_206
-               OpSelectionMerge %_210 0
-               OpBranchConditional %_207 %_208 %_209
-         %_208 = OpLabel
-         %_255 = OpFunctionCall %_2 %_213 %_19 %_22 %_211 %_24
+         %_26 = OpCompositeConstruct %_6 %_25 %_25 %_25
+         %_28 = OpCompositeConstruct %_6 %_25 %_27 %_25
+         %_33 = OpCompositeConstruct %_8 %_29 %_30 %_31 %_32 %_26 %_28
+         %_34 = OpLoad %_4 %_14
+         %_117 = OpFunctionCall %_2 %_37 %_19 %_34 %_33 %_22 %_24
+         %_176 = OpFunctionCall %_12 %_123 %_19 %_22
+         %_177 = OpCompositeExtract %_7 %_176 0
+         %_178 = OpSignBitSet %_10 %_177 %_141
+               OpSelectionMerge %_181 0
+               OpBranchConditional %_178 %_179 %_180
+         %_179 = OpLabel
+         %_218 = OpFunctionCall %_2 %_184 %_19 %_22 %_182 %_24
                OpReturn
-         %_209 = OpLabel
-         %_256 = OpCompositeExtract %_7 %_204 0
-         %_258 = OpSignBitSet %_10 %_256 %_257
-               OpSelectionMerge %_261 0
-               OpBranchConditional %_258 %_259 %_260
-         %_259 = OpLabel
-         %_286 = OpFunctionCall %_2 %_263 %_19 %_22
+         %_180 = OpLabel
+         %_219 = OpCompositeExtract %_7 %_176 0
+         %_220 = OpSignBitSet %_10 %_219 %_84
+               OpSelectionMerge %_223 0
+               OpBranchConditional %_220 %_221 %_222
+         %_221 = OpLabel
+         %_242 = OpFunctionCall %_2 %_225 %_19 %_22
                OpReturn
-         %_260 = OpLabel
+         %_222 = OpLabel
                OpReturn
-         %_261 = OpLabel
+         %_223 = OpLabel
                OpUnreachable
-         %_210 = OpLabel
+         %_181 = OpLabel
                OpUnreachable
                OpFunctionEnd

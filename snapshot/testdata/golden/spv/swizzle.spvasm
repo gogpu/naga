@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 39
+; Bound: 34
 ; Schema: 0
 
                OpCapability Shader
@@ -19,11 +19,6 @@
          %_11 = OpConstant %_3 1073741824
          %_12 = OpConstant %_3 1077936128
          %_13 = OpConstant %_3 1082130432
-         %_28 = OpConstant %_3 1065353216
-         %_29 = OpConstant %_3 1073741824
-         %_33 = OpConstant %_3 1065353216
-         %_34 = OpConstant %_3 1073741824
-         %_35 = OpConstant %_3 1077936128
          %_8 = OpFunction %_2 None %_7
          %_9 = OpLabel
          %_14 = OpCompositeConstruct %_4 %_10 %_11 %_12 %_13
@@ -40,11 +35,11 @@
          %_25 = OpVectorShuffle %_4 %_14 %_14 3 2 1 0
          %_26 = OpVectorShuffle %_5 %_14 %_14 1 0
          %_27 = OpVectorShuffle %_6 %_14 %_14 2 0 1
-         %_30 = OpCompositeConstruct %_5 %_28 %_29
-         %_31 = OpVectorShuffle %_5 %_30 %_30 1 0
-         %_32 = OpVectorShuffle %_5 %_30 %_30 0 0
-         %_36 = OpCompositeConstruct %_6 %_33 %_34 %_35
-         %_37 = OpVectorShuffle %_5 %_36 %_36 2 0
-         %_38 = OpVectorShuffle %_6 %_36 %_36 1 0 2
+         %_28 = OpCompositeConstruct %_5 %_10 %_11
+         %_29 = OpVectorShuffle %_5 %_28 %_28 1 0
+         %_30 = OpVectorShuffle %_5 %_28 %_28 0 0
+         %_31 = OpCompositeConstruct %_6 %_10 %_11 %_12
+         %_32 = OpVectorShuffle %_5 %_31 %_31 2 0
+         %_33 = OpVectorShuffle %_6 %_31 %_31 1 0 2
                OpReturn
                OpFunctionEnd
