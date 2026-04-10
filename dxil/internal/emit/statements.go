@@ -19,7 +19,26 @@ import (
 //
 // Reference: Mesa nir_to_dxil.c emit_module()
 func (e *Emitter) emitFunctionBody(fn *ir.Function) error {
+	// Pre-allocate all local variable allocas in the entry block.
+	// LLVM requires allocas in the entry block for correct semantics
+	// (allocas in loop bodies create new stack frames per iteration).
+	if err := e.preAllocateLocalVars(fn); err != nil {
+		return fmt.Errorf("local var allocation: %w", err)
+	}
 	return e.emitBlock(fn, fn.Body)
+}
+
+// preAllocateLocalVars creates allocas for all local variables in the function's
+// entry block. This ensures local variables used inside loops have stable
+// alloca pointers that persist across iterations.
+func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
+	for i := range fn.LocalVars {
+		lv := ir.ExprLocalVariable{Variable: uint32(i)}
+		if _, err := e.emitLocalVariable(fn, lv); err != nil {
+			return fmt.Errorf("local var %d (%s): %w", i, fn.LocalVars[i].Name, err)
+		}
+	}
+	return nil
 }
 
 // emitBlock emits all statements in a block.

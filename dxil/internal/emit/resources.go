@@ -1369,18 +1369,35 @@ func (e *Emitter) resolveUAVStridedIndex(fn *ir.Function, chain *uavPointerChain
 }
 
 // resolveUAVAccessChain resolves a dynamic-index access to a UAV global variable.
+// Handles patterns:
+//   - Access(dynIdx, GlobalVariable) — direct array element access
+//   - Access(dynIdx, AccessIndex(structFieldIdx, GlobalVariable)) — struct-wrapped array access
 func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle ir.ExpressionHandle, _ bool) (*uavPointerChain, bool) {
 	if int(baseHandle) >= len(fn.Expressions) {
 		return nil, false
 	}
 	baseExpr := fn.Expressions[baseHandle]
 
-	gv, ok := baseExpr.Kind.(ir.ExprGlobalVariable)
-	if !ok {
+	var varHandle ir.GlobalVariableHandle
+
+	switch bk := baseExpr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		varHandle = bk.Variable
+
+	case ir.ExprAccessIndex:
+		// Access(dynIdx, AccessIndex(structFieldIdx, GlobalVariable))
+		// The AccessIndex unwraps the struct wrapper (e.g., .particles field).
+		gv, ok := e.resolveToGlobalVariable(fn, bk.Base)
+		if !ok {
+			return nil, false
+		}
+		varHandle = gv
+
+	default:
 		return nil, false
 	}
 
-	idx, found := e.resourceHandles[gv.Variable]
+	idx, found := e.resourceHandles[varHandle]
 	if !found {
 		return nil, false
 	}
@@ -1390,24 +1407,44 @@ func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle
 	}
 
 	// Determine element type from the array base type.
-	elemType, scalar, ok := e.resolveUAVElementType(gv.Variable)
+	elemType, scalar, ok := e.resolveUAVElementType(varHandle)
 	if !ok {
 		return nil, false
 	}
 
 	return &uavPointerChain{
-		varHandle: gv.Variable,
+		varHandle: varHandle,
 		indexExpr: indexHandle,
 		elemType:  elemType,
 		scalar:    scalar,
 	}, true
 }
 
+// resolveToGlobalVariable walks through an expression to find the underlying GlobalVariable handle.
+// Handles chains like AccessIndex(idx, Access(dynIdx, AccessIndex(idx, GlobalVariable)))
+// by peeling off intermediate AccessIndex and Access expressions.
+func (e *Emitter) resolveToGlobalVariable(fn *ir.Function, handle ir.ExpressionHandle) (ir.GlobalVariableHandle, bool) {
+	if int(handle) >= len(fn.Expressions) {
+		return 0, false
+	}
+	expr := fn.Expressions[handle]
+	switch ek := expr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		return ek.Variable, true
+	case ir.ExprAccessIndex:
+		return e.resolveToGlobalVariable(fn, ek.Base)
+	case ir.ExprAccess:
+		return e.resolveToGlobalVariable(fn, ek.Base)
+	default:
+		return 0, false
+	}
+}
+
 // resolveUAVAccessIndexChain resolves a constant-index access to a UAV.
 // Handles patterns:
-//   - AccessIndex(field, GlobalVariable) — direct struct field access
-//   - AccessIndex(field, Access(dynIdx, GlobalVariable)) — array[i].field
-//   - AccessIndex(field, AccessIndex(constIdx, GlobalVariable)) — array[N].field
+//   - AccessIndex(idx, GlobalVariable) — direct field/element access
+//   - AccessIndex(fieldIdx, Access(dynIdx, ...)) — array[i].field
+//   - AccessIndex(fieldIdx, AccessIndex(arrIdx, ...)) — array[N].field OR struct.data[N]
 func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.ExpressionHandle, constIdx uint32) (*uavPointerChain, bool) {
 	if int(baseHandle) >= len(fn.Expressions) {
 		return nil, false
@@ -1416,21 +1453,18 @@ func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.Expr
 
 	switch bk := baseExpr.Kind.(type) {
 	case ir.ExprGlobalVariable:
-		// Direct: AccessIndex(field, GlobalVariable)
+		// Direct: AccessIndex(idx, GlobalVariable)
 		return e.resolveUAVFromGlobal(bk.Variable, constIdx, true)
 
 	case ir.ExprAccess:
-		// Nested: AccessIndex(field, Access(dynIdx, GlobalVariable))
-		// The dynamic Access indexes into the outer array; the AccessIndex selects a struct field.
-		if int(bk.Base) >= len(fn.Expressions) {
-			return nil, false
-		}
-		innerExpr := fn.Expressions[bk.Base]
-		gv, ok := innerExpr.Kind.(ir.ExprGlobalVariable)
+		// Nested: AccessIndex(fieldIdx, Access(dynIdx, ...))
+		// The dynamic Access indexes into the array; the AccessIndex selects a struct field.
+		// The Access base can be GlobalVariable or AccessIndex(structFieldIdx, GlobalVariable).
+		gv, ok := e.resolveToGlobalVariable(fn, bk.Base)
 		if !ok {
 			return nil, false
 		}
-		chain, ok := e.resolveUAVStructFieldChain(gv.Variable, constIdx)
+		chain, ok := e.resolveUAVStructFieldChain(gv, constIdx)
 		if !ok {
 			return nil, false
 		}
@@ -1440,16 +1474,23 @@ func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.Expr
 		return chain, true
 
 	case ir.ExprAccessIndex:
-		// Nested: AccessIndex(field, AccessIndex(arrIdx, GlobalVariable))
-		if int(bk.Base) >= len(fn.Expressions) {
-			return nil, false
-		}
-		innerExpr := fn.Expressions[bk.Base]
-		gv, ok := innerExpr.Kind.(ir.ExprGlobalVariable)
+		// Two sub-cases:
+		// (a) AccessIndex(fieldIdx, AccessIndex(arrIdx, AccessIndex(structWrap, GV)))
+		//     — struct element field access with constant array index (arr[N].field)
+		// (b) AccessIndex(arrIdx, AccessIndex(structWrap, GV))
+		//     — simple array element access (struct.data[N])
+		gv, ok := e.resolveToGlobalVariable(fn, bk.Base)
 		if !ok {
 			return nil, false
 		}
-		return e.resolveUAVFromGlobal(gv.Variable, bk.Index, true)
+		// First try as struct-in-array field access: constIdx is fieldIdx, bk.Index is arrIdx.
+		if chain, ok := e.resolveUAVStructFieldChain(gv, constIdx); ok {
+			chain.constIndex = bk.Index
+			chain.isConstIdx = true
+			return chain, true
+		}
+		// Fall back to simple array element access.
+		return e.resolveUAVFromGlobal(gv, constIdx, true)
 	}
 
 	return nil, false
@@ -1671,6 +1712,15 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 //
 // Reference: Mesa nir_to_dxil.c emit_bufferstore_call() ~877
 func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHandle ir.ExpressionHandle) error {
+	// Reject whole-buffer stores of large aggregates (e.g., output = w_mem.arr for array<u32, 512>).
+	// These require element-by-element decomposition that we don't yet support.
+	if chain.isWhole {
+		numComps := cbvComponentCount(e.ir, chain.elemType)
+		if numComps > 4 {
+			return fmt.Errorf("whole-buffer UAV store of %d components not yet supported (use element-by-element copy)", numComps)
+		}
+	}
+
 	handleID, found := e.getResourceHandleID(chain.varHandle)
 	if !found {
 		return fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
@@ -1690,7 +1740,10 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 	ol := overloadForScalar(chain.scalar)
 	bufStoreFn := e.getDxOpBufferStoreFunc(ol)
 	opcodeVal := e.getIntConstID(int64(OpBufferStore))
-	undefVal := e.getUndefConstID()
+	undefI32 := e.getUndefConstID()
+	// Value channel undefs must match the overload type (e.g., undef f32 for float stores).
+	// Using i32 undef for float channels causes DXC "Invalid record" / "Cast of incompatible type".
+	valUndefID := e.getTypedUndefConstID(e.overloadReturnType(ol))
 
 	// Determine total number of scalar components.
 	numComps := componentCount(chain.elemType)
@@ -1700,7 +1753,7 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 
 	if numComps <= 4 {
 		// Single bufferStore call.
-		vals := [4]int{undefVal, undefVal, undefVal, undefVal}
+		vals := [4]int{valUndefID, valUndefID, valUndefID, valUndefID}
 		for i := 0; i < numComps && i < 4; i++ {
 			if numComps == 1 {
 				vals[i] = valueID
@@ -1711,7 +1764,7 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 		writeMask := (1 << numComps) - 1
 		maskVal := e.getI8ConstID(int64(writeMask))
 		e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
-			opcodeVal, handleID, indexID, undefVal,
+			opcodeVal, handleID, indexID, undefI32,
 			vals[0], vals[1], vals[2], vals[3], maskVal,
 		})
 		return nil
@@ -1728,14 +1781,14 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 			count = remaining
 		}
 		batchIndexID := e.getIntConstID(int64(chain.constIndex) + int64(batchIdx))
-		vals := [4]int{undefVal, undefVal, undefVal, undefVal}
+		vals := [4]int{valUndefID, valUndefID, valUndefID, valUndefID}
 		for i := 0; i < count; i++ {
 			vals[i] = e.getComponentID(valueHandle, compIdx+i)
 		}
 		writeMask := (1 << count) - 1
 		maskVal := e.getI8ConstID(int64(writeMask))
 		e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
-			opcodeVal, handleID, batchIndexID, undefVal,
+			opcodeVal, handleID, batchIndexID, undefI32,
 			vals[0], vals[1], vals[2], vals[3], maskVal,
 		})
 		compIdx += count

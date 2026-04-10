@@ -63,6 +63,7 @@ type Emitter struct {
 	intConsts   map[int64]int  // int value -> emitter value ID
 	floatConsts map[uint64]int // float bits -> emitter value ID
 	undefID     int            // emitter value ID for undef, -1 if not created
+	typedUndefs map[int]int    // type ID -> emitter value ID for typed undefs
 
 	// constMap maps emitter value IDs to module constants.
 	// Used during finalize to set proper Constant.ValueID.
@@ -561,6 +562,32 @@ func (e *Emitter) getUndefConstID() int {
 	e.mod.Constants = append(e.mod.Constants, c)
 	id := e.allocValue()
 	e.undefID = id
+	e.constMap[id] = c
+	return id
+}
+
+// getTypedUndefConstID returns the emitter value ID for an undef constant
+// of the specified type. Used for bufferStore value channels where the undef
+// must match the function's parameter type (e.g., undef f32 for float stores).
+func (e *Emitter) getTypedUndefConstID(ty *module.Type) int {
+	// For i32, reuse the standard undef.
+	if ty.Kind == module.TypeInteger && ty.IntBits == 32 {
+		return e.getUndefConstID()
+	}
+	// Check cache.
+	if e.typedUndefs == nil {
+		e.typedUndefs = make(map[int]int) // type ID -> emitter value ID
+	}
+	if id, ok := e.typedUndefs[ty.ID]; ok {
+		return id
+	}
+	c := &module.Constant{
+		ConstType: ty,
+		IsUndef:   true,
+	}
+	e.mod.Constants = append(e.mod.Constants, c)
+	id := e.allocValue()
+	e.typedUndefs[ty.ID] = id
 	e.constMap[id] = c
 	return id
 }

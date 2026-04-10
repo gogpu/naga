@@ -223,6 +223,18 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 		return id, err
 	}
 
+	// Check if this AccessIndex chain leads to a UAV (storage buffer) resource.
+	// UAV access is handled by resolveUAVPointerChain at the load/store site,
+	// not by emitting GEP instructions. Return the base value as a pass-through
+	// so the intermediate expression has a value but doesn't generate invalid code.
+	if gv, ok := e.resolveToGlobalVariable(fn, ai.Base); ok {
+		if _, isUAV := e.resourceHandles[gv]; isUAV {
+			if res := &e.resources[e.resourceHandles[gv]]; res.class == resourceClassUAV {
+				return baseID, nil
+			}
+		}
+	}
+
 	// Check if the base is an AccessIndex that produced a pointer to an array
 	// within a struct. If so, GEP into the array element.
 	if bai, ok := fn.Expressions[ai.Base].Kind.(ir.ExprAccessIndex); ok {
@@ -420,6 +432,17 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 	// Check if the base is a global variable alloca (workgroup/private array).
 	if id, err := e.tryGlobalVarArrayAccess(fn, acc, indexID); err != nil || id != -1 {
 		return id, err
+	}
+
+	// Check if this Access chain leads to a UAV resource. If so, skip GEP
+	// emission — the actual buffer access is handled by resolveUAVPointerChain
+	// at the load/store site.
+	if gv, ok := e.resolveToGlobalVariable(fn, acc.Base); ok {
+		if idx, isRes := e.resourceHandles[gv]; isRes {
+			if e.resources[idx].class == resourceClassUAV || e.resources[idx].class == resourceClassSRV {
+				return baseID, nil
+			}
+		}
 	}
 
 	// Check if the base is an AccessIndex that produced a pointer to an array
