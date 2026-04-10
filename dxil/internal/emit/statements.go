@@ -59,6 +59,12 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtContinue:
 		return e.emitContinue()
 
+	case ir.StmtAtomic:
+		return e.emitStmtAtomic(fn, sk)
+
+	case ir.StmtBarrier:
+		return e.emitStmtBarrier(sk)
+
 	case ir.StmtKill:
 		// Fragment shader discard — not yet implemented.
 		return nil
@@ -208,6 +214,351 @@ func (e *Emitter) emitStmtCall(fn *ir.Function, call ir.StmtCall) error {
 		}
 	}
 	return nil
+}
+
+// emitStmtAtomic handles atomic operations on UAV (storage buffer) elements.
+//
+// For most atomic operations (add, and, or, xor, min, max, exchange), emits:
+//
+//	i32 @dx.op.atomicBinOp(i32 78, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, i32 value)
+//
+// For compare-and-exchange (AtomicExchange with Compare), emits:
+//
+//	i32 @dx.op.atomicCompareExchange(i32 79, %handle, i32 coord0, i32 coord1, i32 coord2, i32 cmpVal, i32 newVal)
+//
+// For AtomicLoad, emits dx.op.bufferLoad; for AtomicStore, emits dx.op.bufferStore.
+//
+// Reference: Mesa nir_to_dxil.c emit_atomic_binop() ~949, emit_atomic_cmpxchg() ~973
+func (e *Emitter) emitStmtAtomic(fn *ir.Function, atomic ir.StmtAtomic) error {
+	// Resolve the pointer to a UAV handle + index.
+	chain, ok := e.resolveUAVPointerChain(fn, atomic.Pointer)
+	if !ok {
+		return fmt.Errorf("atomic: pointer does not resolve to UAV")
+	}
+
+	handleID, found := e.getResourceHandleID(chain.varHandle)
+	if !found {
+		return fmt.Errorf("atomic: UAV handle not found for global variable %d", chain.varHandle)
+	}
+
+	// Emit the index expression.
+	indexID, err := e.emitExpression(fn, chain.indexExpr)
+	if err != nil {
+		return fmt.Errorf("atomic index: %w", err)
+	}
+
+	switch af := atomic.Fun.(type) {
+	case ir.AtomicLoad:
+		return e.emitAtomicLoad(fn, atomic, handleID, indexID, chain)
+
+	case ir.AtomicStore:
+		return e.emitAtomicStore(fn, atomic, handleID, indexID, chain)
+
+	case ir.AtomicExchange:
+		if af.Compare != nil {
+			return e.emitAtomicCmpXchg(fn, atomic, af, handleID, indexID)
+		}
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicExchange, handleID, indexID)
+
+	case ir.AtomicAdd:
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicAdd, handleID, indexID)
+
+	case ir.AtomicSubtract:
+		// DXIL has no subtract atomic — negate the value and use ADD.
+		return e.emitAtomicSubtract(fn, atomic, handleID, indexID)
+
+	case ir.AtomicAnd:
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicAnd, handleID, indexID)
+
+	case ir.AtomicInclusiveOr:
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicOr, handleID, indexID)
+
+	case ir.AtomicExclusiveOr:
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicXor, handleID, indexID)
+
+	case ir.AtomicMin:
+		op := e.atomicMinMaxOp(chain.scalar, true)
+		return e.emitAtomicBinOp(fn, atomic, op, handleID, indexID)
+
+	case ir.AtomicMax:
+		op := e.atomicMinMaxOp(chain.scalar, false)
+		return e.emitAtomicBinOp(fn, atomic, op, handleID, indexID)
+
+	default:
+		return fmt.Errorf("unsupported atomic function: %T", atomic.Fun)
+	}
+}
+
+// atomicMinMaxOp selects the correct DXIL atomic min/max opcode based on
+// whether the scalar is signed or unsigned.
+func (e *Emitter) atomicMinMaxOp(scalar ir.ScalarType, isMin bool) DXILAtomicOp {
+	if scalar.Kind == ir.ScalarUint {
+		if isMin {
+			return DXILAtomicUMin
+		}
+		return DXILAtomicUMax
+	}
+	// Signed int (or default).
+	if isMin {
+		return DXILAtomicIMin
+	}
+	return DXILAtomicIMax
+}
+
+// emitAtomicBinOp emits a dx.op.atomicBinOp call.
+//
+// Signature: i32 @dx.op.atomicBinOp.i32(i32 78, %handle, i32 atomicOp,
+//
+//	i32 coord0, i32 coord1, i32 coord2, i32 value) → i32
+//
+// Reference: Mesa nir_to_dxil.c emit_atomic_binop() ~949
+func (e *Emitter) emitAtomicBinOp(fn *ir.Function, atomic ir.StmtAtomic, atomicOp DXILAtomicOp, handleID, indexID int) error {
+	valueID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("atomic value: %w", err)
+	}
+
+	atomicFn := e.getDxOpAtomicBinOpFunc()
+	opcodeVal := e.getIntConstID(int64(OpAtomicBinOp))
+	atomicOpVal := e.getIntConstID(int64(atomicOp))
+	undefVal := e.getUndefConstID()
+
+	// dx.op.atomicBinOp(i32 78, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, i32 value)
+	resultID := e.addCallInstr(atomicFn, e.mod.GetIntType(32), []int{
+		opcodeVal, handleID, atomicOpVal,
+		indexID, undefVal, undefVal, // coord0, coord1, coord2
+		valueID,
+	})
+
+	// Store the result for the AtomicResult expression.
+	if atomic.Result != nil {
+		e.exprValues[*atomic.Result] = resultID
+	}
+
+	return nil
+}
+
+// emitAtomicSubtract emits an atomic subtract by negating the value and using ADD.
+// DXIL does not have a native subtract atomic operation.
+func (e *Emitter) emitAtomicSubtract(fn *ir.Function, atomic ir.StmtAtomic, handleID, indexID int) error {
+	valueID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("atomic subtract value: %w", err)
+	}
+
+	// Negate: 0 - value.
+	zeroVal := e.getIntConstID(0)
+	negatedID := e.addBinOpInstr(e.mod.GetIntType(32), BinOpSub, zeroVal, valueID)
+
+	atomicFn := e.getDxOpAtomicBinOpFunc()
+	opcodeVal := e.getIntConstID(int64(OpAtomicBinOp))
+	atomicOpVal := e.getIntConstID(int64(DXILAtomicAdd))
+	undefVal := e.getUndefConstID()
+
+	resultID := e.addCallInstr(atomicFn, e.mod.GetIntType(32), []int{
+		opcodeVal, handleID, atomicOpVal,
+		indexID, undefVal, undefVal,
+		negatedID,
+	})
+
+	if atomic.Result != nil {
+		e.exprValues[*atomic.Result] = resultID
+	}
+
+	return nil
+}
+
+// emitAtomicCmpXchg emits a dx.op.atomicCompareExchange call.
+//
+// Signature: i32 @dx.op.atomicCompareExchange.i32(i32 79, %handle,
+//
+//	i32 coord0, i32 coord1, i32 coord2, i32 cmpVal, i32 newVal) → i32
+//
+// Reference: Mesa nir_to_dxil.c emit_atomic_cmpxchg() ~973
+func (e *Emitter) emitAtomicCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, exchange ir.AtomicExchange, handleID, indexID int) error {
+	newValID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("atomic cmpxchg new value: %w", err)
+	}
+
+	cmpValID, err := e.emitExpression(fn, *exchange.Compare)
+	if err != nil {
+		return fmt.Errorf("atomic cmpxchg compare value: %w", err)
+	}
+
+	cmpXchgFn := e.getDxOpAtomicCmpXchgFunc()
+	opcodeVal := e.getIntConstID(int64(OpAtomicCmpXchg))
+	undefVal := e.getUndefConstID()
+
+	// dx.op.atomicCompareExchange(i32 79, %handle, i32 coord0, coord1, coord2, i32 cmpVal, i32 newVal)
+	resultID := e.addCallInstr(cmpXchgFn, e.mod.GetIntType(32), []int{
+		opcodeVal, handleID,
+		indexID, undefVal, undefVal, // coord0, coord1, coord2
+		cmpValID, newValID,
+	})
+
+	if atomic.Result != nil {
+		e.exprValues[*atomic.Result] = resultID
+	}
+
+	return nil
+}
+
+// emitAtomicLoad handles AtomicLoad by emitting a dx.op.bufferLoad.
+// Atomic loads on UAV buffers use the same bufferLoad intrinsic as regular loads.
+func (e *Emitter) emitAtomicLoad(_ *ir.Function, atomic ir.StmtAtomic, handleID, indexID int, chain *uavPointerChain) error {
+	ol := overloadForScalar(chain.scalar)
+	resRetTy := e.getDxResRetType(ol)
+	bufLoadFn := e.getDxOpBufferLoadFunc(ol)
+
+	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
+	undefVal := e.getUndefConstID()
+
+	retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, undefVal})
+
+	// Extract the first component as the atomic result (scalar).
+	scalarTy := e.overloadReturnType(ol)
+	extractID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrExtractVal,
+		HasValue:   true,
+		ResultType: scalarTy,
+		Operands:   []int{retID, 0},
+		ValueID:    extractID,
+	}
+	e.currentBB.AddInstruction(instr)
+
+	if atomic.Result != nil {
+		e.exprValues[*atomic.Result] = extractID
+	}
+
+	return nil
+}
+
+// emitAtomicStore handles AtomicStore by emitting a dx.op.bufferStore.
+// Atomic stores on UAV buffers use the same bufferStore intrinsic as regular stores.
+func (e *Emitter) emitAtomicStore(fn *ir.Function, atomic ir.StmtAtomic, handleID, indexID int, chain *uavPointerChain) error {
+	valueID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("atomic store value: %w", err)
+	}
+
+	ol := overloadForScalar(chain.scalar)
+	bufStoreFn := e.getDxOpBufferStoreFunc(ol)
+
+	opcodeVal := e.getIntConstID(int64(OpBufferStore))
+	undefVal := e.getUndefConstID()
+	maskVal := e.getI8ConstID(1) // single component write mask
+
+	// dx.op.bufferStore(i32 69, %handle, i32 index, i32 undef, val, undef, undef, undef, i8 mask)
+	e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
+		opcodeVal, handleID, indexID, undefVal,
+		valueID, undefVal, undefVal, undefVal,
+		maskVal,
+	})
+
+	return nil
+}
+
+// emitStmtBarrier emits a dx.op.barrier call.
+//
+// Signature: void @dx.op.barrier(i32 80, i32 flags)
+//
+// Maps naga BarrierFlags to DXIL barrier mode flags:
+//   - BarrierStorage  → UAV_FENCE_GLOBAL (2)
+//   - BarrierWorkGroup → SYNC_THREAD_GROUP (1) | GROUPSHARED_MEM_FENCE (8)
+//   - BarrierSubGroup  → SYNC_THREAD_GROUP (1) (best approximation)
+//
+// Reference: Mesa nir_to_dxil.c emit_barrier_impl() ~3082
+func (e *Emitter) emitStmtBarrier(barrier ir.StmtBarrier) error {
+	var flags DXILBarrierMode
+
+	if barrier.Flags&ir.BarrierStorage != 0 {
+		flags |= BarrierModeUAVFenceGlobal
+	}
+
+	if barrier.Flags&ir.BarrierWorkGroup != 0 {
+		flags |= BarrierModeSyncThreadGroup | BarrierModeGroupSharedMemFence
+	}
+
+	if barrier.Flags&ir.BarrierSubGroup != 0 {
+		// DXIL does not have a direct subgroup barrier; use thread group sync.
+		flags |= BarrierModeSyncThreadGroup
+	}
+
+	// If no flags are set, use a default thread group sync.
+	if flags == 0 {
+		flags = BarrierModeSyncThreadGroup
+	}
+
+	barrierFn := e.getDxOpBarrierFunc()
+	opcodeVal := e.getIntConstID(int64(OpBarrier))
+	flagsVal := e.getIntConstID(int64(flags))
+
+	e.addCallInstr(barrierFn, e.mod.GetVoidType(), []int{opcodeVal, flagsVal})
+
+	return nil
+}
+
+// getDxOpAtomicBinOpFunc creates the dx.op.atomicBinOp.i32 function declaration.
+// Signature: i32 @dx.op.atomicBinOp.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32)
+func (e *Emitter) getDxOpAtomicBinOpFunc() *module.Function {
+	name := "dx.op.atomicBinOp"
+	key := dxOpKey{name: name, overload: overloadI32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+	handleTy := e.getDxHandleType()
+	fullName := name + suffixI32
+
+	// (i32 opcode, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, i32 value) → i32
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i32Ty, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpAtomicCmpXchgFunc creates the dx.op.atomicCompareExchange.i32 function declaration.
+// Signature: i32 @dx.op.atomicCompareExchange.i32(i32, %handle, i32, i32, i32, i32, i32)
+func (e *Emitter) getDxOpAtomicCmpXchgFunc() *module.Function {
+	name := "dx.op.atomicCompareExchange"
+	key := dxOpKey{name: name, overload: overloadI32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+	handleTy := e.getDxHandleType()
+	fullName := name + suffixI32
+
+	// (i32 opcode, %handle, i32 coord0, i32 coord1, i32 coord2, i32 cmpVal, i32 newVal) → i32
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i32Ty, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpBarrierFunc creates the dx.op.barrier function declaration.
+// Signature: void @dx.op.barrier(i32, i32)
+func (e *Emitter) getDxOpBarrierFunc() *module.Function {
+	name := "dx.op.barrier"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	voidTy := e.mod.GetVoidType()
+	i32Ty := e.mod.GetIntType(32)
+
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
 }
 
 // emitIfStatement emits an if/else construct using LLVM basic blocks.

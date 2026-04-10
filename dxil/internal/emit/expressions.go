@@ -91,6 +91,11 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 	case ir.ExprRelational:
 		valueID, err = e.emitRelational(fn, ek)
 
+	case ir.ExprAtomicResult:
+		// AtomicResult values are pre-populated by emitStmtAtomic.
+		// If we reach here, the value should already be in exprValues.
+		return 0, fmt.Errorf("ExprAtomicResult [%d] not yet populated by StmtAtomic", handle)
+
 	case ir.ExprArrayLength:
 		return 0, fmt.Errorf("ExprArrayLength not yet implemented in DXIL backend")
 

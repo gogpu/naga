@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Compute entry points with no I/O signatures (per DXIL spec)
   - Reference: Mesa `nir_to_dxil.c` emit_threadid_call, emit_uav, emit_barrier_impl
 
+- **DXIL Phase 2b: Atomics and barriers** — Atomic operations on UAV buffers via
+  `dx.op.atomicBinOp` (add, subtract, and, or, xor, min, max, exchange) and
+  `dx.op.atomicCompareExchange`. Barriers via `dx.op.barrier` with storage/workgroup/
+  subgroup flag mapping. AtomicLoad/AtomicStore via bufferLoad/bufferStore.
+  Reference: Mesa `nir_to_dxil.c` emit_atomic_binop, emit_barrier_impl.
+
 ### Changed
 
 - **SPIR-V structural comparison: allow-list for intentional divergences** — Shaders where

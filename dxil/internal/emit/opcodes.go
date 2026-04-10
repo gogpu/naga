@@ -87,11 +87,46 @@ const (
 	OpDerivFineX   DXILOpcode = 85
 	OpDerivFineY   DXILOpcode = 86
 
+	// Atomic operations.
+	OpAtomicBinOp   DXILOpcode = 78
+	OpAtomicCmpXchg DXILOpcode = 79
+
+	// Barrier.
+	OpBarrier DXILOpcode = 80
+
 	// Thread/dispatch ID operations.
 	OpThreadID            DXILOpcode = 93
 	OpGroupID             DXILOpcode = 94
 	OpThreadIDInGroup     DXILOpcode = 95
 	OpFlattenedTIDInGroup DXILOpcode = 96
+)
+
+// DXILAtomicOp represents the atomic operation kind for dx.op.atomicBinOp.
+// Reference: Mesa nir_to_dxil.c enum dxil_atomic_op (line ~399)
+type DXILAtomicOp uint32
+
+const (
+	DXILAtomicAdd      DXILAtomicOp = 0
+	DXILAtomicAnd      DXILAtomicOp = 1
+	DXILAtomicOr       DXILAtomicOp = 2
+	DXILAtomicXor      DXILAtomicOp = 3
+	DXILAtomicIMin     DXILAtomicOp = 4
+	DXILAtomicIMax     DXILAtomicOp = 5
+	DXILAtomicUMin     DXILAtomicOp = 6
+	DXILAtomicUMax     DXILAtomicOp = 7
+	DXILAtomicExchange DXILAtomicOp = 8
+)
+
+// DXILBarrierMode represents DXIL barrier mode flags.
+// These can be combined with bitwise OR.
+// Reference: Mesa nir_to_dxil.c emit_barrier_impl() (line ~3082)
+type DXILBarrierMode uint32
+
+const (
+	BarrierModeSyncThreadGroup     DXILBarrierMode = 1
+	BarrierModeUAVFenceGlobal      DXILBarrierMode = 2
+	BarrierModeUAVFenceThreadGroup DXILBarrierMode = 4
+	BarrierModeGroupSharedMemFence DXILBarrierMode = 8
 )
 
 // BinOpKind represents LLVM binary operation opcodes for DXIL.

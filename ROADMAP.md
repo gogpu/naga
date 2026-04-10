@@ -67,7 +67,7 @@
 | **DXIL Phase 1: Vertex+fragment** | P1 | 21 | ✅ Done. Full IR → DXIL lowering: math, casts, control flow, locals, resources, signatures. 190 tests, ~12.5K LOC. |
 | **DXIL CBV loads** | P1 | 2 | ✅ Done. `dx.op.cbufferLoadLegacy` for uniform buffers. Register index + component extraction. |
 | **DXIL Phase 2a: Compute foundation** | P2 | 5 | ✅ Done. Thread IDs, numthreads, UAV bufferLoad/bufferStore. |
-| **DXIL Phase 2b: Atomics + barriers** | P2 | 3 | atomicBinOp, atomicCompareExchange, barrier intrinsics |
+| **DXIL Phase 2b: Atomics + barriers** | P2 | 3 | ✅ Done. atomicBinOp (8 ops), atomicCmpXchg, dx.op.barrier. |
 | **DXIL Phase 3: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, mesh shaders, dynamic resources |
 
 ### v1.0.0 — Stable Release

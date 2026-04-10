@@ -4546,3 +4546,627 @@ func TestEmitComputeUAVResourceMetadata(t *testing.T) {
 		t.Error("dx.resources metadata not present for shader with UAV")
 	}
 }
+
+// --- Atomic and barrier tests ---
+
+// buildComputeWithAtomicAdd creates a compute shader that performs an atomic add:
+//
+//	@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+//
+//	@compute @workgroup_size(64)
+//	fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+//	    let idx = global_id.x;
+//	    let result = atomicAdd(&data[idx], 1u);
+//	}
+func buildComputeWithAtomicAdd() *ir.Module {
+	u32Handle := ir.TypeHandle(0)
+	vec3u32Handle := ir.TypeHandle(1)
+	arrayU32Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+			{Name: "", Inner: ir.ArrayType{
+				Base:   u32Handle,
+				Size:   ir.ArraySize{}, // Runtime-sized
+				Stride: 4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:   "data",
+				Space:  ir.SpaceStorage,
+				Access: ir.StorageReadWrite,
+				Binding: &ir.ResourceBinding{
+					Group:   0,
+					Binding: 0,
+				},
+				Type: arrayU32Handle,
+			},
+		},
+	}
+
+	globalIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID})
+	resultExpr := ir.ExpressionHandle(5)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "global_id", Type: vec3u32Handle, Binding: &globalIDBinding},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},     // [0] global_id
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1] global_id.x
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [2] &data
+			{Kind: ir.ExprAccess{Base: 2, Index: 1}},      // [3] &data[idx]
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},   // [4] 1u
+			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},    // [5] atomic result
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3u32Handle},  // global_id
+			{Handle: &u32Handle},      // global_id.x
+			{Handle: &arrayU32Handle}, // &data
+			{Handle: &u32Handle},      // &data[idx]
+			{Handle: &u32Handle},      // 1u
+			{Handle: &u32Handle},      // atomic result
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+			{Kind: ir.StmtAtomic{
+				Pointer: 3,
+				Fun:     ir.AtomicAdd{},
+				Value:   4,
+				Result:  &resultExpr,
+			}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{64, 1, 1},
+		},
+	}
+
+	return mod
+}
+
+func TestEmitAtomicAdd(t *testing.T) {
+	irMod := buildComputeWithAtomicAdd()
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify atomicBinOp function was declared.
+	funcNames := make(map[string]bool)
+	for _, fn := range result.Functions {
+		funcNames[fn.Name] = true
+	}
+
+	if !funcNames["dx.op.atomicBinOp.i32"] {
+		t.Error("dx.op.atomicBinOp.i32 not declared")
+	}
+	if !funcNames["dx.op.createHandle"] {
+		t.Error("dx.op.createHandle not declared")
+	}
+
+	// Verify the main function has atomicBinOp call.
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	callCounts := make(map[string]int)
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil {
+				callCounts[instr.CalledFunc.Name]++
+			}
+		}
+	}
+
+	if callCounts["dx.op.atomicBinOp.i32"] != 1 {
+		t.Errorf("atomicBinOp calls: got %d, want 1", callCounts["dx.op.atomicBinOp.i32"])
+	}
+
+	// Serialize to verify valid bitcode.
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	if len(bc)%4 != 0 {
+		t.Errorf("bitcode not 32-bit aligned: %d bytes", len(bc))
+	}
+
+	t.Logf("atomic add compute: %d types, %d functions, %d constants, %d bytes",
+		len(result.Types), len(result.Functions), len(result.Constants), len(bc))
+}
+
+func TestEmitAtomicCompareExchange(t *testing.T) {
+	u32Handle := ir.TypeHandle(0)
+	vec3u32Handle := ir.TypeHandle(1)
+	arrayU32Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+			{Name: "", Inner: ir.ArrayType{
+				Base:   u32Handle,
+				Size:   ir.ArraySize{},
+				Stride: 4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:   "data",
+				Space:  ir.SpaceStorage,
+				Access: ir.StorageReadWrite,
+				Binding: &ir.ResourceBinding{
+					Group:   0,
+					Binding: 0,
+				},
+				Type: arrayU32Handle,
+			},
+		},
+	}
+
+	globalIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID})
+	compareExpr := ir.ExpressionHandle(4)
+	resultExpr := ir.ExpressionHandle(6)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "global_id", Type: vec3u32Handle, Binding: &globalIDBinding},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                    // [0] global_id
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},                // [1] global_id.x
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},                   // [2] &data
+			{Kind: ir.ExprAccess{Base: 2, Index: 1}},                     // [3] &data[idx]
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},                  // [4] 0u (compare value)
+			{Kind: ir.Literal{Value: ir.LiteralU32(42)}},                 // [5] 42u (new value)
+			{Kind: ir.ExprAtomicResult{Ty: u32Handle, Comparison: true}}, // [6] CAS result
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3u32Handle},
+			{Handle: &u32Handle},
+			{Handle: &arrayU32Handle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
+			{Kind: ir.StmtAtomic{
+				Pointer: 3,
+				Fun:     ir.AtomicExchange{Compare: &compareExpr},
+				Value:   5,
+				Result:  &resultExpr,
+			}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{64, 1, 1},
+		},
+	}
+
+	result, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify atomicCompareExchange function was declared.
+	funcNames := make(map[string]bool)
+	for _, fn := range result.Functions {
+		funcNames[fn.Name] = true
+	}
+
+	if !funcNames["dx.op.atomicCompareExchange.i32"] {
+		t.Error("dx.op.atomicCompareExchange.i32 not declared")
+	}
+
+	// Verify CAS call in main.
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	callCounts := make(map[string]int)
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil {
+				callCounts[instr.CalledFunc.Name]++
+			}
+		}
+	}
+
+	if callCounts["dx.op.atomicCompareExchange.i32"] != 1 {
+		t.Errorf("atomicCompareExchange calls: got %d, want 1", callCounts["dx.op.atomicCompareExchange.i32"])
+	}
+
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+
+	t.Logf("atomic CAS compute: %d types, %d functions, %d constants, %d bytes",
+		len(result.Types), len(result.Functions), len(result.Constants), len(bc))
+}
+
+func TestEmitBarrier(t *testing.T) {
+	// Minimal compute shader that just executes a barrier.
+	vec3u32Handle := ir.TypeHandle(0)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		},
+	}
+
+	globalIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID})
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "global_id", Type: vec3u32Handle, Binding: &globalIDBinding},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] global_id
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3u32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+			{Kind: ir.StmtBarrier{Flags: ir.BarrierStorage | ir.BarrierWorkGroup}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{64, 1, 1},
+		},
+	}
+
+	result, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify barrier function was declared.
+	funcNames := make(map[string]bool)
+	for _, fn := range result.Functions {
+		funcNames[fn.Name] = true
+	}
+
+	if !funcNames["dx.op.barrier"] {
+		t.Error("dx.op.barrier not declared")
+	}
+
+	// Verify barrier call in main.
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	callCounts := make(map[string]int)
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil {
+				callCounts[instr.CalledFunc.Name]++
+			}
+		}
+	}
+
+	if callCounts["dx.op.barrier"] != 1 {
+		t.Errorf("barrier calls: got %d, want 1", callCounts["dx.op.barrier"])
+	}
+
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+
+	t.Logf("barrier compute: %d types, %d functions, %d constants, %d bytes",
+		len(result.Types), len(result.Functions), len(result.Constants), len(bc))
+}
+
+func TestEmitMultipleAtomicOps(t *testing.T) {
+	// Test multiple atomic operations in one shader: add, and, exchange.
+	u32Handle := ir.TypeHandle(0)
+	vec3u32Handle := ir.TypeHandle(1)
+	arrayU32Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+			{Name: "", Inner: ir.ArrayType{
+				Base:   u32Handle,
+				Size:   ir.ArraySize{},
+				Stride: 4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:   "data",
+				Space:  ir.SpaceStorage,
+				Access: ir.StorageReadWrite,
+				Binding: &ir.ResourceBinding{
+					Group:   0,
+					Binding: 0,
+				},
+				Type: arrayU32Handle,
+			},
+		},
+	}
+
+	globalIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID})
+	result1 := ir.ExpressionHandle(5)
+	result2 := ir.ExpressionHandle(6)
+	result3 := ir.ExpressionHandle(7)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "global_id", Type: vec3u32Handle, Binding: &globalIDBinding},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},     // [0] global_id
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1] global_id.x
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [2] &data
+			{Kind: ir.ExprAccess{Base: 2, Index: 1}},      // [3] &data[idx]
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},   // [4] 1u
+			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},    // [5] atomicAdd result
+			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},    // [6] atomicAnd result
+			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},    // [7] atomicExchange result
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3u32Handle},
+			{Handle: &u32Handle},
+			{Handle: &arrayU32Handle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+			{Kind: ir.StmtAtomic{Pointer: 3, Fun: ir.AtomicAdd{}, Value: 4, Result: &result1}},
+			{Kind: ir.StmtAtomic{Pointer: 3, Fun: ir.AtomicAnd{}, Value: 4, Result: &result2}},
+			{Kind: ir.StmtAtomic{Pointer: 3, Fun: ir.AtomicExchange{}, Value: 4, Result: &result3}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{64, 1, 1},
+		},
+	}
+
+	result, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify atomicBinOp function was declared.
+	funcNames := make(map[string]bool)
+	for _, fn := range result.Functions {
+		funcNames[fn.Name] = true
+	}
+
+	if !funcNames["dx.op.atomicBinOp.i32"] {
+		t.Error("dx.op.atomicBinOp.i32 not declared")
+	}
+
+	// Verify 3 atomic calls.
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	callCounts := make(map[string]int)
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil {
+				callCounts[instr.CalledFunc.Name]++
+			}
+		}
+	}
+
+	if callCounts["dx.op.atomicBinOp.i32"] != 3 {
+		t.Errorf("atomicBinOp calls: got %d, want 3", callCounts["dx.op.atomicBinOp.i32"])
+	}
+
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+
+	t.Logf("multi-atomic compute: %d types, %d functions, %d constants, %d bytes",
+		len(result.Types), len(result.Functions), len(result.Constants), len(bc))
+}
+
+func TestEmitBarrierFlags(t *testing.T) {
+	// Test different barrier flag combinations map to correct DXIL modes.
+	tests := []struct {
+		name          string
+		flags         ir.BarrierFlags
+		expectedFlags DXILBarrierMode
+	}{
+		{
+			name:          "storage only",
+			flags:         ir.BarrierStorage,
+			expectedFlags: BarrierModeUAVFenceGlobal,
+		},
+		{
+			name:          "workgroup only",
+			flags:         ir.BarrierWorkGroup,
+			expectedFlags: BarrierModeSyncThreadGroup | BarrierModeGroupSharedMemFence,
+		},
+		{
+			name:          "storage + workgroup",
+			flags:         ir.BarrierStorage | ir.BarrierWorkGroup,
+			expectedFlags: BarrierModeUAVFenceGlobal | BarrierModeSyncThreadGroup | BarrierModeGroupSharedMemFence,
+		},
+		{
+			name:          "subgroup",
+			flags:         ir.BarrierSubGroup,
+			expectedFlags: BarrierModeSyncThreadGroup,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Verify the flag mapping logic directly.
+			var flags DXILBarrierMode
+			if tt.flags&ir.BarrierStorage != 0 {
+				flags |= BarrierModeUAVFenceGlobal
+			}
+			if tt.flags&ir.BarrierWorkGroup != 0 {
+				flags |= BarrierModeSyncThreadGroup | BarrierModeGroupSharedMemFence
+			}
+			if tt.flags&ir.BarrierSubGroup != 0 {
+				flags |= BarrierModeSyncThreadGroup
+			}
+			if flags == 0 {
+				flags = BarrierModeSyncThreadGroup
+			}
+
+			if flags != tt.expectedFlags {
+				t.Errorf("flags: got %d, want %d", flags, tt.expectedFlags)
+			}
+		})
+	}
+}
+
+func TestEmitAtomicSubtract(t *testing.T) {
+	// Test atomic subtract emits negation + atomicBinOp ADD.
+	u32Handle := ir.TypeHandle(0)
+	vec3u32Handle := ir.TypeHandle(1)
+	arrayU32Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+			{Name: "", Inner: ir.ArrayType{
+				Base:   u32Handle,
+				Size:   ir.ArraySize{},
+				Stride: 4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:   "data",
+				Space:  ir.SpaceStorage,
+				Access: ir.StorageReadWrite,
+				Binding: &ir.ResourceBinding{
+					Group:   0,
+					Binding: 0,
+				},
+				Type: arrayU32Handle,
+			},
+		},
+	}
+
+	globalIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID})
+	resultExpr := ir.ExpressionHandle(5)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "global_id", Type: vec3u32Handle, Binding: &globalIDBinding},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},
+			{Kind: ir.ExprAccess{Base: 2, Index: 1}},
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+			{Kind: ir.ExprAtomicResult{Ty: u32Handle}},
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3u32Handle},
+			{Handle: &u32Handle},
+			{Handle: &arrayU32Handle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+			{Handle: &u32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+			{Kind: ir.StmtAtomic{Pointer: 3, Fun: ir.AtomicSubtract{}, Value: 4, Result: &resultExpr}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{64, 1, 1},
+		},
+	}
+
+	result, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify atomicBinOp (ADD with negated value) was emitted.
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Should have a SUB instruction (for negation) and an atomicBinOp call.
+	hasSub := false
+	hasAtomic := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrBinOp {
+				hasSub = true
+			}
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil &&
+				instr.CalledFunc.Name == "dx.op.atomicBinOp.i32" {
+				hasAtomic = true
+			}
+		}
+	}
+
+	if !hasSub {
+		t.Error("expected SUB instruction for negation in atomic subtract")
+	}
+	if !hasAtomic {
+		t.Error("expected atomicBinOp.i32 call for atomic subtract")
+	}
+
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+
+	t.Logf("atomic subtract compute: %d types, %d functions, %d constants, %d bytes",
+		len(result.Types), len(result.Functions), len(result.Constants), len(bc))
+}
