@@ -4014,3 +4014,535 @@ func findMainFunction(m *module.Module) *module.Function {
 	}
 	return nil
 }
+
+// --- Compute shader tests ---
+
+// buildMinimalComputeShader creates a compute shader with GlobalInvocationId:
+//
+//	@compute @workgroup_size(64, 1, 1)
+//	fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+//	    // empty body
+//	}
+func buildMinimalComputeShader() *ir.Module {
+	vec3u32Handle := ir.TypeHandle(0)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		},
+	}
+
+	globalIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID})
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "global_id", Type: vec3u32Handle, Binding: &globalIDBinding},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] global_id
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3u32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{64, 1, 1},
+		},
+	}
+
+	return mod
+}
+
+// buildComputeWithUAV creates a compute shader that reads/writes a storage buffer:
+//
+//	@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+//
+//	@compute @workgroup_size(64)
+//	fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+//	    let index = global_id.x;
+//	    let value = data[index];
+//	    data[index] = value * 2u;
+//	}
+func buildComputeWithUAV() *ir.Module {
+	u32Handle := ir.TypeHandle(0)
+	vec3u32Handle := ir.TypeHandle(1)
+	arrayU32Handle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+			{Name: "", Inner: ir.ArrayType{
+				Base:   u32Handle,
+				Size:   ir.ArraySize{}, // Runtime-sized
+				Stride: 4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:   "data",
+				Space:  ir.SpaceStorage,
+				Access: ir.StorageReadWrite,
+				Binding: &ir.ResourceBinding{
+					Group:   0,
+					Binding: 0,
+				},
+				Type: arrayU32Handle,
+			},
+		},
+	}
+
+	globalIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID})
+
+	retHandle2 := ir.ExpressionHandle(2)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "global_id", Type: vec3u32Handle, Binding: &globalIDBinding},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                       // [0] global_id
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},                   // [1] global_id.x (index)
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},                      // [2] &data
+			{Kind: ir.ExprAccess{Base: 2, Index: 1}},                        // [3] &data[index]
+			{Kind: ir.ExprLoad{Pointer: 3}},                                 // [4] data[index] (value)
+			{Kind: ir.Literal{Value: ir.LiteralU32(2)}},                     // [5] 2u
+			{Kind: ir.ExprBinary{Op: ir.BinaryMultiply, Left: 4, Right: 5}}, // [6] value * 2u
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3u32Handle},  // global_id
+			{Handle: &u32Handle},      // global_id.x
+			{Handle: &arrayU32Handle}, // &data
+			{Handle: &u32Handle},      // &data[index]
+			{Handle: &u32Handle},      // data[index]
+			{Handle: &u32Handle},      // 2u
+			{Handle: &u32Handle},      // value * 2u
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
+			{Kind: ir.StmtStore{Pointer: 3, Value: 6}},
+		},
+	}
+
+	// Fix: retHandle2 is unused, clear it to avoid lint
+	_ = retHandle2
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{64, 1, 1},
+		},
+	}
+
+	return mod
+}
+
+// buildComputeMultipleBuiltins creates a compute shader with multiple builtins:
+//
+//	@compute @workgroup_size(8, 8, 1)
+//	fn main(
+//	    @builtin(global_invocation_id) global_id: vec3<u32>,
+//	    @builtin(local_invocation_id) local_id: vec3<u32>,
+//	    @builtin(workgroup_id) wg_id: vec3<u32>,
+//	) { }
+func buildComputeMultipleBuiltins() *ir.Module {
+	vec3u32Handle := ir.TypeHandle(0)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
+		},
+	}
+
+	globalIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinGlobalInvocationID})
+	localIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinLocalInvocationID})
+	wgIDBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinWorkGroupID})
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "global_id", Type: vec3u32Handle, Binding: &globalIDBinding},
+			{Name: "local_id", Type: vec3u32Handle, Binding: &localIDBinding},
+			{Name: "wg_id", Type: vec3u32Handle, Binding: &wgIDBinding},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}}, // [0] global_id
+			{Kind: ir.ExprFunctionArgument{Index: 1}}, // [1] local_id
+			{Kind: ir.ExprFunctionArgument{Index: 2}}, // [2] wg_id
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3u32Handle},
+			{Handle: &vec3u32Handle},
+			{Handle: &vec3u32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{8, 8, 1},
+		},
+	}
+
+	return mod
+}
+
+func TestEmitComputeEntryPoint(t *testing.T) {
+	irMod := buildMinimalComputeShader()
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify shader kind is ComputeShader.
+	if result.ShaderKind != module.ComputeShader {
+		t.Errorf("shader kind: got %d, want ComputeShader (%d)", result.ShaderKind, module.ComputeShader)
+	}
+
+	// Verify dx.shaderModel has "cs".
+	found := false
+	for _, nm := range result.NamedMetadata {
+		if nm.Name == "dx.shaderModel" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("missing dx.shaderModel metadata")
+	}
+
+	// Verify dx.entryPoints has properties (5th element non-nil for compute).
+	for _, nm := range result.NamedMetadata {
+		if nm.Name == "dx.entryPoints" {
+			if len(nm.Operands) == 0 {
+				t.Fatal("dx.entryPoints has no entries")
+			}
+			// The entry is a tuple: [funcRef, name, signatures, resources, properties]
+			entry := nm.Operands[0]
+			if entry == nil {
+				t.Fatal("dx.entryPoints[0] is nil")
+			}
+			if entry.Kind != module.MDTuple {
+				t.Fatal("dx.entryPoints[0] is not a tuple")
+			}
+			if len(entry.SubNodes) < 5 {
+				t.Fatalf("dx.entryPoints[0] has %d children, want >= 5", len(entry.SubNodes))
+			}
+			// Properties (5th element) should be non-nil for compute shaders.
+			if entry.SubNodes[4] == nil {
+				t.Error("dx.entryPoints[0] properties (index 4) is nil, want numthreads metadata")
+			}
+			break
+		}
+	}
+
+	// Serialize and verify valid bitcode.
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	if bc[0] != 'B' || bc[1] != 'C' {
+		t.Errorf("invalid bitcode magic: %02X %02X", bc[0], bc[1])
+	}
+
+	t.Logf("minimal compute: %d types, %d functions, %d constants, %d bytes bitcode",
+		len(result.Types), len(result.Functions), len(result.Constants), len(bc))
+}
+
+func TestEmitComputeNumthreadsMetadata(t *testing.T) {
+	tests := []struct {
+		name      string
+		workgroup [3]uint32
+	}{
+		{"64x1x1", [3]uint32{64, 1, 1}},
+		{"8x8x1", [3]uint32{8, 8, 1}},
+		{"4x4x4", [3]uint32{4, 4, 4}},
+		{"256x1x1", [3]uint32{256, 1, 1}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			irMod := buildMinimalComputeShader()
+			irMod.EntryPoints[0].Workgroup = tc.workgroup
+
+			result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+			if err != nil {
+				t.Fatalf("Emit failed: %v", err)
+			}
+
+			// Verify entry point properties contain numthreads tag (4).
+			for _, nm := range result.NamedMetadata {
+				if nm.Name == "dx.entryPoints" {
+					entry := nm.Operands[0]
+					props := entry.SubNodes[4]
+					if props == nil {
+						t.Fatal("properties metadata is nil")
+					}
+					// Properties should be a tuple with at least 2 children (tag, value).
+					if len(props.SubNodes) < 2 {
+						t.Fatalf("properties has %d children, want >= 2", len(props.SubNodes))
+					}
+					break
+				}
+			}
+		})
+	}
+}
+
+func TestEmitThreadID(t *testing.T) {
+	irMod := buildMinimalComputeShader()
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify dx.op.threadId function was declared.
+	found := false
+	for _, fn := range result.Functions {
+		if fn.Name == "dx.op.threadId.i32" && fn.IsDeclaration {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("dx.op.threadId.i32 function not declared")
+	}
+
+	// Verify main function has call instructions for thread ID.
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	callCount := 0
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil &&
+				instr.CalledFunc.Name == "dx.op.threadId.i32" {
+				callCount++
+			}
+		}
+	}
+
+	// GlobalInvocationId is vec3, so we expect 3 threadId calls (one per component).
+	if callCount != 3 {
+		t.Errorf("threadId call count: got %d, want 3", callCount)
+	}
+}
+
+func TestEmitMultipleComputeBuiltins(t *testing.T) {
+	irMod := buildComputeMultipleBuiltins()
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Count calls by function name.
+	callCounts := make(map[string]int)
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil {
+				callCounts[instr.CalledFunc.Name]++
+			}
+		}
+	}
+
+	// Expect 3 threadId + 3 threadIdInGroup + 3 groupId = 9 total.
+	if callCounts["dx.op.threadId.i32"] != 3 {
+		t.Errorf("threadId calls: got %d, want 3", callCounts["dx.op.threadId.i32"])
+	}
+	if callCounts["dx.op.threadIdInGroup.i32"] != 3 {
+		t.Errorf("threadIdInGroup calls: got %d, want 3", callCounts["dx.op.threadIdInGroup.i32"])
+	}
+	if callCounts["dx.op.groupId.i32"] != 3 {
+		t.Errorf("groupId calls: got %d, want 3", callCounts["dx.op.groupId.i32"])
+	}
+}
+
+func TestEmitUAVCreateHandle(t *testing.T) {
+	irMod := buildComputeWithUAV()
+
+	e := &Emitter{
+		ir:              irMod,
+		mod:             module.NewModule(module.ComputeShader),
+		resourceHandles: make(map[ir.GlobalVariableHandle]int),
+	}
+	e.analyzeResources()
+
+	if len(e.resources) != 1 {
+		t.Fatalf("resource count: got %d, want 1", len(e.resources))
+	}
+
+	res := &e.resources[0]
+	if res.class != resourceClassUAV {
+		t.Errorf("resource class: got %d, want UAV (%d)", res.class, resourceClassUAV)
+	}
+	if res.name != "data" {
+		t.Errorf("resource name: got %q, want %q", res.name, "data")
+	}
+	if res.group != 0 {
+		t.Errorf("resource group: got %d, want 0", res.group)
+	}
+	if res.binding != 0 {
+		t.Errorf("resource binding: got %d, want 0", res.binding)
+	}
+}
+
+func TestEmitUAVBufferLoadStore(t *testing.T) {
+	irMod := buildComputeWithUAV()
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify buffer load/store functions were declared.
+	funcNames := make(map[string]bool)
+	for _, fn := range result.Functions {
+		funcNames[fn.Name] = true
+	}
+
+	if !funcNames["dx.op.bufferLoad.i32"] {
+		t.Error("dx.op.bufferLoad.i32 not declared")
+	}
+	if !funcNames["dx.op.bufferStore.i32"] {
+		t.Error("dx.op.bufferStore.i32 not declared")
+	}
+	if !funcNames["dx.op.createHandle"] {
+		t.Error("dx.op.createHandle not declared")
+	}
+	if !funcNames["dx.op.threadId.i32"] {
+		t.Error("dx.op.threadId.i32 not declared")
+	}
+
+	// Verify main function has the expected instructions.
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	callCounts := make(map[string]int)
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil {
+				callCounts[instr.CalledFunc.Name]++
+			}
+		}
+	}
+
+	// Should have createHandle, threadId (3x), bufferLoad, bufferStore calls.
+	if callCounts["dx.op.createHandle"] != 1 {
+		t.Errorf("createHandle calls: got %d, want 1", callCounts["dx.op.createHandle"])
+	}
+	if callCounts["dx.op.threadId.i32"] != 3 {
+		t.Errorf("threadId calls: got %d, want 3", callCounts["dx.op.threadId.i32"])
+	}
+	if callCounts["dx.op.bufferLoad.i32"] < 1 {
+		t.Errorf("bufferLoad calls: got %d, want >= 1", callCounts["dx.op.bufferLoad.i32"])
+	}
+	if callCounts["dx.op.bufferStore.i32"] < 1 {
+		t.Errorf("bufferStore calls: got %d, want >= 1", callCounts["dx.op.bufferStore.i32"])
+	}
+
+	// Serialize to verify valid bitcode.
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+	if len(bc)%4 != 0 {
+		t.Errorf("bitcode not 32-bit aligned: %d bytes", len(bc))
+	}
+
+	t.Logf("compute with UAV: %d types, %d functions, %d constants, %d bytes bitcode",
+		len(result.Types), len(result.Functions), len(result.Constants), len(bc))
+}
+
+func TestEmitComputeNoOutputSignature(t *testing.T) {
+	// Compute shaders have no output signature (no storeOutput calls).
+	irMod := buildMinimalComputeShader()
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// No storeOutput calls should be present.
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil {
+				name := instr.CalledFunc.Name
+				if len(name) > 16 && name[:16] == "dx.op.storeOutpu" {
+					t.Errorf("unexpected storeOutput call in compute shader: %s", name)
+				}
+			}
+		}
+	}
+}
+
+func TestEmitComputeWorkgroupZeroClamping(t *testing.T) {
+	// Workgroup dimensions of 0 should be clamped to 1 (per Mesa behavior).
+	irMod := buildMinimalComputeShader()
+	irMod.EntryPoints[0].Workgroup = [3]uint32{64, 0, 0}
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Just verify it compiles and serializes.
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+}
+
+func TestEmitComputeUAVResourceMetadata(t *testing.T) {
+	irMod := buildComputeWithUAV()
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Verify dx.resources metadata is present.
+	found := false
+	for _, nm := range result.NamedMetadata {
+		if nm.Name == "dx.resources" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("dx.resources metadata not present for shader with UAV")
+	}
+}

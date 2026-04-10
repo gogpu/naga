@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `extractvalue`. Supports f32/i32/f64/i64/f16 overloads, struct member access at
   arbitrary offsets, and multi-register layouts. Reference: Mesa `nir_to_dxil.c:load_ubo()`.
 
+- **DXIL Phase 2: Compute shader foundation** — Compute shaders (`@compute`) now compile
+  to DXIL. Includes:
+  - Thread ID builtins: `dx.op.threadId` (GlobalInvocationId), `dx.op.groupId` (WorkGroupId),
+    `dx.op.threadIdInGroup` (LocalInvocationId), `dx.op.flattenedThreadIdInGroup` (LocalInvocationIndex)
+  - `numthreads` metadata from `@workgroup_size(X,Y,Z)`
+  - UAV (storage buffer) support: `dx.op.bufferLoad`/`dx.op.bufferStore` for `var<storage, read_write>`
+  - Compute entry points with no I/O signatures (per DXIL spec)
+  - Reference: Mesa `nir_to_dxil.c` emit_threadid_call, emit_uav, emit_barrier_impl
+
 ### Changed
 
 - **SPIR-V structural comparison: allow-list for intentional divergences** — Shaders where

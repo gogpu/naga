@@ -634,6 +634,314 @@ func (e *Emitter) getDxOpCBufLoadFunc(ol overloadType) *module.Function {
 	return fn
 }
 
+// --- UAV (storage buffer) operations ---
+
+// uavPointerChain describes a resolved pointer chain leading to a UAV element.
+type uavPointerChain struct {
+	varHandle ir.GlobalVariableHandle
+	indexExpr ir.ExpressionHandle // array index expression (dynamic)
+	elemType  ir.TypeInner        // element type (what's being loaded/stored)
+	scalar    ir.ScalarType       // scalar element type for overload selection
+}
+
+// resolveUAVPointerChain walks an expression chain and determines whether it
+// leads to a UAV (storage buffer) global variable. If so, returns chain info.
+//
+// Supported patterns:
+//   - ExprAccess → ExprGlobalVariable (dynamic array index)
+//   - ExprAccessIndex → ExprGlobalVariable (constant array index)
+//   - ExprGlobalVariable (entire buffer — not typical)
+//
+// Reference: Mesa nir_to_dxil.c emit_store_ssbo() for storage buffer write patterns
+func (e *Emitter) resolveUAVPointerChain(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*uavPointerChain, bool) {
+	if int(ptrHandle) >= len(fn.Expressions) {
+		return nil, false
+	}
+	expr := fn.Expressions[ptrHandle]
+
+	switch ek := expr.Kind.(type) {
+	case ir.ExprAccess:
+		// Dynamic index: data[index] where index is a runtime expression.
+		return e.resolveUAVAccessChain(fn, ek.Base, ek.Index, true)
+
+	case ir.ExprAccessIndex:
+		// Constant index: data[N] where N is compile-time constant.
+		return e.resolveUAVAccessIndexChain(fn, ek.Base, ek.Index)
+
+	default:
+		return nil, false
+	}
+}
+
+// resolveUAVAccessChain resolves a dynamic-index access to a UAV global variable.
+func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle ir.ExpressionHandle, _ bool) (*uavPointerChain, bool) {
+	if int(baseHandle) >= len(fn.Expressions) {
+		return nil, false
+	}
+	baseExpr := fn.Expressions[baseHandle]
+
+	gv, ok := baseExpr.Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return nil, false
+	}
+
+	idx, found := e.resourceHandles[gv.Variable]
+	if !found {
+		return nil, false
+	}
+	res := &e.resources[idx]
+	if res.class != resourceClassUAV {
+		return nil, false
+	}
+
+	// Determine element type from the array base type.
+	elemType, scalar, ok := e.resolveUAVElementType(gv.Variable)
+	if !ok {
+		return nil, false
+	}
+
+	return &uavPointerChain{
+		varHandle: gv.Variable,
+		indexExpr: indexHandle,
+		elemType:  elemType,
+		scalar:    scalar,
+	}, true
+}
+
+// resolveUAVAccessIndexChain resolves a constant-index access to a UAV.
+func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.ExpressionHandle, _ uint32) (*uavPointerChain, bool) {
+	if int(baseHandle) >= len(fn.Expressions) {
+		return nil, false
+	}
+	baseExpr := fn.Expressions[baseHandle]
+
+	gv, ok := baseExpr.Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return nil, false
+	}
+
+	idx, found := e.resourceHandles[gv.Variable]
+	if !found {
+		return nil, false
+	}
+	res := &e.resources[idx]
+	if res.class != resourceClassUAV {
+		return nil, false
+	}
+
+	elemType, scalar, ok := e.resolveUAVElementType(gv.Variable)
+	if !ok {
+		return nil, false
+	}
+
+	// For constant-index access, we create a synthetic "literal" expression
+	// handle. The caller must have the index available from the AccessIndex.
+	// We store baseHandle as the index — caller should emit the constant index.
+	return &uavPointerChain{
+		varHandle: gv.Variable,
+		indexExpr: baseHandle, // placeholder; actual index is the constant from AccessIndex
+		elemType:  elemType,
+		scalar:    scalar,
+	}, true
+}
+
+// resolveUAVElementType determines the element type of a UAV's array contents.
+// Storage buffers in naga IR are typed as array<T> or struct { array<T> }.
+func (e *Emitter) resolveUAVElementType(varHandle ir.GlobalVariableHandle) (ir.TypeInner, ir.ScalarType, bool) {
+	if int(varHandle) >= len(e.ir.GlobalVariables) {
+		return nil, ir.ScalarType{}, false
+	}
+	gv := &e.ir.GlobalVariables[varHandle]
+	if int(gv.Type) >= len(e.ir.Types) {
+		return nil, ir.ScalarType{}, false
+	}
+
+	inner := e.ir.Types[gv.Type].Inner
+
+	// Unwrap struct wrapper if present (e.g., struct { data: array<u32> }).
+	if st, ok := inner.(ir.StructType); ok {
+		if len(st.Members) > 0 {
+			memberType := e.ir.Types[st.Members[0].Type]
+			inner = memberType.Inner
+		}
+	}
+
+	// Now inner should be an ArrayType — get the element type.
+	if arr, ok := inner.(ir.ArrayType); ok {
+		elemInner := e.ir.Types[arr.Base].Inner
+		scalar, found := scalarOfType(elemInner)
+		if found {
+			return elemInner, scalar, true
+		}
+	}
+
+	// Direct scalar or vector type (rare for storage buffers).
+	scalar, found := scalarOfType(inner)
+	return inner, scalar, found
+}
+
+// emitUAVLoad emits a dx.op.bufferLoad call for reading from a UAV (storage buffer).
+//
+// dx.op.bufferLoad signature:
+//
+//	%dx.types.ResRet.XX @dx.op.bufferLoad.XX(i32 68, %handle, i32 index, i32 offset)
+//
+// Returns the loaded value ID (first component for vectors).
+//
+// Reference: Mesa nir_to_dxil.c emit_bufferload_call() ~833
+func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, error) {
+	handleID, found := e.getResourceHandleID(chain.varHandle)
+	if !found {
+		return 0, fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
+	}
+
+	// Emit the index expression.
+	indexID, err := e.emitExpression(fn, chain.indexExpr)
+	if err != nil {
+		return 0, fmt.Errorf("UAV load index: %w", err)
+	}
+
+	ol := overloadForScalar(chain.scalar)
+	resRetTy := e.getDxResRetType(ol)
+	bufLoadFn := e.getDxOpBufferLoadFunc(ol)
+
+	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
+	undefVal := e.getUndefConstID()
+
+	// dx.op.bufferLoad(i32 68, %handle, i32 index, i32 undef)
+	retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, undefVal})
+
+	// Extract components from the ResRet struct.
+	numComps := componentCount(chain.elemType)
+	scalarTy := e.overloadReturnType(ol)
+
+	comps := make([]int, numComps)
+	for i := 0; i < numComps; i++ {
+		extractID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: scalarTy,
+			Operands:   []int{retID, i},
+			ValueID:    extractID,
+		}
+		e.currentBB.AddInstruction(instr)
+		comps[i] = extractID
+	}
+
+	if numComps > 1 {
+		e.pendingComponents = comps
+	}
+
+	return comps[0], nil
+}
+
+// emitUAVStore emits a dx.op.bufferStore call for writing to a UAV (storage buffer).
+//
+// dx.op.bufferStore signature:
+//
+//	void @dx.op.bufferStore.XX(i32 69, %handle, i32 index, i32 offset,
+//	                           XX val0, XX val1, XX val2, XX val3, i8 mask)
+//
+// Reference: Mesa nir_to_dxil.c emit_bufferstore_call() ~877
+func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHandle ir.ExpressionHandle) error {
+	handleID, found := e.getResourceHandleID(chain.varHandle)
+	if !found {
+		return fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
+	}
+
+	// Emit the index expression.
+	indexID, err := e.emitExpression(fn, chain.indexExpr)
+	if err != nil {
+		return fmt.Errorf("UAV store index: %w", err)
+	}
+
+	// Emit the value expression.
+	valueID, err := e.emitExpression(fn, valueHandle)
+	if err != nil {
+		return fmt.Errorf("UAV store value: %w", err)
+	}
+
+	ol := overloadForScalar(chain.scalar)
+	bufStoreFn := e.getDxOpBufferStoreFunc(ol)
+
+	opcodeVal := e.getIntConstID(int64(OpBufferStore))
+	undefVal := e.getUndefConstID()
+
+	// Determine number of components and build value slots.
+	numComps := componentCount(chain.elemType)
+	vals := [4]int{undefVal, undefVal, undefVal, undefVal}
+	for i := 0; i < numComps && i < 4; i++ {
+		if numComps == 1 {
+			vals[i] = valueID
+		} else {
+			vals[i] = e.getComponentID(valueHandle, i)
+		}
+	}
+
+	// Write mask: bit per component written.
+	writeMask := (1 << numComps) - 1
+	maskVal := e.getI8ConstID(int64(writeMask))
+
+	// dx.op.bufferStore(i32 69, %handle, i32 index, i32 undef,
+	//                   val0, val1, val2, val3, i8 mask)
+	e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
+		opcodeVal, handleID, indexID, undefVal,
+		vals[0], vals[1], vals[2], vals[3],
+		maskVal,
+	})
+
+	return nil
+}
+
+// getDxOpBufferLoadFunc creates the dx.op.bufferLoad.XX function declaration.
+// Signature: %dx.types.ResRet.XX @dx.op.bufferLoad.XX(i32, %handle, i32, i32)
+//
+// Reference: Mesa nir_to_dxil.c emit_bufferload_call() ~833
+func (e *Emitter) getDxOpBufferLoadFunc(ol overloadType) *module.Function {
+	name := "dx.op.bufferLoad"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	resRetTy := e.getDxResRetType(ol)
+	handleTy := e.getDxHandleType()
+	i32Ty := e.mod.GetIntType(32)
+
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(resRetTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpBufferStoreFunc creates the dx.op.bufferStore.XX function declaration.
+// Signature: void @dx.op.bufferStore.XX(i32, %handle, i32, i32, XX, XX, XX, XX, i8)
+//
+// Reference: Mesa nir_to_dxil.c emit_bufferstore_call() ~877
+func (e *Emitter) getDxOpBufferStoreFunc(ol overloadType) *module.Function {
+	name := "dx.op.bufferStore"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	voidTy := e.mod.GetVoidType()
+	handleTy := e.getDxHandleType()
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	valTy := e.overloadReturnType(ol)
+
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, valTy, valTy, valTy, valTy, i8Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
 // resourceKind returns the DXIL resource kind integer for metadata.
 // Reference: D3D12_SRV_DIMENSION / DXIL resource kinds.
 func (e *Emitter) resourceKind(res *resourceInfo) int {
@@ -661,7 +969,19 @@ func (e *Emitter) resourceKind(res *resourceInfo) int {
 		}
 		return 4 // default Texture2D
 	case resourceClassUAV:
-		return 4 // default Texture2D for UAV
+		// Determine from type: typed buffer vs structured buffer vs raw buffer.
+		if int(res.typeHandle) < len(e.ir.Types) {
+			inner := e.ir.Types[res.typeHandle].Inner
+			// Unwrap struct wrapper (common for storage buffers).
+			if st, ok := inner.(ir.StructType); ok && len(st.Members) > 0 {
+				inner = e.ir.Types[st.Members[0].Type].Inner
+			}
+			switch inner.(type) {
+			case ir.ArrayType:
+				return 12 // RawBuffer (for typed array storage buffers)
+			}
+		}
+		return 12 // default RawBuffer for UAV storage buffers
 	default:
 		return 0
 	}

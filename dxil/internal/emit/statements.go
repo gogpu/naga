@@ -161,12 +161,17 @@ func (e *Emitter) emitReturnComposite(fn *ir.Function, valueID int, inner ir.Typ
 // emitStmtStore handles store statements.
 //
 // In naga IR, stores write a value through a pointer expression.
-// In DXIL, this emits an LLVM store instruction:
+// For UAV (storage buffers), this emits dx.op.bufferStore.
+// For local variables, this emits an LLVM store instruction.
 //
-//	store TYPE %value, TYPE* %ptr, align N
-//
-// Reference: Mesa nir_to_dxil.c dxil_emit_store()
+// Reference: Mesa nir_to_dxil.c dxil_emit_store(), emit_bufferstore_call()
 func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
+	// Check if this store targets a UAV (storage buffer).
+	// UAV stores use dx.op.bufferStore instead of LLVM store instructions.
+	if chain, ok := e.resolveUAVPointerChain(fn, store.Pointer); ok {
+		return e.emitUAVStore(fn, chain, store.Value)
+	}
+
 	ptr, err := e.emitExpression(fn, store.Pointer)
 	if err != nil {
 		return fmt.Errorf("store pointer: %w", err)

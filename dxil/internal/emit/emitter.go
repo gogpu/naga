@@ -302,7 +302,7 @@ func (e *Emitter) finalize(mainFn *module.Function) {
 }
 
 // emitMetadata writes the required DXIL metadata nodes.
-func (e *Emitter) emitMetadata(_ *ir.EntryPoint, kind module.ShaderKind) {
+func (e *Emitter) emitMetadata(ep *ir.EntryPoint, kind module.ShaderKind) {
 	i32Ty := e.mod.GetIntType(32)
 
 	// dx.version = !{i32 1, i32 MINOR}
@@ -327,14 +327,24 @@ func (e *Emitter) emitMetadata(_ *ir.EntryPoint, kind module.ShaderKind) {
 	// Emit resource metadata if we have any resources.
 	mdResources := e.emitResourceMetadata()
 
-	// dx.entryPoints = !{!{null, !"main", null, !resources, null}}
+	// Build shader properties (tag-value pairs) for the entry point.
+	// Compute shaders require kDxilNumThreadsTag (4) with workgroup dimensions.
+	//
+	// Reference: Mesa nir_to_dxil.c emit_metadata() ~2038,
+	// DXIL.rst: kDxilNumThreadsTag(4) MD list: (i32, i32, i32)
+	var mdProperties *module.MetadataNode
+	if kind == module.ComputeShader {
+		mdProperties = e.emitComputeProperties(ep)
+	}
+
+	// dx.entryPoints = !{!{null, !"main", null, !resources, !properties}}
 	mdName := e.mod.AddMetadataString("main")
 	mdEntry := e.mod.AddMetadataTuple([]*module.MetadataNode{
-		nil,         // function ref (simplified)
-		mdName,      // entry point name
-		nil,         // signatures
-		mdResources, // resources (nil if none)
-		nil,         // properties
+		nil,          // function ref (simplified)
+		mdName,       // entry point name
+		nil,          // signatures
+		mdResources,  // resources (nil if none)
+		mdProperties, // properties (nil if none)
 	})
 	e.mod.AddNamedMetadata("dx.entryPoints", []*module.MetadataNode{mdEntry})
 
@@ -342,6 +352,41 @@ func (e *Emitter) emitMetadata(_ *ir.EntryPoint, kind module.ShaderKind) {
 	mdIdent := e.mod.AddMetadataString("dxil-go-naga")
 	mdIdentTuple := e.mod.AddMetadataTuple([]*module.MetadataNode{mdIdent})
 	e.mod.AddNamedMetadata("llvm.ident", []*module.MetadataNode{mdIdentTuple})
+}
+
+// emitComputeProperties builds the shader properties metadata for a compute
+// shader entry point. Contains tag-value pairs for numthreads.
+//
+// Format: !{i32 kDxilNumThreadsTag, !{i32 X, i32 Y, i32 Z}}
+// kDxilNumThreadsTag = 4
+//
+// Reference: Mesa nir_to_dxil.c emit_threads() ~1785, emit_tag() ~1967
+func (e *Emitter) emitComputeProperties(ep *ir.EntryPoint) *module.MetadataNode {
+	i32Ty := e.mod.GetIntType(32)
+
+	// Tag = kDxilNumThreadsTag = 4.
+	mdTag := e.mod.AddMetadataValue(i32Ty, e.getIntConst(4))
+
+	// Value = !{i32 X, i32 Y, i32 Z} with minimum of 1 per axis.
+	x := max32(ep.Workgroup[0], 1)
+	y := max32(ep.Workgroup[1], 1)
+	z := max32(ep.Workgroup[2], 1)
+
+	mdX := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(x)))
+	mdY := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(y)))
+	mdZ := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(z)))
+	mdThreads := e.mod.AddMetadataTuple([]*module.MetadataNode{mdX, mdY, mdZ})
+
+	// Properties = !{tag, value, ...}
+	return e.mod.AddMetadataTuple([]*module.MetadataNode{mdTag, mdThreads})
+}
+
+// max32 returns the larger of a and b.
+func max32(a, b uint32) uint32 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // getIntConstID returns the emitter value ID for a cached i32 constant.
