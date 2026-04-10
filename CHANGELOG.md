@@ -25,6 +25,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Barriers: `dx.op.barrier` with storage/workgroup/subgroup flag mapping
   - Reference: Mesa `nir_to_dxil.c`
 
+### Fixed
+
+- **DXIL: bitcode binary operation opcodes** — `BinOpKind` constants used LLVM IR enum
+  numbering (FAdd=1) instead of bitcode unified opcodes (Add/FAdd=0). DXC decoded our
+  FAdd as FSub. Fixed to match Mesa `dxil_module.h` encoding.
+
+- **DXIL: finalize() operand remapping** — `finalize()` remapped ALL instruction operands
+  as value IDs, corrupting type IDs, opcodes, alignment values, and basic block indices.
+  Added `valueOperandIndices()` that precisely identifies which operands are values per
+  instruction type.
+
+- **DXIL: alloca alignment encoding** — Was `log2(bytes)`, should be `log2(bytes)+1` per
+  LLVM 3.7 / Mesa `dxil_emit_alloca()`.
+
+- **DXIL: vector local variable scalarization** — Single alloca for `vec4<f32>` replaced
+  with per-component allocas. Store/Load now operate on correct components.
+
+- **DXIL: GEP struct access** — Added `getelementptr` (FUNC_CODE_INST_GEP=43) for struct
+  member access from local variable pointers. Nested struct access with flat offset
+  computation. Struct store decomposed into per-scalar-field GEP + store.
+
+- **DXIL: retail hash wired up** — `ComputeRetailHash()` (INF-0004 modified MD5) was
+  implemented but never called. Now used when `UseBypassHash=false`.
+
+- **DXIL: push constants as CBV** — `SpacePushConstant` and `SpaceImmediate` globals
+  classified as CBV resources with synthetic bindings.
+
+- **DXIL: DXC dumpbin validation** — 60/165 shaders pass DXC dumpbin (36.4%), up from 0
+  before these fixes. Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
+
 ### Changed
 
 - **SPIR-V Rust reference: allow-list for intentional divergences** — Unified allow-list
