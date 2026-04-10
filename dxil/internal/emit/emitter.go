@@ -491,14 +491,17 @@ func (e *Emitter) emitMetadata(ep *ir.EntryPoint, kind module.ShaderKind) {
 	mdSM := e.mod.AddMetadataTuple([]*module.MetadataNode{mdKind, mdSMMajor, mdSMMinor})
 	e.mod.AddNamedMetadata("dx.shaderModel", []*module.MetadataNode{mdSM})
 
+	// dx.viewIdState — required for mesh shaders.
+	// Format: !{[3 x i32] [i32 0, i32 numOutputComps, i32 numPrimComps]}
+	// numOutputComps = 4 * numOutputElements, numPrimComps = 4 * numPrimElements
+	if kind == module.MeshShader {
+		e.emitViewIDState(ep)
+	}
+
 	// Emit resource metadata if we have any resources.
 	mdResources := e.emitResourceMetadata()
 
 	// Build shader properties (tag-value pairs) for the entry point.
-	// Compute shaders require kDxilNumThreadsTag (4) with workgroup dimensions.
-	//
-	// Reference: Mesa nir_to_dxil.c emit_metadata() ~2038,
-	// DXIL.rst: kDxilNumThreadsTag(4) MD list: (i32, i32, i32)
 	var mdProperties *module.MetadataNode
 	switch kind {
 	case module.ComputeShader:
@@ -507,12 +510,18 @@ func (e *Emitter) emitMetadata(ep *ir.EntryPoint, kind module.ShaderKind) {
 		mdProperties = e.emitMeshProperties(ep)
 	}
 
-	// dx.entryPoints = !{!{null, !"main", null, !resources, !properties}}
+	// Build entry point signatures metadata (needed for mesh shaders).
+	var mdSignatures *module.MetadataNode
+	if kind == module.MeshShader {
+		mdSignatures = e.emitMeshSignatureMetadata(ep)
+	}
+
+	// dx.entryPoints = !{!{null, !"main", !signatures, !resources, !properties}}
 	mdName := e.mod.AddMetadataString("main")
 	mdEntry := e.mod.AddMetadataTuple([]*module.MetadataNode{
 		nil,          // function ref (simplified)
 		mdName,       // entry point name
-		nil,          // signatures
+		mdSignatures, // signatures (nil for non-mesh)
 		mdResources,  // resources (nil if none)
 		mdProperties, // properties (nil if none)
 	})
@@ -552,60 +561,234 @@ func (e *Emitter) emitComputeProperties(ep *ir.EntryPoint) *module.MetadataNode 
 }
 
 // emitMeshProperties builds the shader properties metadata for a mesh shader
-// entry point. Contains tag-value pairs for numthreads and mesh state.
+// entry point. Contains ONLY kDxilMSStateTag (tag 9) with numthreads nested inside.
 //
-// Format:
+// DXC reference format:
 //
-//	!{i32 4, !{i32 X, i32 Y, i32 Z},                                          // kDxilNumThreadsTag
-//	  i32 9, !{i32 X, i32 Y, i32 Z, i32 maxVert, i32 maxPrim, i32 topo, i32 payloadSize}} // kDxilMSStateTag
+//	!{i32 9, !{!{i32 X, i32 Y, i32 Z}, i32 maxVert, i32 maxPrim, i32 topo, i32 payloadSize}}
 //
-// kDxilMSStateTag = 9
+// kDxilMSStateTag = 9. Numthreads is a nested tuple inside the mesh state.
 // outputTopology: 1=line, 2=triangle
 func (e *Emitter) emitMeshProperties(ep *ir.EntryPoint) *module.MetadataNode {
-	i32Ty := e.mod.GetIntType(32)
+	if ep.MeshInfo == nil {
+		return nil
+	}
 
-	// Tag 4: kDxilNumThreadsTag.
-	mdNumThreadsTag := e.mod.AddMetadataValue(i32Ty, e.getIntConst(4))
+	i32Ty := e.mod.GetIntType(32)
+	mi := ep.MeshInfo
+
+	mdMSTag := e.mod.AddMetadataValue(i32Ty, e.getIntConst(9))
+
 	x := max(ep.Workgroup[0], 1)
 	y := max(ep.Workgroup[1], 1)
 	z := max(ep.Workgroup[2], 1)
+
+	// Numthreads as nested tuple.
 	mdX := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(x)))
 	mdY := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(y)))
 	mdZ := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(z)))
 	mdThreads := e.mod.AddMetadataTuple([]*module.MetadataNode{mdX, mdY, mdZ})
 
-	var elements []*module.MetadataNode
-	elements = append(elements, mdNumThreadsTag, mdThreads)
+	maxVert := int64(mi.MaxVertices)
+	maxPrim := int64(mi.MaxPrimitives)
+	topo := meshTopologyToDXIL(mi.Topology)
 
-	// Tag 9: kDxilMSStateTag (mesh shader state).
-	if ep.MeshInfo != nil {
-		mi := ep.MeshInfo
-		mdMSTag := e.mod.AddMetadataValue(i32Ty, e.getIntConst(9))
-
-		maxVert := int64(mi.MaxVertices)
-		maxPrim := int64(mi.MaxPrimitives)
-		topo := meshTopologyToDXIL(mi.Topology)
-
-		// Payload size: compute from task payload type if available.
-		payloadSize := int64(0)
-		if ep.TaskPayload != nil {
-			payloadSize = e.computeTypeSize(e.ir.GlobalVariables[*ep.TaskPayload].Type)
-		}
-
-		mdMSX := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(x)))
-		mdMSY := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(y)))
-		mdMSZ := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(z)))
-		mdMaxVert := e.mod.AddMetadataValue(i32Ty, e.getIntConst(maxVert))
-		mdMaxPrim := e.mod.AddMetadataValue(i32Ty, e.getIntConst(maxPrim))
-		mdTopo := e.mod.AddMetadataValue(i32Ty, e.getIntConst(topo))
-		mdPayload := e.mod.AddMetadataValue(i32Ty, e.getIntConst(payloadSize))
-		mdMSState := e.mod.AddMetadataTuple([]*module.MetadataNode{
-			mdMSX, mdMSY, mdMSZ, mdMaxVert, mdMaxPrim, mdTopo, mdPayload,
-		})
-		elements = append(elements, mdMSTag, mdMSState)
+	// Payload size: compute from task payload type if available.
+	payloadSize := int64(0)
+	if ep.TaskPayload != nil {
+		payloadSize = e.computeTypeSize(e.ir.GlobalVariables[*ep.TaskPayload].Type)
 	}
 
-	return e.mod.AddMetadataTuple(elements)
+	mdMaxVert := e.mod.AddMetadataValue(i32Ty, e.getIntConst(maxVert))
+	mdMaxPrim := e.mod.AddMetadataValue(i32Ty, e.getIntConst(maxPrim))
+	mdTopo := e.mod.AddMetadataValue(i32Ty, e.getIntConst(topo))
+	mdPayload := e.mod.AddMetadataValue(i32Ty, e.getIntConst(payloadSize))
+	mdMSState := e.mod.AddMetadataTuple([]*module.MetadataNode{
+		mdThreads, mdMaxVert, mdMaxPrim, mdTopo, mdPayload,
+	})
+
+	return e.mod.AddMetadataTuple([]*module.MetadataNode{mdMSTag, mdMSState})
+}
+
+// emitViewIDState emits the dx.viewIdState metadata for mesh shaders.
+// Format: dx.viewIdState = !{[3 x i32] [i32 0, i32 numOutputComps, i32 numPrimComps]}
+//
+// numOutputComps = 4 * number of vertex output signature elements
+// numPrimComps = 4 * number of primitive output signature elements (excluding indices)
+func (e *Emitter) emitViewIDState(ep *ir.EntryPoint) {
+	numOutputComps := int64(0)
+	numPrimComps := int64(0)
+
+	if ep.MeshInfo != nil {
+		numOutputComps = e.countMeshOutputComps(ep.MeshInfo.VertexOutputType, false)
+		numPrimComps = e.countMeshOutputComps(ep.MeshInfo.PrimitiveOutputType, true)
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+	arrTy := e.mod.GetArrayType(i32Ty, 3)
+
+	c0 := e.getIntConst(0)
+	c1 := e.getIntConst(numOutputComps)
+	c2 := e.getIntConst(numPrimComps)
+
+	aggConst := e.mod.AddAggregateConst(arrTy, []*module.Constant{c0, c1, c2})
+	aggID := e.allocValue()
+	e.constMap[aggID] = aggConst
+
+	mdViewID := e.mod.AddMetadataValue(arrTy, aggConst)
+	mdViewIDTuple := e.mod.AddMetadataTuple([]*module.MetadataNode{mdViewID})
+	e.mod.AddNamedMetadata("dx.viewIdState", []*module.MetadataNode{mdViewIDTuple})
+}
+
+// countMeshOutputComps counts the total components in a mesh output struct type.
+// For primitive outputs, index builtins (triangle_indices, line_indices, point_index) are excluded.
+func (e *Emitter) countMeshOutputComps(typeHandle ir.TypeHandle, isPrimitive bool) int64 {
+	if int(typeHandle) >= len(e.ir.Types) {
+		return 0
+	}
+	st, ok := e.ir.Types[typeHandle].Inner.(ir.StructType)
+	if !ok {
+		return 0
+	}
+	total := int64(0)
+	for _, member := range st.Members {
+		if member.Binding == nil {
+			continue
+		}
+		if isPrimitive {
+			if bb, isBB := (*member.Binding).(ir.BuiltinBinding); isBB {
+				if bb.Builtin == ir.BuiltinTriangleIndices ||
+					bb.Builtin == ir.BuiltinLineIndices ||
+					bb.Builtin == ir.BuiltinPointIndex {
+					continue
+				}
+			}
+		}
+		total += e.memberComponentCount(member.Type)
+	}
+	return total
+}
+
+// memberComponentCount returns the number of components in a type (4 for vec4, 1 for scalar).
+func (e *Emitter) memberComponentCount(th ir.TypeHandle) int64 {
+	if int(th) >= len(e.ir.Types) {
+		return 4
+	}
+	irType := e.ir.Types[th]
+	switch ti := irType.Inner.(type) {
+	case ir.VectorType:
+		return int64(ti.Size)
+	case ir.ScalarType:
+		return 1
+	default:
+		return 4
+	}
+}
+
+// emitMeshSignatureMetadata builds the signature metadata triplet for mesh shader
+// entry points. DXC format:
+//
+//	!{null, !outputSigs, null}
+//
+// Where outputSigs contains per-element metadata nodes describing each vertex output.
+// Each element: !{i32 sigID, !"SemanticName", i8 compType, i8 semKind, !{i32 semIndex}, i8 interpMode, i32 rows, i8 cols, i32 startRow, i8 startCol, !outputDeps}
+//
+//nolint:gocognit,nestif // signature metadata requires deep type inspection
+func (e *Emitter) emitMeshSignatureMetadata(ep *ir.EntryPoint) *module.MetadataNode {
+	if ep.MeshInfo == nil {
+		return nil
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	var outputElements []*module.MetadataNode
+
+	if int(ep.MeshInfo.VertexOutputType) < len(e.ir.Types) {
+		vtxType := e.ir.Types[ep.MeshInfo.VertexOutputType]
+		if st, ok := vtxType.Inner.(ir.StructType); ok {
+			sigID := 0
+			for _, member := range st.Members {
+				if member.Binding == nil {
+					continue
+				}
+
+				// Determine semantic name and kind.
+				semName := "TEXCOORD"
+				semKind := int64(0) // arbitrary
+				semIndex := int64(0)
+				interpMode := int64(0) // undefined
+				compType := int64(9)   // f32 = 9 in DXIL metadata
+
+				if bb, isBB := (*member.Binding).(ir.BuiltinBinding); isBB {
+					switch bb.Builtin {
+					case ir.BuiltinPosition:
+						semName = "SV_Position"
+						semKind = 3    // SV_Position
+						interpMode = 4 // noperspective
+					}
+				} else if lb, isLB := (*member.Binding).(ir.LocationBinding); isLB {
+					semIndex = int64(lb.Location)
+				}
+
+				// Component type in metadata.
+				cols := int64(4) // default vec4
+				if int(member.Type) < len(e.ir.Types) {
+					memberType := e.ir.Types[member.Type]
+					switch ti := memberType.Inner.(type) {
+					case ir.VectorType:
+						cols = int64(ti.Size)
+						switch ti.Scalar.Kind {
+						case ir.ScalarUint:
+							compType = 5 // u32
+						case ir.ScalarSint:
+							compType = 4 // i32
+						}
+					case ir.ScalarType:
+						cols = 1
+						switch ti.Kind {
+						case ir.ScalarUint:
+							compType = 5
+						case ir.ScalarSint:
+							compType = 4
+						}
+					}
+				}
+
+				// Build semantic index tuple.
+				mdSemIdx := e.mod.AddMetadataTuple([]*module.MetadataNode{
+					e.mod.AddMetadataValue(i32Ty, e.getIntConst(semIndex)),
+				})
+
+				// Element metadata: {sigID, "name", compType, semKind, semIndices, interpMode, rows, cols, startRow, startCol, deps_or_null}
+				// DXC uses !{i32 depMask, i32 compMask} for viewId tracking.
+				// null is used when there are no viewId dependencies.
+				mdElem := e.mod.AddMetadataTuple([]*module.MetadataNode{
+					e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(sigID))),
+					e.mod.AddMetadataString(semName),
+					e.mod.AddMetadataValue(i8Ty, e.getI8MetadataConst(compType)),
+					e.mod.AddMetadataValue(i8Ty, e.getI8MetadataConst(semKind)),
+					mdSemIdx,
+					e.mod.AddMetadataValue(i8Ty, e.getI8MetadataConst(interpMode)),
+					e.mod.AddMetadataValue(i32Ty, e.getIntConst(1)),          // rows
+					e.mod.AddMetadataValue(i8Ty, e.getI8MetadataConst(cols)), // cols
+					e.mod.AddMetadataValue(i32Ty, e.getIntConst(0)),          // startRow
+					e.mod.AddMetadataValue(i8Ty, e.getI8MetadataConst(0)),    // startCol
+					nil, // output dependencies (null = no viewId dependency)
+				})
+
+				outputElements = append(outputElements, mdElem)
+				sigID++
+			}
+		}
+	}
+
+	var mdOutputSigs *module.MetadataNode
+	if len(outputElements) > 0 {
+		mdOutputSigs = e.mod.AddMetadataTuple(outputElements)
+	}
+
+	// Signatures triplet: {inputSigs, outputSigs, primitiveSigs}
+	return e.mod.AddMetadataTuple([]*module.MetadataNode{nil, mdOutputSigs, nil})
 }
 
 // meshTopologyToDXIL maps naga mesh output topology to DXIL output topology.
@@ -822,6 +1005,16 @@ func (e *Emitter) getIntConst(v int64) *module.Constant {
 	c := e.mod.AddIntConst(e.mod.GetIntType(32), v)
 	id := e.allocValue()
 	e.intConsts[v] = id
+	e.constMap[id] = c
+	return c
+}
+
+// getI8MetadataConst creates an i8 constant for metadata signature elements.
+// These constants must be tracked in constMap so that finalize correctly
+// numbers all constants when computing instruction value deltas.
+func (e *Emitter) getI8MetadataConst(v int64) *module.Constant {
+	c := e.mod.AddIntConst(e.mod.GetIntType(8), v)
+	id := e.allocValue()
 	e.constMap[id] = c
 	return c
 }

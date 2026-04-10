@@ -14,8 +14,21 @@ import (
 // Reference: Mesa nir_to_dxil.c emit_load_input_via_intrinsic(),
 // emit_load_global_invocation_id(), emit_load_local_invocation_id()
 func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
+	// inputRow tracks the ISG1 row index. Each loadInput call uses this as
+	// the inputID operand. Must match the order in buildSignatures/buildSignaturesEx.
+	inputRow := 0
+
 	for argIdx, arg := range fn.Arguments {
 		if arg.Binding == nil {
+			// Struct-typed arguments have per-member bindings instead of a top-level binding.
+			argType := e.ir.Types[arg.Type]
+			if st, isSt := argType.Inner.(ir.StructType); isSt {
+				n, err := e.emitStructInputLoads(fn, argIdx, &st, stage, inputRow)
+				if err != nil {
+					return err
+				}
+				inputRow += n
+			}
 			continue
 		}
 
@@ -29,20 +42,23 @@ func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
 			}
 		}
 
-		if err := e.emitSingleInputLoad(fn, argIdx, &arg, stage); err != nil {
+		if err := e.emitSingleInputLoad(fn, argIdx, &arg, stage, inputRow); err != nil {
 			return err
 		}
+		inputRow++
 	}
 	return nil
 }
 
 // emitSingleInputLoad emits dx.op.loadInput calls for a single argument.
-func (e *Emitter) emitSingleInputLoad(fn *ir.Function, argIdx int, arg *ir.FunctionArgument, stage ir.ShaderStage) error {
+// inputRow is the ISG1 row index for this argument's signature element.
+func (e *Emitter) emitSingleInputLoad(fn *ir.Function, argIdx int, arg *ir.FunctionArgument, stage ir.ShaderStage, inputRow int) error {
 	argType := e.ir.Types[arg.Type]
 	scalar, ok := scalarOfType(argType.Inner)
 	if !ok {
 		if st, isSt := argType.Inner.(ir.StructType); isSt {
-			return e.emitStructInputLoads(fn, argIdx, &st, stage)
+			_, err := e.emitStructInputLoads(fn, argIdx, &st, stage, inputRow)
+			return err
 		}
 		return fmt.Errorf("unsupported input type for argument %d", argIdx)
 	}
@@ -50,7 +66,7 @@ func (e *Emitter) emitSingleInputLoad(fn *ir.Function, argIdx int, arg *ir.Funct
 	numComps := componentCount(argType.Inner)
 	ol := overloadForScalar(scalar)
 	loadFn := e.getDxOpLoadFunc(ol)
-	inputID := e.locationFromBinding(*arg.Binding)
+	inputID := inputRow
 	exprHandle := e.findArgExprHandle(fn, argIdx)
 
 	for comp := 0; comp < numComps; comp++ {
@@ -177,9 +193,26 @@ func (e *Emitter) getDxOpComputeBuiltinFunc(name string, hasComponent bool) *mod
 	return fn
 }
 
-// emitStructInputLoads handles struct-typed inputs (e.g., vertex input structs).
-func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.StructType, _ ir.ShaderStage) error {
-	for _, member := range st.Members {
+// emitStructInputLoads handles struct-typed inputs (e.g., fragment shader struct arguments).
+// Each struct member with a binding becomes a separate loadInput call sequence.
+// The inputRow parameter is the starting ISG1 row index; returns the number of
+// signature elements consumed so the caller can advance the row counter.
+//
+// The loaded values are pre-registered on AccessIndex expressions that reference
+// this struct's members, so downstream expression evaluation resolves them directly.
+func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.StructType, _ ir.ShaderStage, inputRow int) (int, error) {
+	// Find the expression handle for this FunctionArgument.
+	argExprHandle := e.findArgExprHandle(fn, argIdx)
+
+	type memberInfo struct {
+		firstID int
+		comps   []int
+	}
+	memberValues := make(map[int]*memberInfo, len(st.Members))
+	rowCount := 0
+
+	for memberIdx := range st.Members {
+		member := &st.Members[memberIdx]
 		if member.Binding == nil {
 			continue
 		}
@@ -187,38 +220,55 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 		memberType := e.ir.Types[member.Type]
 		scalar, ok := scalarOfType(memberType.Inner)
 		if !ok {
-			continue
+			return 0, fmt.Errorf("unsupported struct member type for input %q", member.Name)
 		}
 
 		numComps := componentCount(memberType.Inner)
 		ol := overloadForScalar(scalar)
 		loadFn := e.getDxOpLoadFunc(ol)
-		inputID := e.locationFromBinding(*member.Binding)
+		inputID := inputRow + rowCount
 
+		info := &memberInfo{comps: make([]int, numComps)}
 		for comp := 0; comp < numComps; comp++ {
 			opcodeVal := e.getIntConstID(int64(OpLoadInput))
 			inputIDVal := e.getIntConstID(int64(inputID))
 			rowVal := e.getIntConstID(0)
-			colVal := e.getI8ConstID(int64(comp)) // col is i8
+			colVal := e.getI8ConstID(int64(comp))
 			vertexIDVal := e.getUndefConstID()
 
-			_ = e.addCallInstr(loadFn, loadFn.FuncType.RetType,
+			valueID := e.addCallInstr(loadFn, loadFn.FuncType.RetType,
 				[]int{opcodeVal, inputIDVal, rowVal, colVal, vertexIDVal})
-		}
-	}
-
-	// Also record the argument expression.
-	for exprIdx := range fn.Expressions {
-		if fa, ok := fn.Expressions[exprIdx].Kind.(ir.ExprFunctionArgument); ok {
-			if int(fa.Index) == argIdx {
-				// For struct args, the value ID is approximate.
-				// Real struct handling would track per-member.
-				e.exprValues[ir.ExpressionHandle(exprIdx)] = e.nextValue - 1
-				break
+			info.comps[comp] = valueID
+			if comp == 0 {
+				info.firstID = valueID
 			}
 		}
+		memberValues[memberIdx] = info
+		rowCount++
 	}
-	return nil
+
+	// Register a dummy value for the FunctionArgument expression so it doesn't
+	// error out when used as a base in AccessIndex.
+	e.exprValues[argExprHandle] = 0
+
+	// Pre-register AccessIndex expressions that reference members of this struct.
+	// This allows downstream expression evaluation to find loaded values directly.
+	for exprIdx := range fn.Expressions {
+		ai, ok := fn.Expressions[exprIdx].Kind.(ir.ExprAccessIndex)
+		if !ok || ai.Base != argExprHandle {
+			continue
+		}
+		info, hasInfo := memberValues[int(ai.Index)]
+		if !hasInfo {
+			continue
+		}
+		handle := ir.ExpressionHandle(exprIdx)
+		e.exprValues[handle] = info.firstID
+		if len(info.comps) > 1 {
+			e.exprComponents[handle] = info.comps
+		}
+	}
+	return rowCount, nil
 }
 
 // emitOutputStore emits a dx.op.storeOutput call for a single output.

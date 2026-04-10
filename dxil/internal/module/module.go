@@ -388,6 +388,11 @@ type Constant struct {
 	// IsUndef is true for undef values.
 	IsUndef bool
 
+	// IsAggregate is true for aggregate constants (arrays, structs).
+	// Elements contains the sub-constant value IDs.
+	IsAggregate bool
+	Elements    []*Constant
+
 	// ValueID is assigned during serialization.
 	ValueID int
 }
@@ -397,6 +402,18 @@ func (m *Module) AddIntConst(ty *Type, value int64) *Constant {
 	c := &Constant{
 		ConstType: ty,
 		IntValue:  value,
+	}
+	m.Constants = append(m.Constants, c)
+	return c
+}
+
+// AddAggregateConst adds an aggregate constant (array or struct) to the module.
+// The elements are the sub-constants that make up the aggregate.
+func (m *Module) AddAggregateConst(ty *Type, elements []*Constant) *Constant {
+	c := &Constant{
+		ConstType:   ty,
+		IsAggregate: true,
+		Elements:    elements,
 	}
 	m.Constants = append(m.Constants, c)
 	return c

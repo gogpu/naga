@@ -1361,7 +1361,8 @@ func (e *Emitter) emitMeshVertexAttributeStore(fn *ir.Function, chain meshAccess
 	}
 
 	// Emit the value expression.
-	if _, err := e.emitExpression(fn, valueHandle); err != nil {
+	valueID, err := e.emitExpression(fn, valueHandle)
+	if err != nil {
 		return fmt.Errorf("mesh vertex attribute value: %w", err)
 	}
 
@@ -1383,8 +1384,19 @@ func (e *Emitter) emitMeshVertexAttributeStore(fn *ir.Function, chain meshAccess
 	scalar, numComps := scalarAndComponentCount(memberIRType.Inner)
 	ol := overloadForScalar(scalar)
 
+	// Check if the value is a scalar being stored to a vector target.
+	// This happens when const evaluation folds array access to a scalar literal.
+	// In this case, splat the scalar to all components.
+	_, hasComps := e.exprComponents[valueHandle]
+	isScalarValue := !hasComps
+
 	for comp := 0; comp < numComps; comp++ {
-		compValueID := e.getComponentID(valueHandle, comp)
+		var compValueID int
+		if isScalarValue {
+			compValueID = valueID // splat scalar to all components
+		} else {
+			compValueID = e.getComponentID(valueHandle, comp)
+		}
 		e.emitStoreVertexOutput(sigID, comp, compValueID, vtxIdx, ol)
 	}
 	return nil

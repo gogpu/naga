@@ -357,6 +357,13 @@ func (s *serializer) emitConstants() {
 
 		if c.IsUndef {
 			s.w.EmitRecord(constCodeUndef, nil)
+		} else if c.IsAggregate {
+			// AGGREGATE: [elt0_valueid, elt1_valueid, ...]
+			vals := make([]uint64, len(c.Elements))
+			for i, elem := range c.Elements {
+				vals[i] = uid(elem.ValueID)
+			}
+			s.w.EmitRecord(constCodeAggregate, vals)
 		} else if c.ConstType.Kind == TypeInteger {
 			// Encode signed integers using the LLVM sign-rotating encoding:
 			// positive N → 2*N, negative N → 2*(-N)-1

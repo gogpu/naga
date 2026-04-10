@@ -156,12 +156,24 @@ func buildSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool) ([]co
 
 	// Inputs from function arguments.
 	for _, arg := range ep.Function.Arguments {
-		if arg.Binding == nil {
+		if arg.Binding != nil {
+			elems := bindingToSignatureElements(irMod, *arg.Binding, arg.Type, register, false, isFragment)
+			inputs = append(inputs, elems...)
+			register += uint32(len(elems)) //nolint:gosec // bounded by argument count
 			continue
 		}
-		elems := bindingToSignatureElements(irMod, *arg.Binding, arg.Type, register, false, isFragment)
-		inputs = append(inputs, elems...)
-		register += uint32(len(elems)) //nolint:gosec // bounded by argument count
+		// Struct-typed arguments have per-member bindings.
+		argType := irMod.Types[arg.Type]
+		if st, ok := argType.Inner.(ir.StructType); ok {
+			for _, member := range st.Members {
+				if member.Binding == nil {
+					continue
+				}
+				elems := bindingToSignatureElements(irMod, *member.Binding, member.Type, register, false, isFragment)
+				inputs = append(inputs, elems...)
+				register += uint32(len(elems)) //nolint:gosec // bounded by struct members
+			}
+		}
 	}
 
 	// Outputs from function result.
@@ -188,7 +200,7 @@ func buildSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool) ([]co
 }
 
 // bindingToSignatureElements converts a naga binding to signature elements.
-func bindingToSignatureElements(_ *ir.Module, binding ir.Binding, typeHandle ir.TypeHandle, register uint32, isOutput, isFragment bool) []container.SignatureElement {
+func bindingToSignatureElements(irMod *ir.Module, binding ir.Binding, typeHandle ir.TypeHandle, register uint32, isOutput, isFragment bool) []container.SignatureElement {
 	var sem container.SemanticMapping
 	if isOutput {
 		sem = container.MapBindingToSemantic(binding, true, isFragment)
@@ -196,19 +208,60 @@ func bindingToSignatureElements(_ *ir.Module, binding ir.Binding, typeHandle ir.
 		sem = container.MapBindingToSemantic(binding, false, isFragment)
 	}
 
-	// Default: float32, xyzw mask for vec4.
+	// Derive component type and mask from the IR type.
+	compType := container.CompTypeFloat32
+	mask := uint8(0x0F) // xyzw default (vec4)
+	if irMod != nil && int(typeHandle) < len(irMod.Types) {
+		t := irMod.Types[typeHandle]
+		compType, mask = sigCompTypeAndMask(t.Inner)
+	}
+	// Fragment shader SV_Position is always float32 vec4 regardless of type declaration.
+	if sem.SystemValue == container.SVPosition && isFragment && !isOutput {
+		compType = container.CompTypeFloat32
+		mask = 0x0F
+	}
+
 	elem := container.SignatureElement{
 		SemanticName:  sem.SemanticName,
 		SemanticIndex: sem.SemanticIndex,
 		SystemValue:   sem.SystemValue,
-		CompType:      container.CompTypeFloat32,
+		CompType:      compType,
 		Register:      register,
-		Mask:          0x0F, // xyzw
-		RWMask:        0x0F,
+		Mask:          mask,
+		RWMask:        mask,
 	}
-	_ = typeHandle // TODO: refine mask/compType from actual type
 
 	return []container.SignatureElement{elem}
+}
+
+// sigCompTypeAndMask returns the DXIL signature component type and mask for an IR type.
+func sigCompTypeAndMask(inner ir.TypeInner) (container.ProgSigCompType, uint8) {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return sigCompTypeForScalarKind(t.Kind), 0x01
+	case ir.VectorType:
+		ct := sigCompTypeForScalarKind(t.Scalar.Kind)
+		mask := uint8((1 << t.Size) - 1)
+		return ct, mask
+	default:
+		return container.CompTypeFloat32, 0x0F
+	}
+}
+
+// sigCompTypeForScalarKind maps an IR scalar kind to a DXIL signature component type.
+func sigCompTypeForScalarKind(kind ir.ScalarKind) container.ProgSigCompType {
+	switch kind {
+	case ir.ScalarFloat:
+		return container.CompTypeFloat32
+	case ir.ScalarSint:
+		return container.CompTypeSint32
+	case ir.ScalarUint:
+		return container.CompTypeUint32
+	case ir.ScalarBool:
+		return container.CompTypeUint32 // bool stored as u32 in signatures
+	default:
+		return container.CompTypeFloat32
+	}
 }
 
 // buildPSV creates pipeline state validation info for an entry point.
