@@ -295,6 +295,11 @@ func CompactTypes(module *Module) {
 	// Remap entry point functions (inline in EntryPoints)
 	for ei := range module.EntryPoints {
 		remapFunctionTypes(&module.EntryPoints[ei].Function, remap)
+		// Remap MeshStageInfo type handles.
+		if mi := module.EntryPoints[ei].MeshInfo; mi != nil {
+			mi.VertexOutputType = remap[mi.VertexOutputType]
+			mi.PrimitiveOutputType = remap[mi.PrimitiveOutputType]
+		}
 	}
 
 	// Remap type handles in GlobalExpressions (Compose.Type, ZeroValue.Type, etc.)
@@ -513,6 +518,11 @@ func ReorderTypes(module *Module) {
 	}
 	for ei := range module.EntryPoints {
 		safeRemapFunctionTypes(&module.EntryPoints[ei].Function, remap)
+		// Remap MeshStageInfo type handles.
+		if mi := module.EntryPoints[ei].MeshInfo; mi != nil {
+			mi.VertexOutputType = safeRemap(mi.VertexOutputType)
+			mi.PrimitiveOutputType = safeRemap(mi.PrimitiveOutputType)
+		}
 	}
 	for i := range module.GlobalExpressions {
 		module.GlobalExpressions[i].Kind = remapExprTypeHandles(module.GlobalExpressions[i].Kind, remap)

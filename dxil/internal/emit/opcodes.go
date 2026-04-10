@@ -99,6 +99,14 @@ const (
 	OpGroupID             DXILOpcode = 94
 	OpThreadIDInGroup     DXILOpcode = 95
 	OpFlattenedTIDInGroup DXILOpcode = 96
+
+	// Mesh shader operations.
+	OpSetMeshOutputCounts  DXILOpcode = 168
+	OpEmitIndices          DXILOpcode = 169
+	OpGetMeshPayload       DXILOpcode = 170
+	OpStoreVertexOutput    DXILOpcode = 171
+	OpStorePrimitiveOutput DXILOpcode = 172
+	OpDispatchMesh         DXILOpcode = 173
 )
 
 // DXILAtomicOp represents the atomic operation kind for dx.op.atomicBinOp.

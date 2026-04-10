@@ -19,8 +19,8 @@ func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
 			continue
 		}
 
-		// For compute shaders, builtins are loaded via dx.op thread ID intrinsics.
-		if stage == ir.StageCompute {
+		// For compute and mesh shaders, builtins are loaded via dx.op thread ID intrinsics.
+		if stage == ir.StageCompute || stage == ir.StageMesh || stage == ir.StageTask {
 			if bb, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
 				if err := e.emitComputeBuiltinLoad(fn, argIdx, bb.Builtin); err != nil {
 					return err
@@ -275,3 +275,115 @@ func builtinSemanticIndex(b ir.BuiltinValue) int {
 		return 0
 	}
 }
+
+// --- Mesh Shader Intrinsic Emission ---
+
+// emitSetMeshOutputCounts emits dx.op.setMeshOutputCounts(i32 168, i32 numVertices, i32 numPrimitives).
+func (e *Emitter) emitSetMeshOutputCounts(vertexCountID, primitiveCountID int) {
+	fn := e.getDxOpSetMeshOutputCountsFunc()
+	opcodeVal := e.getIntConstID(int64(OpSetMeshOutputCounts))
+	e.addCallInstr(fn, e.mod.GetVoidType(), []int{opcodeVal, vertexCountID, primitiveCountID})
+}
+
+// getDxOpSetMeshOutputCountsFunc creates the dx.op.setMeshOutputCounts function declaration.
+// void @dx.op.setMeshOutputCounts(i32 opcode, i32 numVertices, i32 numPrimitives)
+func (e *Emitter) getDxOpSetMeshOutputCountsFunc() *module.Function {
+	name := "dx.op.setMeshOutputCounts"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	voidTy := e.mod.GetVoidType()
+	i32Ty := e.mod.GetIntType(32)
+	params := []*module.Type{i32Ty, i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// emitEmitIndices emits dx.op.emitIndices(i32 169, i32 primIdx, i32 v0, i32 v1, i32 v2).
+func (e *Emitter) emitEmitIndices(primitiveIdx, v0, v1, v2 int) {
+	fn := e.getDxOpEmitIndicesFunc()
+	opcodeVal := e.getIntConstID(int64(OpEmitIndices))
+	e.addCallInstr(fn, e.mod.GetVoidType(), []int{opcodeVal, primitiveIdx, v0, v1, v2})
+}
+
+// getDxOpEmitIndicesFunc creates the dx.op.emitIndices function declaration.
+// void @dx.op.emitIndices(i32 opcode, i32 primIdx, i32 v0, i32 v1, i32 v2)
+func (e *Emitter) getDxOpEmitIndicesFunc() *module.Function {
+	name := "dx.op.emitIndices"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	voidTy := e.mod.GetVoidType()
+	i32Ty := e.mod.GetIntType(32)
+	params := []*module.Type{i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// emitStoreVertexOutput emits dx.op.storeVertexOutput.TYPE(i32 171, i32 sigId, i32 row, i8 col, TYPE value, i32 vertexIdx).
+func (e *Emitter) emitStoreVertexOutput(sigID, comp, valueID, vertexIdx int, ol overloadType) {
+	fn := e.getDxOpStoreVertexOutputFunc(ol)
+	opcodeVal := e.getIntConstID(int64(OpStoreVertexOutput))
+	sigIDVal := e.getIntConstID(int64(sigID))
+	rowVal := e.getIntConstID(0)
+	colVal := e.getI8ConstID(int64(comp))
+	e.addCallInstr(fn, e.mod.GetVoidType(), []int{opcodeVal, sigIDVal, rowVal, colVal, valueID, vertexIdx})
+}
+
+// getDxOpStoreVertexOutputFunc creates the dx.op.storeVertexOutput function declaration.
+// void @dx.op.storeVertexOutput.TYPE(i32 opcode, i32 sigId, i32 row, i8 col, TYPE value, i32 vertexIdx)
+func (e *Emitter) getDxOpStoreVertexOutputFunc(ol overloadType) *module.Function {
+	name := "dx.op.storeVertexOutput"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	voidTy := e.mod.GetVoidType()
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	valueTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, i32Ty, i32Ty, i8Ty, valueTy, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// emitStorePrimitiveOutput emits dx.op.storePrimitiveOutput.TYPE(i32 172, i32 sigId, i32 row, i8 col, TYPE value, i32 primIdx).
+func (e *Emitter) emitStorePrimitiveOutput(sigID, comp, valueID, primIdx int, ol overloadType) {
+	fn := e.getDxOpStorePrimitiveOutputFunc(ol)
+	opcodeVal := e.getIntConstID(int64(OpStorePrimitiveOutput))
+	sigIDVal := e.getIntConstID(int64(sigID))
+	rowVal := e.getIntConstID(0)
+	colVal := e.getI8ConstID(int64(comp))
+	e.addCallInstr(fn, e.mod.GetVoidType(), []int{opcodeVal, sigIDVal, rowVal, colVal, valueID, primIdx})
+}
+
+// getDxOpStorePrimitiveOutputFunc creates the dx.op.storePrimitiveOutput function declaration.
+func (e *Emitter) getDxOpStorePrimitiveOutputFunc(ol overloadType) *module.Function {
+	name := "dx.op.storePrimitiveOutput"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	voidTy := e.mod.GetVoidType()
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	valueTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, i32Ty, i32Ty, i8Ty, valueTy, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// TODO: emitGetMeshPayload — implement when task payload access is needed.
+// Signature: TYPE* @dx.op.getMeshPayload.TYPE(i32 170)

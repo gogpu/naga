@@ -21,6 +21,7 @@ var (
 	FourCCISG1 = fourCC('I', 'S', 'G', '1')
 	FourCCOSG1 = fourCC('O', 'S', 'G', '1')
 	FourCCPSV0 = fourCC('P', 'S', 'V', '0')
+	FourCCPSG1 = fourCC('P', 'S', 'G', '1')
 )
 
 func fourCC(a, b, c, d byte) uint32 {
@@ -65,7 +66,8 @@ func (c *Container) AddDXILPart(shaderKind uint32, majorVer, minorVer uint32, bi
 	binary.LittleEndian.PutUint32(hdr[0:], version)
 	binary.LittleEndian.PutUint32(hdr[4:], wordSize)
 	binary.LittleEndian.PutUint32(hdr[8:], 0x4C495844)                // DXIL magic
-	binary.LittleEndian.PutUint32(hdr[12:], 0x100)                    // DXIL version
+	dxilVersion := uint32(0x100) | minorVer                           // DXIL version 1.N
+	binary.LittleEndian.PutUint32(hdr[12:], dxilVersion)              // DXIL version
 	binary.LittleEndian.PutUint32(hdr[16:], 16)                       // bitcode offset
 	binary.LittleEndian.PutUint32(hdr[20:], uint32(len(bitcodeData))) //nolint:gosec // same as totalSize check above
 
@@ -85,12 +87,21 @@ func (c *Container) AddFeaturesPart(features uint64) {
 }
 
 // AddHashPart adds the HASH part with the BYPASS sentinel.
+//
+// The HASH part format is:
+//
+//	Flags:  uint32 (0 = retail hash present)
+//	Digest: [16]byte (hash value)
+//
+// Total: 20 bytes. The actual hash is set by SetBypassHash or
+// ComputeRetailHash which operate on the container header's digest
+// field, not on the HASH part itself. The HASH part just reserves
+// space for the DXC dumpbin reader.
 func (c *Container) AddHashPart() {
-	// BYPASS sentinel: 01010101...01010101 (16 bytes).
-	data := make([]byte, 16)
-	for i := range data {
-		data[i] = 0x01
-	}
+	data := make([]byte, 20)
+	// Flags = 0 (retail hash format).
+	// Digest = zeros (will be overwritten by SetBypassHash/ComputeRetailHash
+	// via the container header, not via this part).
 	c.parts = append(c.parts, part{fourCC: FourCCHASH, data: data})
 }
 

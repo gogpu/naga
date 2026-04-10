@@ -362,6 +362,16 @@ func (e *Emitter) emitScalarLoad(scalarTy *module.Type, ptrID int) int {
 //
 // Reference: Mesa nir_to_dxil.c dxil_emit_store(), emit_bufferstore_call()
 func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
+	// Check if this store targets a mesh output variable.
+	// Mesh output stores are converted to dx.op mesh shader intrinsics.
+	if e.meshCtx != nil {
+		if handled, err := e.tryEmitMeshOutputStore(fn, store); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+	}
+
 	// Check if this store targets a UAV (storage buffer).
 	// UAV stores use dx.op.bufferStore instead of LLVM store instructions.
 	if chain, ok := e.resolveUAVPointerChain(fn, store.Pointer); ok {
@@ -1065,4 +1075,387 @@ func (e *Emitter) outputLocationFromBinding(b *ir.Binding) int {
 		return 0
 	}
 	return e.locationFromBinding(*b)
+}
+
+// --- Mesh Shader Store Handling ---
+
+// meshAccessChain represents a resolved access chain into a mesh output variable.
+type meshAccessChain struct {
+	// category indicates what part of mesh output we're writing to.
+	category meshStoreCategory
+
+	// For vertex/primitive stores: the element index expression handle.
+	// e.g., mesh_output.vertices[idx] — idx is this handle.
+	elementIndex ir.ExpressionHandle
+	hasConstIdx  bool  // true if elementIndex is a constant
+	constIdx     int64 // constant index value (if hasConstIdx)
+
+	// For vertex/primitive attribute stores: the struct member binding.
+	memberBinding *ir.Binding
+	memberType    ir.TypeHandle
+}
+
+// meshStoreCategory identifies what part of a mesh output is being stored.
+type meshStoreCategory int
+
+const (
+	meshStoreUnknown meshStoreCategory = iota
+	meshStoreVertexCount
+	meshStorePrimitiveCount
+	meshStoreVertexAttribute    // vertices[i].position, vertices[i].color
+	meshStorePrimitiveAttribute // primitives[i].cull, primitives[i].colorMask
+	meshStoreTriangleIndices    // primitives[i].indices
+)
+
+// tryEmitMeshOutputStore checks if a store targets the mesh output variable and
+// emits the appropriate dx.op mesh shader intrinsics. Returns (true, nil) if handled.
+func (e *Emitter) tryEmitMeshOutputStore(fn *ir.Function, store ir.StmtStore) (bool, error) {
+	chain, ok := e.resolveMeshAccessChain(fn, store.Pointer)
+	if !ok {
+		return false, nil
+	}
+
+	switch chain.category {
+	case meshStoreVertexCount:
+		// Buffer the vertex count value; emit SetMeshOutputCounts when both are ready.
+		valueID, err := e.emitExpression(fn, store.Value)
+		if err != nil {
+			return true, fmt.Errorf("mesh vertex count value: %w", err)
+		}
+		e.meshCtx.pendingVertexCount = valueID
+		e.meshCtx.hasVertexCount = true
+		if e.meshCtx.hasPrimitiveCount {
+			e.emitSetMeshOutputCounts(e.meshCtx.pendingVertexCount, e.meshCtx.pendingPrimitiveCount)
+		}
+		return true, nil
+
+	case meshStorePrimitiveCount:
+		valueID, err := e.emitExpression(fn, store.Value)
+		if err != nil {
+			return true, fmt.Errorf("mesh primitive count value: %w", err)
+		}
+		e.meshCtx.pendingPrimitiveCount = valueID
+		e.meshCtx.hasPrimitiveCount = true
+		if e.meshCtx.hasVertexCount {
+			e.emitSetMeshOutputCounts(e.meshCtx.pendingVertexCount, e.meshCtx.pendingPrimitiveCount)
+		}
+		return true, nil
+
+	case meshStoreTriangleIndices:
+		return true, e.emitMeshTriangleIndicesStore(fn, chain, store.Value)
+
+	case meshStoreVertexAttribute:
+		return true, e.emitMeshVertexAttributeStore(fn, chain, store.Value)
+
+	case meshStorePrimitiveAttribute:
+		return true, e.emitMeshPrimitiveAttributeStore(fn, chain, store.Value)
+
+	default:
+		return false, nil
+	}
+}
+
+// resolveMeshAccessChain walks the access chain from a store pointer to determine
+// if it targets the mesh output variable, and if so, what part.
+//
+// The access patterns in naga IR for mesh output stores:
+//
+//	mesh_output.vertex_count = N
+//	  -> AccessIndex(GlobalVar(mesh_output), field_idx_of_vertex_count)
+//
+//	mesh_output.vertices[i].position = V
+//	  -> AccessIndex(Access(AccessIndex(GlobalVar(mesh_output), field_idx_of_vertices), i), field_idx_of_position)
+//
+//	mesh_output.primitives[i].indices = V
+//	  -> AccessIndex(Access(AccessIndex(GlobalVar(mesh_output), field_idx_of_primitives), i), field_idx_of_indices)
+//
+// meshAccessStep is a single step in a mesh output access chain.
+type meshAccessStep struct {
+	isIndex bool // true = AccessIndex, false = Access
+	index   uint32
+	handle  ir.ExpressionHandle // for Access: dynamic index
+}
+
+func (e *Emitter) resolveMeshAccessChain(fn *ir.Function, ptrHandle ir.ExpressionHandle) (meshAccessChain, bool) {
+	var steps []meshAccessStep
+	cur := ptrHandle
+
+	for {
+		expr := fn.Expressions[cur]
+		switch ek := expr.Kind.(type) {
+		case ir.ExprAccessIndex:
+			steps = append(steps, meshAccessStep{isIndex: true, index: ek.Index})
+			cur = ek.Base
+		case ir.ExprAccess:
+			steps = append(steps, meshAccessStep{isIndex: false, handle: ek.Index})
+			cur = ek.Base
+		case ir.ExprGlobalVariable:
+			if ek.Variable != e.meshCtx.outputVar {
+				return meshAccessChain{}, false
+			}
+			// We found the mesh output root. Now interpret the steps (they're in reverse order).
+			return e.interpretMeshAccessSteps(fn, steps)
+		default:
+			return meshAccessChain{}, false
+		}
+	}
+}
+
+// interpretMeshAccessSteps interprets the reversed access steps from a mesh output chain.
+//
+//nolint:gocognit,gocyclo,cyclop // mesh chain interpretation requires checking many path combinations
+func (e *Emitter) interpretMeshAccessSteps(fn *ir.Function, steps []meshAccessStep) (meshAccessChain, bool) {
+	// Steps are in reverse order (leaf first). Reverse them.
+	for i, j := 0, len(steps)-1; i < j; i, j = i+1, j-1 {
+		steps[i], steps[j] = steps[j], steps[i]
+	}
+
+	if len(steps) == 0 {
+		return meshAccessChain{}, false
+	}
+
+	// First step: AccessIndex into MeshOutput struct.
+	// Get the MeshOutput struct type to identify which field.
+	meshOutGV := &e.ir.GlobalVariables[e.meshCtx.outputVar]
+	meshOutType := e.ir.Types[meshOutGV.Type]
+	meshOutSt, ok := meshOutType.Inner.(ir.StructType)
+	if !ok {
+		return meshAccessChain{}, false
+	}
+
+	if !steps[0].isIndex {
+		return meshAccessChain{}, false
+	}
+	fieldIdx := int(steps[0].index)
+	if fieldIdx >= len(meshOutSt.Members) {
+		return meshAccessChain{}, false
+	}
+	member := &meshOutSt.Members[fieldIdx]
+
+	// Identify the field by its builtin binding.
+	if member.Binding == nil {
+		return meshAccessChain{}, false
+	}
+	bb, isBB := (*member.Binding).(ir.BuiltinBinding)
+	if !isBB {
+		return meshAccessChain{}, false
+	}
+
+	switch bb.Builtin {
+	case ir.BuiltinVertexCount:
+		return meshAccessChain{category: meshStoreVertexCount}, true
+
+	case ir.BuiltinPrimitiveCount:
+		return meshAccessChain{category: meshStorePrimitiveCount}, true
+
+	case ir.BuiltinVertices:
+		// steps[1] = array index (Access or AccessIndex)
+		// steps[2] = field in VertexOutput struct (AccessIndex)
+		if len(steps) < 3 {
+			return meshAccessChain{}, false
+		}
+		elemIdx, constIdx, hasConst := e.resolveArrayIndex(fn, steps[1])
+		if len(steps) < 3 || !steps[2].isIndex {
+			return meshAccessChain{}, false
+		}
+		vtxStepIdx := steps[2].index
+		vtxType := e.ir.Types[e.meshCtx.meshInfo.VertexOutputType]
+		vtxSt, isVtxSt := vtxType.Inner.(ir.StructType)
+		if !isVtxSt || int(vtxStepIdx) >= len(vtxSt.Members) {
+			return meshAccessChain{}, false
+		}
+		vtxMember := &vtxSt.Members[vtxStepIdx]
+		return meshAccessChain{
+			category:      meshStoreVertexAttribute,
+			elementIndex:  elemIdx,
+			hasConstIdx:   hasConst,
+			constIdx:      constIdx,
+			memberBinding: vtxMember.Binding,
+			memberType:    vtxMember.Type,
+		}, true
+
+	case ir.BuiltinPrimitives:
+		// steps[1] = array index (Access or AccessIndex)
+		// steps[2] = field in PrimitiveOutput struct (AccessIndex)
+		if len(steps) < 3 {
+			return meshAccessChain{}, false
+		}
+		elemIdx, constIdx, hasConst := e.resolveArrayIndex(fn, steps[1])
+		if !steps[2].isIndex {
+			return meshAccessChain{}, false
+		}
+		primStepIdx := steps[2].index
+		primType := e.ir.Types[e.meshCtx.meshInfo.PrimitiveOutputType]
+		primSt, isPrimSt := primType.Inner.(ir.StructType)
+		if !isPrimSt || int(primStepIdx) >= len(primSt.Members) {
+			return meshAccessChain{}, false
+		}
+		primMember := &primSt.Members[primStepIdx]
+
+		// Check if this is the triangle_indices field.
+		if primMember.Binding != nil {
+			if pbb, isPBB := (*primMember.Binding).(ir.BuiltinBinding); isPBB {
+				if pbb.Builtin == ir.BuiltinTriangleIndices {
+					return meshAccessChain{
+						category:     meshStoreTriangleIndices,
+						elementIndex: elemIdx,
+						hasConstIdx:  hasConst,
+						constIdx:     constIdx,
+					}, true
+				}
+			}
+		}
+
+		return meshAccessChain{
+			category:      meshStorePrimitiveAttribute,
+			elementIndex:  elemIdx,
+			hasConstIdx:   hasConst,
+			constIdx:      constIdx,
+			memberBinding: primMember.Binding,
+			memberType:    primMember.Type,
+		}, true
+
+	default:
+		return meshAccessChain{}, false
+	}
+}
+
+// resolveArrayIndex resolves an access step that indexes into an array.
+// Returns the expression handle for the index, and if constant, its value.
+func (e *Emitter) resolveArrayIndex(_ *ir.Function, step meshAccessStep) (ir.ExpressionHandle, int64, bool) {
+	if step.isIndex {
+		// Constant index via AccessIndex.
+		return 0, int64(step.index), true
+	}
+	// Dynamic index via Access — check if the index expression is a known constant.
+	return step.handle, 0, false
+}
+
+// emitMeshTriangleIndicesStore emits dx.op.emitIndices for a store to primitives[i].indices.
+// The value is vec3<u32> which must be decomposed into 3 scalar u32 values.
+func (e *Emitter) emitMeshTriangleIndicesStore(fn *ir.Function, chain meshAccessChain, valueHandle ir.ExpressionHandle) error {
+	// Emit the vec3<u32> value.
+	if _, err := e.emitExpression(fn, valueHandle); err != nil {
+		return fmt.Errorf("triangle indices value: %w", err)
+	}
+
+	// Get the primitive index.
+	primIdx, err := e.getMeshElementIndex(fn, chain)
+	if err != nil {
+		return err
+	}
+
+	// Decompose the vec3<u32> into 3 scalar components.
+	v0 := e.getComponentID(valueHandle, 0)
+	v1 := e.getComponentID(valueHandle, 1)
+	v2 := e.getComponentID(valueHandle, 2)
+
+	e.emitEmitIndices(primIdx, v0, v1, v2)
+	return nil
+}
+
+// emitMeshVertexAttributeStore emits dx.op.storeVertexOutput for a store to vertices[i].field.
+func (e *Emitter) emitMeshVertexAttributeStore(fn *ir.Function, chain meshAccessChain, valueHandle ir.ExpressionHandle) error {
+	if chain.memberBinding == nil {
+		return fmt.Errorf("mesh vertex attribute: no binding")
+	}
+
+	// Emit the value expression.
+	if _, err := e.emitExpression(fn, valueHandle); err != nil {
+		return fmt.Errorf("mesh vertex attribute value: %w", err)
+	}
+
+	// Get the vertex index.
+	vtxIdx, err := e.getMeshElementIndex(fn, chain)
+	if err != nil {
+		return err
+	}
+
+	// Resolve signature element ID.
+	key := bindingToMeshOutputKey(*chain.memberBinding)
+	sigID, ok := e.meshCtx.vertexOutputSigIDs[key]
+	if !ok {
+		return fmt.Errorf("mesh vertex attribute: no signature ID for binding")
+	}
+
+	// Determine component count and overload from the member type.
+	memberIRType := e.ir.Types[chain.memberType]
+	scalar, numComps := scalarAndComponentCount(memberIRType.Inner)
+	ol := overloadForScalar(scalar)
+
+	for comp := 0; comp < numComps; comp++ {
+		compValueID := e.getComponentID(valueHandle, comp)
+		e.emitStoreVertexOutput(sigID, comp, compValueID, vtxIdx, ol)
+	}
+	return nil
+}
+
+// emitMeshPrimitiveAttributeStore emits dx.op.storePrimitiveOutput for a store to primitives[i].field.
+func (e *Emitter) emitMeshPrimitiveAttributeStore(fn *ir.Function, chain meshAccessChain, valueHandle ir.ExpressionHandle) error {
+	if chain.memberBinding == nil {
+		return fmt.Errorf("mesh primitive attribute: no binding")
+	}
+
+	// Emit the value expression.
+	if _, err := e.emitExpression(fn, valueHandle); err != nil {
+		return fmt.Errorf("mesh primitive attribute value: %w", err)
+	}
+
+	// Get the primitive index.
+	primIdx, err := e.getMeshElementIndex(fn, chain)
+	if err != nil {
+		return err
+	}
+
+	// Resolve signature element ID.
+	key := bindingToMeshOutputKey(*chain.memberBinding)
+	sigID, ok := e.meshCtx.primitiveOutputSigIDs[key]
+	if !ok {
+		return fmt.Errorf("mesh primitive attribute: no signature ID for binding")
+	}
+
+	// Determine component count and overload from the member type.
+	memberIRType := e.ir.Types[chain.memberType]
+	scalar, numComps := scalarAndComponentCount(memberIRType.Inner)
+	ol := overloadForScalar(scalar)
+
+	// Special case: bool (cull_primitive) is stored as i1 in DXIL.
+	if scalar.Kind == ir.ScalarBool {
+		ol = overloadI1
+		compValueID := e.getComponentID(valueHandle, 0)
+		e.emitStorePrimitiveOutput(sigID, 0, compValueID, primIdx, ol)
+		return nil
+	}
+
+	for comp := 0; comp < numComps; comp++ {
+		compValueID := e.getComponentID(valueHandle, comp)
+		e.emitStorePrimitiveOutput(sigID, comp, compValueID, primIdx, ol)
+	}
+	return nil
+}
+
+// getMeshElementIndex resolves the vertex/primitive index for a mesh store.
+func (e *Emitter) getMeshElementIndex(fn *ir.Function, chain meshAccessChain) (int, error) {
+	if chain.hasConstIdx {
+		return e.getIntConstID(chain.constIdx), nil
+	}
+	// Dynamic index — emit the expression.
+	id, err := e.emitExpression(fn, chain.elementIndex)
+	if err != nil {
+		return 0, fmt.Errorf("mesh element index: %w", err)
+	}
+	return id, nil
+}
+
+// scalarAndComponentCount returns the scalar type and number of components for a type.
+// For scalars, returns (scalar, 1). For vectors, returns (scalar, size).
+func scalarAndComponentCount(inner ir.TypeInner) (ir.ScalarType, int) {
+	switch ti := inner.(type) {
+	case ir.ScalarType:
+		return ti, 1
+	case ir.VectorType:
+		return ti.Scalar, int(ti.Size)
+	default:
+		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, 1
+	}
 }

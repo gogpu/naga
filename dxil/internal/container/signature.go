@@ -22,16 +22,22 @@ import (
 // Values match Mesa's enum dxil_semantic_kind.
 type SystemValueKind uint32
 
+// D3D_NAME values for ISG1/OSG1 signature elements.
+// These match the D3D_NAME enumeration from d3dcommon.h, NOT the DXIL semantic kind.
+// Reference: D3D12 SDK d3dcommon.h enum D3D_NAME
 const (
-	SVArbitrary    SystemValueKind = 0  // User-defined (TEXCOORD, COLOR, etc.)
-	SVVertexID     SystemValueKind = 1  // SV_VertexID
-	SVInstanceID   SystemValueKind = 2  // SV_InstanceID
-	SVPosition     SystemValueKind = 3  // SV_Position
-	SVTarget       SystemValueKind = 16 // SV_Target
-	SVDepth        SystemValueKind = 17 // SV_Depth
-	SVSampleIndex  SystemValueKind = 12 // SV_SampleIndex
-	SVIsFrontFace  SystemValueKind = 13 // SV_IsFrontFace
-	SVClipDistance SystemValueKind = 6  // SV_ClipDistance
+	SVArbitrary     SystemValueKind = 0  // D3D_NAME_UNDEFINED — user-defined (TEXCOORD, etc.)
+	SVPosition      SystemValueKind = 1  // D3D_NAME_POSITION — SV_Position
+	SVClipDistance  SystemValueKind = 2  // D3D_NAME_CLIP_DISTANCE — SV_ClipDistance
+	SVCullDistance  SystemValueKind = 3  // D3D_NAME_CULL_DISTANCE — SV_CullDistance
+	SVVertexID      SystemValueKind = 6  // D3D_NAME_VERTEX_ID — SV_VertexID
+	SVPrimitiveID   SystemValueKind = 7  // D3D_NAME_PRIMITIVE_ID — SV_PrimitiveID
+	SVInstanceID    SystemValueKind = 8  // D3D_NAME_INSTANCE_ID — SV_InstanceID
+	SVIsFrontFace   SystemValueKind = 9  // D3D_NAME_IS_FRONT_FACE — SV_IsFrontFace
+	SVSampleIndex   SystemValueKind = 10 // D3D_NAME_SAMPLE_INDEX — SV_SampleIndex
+	SVTarget        SystemValueKind = 64 // D3D_NAME_TARGET — SV_Target
+	SVDepth         SystemValueKind = 65 // D3D_NAME_DEPTH — SV_Depth
+	SVCullPrimitive SystemValueKind = 24 // SV_CullPrimitive (mesh shader)
 )
 
 // ProgSigCompType identifies the component data type in a signature element.
@@ -152,4 +158,11 @@ func (c *Container) AddInputSignature(elements []SignatureElement) {
 func (c *Container) AddOutputSignature(elements []SignatureElement) {
 	data := EncodeSignature(elements)
 	c.parts = append(c.parts, part{fourCC: FourCCOSG1, data: data})
+}
+
+// AddPrimitiveSignature adds a PSG1 part to the container.
+// PSG1 is used for mesh shader primitive output signatures.
+func (c *Container) AddPrimitiveSignature(elements []SignatureElement) {
+	data := EncodeSignature(elements)
+	c.parts = append(c.parts, part{fourCC: FourCCPSG1, data: data})
 }

@@ -12,12 +12,14 @@ type ShaderKind uint32
 
 // Shader kinds matching DXIL specification.
 const (
-	PixelShader    ShaderKind = 0
-	VertexShader   ShaderKind = 1
-	GeometryShader ShaderKind = 2
-	HullShader     ShaderKind = 3
-	DomainShader   ShaderKind = 4
-	ComputeShader  ShaderKind = 5
+	PixelShader         ShaderKind = 0
+	VertexShader        ShaderKind = 1
+	GeometryShader      ShaderKind = 2
+	HullShader          ShaderKind = 3
+	DomainShader        ShaderKind = 4
+	ComputeShader       ShaderKind = 5
+	MeshShader          ShaderKind = 13
+	AmplificationShader ShaderKind = 14
 )
 
 // Module represents a DXIL module (LLVM 3.7 IR with DXIL metadata).

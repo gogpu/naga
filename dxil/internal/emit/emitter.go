@@ -79,6 +79,45 @@ type Emitter struct {
 
 	// Cached DXIL resource types (lazily created).
 	dxHandleType *module.Type
+
+	// Mesh shader context: set when emitting a mesh shader entry point.
+	meshCtx *meshContext
+}
+
+// meshContext holds state for mesh shader intrinsic emission.
+type meshContext struct {
+	// outputVar is the GlobalVariableHandle for the mesh output workgroup variable.
+	outputVar ir.GlobalVariableHandle
+
+	// meshInfo contains mesh shader metadata from the entry point.
+	meshInfo *ir.MeshStageInfo
+
+	// Signature element IDs (assigned during entry point setup).
+	// vertexOutputSigIDs maps (builtin/location) to output signature element IDs.
+	vertexOutputSigIDs map[meshOutputKey]int
+	// primitiveOutputSigIDs maps (builtin/location) to primitive output signature element IDs.
+	primitiveOutputSigIDs map[meshOutputKey]int
+
+	// nextVertexSigID and nextPrimitiveSigID track the next available signature element IDs.
+	nextVertexSigID    int
+	nextPrimitiveSigID int
+
+	// pendingVertexCount and pendingPrimitiveCount are value IDs for
+	// buffered SetMeshOutputCounts arguments. Both must be set before emitting.
+	pendingVertexCount    int
+	pendingPrimitiveCount int
+	hasVertexCount        bool
+	hasPrimitiveCount     bool
+
+	// taskPayloadVar is the GlobalVariableHandle for the task payload variable (if any).
+	taskPayloadVar *ir.GlobalVariableHandle
+}
+
+// meshOutputKey identifies a mesh output by its type and location/builtin.
+type meshOutputKey struct {
+	isBuiltin bool
+	builtin   ir.BuiltinValue
+	location  uint32
 }
 
 // loopContext holds the branch targets for the innermost loop,
@@ -166,6 +205,10 @@ func stageToShaderKind(stage ir.ShaderStage) module.ShaderKind {
 		return module.PixelShader
 	case ir.StageCompute:
 		return module.ComputeShader
+	case ir.StageMesh:
+		return module.MeshShader
+	case ir.StageTask:
+		return module.AmplificationShader
 	default:
 		return module.VertexShader
 	}
@@ -186,6 +229,10 @@ func shaderKindString(kind module.ShaderKind) string {
 		return "hs"
 	case module.DomainShader:
 		return "ds"
+	case module.MeshShader:
+		return "ms"
+	case module.AmplificationShader:
+		return "as"
 	default:
 		return "vs"
 	}
@@ -209,8 +256,23 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.globalVarAllocas = make(map[ir.GlobalVariableHandle]int)
 	e.globalVarAllocaTypes = make(map[ir.GlobalVariableHandle]*module.Type)
 	e.loopStack = e.loopStack[:0]
+	e.meshCtx = nil
 
 	fn := &ep.Function
+
+	// Set up mesh shader context if this is a mesh shader entry point.
+	if ep.Stage == ir.StageMesh && ep.MeshInfo != nil {
+		e.meshCtx = &meshContext{
+			outputVar:             ep.MeshInfo.OutputVariable,
+			meshInfo:              ep.MeshInfo,
+			vertexOutputSigIDs:    make(map[meshOutputKey]int),
+			primitiveOutputSigIDs: make(map[meshOutputKey]int),
+			pendingVertexCount:    -1,
+			pendingPrimitiveCount: -1,
+			taskPayloadVar:        ep.TaskPayload,
+		}
+		e.buildMeshSignatureMapping(ep)
+	}
 
 	// Analyze and create resource bindings before function body emission.
 	e.analyzeResources()
@@ -222,6 +284,8 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 
 	e.emitResourceHandles()
 
+	// For mesh shaders, input loads use compute-style builtin intrinsics
+	// (threadIdInGroup, flattenedThreadIdInGroup, etc.).
 	if err := e.emitInputLoads(fn, ep.Stage); err != nil {
 		return fmt.Errorf("input loads: %w", err)
 	}
@@ -436,8 +500,11 @@ func (e *Emitter) emitMetadata(ep *ir.EntryPoint, kind module.ShaderKind) {
 	// Reference: Mesa nir_to_dxil.c emit_metadata() ~2038,
 	// DXIL.rst: kDxilNumThreadsTag(4) MD list: (i32, i32, i32)
 	var mdProperties *module.MetadataNode
-	if kind == module.ComputeShader {
+	switch kind {
+	case module.ComputeShader:
 		mdProperties = e.emitComputeProperties(ep)
+	case module.MeshShader:
+		mdProperties = e.emitMeshProperties(ep)
 	}
 
 	// dx.entryPoints = !{!{null, !"main", null, !resources, !properties}}
@@ -471,9 +538,9 @@ func (e *Emitter) emitComputeProperties(ep *ir.EntryPoint) *module.MetadataNode 
 	mdTag := e.mod.AddMetadataValue(i32Ty, e.getIntConst(4))
 
 	// Value = !{i32 X, i32 Y, i32 Z} with minimum of 1 per axis.
-	x := max32(ep.Workgroup[0], 1)
-	y := max32(ep.Workgroup[1], 1)
-	z := max32(ep.Workgroup[2], 1)
+	x := max(ep.Workgroup[0], 1)
+	y := max(ep.Workgroup[1], 1)
+	z := max(ep.Workgroup[2], 1)
 
 	mdX := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(x)))
 	mdY := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(y)))
@@ -484,12 +551,165 @@ func (e *Emitter) emitComputeProperties(ep *ir.EntryPoint) *module.MetadataNode 
 	return e.mod.AddMetadataTuple([]*module.MetadataNode{mdTag, mdThreads})
 }
 
-// max32 returns the larger of a and b.
-func max32(a, b uint32) uint32 {
-	if a > b {
-		return a
+// emitMeshProperties builds the shader properties metadata for a mesh shader
+// entry point. Contains tag-value pairs for numthreads and mesh state.
+//
+// Format:
+//
+//	!{i32 4, !{i32 X, i32 Y, i32 Z},                                          // kDxilNumThreadsTag
+//	  i32 9, !{i32 X, i32 Y, i32 Z, i32 maxVert, i32 maxPrim, i32 topo, i32 payloadSize}} // kDxilMSStateTag
+//
+// kDxilMSStateTag = 9
+// outputTopology: 1=line, 2=triangle
+func (e *Emitter) emitMeshProperties(ep *ir.EntryPoint) *module.MetadataNode {
+	i32Ty := e.mod.GetIntType(32)
+
+	// Tag 4: kDxilNumThreadsTag.
+	mdNumThreadsTag := e.mod.AddMetadataValue(i32Ty, e.getIntConst(4))
+	x := max(ep.Workgroup[0], 1)
+	y := max(ep.Workgroup[1], 1)
+	z := max(ep.Workgroup[2], 1)
+	mdX := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(x)))
+	mdY := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(y)))
+	mdZ := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(z)))
+	mdThreads := e.mod.AddMetadataTuple([]*module.MetadataNode{mdX, mdY, mdZ})
+
+	var elements []*module.MetadataNode
+	elements = append(elements, mdNumThreadsTag, mdThreads)
+
+	// Tag 9: kDxilMSStateTag (mesh shader state).
+	if ep.MeshInfo != nil {
+		mi := ep.MeshInfo
+		mdMSTag := e.mod.AddMetadataValue(i32Ty, e.getIntConst(9))
+
+		maxVert := int64(mi.MaxVertices)
+		maxPrim := int64(mi.MaxPrimitives)
+		topo := meshTopologyToDXIL(mi.Topology)
+
+		// Payload size: compute from task payload type if available.
+		payloadSize := int64(0)
+		if ep.TaskPayload != nil {
+			payloadSize = e.computeTypeSize(e.ir.GlobalVariables[*ep.TaskPayload].Type)
+		}
+
+		mdMSX := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(x)))
+		mdMSY := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(y)))
+		mdMSZ := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(z)))
+		mdMaxVert := e.mod.AddMetadataValue(i32Ty, e.getIntConst(maxVert))
+		mdMaxPrim := e.mod.AddMetadataValue(i32Ty, e.getIntConst(maxPrim))
+		mdTopo := e.mod.AddMetadataValue(i32Ty, e.getIntConst(topo))
+		mdPayload := e.mod.AddMetadataValue(i32Ty, e.getIntConst(payloadSize))
+		mdMSState := e.mod.AddMetadataTuple([]*module.MetadataNode{
+			mdMSX, mdMSY, mdMSZ, mdMaxVert, mdMaxPrim, mdTopo, mdPayload,
+		})
+		elements = append(elements, mdMSTag, mdMSState)
 	}
-	return b
+
+	return e.mod.AddMetadataTuple(elements)
+}
+
+// meshTopologyToDXIL maps naga mesh output topology to DXIL output topology.
+// DXIL: 0=undefined, 1=line, 2=triangle
+func meshTopologyToDXIL(t ir.MeshOutputTopology) int64 {
+	switch t {
+	case ir.MeshTopologyLines:
+		return 1
+	case ir.MeshTopologyTriangles:
+		return 2
+	default:
+		return 0
+	}
+}
+
+// computeTypeSize estimates the byte size of a type for payload size metadata.
+func (e *Emitter) computeTypeSize(th ir.TypeHandle) int64 {
+	if int(th) >= len(e.ir.Types) {
+		return 0
+	}
+	irType := e.ir.Types[th]
+	return computeTypeSizeInner(e.ir, irType.Inner)
+}
+
+// computeTypeSizeInner estimates the byte size of a type inner.
+func computeTypeSizeInner(irMod *ir.Module, inner ir.TypeInner) int64 {
+	switch ti := inner.(type) {
+	case ir.ScalarType:
+		return int64(ti.Width)
+	case ir.VectorType:
+		return int64(ti.Size) * int64(ti.Scalar.Width)
+	case ir.MatrixType:
+		return int64(ti.Columns) * int64(ti.Rows) * int64(ti.Scalar.Width)
+	case ir.ArrayType:
+		if ti.Size.Constant == nil {
+			return 0
+		}
+		baseSize := computeTypeSizeInner(irMod, irMod.Types[ti.Base].Inner)
+		return int64(*ti.Size.Constant) * baseSize
+	case ir.StructType:
+		total := int64(0)
+		for _, m := range ti.Members {
+			total += computeTypeSizeInner(irMod, irMod.Types[m.Type].Inner)
+		}
+		return total
+	default:
+		return 0
+	}
+}
+
+// buildMeshSignatureMapping analyzes the mesh shader output types and assigns
+// signature element IDs for vertex and primitive outputs.
+//
+//nolint:nestif // mesh signature requires nested type checks
+func (e *Emitter) buildMeshSignatureMapping(ep *ir.EntryPoint) {
+	if e.meshCtx == nil || ep.MeshInfo == nil {
+		return
+	}
+
+	// Analyze vertex output type.
+	if int(ep.MeshInfo.VertexOutputType) < len(e.ir.Types) {
+		vtxType := e.ir.Types[ep.MeshInfo.VertexOutputType]
+		if st, ok := vtxType.Inner.(ir.StructType); ok {
+			for _, member := range st.Members {
+				if member.Binding == nil {
+					continue
+				}
+				key := bindingToMeshOutputKey(*member.Binding)
+				e.meshCtx.vertexOutputSigIDs[key] = e.meshCtx.nextVertexSigID
+				e.meshCtx.nextVertexSigID++
+			}
+		}
+	}
+
+	// Analyze primitive output type.
+	if int(ep.MeshInfo.PrimitiveOutputType) < len(e.ir.Types) {
+		primType := e.ir.Types[ep.MeshInfo.PrimitiveOutputType]
+		if st, ok := primType.Inner.(ir.StructType); ok {
+			for _, member := range st.Members {
+				if member.Binding == nil {
+					continue
+				}
+				key := bindingToMeshOutputKey(*member.Binding)
+				// Skip triangle_indices (handled by EmitIndices, not StorePrimitiveOutput).
+				if key.isBuiltin && key.builtin == ir.BuiltinTriangleIndices {
+					continue
+				}
+				e.meshCtx.primitiveOutputSigIDs[key] = e.meshCtx.nextPrimitiveSigID
+				e.meshCtx.nextPrimitiveSigID++
+			}
+		}
+	}
+}
+
+// bindingToMeshOutputKey converts a binding to a mesh output key for signature lookup.
+func bindingToMeshOutputKey(b ir.Binding) meshOutputKey {
+	switch bb := b.(type) {
+	case ir.BuiltinBinding:
+		return meshOutputKey{isBuiltin: true, builtin: bb.Builtin}
+	case ir.LocationBinding:
+		return meshOutputKey{isBuiltin: false, location: bb.Location}
+	default:
+		return meshOutputKey{}
+	}
 }
 
 // getIntConstID returns the emitter value ID for a cached i32 constant.
