@@ -73,8 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SRV/UAV loads routed to bufferLoad (not LLVM load), dynamic CBV index with stride
   arithmetic, ZeroValue/Compose dynamic array access, array-typed builtin outputs.
 
-- **DXIL: DXC dumpbin validation** — **102/165 shaders pass DXC dumpbin (61.8%)**.
-  Only 4 val_fail remain (1 DXC bug, 1 mesh shader, 2 workgroup edge cases).
+- **DXIL: typed undef for bufferStore, deep UAV chains, entry-block allocas** —
+  Float bufferStore uses typed undef (f32, was i32). Deep UAV pointer chains
+  (struct-wrapped arrays, nested Access). All allocas in entry block (was lazy).
+
+- **DXIL: DXC dumpbin validation** — **104/165 shaders pass DXC dumpbin (63.0%)**.
+  Only 1 val_fail remaining (mesh-shader, needs SM 6.5 intrinsics).
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Changed
