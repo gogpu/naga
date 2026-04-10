@@ -29,7 +29,13 @@ type Emitter struct {
 	nextValue int              // next value ID to assign within a function
 
 	// Maps local variable index to its alloca value ID (pointer).
+	// For scalar types, this is the single alloca pointer.
+	// For vector types, this is the pointer to the first component's alloca.
 	localVarPtrs map[uint32]int
+
+	// Per-component alloca pointers for vector local variables.
+	// Maps local var index to a slice of alloca pointer IDs (one per component).
+	localVarComponentPtrs map[uint32][]int
 
 	// Loop context stack for break/continue targets.
 	loopStack []loopContext
@@ -180,6 +186,7 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.exprValues = make(map[ir.ExpressionHandle]int)
 	e.exprComponents = make(map[ir.ExpressionHandle][]int)
 	e.localVarPtrs = make(map[uint32]int)
+	e.localVarComponentPtrs = make(map[uint32][]int)
 	e.loopStack = e.loopStack[:0]
 
 	fn := &ep.Function
@@ -227,7 +234,7 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 // This method builds a mapping from emitter IDs to global IDs and
 // rewrites all instruction operands and value IDs.
 //
-//nolint:gocognit // value ID remapping requires iterating multiple data structures
+//nolint:gocognit,gocyclo,cyclop // value ID remapping requires iterating multiple data structures
 func (e *Emitter) finalize(mainFn *module.Function) {
 	// Build the ID mapping table: emitterID -> globalID
 	idMap := make(map[int]int)
@@ -275,12 +282,17 @@ func (e *Emitter) finalize(mainFn *module.Function) {
 		}
 	}
 
-	// Rewrite all operand references.
+	// Rewrite operand references, but ONLY for operands that are value IDs.
+	// Some instructions mix value IDs with type IDs, literal opcodes,
+	// alignment values, and basic block indices — those must not be remapped.
 	for _, bb := range mainFn.BasicBlocks {
 		for _, instr := range bb.Instructions {
-			for i, op := range instr.Operands {
-				if newID, ok := idMap[op]; ok {
-					instr.Operands[i] = newID
+			valueOpIndices := valueOperandIndices(instr)
+			for _, idx := range valueOpIndices {
+				if idx < len(instr.Operands) {
+					if newID, ok := idMap[instr.Operands[idx]]; ok {
+						instr.Operands[idx] = newID
+					}
 				}
 			}
 			if instr.Kind == module.InstrRet && instr.ReturnValue >= 0 {
@@ -298,6 +310,68 @@ func (e *Emitter) finalize(mainFn *module.Function) {
 				e.exprComponents[handle][i] = newID
 			}
 		}
+	}
+}
+
+// valueOperandIndices returns the indices within Instruction.Operands that
+// contain value IDs (and thus need remapping in finalize). Other operands
+// hold type IDs, literal opcodes, alignment values, or basic block indices
+// which must NOT be remapped.
+//
+// Instruction operand layouts:
+//
+//	InstrBinOp:      [lhs, rhs, opcode]           → values at [0, 1]
+//	InstrCmp:        [lhs, rhs, predicate]         → values at [0, 1]
+//	InstrSelect:     [cond, trueVal, falseVal]     → values at [0, 1, 2]
+//	InstrCast:       [src, castOpcode]              → values at [0]
+//	InstrExtractVal: [src, index]                   → values at [0]
+//	InstrAlloca:     [allocTyID, sizeTyID, sizeValID, alignFlags] → values at [2]
+//	InstrLoad:       [ptr, typeID, align, isVolatile] → values at [0]
+//	InstrStore:      [ptr, value, align, isVolatile]  → values at [0, 1]
+//	InstrCall:       [arg0, arg1, ...]              → all are values
+//	InstrBr:         [bbIdx] or [trueBB, falseBB, cond] → values at [2] for cond branch
+//	InstrRet:        uses ReturnValue field, not Operands → none
+//	InstrGEP:        not yet used
+//	InstrPhi:        not yet used
+func valueOperandIndices(instr *module.Instruction) []int {
+	switch instr.Kind {
+	case module.InstrBinOp:
+		return []int{0, 1} // [lhs, rhs, opcode]
+	case module.InstrCmp:
+		return []int{0, 1} // [lhs, rhs, pred]
+	case module.InstrSelect:
+		return []int{0, 1, 2} // [cond, true, false]
+	case module.InstrCast:
+		return []int{0} // [src, castOp]
+	case module.InstrExtractVal:
+		return []int{0} // [src, index]
+	case module.InstrAlloca:
+		return []int{2} // [allocTyID, sizeTyID, sizeValID, alignFlags]
+	case module.InstrLoad:
+		return []int{0} // [ptr, typeID, align, isVolatile]
+	case module.InstrStore:
+		return []int{0, 1} // [ptr, value, align, isVolatile]
+	case module.InstrCall:
+		// All call operands are value IDs (arguments to the called function).
+		indices := make([]int, len(instr.Operands))
+		for i := range indices {
+			indices[i] = i
+		}
+		return indices
+	case module.InstrBr:
+		if len(instr.Operands) >= 3 {
+			return []int{2} // [trueBB, falseBB, cond] — only cond is a value
+		}
+		return nil // unconditional branch: [bbIndex] — no value operands
+	case module.InstrRet:
+		return nil // uses ReturnValue field
+	default:
+		// GEP, Phi: not yet used. Return all as safe fallback.
+		indices := make([]int, len(instr.Operands))
+		for i := range indices {
+			indices[i] = i
+		}
+		return indices
 	}
 }
 

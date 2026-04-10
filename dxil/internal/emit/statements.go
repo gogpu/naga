@@ -169,6 +169,7 @@ func (e *Emitter) emitReturnComposite(fn *ir.Function, valueID int, inner ir.Typ
 // In naga IR, stores write a value through a pointer expression.
 // For UAV (storage buffers), this emits dx.op.bufferStore.
 // For local variables, this emits an LLVM store instruction.
+// For vector local variables, each component is stored separately.
 //
 // Reference: Mesa nir_to_dxil.c dxil_emit_store(), emit_bufferstore_call()
 func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
@@ -176,6 +177,13 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	// UAV stores use dx.op.bufferStore instead of LLVM store instructions.
 	if chain, ok := e.resolveUAVPointerChain(fn, store.Pointer); ok {
 		return e.emitUAVStore(fn, chain, store.Value)
+	}
+
+	// Check if this is a vector store to a local variable with per-component allocas.
+	if lv, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable); ok {
+		if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
+			return e.emitVectorStore(fn, compPtrs, store.Value)
+		}
 	}
 
 	ptr, err := e.emitExpression(fn, store.Pointer)
@@ -202,6 +210,43 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 		ReturnValue: -1,
 	}
 	e.currentBB.AddInstruction(instr)
+	return nil
+}
+
+// emitVectorStore stores each component of a vector value to separate allocas.
+func (e *Emitter) emitVectorStore(fn *ir.Function, compPtrs []int, valueHandle ir.ExpressionHandle) error {
+	// Emit the value expression to get component tracking.
+	_, err := e.emitExpression(fn, valueHandle)
+	if err != nil {
+		return fmt.Errorf("store value: %w", err)
+	}
+
+	// Determine the scalar type for alignment.
+	scalarTy := e.mod.GetFloatType(32) // default
+	if comps, ok := e.exprComponents[valueHandle]; ok {
+		// We have per-component tracking — use it for value IDs.
+		for i := 0; i < len(compPtrs) && i < len(comps); i++ {
+			align := e.alignForType(scalarTy)
+			instr := &module.Instruction{
+				Kind:        module.InstrStore,
+				HasValue:    false,
+				Operands:    []int{compPtrs[i], comps[i], align, 0},
+				ReturnValue: -1,
+			}
+			e.currentBB.AddInstruction(instr)
+		}
+	} else {
+		// Scalar value — store to first component only.
+		valueID := e.exprValues[valueHandle]
+		align := e.alignForType(scalarTy)
+		instr := &module.Instruction{
+			Kind:        module.InstrStore,
+			HasValue:    false,
+			Operands:    []int{compPtrs[0], valueID, align, 0},
+			ReturnValue: -1,
+		}
+		e.currentBB.AddInstruction(instr)
+	}
 	return nil
 }
 

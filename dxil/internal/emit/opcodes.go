@@ -133,26 +133,30 @@ const (
 // These are used in the FUNC_CODE_INST_BINOP record.
 type BinOpKind uint32
 
-// LLVM 3.7 binary operation codes.
+// LLVM 3.7 bitcode binary operation codes.
+// In LLVM bitcode, int and float ops share the same opcode.
+// The reader distinguishes float vs int by the operand type.
+// Reference: LLVM BitcodeReader.cpp getDecodedBinaryOpcode()
+// Reference: Mesa dxil_module.h enum dxil_bin_opcode
 const (
-	BinOpAdd  BinOpKind = 0  // integer add
-	BinOpFAdd BinOpKind = 1  // float add (not used directly; mapped to fadd)
-	BinOpSub  BinOpKind = 2  // integer sub
-	BinOpFSub BinOpKind = 3  // float sub
-	BinOpMul  BinOpKind = 4  // integer mul
-	BinOpFMul BinOpKind = 5  // float mul
-	BinOpUDiv BinOpKind = 6  // unsigned div
-	BinOpSDiv BinOpKind = 7  // signed div
-	BinOpFDiv BinOpKind = 8  // float div
-	BinOpURem BinOpKind = 9  // unsigned remainder
-	BinOpSRem BinOpKind = 10 // signed remainder
-	BinOpFRem BinOpKind = 11 // float remainder
-	BinOpShl  BinOpKind = 12 // shift left
-	BinOpLShr BinOpKind = 13 // logical shift right
-	BinOpAShr BinOpKind = 14 // arithmetic shift right
-	BinOpAnd  BinOpKind = 15 // bitwise and
-	BinOpOr   BinOpKind = 16 // bitwise or
-	BinOpXor  BinOpKind = 17 // bitwise xor
+	BinOpAdd  BinOpKind = 0  // add (int) / fadd (float)
+	BinOpFAdd BinOpKind = 0  // same as Add — float add uses opcode 0 with float operands
+	BinOpSub  BinOpKind = 1  // sub (int) / fsub (float)
+	BinOpFSub BinOpKind = 1  // same as Sub
+	BinOpMul  BinOpKind = 2  // mul (int) / fmul (float)
+	BinOpFMul BinOpKind = 2  // same as Mul
+	BinOpUDiv BinOpKind = 3  // udiv (int only)
+	BinOpSDiv BinOpKind = 4  // sdiv (int) / fdiv (float)
+	BinOpFDiv BinOpKind = 4  // same as SDiv
+	BinOpURem BinOpKind = 5  // urem (int) / frem (float)
+	BinOpSRem BinOpKind = 6  // srem (int only)
+	BinOpFRem BinOpKind = 5  // same as URem
+	BinOpShl  BinOpKind = 7  // shift left
+	BinOpLShr BinOpKind = 8  // logical shift right
+	BinOpAShr BinOpKind = 9  // arithmetic shift right
+	BinOpAnd  BinOpKind = 10 // bitwise and
+	BinOpOr   BinOpKind = 11 // bitwise or
+	BinOpXor  BinOpKind = 12 // bitwise xor
 )
 
 // CmpPredicate represents LLVM comparison predicates.

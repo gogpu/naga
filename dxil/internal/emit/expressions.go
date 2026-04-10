@@ -1060,9 +1060,18 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 		return e.emitUAVLoad(fn, chain)
 	}
 
+	// Emit the pointer expression first (may create allocas for local vars).
 	ptr, err := e.emitExpression(fn, load.Pointer)
 	if err != nil {
 		return 0, err
+	}
+
+	// Check if this is a vector load from a local variable with per-component allocas.
+	// This check is AFTER emitting the pointer so that allocas are created.
+	if lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable); ok {
+		if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
+			return e.emitVectorLoad(fn, compPtrs, load.Pointer)
+		}
 	}
 
 	// Resolve the loaded type from the pointer's target type.
@@ -1085,12 +1094,41 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 	return valueID, nil
 }
 
-// emitLocalVariable emits an alloca for the local variable (on first use)
-// and returns the pointer value ID.
+// emitVectorLoad loads each component from separate allocas and tracks them
+// as per-component values. Returns the first component's value ID.
+func (e *Emitter) emitVectorLoad(fn *ir.Function, compPtrs []int, ptrHandle ir.ExpressionHandle) (int, error) {
+	// Resolve the scalar element type.
+	loadedTy, err := e.resolveLoadType(fn, ptrHandle)
+	if err != nil {
+		return 0, fmt.Errorf("vector load type resolution: %w", err)
+	}
+	align := e.alignForType(loadedTy)
+
+	componentIDs := make([]int, len(compPtrs))
+	for i, ptr := range compPtrs {
+		valueID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrLoad,
+			HasValue:   true,
+			ResultType: loadedTy,
+			Operands:   []int{ptr, loadedTy.ID, align, 0},
+			ValueID:    valueID,
+		}
+		e.currentBB.AddInstruction(instr)
+		componentIDs[i] = valueID
+	}
+
+	// Store per-component IDs so getComponentID can resolve them.
+	e.pendingComponents = componentIDs
+	return componentIDs[0], nil
+}
+
+// emitLocalVariable emits alloca(s) for the local variable (on first use)
+// and returns the pointer value ID of the first component.
 //
-// DXIL uses the standard LLVM stack allocation pattern:
-//
-//	%ptr = alloca TYPE, i32 1, align N
+// For scalar types, a single alloca is emitted.
+// For vector types (vec2/vec3/vec4), one alloca per component is emitted
+// since DXIL scalarizes all vector operations.
 //
 // Reference: Mesa nir_to_dxil.c emit_scratch() — dxil_emit_alloca(mod, type, 1, 16)
 func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (int, error) {
@@ -1106,7 +1144,13 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	localVar := &fn.LocalVars[lv.Variable]
 	irType := e.ir.Types[localVar.Type]
 
-	// Resolve the DXIL element type for the allocation.
+	// Determine number of components and scalar type.
+	numComponents := 1
+	if vt, ok := irType.Inner.(ir.VectorType); ok {
+		numComponents = int(vt.Size)
+	}
+
+	// Resolve the DXIL scalar element type for the allocation.
 	elemTy, err := typeToDXIL(e.mod, e.ir, irType.Inner)
 	if err != nil {
 		return 0, fmt.Errorf("local var %q type: %w", localVar.Name, err)
@@ -1118,24 +1162,33 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	// Size operand: i32 constant 1 (allocate a single element).
 	sizeID := e.getIntConstID(1)
 
-	// Alignment: log2(align) + 1, with bit 6 set (Mesa convention).
-	// Mesa uses 16-byte alignment for scratch variables.
-	align := e.alignForType(elemTy)
-	alignFlags := align | (1 << 6) // bit 6 = InAlloca flag in LLVM encoding
+	// Alignment: log2(align) + 1, with bit 6 set for explicit type (LLVM 3.7).
+	// Mesa: util_logbase2(align) + 1, then |= (1 << 6).
+	// Reference: Mesa dxil_module.c dxil_emit_alloca().
+	align := e.alignForType(elemTy) + 1 // log2(bytes) + 1
+	alignFlags := align | (1 << 6)
 
-	valueID := e.allocValue()
 	i32Ty := e.mod.GetIntType(32)
-	instr := &module.Instruction{
-		Kind:       module.InstrAlloca,
-		HasValue:   true,
-		ResultType: ptrTy,
-		Operands:   []int{elemTy.ID, i32Ty.ID, sizeID, alignFlags},
-		ValueID:    valueID,
-	}
-	e.currentBB.AddInstruction(instr)
+	componentPtrs := make([]int, numComponents)
 
-	e.localVarPtrs[lv.Variable] = valueID
-	return valueID, nil
+	for i := 0; i < numComponents; i++ {
+		valueID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrAlloca,
+			HasValue:   true,
+			ResultType: ptrTy,
+			Operands:   []int{elemTy.ID, i32Ty.ID, sizeID, alignFlags},
+			ValueID:    valueID,
+		}
+		e.currentBB.AddInstruction(instr)
+		componentPtrs[i] = valueID
+	}
+
+	e.localVarPtrs[lv.Variable] = componentPtrs[0]
+	if numComponents > 1 {
+		e.localVarComponentPtrs[lv.Variable] = componentPtrs
+	}
+	return componentPtrs[0], nil
 }
 
 // resolveLoadType determines the DXIL type produced by loading from the given
