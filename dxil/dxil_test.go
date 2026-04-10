@@ -288,6 +288,84 @@ func TestCompile_PassthroughVertex(t *testing.T) {
 	t.Logf("passthrough vertex shader compiled: %d bytes", len(data))
 }
 
+// TestCompile_RetailHash tests compilation with retail (INF-0004) hash instead of BYPASS.
+func TestCompile_RetailHash(t *testing.T) {
+	vec4f32Handle := ir.TypeHandle(0)
+	posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+	resultBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+	retHandle := ir.ExpressionHandle(0)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "main",
+			Stage: ir.StageVertex,
+			Function: ir.Function{
+				Name:      "main",
+				Arguments: []ir.FunctionArgument{{Name: "pos", Type: vec4f32Handle, Binding: &posBinding}},
+				Result:    &ir.FunctionResult{Type: vec4f32Handle, Binding: &resultBinding},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprFunctionArgument{Index: 0}},
+				},
+				ExpressionTypes: []ir.TypeResolution{{Handle: &vec4f32Handle}},
+				Body: []ir.Statement{
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+					{Kind: ir.StmtReturn{Value: &retHandle}},
+				},
+			},
+		}},
+	}
+
+	opts := DefaultOptions()
+	opts.UseBypassHash = false // Use retail hash
+
+	data, err := Compile(mod, opts)
+	if err != nil {
+		t.Fatalf("Compile with retail hash failed: %v", err)
+	}
+
+	if len(data) < 20 {
+		t.Fatalf("output too small: %d bytes", len(data))
+	}
+
+	// Digest must NOT be all zeros (unsigned).
+	allZero := true
+	for i := 4; i < 20; i++ {
+		if data[i] != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		t.Error("retail hash produced all-zero digest (unsigned)")
+	}
+
+	// Digest must NOT be BYPASS sentinel.
+	allOne := true
+	for i := 4; i < 20; i++ {
+		if data[i] != 0x01 {
+			allOne = false
+			break
+		}
+	}
+	if allOne {
+		t.Error("retail hash produced BYPASS sentinel")
+	}
+
+	t.Logf("retail hash digest: %02x", data[4:20])
+
+	// Write to tmp/ for testing with D3D12.
+	tmpDir := filepath.Join("..", "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err == nil {
+		outPath := filepath.Join(tmpDir, "test_retail_hash.dxil")
+		if err := os.WriteFile(outPath, data, 0o644); err == nil {
+			t.Logf("wrote %d bytes to %s", len(data), outPath)
+		}
+	}
+}
+
 // TestCompile_SimpleFragment tests compilation of a minimal fragment shader.
 func TestCompile_SimpleFragment(t *testing.T) {
 	vec4f32Handle := ir.TypeHandle(0)

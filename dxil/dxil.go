@@ -123,9 +123,12 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 
 	containerData := c.Bytes()
 
-	// Apply BYPASS hash if requested.
+	// Apply hash: BYPASS sentinel (dev, AgilitySDK 1.615+) or retail (production).
+	// Reference: INF-0004 Validator Hashing (microsoft/hlsl-specs).
 	if opts.UseBypassHash {
 		container.SetBypassHash(containerData)
+	} else {
+		container.ComputeRetailHash(containerData)
 	}
 
 	return containerData, nil
