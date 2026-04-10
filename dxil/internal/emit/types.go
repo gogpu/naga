@@ -251,6 +251,19 @@ func cbvComponentCount(irMod *ir.Module, inner ir.TypeInner) int {
 }
 
 // componentCount returns the number of scalar components for a type.
+// isScalarizableType returns true if the type can be scalarized for DXIL
+// function parameters (scalars, vectors, matrices). Returns false for
+// arrays, structs, pointers, and other complex types that need special
+// calling convention handling not yet implemented.
+func isScalarizableType(inner ir.TypeInner) bool {
+	switch inner.(type) {
+	case ir.ScalarType, ir.VectorType, ir.MatrixType:
+		return true
+	default:
+		return false
+	}
+}
+
 func componentCount(inner ir.TypeInner) int {
 	switch t := inner.(type) {
 	case ir.ScalarType:

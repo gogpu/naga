@@ -492,9 +492,13 @@ func (s *serializer) emitFunctionBody(fn *Function) {
 	// DECLAREBLOCKS: number of basic blocks.
 	s.w.EmitRecord(funcCodeDeclareBlocks, []uint64{uint64(len(fn.BasicBlocks))})
 
-	// The current value ID counter starts after all global values.
+	// The current value ID counter starts after all global values
+	// plus function parameters (which have implicit value IDs in LLVM bitcode).
 	// Each instruction that produces a value increments this counter.
 	nextValueID := s.globalValueCount()
+	if fn.FuncType != nil {
+		nextValueID += len(fn.FuncType.ParamTypes)
+	}
 
 	for _, bb := range fn.BasicBlocks {
 		for _, instr := range bb.Instructions {

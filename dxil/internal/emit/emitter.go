@@ -91,6 +91,11 @@ type Emitter struct {
 	// Maps IR function handles to their emitted DXIL function declarations.
 	helperFunctions map[ir.FunctionHandle]*module.Function
 
+	// Per-helper-function constant maps: maps emitter value IDs to module constants.
+	// Each helper function gets its own value ID space for constants, stored here
+	// so that finalizeHelperFunction can correctly remap them.
+	helperConstMaps map[ir.FunctionHandle]map[int]*module.Constant
+
 	// True when emitting a helper function body (not an entry point).
 	// Affects return statement emission: helper functions use LLVM ret,
 	// entry points use dx.op.storeOutput.
@@ -206,17 +211,24 @@ func Emit(irMod *ir.Module, opts EmitOptions) (*module.Module, error) {
 		callResultValues:     make(map[ir.ExpressionHandle]int),
 		callResultComponents: make(map[ir.ExpressionHandle][]int),
 		helperFunctions:      make(map[ir.FunctionHandle]*module.Function),
+		helperConstMaps:      make(map[ir.FunctionHandle]map[int]*module.Constant),
 	}
 
-	// TODO(DXIL-002): Emit helper function bodies for StmtCall/ExprCallResult support.
-	// Currently disabled — helper function value ID remapping across shared
-	// constant pools needs more careful design.
-	// if err := e.emitHelperFunctions(); err != nil {
-	// 	return nil, fmt.Errorf("dxil/emit: helper functions: %w", err)
-	// }
+	// Pre-scan the entry point to find which helper functions are actually called.
+	calledFunctions := collectCalledFunctions(&ep.Function)
+	if err := e.emitHelperFunctions(calledFunctions); err != nil {
+		return nil, fmt.Errorf("dxil/emit: helper functions: %w", err)
+	}
 
 	if err := e.emitEntryPoint(ep); err != nil {
 		return nil, fmt.Errorf("dxil/emit: entry point %q: %w", ep.Name, err)
+	}
+
+	// Finalize helper functions AFTER the entry point finalize
+	// (which assigns final constant ValueIDs).
+	for handle, helperFn := range e.helperFunctions {
+		helperConstMap := e.helperConstMaps[handle]
+		e.finalizeHelperFunction(helperFn, helperConstMap)
 	}
 
 	return mod, nil
@@ -271,11 +283,133 @@ func shaderKindString(kind module.ShaderKind) string {
 // a return value. DXIL scalarizes all types, so vector/struct returns are
 // returned as their scalar element type (the first component).
 //
-//nolint:gocognit,funlen // TODO(DXIL-002): re-enable when value ID remapping is fixed
-func (e *Emitter) emitHelperFunctions() error { //nolint:unused
+// collectCalledFunctions scans a function's statements for StmtCall that have
+// a Result (non-void calls where the return value is used). Only these helpers
+// need to be emitted to avoid ExprCallResult errors. Void calls can be safely
+// skipped since their side effects are in the entry point body.
+func collectCalledFunctions(fn *ir.Function) map[ir.FunctionHandle]bool {
+	result := make(map[ir.FunctionHandle]bool)
+	collectCallsFromBlock(fn.Body, result)
+	return result
+}
+
+// functionHasComplexLocals returns true if any local variable has a type that
+// cannot be correctly scalarized in DXIL helper functions (arrays, matrices, structs).
+func functionHasComplexLocals(fn *ir.Function, irMod *ir.Module) bool {
+	for i := range fn.LocalVars {
+		irType := irMod.Types[fn.LocalVars[i].Type]
+		switch irType.Inner.(type) {
+		case ir.ArrayType, ir.MatrixType, ir.StructType:
+			return true
+		}
+	}
+	return false
+}
+
+// functionHasComplexExpressions returns true if the function body contains
+// expressions that cannot yet be correctly emitted in DXIL helper functions.
+// This includes: ExprCompose for arrays/structs, ExprSelect (uses i1 that
+// may produce Invalid record in some contexts), etc.
+func functionHasComplexExpressions(fn *ir.Function, irMod *ir.Module) bool {
+	for i := range fn.Expressions {
+		switch ek := fn.Expressions[i].Kind.(type) {
+		case ir.ExprCompose:
+			// Check if compose target is array or struct (not vector).
+			if int(ek.Type) < len(irMod.Types) {
+				ty := irMod.Types[ek.Type]
+				switch ty.Inner.(type) {
+				case ir.ArrayType, ir.StructType:
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// functionAccessesGlobals returns true if any expression in the function is
+// ExprGlobalVariable. Helper functions that access globals produce incorrect
+// DXIL because global variable scalarization in alloca isn't properly handled.
+func functionAccessesGlobals(fn *ir.Function) bool {
+	for i := range fn.Expressions {
+		if _, ok := fn.Expressions[i].Kind.(ir.ExprGlobalVariable); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func collectCallsFromBlock(stmts ir.Block, result map[ir.FunctionHandle]bool) {
+	for i := range stmts {
+		switch sk := stmts[i].Kind.(type) {
+		case ir.StmtCall:
+			// Only include calls with a result (non-void functions whose
+			// return value is used). This avoids emitting void helpers
+			// whose side effects can't be captured anyway.
+			if sk.Result != nil {
+				result[sk.Function] = true
+			}
+		case ir.StmtBlock:
+			collectCallsFromBlock(sk.Block, result)
+		case ir.StmtIf:
+			collectCallsFromBlock(sk.Accept, result)
+			collectCallsFromBlock(sk.Reject, result)
+		case ir.StmtLoop:
+			collectCallsFromBlock(sk.Body, result)
+			collectCallsFromBlock(sk.Continuing, result)
+		case ir.StmtSwitch:
+			for j := range sk.Cases {
+				collectCallsFromBlock(sk.Cases[j].Body, result)
+			}
+		}
+	}
+}
+
+//nolint:gocognit,gocyclo,funlen,cyclop,maintidx // helper function emission with context save/restore
+func (e *Emitter) emitHelperFunctions(calledFunctions map[ir.FunctionHandle]bool) error {
 	for i := range e.ir.Functions {
 		fn := &e.ir.Functions[i]
 		handle := ir.FunctionHandle(i)
+
+		// Only emit helper functions that are actually called by the entry point.
+		if !calledFunctions[handle] {
+			continue
+		}
+
+		// Check if this helper function is supportable in DXIL:
+		// 1. All parameters and return type must be scalarizable (no arrays/structs/pointers)
+		// 2. Return type must not be bool (i1 returns cause Invalid record in DXC)
+		// 3. Function body must not access global variables (not yet correctly scalarized)
+		unsupported := false
+		for _, arg := range fn.Arguments {
+			argIRType := e.ir.Types[arg.Type]
+			if !isScalarizableType(argIRType.Inner) {
+				unsupported = true
+				break
+			}
+		}
+		if fn.Result != nil {
+			resultIRType := e.ir.Types[fn.Result.Type]
+			if !isScalarizableType(resultIRType.Inner) {
+				unsupported = true
+			}
+			// Bool return type (i1) causes Invalid record in DXC.
+			if st, ok := resultIRType.Inner.(ir.ScalarType); ok && st.Kind == ir.ScalarBool {
+				unsupported = true
+			}
+		}
+		if !unsupported && functionAccessesGlobals(fn) {
+			unsupported = true
+		}
+		if !unsupported && functionHasComplexLocals(fn, e.ir) {
+			unsupported = true
+		}
+		if !unsupported && functionHasComplexExpressions(fn, e.ir) {
+			unsupported = true
+		}
+		if unsupported {
+			continue
+		}
 
 		// Determine parameter types.
 		paramTypes := make([]*module.Type, 0, len(fn.Arguments))
@@ -308,7 +442,12 @@ func (e *Emitter) emitHelperFunctions() error { //nolint:unused
 		if name == "" {
 			name = fmt.Sprintf("function_%d", i)
 		}
-		dxilFn := e.mod.AddFunction(name, funcTy, false)
+		// Create function object but DON'T add to module yet.
+		// We only add it if emission succeeds, to avoid orphan declarations.
+		dxilFn := &module.Function{
+			Name:     name,
+			FuncType: funcTy,
+		}
 
 		// Save the per-function state, emit body, then restore.
 		savedNextValue := e.nextValue
@@ -334,6 +473,21 @@ func (e *Emitter) emitHelperFunctions() error { //nolint:unused
 		// Each helper function body gets its own value numbering starting from 0.
 		// Function parameters consume IDs first, then instructions.
 		e.nextValue = 0
+
+		// Save and reset constant caches — each helper function gets its own
+		// emitter value ID space, so constant cache entries from other functions
+		// would map to wrong IDs.
+		savedIntConsts := e.intConsts
+		savedFloatConsts := e.floatConsts
+		savedConstMap := e.constMap
+		savedUndefID := e.undefID
+		savedTypedUndefs := e.typedUndefs
+		e.intConsts = make(map[int64]int)
+		e.floatConsts = make(map[uint64]int)
+		e.constMap = make(map[int]*module.Constant)
+		e.undefID = -1
+		e.typedUndefs = nil
+
 		// Helper functions don't have their own global var allocas.
 		savedGlobalVarAllocas := e.globalVarAllocas
 		savedGlobalVarAllocaTypes := e.globalVarAllocaTypes
@@ -343,6 +497,9 @@ func (e *Emitter) emitHelperFunctions() error { //nolint:unused
 		if e.globalVarAllocaTypes == nil {
 			e.globalVarAllocaTypes = make(map[ir.GlobalVariableHandle]*module.Type)
 		}
+
+		// Save constant count so we can roll back if emission fails.
+		savedConstCount := len(e.mod.Constants)
 
 		bb := dxilFn.AddBasicBlock("entry")
 		e.currentBB = bb
@@ -370,20 +527,18 @@ func (e *Emitter) emitHelperFunctions() error { //nolint:unused
 			paramIdx += numComps
 		}
 
-		// Emit function body.
-		if err := e.emitFunctionBody(fn); err != nil {
-			return fmt.Errorf("helper function %q body: %w", fn.Name, err)
+		// Emit function body. If it fails (unsupported features), skip this
+		// helper — the entry point's emitStmtCall will fall back to no-op.
+		helperErr := e.emitFunctionBody(fn)
+		if helperErr == nil {
+			if !e.currentBBHasTerminator() {
+				e.currentBB.AddInstruction(module.NewRetVoidInstr())
+			}
+			// Save this helper's constant map for finalizeHelperFunction.
+			e.helperConstMaps[handle] = e.constMap
 		}
 
-		// If there's no explicit return at the end, add a void return.
-		if !e.currentBBHasTerminator() {
-			e.currentBB.AddInstruction(module.NewRetVoidInstr())
-		}
-
-		// Don't finalize here — wait until all functions (including entry point)
-		// are emitted so constants are fully accumulated.
-
-		// Restore entry-point context.
+		// Restore entry-point context including constant caches.
 		e.emittingHelperFunction = false
 		e.nextValue = savedNextValue
 		e.currentBB = savedBB
@@ -397,7 +552,22 @@ func (e *Emitter) emitHelperFunctions() error { //nolint:unused
 		e.loopStack = savedLoopStack
 		e.globalVarAllocas = savedGlobalVarAllocas
 		e.globalVarAllocaTypes = savedGlobalVarAllocaTypes
+		e.intConsts = savedIntConsts
+		e.floatConsts = savedFloatConsts
+		e.constMap = savedConstMap
+		e.undefID = savedUndefID
+		e.typedUndefs = savedTypedUndefs
 
+		if helperErr != nil {
+			// Helper failed (unsupported features) — don't add to module.
+			// Roll back any constants created during partial emission.
+			e.mod.Constants = e.mod.Constants[:savedConstCount]
+			// The entry point's emitStmtCall will skip the call.
+			continue
+		}
+
+		// Success — add function to module and register it.
+		e.mod.Functions = append(e.mod.Functions, dxilFn)
 		e.helperFunctions[handle] = dxilFn
 	}
 	return nil
@@ -405,7 +575,7 @@ func (e *Emitter) emitHelperFunctions() error { //nolint:unused
 
 // currentBBHasTerminator checks if the current basic block ends with
 // a terminator instruction (br or ret).
-func (e *Emitter) currentBBHasTerminator() bool { //nolint:unused
+func (e *Emitter) currentBBHasTerminator() bool {
 	if e.currentBB == nil || len(e.currentBB.Instructions) == 0 {
 		return false
 	}
@@ -576,44 +746,32 @@ func (e *Emitter) finalize(mainFn *module.Function) {
 }
 
 // finalizeHelperFunction remaps value IDs for a helper function body.
-// Unlike the entry point, helper functions have their own value numbering
-// that starts from 0, with function parameters consuming the first N IDs.
-// The serializer expects instruction result IDs starting from globalValueCount().
+// Must be called AFTER finalize(mainFn) so that constants have their
+// final ValueIDs assigned.
+//
+// Each helper function's instruction IDs start from globalValueCount()
+// (same base as the entry point), because the serializer processes
+// each function body independently with the same starting offset.
+//
+// The helperConstMap parameter is the per-helper constant mapping
+// (emitter value ID -> *module.Constant) saved during helper emission.
 //
 //nolint:gocognit // value ID remapping across basic blocks
-func (e *Emitter) finalizeHelperFunction(fn *module.Function) { //nolint:unused
-	// Build the base: globals + functions + constants.
+func (e *Emitter) finalizeHelperFunction(fn *module.Function, helperConstMap map[int]*module.Constant) {
 	base := len(e.mod.GlobalVars) + len(e.mod.Functions) + len(e.mod.Constants)
 
-	// Build ID mapping: emitter function-local ID -> global ID.
 	funcIDMap := make(map[int]int)
 
-	// Map constants from the shared constant pool.
-	for emitterID, c := range e.constMap {
-		funcIDMap[emitterID] = c.ValueID // Already assigned by the entry point's finalize,
-		// but helper functions are finalized first, so we
-		// can't rely on c.ValueID yet. Use the constMap's
-		// pre-finalize IDs instead.
-	}
-
-	// Actually, constants haven't been finalized yet when helper functions
-	// are finalized (they're finalized before entry point). We need a
-	// different approach: assign final constant IDs here too.
-	constBase := len(e.mod.GlobalVars) + len(e.mod.Functions)
-	constToEmitterID := make(map[*module.Constant]int)
-	for emitterID, c := range e.constMap {
-		constToEmitterID[c] = emitterID
-	}
-	for i, c := range e.mod.Constants {
-		if emitterID, ok := constToEmitterID[c]; ok {
-			funcIDMap[emitterID] = constBase + i
-		}
+	// Map constants: emitter temp ID -> final constant ValueID.
+	// Constants were finalized by the entry point's finalize() call,
+	// so c.ValueID is already correct.
+	for emitterID, c := range helperConstMap {
+		funcIDMap[emitterID] = c.ValueID
 	}
 
 	// Function parameters consume value IDs after the base.
 	nextID := base
 	if fn.FuncType != nil {
-		// Map parameter emitter IDs (0..N-1) to global IDs.
 		for i := range fn.FuncType.ParamTypes {
 			funcIDMap[i] = nextID
 			nextID++
