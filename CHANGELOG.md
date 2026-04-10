@@ -52,8 +52,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DXIL: push constants as CBV** — `SpacePushConstant` and `SpaceImmediate` globals
   classified as CBV resources with synthetic bindings.
 
-- **DXIL: DXC dumpbin validation** — 60/165 shaders pass DXC dumpbin (36.4%), up from 0
-  before these fixes. Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
+- **DXIL: resource metadata rewrite** — Per-class metadata matching Mesa exactly. CBV
+  fields[6] = buffer size (was resource kind), SRV/UAV 9-11 fields with element type tags,
+  fields[1] = undef pointer (was null). Fixes 23 DXC validator crashes.
+
+- **DXIL: struct return decomposition** — Multi-output shaders (struct returns with multiple
+  @location fields) now decompose into per-field GEP + scalar load + storeOutput.
+
+- **DXIL: binary op vector scalarization** — Vector binary operations decomposed into
+  per-component scalar ops with scalar-vector broadcast.
+
+- **DXIL: global variable allocas** — Non-resource globals (workgroup, private) get proper
+  alloca pointers instead of placeholder values.
+
+- **DXIL: DXC dumpbin validation** — **93/165 shaders pass DXC dumpbin (56.4%)**.
+  Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Changed
 
