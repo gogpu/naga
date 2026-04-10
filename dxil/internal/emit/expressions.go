@@ -66,8 +66,9 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		if handleID, found := e.getResourceHandleID(ek.Variable); found {
 			valueID = handleID
 		} else {
-			// Non-resource global variable — allocate a placeholder value.
-			valueID = e.allocValue()
+			// Non-resource global variable (workgroup, private, push-constant).
+			// Emit an alloca to create a proper pointer for load/store.
+			valueID, err = e.emitGlobalVarAlloca(ek.Variable)
 		}
 
 	case ir.ExprImageSample:
@@ -333,9 +334,25 @@ func (e *Emitter) emitSplat(fn *ir.Function, sp ir.ExprSplat) (int, error) {
 }
 
 // emitBinary emits a binary operation.
+// For vector operands, the operation is scalarized: per-component binops are emitted.
+// Scalar-vector broadcasts the scalar to each component.
 //
 //nolint:gocognit,gocyclo,cyclop,funlen // binary op dispatch requires many cases
 func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
+	// Check if operands are vectors — if so, scalarize the operation.
+	leftType := e.resolveExprType(fn, bin.Left)
+	rightType := e.resolveExprType(fn, bin.Right)
+	leftComps := componentCount(leftType)
+	rightComps := componentCount(rightType)
+	numComps := leftComps
+	if rightComps > numComps {
+		numComps = rightComps
+	}
+
+	if numComps > 1 {
+		return e.emitBinaryVectorized(fn, bin, leftType, numComps, leftComps, rightComps)
+	}
+
 	lhs, err := e.emitExpression(fn, bin.Left)
 	if err != nil {
 		return 0, err
@@ -345,8 +362,6 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 		return 0, err
 	}
 
-	// Determine result type from left operand.
-	leftType := e.resolveExprType(fn, bin.Left)
 	isFloat := isFloatType(leftType)
 	isSigned := isSignedInt(leftType)
 	resultTy, _ := typeToDXIL(e.mod, e.ir, leftType)
@@ -459,6 +474,144 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 
 	default:
 		return 0, fmt.Errorf("unsupported binary operator: %d", bin.Op)
+	}
+}
+
+// emitBinaryVectorized emits a vector binary operation by scalarizing it.
+// Each component of the vector operands is combined individually.
+// For scalar-vector operations, the scalar is broadcast to each component.
+func (e *Emitter) emitBinaryVectorized(fn *ir.Function, bin ir.ExprBinary, leftType ir.TypeInner, numComps, leftComps, rightComps int) (int, error) {
+	// Emit both operand expressions so component values are available.
+	if _, err := e.emitExpression(fn, bin.Left); err != nil {
+		return 0, err
+	}
+	if _, err := e.emitExpression(fn, bin.Right); err != nil {
+		return 0, err
+	}
+
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, leftType)
+
+	// Select the LLVM opcode for this binary operation.
+	binOp, cmpPred, isCmp, err := selectBinaryOpcode(bin.Op, leftType)
+	if err != nil {
+		return 0, err
+	}
+
+	// Per-component operation.
+	comps := make([]int, numComps)
+	for i := 0; i < numComps; i++ {
+		lComp := e.getComponentIDSafe(bin.Left, i, leftComps)
+		rComp := e.getComponentIDSafe(bin.Right, i, rightComps)
+
+		if isCmp {
+			comps[i] = e.addCmpInstr(cmpPred, lComp, rComp)
+		} else {
+			comps[i] = e.addBinOpInstr(scalarTy, binOp, lComp, rComp)
+		}
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// getComponentIDSafe returns the component ID for the given index, broadcasting
+// if the operand has fewer components (scalar broadcast for scalar-vector ops).
+func (e *Emitter) getComponentIDSafe(handle ir.ExpressionHandle, idx, numComps int) int {
+	if numComps > 1 {
+		return e.getComponentID(handle, idx)
+	}
+	return e.getComponentID(handle, 0)
+}
+
+// selectBinaryOpcode returns the LLVM binary/comparison opcode for a naga binary operator.
+//
+//nolint:gocognit,gocyclo,cyclop,funlen // complete binary op dispatch table
+func selectBinaryOpcode(op ir.BinaryOperator, leftType ir.TypeInner) (BinOpKind, CmpPredicate, bool, error) {
+	isFloat := isFloatType(leftType)
+	isSigned := isSignedInt(leftType)
+
+	switch op {
+	case ir.BinaryAdd:
+		if isFloat {
+			return BinOpFAdd, 0, false, nil
+		}
+		return BinOpAdd, 0, false, nil
+	case ir.BinarySubtract:
+		if isFloat {
+			return BinOpFSub, 0, false, nil
+		}
+		return BinOpSub, 0, false, nil
+	case ir.BinaryMultiply:
+		if isFloat {
+			return BinOpFMul, 0, false, nil
+		}
+		return BinOpMul, 0, false, nil
+	case ir.BinaryDivide:
+		if isFloat {
+			return BinOpFDiv, 0, false, nil
+		}
+		if isSigned {
+			return BinOpSDiv, 0, false, nil
+		}
+		return BinOpUDiv, 0, false, nil
+	case ir.BinaryModulo:
+		if isFloat {
+			return BinOpFRem, 0, false, nil
+		}
+		if isSigned {
+			return BinOpSRem, 0, false, nil
+		}
+		return BinOpURem, 0, false, nil
+	case ir.BinaryAnd:
+		return BinOpAnd, 0, false, nil
+	case ir.BinaryExclusiveOr:
+		return BinOpXor, 0, false, nil
+	case ir.BinaryInclusiveOr:
+		return BinOpOr, 0, false, nil
+	case ir.BinaryEqual:
+		if isFloat {
+			return 0, FCmpOEQ, true, nil
+		}
+		return 0, ICmpEQ, true, nil
+	case ir.BinaryNotEqual:
+		if isFloat {
+			return 0, FCmpONE, true, nil
+		}
+		return 0, ICmpNE, true, nil
+	case ir.BinaryLess:
+		if isFloat {
+			return 0, FCmpOLT, true, nil
+		}
+		if isSigned {
+			return 0, ICmpSLT, true, nil
+		}
+		return 0, ICmpULT, true, nil
+	case ir.BinaryLessEqual:
+		if isFloat {
+			return 0, FCmpOLE, true, nil
+		}
+		if isSigned {
+			return 0, ICmpSLE, true, nil
+		}
+		return 0, ICmpULE, true, nil
+	case ir.BinaryGreater:
+		if isFloat {
+			return 0, FCmpOGT, true, nil
+		}
+		if isSigned {
+			return 0, ICmpSGT, true, nil
+		}
+		return 0, ICmpUGT, true, nil
+	case ir.BinaryGreaterEqual:
+		if isFloat {
+			return 0, FCmpOGE, true, nil
+		}
+		if isSigned {
+			return 0, ICmpSGE, true, nil
+		}
+		return 0, ICmpUGE, true, nil
+	default:
+		return 0, 0, false, fmt.Errorf("unsupported vector binary operator: %d", op)
 	}
 }
 
@@ -1322,6 +1475,52 @@ func (e *Emitter) emitStructLocalVariable(varIdx uint32, localVar *ir.LocalVaria
 	e.currentBB.AddInstruction(instr)
 
 	e.localVarPtrs[varIdx] = valueID
+	return valueID, nil
+}
+
+// emitGlobalVarAlloca emits an alloca for a non-resource global variable
+// (workgroup, private, push-constant without binding). Returns the alloca pointer ID.
+// Caches the result so multiple references to the same global get the same alloca.
+//
+// In proper DXIL, workgroup variables should be address-space 3 globals.
+// For now, we emit them as function-local allocas so load/store work correctly.
+func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, error) {
+	// Return cached alloca if already emitted.
+	if ptr, ok := e.globalVarAllocas[varHandle]; ok {
+		return ptr, nil
+	}
+
+	if int(varHandle) >= len(e.ir.GlobalVariables) {
+		return 0, fmt.Errorf("global variable %d out of range", varHandle)
+	}
+	gv := &e.ir.GlobalVariables[varHandle]
+	irType := e.ir.Types[gv.Type]
+
+	// Get DXIL type for the alloca.
+	elemTy, err := typeToDXILFull(e.mod, e.ir, irType.Inner)
+	if err != nil {
+		return 0, fmt.Errorf("global var %q type: %w", gv.Name, err)
+	}
+	ptrTy := e.mod.GetPointerType(elemTy)
+
+	sizeID := e.getIntConstID(1)
+	i32Ty := e.mod.GetIntType(32)
+
+	// Alignment: log2(align) + 1, with bit 6 set for explicit type (LLVM 3.7).
+	align := e.alignForType(elemTy) + 1
+	alignFlags := align | (1 << 6)
+
+	valueID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrAlloca,
+		HasValue:   true,
+		ResultType: ptrTy,
+		Operands:   []int{elemTy.ID, i32Ty.ID, sizeID, alignFlags},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+
+	e.globalVarAllocas[varHandle] = valueID
 	return valueID, nil
 }
 

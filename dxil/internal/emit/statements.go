@@ -95,23 +95,40 @@ func (e *Emitter) emitStmtEmit(fn *ir.Function, emit ir.StmtEmit) error {
 // stored via dx.op.storeOutput before the void return. This matches how
 // DXIL entry points work: they are void functions that store outputs
 // via intrinsics.
+//
+// For struct returns, the struct must be decomposed into per-member output stores.
+// DXIL does not support struct-typed values — everything is scalarized.
 func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
 	if ret.Value == nil || fn.Result == nil {
 		return nil
 	}
 
+	resultType := e.ir.Types[fn.Result.Type]
+
+	// Handle struct return types specially to avoid loading entire structs.
+	if st, ok := resultType.Inner.(ir.StructType); ok {
+		return e.emitStructReturn(fn, ret, &st)
+	}
+
 	// Evaluate the return value expression.
-	valueID, err := e.emitExpression(fn, *ret.Value)
-	if err != nil {
+	if _, err := e.emitExpression(fn, *ret.Value); err != nil {
 		return fmt.Errorf("return value: %w", err)
 	}
 
 	// Store the return value as output(s).
-	resultType := e.ir.Types[fn.Result.Type]
 	scalar, ok := scalarOfType(resultType.Inner)
 	if !ok {
-		// Non-scalar result type — try to handle vector.
-		return e.emitReturnComposite(fn, valueID, resultType.Inner)
+		// Vector type — handle via component access.
+		if vt, isVec := resultType.Inner.(ir.VectorType); isVec {
+			ol := overloadForScalar(vt.Scalar)
+			outputID := e.outputLocationFromBinding(fn.Result.Binding)
+			for comp := 0; comp < int(vt.Size); comp++ {
+				compValueID := e.getComponentID(*ret.Value, comp)
+				e.emitOutputStore(outputID, comp, compValueID, ol)
+			}
+			return nil
+		}
+		return fmt.Errorf("unsupported return type: %T", resultType.Inner)
 	}
 
 	numComps := componentCount(resultType.Inner)
@@ -126,42 +143,134 @@ func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
 	return nil
 }
 
-// emitReturnComposite handles returning composite types (vectors, structs).
-func (e *Emitter) emitReturnComposite(fn *ir.Function, valueID int, inner ir.TypeInner) error {
-	switch t := inner.(type) {
-	case ir.VectorType:
-		// This is called when scalarOfType fails on the result type,
-		// which shouldn't happen for VectorType. Just handle it.
-		ol := overloadForScalar(t.Scalar)
-		outputID := e.outputLocationFromBinding(fn.Result.Binding)
-		for comp := 0; comp < int(t.Size); comp++ {
-			e.emitOutputStore(outputID, comp, valueID+comp, ol)
-		}
-		return nil
+// emitStructReturn handles returning a struct from an entry point.
+// Each struct member with a binding becomes a separate output via storeOutput.
+//
+// The return value can be:
+//   - ExprLoad of a local variable (struct alloca) — decompose via per-member GEP + load
+//   - ExprCompose — sub-expressions are already available as flattened components
+//   - Any other expression that produces per-component values via pendingComponents
+//
+// DXIL does not support struct-typed SSA values, so we must decompose the struct
+// before emitting output stores.
+func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.StructType) error {
+	retExpr := fn.Expressions[*ret.Value]
 
-	case ir.StructType:
-		// Struct outputs: each member has its own binding.
-		for _, member := range t.Members {
-			if member.Binding == nil {
-				continue
-			}
-			memberType := e.ir.Types[member.Type]
-			scalar, ok := scalarOfType(memberType.Inner)
-			if !ok {
-				continue
-			}
-			numComps := componentCount(memberType.Inner)
-			ol := overloadForScalar(scalar)
-			outputID := e.locationFromBinding(*member.Binding)
-			for comp := 0; comp < numComps; comp++ {
-				e.emitOutputStore(outputID, comp, valueID+comp, ol)
-			}
-		}
-		return nil
-
-	default:
-		return fmt.Errorf("unsupported return type: %T", inner)
+	// Case 1: Load of a struct-typed local variable.
+	// We must NOT emit a struct load. Instead, GEP + load each member individually.
+	if load, ok := retExpr.Kind.(ir.ExprLoad); ok {
+		return e.emitStructReturnFromLoad(fn, load, st)
 	}
+
+	// Case 2: Compose or other expression that produces flattened components.
+	// Emit the expression — this populates pendingComponents via emitCompose.
+	if _, err := e.emitExpression(fn, *ret.Value); err != nil {
+		return fmt.Errorf("return value: %w", err)
+	}
+
+	// Now emit storeOutput for each struct member using the flattened component IDs.
+	compIdx := 0
+	for _, member := range st.Members {
+		if member.Binding == nil {
+			continue
+		}
+		memberType := e.ir.Types[member.Type]
+		scalar, ok := scalarOfType(memberType.Inner)
+		if !ok {
+			continue
+		}
+		numComps := componentCount(memberType.Inner)
+		ol := overloadForScalar(scalar)
+		outputID := e.locationFromBinding(*member.Binding)
+		for comp := 0; comp < numComps; comp++ {
+			valueID := e.getComponentID(*ret.Value, compIdx)
+			e.emitOutputStore(outputID, comp, valueID, ol)
+			compIdx++
+		}
+	}
+
+	return nil
+}
+
+// emitStructReturnFromLoad handles returning a struct loaded from a local variable.
+// Instead of emitting a single struct load (which DXIL doesn't support), we emit
+// per-field GEP + load + storeOutput for each struct member.
+//
+// The struct is flattened in DXIL: vector members become multiple scalar fields.
+// For a struct {vec4<f32>, vec4<f32>}, the DXIL type is {f32, f32, f32, f32, f32, f32, f32, f32}.
+// So member 0 (vec4) uses flattened indices 0..3, member 1 uses indices 4..7.
+func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st *ir.StructType) error {
+	// Ensure the pointer expression (local variable) is emitted.
+	ptr, err := e.emitExpression(fn, load.Pointer)
+	if err != nil {
+		return fmt.Errorf("struct return pointer: %w", err)
+	}
+
+	// Get the LLVM struct type from the local variable.
+	var structTy *module.Type
+	if lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable); ok {
+		if cachedTy, hasCached := e.localVarStructTypes[lv.Variable]; hasCached {
+			structTy = cachedTy
+		}
+	}
+	if structTy == nil {
+		var resolveErr error
+		structTy, resolveErr = typeToDXILFull(e.mod, e.ir, st)
+		if resolveErr != nil {
+			return fmt.Errorf("struct return type resolution: %w", resolveErr)
+		}
+	}
+
+	// Compute the flattened scalar type for GEP element access.
+	// Since the struct is flattened to all-scalar fields, each GEP
+	// produces a pointer to a scalar element.
+	flatIdx := 0
+	for _, member := range st.Members {
+		if member.Binding == nil {
+			// Still need to count the flattened fields for correct indexing.
+			memberType := e.ir.Types[member.Type]
+			flatIdx += componentCount(memberType.Inner)
+			continue
+		}
+
+		memberType := e.ir.Types[member.Type]
+		scalar, ok := scalarOfType(memberType.Inner)
+		if !ok {
+			flatIdx += componentCount(memberType.Inner)
+			continue
+		}
+
+		numComps := componentCount(memberType.Inner)
+		ol := overloadForScalar(scalar)
+		outputID := e.locationFromBinding(*member.Binding)
+		scalarTy := e.overloadReturnType(ol)
+		scalarPtrTy := e.mod.GetPointerType(scalarTy)
+
+		for comp := 0; comp < numComps; comp++ {
+			// GEP into the flattened struct: indices are [0, flatIdx+comp].
+			// sourceElemTy = structTy (the struct the pointer points to).
+			zeroVal := e.getIntConstID(0)
+			fieldIdx := e.getIntConstID(int64(flatIdx + comp))
+			gepID := e.addGEPInstr(structTy, scalarPtrTy, ptr, []int{zeroVal, fieldIdx})
+
+			// Load the scalar value.
+			loadID := e.allocValue()
+			align := e.alignForType(scalarTy)
+			loadInstr := &module.Instruction{
+				Kind:       module.InstrLoad,
+				HasValue:   true,
+				ResultType: scalarTy,
+				Operands:   []int{gepID, scalarTy.ID, align, 0},
+				ValueID:    loadID,
+			}
+			e.currentBB.AddInstruction(loadInstr)
+
+			e.emitOutputStore(outputID, comp, loadID, ol)
+		}
+		flatIdx += numComps
+	}
+
+	return nil
 }
 
 // emitStmtStore handles store statements.

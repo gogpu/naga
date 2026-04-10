@@ -400,6 +400,19 @@ func (m *Module) AddIntConst(ty *Type, value int64) *Constant {
 	return c
 }
 
+// AddUndefConst creates an undef constant of the given type.
+// Used for resource metadata fields[1] which require an undef pointer value.
+//
+// Reference: Mesa dxil_module.c dxil_module_get_undef() line ~1845
+func (m *Module) AddUndefConst(ty *Type) *Constant {
+	c := &Constant{
+		ConstType: ty,
+		IsUndef:   true,
+	}
+	m.Constants = append(m.Constants, c)
+	return c
+}
+
 // GlobalVar represents a global variable.
 type GlobalVar struct {
 	Name        string

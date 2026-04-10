@@ -338,30 +338,29 @@ func (e *Emitter) getI1ConstID(v int64) int {
 // Called from emitMetadata when resources are present.
 //
 // Format: !dx.resources = !{!srvs, !uavs, !cbvs, !samplers}
-// Each list contains entries: !{i32 rangeID, null, !"name", i32 space, i32 lower, i32 upper, i32 kind, null}
+// Each class has different field counts matching the DXIL spec.
+//
+// Reference: Mesa nir_to_dxil.c emit_srv_metadata/emit_uav_metadata/emit_cbv_metadata/emit_sampler_metadata
 func (e *Emitter) emitResourceMetadata() *module.MetadataNode {
 	if len(e.resources) == 0 {
 		return nil
 	}
-
-	i32Ty := e.mod.GetIntType(32)
 
 	// Group resources by class.
 	var srvs, uavs, cbvs, samplers []*module.MetadataNode
 
 	for i := range e.resources {
 		res := &e.resources[i]
-		entry := e.buildResourceMetadataEntry(res, i32Ty)
 
 		switch res.class {
 		case resourceClassSRV:
-			srvs = append(srvs, entry)
+			srvs = append(srvs, e.buildSRVMetadata(res))
 		case resourceClassUAV:
-			uavs = append(uavs, entry)
+			uavs = append(uavs, e.buildUAVMetadata(res))
 		case resourceClassCBV:
-			cbvs = append(cbvs, entry)
+			cbvs = append(cbvs, e.buildCBVMetadata(res))
 		case resourceClassSampler:
-			samplers = append(samplers, entry)
+			samplers = append(samplers, e.buildSamplerMetadata(res))
 		}
 	}
 
@@ -382,26 +381,341 @@ func (e *Emitter) emitResourceMetadata() *module.MetadataNode {
 	return mdResources
 }
 
-// buildResourceMetadataEntry builds a single resource metadata entry.
-// Format: !{i32 rangeID, null, !"name", i32 space, i32 lowerBound, i32 upperBound, i32 kind, null}
-func (e *Emitter) buildResourceMetadataEntry(res *resourceInfo, i32Ty *module.Type) *module.MetadataNode {
-	mdRangeID := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.rangeID)))
-	mdName := e.mod.AddMetadataString(res.name)
-	mdSpace := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.group)))
-	mdLower := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.binding)))
-	mdUpper := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.binding)+1))
-	mdKind := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(e.resourceKind(res))))
+// fillResourceMetadataCommon builds the first 6 fields common to all resource classes.
+// Returns [6]*MetadataNode: {rangeID, undefPtr, name, space, lowerBound, rangeSize}.
+//
+// Reference: Mesa nir_to_dxil.c fill_resource_metadata() line ~453
+func (e *Emitter) fillResourceMetadataCommon(res *resourceInfo, structType *module.Type) [6]*module.MetadataNode {
+	i32Ty := e.mod.GetIntType(32)
 
-	return e.mod.AddMetadataTuple([]*module.MetadataNode{
-		mdRangeID, // i32 rangeID
-		nil,       // null (global variable ref, simplified)
-		mdName,    // !"name"
-		mdSpace,   // i32 space
-		mdLower,   // i32 lowerBound
-		mdUpper,   // i32 upperBound
-		mdKind,    // i32 kind
-		nil,       // null (additional properties)
-	})
+	// fields[1] = metadata value wrapping an undef pointer to the resource struct type.
+	// DXC validator requires this non-null reference.
+	// Reference: Mesa fill_resource_metadata() line ~457-458
+	pointerType := e.mod.GetPointerType(structType)
+	pointerUndef := e.mod.AddUndefConst(pointerType)
+
+	return [6]*module.MetadataNode{
+		e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.rangeID))), // fields[0]: resource ID
+		e.mod.AddMetadataValue(pointerType, pointerUndef),                // fields[1]: global constant symbol (undef ptr)
+		e.mod.AddMetadataString(res.name),                                // fields[2]: name
+		e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.group))),   // fields[3]: space ID
+		e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.binding))), // fields[4]: lower bound
+		e.mod.AddMetadataValue(i32Ty, e.getIntConst(1)),                  // fields[5]: range size (1 for non-array)
+	}
+}
+
+// getResourceStructType returns an LLVM struct type appropriate for this resource.
+// For CBV: named struct wrapping a float array sized to the buffer.
+// For SRV/UAV: the dx.types.Handle-like struct or image type struct.
+// For Sampler: struct.SamplerState { i32 }.
+//
+// Reference: Mesa nir_to_dxil.c emit_cbv() line ~1549-1552, emit_sampler_metadata() line ~1597-1598
+func (e *Emitter) getResourceStructType(res *resourceInfo) *module.Type {
+	switch res.class {
+	case resourceClassCBV:
+		// CBV struct: named struct containing a float array.
+		// Mesa: buffer_type = struct { float[size] } where size = num vec4 regs.
+		numVec4 := e.computeCBVVec4Count(res)
+		f32Ty := e.mod.GetFloatType(32)
+		arrayTy := e.mod.GetArrayType(f32Ty, uint(numVec4)) //nolint:gosec // numVec4 always positive
+		name := res.name
+		if name == "" {
+			name = "cb"
+		}
+		return e.mod.GetStructType(name, []*module.Type{arrayTy})
+
+	case resourceClassSampler:
+		// Sampler: struct.SamplerState { i32 }
+		// Reference: Mesa nir_to_dxil.c line ~1597-1598
+		i32Ty := e.mod.GetIntType(32)
+		return e.mod.GetStructType("struct.SamplerState", []*module.Type{i32Ty})
+
+	case resourceClassSRV:
+		// SRV: use the image component type to build a typed resource struct.
+		compType := e.getResourceComponentType(res)
+		scalarTy := e.componentTypeToLLVMType(compType)
+		return e.mod.GetStructType("struct.SRVType", []*module.Type{scalarTy})
+
+	case resourceClassUAV:
+		// UAV: similar to SRV struct for metadata purposes.
+		compType := e.getResourceComponentType(res)
+		scalarTy := e.componentTypeToLLVMType(compType)
+		return e.mod.GetStructType("struct.UAVType", []*module.Type{scalarTy})
+
+	default:
+		// Fallback: i8 pointer struct.
+		i8Ty := e.mod.GetIntType(8)
+		return e.mod.GetStructType("struct.Resource", []*module.Type{i8Ty})
+	}
+}
+
+// buildSRVMetadata builds SRV metadata entry with 9 fields.
+//
+// Reference: Mesa nir_to_dxil.c emit_srv_metadata() line ~468-492
+func (e *Emitter) buildSRVMetadata(res *resourceInfo) *module.MetadataNode {
+	structType := e.getResourceStructType(res)
+	common := e.fillResourceMetadataCommon(res, structType)
+	i32Ty := e.mod.GetIntType(32)
+
+	resKind := e.resourceKind(res)
+	compType := e.getResourceComponentType(res)
+
+	// fields[6] = resource shape (kind)
+	mdKind := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(resKind)))
+
+	// fields[7] = sample count (i1 false)
+	// Reference: Mesa emit_srv_metadata() line ~480
+	mdSampleCount := e.addMetadataI1(false)
+
+	// fields[8] = element type tag metadata, or null for raw/structured buffers.
+	// Reference: Mesa emit_srv_metadata() line ~481-489
+	var mdTag *module.MetadataNode
+	if resKind != 11 && resKind != 12 { // not RawBuffer(11) or StructuredBuffer(12)
+		tagNodes := []*module.MetadataNode{
+			e.mod.AddMetadataValue(i32Ty, e.getIntConst(0)), // DXIL_TYPED_BUFFER_ELEMENT_TYPE_TAG = 0
+			e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(compType))),
+		}
+		mdTag = e.mod.AddMetadataTuple(tagNodes)
+	}
+	// nil mdTag for raw buffer
+
+	fields := []*module.MetadataNode{
+		common[0], common[1], common[2], common[3], common[4], common[5],
+		mdKind,        // fields[6]: resource shape
+		mdSampleCount, // fields[7]: sample count
+		mdTag,         // fields[8]: element type tag (or null)
+	}
+
+	return e.mod.AddMetadataTuple(fields)
+}
+
+// buildUAVMetadata builds UAV metadata entry with 11 fields.
+//
+// Reference: Mesa nir_to_dxil.c emit_uav_metadata() line ~494-521
+func (e *Emitter) buildUAVMetadata(res *resourceInfo) *module.MetadataNode {
+	structType := e.getResourceStructType(res)
+	common := e.fillResourceMetadataCommon(res, structType)
+	i32Ty := e.mod.GetIntType(32)
+
+	resKind := e.resourceKind(res)
+	compType := e.getResourceComponentType(res)
+
+	// fields[6] = resource shape
+	mdKind := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(resKind)))
+
+	// fields[7] = globally coherent (i1 false)
+	// Reference: Mesa emit_uav_metadata() line ~507
+	mdCoherent := e.addMetadataI1(false)
+
+	// fields[8] = has counter (i1 false)
+	mdCounter := e.addMetadataI1(false)
+
+	// fields[9] = is ROV (i1 false)
+	mdROV := e.addMetadataI1(false)
+
+	// fields[10] = element type tag (or null for raw/structured buffer)
+	// Reference: Mesa emit_uav_metadata() line ~510-518
+	var mdTag *module.MetadataNode
+	if resKind != 11 && resKind != 12 { // not RawBuffer or StructuredBuffer
+		tagNodes := []*module.MetadataNode{
+			e.mod.AddMetadataValue(i32Ty, e.getIntConst(0)), // DXIL_TYPED_BUFFER_ELEMENT_TYPE_TAG = 0
+			e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(compType))),
+		}
+		mdTag = e.mod.AddMetadataTuple(tagNodes)
+	}
+
+	fields := []*module.MetadataNode{
+		common[0], common[1], common[2], common[3], common[4], common[5],
+		mdKind,     // fields[6]: resource shape
+		mdCoherent, // fields[7]: globally coherent
+		mdCounter,  // fields[8]: has counter
+		mdROV,      // fields[9]: is ROV
+		mdTag,      // fields[10]: element type tag (or null)
+	}
+
+	return e.mod.AddMetadataTuple(fields)
+}
+
+// buildCBVMetadata builds CBV metadata entry with 8 fields.
+// fields[6] = constant buffer size in bytes (NOT resource kind).
+//
+// Reference: Mesa nir_to_dxil.c emit_cbv_metadata() line ~523-535
+func (e *Emitter) buildCBVMetadata(res *resourceInfo) *module.MetadataNode {
+	structType := e.getResourceStructType(res)
+	common := e.fillResourceMetadataCommon(res, structType)
+	i32Ty := e.mod.GetIntType(32)
+
+	// fields[6] = constant buffer size in bytes.
+	// Mesa: 4 * size (where size = number of vec4 registers).
+	// Reference: Mesa emit_cbv() line ~1557: emit_cbv_metadata(..., 4 * size)
+	cbvSizeBytes := e.computeCBVVec4Count(res) * 4 // each vec4 register = 4 floats = 16 bytes... wait
+	// Actually Mesa passes 4 * size where size = num float elements in the array.
+	// The array is float[size], so total = 4 * size bytes.
+	// But our computeCBVVec4Count returns the array size (num floats).
+	// So bytes = 4 * numFloats = 4 * computeCBVVec4Count.
+	mdSize := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(cbvSizeBytes)))
+
+	fields := []*module.MetadataNode{
+		common[0], common[1], common[2], common[3], common[4], common[5],
+		mdSize, // fields[6]: constant buffer size in bytes
+		nil,    // fields[7]: null (metadata)
+	}
+
+	return e.mod.AddMetadataTuple(fields)
+}
+
+// buildSamplerMetadata builds Sampler metadata entry with 8 fields.
+//
+// Reference: Mesa nir_to_dxil.c emit_sampler_metadata() line ~537-551
+func (e *Emitter) buildSamplerMetadata(res *resourceInfo) *module.MetadataNode {
+	structType := e.getResourceStructType(res)
+	common := e.fillResourceMetadataCommon(res, structType)
+	i32Ty := e.mod.GetIntType(32)
+
+	// fields[6] = sampler kind (0=default, 1=comparison).
+	// Reference: Mesa emit_sampler_metadata() line ~545-547
+	samplerKind := 0 // DXIL_SAMPLER_KIND_DEFAULT
+	// TODO: detect comparison samplers from IR SamplerType if available.
+	mdKind := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(samplerKind)))
+
+	fields := []*module.MetadataNode{
+		common[0], common[1], common[2], common[3], common[4], common[5],
+		mdKind, // fields[6]: sampler kind
+		nil,    // fields[7]: null (metadata)
+	}
+
+	return e.mod.AddMetadataTuple(fields)
+}
+
+// addMetadataI1 creates a metadata value node wrapping an i1 boolean constant.
+//
+// Reference: Mesa dxil_module.c dxil_get_metadata_int1() line ~2897
+func (e *Emitter) addMetadataI1(value bool) *module.MetadataNode { //nolint:unparam // value can be true for coherent UAVs
+	i1Ty := e.mod.GetIntType(1)
+	var v int64
+	if value {
+		v = 1
+	}
+	c := e.mod.AddIntConst(i1Ty, v)
+	return e.mod.AddMetadataValue(i1Ty, c)
+}
+
+// computeCBVVec4Count returns the number of float elements in the CBV array
+// representation. For the struct backing this CBV, we compute the total size
+// in bytes and then convert to float count: numFloats = ceil(structSize / 4).
+//
+// Reference: Mesa nir_to_dxil.c emit_cbv() line ~1549-1550:
+//
+//	array_type = dxil_module_get_array_type(m, float32, size)
+//	where size = number of float elements
+func (e *Emitter) computeCBVVec4Count(res *resourceInfo) int {
+	if int(res.typeHandle) >= len(e.ir.Types) {
+		return 4 // default: 1 vec4 register
+	}
+	sizeBytes := e.computeIRTypeSizeBytes(e.ir.Types[res.typeHandle].Inner)
+	if sizeBytes == 0 {
+		return 4 // default
+	}
+	// Round up to 16-byte boundary (cbuffer register size), then convert to float count.
+	aligned := (sizeBytes + 15) &^ 15
+	return int(aligned / 4)
+}
+
+// computeIRTypeSizeBytes computes the size in bytes of an IR type.
+// Used for CBV buffer size calculation.
+func (e *Emitter) computeIRTypeSizeBytes(inner ir.TypeInner) uint32 {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return uint32(t.Width)
+	case ir.VectorType:
+		return uint32(t.Size) * uint32(t.Scalar.Width)
+	case ir.MatrixType:
+		// Each column is a vector of t.Rows components.
+		colSize := uint32(t.Rows) * uint32(t.Scalar.Width)
+		// Columns are aligned to 16 bytes in cbuffers.
+		colAligned := (colSize + 15) &^ 15
+		return uint32(t.Columns) * colAligned
+	case ir.ArrayType:
+		if int(t.Base) < len(e.ir.Types) {
+			elemSize := e.computeIRTypeSizeBytes(e.ir.Types[t.Base].Inner)
+			arrayLen := uint32(0)
+			if t.Size.Constant != nil {
+				arrayLen = *t.Size.Constant
+			}
+			// Use stride if available, otherwise compute from element size.
+			if t.Stride > 0 {
+				return arrayLen * t.Stride
+			}
+			return arrayLen * elemSize
+		}
+		return 0
+	case ir.StructType:
+		if len(t.Members) == 0 {
+			return 0
+		}
+		// Use the last member's offset + size.
+		lastMember := &t.Members[len(t.Members)-1]
+		lastSize := uint32(0)
+		if int(lastMember.Type) < len(e.ir.Types) {
+			lastSize = e.computeIRTypeSizeBytes(e.ir.Types[lastMember.Type].Inner)
+		}
+		return lastMember.Offset + lastSize
+	default:
+		return 4 // fallback: assume 4 bytes
+	}
+}
+
+// DXIL component type constants.
+// Reference: Mesa dxil_enums.h enum dxil_component_type line ~170
+const (
+	dxilCompTypeF32 = 9  // DXIL_COMP_TYPE_F32
+	dxilCompTypeI32 = 4  // DXIL_COMP_TYPE_I32
+	dxilCompTypeU32 = 5  // DXIL_COMP_TYPE_U32
+	dxilCompTypeF16 = 8  // DXIL_COMP_TYPE_F16
+	dxilCompTypeF64 = 10 // DXIL_COMP_TYPE_F64
+)
+
+// getResourceComponentType returns the DXIL component type for a resource.
+func (e *Emitter) getResourceComponentType(res *resourceInfo) int {
+	if int(res.typeHandle) >= len(e.ir.Types) {
+		return dxilCompTypeF32 // default
+	}
+	inner := e.ir.Types[res.typeHandle].Inner
+	if img, ok := inner.(ir.ImageType); ok {
+		return e.sampledKindToDxilCompType(img.SampledKind)
+	}
+	return dxilCompTypeF32
+}
+
+// sampledKindToDxilCompType converts an IR ScalarKind to DXIL component type.
+// Used for image/texture types where we only have the kind, not full scalar type.
+func (e *Emitter) sampledKindToDxilCompType(kind ir.ScalarKind) int {
+	switch kind {
+	case ir.ScalarFloat:
+		return dxilCompTypeF32
+	case ir.ScalarSint:
+		return dxilCompTypeI32
+	case ir.ScalarUint:
+		return dxilCompTypeU32
+	default:
+		return dxilCompTypeF32
+	}
+}
+
+// componentTypeToLLVMType returns the LLVM type for a DXIL component type.
+func (e *Emitter) componentTypeToLLVMType(compType int) *module.Type {
+	switch compType {
+	case dxilCompTypeF16:
+		return e.mod.GetFloatType(16)
+	case dxilCompTypeF64:
+		return e.mod.GetFloatType(64)
+	case dxilCompTypeI32:
+		return e.mod.GetIntType(32)
+	case dxilCompTypeU32:
+		return e.mod.GetIntType(32)
+	default:
+		return e.mod.GetFloatType(32)
+	}
 }
 
 // --- CBV (constant buffer) loads ---
