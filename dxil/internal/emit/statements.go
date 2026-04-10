@@ -119,6 +119,25 @@ func (e *Emitter) emitStmtEmit(fn *ir.Function, emit ir.StmtEmit) error {
 // DXIL does not support struct-typed values — everything is scalarized.
 func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
 	if ret.Value == nil || fn.Result == nil {
+		// Void return for helper functions.
+		if e.emittingHelperFunction {
+			e.currentBB.AddInstruction(module.NewRetVoidInstr())
+		}
+		return nil
+	}
+
+	// Helper function: emit an LLVM ret instruction with the scalar return value.
+	if e.emittingHelperFunction {
+		valueID, err := e.emitExpression(fn, *ret.Value)
+		if err != nil {
+			return fmt.Errorf("helper return value: %w", err)
+		}
+		instr := &module.Instruction{
+			Kind:        module.InstrRet,
+			HasValue:    false,
+			ReturnValue: valueID,
+		}
+		e.currentBB.AddInstruction(instr)
 		return nil
 	}
 
@@ -361,6 +380,8 @@ func (e *Emitter) emitScalarLoad(scalarTy *module.Type, ptrID int) int {
 // For vector local variables, each component is stored separately.
 //
 // Reference: Mesa nir_to_dxil.c dxil_emit_store(), emit_bufferstore_call()
+//
+//nolint:nestif // store dispatch for different pointer targets requires nesting
 func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	// Check if this store targets a mesh output variable.
 	// Mesh output stores are converted to dx.op mesh shader intrinsics.
@@ -381,7 +402,14 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	// Check if this is a vector store to a local variable with per-component allocas.
 	if lv, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable); ok {
 		if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
-			return e.emitVectorStore(fn, compPtrs, store.Value)
+			// Resolve the actual scalar element type from the local variable's IR type.
+			localVar := &fn.LocalVars[lv.Variable]
+			irType := e.ir.Types[localVar.Type]
+			elemDXILTy, resolveErr := typeToDXIL(e.mod, e.ir, irType.Inner)
+			if resolveErr != nil {
+				return fmt.Errorf("vector store type resolution: %w", resolveErr)
+			}
+			return e.emitVectorStore(fn, compPtrs, store.Value, elemDXILTy)
 		}
 
 		// Check if this is a struct store to a local variable.
@@ -490,15 +518,15 @@ func (e *Emitter) storeStructFields(dxilStructTy *module.Type, basePtrID int, st
 }
 
 // emitVectorStore stores each component of a vector value to separate allocas.
-func (e *Emitter) emitVectorStore(fn *ir.Function, compPtrs []int, valueHandle ir.ExpressionHandle) error {
+// scalarDXILTy is the DXIL scalar element type of the vector (e.g. f16 for vec2<f16>).
+func (e *Emitter) emitVectorStore(fn *ir.Function, compPtrs []int, valueHandle ir.ExpressionHandle, scalarDXILTy *module.Type) error {
 	// Emit the value expression to get component tracking.
 	_, err := e.emitExpression(fn, valueHandle)
 	if err != nil {
 		return fmt.Errorf("store value: %w", err)
 	}
 
-	// Determine the scalar type for alignment.
-	scalarTy := e.mod.GetFloatType(32) // default
+	scalarTy := scalarDXILTy
 	if comps, ok := e.exprComponents[valueHandle]; ok {
 		// We have per-component tracking — use it for value IDs.
 		for i := 0; i < len(compPtrs) && i < len(comps); i++ {
@@ -527,12 +555,48 @@ func (e *Emitter) emitVectorStore(fn *ir.Function, compPtrs []int, valueHandle i
 }
 
 // emitStmtCall handles function call statements.
+// If the helper function has been emitted, generates an LLVM call instruction.
+// Otherwise, evaluates arguments (for side effects) and skips the call.
 func (e *Emitter) emitStmtCall(fn *ir.Function, call ir.StmtCall) error {
-	// Evaluate arguments.
+	// Evaluate arguments (always needed for side effects).
 	for _, arg := range call.Arguments {
 		if _, err := e.emitExpression(fn, arg); err != nil {
 			return fmt.Errorf("call argument: %w", err)
 		}
+	}
+
+	// If helper function was emitted, generate an actual LLVM call.
+	dxilFn, ok := e.helperFunctions[call.Function]
+	if !ok {
+		// Helper functions not yet supported for this shader — skip silently.
+		// The call result (if any) won't be available, causing ExprCallResult
+		// to fail if the shader actually uses the return value.
+		return nil
+	}
+
+	// Build flattened argument list (expanding vectors to per-component).
+	var argIDs []int
+	for _, arg := range call.Arguments {
+		argTy := e.resolveExprTypeInner(fn, arg)
+		numComps := 1
+		if argTy != nil {
+			numComps = componentCount(argTy)
+		}
+		if numComps > 1 {
+			for c := 0; c < numComps; c++ {
+				argIDs = append(argIDs, e.getComponentID(arg, c))
+			}
+		} else {
+			argIDs = append(argIDs, e.exprValues[arg])
+		}
+	}
+
+	resultTy := dxilFn.FuncType.RetType
+	valueID := e.addCallInstr(dxilFn, resultTy, argIDs)
+
+	if call.Result != nil {
+		e.callResultValues[*call.Result] = valueID
+		e.exprValues[*call.Result] = valueID
 	}
 	return nil
 }

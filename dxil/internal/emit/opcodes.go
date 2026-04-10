@@ -19,34 +19,49 @@ const (
 	OpStoreOutput DXILOpcode = 5
 
 	// Unary float operations.
-	OpFAbs        DXILOpcode = 6
-	OpSaturate    DXILOpcode = 7
-	OpIsNaN       DXILOpcode = 8
-	OpIsInf       DXILOpcode = 9
-	OpIsFinite    DXILOpcode = 10
-	OpIsNormal    DXILOpcode = 11
-	OpCos         DXILOpcode = 12
-	OpSin         DXILOpcode = 13
-	OpTan         DXILOpcode = 14
-	OpAcos        DXILOpcode = 15
-	OpAsin        DXILOpcode = 16
-	OpAtan        DXILOpcode = 17
-	OpHCos        DXILOpcode = 18
-	OpHSin        DXILOpcode = 19
-	OpHTan        DXILOpcode = 20
-	OpExp         DXILOpcode = 21
-	OpFrc         DXILOpcode = 22
-	OpLog         DXILOpcode = 23
-	OpSqrt        DXILOpcode = 24
-	OpRsqrt       DXILOpcode = 25
-	OpRoundNE     DXILOpcode = 26
-	OpRoundNI     DXILOpcode = 27
-	OpRoundPI     DXILOpcode = 28
-	OpRoundZ      DXILOpcode = 29
-	OpReverseBits DXILOpcode = 30
-	OpCountBits   DXILOpcode = 31
-	OpFirstbitLo  DXILOpcode = 32
-	OpFirstbitHi  DXILOpcode = 33
+	OpFAbs             DXILOpcode = 6
+	OpSaturate         DXILOpcode = 7
+	OpIsNaN            DXILOpcode = 8
+	OpIsInf            DXILOpcode = 9
+	OpIsFinite         DXILOpcode = 10
+	OpIsNormal         DXILOpcode = 11
+	OpCos              DXILOpcode = 12
+	OpSin              DXILOpcode = 13
+	OpTan              DXILOpcode = 14
+	OpAcos             DXILOpcode = 15
+	OpAsin             DXILOpcode = 16
+	OpAtan             DXILOpcode = 17
+	OpHCos             DXILOpcode = 18
+	OpHSin             DXILOpcode = 19
+	OpHTan             DXILOpcode = 20
+	OpExp              DXILOpcode = 21
+	OpFrc              DXILOpcode = 22
+	OpLog              DXILOpcode = 23
+	OpSqrt             DXILOpcode = 24
+	OpRsqrt            DXILOpcode = 25
+	OpRoundNE          DXILOpcode = 26
+	OpRoundNI          DXILOpcode = 27
+	OpRoundPI          DXILOpcode = 28
+	OpRoundZ           DXILOpcode = 29
+	OpReverseBits      DXILOpcode = 30
+	OpCountBits        DXILOpcode = 31
+	OpFirstbitLo       DXILOpcode = 32
+	OpFirstbitHi       DXILOpcode = 33
+	OpFirstbitShiHi    DXILOpcode = 34 // firstbit_shi_hi (signed high bit)
+	OpBfrev            DXILOpcode = 30 // alias for ReverseBits
+	OpLdexp            DXILOpcode = 43 // ldexp(value, exp)
+	OpMakeDouble       DXILOpcode = 101
+	OpSplitDouble      DXILOpcode = 102
+	OpBitcastI16toF16  DXILOpcode = 125
+	OpBitcastF16toI16  DXILOpcode = 126
+	OpLegacyF32ToF16   DXILOpcode = 130
+	OpLegacyF16ToF32   DXILOpcode = 131
+	OpFirstbitShiHiAlt DXILOpcode = 34
+
+	// Bit field operations.
+	OpBfi  DXILOpcode = 53 // bit field insert
+	OpIBfe DXILOpcode = 51 // signed bit field extract
+	OpUBfe DXILOpcode = 52 // unsigned bit field extract
 
 	// Binary float/int operations.
 	OpFMax DXILOpcode = 35

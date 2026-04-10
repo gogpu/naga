@@ -2,6 +2,7 @@ package emit
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
@@ -12,7 +13,7 @@ import (
 //
 // Reference: Mesa nir_to_dxil.c emit_alu()
 //
-//nolint:gocyclo,cyclop // expression dispatch requires handling all expression kinds
+//nolint:gocyclo,cyclop,funlen // expression dispatch requires handling all expression kinds
 func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (int, error) {
 	// Check if already emitted.
 	if v, ok := e.exprValues[handle]; ok {
@@ -96,6 +97,16 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		// AtomicResult values are pre-populated by emitStmtAtomic.
 		// If we reach here, the value should already be in exprValues.
 		return 0, fmt.Errorf("ExprAtomicResult [%d] not yet populated by StmtAtomic", handle)
+
+	case ir.ExprCallResult:
+		// CallResult values are set by emitStmtCall.
+		if v, found := e.callResultValues[handle]; found {
+			if comps, hasComps := e.callResultComponents[handle]; hasComps {
+				e.pendingComponents = comps
+			}
+			return v, nil
+		}
+		return 0, fmt.Errorf("ExprCallResult [%d] not yet populated by StmtCall", handle)
 
 	case ir.ExprArrayLength:
 		return 0, fmt.Errorf("ExprArrayLength not yet implemented in DXIL backend")
@@ -1011,6 +1022,8 @@ func (e *Emitter) emitUnary(fn *ir.Function, un ir.ExprUnary) (int, error) {
 
 // emitMath emits a math intrinsic as a dx.op call.
 // Dispatches based on argument count and special-case operations.
+//
+//nolint:gocyclo,cyclop,funlen // math function dispatch requires many cases
 func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	// Special vector operations that need scalarized handling.
 	switch mathExpr.Fun {
@@ -1034,6 +1047,32 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathStep(fn, mathExpr)
 	case ir.MathSmoothStep:
 		return e.emitMathSmoothStep(fn, mathExpr)
+	case ir.MathDegrees:
+		return e.emitMathDegrees(fn, mathExpr)
+	case ir.MathRadians:
+		return e.emitMathRadians(fn, mathExpr)
+	case ir.MathSign:
+		return e.emitMathSign(fn, mathExpr)
+	case ir.MathExtractBits:
+		return e.emitMathExtractBits(fn, mathExpr)
+	case ir.MathInsertBits:
+		return e.emitMathInsertBits(fn, mathExpr)
+	case ir.MathRefract:
+		return e.emitMathRefract(fn, mathExpr)
+	case ir.MathModf:
+		return e.emitMathModf(fn, mathExpr)
+	case ir.MathFrexp:
+		return e.emitMathFrexp(fn, mathExpr)
+	case ir.MathLdexp:
+		return e.emitMathLdexp(fn, mathExpr)
+	case ir.MathCountTrailingZeros:
+		return e.emitMathCountTrailingZeros(fn, mathExpr)
+	case ir.MathCountLeadingZeros:
+		return e.emitMathCountLeadingZeros(fn, mathExpr)
+	case ir.MathInverse:
+		return 0, fmt.Errorf("MathInverse (matrix) not yet implemented in DXIL backend")
+	case ir.MathDeterminant:
+		return 0, fmt.Errorf("MathDeterminant (matrix) not yet implemented in DXIL backend")
 	}
 
 	arg, err := e.emitExpression(fn, mathExpr.Arg)
@@ -1617,6 +1656,281 @@ func mathToDxOpUnary(mf ir.MathFunction) (DXILOpcode, string, error) {
 	}
 }
 
+// emitMathDegrees computes degrees = radians * (180.0 / pi).
+func (e *Emitter) emitMathDegrees(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	f32Ty := e.mod.GetFloatType(32)
+	factor := e.getFloatConstID(180.0 / math.Pi)
+	return e.addBinOpInstr(f32Ty, BinOpFMul, arg, factor), nil
+}
+
+// emitMathRadians computes radians = degrees * (pi / 180.0).
+func (e *Emitter) emitMathRadians(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	f32Ty := e.mod.GetFloatType(32)
+	factor := e.getFloatConstID(math.Pi / 180.0)
+	return e.addBinOpInstr(f32Ty, BinOpFMul, arg, factor), nil
+}
+
+// emitMathSign returns -1, 0, or 1 based on the sign of the argument.
+// For float: select(x > 0, 1.0, select(x < 0, -1.0, 0.0))
+// For int: select(x > 0, 1, select(x < 0, -1, 0))
+func (e *Emitter) emitMathSign(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+
+	if scalar.Kind == ir.ScalarFloat {
+		f32Ty := e.mod.GetFloatType(32)
+		zero := e.getFloatConstID(0.0)
+		posOne := e.getFloatConstID(1.0)
+		negOne := e.getFloatConstID(-1.0)
+		cmpGT := e.addCmpInstr(FCmpOGT, arg, zero)
+		cmpLT := e.addCmpInstr(FCmpOLT, arg, zero)
+		selNeg := e.emitSelect3(f32Ty, cmpLT, negOne, zero)
+		return e.emitSelect3(f32Ty, cmpGT, posOne, selNeg), nil
+	}
+	// Integer sign.
+	i32Ty := e.mod.GetIntType(32)
+	zero := e.getIntConstID(0)
+	posOne := e.getIntConstID(1)
+	negOne := e.getIntConstID(-1)
+	pred := ICmpSGT
+	if scalar.Kind == ir.ScalarUint {
+		pred = ICmpUGT
+	}
+	cmpGT := e.addCmpInstr(pred, arg, zero)
+	cmpLT := e.addCmpInstr(ICmpSLT, arg, zero)
+	selNeg := e.emitSelect3(i32Ty, cmpLT, negOne, zero)
+	return e.emitSelect3(i32Ty, cmpGT, posOne, selNeg), nil
+}
+
+// emitSelect3 emits a select instruction: result = cond ? trueVal : falseVal.
+func (e *Emitter) emitSelect3(resultTy *module.Type, cond, trueVal, falseVal int) int {
+	valueID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrSelect,
+		HasValue:   true,
+		ResultType: resultTy,
+		Operands:   []int{cond, trueVal, falseVal},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return valueID
+}
+
+// emitMathExtractBits emits dx.op.ibfe or dx.op.ubfe for bit field extraction.
+func (e *Emitter) emitMathExtractBits(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if mathExpr.Arg1 == nil || mathExpr.Arg2 == nil {
+		return 0, fmt.Errorf("extractBits requires 3 arguments")
+	}
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	offset, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+	count, err := e.emitExpression(fn, *mathExpr.Arg2)
+	if err != nil {
+		return 0, err
+	}
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, _ := scalarOfType(argType)
+	ol := overloadForScalar(scalar)
+
+	var opcode DXILOpcode
+	var opName string
+	if scalar.Kind == ir.ScalarSint {
+		opcode = OpIBfe
+		opName = "dx.op.ibfe"
+	} else {
+		opcode = OpUBfe
+		opName = "dx.op.ubfe"
+	}
+
+	dxFn := e.getDxOpTernaryFunc(opName, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, count, offset, arg}), nil
+}
+
+// emitMathInsertBits emits dx.op.bfi for bit field insertion.
+func (e *Emitter) emitMathInsertBits(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if mathExpr.Arg1 == nil || mathExpr.Arg2 == nil || mathExpr.Arg3 == nil {
+		return 0, fmt.Errorf("insertBits requires 4 arguments")
+	}
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	newBits, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+	offset, err := e.emitExpression(fn, *mathExpr.Arg2)
+	if err != nil {
+		return 0, err
+	}
+	count, err := e.emitExpression(fn, *mathExpr.Arg3)
+	if err != nil {
+		return 0, err
+	}
+	ol := overloadI32
+	dxFn := e.getDxOpQuaternaryFunc("dx.op.bfi", ol)
+	opcodeVal := e.getIntConstID(int64(OpBfi))
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, count, offset, newBits, arg}), nil
+}
+
+// emitMathLdexp emits dx.op.ldexp(value, exp) -> value * 2^exp.
+func (e *Emitter) emitMathLdexp(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if mathExpr.Arg1 == nil {
+		return 0, fmt.Errorf("ldexp requires 2 arguments")
+	}
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	exp, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+	// dx.op.ldexp signature: float @dx.op.ldexp(i32 opcode, float value, i32 exp)
+	// Custom function type: ret=float, params=[i32, float, i32]
+	f32Ty := e.mod.GetFloatType(32)
+	i32Ty := e.mod.GetIntType(32)
+	funcTy := e.mod.GetFunctionType(f32Ty, []*module.Type{i32Ty, f32Ty, i32Ty})
+	ldexpFn := e.getOrCreateDxOpFunc("dx.op.ldexp", overloadF32, funcTy)
+	opcodeVal := e.getIntConstID(int64(OpLdexp))
+	return e.addCallInstr(ldexpFn, f32Ty, []int{opcodeVal, arg, exp}), nil
+}
+
+// emitMathRefract computes refract(I, N, eta).
+func (e *Emitter) emitMathRefract(_ *ir.Function, _ ir.ExprMath) (int, error) {
+	return 0, fmt.Errorf("refract not yet implemented in DXIL backend")
+}
+
+// emitMathModf splits a float into integer and fractional parts.
+func (e *Emitter) emitMathModf(_ *ir.Function, _ ir.ExprMath) (int, error) {
+	return 0, fmt.Errorf("modf not yet implemented in DXIL backend")
+}
+
+// emitMathFrexp splits a float into significand and exponent.
+func (e *Emitter) emitMathFrexp(_ *ir.Function, _ ir.ExprMath) (int, error) {
+	return 0, fmt.Errorf("frexp not yet implemented in DXIL backend")
+}
+
+// emitMathCountTrailingZeros emulates countTrailingZeros using firstbitLo.
+// CTZ(x) = x == 0 ? 32 : firstbitLo(x)
+func (e *Emitter) emitMathCountTrailingZeros(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	ol := overloadI32
+
+	// firstbitLo(x) returns 0xFFFFFFFF (-1) if no bit is set.
+	dxFn := e.getDxOpUnaryFunc("dx.op.firstbitLo", ol)
+	opcodeVal := e.getIntConstID(int64(OpFirstbitLo))
+	fblo := e.addCallInstr(dxFn, i32Ty, []int{opcodeVal, arg})
+
+	// If firstbitLo returned -1 (no bits set), return 32.
+	negOne := e.getIntConstID(-1)
+	thirty2 := e.getIntConstID(32)
+	cmp := e.addCmpInstr(ICmpEQ, fblo, negOne)
+	return e.emitSelect3(i32Ty, cmp, thirty2, fblo), nil
+}
+
+// emitMathCountLeadingZeros emulates countLeadingZeros using firstbitHi.
+// CLZ(x) = x == 0 ? 32 : (31 - firstbitHi(x))
+// For signed: firstbitSHi returns position of highest bit differing from sign.
+func (e *Emitter) emitMathCountLeadingZeros(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, _ := scalarOfType(argType)
+
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	ol := overloadI32
+
+	var opcode DXILOpcode
+	var opName string
+	if scalar.Kind == ir.ScalarSint {
+		opcode = OpFirstbitShiHi
+		opName = "dx.op.firstbitSHi"
+	} else {
+		opcode = OpFirstbitHi
+		opName = "dx.op.firstbitHi"
+	}
+
+	dxFn := e.getDxOpUnaryFunc(opName, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+	fbhi := e.addCallInstr(dxFn, i32Ty, []int{opcodeVal, arg})
+
+	// If firstbitHi returned -1 (all zeros/no significant bit), return 32.
+	negOne := e.getIntConstID(-1)
+	thirty2 := e.getIntConstID(32)
+	_ = i1Ty // used by addCmpInstr internally
+	cmp := e.addCmpInstr(ICmpEQ, fbhi, negOne)
+
+	if scalar.Kind == ir.ScalarSint {
+		// For signed, firstbitSHi returns position from MSB of highest differing bit.
+		// CLZ for signed = firstbitSHi value directly (it already counts from MSB).
+		return e.emitSelect3(i32Ty, cmp, thirty2, fbhi), nil
+	}
+	// For unsigned: firstbitHi returns position from LSB. CLZ = 31 - firstbitHi.
+	thirtyOne := e.getIntConstID(31)
+	sub := e.addBinOpInstr(i32Ty, BinOpSub, thirtyOne, fbhi)
+	return e.emitSelect3(i32Ty, cmp, thirty2, sub), nil
+}
+
+// getOrCreateDxOpFunc gets or creates a dx.op function with a custom type.
+func (e *Emitter) getOrCreateDxOpFunc(name string, ol overloadType, funcTy *module.Type) *module.Function {
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	suffix := overloadSuffix(ol)
+	fullName := name + suffix
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpQuaternaryFunc creates a dx.op function with 4 value arguments
+// (plus the opcode argument).
+func (e *Emitter) getDxOpQuaternaryFunc(name string, ol overloadType) *module.Function {
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	retTy := e.overloadReturnType(ol)
+	i32Ty := e.mod.GetIntType(32)
+	params := []*module.Type{i32Ty, retTy, retTy, retTy, retTy} // opcode + 4 values
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	suffix := overloadSuffix(ol)
+	fullName := name + suffix
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
 // emitSelect emits a select (ternary) instruction.
 func (e *Emitter) emitSelect(fn *ir.Function, sel ir.ExprSelect) (int, error) {
 	cond, err := e.emitExpression(fn, sel.Condition)
@@ -1675,12 +1989,32 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 		if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
 			return e.emitVectorLoad(fn, compPtrs, load.Pointer)
 		}
+
+		// Check if this is a struct load from a local variable.
+		// DXIL does not support aggregate (struct) loads — decompose into
+		// per-member GEP + scalar load, tracking components for downstream use.
+		if dxilStructTy, hasStruct := e.localVarStructTypes[lv.Variable]; hasStruct {
+			return e.emitStructLoad(ptr, dxilStructTy)
+		}
+	}
+
+	// Check struct loads from global variable allocas.
+	if gv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprGlobalVariable); ok {
+		if dxilStructTy, hasStruct := e.globalVarAllocaTypes[gv.Variable]; hasStruct && dxilStructTy.Kind == module.TypeStruct {
+			return e.emitStructLoad(ptr, dxilStructTy)
+		}
 	}
 
 	// Resolve the loaded type from the pointer's target type.
 	loadedTy, err := e.resolveLoadType(fn, load.Pointer)
 	if err != nil {
 		return 0, fmt.Errorf("load type resolution: %w", err)
+	}
+
+	// For struct types, decompose into per-member scalar loads.
+	// This handles cases where the pointer source is not a simple local/global variable.
+	if loadedTy.Kind == module.TypeStruct {
+		return e.emitStructLoad(ptr, loadedTy)
 	}
 
 	// Emit LLVM load instruction: %val = load TYPE, TYPE* %ptr, align N
@@ -1722,6 +2056,40 @@ func (e *Emitter) emitVectorLoad(fn *ir.Function, compPtrs []int, ptrHandle ir.E
 	}
 
 	// Store per-component IDs so getComponentID can resolve them.
+	e.pendingComponents = componentIDs
+	return componentIDs[0], nil
+}
+
+// emitStructLoad decomposes a struct load into per-member GEP + scalar loads.
+// DXIL does not support aggregate (struct) type loads, so we must load each
+// scalar field individually and track them as components.
+// Returns the first component's value ID and sets pendingComponents.
+func (e *Emitter) emitStructLoad(basePtrID int, dxilStructTy *module.Type) (int, error) {
+	if len(dxilStructTy.StructElems) == 0 {
+		return e.getIntConstID(0), nil
+	}
+
+	zeroID := e.getIntConstID(0)
+	componentIDs := make([]int, len(dxilStructTy.StructElems))
+
+	for i, elemTy := range dxilStructTy.StructElems {
+		indexID := e.getIntConstID(int64(i))
+		resultPtrTy := e.mod.GetPointerType(elemTy)
+		gepID := e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
+
+		align := e.alignForType(elemTy)
+		valueID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrLoad,
+			HasValue:   true,
+			ResultType: elemTy,
+			Operands:   []int{gepID, elemTy.ID, align, 0},
+			ValueID:    valueID,
+		}
+		e.currentBB.AddInstruction(instr)
+		componentIDs[i] = valueID
+	}
+
 	e.pendingComponents = componentIDs
 	return componentIDs[0], nil
 }
@@ -2580,4 +2948,20 @@ func (e *Emitter) emitRelational(fn *ir.Function, rel ir.ExprRelational) (int, e
 	default:
 		return 0, fmt.Errorf("unsupported relational function: %d", rel.Fun)
 	}
+}
+
+// resolveExprTypeInner returns the IR TypeInner for an expression.
+// Uses ExpressionTypes if available, otherwise falls back to heuristics.
+func (e *Emitter) resolveExprTypeInner(fn *ir.Function, handle ir.ExpressionHandle) ir.TypeInner {
+	if int(handle) < len(fn.ExpressionTypes) {
+		tr := &fn.ExpressionTypes[handle]
+		if tr.Handle != nil {
+			return e.ir.Types[*tr.Handle].Inner
+		}
+		if tr.Value != nil {
+			return tr.Value
+		}
+	}
+	// Fallback: use existing resolveExprType which infers from expression kind.
+	return e.resolveExprType(fn, handle)
 }

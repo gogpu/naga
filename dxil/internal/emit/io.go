@@ -247,9 +247,32 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 		rowCount++
 	}
 
-	// Register a dummy value for the FunctionArgument expression so it doesn't
-	// error out when used as a base in AccessIndex.
-	e.exprValues[argExprHandle] = 0
+	// Build a flat component list for the whole struct argument so that
+	// downstream struct stores (e.g., "var input = input_original;") can
+	// access all scalar components via getComponentID.
+	var allComps []int
+	for memberIdx := range st.Members {
+		info, hasInfo := memberValues[memberIdx]
+		if !hasInfo {
+			// No binding — insert a placeholder zero per scalar component.
+			memberType := e.ir.Types[st.Members[memberIdx].Type]
+			numScalars := totalScalarCount(e.ir, memberType.Inner)
+			for j := 0; j < numScalars; j++ {
+				allComps = append(allComps, 0)
+			}
+			continue
+		}
+		allComps = append(allComps, info.comps...)
+	}
+
+	// Register the first loaded value on the FunctionArgument expression.
+	// Also register all flat components so struct stores work correctly.
+	if len(allComps) > 0 {
+		e.exprValues[argExprHandle] = allComps[0]
+		e.exprComponents[argExprHandle] = allComps
+	} else {
+		e.exprValues[argExprHandle] = 0
+	}
 
 	// Pre-register AccessIndex expressions that reference members of this struct.
 	// This allows downstream expression evaluation to find loaded values directly.

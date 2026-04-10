@@ -80,6 +80,22 @@ type Emitter struct {
 	// Cached DXIL resource types (lazily created).
 	dxHandleType *module.Type
 
+	// Maps call result expression handles to their DXIL value IDs.
+	// Set by emitStmtCall, read by ExprCallResult.
+	callResultValues map[ir.ExpressionHandle]int
+
+	// Maps call result expression handles to per-component value IDs.
+	// For struct/vector returns from helper functions.
+	callResultComponents map[ir.ExpressionHandle][]int
+
+	// Maps IR function handles to their emitted DXIL function declarations.
+	helperFunctions map[ir.FunctionHandle]*module.Function
+
+	// True when emitting a helper function body (not an entry point).
+	// Affects return statement emission: helper functions use LLVM ret,
+	// entry points use dx.op.storeOutput.
+	emittingHelperFunction bool
+
 	// Mesh shader context: set when emitting a mesh shader entry point.
 	meshCtx *meshContext
 }
@@ -177,17 +193,27 @@ func Emit(irMod *ir.Module, opts EmitOptions) (*module.Module, error) {
 	mod.MinorVersion = opts.ShaderModelMinor
 
 	e := &Emitter{
-		ir:              irMod,
-		mod:             mod,
-		opts:            opts,
-		exprValues:      make(map[ir.ExpressionHandle]int),
-		dxOpFuncs:       make(map[dxOpKey]*module.Function),
-		intConsts:       make(map[int64]int),
-		floatConsts:     make(map[uint64]int),
-		undefID:         -1,
-		constMap:        make(map[int]*module.Constant),
-		resourceHandles: make(map[ir.GlobalVariableHandle]int),
+		ir:                   irMod,
+		mod:                  mod,
+		opts:                 opts,
+		exprValues:           make(map[ir.ExpressionHandle]int),
+		dxOpFuncs:            make(map[dxOpKey]*module.Function),
+		intConsts:            make(map[int64]int),
+		floatConsts:          make(map[uint64]int),
+		undefID:              -1,
+		constMap:             make(map[int]*module.Constant),
+		resourceHandles:      make(map[ir.GlobalVariableHandle]int),
+		callResultValues:     make(map[ir.ExpressionHandle]int),
+		callResultComponents: make(map[ir.ExpressionHandle][]int),
+		helperFunctions:      make(map[ir.FunctionHandle]*module.Function),
 	}
+
+	// TODO(DXIL-002): Emit helper function bodies for StmtCall/ExprCallResult support.
+	// Currently disabled — helper function value ID remapping across shared
+	// constant pools needs more careful design.
+	// if err := e.emitHelperFunctions(); err != nil {
+	// 	return nil, fmt.Errorf("dxil/emit: helper functions: %w", err)
+	// }
 
 	if err := e.emitEntryPoint(ep); err != nil {
 		return nil, fmt.Errorf("dxil/emit: entry point %q: %w", ep.Name, err)
@@ -236,6 +262,155 @@ func shaderKindString(kind module.ShaderKind) string {
 	default:
 		return "vs"
 	}
+}
+
+// emitHelperFunctions emits LLVM function definitions for all non-entry-point
+// functions in the IR module. These are called via StmtCall from entry points.
+//
+// Each helper function is emitted as a real LLVM function with parameters and
+// a return value. DXIL scalarizes all types, so vector/struct returns are
+// returned as their scalar element type (the first component).
+//
+//nolint:gocognit,funlen // TODO(DXIL-002): re-enable when value ID remapping is fixed
+func (e *Emitter) emitHelperFunctions() error { //nolint:unused
+	for i := range e.ir.Functions {
+		fn := &e.ir.Functions[i]
+		handle := ir.FunctionHandle(i)
+
+		// Determine parameter types.
+		paramTypes := make([]*module.Type, 0, len(fn.Arguments))
+		for _, arg := range fn.Arguments {
+			argIRType := e.ir.Types[arg.Type]
+			dxilTy, err := typeToDXIL(e.mod, e.ir, argIRType.Inner)
+			if err != nil {
+				return fmt.Errorf("helper function %q arg %q: %w", fn.Name, arg.Name, err)
+			}
+			// For vector args, expand to N scalar params.
+			numComps := componentCount(argIRType.Inner)
+			for c := 0; c < numComps; c++ {
+				paramTypes = append(paramTypes, dxilTy)
+			}
+		}
+
+		// Determine return type.
+		retTy := e.mod.GetVoidType()
+		if fn.Result != nil {
+			resultIRType := e.ir.Types[fn.Result.Type]
+			var err error
+			retTy, err = typeToDXIL(e.mod, e.ir, resultIRType.Inner)
+			if err != nil {
+				return fmt.Errorf("helper function %q return: %w", fn.Name, err)
+			}
+		}
+
+		funcTy := e.mod.GetFunctionType(retTy, paramTypes)
+		name := fn.Name
+		if name == "" {
+			name = fmt.Sprintf("function_%d", i)
+		}
+		dxilFn := e.mod.AddFunction(name, funcTy, false)
+
+		// Save the per-function state, emit body, then restore.
+		savedNextValue := e.nextValue
+		savedBB := e.currentBB
+		savedMainFn := e.mainFn
+		savedExprValues := e.exprValues
+		savedExprComponents := e.exprComponents
+		savedLocalVarPtrs := e.localVarPtrs
+		savedLocalVarComponentPtrs := e.localVarComponentPtrs
+		savedLocalVarStructTypes := e.localVarStructTypes
+		savedLocalVarArrayTypes := e.localVarArrayTypes
+		savedLoopStack := e.loopStack
+
+		e.mainFn = dxilFn
+		e.exprValues = make(map[ir.ExpressionHandle]int)
+		e.exprComponents = make(map[ir.ExpressionHandle][]int)
+		e.localVarPtrs = make(map[uint32]int)
+		e.localVarComponentPtrs = make(map[uint32][]int)
+		e.localVarStructTypes = make(map[uint32]*module.Type)
+		e.localVarArrayTypes = make(map[uint32]*module.Type)
+		e.loopStack = nil
+		e.emittingHelperFunction = true
+		// Each helper function body gets its own value numbering starting from 0.
+		// Function parameters consume IDs first, then instructions.
+		e.nextValue = 0
+		// Helper functions don't have their own global var allocas.
+		savedGlobalVarAllocas := e.globalVarAllocas
+		savedGlobalVarAllocaTypes := e.globalVarAllocaTypes
+		if e.globalVarAllocas == nil {
+			e.globalVarAllocas = make(map[ir.GlobalVariableHandle]int)
+		}
+		if e.globalVarAllocaTypes == nil {
+			e.globalVarAllocaTypes = make(map[ir.GlobalVariableHandle]*module.Type)
+		}
+
+		bb := dxilFn.AddBasicBlock("entry")
+		e.currentBB = bb
+
+		// Map function arguments to value IDs.
+		paramIdx := 0
+		for argIdx, arg := range fn.Arguments {
+			argIRType := e.ir.Types[arg.Type]
+			numComps := componentCount(argIRType.Inner)
+
+			// Find the ExprFunctionArgument handle for this argument.
+			exprHandle := e.findArgExprHandle(fn, argIdx)
+
+			if numComps == 1 {
+				valueID := e.allocValue()
+				e.exprValues[exprHandle] = valueID
+			} else {
+				comps := make([]int, numComps)
+				for c := 0; c < numComps; c++ {
+					comps[c] = e.allocValue()
+				}
+				e.exprValues[exprHandle] = comps[0]
+				e.exprComponents[exprHandle] = comps
+			}
+			paramIdx += numComps
+		}
+
+		// Emit function body.
+		if err := e.emitFunctionBody(fn); err != nil {
+			return fmt.Errorf("helper function %q body: %w", fn.Name, err)
+		}
+
+		// If there's no explicit return at the end, add a void return.
+		if !e.currentBBHasTerminator() {
+			e.currentBB.AddInstruction(module.NewRetVoidInstr())
+		}
+
+		// Don't finalize here — wait until all functions (including entry point)
+		// are emitted so constants are fully accumulated.
+
+		// Restore entry-point context.
+		e.emittingHelperFunction = false
+		e.nextValue = savedNextValue
+		e.currentBB = savedBB
+		e.mainFn = savedMainFn
+		e.exprValues = savedExprValues
+		e.exprComponents = savedExprComponents
+		e.localVarPtrs = savedLocalVarPtrs
+		e.localVarComponentPtrs = savedLocalVarComponentPtrs
+		e.localVarStructTypes = savedLocalVarStructTypes
+		e.localVarArrayTypes = savedLocalVarArrayTypes
+		e.loopStack = savedLoopStack
+		e.globalVarAllocas = savedGlobalVarAllocas
+		e.globalVarAllocaTypes = savedGlobalVarAllocaTypes
+
+		e.helperFunctions[handle] = dxilFn
+	}
+	return nil
+}
+
+// currentBBHasTerminator checks if the current basic block ends with
+// a terminator instruction (br or ret).
+func (e *Emitter) currentBBHasTerminator() bool { //nolint:unused
+	if e.currentBB == nil || len(e.currentBB.Instructions) == 0 {
+		return false
+	}
+	last := e.currentBB.Instructions[len(e.currentBB.Instructions)-1]
+	return last.Kind == module.InstrBr || last.Kind == module.InstrRet
 }
 
 // emitEntryPoint emits a single entry point function.
@@ -353,7 +528,8 @@ func (e *Emitter) finalize(mainFn *module.Function) {
 		nextGlobalID++
 	}
 
-	// Instruction results: process in order, assigning sequential IDs.
+	// Instruction results: process the entry point function only.
+	// Helper functions are finalized separately in finalizeHelperFunction().
 	for _, bb := range mainFn.BasicBlocks {
 		for _, instr := range bb.Instructions {
 			if instr.HasValue {
@@ -390,9 +566,87 @@ func (e *Emitter) finalize(mainFn *module.Function) {
 
 	// Also rewrite component tracking IDs.
 	for handle, comps := range e.exprComponents {
+		_ = handle
 		for i, id := range comps {
 			if newID, ok := idMap[id]; ok {
-				e.exprComponents[handle][i] = newID
+				comps[i] = newID
+			}
+		}
+	}
+}
+
+// finalizeHelperFunction remaps value IDs for a helper function body.
+// Unlike the entry point, helper functions have their own value numbering
+// that starts from 0, with function parameters consuming the first N IDs.
+// The serializer expects instruction result IDs starting from globalValueCount().
+//
+//nolint:gocognit // value ID remapping across basic blocks
+func (e *Emitter) finalizeHelperFunction(fn *module.Function) { //nolint:unused
+	// Build the base: globals + functions + constants.
+	base := len(e.mod.GlobalVars) + len(e.mod.Functions) + len(e.mod.Constants)
+
+	// Build ID mapping: emitter function-local ID -> global ID.
+	funcIDMap := make(map[int]int)
+
+	// Map constants from the shared constant pool.
+	for emitterID, c := range e.constMap {
+		funcIDMap[emitterID] = c.ValueID // Already assigned by the entry point's finalize,
+		// but helper functions are finalized first, so we
+		// can't rely on c.ValueID yet. Use the constMap's
+		// pre-finalize IDs instead.
+	}
+
+	// Actually, constants haven't been finalized yet when helper functions
+	// are finalized (they're finalized before entry point). We need a
+	// different approach: assign final constant IDs here too.
+	constBase := len(e.mod.GlobalVars) + len(e.mod.Functions)
+	constToEmitterID := make(map[*module.Constant]int)
+	for emitterID, c := range e.constMap {
+		constToEmitterID[c] = emitterID
+	}
+	for i, c := range e.mod.Constants {
+		if emitterID, ok := constToEmitterID[c]; ok {
+			funcIDMap[emitterID] = constBase + i
+		}
+	}
+
+	// Function parameters consume value IDs after the base.
+	nextID := base
+	if fn.FuncType != nil {
+		// Map parameter emitter IDs (0..N-1) to global IDs.
+		for i := range fn.FuncType.ParamTypes {
+			funcIDMap[i] = nextID
+			nextID++
+		}
+	}
+
+	// Map instruction result IDs.
+	for _, bb := range fn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.HasValue {
+				oldID := instr.ValueID
+				funcIDMap[oldID] = nextID
+				instr.ValueID = nextID
+				nextID++
+			}
+		}
+	}
+
+	// Rewrite operand references.
+	for _, bb := range fn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			opIndices := valueOperandIndices(instr)
+			for _, idx := range opIndices {
+				if idx < len(instr.Operands) {
+					if newID, ok := funcIDMap[instr.Operands[idx]]; ok {
+						instr.Operands[idx] = newID
+					}
+				}
+			}
+			if instr.Kind == module.InstrRet && instr.ReturnValue >= 0 {
+				if newID, ok := funcIDMap[instr.ReturnValue]; ok {
+					instr.ReturnValue = newID
+				}
 			}
 		}
 	}
