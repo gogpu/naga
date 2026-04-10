@@ -77,9 +77,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Float bufferStore uses typed undef (f32, was i32). Deep UAV pointer chains
   (struct-wrapped arrays, nested Access). All allocas in entry block (was lazy).
 
-- **DXIL: DXC dumpbin validation** — **104/165 shaders pass DXC dumpbin (63.0%)**.
-  Only 1 val_fail remaining (mesh-shader, needs SM 6.5 intrinsics).
+- **DXIL: mesh shader intrinsics (SM 6.5)** — SetMeshOutputCounts (168),
+  StoreVertexOutput (171), StorePrimitiveOutput (172), EmitIndices (169).
+  All 4 mesh shaders pass DXC (9 entry points). PSG1 primitive signatures.
+
+- **DXIL: struct-typed entry point arguments** — Fragment/vertex shaders with struct
+  inputs (e.g., `vertex: VertexOutput`) now correctly load per-member with row tracking.
+  Fixes 14 additional shaders.
+
+- **DXIL: DXC dumpbin validation** — **115/165 shaders pass DXC dumpbin (69.7%)**.
+  2 val_fail (f16 type mismatch), 48 compile_fail (unsupported features).
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
+
+### Fixed (other backends)
+
+- **SPIR-V: OpIMul for vec4\<f32\>*f32 after unpack4x8unorm (BUG-SPIRV-003)** —
+  `resolveMathType()` missing return types for 10 pack/unpack functions. `unpack4x8unorm(u32)`
+  returned `u32` instead of `vec4<f32>`, causing `OpIMul` instead of `OpVectorTimesScalar`.
+  Fixes gg#252, naga#61.
 
 ### Changed
 
