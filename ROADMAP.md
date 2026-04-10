@@ -65,6 +65,7 @@
 |------|----------|--------|-------------|
 | **DXIL Phase 0: Bitcode writer** | P1 | 8 | ✅ Done. LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash. |
 | **DXIL Phase 1: Vertex+fragment** | P1 | 21 | ✅ Done. Full IR → DXIL lowering: math, casts, control flow, locals, resources, signatures. 190 tests, ~12.5K LOC. |
+| **DXIL CBV loads** | P1 | 2 | ✅ Done. `dx.op.cbufferLoadLegacy` for uniform buffers. Register index + component extraction. |
 | **DXIL Phase 2: Compute shaders** | P2 | 5 | UAV, atomics, barriers, thread ID intrinsics |
 | **DXIL Phase 3: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, mesh shaders, dynamic resources |
 

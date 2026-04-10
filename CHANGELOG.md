@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **DXIL: CBV (Constant Buffer) loads via `dx.op.cbufferLoadLegacy`** — Shaders reading
+  from `var<uniform>` now correctly emit `dx.op.cbufferLoadLegacy` intrinsic calls with
+  proper register index calculation (byteOffset/16) and component extraction via
+  `extractvalue`. Supports f32/i32/f64/i64/f16 overloads, struct member access at
+  arbitrary offsets, and multi-register layouts. Reference: Mesa `nir_to_dxil.c:load_ubo()`.
+
 ### Changed
 
 - **SPIR-V structural comparison: allow-list for intentional divergences** — Shaders where

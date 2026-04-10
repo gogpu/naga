@@ -1015,6 +1015,13 @@ func (e *Emitter) emitSelect(fn *ir.Function, sel ir.ExprSelect) (int, error) {
 
 // emitLoad emits a load through a pointer.
 func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
+	// Check if this load is from a CBV (constant buffer) pointer chain.
+	// CBV loads use dx.op.cbufferLoadLegacy instead of LLVM load instructions.
+	// Reference: Mesa nir_to_dxil.c emit_load_ubo_vec4() line ~3527
+	if chain, ok := e.resolveCBVPointerChain(fn, load.Pointer); ok {
+		return e.emitCBVLoad(fn, chain)
+	}
+
 	ptr, err := e.emitExpression(fn, load.Pointer)
 	if err != nil {
 		return 0, err

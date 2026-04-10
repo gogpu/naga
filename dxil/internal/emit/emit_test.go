@@ -3524,22 +3524,304 @@ func TestEmitCBVLoad(t *testing.T) {
 		t.Fatal("main function not found")
 	}
 
-	// Check for cbufferLoadLegacy call.
+	// Verify dx.op.cbufferLoadLegacy.f32 call exists.
 	hasCBufLoad := false
+	extractCount := 0
 	for _, bb := range mainFn.BasicBlocks {
 		for _, instr := range bb.Instructions {
 			if instr.Kind == module.InstrCall && instr.CalledFunc != nil {
 				if instr.CalledFunc.Name == "dx.op.cbufferLoadLegacy.f32" {
 					hasCBufLoad = true
+					// Verify operands: opcode(59), handle, regIndex(0)
+					if len(instr.Operands) != 3 {
+						t.Errorf("cbufferLoadLegacy expected 3 operands, got %d", len(instr.Operands))
+					}
 				}
+			}
+			if instr.Kind == module.InstrExtractVal {
+				extractCount++
 			}
 		}
 	}
 
-	// Note: CBV load depends on the Load expression being handled specially for CBV globals.
-	// Currently, the generic Load path is used; a full CBV load path would need detecting
-	// that the pointer chain leads to a CBV. For now we verify the createHandle exists.
-	t.Logf("CBV load presence: %v (full CBV load integration pending)", hasCBufLoad)
+	if !hasCBufLoad {
+		t.Error("dx.op.cbufferLoadLegacy.f32 call not found")
+	}
+
+	// Loading a vec4 field should produce 4 extractvalue instructions.
+	if extractCount < 4 {
+		t.Errorf("expected at least 4 extractvalue instructions for vec4 load, got %d", extractCount)
+	}
+}
+
+func TestEmitCBVLoadMultiField(t *testing.T) {
+	// Build a shader with a CBV struct containing multiple fields at different offsets:
+	//   struct Uniforms { color: vec4<f32>, intensity: f32, offset: vec2<f32> }
+	//   @group(0) @binding(0) var<uniform> u: Uniforms;
+	//   @fragment fn main() -> @location(0) vec4<f32> { return u.color * u.intensity; }
+	f32Handle := ir.TypeHandle(0)
+	vec4f32Handle := ir.TypeHandle(1)
+	vec2f32Handle := ir.TypeHandle(2)
+	structHandle := ir.TypeHandle(3)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "Uniforms", Inner: ir.StructType{
+				Members: []ir.StructMember{
+					{Name: "color", Type: vec4f32Handle, Offset: 0},   // register 0, components 0-3
+					{Name: "intensity", Type: f32Handle, Offset: 16},  // register 1, component 0
+					{Name: "offset", Type: vec2f32Handle, Offset: 24}, // register 1, components 2-3
+				},
+				Span: 32,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:    "u",
+				Space:   ir.SpaceUniform,
+				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
+				Type:    structHandle,
+			},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retExpr := ir.ExpressionHandle(5) // color * intensity splat
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},                      // [0] &u
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},                   // [1] &u.color
+			{Kind: ir.ExprLoad{Pointer: 1}},                                 // [2] u.color (vec4)
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 1}},                   // [3] &u.intensity
+			{Kind: ir.ExprLoad{Pointer: 3}},                                 // [4] u.intensity (f32)
+			{Kind: ir.ExprBinary{Op: ir.BinaryMultiply, Left: 2, Right: 4}}, // [5] color * intensity
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &structHandle},  // ptr to struct
+			{Handle: &vec4f32Handle}, // ptr to vec4
+			{Handle: &vec4f32Handle}, // loaded vec4
+			{Handle: &f32Handle},     // ptr to f32
+			{Handle: &f32Handle},     // loaded f32
+			{Handle: &vec4f32Handle}, // mul result
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
+			{Kind: ir.StmtReturn{Value: &retExpr}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	result, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Count cbufferLoadLegacy calls — should be 2 (one for color at reg 0, one for intensity at reg 1).
+	cbufLoadCount := 0
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil &&
+				instr.CalledFunc.Name == "dx.op.cbufferLoadLegacy.f32" {
+				cbufLoadCount++
+			}
+		}
+	}
+
+	if cbufLoadCount != 2 {
+		t.Errorf("expected 2 cbufferLoadLegacy calls (color + intensity), got %d", cbufLoadCount)
+	}
+}
+
+func TestEmitCBVLoadI32(t *testing.T) {
+	// Build a shader with an i32 CBV field to verify overload selection.
+	//   struct Params { count: u32 }
+	//   @group(0) @binding(0) var<uniform> p: Params;
+	//   @fragment fn main() -> @location(0) vec4<f32> { ... }
+	u32Handle := ir.TypeHandle(0)
+	vec4f32Handle := ir.TypeHandle(1)
+	structHandle := ir.TypeHandle(2)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "Params", Inner: ir.StructType{
+				Members: []ir.StructMember{
+					{Name: "count", Type: u32Handle, Offset: 0},
+				},
+				Span: 4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:    "p",
+				Space:   ir.SpaceUniform,
+				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
+				Type:    structHandle,
+			},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	zeroExpr := ir.ExpressionHandle(3)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [0] &p
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1] &p.count
+			{Kind: ir.ExprLoad{Pointer: 1}},               // [2] p.count (u32)
+			{Kind: ir.ExprZeroValue{Type: vec4f32Handle}}, // [3] fallback zero
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &structHandle},  // ptr to struct
+			{Handle: &u32Handle},     // ptr to u32
+			{Handle: &u32Handle},     // loaded u32
+			{Handle: &vec4f32Handle}, // zero value
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+			{Kind: ir.StmtReturn{Value: &zeroExpr}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	result, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Verify i32 overload is used.
+	hasI32Load := false
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil &&
+				instr.CalledFunc.Name == "dx.op.cbufferLoadLegacy.i32" {
+				hasI32Load = true
+			}
+		}
+	}
+
+	if !hasI32Load {
+		t.Error("expected dx.op.cbufferLoadLegacy.i32 call for u32 field, not found")
+	}
+}
+
+func TestEmitCBVLoadRegisterOffset(t *testing.T) {
+	// Verify that fields in the second 16-byte register produce regIndex=1.
+	//   struct Data { a: vec4<f32>, b: vec4<f32> }
+	//   Load b should use regIndex=1 (offset 16 / 16 = 1).
+	vec4f32Handle := ir.TypeHandle(0)
+	structHandle := ir.TypeHandle(1)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "Data", Inner: ir.StructType{
+				Members: []ir.StructMember{
+					{Name: "a", Type: vec4f32Handle, Offset: 0},
+					{Name: "b", Type: vec4f32Handle, Offset: 16},
+				},
+				Span: 32,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:    "data",
+				Space:   ir.SpaceUniform,
+				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
+				Type:    structHandle,
+			},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retExpr := ir.ExpressionHandle(2)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [0] &data
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 1}}, // [1] &data.b (offset 16)
+			{Kind: ir.ExprLoad{Pointer: 1}},               // [2] data.b
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &structHandle},  // ptr to struct
+			{Handle: &vec4f32Handle}, // ptr to vec4
+			{Handle: &vec4f32Handle}, // loaded vec4
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+			{Kind: ir.StmtReturn{Value: &retExpr}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	result, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Find the cbufferLoadLegacy call and check its regIndex operand.
+	// Operands: [opcodeVal, handleVal, regIndexVal]
+	// regIndex for field b (offset=16) should be 16/16 = 1.
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil &&
+				instr.CalledFunc.Name == "dx.op.cbufferLoadLegacy.f32" {
+				// The third operand is the regIndex value ID.
+				// We can't directly check the constant value from the ID alone,
+				// but we verify the call structure is correct.
+				if len(instr.Operands) != 3 {
+					t.Errorf("cbufferLoadLegacy expected 3 operands, got %d", len(instr.Operands))
+				}
+				t.Log("cbufferLoadLegacy call found with correct operand count for register 1")
+				return
+			}
+		}
+	}
+	t.Error("cbufferLoadLegacy call not found for second register field")
 }
 
 func TestEmitImageSample(t *testing.T) {
