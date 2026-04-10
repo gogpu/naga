@@ -70,7 +70,7 @@ const (
 	funcCodeDeclareBlocks = 1
 	funcCodeInstBinop     = 2
 	funcCodeInstCast      = 3
-	funcCodeInstGEP       = 9
+	funcCodeInstGEPOld    = 9
 	funcCodeInstRet       = 10
 	funcCodeInstBr        = 11
 	funcCodeInstSelect    = 29 // FUNC_CODE_INST_VSELECT
@@ -78,6 +78,7 @@ const (
 	funcCodeInstCall      = 34
 	funcCodeInstAlloca    = 19
 	funcCodeInstLoad      = 20
+	funcCodeInstGEP       = 43 // FUNC_CODE_INST_GEP (new format, LLVM 3.7)
 	funcCodeInstStore     = 44
 )
 
@@ -510,7 +511,7 @@ func (s *serializer) globalValueCount() int {
 //
 // Reference: Mesa dxil_module.c emit_instr()
 //
-//nolint:gocyclo,cyclop,funlen // instruction dispatch requires handling all LLVM instruction kinds
+//nolint:gocognit,gocyclo,cyclop,funlen // instruction dispatch requires handling all LLVM instruction kinds
 func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 	switch instr.Kind {
 	case InstrRet:
@@ -620,6 +621,24 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 			align := uint64(instr.Operands[2])                     //nolint:gosec // alignment
 			isVolatile := uint64(instr.Operands[3])                //nolint:gosec // 0 or 1
 			s.w.EmitRecord(funcCodeInstLoad, []uint64{ptrDelta, typeID, align, isVolatile})
+		}
+
+	case InstrGEP:
+		// GEP (new format, code=43): [inbounds, source_elem_type_id, ptr_delta, ...idx_deltas]
+		// Operands: [inbounds, sourceElemTypeID, ptrValueID, ...indexValueIDs]
+		// Reference: Mesa dxil_module.c emit_gep()
+		if len(instr.Operands) >= 3 {
+			inbounds := uint64(instr.Operands[0])                  //nolint:gosec // 0 or 1
+			elemTypeID := uint64(instr.Operands[1])                //nolint:gosec // type ID (not remapped)
+			ptrDelta := uint64(currentValueID - instr.Operands[2]) //nolint:gosec // delta
+			data := make([]uint64, 3, 3+len(instr.Operands)-3)
+			data[0] = inbounds
+			data[1] = elemTypeID
+			data[2] = ptrDelta
+			for i := 3; i < len(instr.Operands); i++ {
+				data = append(data, uint64(currentValueID-instr.Operands[i])) //nolint:gosec // delta
+			}
+			s.w.EmitRecord(funcCodeInstGEP, data)
 		}
 
 	case InstrStore:

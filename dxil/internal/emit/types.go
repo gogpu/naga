@@ -80,6 +80,132 @@ func typeToDXIL(mod *module.Module, irMod *ir.Module, inner ir.TypeInner) (*modu
 	}
 }
 
+// typeToDXILFull maps a naga IR TypeInner to a DXIL type WITHOUT scalarizing
+// vectors. Used for struct allocas and GEP source element types where the
+// full composite type is needed.
+func typeToDXILFull(mod *module.Module, irMod *ir.Module, inner ir.TypeInner) (*module.Type, error) {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return scalarToDXIL(mod, t), nil
+
+	case ir.VectorType:
+		// Keep as scalar — DXIL has no vectors, but struct members that are vectors
+		// are represented as multiple scalar fields or as the scalar type.
+		return scalarToDXIL(mod, t.Scalar), nil
+
+	case ir.MatrixType:
+		return scalarToDXIL(mod, t.Scalar), nil
+
+	case ir.ArrayType:
+		base := irMod.Types[t.Base]
+		elemTy, err := typeToDXILFull(mod, irMod, base.Inner)
+		if err != nil {
+			return nil, fmt.Errorf("array element type: %w", err)
+		}
+		if t.Size.Constant != nil {
+			return mod.GetArrayType(elemTy, uint(*t.Size.Constant)), nil
+		}
+		return mod.GetArrayType(elemTy, 0), nil
+
+	case ir.StructType:
+		// Flatten struct members: vectors expand to N scalar fields,
+		// nested structs recurse. This ensures every element in the DXIL
+		// struct is a scalar type, matching DXIL's scalarized model.
+		var elems []*module.Type
+		for _, m := range t.Members {
+			memberTy := irMod.Types[m.Type]
+			memberElems, err := flattenStructMember(mod, irMod, memberTy.Inner)
+			if err != nil {
+				return nil, fmt.Errorf("struct member %s: %w", m.Name, err)
+			}
+			elems = append(elems, memberElems...)
+		}
+		return mod.GetStructType("", elems), nil
+
+	case ir.PointerType:
+		base := irMod.Types[t.Base]
+		elemTy, err := typeToDXILFull(mod, irMod, base.Inner)
+		if err != nil {
+			return nil, fmt.Errorf("pointer element type: %w", err)
+		}
+		return mod.GetPointerType(elemTy), nil
+
+	default:
+		return mod.GetIntType(32), nil
+	}
+}
+
+// flatMemberOffset computes the flat field index of a struct member at the
+// given IR member index. This sums the total scalar component counts of all
+// preceding members (vectors count as N, nested structs recursively flatten).
+func flatMemberOffset(irMod *ir.Module, st ir.StructType, memberIndex int) int {
+	offset := 0
+	for i := 0; i < memberIndex && i < len(st.Members); i++ {
+		memberTy := irMod.Types[st.Members[i].Type]
+		offset += totalScalarCount(irMod, memberTy.Inner)
+	}
+	return offset
+}
+
+// totalScalarCount returns the total number of scalar values in a type,
+// recursively flattening vectors, matrices, and nested structs.
+func totalScalarCount(irMod *ir.Module, inner ir.TypeInner) int {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return 1
+	case ir.VectorType:
+		return int(t.Size)
+	case ir.MatrixType:
+		return int(t.Columns) * int(t.Rows)
+	case ir.StructType:
+		total := 0
+		for _, m := range t.Members {
+			memberTy := irMod.Types[m.Type]
+			total += totalScalarCount(irMod, memberTy.Inner)
+		}
+		return total
+	default:
+		return 1
+	}
+}
+
+// flattenStructMember expands a struct member type into scalar DXIL types.
+// Vectors become N scalars, nested structs recurse, scalars return as-is.
+func flattenStructMember(mod *module.Module, irMod *ir.Module, inner ir.TypeInner) ([]*module.Type, error) {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return []*module.Type{scalarToDXIL(mod, t)}, nil
+	case ir.VectorType:
+		s := scalarToDXIL(mod, t.Scalar)
+		elems := make([]*module.Type, t.Size)
+		for i := range elems {
+			elems[i] = s
+		}
+		return elems, nil
+	case ir.MatrixType:
+		s := scalarToDXIL(mod, t.Scalar)
+		count := int(t.Columns) * int(t.Rows)
+		elems := make([]*module.Type, count)
+		for i := range elems {
+			elems[i] = s
+		}
+		return elems, nil
+	case ir.StructType:
+		var elems []*module.Type
+		for _, m := range t.Members {
+			memberTy := irMod.Types[m.Type]
+			sub, err := flattenStructMember(mod, irMod, memberTy.Inner)
+			if err != nil {
+				return nil, err
+			}
+			elems = append(elems, sub...)
+		}
+		return elems, nil
+	default:
+		return []*module.Type{mod.GetIntType(32)}, nil
+	}
+}
+
 // componentCount returns the number of scalar components for a type.
 func componentCount(inner ir.TypeInner) int {
 	switch t := inner.(type) {

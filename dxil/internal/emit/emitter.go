@@ -37,6 +37,10 @@ type Emitter struct {
 	// Maps local var index to a slice of alloca pointer IDs (one per component).
 	localVarComponentPtrs map[uint32][]int
 
+	// Cached DXIL types for struct local variables.
+	// Used to ensure GEP source element type IDs match the alloca type IDs.
+	localVarStructTypes map[uint32]*module.Type
+
 	// Loop context stack for break/continue targets.
 	loopStack []loopContext
 
@@ -187,6 +191,7 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.exprComponents = make(map[ir.ExpressionHandle][]int)
 	e.localVarPtrs = make(map[uint32]int)
 	e.localVarComponentPtrs = make(map[uint32][]int)
+	e.localVarStructTypes = make(map[uint32]*module.Type)
 	e.loopStack = e.loopStack[:0]
 
 	fn := &ep.Function
@@ -365,6 +370,14 @@ func valueOperandIndices(instr *module.Instruction) []int {
 		return nil // unconditional branch: [bbIndex] — no value operands
 	case module.InstrRet:
 		return nil // uses ReturnValue field
+	case module.InstrGEP:
+		// GEP: [inbounds, sourceElemTypeID, ptrValueID, ...indexValueIDs]
+		// Values at indices 2..N (ptr and all index operands).
+		indices := make([]int, 0, len(instr.Operands)-2)
+		for i := 2; i < len(instr.Operands); i++ {
+			indices = append(indices, i)
+		}
+		return indices
 	default:
 		// GEP, Phi: not yet used. Return all as safe fallback.
 		indices := make([]int, len(instr.Operands))
@@ -596,6 +609,33 @@ func (e *Emitter) addBinOpInstr(resultTy *module.Type, op BinOpKind, lhs, rhs in
 		HasValue:   true,
 		ResultType: resultTy,
 		Operands:   []int{lhs, rhs, int(op)},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return valueID
+}
+
+// addGEPInstr adds a getelementptr instruction and returns the result pointer value ID.
+// sourceElemTy is the type of the element being pointed to (before indexing).
+// resultTy is the pointer type of the result.
+// ptrID is the base pointer value ID.
+// indexIDs are the index value IDs (first is always the array-level index, then struct indices).
+//
+// Reference: Mesa dxil_module.c dxil_emit_gep_instr()
+func (e *Emitter) addGEPInstr(sourceElemTy, resultTy *module.Type, ptrID int, indexIDs []int) int {
+	valueID := e.allocValue()
+	operands := make([]int, 3+len(indexIDs))
+	operands[0] = 1 // inbounds = true
+	operands[1] = sourceElemTy.ID
+	operands[2] = ptrID
+	for i, idx := range indexIDs {
+		operands[3+i] = idx
+	}
+	instr := &module.Instruction{
+		Kind:       module.InstrGEP,
+		HasValue:   true,
+		ResultType: resultTy,
+		Operands:   operands,
 		ValueID:    valueID,
 	}
 	e.currentBB.AddInstruction(instr)

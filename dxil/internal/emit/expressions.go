@@ -167,41 +167,126 @@ func (e *Emitter) emitLiteral(lit ir.Literal) (int, error) {
 // In DXIL, composites are scalarized — each component is a separate value.
 // Returns the value ID of the first component. Also tracks per-component
 // IDs for correct access later.
+//
+// For struct composites, flattens nested composes into a flat scalar list
+// so that storeStructFields can correctly index into the flattened components.
 func (e *Emitter) emitCompose(fn *ir.Function, comp ir.ExprCompose) (int, error) {
 	if len(comp.Components) == 0 {
 		return e.getIntConstID(0), nil
 	}
 
-	componentIDs := make([]int, len(comp.Components))
-	firstID := -1
-	for i, ch := range comp.Components {
+	// Build a flattened list of all scalar component IDs.
+	// When a component itself is a compose (struct or vector), include all its sub-components.
+	var flatIDs []int
+	for _, ch := range comp.Components {
 		v, err := e.emitExpression(fn, ch)
 		if err != nil {
 			return 0, err
 		}
-		componentIDs[i] = v
-		if firstID < 0 {
-			firstID = v
+
+		// Check if this component has sub-components (vector/struct compose).
+		if subComps, ok := e.exprComponents[ch]; ok {
+			flatIDs = append(flatIDs, subComps...)
+		} else {
+			flatIDs = append(flatIDs, v)
 		}
 	}
 
-	// Store per-component IDs so getComponentID can resolve them.
-	// The compose expression handle will be set by the caller
-	// (emitExpression stores in exprValues).
-	e.pendingComponents = componentIDs
+	// Store the flattened component IDs.
+	e.pendingComponents = flatIDs
 
-	return firstID, nil
+	if len(flatIDs) > 0 {
+		return flatIDs[0], nil
+	}
+	return e.getIntConstID(0), nil
 }
 
 // emitAccessIndex extracts a component from a composite by constant index.
+//
+// For struct local variable access, emits a GEP instruction to get a pointer
+// to the member field. For vector component extraction, uses per-component tracking.
+//
 func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, error) {
-	_, err := e.emitExpression(fn, ai.Base)
+	baseID, err := e.emitExpression(fn, ai.Base)
 	if err != nil {
 		return 0, err
 	}
 
-	// Use per-component tracking for correct ID resolution.
+	// Check if the base is a local variable with a struct type.
+	// If so, emit GEP to get a pointer to the struct member.
+	if lv, ok := fn.Expressions[ai.Base].Kind.(ir.ExprLocalVariable); ok {
+		if int(lv.Variable) < len(fn.LocalVars) {
+			localVar := &fn.LocalVars[lv.Variable]
+			irType := e.ir.Types[localVar.Type]
+			if st, isSt := irType.Inner.(ir.StructType); isSt {
+				return e.emitStructGEP(baseID, lv.Variable, st, int(ai.Index))
+			}
+		}
+	}
+
+	// Check if the base is an AccessIndex into a struct (nested struct access).
+	// Since struct types are fully flattened, nested access is resolved to a
+	// single GEP at the correct flat index from the root struct alloca.
+	// resolveNestedStructAccess already includes ai.Index in the flat offset.
+	if rootVarIdx, rootAllocaID, flatOffset, ok := e.resolveNestedStructAccess(fn, ai); ok {
+		dxilStructTy, hasTy := e.localVarStructTypes[rootVarIdx]
+		if hasTy {
+			var memberDXILTy *module.Type
+			if flatOffset < len(dxilStructTy.StructElems) {
+				memberDXILTy = dxilStructTy.StructElems[flatOffset]
+			} else {
+				memberDXILTy = e.mod.GetFloatType(32)
+			}
+			resultPtrTy := e.mod.GetPointerType(memberDXILTy)
+			zeroID := e.getIntConstID(0)
+			indexID := e.getIntConstID(int64(flatOffset))
+			return e.addGEPInstr(dxilStructTy, resultPtrTy, rootAllocaID, []int{zeroID, indexID}), nil
+		}
+	}
+
+	// For vector component access, use per-component tracking.
 	return e.getComponentID(ai.Base, int(ai.Index)), nil
+}
+
+// emitStructGEP emits a GEP instruction to access a struct member from
+// a local variable alloca pointer.
+func (e *Emitter) emitStructGEP(baseAllocaID int, varIdx uint32, st ir.StructType, memberIndex int) (int, error) {
+	// Use the cached DXIL struct type to ensure type IDs match the alloca.
+	dxilStructTy, ok := e.localVarStructTypes[varIdx]
+	if !ok {
+		return 0, fmt.Errorf("struct GEP: no cached DXIL type for local var %d", varIdx)
+	}
+
+	return e.emitStructFieldGEP(baseAllocaID, dxilStructTy, st, memberIndex)
+}
+
+// emitStructFieldGEP emits a GEP instruction for a specific struct member.
+// Since struct types are flattened (vectors expanded to N scalars), the GEP
+// index is the flat field index, not the IR member index.
+func (e *Emitter) emitStructFieldGEP(basePtrID int, dxilStructTy *module.Type, st ir.StructType, memberIndex int) (int, error) {
+	if memberIndex >= len(st.Members) {
+		return 0, fmt.Errorf("struct member index %d out of range (struct has %d members)", memberIndex, len(st.Members))
+	}
+
+	// Compute flat index by summing component counts of preceding members.
+	flatIndex := flatMemberOffset(e.ir, st, memberIndex)
+
+	// Get the member's DXIL type. For scalar members, this is a single element.
+	// For vector members, we need the scalar type (first element).
+	var memberDXILTy *module.Type
+	if flatIndex < len(dxilStructTy.StructElems) {
+		memberDXILTy = dxilStructTy.StructElems[flatIndex]
+	} else {
+		memberDXILTy = e.mod.GetFloatType(32) // fallback
+	}
+	resultPtrTy := e.mod.GetPointerType(memberDXILTy)
+
+	// GEP indices: [0, flatIndex] — first 0 is the array element (struct is element 0),
+	// second is the flat field index in the DXIL struct.
+	zeroID := e.getIntConstID(0)
+	indexID := e.getIntConstID(int64(flatIndex))
+
+	return e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID}), nil
 }
 
 // emitAccess performs a dynamic-index access on a composite (array/vector).
@@ -228,12 +313,22 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 }
 
 // emitSplat broadcasts a scalar to all components of a vector.
+// In DXIL, composites are scalarized — all components share the same value ID.
+// We set up pendingComponents so getComponentID resolves correctly.
 func (e *Emitter) emitSplat(fn *ir.Function, sp ir.ExprSplat) (int, error) {
 	v, err := e.emitExpression(fn, sp.Value)
 	if err != nil {
 		return 0, err
 	}
-	// In DXIL, all components share the same value — just return it.
+	// All components point to the same scalar value.
+	size := int(sp.Size)
+	if size > 1 {
+		comps := make([]int, size)
+		for i := range comps {
+			comps[i] = v
+		}
+		e.pendingComponents = comps
+	}
 	return v, nil
 }
 
@@ -1144,6 +1239,11 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	localVar := &fn.LocalVars[lv.Variable]
 	irType := e.ir.Types[localVar.Type]
 
+	// For struct types, allocate the full struct (GEP will be used for member access).
+	if _, isSt := irType.Inner.(ir.StructType); isSt {
+		return e.emitStructLocalVariable(lv.Variable, localVar, irType)
+	}
+
 	// Determine number of components and scalar type.
 	numComponents := 1
 	if vt, ok := irType.Inner.(ir.VectorType); ok {
@@ -1191,15 +1291,53 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	return componentPtrs[0], nil
 }
 
+// emitStructLocalVariable emits a single alloca for a struct-typed local variable.
+// Member access is via GEP instructions (emitted by emitAccessIndex).
+func (e *Emitter) emitStructLocalVariable(varIdx uint32, localVar *ir.LocalVariable, irType ir.Type) (int, error) {
+	// Use typeToDXILFull to get the full struct type (not scalarized).
+	// Cache it so GEP source element type IDs match.
+	structTy, err := typeToDXILFull(e.mod, e.ir, irType.Inner)
+	if err != nil {
+		return 0, fmt.Errorf("local var %q struct type: %w", localVar.Name, err)
+	}
+	e.localVarStructTypes[varIdx] = structTy
+
+	ptrTy := e.mod.GetPointerType(structTy)
+
+	sizeID := e.getIntConstID(1)
+	i32Ty := e.mod.GetIntType(32)
+
+	// Alignment for struct: use 4-byte default.
+	align := 2 + 1 // log2(4) + 1 = 3
+	alignFlags := align | (1 << 6)
+
+	valueID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrAlloca,
+		HasValue:   true,
+		ResultType: ptrTy,
+		Operands:   []int{structTy.ID, i32Ty.ID, sizeID, alignFlags},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+
+	e.localVarPtrs[varIdx] = valueID
+	return valueID, nil
+}
+
 // resolveLoadType determines the DXIL type produced by loading from the given
-// pointer expression. It examines the pointer expression kind (local variable
-// or global variable) to find the element type.
+// pointer expression. It examines the pointer expression kind (local variable,
+// global variable, or access index) to find the element type.
 func (e *Emitter) resolveLoadType(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*module.Type, error) {
 	expr := fn.Expressions[ptrHandle]
 	switch pk := expr.Kind.(type) {
 	case ir.ExprLocalVariable:
 		if int(pk.Variable) >= len(fn.LocalVars) {
 			return nil, fmt.Errorf("local variable %d out of range", pk.Variable)
+		}
+		// For struct local vars, return the cached flattened type to match the alloca.
+		if cachedTy, ok := e.localVarStructTypes[pk.Variable]; ok {
+			return cachedTy, nil
 		}
 		lv := &fn.LocalVars[pk.Variable]
 		irType := e.ir.Types[lv.Type]
@@ -1213,9 +1351,123 @@ func (e *Emitter) resolveLoadType(fn *ir.Function, ptrHandle ir.ExpressionHandle
 		irType := e.ir.Types[gv.Type]
 		return typeToDXIL(e.mod, e.ir, irType.Inner)
 
+	case ir.ExprAccessIndex:
+		// AccessIndex into a struct produces a GEP pointer to the member.
+		// Resolve the member type.
+		innerTy := e.resolveAccessIndexResultType(fn, pk)
+		if innerTy != nil {
+			return typeToDXIL(e.mod, e.ir, innerTy)
+		}
+		return e.resolveLoadTypeFromExpressionInfo(fn, ptrHandle)
+
 	default:
 		return e.resolveLoadTypeFromExpressionInfo(fn, ptrHandle)
 	}
+}
+
+// resolveNestedStructAccess walks an AccessIndex chain to find the root local
+// variable and compute the cumulative flat offset for nested struct access.
+// Returns (rootVarIdx, rootAllocaID, flatOffset, ok).
+//
+func (e *Emitter) resolveNestedStructAccess(fn *ir.Function, ai ir.ExprAccessIndex) (uint32, int, int, bool) {
+	baseExpr := fn.Expressions[ai.Base]
+
+	bk, isAI := baseExpr.Kind.(ir.ExprAccessIndex)
+	if !isAI {
+		return 0, 0, 0, false
+	}
+
+	// Try to resolve from a 2-level chain: AccessIndex → AccessIndex → LocalVariable.
+	if result, ok := e.resolveNestedFromLocalVar(fn, bk, ai); ok {
+		return result.varIdx, result.allocaID, result.flatOffset, true
+	}
+
+	// Deeper nesting: recursively resolve.
+	if rootVar, rootAlloca, parentOffset, ok := e.resolveNestedStructAccess(fn, bk); ok {
+		return rootVar, rootAlloca, parentOffset + int(ai.Index), true
+	}
+
+	return 0, 0, 0, false
+}
+
+// nestedStructResult holds the result of nested struct access resolution.
+type nestedStructResult struct {
+	varIdx     uint32
+	allocaID   int
+	flatOffset int
+}
+
+// resolveNestedFromLocalVar resolves a 2-level chain: parentAI → LocalVariable.
+func (e *Emitter) resolveNestedFromLocalVar(fn *ir.Function, parentAI ir.ExprAccessIndex, childAI ir.ExprAccessIndex) (nestedStructResult, bool) {
+	innerExpr := fn.Expressions[parentAI.Base]
+	lv, ok := innerExpr.Kind.(ir.ExprLocalVariable)
+	if !ok || int(lv.Variable) >= len(fn.LocalVars) {
+		return nestedStructResult{}, false
+	}
+
+	localVar := &fn.LocalVars[lv.Variable]
+	irType := e.ir.Types[localVar.Type]
+	st, isSt := irType.Inner.(ir.StructType)
+	if !isSt || int(parentAI.Index) >= len(st.Members) {
+		return nestedStructResult{}, false
+	}
+
+	parentFlat := flatMemberOffset(e.ir, st, int(parentAI.Index))
+	parentMemberTy := e.ir.Types[st.Members[parentAI.Index].Type]
+	innerSt, ok := parentMemberTy.Inner.(ir.StructType)
+	if !ok {
+		return nestedStructResult{}, false
+	}
+
+	innerFlat := flatMemberOffset(e.ir, innerSt, int(childAI.Index))
+	allocaID := e.localVarPtrs[lv.Variable]
+	return nestedStructResult{
+		varIdx:     lv.Variable,
+		allocaID:   allocaID,
+		flatOffset: parentFlat + innerFlat,
+	}, true
+}
+
+// resolveAccessIndexResultType resolves the IR type that an AccessIndex expression
+// points to, by walking the base expression chain to find the struct and extracting
+// the member type at the given index.
+func (e *Emitter) resolveAccessIndexResultType(fn *ir.Function, ai ir.ExprAccessIndex) ir.TypeInner {
+	// Walk to find the base type.
+	baseExpr := fn.Expressions[ai.Base]
+	var baseInner ir.TypeInner
+
+	switch bk := baseExpr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		if int(bk.Variable) < len(fn.LocalVars) {
+			lv := &fn.LocalVars[bk.Variable]
+			baseInner = e.ir.Types[lv.Type].Inner
+		}
+	case ir.ExprGlobalVariable:
+		if int(bk.Variable) < len(e.ir.GlobalVariables) {
+			gv := &e.ir.GlobalVariables[bk.Variable]
+			baseInner = e.ir.Types[gv.Type].Inner
+		}
+	case ir.ExprAccessIndex:
+		// Nested access — recursively resolve.
+		baseInner = e.resolveAccessIndexResultType(fn, bk)
+	}
+
+	if baseInner == nil {
+		return nil
+	}
+
+	// Extract the member type at the given index.
+	switch t := baseInner.(type) {
+	case ir.StructType:
+		if int(ai.Index) < len(t.Members) {
+			return e.ir.Types[t.Members[ai.Index].Type].Inner
+		}
+	case ir.VectorType:
+		return t.Scalar
+	case ir.ArrayType:
+		return e.ir.Types[t.Base].Inner
+	}
+	return nil
 }
 
 // resolveLoadTypeFromExpressionInfo resolves the loaded type by examining
@@ -1280,19 +1532,29 @@ func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) { //nolint:unp
 	ty := e.ir.Types[zv.Type]
 	inner := ty.Inner
 
-	switch inner.(type) {
+	switch t := inner.(type) {
 	case ir.ScalarType:
-		s := inner.(ir.ScalarType)
-		if s.Kind == ir.ScalarFloat {
+		if t.Kind == ir.ScalarFloat {
 			return e.getFloatConstID(0.0), nil
 		}
 		return e.getIntConstID(0), nil
 	case ir.VectorType:
-		vt := inner.(ir.VectorType)
-		if vt.Scalar.Kind == ir.ScalarFloat {
-			return e.getFloatConstID(0.0), nil
+		var zeroID int
+		if t.Scalar.Kind == ir.ScalarFloat {
+			zeroID = e.getFloatConstID(0.0)
+		} else {
+			zeroID = e.getIntConstID(0)
 		}
-		return e.getIntConstID(0), nil
+		// Set up per-component tracking — all components are the same zero value.
+		size := int(t.Size)
+		if size > 1 {
+			comps := make([]int, size)
+			for i := range comps {
+				comps[i] = zeroID
+			}
+			e.pendingComponents = comps
+		}
+		return zeroID, nil
 	default:
 		return e.getIntConstID(0), nil
 	}

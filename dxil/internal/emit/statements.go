@@ -184,6 +184,17 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 		if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
 			return e.emitVectorStore(fn, compPtrs, store.Value)
 		}
+
+		// Check if this is a struct store to a local variable.
+		// Struct stores must be decomposed into per-field GEP + store operations
+		// because the value is represented as per-component scalars.
+		if int(lv.Variable) < len(fn.LocalVars) {
+			localVar := &fn.LocalVars[lv.Variable]
+			irType := e.ir.Types[localVar.Type]
+			if st, isSt := irType.Inner.(ir.StructType); isSt {
+				return e.emitStructStore(fn, lv.Variable, irType, st, store.Value)
+			}
+		}
 	}
 
 	ptr, err := e.emitExpression(fn, store.Pointer)
@@ -211,6 +222,72 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	}
 	e.currentBB.AddInstruction(instr)
 	return nil
+}
+
+// emitStructStore decomposes a struct value into per-scalar-field stores using GEP.
+// Recursively flattens nested structs and vectors into individual scalar stores.
+func (e *Emitter) emitStructStore(fn *ir.Function, varIdx uint32, _ ir.Type, st ir.StructType, valueHandle ir.ExpressionHandle) error {
+	// Ensure the alloca exists.
+	allocaID, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: varIdx})
+	if err != nil {
+		return fmt.Errorf("struct store alloca: %w", err)
+	}
+
+	// Emit the value expression.
+	_, err = e.emitExpression(fn, valueHandle)
+	if err != nil {
+		return fmt.Errorf("struct store value: %w", err)
+	}
+
+	// Use cached DXIL struct type to match the alloca's type.
+	dxilStructTy, ok := e.localVarStructTypes[varIdx]
+	if !ok {
+		return fmt.Errorf("struct store: no cached DXIL type for local var %d", varIdx)
+	}
+
+	// Recursively store each scalar field, tracking flat component index.
+	flatIdx := 0
+	e.storeStructFields(dxilStructTy, allocaID, st, valueHandle, &flatIdx)
+	return nil
+}
+
+// storeStructFields stores each scalar value from a flattened compose into
+// struct fields via GEP. Since struct types are fully flattened (vectors
+// become N scalars), each GEP targets a single scalar element.
+// flatIdx tracks the position in both the value's component list and the
+// DXIL struct element list.
+func (e *Emitter) storeStructFields(dxilStructTy *module.Type, basePtrID int, st ir.StructType, valueHandle ir.ExpressionHandle, flatIdx *int) {
+	zeroID := e.getIntConstID(0)
+
+	for _, member := range st.Members {
+		memberIRType := e.ir.Types[member.Type]
+		numScalars := totalScalarCount(e.ir, memberIRType.Inner)
+
+		// Store each scalar component via separate GEP + store.
+		for j := 0; j < numScalars; j++ {
+			elemIdx := *flatIdx + j
+			if elemIdx >= len(dxilStructTy.StructElems) {
+				break
+			}
+			memberDXILTy := dxilStructTy.StructElems[elemIdx]
+			resultPtrTy := e.mod.GetPointerType(memberDXILTy)
+			indexID := e.getIntConstID(int64(elemIdx))
+			gepID := e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
+
+			compID := e.getComponentID(valueHandle, elemIdx)
+			align := e.alignForType(memberDXILTy)
+
+			instr := &module.Instruction{
+				Kind:        module.InstrStore,
+				HasValue:    false,
+				Operands:    []int{gepID, compID, align, 0},
+				ReturnValue: -1,
+			}
+			e.currentBB.AddInstruction(instr)
+		}
+
+		*flatIdx += numScalars
+	}
 }
 
 // emitVectorStore stores each component of a vector value to separate allocas.
