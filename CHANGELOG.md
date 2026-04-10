@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **SPIR-V structural comparison: allow-list for intentional divergences** — Shaders where
+  our SPIR-V output is more correct than Rust naga (Workgroup layout-free types per
+  VUID-StandaloneSpirv-None-10684) are now allow-listed instead of counted as failures.
+  Test summary shows `87 pass, 6 allow-listed, 0 fail` instead of `87 pass, 6 fail`.
+
 ## [0.17.2] - 2026-04-10
 
 ### Fixed

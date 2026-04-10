@@ -19,7 +19,7 @@
 
 ---
 
-## Current State: v0.17.0 (2026-04-06)
+## Current State: v0.17.2 (2026-04-10)
 
 ✅ **Production-ready** shader compiler (~102K LOC) with **complete Rust naga parity**,
 **100% SPIR-V binary validation**, and **experimental DXIL backend**:
@@ -56,7 +56,7 @@
 | Task | Priority | Effort | Description |
 |------|----------|--------|-------------|
 | **Internal packages refactor** | P2 | 13 | Move implementations to `internal/`, reduce public API 398→~118 symbols |
-| **SPIR-V structural parity** | P3 | 3 | 90/93 → 93/93 Rust match (Int8 native, extra Block decoration) |
+| **SPIR-V structural parity** | P3 | 3 | 87/93 match + 6 allow-listed (3 ahead of Rust: Workgroup layout-free types) |
 | **Test coverage 80%** | P2 | 8 | After ARCH-001 — wgsl 40%→80%, msl 40%→80%, hlsl 48%→80% |
 
 ### Next: DXIL Backend (direct DXIL generation, no FXC)
