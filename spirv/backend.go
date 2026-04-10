@@ -3773,6 +3773,19 @@ func (e *ExpressionEmitter) emitGlobalVarValue(kind ir.ExprGlobalVariable) (uint
 		return 0, err
 	}
 
+	// For Workgroup variables, the pointer uses layout-free types (no ArrayStride/Offset).
+	// OpLoad returns the layout-free type. We must OpCopyLogical to the decorated type
+	// immediately, so all downstream uses (OpFunctionCall, OpStore, OpComposite*)
+	// see the correct decorated type. This is the single conversion point —
+	// all Workgroup layout-free values are converted to decorated on load.
+	if gv.Space == ir.SpaceWorkGroup && e.backend.typeNeedsLayoutDecoration(gv.Type) {
+		layoutFreeTypeID := e.backend.emitTypeWithoutLayout(gv.Type)
+		loadedID := e.backend.builder.AddLoad(layoutFreeTypeID, ptrID)
+
+		e.backend.requireSpirvVersion14()
+		return e.backend.builder.AddCopyLogical(typeID, loadedID), nil
+	}
+
 	return e.backend.builder.AddLoad(typeID, ptrID), nil
 }
 
@@ -3981,6 +3994,19 @@ func (e *ExpressionEmitter) maybeCopyLogicalForStore(pointerExpr, valueExpr ir.E
 		targetTypeID = e.backend.emitTypeWithoutLayout(*valueTypeHandle)
 	}
 
+	// Resolve the current SPIR-V type of the value. If the value was already
+	// converted at load time (load-conversion pattern), it's already the target type.
+	// OpCopyLogical requires Result Type != Operand type — skip if same.
+	currentTypeID, _ := e.backend.emitType(*valueTypeHandle)
+	if valueIsWG {
+		// Value loaded from Workgroup — check if load-time conversion already applied.
+		// After our load-conversion fix, Workgroup loads return decorated types.
+		// If the target (decorated) matches what the value already is, skip.
+		if targetTypeID == currentTypeID {
+			return valueID
+		}
+	}
+
 	// Bump SPIR-V version to 1.4 (minimum for OpCopyLogical).
 	e.backend.requireSpirvVersion14()
 
@@ -4155,6 +4181,12 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 		// See VUID-RuntimeSpirv-NonUniform-06274.
 		if isNonUniformBA {
 			e.backend.decorateNonUniformBindingArrayAccess(loadID)
+		}
+
+		// Convert layout-free → decorated after loading from Workgroup.
+		if storageClass == StorageClassWorkgroup && accessElementTypeID != elementTypeID {
+			e.backend.requireSpirvVersion14()
+			loadID = e.backend.builder.AddCopyLogical(elementTypeID, loadID)
 		}
 
 		return loadID, nil
@@ -4409,7 +4441,15 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 		}
 
 		// Auto-load the value - emitExpression should return VALUES, not pointers
-		return e.backend.builder.AddLoad(accessElementTypeID, ptrID), nil
+		loadID := e.backend.builder.AddLoad(accessElementTypeID, ptrID)
+
+		// Convert layout-free → decorated after loading from Workgroup.
+		if storageClass == StorageClassWorkgroup && accessElementTypeID != elementTypeID {
+			e.backend.requireSpirvVersion14()
+			loadID = e.backend.builder.AddCopyLogical(elementTypeID, loadID)
+		}
+
+		return loadID, nil
 	}
 
 	// Check if the base was spilled by a previous Access expression
@@ -4848,7 +4888,20 @@ func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
 	// The OpLoad result type must match the pointer's pointee type, which is layout-free.
 	storageClass := e.getExpressionStorageClass(load.Pointer)
 	resultType := e.dereferencePointerTypeForStorageClass(pointerType, storageClass)
-	return e.backend.builder.AddLoad(resultType, pointerID), nil
+	loadedID := e.backend.builder.AddLoad(resultType, pointerID)
+
+	// Single conversion point: immediately convert layout-free → decorated after
+	// loading from Workgroup. All downstream uses (OpFunctionCall, OpStore,
+	// OpCompositeExtract, etc.) see the correct decorated type.
+	if storageClass == StorageClassWorkgroup {
+		decoratedType := e.dereferencePointerTypeForStorageClass(pointerType, StorageClassFunction)
+		if decoratedType != resultType {
+			e.backend.requireSpirvVersion14()
+			return e.backend.builder.AddCopyLogical(decoratedType, loadedID), nil
+		}
+	}
+
+	return loadedID, nil
 }
 
 // dereferencePointerTypeForStorageClass extracts the base type, using layout-free types
