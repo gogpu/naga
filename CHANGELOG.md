@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-04-10
+
+### Fixed
+
+- **SPIR-V: OpFunctionCall type mismatch with Workgroup values (BUG-SPIRV-002)** — Regression
+  from v0.17.1 Workgroup fix. Values loaded from `Workgroup` variables had layout-free types
+  that propagated into `OpFunctionCall` arguments, causing type mismatch with decorated function
+  parameters. Fix: insert `OpCopyLogical` immediately after every `OpLoad` from Workgroup
+  (in `emitLoad`, `emitAccess`, `emitAccessIndex`), converting layout-free → decorated at the
+  load point. Guard `maybeCopyLogicalForStore` against double-conversion when value is already
+  decorated. Validated: 164/164 naga shaders + 23/23 gg GPU shaders pass spirv-val v2026.1.
+  (gogpu/wgpu#134, reported by @SideFx via gogpu/ui#67)
+
 ## [0.17.1] - 2026-04-08
 
 ### Fixed
