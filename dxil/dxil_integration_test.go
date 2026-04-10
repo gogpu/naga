@@ -147,13 +147,14 @@ func TestDXC_ManualModuleWithDeclAndCall(t *testing.T) {
 	voidTy := mod.GetVoidType()
 	i32Ty := mod.GetIntType(32)
 	f32Ty := mod.GetFloatType(32)
-	i8Ty := mod.GetIntType(8)
 
 	// Function types.
 	mainFuncTy := mod.GetFunctionType(voidTy, nil) // void()
 
 	// dx.op.loadInput.f32: float(i32, i32, i32, i8, i32)
-	loadInputFuncTy := mod.GetFunctionType(f32Ty, []*module.Type{i32Ty, i32Ty, i32Ty, i8Ty, i32Ty})
+	// Note: DXIL uses i8 for the column parameter, but we use i32 to match
+	// our Emitter's approach (avoids i8 type issues in some DXC versions).
+	loadInputFuncTy := mod.GetFunctionType(f32Ty, []*module.Type{i32Ty, i32Ty, i32Ty, i32Ty, i32Ty})
 
 	// Add functions. DXC expects declarations BEFORE definitions.
 	loadInputFn := mod.AddFunction("dx.op.loadInput.f32", loadInputFuncTy, true)
