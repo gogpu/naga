@@ -7,35 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-04-10
+
 ### Added
 
-- **DXIL: CBV (Constant Buffer) loads via `dx.op.cbufferLoadLegacy`** — Shaders reading
-  from `var<uniform>` now correctly emit `dx.op.cbufferLoadLegacy` intrinsic calls with
-  proper register index calculation (byteOffset/16) and component extraction via
-  `extractvalue`. Supports f32/i32/f64/i64/f16 overloads, struct member access at
-  arbitrary offsets, and multi-register layouts. Reference: Mesa `nir_to_dxil.c:load_ubo()`.
+- **DXIL: CBV (Constant Buffer) loads** — `dx.op.cbufferLoadLegacy` for `var<uniform>`.
+  Register index calculation (byteOffset/16), component extraction via `extractvalue`.
+  Supports f32/i32/f64/i64/f16 overloads, struct member access at arbitrary offsets.
 
-- **DXIL Phase 2: Compute shader foundation** — Compute shaders (`@compute`) now compile
-  to DXIL. Includes:
-  - Thread ID builtins: `dx.op.threadId` (GlobalInvocationId), `dx.op.groupId` (WorkGroupId),
-    `dx.op.threadIdInGroup` (LocalInvocationId), `dx.op.flattenedThreadIdInGroup` (LocalInvocationIndex)
+- **DXIL: Compute shader support (Phase 2)** — `@compute` entry points now compile to DXIL:
+  - Thread ID builtins: `dx.op.threadId`, `dx.op.groupId`, `dx.op.threadIdInGroup`,
+    `dx.op.flattenedThreadIdInGroup`
   - `numthreads` metadata from `@workgroup_size(X,Y,Z)`
-  - UAV (storage buffer) support: `dx.op.bufferLoad`/`dx.op.bufferStore` for `var<storage, read_write>`
-  - Compute entry points with no I/O signatures (per DXIL spec)
-  - Reference: Mesa `nir_to_dxil.c` emit_threadid_call, emit_uav, emit_barrier_impl
-
-- **DXIL Phase 2b: Atomics and barriers** — Atomic operations on UAV buffers via
-  `dx.op.atomicBinOp` (add, subtract, and, or, xor, min, max, exchange) and
-  `dx.op.atomicCompareExchange`. Barriers via `dx.op.barrier` with storage/workgroup/
-  subgroup flag mapping. AtomicLoad/AtomicStore via bufferLoad/bufferStore.
-  Reference: Mesa `nir_to_dxil.c` emit_atomic_binop, emit_barrier_impl.
+  - UAV storage buffers: `dx.op.bufferLoad`/`dx.op.bufferStore` for `var<storage, read_write>`
+  - Atomic operations: `dx.op.atomicBinOp` (add, subtract, and, or, xor, min, max, exchange),
+    `dx.op.atomicCompareExchange`, atomic load/store
+  - Barriers: `dx.op.barrier` with storage/workgroup/subgroup flag mapping
+  - Reference: Mesa `nir_to_dxil.c`
 
 ### Changed
 
-- **SPIR-V structural comparison: allow-list for intentional divergences** — Shaders where
-  our SPIR-V output is more correct than Rust naga (Workgroup layout-free types per
-  VUID-StandaloneSpirv-None-10684) are now allow-listed instead of counted as failures.
-  Test summary shows `87 pass, 6 allow-listed, 0 fail` instead of `87 pass, 6 fail`.
+- **SPIR-V Rust reference: allow-list for intentional divergences** — Unified allow-list
+  across all backends (SPIR-V/MSL/HLSL/GLSL) for shaders where our output intentionally
+  differs from Rust naga (Workgroup layout-free types per VUID-StandaloneSpirv-None-10684,
+  no-compact-pass for entry-point-less shaders). 0 fail across all backends.
+
+- **SPIR-V validation: 165/165** — Added `ptr-deref-test` shader (+1 from v0.17.2).
 
 ## [0.17.2] - 2026-04-10
 

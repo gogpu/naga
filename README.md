@@ -62,7 +62,7 @@
 - **MSL Backend** — Metal Shading Language output for macOS/iOS (**91/91 exact Rust naga parity**), vertex pulling transform, external textures, override pipeline constants
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+ (**68/68 exact Rust naga parity**), dead code elimination, ProcessOverrides, image bounds checking
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12 (**72/72 exact Rust naga parity**)
-- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR. LLVM 3.7 bitcode with dx.op intrinsics, DXBC container with BYPASS hash. Vertex + fragment shaders, SM 6.0. Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~12K LOC, 190 tests.
+- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR. LLVM 3.7 bitcode with dx.op intrinsics, DXBC container with BYPASS hash. Vertex, fragment, and compute shaders (SM 6.0). CBV loads, UAV bufferLoad/bufferStore, atomics (8 ops + CAS), barriers. Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~15K LOC, 172 tests.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -239,7 +239,7 @@ naga/                              ~189K LOC total
 │   ├── storage.go     # Buffer/atomic operations
 │   ├── functions.go   # Entry points with semantics
 │   └── keywords.go    # HLSL reserved words
-├── dxil/              # DXIL backend, experimental (~12.5K LOC)
+├── dxil/              # DXIL backend, experimental (~15K LOC)
 │   ├── dxil.go        # Public API: Compile(), DefaultOptions()
 │   └── internal/      # All implementation internal
 │       ├── bitcode/   # LLVM 3.7 bit-level writer
