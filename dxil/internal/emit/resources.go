@@ -723,9 +723,14 @@ func (e *Emitter) componentTypeToLLVMType(compType int) *module.Type {
 // cbvPointerChain describes a resolved pointer chain leading to a CBV field.
 type cbvPointerChain struct {
 	varHandle  ir.GlobalVariableHandle
-	byteOffset uint32        // accumulated byte offset into the struct
+	byteOffset uint32        // accumulated byte offset into the struct (static part)
 	fieldType  ir.TypeInner  // the IR type of the final accessed field
 	scalar     ir.ScalarType // scalar element type for overload selection
+	// dynIndexExpr and dynStride are set when the chain contains a dynamic Access.
+	// The total byte offset = dynIndex * dynStride + byteOffset.
+	dynIndexExpr ir.ExpressionHandle // dynamic array index expression (0 = no dynamic)
+	dynStride    uint32              // array element stride in bytes (0 = no dynamic)
+	hasDynIndex  bool                // true if this chain has a dynamic index component
 }
 
 // resolveCBVPointerChain walks an expression chain (AccessIndex → GlobalVariable)
@@ -743,6 +748,9 @@ func (e *Emitter) resolveCBVPointerChain(fn *ir.Function, ptrHandle ir.Expressio
 	// Walk the expression chain to find the root global variable and accumulate offsets.
 	var indices []uint32
 	handle := ptrHandle
+	var dynIndexExpr ir.ExpressionHandle
+	var dynStride uint32
+	hasDynIndex := false
 
 	for {
 		if int(handle) >= len(fn.Expressions) {
@@ -763,21 +771,44 @@ func (e *Emitter) resolveCBVPointerChain(fn *ir.Function, ptrHandle ir.Expressio
 			}
 
 			// Now walk indices forward to compute byte offset.
-			byteOffset, fieldType, scalar, ok := e.computeCBVFieldOffset(ek.Variable, indices)
+			// When hasDynIndex is true, the dynamic Access already handles the
+			// array dimension, so we start from the array's element type.
+			byteOffset, fieldType, scalar, ok := e.computeCBVFieldOffset(ek.Variable, indices, hasDynIndex)
 			if !ok {
 				return nil, false
 			}
 
 			return &cbvPointerChain{
-				varHandle:  ek.Variable,
-				byteOffset: byteOffset,
-				fieldType:  fieldType,
-				scalar:     scalar,
+				varHandle:    ek.Variable,
+				byteOffset:   byteOffset,
+				fieldType:    fieldType,
+				scalar:       scalar,
+				dynIndexExpr: dynIndexExpr,
+				dynStride:    dynStride,
+				hasDynIndex:  hasDynIndex,
 			}, true
 
 		case ir.ExprAccessIndex:
 			indices = append([]uint32{ek.Index}, indices...)
 			handle = ek.Base
+
+		case ir.ExprAccess:
+			// Dynamic array access: we need the array stride to compute the offset.
+			// The stride comes from the type of the base expression's inner array.
+			if !hasDynIndex {
+				// Only support one level of dynamic access.
+				stride := e.resolveArrayStride(fn, ek.Base)
+				if stride == 0 {
+					return nil, false
+				}
+				dynIndexExpr = ek.Index
+				dynStride = stride
+				hasDynIndex = true
+				handle = ek.Base
+			} else {
+				// Multiple dynamic accesses — not supported.
+				return nil, false
+			}
 
 		default:
 			return nil, false
@@ -785,10 +816,82 @@ func (e *Emitter) resolveCBVPointerChain(fn *ir.Function, ptrHandle ir.Expressio
 	}
 }
 
+// resolveArrayStride determines the array stride for a given expression's type.
+// Used when computing dynamic CBV offsets for array[i] access patterns.
+func (e *Emitter) resolveArrayStride(fn *ir.Function, exprHandle ir.ExpressionHandle) uint32 {
+	if int(exprHandle) >= len(fn.Expressions) {
+		return 0
+	}
+	expr := fn.Expressions[exprHandle]
+	gv, ok := expr.Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return 0
+	}
+	if int(gv.Variable) >= len(e.ir.GlobalVariables) {
+		return 0
+	}
+	gvDef := &e.ir.GlobalVariables[gv.Variable]
+	if int(gvDef.Type) >= len(e.ir.Types) {
+		return 0
+	}
+	inner := e.ir.Types[gvDef.Type].Inner
+	if arr, ok := inner.(ir.ArrayType); ok {
+		return arr.Stride
+	}
+	return 0
+}
+
+// resolveCBVRegIndex computes the CBV register index and component offset for
+// a cbufferLoadLegacy call. Handles both static and dynamic (stride-based) indices.
+// Returns (regIndexValueID, componentOffset, error).
+func (e *Emitter) resolveCBVRegIndex(fn *ir.Function, chain *cbvPointerChain, scalarWidth uint32) (int, uint32, error) {
+	if !chain.hasDynIndex {
+		regIndex := chain.byteOffset / 16
+		compOffset := (chain.byteOffset % 16) / scalarWidth
+		return e.getIntConstID(int64(regIndex)), compOffset, nil
+	}
+
+	dynID, err := e.emitExpression(fn, chain.dynIndexExpr)
+	if err != nil {
+		return 0, 0, fmt.Errorf("CBV dynamic index: %w", err)
+	}
+
+	compOffset := (chain.byteOffset % 16) / scalarWidth
+	i32Ty := e.mod.GetIntType(32)
+
+	if chain.dynStride%16 == 0 {
+		// Stride is register-aligned — simple multiply + constant offset.
+		regsPerElem := chain.dynStride / 16
+		regIdx := dynID
+		if regsPerElem > 1 {
+			mulID := e.getIntConstID(int64(regsPerElem))
+			regIdx = e.addBinOpInstr(i32Ty, BinOpMul, dynID, mulID)
+		}
+		if staticRegOff := chain.byteOffset / 16; staticRegOff > 0 {
+			offID := e.getIntConstID(int64(staticRegOff))
+			regIdx = e.addBinOpInstr(i32Ty, BinOpAdd, regIdx, offID)
+		}
+		return regIdx, compOffset, nil
+	}
+
+	// Non-aligned stride: totalByteOff = dynIndex * stride + byteOffset, regIndex = totalByteOff >> 4.
+	strideID := e.getIntConstID(int64(chain.dynStride))
+	totalOff := e.addBinOpInstr(i32Ty, BinOpMul, dynID, strideID)
+	if chain.byteOffset > 0 {
+		offID := e.getIntConstID(int64(chain.byteOffset))
+		totalOff = e.addBinOpInstr(i32Ty, BinOpAdd, totalOff, offID)
+	}
+	shiftID := e.getIntConstID(4) // >> 4 = / 16
+	regIdx := e.addBinOpInstr(i32Ty, BinOpLShr, totalOff, shiftID)
+	return regIdx, compOffset, nil
+}
+
 // computeCBVFieldOffset walks the type hierarchy using the given indices
 // to compute the byte offset of the accessed field within the CBV struct.
+// When skipArrayLevel is true, the top-level array type is skipped (the array
+// dimension is handled by a dynamic index elsewhere).
 // Returns (byteOffset, fieldType, scalarType, ok).
-func (e *Emitter) computeCBVFieldOffset(varHandle ir.GlobalVariableHandle, indices []uint32) (uint32, ir.TypeInner, ir.ScalarType, bool) {
+func (e *Emitter) computeCBVFieldOffset(varHandle ir.GlobalVariableHandle, indices []uint32, skipArrayLevel bool) (uint32, ir.TypeInner, ir.ScalarType, bool) {
 	if int(varHandle) >= len(e.ir.GlobalVariables) {
 		return 0, nil, ir.ScalarType{}, false
 	}
@@ -799,6 +902,16 @@ func (e *Emitter) computeCBVFieldOffset(varHandle ir.GlobalVariableHandle, indic
 
 	currentType := e.ir.Types[gv.Type].Inner
 	var byteOffset uint32
+
+	// When a dynamic Access handles the array dimension, skip past the top-level array
+	// so the static indices only traverse the element type (struct).
+	if skipArrayLevel {
+		if arr, ok := currentType.(ir.ArrayType); ok {
+			if int(arr.Base) < len(e.ir.Types) {
+				currentType = e.ir.Types[arr.Base].Inner
+			}
+		}
+	}
 
 	for _, idx := range indices {
 		switch ct := currentType.(type) {
@@ -859,7 +972,7 @@ func (e *Emitter) computeCBVFieldOffset(varHandle ir.GlobalVariableHandle, indic
 // are extracted with extractvalue at index = (byteOffset % 16) / scalarWidth.
 //
 // Reference: Mesa nir_to_dxil.c load_ubo() line ~3061, emit_load_ubo_vec4() line ~3527
-func (e *Emitter) emitCBVLoad(_ *ir.Function, chain *cbvPointerChain) (int, error) {
+func (e *Emitter) emitCBVLoad(fn *ir.Function, chain *cbvPointerChain) (int, error) {
 	// Get the resource handle for this CBV.
 	handleID, found := e.getResourceHandleID(chain.varHandle)
 	if !found {
@@ -891,12 +1004,12 @@ func (e *Emitter) emitCBVLoad(_ *ir.Function, chain *cbvPointerChain) (int, erro
 	}
 
 	// Single register path: scalar / vector / small struct.
-	regIndex := chain.byteOffset / 16
-	compOffset := (chain.byteOffset % 16) / scalarWidth
-
-	// Emit: %ret = call %dx.types.CBufRet.XX @dx.op.cbufferLoadLegacy.XX(i32 59, %handle, i32 regIndex)
 	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
-	regIndexVal := e.getIntConstID(int64(regIndex))
+
+	regIndexVal, compOffset, dynErr := e.resolveCBVRegIndex(fn, chain, scalarWidth)
+	if dynErr != nil {
+		return 0, dynErr
+	}
 
 	retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
 
@@ -1098,8 +1211,13 @@ type uavPointerChain struct {
 	indexExpr  ir.ExpressionHandle // array index expression (dynamic) — used when isConstIndex is false
 	constIndex uint32              // constant array index — used when isConstIndex is true
 	isConstIdx bool                // true if this is a constant-index access
+	isWhole    bool                // true if this is a whole-buffer load (direct GlobalVariable reference)
 	elemType   ir.TypeInner        // element type (what's being loaded/stored)
 	scalar     ir.ScalarType       // scalar element type for overload selection
+	// stride and fieldByteOffset are used for struct-in-array access patterns.
+	// The final raw buffer index = (arrayIndex * stride + fieldByteOffset) / scalarWidth.
+	stride          uint32 // array element stride in bytes (0 = no stride adjustment)
+	fieldByteOffset uint32 // byte offset of the accessed field within the struct element
 }
 
 // resolveUAVPointerChain walks an expression chain and determines whether it
@@ -1126,9 +1244,128 @@ func (e *Emitter) resolveUAVPointerChain(fn *ir.Function, ptrHandle ir.Expressio
 		// Constant index: data[N] where N is compile-time constant.
 		return e.resolveUAVAccessIndexChain(fn, ek.Base, ek.Index)
 
+	case ir.ExprGlobalVariable:
+		// Direct reference to the UAV global variable (whole-buffer load/store).
+		// This handles patterns like: let x = storage_var; or output = value;
+		return e.resolveUAVDirectGlobal(ek.Variable)
+
 	default:
 		return nil, false
 	}
+}
+
+// resolveUAVDirectGlobal handles direct reference to a UAV global variable
+// (loading/storing the entire buffer content, not a specific element).
+// The element type and scalar are derived from the variable's type.
+func (e *Emitter) resolveUAVDirectGlobal(varHandle ir.GlobalVariableHandle) (*uavPointerChain, bool) {
+	idx, found := e.resourceHandles[varHandle]
+	if !found {
+		return nil, false
+	}
+	res := &e.resources[idx]
+	if res.class != resourceClassUAV {
+		return nil, false
+	}
+
+	// For a direct GlobalVariable reference, we load the entire type at index 0.
+	// We use the full variable type (not element type) since we're loading everything.
+	if int(varHandle) >= len(e.ir.GlobalVariables) {
+		return nil, false
+	}
+	gv := &e.ir.GlobalVariables[varHandle]
+	if int(gv.Type) >= len(e.ir.Types) {
+		return nil, false
+	}
+
+	fullType := e.ir.Types[gv.Type].Inner
+	scalar, ok := scalarOfType(fullType)
+	if !ok {
+		// For struct/array types, default to f32 scalar for the overload.
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+		// Try to find the actual scalar from nested types.
+		if s, found := deepScalarOfType(e.ir, fullType); found {
+			scalar = s
+		}
+	}
+
+	return &uavPointerChain{
+		varHandle:  varHandle,
+		constIndex: 0,
+		isConstIdx: true,
+		elemType:   fullType,
+		scalar:     scalar,
+		isWhole:    true,
+	}, true
+}
+
+// deepScalarOfType finds the scalar type buried inside structs, arrays, and vectors.
+func deepScalarOfType(irMod *ir.Module, inner ir.TypeInner) (ir.ScalarType, bool) {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return t, true
+	case ir.VectorType:
+		return t.Scalar, true
+	case ir.MatrixType:
+		return t.Scalar, true
+	case ir.ArrayType:
+		if int(t.Base) < len(irMod.Types) {
+			return deepScalarOfType(irMod, irMod.Types[t.Base].Inner)
+		}
+	case ir.StructType:
+		if len(t.Members) > 0 && int(t.Members[0].Type) < len(irMod.Types) {
+			return deepScalarOfType(irMod, irMod.Types[t.Members[0].Type].Inner)
+		}
+	}
+	return ir.ScalarType{}, false
+}
+
+// resolveUAVIndex computes the buffer index value ID for a UAV access.
+// Handles simple constant/dynamic indices, as well as stride-scaled struct field access.
+func (e *Emitter) resolveUAVIndex(fn *ir.Function, chain *uavPointerChain) (int, error) {
+	scalarW := uint32(chain.scalar.Width)
+	if scalarW == 0 {
+		scalarW = 4
+	}
+
+	if chain.stride > 0 {
+		return e.resolveUAVStridedIndex(fn, chain, scalarW)
+	}
+	if chain.isConstIdx {
+		return e.getIntConstID(int64(chain.constIndex)), nil
+	}
+	indexID, err := e.emitExpression(fn, chain.indexExpr)
+	if err != nil {
+		return 0, fmt.Errorf("UAV index: %w", err)
+	}
+	return indexID, nil
+}
+
+// resolveUAVStridedIndex handles stride-scaled index for struct-in-array UAV access.
+// index = arrayIndex * (stride / scalarWidth) + (fieldByteOffset / scalarWidth).
+func (e *Emitter) resolveUAVStridedIndex(fn *ir.Function, chain *uavPointerChain, scalarW uint32) (int, error) {
+	strideWords := chain.stride / scalarW
+	fieldOffWords := chain.fieldByteOffset / scalarW
+
+	if chain.isConstIdx {
+		finalIdx := int64(chain.constIndex)*int64(strideWords) + int64(fieldOffWords)
+		return e.getIntConstID(finalIdx), nil
+	}
+
+	dynID, err := e.emitExpression(fn, chain.indexExpr)
+	if err != nil {
+		return 0, fmt.Errorf("UAV strided index: %w", err)
+	}
+	i32Ty := e.mod.GetIntType(32)
+	indexID := dynID
+	if strideWords > 1 {
+		strideID := e.getIntConstID(int64(strideWords))
+		indexID = e.addBinOpInstr(i32Ty, BinOpMul, dynID, strideID)
+	}
+	if fieldOffWords > 0 {
+		offID := e.getIntConstID(int64(fieldOffWords))
+		indexID = e.addBinOpInstr(i32Ty, BinOpAdd, indexID, offID)
+	}
+	return indexID, nil
 }
 
 // resolveUAVAccessChain resolves a dynamic-index access to a UAV global variable.
@@ -1167,18 +1404,62 @@ func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle
 }
 
 // resolveUAVAccessIndexChain resolves a constant-index access to a UAV.
+// Handles patterns:
+//   - AccessIndex(field, GlobalVariable) — direct struct field access
+//   - AccessIndex(field, Access(dynIdx, GlobalVariable)) — array[i].field
+//   - AccessIndex(field, AccessIndex(constIdx, GlobalVariable)) — array[N].field
 func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.ExpressionHandle, constIdx uint32) (*uavPointerChain, bool) {
 	if int(baseHandle) >= len(fn.Expressions) {
 		return nil, false
 	}
 	baseExpr := fn.Expressions[baseHandle]
 
-	gv, ok := baseExpr.Kind.(ir.ExprGlobalVariable)
-	if !ok {
-		return nil, false
+	switch bk := baseExpr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		// Direct: AccessIndex(field, GlobalVariable)
+		return e.resolveUAVFromGlobal(bk.Variable, constIdx, true)
+
+	case ir.ExprAccess:
+		// Nested: AccessIndex(field, Access(dynIdx, GlobalVariable))
+		// The dynamic Access indexes into the outer array; the AccessIndex selects a struct field.
+		if int(bk.Base) >= len(fn.Expressions) {
+			return nil, false
+		}
+		innerExpr := fn.Expressions[bk.Base]
+		gv, ok := innerExpr.Kind.(ir.ExprGlobalVariable)
+		if !ok {
+			return nil, false
+		}
+		chain, ok := e.resolveUAVStructFieldChain(gv.Variable, constIdx)
+		if !ok {
+			return nil, false
+		}
+		// Use the dynamic index from the Access expression.
+		chain.indexExpr = bk.Index
+		chain.isConstIdx = false
+		return chain, true
+
+	case ir.ExprAccessIndex:
+		// Nested: AccessIndex(field, AccessIndex(arrIdx, GlobalVariable))
+		if int(bk.Base) >= len(fn.Expressions) {
+			return nil, false
+		}
+		innerExpr := fn.Expressions[bk.Base]
+		gv, ok := innerExpr.Kind.(ir.ExprGlobalVariable)
+		if !ok {
+			return nil, false
+		}
+		return e.resolveUAVFromGlobal(gv.Variable, bk.Index, true)
 	}
 
-	idx, found := e.resourceHandles[gv.Variable]
+	return nil, false
+}
+
+// resolveUAVStructFieldChain resolves an array[dynIdx].field pattern on a UAV.
+// varHandle is the UAV global variable, fieldIdx is the struct member index.
+// Returns a chain with stride and fieldByteOffset set for index computation.
+func (e *Emitter) resolveUAVStructFieldChain(varHandle ir.GlobalVariableHandle, fieldIdx uint32) (*uavPointerChain, bool) {
+	idx, found := e.resourceHandles[varHandle]
 	if !found {
 		return nil, false
 	}
@@ -1187,15 +1468,69 @@ func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.Expr
 		return nil, false
 	}
 
-	elemType, scalar, ok := e.resolveUAVElementType(gv.Variable)
+	if int(varHandle) >= len(e.ir.GlobalVariables) {
+		return nil, false
+	}
+	gv := &e.ir.GlobalVariables[varHandle]
+	if int(gv.Type) >= len(e.ir.Types) {
+		return nil, false
+	}
+
+	// Get the outer type: should be array<Struct> or struct{array<Struct>}.
+	inner := e.ir.Types[gv.Type].Inner
+	if st, ok := inner.(ir.StructType); ok && len(st.Members) > 0 {
+		inner = e.ir.Types[st.Members[0].Type].Inner
+	}
+
+	arr, ok := inner.(ir.ArrayType)
+	if !ok {
+		return nil, false
+	}
+
+	// Get the struct element type from the array.
+	elemInner := e.ir.Types[arr.Base].Inner
+	st, ok := elemInner.(ir.StructType)
+	if !ok || int(fieldIdx) >= len(st.Members) {
+		return nil, false
+	}
+
+	// Get the field type and its byte offset within the struct.
+	member := &st.Members[fieldIdx]
+	fieldInner := e.ir.Types[member.Type].Inner
+	scalar, ok := scalarOfType(fieldInner)
 	if !ok {
 		return nil, false
 	}
 
 	return &uavPointerChain{
-		varHandle:  gv.Variable,
+		varHandle:       varHandle,
+		elemType:        fieldInner,
+		scalar:          scalar,
+		stride:          arr.Stride,
+		fieldByteOffset: member.Offset,
+	}, true
+}
+
+// resolveUAVFromGlobal checks if a global variable is a UAV and builds a chain.
+func (e *Emitter) resolveUAVFromGlobal(varHandle ir.GlobalVariableHandle, constIdx uint32, isConst bool) (*uavPointerChain, bool) {
+	idx, found := e.resourceHandles[varHandle]
+	if !found {
+		return nil, false
+	}
+	res := &e.resources[idx]
+	if res.class != resourceClassUAV {
+		return nil, false
+	}
+
+	elemType, scalar, ok := e.resolveUAVElementType(varHandle)
+	if !ok {
+		return nil, false
+	}
+
+	return &uavPointerChain{
+		varHandle:  varHandle,
 		constIndex: constIdx,
-		isConstIdx: true,
+		isConstIdx: isConst,
 		elemType:   elemType,
 		scalar:     scalar,
 	}, true
@@ -1251,50 +1586,79 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		return 0, fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
 	}
 
-	// Resolve the index: either a constant or a dynamic expression.
-	var indexID int
-	if chain.isConstIdx {
-		indexID = e.getIntConstID(int64(chain.constIndex))
-	} else {
-		var err error
-		indexID, err = e.emitExpression(fn, chain.indexExpr)
-		if err != nil {
-			return 0, fmt.Errorf("UAV load index: %w", err)
-		}
+	indexID, err := e.resolveUAVIndex(fn, chain)
+	if err != nil {
+		return 0, err
 	}
 
 	ol := overloadForScalar(chain.scalar)
 	resRetTy := e.getDxResRetType(ol)
 	bufLoadFn := e.getDxOpBufferLoadFunc(ol)
-
+	scalarTy := e.overloadReturnType(ol)
 	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
 	undefVal := e.getUndefConstID()
 
-	// dx.op.bufferLoad(i32 68, %handle, i32 index, i32 undef)
-	retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, undefVal})
-
-	// Extract components from the ResRet struct.
+	// For whole-buffer loads (struct/array), count all scalar components and
+	// emit multiple bufferLoad calls if needed (each returns up to 4 components).
 	numComps := componentCount(chain.elemType)
-	scalarTy := e.overloadReturnType(ol)
-
-	comps := make([]int, numComps)
-	for i := 0; i < numComps; i++ {
-		extractID := e.allocValue()
-		instr := &module.Instruction{
-			Kind:       module.InstrExtractVal,
-			HasValue:   true,
-			ResultType: scalarTy,
-			Operands:   []int{retID, i},
-			ValueID:    extractID,
-		}
-		e.currentBB.AddInstruction(instr)
-		comps[i] = extractID
+	if chain.isWhole {
+		numComps = cbvComponentCount(e.ir, chain.elemType)
 	}
 
-	if numComps > 1 {
+	if numComps <= 4 {
+		// Single bufferLoad call.
+		retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, undefVal})
+		comps := make([]int, numComps)
+		for i := 0; i < numComps; i++ {
+			extractID := e.allocValue()
+			instr := &module.Instruction{
+				Kind:       module.InstrExtractVal,
+				HasValue:   true,
+				ResultType: scalarTy,
+				Operands:   []int{retID, i},
+				ValueID:    extractID,
+			}
+			e.currentBB.AddInstruction(instr)
+			comps[i] = extractID
+		}
+		if numComps > 1 {
+			e.pendingComponents = comps
+		}
+		return comps[0], nil
+	}
+
+	// Multiple bufferLoad calls for types with >4 scalar components.
+	comps := make([]int, 0, numComps)
+	baseIndex := chain.constIndex
+	remaining := numComps
+	batchIdx := 0
+
+	for remaining > 0 {
+		count := 4
+		if remaining < 4 {
+			count = remaining
+		}
+		batchIndexID := e.getIntConstID(int64(baseIndex) + int64(batchIdx))
+		retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, batchIndexID, undefVal})
+		for i := 0; i < count; i++ {
+			extractID := e.allocValue()
+			instr := &module.Instruction{
+				Kind:       module.InstrExtractVal,
+				HasValue:   true,
+				ResultType: scalarTy,
+				Operands:   []int{retID, i},
+				ValueID:    extractID,
+			}
+			e.currentBB.AddInstruction(instr)
+			comps = append(comps, extractID)
+		}
+		remaining -= count
+		batchIdx++
+	}
+
+	if len(comps) > 1 {
 		e.pendingComponents = comps
 	}
-
 	return comps[0], nil
 }
 
@@ -1312,16 +1676,9 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 		return fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
 	}
 
-	// Resolve the index: either a constant or a dynamic expression.
-	var indexID int
-	if chain.isConstIdx {
-		indexID = e.getIntConstID(int64(chain.constIndex))
-	} else {
-		var err error
-		indexID, err = e.emitExpression(fn, chain.indexExpr)
-		if err != nil {
-			return fmt.Errorf("UAV store index: %w", err)
-		}
+	indexID, err := e.resolveUAVIndex(fn, chain)
+	if err != nil {
+		return err
 	}
 
 	// Emit the value expression.
@@ -1332,32 +1689,59 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 
 	ol := overloadForScalar(chain.scalar)
 	bufStoreFn := e.getDxOpBufferStoreFunc(ol)
-
 	opcodeVal := e.getIntConstID(int64(OpBufferStore))
 	undefVal := e.getUndefConstID()
 
-	// Determine number of components and build value slots.
+	// Determine total number of scalar components.
 	numComps := componentCount(chain.elemType)
-	vals := [4]int{undefVal, undefVal, undefVal, undefVal}
-	for i := 0; i < numComps && i < 4; i++ {
-		if numComps == 1 {
-			vals[i] = valueID
-		} else {
-			vals[i] = e.getComponentID(valueHandle, i)
-		}
+	if chain.isWhole {
+		numComps = cbvComponentCount(e.ir, chain.elemType)
 	}
 
-	// Write mask: bit per component written.
-	writeMask := (1 << numComps) - 1
-	maskVal := e.getI8ConstID(int64(writeMask))
+	if numComps <= 4 {
+		// Single bufferStore call.
+		vals := [4]int{undefVal, undefVal, undefVal, undefVal}
+		for i := 0; i < numComps && i < 4; i++ {
+			if numComps == 1 {
+				vals[i] = valueID
+			} else {
+				vals[i] = e.getComponentID(valueHandle, i)
+			}
+		}
+		writeMask := (1 << numComps) - 1
+		maskVal := e.getI8ConstID(int64(writeMask))
+		e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
+			opcodeVal, handleID, indexID, undefVal,
+			vals[0], vals[1], vals[2], vals[3], maskVal,
+		})
+		return nil
+	}
 
-	// dx.op.bufferStore(i32 69, %handle, i32 index, i32 undef,
-	//                   val0, val1, val2, val3, i8 mask)
-	e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
-		opcodeVal, handleID, indexID, undefVal,
-		vals[0], vals[1], vals[2], vals[3],
-		maskVal,
-	})
+	// Multiple bufferStore calls for types with >4 scalar components.
+	compIdx := 0
+	batchIdx := 0
+	remaining := numComps
+
+	for remaining > 0 {
+		count := 4
+		if remaining < 4 {
+			count = remaining
+		}
+		batchIndexID := e.getIntConstID(int64(chain.constIndex) + int64(batchIdx))
+		vals := [4]int{undefVal, undefVal, undefVal, undefVal}
+		for i := 0; i < count; i++ {
+			vals[i] = e.getComponentID(valueHandle, compIdx+i)
+		}
+		writeMask := (1 << count) - 1
+		maskVal := e.getI8ConstID(int64(writeMask))
+		e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
+			opcodeVal, handleID, batchIndexID, undefVal,
+			vals[0], vals[1], vals[2], vals[3], maskVal,
+		})
+		compIdx += count
+		remaining -= count
+		batchIdx++
+	}
 
 	return nil
 }

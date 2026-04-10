@@ -171,15 +171,24 @@ func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.St
 	// Now emit storeOutput for each struct member using the flattened component IDs.
 	compIdx := 0
 	for _, member := range st.Members {
-		if member.Binding == nil {
-			continue
-		}
 		memberType := e.ir.Types[member.Type]
+
+		// Handle array members by unwrapping the array.
 		scalar, ok := scalarOfType(memberType.Inner)
+		numComps := componentCount(memberType.Inner)
+
 		if !ok {
+			if arr, isArr := memberType.Inner.(ir.ArrayType); isArr {
+				elemInner := e.ir.Types[arr.Base].Inner
+				scalar, ok = scalarOfType(elemInner)
+				numComps = totalScalarCount(e.ir, memberType.Inner)
+			}
+		}
+
+		if member.Binding == nil || !ok {
+			compIdx += numComps
 			continue
 		}
-		numComps := componentCount(memberType.Inner)
 		ol := overloadForScalar(scalar)
 		outputID := e.locationFromBinding(*member.Binding)
 		for comp := 0; comp < numComps; comp++ {
@@ -226,51 +235,103 @@ func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st
 	// produces a pointer to a scalar element.
 	flatIdx := 0
 	for _, member := range st.Members {
-		if member.Binding == nil {
-			// Still need to count the flattened fields for correct indexing.
-			memberType := e.ir.Types[member.Type]
-			flatIdx += componentCount(memberType.Inner)
-			continue
+		delta, err := e.emitStructMemberOutput(fn, structTy, ptr, member, flatIdx)
+		if err != nil {
+			return err
 		}
-
-		memberType := e.ir.Types[member.Type]
-		scalar, ok := scalarOfType(memberType.Inner)
-		if !ok {
-			flatIdx += componentCount(memberType.Inner)
-			continue
-		}
-
-		numComps := componentCount(memberType.Inner)
-		ol := overloadForScalar(scalar)
-		outputID := e.locationFromBinding(*member.Binding)
-		scalarTy := e.overloadReturnType(ol)
-		scalarPtrTy := e.mod.GetPointerType(scalarTy)
-
-		for comp := 0; comp < numComps; comp++ {
-			// GEP into the flattened struct: indices are [0, flatIdx+comp].
-			// sourceElemTy = structTy (the struct the pointer points to).
-			zeroVal := e.getIntConstID(0)
-			fieldIdx := e.getIntConstID(int64(flatIdx + comp))
-			gepID := e.addGEPInstr(structTy, scalarPtrTy, ptr, []int{zeroVal, fieldIdx})
-
-			// Load the scalar value.
-			loadID := e.allocValue()
-			align := e.alignForType(scalarTy)
-			loadInstr := &module.Instruction{
-				Kind:       module.InstrLoad,
-				HasValue:   true,
-				ResultType: scalarTy,
-				Operands:   []int{gepID, scalarTy.ID, align, 0},
-				ValueID:    loadID,
-			}
-			e.currentBB.AddInstruction(loadInstr)
-
-			e.emitOutputStore(outputID, comp, loadID, ol)
-		}
-		flatIdx += numComps
+		flatIdx += delta
 	}
 
 	return nil
+}
+
+// emitStructMemberOutput emits output stores for a single struct member during return.
+// Returns the flat index delta for the member.
+func (e *Emitter) emitStructMemberOutput(_ *ir.Function, structTy *module.Type, ptr int, member ir.StructMember, flatIdx int) (int, error) {
+	memberType := e.ir.Types[member.Type]
+
+	// Resolve scalar type and component count.
+	scalar, ok := scalarOfType(memberType.Inner)
+	numComps := componentCount(memberType.Inner)
+	isArray := false
+	var arrType ir.ArrayType
+
+	if !ok {
+		if arr, isArr := memberType.Inner.(ir.ArrayType); isArr {
+			elemInner := e.ir.Types[arr.Base].Inner
+			scalar, ok = scalarOfType(elemInner)
+			if arr.Size.Constant != nil {
+				numComps = int(*arr.Size.Constant)
+			}
+			isArray = true
+			arrType = arr
+		}
+	}
+
+	if member.Binding == nil || !ok {
+		if isArray {
+			return 1, nil
+		}
+		return numComps, nil
+	}
+
+	ol := overloadForScalar(scalar)
+	outputID := e.locationFromBinding(*member.Binding)
+	scalarTy := e.overloadReturnType(ol)
+	scalarPtrTy := e.mod.GetPointerType(scalarTy)
+	zeroVal := e.getIntConstID(0)
+
+	if isArray {
+		return e.emitArrayMemberOutput(structTy, ptr, arrType, flatIdx, numComps, outputID, ol, scalarTy, scalarPtrTy)
+	}
+
+	for comp := 0; comp < numComps; comp++ {
+		fieldIdx := e.getIntConstID(int64(flatIdx + comp))
+		gepID := e.addGEPInstr(structTy, scalarPtrTy, ptr, []int{zeroVal, fieldIdx})
+		loadID := e.emitScalarLoad(scalarTy, gepID)
+		e.emitOutputStore(outputID, comp, loadID, ol)
+	}
+	return numComps, nil
+}
+
+// emitArrayMemberOutput emits output stores for an array-typed struct member.
+func (e *Emitter) emitArrayMemberOutput(
+	structTy *module.Type, ptr int, arrType ir.ArrayType,
+	flatIdx, numComps, outputID int, ol overloadType,
+	scalarTy, scalarPtrTy *module.Type,
+) (int, error) {
+	zeroVal := e.getIntConstID(0)
+	fieldIdx := e.getIntConstID(int64(flatIdx))
+
+	arrDxilTy, err := typeToDXIL(e.mod, e.ir, arrType)
+	if err != nil {
+		return 0, fmt.Errorf("array member type: %w", err)
+	}
+	arrPtrTy := e.mod.GetPointerType(arrDxilTy)
+	arrGepID := e.addGEPInstr(structTy, arrPtrTy, ptr, []int{zeroVal, fieldIdx})
+
+	for comp := 0; comp < numComps; comp++ {
+		elemIdx := e.getIntConstID(int64(comp))
+		elemGepID := e.addGEPInstr(arrDxilTy, scalarPtrTy, arrGepID, []int{zeroVal, elemIdx})
+		loadID := e.emitScalarLoad(scalarTy, elemGepID)
+		e.emitOutputStore(outputID, comp, loadID, ol)
+	}
+	return 1, nil // Arrays are 1 field in the flattened struct
+}
+
+// emitScalarLoad emits an LLVM load instruction for a scalar value from a pointer.
+func (e *Emitter) emitScalarLoad(scalarTy *module.Type, ptrID int) int {
+	loadID := e.allocValue()
+	align := e.alignForType(scalarTy)
+	instr := &module.Instruction{
+		Kind:       module.InstrLoad,
+		HasValue:   true,
+		ResultType: scalarTy,
+		Operands:   []int{ptrID, scalarTy.ID, align, 0},
+		ValueID:    loadID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return loadID
 }
 
 // emitStmtStore handles store statements.
