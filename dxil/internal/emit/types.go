@@ -148,7 +148,7 @@ func flatMemberOffset(irMod *ir.Module, st ir.StructType, memberIndex int) int {
 }
 
 // totalScalarCount returns the total number of scalar values in a type,
-// recursively flattening vectors, matrices, and nested structs.
+// recursively flattening vectors, matrices, arrays, and nested structs.
 func totalScalarCount(irMod *ir.Module, inner ir.TypeInner) int {
 	switch t := inner.(type) {
 	case ir.ScalarType:
@@ -157,6 +157,10 @@ func totalScalarCount(irMod *ir.Module, inner ir.TypeInner) int {
 		return int(t.Size)
 	case ir.MatrixType:
 		return int(t.Columns) * int(t.Rows)
+	case ir.ArrayType:
+		// Arrays are kept as array types in the DXIL struct (not flattened),
+		// so they count as 1 element for flat offset computation.
+		return 1
 	case ir.StructType:
 		total := 0
 		for _, m := range t.Members {
@@ -170,7 +174,8 @@ func totalScalarCount(irMod *ir.Module, inner ir.TypeInner) int {
 }
 
 // flattenStructMember expands a struct member type into scalar DXIL types.
-// Vectors become N scalars, nested structs recurse, scalars return as-is.
+// Vectors become N scalars, arrays expand element-wise, nested structs recurse,
+// scalars return as-is.
 func flattenStructMember(mod *module.Module, irMod *ir.Module, inner ir.TypeInner) ([]*module.Type, error) {
 	switch t := inner.(type) {
 	case ir.ScalarType:
@@ -190,6 +195,14 @@ func flattenStructMember(mod *module.Module, irMod *ir.Module, inner ir.TypeInne
 			elems[i] = s
 		}
 		return elems, nil
+	case ir.ArrayType:
+		// Arrays are kept as array types within the struct — NOT flattened.
+		// Only vectors/matrices are scalarized.
+		arrayTy, err := typeToDXIL(mod, irMod, inner)
+		if err != nil {
+			return nil, fmt.Errorf("array member: %w", err)
+		}
+		return []*module.Type{arrayTy}, nil
 	case ir.StructType:
 		var elems []*module.Type
 		for _, m := range t.Members {
@@ -203,6 +216,37 @@ func flattenStructMember(mod *module.Module, irMod *ir.Module, inner ir.TypeInne
 		return elems, nil
 	default:
 		return []*module.Type{mod.GetIntType(32)}, nil
+	}
+}
+
+// cbvComponentCount returns the total number of scalar components for a type
+// in the context of CBV (constant buffer) loads. Unlike componentCount, this
+// recursively expands structs and arrays to count all scalar values.
+func cbvComponentCount(irMod *ir.Module, inner ir.TypeInner) int {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return 1
+	case ir.VectorType:
+		return int(t.Size)
+	case ir.MatrixType:
+		return int(t.Columns) * int(t.Rows)
+	case ir.ArrayType:
+		elemCount := 0
+		if t.Size.Constant != nil {
+			elemCount = int(*t.Size.Constant)
+		}
+		if elemCount == 0 {
+			return 1
+		}
+		return elemCount * cbvComponentCount(irMod, irMod.Types[t.Base].Inner)
+	case ir.StructType:
+		total := 0
+		for _, m := range t.Members {
+			total += cbvComponentCount(irMod, irMod.Types[m.Type].Inner)
+		}
+		return total
+	default:
+		return 1
 	}
 }
 

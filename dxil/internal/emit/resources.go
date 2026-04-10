@@ -866,26 +866,39 @@ func (e *Emitter) emitCBVLoad(_ *ir.Function, chain *cbvPointerChain) (int, erro
 		return 0, fmt.Errorf("CBV handle not found for global variable %d", chain.varHandle)
 	}
 
+	// Matrix types require special handling: each column is in a separate
+	// 16-byte CBV register. We emit one cbufferLoadLegacy per column.
+	if mt, isMat := chain.fieldType.(ir.MatrixType); isMat {
+		return e.emitCBVMatrixLoad(handleID, chain, mt)
+	}
+
 	ol := overloadForScalar(chain.scalar)
 	scalarWidth := uint32(chain.scalar.Width)
-
-	// Compute register index and component offset within the register.
-	regIndex := chain.byteOffset / 16
-	compOffset := (chain.byteOffset % 16) / scalarWidth
 
 	// Get or create the CBufRet type and function declaration.
 	cbufRetTy := e.getDxCBufRetType(ol)
 	cbufLoadFn := e.getDxOpCBufLoadFunc(ol)
+	scalarTy := e.overloadReturnType(ol)
+
+	// Determine how many scalar components to extract based on the field type.
+	// For structs, we recursively count all scalar members across register boundaries.
+	numComps := cbvComponentCount(e.ir, chain.fieldType)
+
+	// If the field spans multiple registers (e.g., struct with >4 scalars),
+	// we need multiple cbufferLoadLegacy calls.
+	if numComps > 4 {
+		return e.emitCBVMultiRegLoad(handleID, chain, ol, scalarWidth, numComps)
+	}
+
+	// Single register path: scalar / vector / small struct.
+	regIndex := chain.byteOffset / 16
+	compOffset := (chain.byteOffset % 16) / scalarWidth
 
 	// Emit: %ret = call %dx.types.CBufRet.XX @dx.op.cbufferLoadLegacy.XX(i32 59, %handle, i32 regIndex)
 	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
 	regIndexVal := e.getIntConstID(int64(regIndex))
 
 	retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
-
-	// Determine how many components to extract based on the field type.
-	numComps := componentCount(chain.fieldType)
-	scalarTy := e.overloadReturnType(ol)
 
 	comps := make([]int, numComps)
 	for i := 0; i < numComps; i++ {
@@ -902,9 +915,125 @@ func (e *Emitter) emitCBVLoad(_ *ir.Function, chain *cbvPointerChain) (int, erro
 		comps[i] = extractID
 	}
 
-	// Store per-component IDs for vector types so downstream code can
-	// reference individual components via getComponentID.
 	if numComps > 1 {
+		e.pendingComponents = comps
+	}
+
+	return comps[0], nil
+}
+
+// emitCBVMultiRegLoad loads multiple CBV registers to fill all scalar components.
+// Used when a struct or large vector spans multiple 16-byte registers.
+func (e *Emitter) emitCBVMultiRegLoad(
+	handleID int,
+	chain *cbvPointerChain,
+	ol overloadType,
+	scalarWidth uint32,
+	totalComps int,
+) (int, error) {
+	cbufRetTy := e.getDxCBufRetType(ol)
+	cbufLoadFn := e.getDxOpCBufLoadFunc(ol)
+	scalarTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
+
+	compsPerReg := 16 / int(scalarWidth)
+	baseRegIndex := chain.byteOffset / 16
+	baseCompOffset := int((chain.byteOffset % 16) / scalarWidth)
+
+	comps := make([]int, 0, totalComps)
+
+	currentReg := int(baseRegIndex)
+	currentComp := baseCompOffset
+	remaining := totalComps
+
+	for remaining > 0 {
+		regIndexVal := e.getIntConstID(int64(currentReg))
+		retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
+
+		// Extract components from this register.
+		available := compsPerReg - currentComp
+		toExtract := remaining
+		if toExtract > available {
+			toExtract = available
+		}
+
+		for i := 0; i < toExtract; i++ {
+			extractIdx := currentComp + i
+			extractID := e.allocValue()
+			instr := &module.Instruction{
+				Kind:       module.InstrExtractVal,
+				HasValue:   true,
+				ResultType: scalarTy,
+				Operands:   []int{retID, extractIdx},
+				ValueID:    extractID,
+			}
+			e.currentBB.AddInstruction(instr)
+			comps = append(comps, extractID)
+		}
+
+		remaining -= toExtract
+		currentReg++
+		currentComp = 0 // subsequent registers start at component 0
+	}
+
+	if len(comps) > 1 {
+		e.pendingComponents = comps
+	}
+
+	return comps[0], nil
+}
+
+// emitCBVMatrixLoad loads a matrix from a CBV by issuing one cbufferLoadLegacy
+// per column. Each column occupies one 16-byte register.
+//
+// For mat4x4<f32>: 4 registers, 4 components each = 16 total components.
+// For mat3x3<f32>: 3 registers, 3 components each = 9 total components
+// (but each register still returns 4 components; we only use the first 3).
+//
+// Reference: Mesa nir_to_dxil.c — matrix loads decompose to per-column loads.
+func (e *Emitter) emitCBVMatrixLoad(
+	handleID int,
+	chain *cbvPointerChain,
+	mt ir.MatrixType,
+) (int, error) {
+	ol := overloadForScalar(chain.scalar)
+	scalarWidth := uint32(chain.scalar.Width)
+	cbufRetTy := e.getDxCBufRetType(ol)
+	cbufLoadFn := e.getDxOpCBufLoadFunc(ol)
+	scalarTy := e.overloadReturnType(ol)
+
+	cols := int(mt.Columns)
+	rows := int(mt.Rows)
+	totalComps := cols * rows
+
+	// Each column is aligned to 16 bytes in a cbuffer.
+	colAligned := (uint32(rows)*scalarWidth + 15) &^ 15 //nolint:gosec // rows is small (2-4)
+	baseRegIndex := chain.byteOffset / 16
+
+	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
+
+	comps := make([]int, 0, totalComps)
+	for col := 0; col < cols; col++ {
+		regIdx := baseRegIndex + uint32(col)*(colAligned/16)
+		regIndexVal := e.getIntConstID(int64(regIdx))
+
+		retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
+
+		for row := 0; row < rows; row++ {
+			extractID := e.allocValue()
+			instr := &module.Instruction{
+				Kind:       module.InstrExtractVal,
+				HasValue:   true,
+				ResultType: scalarTy,
+				Operands:   []int{retID, row},
+				ValueID:    extractID,
+			}
+			e.currentBB.AddInstruction(instr)
+			comps = append(comps, extractID)
+		}
+	}
+
+	if len(comps) > 1 {
 		e.pendingComponents = comps
 	}
 
@@ -965,10 +1094,12 @@ func (e *Emitter) getDxOpCBufLoadFunc(ol overloadType) *module.Function {
 
 // uavPointerChain describes a resolved pointer chain leading to a UAV element.
 type uavPointerChain struct {
-	varHandle ir.GlobalVariableHandle
-	indexExpr ir.ExpressionHandle // array index expression (dynamic)
-	elemType  ir.TypeInner        // element type (what's being loaded/stored)
-	scalar    ir.ScalarType       // scalar element type for overload selection
+	varHandle  ir.GlobalVariableHandle
+	indexExpr  ir.ExpressionHandle // array index expression (dynamic) — used when isConstIndex is false
+	constIndex uint32              // constant array index — used when isConstIndex is true
+	isConstIdx bool                // true if this is a constant-index access
+	elemType   ir.TypeInner        // element type (what's being loaded/stored)
+	scalar     ir.ScalarType       // scalar element type for overload selection
 }
 
 // resolveUAVPointerChain walks an expression chain and determines whether it
@@ -1036,7 +1167,7 @@ func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle
 }
 
 // resolveUAVAccessIndexChain resolves a constant-index access to a UAV.
-func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.ExpressionHandle, _ uint32) (*uavPointerChain, bool) {
+func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.ExpressionHandle, constIdx uint32) (*uavPointerChain, bool) {
 	if int(baseHandle) >= len(fn.Expressions) {
 		return nil, false
 	}
@@ -1061,14 +1192,12 @@ func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.Expr
 		return nil, false
 	}
 
-	// For constant-index access, we create a synthetic "literal" expression
-	// handle. The caller must have the index available from the AccessIndex.
-	// We store baseHandle as the index — caller should emit the constant index.
 	return &uavPointerChain{
-		varHandle: gv.Variable,
-		indexExpr: baseHandle, // placeholder; actual index is the constant from AccessIndex
-		elemType:  elemType,
-		scalar:    scalar,
+		varHandle:  gv.Variable,
+		constIndex: constIdx,
+		isConstIdx: true,
+		elemType:   elemType,
+		scalar:     scalar,
 	}, true
 }
 
@@ -1122,10 +1251,16 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		return 0, fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
 	}
 
-	// Emit the index expression.
-	indexID, err := e.emitExpression(fn, chain.indexExpr)
-	if err != nil {
-		return 0, fmt.Errorf("UAV load index: %w", err)
+	// Resolve the index: either a constant or a dynamic expression.
+	var indexID int
+	if chain.isConstIdx {
+		indexID = e.getIntConstID(int64(chain.constIndex))
+	} else {
+		var err error
+		indexID, err = e.emitExpression(fn, chain.indexExpr)
+		if err != nil {
+			return 0, fmt.Errorf("UAV load index: %w", err)
+		}
 	}
 
 	ol := overloadForScalar(chain.scalar)
@@ -1177,10 +1312,16 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 		return fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
 	}
 
-	// Emit the index expression.
-	indexID, err := e.emitExpression(fn, chain.indexExpr)
-	if err != nil {
-		return fmt.Errorf("UAV store index: %w", err)
+	// Resolve the index: either a constant or a dynamic expression.
+	var indexID int
+	if chain.isConstIdx {
+		indexID = e.getIntConstID(int64(chain.constIndex))
+	} else {
+		var err error
+		indexID, err = e.emitExpression(fn, chain.indexExpr)
+		if err != nil {
+			return fmt.Errorf("UAV store index: %w", err)
+		}
 	}
 
 	// Emit the value expression.

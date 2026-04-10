@@ -65,7 +65,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DXIL: global variable allocas** — Non-resource globals (workgroup, private) get proper
   alloca pointers instead of placeholder values.
 
-- **DXIL: DXC dumpbin validation** — **93/165 shaders pass DXC dumpbin (56.4%)**.
+- **DXIL: array/matrix CBV loads, dynamic GEP, UAV constant-index fix** — Matrix
+  CBV loads (one cbufferLoadLegacy per column), array local variable allocas,
+  dynamic Access with GEP, UAV constant-index access fix. 3 more shaders pass DXC.
+
+- **DXIL: DXC dumpbin validation** — **96/165 shaders pass DXC dumpbin (58.2%)**.
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Changed

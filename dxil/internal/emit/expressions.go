@@ -204,31 +204,26 @@ func (e *Emitter) emitCompose(fn *ir.Function, comp ir.ExprCompose) (int, error)
 
 // emitAccessIndex extracts a component from a composite by constant index.
 //
-// For struct local variable access, emits a GEP instruction to get a pointer
-// to the member field. For vector component extraction, uses per-component tracking.
-//
+// For struct local/global variable access, emits a GEP instruction to get a pointer
+// to the member field. For array access, emits a GEP to the element. For vector
+// component extraction, uses per-component tracking.
 func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, error) {
 	baseID, err := e.emitExpression(fn, ai.Base)
 	if err != nil {
 		return 0, err
 	}
 
-	// Check if the base is a local variable with a struct type.
-	// If so, emit GEP to get a pointer to the struct member.
-	if lv, ok := fn.Expressions[ai.Base].Kind.(ir.ExprLocalVariable); ok {
-		if int(lv.Variable) < len(fn.LocalVars) {
-			localVar := &fn.LocalVars[lv.Variable]
-			irType := e.ir.Types[localVar.Type]
-			if st, isSt := irType.Inner.(ir.StructType); isSt {
-				return e.emitStructGEP(baseID, lv.Variable, st, int(ai.Index))
-			}
-		}
+	// Check if the base is a local variable — handle struct and array types.
+	if id, err := e.tryLocalVarAccessIndex(fn, ai, baseID); err != nil || id != -1 {
+		return id, err
+	}
+
+	// Check if the base is a global variable — handle array and struct types.
+	if id, err := e.tryGlobalVarAccessIndex(fn, ai); err != nil || id != -1 {
+		return id, err
 	}
 
 	// Check if the base is an AccessIndex into a struct (nested struct access).
-	// Since struct types are fully flattened, nested access is resolved to a
-	// single GEP at the correct flat index from the root struct alloca.
-	// resolveNestedStructAccess already includes ai.Index in the flat offset.
 	if rootVarIdx, rootAllocaID, flatOffset, ok := e.resolveNestedStructAccess(fn, ai); ok {
 		dxilStructTy, hasTy := e.localVarStructTypes[rootVarIdx]
 		if hasTy {
@@ -247,6 +242,99 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 
 	// For vector component access, use per-component tracking.
 	return e.getComponentID(ai.Base, int(ai.Index)), nil
+}
+
+// emitGlobalStructGEP emits a GEP instruction to access a struct member from a
+// global variable alloca. Computes the flat index to match the DXIL struct layout.
+func (e *Emitter) emitGlobalStructGEP(allocaID int, dxilStructTy *module.Type, varHandle ir.GlobalVariableHandle, memberIndex int) (int, error) {
+	// Resolve the IR struct type to compute flat index.
+	if int(varHandle) >= len(e.ir.GlobalVariables) {
+		return 0, fmt.Errorf("global variable %d out of range", varHandle)
+	}
+	gv := &e.ir.GlobalVariables[varHandle]
+	irType := e.ir.Types[gv.Type]
+	st, ok := irType.Inner.(ir.StructType)
+	if !ok {
+		return 0, fmt.Errorf("global variable %d is not a struct", varHandle)
+	}
+
+	flatIndex := flatMemberOffset(e.ir, st, memberIndex)
+
+	var memberDXILTy *module.Type
+	if flatIndex < len(dxilStructTy.StructElems) {
+		memberDXILTy = dxilStructTy.StructElems[flatIndex]
+	} else {
+		memberDXILTy = e.mod.GetFloatType(32)
+	}
+	resultPtrTy := e.mod.GetPointerType(memberDXILTy)
+	zeroID := e.getIntConstID(0)
+	indexID := e.getIntConstID(int64(flatIndex))
+	return e.addGEPInstr(dxilStructTy, resultPtrTy, allocaID, []int{zeroID, indexID}), nil
+}
+
+// tryGlobalVarArrayAccess checks if the dynamic Access base is a global variable
+// with an array alloca and emits a GEP.
+// Returns (-1, nil) if not applicable.
+func (e *Emitter) tryGlobalVarArrayAccess(fn *ir.Function, acc ir.ExprAccess, indexID int) (int, error) {
+	gv, ok := fn.Expressions[acc.Base].Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return -1, nil
+	}
+	allocaID, hasAlloca := e.globalVarAllocas[gv.Variable]
+	if !hasAlloca {
+		return -1, nil
+	}
+	allocaTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
+	if !hasTy || allocaTy.Kind != module.TypeArray {
+		return -1, nil
+	}
+	return e.emitArrayGEP(allocaID, allocaTy, indexID)
+}
+
+// tryLocalVarAccessIndex checks if the AccessIndex base is a local variable
+// with struct or array type and emits the appropriate GEP.
+// Returns (-1, nil) if not applicable.
+func (e *Emitter) tryLocalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex, baseID int) (int, error) {
+	lv, ok := fn.Expressions[ai.Base].Kind.(ir.ExprLocalVariable)
+	if !ok || int(lv.Variable) >= len(fn.LocalVars) {
+		return -1, nil
+	}
+	localVar := &fn.LocalVars[lv.Variable]
+	irType := e.ir.Types[localVar.Type]
+	if st, isSt := irType.Inner.(ir.StructType); isSt {
+		return e.emitStructGEP(baseID, lv.Variable, st, int(ai.Index))
+	}
+	if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
+		indexID := e.getIntConstID(int64(ai.Index))
+		return e.emitArrayGEP(baseID, arrayTy, indexID)
+	}
+	return -1, nil
+}
+
+// tryGlobalVarAccessIndex checks if the AccessIndex base is a global variable
+// with an alloca (workgroup/private) and emits the appropriate GEP.
+// Returns (-1, nil) if not applicable.
+func (e *Emitter) tryGlobalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, error) {
+	gv, ok := fn.Expressions[ai.Base].Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return -1, nil
+	}
+	allocaID, hasAlloca := e.globalVarAllocas[gv.Variable]
+	if !hasAlloca {
+		return -1, nil
+	}
+	allocaTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
+	if !hasTy {
+		return -1, nil
+	}
+	if allocaTy.Kind == module.TypeArray {
+		indexID := e.getIntConstID(int64(ai.Index))
+		return e.emitArrayGEP(allocaID, allocaTy, indexID)
+	}
+	if allocaTy.Kind == module.TypeStruct {
+		return e.emitGlobalStructGEP(allocaID, allocaTy, gv.Variable, int(ai.Index))
+	}
+	return -1, nil
 }
 
 // emitStructGEP emits a GEP instruction to access a struct member from
@@ -292,10 +380,12 @@ func (e *Emitter) emitStructFieldGEP(basePtrID int, dxilStructTy *module.Type, s
 
 // emitAccess performs a dynamic-index access on a composite (array/vector).
 // For UAV pointer chains, this is handled by resolveUAVPointerChain.
-// For vector component access, this extracts the component at a runtime index.
+// For local/workgroup arrays, emits a GEP instruction to compute the element pointer.
+//
+// Reference: LLVM GEP semantics — getelementptr [N x T]*, i32 0, i32 index → T*
 func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 	// The base must be emitted first.
-	_, err := e.emitExpression(fn, acc.Base)
+	baseID, err := e.emitExpression(fn, acc.Base)
 	if err != nil {
 		return 0, err
 	}
@@ -306,11 +396,48 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 		return 0, err
 	}
 
-	// For simple cases, return the index ID as-is since the actual load/store
-	// will be handled by UAV pointer chain resolution higher up.
-	// This is a placeholder: more complex access patterns would need GEP.
-	_ = indexID
-	return e.exprValues[acc.Base], nil
+	// Check if the base is a local variable with array type -> GEP into array alloca.
+	if lv, ok := fn.Expressions[acc.Base].Kind.(ir.ExprLocalVariable); ok {
+		if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
+			return e.emitArrayGEP(baseID, arrayTy, indexID)
+		}
+	}
+
+	// Check if the base is a global variable alloca (workgroup/private array).
+	if id, err := e.tryGlobalVarArrayAccess(fn, acc, indexID); err != nil || id != -1 {
+		return id, err
+	}
+
+	// Check if the base is an AccessIndex that produced a pointer to an array
+	// (e.g., struct member that is an array type).
+	if ai, ok := fn.Expressions[acc.Base].Kind.(ir.ExprAccessIndex); ok {
+		innerTy := e.resolveAccessIndexResultType(fn, ai)
+		if _, isArr := innerTy.(ir.ArrayType); isArr {
+			arrayDxilTy, err2 := typeToDXIL(e.mod, e.ir, innerTy)
+			if err2 == nil {
+				return e.emitArrayGEP(baseID, arrayDxilTy, indexID)
+			}
+		}
+	}
+
+	// Fallback: return the base value (for cases handled by UAV pointer chain upstream).
+	return baseID, nil
+}
+
+// emitArrayGEP emits a GEP instruction to index into an array alloca.
+// GEP [N x T]*, i32 0, i32 index → T*
+func (e *Emitter) emitArrayGEP(basePtrID int, arrayTy *module.Type, indexID int) (int, error) {
+	// Determine the element type from the array type.
+	var elemTy *module.Type
+	if arrayTy.Kind == module.TypeArray && arrayTy.ElemType != nil {
+		elemTy = arrayTy.ElemType
+	} else {
+		elemTy = e.mod.GetFloatType(32) // fallback
+	}
+	resultPtrTy := e.mod.GetPointerType(elemTy)
+
+	zeroID := e.getIntConstID(0)
+	return e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, indexID}), nil
 }
 
 // emitSplat broadcasts a scalar to all components of a vector.
@@ -342,6 +469,16 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 	// Check if operands are vectors — if so, scalarize the operation.
 	leftType := e.resolveExprType(fn, bin.Left)
 	rightType := e.resolveExprType(fn, bin.Right)
+
+	// Matrix operations are not yet supported in DXIL emitter.
+	// Matrix * vector requires dot products, not component-wise multiply.
+	if _, isMat := leftType.(ir.MatrixType); isMat {
+		return 0, fmt.Errorf("unsupported matrix binary operation: %v", bin.Op)
+	}
+	if _, isMat := rightType.(ir.MatrixType); isMat {
+		return 0, fmt.Errorf("unsupported matrix binary operation: %v", bin.Op)
+	}
+
 	leftComps := componentCount(leftType)
 	rightComps := componentCount(rightType)
 	numComps := leftComps
@@ -1397,6 +1534,11 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 		return e.emitStructLocalVariable(lv.Variable, localVar, irType)
 	}
 
+	// For array types, allocate the full array (GEP will be used for element access).
+	if _, isArr := irType.Inner.(ir.ArrayType); isArr {
+		return e.emitArrayLocalVariable(lv.Variable, localVar, irType)
+	}
+
 	// Determine number of components and scalar type.
 	numComponents := 1
 	if vt, ok := irType.Inner.(ir.VectorType); ok {
@@ -1447,35 +1589,49 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 // emitStructLocalVariable emits a single alloca for a struct-typed local variable.
 // Member access is via GEP instructions (emitted by emitAccessIndex).
 func (e *Emitter) emitStructLocalVariable(varIdx uint32, localVar *ir.LocalVariable, irType ir.Type) (int, error) {
-	// Use typeToDXILFull to get the full struct type (not scalarized).
-	// Cache it so GEP source element type IDs match.
 	structTy, err := typeToDXILFull(e.mod, e.ir, irType.Inner)
 	if err != nil {
 		return 0, fmt.Errorf("local var %q struct type: %w", localVar.Name, err)
 	}
 	e.localVarStructTypes[varIdx] = structTy
+	valueID := e.emitCompositeAlloca(structTy)
+	e.localVarPtrs[varIdx] = valueID
+	return valueID, nil
+}
 
-	ptrTy := e.mod.GetPointerType(structTy)
+// emitArrayLocalVariable emits a single alloca for an array-typed local variable.
+// Element access is via GEP instructions (emitted by emitAccess).
+func (e *Emitter) emitArrayLocalVariable(varIdx uint32, localVar *ir.LocalVariable, irType ir.Type) (int, error) {
+	arrayTy, err := typeToDXIL(e.mod, e.ir, irType.Inner)
+	if err != nil {
+		return 0, fmt.Errorf("local var %q array type: %w", localVar.Name, err)
+	}
+	e.localVarArrayTypes[varIdx] = arrayTy
+	valueID := e.emitCompositeAlloca(arrayTy)
+	e.localVarPtrs[varIdx] = valueID
+	return valueID, nil
+}
 
+// emitCompositeAlloca emits an alloca instruction for a composite type
+// (struct or array) and returns the pointer value ID.
+func (e *Emitter) emitCompositeAlloca(elemTy *module.Type) int {
+	ptrTy := e.mod.GetPointerType(elemTy)
 	sizeID := e.getIntConstID(1)
 	i32Ty := e.mod.GetIntType(32)
 
-	// Alignment for struct: use 4-byte default.
-	align := 2 + 1 // log2(4) + 1 = 3
-	alignFlags := align | (1 << 6)
+	// Alignment: log2(4) + 1 = 3, with bit 6 set for explicit type.
+	alignFlags := 3 | (1 << 6)
 
 	valueID := e.allocValue()
 	instr := &module.Instruction{
 		Kind:       module.InstrAlloca,
 		HasValue:   true,
 		ResultType: ptrTy,
-		Operands:   []int{structTy.ID, i32Ty.ID, sizeID, alignFlags},
+		Operands:   []int{elemTy.ID, i32Ty.ID, sizeID, alignFlags},
 		ValueID:    valueID,
 	}
 	e.currentBB.AddInstruction(instr)
-
-	e.localVarPtrs[varIdx] = valueID
-	return valueID, nil
+	return valueID
 }
 
 // emitGlobalVarAlloca emits an alloca for a non-resource global variable
@@ -1521,6 +1677,7 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	e.currentBB.AddInstruction(instr)
 
 	e.globalVarAllocas[varHandle] = valueID
+	e.globalVarAllocaTypes[varHandle] = elemTy
 	return valueID, nil
 }
 
@@ -1559,6 +1716,15 @@ func (e *Emitter) resolveLoadType(fn *ir.Function, ptrHandle ir.ExpressionHandle
 		}
 		return e.resolveLoadTypeFromExpressionInfo(fn, ptrHandle)
 
+	case ir.ExprAccess:
+		// Dynamic access into an array produces a GEP pointer to the element.
+		// Resolve the element type from the base array type.
+		innerTy := e.resolveAccessResultType(fn, pk)
+		if innerTy != nil {
+			return typeToDXIL(e.mod, e.ir, innerTy)
+		}
+		return e.resolveLoadTypeFromExpressionInfo(fn, ptrHandle)
+
 	default:
 		return e.resolveLoadTypeFromExpressionInfo(fn, ptrHandle)
 	}
@@ -1567,7 +1733,6 @@ func (e *Emitter) resolveLoadType(fn *ir.Function, ptrHandle ir.ExpressionHandle
 // resolveNestedStructAccess walks an AccessIndex chain to find the root local
 // variable and compute the cumulative flat offset for nested struct access.
 // Returns (rootVarIdx, rootAllocaID, flatOffset, ok).
-//
 func (e *Emitter) resolveNestedStructAccess(fn *ir.Function, ai ir.ExprAccessIndex) (uint32, int, int, bool) {
 	baseExpr := fn.Expressions[ai.Base]
 
@@ -1665,6 +1830,42 @@ func (e *Emitter) resolveAccessIndexResultType(fn *ir.Function, ai ir.ExprAccess
 		return t.Scalar
 	case ir.ArrayType:
 		return e.ir.Types[t.Base].Inner
+	}
+	return nil
+}
+
+// resolveAccessResultType resolves the IR type that a dynamic Access expression
+// points to. For array access, returns the element type.
+func (e *Emitter) resolveAccessResultType(fn *ir.Function, acc ir.ExprAccess) ir.TypeInner {
+	baseExpr := fn.Expressions[acc.Base]
+	var baseInner ir.TypeInner
+
+	switch bk := baseExpr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		if int(bk.Variable) < len(fn.LocalVars) {
+			lv := &fn.LocalVars[bk.Variable]
+			baseInner = e.ir.Types[lv.Type].Inner
+		}
+	case ir.ExprGlobalVariable:
+		if int(bk.Variable) < len(e.ir.GlobalVariables) {
+			gv := &e.ir.GlobalVariables[bk.Variable]
+			baseInner = e.ir.Types[gv.Type].Inner
+		}
+	case ir.ExprAccessIndex:
+		baseInner = e.resolveAccessIndexResultType(fn, bk)
+	}
+
+	if baseInner == nil {
+		return nil
+	}
+
+	switch t := baseInner.(type) {
+	case ir.ArrayType:
+		if int(t.Base) < len(e.ir.Types) {
+			return e.ir.Types[t.Base].Inner
+		}
+	case ir.VectorType:
+		return t.Scalar
 	}
 	return nil
 }

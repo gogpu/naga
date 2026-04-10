@@ -41,9 +41,17 @@ type Emitter struct {
 	// Used to ensure GEP source element type IDs match the alloca type IDs.
 	localVarStructTypes map[uint32]*module.Type
 
+	// Cached DXIL types for array local variables.
+	// Used by emitAccess to emit GEP into array allocas.
+	localVarArrayTypes map[uint32]*module.Type
+
 	// Maps IR global variable handle to its alloca pointer value ID.
 	// Used for non-resource globals (workgroup, private) that need pointer semantics.
 	globalVarAllocas map[ir.GlobalVariableHandle]int
+
+	// Cached DXIL types for global variable allocas.
+	// Used by emitAccess to emit GEP into array/struct allocas.
+	globalVarAllocaTypes map[ir.GlobalVariableHandle]*module.Type
 
 	// Loop context stack for break/continue targets.
 	loopStack []loopContext
@@ -196,7 +204,9 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.localVarPtrs = make(map[uint32]int)
 	e.localVarComponentPtrs = make(map[uint32][]int)
 	e.localVarStructTypes = make(map[uint32]*module.Type)
+	e.localVarArrayTypes = make(map[uint32]*module.Type)
 	e.globalVarAllocas = make(map[ir.GlobalVariableHandle]int)
+	e.globalVarAllocaTypes = make(map[ir.GlobalVariableHandle]*module.Type)
 	e.loopStack = e.loopStack[:0]
 
 	fn := &ep.Function
