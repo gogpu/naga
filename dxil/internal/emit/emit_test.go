@@ -3232,7 +3232,7 @@ func TestEmitUnsupportedExpression(t *testing.T) {
 }
 
 func TestEmitUnsupportedStatement(t *testing.T) {
-	// StmtSwitch should return an error (not silently skip).
+	// StmtRayQuery should return an error (not silently skip).
 	f32Handle := ir.TypeHandle(0)
 	vec4Handle := ir.TypeHandle(1)
 
@@ -3263,7 +3263,7 @@ func TestEmitUnsupportedStatement(t *testing.T) {
 			{Handle: &f32Handle},
 		},
 		Body: []ir.Statement{
-			{Kind: ir.StmtSwitch{Selector: 0}}, // unsupported
+			{Kind: ir.StmtRayQuery{}}, // unsupported
 			{Kind: ir.StmtReturn{Value: &retHandle}},
 		},
 	}
@@ -3274,7 +3274,7 @@ func TestEmitUnsupportedStatement(t *testing.T) {
 
 	_, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
 	if err == nil {
-		t.Fatal("expected error for StmtSwitch, got nil")
+		t.Fatal("expected error for StmtRayQuery, got nil")
 	}
 	t.Logf("got expected error: %v", err)
 }

@@ -1307,6 +1307,8 @@ func deepScalarOfType(irMod *ir.Module, inner ir.TypeInner) (ir.ScalarType, bool
 		return t.Scalar, true
 	case ir.MatrixType:
 		return t.Scalar, true
+	case ir.AtomicType:
+		return t.Scalar, true
 	case ir.ArrayType:
 		if int(t.Base) < len(irMod.Types) {
 			return deepScalarOfType(irMod, irMod.Types[t.Base].Inner)

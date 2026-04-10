@@ -84,6 +84,9 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtBarrier:
 		return e.emitStmtBarrier(sk)
 
+	case ir.StmtSwitch:
+		return e.emitSwitchStatement(fn, sk)
+
 	case ir.StmtKill:
 		// Fragment shader discard — not yet implemented.
 		return nil
@@ -1011,6 +1014,110 @@ func (e *Emitter) emitIfStatement(fn *ir.Function, stmt ir.StmtIf) error {
 		}
 		if !e.blockHasTerminator(e.currentBB) {
 			e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
+		}
+	}
+
+	// Continue emitting into the merge block.
+	e.currentBB = mergeBB
+	return nil
+}
+
+// emitSwitchStatement emits a switch construct as a chain of conditional branches.
+//
+// DXIL doesn't have a native switch instruction in our module, so we lower it to
+// cascading icmp eq + conditional branches. Each non-default case becomes:
+//
+//	%cmp = icmp eq i32 %selector, <caseValue>
+//	br i1 %cmp, label %case_N, label %next_test
+//
+// The default case (if present) becomes the final else branch target.
+// All case bodies branch to a merge block at the end.
+//
+// FallThrough cases are handled by branching to the next case body instead of merge.
+func (e *Emitter) emitSwitchStatement(fn *ir.Function, stmt ir.StmtSwitch) error {
+	// Emit the selector expression.
+	selectorID, err := e.emitExpression(fn, stmt.Selector)
+	if err != nil {
+		return fmt.Errorf("switch selector: %w", err)
+	}
+
+	if len(stmt.Cases) == 0 {
+		return nil
+	}
+
+	// Separate default case from valued cases.
+	defaultIdx := -1
+	for i, c := range stmt.Cases {
+		if _, isDefault := c.Value.(ir.SwitchValueDefault); isDefault {
+			defaultIdx = i
+			break
+		}
+	}
+
+	// Create merge block.
+	mergeBB := e.mainFn.AddBasicBlock("switch.merge")
+	mergeBBIndex := len(e.mainFn.BasicBlocks) - 1
+
+	// Create basic blocks for each case body.
+	caseBBIndices := make([]int, len(stmt.Cases))
+	for i := range stmt.Cases {
+		label := fmt.Sprintf("switch.case_%d", i)
+		if i == defaultIdx {
+			label = "switch.default"
+		}
+		e.mainFn.AddBasicBlock(label)
+		caseBBIndices[i] = len(e.mainFn.BasicBlocks) - 1
+	}
+
+	// Emit the comparison chain.
+	// For each non-default case, compare selector == caseValue and branch.
+	for i, c := range stmt.Cases {
+		if i == defaultIdx {
+			continue
+		}
+
+		var caseConstID int
+		switch cv := c.Value.(type) {
+		case ir.SwitchValueI32:
+			caseConstID = e.getIntConstID(int64(cv))
+		case ir.SwitchValueU32:
+			caseConstID = e.getIntConstID(int64(cv))
+		default:
+			continue
+		}
+
+		cmpID := e.addCmpInstr(ICmpEQ, selectorID, caseConstID)
+
+		// Determine the false target: either next comparison or default/merge.
+		// We need to create a "next test" BB for the cascade.
+		e.mainFn.AddBasicBlock(fmt.Sprintf("switch.test_%d", i))
+		nextTestBBIndex := len(e.mainFn.BasicBlocks) - 1
+
+		e.currentBB.AddInstruction(module.NewBrCondInstr(caseBBIndices[i], nextTestBBIndex, cmpID))
+		e.currentBB = e.mainFn.BasicBlocks[nextTestBBIndex]
+	}
+
+	// After all comparisons, branch to default case or merge.
+	if defaultIdx >= 0 {
+		e.currentBB.AddInstruction(module.NewBrInstr(caseBBIndices[defaultIdx]))
+	} else {
+		e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
+	}
+
+	// Emit each case body.
+	for i := range stmt.Cases {
+		c := &stmt.Cases[i]
+		e.currentBB = e.mainFn.BasicBlocks[caseBBIndices[i]]
+		if err := e.emitBlock(fn, c.Body); err != nil {
+			return fmt.Errorf("switch case %d: %w", i, err)
+		}
+		// If fallthrough, branch to next case body; otherwise branch to merge.
+		if !e.blockHasTerminator(e.currentBB) {
+			if c.FallThrough && i+1 < len(stmt.Cases) {
+				e.currentBB.AddInstruction(module.NewBrInstr(caseBBIndices[i+1]))
+			} else {
+				e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
+			}
 		}
 	}
 

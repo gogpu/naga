@@ -1073,6 +1073,40 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return 0, fmt.Errorf("MathInverse (matrix) not yet implemented in DXIL backend")
 	case ir.MathDeterminant:
 		return 0, fmt.Errorf("MathDeterminant (matrix) not yet implemented in DXIL backend")
+	case ir.MathTranspose:
+		return 0, fmt.Errorf("MathTranspose (matrix) not yet implemented in DXIL backend")
+	case ir.MathPack4x8snorm:
+		return e.emitMathPack4x8snorm(fn, mathExpr)
+	case ir.MathPack4x8unorm:
+		return e.emitMathPack4x8unorm(fn, mathExpr)
+	case ir.MathPack2x16snorm:
+		return e.emitMathPack2x16snorm(fn, mathExpr)
+	case ir.MathPack2x16unorm:
+		return e.emitMathPack2x16unorm(fn, mathExpr)
+	case ir.MathPack2x16float:
+		return e.emitMathPack2x16float(fn, mathExpr)
+	case ir.MathPack4xI8:
+		return e.emitMathPack4xI8(fn, mathExpr)
+	case ir.MathPack4xU8:
+		return e.emitMathPack4xU8(fn, mathExpr)
+	case ir.MathPack4xI8Clamp:
+		return e.emitMathPack4xI8Clamp(fn, mathExpr)
+	case ir.MathPack4xU8Clamp:
+		return e.emitMathPack4xU8Clamp(fn, mathExpr)
+	case ir.MathUnpack4x8snorm:
+		return e.emitMathUnpack4x8snorm(fn, mathExpr)
+	case ir.MathUnpack4x8unorm:
+		return e.emitMathUnpack4x8unorm(fn, mathExpr)
+	case ir.MathUnpack2x16snorm:
+		return e.emitMathUnpack2x16snorm(fn, mathExpr)
+	case ir.MathUnpack2x16unorm:
+		return e.emitMathUnpack2x16unorm(fn, mathExpr)
+	case ir.MathUnpack2x16float:
+		return e.emitMathUnpack2x16float(fn, mathExpr)
+	case ir.MathUnpack4xI8:
+		return e.emitMathUnpack4xI8(fn, mathExpr)
+	case ir.MathUnpack4xU8:
+		return e.emitMathUnpack4xU8(fn, mathExpr)
 	}
 
 	arg, err := e.emitExpression(fn, mathExpr.Arg)
@@ -2964,4 +2998,337 @@ func (e *Emitter) resolveExprTypeInner(fn *ir.Function, handle ir.ExpressionHand
 	}
 	// Fallback: use existing resolveExprType which infers from expression kind.
 	return e.resolveExprType(fn, handle)
+}
+
+// ============================================================================
+// Pack/Unpack math polyfills
+// ============================================================================
+
+// emitMathPack4x8snorm packs vec4<f32> into u32 using signed normalization.
+func (e *Emitter) emitMathPack4x8snorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitPackNorm(fn, mathExpr, 4, 8, -1.0, 127.0, true)
+}
+
+// emitMathPack4x8unorm packs vec4<f32> into u32 using unsigned normalization.
+func (e *Emitter) emitMathPack4x8unorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitPackNorm(fn, mathExpr, 4, 8, 0.0, 255.0, false)
+}
+
+// emitMathPack2x16snorm packs vec2<f32> into u32 using signed 16-bit normalization.
+func (e *Emitter) emitMathPack2x16snorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitPackNorm(fn, mathExpr, 2, 16, -1.0, 32767.0, true)
+}
+
+// emitMathPack2x16unorm packs vec2<f32> into u32 using unsigned 16-bit normalization.
+func (e *Emitter) emitMathPack2x16unorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitPackNorm(fn, mathExpr, 2, 16, 0.0, 65535.0, false)
+}
+
+// emitPackNorm is the shared implementation for packNxMsnorm/unorm operations.
+// components is 2 or 4, bits is 8 or 16, signed selects FPToSI vs FPToUI.
+// The max clamp value is always 1.0.
+func (e *Emitter) emitPackNorm(fn *ir.Function, mathExpr ir.ExprMath,
+	components, bits int, minF, scaleF float64, signed bool,
+) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+
+	minVal := e.getFloatConstID(minF)
+	maxVal := e.getFloatConstID(1.0)
+	scale := e.getFloatConstID(scaleF)
+	maskVal := e.getIntConstID((1 << bits) - 1)
+
+	castOp := CastFPToUI
+	if signed {
+		castOp = CastFPToSI
+	}
+
+	result := e.getIntConstID(0)
+	for c := 0; c < components; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		clamped := e.emitFMaxFMin(f32Ty, comp, minVal, maxVal)
+		scaled := e.addBinOpInstr(f32Ty, BinOpFMul, clamped, scale)
+		rounded := e.emitRoundNE(scaled)
+		intVal := e.addCastInstr(i32Ty, castOp, rounded)
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, intVal, maskVal)
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * bits))
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathPack2x16float packs vec2<f32> into u32 as two f16 values.
+func (e *Emitter) emitMathPack2x16float(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f16Ty := e.mod.GetFloatType(16)
+
+	mask := e.getIntConstID(0xFFFF)
+
+	result := e.getIntConstID(0)
+	for c := 0; c < 2; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		// Convert f32 to f16.
+		f16Val := e.addCastInstr(f16Ty, CastFPTrunc, comp)
+		// Bitcast f16 to i16, then zext to i32.
+		i16Val := e.addCastInstr(i32Ty, CastBitcast, f16Val)
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, i16Val, mask)
+		if c > 0 {
+			shift := e.getIntConstID(16)
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathPack4xI8 packs vec4<i32> into u32 by truncating to 8-bit signed.
+func (e *Emitter) emitMathPack4xI8(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	mask := e.getIntConstID(0xFF)
+
+	result := e.getIntConstID(0)
+	for c := 0; c < 4; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, comp, mask)
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathPack4xU8 packs vec4<u32> into u32 by truncating to 8-bit unsigned.
+func (e *Emitter) emitMathPack4xU8(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitMathPack4xI8(fn, mathExpr) // Same bit pattern.
+}
+
+// emitMathPack4xI8Clamp packs vec4<i32> into u32 with clamping to [-128, 127].
+func (e *Emitter) emitMathPack4xI8Clamp(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	mask := e.getIntConstID(0xFF)
+	clampMin := e.getIntConstID(-128)
+	clampMax := e.getIntConstID(127)
+
+	result := e.getIntConstID(0)
+	for c := 0; c < 4; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		// Clamp to [-128, 127] using IMax + IMin.
+		clamped := e.emitIMaxIMin(i32Ty, comp, clampMin, clampMax)
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, clamped, mask)
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathPack4xU8Clamp packs vec4<u32> into u32 with clamping to [0, 255].
+func (e *Emitter) emitMathPack4xU8Clamp(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	mask := e.getIntConstID(0xFF)
+	clampMax := e.getIntConstID(255)
+
+	result := e.getIntConstID(0)
+	for c := 0; c < 4; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		// Clamp to [0, 255] using UMin.
+		dxFn := e.getDxOpBinaryFunc("dx.op.umin", overloadI32)
+		opcodeVal := e.getIntConstID(int64(OpUMin))
+		clamped := e.addCallInstr(dxFn, i32Ty, []int{opcodeVal, comp, clampMax})
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, clamped, mask)
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathUnpack4x8snorm unpacks u32 into vec4<f32> using signed normalization.
+func (e *Emitter) emitMathUnpack4x8snorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitUnpackNorm(fn, mathExpr, 4, 8, 1.0/127.0, true)
+}
+
+// emitMathUnpack4x8unorm unpacks u32 into vec4<f32> using unsigned normalization.
+func (e *Emitter) emitMathUnpack4x8unorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitUnpackNorm(fn, mathExpr, 4, 8, 1.0/255.0, false)
+}
+
+// emitMathUnpack2x16snorm unpacks u32 into vec2<f32> using signed 16-bit normalization.
+func (e *Emitter) emitMathUnpack2x16snorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitUnpackNorm(fn, mathExpr, 2, 16, 1.0/32767.0, true)
+}
+
+// emitMathUnpack2x16unorm unpacks u32 into vec2<f32> using unsigned 16-bit normalization.
+func (e *Emitter) emitMathUnpack2x16unorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitUnpackNorm(fn, mathExpr, 2, 16, 1.0/65535.0, false)
+}
+
+// emitUnpackNorm is the shared implementation for unpackNxMsnorm/unorm operations.
+// components is 2 or 4, bits is 8 or 16. signed selects sign-extension + SIToFP.
+func (e *Emitter) emitUnpackNorm(fn *ir.Function, mathExpr ir.ExprMath,
+	components, bits int, scaleF float64, signed bool,
+) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	scale := e.getFloatConstID(scaleF)
+	sextShift := 32 - bits
+
+	comps := make([]int, components)
+	for c := 0; c < components; c++ {
+		shifted := arg
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * bits))
+			shifted = e.addBinOpInstr(i32Ty, BinOpLShr, arg, shift)
+		}
+		var fVal int
+		if signed {
+			// Sign-extend from N bits: shl by (32-N), ashr by (32-N).
+			shl := e.addBinOpInstr(i32Ty, BinOpShl, shifted, e.getIntConstID(int64(sextShift)))
+			sext := e.addBinOpInstr(i32Ty, BinOpAShr, shl, e.getIntConstID(int64(sextShift)))
+			fVal = e.addCastInstr(f32Ty, CastSIToFP, sext)
+		} else {
+			mask := e.getIntConstID((1 << bits) - 1)
+			masked := e.addBinOpInstr(i32Ty, BinOpAnd, shifted, mask)
+			fVal = e.addCastInstr(f32Ty, CastUIToFP, masked)
+		}
+		scaled := e.addBinOpInstr(f32Ty, BinOpFMul, fVal, scale)
+		if signed {
+			// Clamp to [-1.0, 1.0].
+			minVal := e.getFloatConstID(-1.0)
+			maxVal := e.getFloatConstID(1.0)
+			comps[c] = e.emitFMaxFMin(f32Ty, scaled, minVal, maxVal)
+		} else {
+			comps[c] = scaled
+		}
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMathUnpack2x16float unpacks u32 into vec2<f32> as two f16 values.
+func (e *Emitter) emitMathUnpack2x16float(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	f16Ty := e.mod.GetFloatType(16)
+	mask := e.getIntConstID(0xFFFF)
+
+	comps := make([]int, 2)
+	for c := 0; c < 2; c++ {
+		shifted := arg
+		if c > 0 {
+			shift := e.getIntConstID(16)
+			shifted = e.addBinOpInstr(i32Ty, BinOpLShr, arg, shift)
+		}
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, shifted, mask)
+		// Bitcast i16 to f16, then extend to f32.
+		f16Val := e.addCastInstr(f16Ty, CastBitcast, masked)
+		comps[c] = e.addCastInstr(f32Ty, CastFPExt, f16Val)
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMathUnpack4xI8 unpacks u32 into vec4<i32> with sign extension.
+func (e *Emitter) emitMathUnpack4xI8(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+
+	comps := make([]int, 4)
+	for c := 0; c < 4; c++ {
+		shifted := arg
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			shifted = e.addBinOpInstr(i32Ty, BinOpLShr, arg, shift)
+		}
+		// Sign-extend from 8 bits: shift left 24, arithmetic shift right 24.
+		shl := e.addBinOpInstr(i32Ty, BinOpShl, shifted, e.getIntConstID(24))
+		comps[c] = e.addBinOpInstr(i32Ty, BinOpAShr, shl, e.getIntConstID(24))
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMathUnpack4xU8 unpacks u32 into vec4<u32> by extracting bytes.
+func (e *Emitter) emitMathUnpack4xU8(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	mask := e.getIntConstID(0xFF)
+
+	comps := make([]int, 4)
+	for c := 0; c < 4; c++ {
+		shifted := arg
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			shifted = e.addBinOpInstr(i32Ty, BinOpLShr, arg, shift)
+		}
+		comps[c] = e.addBinOpInstr(i32Ty, BinOpAnd, shifted, mask)
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitFMaxFMin performs clamp(val, minV, maxV) using dx.op.fmax and dx.op.fmin.
+func (e *Emitter) emitFMaxFMin(f32Ty *module.Type, val, minVal, maxVal int) int {
+	// max(val, minVal) then min(result, maxVal)
+	fmaxFn := e.getDxOpBinaryFunc("dx.op.fmax", overloadF32)
+	fminFn := e.getDxOpBinaryFunc("dx.op.fmin", overloadF32)
+	opcodeMax := e.getIntConstID(int64(OpFMax))
+	opcodeMin := e.getIntConstID(int64(OpFMin))
+	clamped := e.addCallInstr(fmaxFn, f32Ty, []int{opcodeMax, val, minVal})
+	return e.addCallInstr(fminFn, f32Ty, []int{opcodeMin, clamped, maxVal})
+}
+
+// emitIMaxIMin performs clamp(val, minV, maxV) using dx.op.imax and dx.op.imin.
+func (e *Emitter) emitIMaxIMin(i32Ty *module.Type, val, minVal, maxVal int) int {
+	imaxFn := e.getDxOpBinaryFunc("dx.op.imax", overloadI32)
+	iminFn := e.getDxOpBinaryFunc("dx.op.imin", overloadI32)
+	opcodeMax := e.getIntConstID(int64(OpIMax))
+	opcodeMin := e.getIntConstID(int64(OpIMin))
+	clamped := e.addCallInstr(imaxFn, i32Ty, []int{opcodeMax, val, minVal})
+	return e.addCallInstr(iminFn, i32Ty, []int{opcodeMin, clamped, maxVal})
+}
+
+// emitRoundNE emits a dx.op.round_ne (round to nearest even) call.
+func (e *Emitter) emitRoundNE(arg int) int {
+	dxFn := e.getDxOpUnaryFunc("dx.op.round_ne", overloadF32)
+	opcodeVal := e.getIntConstID(int64(OpRoundNE))
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg})
 }
