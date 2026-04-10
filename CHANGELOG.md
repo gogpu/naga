@@ -69,7 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CBV loads (one cbufferLoadLegacy per column), array local variable allocas,
   dynamic Access with GEP, UAV constant-index access fix. 3 more shaders pass DXC.
 
-- **DXIL: DXC dumpbin validation** — **96/165 shaders pass DXC dumpbin (58.2%)**.
+- **DXIL: SRV/UAV direct loads, dynamic CBV index, array output decomposition** —
+  SRV/UAV loads routed to bufferLoad (not LLVM load), dynamic CBV index with stride
+  arithmetic, ZeroValue/Compose dynamic array access, array-typed builtin outputs.
+
+- **DXIL: DXC dumpbin validation** — **102/165 shaders pass DXC dumpbin (61.8%)**.
+  Only 4 val_fail remain (1 DXC bug, 1 mesh shader, 2 workgroup edge cases).
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Changed
