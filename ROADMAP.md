@@ -34,7 +34,7 @@
   - HLSL: 72/72 Rust naga parity (DirectX 11/12)
   - DXIL: **163/163 DXC dumpbin (DirectX 12, SM 6.0-6.5)** — world's first Pure Go DXIL generator
   - IR: 144/144 Rust naga parity
-- **DXIL backend** (~25K LOC, 190 tests) — VS/PS/CS/MS, CBV/SRV/UAV, atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave ops (13 intrinsics), mesh shaders (SM 6.5), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Eliminates FXC/DXC dependency. Verified 2400+ frames at 60 FPS on D3D12. Rust naga has NOT implemented this (open issue since 2020)
+- **DXIL backend** (~25K LOC, 173 unit tests) — VS/PS/CS/MS, CBV/SRV/UAV, atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave ops (13 intrinsics), mesh shaders (SM 6.5), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Eliminates FXC/DXC dependency. Verified 2400+ frames at 60 FPS on D3D12. Rust naga has NOT implemented this (open issue since 2020)
 - **100+ WGSL built-in functions** — math, geometric, bit manipulation, packing, derivatives
 - **Compute shaders** — atomics (int32/int64/float32), barriers, workgroups, runtime-sized arrays
 - **Ray tracing** — ray query types, acceleration structures, 7 ray query builtins
@@ -68,7 +68,7 @@
 | Task | Priority | Effort | Description |
 |------|----------|--------|-------------|
 | **DXIL Phase 0: Bitcode writer** | P1 | 8 | ✅ Done. LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash. |
-| **DXIL Phase 1: Vertex+fragment** | P1 | 21 | ✅ Done. Full IR → DXIL lowering: math, casts, control flow, locals, resources, signatures. 190 tests, ~12.5K LOC. |
+| **DXIL Phase 1: Vertex+fragment** | P1 | 21 | ✅ Done. Full IR → DXIL lowering: math, casts, control flow, locals, resources, signatures. |
 | **DXIL CBV loads** | P1 | 2 | ✅ Done. `dx.op.cbufferLoadLegacy` for uniform buffers. Register index + component extraction. |
 | **DXIL Phase 2a: Compute foundation** | P2 | 5 | ✅ Done. Thread IDs, numthreads, UAV bufferLoad/bufferStore. |
 | **DXIL Phase 2b: Atomics + barriers** | P2 | 3 | ✅ Done. atomicBinOp (8 ops), atomicCmpXchg, dx.op.barrier, workgroup atomicrmw/cmpxchg. |
@@ -87,7 +87,7 @@
 | Subgroup operations | ✅ Done | Ballot, shuffle, broadcast, quad |
 | Mesh shaders | ✅ Done | MeshEXT/TaskEXT |
 | Internal packages | Planned | ARCH-001: `internal/` for all backends |
-| DXIL backend | ✅ Phase 1 done | Direct DXIL, no FXC dependency (~12.5K LOC, 190 tests) |
+| DXIL backend | ✅ Done | Direct DXIL, no FXC dependency (~25K LOC, 163/163 DXC) |
 | API stability guarantee | Planned | Semantic versioning contract |
 | Test coverage 80%+ | Planned | awesome-go requirement, after ARCH-001 |
 
