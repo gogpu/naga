@@ -129,12 +129,35 @@ func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
 		return nil
 	}
 
-	// Helper function: emit an LLVM ret instruction with the scalar return value.
+	// Helper function: emit an LLVM ret instruction with the return value.
 	if e.emittingHelperFunction {
 		valueID, err := e.emitExpression(fn, *ret.Value)
 		if err != nil {
 			return fmt.Errorf("helper return value: %w", err)
 		}
+
+		// For vector returns (helperReturnComps > 1), pack components into a struct
+		// using insertvalue instructions: {scalar, scalar, ...}.
+		if e.helperReturnComps > 1 {
+			retTy := e.mainFn.FuncType.RetType
+			// Start with undef of the struct type.
+			aggID := e.getTypedUndefConstID(retTy)
+			for c := 0; c < e.helperReturnComps; c++ {
+				compID := e.getComponentID(*ret.Value, c)
+				insertID := e.allocValue()
+				insertInstr := &module.Instruction{
+					Kind:       module.InstrInsertVal,
+					HasValue:   true,
+					ResultType: retTy,
+					Operands:   []int{aggID, compID, c},
+					ValueID:    insertID,
+				}
+				e.currentBB.AddInstruction(insertInstr)
+				aggID = insertID
+			}
+			valueID = aggID
+		}
+
 		instr := &module.Instruction{
 			Kind:        module.InstrRet,
 			HasValue:    false,
@@ -427,6 +450,14 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 		}
 	}
 
+	// Handle AccessIndex chain to struct member's vector component:
+	// Pattern: AccessIndex(AccessIndex(LocalVariable, fieldIdx), compIdx) → store to alloca
+	if handled, hErr := e.tryStructMemberComponentStore(fn, store); hErr != nil {
+		return hErr
+	} else if handled {
+		return nil
+	}
+
 	ptr, err := e.emitExpression(fn, store.Pointer)
 	if err != nil {
 		return fmt.Errorf("store pointer: %w", err)
@@ -452,6 +483,116 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	}
 	e.currentBB.AddInstruction(instr)
 	return nil
+}
+
+// tryStructMemberComponentStore handles stores to a local struct variable's
+// vector member component. Pattern:
+//
+//	store(AccessIndex(AccessIndex(LocalVariable(var), fieldIdx), compIdx), value)
+//
+// This pattern occurs when WGSL code does: output.vec_field.x = value;
+// The struct alloca has per-component allocas for vector fields, so we need
+// to resolve the chain to the specific component alloca and store there.
+func (e *Emitter) tryStructMemberComponentStore(fn *ir.Function, store ir.StmtStore) (bool, error) {
+	// Match: AccessIndex(base, compIdx) where base -> AccessIndex(LocalVariable, fieldIdx)
+	outerAI, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprAccessIndex)
+	if !ok {
+		return false, nil
+	}
+	innerAI, ok := fn.Expressions[outerAI.Base].Kind.(ir.ExprAccessIndex)
+	if !ok {
+		return false, nil
+	}
+	lv, ok := fn.Expressions[innerAI.Base].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return false, nil
+	}
+
+	// Resolve the struct type and field.
+	if int(lv.Variable) >= len(fn.LocalVars) {
+		return false, nil
+	}
+	localVar := &fn.LocalVars[lv.Variable]
+	irType := e.ir.Types[localVar.Type]
+	st, isSt := irType.Inner.(ir.StructType)
+	if !isSt {
+		return false, nil
+	}
+	fieldIdx := int(innerAI.Index)
+	if fieldIdx >= len(st.Members) {
+		return false, nil
+	}
+	member := st.Members[fieldIdx]
+	memberType := e.ir.Types[member.Type]
+	vt, isVec := memberType.Inner.(ir.VectorType)
+	if !isVec {
+		return false, nil
+	}
+
+	compIdx := int(outerAI.Index)
+	if compIdx >= int(vt.Size) {
+		return false, nil
+	}
+
+	// Ensure the struct alloca exists.
+	if _, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: lv.Variable}); err != nil {
+		return false, fmt.Errorf("struct component store alloca: %w", err)
+	}
+
+	// Compute the flat component index within the struct's alloca.
+	// Count scalar components of all preceding fields, then add compIdx.
+	flatIdx := 0
+	for fi := 0; fi < fieldIdx; fi++ {
+		memType := e.ir.Types[st.Members[fi].Type]
+		flatIdx += componentCount(memType.Inner)
+	}
+	flatIdx += compIdx
+
+	// Look up the struct's per-component alloca pointers.
+	dxilStructTy, hasTy := e.localVarStructTypes[lv.Variable]
+	if !hasTy {
+		return false, nil
+	}
+
+	// Ensure the local var alloca was created.
+	allocaID, hasAlloca := e.localVarPtrs[lv.Variable]
+	if !hasAlloca {
+		return false, nil
+	}
+
+	// Emit GEP to the specific component.
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, vt.Scalar)
+	ptrTy := e.mod.GetPointerType(scalarTy)
+	i32Ty := e.mod.GetIntType(32)
+	zeroID := e.getIntConstID(0)
+	fieldIdxID := e.getIntConstID(int64(flatIdx))
+
+	gepID := e.allocValue()
+	gepInstr := &module.Instruction{
+		Kind:       module.InstrGEP,
+		HasValue:   true,
+		ResultType: ptrTy,
+		Operands:   []int{1, dxilStructTy.ID, allocaID, zeroID, fieldIdxID},
+		ValueID:    gepID,
+	}
+	_ = i32Ty
+	e.currentBB.AddInstruction(gepInstr)
+
+	// Emit the value to store.
+	valueID, err := e.emitExpression(fn, store.Value)
+	if err != nil {
+		return false, fmt.Errorf("struct component store value: %w", err)
+	}
+
+	// Store to the component pointer.
+	storeInstr := &module.Instruction{
+		Kind:        module.InstrStore,
+		HasValue:    false,
+		Operands:    []int{gepID, valueID, 4, 0},
+		ReturnValue: -1,
+	}
+	e.currentBB.AddInstruction(storeInstr)
+	return true, nil
 }
 
 // emitStructStore decomposes a struct value into per-scalar-field stores using GEP.
@@ -603,6 +744,35 @@ func (e *Emitter) emitStmtCall(fn *ir.Function, call ir.StmtCall) error {
 	valueID := e.addCallInstr(dxilFn, resultTy, argIDs)
 
 	if call.Result != nil {
+		// Check if the called function returns a vector (packed as struct).
+		// If so, extract per-component values with extractvalue.
+		calledFn := &e.ir.Functions[call.Function]
+		if calledFn.Result != nil {
+			retIRType := e.ir.Types[calledFn.Result.Type].Inner
+			retComps := componentCount(retIRType)
+			if retComps > 1 {
+				scalarTy, _ := typeToDXIL(e.mod, e.ir, retIRType)
+				comps := make([]int, retComps)
+				for c := 0; c < retComps; c++ {
+					extractID := e.allocValue()
+					extractInstr := &module.Instruction{
+						Kind:       module.InstrExtractVal,
+						HasValue:   true,
+						ResultType: scalarTy,
+						Operands:   []int{valueID, c},
+						ValueID:    extractID,
+					}
+					e.currentBB.AddInstruction(extractInstr)
+					comps[c] = extractID
+				}
+				e.callResultValues[*call.Result] = comps[0]
+				e.callResultComponents[*call.Result] = comps
+				e.exprValues[*call.Result] = comps[0]
+				e.exprComponents[*call.Result] = comps
+				return nil
+			}
+		}
+
 		e.callResultValues[*call.Result] = valueID
 		e.exprValues[*call.Result] = valueID
 	}
@@ -834,7 +1004,13 @@ func (e *Emitter) emitAtomicCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, excha
 	})
 
 	if atomic.Result != nil {
+		// atomicCompareExchangeWeak returns a struct {old_value, exchanged}.
+		// Component 0 = old_value (the i32 result of dx.op.atomicCompareExchange).
+		// Component 1 = exchanged (bool: old_value == cmpVal).
+		exchangedID := e.addCmpInstr(ICmpEQ, resultID, cmpValID)
+
 		e.exprValues[*atomic.Result] = resultID
+		e.exprComponents[*atomic.Result] = []int{resultID, exchangedID}
 	}
 
 	return nil

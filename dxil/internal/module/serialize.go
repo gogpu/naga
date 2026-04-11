@@ -525,7 +525,7 @@ func (s *serializer) globalValueCount() int {
 //
 // Reference: Mesa dxil_module.c emit_instr()
 //
-//nolint:gocognit,gocyclo,cyclop,funlen // instruction dispatch requires handling all LLVM instruction kinds
+//nolint:gocognit,gocyclo,cyclop,funlen,maintidx // instruction dispatch requires handling all LLVM instruction kinds
 func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 	switch instr.Kind {
 	case InstrRet:
@@ -613,6 +613,16 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 			opDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
 			idx := uint64(instr.Operands[1])                      //nolint:gosec // index is small positive int
 			s.w.EmitRecord(26, []uint64{opDelta, idx})            // FUNC_CODE_INST_EXTRACTVAL = 26
+		}
+
+	case InstrInsertVal:
+		// INSERTVALUE: [agg_delta, val_delta, idx]
+		// Operands: [aggValueID, insertedValueID, index]
+		if len(instr.Operands) >= 3 {
+			aggDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
+			valDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always positive
+			idx := uint64(instr.Operands[2])                       //nolint:gosec // index is small positive int
+			s.w.EmitRecord(27, []uint64{aggDelta, valDelta, idx})  // FUNC_CODE_INST_INSERTVAL = 27
 		}
 
 	case InstrAlloca:

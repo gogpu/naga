@@ -101,6 +101,11 @@ type Emitter struct {
 	// entry points use dx.op.storeOutput.
 	emittingHelperFunction bool
 
+	// Number of components in the current helper function's return type.
+	// >1 means the return is packed into a struct {scalar, scalar, ...}.
+	// Set before emitting helper function body, used by emitStmtReturn.
+	helperReturnComps int
+
 	// Mesh shader context: set when emitting a mesh shader entry point.
 	meshCtx *meshContext
 }
@@ -427,13 +432,26 @@ func (e *Emitter) emitHelperFunctions(calledFunctions map[ir.FunctionHandle]bool
 		}
 
 		// Determine return type.
+		// For vector returns, use a struct {scalar, scalar, ...} since DXIL
+		// functions can only return one value. The caller extracts components.
 		retTy := e.mod.GetVoidType()
+		var retNumComps int // >1 means vector return, needs struct packing
 		if fn.Result != nil {
 			resultIRType := e.ir.Types[fn.Result.Type]
-			var err error
-			retTy, err = typeToDXIL(e.mod, e.ir, resultIRType.Inner)
+			scalarTy, err := typeToDXIL(e.mod, e.ir, resultIRType.Inner)
 			if err != nil {
 				return fmt.Errorf("helper function %q return: %w", fn.Name, err)
+			}
+			retNumComps = componentCount(resultIRType.Inner)
+			if retNumComps > 1 {
+				// Build struct type {scalar, scalar, ...} for vector return.
+				fields := make([]*module.Type, retNumComps)
+				for c := 0; c < retNumComps; c++ {
+					fields[c] = scalarTy
+				}
+				retTy = e.mod.GetStructType("", fields)
+			} else {
+				retTy = scalarTy
 			}
 		}
 
@@ -470,6 +488,7 @@ func (e *Emitter) emitHelperFunctions(calledFunctions map[ir.FunctionHandle]bool
 		e.localVarArrayTypes = make(map[uint32]*module.Type)
 		e.loopStack = nil
 		e.emittingHelperFunction = true
+		e.helperReturnComps = retNumComps
 		// Each helper function body gets its own value numbering starting from 0.
 		// Function parameters consume IDs first, then instructions.
 		e.nextValue = 0
@@ -540,6 +559,7 @@ func (e *Emitter) emitHelperFunctions(calledFunctions map[ir.FunctionHandle]bool
 
 		// Restore entry-point context including constant caches.
 		e.emittingHelperFunction = false
+		e.helperReturnComps = 0
 		e.nextValue = savedNextValue
 		e.currentBB = savedBB
 		e.mainFn = savedMainFn
@@ -830,6 +850,8 @@ func (e *Emitter) finalizeHelperFunction(fn *module.Function, helperConstMap map
 //	InstrRet:        uses ReturnValue field, not Operands → none
 //	InstrGEP:        not yet used
 //	InstrPhi:        not yet used
+//
+//nolint:cyclop // one case per instruction kind — simple dispatch, not real complexity
 func valueOperandIndices(instr *module.Instruction) []int {
 	switch instr.Kind {
 	case module.InstrBinOp:
@@ -842,6 +864,8 @@ func valueOperandIndices(instr *module.Instruction) []int {
 		return []int{0} // [src, castOp]
 	case module.InstrExtractVal:
 		return []int{0} // [src, index]
+	case module.InstrInsertVal:
+		return []int{0, 1} // [aggregate, value, index]
 	case module.InstrAlloca:
 		return []int{2} // [allocTyID, sizeTyID, sizeValID, alignFlags]
 	case module.InstrLoad:

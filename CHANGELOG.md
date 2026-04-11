@@ -99,8 +99,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DXIL: workgroup atomics** — LLVM `atomicrmw`/`cmpxchg` for workgroup variables
   (add, sub, and, or, xor, min, max, xchg, compare-exchange).
 
-- **DXIL: DXC dumpbin validation** — **127/165 shaders pass DXC dumpbin (77.0%)**.
-  18 val_fail, 20 compile_fail.
+- **DXIL: vector select scalarization, math broadcast, ExprArrayLength, helper vector returns,
+  struct member component stores, atomic compare-exchange result struct, abstract literals,
+  matrix alloca, refract/modf/frexp/quantizeF16** — systematic fixes across emitter.
+
+- **DXIL: DXC dumpbin validation** — **134/165 shaders pass DXC dumpbin (81.2%)**.
+  14 val_fail, 17 compile_fail.
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Fixed (other backends)

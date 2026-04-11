@@ -96,6 +96,9 @@ const (
 	OpBufferLoad         DXILOpcode = 68
 	OpBufferStore        DXILOpcode = 69
 
+	// Query operations.
+	OpGetDimensions DXILOpcode = 72
+
 	// Derivative operations.
 	OpDerivCoarseX DXILOpcode = 83
 	OpDerivCoarseY DXILOpcode = 84

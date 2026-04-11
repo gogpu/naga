@@ -266,6 +266,30 @@ func (e *Emitter) getDxResRetType(ol overloadType) *module.Type {
 	return e.mod.GetStructType(name, []*module.Type{scalarTy, scalarTy, scalarTy, scalarTy, i32Ty})
 }
 
+// getDxDimensionsType returns the %dx.types.Dimensions = {i32, i32, i32, i32} struct type.
+// Used by dx.op.getDimensions (opcode 72) for buffer/texture size queries.
+func (e *Emitter) getDxDimensionsType() *module.Type {
+	i32Ty := e.mod.GetIntType(32)
+	return e.mod.GetStructType("dx.types.Dimensions", []*module.Type{i32Ty, i32Ty, i32Ty, i32Ty})
+}
+
+// getDxOpGetDimensionsFunc returns the dx.op.getDimensions function declaration.
+// Signature: %dx.types.Dimensions @dx.op.getDimensions(i32, %dx.types.Handle, i32)
+// Reference: Mesa nir_to_dxil.c emit_texture_size() ~4294
+func (e *Emitter) getDxOpGetDimensionsFunc() *module.Function {
+	key := dxOpKey{name: "dx.op.getDimensions", overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	dimTy := e.getDxDimensionsType()
+	handleTy := e.getDxHandleType()
+	funcTy := e.mod.GetFunctionType(dimTy, []*module.Type{i32Ty, handleTy, i32Ty})
+	fn := e.mod.AddFunction("dx.op.getDimensions", funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
 // getDxOpCreateHandleFunc creates the dx.op.createHandle function declaration.
 // Signature: %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1)
 func (e *Emitter) getDxOpCreateHandleFunc() *module.Function {

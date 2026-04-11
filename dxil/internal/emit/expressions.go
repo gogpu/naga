@@ -109,7 +109,7 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		return 0, fmt.Errorf("ExprCallResult [%d] not yet populated by StmtCall", handle)
 
 	case ir.ExprArrayLength:
-		return 0, fmt.Errorf("ExprArrayLength not yet implemented in DXIL backend")
+		valueID, err = e.emitArrayLength(fn, ek)
 
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", expr.Kind)
@@ -230,6 +230,12 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 	baseID, err := e.emitExpression(fn, ai.Base)
 	if err != nil {
 		return 0, err
+	}
+
+	// If the base has per-component tracking (e.g., atomic cmpxchg result struct,
+	// vector expression), extract the indexed component directly.
+	if comps, ok := e.exprComponents[ai.Base]; ok && int(ai.Index) < len(comps) {
+		return comps[ai.Index], nil
 	}
 
 	// Check if the base is a local variable — handle struct and array types.
@@ -1352,9 +1358,18 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathUnpack4xU8(fn, mathExpr)
 	}
 
-	arg, err := e.emitExpression(fn, mathExpr.Arg)
-	if err != nil {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
 		return 0, err
+	}
+	if mathExpr.Arg1 != nil {
+		if _, err := e.emitExpression(fn, *mathExpr.Arg1); err != nil {
+			return 0, err
+		}
+	}
+	if mathExpr.Arg2 != nil {
+		if _, err := e.emitExpression(fn, *mathExpr.Arg2); err != nil {
+			return 0, err
+		}
 	}
 
 	argType := e.resolveExprType(fn, mathExpr.Arg)
@@ -1365,26 +1380,25 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	ol := overloadForScalar(scalar)
 	isFloat := scalar.Kind == ir.ScalarFloat
 	isSigned := scalar.Kind == ir.ScalarSint
+	numComps := componentCount(argType)
+
+	// For vector types, scalarize: emit per-component math operations.
+	if numComps > 1 {
+		return e.emitMathVectorized(fn, mathExpr, ol, isFloat, isSigned, numComps)
+	}
+
+	arg := e.exprValues[mathExpr.Arg]
 
 	// Ternary: 3 args (Arg + Arg1 + Arg2).
 	if mathExpr.Arg1 != nil && mathExpr.Arg2 != nil {
-		arg1, err2 := e.emitExpression(fn, *mathExpr.Arg1)
-		if err2 != nil {
-			return 0, err2
-		}
-		arg2, err2 := e.emitExpression(fn, *mathExpr.Arg2)
-		if err2 != nil {
-			return 0, err2
-		}
+		arg1 := e.exprValues[*mathExpr.Arg1]
+		arg2 := e.exprValues[*mathExpr.Arg2]
 		return e.emitMathTernary(mathExpr.Fun, ol, isFloat, isSigned, arg, arg1, arg2)
 	}
 
 	// Binary: 2 args (Arg + Arg1).
 	if mathExpr.Arg1 != nil {
-		arg1, err2 := e.emitExpression(fn, *mathExpr.Arg1)
-		if err2 != nil {
-			return 0, err2
-		}
+		arg1 := e.exprValues[*mathExpr.Arg1]
 		return e.emitMathBinary(mathExpr.Fun, ol, isFloat, isSigned, arg, arg1)
 	}
 
@@ -1398,6 +1412,56 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	opcodeVal := e.getIntConstID(int64(opcode))
 
 	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg}), nil
+}
+
+// emitMathVectorized emits a math operation per-component for vector operands.
+//
+//nolint:nestif // per-component dispatch for unary/binary/ternary math ops
+func (e *Emitter) emitMathVectorized(fn *ir.Function, mathExpr ir.ExprMath, ol overloadType, isFloat, isSigned bool, numComps int) (int, error) {
+	// Determine component counts for each argument to handle scalar broadcast.
+	// E.g., mix(vec3, vec3, scalar) — Arg2 is scalar, must broadcast to all components.
+	argComps := numComps
+	var arg1Comps, arg2Comps int
+	if mathExpr.Arg1 != nil {
+		arg1Type := e.resolveExprType(fn, *mathExpr.Arg1)
+		arg1Comps = componentCount(arg1Type)
+	}
+	if mathExpr.Arg2 != nil {
+		arg2Type := e.resolveExprType(fn, *mathExpr.Arg2)
+		arg2Comps = componentCount(arg2Type)
+	}
+
+	comps := make([]int, numComps)
+	for c := 0; c < numComps; c++ {
+		argC := e.getComponentIDSafe(mathExpr.Arg, c, argComps)
+
+		if mathExpr.Arg1 != nil && mathExpr.Arg2 != nil {
+			arg1C := e.getComponentIDSafe(*mathExpr.Arg1, c, arg1Comps)
+			arg2C := e.getComponentIDSafe(*mathExpr.Arg2, c, arg2Comps)
+			v, err := e.emitMathTernary(mathExpr.Fun, ol, isFloat, isSigned, argC, arg1C, arg2C)
+			if err != nil {
+				return 0, err
+			}
+			comps[c] = v
+		} else if mathExpr.Arg1 != nil {
+			arg1C := e.getComponentIDSafe(*mathExpr.Arg1, c, arg1Comps)
+			v, err := e.emitMathBinary(mathExpr.Fun, ol, isFloat, isSigned, argC, arg1C)
+			if err != nil {
+				return 0, err
+			}
+			comps[c] = v
+		} else {
+			opcode, opName, err := mathToDxOpUnary(mathExpr.Fun)
+			if err != nil {
+				return 0, err
+			}
+			dxFn := e.getDxOpUnaryFunc(opName, ol)
+			opcodeVal := e.getIntConstID(int64(opcode))
+			comps[c] = e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, argC})
+		}
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
 }
 
 // emitMathBinary emits a binary math dx.op call (min, max, atan2).
@@ -2465,6 +2529,8 @@ func (e *Emitter) getDxOpQuaternaryFunc(name string, ol overloadType) *module.Fu
 }
 
 // emitSelect emits a select (ternary) instruction.
+// For vector operands, emits per-component LLVM select instructions since DXIL
+// scalarizes all vector operations.
 func (e *Emitter) emitSelect(fn *ir.Function, sel ir.ExprSelect) (int, error) {
 	cond, err := e.emitExpression(fn, sel.Condition)
 	if err != nil {
@@ -2480,6 +2546,28 @@ func (e *Emitter) emitSelect(fn *ir.Function, sel ir.ExprSelect) (int, error) {
 	}
 
 	acceptType := e.resolveExprType(fn, sel.Accept)
+	numComps := componentCount(acceptType)
+
+	if numComps > 1 {
+		// Vector select: emit per-component selects.
+		condType := e.resolveExprType(fn, sel.Condition)
+		condComps := componentCount(condType)
+		acceptComps := numComps
+		rejectType := e.resolveExprType(fn, sel.Reject)
+		rejectComps := componentCount(rejectType)
+
+		scalarTy, _ := typeToDXIL(e.mod, e.ir, acceptType)
+		comps := make([]int, numComps)
+		for c := 0; c < numComps; c++ {
+			condC := e.getComponentIDSafe(sel.Condition, c, condComps)
+			acceptC := e.getComponentIDSafe(sel.Accept, c, acceptComps)
+			rejectC := e.getComponentIDSafe(sel.Reject, c, rejectComps)
+			comps[c] = e.emitSelect3(scalarTy, condC, acceptC, rejectC)
+		}
+		e.pendingComponents = comps
+		return comps[0], nil
+	}
+
 	resultTy, _ := typeToDXIL(e.mod, e.ir, acceptType)
 
 	valueID := e.allocValue()
@@ -2492,6 +2580,111 @@ func (e *Emitter) emitSelect(fn *ir.Function, sel ir.ExprSelect) (int, error) {
 	}
 	e.currentBB.AddInstruction(instr)
 	return valueID, nil
+}
+
+// emitArrayLength emits a runtime array length query.
+//
+// In DXIL, buffer size is obtained via dx.op.getDimensions(72, handle, undef).
+// The result is a %dx.types.Dimensions = {i32, i32, i32, i32}; component 0
+// is the total byte size for buffer resources.
+// The element count is computed as: (totalBytes - offset) / stride
+//
+// For a global variable that IS an array: offset=0, stride from ArrayType.
+// For a global variable that is a struct with a runtime array as last member:
+// offset = last member's offset, stride from the array type.
+//
+// Reference: Mesa nir_to_dxil.c emit_get_ssbo_size() ~4344
+//
+//nolint:nestif // type resolution for array vs struct wrapping the runtime array
+func (e *Emitter) emitArrayLength(fn *ir.Function, al ir.ExprArrayLength) (int, error) {
+	// Resolve the global variable that owns this runtime array.
+	var varHandle ir.GlobalVariableHandle
+	var found bool
+	if int(al.Array) < len(fn.Expressions) {
+		expr := fn.Expressions[al.Array]
+		switch ek := expr.Kind.(type) {
+		case ir.ExprGlobalVariable:
+			varHandle = ek.Variable
+			found = true
+		case ir.ExprAccessIndex:
+			if int(ek.Base) < len(fn.Expressions) {
+				baseExpr := fn.Expressions[ek.Base]
+				if gv, ok := baseExpr.Kind.(ir.ExprGlobalVariable); ok {
+					varHandle = gv.Variable
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		return 0, fmt.Errorf("ExprArrayLength: cannot resolve global variable from expression [%d]", al.Array)
+	}
+
+	// Look up the resource handle for this global variable.
+	resIdx, hasRes := e.resourceHandles[varHandle]
+	if !hasRes {
+		return 0, fmt.Errorf("ExprArrayLength: no resource handle for global variable [%d]", varHandle)
+	}
+	handleID := e.resources[resIdx].handleID
+
+	// Determine offset and stride from the type.
+	gv := &e.ir.GlobalVariables[varHandle]
+	var offset, stride uint32
+	if int(gv.Type) < len(e.ir.Types) {
+		switch inner := e.ir.Types[gv.Type].Inner.(type) {
+		case ir.ArrayType:
+			offset = 0
+			stride = inner.Stride
+		case ir.StructType:
+			if len(inner.Members) > 0 {
+				last := inner.Members[len(inner.Members)-1]
+				offset = last.Offset
+				if int(last.Type) < len(e.ir.Types) {
+					if arr, ok := e.ir.Types[last.Type].Inner.(ir.ArrayType); ok {
+						stride = arr.Stride
+					}
+				}
+			}
+		}
+	}
+	if stride == 0 {
+		stride = 4 // Default to 4 bytes (f32/i32/u32).
+	}
+
+	// Emit dx.op.getDimensions(72, handle, undef) → %dx.types.Dimensions
+	i32Ty := e.mod.GetIntType(32)
+	dimTy := e.getDxDimensionsType()
+	getDimFn := e.getDxOpGetDimensionsFunc()
+
+	opcodeVal := e.getIntConstID(int64(OpGetDimensions))
+	undefVal := e.getUndefConstID()
+
+	dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, handleID, undefVal})
+
+	// Extract component 0 = total byte size.
+	totalBytesID := e.allocValue()
+	extractInstr := &module.Instruction{
+		Kind:       module.InstrExtractVal,
+		HasValue:   true,
+		ResultType: i32Ty,
+		Operands:   []int{dimRetID, 0},
+		ValueID:    totalBytesID,
+	}
+	e.currentBB.AddInstruction(extractInstr)
+
+	resultID := totalBytesID
+
+	// Subtract offset if nonzero: (totalBytes - offset)
+	if offset > 0 {
+		offsetID := e.getIntConstID(int64(offset))
+		resultID = e.addBinOpInstr(i32Ty, BinOpSub, resultID, offsetID)
+	}
+
+	// Divide by stride: result / stride
+	strideID := e.getIntConstID(int64(stride))
+	resultID = e.addBinOpInstr(i32Ty, BinOpUDiv, resultID, strideID)
+
+	return resultID, nil
 }
 
 // emitLoad emits a load through a pointer.
@@ -3049,7 +3242,7 @@ func (e *Emitter) alignForType(ty *module.Type) int {
 }
 
 // emitZeroValue emits a zero-initialized constant.
-func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) { //nolint:unparam // error return for interface consistency
+func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) {
 	ty := e.ir.Types[zv.Type]
 	inner := ty.Inner
 
@@ -3087,14 +3280,68 @@ func (e *Emitter) emitConstant(ec ir.ExprConstant) (int, error) {
 
 	// Look at the init expression in GlobalExpressions.
 	if int(c.Init) < len(e.ir.GlobalExpressions) {
-		globalExpr := e.ir.GlobalExpressions[c.Init]
-		if lit, ok := globalExpr.Kind.(ir.Literal); ok {
-			return e.emitLiteral(lit)
-		}
+		return e.emitGlobalExpression(c.Init)
 	}
 
 	// Fallback: zero value.
 	return e.getIntConstID(0), nil
+}
+
+// emitGlobalExpression recursively emits a global expression, handling
+// Literal, Compose (for vector/struct constants), ZeroValue, and Splat.
+func (e *Emitter) emitGlobalExpression(handle ir.ExpressionHandle) (int, error) {
+	if int(handle) >= len(e.ir.GlobalExpressions) {
+		return e.getIntConstID(0), nil
+	}
+	globalExpr := e.ir.GlobalExpressions[handle]
+
+	switch gk := globalExpr.Kind.(type) {
+	case ir.Literal:
+		return e.emitLiteral(gk)
+
+	case ir.ExprCompose:
+		// Vector/struct constant: emit each component from global expressions.
+		if len(gk.Components) == 0 {
+			return e.getIntConstID(0), nil
+		}
+		var flatIDs []int
+		for _, ch := range gk.Components {
+			v, err := e.emitGlobalExpression(ch)
+			if err != nil {
+				return 0, err
+			}
+			flatIDs = append(flatIDs, v)
+		}
+		e.pendingComponents = flatIDs
+		return flatIDs[0], nil
+
+	case ir.ExprZeroValue:
+		return e.emitZeroValue(gk)
+
+	case ir.ExprSplat:
+		// Splat: emit the single value and replicate for all components.
+		v, err := e.emitGlobalExpression(gk.Value)
+		if err != nil {
+			return 0, err
+		}
+		// Determine vector size from the type.
+		if int(gk.Size) >= 2 {
+			comps := make([]int, gk.Size)
+			for i := range comps {
+				comps[i] = v
+			}
+			e.pendingComponents = comps
+		}
+		return v, nil
+
+	case ir.ExprConstant:
+		// Nested constant reference.
+		return e.emitConstant(gk)
+
+	default:
+		// Unsupported global expression kind — fall back to zero.
+		return e.getIntConstID(0), nil
+	}
 }
 
 // emitAs emits a type cast expression using LLVM cast instructions.

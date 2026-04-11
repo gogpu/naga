@@ -310,6 +310,7 @@ const (
 	InstrCast                        // type cast
 	InstrSelect                      // select (ternary)
 	InstrExtractVal                  // extractvalue
+	InstrInsertVal                   // insertvalue
 	InstrAlloca                      // stack allocation
 	InstrLoad                        // memory load
 	InstrStore                       // memory store
