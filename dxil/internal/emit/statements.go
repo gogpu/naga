@@ -63,6 +63,9 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtStore:
 		return e.emitStmtStore(fn, sk)
 
+	case ir.StmtImageStore:
+		return e.emitStmtImageStore(fn, sk)
+
 	case ir.StmtBlock:
 		return e.emitBlock(fn, sk.Block)
 
@@ -781,12 +784,22 @@ func (e *Emitter) emitStmtCall(fn *ir.Function, call ir.StmtCall) error {
 
 // getZeroValueForResult returns a zero-valued constant for the given call's
 // return type. Used as fallback when a helper function cannot be emitted.
+//
+//nolint:nestif // handles scalar, vector, and struct return types
 func (e *Emitter) getZeroValueForResult(_ *ir.Function, call ir.StmtCall) int {
 	// Look up the called function's return type.
 	if int(call.Function) < len(e.ir.Functions) {
 		calledFn := &e.ir.Functions[call.Function]
 		if calledFn.Result != nil {
 			resultType := e.ir.Types[calledFn.Result.Type].Inner
+
+			// For struct returns, flatten all members into a component array.
+			// This allows AccessIndex on the zero-fallback result to find the
+			// correct sub-range of components for each struct field.
+			if st, isSt := resultType.(ir.StructType); isSt {
+				return e.getZeroValueForStruct(call, st)
+			}
+
 			numComps := componentCount(resultType)
 			if numComps > 1 {
 				// For vector/matrix returns, set up zero components.
@@ -803,6 +816,31 @@ func (e *Emitter) getZeroValueForResult(_ *ir.Function, call ir.StmtCall) int {
 		}
 	}
 	return e.getIntConstID(0)
+}
+
+// getZeroValueForStruct creates a flattened zero component array for a struct return type.
+// Each struct member gets cbvComponentCount(member) zero values, concatenated together.
+// This uses cbvComponentCount (not componentCount) to match extractComponentsForAccessIndex
+// which also uses cbvComponentCount for struct member offset computation.
+func (e *Emitter) getZeroValueForStruct(call ir.StmtCall, st ir.StructType) int {
+	var allComps []int
+	for _, member := range st.Members {
+		if int(member.Type) >= len(e.ir.Types) {
+			continue
+		}
+		memberInner := e.ir.Types[member.Type].Inner
+		zeroID := e.getZeroForType(memberInner)
+		numComps := cbvComponentCount(e.ir, memberInner)
+		for c := 0; c < numComps; c++ {
+			allComps = append(allComps, zeroID)
+		}
+	}
+	if len(allComps) == 0 {
+		return e.getIntConstID(0)
+	}
+	e.callResultComponents[*call.Result] = allComps
+	e.exprComponents[*call.Result] = allComps
+	return allComps[0]
 }
 
 // getZeroForType returns a zero constant ID for the given type's scalar.

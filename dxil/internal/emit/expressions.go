@@ -75,6 +75,12 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 	case ir.ExprImageSample:
 		valueID, err = e.emitImageSample(fn, ek)
 
+	case ir.ExprImageLoad:
+		valueID, err = e.emitImageLoad(fn, ek)
+
+	case ir.ExprImageQuery:
+		valueID, err = e.emitImageQuery(fn, ek)
+
 	case ir.ExprZeroValue:
 		valueID, err = e.emitZeroValue(ek)
 
@@ -268,7 +274,6 @@ func (e *Emitter) extractComponentsForAccessIndex(fn *ir.Function, ai ir.ExprAcc
 // For struct local/global variable access, emits a GEP instruction to get a pointer
 // to the member field. For array access, emits a GEP to the element. For vector
 // component extraction, uses per-component tracking.
-//
 func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, error) {
 	baseID, err := e.emitExpression(fn, ai.Base)
 	if err != nil {

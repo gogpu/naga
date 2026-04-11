@@ -229,6 +229,422 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 	return comps[0], nil
 }
 
+// emitImageQuery emits dx.op.getDimensions (opcode 72) for image size/level/sample queries.
+//
+// getDimensions returns {i32, i32, i32, i32} where the meaning depends on the
+// resource type:
+//
+//	c0 = width, c1 = height (or array size for 1DArray), c2 = depth/array size, c3 = mip levels (or samples for MS)
+//
+// Query mapping:
+//   - ImageQuerySize: extract spatial dimensions (c0..cN based on image dimension)
+//   - ImageQueryNumLevels: extract c3
+//   - ImageQueryNumSamples: extract c3
+//   - ImageQueryNumLayers: extract array size component (c1 for 1DArray, c2 for 2DArray/CubeArray)
+//
+// Reference: Mesa nir_to_dxil.c emit_texture_size() ~4294, emit_image_size() ~4310
+// Reference: DXIL.rst GetDimensions return table ~1360
+func (e *Emitter) emitImageQuery(fn *ir.Function, query ir.ExprImageQuery) (int, error) {
+	// Resolve the image handle.
+	imageHandleID, err := e.resolveResourceHandle(fn, query.Image)
+	if err != nil {
+		return 0, fmt.Errorf("ExprImageQuery: image handle: %w", err)
+	}
+
+	// Resolve the image type to determine dimension and arrayed/multisampled properties.
+	imgInner := e.resolveExprType(fn, query.Image)
+	imgType, ok := imgInner.(ir.ImageType)
+	if !ok {
+		return 0, fmt.Errorf("ExprImageQuery: image expression is not ImageType, got %T", imgInner)
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+	dimTy := e.getDxDimensionsType()
+	getDimFn := e.getDxOpGetDimensionsFunc()
+	opcodeVal := e.getIntConstID(int64(OpGetDimensions))
+	undefVal := e.getUndefConstID()
+
+	switch q := query.Query.(type) {
+	case ir.ImageQuerySize:
+		// LOD argument: if Level is provided, emit it; otherwise use 0 for mipmapped or undef for non-mipmapped.
+		var lodID int
+		if q.Level != nil {
+			lodID, err = e.emitExpression(fn, *q.Level)
+			if err != nil {
+				return 0, fmt.Errorf("ExprImageQuery size level: %w", err)
+			}
+		} else if imgType.Multisampled {
+			lodID = undefVal
+		} else {
+			lodID = e.getIntConstID(0)
+		}
+
+		dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, imageHandleID, lodID})
+
+		// Determine how many spatial components to extract based on image dimension.
+		numComps := imageDimSpatialComponents(imgType.Dim)
+
+		if numComps == 1 {
+			// Scalar result — extract component 0.
+			extractID := e.allocValue()
+			instr := &module.Instruction{
+				Kind:       module.InstrExtractVal,
+				HasValue:   true,
+				ResultType: i32Ty,
+				Operands:   []int{dimRetID, 0},
+				ValueID:    extractID,
+			}
+			e.currentBB.AddInstruction(instr)
+			return extractID, nil
+		}
+
+		// Vector result — extract N components.
+		comps := make([]int, numComps)
+		for i := 0; i < numComps; i++ {
+			extractID := e.allocValue()
+			instr := &module.Instruction{
+				Kind:       module.InstrExtractVal,
+				HasValue:   true,
+				ResultType: i32Ty,
+				Operands:   []int{dimRetID, i},
+				ValueID:    extractID,
+			}
+			e.currentBB.AddInstruction(instr)
+			comps[i] = extractID
+		}
+		e.pendingComponents = comps
+		return comps[0], nil
+
+	case ir.ImageQueryNumLevels:
+		// getDimensions(handle, 0) → extract c3 = MIP levels
+		lodID := e.getIntConstID(0)
+		dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, imageHandleID, lodID})
+
+		extractID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{dimRetID, 3},
+			ValueID:    extractID,
+		}
+		e.currentBB.AddInstruction(instr)
+		return extractID, nil
+
+	case ir.ImageQueryNumSamples:
+		// getDimensions(handle, undef) → extract c3 = samples
+		dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, imageHandleID, undefVal})
+
+		extractID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{dimRetID, 3},
+			ValueID:    extractID,
+		}
+		e.currentBB.AddInstruction(instr)
+		return extractID, nil
+
+	case ir.ImageQueryNumLayers:
+		// getDimensions(handle, 0) → extract the array size component.
+		// For 1DArray: c1. For 2DArray/CubeArray/2DMSArray: c2.
+		lodID := e.getIntConstID(0)
+		dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, imageHandleID, lodID})
+
+		arrayComp := imageDimArrayComponent(imgType.Dim)
+		extractID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{dimRetID, arrayComp},
+			ValueID:    extractID,
+		}
+		e.currentBB.AddInstruction(instr)
+		return extractID, nil
+
+	default:
+		return 0, fmt.Errorf("ExprImageQuery: unsupported query type %T", query.Query)
+	}
+}
+
+// imageDimSpatialComponents returns the number of spatial size components for an image dimension.
+// This does NOT include array layers — those are queried separately via ImageQueryNumLayers.
+func imageDimSpatialComponents(dim ir.ImageDimension) int {
+	switch dim {
+	case ir.Dim1D:
+		return 1
+	case ir.Dim2D, ir.DimCube:
+		return 2
+	case ir.Dim3D:
+		return 3
+	default:
+		return 2
+	}
+}
+
+// imageDimArrayComponent returns the getDimensions component index containing the array size.
+// For 1DArray: c1 (after width). For 2DArray/CubeArray: c2 (after width, height).
+func imageDimArrayComponent(dim ir.ImageDimension) int {
+	switch dim {
+	case ir.Dim1D:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// imageOverload returns the DXIL overload type for an image's element type.
+// For sampled/depth images, the overload comes from SampledKind.
+// For storage images, the overload comes from StorageFormat.
+func imageOverload(img ir.ImageType) overloadType {
+	switch img.Class {
+	case ir.ImageClassStorage:
+		return overloadForScalar(img.StorageFormat.Scalar())
+	default:
+		// Sampled and depth textures use the sampled kind.
+		return overloadForScalar(ir.ScalarType{Kind: img.SampledKind, Width: 4})
+	}
+}
+
+// imageCoordCount returns the number of coordinate components for a textureLoad/textureStore call.
+// This includes the array index if the image is arrayed.
+func imageCoordCount(img ir.ImageType) int {
+	n := imageDimSpatialComponents(img.Dim)
+	if img.Arrayed {
+		n++
+	}
+	return n
+}
+
+// emitImageLoad emits dx.op.textureLoad (opcode 66) for texel fetching.
+//
+// Signature: %dx.types.ResRet.XX @dx.op.textureLoad.XX(i32 opcode, %handle, i32 mip/sample, i32 c0, i32 c1, i32 c2, i32 o0, i32 o1, i32 o2)
+//
+// Reference: Mesa nir_to_dxil.c emit_image_load() ~4122, emit_texel_fetch() ~5376
+func (e *Emitter) emitImageLoad(fn *ir.Function, load ir.ExprImageLoad) (int, error) {
+	// Resolve the image handle.
+	imageHandleID, err := e.resolveResourceHandle(fn, load.Image)
+	if err != nil {
+		return 0, fmt.Errorf("ExprImageLoad: image handle: %w", err)
+	}
+
+	// Resolve image type for overload and coordinate count.
+	imgInner := e.resolveExprType(fn, load.Image)
+	imgType, ok := imgInner.(ir.ImageType)
+	if !ok {
+		return 0, fmt.Errorf("ExprImageLoad: image expression is not ImageType, got %T", imgInner)
+	}
+
+	ol := imageOverload(imgType)
+
+	// Emit coordinate expression.
+	if _, err := e.emitExpression(fn, load.Coordinate); err != nil {
+		return 0, fmt.Errorf("ExprImageLoad: coordinate: %w", err)
+	}
+	coordType := e.resolveExprType(fn, load.Coordinate)
+	coordComps := componentCount(coordType)
+
+	undefI32 := e.getUndefConstID()
+	opcodeVal := e.getIntConstID(int64(OpTextureLoad))
+
+	// MIP level / sample index.
+	var lodOrSampleID int
+	if load.Level != nil {
+		lodOrSampleID, err = e.emitExpression(fn, *load.Level)
+		if err != nil {
+			return 0, fmt.Errorf("ExprImageLoad: level: %w", err)
+		}
+	} else if load.Sample != nil {
+		lodOrSampleID, err = e.emitExpression(fn, *load.Sample)
+		if err != nil {
+			return 0, fmt.Errorf("ExprImageLoad: sample: %w", err)
+		}
+	} else {
+		lodOrSampleID = undefI32
+	}
+
+	// Build coordinate array [c0, c1, c2], unused = undef.
+	coords := [3]int{undefI32, undefI32, undefI32}
+	numCoords := imageCoordCount(imgType)
+	// First fill spatial coordinates from the Coordinate expression.
+	spatialComps := imageDimSpatialComponents(imgType.Dim)
+	for i := 0; i < spatialComps && i < coordComps; i++ {
+		coords[i] = e.getComponentID(load.Coordinate, i)
+	}
+	// If arrayed, the array index comes from ArrayIndex or the last coordinate component.
+	if imgType.Arrayed && load.ArrayIndex != nil {
+		arrayIdx, err2 := e.emitExpression(fn, *load.ArrayIndex)
+		if err2 != nil {
+			return 0, fmt.Errorf("ExprImageLoad: array index: %w", err2)
+		}
+		if numCoords-1 < 3 {
+			coords[numCoords-1] = arrayIdx
+		}
+	} else if imgType.Arrayed && coordComps > spatialComps {
+		// Array index is packed into the last coordinate component.
+		if numCoords-1 < 3 {
+			coords[numCoords-1] = e.getComponentID(load.Coordinate, spatialComps)
+		}
+	}
+
+	// textureLoad: opcode, handle, mip/sample, c0, c1, c2, o0, o1, o2
+	operands := []int{
+		opcodeVal,
+		imageHandleID,
+		lodOrSampleID,
+		coords[0], coords[1], coords[2],
+		undefI32, undefI32, undefI32, // offsets (undef for image loads)
+	}
+
+	resRetTy := e.getDxResRetType(ol)
+	textureLoadFn := e.getDxOpTextureLoadFunc(ol)
+	retID := e.addCallInstr(textureLoadFn, resRetTy, operands)
+
+	// Extract 4 components.
+	scalarTy := e.overloadReturnType(ol)
+	comps := make([]int, 4)
+	for i := 0; i < 4; i++ {
+		extractID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: scalarTy,
+			Operands:   []int{retID, i},
+			ValueID:    extractID,
+		}
+		e.currentBB.AddInstruction(instr)
+		comps[i] = extractID
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitStmtImageStore emits dx.op.textureStore (opcode 67) for writing to storage textures.
+//
+// Signature: void @dx.op.textureStore.XX(i32 opcode, %handle, i32 c0, i32 c1, i32 c2, XX v0, XX v1, XX v2, XX v3, i8 mask)
+//
+// Reference: Mesa nir_to_dxil.c emit_image_store() ~4060, emit_texturestore_call() ~924
+func (e *Emitter) emitStmtImageStore(fn *ir.Function, store ir.StmtImageStore) error {
+	// Resolve the image handle.
+	imageHandleID, err := e.resolveResourceHandle(fn, store.Image)
+	if err != nil {
+		return fmt.Errorf("StmtImageStore: image handle: %w", err)
+	}
+
+	// Resolve image type for overload and coordinate count.
+	imgInner := e.resolveExprType(fn, store.Image)
+	imgType, ok := imgInner.(ir.ImageType)
+	if !ok {
+		return fmt.Errorf("StmtImageStore: image expression is not ImageType, got %T", imgInner)
+	}
+
+	ol := imageOverload(imgType)
+
+	// Emit coordinate expression.
+	if _, err := e.emitExpression(fn, store.Coordinate); err != nil {
+		return fmt.Errorf("StmtImageStore: coordinate: %w", err)
+	}
+	coordType := e.resolveExprType(fn, store.Coordinate)
+	coordComps := componentCount(coordType)
+
+	// Emit value expression.
+	if _, err := e.emitExpression(fn, store.Value); err != nil {
+		return fmt.Errorf("StmtImageStore: value: %w", err)
+	}
+	valType := e.resolveExprType(fn, store.Value)
+	valComps := componentCount(valType)
+
+	undefI32 := e.getUndefConstID()
+	opcodeVal := e.getIntConstID(int64(OpTextureStore))
+
+	// Coordinates [c0, c1, c2], unused = undef.
+	coords := [3]int{undefI32, undefI32, undefI32}
+	spatialComps := imageDimSpatialComponents(imgType.Dim)
+	numCoords := imageCoordCount(imgType)
+	for i := 0; i < spatialComps && i < coordComps; i++ {
+		coords[i] = e.getComponentID(store.Coordinate, i)
+	}
+	if imgType.Arrayed && store.ArrayIndex != nil {
+		arrayIdx, err2 := e.emitExpression(fn, *store.ArrayIndex)
+		if err2 != nil {
+			return fmt.Errorf("StmtImageStore: array index: %w", err2)
+		}
+		if numCoords-1 < 3 {
+			coords[numCoords-1] = arrayIdx
+		}
+	} else if imgType.Arrayed && coordComps > spatialComps {
+		if numCoords-1 < 3 {
+			coords[numCoords-1] = e.getComponentID(store.Coordinate, spatialComps)
+		}
+	}
+
+	// Value components [v0..v3], unused = undef of the value type.
+	scalarTy := e.overloadReturnType(ol)
+	undefValTy := e.getTypedUndefConstID(scalarTy)
+	vals := [4]int{undefValTy, undefValTy, undefValTy, undefValTy}
+	for i := 0; i < 4 && i < valComps; i++ {
+		vals[i] = e.getComponentID(store.Value, i)
+	}
+
+	// Write mask: bit per component written.
+	writeMask := (1 << valComps) - 1
+	writeMaskID := e.getI8ConstID(int64(writeMask))
+
+	// textureStore: opcode, handle, c0, c1, c2, v0, v1, v2, v3, mask
+	operands := []int{
+		opcodeVal,
+		imageHandleID,
+		coords[0], coords[1], coords[2],
+		vals[0], vals[1], vals[2], vals[3],
+		writeMaskID,
+	}
+
+	textureStoreFn := e.getDxOpTextureStoreFunc(ol)
+	voidTy := e.mod.GetVoidType()
+	e.addCallInstr(textureStoreFn, voidTy, operands)
+	return nil
+}
+
+// getDxOpTextureLoadFunc returns the dx.op.textureLoad.XX function declaration.
+// Signature: %dx.types.ResRet.XX @dx.op.textureLoad.XX(i32, %handle, i32, i32, i32, i32, i32, i32, i32)
+func (e *Emitter) getDxOpTextureLoadFunc(ol overloadType) *module.Function {
+	name := "dx.op.textureLoad" + overloadSuffix(ol)
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	handleTy := e.getDxHandleType()
+	resRetTy := e.getDxResRetType(ol)
+	// 9 params: opcode, handle, mip/sample, c0, c1, c2, o0, o1, o2
+	funcTy := e.mod.GetFunctionType(resRetTy, []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty})
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpTextureStoreFunc returns the dx.op.textureStore.XX function declaration.
+// Signature: void @dx.op.textureStore.XX(i32, %handle, i32, i32, i32, XX, XX, XX, XX, i8)
+func (e *Emitter) getDxOpTextureStoreFunc(ol overloadType) *module.Function {
+	name := "dx.op.textureStore" + overloadSuffix(ol)
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	handleTy := e.getDxHandleType()
+	scalarTy := e.overloadReturnType(ol)
+	voidTy := e.mod.GetVoidType()
+	// 10 params: opcode, handle, c0, c1, c2, v0, v1, v2, v3, mask(i8)
+	funcTy := e.mod.GetFunctionType(voidTy, []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, scalarTy, scalarTy, scalarTy, scalarTy, i8Ty})
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
 // resolveResourceHandle evaluates the expression and returns the resource
 // handle value ID. The expression must be an ExprGlobalVariable that was
 // classified as a resource.

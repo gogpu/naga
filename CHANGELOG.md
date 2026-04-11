@@ -118,8 +118,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **DXIL: FRem lowering** — LLVM FRem lowered to `a - b * floor(a/b)` (DXC rejects FRem).
 
-- **DXIL: DXC dumpbin validation** — **145/165 shaders pass DXC dumpbin (87.9%)**.
-  5 val_fail (2 ray-query, 2 helper edge case, 1 complex pointers), 15 compile_fail.
+- **DXIL: texture intrinsics** — `dx.op.getDimensions` (72) for textureDimensions/numLevels/numSamples/numLayers,
+  `dx.op.textureLoad` (66) for imageLoad, `dx.op.textureStore` (67) for imageStore.
+
+- **DXIL: DXC dumpbin validation** — **150/165 shaders pass DXC dumpbin (90.9%)**.
+  2 val_fail, 13 compile_fail (ray tracing, image atomics, subgroups, binding arrays).
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Fixed (other backends)
