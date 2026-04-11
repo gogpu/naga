@@ -85,8 +85,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inputs (e.g., `vertex: VertexOutput`) now correctly load per-member with row tracking.
   Fixes 14 additional shaders.
 
-- **DXIL: DXC dumpbin validation** — **115/165 shaders pass DXC dumpbin (69.7%)**.
-  2 val_fail (f16 type mismatch), 48 compile_fail (unsupported features).
+- **DXIL: helper function emission with per-function value ID isolation** — Each helper
+  function gets independent value ID space. `collectCalledFunctions()` pre-scans entry point.
+
+- **DXIL: switch statements** — Cascading `icmp eq` + conditional branches with merge block.
+
+- **DXIL: 17 pack/unpack math functions** — pack4x8snorm/unorm, unpack4x8snorm/unorm,
+  pack2x16float/snorm/unorm, unpack variants, pack4xI8/U8/clamp, unpack4xI8/U8.
+
+- **DXIL: matrix operations** — mat*vec, vec*mat, mat*mat, mat+/-mat, mat*scalar, transpose.
+  All scalarized to component-wise DXIL instructions (dot products for multiply).
+
+- **DXIL: workgroup atomics** — LLVM `atomicrmw`/`cmpxchg` for workgroup variables
+  (add, sub, and, or, xor, min, max, xchg, compare-exchange).
+
+- **DXIL: DXC dumpbin validation** — **127/165 shaders pass DXC dumpbin (77.0%)**.
+  18 val_fail, 20 compile_fail.
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Fixed (other backends)
