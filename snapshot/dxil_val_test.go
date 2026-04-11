@@ -32,6 +32,14 @@ func dxcPath() string {
 	return p
 }
 
+// dxilExpectedCompileFail contains shaders that are EXPECTED to fail DXIL compilation.
+// These verify graceful error handling (no panic, clear error message).
+// If a shader in this list starts compiling successfully, the test fails — remove it from the list.
+var dxilExpectedCompileFail = map[string]string{
+	"abstract-types-const": "no entry points",
+	"ptr-deref-test":       "no entry points",
+}
+
 // TestDxilValSummary compiles all WGSL shaders to DXIL and validates with DXC dumpbin.
 // This is the DXIL equivalent of TestSpirvValBinarySummary.
 func TestDxilValSummary(t *testing.T) {
@@ -52,7 +60,7 @@ func TestDxilValSummary(t *testing.T) {
 	}
 
 	var results []result
-	var passCount, compileFailCount, valFailCount int
+	var passCount, compileFailCount, valFailCount, expectedFailCount int
 
 	opts := dxil.DefaultOptions()
 
@@ -86,8 +94,13 @@ func TestDxilValSummary(t *testing.T) {
 		}
 
 		if len(module.EntryPoints) == 0 {
-			compileFailCount++
-			results = append(results, result{shader.name, "compile_fail", "no entry points"})
+			if reason, ok := dxilExpectedCompileFail[shader.name]; ok {
+				expectedFailCount++
+				results = append(results, result{shader.name, "expected_fail", reason})
+			} else {
+				compileFailCount++
+				results = append(results, result{shader.name, "compile_fail", "no entry points"})
+			}
 			continue
 		}
 
@@ -138,6 +151,10 @@ func TestDxilValSummary(t *testing.T) {
 		}
 
 		if allEPsPass {
+			// Regression check: expected-fail shader now passes → remove from list.
+			if reason, ok := dxilExpectedCompileFail[shader.name]; ok {
+				t.Errorf("shader %q was expected to fail (%s) but now passes DXC — remove from dxilExpectedCompileFail", shader.name, reason)
+			}
 			passCount++
 			results = append(results, result{shader.name, "pass", ""})
 		} else if firstErr != "" && strings.Contains(firstErr, "dxc failed") {
@@ -149,11 +166,12 @@ func TestDxilValSummary(t *testing.T) {
 		}
 	}
 
+	testable := len(results) - expectedFailCount
 	t.Logf("=== DXIL Validation Summary (DXC dumpbin) ===")
-	t.Logf("Total:        %d", len(results))
-	t.Logf("Pass:         %d (%.1f%%)", passCount, pct(passCount, len(results)))
-	t.Logf("Val fail:     %d (%.1f%%)", valFailCount, pct(valFailCount, len(results)))
-	t.Logf("Compile fail: %d (%.1f%%)", compileFailCount, pct(compileFailCount, len(results)))
+	t.Logf("Total:        %d (%d testable, %d expected fail)", len(results), testable, expectedFailCount)
+	t.Logf("Pass:         %d (%.1f%%)", passCount, pct(passCount, testable))
+	t.Logf("Val fail:     %d (%.1f%%)", valFailCount, pct(valFailCount, testable))
+	t.Logf("Compile fail: %d (%.1f%%)", compileFailCount, pct(compileFailCount, testable))
 
 	if valFailCount > 0 {
 		t.Logf("")
