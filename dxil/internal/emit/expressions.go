@@ -699,13 +699,12 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 	leftType := e.resolveExprType(fn, bin.Left)
 	rightType := e.resolveExprType(fn, bin.Right)
 
-	// Matrix operations are not yet supported in DXIL emitter.
-	// Matrix * vector requires dot products, not component-wise multiply.
-	if _, isMat := leftType.(ir.MatrixType); isMat {
-		return 0, fmt.Errorf("unsupported matrix binary operation: %v", bin.Op)
-	}
-	if _, isMat := rightType.(ir.MatrixType); isMat {
-		return 0, fmt.Errorf("unsupported matrix binary operation: %v", bin.Op)
+	// Matrix operations require special handling: matrix multiply uses dot
+	// products, while mat+mat/mat-mat are component-wise.
+	leftMat, leftIsMat := leftType.(ir.MatrixType)
+	rightMat, rightIsMat := rightType.(ir.MatrixType)
+	if leftIsMat || rightIsMat {
+		return e.emitMatrixBinary(fn, bin, leftType, rightType, leftMat, rightMat, leftIsMat, rightIsMat)
 	}
 
 	leftComps := componentCount(leftType)
@@ -887,6 +886,240 @@ func (e *Emitter) getComponentIDSafe(handle ir.ExpressionHandle, idx, numComps i
 		return e.getComponentID(handle, idx)
 	}
 	return e.getComponentID(handle, 0)
+}
+
+// emitMatrixBinary dispatches matrix binary operations.
+// Matrix multiply (mat*vec, vec*mat, mat*mat) uses dot products.
+// Matrix add/sub are component-wise on all elements.
+func (e *Emitter) emitMatrixBinary(fn *ir.Function, bin ir.ExprBinary,
+	leftType, rightType ir.TypeInner,
+	leftMat, rightMat ir.MatrixType,
+	leftIsMat, rightIsMat bool,
+) (int, error) {
+	// Emit both operands so component values are available.
+	if _, err := e.emitExpression(fn, bin.Left); err != nil {
+		return 0, err
+	}
+	if _, err := e.emitExpression(fn, bin.Right); err != nil {
+		return 0, err
+	}
+
+	switch bin.Op {
+	case ir.BinaryMultiply:
+		if leftIsMat && rightIsMat {
+			return e.emitMatrixMatrixMul(fn, bin, leftMat, rightMat)
+		}
+		if leftIsMat {
+			rightComps := componentCount(rightType)
+			if rightComps == 1 {
+				// mat * scalar: scale all elements
+				return e.emitMatrixScalarMul(fn, bin, leftMat)
+			}
+			// mat * vec
+			return e.emitMatrixVectorMul(fn, bin, leftMat)
+		}
+		// rightIsMat
+		leftComps := componentCount(leftType)
+		if leftComps == 1 {
+			// scalar * mat: scale all elements
+			return e.emitScalarMatrixMul(fn, bin, rightMat)
+		}
+		// vec * mat
+		return e.emitVectorMatrixMul(fn, bin, rightMat)
+
+	case ir.BinaryAdd, ir.BinarySubtract:
+		if leftIsMat {
+			return e.emitMatrixComponentWise(fn, bin, leftMat)
+		}
+		return e.emitMatrixComponentWise(fn, bin, rightMat)
+
+	default:
+		return 0, fmt.Errorf("unsupported matrix binary operation: %v", bin.Op)
+	}
+}
+
+// emitMatrixVectorMul emits mat * vec.
+// For mat with C columns and R rows, vec has C components, result has R components.
+// result[r] = sum(mat[c][r] * vec[c] for c in 0..C)
+//
+// Each row of the result is a dot product of the matrix row with the vector.
+// In column-major layout, mat component at column c, row r = index c*R + r.
+func (e *Emitter) emitMatrixVectorMul(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	cols := int(mat.Columns)
+	rows := int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+
+	comps := make([]int, rows)
+	for r := 0; r < rows; r++ {
+		// Accumulate: sum = mat[0][r]*vec[0] + mat[1][r]*vec[1] + ...
+		var acc int
+		for c := 0; c < cols; c++ {
+			matComp := e.getComponentID(bin.Left, c*rows+r)
+			vecComp := e.getComponentID(bin.Right, c)
+			prod := e.addBinOpInstr(scalarTy, BinOpFMul, matComp, vecComp)
+			if c == 0 {
+				acc = prod
+			} else {
+				acc = e.addBinOpInstr(scalarTy, BinOpFAdd, acc, prod)
+			}
+		}
+		comps[r] = acc
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitVectorMatrixMul emits vec * mat.
+// For vec with R components, mat with C columns and R rows, result has C components.
+// result[c] = sum(vec[r] * mat[c][r] for r in 0..R)
+func (e *Emitter) emitVectorMatrixMul(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	cols := int(mat.Columns)
+	rows := int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+
+	comps := make([]int, cols)
+	for c := 0; c < cols; c++ {
+		var acc int
+		for r := 0; r < rows; r++ {
+			vecComp := e.getComponentID(bin.Left, r)
+			matComp := e.getComponentID(bin.Right, c*rows+r)
+			prod := e.addBinOpInstr(scalarTy, BinOpFMul, vecComp, matComp)
+			if r == 0 {
+				acc = prod
+			} else {
+				acc = e.addBinOpInstr(scalarTy, BinOpFAdd, acc, prod)
+			}
+		}
+		comps[c] = acc
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMatrixMatrixMul emits matA * matB.
+// matA: colsA columns, rowsA rows. matB: colsB columns, rowsB rows.
+// Requires colsA == rowsB. Result: colsB columns, rowsA rows.
+// result[cb][ra] = sum(matA[ca][ra] * matB[cb][ca] for ca in 0..colsA)
+func (e *Emitter) emitMatrixMatrixMul(_ *ir.Function, bin ir.ExprBinary, matA, matB ir.MatrixType) (int, error) {
+	colsA := int(matA.Columns)
+	rowsA := int(matA.Rows)
+	colsB := int(matB.Columns)
+	rowsB := int(matB.Rows)
+	_ = rowsB // colsA == rowsB is a type-system invariant
+
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, matA.Scalar)
+
+	totalComps := colsB * rowsA
+	comps := make([]int, totalComps)
+
+	for cb := 0; cb < colsB; cb++ {
+		for ra := 0; ra < rowsA; ra++ {
+			var acc int
+			for ca := 0; ca < colsA; ca++ {
+				aComp := e.getComponentID(bin.Left, ca*rowsA+ra)
+				bComp := e.getComponentID(bin.Right, cb*rowsB+ca)
+				prod := e.addBinOpInstr(scalarTy, BinOpFMul, aComp, bComp)
+				if ca == 0 {
+					acc = prod
+				} else {
+					acc = e.addBinOpInstr(scalarTy, BinOpFAdd, acc, prod)
+				}
+			}
+			comps[cb*rowsA+ra] = acc
+		}
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMatrixComponentWise emits component-wise add/sub on all matrix elements.
+func (e *Emitter) emitMatrixComponentWise(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	total := int(mat.Columns) * int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+
+	var op BinOpKind
+	switch bin.Op {
+	case ir.BinaryAdd:
+		op = BinOpFAdd
+	case ir.BinarySubtract:
+		op = BinOpFSub
+	default:
+		return 0, fmt.Errorf("unsupported component-wise matrix operation: %v", bin.Op)
+	}
+
+	comps := make([]int, total)
+	for i := 0; i < total; i++ {
+		l := e.getComponentID(bin.Left, i)
+		r := e.getComponentID(bin.Right, i)
+		comps[i] = e.addBinOpInstr(scalarTy, op, l, r)
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMatrixScalarMul emits mat * scalar: scale every element of the matrix.
+func (e *Emitter) emitMatrixScalarMul(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	total := int(mat.Columns) * int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+	s := e.getComponentID(bin.Right, 0)
+
+	comps := make([]int, total)
+	for i := 0; i < total; i++ {
+		m := e.getComponentID(bin.Left, i)
+		comps[i] = e.addBinOpInstr(scalarTy, BinOpFMul, m, s)
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitScalarMatrixMul emits scalar * mat: scale every element of the matrix.
+func (e *Emitter) emitScalarMatrixMul(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	total := int(mat.Columns) * int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+	s := e.getComponentID(bin.Left, 0)
+
+	comps := make([]int, total)
+	for i := 0; i < total; i++ {
+		m := e.getComponentID(bin.Right, i)
+		comps[i] = e.addBinOpInstr(scalarTy, BinOpFMul, s, m)
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMatrixTranspose swaps rows and columns of a matrix.
+// Input: C columns, R rows (component c*R+r). Output: R columns, C rows (component r*C+c).
+func (e *Emitter) emitMatrixTranspose(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	mat, ok := argType.(ir.MatrixType)
+	if !ok {
+		return 0, fmt.Errorf("MathTranspose: argument is not a matrix")
+	}
+
+	cols := int(mat.Columns)
+	rows := int(mat.Rows)
+	total := cols * rows
+	comps := make([]int, total)
+
+	// Transpose: output[r*cols+c] = input[c*rows+r]
+	// But we store output as column-major for the transposed matrix (R columns, C rows):
+	// output column r, row c = index r*C + c = input[c*R + r]
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			comps[r*cols+c] = e.getComponentID(mathExpr.Arg, c*rows+r)
+		}
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
 }
 
 // selectBinaryOpcode returns the LLVM binary/comparison opcode for a naga binary operator.
@@ -1074,7 +1307,7 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	case ir.MathDeterminant:
 		return 0, fmt.Errorf("MathDeterminant (matrix) not yet implemented in DXIL backend")
 	case ir.MathTranspose:
-		return 0, fmt.Errorf("MathTranspose (matrix) not yet implemented in DXIL backend")
+		return e.emitMatrixTranspose(fn, mathExpr)
 	case ir.MathPack4x8snorm:
 		return e.emitMathPack4x8snorm(fn, mathExpr)
 	case ir.MathPack4x8unorm:

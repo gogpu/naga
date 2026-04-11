@@ -80,6 +80,8 @@ const (
 	funcCodeInstLoad      = 20
 	funcCodeInstGEP       = 43 // FUNC_CODE_INST_GEP (new format, LLVM 3.7)
 	funcCodeInstStore     = 44
+	funcCodeInstAtomicRMW = 38 // FUNC_CODE_INST_ATOMICRMW
+	funcCodeInstCmpXchg   = 46 // FUNC_CODE_INST_CMPXCHG_OLD (LLVM 3.7)
 )
 
 // Metadata record codes.
@@ -664,6 +666,32 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 			align := uint64(instr.Operands[2])                       //nolint:gosec // alignment
 			isVolatile := uint64(instr.Operands[3])                  //nolint:gosec // 0 or 1
 			s.w.EmitRecord(funcCodeInstStore, []uint64{ptrDelta, valueDelta, align, isVolatile})
+		}
+
+	case InstrAtomicRMW:
+		// ATOMICRMW: [ptr_delta, val_delta, operation, is_volatile, ordering, synchscope]
+		// Operands: [ptrValueID, valueID, atomicOp, isVolatile, ordering, synchscope]
+		if len(instr.Operands) >= 6 {
+			ptrDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
+			valDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always positive
+			atomicOp := uint64(instr.Operands[2])                  //nolint:gosec // atomic operation enum
+			isVolatile := uint64(instr.Operands[3])                //nolint:gosec // 0 or 1
+			ordering := uint64(instr.Operands[4])                  //nolint:gosec // memory ordering
+			synchscope := uint64(instr.Operands[5])                //nolint:gosec // synch scope
+			s.w.EmitRecord(funcCodeInstAtomicRMW, []uint64{ptrDelta, valDelta, atomicOp, isVolatile, ordering, synchscope})
+		}
+
+	case InstrCmpXchg:
+		// CMPXCHG: [ptr_delta, cmp_delta, new_delta, is_volatile, ordering, synchscope]
+		// Operands: [ptrValueID, cmpValueID, newValueID, isVolatile, ordering, synchscope]
+		if len(instr.Operands) >= 6 {
+			ptrDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
+			cmpDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always positive
+			newDelta := uint64(currentValueID - instr.Operands[2]) //nolint:gosec // delta always positive
+			isVolatile := uint64(instr.Operands[3])                //nolint:gosec // 0 or 1
+			ordering := uint64(instr.Operands[4])                  //nolint:gosec // memory ordering
+			synchscope := uint64(instr.Operands[5])                //nolint:gosec // synch scope
+			s.w.EmitRecord(funcCodeInstCmpXchg, []uint64{ptrDelta, cmpDelta, newDelta, isVolatile, ordering, synchscope})
 		}
 	}
 }

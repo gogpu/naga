@@ -315,6 +315,8 @@ const (
 	InstrStore                       // memory store
 	InstrGEP                         // getelementptr
 	InstrPhi                         // phi node
+	InstrAtomicRMW                   // atomicrmw (atomic read-modify-write)
+	InstrCmpXchg                     // cmpxchg (atomic compare-exchange)
 )
 
 // Instruction represents a single LLVM IR instruction.

@@ -235,3 +235,31 @@ const (
 	CastFPExt   CastOpKind = 8  // Extend float (e.g., float→double)
 	CastBitcast CastOpKind = 11 // Bitcast (same size, different type)
 )
+
+// AtomicRMWOp represents LLVM atomicrmw operation codes.
+// Used in FUNC_CODE_INST_ATOMICRMW record.
+// Reference: LLVM LLVMAtomicRMWBinOp enum, LLVM BitcodeReader.cpp
+type AtomicRMWOp uint32
+
+const (
+	AtomicRMWXchg AtomicRMWOp = 0  // exchange
+	AtomicRMWAdd  AtomicRMWOp = 1  // add
+	AtomicRMWSub  AtomicRMWOp = 2  // subtract
+	AtomicRMWAnd  AtomicRMWOp = 3  // bitwise and
+	AtomicRMWNand AtomicRMWOp = 4  // bitwise nand
+	AtomicRMWOr   AtomicRMWOp = 5  // bitwise or
+	AtomicRMWXor  AtomicRMWOp = 6  // bitwise xor
+	AtomicRMWMax  AtomicRMWOp = 7  // signed max
+	AtomicRMWMin  AtomicRMWOp = 8  // signed min
+	AtomicRMWUMax AtomicRMWOp = 9  // unsigned max
+	AtomicRMWUMin AtomicRMWOp = 10 // unsigned min
+)
+
+// LLVM memory ordering constants.
+const (
+	AtomicOrderingMonotonic uint32 = 2 // Monotonic (relaxed)
+	AtomicOrderingAcquire   uint32 = 4 // Acquire
+	AtomicOrderingRelease   uint32 = 5 // Release
+	AtomicOrderingAcqRel    uint32 = 6 // Acquire-Release
+	AtomicOrderingSeqCst    uint32 = 7 // Sequentially Consistent
+)
