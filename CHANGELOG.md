@@ -103,8 +103,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   struct member component stores, atomic compare-exchange result struct, abstract literals,
   matrix alloca, refract/modf/frexp/quantizeF16** — systematic fixes across emitter.
 
-- **DXIL: DXC dumpbin validation** — **134/165 shaders pass DXC dumpbin (81.2%)**.
-  14 val_fail, 17 compile_fail.
+- **DXIL: atomic type width support (i32/i64/f32)** — workgroup atomics now use correct
+  type width instead of hardcoded i32. Fixes f32/i64 atomic shaders.
+
+- **DXIL: ExprOverride + ProcessOverrides** — pipeline override constants now compile.
+  DXIL test harness processes overrides (same as SPIR-V/HLSL).
+
+- **DXIL: matrix column extraction, f16 constant encoding** — AccessIndex on matrix
+  returns full column vector (was single scalar). F16 constants use IEEE 754 half-precision.
+
+- **DXIL: DXC dumpbin validation** — **139/165 shaders pass DXC dumpbin (84.2%)**.
+  11 val_fail, 15 compile_fail.
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Fixed (other backends)

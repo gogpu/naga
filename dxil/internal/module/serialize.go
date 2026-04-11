@@ -394,14 +394,63 @@ func encodeSignRotated(v int64) uint64 {
 }
 
 // floatBits returns the IEEE 754 bit pattern for a float constant.
-// For f16 and f32, returns 32-bit pattern; for f64, returns 64-bit pattern.
+// Each precision stores its native-width bit pattern:
+//   - f16: 16-bit half-float pattern (zero-extended to uint64)
+//   - f32: 32-bit float pattern
+//   - f64: 64-bit double pattern
+//
+// Reference: LLVM LLVMBitCodes.h CST_CODE_FLOAT stores native-width bits.
 func floatBits(c *Constant) uint64 {
 	switch c.ConstType.FloatBits {
+	case 16:
+		return uint64(float32ToF16Bits(float32(c.FloatValue)))
 	case 64:
 		return math.Float64bits(c.FloatValue)
 	default:
-		// f16 and f32 are stored as 32-bit float bit patterns.
 		return uint64(math.Float32bits(float32(c.FloatValue)))
+	}
+}
+
+// float32ToF16Bits converts a float32 value to IEEE 754 half-precision (float16)
+// bit representation. Handles normal, subnormal, infinity, NaN, and rounds to
+// nearest even.
+func float32ToF16Bits(f float32) uint16 {
+	bits := math.Float32bits(f)
+	sign := uint16((bits >> 16) & 0x8000)
+	exp := int((bits>>23)&0xFF) - 127
+	frac := bits & 0x7FFFFF
+
+	switch {
+	case exp == 128: // inf or NaN
+		if frac != 0 {
+			return sign | 0x7C00 | uint16(frac>>13)
+		}
+		return sign | 0x7C00
+	case exp > 15:
+		return sign | 0x7C00 // overflow → infinity
+	case exp > -15:
+		// Normal range for f16. Round to nearest even.
+		f16Frac := uint16(frac >> 13)
+		remainder := frac & 0x1FFF
+		if remainder > 0x1000 || (remainder == 0x1000 && f16Frac&1 != 0) {
+			f16Frac++
+			if f16Frac >= 0x400 {
+				f16Frac = 0
+				exp++
+				if exp > 15 {
+					return sign | 0x7C00
+				}
+			}
+		}
+		return sign | uint16(exp+15)<<10 | f16Frac
+	case exp > -25:
+		// Subnormal range for f16.
+		frac |= 0x800000
+		shift := uint(-14 - exp)
+		f16Frac := uint16(frac >> (shift + 13)) //nolint:gosec // frac>>shift always fits in uint16
+		return sign | f16Frac
+	default:
+		return sign // underflow → zero
 	}
 }
 

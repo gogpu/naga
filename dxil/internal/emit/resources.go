@@ -964,9 +964,12 @@ func (e *Emitter) computeCBVFieldOffset(varHandle ir.GlobalVariableHandle, indic
 			currentType = ct.Scalar
 
 		case ir.MatrixType:
-			// Matrix column access: offset = idx * column_size (rows * scalar_width).
-			colSize := uint32(ct.Rows) * uint32(ct.Scalar.Width)
-			byteOffset += idx * colSize
+			// Matrix column access: offset = idx * column_stride.
+			// CBV matrix columns are 16-byte aligned (one register per column),
+			// even if the column has fewer than 4 components.
+			colBytes := uint32(ct.Rows) * uint32(ct.Scalar.Width)
+			colStride := (colBytes + 15) &^ 15 // align to 16 bytes
+			byteOffset += idx * colStride
 			currentType = ir.VectorType{Size: ct.Rows, Scalar: ct.Scalar}
 
 		default:

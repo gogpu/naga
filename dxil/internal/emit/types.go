@@ -67,6 +67,10 @@ func typeToDXIL(mod *module.Module, irMod *ir.Module, inner ir.TypeInner) (*modu
 		}
 		return mod.GetStructType("", elems), nil
 
+	case ir.AtomicType:
+		// Atomic types map to their underlying scalar in DXIL (i32, i64, etc.).
+		return scalarToDXIL(mod, t.Scalar), nil
+
 	case ir.PointerType:
 		base := irMod.Types[t.Base]
 		elemTy, err := typeToDXIL(mod, irMod, base.Inner)
@@ -121,6 +125,10 @@ func typeToDXILFull(mod *module.Module, irMod *ir.Module, inner ir.TypeInner) (*
 			elems = append(elems, memberElems...)
 		}
 		return mod.GetStructType("", elems), nil
+
+	case ir.AtomicType:
+		// Atomic types map to their underlying scalar in DXIL (i32, i64, etc.).
+		return scalarToDXIL(mod, t.Scalar), nil
 
 	case ir.PointerType:
 		base := irMod.Types[t.Base]
@@ -214,6 +222,8 @@ func flattenStructMember(mod *module.Module, irMod *ir.Module, inner ir.TypeInne
 			elems = append(elems, sub...)
 		}
 		return elems, nil
+	case ir.AtomicType:
+		return []*module.Type{scalarToDXIL(mod, t.Scalar)}, nil
 	default:
 		return []*module.Type{mod.GetIntType(32)}, nil
 	}

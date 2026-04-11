@@ -74,6 +74,17 @@ func TestDxilValSummary(t *testing.T) {
 			continue
 		}
 
+		// Process pipeline overrides (replaces ExprOverride → ExprConstant/Literal).
+		pipelineConstants := readSPVPipelineConstants(shader.name)
+		if len(pipelineConstants) > 0 || len(module.Overrides) > 0 {
+			module = ir.CloneModuleForOverrides(module)
+			if err := ir.ProcessOverrides(module, pipelineConstants); err != nil {
+				compileFailCount++
+				results = append(results, result{shader.name, "compile_fail", err.Error()})
+				continue
+			}
+		}
+
 		if len(module.EntryPoints) == 0 {
 			compileFailCount++
 			results = append(results, result{shader.name, "compile_fail", "no entry points"})

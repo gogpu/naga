@@ -853,6 +853,8 @@ func (e *Emitter) emitStmtAtomic(fn *ir.Function, atomic ir.StmtAtomic) error {
 		return fmt.Errorf("atomic index: %w", err)
 	}
 
+	ol := overloadForScalar(chain.scalar)
+
 	switch af := atomic.Fun.(type) {
 	case ir.AtomicLoad:
 		return e.emitAtomicLoad(fn, atomic, handleID, indexID, chain)
@@ -862,33 +864,33 @@ func (e *Emitter) emitStmtAtomic(fn *ir.Function, atomic ir.StmtAtomic) error {
 
 	case ir.AtomicExchange:
 		if af.Compare != nil {
-			return e.emitAtomicCmpXchg(fn, atomic, af, handleID, indexID)
+			return e.emitAtomicCmpXchg(fn, atomic, af, handleID, indexID, ol)
 		}
-		return e.emitAtomicBinOp(fn, atomic, DXILAtomicExchange, handleID, indexID)
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicExchange, handleID, indexID, ol)
 
 	case ir.AtomicAdd:
-		return e.emitAtomicBinOp(fn, atomic, DXILAtomicAdd, handleID, indexID)
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicAdd, handleID, indexID, ol)
 
 	case ir.AtomicSubtract:
 		// DXIL has no subtract atomic — negate the value and use ADD.
-		return e.emitAtomicSubtract(fn, atomic, handleID, indexID)
+		return e.emitAtomicSubtract(fn, atomic, handleID, indexID, ol)
 
 	case ir.AtomicAnd:
-		return e.emitAtomicBinOp(fn, atomic, DXILAtomicAnd, handleID, indexID)
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicAnd, handleID, indexID, ol)
 
 	case ir.AtomicInclusiveOr:
-		return e.emitAtomicBinOp(fn, atomic, DXILAtomicOr, handleID, indexID)
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicOr, handleID, indexID, ol)
 
 	case ir.AtomicExclusiveOr:
-		return e.emitAtomicBinOp(fn, atomic, DXILAtomicXor, handleID, indexID)
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicXor, handleID, indexID, ol)
 
 	case ir.AtomicMin:
 		op := e.atomicMinMaxOp(chain.scalar, true)
-		return e.emitAtomicBinOp(fn, atomic, op, handleID, indexID)
+		return e.emitAtomicBinOp(fn, atomic, op, handleID, indexID, ol)
 
 	case ir.AtomicMax:
 		op := e.atomicMinMaxOp(chain.scalar, false)
-		return e.emitAtomicBinOp(fn, atomic, op, handleID, indexID)
+		return e.emitAtomicBinOp(fn, atomic, op, handleID, indexID, ol)
 
 	default:
 		return fmt.Errorf("unsupported atomic function: %T", atomic.Fun)
@@ -911,26 +913,29 @@ func (e *Emitter) atomicMinMaxOp(scalar ir.ScalarType, isMin bool) DXILAtomicOp 
 	return DXILAtomicIMax
 }
 
-// emitAtomicBinOp emits a dx.op.atomicBinOp call.
+// emitAtomicBinOp emits a dx.op.atomicBinOp call with the appropriate type overload.
 //
-// Signature: i32 @dx.op.atomicBinOp.i32(i32 78, %handle, i32 atomicOp,
+// Signature: T @dx.op.atomicBinOp.T(i32 78, %handle, i32 atomicOp,
 //
-//	i32 coord0, i32 coord1, i32 coord2, i32 value) → i32
+//	i32 coord0, i32 coord1, i32 coord2, T value) → T
+//
+// where T is i32, i64, or f32 depending on the atomic's scalar type.
 //
 // Reference: Mesa nir_to_dxil.c emit_atomic_binop() ~949
-func (e *Emitter) emitAtomicBinOp(fn *ir.Function, atomic ir.StmtAtomic, atomicOp DXILAtomicOp, handleID, indexID int) error {
+func (e *Emitter) emitAtomicBinOp(fn *ir.Function, atomic ir.StmtAtomic, atomicOp DXILAtomicOp, handleID, indexID int, ol overloadType) error {
 	valueID, err := e.emitExpression(fn, atomic.Value)
 	if err != nil {
 		return fmt.Errorf("atomic value: %w", err)
 	}
 
-	atomicFn := e.getDxOpAtomicBinOpFunc()
+	atomicFn := e.getDxOpAtomicBinOpFuncTyped(ol)
+	retTy := e.overloadReturnType(ol)
 	opcodeVal := e.getIntConstID(int64(OpAtomicBinOp))
 	atomicOpVal := e.getIntConstID(int64(atomicOp))
 	undefVal := e.getUndefConstID()
 
-	// dx.op.atomicBinOp(i32 78, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, i32 value)
-	resultID := e.addCallInstr(atomicFn, e.mod.GetIntType(32), []int{
+	// dx.op.atomicBinOp.T(i32 78, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, T value)
+	resultID := e.addCallInstr(atomicFn, retTy, []int{
 		opcodeVal, handleID, atomicOpVal,
 		indexID, undefVal, undefVal, // coord0, coord1, coord2
 		valueID,
@@ -946,22 +951,31 @@ func (e *Emitter) emitAtomicBinOp(fn *ir.Function, atomic ir.StmtAtomic, atomicO
 
 // emitAtomicSubtract emits an atomic subtract by negating the value and using ADD.
 // DXIL does not have a native subtract atomic operation.
-func (e *Emitter) emitAtomicSubtract(fn *ir.Function, atomic ir.StmtAtomic, handleID, indexID int) error {
+func (e *Emitter) emitAtomicSubtract(fn *ir.Function, atomic ir.StmtAtomic, handleID, indexID int, ol overloadType) error {
 	valueID, err := e.emitExpression(fn, atomic.Value)
 	if err != nil {
 		return fmt.Errorf("atomic subtract value: %w", err)
 	}
 
-	// Negate: 0 - value.
-	zeroVal := e.getIntConstID(0)
-	negatedID := e.addBinOpInstr(e.mod.GetIntType(32), BinOpSub, zeroVal, valueID)
+	retTy := e.overloadReturnType(ol)
 
-	atomicFn := e.getDxOpAtomicBinOpFunc()
+	// Negate: 0 - value.
+	var negatedID int
+	if ol == overloadF32 || ol == overloadF64 {
+		// For float: use fsub(0.0, value).
+		zeroVal := e.getFloatConstID(0.0)
+		negatedID = e.addBinOpInstr(retTy, BinOpFSub, zeroVal, valueID)
+	} else {
+		zeroVal := e.getIntConstID(0)
+		negatedID = e.addBinOpInstr(retTy, BinOpSub, zeroVal, valueID)
+	}
+
+	atomicFn := e.getDxOpAtomicBinOpFuncTyped(ol)
 	opcodeVal := e.getIntConstID(int64(OpAtomicBinOp))
 	atomicOpVal := e.getIntConstID(int64(DXILAtomicAdd))
 	undefVal := e.getUndefConstID()
 
-	resultID := e.addCallInstr(atomicFn, e.mod.GetIntType(32), []int{
+	resultID := e.addCallInstr(atomicFn, retTy, []int{
 		opcodeVal, handleID, atomicOpVal,
 		indexID, undefVal, undefVal,
 		negatedID,
@@ -974,14 +988,14 @@ func (e *Emitter) emitAtomicSubtract(fn *ir.Function, atomic ir.StmtAtomic, hand
 	return nil
 }
 
-// emitAtomicCmpXchg emits a dx.op.atomicCompareExchange call.
+// emitAtomicCmpXchg emits a dx.op.atomicCompareExchange call with the appropriate type overload.
 //
-// Signature: i32 @dx.op.atomicCompareExchange.i32(i32 79, %handle,
+// Signature: T @dx.op.atomicCompareExchange.T(i32 79, %handle,
 //
-//	i32 coord0, i32 coord1, i32 coord2, i32 cmpVal, i32 newVal) → i32
+//	i32 coord0, i32 coord1, i32 coord2, T cmpVal, T newVal) → T
 //
 // Reference: Mesa nir_to_dxil.c emit_atomic_cmpxchg() ~973
-func (e *Emitter) emitAtomicCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, exchange ir.AtomicExchange, handleID, indexID int) error {
+func (e *Emitter) emitAtomicCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, exchange ir.AtomicExchange, handleID, indexID int, ol overloadType) error {
 	newValID, err := e.emitExpression(fn, atomic.Value)
 	if err != nil {
 		return fmt.Errorf("atomic cmpxchg new value: %w", err)
@@ -992,12 +1006,13 @@ func (e *Emitter) emitAtomicCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, excha
 		return fmt.Errorf("atomic cmpxchg compare value: %w", err)
 	}
 
-	cmpXchgFn := e.getDxOpAtomicCmpXchgFunc()
+	cmpXchgFn := e.getDxOpAtomicCmpXchgFuncTyped(ol)
+	retTy := e.overloadReturnType(ol)
 	opcodeVal := e.getIntConstID(int64(OpAtomicCmpXchg))
 	undefVal := e.getUndefConstID()
 
-	// dx.op.atomicCompareExchange(i32 79, %handle, i32 coord0, coord1, coord2, i32 cmpVal, i32 newVal)
-	resultID := e.addCallInstr(cmpXchgFn, e.mod.GetIntType(32), []int{
+	// dx.op.atomicCompareExchange.T(i32 79, %handle, i32 coord0, coord1, coord2, T cmpVal, T newVal)
+	resultID := e.addCallInstr(cmpXchgFn, retTy, []int{
 		opcodeVal, handleID,
 		indexID, undefVal, undefVal, // coord0, coord1, coord2
 		cmpValID, newValID,
@@ -1005,9 +1020,14 @@ func (e *Emitter) emitAtomicCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, excha
 
 	if atomic.Result != nil {
 		// atomicCompareExchangeWeak returns a struct {old_value, exchanged}.
-		// Component 0 = old_value (the i32 result of dx.op.atomicCompareExchange).
+		// Component 0 = old_value (the T result of dx.op.atomicCompareExchange).
 		// Component 1 = exchanged (bool: old_value == cmpVal).
-		exchangedID := e.addCmpInstr(ICmpEQ, resultID, cmpValID)
+		var exchangedID int
+		if ol == overloadF32 || ol == overloadF64 {
+			exchangedID = e.addCmpInstr(FCmpOEQ, resultID, cmpValID)
+		} else {
+			exchangedID = e.addCmpInstr(ICmpEQ, resultID, cmpValID)
+		}
 
 		e.exprValues[*atomic.Result] = resultID
 		e.exprComponents[*atomic.Result] = []int{resultID, exchangedID}
@@ -1110,18 +1130,24 @@ func (e *Emitter) emitWorkgroupAtomic(fn *ir.Function, atomic ir.StmtAtomic) err
 		return fmt.Errorf("workgroup atomic pointer: %w", err)
 	}
 
-	i32Ty := e.mod.GetIntType(32)
+	// Resolve the actual scalar width of the atomic (i32, i64, etc.).
+	atomicScalar := e.resolveAtomicScalar(fn, atomic.Pointer)
+	bitWidth := uint(atomicScalar.Width) * 8
+	atomicTy := e.mod.GetIntType(bitWidth)
+	align := 2 // log2(4) for i32
+	if bitWidth == 64 {
+		align = 3 // log2(8) for i64
+	}
 
 	switch af := atomic.Fun.(type) {
 	case ir.AtomicLoad:
 		// atomicLoad on workgroup = plain load (DXIL doesn't need special atomic load for groupshared)
-		align := 2 // log2(4) for i32
 		loadID := e.allocValue()
 		loadInstr := &module.Instruction{
 			Kind:       module.InstrLoad,
 			HasValue:   true,
-			ResultType: i32Ty,
-			Operands:   []int{ptrID, i32Ty.ID, align, 0},
+			ResultType: atomicTy,
+			Operands:   []int{ptrID, atomicTy.ID, align, 0},
 			ValueID:    loadID,
 		}
 		e.currentBB.AddInstruction(loadInstr)
@@ -1136,7 +1162,6 @@ func (e *Emitter) emitWorkgroupAtomic(fn *ir.Function, atomic ir.StmtAtomic) err
 		if err2 != nil {
 			return fmt.Errorf("workgroup atomic store value: %w", err2)
 		}
-		align := 2 // log2(4) for i32
 		storeInstr := &module.Instruction{
 			Kind:     module.InstrStore,
 			HasValue: false,
@@ -1186,18 +1211,22 @@ func (e *Emitter) emitWorkgroupAtomic(fn *ir.Function, atomic ir.StmtAtomic) err
 }
 
 // emitWorkgroupAtomicRMW emits an LLVM atomicrmw instruction.
+// The type is resolved from the atomic pointer's scalar (i32, i64, etc.).
 func (e *Emitter) emitWorkgroupAtomicRMW(fn *ir.Function, atomic ir.StmtAtomic, op AtomicRMWOp, ptrID int) error {
 	valueID, err := e.emitExpression(fn, atomic.Value)
 	if err != nil {
 		return fmt.Errorf("workgroup atomic value: %w", err)
 	}
 
-	i32Ty := e.mod.GetIntType(32)
+	atomicScalar := e.resolveAtomicScalar(fn, atomic.Pointer)
+	bitWidth := uint(atomicScalar.Width) * 8
+	atomicTy := e.mod.GetIntType(bitWidth)
+
 	resultID := e.allocValue()
 	instr := &module.Instruction{
 		Kind:       module.InstrAtomicRMW,
 		HasValue:   true,
-		ResultType: i32Ty,
+		ResultType: atomicTy,
 		Operands:   []int{ptrID, valueID, int(op), 0, int(AtomicOrderingSeqCst), 1},
 		ValueID:    resultID,
 	}
@@ -1220,12 +1249,15 @@ func (e *Emitter) emitWorkgroupCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, af
 		return fmt.Errorf("workgroup cmpxchg new value: %w", err)
 	}
 
-	i32Ty := e.mod.GetIntType(32)
+	atomicScalar := e.resolveAtomicScalar(fn, atomic.Pointer)
+	bitWidth := uint(atomicScalar.Width) * 8
+	atomicTy := e.mod.GetIntType(bitWidth)
+
 	resultID := e.allocValue()
 	instr := &module.Instruction{
 		Kind:       module.InstrCmpXchg,
 		HasValue:   true,
-		ResultType: i32Ty,
+		ResultType: atomicTy,
 		Operands:   []int{ptrID, cmpID, newID, 0, int(AtomicOrderingSeqCst), 1},
 		ValueID:    resultID,
 	}
@@ -1237,21 +1269,99 @@ func (e *Emitter) emitWorkgroupCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, af
 	return nil
 }
 
-// isUnsignedAtomicPointer determines if the atomic variable's scalar type is unsigned.
-func (e *Emitter) isUnsignedAtomicPointer(fn *ir.Function, ptrHandle ir.ExpressionHandle) bool {
-	if int(ptrHandle) >= len(fn.Expressions) {
-		return false
-	}
-	expr := fn.Expressions[ptrHandle]
-	if gv, ok := expr.Kind.(ir.ExprGlobalVariable); ok {
-		if int(gv.Variable) < len(e.ir.GlobalVariables) {
-			inner := e.ir.Types[e.ir.GlobalVariables[gv.Variable].Type].Inner
-			if at, ok := inner.(ir.AtomicType); ok {
-				return at.Scalar.Kind == ir.ScalarUint
-			}
+// resolveAtomicScalar walks the expression/type chain from a pointer to an atomic
+// and returns the scalar type of the atomic. This handles direct GlobalVariable,
+// AccessIndex into structs/arrays, and Access into arrays.
+func (e *Emitter) resolveAtomicScalar(fn *ir.Function, ptrHandle ir.ExpressionHandle) ir.ScalarType {
+	// Try ExpressionTypes first — the pointer type contains the base type.
+	if baseInner := e.resolveAtomicBaseType(fn, ptrHandle); baseInner != nil {
+		if at, ok := baseInner.(ir.AtomicType); ok {
+			return at.Scalar
 		}
 	}
-	return false
+	// Fallback: walk expression chain to find the global variable + type.
+	return e.resolveAtomicScalarFromExpr(fn, ptrHandle)
+}
+
+// resolveAtomicBaseType extracts the base type from a pointer's ExpressionTypes.
+func (e *Emitter) resolveAtomicBaseType(fn *ir.Function, ptrHandle ir.ExpressionHandle) ir.TypeInner {
+	if int(ptrHandle) >= len(fn.ExpressionTypes) {
+		return nil
+	}
+	tr := fn.ExpressionTypes[ptrHandle]
+	if tr.Handle != nil {
+		inner := e.ir.Types[*tr.Handle].Inner
+		if pt, ok := inner.(ir.PointerType); ok {
+			return e.ir.Types[pt.Base].Inner
+		}
+		return inner
+	}
+	if tr.Value != nil {
+		if pt, ok := tr.Value.(ir.PointerType); ok {
+			return e.ir.Types[pt.Base].Inner
+		}
+	}
+	return nil
+}
+
+// resolveAtomicScalarFromExpr walks expression kinds recursively to find the atomic scalar.
+func (e *Emitter) resolveAtomicScalarFromExpr(fn *ir.Function, ptrHandle ir.ExpressionHandle) ir.ScalarType {
+	if int(ptrHandle) >= len(fn.Expressions) {
+		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	}
+	expr := fn.Expressions[ptrHandle]
+	switch ek := expr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		if int(ek.Variable) < len(e.ir.GlobalVariables) {
+			return e.resolveAtomicScalarFromType(e.ir.GlobalVariables[ek.Variable].Type)
+		}
+	case ir.ExprAccessIndex:
+		// Walk through the base's type to find the member/element type.
+		baseInner := e.resolveExprTypeInner(fn, ek.Base)
+		switch bt := baseInner.(type) {
+		case ir.StructType:
+			if int(ek.Index) < len(bt.Members) {
+				return e.resolveAtomicScalarFromType(bt.Members[ek.Index].Type)
+			}
+		case ir.ArrayType:
+			return e.resolveAtomicScalarFromType(bt.Base)
+		}
+		// Fall through to base.
+		return e.resolveAtomicScalarFromExpr(fn, ek.Base)
+	case ir.ExprAccess:
+		baseInner := e.resolveExprTypeInner(fn, ek.Base)
+		if at, ok := baseInner.(ir.ArrayType); ok {
+			return e.resolveAtomicScalarFromType(at.Base)
+		}
+		return e.resolveAtomicScalarFromExpr(fn, ek.Base)
+	}
+	return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+}
+
+// resolveAtomicScalarFromType resolves an atomic scalar from a type handle,
+// walking through arrays to find the atomic.
+func (e *Emitter) resolveAtomicScalarFromType(th ir.TypeHandle) ir.ScalarType {
+	if int(th) >= len(e.ir.Types) {
+		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	}
+	inner := e.ir.Types[th].Inner
+	switch t := inner.(type) {
+	case ir.AtomicType:
+		return t.Scalar
+	case ir.ArrayType:
+		return e.resolveAtomicScalarFromType(t.Base)
+	case ir.StructType:
+		// Can't pick a member without an index — default.
+		if len(t.Members) > 0 {
+			return e.resolveAtomicScalarFromType(t.Members[0].Type)
+		}
+	}
+	return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+}
+
+// isUnsignedAtomicPointer determines if the atomic variable's scalar type is unsigned.
+func (e *Emitter) isUnsignedAtomicPointer(fn *ir.Function, ptrHandle ir.ExpressionHandle) bool {
+	return e.resolveAtomicScalar(fn, ptrHandle).Kind == ir.ScalarUint
 }
 
 // emitStmtBarrier emits a dx.op.barrier call.
@@ -1294,43 +1404,46 @@ func (e *Emitter) emitStmtBarrier(barrier ir.StmtBarrier) error {
 	return nil
 }
 
-// getDxOpAtomicBinOpFunc creates the dx.op.atomicBinOp.i32 function declaration.
-// Signature: i32 @dx.op.atomicBinOp.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32)
-func (e *Emitter) getDxOpAtomicBinOpFunc() *module.Function {
+// getDxOpAtomicBinOpFuncTyped creates a typed dx.op.atomicBinOp function declaration.
+// Signature: T @dx.op.atomicBinOp.T(i32, %dx.types.Handle, i32, i32, i32, i32, T)
+// where T is i32, i64, or f32 depending on the overload.
+func (e *Emitter) getDxOpAtomicBinOpFuncTyped(ol overloadType) *module.Function {
 	name := "dx.op.atomicBinOp"
-	key := dxOpKey{name: name, overload: overloadI32}
+	key := dxOpKey{name: name, overload: ol}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
 	}
 
 	i32Ty := e.mod.GetIntType(32)
 	handleTy := e.getDxHandleType()
-	fullName := name + suffixI32
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
 
-	// (i32 opcode, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, i32 value) → i32
-	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}
-	funcTy := e.mod.GetFunctionType(i32Ty, params)
+	// (i32 opcode, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, T value) → T
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, i32Ty, retTy}
+	funcTy := e.mod.GetFunctionType(retTy, params)
 	fn := e.mod.AddFunction(fullName, funcTy, true)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
 
-// getDxOpAtomicCmpXchgFunc creates the dx.op.atomicCompareExchange.i32 function declaration.
-// Signature: i32 @dx.op.atomicCompareExchange.i32(i32, %handle, i32, i32, i32, i32, i32)
-func (e *Emitter) getDxOpAtomicCmpXchgFunc() *module.Function {
+// getDxOpAtomicCmpXchgFuncTyped creates a typed dx.op.atomicCompareExchange function declaration.
+// Signature: T @dx.op.atomicCompareExchange.T(i32, %handle, i32, i32, i32, T, T)
+func (e *Emitter) getDxOpAtomicCmpXchgFuncTyped(ol overloadType) *module.Function {
 	name := "dx.op.atomicCompareExchange"
-	key := dxOpKey{name: name, overload: overloadI32}
+	key := dxOpKey{name: name, overload: ol}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
 	}
 
 	i32Ty := e.mod.GetIntType(32)
 	handleTy := e.getDxHandleType()
-	fullName := name + suffixI32
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
 
-	// (i32 opcode, %handle, i32 coord0, i32 coord1, i32 coord2, i32 cmpVal, i32 newVal) → i32
-	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}
-	funcTy := e.mod.GetFunctionType(i32Ty, params)
+	// (i32 opcode, %handle, i32 coord0, i32 coord1, i32 coord2, T cmpVal, T newVal) → T
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, retTy, retTy}
+	funcTy := e.mod.GetFunctionType(retTy, params)
 	fn := e.mod.AddFunction(fullName, funcTy, true)
 	e.dxOpFuncs[key] = fn
 	return fn

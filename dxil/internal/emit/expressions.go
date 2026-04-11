@@ -111,6 +111,9 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 	case ir.ExprArrayLength:
 		valueID, err = e.emitArrayLength(fn, ek)
 
+	case ir.ExprOverride:
+		valueID, err = e.emitOverride(ek)
+
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", expr.Kind)
 	}
@@ -226,15 +229,29 @@ func (e *Emitter) emitCompose(fn *ir.Function, comp ir.ExprCompose) (int, error)
 // For struct local/global variable access, emits a GEP instruction to get a pointer
 // to the member field. For array access, emits a GEP to the element. For vector
 // component extraction, uses per-component tracking.
+//
+//nolint:gocognit // access index dispatch handles many composite type variants
 func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, error) {
 	baseID, err := e.emitExpression(fn, ai.Base)
 	if err != nil {
 		return 0, err
 	}
 
-	// If the base has per-component tracking (e.g., atomic cmpxchg result struct,
-	// vector expression), extract the indexed component directly.
+	// If the base has per-component tracking, extract the indexed component(s).
 	if comps, ok := e.exprComponents[ai.Base]; ok && int(ai.Index) < len(comps) {
+		// Check if the base is a matrix — AccessIndex on a matrix extracts a column
+		// (vec of `rows` components), not a single scalar.
+		baseType := e.resolveExprTypeInner(fn, ai.Base)
+		if mt, isMat := baseType.(ir.MatrixType); isMat {
+			rows := int(mt.Rows)
+			startIdx := int(ai.Index) * rows
+			if startIdx+rows <= len(comps) {
+				colComps := comps[startIdx : startIdx+rows]
+				e.pendingComponents = colComps
+				return colComps[0], nil
+			}
+		}
+		// For vectors, structs with flat components — direct scalar extraction.
 		return comps[ai.Index], nil
 	}
 
@@ -3274,6 +3291,28 @@ func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) {
 	}
 }
 
+// emitOverride emits a pipeline-overridable constant's default value.
+// DXIL has no direct equivalent to WGSL overrides; we emit them as their
+// default init values (matching ProcessOverrides with empty constants map).
+func (e *Emitter) emitOverride(eo ir.ExprOverride) (int, error) {
+	if int(eo.Override) >= len(e.ir.Overrides) {
+		return 0, fmt.Errorf("override %d out of range", eo.Override)
+	}
+	ov := &e.ir.Overrides[eo.Override]
+
+	// Use the override's init expression if available.
+	if ov.Init != nil {
+		return e.emitGlobalExpression(*ov.Init)
+	}
+
+	// No default value — emit zero for the override's type.
+	inner := e.ir.Types[ov.Ty].Inner
+	if s, ok := scalarOfType(inner); ok && s.Kind == ir.ScalarFloat {
+		return e.getFloatConstID(0.0), nil
+	}
+	return e.getIntConstID(0), nil
+}
+
 // emitConstant emits a reference to a module-scope constant.
 func (e *Emitter) emitConstant(ec ir.ExprConstant) (int, error) {
 	c := &e.ir.Constants[ec.Constant]
@@ -3337,6 +3376,9 @@ func (e *Emitter) emitGlobalExpression(handle ir.ExpressionHandle) (int, error) 
 	case ir.ExprConstant:
 		// Nested constant reference.
 		return e.emitConstant(gk)
+
+	case ir.ExprOverride:
+		return e.emitOverride(gk)
 
 	default:
 		// Unsupported global expression kind — fall back to zero.
