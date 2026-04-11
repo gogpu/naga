@@ -870,8 +870,16 @@ func valueOperandIndices(instr *module.Instruction) []int {
 			indices = append(indices, i)
 		}
 		return indices
+	case module.InstrAtomicRMW:
+		// AtomicRMW: [ptrValueID, valueID, atomicOp, isVolatile, ordering, synchscope]
+		// Only operands 0 (ptr) and 1 (value) are value references.
+		return []int{0, 1}
+	case module.InstrCmpXchg:
+		// CmpXchg: [ptrValueID, cmpValueID, newValueID, isVolatile, ordering, synchscope]
+		// Only operands 0 (ptr), 1 (cmp), and 2 (new) are value references.
+		return []int{0, 1, 2}
 	default:
-		// GEP, Phi: not yet used. Return all as safe fallback.
+		// Phi, Switch, etc.: not yet used. Return all as safe fallback.
 		indices := make([]int, len(instr.Operands))
 		for i := range indices {
 			indices[i] = i

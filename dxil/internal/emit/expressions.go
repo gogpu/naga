@@ -170,6 +170,14 @@ func (e *Emitter) emitLiteral(lit ir.Literal) (int, error) {
 	case ir.LiteralF16:
 		return e.addFloatConstID(e.mod.GetFloatType(16), float64(v)), nil
 
+	case ir.LiteralAbstractFloat:
+		// Abstract floats are concretized to f32 in DXIL.
+		return e.getFloatConstID(float64(v)), nil
+
+	case ir.LiteralAbstractInt:
+		// Abstract ints are concretized to i32 in DXIL.
+		return e.getIntConstID(int64(v)), nil
+
 	default:
 		return e.getIntConstID(0), nil
 	}
@@ -1302,6 +1310,8 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathCountTrailingZeros(fn, mathExpr)
 	case ir.MathCountLeadingZeros:
 		return e.emitMathCountLeadingZeros(fn, mathExpr)
+	case ir.MathQuantizeF16:
+		return e.emitMathQuantizeF16(fn, mathExpr)
 	case ir.MathInverse:
 		return 0, fmt.Errorf("MathInverse (matrix) not yet implemented in DXIL backend")
 	case ir.MathDeterminant:
@@ -2084,19 +2094,275 @@ func (e *Emitter) emitMathLdexp(fn *ir.Function, mathExpr ir.ExprMath) (int, err
 	return e.addCallInstr(ldexpFn, f32Ty, []int{opcodeVal, arg, exp}), nil
 }
 
-// emitMathRefract computes refract(I, N, eta).
-func (e *Emitter) emitMathRefract(_ *ir.Function, _ ir.ExprMath) (int, error) {
-	return 0, fmt.Errorf("refract not yet implemented in DXIL backend")
+// emitMathRefract computes refract(I, N, eta) manually since DXIL has no
+// native refract intrinsic.
+//
+// Formula:
+//
+//	d = dot(N, I)
+//	k = 1.0 - eta*eta * (1.0 - d*d)
+//	if k < 0.0: return zero vector
+//	else:       return eta * I - (eta * d + sqrt(k)) * N
+//
+// Reference: GLSL spec 8.5 Geometric Functions.
+func (e *Emitter) emitMathRefract(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, fmt.Errorf("refract I: %w", err)
+	}
+	if mathExpr.Arg1 == nil {
+		return 0, fmt.Errorf("refract: missing N argument")
+	}
+	if _, err := e.emitExpression(fn, *mathExpr.Arg1); err != nil {
+		return 0, fmt.Errorf("refract N: %w", err)
+	}
+	if mathExpr.Arg2 == nil {
+		return 0, fmt.Errorf("refract: missing eta argument")
+	}
+	etaID, err := e.emitExpression(fn, *mathExpr.Arg2)
+	if err != nil {
+		return 0, fmt.Errorf("refract eta: %w", err)
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	f32Ty := e.overloadReturnType(ol)
+
+	oneID := e.getFloatConstID(1.0)
+	zeroID := e.getFloatConstID(0.0)
+
+	// dot(N, I)
+	dotNI, dotErr := e.emitDotTwoVectors(mathExpr.Arg, *mathExpr.Arg1, size, ol)
+	if dotErr != nil {
+		return 0, fmt.Errorf("refract dot(N,I): %w", dotErr)
+	}
+
+	// k = 1.0 - eta*eta * (1.0 - d*d)
+	dd := e.addBinOpInstr(f32Ty, BinOpFMul, dotNI, dotNI)         // d*d
+	oneMinusDd := e.addBinOpInstr(f32Ty, BinOpFSub, oneID, dd)    // 1.0 - d*d
+	etaEta := e.addBinOpInstr(f32Ty, BinOpFMul, etaID, etaID)     // eta*eta
+	term := e.addBinOpInstr(f32Ty, BinOpFMul, etaEta, oneMinusDd) // eta*eta * (1-d*d)
+	k := e.addBinOpInstr(f32Ty, BinOpFSub, oneID, term)           // 1.0 - eta*eta*(1-d*d)
+
+	// sqrt(k)
+	sqrtFn := e.getDxOpUnaryFunc("dx.op.sqrt", ol)
+	sqrtOp := e.getIntConstID(int64(OpSqrt))
+	sqrtK := e.addCallInstr(sqrtFn, sqrtFn.FuncType.RetType, []int{sqrtOp, k})
+
+	// eta * d + sqrt(k)
+	etaD := e.addBinOpInstr(f32Ty, BinOpFMul, etaID, dotNI)
+	factor := e.addBinOpInstr(f32Ty, BinOpFAdd, etaD, sqrtK)
+
+	// k < 0.0 → select zero or refract result per component
+	kLtZero := e.addCmpInstr(FCmpOLT, k, zeroID)
+
+	// Per-component: eta * I[i] - factor * N[i], or zero if k < 0
+	comps := make([]int, size)
+	for i := 0; i < size; i++ {
+		iComp := e.getComponentID(mathExpr.Arg, i)
+		nComp := e.getComponentID(*mathExpr.Arg1, i)
+		etaI := e.addBinOpInstr(f32Ty, BinOpFMul, etaID, iComp)
+		factorN := e.addBinOpInstr(f32Ty, BinOpFMul, factor, nComp)
+		refracted := e.addBinOpInstr(f32Ty, BinOpFSub, etaI, factorN)
+		// select(kLtZero, zero, refracted)
+		selectID := e.allocValue()
+		selectInstr := &module.Instruction{
+			Kind:       module.InstrSelect,
+			HasValue:   true,
+			ResultType: f32Ty,
+			Operands:   []int{kLtZero, zeroID, refracted},
+			ValueID:    selectID,
+		}
+		e.currentBB.AddInstruction(selectInstr)
+		comps[i] = selectID
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitDotTwoVectors emits dot(A, B) for two different vector expression handles.
+func (e *Emitter) emitDotTwoVectors(handleA, handleB ir.ExpressionHandle, size int, ol overloadType) (int, error) {
+	var opcode DXILOpcode
+	switch size {
+	case 1:
+		// Scalar dot = a * b.
+		a := e.getComponentID(handleA, 0)
+		b := e.getComponentID(handleB, 0)
+		f32Ty := e.overloadReturnType(ol)
+		return e.addBinOpInstr(f32Ty, BinOpFMul, a, b), nil
+	case 2:
+		opcode = OpDot2
+	case 3:
+		opcode = OpDot3
+	case 4:
+		opcode = OpDot4
+	default:
+		return 0, fmt.Errorf("unsupported vector size for dot: %d", size)
+	}
+
+	dxFn := e.getDxOpDotFunc(size, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+
+	operands := make([]int, 1+2*size)
+	operands[0] = opcodeVal
+	for i := 0; i < size; i++ {
+		operands[1+i] = e.getComponentID(handleA, i)
+		operands[1+size+i] = e.getComponentID(handleB, i)
+	}
+
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, operands), nil
 }
 
 // emitMathModf splits a float into integer and fractional parts.
-func (e *Emitter) emitMathModf(_ *ir.Function, _ ir.ExprMath) (int, error) {
-	return 0, fmt.Errorf("modf not yet implemented in DXIL backend")
+// Returns a struct {fract, whole} where fract = x - floor(x) and whole = floor(x).
+// For vector inputs, produces per-component results flattened: [fract0, whole0, fract1, whole1, ...].
+//
+// DXIL has no native modf — we use floor + subtraction.
+func (e *Emitter) emitMathModf(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, fmt.Errorf("modf arg: %w", err)
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	f32Ty := e.overloadReturnType(ol)
+
+	floorFn := e.getDxOpUnaryFunc("dx.op.roundNI", ol)
+	floorOpVal := e.getIntConstID(int64(OpRoundNI))
+
+	// Result struct has {fract, whole} for scalar, or flattened for vectors:
+	// {fract0, fract1, ..., whole0, whole1, ...} OR {fract, whole}.
+	// Naga IR modf returns __modf_result with members [fract, whole],
+	// where each is scalar or vector matching the input type.
+	// Flatten as: fract components first, then whole components.
+	comps := make([]int, 2*size)
+	for i := 0; i < size; i++ {
+		x := e.getComponentID(mathExpr.Arg, i)
+		// whole = floor(x)
+		whole := e.addCallInstr(floorFn, floorFn.FuncType.RetType, []int{floorOpVal, x})
+		// fract = x - floor(x)
+		fract := e.addBinOpInstr(f32Ty, BinOpFSub, x, whole)
+		comps[i] = fract      // fract components first
+		comps[size+i] = whole // whole components after
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
 }
 
 // emitMathFrexp splits a float into significand and exponent.
-func (e *Emitter) emitMathFrexp(_ *ir.Function, _ ir.ExprMath) (int, error) {
-	return 0, fmt.Errorf("frexp not yet implemented in DXIL backend")
+// Returns a struct {fract, exp} where x = fract * 2^exp, 0.5 <= |fract| < 1.
+//
+// DXIL has no native frexp. We compute:
+//
+//	abs_x = fabs(x)
+//	exp_raw = floor(log2(abs_x)) + 1    (for x != 0)
+//	exp_i = ftoi(exp_raw)
+//	fract = x * exp2(-exp_raw)
+//
+// For x == 0, both fract and exp should be 0.
+// Result struct layout: [fract components..., exp components...].
+func (e *Emitter) emitMathFrexp(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, fmt.Errorf("frexp arg: %w", err)
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	f32Ty := e.overloadReturnType(ol)
+	i32Ty := e.mod.GetIntType(32)
+
+	fabsFn := e.getDxOpUnaryFunc("dx.op.fabs", ol)
+	fabsOp := e.getIntConstID(int64(OpFAbs))
+	log2Fn := e.getDxOpUnaryFunc("dx.op.log", ol)
+	log2Op := e.getIntConstID(int64(OpLog))
+	floorFn := e.getDxOpUnaryFunc("dx.op.roundNI", ol)
+	floorOp := e.getIntConstID(int64(OpRoundNI))
+	exp2Fn := e.getDxOpUnaryFunc("dx.op.exp", ol)
+	exp2Op := e.getIntConstID(int64(OpExp))
+	oneID := e.getFloatConstID(1.0)
+	zeroF := e.getFloatConstID(0.0)
+	zeroI := e.getIntConstID(0)
+
+	comps := make([]int, 2*size)
+	for i := 0; i < size; i++ {
+		x := e.getComponentID(mathExpr.Arg, i)
+		// abs_x = fabs(x)
+		absX := e.addCallInstr(fabsFn, f32Ty, []int{fabsOp, x})
+		// log2_abs = log2(abs_x)
+		log2Abs := e.addCallInstr(log2Fn, f32Ty, []int{log2Op, absX})
+		// exp_raw = floor(log2_abs) + 1
+		floorLog := e.addCallInstr(floorFn, f32Ty, []int{floorOp, log2Abs})
+		expRaw := e.addBinOpInstr(f32Ty, BinOpFAdd, floorLog, oneID)
+		// neg_exp = 0 - exp_raw (for exp2(-exp))
+		negExp := e.addBinOpInstr(f32Ty, BinOpFSub, zeroF, expRaw)
+		// scale = exp2(-exp_raw)
+		scale := e.addCallInstr(exp2Fn, f32Ty, []int{exp2Op, negExp})
+		// fract = x * scale
+		fract := e.addBinOpInstr(f32Ty, BinOpFMul, x, scale)
+		// exp_i = ftoi(exp_raw)
+		expI := e.addCastInstr(i32Ty, CastFPToSI, expRaw)
+		// Handle x == 0: if x == 0, fract = 0, exp = 0
+		xIsZero := e.addCmpInstr(FCmpOEQ, x, zeroF)
+		fractID := e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind: module.InstrSelect, HasValue: true, ResultType: f32Ty,
+			Operands: []int{xIsZero, zeroF, fract}, ValueID: fractID,
+		})
+		expID := e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind: module.InstrSelect, HasValue: true, ResultType: i32Ty,
+			Operands: []int{xIsZero, zeroI, expI}, ValueID: expID,
+		})
+		comps[i] = fractID    // fract components first
+		comps[size+i] = expID // exp components after
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMathQuantizeF16 rounds f32 to f16 precision: f32 → fptrunc f16 → fpext f32.
+// For vectors, applies per-component.
+func (e *Emitter) emitMathQuantizeF16(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, fmt.Errorf("quantizeToF16 arg: %w", err)
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+
+	f16Ty := e.mod.GetFloatType(16)
+	f32Ty := e.mod.GetFloatType(32)
+
+	comps := make([]int, size)
+	for i := 0; i < size; i++ {
+		x := e.getComponentID(mathExpr.Arg, i)
+		// fptrunc f32 → f16
+		f16Val := e.addCastInstr(f16Ty, CastFPTrunc, x)
+		// fpext f16 → f32
+		comps[i] = e.addCastInstr(f32Ty, CastFPExt, f16Val)
+	}
+
+	if size > 1 {
+		e.pendingComponents = comps
+	}
+	return comps[0], nil
 }
 
 // emitMathCountTrailingZeros emulates countTrailingZeros using firstbitLo.
@@ -2396,6 +2662,8 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	numComponents := 1
 	if vt, ok := irType.Inner.(ir.VectorType); ok {
 		numComponents = int(vt.Size)
+	} else if mt, ok := irType.Inner.(ir.MatrixType); ok {
+		numComponents = int(mt.Columns) * int(mt.Rows)
 	}
 
 	// Resolve the DXIL scalar element type for the allocation.

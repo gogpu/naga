@@ -114,6 +114,7 @@ const (
 //  10. Function bodies
 //  11. VALUE_SYMTAB_BLOCK — symbol names
 //  12. Exit MODULE_BLOCK
+
 func Serialize(m *Module) []byte {
 	s := &serializer{
 		mod: m,
