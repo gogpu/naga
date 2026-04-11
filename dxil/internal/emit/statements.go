@@ -87,6 +87,9 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtBarrier:
 		return e.emitStmtBarrier(sk)
 
+	case ir.StmtWorkGroupUniformLoad:
+		return e.emitStmtWorkGroupUniformLoad(fn, sk)
+
 	case ir.StmtSwitch:
 		return e.emitSwitchStatement(fn, sk)
 
@@ -451,6 +454,13 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 				return e.emitStructStore(fn, lv.Variable, irType, st, store.Value)
 			}
 		}
+
+		// Check if this is an array store to a local variable.
+		// Array stores must be decomposed into per-element GEP + store operations
+		// because DXIL doesn't support aggregate store instructions.
+		if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
+			return e.emitArrayStore(fn, lv.Variable, arrayTy, store.Value)
+		}
 	}
 
 	// Handle AccessIndex chain to struct member's vector component:
@@ -596,6 +606,44 @@ func (e *Emitter) tryStructMemberComponentStore(fn *ir.Function, store ir.StmtSt
 	}
 	e.currentBB.AddInstruction(storeInstr)
 	return true, nil
+}
+
+// emitArrayStore decomposes an array value into per-element stores using GEP.
+// For each array element, emits GEP [N x T]*, i32 0, i32 idx → store.
+func (e *Emitter) emitArrayStore(fn *ir.Function, varIdx uint32, arrayTy *module.Type, valueHandle ir.ExpressionHandle) error {
+	allocaID, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: varIdx})
+	if err != nil {
+		return fmt.Errorf("array store alloca: %w", err)
+	}
+
+	_, err = e.emitExpression(fn, valueHandle)
+	if err != nil {
+		return fmt.Errorf("array store value: %w", err)
+	}
+
+	elemTy := arrayTy.ElemType
+	if elemTy == nil {
+		return fmt.Errorf("array store: nil element type")
+	}
+	resultPtrTy := e.mod.GetPointerType(elemTy)
+	zeroID := e.getIntConstID(0)
+	align := e.alignForType(elemTy)
+
+	numElems := int(arrayTy.ElemCount) //nolint:gosec // ElemCount bounded by shader array size
+	for i := 0; i < numElems; i++ {
+		indexID := e.getIntConstID(int64(i))
+		gepID := e.addGEPInstr(arrayTy, resultPtrTy, allocaID, []int{zeroID, indexID})
+
+		compID := e.getComponentID(valueHandle, i)
+		instr := &module.Instruction{
+			Kind:        module.InstrStore,
+			HasValue:    false,
+			Operands:    []int{gepID, compID, align, 0},
+			ReturnValue: -1,
+		}
+		e.currentBB.AddInstruction(instr)
+	}
+	return nil
 }
 
 // emitStructStore decomposes a struct value into per-scalar-field stores using GEP.
@@ -1469,6 +1517,38 @@ func (e *Emitter) emitStmtBarrier(barrier ir.StmtBarrier) error {
 	opcodeVal := e.getIntConstID(int64(OpBarrier))
 	flagsVal := e.getIntConstID(int64(flags))
 
+	e.addCallInstr(barrierFn, e.mod.GetVoidType(), []int{opcodeVal, flagsVal})
+
+	return nil
+}
+
+// emitStmtWorkGroupUniformLoad emits a workgroup uniform load: barrier + load + barrier.
+// Semantics: all invocations in the workgroup must execute the load uniformly.
+// DXIL pattern: GroupMemoryBarrierWithGroupSync(); val = *ptr; GroupMemoryBarrierWithGroupSync();
+// Reference: HLSL GroupMemoryBarrierWithGroupSync + load.
+func (e *Emitter) emitStmtWorkGroupUniformLoad(fn *ir.Function, wul ir.StmtWorkGroupUniformLoad) error {
+	// First barrier: SYNC_THREAD_GROUP | GROUPSHARED_MEM_FENCE
+	barrierFlags := BarrierModeSyncThreadGroup | BarrierModeGroupSharedMemFence
+	barrierFn := e.getDxOpBarrierFunc()
+	opcodeVal := e.getIntConstID(int64(OpBarrier))
+	flagsVal := e.getIntConstID(int64(barrierFlags))
+	e.addCallInstr(barrierFn, e.mod.GetVoidType(), []int{opcodeVal, flagsVal})
+
+	// Load the value from the workgroup pointer.
+	loadExpr := ir.ExprLoad{Pointer: wul.Pointer}
+	loadID, err := e.emitLoad(fn, loadExpr)
+	if err != nil {
+		return fmt.Errorf("workgroup uniform load: %w", err)
+	}
+
+	// Track the result expression so it can be referenced downstream.
+	e.exprValues[wul.Result] = loadID
+	if comps := e.pendingComponents; len(comps) > 0 {
+		e.exprComponents[wul.Result] = comps
+		e.pendingComponents = nil
+	}
+
+	// Second barrier.
 	e.addCallInstr(barrierFn, e.mod.GetVoidType(), []int{opcodeVal, flagsVal})
 
 	return nil

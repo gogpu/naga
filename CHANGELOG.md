@@ -121,8 +121,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DXIL: texture intrinsics** — `dx.op.getDimensions` (72) for textureDimensions/numLevels/numSamples/numLayers,
   `dx.op.textureLoad` (66) for imageLoad, `dx.op.textureStore` (67) for imageStore.
 
-- **DXIL: DXC dumpbin validation** — **150/165 shaders pass DXC dumpbin (90.9%)**.
-  2 val_fail, 13 compile_fail (ray tracing, image atomics, subgroups, binding arrays).
+- **DXIL: complex UAV access chains, array load/store decomposition, workgroup uniform load** —
+  Matrix column+component UAV access, multi-member struct arrays, 512-element array copy,
+  StmtWorkGroupUniformLoad as barrier+load+barrier pattern.
+
+- **DXIL: DXC dumpbin validation** — **153/165 shaders pass DXC dumpbin (92.7%)**.
+  1 val_fail (binding-arrays), 11 compile_fail (ray tracing, image atomics, subgroups).
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Fixed (other backends)

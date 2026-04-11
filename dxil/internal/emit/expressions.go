@@ -2783,11 +2783,11 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 		}
 	}
 
-	// Check struct loads from global variable allocas.
-	if gv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprGlobalVariable); ok {
-		if dxilStructTy, hasStruct := e.globalVarAllocaTypes[gv.Variable]; hasStruct && dxilStructTy.Kind == module.TypeStruct {
-			return e.emitStructLoad(ptr, dxilStructTy)
-		}
+	// Check struct/array loads from global variable allocas.
+	if id, handled, loadErr := e.tryGlobalVarAllocaLoad(fn, load.Pointer, ptr); loadErr != nil {
+		return 0, loadErr
+	} else if handled {
+		return id, nil
 	}
 
 	// Resolve the loaded type from the pointer's target type.
@@ -2800,6 +2800,12 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 	// This handles cases where the pointer source is not a simple local/global variable.
 	if loadedTy.Kind == module.TypeStruct {
 		return e.emitStructLoad(ptr, loadedTy)
+	}
+
+	// For array types, decompose into per-element scalar loads.
+	// DXIL does not support aggregate (array) type loads.
+	if loadedTy.Kind == module.TypeArray && loadedTy.ElemType != nil {
+		return e.emitArrayLoad(ptr, loadedTy)
 	}
 
 	// Emit LLVM load instruction: %val = load TYPE, TYPE* %ptr, align N
@@ -2841,6 +2847,66 @@ func (e *Emitter) emitVectorLoad(fn *ir.Function, compPtrs []int, ptrHandle ir.E
 	}
 
 	// Store per-component IDs so getComponentID can resolve them.
+	e.pendingComponents = componentIDs
+	return componentIDs[0], nil
+}
+
+// tryGlobalVarAllocaLoad checks if a load pointer targets a global variable alloca
+// with a struct or array type and decomposes the load accordingly.
+func (e *Emitter) tryGlobalVarAllocaLoad(fn *ir.Function, ptrHandle ir.ExpressionHandle, ptrID int) (int, bool, error) {
+	gv, ok := fn.Expressions[ptrHandle].Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return 0, false, nil
+	}
+	dxilTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
+	if !hasTy {
+		return 0, false, nil
+	}
+	if dxilTy.Kind == module.TypeStruct {
+		id, err := e.emitStructLoad(ptrID, dxilTy)
+		return id, true, err
+	}
+	if dxilTy.Kind == module.TypeArray && dxilTy.ElemType != nil {
+		id, err := e.emitArrayLoad(ptrID, dxilTy)
+		return id, true, err
+	}
+	return 0, false, nil
+}
+
+// emitArrayLoad decomposes an array load into per-element GEP + scalar loads.
+// DXIL does not support aggregate (array) type loads, so we load each element
+// individually and track them as components.
+func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error) {
+	elemTy := arrayTy.ElemType
+	if elemTy == nil {
+		return e.getIntConstID(0), nil
+	}
+	numElems := int(arrayTy.ElemCount) //nolint:gosec // ElemCount bounded by shader array size
+	if numElems == 0 {
+		return e.getIntConstID(0), nil
+	}
+
+	resultPtrTy := e.mod.GetPointerType(elemTy)
+	zeroID := e.getIntConstID(0)
+	align := e.alignForType(elemTy)
+
+	componentIDs := make([]int, numElems)
+	for i := 0; i < numElems; i++ {
+		indexID := e.getIntConstID(int64(i))
+		gepID := e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
+
+		valueID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrLoad,
+			HasValue:   true,
+			ResultType: elemTy,
+			Operands:   []int{gepID, elemTy.ID, align, 0},
+			ValueID:    valueID,
+		}
+		e.currentBB.AddInstruction(instr)
+		componentIDs[i] = valueID
+	}
+
 	e.pendingComponents = componentIDs
 	return componentIDs[0], nil
 }
