@@ -108,6 +108,9 @@ type Emitter struct {
 
 	// Mesh shader context: set when emitting a mesh shader entry point.
 	meshCtx *meshContext
+
+	// Synthetic CBV handle for NumWorkGroups builtin (-1 if not created).
+	numWGHandleID int
 }
 
 // meshContext holds state for mesh shader intrinsic emission.
@@ -211,6 +214,7 @@ func Emit(irMod *ir.Module, opts EmitOptions) (*module.Module, error) {
 		intConsts:            make(map[int64]int),
 		floatConsts:          make(map[uint64]int),
 		undefID:              -1,
+		numWGHandleID:        -1,
 		constMap:             make(map[int]*module.Constant),
 		resourceHandles:      make(map[ir.GlobalVariableHandle]int),
 		callResultValues:     make(map[ir.ExpressionHandle]int),

@@ -123,9 +123,9 @@ func (e *Emitter) emitComputeBuiltinLoad(fn *ir.Function, argIdx int, builtin ir
 		return e.emitScalarThreadIDLoad(fn, exprHandle, "dx.op.flattenedThreadIdInGroup", OpFlattenedTIDInGroup)
 
 	case ir.BuiltinNumWorkGroups:
-		// NumWorkGroups is not directly available as a DXIL intrinsic.
-		// It would require a CBV or root constant. For now, emit a placeholder.
-		return fmt.Errorf("BuiltinNumWorkGroups not yet supported in DXIL compute shaders")
+		// NumWorkGroups is NOT a DXIL intrinsic. DXC implements it via a root
+		// constant CBV injected by the runtime. We emit a synthetic CBV load.
+		return e.emitNumWorkGroupsLoad(fn, exprHandle)
 
 	default:
 		return fmt.Errorf("unsupported compute builtin: %d", builtin)
@@ -166,6 +166,90 @@ func (e *Emitter) emitScalarThreadIDLoad(_ *ir.Function, exprHandle ir.Expressio
 
 	e.exprValues[exprHandle] = valueID
 	return nil
+}
+
+// emitNumWorkGroupsLoad emits a synthetic CBV load for the NumWorkGroups builtin.
+// DXIL has no intrinsic for num_workgroups. DXC implements it via a root constant
+// CBV that the runtime fills with the dispatch dimensions (x, y, z as uint32).
+// We create a synthetic CBV resource and load 3 components from it.
+func (e *Emitter) emitNumWorkGroupsLoad(_ *ir.Function, exprHandle ir.ExpressionHandle) error {
+	// Create or reuse a synthetic CBV for NumWorkGroups.
+	handleID := e.getOrCreateNumWorkGroupsCBV()
+
+	// Load register 0 from the CBV. The CBV contains {x, y, z} as 3 x i32.
+	ol := overloadI32
+	cbufRetTy := e.getDxCBufRetType(ol)
+	cbufLoadFn := e.getDxOpCBufLoadFunc(ol)
+
+	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
+	regIdx := e.getIntConstID(0) // register 0 (first 16-byte slot)
+
+	retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIdx})
+
+	// Extract 3 components (x, y, z).
+	i32Ty := e.mod.GetIntType(32)
+	comps := make([]int, 3)
+	for i := 0; i < 3; i++ {
+		extractID := e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{retID, i},
+			ValueID:    extractID,
+		})
+		comps[i] = extractID
+	}
+
+	e.exprValues[exprHandle] = comps[0]
+	e.exprComponents[exprHandle] = comps
+	return nil
+}
+
+// getOrCreateNumWorkGroupsCBV creates a synthetic CBV resource for NumWorkGroups.
+// Returns the handle value ID. Uses a fixed register space and binding that
+// the D3D12 runtime is expected to populate with dispatch dimensions.
+func (e *Emitter) getOrCreateNumWorkGroupsCBV() int {
+	if e.numWGHandleID >= 0 {
+		return e.numWGHandleID
+	}
+
+	// Create a synthetic resource entry for the NumWorkGroups CBV.
+	// Use a high register space (0xFFFFFFFF) to avoid colliding with user resources.
+	// DXC uses $Globals CBV in space 0 — we follow the same pattern.
+	res := resourceInfo{
+		name:     "$Globals",
+		class:    resourceClassCBV,
+		rangeID:  len(e.resources), // next available rangeID
+		group:    0,
+		binding:  0, // b0 in space 0 (synthetic)
+		handleID: -1,
+	}
+
+	// Check for collision with existing CBVs at b0/space0 — shift if needed.
+	for _, r := range e.resources {
+		if r.class == resourceClassCBV && r.group == 0 && r.binding == res.binding {
+			res.binding++ // shift to next available binding
+		}
+	}
+
+	e.resources = append(e.resources, res)
+
+	// Create a static handle for this CBV.
+	handleTy := e.getDxHandleType()
+	createFn := e.getDxOpCreateHandleFunc()
+
+	opcodeVal := e.getIntConstID(int64(OpCreateHandle))
+	classVal := e.getI8ConstID(int64(resourceClassCBV))
+	rangeIDVal := e.getIntConstID(int64(res.rangeID))
+	indexVal := e.getIntConstID(int64(res.binding))
+	nonUniformVal := e.getI1ConstID(0)
+
+	handleID := e.addCallInstr(createFn, handleTy,
+		[]int{opcodeVal, classVal, rangeIDVal, indexVal, nonUniformVal})
+
+	e.numWGHandleID = handleID
+	return handleID
 }
 
 // getDxOpComputeBuiltinFunc creates a dx.op function declaration for compute

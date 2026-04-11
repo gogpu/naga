@@ -125,8 +125,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Matrix column+component UAV access, multi-member struct arrays, 512-element array copy,
   StmtWorkGroupUniformLoad as barrier+load+barrier pattern.
 
-- **DXIL: DXC dumpbin validation** — **153/165 shaders pass DXC dumpbin (92.7%)**.
-  1 val_fail (binding-arrays), 11 compile_fail (ray tracing, image atomics, subgroups).
+- **DXIL: 8 texture sampling intrinsics** — OpSample(60), OpSampleBias(61),
+  OpSampleLevel(62), OpSampleGrad(63), OpSampleCmp(64), OpSampleCmpLevelZero(65),
+  OpTextureGather(73), OpTextureGatherCmp(74). Previously only OpSample.
+
+- **DXIL: binding array dynamic handles** — `dx.op.createHandle` with dynamic index
+  for `binding_array<T>` resources. Both ExprAccess and ExprAccessIndex paths.
+
+- **DXIL: NumWorkGroups via synthetic CBV** — `$Globals` CBV with cbufferLoadLegacy
+  for compute dispatch dimensions (DXIL has no intrinsic, matches DXC approach).
+
+- **DXIL: DXC dumpbin validation** — **155/165 shaders pass DXC dumpbin (93.9%)**.
+  1 val_fail (binding-buffer-arrays), 9 compile_fail (ray tracing 4, image atomics 2,
+  subgroups 1, no entry points 2).
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Fixed (other backends)

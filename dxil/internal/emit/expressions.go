@@ -64,8 +64,14 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 
 	case ir.ExprGlobalVariable:
 		// If this is a resource binding, return the pre-created handle ID.
+		// For binding arrays, handleID is -1 (created dynamically at Access site).
 		if handleID, found := e.getResourceHandleID(ek.Variable); found {
-			valueID = handleID
+			if handleID >= 0 {
+				valueID = handleID
+			} else {
+				// Binding array base: placeholder; actual handle is created in resolveResourceHandle.
+				valueID = 0
+			}
 		} else {
 			// Non-resource global variable (workgroup, private, push-constant).
 			// Emit an alloca to create a proper pointer for load/store.
@@ -274,6 +280,8 @@ func (e *Emitter) extractComponentsForAccessIndex(fn *ir.Function, ai ir.ExprAcc
 // For struct local/global variable access, emits a GEP instruction to get a pointer
 // to the member field. For array access, emits a GEP to the element. For vector
 // component extraction, uses per-component tracking.
+//
+//nolint:gocognit // dispatch logic for struct/array/vector/resource access patterns
 func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, error) {
 	baseID, err := e.emitExpression(fn, ai.Base)
 	if err != nil {
@@ -299,14 +307,15 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 		return id, err
 	}
 
-	// Check if this AccessIndex chain leads to a resource (UAV or CBV).
-	// Resource access is handled by resolveUAVPointerChain / resolveCBVPointerChain
-	// at the load/store site, not by emitting GEP instructions.
-	// Return the base value as a pass-through so the intermediate expression
-	// has a value but doesn't generate invalid code.
-	if gv, ok := e.resolveToGlobalVariable(fn, ai.Base); ok {
+	// Check if this AccessIndex chain leads to a resource.
+	if gv, ok := e.resolveToGlobalVariable(fn, ai.Base); ok { //nolint:nestif // resource dispatch
 		if idx, isRes := e.resourceHandles[gv]; isRes {
 			res := &e.resources[idx]
+			// Binding array with constant index: create dynamic handle.
+			if res.isBindingArray {
+				return e.emitDynamicCreateHandleConst(res, int64(ai.Index))
+			}
+			// UAV/CBV: pass through to load/store site.
 			if res.class == resourceClassUAV || res.class == resourceClassCBV {
 				return baseID, nil
 			}
@@ -487,6 +496,8 @@ func (e *Emitter) emitStructFieldGEP(basePtrID int, dxilStructTy *module.Type, s
 // For local/workgroup arrays, emits a GEP instruction to compute the element pointer.
 //
 // Reference: LLVM GEP semantics — getelementptr [N x T]*, i32 0, i32 index → T*
+//
+//nolint:gocognit // dispatch logic for array/binding-array/UAV access patterns
 func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 	// The base must be emitted first.
 	baseID, err := e.emitExpression(fn, acc.Base)
@@ -512,12 +523,21 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 		return id, err
 	}
 
-	// Check if this Access chain leads to a UAV resource. If so, skip GEP
+	// Check if this Access chain leads to a resource binding. If so, skip GEP
 	// emission — the actual buffer access is handled by resolveUAVPointerChain
-	// at the load/store site.
-	if gv, ok := e.resolveToGlobalVariable(fn, acc.Base); ok {
+	// at the load/store site (for UAV), or resolveResourceHandle (for binding arrays).
+	if gv, ok := e.resolveToGlobalVariable(fn, acc.Base); ok { //nolint:nestif // resource dispatch
 		if idx, isRes := e.resourceHandles[gv]; isRes {
-			if e.resources[idx].class == resourceClassUAV || e.resources[idx].class == resourceClassSRV {
+			res := &e.resources[idx]
+			// Binding array: create dynamic handle at point of use.
+			if res.isBindingArray {
+				handleID, err2 := e.emitDynamicCreateHandle(fn, res, acc.Index)
+				if err2 != nil {
+					return 0, fmt.Errorf("binding array access: %w", err2)
+				}
+				return handleID, nil
+			}
+			if res.class == resourceClassUAV || res.class == resourceClassSRV {
 				return baseID, nil
 			}
 		}
@@ -2654,25 +2674,60 @@ func (e *Emitter) emitSelect(fn *ir.Function, sel ir.ExprSelect) (int, error) {
 //
 // Reference: Mesa nir_to_dxil.c emit_get_ssbo_size() ~4344
 //
-//nolint:nestif // type resolution for array vs struct wrapping the runtime array
+//nolint:nestif,gocognit,gocyclo,cyclop,funlen // type resolution for array vs struct wrapping the runtime array
 func (e *Emitter) emitArrayLength(fn *ir.Function, al ir.ExprArrayLength) (int, error) {
 	// Resolve the global variable that owns this runtime array.
+	// Walk up the expression chain to find the GlobalVariable, handling binding arrays.
 	var varHandle ir.GlobalVariableHandle
 	var found bool
+	var bindingArrayIndex int64
+	var hasBindingArrayIndex bool
+
 	if int(al.Array) < len(fn.Expressions) {
-		expr := fn.Expressions[al.Array]
-		switch ek := expr.Kind.(type) {
-		case ir.ExprGlobalVariable:
-			varHandle = ek.Variable
-			found = true
-		case ir.ExprAccessIndex:
-			if int(ek.Base) < len(fn.Expressions) {
-				baseExpr := fn.Expressions[ek.Base]
-				if gv, ok := baseExpr.Kind.(ir.ExprGlobalVariable); ok {
-					varHandle = gv.Variable
-					found = true
+		// Walk up through AccessIndex/Access chains to find GlobalVariable.
+		cur := al.Array
+		for depth := 0; depth < 5; depth++ {
+			if int(cur) >= len(fn.Expressions) {
+				break
+			}
+			expr := fn.Expressions[cur]
+			switch ek := expr.Kind.(type) {
+			case ir.ExprGlobalVariable:
+				varHandle = ek.Variable
+				found = true
+			case ir.ExprAccessIndex:
+				// Check if this is a binding array index (base is GlobalVariable of binding array).
+				if int(ek.Base) < len(fn.Expressions) {
+					if gv, ok := fn.Expressions[ek.Base].Kind.(ir.ExprGlobalVariable); ok {
+						if idx, isRes := e.resourceHandles[gv.Variable]; isRes && e.resources[idx].isBindingArray {
+							varHandle = gv.Variable
+							found = true
+							bindingArrayIndex = int64(ek.Index)
+							hasBindingArrayIndex = true
+						} else {
+							varHandle = gv.Variable
+							found = true
+						}
+					} else {
+						cur = ek.Base
+						continue
+					}
+				}
+			case ir.ExprAccess:
+				// Dynamic binding array access: Access(base=GlobalVariable, index=expr).
+				if int(ek.Base) < len(fn.Expressions) {
+					if gv, ok := fn.Expressions[ek.Base].Kind.(ir.ExprGlobalVariable); ok {
+						if idx, isRes := e.resourceHandles[gv.Variable]; isRes && e.resources[idx].isBindingArray {
+							varHandle = gv.Variable
+							found = true
+							// Dynamic index needs emitting. For now set flag but leave index for later.
+							hasBindingArrayIndex = true
+							bindingArrayIndex = -1 // sentinel: need to emit dynamic index
+						}
+					}
 				}
 			}
+			break
 		}
 	}
 	if !found {
@@ -2684,19 +2739,55 @@ func (e *Emitter) emitArrayLength(fn *ir.Function, al ir.ExprArrayLength) (int, 
 	if !hasRes {
 		return 0, fmt.Errorf("ExprArrayLength: no resource handle for global variable [%d]", varHandle)
 	}
-	handleID := e.resources[resIdx].handleID
+
+	// Get or create the resource handle (dynamic for binding arrays).
+	var handleID int
+	res := &e.resources[resIdx]
+	if res.isBindingArray && hasBindingArrayIndex {
+		if bindingArrayIndex >= 0 {
+			// Constant index from AccessIndex.
+			var err2 error
+			handleID, err2 = e.emitDynamicCreateHandleConst(res, bindingArrayIndex)
+			if err2 != nil {
+				return 0, fmt.Errorf("ExprArrayLength: binding array handle: %w", err2)
+			}
+		} else {
+			// Dynamic index from Access — need to find and emit the index expression.
+			// Walk the chain to find the Access expression.
+			expr := fn.Expressions[al.Array]
+			if ai, ok := expr.Kind.(ir.ExprAccessIndex); ok {
+				if acc, ok2 := fn.Expressions[ai.Base].Kind.(ir.ExprAccess); ok2 {
+					var err2 error
+					handleID, err2 = e.emitDynamicCreateHandle(fn, res, acc.Index)
+					if err2 != nil {
+						return 0, fmt.Errorf("ExprArrayLength: binding array handle: %w", err2)
+					}
+				}
+			}
+		}
+	} else {
+		handleID = res.handleID
+	}
 
 	// Determine offset and stride from the type.
+	// For binding arrays, unwrap to get the base element type.
 	gv := &e.ir.GlobalVariables[varHandle]
 	var offset, stride uint32
 	if int(gv.Type) < len(e.ir.Types) {
-		switch inner := e.ir.Types[gv.Type].Inner.(type) {
+		inner := e.ir.Types[gv.Type].Inner
+		// Unwrap binding array to get the element type.
+		if ba, ok := inner.(ir.BindingArrayType); ok {
+			if int(ba.Base) < len(e.ir.Types) {
+				inner = e.ir.Types[ba.Base].Inner
+			}
+		}
+		switch typed := inner.(type) {
 		case ir.ArrayType:
 			offset = 0
-			stride = inner.Stride
+			stride = typed.Stride
 		case ir.StructType:
-			if len(inner.Members) > 0 {
-				last := inner.Members[len(inner.Members)-1]
+			if len(typed.Members) > 0 {
+				last := typed.Members[len(typed.Members)-1]
 				offset = last.Offset
 				if int(last.Type) < len(e.ir.Types) {
 					if arr, ok := e.ir.Types[last.Type].Inner.(ir.ArrayType); ok {

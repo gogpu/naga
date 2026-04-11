@@ -27,14 +27,16 @@ const (
 
 // resourceInfo describes a single resource binding discovered during analysis.
 type resourceInfo struct {
-	varHandle  ir.GlobalVariableHandle
-	name       string
-	class      uint8 // resourceClassSRV, resourceClassUAV, resourceClassCBV, resourceClassSampler
-	rangeID    int
-	group      uint32
-	binding    uint32
-	typeHandle ir.TypeHandle
-	handleID   int // emitter value ID of the created handle (-1 if not yet created)
+	varHandle      ir.GlobalVariableHandle
+	name           string
+	class          uint8 // resourceClassSRV, resourceClassUAV, resourceClassCBV, resourceClassSampler
+	rangeID        int
+	group          uint32
+	binding        uint32
+	typeHandle     ir.TypeHandle
+	handleID       int    // emitter value ID of the created handle (-1 if not yet created)
+	isBindingArray bool   // true if this resource is a binding_array<T, N>
+	arraySize      uint32 // binding array size (0 = unbounded)
 }
 
 // analyzeResources scans the module's global variables and classifies them
@@ -71,15 +73,30 @@ func (e *Emitter) analyzeResources() {
 		rangeID := rangeCounters[class]
 		rangeCounters[class]++
 
+		// Detect binding arrays and record array size.
+		var isBA bool
+		var baSize uint32
+		if int(gv.Type) < len(e.ir.Types) {
+			if ba, ok := e.ir.Types[gv.Type].Inner.(ir.BindingArrayType); ok {
+				isBA = true
+				if ba.Size != nil {
+					baSize = *ba.Size
+				}
+				// else baSize=0 means unbounded
+			}
+		}
+
 		info := resourceInfo{
-			varHandle:  ir.GlobalVariableHandle(uint32(i)),
-			name:       gv.Name,
-			class:      class,
-			rangeID:    rangeID,
-			group:      gv.Binding.Group,
-			binding:    gv.Binding.Binding,
-			typeHandle: gv.Type,
-			handleID:   -1,
+			varHandle:      ir.GlobalVariableHandle(uint32(i)),
+			name:           gv.Name,
+			class:          class,
+			rangeID:        rangeID,
+			group:          gv.Binding.Group,
+			binding:        gv.Binding.Binding,
+			typeHandle:     gv.Type,
+			handleID:       -1,
+			isBindingArray: isBA,
+			arraySize:      baSize,
 		}
 
 		e.resourceHandles[info.varHandle] = len(e.resources)
@@ -101,10 +118,21 @@ func (e *Emitter) classifyGlobalVariable(gv *ir.GlobalVariable) (uint8, bool) {
 
 	case ir.SpaceHandle:
 		// Handle space: classify by the pointed-to type.
+		// Unwrap BindingArrayType to find the base resource type.
 		if int(gv.Type) < len(e.ir.Types) {
 			inner := e.ir.Types[gv.Type].Inner
-			switch inner.(type) {
+			// Unwrap binding array to get the base type.
+			if ba, ok := inner.(ir.BindingArrayType); ok {
+				if int(ba.Base) < len(e.ir.Types) {
+					inner = e.ir.Types[ba.Base].Inner
+				}
+			}
+			switch img := inner.(type) {
 			case ir.ImageType:
+				// Storage textures with write access are UAVs.
+				if img.Class == ir.ImageClassStorage {
+					return resourceClassUAV, true
+				}
 				return resourceClassSRV, true
 			case ir.SamplerType:
 				return resourceClassSampler, true
@@ -132,6 +160,11 @@ func (e *Emitter) emitResourceHandles() {
 	for i := range e.resources {
 		res := &e.resources[i]
 
+		// Binding arrays get dynamic handles at point of use, not here.
+		if res.isBindingArray {
+			continue
+		}
+
 		opcodeVal := e.getIntConstID(int64(OpCreateHandle))
 		classVal := e.getI8ConstID(int64(res.class))
 		rangeIDVal := e.getIntConstID(int64(res.rangeID))
@@ -140,7 +173,6 @@ func (e *Emitter) emitResourceHandles() {
 
 		handleID := e.addCallInstr(createFn, handleTy,
 			[]int{opcodeVal, classVal, rangeIDVal, indexVal, nonUniformVal})
-
 		res.handleID = handleID
 	}
 }
@@ -157,7 +189,24 @@ func (e *Emitter) getResourceHandleID(varHandle ir.GlobalVariableHandle) (int, b
 
 // --- Texture sampling ---
 
-// emitImageSample emits a dx.op.sample call for texture sampling.
+// emitImageSample dispatches texture sampling to the appropriate dx.op intrinsic
+// based on the sample level, depth reference, and gather parameters.
+//
+// Dispatching rules (matching DXC):
+//
+//	Gather != nil && DepthRef != nil  → OpTextureGatherCmp (74)
+//	Gather != nil                     → OpTextureGather (73)
+//	DepthRef != nil && SampleLevelZero → OpSampleCmpLevelZero (65)
+//	DepthRef != nil                   → OpSampleCmp (64)
+//	SampleLevelBias                   → OpSampleBias (61)
+//	SampleLevelExact                  → OpSampleLevel (62)
+//	SampleLevelGradient               → OpSampleGrad (63)
+//	SampleLevelAuto / SampleLevelZero → OpSample (60)
+//
+// Reference: Mesa nir_to_dxil.c emit_sample(), emit_texture_gather_call()
+// Reference: DXIL.rst Sample/SampleBias/SampleLevel/SampleGrad/SampleCmp/SampleCmpLevelZero/TextureGather/TextureGatherCmp
+//
+//nolint:gocognit,cyclop,gocyclo,funlen,maintidx // dispatch logic for 8 texture sample variants
 func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (int, error) {
 	// Resolve image and sampler handles.
 	imageHandleID, err := e.resolveResourceHandle(fn, sample.Image)
@@ -174,40 +223,179 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 		return 0, fmt.Errorf("coordinate: %w", err)
 	}
 
-	// Determine coordinate dimensionality.
 	coordType := e.resolveExprType(fn, sample.Coordinate)
 	coordComps := componentCount(coordType)
 
-	// Determine the overload from the image type.
-	ol := overloadF32 // textures almost always return f32
-
-	resRetTy := e.getDxResRetType(ol)
-	sampleFn := e.getDxOpSampleFunc(ol)
-
-	// Build operands: opcode, texHandle, samplerHandle, coord0..3, offset0..2, clamp, undef
-	// Total 12 operands for sample.
-	undefVal := e.getUndefConstID()
-	zeroF := e.getFloatConstID(0.0)
-
-	opcodeVal := e.getIntConstID(int64(OpSample))
+	// Determine overload (f32 for sampled/depth textures).
+	ol := overloadF32
 
 	// Scalarize coordinates into coord0..coord3.
+	zeroF := e.getFloatConstID(0.0)
 	coords := [4]int{zeroF, zeroF, zeroF, zeroF}
 	for i := 0; i < 4 && i < coordComps; i++ {
 		coords[i] = e.getComponentID(sample.Coordinate, i)
 	}
 
-	operands := []int{
-		opcodeVal,                                  // i32 opcode
-		imageHandleID,                              // %handle texture
-		samplerHandleID,                            // %handle sampler
-		coords[0], coords[1], coords[2], coords[3], // coord0..3
-		zeroF, zeroF, zeroF, // offset0..2
-		zeroF,    // clamp
-		undefVal, // undef
+	// Handle array index: appended after spatial coordinates.
+	if sample.ArrayIndex != nil {
+		arrID, err2 := e.emitExpression(fn, *sample.ArrayIndex)
+		if err2 != nil {
+			return 0, fmt.Errorf("array index: %w", err2)
+		}
+		// Convert i32 array index to float for sample coordinates.
+		f32Ty := e.mod.GetFloatType(32)
+		castID := e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind: module.InstrCast, HasValue: true, ResultType: f32Ty,
+			Operands: []int{int(CastUIToFP), arrID}, ValueID: castID,
+		})
+		if coordComps < 4 {
+			coords[coordComps] = castID
+		}
 	}
 
-	retID := e.addCallInstr(sampleFn, resRetTy, operands)
+	// Emit depth reference if present.
+	var depthRefID int
+	if sample.DepthRef != nil {
+		depthRefID, err = e.emitExpression(fn, *sample.DepthRef)
+		if err != nil {
+			return 0, fmt.Errorf("depth ref: %w", err)
+		}
+	}
+
+	// Default offsets (i32 0).
+	zeroI := e.getIntConstID(0)
+	offsets := [3]int{zeroI, zeroI, zeroI}
+
+	// Dispatch to appropriate intrinsic.
+	resRetTy := e.getDxResRetType(ol)
+	var retID int
+
+	switch {
+	case sample.Gather != nil && sample.DepthRef != nil:
+		// TextureGatherCmp (74): opcode, tex, sampler, c0-c3, o0, o1, channel, compare
+		channel := int(*sample.Gather)
+		opFn := e.getDxOpTextureGatherCmpFunc(ol)
+		retID = e.addCallInstr(opFn, resRetTy, []int{
+			e.getIntConstID(int64(OpTextureGatherCmp)),
+			imageHandleID, samplerHandleID,
+			coords[0], coords[1], coords[2], coords[3],
+			offsets[0], offsets[1],
+			e.getIntConstID(int64(channel)),
+			depthRefID,
+		})
+
+	case sample.Gather != nil:
+		// TextureGather (73): opcode, tex, sampler, c0-c3, o0, o1, channel
+		channel := int(*sample.Gather)
+		opFn := e.getDxOpTextureGatherFunc(ol)
+		retID = e.addCallInstr(opFn, resRetTy, []int{
+			e.getIntConstID(int64(OpTextureGather)),
+			imageHandleID, samplerHandleID,
+			coords[0], coords[1], coords[2], coords[3],
+			offsets[0], offsets[1],
+			e.getIntConstID(int64(channel)),
+		})
+
+	case sample.DepthRef != nil:
+		switch sample.Level.(type) {
+		case ir.SampleLevelZero:
+			// SampleCmpLevelZero (65): opcode, tex, sampler, c0-c3, o0-o2, compare
+			opFn := e.getDxOpSampleCmpLevelZeroFunc(ol)
+			retID = e.addCallInstr(opFn, resRetTy, []int{
+				e.getIntConstID(int64(OpSampleCmpLevelZero)),
+				imageHandleID, samplerHandleID,
+				coords[0], coords[1], coords[2], coords[3],
+				offsets[0], offsets[1], offsets[2],
+				depthRefID,
+			})
+		default:
+			// SampleCmp (64): opcode, tex, sampler, c0-c3, o0-o2, compare, clamp
+			opFn := e.getDxOpSampleCmpFunc(ol)
+			retID = e.addCallInstr(opFn, resRetTy, []int{
+				e.getIntConstID(int64(OpSampleCmp)),
+				imageHandleID, samplerHandleID,
+				coords[0], coords[1], coords[2], coords[3],
+				offsets[0], offsets[1], offsets[2],
+				depthRefID,
+				zeroF, // clamp
+			})
+		}
+
+	default:
+		switch lvl := sample.Level.(type) {
+		case ir.SampleLevelBias:
+			// SampleBias (61): opcode, tex, sampler, c0-c3, o0-o2, bias, clamp
+			biasID, err2 := e.emitExpression(fn, lvl.Bias)
+			if err2 != nil {
+				return 0, fmt.Errorf("sample bias: %w", err2)
+			}
+			opFn := e.getDxOpSampleBiasFunc(ol)
+			retID = e.addCallInstr(opFn, resRetTy, []int{
+				e.getIntConstID(int64(OpSampleBias)),
+				imageHandleID, samplerHandleID,
+				coords[0], coords[1], coords[2], coords[3],
+				offsets[0], offsets[1], offsets[2],
+				biasID,
+				zeroF, // clamp
+			})
+
+		case ir.SampleLevelExact:
+			// SampleLevel (62): opcode, tex, sampler, c0-c3, o0-o2, LOD
+			lodID, err2 := e.emitExpression(fn, lvl.Level)
+			if err2 != nil {
+				return 0, fmt.Errorf("sample level: %w", err2)
+			}
+			// Ensure LOD is float (WGSL allows integer level for depth textures).
+			lodID = e.ensureFloat(fn, lodID, lvl.Level)
+			opFn := e.getDxOpSampleLevelFunc(ol)
+			retID = e.addCallInstr(opFn, resRetTy, []int{
+				e.getIntConstID(int64(OpSampleLevel)),
+				imageHandleID, samplerHandleID,
+				coords[0], coords[1], coords[2], coords[3],
+				offsets[0], offsets[1], offsets[2],
+				lodID,
+			})
+
+		case ir.SampleLevelGradient:
+			// SampleGrad (63): opcode, tex, sampler, c0-c3, o0-o2, ddx0-2, ddy0-2, clamp
+			if _, err2 := e.emitExpression(fn, lvl.X); err2 != nil {
+				return 0, fmt.Errorf("sample grad x: %w", err2)
+			}
+			if _, err2 := e.emitExpression(fn, lvl.Y); err2 != nil {
+				return 0, fmt.Errorf("sample grad y: %w", err2)
+			}
+			ddxType := e.resolveExprType(fn, lvl.X)
+			ddxComps := componentCount(ddxType)
+			ddx := [3]int{zeroF, zeroF, zeroF}
+			ddy := [3]int{zeroF, zeroF, zeroF}
+			for i := 0; i < 3 && i < ddxComps; i++ {
+				ddx[i] = e.getComponentID(lvl.X, i)
+				ddy[i] = e.getComponentID(lvl.Y, i)
+			}
+			opFn := e.getDxOpSampleGradFunc(ol)
+			retID = e.addCallInstr(opFn, resRetTy, []int{
+				e.getIntConstID(int64(OpSampleGrad)),
+				imageHandleID, samplerHandleID,
+				coords[0], coords[1], coords[2], coords[3],
+				offsets[0], offsets[1], offsets[2],
+				ddx[0], ddx[1], ddx[2],
+				ddy[0], ddy[1], ddy[2],
+				zeroF, // clamp
+			})
+
+		default:
+			// Sample (60): opcode, tex, sampler, c0-c3, o0-o2, clamp
+			opFn := e.getDxOpSampleFunc(ol)
+			retID = e.addCallInstr(opFn, resRetTy, []int{
+				e.getIntConstID(int64(OpSample)),
+				imageHandleID, samplerHandleID,
+				coords[0], coords[1], coords[2], coords[3],
+				offsets[0], offsets[1], offsets[2],
+				zeroF, // clamp
+			})
+		}
+	}
 
 	// Extract 4 components from the result and store as pending components.
 	scalarTy := e.overloadReturnType(ol)
@@ -649,15 +837,101 @@ func (e *Emitter) getDxOpTextureStoreFunc(ol overloadType) *module.Function {
 // handle value ID. The expression must be an ExprGlobalVariable that was
 // classified as a resource.
 func (e *Emitter) resolveResourceHandle(fn *ir.Function, exprHandle ir.ExpressionHandle) (int, error) {
+	// If this expression was already emitted (e.g., by emitAccess for a binding
+	// array), reuse the cached value to avoid emitting duplicate createHandle calls.
+	if v, ok := e.exprValues[exprHandle]; ok {
+		return v, nil
+	}
+
 	expr := fn.Expressions[exprHandle]
+
+	// Direct global variable reference (non-array resource).
 	if gv, ok := expr.Kind.(ir.ExprGlobalVariable); ok {
 		if handleID, found := e.getResourceHandleID(gv.Variable); found {
-			return handleID, nil
+			if handleID >= 0 {
+				return handleID, nil
+			}
+			// handleID == -1 means binding array base; this is reached when
+			// the expression is ExprGlobalVariable directly (not via ExprAccess).
+			// This shouldn't happen for properly formed IR, but return a safe error.
+			return 0, fmt.Errorf("binding array base %d accessed without index", gv.Variable)
 		}
 		return 0, fmt.Errorf("global variable %d is not a resource", gv.Variable)
 	}
+
+	// Access into a binding array (dynamic index): Access(base=GlobalVariable(ba), index=expr).
+	if acc, ok := expr.Kind.(ir.ExprAccess); ok { //nolint:nestif // binding array dispatch
+		if gv, ok2 := fn.Expressions[acc.Base].Kind.(ir.ExprGlobalVariable); ok2 {
+			if resIdx, found := e.resourceHandles[gv.Variable]; found {
+				res := &e.resources[resIdx]
+				if res.isBindingArray {
+					return e.emitDynamicCreateHandle(fn, res, acc.Index)
+				}
+			}
+		}
+	}
+
+	// AccessIndex into a binding array (constant index): AccessIndex(base=GlobalVariable(ba), index=N).
+	if ai, ok := expr.Kind.(ir.ExprAccessIndex); ok { //nolint:nestif // binding array dispatch
+		if gv, ok2 := fn.Expressions[ai.Base].Kind.(ir.ExprGlobalVariable); ok2 {
+			if resIdx, found := e.resourceHandles[gv.Variable]; found {
+				res := &e.resources[resIdx]
+				if res.isBindingArray {
+					return e.emitDynamicCreateHandleConst(res, int64(ai.Index))
+				}
+			}
+		}
+	}
+
 	// Fallback: emit the expression and hope it resolves.
 	return e.emitExpression(fn, exprHandle)
+}
+
+// emitDynamicCreateHandle creates a dx.op.createHandle call with a dynamic index
+// for binding array resources. The index expression is emitted and used as the
+// 4th parameter (resource index within the range).
+//
+// dx.op.createHandle(i32 57, i8 class, i32 rangeID, i32 index, i1 nonUniform)
+//
+// Reference: Mesa nir_to_dxil.c emit_createhandle_call_pre_6_6()
+func (e *Emitter) emitDynamicCreateHandle(fn *ir.Function, res *resourceInfo, indexExpr ir.ExpressionHandle) (int, error) {
+	// Emit the dynamic index expression.
+	indexID, err := e.emitExpression(fn, indexExpr)
+	if err != nil {
+		return 0, fmt.Errorf("binding array index: %w", err)
+	}
+
+	// The index into createHandle is lower_bound + array_index.
+	if res.binding > 0 {
+		baseVal := e.getIntConstID(int64(res.binding))
+		i32Ty := e.mod.GetIntType(32)
+		indexID = e.addBinOpInstr(i32Ty, BinOpAdd, baseVal, indexID)
+	}
+
+	return e.emitCreateHandleCall(res, indexID)
+}
+
+// emitDynamicCreateHandleConst creates a dx.op.createHandle call with a constant index.
+// Used for ExprAccessIndex on binding arrays where the index is known at compile time.
+func (e *Emitter) emitDynamicCreateHandleConst(res *resourceInfo, constIndex int64) (int, error) {
+	indexID := e.getIntConstID(constIndex + int64(res.binding))
+	return e.emitCreateHandleCall(res, indexID)
+}
+
+// emitCreateHandleCall emits the dx.op.createHandle call with a prepared index value ID.
+func (e *Emitter) emitCreateHandleCall(res *resourceInfo, indexID int) (int, error) {
+	handleTy := e.getDxHandleType()
+	createFn := e.getDxOpCreateHandleFunc()
+
+	opcodeVal := e.getIntConstID(int64(OpCreateHandle))
+	classVal := e.getI8ConstID(int64(res.class))
+	rangeIDVal := e.getIntConstID(int64(res.rangeID))
+	nonUniformVal := e.getI1ConstID(0) // TODO: detect non-uniform index from IR
+
+	handleID := e.addCallInstr(createFn, handleTy,
+		[]int{opcodeVal, classVal, rangeIDVal, indexID, nonUniformVal})
+
+	return handleID, nil
 }
 
 // --- dx.op function declarations and DXIL types ---
@@ -727,36 +1001,162 @@ func (e *Emitter) getDxOpCreateHandleFunc() *module.Function {
 }
 
 // getDxOpSampleFunc creates the dx.op.sample function declaration.
-// Signature: %dx.types.ResRet.XX @dx.op.sample.XX(
-//
-//	i32 opcode, %handle tex, %handle sampler,
-//	float coord0..3, float offset0..2, float clamp, i32 undef)
+// 11 params: opcode, tex, sampler, c0-c3, o0-o2, clamp
 func (e *Emitter) getDxOpSampleFunc(ol overloadType) *module.Function {
 	name := "dx.op.sample"
 	key := dxOpKey{name: name, overload: ol}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
 	}
+	params := e.sampleBaseParams(3)
+	params = append(params, e.mod.GetFloatType(32)) // clamp
+	funcTy := e.mod.GetFunctionType(e.getDxResRetType(ol), params)
+	return e.getOrCreateDxOpFunc(name, ol, funcTy)
+}
 
-	resRetTy := e.getDxResRetType(ol)
-	handleTy := e.getDxHandleType()
-	i32Ty := e.mod.GetIntType(32)
-	f32Ty := e.mod.GetFloatType(32)
-
-	fullName := name + overloadSuffix(ol)
-	params := []*module.Type{
-		i32Ty,                      // opcode
-		handleTy,                   // texture handle
-		handleTy,                   // sampler handle
-		f32Ty, f32Ty, f32Ty, f32Ty, // coord0..3
-		f32Ty, f32Ty, f32Ty, // offset0..2
-		f32Ty, // clamp
-		i32Ty, // undef
+// getDxOpSampleBiasFunc: dx.op.sampleBias.XX
+// 12 params: opcode, tex, sampler, c0-c3, o0-o2, bias, clamp
+func (e *Emitter) getDxOpSampleBiasFunc(ol overloadType) *module.Function {
+	name := "dx.op.sampleBias"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
 	}
-	funcTy := e.mod.GetFunctionType(resRetTy, params)
-	fn := e.mod.AddFunction(fullName, funcTy, true)
-	e.dxOpFuncs[key] = fn
-	return fn
+	f32 := e.mod.GetFloatType(32)
+	params := e.sampleBaseParams(3)
+	params = append(params, f32, f32) // bias + clamp
+	funcTy := e.mod.GetFunctionType(e.getDxResRetType(ol), params)
+	return e.getOrCreateDxOpFunc(name, ol, funcTy)
+}
+
+// getDxOpSampleLevelFunc: dx.op.sampleLevel.XX
+// 11 params: opcode, tex, sampler, c0-c3, o0-o2, LOD
+func (e *Emitter) getDxOpSampleLevelFunc(ol overloadType) *module.Function {
+	name := "dx.op.sampleLevel"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	params := e.sampleBaseParams(3)
+	params = append(params, e.mod.GetFloatType(32)) // LOD
+	funcTy := e.mod.GetFunctionType(e.getDxResRetType(ol), params)
+	return e.getOrCreateDxOpFunc(name, ol, funcTy)
+}
+
+// getDxOpSampleGradFunc: dx.op.sampleGrad.XX
+// 17 params: opcode, tex, sampler, c0-c3, o0-o2, ddx0-2, ddy0-2, clamp
+func (e *Emitter) getDxOpSampleGradFunc(ol overloadType) *module.Function {
+	name := "dx.op.sampleGrad"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	f32 := e.mod.GetFloatType(32)
+	params := e.sampleBaseParams(3)
+	params = append(params, f32, f32, f32, f32, f32, f32, f32) // ddx0-2, ddy0-2, clamp
+	funcTy := e.mod.GetFunctionType(e.getDxResRetType(ol), params)
+	return e.getOrCreateDxOpFunc(name, ol, funcTy)
+}
+
+// getDxOpSampleCmpFunc: dx.op.sampleCmp.XX
+// 12 params: opcode, tex, sampler, c0-c3, o0-o2, compare, clamp
+func (e *Emitter) getDxOpSampleCmpFunc(ol overloadType) *module.Function {
+	name := "dx.op.sampleCmp"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	f32 := e.mod.GetFloatType(32)
+	params := e.sampleBaseParams(3)
+	params = append(params, f32, f32) // compare + clamp
+	funcTy := e.mod.GetFunctionType(e.getDxResRetType(ol), params)
+	return e.getOrCreateDxOpFunc(name, ol, funcTy)
+}
+
+// getDxOpSampleCmpLevelZeroFunc: dx.op.sampleCmpLevelZero.XX
+// 11 params: opcode, tex, sampler, c0-c3, o0-o2, compare
+func (e *Emitter) getDxOpSampleCmpLevelZeroFunc(ol overloadType) *module.Function {
+	name := "dx.op.sampleCmpLevelZero"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	params := e.sampleBaseParams(3)
+	params = append(params, e.mod.GetFloatType(32)) // compare
+	funcTy := e.mod.GetFunctionType(e.getDxResRetType(ol), params)
+	return e.getOrCreateDxOpFunc(name, ol, funcTy)
+}
+
+// getDxOpTextureGatherFunc: dx.op.textureGather.XX
+// 10 params: opcode, tex, sampler, c0-c3, o0, o1, channel
+func (e *Emitter) getDxOpTextureGatherFunc(ol overloadType) *module.Function {
+	name := "dx.op.textureGather"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	params := e.sampleBaseParams(2)               // only 2 offsets for gather
+	params = append(params, e.mod.GetIntType(32)) // channel
+	funcTy := e.mod.GetFunctionType(e.getDxResRetType(ol), params)
+	return e.getOrCreateDxOpFunc(name, ol, funcTy)
+}
+
+// getDxOpTextureGatherCmpFunc: dx.op.textureGatherCmp.XX
+// 11 params: opcode, tex, sampler, c0-c3, o0, o1, channel, compare
+func (e *Emitter) getDxOpTextureGatherCmpFunc(ol overloadType) *module.Function {
+	name := "dx.op.textureGatherCmp"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32 := e.mod.GetIntType(32)
+	f32 := e.mod.GetFloatType(32)
+	params := e.sampleBaseParams(2)   // only 2 offsets for gather
+	params = append(params, i32, f32) // channel + compare
+	funcTy := e.mod.GetFunctionType(e.getDxResRetType(ol), params)
+	return e.getOrCreateDxOpFunc(name, ol, funcTy)
+}
+
+// sampleBaseParams returns the common prefix for all sample-family function signatures:
+// [i32 opcode, %handle tex, %handle sampler, float c0..c3, i32 offset x numOffsets]
+func (e *Emitter) sampleBaseParams(numOffsets int) []*module.Type {
+	i32 := e.mod.GetIntType(32)
+	f32 := e.mod.GetFloatType(32)
+	h := e.getDxHandleType()
+	params := make([]*module.Type, 0, 7+numOffsets)
+	params = append(params,
+		i32,                // opcode
+		h,                  // texture handle
+		h,                  // sampler handle
+		f32, f32, f32, f32, // coord0..3
+	)
+	for range numOffsets {
+		params = append(params, i32)
+	}
+	return params
+}
+
+// ensureFloat checks if an expression's type is integer and casts to f32 if needed.
+// DXIL sample intrinsics require float for LOD, bias, compare values, but WGSL
+// may pass integer expressions (e.g., `let level = 1` for textureSampleLevel on depth textures).
+func (e *Emitter) ensureFloat(fn *ir.Function, valueID int, handle ir.ExpressionHandle) int {
+	exprType := e.resolveExprType(fn, handle)
+	if sc, ok := exprType.(ir.ScalarType); ok {
+		if sc.Kind == ir.ScalarSint || sc.Kind == ir.ScalarUint || sc.Kind == ir.ScalarAbstractInt {
+			f32Ty := e.mod.GetFloatType(32)
+			castOp := CastSIToFP
+			if sc.Kind == ir.ScalarUint {
+				castOp = CastUIToFP
+			}
+			castID := e.allocValue()
+			e.currentBB.AddInstruction(&module.Instruction{
+				Kind: module.InstrCast, HasValue: true, ResultType: f32Ty,
+				Operands: []int{int(castOp), valueID}, ValueID: castID,
+			})
+			return castID
+		}
+	}
+	return valueID
 }
 
 // getI1ConstID returns the emitter value ID for a cached i1 constant.
@@ -834,13 +1234,23 @@ func (e *Emitter) fillResourceMetadataCommon(res *resourceInfo, structType *modu
 	pointerType := e.mod.GetPointerType(structType)
 	pointerUndef := e.mod.AddUndefConst(pointerType)
 
+	// Range size: 1 for non-array, N for bounded binding arrays, 0xFFFFFFFF for unbounded.
+	rangeSize := int64(1)
+	if res.isBindingArray {
+		if res.arraySize > 0 {
+			rangeSize = int64(res.arraySize)
+		} else {
+			rangeSize = int64(0xFFFFFFFF) // unbounded
+		}
+	}
+
 	return [6]*module.MetadataNode{
 		e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.rangeID))), // fields[0]: resource ID
 		e.mod.AddMetadataValue(pointerType, pointerUndef),                // fields[1]: global constant symbol (undef ptr)
 		e.mod.AddMetadataString(res.name),                                // fields[2]: name
 		e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.group))),   // fields[3]: space ID
 		e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(res.binding))), // fields[4]: lower bound
-		e.mod.AddMetadataValue(i32Ty, e.getIntConst(1)),                  // fields[5]: range size (1 for non-array)
+		e.mod.AddMetadataValue(i32Ty, e.getIntConst(rangeSize)),          // fields[5]: range size
 	}
 }
 
@@ -1121,6 +1531,12 @@ func (e *Emitter) getResourceComponentType(res *resourceInfo) int {
 		return dxilCompTypeF32 // default
 	}
 	inner := e.ir.Types[res.typeHandle].Inner
+	// Unwrap binding array to get the base type.
+	if ba, ok := inner.(ir.BindingArrayType); ok {
+		if int(ba.Base) < len(e.ir.Types) {
+			inner = e.ir.Types[ba.Base].Inner
+		}
+	}
 	if img, ok := inner.(ir.ImageType); ok {
 		return e.sampledKindToDxilCompType(img.SampledKind)
 	}
@@ -1661,6 +2077,12 @@ type uavPointerChain struct {
 	// The final raw buffer index = (arrayIndex * stride + fieldByteOffset) / scalarWidth.
 	stride          uint32 // array element stride in bytes (0 = no stride adjustment)
 	fieldByteOffset uint32 // byte offset of the accessed field within the struct element
+	// dynamicHandleID is set for binding array UAVs where the handle is created
+	// at point of use (not at function entry). -1 means use the static handle.
+	dynamicHandleID int
+	// bindingArrayIndexExpr holds the index into the binding array (for dynamic handle creation).
+	bindingArrayIndexExpr ir.ExpressionHandle
+	hasBindingArrayIndex  bool
 }
 
 // resolveUAVPointerChain walks an expression chain and determines whether it
@@ -1684,6 +2106,11 @@ func (e *Emitter) resolveUAVPointerChain(fn *ir.Function, ptrHandle ir.Expressio
 		return e.resolveUAVAccessChain(fn, ek.Base, ek.Index, true)
 
 	case ir.ExprAccessIndex:
+		// Check for binding array UAV pattern:
+		// AccessIndex(fieldIdx, Access(base=GlobalVariable(binding_array), index=arrayIdx))
+		if chain, ok := e.resolveBindingArrayUAVChain(fn, ek); ok {
+			return chain, true
+		}
 		// Constant index: data[N] where N is compile-time constant.
 		return e.resolveUAVAccessIndexChain(fn, ek.Base, ek.Index)
 
@@ -1695,6 +2122,87 @@ func (e *Emitter) resolveUAVPointerChain(fn *ir.Function, ptrHandle ir.Expressio
 	default:
 		return nil, false
 	}
+}
+
+// resolveBindingArrayUAVChain detects the binding array UAV access pattern:
+//
+//	AccessIndex(fieldIdx, Access(base=GlobalVariable(binding_array), index=arrayIdx))
+//
+// This occurs for storage buffer arrays like storage_array[index].field.
+// Returns a uavPointerChain with binding array index info for dynamic handle creation.
+func (e *Emitter) resolveBindingArrayUAVChain(fn *ir.Function, ai ir.ExprAccessIndex) (*uavPointerChain, bool) {
+	if int(ai.Base) >= len(fn.Expressions) {
+		return nil, false
+	}
+	baseExpr := fn.Expressions[ai.Base]
+	acc, ok := baseExpr.Kind.(ir.ExprAccess)
+	if !ok {
+		return nil, false
+	}
+	if int(acc.Base) >= len(fn.Expressions) {
+		return nil, false
+	}
+	gvExpr, ok := fn.Expressions[acc.Base].Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return nil, false
+	}
+
+	// Check if this is a binding array UAV.
+	resIdx, found := e.resourceHandles[gvExpr.Variable]
+	if !found {
+		return nil, false
+	}
+	res := &e.resources[resIdx]
+	if res.class != resourceClassUAV || !res.isBindingArray {
+		return nil, false
+	}
+
+	// Unwrap binding array to get element type.
+	gv := &e.ir.GlobalVariables[gvExpr.Variable]
+	if int(gv.Type) >= len(e.ir.Types) {
+		return nil, false
+	}
+	inner := e.ir.Types[gv.Type].Inner
+	ba, ok := inner.(ir.BindingArrayType)
+	if !ok {
+		return nil, false
+	}
+	if int(ba.Base) >= len(e.ir.Types) {
+		return nil, false
+	}
+	elemInner := e.ir.Types[ba.Base].Inner
+
+	// ai.Index is the struct field index into the element type.
+	// For a struct element like Foo { x: u32, far: array<i32> }, field 0 = x, field 1 = far.
+	var fieldType ir.TypeInner
+	var fieldByteOffset uint32
+	if st, ok := elemInner.(ir.StructType); ok && int(ai.Index) < len(st.Members) {
+		member := st.Members[ai.Index]
+		fieldByteOffset = member.Offset
+		if int(member.Type) < len(e.ir.Types) {
+			fieldType = e.ir.Types[member.Type].Inner
+		}
+	}
+	if fieldType == nil {
+		fieldType = elemInner
+	}
+
+	scalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	if s, found := deepScalarOfType(e.ir, fieldType); found {
+		scalar = s
+	}
+
+	return &uavPointerChain{
+		varHandle:             gvExpr.Variable,
+		isConstIdx:            true,
+		constIndex:            0,
+		elemType:              fieldType,
+		scalar:                scalar,
+		fieldByteOffset:       fieldByteOffset,
+		dynamicHandleID:       -1, // will be created at emit time
+		bindingArrayIndexExpr: acc.Index,
+		hasBindingArrayIndex:  true,
+	}, true
 }
 
 // resolveUAVDirectGlobal handles direct reference to a UAV global variable
@@ -2503,6 +3011,28 @@ func (e *Emitter) resolveUAVElementType(varHandle ir.GlobalVariableHandle) (ir.T
 	return inner, ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, false
 }
 
+// resolveUAVHandleID returns the resource handle ID for a UAV pointer chain.
+// For binding array UAVs, this creates a dynamic dx.op.createHandle at point of use.
+// For regular UAVs, this returns the pre-created handle from emitResourceHandles.
+func (e *Emitter) resolveUAVHandleID(fn *ir.Function, chain *uavPointerChain) (int, error) {
+	// Binding array: create dynamic handle.
+	if chain.hasBindingArrayIndex {
+		resIdx, found := e.resourceHandles[chain.varHandle]
+		if !found {
+			return 0, fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
+		}
+		res := &e.resources[resIdx]
+		return e.emitDynamicCreateHandle(fn, res, chain.bindingArrayIndexExpr)
+	}
+
+	// Regular resource: use pre-created static handle.
+	handleID, found := e.getResourceHandleID(chain.varHandle)
+	if !found {
+		return 0, fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
+	}
+	return handleID, nil
+}
+
 // emitUAVLoad emits a dx.op.bufferLoad call for reading from a UAV (storage buffer).
 //
 // dx.op.bufferLoad signature:
@@ -2513,9 +3043,9 @@ func (e *Emitter) resolveUAVElementType(varHandle ir.GlobalVariableHandle) (ir.T
 //
 // Reference: Mesa nir_to_dxil.c emit_bufferload_call() ~833
 func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, error) {
-	handleID, found := e.getResourceHandleID(chain.varHandle)
-	if !found {
-		return 0, fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
+	handleID, err := e.resolveUAVHandleID(fn, chain)
+	if err != nil {
+		return 0, err
 	}
 
 	indexID, err := e.resolveUAVIndex(fn, chain)
@@ -2616,9 +3146,9 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 	// Large aggregate stores (e.g., output = w_mem.arr for array<u32, 512>) are
 	// decomposed into multiple batched bufferStore calls below (4 components each).
 
-	handleID, found := e.getResourceHandleID(chain.varHandle)
-	if !found {
-		return fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
+	handleID, err := e.resolveUAVHandleID(fn, chain)
+	if err != nil {
+		return err
 	}
 
 	indexID, err := e.resolveUAVIndex(fn, chain)
@@ -2744,6 +3274,8 @@ func (e *Emitter) getDxOpBufferStoreFunc(ol overloadType) *module.Function {
 
 // resourceKind returns the DXIL resource kind integer for metadata.
 // Reference: D3D12_SRV_DIMENSION / DXIL resource kinds.
+//
+//nolint:gocognit,nestif // type dispatch for all resource classes and image dimensions
 func (e *Emitter) resourceKind(res *resourceInfo) int {
 	switch res.class {
 	case resourceClassCBV:
@@ -2754,17 +3286,14 @@ func (e *Emitter) resourceKind(res *resourceInfo) int {
 		// Determine from the image type.
 		if int(res.typeHandle) < len(e.ir.Types) {
 			inner := e.ir.Types[res.typeHandle].Inner
-			if img, ok := inner.(ir.ImageType); ok {
-				switch img.Dim {
-				case ir.Dim1D:
-					return 2 // Texture1D
-				case ir.Dim2D:
-					return 4 // Texture2D
-				case ir.Dim3D:
-					return 7 // Texture3D
-				case ir.DimCube:
-					return 9 // TextureCube
+			// Unwrap binding array to get base type.
+			if ba, ok := inner.(ir.BindingArrayType); ok {
+				if int(ba.Base) < len(e.ir.Types) {
+					inner = e.ir.Types[ba.Base].Inner
 				}
+			}
+			if img, ok := inner.(ir.ImageType); ok {
+				return e.imageResourceKind(img)
 			}
 		}
 		return 4 // default Texture2D
@@ -2772,6 +3301,16 @@ func (e *Emitter) resourceKind(res *resourceInfo) int {
 		// Determine from type: typed buffer vs structured buffer vs raw buffer.
 		if int(res.typeHandle) < len(e.ir.Types) {
 			inner := e.ir.Types[res.typeHandle].Inner
+			// Unwrap binding array to get base type.
+			if ba, ok := inner.(ir.BindingArrayType); ok {
+				if int(ba.Base) < len(e.ir.Types) {
+					inner = e.ir.Types[ba.Base].Inner
+				}
+			}
+			// Storage images: determine kind from image dimension.
+			if img, ok := inner.(ir.ImageType); ok {
+				return e.imageResourceKind(img)
+			}
 			// Unwrap struct wrapper (common for storage buffers).
 			if st, ok := inner.(ir.StructType); ok && len(st.Members) > 0 {
 				inner = e.ir.Types[st.Members[0].Type].Inner
@@ -2784,5 +3323,36 @@ func (e *Emitter) resourceKind(res *resourceInfo) int {
 		return 12 // default RawBuffer for UAV storage buffers
 	default:
 		return 0
+	}
+}
+
+// imageResourceKind returns the DXIL resource kind for an image type.
+func (e *Emitter) imageResourceKind(img ir.ImageType) int {
+	switch img.Dim {
+	case ir.Dim1D:
+		if img.Arrayed {
+			return 3 // Texture1DArray
+		}
+		return 2 // Texture1D
+	case ir.Dim2D:
+		if img.Multisampled {
+			if img.Arrayed {
+				return 6 // Texture2DMSArray
+			}
+			return 5 // Texture2DMS
+		}
+		if img.Arrayed {
+			return 8 // Texture2DArray (note: 8 in DXIL, not 5)
+		}
+		return 4 // Texture2D
+	case ir.Dim3D:
+		return 7 // Texture3D
+	case ir.DimCube:
+		if img.Arrayed {
+			return 10 // TextureCubeArray
+		}
+		return 9 // TextureCube
+	default:
+		return 4 // default Texture2D
 	}
 }

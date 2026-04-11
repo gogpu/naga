@@ -99,6 +99,10 @@ const (
 	// Query operations.
 	OpGetDimensions DXILOpcode = 72
 
+	// Gather operations.
+	OpTextureGather    DXILOpcode = 73
+	OpTextureGatherCmp DXILOpcode = 74
+
 	// Derivative operations.
 	OpDerivCoarseX DXILOpcode = 83
 	OpDerivCoarseY DXILOpcode = 84

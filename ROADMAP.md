@@ -69,7 +69,7 @@
 | **DXIL Phase 2a: Compute foundation** | P2 | 5 | ✅ Done. Thread IDs, numthreads, UAV bufferLoad/bufferStore. |
 | **DXIL Phase 2b: Atomics + barriers** | P2 | 3 | ✅ Done. atomicBinOp (8 ops), atomicCmpXchg, dx.op.barrier, workgroup atomicrmw/cmpxchg. |
 | **DXIL Phase 2c: Mesh shaders** | P2 | 5 | ✅ Done. SM 6.5 intrinsics (168-172), PSG1 signatures, mesh metadata. |
-| **DXIL DXC validation** | P1 | — | **153/165 (92.7%)** pass DXC dumpbin. 1 val_fail (binding-arrays), 11 compile_fail (ray tracing, image atomics, subgroups). |
+| **DXIL DXC validation** | P1 | — | **155/165 (93.9%)** pass DXC dumpbin. 1 val_fail, 9 compile_fail (ray tracing, image atomics, subgroups, no EP). |
 | **DXIL Phase 3: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, dynamic resources |
 
 ### v1.0.0 — Stable Release
