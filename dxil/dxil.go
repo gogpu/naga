@@ -86,13 +86,17 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	}
 
 	// Auto-upgrade shader model for features that require higher versions.
-	// Mesh/amplification shaders require SM 6.5 minimum.
 	ep := &irModule.EntryPoints[0]
 	smMinor := opts.ShaderModel.Minor
+	// Mesh/amplification shaders require SM 6.5 minimum.
 	if ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask {
 		if smMinor < 5 {
 			smMinor = 5
 		}
+	}
+	// Ray query requires SM 6.5.
+	if moduleUsesRayQuery(irModule) && smMinor < 5 {
+		smMinor = 5
 	}
 
 	// Step 1: Emit naga IR -> DXIL module.
@@ -567,4 +571,47 @@ func stageToContainerKind(stage ir.ShaderStage) uint32 {
 	default:
 		return uint32(module.VertexShader)
 	}
+}
+
+// moduleUsesRayQuery checks if any function in the module uses StmtRayQuery.
+func moduleUsesRayQuery(m *ir.Module) bool {
+	for i := range m.Functions {
+		if blockUsesRayQuery(m.Functions[i].Body) {
+			return true
+		}
+	}
+	for i := range m.EntryPoints {
+		if blockUsesRayQuery(m.EntryPoints[i].Function.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+func blockUsesRayQuery(block ir.Block) bool {
+	for i := range block {
+		switch sk := block[i].Kind.(type) {
+		case ir.StmtRayQuery:
+			return true
+		case ir.StmtBlock:
+			if blockUsesRayQuery(sk.Block) {
+				return true
+			}
+		case ir.StmtIf:
+			if blockUsesRayQuery(sk.Accept) || blockUsesRayQuery(sk.Reject) {
+				return true
+			}
+		case ir.StmtLoop:
+			if blockUsesRayQuery(sk.Body) || blockUsesRayQuery(sk.Continuing) {
+				return true
+			}
+		case ir.StmtSwitch:
+			for j := range sk.Cases {
+				if blockUsesRayQuery(sk.Cases[j].Body) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

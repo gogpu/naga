@@ -127,6 +127,22 @@ func (e *Emitter) emitComputeBuiltinLoad(fn *ir.Function, argIdx int, builtin ir
 		// constant CBV injected by the runtime. We emit a synthetic CBV load.
 		return e.emitNumWorkGroupsLoad(fn, exprHandle)
 
+	case ir.BuiltinSubgroupInvocationID:
+		// WaveGetLaneIndex() — returns the lane index within the wave.
+		return e.emitScalarWaveLoad(fn, exprHandle, "dx.op.waveGetLaneIndex", OpWaveGetLaneIndex)
+
+	case ir.BuiltinSubgroupSize:
+		// WaveGetLaneCount() — returns the number of lanes in the wave.
+		return e.emitScalarWaveLoad(fn, exprHandle, "dx.op.waveGetLaneCount", OpWaveGetLaneCount)
+
+	case ir.BuiltinSubgroupID:
+		// SubgroupId = flattenedThreadIdInGroup / WaveGetLaneCount()
+		return e.emitSubgroupIDLoad(fn, exprHandle)
+
+	case ir.BuiltinNumSubgroups:
+		// NumSubgroups = (totalThreads + WaveGetLaneCount() - 1) / WaveGetLaneCount()
+		return e.emitNumSubgroupsLoad(fn, exprHandle)
+
 	default:
 		return fmt.Errorf("unsupported compute builtin: %d", builtin)
 	}
@@ -540,6 +556,92 @@ func (e *Emitter) getDxOpStorePrimitiveOutputFunc(ol overloadType) *module.Funct
 	fn := e.mod.AddFunction(fullName, funcTy, true)
 	e.dxOpFuncs[key] = fn
 	return fn
+}
+
+// emitScalarWaveLoad emits a scalar wave intrinsic that takes only (i32 opcode) and returns i32.
+// Used for WaveGetLaneIndex (111) and WaveGetLaneCount (112).
+func (e *Emitter) emitScalarWaveLoad(_ *ir.Function, exprHandle ir.ExpressionHandle, funcName string, opcode DXILOpcode) error {
+	i32Ty := e.mod.GetIntType(32)
+	key := dxOpKey{name: funcName, overload: overloadI32}
+	fn, ok := e.dxOpFuncs[key]
+	if !ok {
+		params := []*module.Type{i32Ty}
+		funcTy := e.mod.GetFunctionType(i32Ty, params)
+		fn = e.mod.AddFunction(funcName, funcTy, true)
+		e.dxOpFuncs[key] = fn
+	}
+
+	opcodeVal := e.getIntConstID(int64(opcode))
+	resultID := e.addCallInstr(fn, i32Ty, []int{opcodeVal})
+	e.exprValues[exprHandle] = resultID
+	return nil
+}
+
+// emitSubgroupIDLoad emits: flattenedThreadIdInGroup / WaveGetLaneCount()
+// DXC/HLSL translates SubgroupId as local_invocation_index / WaveGetLaneCount().
+func (e *Emitter) emitSubgroupIDLoad(_ *ir.Function, exprHandle ir.ExpressionHandle) error {
+	i32Ty := e.mod.GetIntType(32)
+
+	// flattenedThreadIdInGroup (opcode 96)
+	flattenedKey := dxOpKey{name: "dx.op.flattenedThreadIdInGroup", overload: overloadI32}
+	flatFn, ok := e.dxOpFuncs[flattenedKey]
+	if !ok {
+		params := []*module.Type{i32Ty}
+		funcTy := e.mod.GetFunctionType(i32Ty, params)
+		flatFn = e.mod.AddFunction("dx.op.flattenedThreadIdInGroup", funcTy, true)
+		e.dxOpFuncs[flattenedKey] = flatFn
+	}
+	flatOp := e.getIntConstID(int64(OpFlattenedTIDInGroup))
+	flatID := e.addCallInstr(flatFn, i32Ty, []int{flatOp})
+
+	// WaveGetLaneCount (opcode 112)
+	laneCountKey := dxOpKey{name: "dx.op.waveGetLaneCount", overload: overloadI32}
+	lcFn, ok := e.dxOpFuncs[laneCountKey]
+	if !ok {
+		params := []*module.Type{i32Ty}
+		funcTy := e.mod.GetFunctionType(i32Ty, params)
+		lcFn = e.mod.AddFunction("dx.op.waveGetLaneCount", funcTy, true)
+		e.dxOpFuncs[laneCountKey] = lcFn
+	}
+	lcOp := e.getIntConstID(int64(OpWaveGetLaneCount))
+	lcID := e.addCallInstr(lcFn, i32Ty, []int{lcOp})
+
+	// UDiv: flattenedThreadIdInGroup / WaveGetLaneCount
+	resultID := e.addBinOpInstr(i32Ty, BinOpUDiv, flatID, lcID)
+	e.exprValues[exprHandle] = resultID
+	return nil
+}
+
+// emitNumSubgroupsLoad emits: (totalThreads + WaveGetLaneCount() - 1) / WaveGetLaneCount()
+// where totalThreads = workgroup_size.x * workgroup_size.y * workgroup_size.z.
+func (e *Emitter) emitNumSubgroupsLoad(_ *ir.Function, exprHandle ir.ExpressionHandle) error {
+	i32Ty := e.mod.GetIntType(32)
+
+	// Get workgroup size from the entry point.
+	ep := &e.ir.EntryPoints[0]
+	totalThreads := int64(ep.Workgroup[0]) * int64(ep.Workgroup[1]) * int64(ep.Workgroup[2])
+	totalID := e.getIntConstID(totalThreads)
+
+	// WaveGetLaneCount (opcode 112)
+	laneCountKey := dxOpKey{name: "dx.op.waveGetLaneCount", overload: overloadI32}
+	lcFn, ok := e.dxOpFuncs[laneCountKey]
+	if !ok {
+		params := []*module.Type{i32Ty}
+		funcTy := e.mod.GetFunctionType(i32Ty, params)
+		lcFn = e.mod.AddFunction("dx.op.waveGetLaneCount", funcTy, true)
+		e.dxOpFuncs[laneCountKey] = lcFn
+	}
+	lcOp := e.getIntConstID(int64(OpWaveGetLaneCount))
+	lcID := e.addCallInstr(lcFn, i32Ty, []int{lcOp})
+
+	// (totalThreads + laneCount - 1) / laneCount
+	oneID := e.getIntConstID(1)
+	addID := e.addBinOpInstr(i32Ty, BinOpAdd, totalID, lcID)
+	subID := e.addBinOpInstr(i32Ty, BinOpSub, addID, oneID)
+	resultID := e.addBinOpInstr(i32Ty, BinOpUDiv, subID, lcID)
+
+	e.exprValues[exprHandle] = resultID
+	return nil
 }
 
 // TODO: emitGetMeshPayload — implement when task payload access is needed.

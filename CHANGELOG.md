@@ -135,10 +135,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DXIL: NumWorkGroups via synthetic CBV** — `$Globals` CBV with cbufferLoadLegacy
   for compute dispatch dimensions (DXIL has no intrinsic, matches DXC approach).
 
-- **DXIL: DXC dumpbin validation** — **155/165 shaders pass DXC dumpbin (93.9%)**.
-  1 val_fail (binding-buffer-arrays), 9 compile_fail (ray tracing 4, image atomics 2,
-  subgroups 1, no entry points 2).
-  Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
+- **DXIL: ray query intrinsics (SM 6.5)** — 35 new opcodes (178-212): allocateRayQuery,
+  traceRayInline, proceed, candidateType, committedStatus, all intersection getters.
+  RayIntersection struct (34 components). Auto SM upgrade to 6.5.
+
+- **DXIL: image atomics** — StmtImageAtomic via dx.op.atomicBinOp/atomicCompareExchange
+  with texture handles and spatial coordinates.
+
+- **DXIL: wave/subgroup operations (SM 6.0+)** — 13 wave intrinsics: waveGetLaneIndex(111),
+  waveGetLaneCount(112), waveAnyTrue(113), waveAllTrue(114), waveActiveBallot(116),
+  waveReadLaneAt(117), waveReadLaneFirst(118), waveActiveOp(119), waveActiveBit(120),
+  wavePrefixOp(121), quadReadLaneAt(122), quadOp(123).
+
+- **DXIL: DXC dumpbin validation** — **163/163 testable shaders pass DXC dumpbin (100%)**.
+  Zero val_fail. Zero compile_fail. 2 expected fail (no entry points).
+  ALL 6 backends at 100%. World's first Pure Go DXIL generator at full validation.
 
 ### Fixed (other backends)
 

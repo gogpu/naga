@@ -111,6 +111,12 @@ type Emitter struct {
 
 	// Synthetic CBV handle for NumWorkGroups builtin (-1 if not created).
 	numWGHandleID int
+
+	// Wave ballot return type (struct {i32, i32, i32, i32}), lazily created.
+	waveBallotRetTy *module.Type
+
+	// Ray query handle map: expression handle → DXIL value ID for allocated ray query.
+	rayQueryHandles map[ir.ExpressionHandle]int
 }
 
 // meshContext holds state for mesh shader intrinsic emission.

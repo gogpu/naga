@@ -136,6 +136,9 @@ func (e *Emitter) classifyGlobalVariable(gv *ir.GlobalVariable) (uint8, bool) {
 				return resourceClassSRV, true
 			case ir.SamplerType:
 				return resourceClassSampler, true
+			case ir.AccelerationStructureType:
+				// Acceleration structures are SRVs in DXIL (t-register).
+				return resourceClassSRV, true
 			}
 		}
 		return 0, false
@@ -2083,6 +2086,9 @@ type uavPointerChain struct {
 	// bindingArrayIndexExpr holds the index into the binding array (for dynamic handle creation).
 	bindingArrayIndexExpr ir.ExpressionHandle
 	hasBindingArrayIndex  bool
+	// isBindingArrayConstIdx is true when the binding array index is a constant (AccessIndex pattern).
+	isBindingArrayConstIdx bool
+	bindingArrayConstIndex int64
 }
 
 // resolveUAVPointerChain walks an expression chain and determines whether it
@@ -2135,14 +2141,35 @@ func (e *Emitter) resolveBindingArrayUAVChain(fn *ir.Function, ai ir.ExprAccessI
 		return nil, false
 	}
 	baseExpr := fn.Expressions[ai.Base]
-	acc, ok := baseExpr.Kind.(ir.ExprAccess)
-	if !ok {
+
+	// Pattern 1: AccessIndex(fieldIdx, Access(base=GlobalVariable(binding_array), index=dynamicIdx))
+	// This handles storage_array[dynamic_index].field
+	if acc, ok := baseExpr.Kind.(ir.ExprAccess); ok {
+		return e.resolveBindingArrayUAVChainFromGV(fn, ai, acc.Base, acc.Index, true)
+	}
+
+	// Pattern 2: AccessIndex(fieldIdx, AccessIndex(constArrayIdx, GlobalVariable(binding_array)))
+	// This handles storage_array[0].field (constant index into binding array)
+	if innerAI, ok := baseExpr.Kind.(ir.ExprAccessIndex); ok {
+		return e.resolveBindingArrayUAVChainFromGV(fn, ai, innerAI.Base, ir.ExpressionHandle(0), false)
+	}
+
+	return nil, false
+}
+
+// resolveBindingArrayUAVChainFromGV is the common path for binding array UAV chain detection.
+// It checks if gvBase resolves to a binding array UAV global variable and builds the chain.
+// If isDynamicIndex is true, indexExpr is the dynamic array index expression.
+// If isDynamicIndex is false, the array index comes from a constant AccessIndex (the parent caller).
+func (e *Emitter) resolveBindingArrayUAVChainFromGV(
+	fn *ir.Function, ai ir.ExprAccessIndex,
+	gvBase ir.ExpressionHandle, indexExpr ir.ExpressionHandle,
+	isDynamicIndex bool,
+) (*uavPointerChain, bool) {
+	if int(gvBase) >= len(fn.Expressions) {
 		return nil, false
 	}
-	if int(acc.Base) >= len(fn.Expressions) {
-		return nil, false
-	}
-	gvExpr, ok := fn.Expressions[acc.Base].Kind.(ir.ExprGlobalVariable)
+	gvExpr, ok := fn.Expressions[gvBase].Kind.(ir.ExprGlobalVariable)
 	if !ok {
 		return nil, false
 	}
@@ -2192,17 +2219,27 @@ func (e *Emitter) resolveBindingArrayUAVChain(fn *ir.Function, ai ir.ExprAccessI
 		scalar = s
 	}
 
-	return &uavPointerChain{
-		varHandle:             gvExpr.Variable,
-		isConstIdx:            true,
-		constIndex:            0,
-		elemType:              fieldType,
-		scalar:                scalar,
-		fieldByteOffset:       fieldByteOffset,
-		dynamicHandleID:       -1, // will be created at emit time
-		bindingArrayIndexExpr: acc.Index,
-		hasBindingArrayIndex:  true,
-	}, true
+	chain := &uavPointerChain{
+		varHandle:            gvExpr.Variable,
+		isConstIdx:           true,
+		constIndex:           0,
+		elemType:             fieldType,
+		scalar:               scalar,
+		fieldByteOffset:      fieldByteOffset,
+		dynamicHandleID:      -1, // will be created at emit time
+		hasBindingArrayIndex: true,
+	}
+
+	if isDynamicIndex {
+		chain.bindingArrayIndexExpr = indexExpr
+	} else {
+		// Constant index: get from the inner AccessIndex.
+		innerAI := fn.Expressions[ai.Base].Kind.(ir.ExprAccessIndex)
+		chain.bindingArrayConstIndex = int64(innerAI.Index)
+		chain.isBindingArrayConstIdx = true
+	}
+
+	return chain, true
 }
 
 // resolveUAVDirectGlobal handles direct reference to a UAV global variable
@@ -3022,6 +3059,9 @@ func (e *Emitter) resolveUAVHandleID(fn *ir.Function, chain *uavPointerChain) (i
 			return 0, fmt.Errorf("UAV handle not found for global variable %d", chain.varHandle)
 		}
 		res := &e.resources[resIdx]
+		if chain.isBindingArrayConstIdx {
+			return e.emitDynamicCreateHandleConst(res, chain.bindingArrayConstIndex)
+		}
 		return e.emitDynamicCreateHandle(fn, res, chain.bindingArrayIndexExpr)
 	}
 

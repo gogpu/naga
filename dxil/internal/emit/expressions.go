@@ -110,6 +110,21 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		// If we reach here, the value should already be in exprValues.
 		return 0, fmt.Errorf("ExprAtomicResult [%d] not yet populated by StmtAtomic", handle)
 
+	case ir.ExprSubgroupBallotResult:
+		// Pre-populated by emitStmtSubgroupBallot.
+		return 0, fmt.Errorf("ExprSubgroupBallotResult [%d] not yet populated by StmtSubgroupBallot", handle)
+
+	case ir.ExprSubgroupOperationResult:
+		// Pre-populated by emitStmtSubgroupCollectiveOp or emitStmtSubgroupGather.
+		return 0, fmt.Errorf("ExprSubgroupOperationResult [%d] not yet populated", handle)
+
+	case ir.ExprRayQueryProceedResult:
+		// Pre-populated by emitStmtRayQuery (RayQueryProceed).
+		return 0, fmt.Errorf("ExprRayQueryProceedResult [%d] not yet populated", handle)
+
+	case ir.ExprRayQueryGetIntersection:
+		valueID, err = e.emitRayQueryGetIntersection(fn, ek)
+
 	case ir.ExprCallResult:
 		// CallResult values are set by emitStmtCall.
 		if v, found := e.callResultValues[handle]; found {

@@ -122,6 +122,58 @@ const (
 	OpThreadIDInGroup     DXILOpcode = 95
 	OpFlattenedTIDInGroup DXILOpcode = 96
 
+	// Wave (subgroup) operations.
+	OpWaveIsFirstLane   DXILOpcode = 110
+	OpWaveGetLaneIndex  DXILOpcode = 111
+	OpWaveGetLaneCount  DXILOpcode = 112
+	OpWaveAnyTrue       DXILOpcode = 113
+	OpWaveAllTrue       DXILOpcode = 114
+	OpWaveBallot        DXILOpcode = 116
+	OpWaveReadLaneAt    DXILOpcode = 117
+	OpWaveReadLaneFirst DXILOpcode = 118
+	OpWaveActiveOp      DXILOpcode = 119
+	OpWaveActiveBit     DXILOpcode = 120
+	OpWavePrefixOp      DXILOpcode = 121
+	OpQuadReadLaneAt    DXILOpcode = 122
+	OpQuadOp            DXILOpcode = 123
+
+	// Ray query operations (SM 6.5).
+	OpAllocateRayQuery                              DXILOpcode = 178
+	OpRayQueryTraceRayInline                        DXILOpcode = 179
+	OpRayQueryProceed                               DXILOpcode = 180
+	OpRayQueryAbort                                 DXILOpcode = 181
+	OpRayQueryCommitNonOpaqueTriangleHit            DXILOpcode = 182
+	OpRayQueryCommitProceduralPrimitiveHit          DXILOpcode = 183
+	OpRayQueryCommittedStatus                       DXILOpcode = 184
+	OpRayQueryCandidateType                         DXILOpcode = 185
+	OpRayQueryCandidateObjectToWorld3x4             DXILOpcode = 186
+	OpRayQueryCandidateWorldToObject3x4             DXILOpcode = 187
+	OpRayQueryCommittedObjectToWorld3x4             DXILOpcode = 188
+	OpRayQueryCommittedWorldToObject3x4             DXILOpcode = 189
+	OpRayQueryCandidateProceduralPrimitiveNonOpaque DXILOpcode = 190
+	OpRayQueryCandidateTriangleFrontFace            DXILOpcode = 191
+	OpRayQueryCommittedTriangleFrontFace            DXILOpcode = 192
+	OpRayQueryCandidateTriangleBarycentrics         DXILOpcode = 193
+	OpRayQueryCommittedTriangleBarycentrics         DXILOpcode = 194
+	OpRayQueryRayFlags                              DXILOpcode = 195
+	OpRayQueryWorldRayOrigin                        DXILOpcode = 196
+	OpRayQueryWorldRayDirection                     DXILOpcode = 197
+	OpRayQueryRayTMin                               DXILOpcode = 198
+	OpRayQueryCandidateTriangleRayT                 DXILOpcode = 199
+	OpRayQueryCommittedRayT                         DXILOpcode = 200
+	OpRayQueryCandidateInstanceIndex                DXILOpcode = 201
+	OpRayQueryCandidateInstanceID                   DXILOpcode = 202
+	OpRayQueryCandidateGeometryIndex                DXILOpcode = 203
+	OpRayQueryCandidatePrimitiveIndex               DXILOpcode = 204
+	OpRayQueryCandidateObjectRayOrigin              DXILOpcode = 205
+	OpRayQueryCandidateObjectRayDirection           DXILOpcode = 206
+	OpRayQueryCommittedInstanceIndex                DXILOpcode = 207
+	OpRayQueryCommittedInstanceID                   DXILOpcode = 208
+	OpRayQueryCommittedGeometryIndex                DXILOpcode = 209
+	OpRayQueryCommittedPrimitiveIndex               DXILOpcode = 210
+	OpRayQueryCommittedObjectRayOrigin              DXILOpcode = 211
+	OpRayQueryCommittedObjectRayDirection           DXILOpcode = 212
+
 	// Mesh shader operations.
 	OpSetMeshOutputCounts  DXILOpcode = 168
 	OpEmitIndices          DXILOpcode = 169
@@ -260,6 +312,43 @@ const (
 	AtomicRMWMin  AtomicRMWOp = 8  // signed min
 	AtomicRMWUMax AtomicRMWOp = 9  // unsigned max
 	AtomicRMWUMin AtomicRMWOp = 10 // unsigned min
+)
+
+// DXILWaveOp represents the operation kind for dx.op.waveActiveOp / dx.op.wavePrefixOp.
+// Reference: DXC DXIL.rst WaveActiveOp/WavePrefixOp
+type DXILWaveOp uint32
+
+const (
+	DXILWaveOpSum DXILWaveOp = 0 // Add
+	DXILWaveOpMul DXILWaveOp = 1 // Product (Mul)
+	DXILWaveOpMin DXILWaveOp = 2 // Min
+	DXILWaveOpMax DXILWaveOp = 3 // Max
+)
+
+// DXILWaveOpSign represents the signed/unsigned flag for dx.op.waveActiveOp.
+type DXILWaveOpSign uint32
+
+const (
+	DXILWaveOpSignSigned   DXILWaveOpSign = 0
+	DXILWaveOpSignUnsigned DXILWaveOpSign = 1
+)
+
+// DXILWaveBitOp represents the bit operation kind for dx.op.waveActiveBit.
+type DXILWaveBitOp uint32
+
+const (
+	DXILWaveBitAnd DXILWaveBitOp = 0
+	DXILWaveBitOr  DXILWaveBitOp = 1
+	DXILWaveBitXor DXILWaveBitOp = 2
+)
+
+// DXILQuadOpKind represents the operation kind for dx.op.quadOp.
+type DXILQuadOpKind uint32
+
+const (
+	DXILQuadOpReadAcrossX    DXILQuadOpKind = 0 // SwapX (horizontal)
+	DXILQuadOpReadAcrossY    DXILQuadOpKind = 1 // SwapY (vertical)
+	DXILQuadOpReadAcrossDiag DXILQuadOpKind = 2 // SwapDiagonal
 )
 
 // LLVM memory ordering constants.

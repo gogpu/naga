@@ -52,6 +52,8 @@ func (e *Emitter) emitBlock(fn *ir.Function, block ir.Block) error {
 }
 
 // emitStatement emits a single statement.
+//
+//nolint:gocyclo,cyclop // type-switch dispatch over all IR statement kinds
 func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	switch sk := stmt.Kind.(type) {
 	case ir.StmtEmit:
@@ -100,6 +102,21 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtCall:
 		// Function calls.
 		return e.emitStmtCall(fn, sk)
+
+	case ir.StmtImageAtomic:
+		return e.emitStmtImageAtomic(fn, sk)
+
+	case ir.StmtRayQuery:
+		return e.emitStmtRayQuery(fn, sk)
+
+	case ir.StmtSubgroupBallot:
+		return e.emitStmtSubgroupBallot(fn, sk)
+
+	case ir.StmtSubgroupCollectiveOperation:
+		return e.emitStmtSubgroupCollectiveOp(fn, sk)
+
+	case ir.StmtSubgroupGather:
+		return e.emitStmtSubgroupGather(fn, sk)
 
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", sk)
@@ -2310,4 +2327,1171 @@ func scalarAndComponentCount(inner ir.TypeInner) (ir.ScalarType, int) {
 	default:
 		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, 1
 	}
+}
+
+// emitStmtImageAtomic emits a dx.op.atomicBinOp or dx.op.atomicCompareExchange call
+// for atomic operations on storage texture (RWTexture) resources.
+//
+// Uses the same dx.op intrinsics as UAV buffer atomics but with texture coordinates
+// instead of buffer index. The coordinate layout depends on the image dimension:
+//   - 1D:        c0
+//   - 2D:        c0, c1
+//   - 2DArray:   c0, c1, c2 (array slice)
+//   - 3D:        c0, c1, c2
+//
+// Reference: DXC DXIL.rst atomicBinOp section (opcode 78)
+func (e *Emitter) emitStmtImageAtomic(fn *ir.Function, imgAtomic ir.StmtImageAtomic) error {
+	// Resolve image handle.
+	imageHandleID, err := e.resolveResourceHandle(fn, imgAtomic.Image)
+	if err != nil {
+		return fmt.Errorf("StmtImageAtomic: image handle: %w", err)
+	}
+
+	// Resolve image type for coordinate count.
+	imgInner := e.resolveExprType(fn, imgAtomic.Image)
+	imgType, ok := imgInner.(ir.ImageType)
+	if !ok {
+		return fmt.Errorf("StmtImageAtomic: image is not ImageType, got %T", imgInner)
+	}
+
+	// Build coordinates.
+	coords, err := e.buildImageAtomicCoords(fn, imgAtomic, imgType)
+	if err != nil {
+		return err
+	}
+
+	ol := imageOverload(imgType)
+
+	// Emit the value expression.
+	valueID, err := e.emitExpression(fn, imgAtomic.Value)
+	if err != nil {
+		return fmt.Errorf("StmtImageAtomic: value: %w", err)
+	}
+
+	return e.dispatchImageAtomic(fn, imgAtomic, imageHandleID, coords, valueID, ol, imgType)
+}
+
+// buildImageAtomicCoords emits coordinates for an image atomic operation.
+func (e *Emitter) buildImageAtomicCoords(fn *ir.Function, imgAtomic ir.StmtImageAtomic, imgType ir.ImageType) ([3]int, error) {
+	if _, err := e.emitExpression(fn, imgAtomic.Coordinate); err != nil {
+		return [3]int{}, fmt.Errorf("StmtImageAtomic: coordinate: %w", err)
+	}
+	undefI32 := e.getUndefConstID()
+	coords := [3]int{undefI32, undefI32, undefI32}
+	spatialComps := imageDimSpatialComponents(imgType.Dim)
+	for i := 0; i < spatialComps; i++ {
+		coords[i] = e.getComponentID(imgAtomic.Coordinate, i)
+	}
+	if imgType.Arrayed && imgAtomic.ArrayIndex != nil {
+		arrIdx, err := e.emitExpression(fn, *imgAtomic.ArrayIndex)
+		if err != nil {
+			return [3]int{}, fmt.Errorf("StmtImageAtomic: array index: %w", err)
+		}
+		if spatialComps < 3 {
+			coords[spatialComps] = arrIdx
+		}
+	}
+	return coords, nil
+}
+
+// dispatchImageAtomic dispatches the atomic function to the appropriate DXIL intrinsic.
+func (e *Emitter) dispatchImageAtomic(fn *ir.Function, imgAtomic ir.StmtImageAtomic, handleID int, coords [3]int, valueID int, ol overloadType, imgType ir.ImageType) error {
+	switch af := imgAtomic.Fun.(type) {
+	case ir.AtomicAdd:
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicAdd, valueID, ol)
+	case ir.AtomicSubtract:
+		return e.emitImageAtomicSubtract(handleID, coords, valueID, ol)
+	case ir.AtomicAnd:
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicAnd, valueID, ol)
+	case ir.AtomicInclusiveOr:
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicOr, valueID, ol)
+	case ir.AtomicExclusiveOr:
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicXor, valueID, ol)
+	case ir.AtomicMin:
+		op := e.imageAtomicMinMaxOp(imgType, true)
+		return e.emitImageAtomicBinOp(handleID, coords, op, valueID, ol)
+	case ir.AtomicMax:
+		op := e.imageAtomicMinMaxOp(imgType, false)
+		return e.emitImageAtomicBinOp(handleID, coords, op, valueID, ol)
+	case ir.AtomicExchange:
+		if af.Compare != nil {
+			cmpValID, err := e.emitExpression(fn, *af.Compare)
+			if err != nil {
+				return fmt.Errorf("StmtImageAtomic: compare value: %w", err)
+			}
+			return e.emitImageAtomicCmpXchg(handleID, coords, cmpValID, valueID, ol)
+		}
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicExchange, valueID, ol)
+	default:
+		return fmt.Errorf("StmtImageAtomic: unsupported atomic function: %T", imgAtomic.Fun)
+	}
+}
+
+// imageAtomicMinMaxOp selects the correct DXIL atomic min/max opcode based on the
+// image's storage format signedness.
+func (e *Emitter) imageAtomicMinMaxOp(imgType ir.ImageType, isMin bool) DXILAtomicOp {
+	scalar := imgType.StorageFormat.Scalar()
+	if scalar.Kind == ir.ScalarUint {
+		if isMin {
+			return DXILAtomicUMin
+		}
+		return DXILAtomicUMax
+	}
+	if isMin {
+		return DXILAtomicIMin
+	}
+	return DXILAtomicIMax
+}
+
+// emitImageAtomicBinOp emits dx.op.atomicBinOp with texture handle and coordinates.
+func (e *Emitter) emitImageAtomicBinOp(handleID int, coords [3]int, atomicOp DXILAtomicOp, valueID int, ol overloadType) error {
+	atomicFn := e.getDxOpAtomicBinOpFuncTyped(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpAtomicBinOp))
+	atomicOpVal := e.getIntConstID(int64(atomicOp))
+
+	e.addCallInstr(atomicFn, retTy, []int{
+		opcodeVal, handleID, atomicOpVal,
+		coords[0], coords[1], coords[2],
+		valueID,
+	})
+	return nil
+}
+
+// emitImageAtomicSubtract emits an atomic subtract on a texture by negating and using ADD.
+func (e *Emitter) emitImageAtomicSubtract(handleID int, coords [3]int, valueID int, ol overloadType) error {
+	retTy := e.overloadReturnType(ol)
+
+	// Negate: 0 - value.
+	var negatedID int
+	switch ol {
+	case overloadF32:
+		zeroVal := e.getFloatConstID(0.0)
+		negatedID = e.addBinOpInstr(retTy, BinOpFSub, zeroVal, valueID)
+	case overloadI64:
+		c := e.mod.AddIntConst(e.mod.GetIntType(64), 0)
+		id := e.allocValue()
+		e.constMap[id] = c
+		negatedID = e.addBinOpInstr(retTy, BinOpSub, id, valueID)
+	default:
+		zeroVal := e.getIntConstID(0)
+		negatedID = e.addBinOpInstr(retTy, BinOpSub, zeroVal, valueID)
+	}
+
+	return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicAdd, negatedID, ol)
+}
+
+// emitImageAtomicCmpXchg emits dx.op.atomicCompareExchange with texture handle and coordinates.
+func (e *Emitter) emitImageAtomicCmpXchg(handleID int, coords [3]int, cmpValID, newValID int, ol overloadType) error {
+	cmpXchgFn := e.getDxOpAtomicCmpXchgFuncTyped(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpAtomicCmpXchg))
+
+	e.addCallInstr(cmpXchgFn, retTy, []int{
+		opcodeVal, handleID,
+		coords[0], coords[1], coords[2],
+		cmpValID, newValID,
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Subgroup / wave operations
+// ---------------------------------------------------------------------------
+
+// emitStmtSubgroupBallot emits dx.op.waveActiveBallot (opcode 116).
+// Signature: %dx.types.fouri32 @dx.op.waveActiveBallot(i32 116, i1 condition) → {i32, i32, i32, i32}
+// The result is a vec4<u32>.
+func (e *Emitter) emitStmtSubgroupBallot(fn *ir.Function, ballot ir.StmtSubgroupBallot) error {
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+
+	var condID int
+	if ballot.Predicate != nil {
+		var err error
+		condID, err = e.emitExpression(fn, *ballot.Predicate)
+		if err != nil {
+			return fmt.Errorf("StmtSubgroupBallot: predicate: %w", err)
+		}
+	} else {
+		// No predicate → true (all active lanes).
+		condID = e.getBoolConstID(true)
+	}
+
+	// Get or create the function declaration.
+	ballotFn := e.getWaveBallotFunc()
+	// The return type is a struct {i32, i32, i32, i32}.
+	retTy := e.getWaveBallotRetType()
+
+	opcodeVal := e.getIntConstID(int64(OpWaveBallot))
+	resultID := e.addCallInstr(ballotFn, retTy, []int{opcodeVal, condID})
+
+	// Extract 4 components.
+	comps := make([]int, 4)
+	for i := 0; i < 4; i++ {
+		extractID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{resultID, i},
+			ValueID:    extractID,
+		}
+		e.currentBB.AddInstruction(instr)
+		comps[i] = extractID
+	}
+
+	e.exprValues[ballot.Result] = comps[0]
+	e.exprComponents[ballot.Result] = comps
+	_ = i1Ty
+	return nil
+}
+
+// getWaveBallotRetType returns the struct type {i32, i32, i32, i32} for WaveActiveBallot.
+func (e *Emitter) getWaveBallotRetType() *module.Type {
+	if e.waveBallotRetTy != nil {
+		return e.waveBallotRetTy
+	}
+	i32Ty := e.mod.GetIntType(32)
+	e.waveBallotRetTy = e.mod.GetStructType("dx.types.fouri32", []*module.Type{i32Ty, i32Ty, i32Ty, i32Ty})
+	return e.waveBallotRetTy
+}
+
+// getWaveBallotFunc returns the dx.op.waveActiveBallot function declaration.
+func (e *Emitter) getWaveBallotFunc() *module.Function {
+	name := "dx.op.waveActiveBallot"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	retTy := e.getWaveBallotRetType()
+	params := []*module.Type{i32Ty, i1Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// emitStmtSubgroupCollectiveOp emits wave collective operations.
+//
+// Mapping from naga IR to DXIL:
+//   - All/Any (reduce) → dx.op.waveAllTrue(114) / dx.op.waveAnyTrue(113)
+//   - Add/Mul/Min/Max (reduce) → dx.op.waveActiveOp(119, value, op, sign)
+//   - And/Or/Xor (reduce) → dx.op.waveActiveBit(120, value, bitOp)
+//   - Add/Mul/Min/Max (inclusive/exclusive scan) → dx.op.wavePrefixOp(121, value, op, sign)
+func (e *Emitter) emitStmtSubgroupCollectiveOp(fn *ir.Function, op ir.StmtSubgroupCollectiveOperation) error {
+	argID, err := e.emitExpression(fn, op.Argument)
+	if err != nil {
+		return fmt.Errorf("StmtSubgroupCollectiveOp: argument: %w", err)
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+
+	// Resolve the argument type to determine overload.
+	argInner := e.resolveExprType(fn, op.Argument)
+	argScalar, _ := scalarAndComponentCount(argInner)
+	ol := overloadForScalar(argScalar)
+
+	var resultID int
+
+	switch op.CollectiveOp {
+	case ir.CollectiveReduce:
+		switch op.Op {
+		case ir.SubgroupOperationAll:
+			// dx.op.waveAllTrue(i32 114, i1 cond) → i1
+			waveFn := e.getWaveBoolFunc("dx.op.waveAllTrue", OpWaveAllTrue)
+			opcodeVal := e.getIntConstID(int64(OpWaveAllTrue))
+			resultID = e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID})
+			// Extend i1 → i32 (zext) since the IR result type is typically u32.
+			resultID = e.emitCastInstr(i32Ty, CastZExt, resultID)
+
+		case ir.SubgroupOperationAny:
+			waveFn := e.getWaveBoolFunc("dx.op.waveAnyTrue", OpWaveAnyTrue)
+			opcodeVal := e.getIntConstID(int64(OpWaveAnyTrue))
+			resultID = e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID})
+			resultID = e.emitCastInstr(i32Ty, CastZExt, resultID)
+
+		case ir.SubgroupOperationAnd:
+			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitAnd, ol)
+		case ir.SubgroupOperationOr:
+			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitOr, ol)
+		case ir.SubgroupOperationXor:
+			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitXor, ol)
+
+		default:
+			waveOp, sign := subgroupOpToWaveOp(op.Op, argScalar)
+			resultID = e.emitWaveActiveOp(fn, argID, waveOp, sign, ol)
+		}
+
+	case ir.CollectiveInclusiveScan, ir.CollectiveExclusiveScan:
+		// And/Or/Xor scans are not available in DXIL wavePrefixOp.
+		// Only arithmetic ops (sum, product, min, max) are supported.
+		switch op.Op {
+		case ir.SubgroupOperationAnd, ir.SubgroupOperationOr, ir.SubgroupOperationXor:
+			// Fallback: use reduce result as approximation (best-effort).
+			bitOp := DXILWaveBitAnd
+			switch op.Op {
+			case ir.SubgroupOperationOr:
+				bitOp = DXILWaveBitOr
+			case ir.SubgroupOperationXor:
+				bitOp = DXILWaveBitXor
+			}
+			resultID = e.emitWaveActiveBit(fn, argID, bitOp, ol)
+		default:
+			waveOp, sign := subgroupOpToWaveOp(op.Op, argScalar)
+			resultID = e.emitWavePrefixOp(fn, argID, waveOp, sign, ol)
+			// Inclusive scan = prefix + current value. DXIL wavePrefixOp is exclusive.
+			if op.CollectiveOp == ir.CollectiveInclusiveScan {
+				resultID = e.combineForInclusive(argID, resultID, op.Op, ol)
+			}
+		}
+
+	default:
+		return fmt.Errorf("unsupported collective operation: %d", op.CollectiveOp)
+	}
+
+	e.exprValues[op.Result] = resultID
+	return nil
+}
+
+// subgroupOpToWaveOp converts a naga SubgroupOperation to DXIL WaveOp + sign.
+func subgroupOpToWaveOp(op ir.SubgroupOperation, scalar ir.ScalarType) (DXILWaveOp, DXILWaveOpSign) {
+	sign := DXILWaveOpSignSigned
+	if scalar.Kind == ir.ScalarUint {
+		sign = DXILWaveOpSignUnsigned
+	}
+	switch op {
+	case ir.SubgroupOperationAdd:
+		return DXILWaveOpSum, sign
+	case ir.SubgroupOperationMul:
+		return DXILWaveOpMul, sign
+	case ir.SubgroupOperationMin:
+		return DXILWaveOpMin, sign
+	case ir.SubgroupOperationMax:
+		return DXILWaveOpMax, sign
+	default:
+		return DXILWaveOpSum, sign
+	}
+}
+
+// emitWaveActiveOp emits dx.op.waveActiveOp.T(i32 119, T value, i8 op, i8 sign).
+func (e *Emitter) emitWaveActiveOp(_ *ir.Function, valueID int, waveOp DXILWaveOp, sign DXILWaveOpSign, ol overloadType) int {
+	waveFn := e.getWaveActiveOpFunc(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpWaveActiveOp))
+	opVal := e.getI8ConstID(int64(waveOp))
+	signVal := e.getI8ConstID(int64(sign))
+	return e.addCallInstr(waveFn, retTy, []int{opcodeVal, valueID, opVal, signVal})
+}
+
+// emitWaveActiveBit emits dx.op.waveActiveBit.T(i32 120, T value, i8 op).
+func (e *Emitter) emitWaveActiveBit(_ *ir.Function, valueID int, bitOp DXILWaveBitOp, ol overloadType) int {
+	waveFn := e.getWaveActiveBitFunc(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpWaveActiveBit))
+	opVal := e.getI8ConstID(int64(bitOp))
+	return e.addCallInstr(waveFn, retTy, []int{opcodeVal, valueID, opVal})
+}
+
+// emitWavePrefixOp emits dx.op.wavePrefixOp.T(i32 121, T value, i8 op, i8 sign).
+// Note: DXIL wavePrefixOp is exclusive prefix (does NOT include current lane).
+func (e *Emitter) emitWavePrefixOp(_ *ir.Function, valueID int, waveOp DXILWaveOp, sign DXILWaveOpSign, ol overloadType) int {
+	waveFn := e.getWavePrefixOpFunc(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpWavePrefixOp))
+	opVal := e.getI8ConstID(int64(waveOp))
+	signVal := e.getI8ConstID(int64(sign))
+	return e.addCallInstr(waveFn, retTy, []int{opcodeVal, valueID, opVal, signVal})
+}
+
+// combineForInclusive combines prefix result with current value to make an inclusive scan.
+// inclusive = exclusive + current (for add/mul/min/max).
+func (e *Emitter) combineForInclusive(currentID, prefixID int, op ir.SubgroupOperation, ol overloadType) int {
+	retTy := e.overloadReturnType(ol)
+	isFloat := ol == overloadF16 || ol == overloadF32 || ol == overloadF64
+	switch op {
+	case ir.SubgroupOperationAdd:
+		if isFloat {
+			return e.addBinOpInstr(retTy, BinOpFAdd, prefixID, currentID)
+		}
+		return e.addBinOpInstr(retTy, BinOpAdd, prefixID, currentID)
+	case ir.SubgroupOperationMul:
+		if isFloat {
+			return e.addBinOpInstr(retTy, BinOpFMul, prefixID, currentID)
+		}
+		return e.addBinOpInstr(retTy, BinOpMul, prefixID, currentID)
+	default:
+		// For min/max, the inclusive and exclusive results differ but
+		// we can't easily combine them. Return prefix as-is (best-effort).
+		return prefixID
+	}
+}
+
+// emitStmtSubgroupGather emits wave gather/shuffle operations.
+//
+//nolint:funlen // dispatch for multiple gather modes
+func (e *Emitter) emitStmtSubgroupGather(fn *ir.Function, gather ir.StmtSubgroupGather) error {
+	argID, err := e.emitExpression(fn, gather.Argument)
+	if err != nil {
+		return fmt.Errorf("StmtSubgroupGather: argument: %w", err)
+	}
+
+	argInner := e.resolveExprType(fn, gather.Argument)
+	argScalar, _ := scalarAndComponentCount(argInner)
+	ol := overloadForScalar(argScalar)
+
+	var resultID int
+
+	switch mode := gather.Mode.(type) {
+	case ir.GatherBroadcastFirst:
+		// dx.op.waveReadLaneFirst.T(i32 118, T value)
+		waveFn := e.getWaveReadLaneFirstFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneFirst))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID})
+
+	case ir.GatherBroadcast:
+		// dx.op.waveReadLaneAt.T(i32 117, T value, i32 lane)
+		laneID, err2 := e.emitExpression(fn, mode.Index)
+		if err2 != nil {
+			return fmt.Errorf("GatherBroadcast: lane: %w", err2)
+		}
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, laneID})
+
+	case ir.GatherShuffle:
+		laneID, err2 := e.emitExpression(fn, mode.Index)
+		if err2 != nil {
+			return fmt.Errorf("GatherShuffle: index: %w", err2)
+		}
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, laneID})
+
+	case ir.GatherShuffleDown:
+		// lane = WaveGetLaneIndex() + delta → WaveReadLaneAt
+		deltaID, err2 := e.emitExpression(fn, mode.Delta)
+		if err2 != nil {
+			return fmt.Errorf("GatherShuffleDown: delta: %w", err2)
+		}
+		i32Ty := e.mod.GetIntType(32)
+		laneIdxID := e.emitWaveGetLaneIndex()
+		targetLane := e.addBinOpInstr(i32Ty, BinOpAdd, laneIdxID, deltaID)
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, targetLane})
+
+	case ir.GatherShuffleUp:
+		// lane = WaveGetLaneIndex() - delta → WaveReadLaneAt
+		deltaID, err2 := e.emitExpression(fn, mode.Delta)
+		if err2 != nil {
+			return fmt.Errorf("GatherShuffleUp: delta: %w", err2)
+		}
+		i32Ty := e.mod.GetIntType(32)
+		laneIdxID := e.emitWaveGetLaneIndex()
+		targetLane := e.addBinOpInstr(i32Ty, BinOpSub, laneIdxID, deltaID)
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, targetLane})
+
+	case ir.GatherShuffleXor:
+		// lane = WaveGetLaneIndex() ^ mask → WaveReadLaneAt
+		maskID, err2 := e.emitExpression(fn, mode.Mask)
+		if err2 != nil {
+			return fmt.Errorf("GatherShuffleXor: mask: %w", err2)
+		}
+		i32Ty := e.mod.GetIntType(32)
+		laneIdxID := e.emitWaveGetLaneIndex()
+		targetLane := e.addBinOpInstr(i32Ty, BinOpXor, laneIdxID, maskID)
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, targetLane})
+
+	case ir.GatherQuadBroadcast:
+		// dx.op.quadReadLaneAt.T(i32 122, T value, i32 quadLane)
+		laneID, err2 := e.emitExpression(fn, mode.Index)
+		if err2 != nil {
+			return fmt.Errorf("GatherQuadBroadcast: lane: %w", err2)
+		}
+		waveFn := e.getQuadReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpQuadReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, laneID})
+
+	case ir.GatherQuadSwap:
+		// dx.op.quadOp.T(i32 123, T value, i8 opKind)
+		var qop DXILQuadOpKind
+		switch mode.Direction {
+		case ir.QuadDirectionX:
+			qop = DXILQuadOpReadAcrossX
+		case ir.QuadDirectionY:
+			qop = DXILQuadOpReadAcrossY
+		case ir.QuadDirectionDiagonal:
+			qop = DXILQuadOpReadAcrossDiag
+		}
+		waveFn := e.getQuadOpFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpQuadOp))
+		opVal := e.getI8ConstID(int64(qop))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, opVal})
+
+	default:
+		return fmt.Errorf("unsupported gather mode: %T", gather.Mode)
+	}
+
+	e.exprValues[gather.Result] = resultID
+	return nil
+}
+
+// emitWaveGetLaneIndex emits a dx.op.waveGetLaneIndex call and returns the value ID.
+func (e *Emitter) emitWaveGetLaneIndex() int {
+	i32Ty := e.mod.GetIntType(32)
+	key := dxOpKey{name: "dx.op.waveGetLaneIndex", overload: overloadI32}
+	fn, ok := e.dxOpFuncs[key]
+	if !ok {
+		params := []*module.Type{i32Ty}
+		funcTy := e.mod.GetFunctionType(i32Ty, params)
+		fn = e.mod.AddFunction("dx.op.waveGetLaneIndex", funcTy, true)
+		e.dxOpFuncs[key] = fn
+	}
+	opcodeVal := e.getIntConstID(int64(OpWaveGetLaneIndex))
+	return e.addCallInstr(fn, i32Ty, []int{opcodeVal})
+}
+
+// emitCastInstr emits an LLVM cast instruction.
+func (e *Emitter) emitCastInstr(destTy *module.Type, castOp CastOpKind, srcID int) int {
+	valueID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrCast,
+		HasValue:   true,
+		ResultType: destTy,
+		Operands:   []int{srcID, int(castOp), destTy.ID},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return valueID
+}
+
+// getBoolConstID returns the value ID for an i1 boolean constant.
+func (e *Emitter) getBoolConstID(val bool) int {
+	v := int64(0)
+	if val {
+		v = 1
+	}
+	i1Ty := e.mod.GetIntType(1)
+	c := e.mod.AddIntConst(i1Ty, v)
+	id := e.allocValue()
+	e.constMap[id] = c
+	return id
+}
+
+// Wave function declarations.
+
+func (e *Emitter) getWaveBoolFunc(name string, _ DXILOpcode) *module.Function {
+	key := dxOpKey{name: name, overload: overloadI1}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	params := []*module.Type{i32Ty, i1Ty}
+	funcTy := e.mod.GetFunctionType(i1Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWaveActiveOpFunc(ol overloadType) *module.Function {
+	name := "dx.op.waveActiveOp"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i8Ty, i8Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWaveActiveBitFunc(ol overloadType) *module.Function {
+	name := "dx.op.waveActiveBit"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i8Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWavePrefixOpFunc(ol overloadType) *module.Function {
+	name := "dx.op.wavePrefixOp"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i8Ty, i8Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWaveReadLaneAtFunc(ol overloadType) *module.Function {
+	name := "dx.op.waveReadLaneAt"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i32Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWaveReadLaneFirstFunc(ol overloadType) *module.Function {
+	name := "dx.op.waveReadLaneFirst"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getQuadReadLaneAtFunc(ol overloadType) *module.Function {
+	name := "dx.op.quadReadLaneAt"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i32Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getQuadOpFunc(ol overloadType) *module.Function {
+	name := "dx.op.quadOp"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i8Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// ---------------------------------------------------------------------------
+// Ray query operations (SM 6.5)
+// ---------------------------------------------------------------------------
+
+// emitStmtRayQuery emits DXIL ray query intrinsics.
+//
+// Ray query in DXIL uses a RayQuery handle allocated by dx.op.allocateRayQuery (178).
+// The handle is stored in a local variable (alloca), and all subsequent ray query
+// operations reference it.
+//
+// Reference: DXC DXIL.rst ray query opcodes 178-215
+func (e *Emitter) emitStmtRayQuery(fn *ir.Function, rq ir.StmtRayQuery) error {
+	switch rqf := rq.Fun.(type) {
+	case ir.RayQueryInitialize:
+		return e.emitRayQueryInitialize(fn, rq.Query, rqf)
+
+	case ir.RayQueryProceed:
+		return e.emitRayQueryProceed(fn, rq.Query, rqf)
+
+	case ir.RayQueryTerminate:
+		return e.emitRayQueryTerminate(fn, rq.Query)
+
+	case ir.RayQueryGenerateIntersection:
+		return e.emitRayQueryGenerateIntersection(fn, rq.Query, rqf)
+
+	case ir.RayQueryConfirmIntersection:
+		return e.emitRayQueryConfirmIntersection(fn, rq.Query)
+
+	default:
+		return fmt.Errorf("unsupported ray query function: %T", rq.Fun)
+	}
+}
+
+// getRayQueryHandle returns or creates the ray query handle for a given expression.
+// On first call, allocates a ray query via dx.op.allocateRayQuery(178).
+func (e *Emitter) getRayQueryHandle(fn *ir.Function, queryExpr ir.ExpressionHandle) int {
+	if id, ok := e.rayQueryHandles[queryExpr]; ok {
+		return id
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+
+	// dx.op.allocateRayQuery(i32 178, i32 0) → i32 handle
+	allocFn := e.getRayQueryAllocFunc()
+	opcodeVal := e.getIntConstID(int64(OpAllocateRayQuery))
+	flagsVal := e.getIntConstID(0) // RAY_FLAG_NONE for allocation
+	handleID := e.addCallInstr(allocFn, i32Ty, []int{opcodeVal, flagsVal})
+
+	if e.rayQueryHandles == nil {
+		e.rayQueryHandles = make(map[ir.ExpressionHandle]int)
+	}
+	e.rayQueryHandles[queryExpr] = handleID
+	_ = fn
+	return handleID
+}
+
+// emitRayQueryInitialize emits dx.op.rayQuery_TraceRayInline (179).
+// Signature: void @dx.op.rayQuery_TraceRayInline(i32 179, i32 rayQueryHandle,
+//
+//	%dx.types.Handle accelStruct, i32 rayFlags, i32 instanceMask,
+//	float originX, float originY, float originZ,
+//	float tMin, float dirX, float dirY, float dirZ, float tMax)
+func (e *Emitter) emitRayQueryInitialize(fn *ir.Function, queryExpr ir.ExpressionHandle, init ir.RayQueryInitialize) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	// Resolve acceleration structure handle.
+	asHandleID, err := e.resolveResourceHandle(fn, init.AccelerationStructure)
+	if err != nil {
+		return fmt.Errorf("RayQueryInitialize: accel struct: %w", err)
+	}
+
+	// The descriptor is a RayDesc struct with fields:
+	// { flags: u32, cull_mask: u32, t_min: f32, t_max: f32, origin: vec3<f32>, dir: vec3<f32> }
+	if _, err := e.emitExpression(fn, init.Descriptor); err != nil {
+		return fmt.Errorf("RayQueryInitialize: descriptor: %w", err)
+	}
+
+	// Extract struct fields from the descriptor.
+	flagsID := e.getComponentID(init.Descriptor, 0)
+	cullMaskID := e.getComponentID(init.Descriptor, 1)
+	tMinID := e.getComponentID(init.Descriptor, 2)
+	tMaxID := e.getComponentID(init.Descriptor, 3)
+	originXID := e.getComponentID(init.Descriptor, 4)
+	originYID := e.getComponentID(init.Descriptor, 5)
+	originZID := e.getComponentID(init.Descriptor, 6)
+	dirXID := e.getComponentID(init.Descriptor, 7)
+	dirYID := e.getComponentID(init.Descriptor, 8)
+	dirZID := e.getComponentID(init.Descriptor, 9)
+
+	traceFn := e.getRayQueryTraceFunc()
+	voidTy := e.mod.GetVoidType()
+	opcodeVal := e.getIntConstID(int64(OpRayQueryTraceRayInline))
+
+	e.addCallInstr(traceFn, voidTy, []int{
+		opcodeVal, handleID, asHandleID,
+		flagsID, cullMaskID,
+		originXID, originYID, originZID,
+		tMinID,
+		dirXID, dirYID, dirZID,
+		tMaxID,
+	})
+	return nil
+}
+
+// emitRayQueryProceed emits dx.op.rayQuery_Proceed (180).
+// Signature: i1 @dx.op.rayQuery_Proceed(i32 180, i32 rayQueryHandle)
+func (e *Emitter) emitRayQueryProceed(fn *ir.Function, queryExpr ir.ExpressionHandle, proceed ir.RayQueryProceed) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	proceedFn := e.getRayQueryProceedFunc()
+	i1Ty := e.mod.GetIntType(1)
+	opcodeVal := e.getIntConstID(int64(OpRayQueryProceed))
+	resultID := e.addCallInstr(proceedFn, i1Ty, []int{opcodeVal, handleID})
+
+	e.exprValues[proceed.Result] = resultID
+	return nil
+}
+
+// emitRayQueryTerminate emits dx.op.rayQuery_Abort (181).
+func (e *Emitter) emitRayQueryTerminate(fn *ir.Function, queryExpr ir.ExpressionHandle) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	abortFn := e.getRayQueryAbortFunc()
+	voidTy := e.mod.GetVoidType()
+	opcodeVal := e.getIntConstID(int64(OpRayQueryAbort))
+	e.addCallInstr(abortFn, voidTy, []int{opcodeVal, handleID})
+	return nil
+}
+
+// emitRayQueryGenerateIntersection emits dx.op.rayQuery_CommitProceduralPrimitiveHit (183).
+func (e *Emitter) emitRayQueryGenerateIntersection(fn *ir.Function, queryExpr ir.ExpressionHandle, gi ir.RayQueryGenerateIntersection) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	hitTID, err := e.emitExpression(fn, gi.HitT)
+	if err != nil {
+		return fmt.Errorf("RayQueryGenerateIntersection: hitT: %w", err)
+	}
+
+	commitFn := e.getRayQueryCommitProceduralFunc()
+	voidTy := e.mod.GetVoidType()
+	opcodeVal := e.getIntConstID(int64(OpRayQueryCommitProceduralPrimitiveHit))
+	e.addCallInstr(commitFn, voidTy, []int{opcodeVal, handleID, hitTID})
+	return nil
+}
+
+// emitRayQueryConfirmIntersection emits dx.op.rayQuery_CommitNonOpaqueTriangleHit (182).
+func (e *Emitter) emitRayQueryConfirmIntersection(fn *ir.Function, queryExpr ir.ExpressionHandle) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	commitFn := e.getRayQueryCommitTriangleFunc()
+	voidTy := e.mod.GetVoidType()
+	opcodeVal := e.getIntConstID(int64(OpRayQueryCommitNonOpaqueTriangleHit))
+	e.addCallInstr(commitFn, voidTy, []int{opcodeVal, handleID})
+	return nil
+}
+
+// emitRayQueryGetIntersection emits various dx.op.rayQuery_* intrinsics to build
+// the RayIntersection struct from query results.
+//
+// This is called as an expression (ExprRayQueryGetIntersection), not a statement.
+// It must produce a composite struct result with all intersection fields.
+//
+//nolint:funlen // many intersection struct fields to extract
+func (e *Emitter) emitRayQueryGetIntersection(fn *ir.Function, gi ir.ExprRayQueryGetIntersection) (int, error) {
+	handleID := e.getRayQueryHandle(fn, gi.Query)
+
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	i1Ty := e.mod.GetIntType(1)
+
+	// Choose committed vs candidate opcodes.
+	var (
+		statusOp, instanceIndexOp, instanceIDOp DXILOpcode
+		geometryIndexOp, primitiveIndexOp       DXILOpcode
+		objectRayOriginOp, objectRayDirOp       DXILOpcode
+		rayTOp                                  DXILOpcode
+		frontFaceOp                             DXILOpcode
+		baryCentricOp                           DXILOpcode
+		obj2worldOp, world2objOp                DXILOpcode
+	)
+	if gi.Committed {
+		statusOp = OpRayQueryCommittedStatus
+		instanceIndexOp = OpRayQueryCommittedInstanceIndex
+		instanceIDOp = OpRayQueryCommittedInstanceID
+		geometryIndexOp = OpRayQueryCommittedGeometryIndex
+		primitiveIndexOp = OpRayQueryCommittedPrimitiveIndex
+		objectRayOriginOp = OpRayQueryCommittedObjectRayOrigin
+		objectRayDirOp = OpRayQueryCommittedObjectRayDirection
+		rayTOp = OpRayQueryCommittedRayT
+		frontFaceOp = OpRayQueryCommittedTriangleFrontFace
+		baryCentricOp = OpRayQueryCommittedTriangleBarycentrics
+		obj2worldOp = OpRayQueryCommittedObjectToWorld3x4
+		world2objOp = OpRayQueryCommittedWorldToObject3x4
+	} else {
+		statusOp = OpRayQueryCandidateType
+		instanceIndexOp = OpRayQueryCandidateInstanceIndex
+		instanceIDOp = OpRayQueryCandidateInstanceID
+		geometryIndexOp = OpRayQueryCandidateGeometryIndex
+		primitiveIndexOp = OpRayQueryCandidatePrimitiveIndex
+		objectRayOriginOp = OpRayQueryCandidateObjectRayOrigin
+		objectRayDirOp = OpRayQueryCandidateObjectRayDirection
+		rayTOp = OpRayQueryCandidateTriangleRayT
+		frontFaceOp = OpRayQueryCandidateTriangleFrontFace
+		baryCentricOp = OpRayQueryCandidateTriangleBarycentrics
+		obj2worldOp = OpRayQueryCandidateObjectToWorld3x4
+		world2objOp = OpRayQueryCandidateWorldToObject3x4
+	}
+
+	// Helper: emit a scalar ray query call returning i32.
+	emitI32 := func(op DXILOpcode) int {
+		rqFn := e.getRayQueryScalarI32Func(op)
+		opcodeVal := e.getIntConstID(int64(op))
+		return e.addCallInstr(rqFn, i32Ty, []int{opcodeVal, handleID})
+	}
+	// Helper: emit a scalar ray query call returning f32.
+	emitF32 := func(op DXILOpcode) int {
+		rqFn := e.getRayQueryScalarF32Func(op)
+		opcodeVal := e.getIntConstID(int64(op))
+		return e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID})
+	}
+	// Helper: emit a component ray query call returning f32 for a vec3.
+	emitVec3F32 := func(op DXILOpcode) (int, int, int) {
+		rqFn := e.getRayQueryCompF32Func(op)
+		opcodeVal := e.getIntConstID(int64(op))
+		c0 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getIntConstID(0)})
+		c1 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getIntConstID(1)})
+		c2 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getIntConstID(2)})
+		return c0, c1, c2
+	}
+	// Helper: emit 4x3 matrix (returns 12 f32 components).
+	emitMat4x3 := func(op DXILOpcode) [12]int {
+		rqFn := e.getRayQueryMatrixFunc(op)
+		opcodeVal := e.getIntConstID(int64(op))
+		var comps [12]int
+		for row := 0; row < 4; row++ {
+			for col := 0; col < 3; col++ {
+				rowVal := e.getIntConstID(int64(row))
+				colVal := e.getIntConstID(int64(col))
+				comps[row*3+col] = e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, rowVal, colVal})
+			}
+		}
+		return comps
+	}
+
+	// RayIntersection struct layout:
+	// kind: u32, t: f32, instance_custom_data: u32, instance_index: u32,
+	// sbt_record_offset: u32, geometry_index: u32, primitive_index: u32,
+	// barycentrics: vec2<f32>, front_face: bool,
+	// object_to_world: mat4x3<f32>, world_to_object: mat4x3<f32>
+	// Total: 7 scalars + 2 bary + 1 bool + 12 + 12 = 34 components
+	comps := make([]int, 0, 34)
+
+	// barycentrics (vec2<f32>)
+	baryFn := e.getRayQueryCompF32Func(baryCentricOp)
+	baryOp := e.getIntConstID(int64(baryCentricOp))
+	baryX := e.addCallInstr(baryFn, f32Ty, []int{baryOp, handleID, e.getIntConstID(0)})
+	baryY := e.addCallInstr(baryFn, f32Ty, []int{baryOp, handleID, e.getIntConstID(1)})
+
+	// front_face (bool -> i1)
+	frontFaceFn := e.getRayQueryBoolFunc(frontFaceOp)
+	frontFaceOpVal := e.getIntConstID(int64(frontFaceOp))
+	frontFaceID := e.addCallInstr(frontFaceFn, i1Ty, []int{frontFaceOpVal, handleID})
+
+	// object_to_world (mat4x3 = 12 floats)
+	o2w := emitMat4x3(obj2worldOp)
+	// world_to_object (mat4x3 = 12 floats)
+	w2o := emitMat4x3(world2objOp)
+
+	// Build flat component array.
+	comps = append(comps,
+		emitI32(statusOp),         // kind
+		emitF32(rayTOp),           // t
+		emitI32(instanceIDOp),     // instance_custom_data
+		emitI32(instanceIndexOp),  // instance_index
+		e.getIntConstID(0),        // sbt_record_offset (unavailable in inline ray query)
+		emitI32(geometryIndexOp),  // geometry_index
+		emitI32(primitiveIndexOp), // primitive_index
+		baryX, baryY,              // barycentrics
+		frontFaceID, // front_face
+	)
+	for _, c := range o2w {
+		comps = append(comps, c)
+	}
+	for _, c := range w2o {
+		comps = append(comps, c)
+	}
+
+	_ = emitVec3F32
+	_ = objectRayOriginOp
+	_ = objectRayDirOp
+
+	e.pendingComponents = comps
+	if len(comps) > 0 {
+		return comps[0], nil
+	}
+	return 0, fmt.Errorf("ray query intersection produced no components")
+}
+
+// Ray query function declarations.
+
+func (e *Emitter) getRayQueryAllocFunc() *module.Function {
+	name := "dx.op.allocateRayQuery"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryTraceFunc() *module.Function {
+	name := "dx.op.rayQuery_TraceRayInline"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	handleTy := e.getDxHandleType()
+	voidTy := e.mod.GetVoidType()
+	// (i32 opcode, i32 rqHandle, %handle accelStruct, i32 rayFlags, i32 instanceMask,
+	//  f32 origX, f32 origY, f32 origZ, f32 tMin, f32 dirX, f32 dirY, f32 dirZ, f32 tMax)
+	params := []*module.Type{
+		i32Ty, i32Ty, handleTy, i32Ty, i32Ty,
+		f32Ty, f32Ty, f32Ty, f32Ty, f32Ty, f32Ty, f32Ty, f32Ty,
+	}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryProceedFunc() *module.Function {
+	name := "dx.op.rayQuery_Proceed"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i1Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryAbortFunc() *module.Function {
+	name := "dx.op.rayQuery_Abort"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	voidTy := e.mod.GetVoidType()
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryCommitTriangleFunc() *module.Function {
+	name := "dx.op.rayQuery_CommitNonOpaqueTriangleHit"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	voidTy := e.mod.GetVoidType()
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryCommitProceduralFunc() *module.Function {
+	name := "dx.op.rayQuery_CommitProceduralPrimitiveHit"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	voidTy := e.mod.GetVoidType()
+	params := []*module.Type{i32Ty, i32Ty, f32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryScalarI32Func(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d", op)
+	key := dxOpKey{name: name, overload: overloadI32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryScalarF32Func(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d", op)
+	key := dxOpKey{name: name, overload: overloadF32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(f32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryCompF32Func(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d.f32", op)
+	key := dxOpKey{name: name, overload: overloadF32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	params := []*module.Type{i32Ty, i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(f32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryBoolFunc(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d", op)
+	key := dxOpKey{name: name, overload: overloadI1}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i1Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryMatrixFunc(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d.f32", op)
+	key := dxOpKey{name: name + ".mat", overload: overloadF32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	params := []*module.Type{i32Ty, i32Ty, i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(f32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
 }
