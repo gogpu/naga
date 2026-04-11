@@ -19,34 +19,49 @@ const (
 	OpStoreOutput DXILOpcode = 5
 
 	// Unary float operations.
-	OpFAbs        DXILOpcode = 6
-	OpSaturate    DXILOpcode = 7
-	OpIsNaN       DXILOpcode = 8
-	OpIsInf       DXILOpcode = 9
-	OpIsFinite    DXILOpcode = 10
-	OpIsNormal    DXILOpcode = 11
-	OpCos         DXILOpcode = 12
-	OpSin         DXILOpcode = 13
-	OpTan         DXILOpcode = 14
-	OpAcos        DXILOpcode = 15
-	OpAsin        DXILOpcode = 16
-	OpAtan        DXILOpcode = 17
-	OpHCos        DXILOpcode = 18
-	OpHSin        DXILOpcode = 19
-	OpHTan        DXILOpcode = 20
-	OpExp         DXILOpcode = 21
-	OpFrc         DXILOpcode = 22
-	OpLog         DXILOpcode = 23
-	OpSqrt        DXILOpcode = 24
-	OpRsqrt       DXILOpcode = 25
-	OpRoundNE     DXILOpcode = 26
-	OpRoundNI     DXILOpcode = 27
-	OpRoundPI     DXILOpcode = 28
-	OpRoundZ      DXILOpcode = 29
-	OpReverseBits DXILOpcode = 30
-	OpCountBits   DXILOpcode = 31
-	OpFirstbitLo  DXILOpcode = 32
-	OpFirstbitHi  DXILOpcode = 33
+	OpFAbs             DXILOpcode = 6
+	OpSaturate         DXILOpcode = 7
+	OpIsNaN            DXILOpcode = 8
+	OpIsInf            DXILOpcode = 9
+	OpIsFinite         DXILOpcode = 10
+	OpIsNormal         DXILOpcode = 11
+	OpCos              DXILOpcode = 12
+	OpSin              DXILOpcode = 13
+	OpTan              DXILOpcode = 14
+	OpAcos             DXILOpcode = 15
+	OpAsin             DXILOpcode = 16
+	OpAtan             DXILOpcode = 17
+	OpHCos             DXILOpcode = 18
+	OpHSin             DXILOpcode = 19
+	OpHTan             DXILOpcode = 20
+	OpExp              DXILOpcode = 21
+	OpFrc              DXILOpcode = 22
+	OpLog              DXILOpcode = 23
+	OpSqrt             DXILOpcode = 24
+	OpRsqrt            DXILOpcode = 25
+	OpRoundNE          DXILOpcode = 26
+	OpRoundNI          DXILOpcode = 27
+	OpRoundPI          DXILOpcode = 28
+	OpRoundZ           DXILOpcode = 29
+	OpReverseBits      DXILOpcode = 30
+	OpCountBits        DXILOpcode = 31
+	OpFirstbitLo       DXILOpcode = 32
+	OpFirstbitHi       DXILOpcode = 33
+	OpFirstbitShiHi    DXILOpcode = 34 // firstbit_shi_hi (signed high bit)
+	OpBfrev            DXILOpcode = 30 // alias for ReverseBits
+	OpLdexp            DXILOpcode = 43 // ldexp(value, exp)
+	OpMakeDouble       DXILOpcode = 101
+	OpSplitDouble      DXILOpcode = 102
+	OpBitcastI16toF16  DXILOpcode = 125
+	OpBitcastF16toI16  DXILOpcode = 126
+	OpLegacyF32ToF16   DXILOpcode = 130
+	OpLegacyF16ToF32   DXILOpcode = 131
+	OpFirstbitShiHiAlt DXILOpcode = 34
+
+	// Bit field operations.
+	OpBfi  DXILOpcode = 53 // bit field insert
+	OpIBfe DXILOpcode = 51 // signed bit field extract
+	OpUBfe DXILOpcode = 52 // unsigned bit field extract
 
 	// Binary float/int operations.
 	OpFMax DXILOpcode = 35
@@ -81,43 +96,149 @@ const (
 	OpBufferLoad         DXILOpcode = 68
 	OpBufferStore        DXILOpcode = 69
 
+	// Query operations.
+	OpGetDimensions DXILOpcode = 72
+
+	// Gather operations.
+	OpTextureGather    DXILOpcode = 73
+	OpTextureGatherCmp DXILOpcode = 74
+
 	// Derivative operations.
 	OpDerivCoarseX DXILOpcode = 83
 	OpDerivCoarseY DXILOpcode = 84
 	OpDerivFineX   DXILOpcode = 85
 	OpDerivFineY   DXILOpcode = 86
 
+	// Atomic operations.
+	OpAtomicBinOp   DXILOpcode = 78
+	OpAtomicCmpXchg DXILOpcode = 79
+
+	// Barrier.
+	OpBarrier DXILOpcode = 80
+
 	// Thread/dispatch ID operations.
 	OpThreadID            DXILOpcode = 93
 	OpGroupID             DXILOpcode = 94
 	OpThreadIDInGroup     DXILOpcode = 95
 	OpFlattenedTIDInGroup DXILOpcode = 96
+
+	// Wave (subgroup) operations.
+	OpWaveIsFirstLane   DXILOpcode = 110
+	OpWaveGetLaneIndex  DXILOpcode = 111
+	OpWaveGetLaneCount  DXILOpcode = 112
+	OpWaveAnyTrue       DXILOpcode = 113
+	OpWaveAllTrue       DXILOpcode = 114
+	OpWaveBallot        DXILOpcode = 116
+	OpWaveReadLaneAt    DXILOpcode = 117
+	OpWaveReadLaneFirst DXILOpcode = 118
+	OpWaveActiveOp      DXILOpcode = 119
+	OpWaveActiveBit     DXILOpcode = 120
+	OpWavePrefixOp      DXILOpcode = 121
+	OpQuadReadLaneAt    DXILOpcode = 122
+	OpQuadOp            DXILOpcode = 123
+
+	// Ray query operations (SM 6.5).
+	OpAllocateRayQuery                              DXILOpcode = 178
+	OpRayQueryTraceRayInline                        DXILOpcode = 179
+	OpRayQueryProceed                               DXILOpcode = 180
+	OpRayQueryAbort                                 DXILOpcode = 181
+	OpRayQueryCommitNonOpaqueTriangleHit            DXILOpcode = 182
+	OpRayQueryCommitProceduralPrimitiveHit          DXILOpcode = 183
+	OpRayQueryCommittedStatus                       DXILOpcode = 184
+	OpRayQueryCandidateType                         DXILOpcode = 185
+	OpRayQueryCandidateObjectToWorld3x4             DXILOpcode = 186
+	OpRayQueryCandidateWorldToObject3x4             DXILOpcode = 187
+	OpRayQueryCommittedObjectToWorld3x4             DXILOpcode = 188
+	OpRayQueryCommittedWorldToObject3x4             DXILOpcode = 189
+	OpRayQueryCandidateProceduralPrimitiveNonOpaque DXILOpcode = 190
+	OpRayQueryCandidateTriangleFrontFace            DXILOpcode = 191
+	OpRayQueryCommittedTriangleFrontFace            DXILOpcode = 192
+	OpRayQueryCandidateTriangleBarycentrics         DXILOpcode = 193
+	OpRayQueryCommittedTriangleBarycentrics         DXILOpcode = 194
+	OpRayQueryRayFlags                              DXILOpcode = 195
+	OpRayQueryWorldRayOrigin                        DXILOpcode = 196
+	OpRayQueryWorldRayDirection                     DXILOpcode = 197
+	OpRayQueryRayTMin                               DXILOpcode = 198
+	OpRayQueryCandidateTriangleRayT                 DXILOpcode = 199
+	OpRayQueryCommittedRayT                         DXILOpcode = 200
+	OpRayQueryCandidateInstanceIndex                DXILOpcode = 201
+	OpRayQueryCandidateInstanceID                   DXILOpcode = 202
+	OpRayQueryCandidateGeometryIndex                DXILOpcode = 203
+	OpRayQueryCandidatePrimitiveIndex               DXILOpcode = 204
+	OpRayQueryCandidateObjectRayOrigin              DXILOpcode = 205
+	OpRayQueryCandidateObjectRayDirection           DXILOpcode = 206
+	OpRayQueryCommittedInstanceIndex                DXILOpcode = 207
+	OpRayQueryCommittedInstanceID                   DXILOpcode = 208
+	OpRayQueryCommittedGeometryIndex                DXILOpcode = 209
+	OpRayQueryCommittedPrimitiveIndex               DXILOpcode = 210
+	OpRayQueryCommittedObjectRayOrigin              DXILOpcode = 211
+	OpRayQueryCommittedObjectRayDirection           DXILOpcode = 212
+
+	// Mesh shader operations.
+	OpSetMeshOutputCounts  DXILOpcode = 168
+	OpEmitIndices          DXILOpcode = 169
+	OpGetMeshPayload       DXILOpcode = 170
+	OpStoreVertexOutput    DXILOpcode = 171
+	OpStorePrimitiveOutput DXILOpcode = 172
+	OpDispatchMesh         DXILOpcode = 173
+)
+
+// DXILAtomicOp represents the atomic operation kind for dx.op.atomicBinOp.
+// Reference: Mesa nir_to_dxil.c enum dxil_atomic_op (line ~399)
+type DXILAtomicOp uint32
+
+const (
+	DXILAtomicAdd      DXILAtomicOp = 0
+	DXILAtomicAnd      DXILAtomicOp = 1
+	DXILAtomicOr       DXILAtomicOp = 2
+	DXILAtomicXor      DXILAtomicOp = 3
+	DXILAtomicIMin     DXILAtomicOp = 4
+	DXILAtomicIMax     DXILAtomicOp = 5
+	DXILAtomicUMin     DXILAtomicOp = 6
+	DXILAtomicUMax     DXILAtomicOp = 7
+	DXILAtomicExchange DXILAtomicOp = 8
+)
+
+// DXILBarrierMode represents DXIL barrier mode flags.
+// These can be combined with bitwise OR.
+// Reference: Mesa nir_to_dxil.c emit_barrier_impl() (line ~3082)
+type DXILBarrierMode uint32
+
+const (
+	BarrierModeSyncThreadGroup     DXILBarrierMode = 1
+	BarrierModeUAVFenceGlobal      DXILBarrierMode = 2
+	BarrierModeUAVFenceThreadGroup DXILBarrierMode = 4
+	BarrierModeGroupSharedMemFence DXILBarrierMode = 8
 )
 
 // BinOpKind represents LLVM binary operation opcodes for DXIL.
 // These are used in the FUNC_CODE_INST_BINOP record.
 type BinOpKind uint32
 
-// LLVM 3.7 binary operation codes.
+// LLVM 3.7 bitcode binary operation codes.
+// In LLVM bitcode, int and float ops share the same opcode.
+// The reader distinguishes float vs int by the operand type.
+// Reference: LLVM BitcodeReader.cpp getDecodedBinaryOpcode()
+// Reference: Mesa dxil_module.h enum dxil_bin_opcode
 const (
-	BinOpAdd  BinOpKind = 0  // integer add
-	BinOpFAdd BinOpKind = 1  // float add (not used directly; mapped to fadd)
-	BinOpSub  BinOpKind = 2  // integer sub
-	BinOpFSub BinOpKind = 3  // float sub
-	BinOpMul  BinOpKind = 4  // integer mul
-	BinOpFMul BinOpKind = 5  // float mul
-	BinOpUDiv BinOpKind = 6  // unsigned div
-	BinOpSDiv BinOpKind = 7  // signed div
-	BinOpFDiv BinOpKind = 8  // float div
-	BinOpURem BinOpKind = 9  // unsigned remainder
-	BinOpSRem BinOpKind = 10 // signed remainder
-	BinOpFRem BinOpKind = 11 // float remainder
-	BinOpShl  BinOpKind = 12 // shift left
-	BinOpLShr BinOpKind = 13 // logical shift right
-	BinOpAShr BinOpKind = 14 // arithmetic shift right
-	BinOpAnd  BinOpKind = 15 // bitwise and
-	BinOpOr   BinOpKind = 16 // bitwise or
-	BinOpXor  BinOpKind = 17 // bitwise xor
+	BinOpAdd  BinOpKind = 0  // add (int) / fadd (float)
+	BinOpFAdd BinOpKind = 0  // same as Add — float add uses opcode 0 with float operands
+	BinOpSub  BinOpKind = 1  // sub (int) / fsub (float)
+	BinOpFSub BinOpKind = 1  // same as Sub
+	BinOpMul  BinOpKind = 2  // mul (int) / fmul (float)
+	BinOpFMul BinOpKind = 2  // same as Mul
+	BinOpUDiv BinOpKind = 3  // udiv (int only)
+	BinOpSDiv BinOpKind = 4  // sdiv (int) / fdiv (float)
+	BinOpFDiv BinOpKind = 4  // same as SDiv
+	BinOpURem BinOpKind = 5  // urem (int) / frem (float)
+	BinOpSRem BinOpKind = 6  // srem (int only)
+	BinOpFRem BinOpKind = 5  // same as URem
+	BinOpShl  BinOpKind = 7  // shift left
+	BinOpLShr BinOpKind = 8  // logical shift right
+	BinOpAShr BinOpKind = 9  // arithmetic shift right
+	BinOpAnd  BinOpKind = 10 // bitwise and
+	BinOpOr   BinOpKind = 11 // bitwise or
+	BinOpXor  BinOpKind = 12 // bitwise xor
 )
 
 // CmpPredicate represents LLVM comparison predicates.
@@ -172,4 +293,69 @@ const (
 	CastFPTrunc CastOpKind = 7  // Truncate float (e.g., double→float)
 	CastFPExt   CastOpKind = 8  // Extend float (e.g., float→double)
 	CastBitcast CastOpKind = 11 // Bitcast (same size, different type)
+)
+
+// AtomicRMWOp represents LLVM atomicrmw operation codes.
+// Used in FUNC_CODE_INST_ATOMICRMW record.
+// Reference: LLVM LLVMAtomicRMWBinOp enum, LLVM BitcodeReader.cpp
+type AtomicRMWOp uint32
+
+const (
+	AtomicRMWXchg AtomicRMWOp = 0  // exchange
+	AtomicRMWAdd  AtomicRMWOp = 1  // add
+	AtomicRMWSub  AtomicRMWOp = 2  // subtract
+	AtomicRMWAnd  AtomicRMWOp = 3  // bitwise and
+	AtomicRMWNand AtomicRMWOp = 4  // bitwise nand
+	AtomicRMWOr   AtomicRMWOp = 5  // bitwise or
+	AtomicRMWXor  AtomicRMWOp = 6  // bitwise xor
+	AtomicRMWMax  AtomicRMWOp = 7  // signed max
+	AtomicRMWMin  AtomicRMWOp = 8  // signed min
+	AtomicRMWUMax AtomicRMWOp = 9  // unsigned max
+	AtomicRMWUMin AtomicRMWOp = 10 // unsigned min
+)
+
+// DXILWaveOp represents the operation kind for dx.op.waveActiveOp / dx.op.wavePrefixOp.
+// Reference: DXC DXIL.rst WaveActiveOp/WavePrefixOp
+type DXILWaveOp uint32
+
+const (
+	DXILWaveOpSum DXILWaveOp = 0 // Add
+	DXILWaveOpMul DXILWaveOp = 1 // Product (Mul)
+	DXILWaveOpMin DXILWaveOp = 2 // Min
+	DXILWaveOpMax DXILWaveOp = 3 // Max
+)
+
+// DXILWaveOpSign represents the signed/unsigned flag for dx.op.waveActiveOp.
+type DXILWaveOpSign uint32
+
+const (
+	DXILWaveOpSignSigned   DXILWaveOpSign = 0
+	DXILWaveOpSignUnsigned DXILWaveOpSign = 1
+)
+
+// DXILWaveBitOp represents the bit operation kind for dx.op.waveActiveBit.
+type DXILWaveBitOp uint32
+
+const (
+	DXILWaveBitAnd DXILWaveBitOp = 0
+	DXILWaveBitOr  DXILWaveBitOp = 1
+	DXILWaveBitXor DXILWaveBitOp = 2
+)
+
+// DXILQuadOpKind represents the operation kind for dx.op.quadOp.
+type DXILQuadOpKind uint32
+
+const (
+	DXILQuadOpReadAcrossX    DXILQuadOpKind = 0 // SwapX (horizontal)
+	DXILQuadOpReadAcrossY    DXILQuadOpKind = 1 // SwapY (vertical)
+	DXILQuadOpReadAcrossDiag DXILQuadOpKind = 2 // SwapDiagonal
+)
+
+// LLVM memory ordering constants.
+const (
+	AtomicOrderingMonotonic uint32 = 2 // Monotonic (relaxed)
+	AtomicOrderingAcquire   uint32 = 4 // Acquire
+	AtomicOrderingRelease   uint32 = 5 // Release
+	AtomicOrderingAcqRel    uint32 = 6 // Acquire-Release
+	AtomicOrderingSeqCst    uint32 = 7 // Sequentially Consistent
 )

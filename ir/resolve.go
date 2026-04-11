@@ -826,9 +826,19 @@ func resolveMathType(module *Module, fn *Function, expr ExprMath) (TypeResolutio
 		// unpack4xU8 returns vec4<u32>
 		return TypeResolution{Value: VectorType{Size: 4, Scalar: ScalarType{Kind: ScalarUint, Width: 4}}}, nil
 
-	case MathPack4xI8, MathPack4xU8, MathPack4xI8Clamp, MathPack4xU8Clamp:
-		// pack4x8 functions return u32
+	case MathPack4xI8, MathPack4xU8, MathPack4xI8Clamp, MathPack4xU8Clamp,
+		MathPack4x8snorm, MathPack4x8unorm,
+		MathPack2x16snorm, MathPack2x16unorm, MathPack2x16float:
+		// All pack functions return u32
 		return TypeResolution{Value: ScalarType{Kind: ScalarUint, Width: 4}}, nil
+
+	case MathUnpack4x8snorm, MathUnpack4x8unorm:
+		// unpack4x8snorm/unorm returns vec4<f32>
+		return TypeResolution{Value: VectorType{Size: 4, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}}, nil
+
+	case MathUnpack2x16snorm, MathUnpack2x16unorm, MathUnpack2x16float:
+		// unpack2x16snorm/unorm/float returns vec2<f32>
+		return TypeResolution{Value: VectorType{Size: 2, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}}, nil
 
 	case MathCountOneBits, MathReverseBits, MathCountTrailingZeros, MathCountLeadingZeros:
 		// Bit operations preserve the argument type

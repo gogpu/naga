@@ -112,13 +112,13 @@ naga/                              ~189K LOC total
 │   ├── functions.go               # Entry points with semantics
 │   └── keywords.go                # HLSL reserved words
 │
-├── dxil/                          # DXIL backend (experimental, ~12.5K LOC)
+├── dxil/                          # DXIL backend (~25K LOC, 163/163 DXC validation)
 │   ├── dxil.go                    # Public API: Compile, DefaultOptions, Options, ShaderModel
 │   └── internal/                  # ALL implementation internal
 │       ├── bitcode/               # LLVM 3.7 bit-level writer (VBR, blocks, records)
 │       ├── module/                # In-memory DXIL module + bitcode serialization
-│       ├── container/             # DXBC container (DXIL, ISG1, OSG1, PSV0, SFI0, HASH)
-│       └── emit/                  # naga IR → DXIL lowering (expressions, statements, I/O, resources)
+│       ├── container/             # DXBC container (DXIL, ISG1, OSG1, PSG1, PSV0, SFI0, HASH)
+│       └── emit/                  # naga IR → DXIL lowering (VS/PS/CS/MS, CBV/SRV/UAV, atomics, ray query, wave ops)
 │
 └── cmd/
     ├── nagac/                     # CLI compiler
@@ -192,7 +192,7 @@ Five backends share the same IR but produce different outputs:
 | **MSL** | Text (C++ dialect) | Metal | Bounds check policies |
 | **GLSL** | Text | OpenGL 3.3+, ES 3.0+ | Version targeting, UBO blocks |
 | **HLSL** | Text | DirectX 11/12 | Shader model selection, semantics |
-| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0) | Vector scalarization, dx.op intrinsics |
+| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0-6.5) | 163/163 DXC validation. VS/PS/CS/MS, CBV/SRV/UAV, atomics, ray query, wave ops, mesh shaders |
 
 ## Intermediate Representation
 

@@ -12,12 +12,14 @@ type ShaderKind uint32
 
 // Shader kinds matching DXIL specification.
 const (
-	PixelShader    ShaderKind = 0
-	VertexShader   ShaderKind = 1
-	GeometryShader ShaderKind = 2
-	HullShader     ShaderKind = 3
-	DomainShader   ShaderKind = 4
-	ComputeShader  ShaderKind = 5
+	PixelShader         ShaderKind = 0
+	VertexShader        ShaderKind = 1
+	GeometryShader      ShaderKind = 2
+	HullShader          ShaderKind = 3
+	DomainShader        ShaderKind = 4
+	ComputeShader       ShaderKind = 5
+	MeshShader          ShaderKind = 13
+	AmplificationShader ShaderKind = 14
 )
 
 // Module represents a DXIL module (LLVM 3.7 IR with DXIL metadata).
@@ -308,11 +310,14 @@ const (
 	InstrCast                        // type cast
 	InstrSelect                      // select (ternary)
 	InstrExtractVal                  // extractvalue
+	InstrInsertVal                   // insertvalue
 	InstrAlloca                      // stack allocation
 	InstrLoad                        // memory load
 	InstrStore                       // memory store
 	InstrGEP                         // getelementptr
 	InstrPhi                         // phi node
+	InstrAtomicRMW                   // atomicrmw (atomic read-modify-write)
+	InstrCmpXchg                     // cmpxchg (atomic compare-exchange)
 )
 
 // Instruction represents a single LLVM IR instruction.
@@ -386,6 +391,11 @@ type Constant struct {
 	// IsUndef is true for undef values.
 	IsUndef bool
 
+	// IsAggregate is true for aggregate constants (arrays, structs).
+	// Elements contains the sub-constant value IDs.
+	IsAggregate bool
+	Elements    []*Constant
+
 	// ValueID is assigned during serialization.
 	ValueID int
 }
@@ -395,6 +405,31 @@ func (m *Module) AddIntConst(ty *Type, value int64) *Constant {
 	c := &Constant{
 		ConstType: ty,
 		IntValue:  value,
+	}
+	m.Constants = append(m.Constants, c)
+	return c
+}
+
+// AddAggregateConst adds an aggregate constant (array or struct) to the module.
+// The elements are the sub-constants that make up the aggregate.
+func (m *Module) AddAggregateConst(ty *Type, elements []*Constant) *Constant {
+	c := &Constant{
+		ConstType:   ty,
+		IsAggregate: true,
+		Elements:    elements,
+	}
+	m.Constants = append(m.Constants, c)
+	return c
+}
+
+// AddUndefConst creates an undef constant of the given type.
+// Used for resource metadata fields[1] which require an undef pointer value.
+//
+// Reference: Mesa dxil_module.c dxil_module_get_undef() line ~1845
+func (m *Module) AddUndefConst(ty *Type) *Constant {
+	c := &Constant{
+		ConstType: ty,
+		IsUndef:   true,
 	}
 	m.Constants = append(m.Constants, c)
 	return c

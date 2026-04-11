@@ -19,7 +19,26 @@ import (
 //
 // Reference: Mesa nir_to_dxil.c emit_module()
 func (e *Emitter) emitFunctionBody(fn *ir.Function) error {
+	// Pre-allocate all local variable allocas in the entry block.
+	// LLVM requires allocas in the entry block for correct semantics
+	// (allocas in loop bodies create new stack frames per iteration).
+	if err := e.preAllocateLocalVars(fn); err != nil {
+		return fmt.Errorf("local var allocation: %w", err)
+	}
 	return e.emitBlock(fn, fn.Body)
+}
+
+// preAllocateLocalVars creates allocas for all local variables in the function's
+// entry block. This ensures local variables used inside loops have stable
+// alloca pointers that persist across iterations.
+func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
+	for i := range fn.LocalVars {
+		lv := ir.ExprLocalVariable{Variable: uint32(i)}
+		if _, err := e.emitLocalVariable(fn, lv); err != nil {
+			return fmt.Errorf("local var %d (%s): %w", i, fn.LocalVars[i].Name, err)
+		}
+	}
+	return nil
 }
 
 // emitBlock emits all statements in a block.
@@ -33,6 +52,8 @@ func (e *Emitter) emitBlock(fn *ir.Function, block ir.Block) error {
 }
 
 // emitStatement emits a single statement.
+//
+//nolint:gocyclo,cyclop // type-switch dispatch over all IR statement kinds
 func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	switch sk := stmt.Kind.(type) {
 	case ir.StmtEmit:
@@ -43,6 +64,9 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 
 	case ir.StmtStore:
 		return e.emitStmtStore(fn, sk)
+
+	case ir.StmtImageStore:
+		return e.emitStmtImageStore(fn, sk)
 
 	case ir.StmtBlock:
 		return e.emitBlock(fn, sk.Block)
@@ -59,6 +83,18 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtContinue:
 		return e.emitContinue()
 
+	case ir.StmtAtomic:
+		return e.emitStmtAtomic(fn, sk)
+
+	case ir.StmtBarrier:
+		return e.emitStmtBarrier(sk)
+
+	case ir.StmtWorkGroupUniformLoad:
+		return e.emitStmtWorkGroupUniformLoad(fn, sk)
+
+	case ir.StmtSwitch:
+		return e.emitSwitchStatement(fn, sk)
+
 	case ir.StmtKill:
 		// Fragment shader discard — not yet implemented.
 		return nil
@@ -66,6 +102,21 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 	case ir.StmtCall:
 		// Function calls.
 		return e.emitStmtCall(fn, sk)
+
+	case ir.StmtImageAtomic:
+		return e.emitStmtImageAtomic(fn, sk)
+
+	case ir.StmtRayQuery:
+		return e.emitStmtRayQuery(fn, sk)
+
+	case ir.StmtSubgroupBallot:
+		return e.emitStmtSubgroupBallot(fn, sk)
+
+	case ir.StmtSubgroupCollectiveOperation:
+		return e.emitStmtSubgroupCollectiveOp(fn, sk)
+
+	case ir.StmtSubgroupGather:
+		return e.emitStmtSubgroupGather(fn, sk)
 
 	default:
 		return fmt.Errorf("unsupported statement kind: %T", sk)
@@ -89,23 +140,82 @@ func (e *Emitter) emitStmtEmit(fn *ir.Function, emit ir.StmtEmit) error {
 // stored via dx.op.storeOutput before the void return. This matches how
 // DXIL entry points work: they are void functions that store outputs
 // via intrinsics.
+//
+// For struct returns, the struct must be decomposed into per-member output stores.
+// DXIL does not support struct-typed values — everything is scalarized.
 func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
 	if ret.Value == nil || fn.Result == nil {
+		// Void return for helper functions.
+		if e.emittingHelperFunction {
+			e.currentBB.AddInstruction(module.NewRetVoidInstr())
+		}
 		return nil
 	}
 
+	// Helper function: emit an LLVM ret instruction with the return value.
+	if e.emittingHelperFunction {
+		valueID, err := e.emitExpression(fn, *ret.Value)
+		if err != nil {
+			return fmt.Errorf("helper return value: %w", err)
+		}
+
+		// For vector returns (helperReturnComps > 1), pack components into a struct
+		// using insertvalue instructions: {scalar, scalar, ...}.
+		if e.helperReturnComps > 1 {
+			retTy := e.mainFn.FuncType.RetType
+			// Start with undef of the struct type.
+			aggID := e.getTypedUndefConstID(retTy)
+			for c := 0; c < e.helperReturnComps; c++ {
+				compID := e.getComponentID(*ret.Value, c)
+				insertID := e.allocValue()
+				insertInstr := &module.Instruction{
+					Kind:       module.InstrInsertVal,
+					HasValue:   true,
+					ResultType: retTy,
+					Operands:   []int{aggID, compID, c},
+					ValueID:    insertID,
+				}
+				e.currentBB.AddInstruction(insertInstr)
+				aggID = insertID
+			}
+			valueID = aggID
+		}
+
+		instr := &module.Instruction{
+			Kind:        module.InstrRet,
+			HasValue:    false,
+			ReturnValue: valueID,
+		}
+		e.currentBB.AddInstruction(instr)
+		return nil
+	}
+
+	resultType := e.ir.Types[fn.Result.Type]
+
+	// Handle struct return types specially to avoid loading entire structs.
+	if st, ok := resultType.Inner.(ir.StructType); ok {
+		return e.emitStructReturn(fn, ret, &st)
+	}
+
 	// Evaluate the return value expression.
-	valueID, err := e.emitExpression(fn, *ret.Value)
-	if err != nil {
+	if _, err := e.emitExpression(fn, *ret.Value); err != nil {
 		return fmt.Errorf("return value: %w", err)
 	}
 
 	// Store the return value as output(s).
-	resultType := e.ir.Types[fn.Result.Type]
 	scalar, ok := scalarOfType(resultType.Inner)
 	if !ok {
-		// Non-scalar result type — try to handle vector.
-		return e.emitReturnComposite(fn, valueID, resultType.Inner)
+		// Vector type — handle via component access.
+		if vt, isVec := resultType.Inner.(ir.VectorType); isVec {
+			ol := overloadForScalar(vt.Scalar)
+			outputID := e.outputLocationFromBinding(fn.Result.Binding)
+			for comp := 0; comp < int(vt.Size); comp++ {
+				compValueID := e.getComponentID(*ret.Value, comp)
+				e.emitOutputStore(outputID, comp, compValueID, ol)
+			}
+			return nil
+		}
+		return fmt.Errorf("unsupported return type: %T", resultType.Inner)
 	}
 
 	numComps := componentCount(resultType.Inner)
@@ -120,53 +230,264 @@ func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
 	return nil
 }
 
-// emitReturnComposite handles returning composite types (vectors, structs).
-func (e *Emitter) emitReturnComposite(fn *ir.Function, valueID int, inner ir.TypeInner) error {
-	switch t := inner.(type) {
-	case ir.VectorType:
-		// This is called when scalarOfType fails on the result type,
-		// which shouldn't happen for VectorType. Just handle it.
-		ol := overloadForScalar(t.Scalar)
-		outputID := e.outputLocationFromBinding(fn.Result.Binding)
-		for comp := 0; comp < int(t.Size); comp++ {
-			e.emitOutputStore(outputID, comp, valueID+comp, ol)
-		}
-		return nil
+// emitStructReturn handles returning a struct from an entry point.
+// Each struct member with a binding becomes a separate output via storeOutput.
+//
+// The return value can be:
+//   - ExprLoad of a local variable (struct alloca) — decompose via per-member GEP + load
+//   - ExprCompose — sub-expressions are already available as flattened components
+//   - Any other expression that produces per-component values via pendingComponents
+//
+// DXIL does not support struct-typed SSA values, so we must decompose the struct
+// before emitting output stores.
+func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.StructType) error {
+	retExpr := fn.Expressions[*ret.Value]
 
-	case ir.StructType:
-		// Struct outputs: each member has its own binding.
-		for _, member := range t.Members {
-			if member.Binding == nil {
-				continue
-			}
-			memberType := e.ir.Types[member.Type]
-			scalar, ok := scalarOfType(memberType.Inner)
-			if !ok {
-				continue
-			}
-			numComps := componentCount(memberType.Inner)
-			ol := overloadForScalar(scalar)
-			outputID := e.locationFromBinding(*member.Binding)
-			for comp := 0; comp < numComps; comp++ {
-				e.emitOutputStore(outputID, comp, valueID+comp, ol)
-			}
-		}
-		return nil
-
-	default:
-		return fmt.Errorf("unsupported return type: %T", inner)
+	// Case 1: Load of a struct-typed local variable.
+	// We must NOT emit a struct load. Instead, GEP + load each member individually.
+	if load, ok := retExpr.Kind.(ir.ExprLoad); ok {
+		return e.emitStructReturnFromLoad(fn, load, st)
 	}
+
+	// Case 2: Compose or other expression that produces flattened components.
+	// Emit the expression — this populates pendingComponents via emitCompose.
+	if _, err := e.emitExpression(fn, *ret.Value); err != nil {
+		return fmt.Errorf("return value: %w", err)
+	}
+
+	// Now emit storeOutput for each struct member using the flattened component IDs.
+	compIdx := 0
+	for _, member := range st.Members {
+		memberType := e.ir.Types[member.Type]
+
+		// Handle array members by unwrapping the array.
+		scalar, ok := scalarOfType(memberType.Inner)
+		numComps := componentCount(memberType.Inner)
+
+		if !ok {
+			if arr, isArr := memberType.Inner.(ir.ArrayType); isArr {
+				elemInner := e.ir.Types[arr.Base].Inner
+				scalar, ok = scalarOfType(elemInner)
+				numComps = totalScalarCount(e.ir, memberType.Inner)
+			}
+		}
+
+		if member.Binding == nil || !ok {
+			compIdx += numComps
+			continue
+		}
+		ol := overloadForScalar(scalar)
+		outputID := e.locationFromBinding(*member.Binding)
+		for comp := 0; comp < numComps; comp++ {
+			valueID := e.getComponentID(*ret.Value, compIdx)
+			e.emitOutputStore(outputID, comp, valueID, ol)
+			compIdx++
+		}
+	}
+
+	return nil
+}
+
+// emitStructReturnFromLoad handles returning a struct loaded from a local variable.
+// Instead of emitting a single struct load (which DXIL doesn't support), we emit
+// per-field GEP + load + storeOutput for each struct member.
+//
+// The struct is flattened in DXIL: vector members become multiple scalar fields.
+// For a struct {vec4<f32>, vec4<f32>}, the DXIL type is {f32, f32, f32, f32, f32, f32, f32, f32}.
+// So member 0 (vec4) uses flattened indices 0..3, member 1 uses indices 4..7.
+func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st *ir.StructType) error {
+	// Ensure the pointer expression (local variable) is emitted.
+	ptr, err := e.emitExpression(fn, load.Pointer)
+	if err != nil {
+		return fmt.Errorf("struct return pointer: %w", err)
+	}
+
+	// Get the LLVM struct type from the local variable.
+	var structTy *module.Type
+	if lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable); ok {
+		if cachedTy, hasCached := e.localVarStructTypes[lv.Variable]; hasCached {
+			structTy = cachedTy
+		}
+	}
+	if structTy == nil {
+		var resolveErr error
+		structTy, resolveErr = typeToDXILFull(e.mod, e.ir, st)
+		if resolveErr != nil {
+			return fmt.Errorf("struct return type resolution: %w", resolveErr)
+		}
+	}
+
+	// Compute the flattened scalar type for GEP element access.
+	// Since the struct is flattened to all-scalar fields, each GEP
+	// produces a pointer to a scalar element.
+	flatIdx := 0
+	for _, member := range st.Members {
+		delta, err := e.emitStructMemberOutput(fn, structTy, ptr, member, flatIdx)
+		if err != nil {
+			return err
+		}
+		flatIdx += delta
+	}
+
+	return nil
+}
+
+// emitStructMemberOutput emits output stores for a single struct member during return.
+// Returns the flat index delta for the member.
+func (e *Emitter) emitStructMemberOutput(_ *ir.Function, structTy *module.Type, ptr int, member ir.StructMember, flatIdx int) (int, error) {
+	memberType := e.ir.Types[member.Type]
+
+	// Resolve scalar type and component count.
+	scalar, ok := scalarOfType(memberType.Inner)
+	numComps := componentCount(memberType.Inner)
+	isArray := false
+	var arrType ir.ArrayType
+
+	if !ok {
+		if arr, isArr := memberType.Inner.(ir.ArrayType); isArr {
+			elemInner := e.ir.Types[arr.Base].Inner
+			scalar, ok = scalarOfType(elemInner)
+			if arr.Size.Constant != nil {
+				numComps = int(*arr.Size.Constant)
+			}
+			isArray = true
+			arrType = arr
+		}
+	}
+
+	if member.Binding == nil || !ok {
+		if isArray {
+			return 1, nil
+		}
+		return numComps, nil
+	}
+
+	ol := overloadForScalar(scalar)
+	outputID := e.locationFromBinding(*member.Binding)
+	scalarTy := e.overloadReturnType(ol)
+	scalarPtrTy := e.mod.GetPointerType(scalarTy)
+	zeroVal := e.getIntConstID(0)
+
+	if isArray {
+		return e.emitArrayMemberOutput(structTy, ptr, arrType, flatIdx, numComps, outputID, ol, scalarTy, scalarPtrTy)
+	}
+
+	for comp := 0; comp < numComps; comp++ {
+		fieldIdx := e.getIntConstID(int64(flatIdx + comp))
+		gepID := e.addGEPInstr(structTy, scalarPtrTy, ptr, []int{zeroVal, fieldIdx})
+		loadID := e.emitScalarLoad(scalarTy, gepID)
+		e.emitOutputStore(outputID, comp, loadID, ol)
+	}
+	return numComps, nil
+}
+
+// emitArrayMemberOutput emits output stores for an array-typed struct member.
+func (e *Emitter) emitArrayMemberOutput(
+	structTy *module.Type, ptr int, arrType ir.ArrayType,
+	flatIdx, numComps, outputID int, ol overloadType,
+	scalarTy, scalarPtrTy *module.Type,
+) (int, error) {
+	zeroVal := e.getIntConstID(0)
+	fieldIdx := e.getIntConstID(int64(flatIdx))
+
+	arrDxilTy, err := typeToDXIL(e.mod, e.ir, arrType)
+	if err != nil {
+		return 0, fmt.Errorf("array member type: %w", err)
+	}
+	arrPtrTy := e.mod.GetPointerType(arrDxilTy)
+	arrGepID := e.addGEPInstr(structTy, arrPtrTy, ptr, []int{zeroVal, fieldIdx})
+
+	for comp := 0; comp < numComps; comp++ {
+		elemIdx := e.getIntConstID(int64(comp))
+		elemGepID := e.addGEPInstr(arrDxilTy, scalarPtrTy, arrGepID, []int{zeroVal, elemIdx})
+		loadID := e.emitScalarLoad(scalarTy, elemGepID)
+		e.emitOutputStore(outputID, comp, loadID, ol)
+	}
+	return 1, nil // Arrays are 1 field in the flattened struct
+}
+
+// emitScalarLoad emits an LLVM load instruction for a scalar value from a pointer.
+func (e *Emitter) emitScalarLoad(scalarTy *module.Type, ptrID int) int {
+	loadID := e.allocValue()
+	align := e.alignForType(scalarTy)
+	instr := &module.Instruction{
+		Kind:       module.InstrLoad,
+		HasValue:   true,
+		ResultType: scalarTy,
+		Operands:   []int{ptrID, scalarTy.ID, align, 0},
+		ValueID:    loadID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return loadID
 }
 
 // emitStmtStore handles store statements.
 //
 // In naga IR, stores write a value through a pointer expression.
-// In DXIL, this emits an LLVM store instruction:
+// For UAV (storage buffers), this emits dx.op.bufferStore.
+// For local variables, this emits an LLVM store instruction.
+// For vector local variables, each component is stored separately.
 //
-//	store TYPE %value, TYPE* %ptr, align N
+// Reference: Mesa nir_to_dxil.c dxil_emit_store(), emit_bufferstore_call()
 //
-// Reference: Mesa nir_to_dxil.c dxil_emit_store()
+//nolint:nestif // store dispatch for different pointer targets requires nesting
 func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
+	// Check if this store targets a mesh output variable.
+	// Mesh output stores are converted to dx.op mesh shader intrinsics.
+	if e.meshCtx != nil {
+		if handled, err := e.tryEmitMeshOutputStore(fn, store); err != nil {
+			return err
+		} else if handled {
+			return nil
+		}
+	}
+
+	// Check if this store targets a UAV (storage buffer).
+	// UAV stores use dx.op.bufferStore instead of LLVM store instructions.
+	if chain, ok := e.resolveUAVPointerChain(fn, store.Pointer); ok {
+		return e.emitUAVStore(fn, chain, store.Value)
+	}
+
+	// Check if this is a vector store to a local variable with per-component allocas.
+	if lv, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable); ok {
+		if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
+			// Resolve the actual scalar element type from the local variable's IR type.
+			localVar := &fn.LocalVars[lv.Variable]
+			irType := e.ir.Types[localVar.Type]
+			elemDXILTy, resolveErr := typeToDXIL(e.mod, e.ir, irType.Inner)
+			if resolveErr != nil {
+				return fmt.Errorf("vector store type resolution: %w", resolveErr)
+			}
+			return e.emitVectorStore(fn, compPtrs, store.Value, elemDXILTy)
+		}
+
+		// Check if this is a struct store to a local variable.
+		// Struct stores must be decomposed into per-field GEP + store operations
+		// because the value is represented as per-component scalars.
+		if int(lv.Variable) < len(fn.LocalVars) {
+			localVar := &fn.LocalVars[lv.Variable]
+			irType := e.ir.Types[localVar.Type]
+			if st, isSt := irType.Inner.(ir.StructType); isSt {
+				return e.emitStructStore(fn, lv.Variable, irType, st, store.Value)
+			}
+		}
+
+		// Check if this is an array store to a local variable.
+		// Array stores must be decomposed into per-element GEP + store operations
+		// because DXIL doesn't support aggregate store instructions.
+		if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
+			return e.emitArrayStore(fn, lv.Variable, arrayTy, store.Value)
+		}
+	}
+
+	// Handle AccessIndex chain to struct member's vector component:
+	// Pattern: AccessIndex(AccessIndex(LocalVariable, fieldIdx), compIdx) → store to alloca
+	if handled, hErr := e.tryStructMemberComponentStore(fn, store); hErr != nil {
+		return hErr
+	} else if handled {
+		return nil
+	}
+
 	ptr, err := e.emitExpression(fn, store.Pointer)
 	if err != nil {
 		return fmt.Errorf("store pointer: %w", err)
@@ -194,15 +515,1124 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	return nil
 }
 
+// tryStructMemberComponentStore handles stores to a local struct variable's
+// vector member component. Pattern:
+//
+//	store(AccessIndex(AccessIndex(LocalVariable(var), fieldIdx), compIdx), value)
+//
+// This pattern occurs when WGSL code does: output.vec_field.x = value;
+// The struct alloca has per-component allocas for vector fields, so we need
+// to resolve the chain to the specific component alloca and store there.
+func (e *Emitter) tryStructMemberComponentStore(fn *ir.Function, store ir.StmtStore) (bool, error) {
+	// Match: AccessIndex(base, compIdx) where base -> AccessIndex(LocalVariable, fieldIdx)
+	outerAI, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprAccessIndex)
+	if !ok {
+		return false, nil
+	}
+	innerAI, ok := fn.Expressions[outerAI.Base].Kind.(ir.ExprAccessIndex)
+	if !ok {
+		return false, nil
+	}
+	lv, ok := fn.Expressions[innerAI.Base].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return false, nil
+	}
+
+	// Resolve the struct type and field.
+	if int(lv.Variable) >= len(fn.LocalVars) {
+		return false, nil
+	}
+	localVar := &fn.LocalVars[lv.Variable]
+	irType := e.ir.Types[localVar.Type]
+	st, isSt := irType.Inner.(ir.StructType)
+	if !isSt {
+		return false, nil
+	}
+	fieldIdx := int(innerAI.Index)
+	if fieldIdx >= len(st.Members) {
+		return false, nil
+	}
+	member := st.Members[fieldIdx]
+	memberType := e.ir.Types[member.Type]
+	vt, isVec := memberType.Inner.(ir.VectorType)
+	if !isVec {
+		return false, nil
+	}
+
+	compIdx := int(outerAI.Index)
+	if compIdx >= int(vt.Size) {
+		return false, nil
+	}
+
+	// Ensure the struct alloca exists.
+	if _, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: lv.Variable}); err != nil {
+		return false, fmt.Errorf("struct component store alloca: %w", err)
+	}
+
+	// Compute the flat component index within the struct's alloca.
+	// Count scalar components of all preceding fields, then add compIdx.
+	flatIdx := 0
+	for fi := 0; fi < fieldIdx; fi++ {
+		memType := e.ir.Types[st.Members[fi].Type]
+		flatIdx += componentCount(memType.Inner)
+	}
+	flatIdx += compIdx
+
+	// Look up the struct's per-component alloca pointers.
+	dxilStructTy, hasTy := e.localVarStructTypes[lv.Variable]
+	if !hasTy {
+		return false, nil
+	}
+
+	// Ensure the local var alloca was created.
+	allocaID, hasAlloca := e.localVarPtrs[lv.Variable]
+	if !hasAlloca {
+		return false, nil
+	}
+
+	// Emit GEP to the specific component.
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, vt.Scalar)
+	ptrTy := e.mod.GetPointerType(scalarTy)
+	i32Ty := e.mod.GetIntType(32)
+	zeroID := e.getIntConstID(0)
+	fieldIdxID := e.getIntConstID(int64(flatIdx))
+
+	gepID := e.allocValue()
+	gepInstr := &module.Instruction{
+		Kind:       module.InstrGEP,
+		HasValue:   true,
+		ResultType: ptrTy,
+		Operands:   []int{1, dxilStructTy.ID, allocaID, zeroID, fieldIdxID},
+		ValueID:    gepID,
+	}
+	_ = i32Ty
+	e.currentBB.AddInstruction(gepInstr)
+
+	// Emit the value to store.
+	valueID, err := e.emitExpression(fn, store.Value)
+	if err != nil {
+		return false, fmt.Errorf("struct component store value: %w", err)
+	}
+
+	// Store to the component pointer.
+	storeInstr := &module.Instruction{
+		Kind:        module.InstrStore,
+		HasValue:    false,
+		Operands:    []int{gepID, valueID, 4, 0},
+		ReturnValue: -1,
+	}
+	e.currentBB.AddInstruction(storeInstr)
+	return true, nil
+}
+
+// emitArrayStore decomposes an array value into per-element stores using GEP.
+// For each array element, emits GEP [N x T]*, i32 0, i32 idx → store.
+func (e *Emitter) emitArrayStore(fn *ir.Function, varIdx uint32, arrayTy *module.Type, valueHandle ir.ExpressionHandle) error {
+	allocaID, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: varIdx})
+	if err != nil {
+		return fmt.Errorf("array store alloca: %w", err)
+	}
+
+	_, err = e.emitExpression(fn, valueHandle)
+	if err != nil {
+		return fmt.Errorf("array store value: %w", err)
+	}
+
+	elemTy := arrayTy.ElemType
+	if elemTy == nil {
+		return fmt.Errorf("array store: nil element type")
+	}
+	resultPtrTy := e.mod.GetPointerType(elemTy)
+	zeroID := e.getIntConstID(0)
+	align := e.alignForType(elemTy)
+
+	numElems := int(arrayTy.ElemCount) //nolint:gosec // ElemCount bounded by shader array size
+	for i := 0; i < numElems; i++ {
+		indexID := e.getIntConstID(int64(i))
+		gepID := e.addGEPInstr(arrayTy, resultPtrTy, allocaID, []int{zeroID, indexID})
+
+		compID := e.getComponentID(valueHandle, i)
+		instr := &module.Instruction{
+			Kind:        module.InstrStore,
+			HasValue:    false,
+			Operands:    []int{gepID, compID, align, 0},
+			ReturnValue: -1,
+		}
+		e.currentBB.AddInstruction(instr)
+	}
+	return nil
+}
+
+// emitStructStore decomposes a struct value into per-scalar-field stores using GEP.
+// Recursively flattens nested structs and vectors into individual scalar stores.
+func (e *Emitter) emitStructStore(fn *ir.Function, varIdx uint32, _ ir.Type, st ir.StructType, valueHandle ir.ExpressionHandle) error {
+	// Ensure the alloca exists.
+	allocaID, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: varIdx})
+	if err != nil {
+		return fmt.Errorf("struct store alloca: %w", err)
+	}
+
+	// Emit the value expression.
+	_, err = e.emitExpression(fn, valueHandle)
+	if err != nil {
+		return fmt.Errorf("struct store value: %w", err)
+	}
+
+	// Use cached DXIL struct type to match the alloca's type.
+	dxilStructTy, ok := e.localVarStructTypes[varIdx]
+	if !ok {
+		return fmt.Errorf("struct store: no cached DXIL type for local var %d", varIdx)
+	}
+
+	// Recursively store each scalar field, tracking flat component index.
+	flatIdx := 0
+	e.storeStructFields(dxilStructTy, allocaID, st, valueHandle, &flatIdx)
+	return nil
+}
+
+// storeStructFields stores each scalar value from a flattened compose into
+// struct fields via GEP. Since struct types are fully flattened (vectors
+// become N scalars), each GEP targets a single scalar element.
+// flatIdx tracks the position in both the value's component list and the
+// DXIL struct element list.
+func (e *Emitter) storeStructFields(dxilStructTy *module.Type, basePtrID int, st ir.StructType, valueHandle ir.ExpressionHandle, flatIdx *int) {
+	zeroID := e.getIntConstID(0)
+
+	for _, member := range st.Members {
+		memberIRType := e.ir.Types[member.Type]
+		numScalars := totalScalarCount(e.ir, memberIRType.Inner)
+
+		// Store each scalar component via separate GEP + store.
+		for j := 0; j < numScalars; j++ {
+			elemIdx := *flatIdx + j
+			if elemIdx >= len(dxilStructTy.StructElems) {
+				break
+			}
+			memberDXILTy := dxilStructTy.StructElems[elemIdx]
+			resultPtrTy := e.mod.GetPointerType(memberDXILTy)
+			indexID := e.getIntConstID(int64(elemIdx))
+			gepID := e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
+
+			compID := e.getComponentID(valueHandle, elemIdx)
+			align := e.alignForType(memberDXILTy)
+
+			instr := &module.Instruction{
+				Kind:        module.InstrStore,
+				HasValue:    false,
+				Operands:    []int{gepID, compID, align, 0},
+				ReturnValue: -1,
+			}
+			e.currentBB.AddInstruction(instr)
+		}
+
+		*flatIdx += numScalars
+	}
+}
+
+// emitVectorStore stores each component of a vector value to separate allocas.
+// scalarDXILTy is the DXIL scalar element type of the vector (e.g. f16 for vec2<f16>).
+func (e *Emitter) emitVectorStore(fn *ir.Function, compPtrs []int, valueHandle ir.ExpressionHandle, scalarDXILTy *module.Type) error {
+	// Emit the value expression to get component tracking.
+	_, err := e.emitExpression(fn, valueHandle)
+	if err != nil {
+		return fmt.Errorf("store value: %w", err)
+	}
+
+	scalarTy := scalarDXILTy
+	if comps, ok := e.exprComponents[valueHandle]; ok {
+		// We have per-component tracking — use it for value IDs.
+		for i := 0; i < len(compPtrs) && i < len(comps); i++ {
+			align := e.alignForType(scalarTy)
+			instr := &module.Instruction{
+				Kind:        module.InstrStore,
+				HasValue:    false,
+				Operands:    []int{compPtrs[i], comps[i], align, 0},
+				ReturnValue: -1,
+			}
+			e.currentBB.AddInstruction(instr)
+		}
+	} else {
+		// Scalar value — store to first component only.
+		valueID := e.exprValues[valueHandle]
+		align := e.alignForType(scalarTy)
+		instr := &module.Instruction{
+			Kind:        module.InstrStore,
+			HasValue:    false,
+			Operands:    []int{compPtrs[0], valueID, align, 0},
+			ReturnValue: -1,
+		}
+		e.currentBB.AddInstruction(instr)
+	}
+	return nil
+}
+
 // emitStmtCall handles function call statements.
+// If the helper function has been emitted, generates an LLVM call instruction.
+// Otherwise, evaluates arguments (for side effects) and skips the call.
 func (e *Emitter) emitStmtCall(fn *ir.Function, call ir.StmtCall) error {
-	// Evaluate arguments.
+	// Evaluate arguments (always needed for side effects).
 	for _, arg := range call.Arguments {
 		if _, err := e.emitExpression(fn, arg); err != nil {
 			return fmt.Errorf("call argument: %w", err)
 		}
 	}
+
+	// If helper function was emitted, generate an actual LLVM call.
+	dxilFn, ok := e.helperFunctions[call.Function]
+	if !ok {
+		// Helper function not emitted (unsupported features). If the call has
+		// a result, provide a zero-valued fallback so the shader compiles
+		// (output may be incorrect for this call, but other paths still work).
+		if call.Result != nil {
+			zeroID := e.getZeroValueForResult(fn, call)
+			e.callResultValues[*call.Result] = zeroID
+			e.exprValues[*call.Result] = zeroID
+		}
+		return nil
+	}
+
+	// Build flattened argument list (expanding vectors to per-component).
+	var argIDs []int
+	for _, arg := range call.Arguments {
+		argTy := e.resolveExprTypeInner(fn, arg)
+		numComps := 1
+		if argTy != nil {
+			numComps = componentCount(argTy)
+		}
+		if numComps > 1 {
+			for c := 0; c < numComps; c++ {
+				argIDs = append(argIDs, e.getComponentID(arg, c))
+			}
+		} else {
+			argIDs = append(argIDs, e.exprValues[arg])
+		}
+	}
+
+	resultTy := dxilFn.FuncType.RetType
+	valueID := e.addCallInstr(dxilFn, resultTy, argIDs)
+
+	if call.Result != nil {
+		// Check if the called function returns a vector (packed as struct).
+		// If so, extract per-component values with extractvalue.
+		calledFn := &e.ir.Functions[call.Function]
+		if calledFn.Result != nil {
+			retIRType := e.ir.Types[calledFn.Result.Type].Inner
+			retComps := componentCount(retIRType)
+			if retComps > 1 {
+				scalarTy, _ := typeToDXIL(e.mod, e.ir, retIRType)
+				comps := make([]int, retComps)
+				for c := 0; c < retComps; c++ {
+					extractID := e.allocValue()
+					extractInstr := &module.Instruction{
+						Kind:       module.InstrExtractVal,
+						HasValue:   true,
+						ResultType: scalarTy,
+						Operands:   []int{valueID, c},
+						ValueID:    extractID,
+					}
+					e.currentBB.AddInstruction(extractInstr)
+					comps[c] = extractID
+				}
+				e.callResultValues[*call.Result] = comps[0]
+				e.callResultComponents[*call.Result] = comps
+				e.exprValues[*call.Result] = comps[0]
+				e.exprComponents[*call.Result] = comps
+				return nil
+			}
+		}
+
+		e.callResultValues[*call.Result] = valueID
+		e.exprValues[*call.Result] = valueID
+	}
 	return nil
+}
+
+// getZeroValueForResult returns a zero-valued constant for the given call's
+// return type. Used as fallback when a helper function cannot be emitted.
+//
+//nolint:nestif // handles scalar, vector, and struct return types
+func (e *Emitter) getZeroValueForResult(_ *ir.Function, call ir.StmtCall) int {
+	// Look up the called function's return type.
+	if int(call.Function) < len(e.ir.Functions) {
+		calledFn := &e.ir.Functions[call.Function]
+		if calledFn.Result != nil {
+			resultType := e.ir.Types[calledFn.Result.Type].Inner
+
+			// For struct returns, flatten all members into a component array.
+			// This allows AccessIndex on the zero-fallback result to find the
+			// correct sub-range of components for each struct field.
+			if st, isSt := resultType.(ir.StructType); isSt {
+				return e.getZeroValueForStruct(call, st)
+			}
+
+			numComps := componentCount(resultType)
+			if numComps > 1 {
+				// For vector/matrix returns, set up zero components.
+				zeroID := e.getZeroForType(resultType)
+				comps := make([]int, numComps)
+				for i := range comps {
+					comps[i] = zeroID
+				}
+				e.callResultComponents[*call.Result] = comps
+				e.exprComponents[*call.Result] = comps
+				return zeroID
+			}
+			return e.getZeroForType(resultType)
+		}
+	}
+	return e.getIntConstID(0)
+}
+
+// getZeroValueForStruct creates a flattened zero component array for a struct return type.
+// Each struct member gets cbvComponentCount(member) zero values, concatenated together.
+// This uses cbvComponentCount (not componentCount) to match extractComponentsForAccessIndex
+// which also uses cbvComponentCount for struct member offset computation.
+func (e *Emitter) getZeroValueForStruct(call ir.StmtCall, st ir.StructType) int {
+	var allComps []int
+	for _, member := range st.Members {
+		if int(member.Type) >= len(e.ir.Types) {
+			continue
+		}
+		memberInner := e.ir.Types[member.Type].Inner
+		zeroID := e.getZeroForType(memberInner)
+		numComps := cbvComponentCount(e.ir, memberInner)
+		for c := 0; c < numComps; c++ {
+			allComps = append(allComps, zeroID)
+		}
+	}
+	if len(allComps) == 0 {
+		return e.getIntConstID(0)
+	}
+	e.callResultComponents[*call.Result] = allComps
+	e.exprComponents[*call.Result] = allComps
+	return allComps[0]
+}
+
+// getZeroForType returns a zero constant ID for the given type's scalar.
+// Recurses into arrays and structs to find the base scalar type, ensuring
+// the zero constant has the correct type (e.g., f32(0) for float arrays).
+func (e *Emitter) getZeroForType(inner ir.TypeInner) int {
+	scalar, ok := scalarOfType(inner)
+	if ok {
+		if scalar.Kind == ir.ScalarFloat {
+			if scalar.Width != 4 {
+				// Non-f32 floats (f16, f64) need their own typed constant.
+				return e.addFloatConstID(e.mod.GetFloatType(uint(scalar.Width)*8), 0.0)
+			}
+			return e.getFloatConstID(0.0)
+		}
+		if scalar.Width == 8 {
+			// i64/u64 needs a 64-bit zero constant.
+			c := e.mod.AddIntConst(e.mod.GetIntType(64), 0)
+			id := e.allocValue()
+			e.constMap[id] = c
+			return id
+		}
+		return e.getIntConstID(0)
+	}
+	// Recurse into array/struct to find the base scalar element type.
+	switch t := inner.(type) {
+	case ir.ArrayType:
+		if int(t.Base) < len(e.ir.Types) {
+			return e.getZeroForType(e.ir.Types[t.Base].Inner)
+		}
+	case ir.StructType:
+		if len(t.Members) > 0 && int(t.Members[0].Type) < len(e.ir.Types) {
+			return e.getZeroForType(e.ir.Types[t.Members[0].Type].Inner)
+		}
+	}
+	return e.getIntConstID(0)
+}
+
+// emitStmtAtomic handles atomic operations on UAV (storage buffer) elements.
+//
+// For most atomic operations (add, and, or, xor, min, max, exchange), emits:
+//
+//	i32 @dx.op.atomicBinOp(i32 78, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, i32 value)
+//
+// For compare-and-exchange (AtomicExchange with Compare), emits:
+//
+//	i32 @dx.op.atomicCompareExchange(i32 79, %handle, i32 coord0, i32 coord1, i32 coord2, i32 cmpVal, i32 newVal)
+//
+// For AtomicLoad, emits dx.op.bufferLoad; for AtomicStore, emits dx.op.bufferStore.
+//
+// Reference: Mesa nir_to_dxil.c emit_atomic_binop() ~949, emit_atomic_cmpxchg() ~973
+func (e *Emitter) emitStmtAtomic(fn *ir.Function, atomic ir.StmtAtomic) error {
+	// Check if this is a workgroup (groupshared) atomic — uses LLVM atomicrmw.
+	if e.isWorkgroupPointer(fn, atomic.Pointer) {
+		return e.emitWorkgroupAtomic(fn, atomic)
+	}
+
+	// Resolve the pointer to a UAV handle + index.
+	chain, ok := e.resolveUAVPointerChain(fn, atomic.Pointer)
+	if !ok {
+		return fmt.Errorf("atomic: pointer does not resolve to UAV")
+	}
+
+	handleID, found := e.getResourceHandleID(chain.varHandle)
+	if !found {
+		return fmt.Errorf("atomic: UAV handle not found for global variable %d", chain.varHandle)
+	}
+
+	// Resolve the buffer index (handles constant/dynamic/strided patterns).
+	indexID, err := e.resolveUAVIndex(fn, chain)
+	if err != nil {
+		return fmt.Errorf("atomic index: %w", err)
+	}
+
+	ol := overloadForScalar(chain.scalar)
+
+	switch af := atomic.Fun.(type) {
+	case ir.AtomicLoad:
+		return e.emitAtomicLoad(fn, atomic, handleID, indexID, chain)
+
+	case ir.AtomicStore:
+		return e.emitAtomicStore(fn, atomic, handleID, indexID, chain)
+
+	case ir.AtomicExchange:
+		if af.Compare != nil {
+			return e.emitAtomicCmpXchg(fn, atomic, af, handleID, indexID, ol)
+		}
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicExchange, handleID, indexID, ol)
+
+	case ir.AtomicAdd:
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicAdd, handleID, indexID, ol)
+
+	case ir.AtomicSubtract:
+		// DXIL has no subtract atomic — negate the value and use ADD.
+		return e.emitAtomicSubtract(fn, atomic, handleID, indexID, ol)
+
+	case ir.AtomicAnd:
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicAnd, handleID, indexID, ol)
+
+	case ir.AtomicInclusiveOr:
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicOr, handleID, indexID, ol)
+
+	case ir.AtomicExclusiveOr:
+		return e.emitAtomicBinOp(fn, atomic, DXILAtomicXor, handleID, indexID, ol)
+
+	case ir.AtomicMin:
+		op := e.atomicMinMaxOp(chain.scalar, true)
+		return e.emitAtomicBinOp(fn, atomic, op, handleID, indexID, ol)
+
+	case ir.AtomicMax:
+		op := e.atomicMinMaxOp(chain.scalar, false)
+		return e.emitAtomicBinOp(fn, atomic, op, handleID, indexID, ol)
+
+	default:
+		return fmt.Errorf("unsupported atomic function: %T", atomic.Fun)
+	}
+}
+
+// atomicMinMaxOp selects the correct DXIL atomic min/max opcode based on
+// whether the scalar is signed or unsigned.
+func (e *Emitter) atomicMinMaxOp(scalar ir.ScalarType, isMin bool) DXILAtomicOp {
+	if scalar.Kind == ir.ScalarUint {
+		if isMin {
+			return DXILAtomicUMin
+		}
+		return DXILAtomicUMax
+	}
+	// Signed int (or default).
+	if isMin {
+		return DXILAtomicIMin
+	}
+	return DXILAtomicIMax
+}
+
+// emitAtomicBinOp emits a dx.op.atomicBinOp call with the appropriate type overload.
+//
+// Signature: T @dx.op.atomicBinOp.T(i32 78, %handle, i32 atomicOp,
+//
+//	i32 coord0, i32 coord1, i32 coord2, T value) → T
+//
+// where T is i32, i64, or f32 depending on the atomic's scalar type.
+//
+// Reference: Mesa nir_to_dxil.c emit_atomic_binop() ~949
+func (e *Emitter) emitAtomicBinOp(fn *ir.Function, atomic ir.StmtAtomic, atomicOp DXILAtomicOp, handleID, indexID int, ol overloadType) error {
+	valueID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("atomic value: %w", err)
+	}
+
+	atomicFn := e.getDxOpAtomicBinOpFuncTyped(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpAtomicBinOp))
+	atomicOpVal := e.getIntConstID(int64(atomicOp))
+	undefVal := e.getUndefConstID()
+
+	// dx.op.atomicBinOp.T(i32 78, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, T value)
+	resultID := e.addCallInstr(atomicFn, retTy, []int{
+		opcodeVal, handleID, atomicOpVal,
+		indexID, undefVal, undefVal, // coord0, coord1, coord2
+		valueID,
+	})
+
+	// Store the result for the AtomicResult expression.
+	if atomic.Result != nil {
+		e.exprValues[*atomic.Result] = resultID
+	}
+
+	return nil
+}
+
+// emitAtomicSubtract emits an atomic subtract by negating the value and using ADD.
+// DXIL does not have a native subtract atomic operation.
+func (e *Emitter) emitAtomicSubtract(fn *ir.Function, atomic ir.StmtAtomic, handleID, indexID int, ol overloadType) error {
+	valueID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("atomic subtract value: %w", err)
+	}
+
+	retTy := e.overloadReturnType(ol)
+
+	// Negate: 0 - value.
+	var negatedID int
+	switch ol {
+	case overloadF32:
+		zeroVal := e.getFloatConstID(0.0)
+		negatedID = e.addBinOpInstr(retTy, BinOpFSub, zeroVal, valueID)
+	case overloadF64, overloadF16:
+		zeroVal := e.addFloatConstID(retTy, 0.0)
+		negatedID = e.addBinOpInstr(retTy, BinOpFSub, zeroVal, valueID)
+	case overloadI64:
+		c := e.mod.AddIntConst(e.mod.GetIntType(64), 0)
+		id := e.allocValue()
+		e.constMap[id] = c
+		negatedID = e.addBinOpInstr(retTy, BinOpSub, id, valueID)
+	default:
+		zeroVal := e.getIntConstID(0)
+		negatedID = e.addBinOpInstr(retTy, BinOpSub, zeroVal, valueID)
+	}
+
+	atomicFn := e.getDxOpAtomicBinOpFuncTyped(ol)
+	opcodeVal := e.getIntConstID(int64(OpAtomicBinOp))
+	atomicOpVal := e.getIntConstID(int64(DXILAtomicAdd))
+	undefVal := e.getUndefConstID()
+
+	resultID := e.addCallInstr(atomicFn, retTy, []int{
+		opcodeVal, handleID, atomicOpVal,
+		indexID, undefVal, undefVal,
+		negatedID,
+	})
+
+	if atomic.Result != nil {
+		e.exprValues[*atomic.Result] = resultID
+	}
+
+	return nil
+}
+
+// emitAtomicCmpXchg emits a dx.op.atomicCompareExchange call with the appropriate type overload.
+//
+// Signature: T @dx.op.atomicCompareExchange.T(i32 79, %handle,
+//
+//	i32 coord0, i32 coord1, i32 coord2, T cmpVal, T newVal) → T
+//
+// Reference: Mesa nir_to_dxil.c emit_atomic_cmpxchg() ~973
+func (e *Emitter) emitAtomicCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, exchange ir.AtomicExchange, handleID, indexID int, ol overloadType) error {
+	newValID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("atomic cmpxchg new value: %w", err)
+	}
+
+	cmpValID, err := e.emitExpression(fn, *exchange.Compare)
+	if err != nil {
+		return fmt.Errorf("atomic cmpxchg compare value: %w", err)
+	}
+
+	cmpXchgFn := e.getDxOpAtomicCmpXchgFuncTyped(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpAtomicCmpXchg))
+	undefVal := e.getUndefConstID()
+
+	// dx.op.atomicCompareExchange.T(i32 79, %handle, i32 coord0, coord1, coord2, T cmpVal, T newVal)
+	resultID := e.addCallInstr(cmpXchgFn, retTy, []int{
+		opcodeVal, handleID,
+		indexID, undefVal, undefVal, // coord0, coord1, coord2
+		cmpValID, newValID,
+	})
+
+	if atomic.Result != nil {
+		// atomicCompareExchangeWeak returns a struct {old_value, exchanged}.
+		// Component 0 = old_value (the T result of dx.op.atomicCompareExchange).
+		// Component 1 = exchanged (bool: old_value == cmpVal).
+		var exchangedID int
+		if ol == overloadF32 || ol == overloadF64 {
+			exchangedID = e.addCmpInstr(FCmpOEQ, resultID, cmpValID)
+		} else {
+			exchangedID = e.addCmpInstr(ICmpEQ, resultID, cmpValID)
+		}
+
+		e.exprValues[*atomic.Result] = resultID
+		e.exprComponents[*atomic.Result] = []int{resultID, exchangedID}
+	}
+
+	return nil
+}
+
+// emitAtomicLoad handles AtomicLoad by emitting a dx.op.bufferLoad.
+// Atomic loads on UAV buffers use the same bufferLoad intrinsic as regular loads.
+func (e *Emitter) emitAtomicLoad(_ *ir.Function, atomic ir.StmtAtomic, handleID, indexID int, chain *uavPointerChain) error {
+	ol := overloadForScalar(chain.scalar)
+	resRetTy := e.getDxResRetType(ol)
+	bufLoadFn := e.getDxOpBufferLoadFunc(ol)
+
+	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
+	undefVal := e.getUndefConstID()
+
+	retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, undefVal})
+
+	// Extract the first component as the atomic result (scalar).
+	scalarTy := e.overloadReturnType(ol)
+	extractID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrExtractVal,
+		HasValue:   true,
+		ResultType: scalarTy,
+		Operands:   []int{retID, 0},
+		ValueID:    extractID,
+	}
+	e.currentBB.AddInstruction(instr)
+
+	if atomic.Result != nil {
+		e.exprValues[*atomic.Result] = extractID
+	}
+
+	return nil
+}
+
+// emitAtomicStore handles AtomicStore by emitting a dx.op.bufferStore.
+// Atomic stores on UAV buffers use the same bufferStore intrinsic as regular stores.
+func (e *Emitter) emitAtomicStore(fn *ir.Function, atomic ir.StmtAtomic, handleID, indexID int, chain *uavPointerChain) error {
+	valueID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("atomic store value: %w", err)
+	}
+
+	ol := overloadForScalar(chain.scalar)
+	bufStoreFn := e.getDxOpBufferStoreFunc(ol)
+
+	opcodeVal := e.getIntConstID(int64(OpBufferStore))
+	undefVal := e.getUndefConstID()
+	maskVal := e.getI8ConstID(1) // single component write mask
+
+	// dx.op.bufferStore(i32 69, %handle, i32 index, i32 undef, val, undef, undef, undef, i8 mask)
+	e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
+		opcodeVal, handleID, indexID, undefVal,
+		valueID, undefVal, undefVal, undefVal,
+		maskVal,
+	})
+
+	return nil
+}
+
+// isWorkgroupPointer returns true if the given pointer expression refers to a
+// workgroup (groupshared) global variable, either directly or through access chains.
+func (e *Emitter) isWorkgroupPointer(fn *ir.Function, ptrHandle ir.ExpressionHandle) bool {
+	if int(ptrHandle) >= len(fn.Expressions) {
+		return false
+	}
+	expr := fn.Expressions[ptrHandle]
+	switch ek := expr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		if int(ek.Variable) < len(e.ir.GlobalVariables) {
+			return e.ir.GlobalVariables[ek.Variable].Space == ir.SpaceWorkGroup
+		}
+	case ir.ExprAccessIndex:
+		return e.isWorkgroupPointer(fn, ek.Base)
+	case ir.ExprAccess:
+		return e.isWorkgroupPointer(fn, ek.Base)
+	}
+	return false
+}
+
+// resolveWorkgroupPointer resolves a pointer to a workgroup variable to its alloca ID.
+// Handles direct GlobalVariable, AccessIndex(field, GV), and Access(index, GV).
+func (e *Emitter) resolveWorkgroupPointer(fn *ir.Function, ptrHandle ir.ExpressionHandle) (int, error) {
+	// Just emit the expression — ExprGlobalVariable triggers emitGlobalVarAlloca,
+	// and AccessIndex/Access on globals emit GEP instructions from the alloca.
+	return e.emitExpression(fn, ptrHandle)
+}
+
+// emitWorkgroupAtomic emits LLVM atomicrmw/cmpxchg instructions for workgroup
+// (groupshared) variable atomic operations. Unlike UAV atomics (which use
+// dx.op.atomicBinOp intrinsics), workgroup atomics use native LLVM atomic
+// instructions operating on alloca pointers.
+func (e *Emitter) emitWorkgroupAtomic(fn *ir.Function, atomic ir.StmtAtomic) error {
+	ptrID, err := e.resolveWorkgroupPointer(fn, atomic.Pointer)
+	if err != nil {
+		return fmt.Errorf("workgroup atomic pointer: %w", err)
+	}
+
+	// Resolve the actual scalar width of the atomic (i32, i64, etc.).
+	atomicScalar := e.resolveAtomicScalar(fn, atomic.Pointer)
+	bitWidth := uint(atomicScalar.Width) * 8
+	atomicTy := e.mod.GetIntType(bitWidth)
+	align := 2 // log2(4) for i32
+	if bitWidth == 64 {
+		align = 3 // log2(8) for i64
+	}
+
+	switch af := atomic.Fun.(type) {
+	case ir.AtomicLoad:
+		// atomicLoad on workgroup = plain load (DXIL doesn't need special atomic load for groupshared)
+		loadID := e.allocValue()
+		loadInstr := &module.Instruction{
+			Kind:       module.InstrLoad,
+			HasValue:   true,
+			ResultType: atomicTy,
+			Operands:   []int{ptrID, atomicTy.ID, align, 0},
+			ValueID:    loadID,
+		}
+		e.currentBB.AddInstruction(loadInstr)
+		if atomic.Result != nil {
+			e.exprValues[*atomic.Result] = loadID
+		}
+		return nil
+
+	case ir.AtomicStore:
+		// atomicStore on workgroup = plain store
+		valueID, err2 := e.emitExpression(fn, atomic.Value)
+		if err2 != nil {
+			return fmt.Errorf("workgroup atomic store value: %w", err2)
+		}
+		storeInstr := &module.Instruction{
+			Kind:     module.InstrStore,
+			HasValue: false,
+			Operands: []int{ptrID, valueID, align, 0},
+		}
+		e.currentBB.AddInstruction(storeInstr)
+		return nil
+
+	case ir.AtomicAdd:
+		return e.emitWorkgroupAtomicRMW(fn, atomic, AtomicRMWAdd, ptrID)
+
+	case ir.AtomicSubtract:
+		return e.emitWorkgroupAtomicRMW(fn, atomic, AtomicRMWSub, ptrID)
+
+	case ir.AtomicAnd:
+		return e.emitWorkgroupAtomicRMW(fn, atomic, AtomicRMWAnd, ptrID)
+
+	case ir.AtomicInclusiveOr:
+		return e.emitWorkgroupAtomicRMW(fn, atomic, AtomicRMWOr, ptrID)
+
+	case ir.AtomicExclusiveOr:
+		return e.emitWorkgroupAtomicRMW(fn, atomic, AtomicRMWXor, ptrID)
+
+	case ir.AtomicMin:
+		op := AtomicRMWMin
+		if e.isUnsignedAtomicPointer(fn, atomic.Pointer) {
+			op = AtomicRMWUMin
+		}
+		return e.emitWorkgroupAtomicRMW(fn, atomic, op, ptrID)
+
+	case ir.AtomicMax:
+		op := AtomicRMWMax
+		if e.isUnsignedAtomicPointer(fn, atomic.Pointer) {
+			op = AtomicRMWUMax
+		}
+		return e.emitWorkgroupAtomicRMW(fn, atomic, op, ptrID)
+
+	case ir.AtomicExchange:
+		if af.Compare != nil {
+			return e.emitWorkgroupCmpXchg(fn, atomic, af, ptrID)
+		}
+		return e.emitWorkgroupAtomicRMW(fn, atomic, AtomicRMWXchg, ptrID)
+
+	default:
+		return fmt.Errorf("unsupported workgroup atomic function: %T", atomic.Fun)
+	}
+}
+
+// emitWorkgroupAtomicRMW emits an LLVM atomicrmw instruction.
+// The type is resolved from the atomic pointer's scalar (i32, i64, etc.).
+func (e *Emitter) emitWorkgroupAtomicRMW(fn *ir.Function, atomic ir.StmtAtomic, op AtomicRMWOp, ptrID int) error {
+	valueID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("workgroup atomic value: %w", err)
+	}
+
+	atomicScalar := e.resolveAtomicScalar(fn, atomic.Pointer)
+	bitWidth := uint(atomicScalar.Width) * 8
+	atomicTy := e.mod.GetIntType(bitWidth)
+
+	resultID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrAtomicRMW,
+		HasValue:   true,
+		ResultType: atomicTy,
+		Operands:   []int{ptrID, valueID, int(op), 0, int(AtomicOrderingSeqCst), 1},
+		ValueID:    resultID,
+	}
+	e.currentBB.AddInstruction(instr)
+
+	if atomic.Result != nil {
+		e.exprValues[*atomic.Result] = resultID
+	}
+	return nil
+}
+
+// emitWorkgroupCmpXchg emits an LLVM cmpxchg instruction for workgroup variables.
+func (e *Emitter) emitWorkgroupCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, af ir.AtomicExchange, ptrID int) error {
+	cmpID, err := e.emitExpression(fn, *af.Compare)
+	if err != nil {
+		return fmt.Errorf("workgroup cmpxchg compare: %w", err)
+	}
+	newID, err := e.emitExpression(fn, atomic.Value)
+	if err != nil {
+		return fmt.Errorf("workgroup cmpxchg new value: %w", err)
+	}
+
+	atomicScalar := e.resolveAtomicScalar(fn, atomic.Pointer)
+	bitWidth := uint(atomicScalar.Width) * 8
+	atomicTy := e.mod.GetIntType(bitWidth)
+
+	resultID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrCmpXchg,
+		HasValue:   true,
+		ResultType: atomicTy,
+		Operands:   []int{ptrID, cmpID, newID, 0, int(AtomicOrderingSeqCst), 1},
+		ValueID:    resultID,
+	}
+	e.currentBB.AddInstruction(instr)
+
+	if atomic.Result != nil {
+		e.exprValues[*atomic.Result] = resultID
+	}
+	return nil
+}
+
+// resolveAtomicScalar walks the expression/type chain from a pointer to an atomic
+// and returns the scalar type of the atomic. This handles direct GlobalVariable,
+// AccessIndex into structs/arrays, and Access into arrays.
+func (e *Emitter) resolveAtomicScalar(fn *ir.Function, ptrHandle ir.ExpressionHandle) ir.ScalarType {
+	// Try ExpressionTypes first — the pointer type contains the base type.
+	if baseInner := e.resolveAtomicBaseType(fn, ptrHandle); baseInner != nil {
+		if at, ok := baseInner.(ir.AtomicType); ok {
+			return at.Scalar
+		}
+	}
+	// Fallback: walk expression chain to find the global variable + type.
+	return e.resolveAtomicScalarFromExpr(fn, ptrHandle)
+}
+
+// resolveAtomicBaseType extracts the base type from a pointer's ExpressionTypes.
+func (e *Emitter) resolveAtomicBaseType(fn *ir.Function, ptrHandle ir.ExpressionHandle) ir.TypeInner {
+	if int(ptrHandle) >= len(fn.ExpressionTypes) {
+		return nil
+	}
+	tr := fn.ExpressionTypes[ptrHandle]
+	if tr.Handle != nil {
+		inner := e.ir.Types[*tr.Handle].Inner
+		if pt, ok := inner.(ir.PointerType); ok {
+			return e.ir.Types[pt.Base].Inner
+		}
+		return inner
+	}
+	if tr.Value != nil {
+		if pt, ok := tr.Value.(ir.PointerType); ok {
+			return e.ir.Types[pt.Base].Inner
+		}
+	}
+	return nil
+}
+
+// resolveAtomicScalarFromExpr walks expression kinds recursively to find the atomic scalar.
+func (e *Emitter) resolveAtomicScalarFromExpr(fn *ir.Function, ptrHandle ir.ExpressionHandle) ir.ScalarType {
+	if int(ptrHandle) >= len(fn.Expressions) {
+		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	}
+	expr := fn.Expressions[ptrHandle]
+	switch ek := expr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		if int(ek.Variable) < len(e.ir.GlobalVariables) {
+			return e.resolveAtomicScalarFromType(e.ir.GlobalVariables[ek.Variable].Type)
+		}
+	case ir.ExprAccessIndex:
+		// Walk through the base's type to find the member/element type.
+		baseInner := e.resolveExprTypeInner(fn, ek.Base)
+		switch bt := baseInner.(type) {
+		case ir.StructType:
+			if int(ek.Index) < len(bt.Members) {
+				return e.resolveAtomicScalarFromType(bt.Members[ek.Index].Type)
+			}
+		case ir.ArrayType:
+			return e.resolveAtomicScalarFromType(bt.Base)
+		}
+		// Fall through to base.
+		return e.resolveAtomicScalarFromExpr(fn, ek.Base)
+	case ir.ExprAccess:
+		baseInner := e.resolveExprTypeInner(fn, ek.Base)
+		if at, ok := baseInner.(ir.ArrayType); ok {
+			return e.resolveAtomicScalarFromType(at.Base)
+		}
+		return e.resolveAtomicScalarFromExpr(fn, ek.Base)
+	}
+	return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+}
+
+// resolveAtomicScalarFromType resolves an atomic scalar from a type handle,
+// walking through arrays to find the atomic.
+func (e *Emitter) resolveAtomicScalarFromType(th ir.TypeHandle) ir.ScalarType {
+	if int(th) >= len(e.ir.Types) {
+		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	}
+	inner := e.ir.Types[th].Inner
+	switch t := inner.(type) {
+	case ir.AtomicType:
+		return t.Scalar
+	case ir.ArrayType:
+		return e.resolveAtomicScalarFromType(t.Base)
+	case ir.StructType:
+		// Can't pick a member without an index — default.
+		if len(t.Members) > 0 {
+			return e.resolveAtomicScalarFromType(t.Members[0].Type)
+		}
+	}
+	return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+}
+
+// isUnsignedAtomicPointer determines if the atomic variable's scalar type is unsigned.
+func (e *Emitter) isUnsignedAtomicPointer(fn *ir.Function, ptrHandle ir.ExpressionHandle) bool {
+	return e.resolveAtomicScalar(fn, ptrHandle).Kind == ir.ScalarUint
+}
+
+// emitStmtBarrier emits a dx.op.barrier call.
+//
+// Signature: void @dx.op.barrier(i32 80, i32 flags)
+//
+// Maps naga BarrierFlags to DXIL barrier mode flags:
+//   - BarrierStorage  → UAV_FENCE_GLOBAL (2)
+//   - BarrierWorkGroup → SYNC_THREAD_GROUP (1) | GROUPSHARED_MEM_FENCE (8)
+//   - BarrierSubGroup  → SYNC_THREAD_GROUP (1) (best approximation)
+//
+// Reference: Mesa nir_to_dxil.c emit_barrier_impl() ~3082
+func (e *Emitter) emitStmtBarrier(barrier ir.StmtBarrier) error {
+	var flags DXILBarrierMode
+
+	if barrier.Flags&ir.BarrierStorage != 0 {
+		flags |= BarrierModeUAVFenceGlobal
+	}
+
+	if barrier.Flags&ir.BarrierWorkGroup != 0 {
+		flags |= BarrierModeSyncThreadGroup | BarrierModeGroupSharedMemFence
+	}
+
+	if barrier.Flags&ir.BarrierSubGroup != 0 {
+		// DXIL does not have a direct subgroup barrier; use thread group sync.
+		flags |= BarrierModeSyncThreadGroup
+	}
+
+	// If no flags are set, use a default thread group sync.
+	if flags == 0 {
+		flags = BarrierModeSyncThreadGroup
+	}
+
+	barrierFn := e.getDxOpBarrierFunc()
+	opcodeVal := e.getIntConstID(int64(OpBarrier))
+	flagsVal := e.getIntConstID(int64(flags))
+
+	e.addCallInstr(barrierFn, e.mod.GetVoidType(), []int{opcodeVal, flagsVal})
+
+	return nil
+}
+
+// emitStmtWorkGroupUniformLoad emits a workgroup uniform load: barrier + load + barrier.
+// Semantics: all invocations in the workgroup must execute the load uniformly.
+// DXIL pattern: GroupMemoryBarrierWithGroupSync(); val = *ptr; GroupMemoryBarrierWithGroupSync();
+// Reference: HLSL GroupMemoryBarrierWithGroupSync + load.
+func (e *Emitter) emitStmtWorkGroupUniformLoad(fn *ir.Function, wul ir.StmtWorkGroupUniformLoad) error {
+	// First barrier: SYNC_THREAD_GROUP | GROUPSHARED_MEM_FENCE
+	barrierFlags := BarrierModeSyncThreadGroup | BarrierModeGroupSharedMemFence
+	barrierFn := e.getDxOpBarrierFunc()
+	opcodeVal := e.getIntConstID(int64(OpBarrier))
+	flagsVal := e.getIntConstID(int64(barrierFlags))
+	e.addCallInstr(barrierFn, e.mod.GetVoidType(), []int{opcodeVal, flagsVal})
+
+	// Load the value from the workgroup pointer.
+	loadExpr := ir.ExprLoad{Pointer: wul.Pointer}
+	loadID, err := e.emitLoad(fn, loadExpr)
+	if err != nil {
+		return fmt.Errorf("workgroup uniform load: %w", err)
+	}
+
+	// Track the result expression so it can be referenced downstream.
+	e.exprValues[wul.Result] = loadID
+	if comps := e.pendingComponents; len(comps) > 0 {
+		e.exprComponents[wul.Result] = comps
+		e.pendingComponents = nil
+	}
+
+	// Second barrier.
+	e.addCallInstr(barrierFn, e.mod.GetVoidType(), []int{opcodeVal, flagsVal})
+
+	return nil
+}
+
+// getDxOpAtomicBinOpFuncTyped creates a typed dx.op.atomicBinOp function declaration.
+// Signature: T @dx.op.atomicBinOp.T(i32, %dx.types.Handle, i32, i32, i32, i32, T)
+// where T is i32, i64, or f32 depending on the overload.
+func (e *Emitter) getDxOpAtomicBinOpFuncTyped(ol overloadType) *module.Function {
+	name := "dx.op.atomicBinOp"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+	handleTy := e.getDxHandleType()
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+
+	// (i32 opcode, %handle, i32 atomicOp, i32 coord0, i32 coord1, i32 coord2, T value) → T
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, i32Ty, retTy}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpAtomicCmpXchgFuncTyped creates a typed dx.op.atomicCompareExchange function declaration.
+// Signature: T @dx.op.atomicCompareExchange.T(i32, %handle, i32, i32, i32, T, T)
+func (e *Emitter) getDxOpAtomicCmpXchgFuncTyped(ol overloadType) *module.Function {
+	name := "dx.op.atomicCompareExchange"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+	handleTy := e.getDxHandleType()
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+
+	// (i32 opcode, %handle, i32 coord0, i32 coord1, i32 coord2, T cmpVal, T newVal) → T
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, retTy, retTy}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpBarrierFunc creates the dx.op.barrier function declaration.
+// Signature: void @dx.op.barrier(i32, i32)
+func (e *Emitter) getDxOpBarrierFunc() *module.Function {
+	name := "dx.op.barrier"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	voidTy := e.mod.GetVoidType()
+	i32Ty := e.mod.GetIntType(32)
+
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
 }
 
 // emitIfStatement emits an if/else construct using LLVM basic blocks.
@@ -270,6 +1700,110 @@ func (e *Emitter) emitIfStatement(fn *ir.Function, stmt ir.StmtIf) error {
 		}
 		if !e.blockHasTerminator(e.currentBB) {
 			e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
+		}
+	}
+
+	// Continue emitting into the merge block.
+	e.currentBB = mergeBB
+	return nil
+}
+
+// emitSwitchStatement emits a switch construct as a chain of conditional branches.
+//
+// DXIL doesn't have a native switch instruction in our module, so we lower it to
+// cascading icmp eq + conditional branches. Each non-default case becomes:
+//
+//	%cmp = icmp eq i32 %selector, <caseValue>
+//	br i1 %cmp, label %case_N, label %next_test
+//
+// The default case (if present) becomes the final else branch target.
+// All case bodies branch to a merge block at the end.
+//
+// FallThrough cases are handled by branching to the next case body instead of merge.
+func (e *Emitter) emitSwitchStatement(fn *ir.Function, stmt ir.StmtSwitch) error {
+	// Emit the selector expression.
+	selectorID, err := e.emitExpression(fn, stmt.Selector)
+	if err != nil {
+		return fmt.Errorf("switch selector: %w", err)
+	}
+
+	if len(stmt.Cases) == 0 {
+		return nil
+	}
+
+	// Separate default case from valued cases.
+	defaultIdx := -1
+	for i, c := range stmt.Cases {
+		if _, isDefault := c.Value.(ir.SwitchValueDefault); isDefault {
+			defaultIdx = i
+			break
+		}
+	}
+
+	// Create merge block.
+	mergeBB := e.mainFn.AddBasicBlock("switch.merge")
+	mergeBBIndex := len(e.mainFn.BasicBlocks) - 1
+
+	// Create basic blocks for each case body.
+	caseBBIndices := make([]int, len(stmt.Cases))
+	for i := range stmt.Cases {
+		label := fmt.Sprintf("switch.case_%d", i)
+		if i == defaultIdx {
+			label = "switch.default"
+		}
+		e.mainFn.AddBasicBlock(label)
+		caseBBIndices[i] = len(e.mainFn.BasicBlocks) - 1
+	}
+
+	// Emit the comparison chain.
+	// For each non-default case, compare selector == caseValue and branch.
+	for i, c := range stmt.Cases {
+		if i == defaultIdx {
+			continue
+		}
+
+		var caseConstID int
+		switch cv := c.Value.(type) {
+		case ir.SwitchValueI32:
+			caseConstID = e.getIntConstID(int64(cv))
+		case ir.SwitchValueU32:
+			caseConstID = e.getIntConstID(int64(cv))
+		default:
+			continue
+		}
+
+		cmpID := e.addCmpInstr(ICmpEQ, selectorID, caseConstID)
+
+		// Determine the false target: either next comparison or default/merge.
+		// We need to create a "next test" BB for the cascade.
+		e.mainFn.AddBasicBlock(fmt.Sprintf("switch.test_%d", i))
+		nextTestBBIndex := len(e.mainFn.BasicBlocks) - 1
+
+		e.currentBB.AddInstruction(module.NewBrCondInstr(caseBBIndices[i], nextTestBBIndex, cmpID))
+		e.currentBB = e.mainFn.BasicBlocks[nextTestBBIndex]
+	}
+
+	// After all comparisons, branch to default case or merge.
+	if defaultIdx >= 0 {
+		e.currentBB.AddInstruction(module.NewBrInstr(caseBBIndices[defaultIdx]))
+	} else {
+		e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
+	}
+
+	// Emit each case body.
+	for i := range stmt.Cases {
+		c := &stmt.Cases[i]
+		e.currentBB = e.mainFn.BasicBlocks[caseBBIndices[i]]
+		if err := e.emitBlock(fn, c.Body); err != nil {
+			return fmt.Errorf("switch case %d: %w", i, err)
+		}
+		// If fallthrough, branch to next case body; otherwise branch to merge.
+		if !e.blockHasTerminator(e.currentBB) {
+			if c.FallThrough && i+1 < len(stmt.Cases) {
+				e.currentBB.AddInstruction(module.NewBrInstr(caseBBIndices[i+1]))
+			} else {
+				e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
+			}
 		}
 	}
 
@@ -398,4 +1932,1566 @@ func (e *Emitter) outputLocationFromBinding(b *ir.Binding) int {
 		return 0
 	}
 	return e.locationFromBinding(*b)
+}
+
+// --- Mesh Shader Store Handling ---
+
+// meshAccessChain represents a resolved access chain into a mesh output variable.
+type meshAccessChain struct {
+	// category indicates what part of mesh output we're writing to.
+	category meshStoreCategory
+
+	// For vertex/primitive stores: the element index expression handle.
+	// e.g., mesh_output.vertices[idx] — idx is this handle.
+	elementIndex ir.ExpressionHandle
+	hasConstIdx  bool  // true if elementIndex is a constant
+	constIdx     int64 // constant index value (if hasConstIdx)
+
+	// For vertex/primitive attribute stores: the struct member binding.
+	memberBinding *ir.Binding
+	memberType    ir.TypeHandle
+}
+
+// meshStoreCategory identifies what part of a mesh output is being stored.
+type meshStoreCategory int
+
+const (
+	meshStoreUnknown meshStoreCategory = iota
+	meshStoreVertexCount
+	meshStorePrimitiveCount
+	meshStoreVertexAttribute    // vertices[i].position, vertices[i].color
+	meshStorePrimitiveAttribute // primitives[i].cull, primitives[i].colorMask
+	meshStoreTriangleIndices    // primitives[i].indices
+)
+
+// tryEmitMeshOutputStore checks if a store targets the mesh output variable and
+// emits the appropriate dx.op mesh shader intrinsics. Returns (true, nil) if handled.
+func (e *Emitter) tryEmitMeshOutputStore(fn *ir.Function, store ir.StmtStore) (bool, error) {
+	chain, ok := e.resolveMeshAccessChain(fn, store.Pointer)
+	if !ok {
+		return false, nil
+	}
+
+	switch chain.category {
+	case meshStoreVertexCount:
+		// Buffer the vertex count value; emit SetMeshOutputCounts when both are ready.
+		valueID, err := e.emitExpression(fn, store.Value)
+		if err != nil {
+			return true, fmt.Errorf("mesh vertex count value: %w", err)
+		}
+		e.meshCtx.pendingVertexCount = valueID
+		e.meshCtx.hasVertexCount = true
+		if e.meshCtx.hasPrimitiveCount {
+			e.emitSetMeshOutputCounts(e.meshCtx.pendingVertexCount, e.meshCtx.pendingPrimitiveCount)
+		}
+		return true, nil
+
+	case meshStorePrimitiveCount:
+		valueID, err := e.emitExpression(fn, store.Value)
+		if err != nil {
+			return true, fmt.Errorf("mesh primitive count value: %w", err)
+		}
+		e.meshCtx.pendingPrimitiveCount = valueID
+		e.meshCtx.hasPrimitiveCount = true
+		if e.meshCtx.hasVertexCount {
+			e.emitSetMeshOutputCounts(e.meshCtx.pendingVertexCount, e.meshCtx.pendingPrimitiveCount)
+		}
+		return true, nil
+
+	case meshStoreTriangleIndices:
+		return true, e.emitMeshTriangleIndicesStore(fn, chain, store.Value)
+
+	case meshStoreVertexAttribute:
+		return true, e.emitMeshVertexAttributeStore(fn, chain, store.Value)
+
+	case meshStorePrimitiveAttribute:
+		return true, e.emitMeshPrimitiveAttributeStore(fn, chain, store.Value)
+
+	default:
+		return false, nil
+	}
+}
+
+// resolveMeshAccessChain walks the access chain from a store pointer to determine
+// if it targets the mesh output variable, and if so, what part.
+//
+// The access patterns in naga IR for mesh output stores:
+//
+//	mesh_output.vertex_count = N
+//	  -> AccessIndex(GlobalVar(mesh_output), field_idx_of_vertex_count)
+//
+//	mesh_output.vertices[i].position = V
+//	  -> AccessIndex(Access(AccessIndex(GlobalVar(mesh_output), field_idx_of_vertices), i), field_idx_of_position)
+//
+//	mesh_output.primitives[i].indices = V
+//	  -> AccessIndex(Access(AccessIndex(GlobalVar(mesh_output), field_idx_of_primitives), i), field_idx_of_indices)
+//
+// meshAccessStep is a single step in a mesh output access chain.
+type meshAccessStep struct {
+	isIndex bool // true = AccessIndex, false = Access
+	index   uint32
+	handle  ir.ExpressionHandle // for Access: dynamic index
+}
+
+func (e *Emitter) resolveMeshAccessChain(fn *ir.Function, ptrHandle ir.ExpressionHandle) (meshAccessChain, bool) {
+	var steps []meshAccessStep
+	cur := ptrHandle
+
+	for {
+		expr := fn.Expressions[cur]
+		switch ek := expr.Kind.(type) {
+		case ir.ExprAccessIndex:
+			steps = append(steps, meshAccessStep{isIndex: true, index: ek.Index})
+			cur = ek.Base
+		case ir.ExprAccess:
+			steps = append(steps, meshAccessStep{isIndex: false, handle: ek.Index})
+			cur = ek.Base
+		case ir.ExprGlobalVariable:
+			if ek.Variable != e.meshCtx.outputVar {
+				return meshAccessChain{}, false
+			}
+			// We found the mesh output root. Now interpret the steps (they're in reverse order).
+			return e.interpretMeshAccessSteps(fn, steps)
+		default:
+			return meshAccessChain{}, false
+		}
+	}
+}
+
+// interpretMeshAccessSteps interprets the reversed access steps from a mesh output chain.
+//
+//nolint:gocognit,gocyclo,cyclop // mesh chain interpretation requires checking many path combinations
+func (e *Emitter) interpretMeshAccessSteps(fn *ir.Function, steps []meshAccessStep) (meshAccessChain, bool) {
+	// Steps are in reverse order (leaf first). Reverse them.
+	for i, j := 0, len(steps)-1; i < j; i, j = i+1, j-1 {
+		steps[i], steps[j] = steps[j], steps[i]
+	}
+
+	if len(steps) == 0 {
+		return meshAccessChain{}, false
+	}
+
+	// First step: AccessIndex into MeshOutput struct.
+	// Get the MeshOutput struct type to identify which field.
+	meshOutGV := &e.ir.GlobalVariables[e.meshCtx.outputVar]
+	meshOutType := e.ir.Types[meshOutGV.Type]
+	meshOutSt, ok := meshOutType.Inner.(ir.StructType)
+	if !ok {
+		return meshAccessChain{}, false
+	}
+
+	if !steps[0].isIndex {
+		return meshAccessChain{}, false
+	}
+	fieldIdx := int(steps[0].index)
+	if fieldIdx >= len(meshOutSt.Members) {
+		return meshAccessChain{}, false
+	}
+	member := &meshOutSt.Members[fieldIdx]
+
+	// Identify the field by its builtin binding.
+	if member.Binding == nil {
+		return meshAccessChain{}, false
+	}
+	bb, isBB := (*member.Binding).(ir.BuiltinBinding)
+	if !isBB {
+		return meshAccessChain{}, false
+	}
+
+	switch bb.Builtin {
+	case ir.BuiltinVertexCount:
+		return meshAccessChain{category: meshStoreVertexCount}, true
+
+	case ir.BuiltinPrimitiveCount:
+		return meshAccessChain{category: meshStorePrimitiveCount}, true
+
+	case ir.BuiltinVertices:
+		// steps[1] = array index (Access or AccessIndex)
+		// steps[2] = field in VertexOutput struct (AccessIndex)
+		if len(steps) < 3 {
+			return meshAccessChain{}, false
+		}
+		elemIdx, constIdx, hasConst := e.resolveArrayIndex(fn, steps[1])
+		if len(steps) < 3 || !steps[2].isIndex {
+			return meshAccessChain{}, false
+		}
+		vtxStepIdx := steps[2].index
+		vtxType := e.ir.Types[e.meshCtx.meshInfo.VertexOutputType]
+		vtxSt, isVtxSt := vtxType.Inner.(ir.StructType)
+		if !isVtxSt || int(vtxStepIdx) >= len(vtxSt.Members) {
+			return meshAccessChain{}, false
+		}
+		vtxMember := &vtxSt.Members[vtxStepIdx]
+		return meshAccessChain{
+			category:      meshStoreVertexAttribute,
+			elementIndex:  elemIdx,
+			hasConstIdx:   hasConst,
+			constIdx:      constIdx,
+			memberBinding: vtxMember.Binding,
+			memberType:    vtxMember.Type,
+		}, true
+
+	case ir.BuiltinPrimitives:
+		// steps[1] = array index (Access or AccessIndex)
+		// steps[2] = field in PrimitiveOutput struct (AccessIndex)
+		if len(steps) < 3 {
+			return meshAccessChain{}, false
+		}
+		elemIdx, constIdx, hasConst := e.resolveArrayIndex(fn, steps[1])
+		if !steps[2].isIndex {
+			return meshAccessChain{}, false
+		}
+		primStepIdx := steps[2].index
+		primType := e.ir.Types[e.meshCtx.meshInfo.PrimitiveOutputType]
+		primSt, isPrimSt := primType.Inner.(ir.StructType)
+		if !isPrimSt || int(primStepIdx) >= len(primSt.Members) {
+			return meshAccessChain{}, false
+		}
+		primMember := &primSt.Members[primStepIdx]
+
+		// Check if this is the triangle_indices field.
+		if primMember.Binding != nil {
+			if pbb, isPBB := (*primMember.Binding).(ir.BuiltinBinding); isPBB {
+				if pbb.Builtin == ir.BuiltinTriangleIndices {
+					return meshAccessChain{
+						category:     meshStoreTriangleIndices,
+						elementIndex: elemIdx,
+						hasConstIdx:  hasConst,
+						constIdx:     constIdx,
+					}, true
+				}
+			}
+		}
+
+		return meshAccessChain{
+			category:      meshStorePrimitiveAttribute,
+			elementIndex:  elemIdx,
+			hasConstIdx:   hasConst,
+			constIdx:      constIdx,
+			memberBinding: primMember.Binding,
+			memberType:    primMember.Type,
+		}, true
+
+	default:
+		return meshAccessChain{}, false
+	}
+}
+
+// resolveArrayIndex resolves an access step that indexes into an array.
+// Returns the expression handle for the index, and if constant, its value.
+func (e *Emitter) resolveArrayIndex(_ *ir.Function, step meshAccessStep) (ir.ExpressionHandle, int64, bool) {
+	if step.isIndex {
+		// Constant index via AccessIndex.
+		return 0, int64(step.index), true
+	}
+	// Dynamic index via Access — check if the index expression is a known constant.
+	return step.handle, 0, false
+}
+
+// emitMeshTriangleIndicesStore emits dx.op.emitIndices for a store to primitives[i].indices.
+// The value is vec3<u32> which must be decomposed into 3 scalar u32 values.
+func (e *Emitter) emitMeshTriangleIndicesStore(fn *ir.Function, chain meshAccessChain, valueHandle ir.ExpressionHandle) error {
+	// Emit the vec3<u32> value.
+	if _, err := e.emitExpression(fn, valueHandle); err != nil {
+		return fmt.Errorf("triangle indices value: %w", err)
+	}
+
+	// Get the primitive index.
+	primIdx, err := e.getMeshElementIndex(fn, chain)
+	if err != nil {
+		return err
+	}
+
+	// Decompose the vec3<u32> into 3 scalar components.
+	v0 := e.getComponentID(valueHandle, 0)
+	v1 := e.getComponentID(valueHandle, 1)
+	v2 := e.getComponentID(valueHandle, 2)
+
+	e.emitEmitIndices(primIdx, v0, v1, v2)
+	return nil
+}
+
+// emitMeshVertexAttributeStore emits dx.op.storeVertexOutput for a store to vertices[i].field.
+func (e *Emitter) emitMeshVertexAttributeStore(fn *ir.Function, chain meshAccessChain, valueHandle ir.ExpressionHandle) error {
+	if chain.memberBinding == nil {
+		return fmt.Errorf("mesh vertex attribute: no binding")
+	}
+
+	// Emit the value expression.
+	valueID, err := e.emitExpression(fn, valueHandle)
+	if err != nil {
+		return fmt.Errorf("mesh vertex attribute value: %w", err)
+	}
+
+	// Get the vertex index.
+	vtxIdx, err := e.getMeshElementIndex(fn, chain)
+	if err != nil {
+		return err
+	}
+
+	// Resolve signature element ID.
+	key := bindingToMeshOutputKey(*chain.memberBinding)
+	sigID, ok := e.meshCtx.vertexOutputSigIDs[key]
+	if !ok {
+		return fmt.Errorf("mesh vertex attribute: no signature ID for binding")
+	}
+
+	// Determine component count and overload from the member type.
+	memberIRType := e.ir.Types[chain.memberType]
+	scalar, numComps := scalarAndComponentCount(memberIRType.Inner)
+	ol := overloadForScalar(scalar)
+
+	// Check if the value is a scalar being stored to a vector target.
+	// This happens when const evaluation folds array access to a scalar literal.
+	// In this case, splat the scalar to all components.
+	_, hasComps := e.exprComponents[valueHandle]
+	isScalarValue := !hasComps
+
+	for comp := 0; comp < numComps; comp++ {
+		var compValueID int
+		if isScalarValue {
+			compValueID = valueID // splat scalar to all components
+		} else {
+			compValueID = e.getComponentID(valueHandle, comp)
+		}
+		e.emitStoreVertexOutput(sigID, comp, compValueID, vtxIdx, ol)
+	}
+	return nil
+}
+
+// emitMeshPrimitiveAttributeStore emits dx.op.storePrimitiveOutput for a store to primitives[i].field.
+func (e *Emitter) emitMeshPrimitiveAttributeStore(fn *ir.Function, chain meshAccessChain, valueHandle ir.ExpressionHandle) error {
+	if chain.memberBinding == nil {
+		return fmt.Errorf("mesh primitive attribute: no binding")
+	}
+
+	// Emit the value expression.
+	if _, err := e.emitExpression(fn, valueHandle); err != nil {
+		return fmt.Errorf("mesh primitive attribute value: %w", err)
+	}
+
+	// Get the primitive index.
+	primIdx, err := e.getMeshElementIndex(fn, chain)
+	if err != nil {
+		return err
+	}
+
+	// Resolve signature element ID.
+	key := bindingToMeshOutputKey(*chain.memberBinding)
+	sigID, ok := e.meshCtx.primitiveOutputSigIDs[key]
+	if !ok {
+		return fmt.Errorf("mesh primitive attribute: no signature ID for binding")
+	}
+
+	// Determine component count and overload from the member type.
+	memberIRType := e.ir.Types[chain.memberType]
+	scalar, numComps := scalarAndComponentCount(memberIRType.Inner)
+	ol := overloadForScalar(scalar)
+
+	// Special case: bool (cull_primitive) is stored as i1 in DXIL.
+	if scalar.Kind == ir.ScalarBool {
+		ol = overloadI1
+		compValueID := e.getComponentID(valueHandle, 0)
+		e.emitStorePrimitiveOutput(sigID, 0, compValueID, primIdx, ol)
+		return nil
+	}
+
+	for comp := 0; comp < numComps; comp++ {
+		compValueID := e.getComponentID(valueHandle, comp)
+		e.emitStorePrimitiveOutput(sigID, comp, compValueID, primIdx, ol)
+	}
+	return nil
+}
+
+// getMeshElementIndex resolves the vertex/primitive index for a mesh store.
+func (e *Emitter) getMeshElementIndex(fn *ir.Function, chain meshAccessChain) (int, error) {
+	if chain.hasConstIdx {
+		return e.getIntConstID(chain.constIdx), nil
+	}
+	// Dynamic index — emit the expression.
+	id, err := e.emitExpression(fn, chain.elementIndex)
+	if err != nil {
+		return 0, fmt.Errorf("mesh element index: %w", err)
+	}
+	return id, nil
+}
+
+// scalarAndComponentCount returns the scalar type and number of components for a type.
+// For scalars, returns (scalar, 1). For vectors, returns (scalar, size).
+func scalarAndComponentCount(inner ir.TypeInner) (ir.ScalarType, int) {
+	switch ti := inner.(type) {
+	case ir.ScalarType:
+		return ti, 1
+	case ir.VectorType:
+		return ti.Scalar, int(ti.Size)
+	default:
+		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, 1
+	}
+}
+
+// emitStmtImageAtomic emits a dx.op.atomicBinOp or dx.op.atomicCompareExchange call
+// for atomic operations on storage texture (RWTexture) resources.
+//
+// Uses the same dx.op intrinsics as UAV buffer atomics but with texture coordinates
+// instead of buffer index. The coordinate layout depends on the image dimension:
+//   - 1D:        c0
+//   - 2D:        c0, c1
+//   - 2DArray:   c0, c1, c2 (array slice)
+//   - 3D:        c0, c1, c2
+//
+// Reference: DXC DXIL.rst atomicBinOp section (opcode 78)
+func (e *Emitter) emitStmtImageAtomic(fn *ir.Function, imgAtomic ir.StmtImageAtomic) error {
+	// Resolve image handle.
+	imageHandleID, err := e.resolveResourceHandle(fn, imgAtomic.Image)
+	if err != nil {
+		return fmt.Errorf("StmtImageAtomic: image handle: %w", err)
+	}
+
+	// Resolve image type for coordinate count.
+	imgInner := e.resolveExprType(fn, imgAtomic.Image)
+	imgType, ok := imgInner.(ir.ImageType)
+	if !ok {
+		return fmt.Errorf("StmtImageAtomic: image is not ImageType, got %T", imgInner)
+	}
+
+	// Build coordinates.
+	coords, err := e.buildImageAtomicCoords(fn, imgAtomic, imgType)
+	if err != nil {
+		return err
+	}
+
+	ol := imageOverload(imgType)
+
+	// Emit the value expression.
+	valueID, err := e.emitExpression(fn, imgAtomic.Value)
+	if err != nil {
+		return fmt.Errorf("StmtImageAtomic: value: %w", err)
+	}
+
+	return e.dispatchImageAtomic(fn, imgAtomic, imageHandleID, coords, valueID, ol, imgType)
+}
+
+// buildImageAtomicCoords emits coordinates for an image atomic operation.
+func (e *Emitter) buildImageAtomicCoords(fn *ir.Function, imgAtomic ir.StmtImageAtomic, imgType ir.ImageType) ([3]int, error) {
+	if _, err := e.emitExpression(fn, imgAtomic.Coordinate); err != nil {
+		return [3]int{}, fmt.Errorf("StmtImageAtomic: coordinate: %w", err)
+	}
+	undefI32 := e.getUndefConstID()
+	coords := [3]int{undefI32, undefI32, undefI32}
+	spatialComps := imageDimSpatialComponents(imgType.Dim)
+	for i := 0; i < spatialComps; i++ {
+		coords[i] = e.getComponentID(imgAtomic.Coordinate, i)
+	}
+	if imgType.Arrayed && imgAtomic.ArrayIndex != nil {
+		arrIdx, err := e.emitExpression(fn, *imgAtomic.ArrayIndex)
+		if err != nil {
+			return [3]int{}, fmt.Errorf("StmtImageAtomic: array index: %w", err)
+		}
+		if spatialComps < 3 {
+			coords[spatialComps] = arrIdx
+		}
+	}
+	return coords, nil
+}
+
+// dispatchImageAtomic dispatches the atomic function to the appropriate DXIL intrinsic.
+func (e *Emitter) dispatchImageAtomic(fn *ir.Function, imgAtomic ir.StmtImageAtomic, handleID int, coords [3]int, valueID int, ol overloadType, imgType ir.ImageType) error {
+	switch af := imgAtomic.Fun.(type) {
+	case ir.AtomicAdd:
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicAdd, valueID, ol)
+	case ir.AtomicSubtract:
+		return e.emitImageAtomicSubtract(handleID, coords, valueID, ol)
+	case ir.AtomicAnd:
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicAnd, valueID, ol)
+	case ir.AtomicInclusiveOr:
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicOr, valueID, ol)
+	case ir.AtomicExclusiveOr:
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicXor, valueID, ol)
+	case ir.AtomicMin:
+		op := e.imageAtomicMinMaxOp(imgType, true)
+		return e.emitImageAtomicBinOp(handleID, coords, op, valueID, ol)
+	case ir.AtomicMax:
+		op := e.imageAtomicMinMaxOp(imgType, false)
+		return e.emitImageAtomicBinOp(handleID, coords, op, valueID, ol)
+	case ir.AtomicExchange:
+		if af.Compare != nil {
+			cmpValID, err := e.emitExpression(fn, *af.Compare)
+			if err != nil {
+				return fmt.Errorf("StmtImageAtomic: compare value: %w", err)
+			}
+			return e.emitImageAtomicCmpXchg(handleID, coords, cmpValID, valueID, ol)
+		}
+		return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicExchange, valueID, ol)
+	default:
+		return fmt.Errorf("StmtImageAtomic: unsupported atomic function: %T", imgAtomic.Fun)
+	}
+}
+
+// imageAtomicMinMaxOp selects the correct DXIL atomic min/max opcode based on the
+// image's storage format signedness.
+func (e *Emitter) imageAtomicMinMaxOp(imgType ir.ImageType, isMin bool) DXILAtomicOp {
+	scalar := imgType.StorageFormat.Scalar()
+	if scalar.Kind == ir.ScalarUint {
+		if isMin {
+			return DXILAtomicUMin
+		}
+		return DXILAtomicUMax
+	}
+	if isMin {
+		return DXILAtomicIMin
+	}
+	return DXILAtomicIMax
+}
+
+// emitImageAtomicBinOp emits dx.op.atomicBinOp with texture handle and coordinates.
+func (e *Emitter) emitImageAtomicBinOp(handleID int, coords [3]int, atomicOp DXILAtomicOp, valueID int, ol overloadType) error {
+	atomicFn := e.getDxOpAtomicBinOpFuncTyped(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpAtomicBinOp))
+	atomicOpVal := e.getIntConstID(int64(atomicOp))
+
+	e.addCallInstr(atomicFn, retTy, []int{
+		opcodeVal, handleID, atomicOpVal,
+		coords[0], coords[1], coords[2],
+		valueID,
+	})
+	return nil
+}
+
+// emitImageAtomicSubtract emits an atomic subtract on a texture by negating and using ADD.
+func (e *Emitter) emitImageAtomicSubtract(handleID int, coords [3]int, valueID int, ol overloadType) error {
+	retTy := e.overloadReturnType(ol)
+
+	// Negate: 0 - value.
+	var negatedID int
+	switch ol {
+	case overloadF32:
+		zeroVal := e.getFloatConstID(0.0)
+		negatedID = e.addBinOpInstr(retTy, BinOpFSub, zeroVal, valueID)
+	case overloadI64:
+		c := e.mod.AddIntConst(e.mod.GetIntType(64), 0)
+		id := e.allocValue()
+		e.constMap[id] = c
+		negatedID = e.addBinOpInstr(retTy, BinOpSub, id, valueID)
+	default:
+		zeroVal := e.getIntConstID(0)
+		negatedID = e.addBinOpInstr(retTy, BinOpSub, zeroVal, valueID)
+	}
+
+	return e.emitImageAtomicBinOp(handleID, coords, DXILAtomicAdd, negatedID, ol)
+}
+
+// emitImageAtomicCmpXchg emits dx.op.atomicCompareExchange with texture handle and coordinates.
+func (e *Emitter) emitImageAtomicCmpXchg(handleID int, coords [3]int, cmpValID, newValID int, ol overloadType) error {
+	cmpXchgFn := e.getDxOpAtomicCmpXchgFuncTyped(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpAtomicCmpXchg))
+
+	e.addCallInstr(cmpXchgFn, retTy, []int{
+		opcodeVal, handleID,
+		coords[0], coords[1], coords[2],
+		cmpValID, newValID,
+	})
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Subgroup / wave operations
+// ---------------------------------------------------------------------------
+
+// emitStmtSubgroupBallot emits dx.op.waveActiveBallot (opcode 116).
+// Signature: %dx.types.fouri32 @dx.op.waveActiveBallot(i32 116, i1 condition) → {i32, i32, i32, i32}
+// The result is a vec4<u32>.
+func (e *Emitter) emitStmtSubgroupBallot(fn *ir.Function, ballot ir.StmtSubgroupBallot) error {
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+
+	var condID int
+	if ballot.Predicate != nil {
+		var err error
+		condID, err = e.emitExpression(fn, *ballot.Predicate)
+		if err != nil {
+			return fmt.Errorf("StmtSubgroupBallot: predicate: %w", err)
+		}
+	} else {
+		// No predicate → true (all active lanes).
+		condID = e.getBoolConstID(true)
+	}
+
+	// Get or create the function declaration.
+	ballotFn := e.getWaveBallotFunc()
+	// The return type is a struct {i32, i32, i32, i32}.
+	retTy := e.getWaveBallotRetType()
+
+	opcodeVal := e.getIntConstID(int64(OpWaveBallot))
+	resultID := e.addCallInstr(ballotFn, retTy, []int{opcodeVal, condID})
+
+	// Extract 4 components.
+	comps := make([]int, 4)
+	for i := 0; i < 4; i++ {
+		extractID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{resultID, i},
+			ValueID:    extractID,
+		}
+		e.currentBB.AddInstruction(instr)
+		comps[i] = extractID
+	}
+
+	e.exprValues[ballot.Result] = comps[0]
+	e.exprComponents[ballot.Result] = comps
+	_ = i1Ty
+	return nil
+}
+
+// getWaveBallotRetType returns the struct type {i32, i32, i32, i32} for WaveActiveBallot.
+func (e *Emitter) getWaveBallotRetType() *module.Type {
+	if e.waveBallotRetTy != nil {
+		return e.waveBallotRetTy
+	}
+	i32Ty := e.mod.GetIntType(32)
+	e.waveBallotRetTy = e.mod.GetStructType("dx.types.fouri32", []*module.Type{i32Ty, i32Ty, i32Ty, i32Ty})
+	return e.waveBallotRetTy
+}
+
+// getWaveBallotFunc returns the dx.op.waveActiveBallot function declaration.
+func (e *Emitter) getWaveBallotFunc() *module.Function {
+	name := "dx.op.waveActiveBallot"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	retTy := e.getWaveBallotRetType()
+	params := []*module.Type{i32Ty, i1Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// emitStmtSubgroupCollectiveOp emits wave collective operations.
+//
+// Mapping from naga IR to DXIL:
+//   - All/Any (reduce) → dx.op.waveAllTrue(114) / dx.op.waveAnyTrue(113)
+//   - Add/Mul/Min/Max (reduce) → dx.op.waveActiveOp(119, value, op, sign)
+//   - And/Or/Xor (reduce) → dx.op.waveActiveBit(120, value, bitOp)
+//   - Add/Mul/Min/Max (inclusive/exclusive scan) → dx.op.wavePrefixOp(121, value, op, sign)
+func (e *Emitter) emitStmtSubgroupCollectiveOp(fn *ir.Function, op ir.StmtSubgroupCollectiveOperation) error {
+	argID, err := e.emitExpression(fn, op.Argument)
+	if err != nil {
+		return fmt.Errorf("StmtSubgroupCollectiveOp: argument: %w", err)
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+
+	// Resolve the argument type to determine overload.
+	argInner := e.resolveExprType(fn, op.Argument)
+	argScalar, _ := scalarAndComponentCount(argInner)
+	ol := overloadForScalar(argScalar)
+
+	var resultID int
+
+	switch op.CollectiveOp {
+	case ir.CollectiveReduce:
+		switch op.Op {
+		case ir.SubgroupOperationAll:
+			// dx.op.waveAllTrue(i32 114, i1 cond) → i1
+			waveFn := e.getWaveBoolFunc("dx.op.waveAllTrue", OpWaveAllTrue)
+			opcodeVal := e.getIntConstID(int64(OpWaveAllTrue))
+			resultID = e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID})
+			// Extend i1 → i32 (zext) since the IR result type is typically u32.
+			resultID = e.emitCastInstr(i32Ty, CastZExt, resultID)
+
+		case ir.SubgroupOperationAny:
+			waveFn := e.getWaveBoolFunc("dx.op.waveAnyTrue", OpWaveAnyTrue)
+			opcodeVal := e.getIntConstID(int64(OpWaveAnyTrue))
+			resultID = e.addCallInstr(waveFn, e.mod.GetIntType(1), []int{opcodeVal, argID})
+			resultID = e.emitCastInstr(i32Ty, CastZExt, resultID)
+
+		case ir.SubgroupOperationAnd:
+			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitAnd, ol)
+		case ir.SubgroupOperationOr:
+			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitOr, ol)
+		case ir.SubgroupOperationXor:
+			resultID = e.emitWaveActiveBit(fn, argID, DXILWaveBitXor, ol)
+
+		default:
+			waveOp, sign := subgroupOpToWaveOp(op.Op, argScalar)
+			resultID = e.emitWaveActiveOp(fn, argID, waveOp, sign, ol)
+		}
+
+	case ir.CollectiveInclusiveScan, ir.CollectiveExclusiveScan:
+		// And/Or/Xor scans are not available in DXIL wavePrefixOp.
+		// Only arithmetic ops (sum, product, min, max) are supported.
+		switch op.Op {
+		case ir.SubgroupOperationAnd, ir.SubgroupOperationOr, ir.SubgroupOperationXor:
+			// Fallback: use reduce result as approximation (best-effort).
+			bitOp := DXILWaveBitAnd
+			switch op.Op {
+			case ir.SubgroupOperationOr:
+				bitOp = DXILWaveBitOr
+			case ir.SubgroupOperationXor:
+				bitOp = DXILWaveBitXor
+			}
+			resultID = e.emitWaveActiveBit(fn, argID, bitOp, ol)
+		default:
+			waveOp, sign := subgroupOpToWaveOp(op.Op, argScalar)
+			resultID = e.emitWavePrefixOp(fn, argID, waveOp, sign, ol)
+			// Inclusive scan = prefix + current value. DXIL wavePrefixOp is exclusive.
+			if op.CollectiveOp == ir.CollectiveInclusiveScan {
+				resultID = e.combineForInclusive(argID, resultID, op.Op, ol)
+			}
+		}
+
+	default:
+		return fmt.Errorf("unsupported collective operation: %d", op.CollectiveOp)
+	}
+
+	e.exprValues[op.Result] = resultID
+	return nil
+}
+
+// subgroupOpToWaveOp converts a naga SubgroupOperation to DXIL WaveOp + sign.
+func subgroupOpToWaveOp(op ir.SubgroupOperation, scalar ir.ScalarType) (DXILWaveOp, DXILWaveOpSign) {
+	sign := DXILWaveOpSignSigned
+	if scalar.Kind == ir.ScalarUint {
+		sign = DXILWaveOpSignUnsigned
+	}
+	switch op {
+	case ir.SubgroupOperationAdd:
+		return DXILWaveOpSum, sign
+	case ir.SubgroupOperationMul:
+		return DXILWaveOpMul, sign
+	case ir.SubgroupOperationMin:
+		return DXILWaveOpMin, sign
+	case ir.SubgroupOperationMax:
+		return DXILWaveOpMax, sign
+	default:
+		return DXILWaveOpSum, sign
+	}
+}
+
+// emitWaveActiveOp emits dx.op.waveActiveOp.T(i32 119, T value, i8 op, i8 sign).
+func (e *Emitter) emitWaveActiveOp(_ *ir.Function, valueID int, waveOp DXILWaveOp, sign DXILWaveOpSign, ol overloadType) int {
+	waveFn := e.getWaveActiveOpFunc(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpWaveActiveOp))
+	opVal := e.getI8ConstID(int64(waveOp))
+	signVal := e.getI8ConstID(int64(sign))
+	return e.addCallInstr(waveFn, retTy, []int{opcodeVal, valueID, opVal, signVal})
+}
+
+// emitWaveActiveBit emits dx.op.waveActiveBit.T(i32 120, T value, i8 op).
+func (e *Emitter) emitWaveActiveBit(_ *ir.Function, valueID int, bitOp DXILWaveBitOp, ol overloadType) int {
+	waveFn := e.getWaveActiveBitFunc(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpWaveActiveBit))
+	opVal := e.getI8ConstID(int64(bitOp))
+	return e.addCallInstr(waveFn, retTy, []int{opcodeVal, valueID, opVal})
+}
+
+// emitWavePrefixOp emits dx.op.wavePrefixOp.T(i32 121, T value, i8 op, i8 sign).
+// Note: DXIL wavePrefixOp is exclusive prefix (does NOT include current lane).
+func (e *Emitter) emitWavePrefixOp(_ *ir.Function, valueID int, waveOp DXILWaveOp, sign DXILWaveOpSign, ol overloadType) int {
+	waveFn := e.getWavePrefixOpFunc(ol)
+	retTy := e.overloadReturnType(ol)
+	opcodeVal := e.getIntConstID(int64(OpWavePrefixOp))
+	opVal := e.getI8ConstID(int64(waveOp))
+	signVal := e.getI8ConstID(int64(sign))
+	return e.addCallInstr(waveFn, retTy, []int{opcodeVal, valueID, opVal, signVal})
+}
+
+// combineForInclusive combines prefix result with current value to make an inclusive scan.
+// inclusive = exclusive + current (for add/mul/min/max).
+func (e *Emitter) combineForInclusive(currentID, prefixID int, op ir.SubgroupOperation, ol overloadType) int {
+	retTy := e.overloadReturnType(ol)
+	isFloat := ol == overloadF16 || ol == overloadF32 || ol == overloadF64
+	switch op {
+	case ir.SubgroupOperationAdd:
+		if isFloat {
+			return e.addBinOpInstr(retTy, BinOpFAdd, prefixID, currentID)
+		}
+		return e.addBinOpInstr(retTy, BinOpAdd, prefixID, currentID)
+	case ir.SubgroupOperationMul:
+		if isFloat {
+			return e.addBinOpInstr(retTy, BinOpFMul, prefixID, currentID)
+		}
+		return e.addBinOpInstr(retTy, BinOpMul, prefixID, currentID)
+	default:
+		// For min/max, the inclusive and exclusive results differ but
+		// we can't easily combine them. Return prefix as-is (best-effort).
+		return prefixID
+	}
+}
+
+// emitStmtSubgroupGather emits wave gather/shuffle operations.
+//
+//nolint:funlen // dispatch for multiple gather modes
+func (e *Emitter) emitStmtSubgroupGather(fn *ir.Function, gather ir.StmtSubgroupGather) error {
+	argID, err := e.emitExpression(fn, gather.Argument)
+	if err != nil {
+		return fmt.Errorf("StmtSubgroupGather: argument: %w", err)
+	}
+
+	argInner := e.resolveExprType(fn, gather.Argument)
+	argScalar, _ := scalarAndComponentCount(argInner)
+	ol := overloadForScalar(argScalar)
+
+	var resultID int
+
+	switch mode := gather.Mode.(type) {
+	case ir.GatherBroadcastFirst:
+		// dx.op.waveReadLaneFirst.T(i32 118, T value)
+		waveFn := e.getWaveReadLaneFirstFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneFirst))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID})
+
+	case ir.GatherBroadcast:
+		// dx.op.waveReadLaneAt.T(i32 117, T value, i32 lane)
+		laneID, err2 := e.emitExpression(fn, mode.Index)
+		if err2 != nil {
+			return fmt.Errorf("GatherBroadcast: lane: %w", err2)
+		}
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, laneID})
+
+	case ir.GatherShuffle:
+		laneID, err2 := e.emitExpression(fn, mode.Index)
+		if err2 != nil {
+			return fmt.Errorf("GatherShuffle: index: %w", err2)
+		}
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, laneID})
+
+	case ir.GatherShuffleDown:
+		// lane = WaveGetLaneIndex() + delta → WaveReadLaneAt
+		deltaID, err2 := e.emitExpression(fn, mode.Delta)
+		if err2 != nil {
+			return fmt.Errorf("GatherShuffleDown: delta: %w", err2)
+		}
+		i32Ty := e.mod.GetIntType(32)
+		laneIdxID := e.emitWaveGetLaneIndex()
+		targetLane := e.addBinOpInstr(i32Ty, BinOpAdd, laneIdxID, deltaID)
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, targetLane})
+
+	case ir.GatherShuffleUp:
+		// lane = WaveGetLaneIndex() - delta → WaveReadLaneAt
+		deltaID, err2 := e.emitExpression(fn, mode.Delta)
+		if err2 != nil {
+			return fmt.Errorf("GatherShuffleUp: delta: %w", err2)
+		}
+		i32Ty := e.mod.GetIntType(32)
+		laneIdxID := e.emitWaveGetLaneIndex()
+		targetLane := e.addBinOpInstr(i32Ty, BinOpSub, laneIdxID, deltaID)
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, targetLane})
+
+	case ir.GatherShuffleXor:
+		// lane = WaveGetLaneIndex() ^ mask → WaveReadLaneAt
+		maskID, err2 := e.emitExpression(fn, mode.Mask)
+		if err2 != nil {
+			return fmt.Errorf("GatherShuffleXor: mask: %w", err2)
+		}
+		i32Ty := e.mod.GetIntType(32)
+		laneIdxID := e.emitWaveGetLaneIndex()
+		targetLane := e.addBinOpInstr(i32Ty, BinOpXor, laneIdxID, maskID)
+		waveFn := e.getWaveReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpWaveReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, targetLane})
+
+	case ir.GatherQuadBroadcast:
+		// dx.op.quadReadLaneAt.T(i32 122, T value, i32 quadLane)
+		laneID, err2 := e.emitExpression(fn, mode.Index)
+		if err2 != nil {
+			return fmt.Errorf("GatherQuadBroadcast: lane: %w", err2)
+		}
+		waveFn := e.getQuadReadLaneAtFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpQuadReadLaneAt))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, laneID})
+
+	case ir.GatherQuadSwap:
+		// dx.op.quadOp.T(i32 123, T value, i8 opKind)
+		var qop DXILQuadOpKind
+		switch mode.Direction {
+		case ir.QuadDirectionX:
+			qop = DXILQuadOpReadAcrossX
+		case ir.QuadDirectionY:
+			qop = DXILQuadOpReadAcrossY
+		case ir.QuadDirectionDiagonal:
+			qop = DXILQuadOpReadAcrossDiag
+		}
+		waveFn := e.getQuadOpFunc(ol)
+		retTy := e.overloadReturnType(ol)
+		opcodeVal := e.getIntConstID(int64(OpQuadOp))
+		opVal := e.getI8ConstID(int64(qop))
+		resultID = e.addCallInstr(waveFn, retTy, []int{opcodeVal, argID, opVal})
+
+	default:
+		return fmt.Errorf("unsupported gather mode: %T", gather.Mode)
+	}
+
+	e.exprValues[gather.Result] = resultID
+	return nil
+}
+
+// emitWaveGetLaneIndex emits a dx.op.waveGetLaneIndex call and returns the value ID.
+func (e *Emitter) emitWaveGetLaneIndex() int {
+	i32Ty := e.mod.GetIntType(32)
+	key := dxOpKey{name: "dx.op.waveGetLaneIndex", overload: overloadI32}
+	fn, ok := e.dxOpFuncs[key]
+	if !ok {
+		params := []*module.Type{i32Ty}
+		funcTy := e.mod.GetFunctionType(i32Ty, params)
+		fn = e.mod.AddFunction("dx.op.waveGetLaneIndex", funcTy, true)
+		e.dxOpFuncs[key] = fn
+	}
+	opcodeVal := e.getIntConstID(int64(OpWaveGetLaneIndex))
+	return e.addCallInstr(fn, i32Ty, []int{opcodeVal})
+}
+
+// emitCastInstr emits an LLVM cast instruction.
+func (e *Emitter) emitCastInstr(destTy *module.Type, castOp CastOpKind, srcID int) int {
+	valueID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrCast,
+		HasValue:   true,
+		ResultType: destTy,
+		Operands:   []int{srcID, int(castOp), destTy.ID},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return valueID
+}
+
+// getBoolConstID returns the value ID for an i1 boolean constant.
+func (e *Emitter) getBoolConstID(val bool) int {
+	v := int64(0)
+	if val {
+		v = 1
+	}
+	i1Ty := e.mod.GetIntType(1)
+	c := e.mod.AddIntConst(i1Ty, v)
+	id := e.allocValue()
+	e.constMap[id] = c
+	return id
+}
+
+// Wave function declarations.
+
+func (e *Emitter) getWaveBoolFunc(name string, _ DXILOpcode) *module.Function {
+	key := dxOpKey{name: name, overload: overloadI1}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	params := []*module.Type{i32Ty, i1Ty}
+	funcTy := e.mod.GetFunctionType(i1Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWaveActiveOpFunc(ol overloadType) *module.Function {
+	name := "dx.op.waveActiveOp"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i8Ty, i8Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWaveActiveBitFunc(ol overloadType) *module.Function {
+	name := "dx.op.waveActiveBit"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i8Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWavePrefixOpFunc(ol overloadType) *module.Function {
+	name := "dx.op.wavePrefixOp"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i8Ty, i8Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWaveReadLaneAtFunc(ol overloadType) *module.Function {
+	name := "dx.op.waveReadLaneAt"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i32Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getWaveReadLaneFirstFunc(ol overloadType) *module.Function {
+	name := "dx.op.waveReadLaneFirst"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getQuadReadLaneAtFunc(ol overloadType) *module.Function {
+	name := "dx.op.quadReadLaneAt"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i32Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getQuadOpFunc(ol overloadType) *module.Function {
+	name := "dx.op.quadOp"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	retTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, retTy, i8Ty}
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// ---------------------------------------------------------------------------
+// Ray query operations (SM 6.5)
+// ---------------------------------------------------------------------------
+
+// emitStmtRayQuery emits DXIL ray query intrinsics.
+//
+// Ray query in DXIL uses a RayQuery handle allocated by dx.op.allocateRayQuery (178).
+// The handle is stored in a local variable (alloca), and all subsequent ray query
+// operations reference it.
+//
+// Reference: DXC DXIL.rst ray query opcodes 178-215
+func (e *Emitter) emitStmtRayQuery(fn *ir.Function, rq ir.StmtRayQuery) error {
+	switch rqf := rq.Fun.(type) {
+	case ir.RayQueryInitialize:
+		return e.emitRayQueryInitialize(fn, rq.Query, rqf)
+
+	case ir.RayQueryProceed:
+		return e.emitRayQueryProceed(fn, rq.Query, rqf)
+
+	case ir.RayQueryTerminate:
+		return e.emitRayQueryTerminate(fn, rq.Query)
+
+	case ir.RayQueryGenerateIntersection:
+		return e.emitRayQueryGenerateIntersection(fn, rq.Query, rqf)
+
+	case ir.RayQueryConfirmIntersection:
+		return e.emitRayQueryConfirmIntersection(fn, rq.Query)
+
+	default:
+		return fmt.Errorf("unsupported ray query function: %T", rq.Fun)
+	}
+}
+
+// getRayQueryHandle returns or creates the ray query handle for a given expression.
+// On first call, allocates a ray query via dx.op.allocateRayQuery(178).
+func (e *Emitter) getRayQueryHandle(fn *ir.Function, queryExpr ir.ExpressionHandle) int {
+	if id, ok := e.rayQueryHandles[queryExpr]; ok {
+		return id
+	}
+
+	i32Ty := e.mod.GetIntType(32)
+
+	// dx.op.allocateRayQuery(i32 178, i32 0) → i32 handle
+	allocFn := e.getRayQueryAllocFunc()
+	opcodeVal := e.getIntConstID(int64(OpAllocateRayQuery))
+	flagsVal := e.getIntConstID(0) // RAY_FLAG_NONE for allocation
+	handleID := e.addCallInstr(allocFn, i32Ty, []int{opcodeVal, flagsVal})
+
+	if e.rayQueryHandles == nil {
+		e.rayQueryHandles = make(map[ir.ExpressionHandle]int)
+	}
+	e.rayQueryHandles[queryExpr] = handleID
+	_ = fn
+	return handleID
+}
+
+// emitRayQueryInitialize emits dx.op.rayQuery_TraceRayInline (179).
+// Signature: void @dx.op.rayQuery_TraceRayInline(i32 179, i32 rayQueryHandle,
+//
+//	%dx.types.Handle accelStruct, i32 rayFlags, i32 instanceMask,
+//	float originX, float originY, float originZ,
+//	float tMin, float dirX, float dirY, float dirZ, float tMax)
+func (e *Emitter) emitRayQueryInitialize(fn *ir.Function, queryExpr ir.ExpressionHandle, init ir.RayQueryInitialize) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	// Resolve acceleration structure handle.
+	asHandleID, err := e.resolveResourceHandle(fn, init.AccelerationStructure)
+	if err != nil {
+		return fmt.Errorf("RayQueryInitialize: accel struct: %w", err)
+	}
+
+	// The descriptor is a RayDesc struct with fields:
+	// { flags: u32, cull_mask: u32, t_min: f32, t_max: f32, origin: vec3<f32>, dir: vec3<f32> }
+	if _, err := e.emitExpression(fn, init.Descriptor); err != nil {
+		return fmt.Errorf("RayQueryInitialize: descriptor: %w", err)
+	}
+
+	// Extract struct fields from the descriptor.
+	flagsID := e.getComponentID(init.Descriptor, 0)
+	cullMaskID := e.getComponentID(init.Descriptor, 1)
+	tMinID := e.getComponentID(init.Descriptor, 2)
+	tMaxID := e.getComponentID(init.Descriptor, 3)
+	originXID := e.getComponentID(init.Descriptor, 4)
+	originYID := e.getComponentID(init.Descriptor, 5)
+	originZID := e.getComponentID(init.Descriptor, 6)
+	dirXID := e.getComponentID(init.Descriptor, 7)
+	dirYID := e.getComponentID(init.Descriptor, 8)
+	dirZID := e.getComponentID(init.Descriptor, 9)
+
+	traceFn := e.getRayQueryTraceFunc()
+	voidTy := e.mod.GetVoidType()
+	opcodeVal := e.getIntConstID(int64(OpRayQueryTraceRayInline))
+
+	e.addCallInstr(traceFn, voidTy, []int{
+		opcodeVal, handleID, asHandleID,
+		flagsID, cullMaskID,
+		originXID, originYID, originZID,
+		tMinID,
+		dirXID, dirYID, dirZID,
+		tMaxID,
+	})
+	return nil
+}
+
+// emitRayQueryProceed emits dx.op.rayQuery_Proceed (180).
+// Signature: i1 @dx.op.rayQuery_Proceed(i32 180, i32 rayQueryHandle)
+func (e *Emitter) emitRayQueryProceed(fn *ir.Function, queryExpr ir.ExpressionHandle, proceed ir.RayQueryProceed) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	proceedFn := e.getRayQueryProceedFunc()
+	i1Ty := e.mod.GetIntType(1)
+	opcodeVal := e.getIntConstID(int64(OpRayQueryProceed))
+	resultID := e.addCallInstr(proceedFn, i1Ty, []int{opcodeVal, handleID})
+
+	e.exprValues[proceed.Result] = resultID
+	return nil
+}
+
+// emitRayQueryTerminate emits dx.op.rayQuery_Abort (181).
+func (e *Emitter) emitRayQueryTerminate(fn *ir.Function, queryExpr ir.ExpressionHandle) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	abortFn := e.getRayQueryAbortFunc()
+	voidTy := e.mod.GetVoidType()
+	opcodeVal := e.getIntConstID(int64(OpRayQueryAbort))
+	e.addCallInstr(abortFn, voidTy, []int{opcodeVal, handleID})
+	return nil
+}
+
+// emitRayQueryGenerateIntersection emits dx.op.rayQuery_CommitProceduralPrimitiveHit (183).
+func (e *Emitter) emitRayQueryGenerateIntersection(fn *ir.Function, queryExpr ir.ExpressionHandle, gi ir.RayQueryGenerateIntersection) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	hitTID, err := e.emitExpression(fn, gi.HitT)
+	if err != nil {
+		return fmt.Errorf("RayQueryGenerateIntersection: hitT: %w", err)
+	}
+
+	commitFn := e.getRayQueryCommitProceduralFunc()
+	voidTy := e.mod.GetVoidType()
+	opcodeVal := e.getIntConstID(int64(OpRayQueryCommitProceduralPrimitiveHit))
+	e.addCallInstr(commitFn, voidTy, []int{opcodeVal, handleID, hitTID})
+	return nil
+}
+
+// emitRayQueryConfirmIntersection emits dx.op.rayQuery_CommitNonOpaqueTriangleHit (182).
+func (e *Emitter) emitRayQueryConfirmIntersection(fn *ir.Function, queryExpr ir.ExpressionHandle) error {
+	handleID := e.getRayQueryHandle(fn, queryExpr)
+
+	commitFn := e.getRayQueryCommitTriangleFunc()
+	voidTy := e.mod.GetVoidType()
+	opcodeVal := e.getIntConstID(int64(OpRayQueryCommitNonOpaqueTriangleHit))
+	e.addCallInstr(commitFn, voidTy, []int{opcodeVal, handleID})
+	return nil
+}
+
+// emitRayQueryGetIntersection emits various dx.op.rayQuery_* intrinsics to build
+// the RayIntersection struct from query results.
+//
+// This is called as an expression (ExprRayQueryGetIntersection), not a statement.
+// It must produce a composite struct result with all intersection fields.
+//
+//nolint:funlen // many intersection struct fields to extract
+func (e *Emitter) emitRayQueryGetIntersection(fn *ir.Function, gi ir.ExprRayQueryGetIntersection) (int, error) {
+	handleID := e.getRayQueryHandle(fn, gi.Query)
+
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	i1Ty := e.mod.GetIntType(1)
+
+	// Choose committed vs candidate opcodes.
+	var (
+		statusOp, instanceIndexOp, instanceIDOp DXILOpcode
+		geometryIndexOp, primitiveIndexOp       DXILOpcode
+		objectRayOriginOp, objectRayDirOp       DXILOpcode
+		rayTOp                                  DXILOpcode
+		frontFaceOp                             DXILOpcode
+		baryCentricOp                           DXILOpcode
+		obj2worldOp, world2objOp                DXILOpcode
+	)
+	if gi.Committed {
+		statusOp = OpRayQueryCommittedStatus
+		instanceIndexOp = OpRayQueryCommittedInstanceIndex
+		instanceIDOp = OpRayQueryCommittedInstanceID
+		geometryIndexOp = OpRayQueryCommittedGeometryIndex
+		primitiveIndexOp = OpRayQueryCommittedPrimitiveIndex
+		objectRayOriginOp = OpRayQueryCommittedObjectRayOrigin
+		objectRayDirOp = OpRayQueryCommittedObjectRayDirection
+		rayTOp = OpRayQueryCommittedRayT
+		frontFaceOp = OpRayQueryCommittedTriangleFrontFace
+		baryCentricOp = OpRayQueryCommittedTriangleBarycentrics
+		obj2worldOp = OpRayQueryCommittedObjectToWorld3x4
+		world2objOp = OpRayQueryCommittedWorldToObject3x4
+	} else {
+		statusOp = OpRayQueryCandidateType
+		instanceIndexOp = OpRayQueryCandidateInstanceIndex
+		instanceIDOp = OpRayQueryCandidateInstanceID
+		geometryIndexOp = OpRayQueryCandidateGeometryIndex
+		primitiveIndexOp = OpRayQueryCandidatePrimitiveIndex
+		objectRayOriginOp = OpRayQueryCandidateObjectRayOrigin
+		objectRayDirOp = OpRayQueryCandidateObjectRayDirection
+		rayTOp = OpRayQueryCandidateTriangleRayT
+		frontFaceOp = OpRayQueryCandidateTriangleFrontFace
+		baryCentricOp = OpRayQueryCandidateTriangleBarycentrics
+		obj2worldOp = OpRayQueryCandidateObjectToWorld3x4
+		world2objOp = OpRayQueryCandidateWorldToObject3x4
+	}
+
+	// Helper: emit a scalar ray query call returning i32.
+	emitI32 := func(op DXILOpcode) int {
+		rqFn := e.getRayQueryScalarI32Func(op)
+		opcodeVal := e.getIntConstID(int64(op))
+		return e.addCallInstr(rqFn, i32Ty, []int{opcodeVal, handleID})
+	}
+	// Helper: emit a scalar ray query call returning f32.
+	emitF32 := func(op DXILOpcode) int {
+		rqFn := e.getRayQueryScalarF32Func(op)
+		opcodeVal := e.getIntConstID(int64(op))
+		return e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID})
+	}
+	// Helper: emit a component ray query call returning f32 for a vec3.
+	emitVec3F32 := func(op DXILOpcode) (int, int, int) {
+		rqFn := e.getRayQueryCompF32Func(op)
+		opcodeVal := e.getIntConstID(int64(op))
+		c0 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getIntConstID(0)})
+		c1 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getIntConstID(1)})
+		c2 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getIntConstID(2)})
+		return c0, c1, c2
+	}
+	// Helper: emit 4x3 matrix (returns 12 f32 components).
+	emitMat4x3 := func(op DXILOpcode) [12]int {
+		rqFn := e.getRayQueryMatrixFunc(op)
+		opcodeVal := e.getIntConstID(int64(op))
+		var comps [12]int
+		for row := 0; row < 4; row++ {
+			for col := 0; col < 3; col++ {
+				rowVal := e.getIntConstID(int64(row))
+				colVal := e.getIntConstID(int64(col))
+				comps[row*3+col] = e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, rowVal, colVal})
+			}
+		}
+		return comps
+	}
+
+	// RayIntersection struct layout:
+	// kind: u32, t: f32, instance_custom_data: u32, instance_index: u32,
+	// sbt_record_offset: u32, geometry_index: u32, primitive_index: u32,
+	// barycentrics: vec2<f32>, front_face: bool,
+	// object_to_world: mat4x3<f32>, world_to_object: mat4x3<f32>
+	// Total: 7 scalars + 2 bary + 1 bool + 12 + 12 = 34 components
+	comps := make([]int, 0, 34)
+
+	// barycentrics (vec2<f32>)
+	baryFn := e.getRayQueryCompF32Func(baryCentricOp)
+	baryOp := e.getIntConstID(int64(baryCentricOp))
+	baryX := e.addCallInstr(baryFn, f32Ty, []int{baryOp, handleID, e.getIntConstID(0)})
+	baryY := e.addCallInstr(baryFn, f32Ty, []int{baryOp, handleID, e.getIntConstID(1)})
+
+	// front_face (bool -> i1)
+	frontFaceFn := e.getRayQueryBoolFunc(frontFaceOp)
+	frontFaceOpVal := e.getIntConstID(int64(frontFaceOp))
+	frontFaceID := e.addCallInstr(frontFaceFn, i1Ty, []int{frontFaceOpVal, handleID})
+
+	// object_to_world (mat4x3 = 12 floats)
+	o2w := emitMat4x3(obj2worldOp)
+	// world_to_object (mat4x3 = 12 floats)
+	w2o := emitMat4x3(world2objOp)
+
+	// Build flat component array.
+	comps = append(comps,
+		emitI32(statusOp),         // kind
+		emitF32(rayTOp),           // t
+		emitI32(instanceIDOp),     // instance_custom_data
+		emitI32(instanceIndexOp),  // instance_index
+		e.getIntConstID(0),        // sbt_record_offset (unavailable in inline ray query)
+		emitI32(geometryIndexOp),  // geometry_index
+		emitI32(primitiveIndexOp), // primitive_index
+		baryX, baryY,              // barycentrics
+		frontFaceID, // front_face
+	)
+	for _, c := range o2w {
+		comps = append(comps, c)
+	}
+	for _, c := range w2o {
+		comps = append(comps, c)
+	}
+
+	_ = emitVec3F32
+	_ = objectRayOriginOp
+	_ = objectRayDirOp
+
+	e.pendingComponents = comps
+	if len(comps) > 0 {
+		return comps[0], nil
+	}
+	return 0, fmt.Errorf("ray query intersection produced no components")
+}
+
+// Ray query function declarations.
+
+func (e *Emitter) getRayQueryAllocFunc() *module.Function {
+	name := "dx.op.allocateRayQuery"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryTraceFunc() *module.Function {
+	name := "dx.op.rayQuery_TraceRayInline"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	handleTy := e.getDxHandleType()
+	voidTy := e.mod.GetVoidType()
+	// (i32 opcode, i32 rqHandle, %handle accelStruct, i32 rayFlags, i32 instanceMask,
+	//  f32 origX, f32 origY, f32 origZ, f32 tMin, f32 dirX, f32 dirY, f32 dirZ, f32 tMax)
+	params := []*module.Type{
+		i32Ty, i32Ty, handleTy, i32Ty, i32Ty,
+		f32Ty, f32Ty, f32Ty, f32Ty, f32Ty, f32Ty, f32Ty, f32Ty,
+	}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryProceedFunc() *module.Function {
+	name := "dx.op.rayQuery_Proceed"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i1Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryAbortFunc() *module.Function {
+	name := "dx.op.rayQuery_Abort"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	voidTy := e.mod.GetVoidType()
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryCommitTriangleFunc() *module.Function {
+	name := "dx.op.rayQuery_CommitNonOpaqueTriangleHit"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	voidTy := e.mod.GetVoidType()
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryCommitProceduralFunc() *module.Function {
+	name := "dx.op.rayQuery_CommitProceduralPrimitiveHit"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	voidTy := e.mod.GetVoidType()
+	params := []*module.Type{i32Ty, i32Ty, f32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryScalarI32Func(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d", op)
+	key := dxOpKey{name: name, overload: overloadI32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryScalarF32Func(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d", op)
+	key := dxOpKey{name: name, overload: overloadF32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(f32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryCompF32Func(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d.f32", op)
+	key := dxOpKey{name: name, overload: overloadF32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	params := []*module.Type{i32Ty, i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(f32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryBoolFunc(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d", op)
+	key := dxOpKey{name: name, overload: overloadI1}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	params := []*module.Type{i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(i1Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+func (e *Emitter) getRayQueryMatrixFunc(op DXILOpcode) *module.Function {
+	name := fmt.Sprintf("dx.op.rayQuery_%d.f32", op)
+	key := dxOpKey{name: name + ".mat", overload: overloadF32}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	params := []*module.Type{i32Ty, i32Ty, i32Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(f32Ty, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
 }

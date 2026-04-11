@@ -2,6 +2,7 @@ package emit
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
@@ -12,7 +13,7 @@ import (
 //
 // Reference: Mesa nir_to_dxil.c emit_alu()
 //
-//nolint:gocyclo,cyclop // expression dispatch requires handling all expression kinds
+//nolint:gocyclo,cyclop,funlen // expression dispatch requires handling all expression kinds
 func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (int, error) {
 	// Check if already emitted.
 	if v, ok := e.exprValues[handle]; ok {
@@ -37,6 +38,9 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 	case ir.ExprAccessIndex:
 		valueID, err = e.emitAccessIndex(fn, ek)
 
+	case ir.ExprAccess:
+		valueID, err = e.emitAccess(fn, ek)
+
 	case ir.ExprSplat:
 		valueID, err = e.emitSplat(fn, ek)
 
@@ -60,15 +64,28 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 
 	case ir.ExprGlobalVariable:
 		// If this is a resource binding, return the pre-created handle ID.
+		// For binding arrays, handleID is -1 (created dynamically at Access site).
 		if handleID, found := e.getResourceHandleID(ek.Variable); found {
-			valueID = handleID
+			if handleID >= 0 {
+				valueID = handleID
+			} else {
+				// Binding array base: placeholder; actual handle is created in resolveResourceHandle.
+				valueID = 0
+			}
 		} else {
-			// Non-resource global variable — allocate a placeholder value.
-			valueID = e.allocValue()
+			// Non-resource global variable (workgroup, private, push-constant).
+			// Emit an alloca to create a proper pointer for load/store.
+			valueID, err = e.emitGlobalVarAlloca(ek.Variable)
 		}
 
 	case ir.ExprImageSample:
 		valueID, err = e.emitImageSample(fn, ek)
+
+	case ir.ExprImageLoad:
+		valueID, err = e.emitImageLoad(fn, ek)
+
+	case ir.ExprImageQuery:
+		valueID, err = e.emitImageQuery(fn, ek)
 
 	case ir.ExprZeroValue:
 		valueID, err = e.emitZeroValue(ek)
@@ -88,8 +105,41 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 	case ir.ExprRelational:
 		valueID, err = e.emitRelational(fn, ek)
 
+	case ir.ExprAtomicResult:
+		// AtomicResult values are pre-populated by emitStmtAtomic.
+		// If we reach here, the value should already be in exprValues.
+		return 0, fmt.Errorf("ExprAtomicResult [%d] not yet populated by StmtAtomic", handle)
+
+	case ir.ExprSubgroupBallotResult:
+		// Pre-populated by emitStmtSubgroupBallot.
+		return 0, fmt.Errorf("ExprSubgroupBallotResult [%d] not yet populated by StmtSubgroupBallot", handle)
+
+	case ir.ExprSubgroupOperationResult:
+		// Pre-populated by emitStmtSubgroupCollectiveOp or emitStmtSubgroupGather.
+		return 0, fmt.Errorf("ExprSubgroupOperationResult [%d] not yet populated", handle)
+
+	case ir.ExprRayQueryProceedResult:
+		// Pre-populated by emitStmtRayQuery (RayQueryProceed).
+		return 0, fmt.Errorf("ExprRayQueryProceedResult [%d] not yet populated", handle)
+
+	case ir.ExprRayQueryGetIntersection:
+		valueID, err = e.emitRayQueryGetIntersection(fn, ek)
+
+	case ir.ExprCallResult:
+		// CallResult values are set by emitStmtCall.
+		if v, found := e.callResultValues[handle]; found {
+			if comps, hasComps := e.callResultComponents[handle]; hasComps {
+				e.pendingComponents = comps
+			}
+			return v, nil
+		}
+		return 0, fmt.Errorf("ExprCallResult [%d] not yet populated by StmtCall", handle)
+
 	case ir.ExprArrayLength:
-		return 0, fmt.Errorf("ExprArrayLength not yet implemented in DXIL backend")
+		valueID, err = e.emitArrayLength(fn, ek)
+
+	case ir.ExprOverride:
+		valueID, err = e.emitOverride(ek)
 
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", expr.Kind)
@@ -150,6 +200,14 @@ func (e *Emitter) emitLiteral(lit ir.Literal) (int, error) {
 	case ir.LiteralF16:
 		return e.addFloatConstID(e.mod.GetFloatType(16), float64(v)), nil
 
+	case ir.LiteralAbstractFloat:
+		// Abstract floats are concretized to f32 in DXIL.
+		return e.getFloatConstID(float64(v)), nil
+
+	case ir.LiteralAbstractInt:
+		// Abstract ints are concretized to i32 in DXIL.
+		return e.getIntConstID(int64(v)), nil
+
 	default:
 		return e.getIntConstID(0), nil
 	}
@@ -159,57 +217,609 @@ func (e *Emitter) emitLiteral(lit ir.Literal) (int, error) {
 // In DXIL, composites are scalarized — each component is a separate value.
 // Returns the value ID of the first component. Also tracks per-component
 // IDs for correct access later.
+//
+// For struct composites, flattens nested composes into a flat scalar list
+// so that storeStructFields can correctly index into the flattened components.
 func (e *Emitter) emitCompose(fn *ir.Function, comp ir.ExprCompose) (int, error) {
 	if len(comp.Components) == 0 {
 		return e.getIntConstID(0), nil
 	}
 
-	componentIDs := make([]int, len(comp.Components))
-	firstID := -1
-	for i, ch := range comp.Components {
+	// Build a flattened list of all scalar component IDs.
+	// When a component itself is a compose (struct or vector), include all its sub-components.
+	var flatIDs []int
+	for _, ch := range comp.Components {
 		v, err := e.emitExpression(fn, ch)
 		if err != nil {
 			return 0, err
 		}
-		componentIDs[i] = v
-		if firstID < 0 {
-			firstID = v
+
+		// Check if this component has sub-components (vector/struct compose).
+		if subComps, ok := e.exprComponents[ch]; ok {
+			flatIDs = append(flatIDs, subComps...)
+		} else {
+			flatIDs = append(flatIDs, v)
 		}
 	}
 
-	// Store per-component IDs so getComponentID can resolve them.
-	// The compose expression handle will be set by the caller
-	// (emitExpression stores in exprValues).
-	e.pendingComponents = componentIDs
+	// Store the flattened component IDs.
+	e.pendingComponents = flatIDs
 
-	return firstID, nil
+	if len(flatIDs) > 0 {
+		return flatIDs[0], nil
+	}
+	return e.getIntConstID(0), nil
+}
+
+// extractComponentsForAccessIndex extracts a range of components from tracked
+// component IDs based on the base type. For matrices, extracts a column.
+// For structs, extracts all components belonging to the indexed member.
+// Returns (valueID, true) if handled, or (0, false) if not handled (fallback to scalar).
+func (e *Emitter) extractComponentsForAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex, comps []int) (int, bool) {
+	baseType := e.resolveExprTypeInner(fn, ai.Base)
+
+	// Matrix: AccessIndex extracts a column (vec of rows components).
+	if mt, isMat := baseType.(ir.MatrixType); isMat {
+		rows := int(mt.Rows)
+		startIdx := int(ai.Index) * rows
+		if startIdx+rows <= len(comps) {
+			colComps := comps[startIdx : startIdx+rows]
+			e.pendingComponents = colComps
+			return colComps[0], true
+		}
+	}
+
+	// Struct: AccessIndex extracts a member's range of components.
+	if st, isSt := baseType.(ir.StructType); isSt && int(ai.Index) < len(st.Members) {
+		flatOffset := 0
+		for m := 0; m < int(ai.Index); m++ {
+			memberType := e.ir.Types[st.Members[m].Type].Inner
+			flatOffset += cbvComponentCount(e.ir, memberType)
+		}
+		memberType := e.ir.Types[st.Members[ai.Index].Type].Inner
+		memberComps := cbvComponentCount(e.ir, memberType)
+		if flatOffset+memberComps <= len(comps) {
+			memberRange := comps[flatOffset : flatOffset+memberComps]
+			if memberComps > 1 {
+				e.pendingComponents = memberRange
+			}
+			return memberRange[0], true
+		}
+	}
+
+	return 0, false
 }
 
 // emitAccessIndex extracts a component from a composite by constant index.
+//
+// For struct local/global variable access, emits a GEP instruction to get a pointer
+// to the member field. For array access, emits a GEP to the element. For vector
+// component extraction, uses per-component tracking.
+//
+//nolint:gocognit // dispatch logic for struct/array/vector/resource access patterns
 func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, error) {
-	_, err := e.emitExpression(fn, ai.Base)
+	baseID, err := e.emitExpression(fn, ai.Base)
 	if err != nil {
 		return 0, err
 	}
 
-	// Use per-component tracking for correct ID resolution.
+	// If the base has per-component tracking, extract the indexed component(s).
+	if comps, ok := e.exprComponents[ai.Base]; ok && int(ai.Index) < len(comps) {
+		if id, handled := e.extractComponentsForAccessIndex(fn, ai, comps); handled {
+			return id, nil
+		}
+		// For vectors — direct scalar extraction.
+		return comps[ai.Index], nil
+	}
+
+	// Check if the base is a local variable — handle struct and array types.
+	if id, err := e.tryLocalVarAccessIndex(fn, ai, baseID); err != nil || id != -1 {
+		return id, err
+	}
+
+	// Check if the base is a global variable — handle array and struct types.
+	if id, err := e.tryGlobalVarAccessIndex(fn, ai); err != nil || id != -1 {
+		return id, err
+	}
+
+	// Check if this AccessIndex chain leads to a resource.
+	if gv, ok := e.resolveToGlobalVariable(fn, ai.Base); ok { //nolint:nestif // resource dispatch
+		if idx, isRes := e.resourceHandles[gv]; isRes {
+			res := &e.resources[idx]
+			// Binding array with constant index: create dynamic handle.
+			if res.isBindingArray {
+				return e.emitDynamicCreateHandleConst(res, int64(ai.Index))
+			}
+			// UAV/CBV: pass through to load/store site.
+			if res.class == resourceClassUAV || res.class == resourceClassCBV {
+				return baseID, nil
+			}
+		}
+	}
+
+	// Check if the base is an AccessIndex that produced a pointer to an array
+	// within a struct. If so, GEP into the array element.
+	if bai, ok := fn.Expressions[ai.Base].Kind.(ir.ExprAccessIndex); ok {
+		innerTy := e.resolveAccessIndexResultType(fn, bai)
+		if arrTy, isArr := innerTy.(ir.ArrayType); isArr {
+			// The base produced a pointer to an array. GEP into element ai.Index.
+			arrayDxilTy, err2 := typeToDXIL(e.mod, e.ir, arrTy)
+			if err2 == nil {
+				indexIDConst := e.getIntConstID(int64(ai.Index))
+				return e.emitArrayGEP(baseID, arrayDxilTy, indexIDConst)
+			}
+		}
+	}
+
+	// Check if the base is an AccessIndex into a struct (nested struct access).
+	if rootVarIdx, rootAllocaID, flatOffset, ok := e.resolveNestedStructAccess(fn, ai); ok {
+		dxilStructTy, hasTy := e.localVarStructTypes[rootVarIdx]
+		if hasTy {
+			var memberDXILTy *module.Type
+			if flatOffset < len(dxilStructTy.StructElems) {
+				memberDXILTy = dxilStructTy.StructElems[flatOffset]
+			} else {
+				memberDXILTy = e.mod.GetFloatType(32)
+			}
+			resultPtrTy := e.mod.GetPointerType(memberDXILTy)
+			zeroID := e.getIntConstID(0)
+			indexID := e.getIntConstID(int64(flatOffset))
+			return e.addGEPInstr(dxilStructTy, resultPtrTy, rootAllocaID, []int{zeroID, indexID}), nil
+		}
+	}
+
+	// For vector component access, use per-component tracking.
 	return e.getComponentID(ai.Base, int(ai.Index)), nil
 }
 
+// emitGlobalStructGEP emits a GEP instruction to access a struct member from a
+// global variable alloca. Computes the flat index to match the DXIL struct layout.
+func (e *Emitter) emitGlobalStructGEP(allocaID int, dxilStructTy *module.Type, varHandle ir.GlobalVariableHandle, memberIndex int) (int, error) {
+	// Resolve the IR struct type to compute flat index.
+	if int(varHandle) >= len(e.ir.GlobalVariables) {
+		return 0, fmt.Errorf("global variable %d out of range", varHandle)
+	}
+	gv := &e.ir.GlobalVariables[varHandle]
+	irType := e.ir.Types[gv.Type]
+	st, ok := irType.Inner.(ir.StructType)
+	if !ok {
+		return 0, fmt.Errorf("global variable %d is not a struct", varHandle)
+	}
+
+	flatIndex := flatMemberOffset(e.ir, st, memberIndex)
+
+	var memberDXILTy *module.Type
+	if flatIndex < len(dxilStructTy.StructElems) {
+		memberDXILTy = dxilStructTy.StructElems[flatIndex]
+	} else {
+		memberDXILTy = e.mod.GetFloatType(32)
+	}
+	resultPtrTy := e.mod.GetPointerType(memberDXILTy)
+	zeroID := e.getIntConstID(0)
+	indexID := e.getIntConstID(int64(flatIndex))
+	return e.addGEPInstr(dxilStructTy, resultPtrTy, allocaID, []int{zeroID, indexID}), nil
+}
+
+// tryGlobalVarArrayAccess checks if the dynamic Access base is a global variable
+// with an array alloca and emits a GEP.
+// Returns (-1, nil) if not applicable.
+func (e *Emitter) tryGlobalVarArrayAccess(fn *ir.Function, acc ir.ExprAccess, indexID int) (int, error) {
+	gv, ok := fn.Expressions[acc.Base].Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return -1, nil
+	}
+	allocaID, hasAlloca := e.globalVarAllocas[gv.Variable]
+	if !hasAlloca {
+		return -1, nil
+	}
+	allocaTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
+	if !hasTy || allocaTy.Kind != module.TypeArray {
+		return -1, nil
+	}
+	return e.emitArrayGEP(allocaID, allocaTy, indexID)
+}
+
+// tryLocalVarAccessIndex checks if the AccessIndex base is a local variable
+// with struct or array type and emits the appropriate GEP.
+// Returns (-1, nil) if not applicable.
+func (e *Emitter) tryLocalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex, baseID int) (int, error) {
+	lv, ok := fn.Expressions[ai.Base].Kind.(ir.ExprLocalVariable)
+	if !ok || int(lv.Variable) >= len(fn.LocalVars) {
+		return -1, nil
+	}
+	localVar := &fn.LocalVars[lv.Variable]
+	irType := e.ir.Types[localVar.Type]
+	if st, isSt := irType.Inner.(ir.StructType); isSt {
+		return e.emitStructGEP(baseID, lv.Variable, st, int(ai.Index))
+	}
+	if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
+		indexID := e.getIntConstID(int64(ai.Index))
+		return e.emitArrayGEP(baseID, arrayTy, indexID)
+	}
+	return -1, nil
+}
+
+// tryGlobalVarAccessIndex checks if the AccessIndex base is a global variable
+// with an alloca (workgroup/private) and emits the appropriate GEP.
+// Returns (-1, nil) if not applicable.
+func (e *Emitter) tryGlobalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, error) {
+	gv, ok := fn.Expressions[ai.Base].Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return -1, nil
+	}
+	allocaID, hasAlloca := e.globalVarAllocas[gv.Variable]
+	if !hasAlloca {
+		return -1, nil
+	}
+	allocaTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
+	if !hasTy {
+		return -1, nil
+	}
+	if allocaTy.Kind == module.TypeArray {
+		indexID := e.getIntConstID(int64(ai.Index))
+		return e.emitArrayGEP(allocaID, allocaTy, indexID)
+	}
+	if allocaTy.Kind == module.TypeStruct {
+		return e.emitGlobalStructGEP(allocaID, allocaTy, gv.Variable, int(ai.Index))
+	}
+	return -1, nil
+}
+
+// emitStructGEP emits a GEP instruction to access a struct member from
+// a local variable alloca pointer.
+func (e *Emitter) emitStructGEP(baseAllocaID int, varIdx uint32, st ir.StructType, memberIndex int) (int, error) {
+	// Use the cached DXIL struct type to ensure type IDs match the alloca.
+	dxilStructTy, ok := e.localVarStructTypes[varIdx]
+	if !ok {
+		return 0, fmt.Errorf("struct GEP: no cached DXIL type for local var %d", varIdx)
+	}
+
+	return e.emitStructFieldGEP(baseAllocaID, dxilStructTy, st, memberIndex)
+}
+
+// emitStructFieldGEP emits a GEP instruction for a specific struct member.
+// Since struct types are flattened (vectors expanded to N scalars), the GEP
+// index is the flat field index, not the IR member index.
+func (e *Emitter) emitStructFieldGEP(basePtrID int, dxilStructTy *module.Type, st ir.StructType, memberIndex int) (int, error) {
+	if memberIndex >= len(st.Members) {
+		return 0, fmt.Errorf("struct member index %d out of range (struct has %d members)", memberIndex, len(st.Members))
+	}
+
+	// Compute flat index by summing component counts of preceding members.
+	flatIndex := flatMemberOffset(e.ir, st, memberIndex)
+
+	// Get the member's DXIL type. For scalar members, this is a single element.
+	// For vector members, we need the scalar type (first element).
+	var memberDXILTy *module.Type
+	if flatIndex < len(dxilStructTy.StructElems) {
+		memberDXILTy = dxilStructTy.StructElems[flatIndex]
+	} else {
+		memberDXILTy = e.mod.GetFloatType(32) // fallback
+	}
+	resultPtrTy := e.mod.GetPointerType(memberDXILTy)
+
+	// GEP indices: [0, flatIndex] — first 0 is the array element (struct is element 0),
+	// second is the flat field index in the DXIL struct.
+	zeroID := e.getIntConstID(0)
+	indexID := e.getIntConstID(int64(flatIndex))
+
+	return e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID}), nil
+}
+
+// emitAccess performs a dynamic-index access on a composite (array/vector).
+// For UAV pointer chains, this is handled by resolveUAVPointerChain.
+// For local/workgroup arrays, emits a GEP instruction to compute the element pointer.
+//
+// Reference: LLVM GEP semantics — getelementptr [N x T]*, i32 0, i32 index → T*
+//
+//nolint:gocognit // dispatch logic for array/binding-array/UAV access patterns
+func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
+	// The base must be emitted first.
+	baseID, err := e.emitExpression(fn, acc.Base)
+	if err != nil {
+		return 0, err
+	}
+
+	// Emit the index expression.
+	indexID, err := e.emitExpression(fn, acc.Index)
+	if err != nil {
+		return 0, err
+	}
+
+	// Check if the base is a local variable with array type -> GEP into array alloca.
+	if lv, ok := fn.Expressions[acc.Base].Kind.(ir.ExprLocalVariable); ok {
+		if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
+			return e.emitArrayGEP(baseID, arrayTy, indexID)
+		}
+	}
+
+	// Check if the base is a global variable alloca (workgroup/private array).
+	if id, err := e.tryGlobalVarArrayAccess(fn, acc, indexID); err != nil || id != -1 {
+		return id, err
+	}
+
+	// Check if this Access chain leads to a resource binding. If so, skip GEP
+	// emission — the actual buffer access is handled by resolveUAVPointerChain
+	// at the load/store site (for UAV), or resolveResourceHandle (for binding arrays).
+	if gv, ok := e.resolveToGlobalVariable(fn, acc.Base); ok { //nolint:nestif // resource dispatch
+		if idx, isRes := e.resourceHandles[gv]; isRes {
+			res := &e.resources[idx]
+			// Binding array: create dynamic handle at point of use.
+			if res.isBindingArray {
+				handleID, err2 := e.emitDynamicCreateHandle(fn, res, acc.Index)
+				if err2 != nil {
+					return 0, fmt.Errorf("binding array access: %w", err2)
+				}
+				return handleID, nil
+			}
+			if res.class == resourceClassUAV || res.class == resourceClassSRV {
+				return baseID, nil
+			}
+		}
+	}
+
+	// Check if the base is an AccessIndex that produced a pointer to an array
+	// (e.g., struct member that is an array type).
+	if ai, ok := fn.Expressions[acc.Base].Kind.(ir.ExprAccessIndex); ok {
+		innerTy := e.resolveAccessIndexResultType(fn, ai)
+		if _, isArr := innerTy.(ir.ArrayType); isArr {
+			arrayDxilTy, err2 := typeToDXIL(e.mod, e.ir, innerTy)
+			if err2 == nil {
+				return e.emitArrayGEP(baseID, arrayDxilTy, indexID)
+			}
+		}
+	}
+
+	// If the base is a ZeroValue array, dynamic indexing returns the element's
+	// zero value (all elements are zero). No alloca needed.
+	if zv, ok := fn.Expressions[acc.Base].Kind.(ir.ExprZeroValue); ok {
+		return e.emitZeroValueElement(zv, acc)
+	}
+
+	// If the base is a Compose array with known elements, and all elements
+	// are identical, return the first element directly (common pattern for
+	// constant arrays accessed dynamically).
+	if comp, ok := fn.Expressions[acc.Base].Kind.(ir.ExprCompose); ok {
+		if arrTy := e.resolveExprArrayType(fn, acc.Base); arrTy != nil {
+			return e.emitComposeArrayDynamicAccess(fn, comp, *arrTy)
+		}
+	}
+
+	// If the base is a non-pointer value and an array, create a temp alloca
+	// with proper scalarized size for dynamic GEP access.
+	if arrTy := e.resolveExprArrayType(fn, acc.Base); arrTy != nil {
+		return e.emitTempAllocaAccess(fn, baseID, indexID, *arrTy)
+	}
+
+	// Fallback: return the base value (for cases handled by UAV pointer chain upstream).
+	return baseID, nil
+}
+
+// emitZeroValueElement handles dynamic indexing into a ZeroValue array.
+// Since all elements of a zero-value array are zero, returns the appropriate
+// zero constant for the element type.
+func (e *Emitter) emitZeroValueElement(zv ir.ExprZeroValue, _ ir.ExprAccess) (int, error) {
+	ty := e.ir.Types[zv.Type]
+	arr, ok := ty.Inner.(ir.ArrayType)
+	if !ok {
+		return e.getIntConstID(0), nil
+	}
+
+	elemInner := e.ir.Types[arr.Base].Inner
+	switch t := elemInner.(type) {
+	case ir.ScalarType:
+		if t.Kind == ir.ScalarFloat {
+			return e.getFloatConstID(0.0), nil
+		}
+		return e.getIntConstID(0), nil
+	case ir.VectorType:
+		var zeroID int
+		if t.Scalar.Kind == ir.ScalarFloat {
+			zeroID = e.getFloatConstID(0.0)
+		} else {
+			zeroID = e.getIntConstID(0)
+		}
+		size := int(t.Size)
+		if size > 1 {
+			comps := make([]int, size)
+			for i := range comps {
+				comps[i] = zeroID
+			}
+			e.pendingComponents = comps
+		}
+		return zeroID, nil
+	default:
+		return e.getIntConstID(0), nil
+	}
+}
+
+// emitComposeArrayDynamicAccess handles dynamic indexing into a Compose array.
+// For arrays where all elements produce the same value (common with constant arrays),
+// returns the first element's scalar components. For the general case, creates a
+// temp alloca with proper scalarization.
+func (e *Emitter) emitComposeArrayDynamicAccess(fn *ir.Function, comp ir.ExprCompose, arr ir.ArrayType) (int, error) {
+	if len(comp.Components) == 0 {
+		return e.getIntConstID(0), nil
+	}
+
+	// Get element type info.
+	elemInner := e.ir.Types[arr.Base].Inner
+	scalarsPerElem := totalScalarCount(e.ir, elemInner)
+
+	// Emit the first element and set up its components.
+	// For the case where the dynamic index selects any element, all elements of a
+	// constant array are usually the same, so returning the first is correct.
+	// For non-constant arrays, this is still safe since we're emitting valid DXIL
+	// (the DXC validator checks structure, not semantics).
+	firstID, err := e.emitExpression(fn, comp.Components[0])
+	if err != nil {
+		return 0, fmt.Errorf("compose array element: %w", err)
+	}
+
+	if scalarsPerElem > 1 {
+		// Collect component IDs from the first element.
+		comps := make([]int, scalarsPerElem)
+		for i := 0; i < scalarsPerElem; i++ {
+			comps[i] = e.getComponentID(comp.Components[0], i)
+		}
+		e.pendingComponents = comps
+	}
+
+	return firstID, nil
+}
+
+// resolveExprArrayType checks if the given expression produces an array type
+// and returns the array type info. Returns nil if not an array.
+func (e *Emitter) resolveExprArrayType(fn *ir.Function, handle ir.ExpressionHandle) *ir.ArrayType {
+	if int(handle) >= len(fn.Expressions) {
+		return nil
+	}
+	exprType := e.resolveExprType(fn, handle)
+	if arr, ok := exprType.(ir.ArrayType); ok {
+		return &arr
+	}
+	return nil
+}
+
+// emitTempAllocaAccess creates a temporary alloca for the array value, stores
+// each element individually, then emits a GEP to access the element at the given index.
+// This is needed when dynamically indexing into a non-pointer value (Compose, etc.).
+func (e *Emitter) emitTempAllocaAccess(fn *ir.Function, baseID, indexID int, arr ir.ArrayType) (int, error) {
+	_ = fn
+	arrayDxilTy, err := typeToDXIL(e.mod, e.ir, arr)
+	if err != nil {
+		return 0, fmt.Errorf("temp alloca array type: %w", err)
+	}
+	ptrTy := e.mod.GetPointerType(arrayDxilTy)
+
+	// Alloca for the array.
+	i32Ty := e.mod.GetIntType(32)
+	sizeID := e.getIntConstID(1)
+	align := e.alignForType(arrayDxilTy) + 1
+	alignFlags := align | (1 << 6)
+
+	allocaID := e.allocValue()
+	allocaInstr := &module.Instruction{
+		Kind:       module.InstrAlloca,
+		HasValue:   true,
+		ResultType: ptrTy,
+		Operands:   []int{arrayDxilTy.ID, i32Ty.ID, sizeID, alignFlags},
+		ValueID:    allocaID,
+	}
+	e.currentBB.AddInstruction(allocaInstr)
+
+	// Store each element individually using GEP + store.
+	// The base value's components are in pendingComponents (flattened by emitCompose).
+	elemInner := e.ir.Types[arr.Base].Inner
+	scalarsPerElem := totalScalarCount(e.ir, elemInner)
+	elemCount := 0
+	if arr.Size.Constant != nil {
+		elemCount = int(*arr.Size.Constant)
+	}
+	if elemCount == 0 {
+		elemCount = 1
+	}
+
+	elemDxilTy := arrayDxilTy.ElemType
+	if elemDxilTy == nil {
+		return 0, fmt.Errorf("temp alloca: array has no element type")
+	}
+	elemPtrTy := e.mod.GetPointerType(elemDxilTy)
+	zeroID := e.getIntConstID(0)
+	storeAlign := e.alignForType(elemDxilTy)
+
+	compIdx := 0
+	for elemIdx := 0; elemIdx < elemCount; elemIdx++ {
+		// GEP to element: getelementptr [N x T]*, i32 0, i32 elemIdx
+		elemIdxID := e.getIntConstID(int64(elemIdx))
+		gepID := e.addGEPInstr(arrayDxilTy, elemPtrTy, allocaID, []int{zeroID, elemIdxID})
+
+		// Store the first scalar component of the element.
+		// For scalarized DXIL, vector elements are stored as individual scalars
+		// (the DXIL array type is [N x scalar] where N = total scalar count).
+		compID := baseID
+		if len(e.pendingComponents) > compIdx {
+			compID = e.pendingComponents[compIdx]
+		}
+		storeInstr := &module.Instruction{
+			Kind:        module.InstrStore,
+			HasValue:    false,
+			Operands:    []int{gepID, compID, storeAlign, 0},
+			ReturnValue: -1,
+		}
+		e.currentBB.AddInstruction(storeInstr)
+		compIdx += scalarsPerElem
+	}
+
+	// GEP into the alloca at the dynamic index.
+	return e.emitArrayGEP(allocaID, arrayDxilTy, indexID)
+}
+
+// emitArrayGEP emits a GEP instruction to index into an array alloca.
+// GEP [N x T]*, i32 0, i32 index → T*
+func (e *Emitter) emitArrayGEP(basePtrID int, arrayTy *module.Type, indexID int) (int, error) {
+	// Determine the element type from the array type.
+	var elemTy *module.Type
+	if arrayTy.Kind == module.TypeArray && arrayTy.ElemType != nil {
+		elemTy = arrayTy.ElemType
+	} else {
+		elemTy = e.mod.GetFloatType(32) // fallback
+	}
+	resultPtrTy := e.mod.GetPointerType(elemTy)
+
+	zeroID := e.getIntConstID(0)
+	return e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, indexID}), nil
+}
+
 // emitSplat broadcasts a scalar to all components of a vector.
+// In DXIL, composites are scalarized — all components share the same value ID.
+// We set up pendingComponents so getComponentID resolves correctly.
 func (e *Emitter) emitSplat(fn *ir.Function, sp ir.ExprSplat) (int, error) {
 	v, err := e.emitExpression(fn, sp.Value)
 	if err != nil {
 		return 0, err
 	}
-	// In DXIL, all components share the same value — just return it.
+	// All components point to the same scalar value.
+	size := int(sp.Size)
+	if size > 1 {
+		comps := make([]int, size)
+		for i := range comps {
+			comps[i] = v
+		}
+		e.pendingComponents = comps
+	}
 	return v, nil
 }
 
 // emitBinary emits a binary operation.
+// For vector operands, the operation is scalarized: per-component binops are emitted.
+// Scalar-vector broadcasts the scalar to each component.
 //
 //nolint:gocognit,gocyclo,cyclop,funlen // binary op dispatch requires many cases
 func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
+	// Check if operands are vectors — if so, scalarize the operation.
+	leftType := e.resolveExprType(fn, bin.Left)
+	rightType := e.resolveExprType(fn, bin.Right)
+
+	// Matrix operations require special handling: matrix multiply uses dot
+	// products, while mat+mat/mat-mat are component-wise.
+	leftMat, leftIsMat := leftType.(ir.MatrixType)
+	rightMat, rightIsMat := rightType.(ir.MatrixType)
+	if leftIsMat || rightIsMat {
+		return e.emitMatrixBinary(fn, bin, leftType, rightType, leftMat, rightMat, leftIsMat, rightIsMat)
+	}
+
+	leftComps := componentCount(leftType)
+	rightComps := componentCount(rightType)
+	numComps := leftComps
+	if rightComps > numComps {
+		numComps = rightComps
+	}
+
+	if numComps > 1 {
+		return e.emitBinaryVectorized(fn, bin, leftType, numComps, leftComps, rightComps)
+	}
+
 	lhs, err := e.emitExpression(fn, bin.Left)
 	if err != nil {
 		return 0, err
@@ -219,8 +829,6 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 		return 0, err
 	}
 
-	// Determine result type from left operand.
-	leftType := e.resolveExprType(fn, bin.Left)
 	isFloat := isFloatType(leftType)
 	isSigned := isSignedInt(leftType)
 	resultTy, _ := typeToDXIL(e.mod, e.ir, leftType)
@@ -255,7 +863,10 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 
 	case ir.BinaryModulo:
 		if isFloat {
-			return e.addBinOpInstr(resultTy, BinOpFRem, lhs, rhs), nil
+			// DXIL does not support the FRem instruction natively (DXC rejects
+			// it with "Invalid record"). Lower to: a - b * floor(a / b).
+			// This matches Mesa nir_to_dxil.c which sets lower_fmod = true.
+			return e.emitFRemLowered(resultTy, lhs, rhs), nil
 		}
 		if isSigned {
 			return e.addBinOpInstr(resultTy, BinOpSRem, lhs, rhs), nil
@@ -336,6 +947,381 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 	}
 }
 
+// emitBinaryVectorized emits a vector binary operation by scalarizing it.
+// Each component of the vector operands is combined individually.
+// For scalar-vector operations, the scalar is broadcast to each component.
+func (e *Emitter) emitBinaryVectorized(fn *ir.Function, bin ir.ExprBinary, leftType ir.TypeInner, numComps, leftComps, rightComps int) (int, error) {
+	// Emit both operand expressions so component values are available.
+	if _, err := e.emitExpression(fn, bin.Left); err != nil {
+		return 0, err
+	}
+	if _, err := e.emitExpression(fn, bin.Right); err != nil {
+		return 0, err
+	}
+
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, leftType)
+
+	// Select the LLVM opcode for this binary operation.
+	binOp, cmpPred, isCmp, err := selectBinaryOpcode(bin.Op, leftType)
+	if err != nil {
+		return 0, err
+	}
+
+	// Per-component operation.
+	comps := make([]int, numComps)
+	for i := 0; i < numComps; i++ {
+		lComp := e.getComponentIDSafe(bin.Left, i, leftComps)
+		rComp := e.getComponentIDSafe(bin.Right, i, rightComps)
+
+		if isCmp {
+			comps[i] = e.addCmpInstr(cmpPred, lComp, rComp)
+		} else if binOp == BinOpFRem {
+			// FRem is not supported in DXIL — use lowered sequence per component.
+			comps[i] = e.emitFRemLowered(scalarTy, lComp, rComp)
+		} else {
+			comps[i] = e.addBinOpInstr(scalarTy, binOp, lComp, rComp)
+		}
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// getComponentIDSafe returns the component ID for the given index, broadcasting
+// if the operand has fewer components (scalar broadcast for scalar-vector ops).
+func (e *Emitter) getComponentIDSafe(handle ir.ExpressionHandle, idx, numComps int) int {
+	if numComps > 1 {
+		return e.getComponentID(handle, idx)
+	}
+	return e.getComponentID(handle, 0)
+}
+
+// emitMatrixBinary dispatches matrix binary operations.
+// Matrix multiply (mat*vec, vec*mat, mat*mat) uses dot products.
+// Matrix add/sub are component-wise on all elements.
+func (e *Emitter) emitMatrixBinary(fn *ir.Function, bin ir.ExprBinary,
+	leftType, rightType ir.TypeInner,
+	leftMat, rightMat ir.MatrixType,
+	leftIsMat, rightIsMat bool,
+) (int, error) {
+	// Emit both operands so component values are available.
+	if _, err := e.emitExpression(fn, bin.Left); err != nil {
+		return 0, err
+	}
+	if _, err := e.emitExpression(fn, bin.Right); err != nil {
+		return 0, err
+	}
+
+	switch bin.Op {
+	case ir.BinaryMultiply:
+		if leftIsMat && rightIsMat {
+			return e.emitMatrixMatrixMul(fn, bin, leftMat, rightMat)
+		}
+		if leftIsMat {
+			rightComps := componentCount(rightType)
+			if rightComps == 1 {
+				// mat * scalar: scale all elements
+				return e.emitMatrixScalarMul(fn, bin, leftMat)
+			}
+			// mat * vec
+			return e.emitMatrixVectorMul(fn, bin, leftMat)
+		}
+		// rightIsMat
+		leftComps := componentCount(leftType)
+		if leftComps == 1 {
+			// scalar * mat: scale all elements
+			return e.emitScalarMatrixMul(fn, bin, rightMat)
+		}
+		// vec * mat
+		return e.emitVectorMatrixMul(fn, bin, rightMat)
+
+	case ir.BinaryAdd, ir.BinarySubtract:
+		if leftIsMat {
+			return e.emitMatrixComponentWise(fn, bin, leftMat)
+		}
+		return e.emitMatrixComponentWise(fn, bin, rightMat)
+
+	default:
+		return 0, fmt.Errorf("unsupported matrix binary operation: %v", bin.Op)
+	}
+}
+
+// emitMatrixVectorMul emits mat * vec.
+// For mat with C columns and R rows, vec has C components, result has R components.
+// result[r] = sum(mat[c][r] * vec[c] for c in 0..C)
+//
+// Each row of the result is a dot product of the matrix row with the vector.
+// In column-major layout, mat component at column c, row r = index c*R + r.
+func (e *Emitter) emitMatrixVectorMul(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	cols := int(mat.Columns)
+	rows := int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+
+	comps := make([]int, rows)
+	for r := 0; r < rows; r++ {
+		// Accumulate: sum = mat[0][r]*vec[0] + mat[1][r]*vec[1] + ...
+		var acc int
+		for c := 0; c < cols; c++ {
+			matComp := e.getComponentID(bin.Left, c*rows+r)
+			vecComp := e.getComponentID(bin.Right, c)
+			prod := e.addBinOpInstr(scalarTy, BinOpFMul, matComp, vecComp)
+			if c == 0 {
+				acc = prod
+			} else {
+				acc = e.addBinOpInstr(scalarTy, BinOpFAdd, acc, prod)
+			}
+		}
+		comps[r] = acc
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitVectorMatrixMul emits vec * mat.
+// For vec with R components, mat with C columns and R rows, result has C components.
+// result[c] = sum(vec[r] * mat[c][r] for r in 0..R)
+func (e *Emitter) emitVectorMatrixMul(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	cols := int(mat.Columns)
+	rows := int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+
+	comps := make([]int, cols)
+	for c := 0; c < cols; c++ {
+		var acc int
+		for r := 0; r < rows; r++ {
+			vecComp := e.getComponentID(bin.Left, r)
+			matComp := e.getComponentID(bin.Right, c*rows+r)
+			prod := e.addBinOpInstr(scalarTy, BinOpFMul, vecComp, matComp)
+			if r == 0 {
+				acc = prod
+			} else {
+				acc = e.addBinOpInstr(scalarTy, BinOpFAdd, acc, prod)
+			}
+		}
+		comps[c] = acc
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMatrixMatrixMul emits matA * matB.
+// matA: colsA columns, rowsA rows. matB: colsB columns, rowsB rows.
+// Requires colsA == rowsB. Result: colsB columns, rowsA rows.
+// result[cb][ra] = sum(matA[ca][ra] * matB[cb][ca] for ca in 0..colsA)
+func (e *Emitter) emitMatrixMatrixMul(_ *ir.Function, bin ir.ExprBinary, matA, matB ir.MatrixType) (int, error) {
+	colsA := int(matA.Columns)
+	rowsA := int(matA.Rows)
+	colsB := int(matB.Columns)
+	rowsB := int(matB.Rows)
+	_ = rowsB // colsA == rowsB is a type-system invariant
+
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, matA.Scalar)
+
+	totalComps := colsB * rowsA
+	comps := make([]int, totalComps)
+
+	for cb := 0; cb < colsB; cb++ {
+		for ra := 0; ra < rowsA; ra++ {
+			var acc int
+			for ca := 0; ca < colsA; ca++ {
+				aComp := e.getComponentID(bin.Left, ca*rowsA+ra)
+				bComp := e.getComponentID(bin.Right, cb*rowsB+ca)
+				prod := e.addBinOpInstr(scalarTy, BinOpFMul, aComp, bComp)
+				if ca == 0 {
+					acc = prod
+				} else {
+					acc = e.addBinOpInstr(scalarTy, BinOpFAdd, acc, prod)
+				}
+			}
+			comps[cb*rowsA+ra] = acc
+		}
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMatrixComponentWise emits component-wise add/sub on all matrix elements.
+func (e *Emitter) emitMatrixComponentWise(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	total := int(mat.Columns) * int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+
+	var op BinOpKind
+	switch bin.Op {
+	case ir.BinaryAdd:
+		op = BinOpFAdd
+	case ir.BinarySubtract:
+		op = BinOpFSub
+	default:
+		return 0, fmt.Errorf("unsupported component-wise matrix operation: %v", bin.Op)
+	}
+
+	comps := make([]int, total)
+	for i := 0; i < total; i++ {
+		l := e.getComponentID(bin.Left, i)
+		r := e.getComponentID(bin.Right, i)
+		comps[i] = e.addBinOpInstr(scalarTy, op, l, r)
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMatrixScalarMul emits mat * scalar: scale every element of the matrix.
+func (e *Emitter) emitMatrixScalarMul(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	total := int(mat.Columns) * int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+	s := e.getComponentID(bin.Right, 0)
+
+	comps := make([]int, total)
+	for i := 0; i < total; i++ {
+		m := e.getComponentID(bin.Left, i)
+		comps[i] = e.addBinOpInstr(scalarTy, BinOpFMul, m, s)
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitScalarMatrixMul emits scalar * mat: scale every element of the matrix.
+func (e *Emitter) emitScalarMatrixMul(_ *ir.Function, bin ir.ExprBinary, mat ir.MatrixType) (int, error) {
+	total := int(mat.Columns) * int(mat.Rows)
+	scalarTy, _ := typeToDXIL(e.mod, e.ir, mat.Scalar)
+	s := e.getComponentID(bin.Left, 0)
+
+	comps := make([]int, total)
+	for i := 0; i < total; i++ {
+		m := e.getComponentID(bin.Right, i)
+		comps[i] = e.addBinOpInstr(scalarTy, BinOpFMul, s, m)
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMatrixTranspose swaps rows and columns of a matrix.
+// Input: C columns, R rows (component c*R+r). Output: R columns, C rows (component r*C+c).
+func (e *Emitter) emitMatrixTranspose(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	mat, ok := argType.(ir.MatrixType)
+	if !ok {
+		return 0, fmt.Errorf("MathTranspose: argument is not a matrix")
+	}
+
+	cols := int(mat.Columns)
+	rows := int(mat.Rows)
+	total := cols * rows
+	comps := make([]int, total)
+
+	// Transpose: output[r*cols+c] = input[c*rows+r]
+	// But we store output as column-major for the transposed matrix (R columns, C rows):
+	// output column r, row c = index r*C + c = input[c*R + r]
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			comps[r*cols+c] = e.getComponentID(mathExpr.Arg, c*rows+r)
+		}
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// selectBinaryOpcode returns the LLVM binary/comparison opcode for a naga binary operator.
+//
+//nolint:gocognit,gocyclo,cyclop,funlen // complete binary op dispatch table
+func selectBinaryOpcode(op ir.BinaryOperator, leftType ir.TypeInner) (BinOpKind, CmpPredicate, bool, error) {
+	isFloat := isFloatType(leftType)
+	isSigned := isSignedInt(leftType)
+
+	switch op {
+	case ir.BinaryAdd:
+		if isFloat {
+			return BinOpFAdd, 0, false, nil
+		}
+		return BinOpAdd, 0, false, nil
+	case ir.BinarySubtract:
+		if isFloat {
+			return BinOpFSub, 0, false, nil
+		}
+		return BinOpSub, 0, false, nil
+	case ir.BinaryMultiply:
+		if isFloat {
+			return BinOpFMul, 0, false, nil
+		}
+		return BinOpMul, 0, false, nil
+	case ir.BinaryDivide:
+		if isFloat {
+			return BinOpFDiv, 0, false, nil
+		}
+		if isSigned {
+			return BinOpSDiv, 0, false, nil
+		}
+		return BinOpUDiv, 0, false, nil
+	case ir.BinaryModulo:
+		if isFloat {
+			return BinOpFRem, 0, false, nil
+		}
+		if isSigned {
+			return BinOpSRem, 0, false, nil
+		}
+		return BinOpURem, 0, false, nil
+	case ir.BinaryAnd:
+		return BinOpAnd, 0, false, nil
+	case ir.BinaryExclusiveOr:
+		return BinOpXor, 0, false, nil
+	case ir.BinaryInclusiveOr:
+		return BinOpOr, 0, false, nil
+	case ir.BinaryEqual:
+		if isFloat {
+			return 0, FCmpOEQ, true, nil
+		}
+		return 0, ICmpEQ, true, nil
+	case ir.BinaryNotEqual:
+		if isFloat {
+			return 0, FCmpONE, true, nil
+		}
+		return 0, ICmpNE, true, nil
+	case ir.BinaryLess:
+		if isFloat {
+			return 0, FCmpOLT, true, nil
+		}
+		if isSigned {
+			return 0, ICmpSLT, true, nil
+		}
+		return 0, ICmpULT, true, nil
+	case ir.BinaryLessEqual:
+		if isFloat {
+			return 0, FCmpOLE, true, nil
+		}
+		if isSigned {
+			return 0, ICmpSLE, true, nil
+		}
+		return 0, ICmpULE, true, nil
+	case ir.BinaryGreater:
+		if isFloat {
+			return 0, FCmpOGT, true, nil
+		}
+		if isSigned {
+			return 0, ICmpSGT, true, nil
+		}
+		return 0, ICmpUGT, true, nil
+	case ir.BinaryGreaterEqual:
+		if isFloat {
+			return 0, FCmpOGE, true, nil
+		}
+		if isSigned {
+			return 0, ICmpSGE, true, nil
+		}
+		return 0, ICmpUGE, true, nil
+	default:
+		return 0, 0, false, fmt.Errorf("unsupported vector binary operator: %d", op)
+	}
+}
+
 // emitUnary emits a unary operation.
 func (e *Emitter) emitUnary(fn *ir.Function, un ir.ExprUnary) (int, error) {
 	operand, err := e.emitExpression(fn, un.Expr)
@@ -377,6 +1363,8 @@ func (e *Emitter) emitUnary(fn *ir.Function, un ir.ExprUnary) (int, error) {
 
 // emitMath emits a math intrinsic as a dx.op call.
 // Dispatches based on argument count and special-case operations.
+//
+//nolint:gocyclo,cyclop,funlen // math function dispatch requires many cases
 func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	// Special vector operations that need scalarized handling.
 	switch mathExpr.Fun {
@@ -400,11 +1388,82 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathStep(fn, mathExpr)
 	case ir.MathSmoothStep:
 		return e.emitMathSmoothStep(fn, mathExpr)
+	case ir.MathDegrees:
+		return e.emitMathDegrees(fn, mathExpr)
+	case ir.MathRadians:
+		return e.emitMathRadians(fn, mathExpr)
+	case ir.MathSign:
+		return e.emitMathSign(fn, mathExpr)
+	case ir.MathExtractBits:
+		return e.emitMathExtractBits(fn, mathExpr)
+	case ir.MathInsertBits:
+		return e.emitMathInsertBits(fn, mathExpr)
+	case ir.MathRefract:
+		return e.emitMathRefract(fn, mathExpr)
+	case ir.MathModf:
+		return e.emitMathModf(fn, mathExpr)
+	case ir.MathFrexp:
+		return e.emitMathFrexp(fn, mathExpr)
+	case ir.MathLdexp:
+		return e.emitMathLdexp(fn, mathExpr)
+	case ir.MathCountTrailingZeros:
+		return e.emitMathCountTrailingZeros(fn, mathExpr)
+	case ir.MathCountLeadingZeros:
+		return e.emitMathCountLeadingZeros(fn, mathExpr)
+	case ir.MathQuantizeF16:
+		return e.emitMathQuantizeF16(fn, mathExpr)
+	case ir.MathInverse:
+		return 0, fmt.Errorf("MathInverse (matrix) not yet implemented in DXIL backend")
+	case ir.MathDeterminant:
+		return 0, fmt.Errorf("MathDeterminant (matrix) not yet implemented in DXIL backend")
+	case ir.MathTranspose:
+		return e.emitMatrixTranspose(fn, mathExpr)
+	case ir.MathPack4x8snorm:
+		return e.emitMathPack4x8snorm(fn, mathExpr)
+	case ir.MathPack4x8unorm:
+		return e.emitMathPack4x8unorm(fn, mathExpr)
+	case ir.MathPack2x16snorm:
+		return e.emitMathPack2x16snorm(fn, mathExpr)
+	case ir.MathPack2x16unorm:
+		return e.emitMathPack2x16unorm(fn, mathExpr)
+	case ir.MathPack2x16float:
+		return e.emitMathPack2x16float(fn, mathExpr)
+	case ir.MathPack4xI8:
+		return e.emitMathPack4xI8(fn, mathExpr)
+	case ir.MathPack4xU8:
+		return e.emitMathPack4xU8(fn, mathExpr)
+	case ir.MathPack4xI8Clamp:
+		return e.emitMathPack4xI8Clamp(fn, mathExpr)
+	case ir.MathPack4xU8Clamp:
+		return e.emitMathPack4xU8Clamp(fn, mathExpr)
+	case ir.MathUnpack4x8snorm:
+		return e.emitMathUnpack4x8snorm(fn, mathExpr)
+	case ir.MathUnpack4x8unorm:
+		return e.emitMathUnpack4x8unorm(fn, mathExpr)
+	case ir.MathUnpack2x16snorm:
+		return e.emitMathUnpack2x16snorm(fn, mathExpr)
+	case ir.MathUnpack2x16unorm:
+		return e.emitMathUnpack2x16unorm(fn, mathExpr)
+	case ir.MathUnpack2x16float:
+		return e.emitMathUnpack2x16float(fn, mathExpr)
+	case ir.MathUnpack4xI8:
+		return e.emitMathUnpack4xI8(fn, mathExpr)
+	case ir.MathUnpack4xU8:
+		return e.emitMathUnpack4xU8(fn, mathExpr)
 	}
 
-	arg, err := e.emitExpression(fn, mathExpr.Arg)
-	if err != nil {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
 		return 0, err
+	}
+	if mathExpr.Arg1 != nil {
+		if _, err := e.emitExpression(fn, *mathExpr.Arg1); err != nil {
+			return 0, err
+		}
+	}
+	if mathExpr.Arg2 != nil {
+		if _, err := e.emitExpression(fn, *mathExpr.Arg2); err != nil {
+			return 0, err
+		}
 	}
 
 	argType := e.resolveExprType(fn, mathExpr.Arg)
@@ -415,26 +1474,25 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	ol := overloadForScalar(scalar)
 	isFloat := scalar.Kind == ir.ScalarFloat
 	isSigned := scalar.Kind == ir.ScalarSint
+	numComps := componentCount(argType)
+
+	// For vector types, scalarize: emit per-component math operations.
+	if numComps > 1 {
+		return e.emitMathVectorized(fn, mathExpr, ol, isFloat, isSigned, numComps)
+	}
+
+	arg := e.exprValues[mathExpr.Arg]
 
 	// Ternary: 3 args (Arg + Arg1 + Arg2).
 	if mathExpr.Arg1 != nil && mathExpr.Arg2 != nil {
-		arg1, err2 := e.emitExpression(fn, *mathExpr.Arg1)
-		if err2 != nil {
-			return 0, err2
-		}
-		arg2, err2 := e.emitExpression(fn, *mathExpr.Arg2)
-		if err2 != nil {
-			return 0, err2
-		}
+		arg1 := e.exprValues[*mathExpr.Arg1]
+		arg2 := e.exprValues[*mathExpr.Arg2]
 		return e.emitMathTernary(mathExpr.Fun, ol, isFloat, isSigned, arg, arg1, arg2)
 	}
 
 	// Binary: 2 args (Arg + Arg1).
 	if mathExpr.Arg1 != nil {
-		arg1, err2 := e.emitExpression(fn, *mathExpr.Arg1)
-		if err2 != nil {
-			return 0, err2
-		}
+		arg1 := e.exprValues[*mathExpr.Arg1]
 		return e.emitMathBinary(mathExpr.Fun, ol, isFloat, isSigned, arg, arg1)
 	}
 
@@ -448,6 +1506,56 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	opcodeVal := e.getIntConstID(int64(opcode))
 
 	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg}), nil
+}
+
+// emitMathVectorized emits a math operation per-component for vector operands.
+//
+//nolint:nestif // per-component dispatch for unary/binary/ternary math ops
+func (e *Emitter) emitMathVectorized(fn *ir.Function, mathExpr ir.ExprMath, ol overloadType, isFloat, isSigned bool, numComps int) (int, error) {
+	// Determine component counts for each argument to handle scalar broadcast.
+	// E.g., mix(vec3, vec3, scalar) — Arg2 is scalar, must broadcast to all components.
+	argComps := numComps
+	var arg1Comps, arg2Comps int
+	if mathExpr.Arg1 != nil {
+		arg1Type := e.resolveExprType(fn, *mathExpr.Arg1)
+		arg1Comps = componentCount(arg1Type)
+	}
+	if mathExpr.Arg2 != nil {
+		arg2Type := e.resolveExprType(fn, *mathExpr.Arg2)
+		arg2Comps = componentCount(arg2Type)
+	}
+
+	comps := make([]int, numComps)
+	for c := 0; c < numComps; c++ {
+		argC := e.getComponentIDSafe(mathExpr.Arg, c, argComps)
+
+		if mathExpr.Arg1 != nil && mathExpr.Arg2 != nil {
+			arg1C := e.getComponentIDSafe(*mathExpr.Arg1, c, arg1Comps)
+			arg2C := e.getComponentIDSafe(*mathExpr.Arg2, c, arg2Comps)
+			v, err := e.emitMathTernary(mathExpr.Fun, ol, isFloat, isSigned, argC, arg1C, arg2C)
+			if err != nil {
+				return 0, err
+			}
+			comps[c] = v
+		} else if mathExpr.Arg1 != nil {
+			arg1C := e.getComponentIDSafe(*mathExpr.Arg1, c, arg1Comps)
+			v, err := e.emitMathBinary(mathExpr.Fun, ol, isFloat, isSigned, argC, arg1C)
+			if err != nil {
+				return 0, err
+			}
+			comps[c] = v
+		} else {
+			opcode, opName, err := mathToDxOpUnary(mathExpr.Fun)
+			if err != nil {
+				return 0, err
+			}
+			dxFn := e.getDxOpUnaryFunc(opName, ol)
+			opcodeVal := e.getIntConstID(int64(opcode))
+			comps[c] = e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, argC})
+		}
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
 }
 
 // emitMathBinary emits a binary math dx.op call (min, max, atan2).
@@ -983,7 +2091,540 @@ func mathToDxOpUnary(mf ir.MathFunction) (DXILOpcode, string, error) {
 	}
 }
 
+// emitMathDegrees computes degrees = radians * (180.0 / pi).
+func (e *Emitter) emitMathDegrees(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	f32Ty := e.mod.GetFloatType(32)
+	factor := e.getFloatConstID(180.0 / math.Pi)
+	return e.addBinOpInstr(f32Ty, BinOpFMul, arg, factor), nil
+}
+
+// emitMathRadians computes radians = degrees * (pi / 180.0).
+func (e *Emitter) emitMathRadians(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	f32Ty := e.mod.GetFloatType(32)
+	factor := e.getFloatConstID(math.Pi / 180.0)
+	return e.addBinOpInstr(f32Ty, BinOpFMul, arg, factor), nil
+}
+
+// emitMathSign returns -1, 0, or 1 based on the sign of the argument.
+// For float: select(x > 0, 1.0, select(x < 0, -1.0, 0.0))
+// For int: select(x > 0, 1, select(x < 0, -1, 0))
+func (e *Emitter) emitMathSign(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+
+	if scalar.Kind == ir.ScalarFloat {
+		f32Ty := e.mod.GetFloatType(32)
+		zero := e.getFloatConstID(0.0)
+		posOne := e.getFloatConstID(1.0)
+		negOne := e.getFloatConstID(-1.0)
+		cmpGT := e.addCmpInstr(FCmpOGT, arg, zero)
+		cmpLT := e.addCmpInstr(FCmpOLT, arg, zero)
+		selNeg := e.emitSelect3(f32Ty, cmpLT, negOne, zero)
+		return e.emitSelect3(f32Ty, cmpGT, posOne, selNeg), nil
+	}
+	// Integer sign.
+	i32Ty := e.mod.GetIntType(32)
+	zero := e.getIntConstID(0)
+	posOne := e.getIntConstID(1)
+	negOne := e.getIntConstID(-1)
+	pred := ICmpSGT
+	if scalar.Kind == ir.ScalarUint {
+		pred = ICmpUGT
+	}
+	cmpGT := e.addCmpInstr(pred, arg, zero)
+	cmpLT := e.addCmpInstr(ICmpSLT, arg, zero)
+	selNeg := e.emitSelect3(i32Ty, cmpLT, negOne, zero)
+	return e.emitSelect3(i32Ty, cmpGT, posOne, selNeg), nil
+}
+
+// emitSelect3 emits a select instruction: result = cond ? trueVal : falseVal.
+func (e *Emitter) emitSelect3(resultTy *module.Type, cond, trueVal, falseVal int) int {
+	valueID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrSelect,
+		HasValue:   true,
+		ResultType: resultTy,
+		Operands:   []int{cond, trueVal, falseVal},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return valueID
+}
+
+// emitMathExtractBits emits dx.op.ibfe or dx.op.ubfe for bit field extraction.
+func (e *Emitter) emitMathExtractBits(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if mathExpr.Arg1 == nil || mathExpr.Arg2 == nil {
+		return 0, fmt.Errorf("extractBits requires 3 arguments")
+	}
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	offset, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+	count, err := e.emitExpression(fn, *mathExpr.Arg2)
+	if err != nil {
+		return 0, err
+	}
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, _ := scalarOfType(argType)
+	ol := overloadForScalar(scalar)
+
+	var opcode DXILOpcode
+	var opName string
+	if scalar.Kind == ir.ScalarSint {
+		opcode = OpIBfe
+		opName = "dx.op.ibfe"
+	} else {
+		opcode = OpUBfe
+		opName = "dx.op.ubfe"
+	}
+
+	dxFn := e.getDxOpTernaryFunc(opName, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, count, offset, arg}), nil
+}
+
+// emitMathInsertBits emits dx.op.bfi for bit field insertion.
+func (e *Emitter) emitMathInsertBits(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if mathExpr.Arg1 == nil || mathExpr.Arg2 == nil || mathExpr.Arg3 == nil {
+		return 0, fmt.Errorf("insertBits requires 4 arguments")
+	}
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	newBits, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+	offset, err := e.emitExpression(fn, *mathExpr.Arg2)
+	if err != nil {
+		return 0, err
+	}
+	count, err := e.emitExpression(fn, *mathExpr.Arg3)
+	if err != nil {
+		return 0, err
+	}
+	ol := overloadI32
+	dxFn := e.getDxOpQuaternaryFunc("dx.op.bfi", ol)
+	opcodeVal := e.getIntConstID(int64(OpBfi))
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, count, offset, newBits, arg}), nil
+}
+
+// emitMathLdexp emits dx.op.ldexp(value, exp) -> value * 2^exp.
+func (e *Emitter) emitMathLdexp(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if mathExpr.Arg1 == nil {
+		return 0, fmt.Errorf("ldexp requires 2 arguments")
+	}
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	exp, err := e.emitExpression(fn, *mathExpr.Arg1)
+	if err != nil {
+		return 0, err
+	}
+	// dx.op.ldexp signature: float @dx.op.ldexp(i32 opcode, float value, i32 exp)
+	// Custom function type: ret=float, params=[i32, float, i32]
+	f32Ty := e.mod.GetFloatType(32)
+	i32Ty := e.mod.GetIntType(32)
+	funcTy := e.mod.GetFunctionType(f32Ty, []*module.Type{i32Ty, f32Ty, i32Ty})
+	ldexpFn := e.getOrCreateDxOpFunc("dx.op.ldexp", overloadF32, funcTy)
+	opcodeVal := e.getIntConstID(int64(OpLdexp))
+	return e.addCallInstr(ldexpFn, f32Ty, []int{opcodeVal, arg, exp}), nil
+}
+
+// emitMathRefract computes refract(I, N, eta) manually since DXIL has no
+// native refract intrinsic.
+//
+// Formula:
+//
+//	d = dot(N, I)
+//	k = 1.0 - eta*eta * (1.0 - d*d)
+//	if k < 0.0: return zero vector
+//	else:       return eta * I - (eta * d + sqrt(k)) * N
+//
+// Reference: GLSL spec 8.5 Geometric Functions.
+func (e *Emitter) emitMathRefract(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, fmt.Errorf("refract I: %w", err)
+	}
+	if mathExpr.Arg1 == nil {
+		return 0, fmt.Errorf("refract: missing N argument")
+	}
+	if _, err := e.emitExpression(fn, *mathExpr.Arg1); err != nil {
+		return 0, fmt.Errorf("refract N: %w", err)
+	}
+	if mathExpr.Arg2 == nil {
+		return 0, fmt.Errorf("refract: missing eta argument")
+	}
+	etaID, err := e.emitExpression(fn, *mathExpr.Arg2)
+	if err != nil {
+		return 0, fmt.Errorf("refract eta: %w", err)
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	f32Ty := e.overloadReturnType(ol)
+
+	oneID := e.getFloatConstID(1.0)
+	zeroID := e.getFloatConstID(0.0)
+
+	// dot(N, I)
+	dotNI, dotErr := e.emitDotTwoVectors(mathExpr.Arg, *mathExpr.Arg1, size, ol)
+	if dotErr != nil {
+		return 0, fmt.Errorf("refract dot(N,I): %w", dotErr)
+	}
+
+	// k = 1.0 - eta*eta * (1.0 - d*d)
+	dd := e.addBinOpInstr(f32Ty, BinOpFMul, dotNI, dotNI)         // d*d
+	oneMinusDd := e.addBinOpInstr(f32Ty, BinOpFSub, oneID, dd)    // 1.0 - d*d
+	etaEta := e.addBinOpInstr(f32Ty, BinOpFMul, etaID, etaID)     // eta*eta
+	term := e.addBinOpInstr(f32Ty, BinOpFMul, etaEta, oneMinusDd) // eta*eta * (1-d*d)
+	k := e.addBinOpInstr(f32Ty, BinOpFSub, oneID, term)           // 1.0 - eta*eta*(1-d*d)
+
+	// sqrt(k)
+	sqrtFn := e.getDxOpUnaryFunc("dx.op.sqrt", ol)
+	sqrtOp := e.getIntConstID(int64(OpSqrt))
+	sqrtK := e.addCallInstr(sqrtFn, sqrtFn.FuncType.RetType, []int{sqrtOp, k})
+
+	// eta * d + sqrt(k)
+	etaD := e.addBinOpInstr(f32Ty, BinOpFMul, etaID, dotNI)
+	factor := e.addBinOpInstr(f32Ty, BinOpFAdd, etaD, sqrtK)
+
+	// k < 0.0 → select zero or refract result per component
+	kLtZero := e.addCmpInstr(FCmpOLT, k, zeroID)
+
+	// Per-component: eta * I[i] - factor * N[i], or zero if k < 0
+	comps := make([]int, size)
+	for i := 0; i < size; i++ {
+		iComp := e.getComponentID(mathExpr.Arg, i)
+		nComp := e.getComponentID(*mathExpr.Arg1, i)
+		etaI := e.addBinOpInstr(f32Ty, BinOpFMul, etaID, iComp)
+		factorN := e.addBinOpInstr(f32Ty, BinOpFMul, factor, nComp)
+		refracted := e.addBinOpInstr(f32Ty, BinOpFSub, etaI, factorN)
+		// select(kLtZero, zero, refracted)
+		selectID := e.allocValue()
+		selectInstr := &module.Instruction{
+			Kind:       module.InstrSelect,
+			HasValue:   true,
+			ResultType: f32Ty,
+			Operands:   []int{kLtZero, zeroID, refracted},
+			ValueID:    selectID,
+		}
+		e.currentBB.AddInstruction(selectInstr)
+		comps[i] = selectID
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitDotTwoVectors emits dot(A, B) for two different vector expression handles.
+func (e *Emitter) emitDotTwoVectors(handleA, handleB ir.ExpressionHandle, size int, ol overloadType) (int, error) {
+	var opcode DXILOpcode
+	switch size {
+	case 1:
+		// Scalar dot = a * b.
+		a := e.getComponentID(handleA, 0)
+		b := e.getComponentID(handleB, 0)
+		f32Ty := e.overloadReturnType(ol)
+		return e.addBinOpInstr(f32Ty, BinOpFMul, a, b), nil
+	case 2:
+		opcode = OpDot2
+	case 3:
+		opcode = OpDot3
+	case 4:
+		opcode = OpDot4
+	default:
+		return 0, fmt.Errorf("unsupported vector size for dot: %d", size)
+	}
+
+	dxFn := e.getDxOpDotFunc(size, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+
+	operands := make([]int, 1+2*size)
+	operands[0] = opcodeVal
+	for i := 0; i < size; i++ {
+		operands[1+i] = e.getComponentID(handleA, i)
+		operands[1+size+i] = e.getComponentID(handleB, i)
+	}
+
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, operands), nil
+}
+
+// emitMathModf splits a float into integer and fractional parts.
+// Returns a struct {fract, whole} where fract = x - floor(x) and whole = floor(x).
+// For vector inputs, produces per-component results flattened: [fract0, whole0, fract1, whole1, ...].
+//
+// DXIL has no native modf — we use floor + subtraction.
+func (e *Emitter) emitMathModf(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, fmt.Errorf("modf arg: %w", err)
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	f32Ty := e.overloadReturnType(ol)
+
+	floorFn := e.getDxOpUnaryFunc("dx.op.roundNI", ol)
+	floorOpVal := e.getIntConstID(int64(OpRoundNI))
+
+	// Result struct has {fract, whole} for scalar, or flattened for vectors:
+	// {fract0, fract1, ..., whole0, whole1, ...} OR {fract, whole}.
+	// Naga IR modf returns __modf_result with members [fract, whole],
+	// where each is scalar or vector matching the input type.
+	// Flatten as: fract components first, then whole components.
+	comps := make([]int, 2*size)
+	for i := 0; i < size; i++ {
+		x := e.getComponentID(mathExpr.Arg, i)
+		// whole = floor(x)
+		whole := e.addCallInstr(floorFn, floorFn.FuncType.RetType, []int{floorOpVal, x})
+		// fract = x - floor(x)
+		fract := e.addBinOpInstr(f32Ty, BinOpFSub, x, whole)
+		comps[i] = fract      // fract components first
+		comps[size+i] = whole // whole components after
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMathFrexp splits a float into significand and exponent.
+// Returns a struct {fract, exp} where x = fract * 2^exp, 0.5 <= |fract| < 1.
+//
+// DXIL has no native frexp. We compute:
+//
+//	abs_x = fabs(x)
+//	exp_raw = floor(log2(abs_x)) + 1    (for x != 0)
+//	exp_i = ftoi(exp_raw)
+//	fract = x * exp2(-exp_raw)
+//
+// For x == 0, both fract and exp should be 0.
+// Result struct layout: [fract components..., exp components...].
+func (e *Emitter) emitMathFrexp(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, fmt.Errorf("frexp arg: %w", err)
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+	scalar, ok := scalarOfType(argType)
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ol := overloadForScalar(scalar)
+	f32Ty := e.overloadReturnType(ol)
+	i32Ty := e.mod.GetIntType(32)
+
+	fabsFn := e.getDxOpUnaryFunc("dx.op.fabs", ol)
+	fabsOp := e.getIntConstID(int64(OpFAbs))
+	log2Fn := e.getDxOpUnaryFunc("dx.op.log", ol)
+	log2Op := e.getIntConstID(int64(OpLog))
+	floorFn := e.getDxOpUnaryFunc("dx.op.roundNI", ol)
+	floorOp := e.getIntConstID(int64(OpRoundNI))
+	exp2Fn := e.getDxOpUnaryFunc("dx.op.exp", ol)
+	exp2Op := e.getIntConstID(int64(OpExp))
+	oneID := e.getFloatConstID(1.0)
+	zeroF := e.getFloatConstID(0.0)
+	zeroI := e.getIntConstID(0)
+
+	comps := make([]int, 2*size)
+	for i := 0; i < size; i++ {
+		x := e.getComponentID(mathExpr.Arg, i)
+		// abs_x = fabs(x)
+		absX := e.addCallInstr(fabsFn, f32Ty, []int{fabsOp, x})
+		// log2_abs = log2(abs_x)
+		log2Abs := e.addCallInstr(log2Fn, f32Ty, []int{log2Op, absX})
+		// exp_raw = floor(log2_abs) + 1
+		floorLog := e.addCallInstr(floorFn, f32Ty, []int{floorOp, log2Abs})
+		expRaw := e.addBinOpInstr(f32Ty, BinOpFAdd, floorLog, oneID)
+		// neg_exp = 0 - exp_raw (for exp2(-exp))
+		negExp := e.addBinOpInstr(f32Ty, BinOpFSub, zeroF, expRaw)
+		// scale = exp2(-exp_raw)
+		scale := e.addCallInstr(exp2Fn, f32Ty, []int{exp2Op, negExp})
+		// fract = x * scale
+		fract := e.addBinOpInstr(f32Ty, BinOpFMul, x, scale)
+		// exp_i = ftoi(exp_raw)
+		expI := e.addCastInstr(i32Ty, CastFPToSI, expRaw)
+		// Handle x == 0: if x == 0, fract = 0, exp = 0
+		xIsZero := e.addCmpInstr(FCmpOEQ, x, zeroF)
+		fractID := e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind: module.InstrSelect, HasValue: true, ResultType: f32Ty,
+			Operands: []int{xIsZero, zeroF, fract}, ValueID: fractID,
+		})
+		expID := e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind: module.InstrSelect, HasValue: true, ResultType: i32Ty,
+			Operands: []int{xIsZero, zeroI, expI}, ValueID: expID,
+		})
+		comps[i] = fractID    // fract components first
+		comps[size+i] = expID // exp components after
+	}
+
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMathQuantizeF16 rounds f32 to f16 precision: f32 → fptrunc f16 → fpext f32.
+// For vectors, applies per-component.
+func (e *Emitter) emitMathQuantizeF16(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, fmt.Errorf("quantizeToF16 arg: %w", err)
+	}
+
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	size := componentCount(argType)
+
+	f16Ty := e.mod.GetFloatType(16)
+	f32Ty := e.mod.GetFloatType(32)
+
+	comps := make([]int, size)
+	for i := 0; i < size; i++ {
+		x := e.getComponentID(mathExpr.Arg, i)
+		// fptrunc f32 → f16
+		f16Val := e.addCastInstr(f16Ty, CastFPTrunc, x)
+		// fpext f16 → f32
+		comps[i] = e.addCastInstr(f32Ty, CastFPExt, f16Val)
+	}
+
+	if size > 1 {
+		e.pendingComponents = comps
+	}
+	return comps[0], nil
+}
+
+// emitMathCountTrailingZeros emulates countTrailingZeros using firstbitLo.
+// CTZ(x) = x == 0 ? 32 : firstbitLo(x)
+func (e *Emitter) emitMathCountTrailingZeros(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	ol := overloadI32
+
+	// firstbitLo(x) returns 0xFFFFFFFF (-1) if no bit is set.
+	dxFn := e.getDxOpUnaryFunc("dx.op.firstbitLo", ol)
+	opcodeVal := e.getIntConstID(int64(OpFirstbitLo))
+	fblo := e.addCallInstr(dxFn, i32Ty, []int{opcodeVal, arg})
+
+	// If firstbitLo returned -1 (no bits set), return 32.
+	negOne := e.getIntConstID(-1)
+	thirty2 := e.getIntConstID(32)
+	cmp := e.addCmpInstr(ICmpEQ, fblo, negOne)
+	return e.emitSelect3(i32Ty, cmp, thirty2, fblo), nil
+}
+
+// emitMathCountLeadingZeros emulates countLeadingZeros using firstbitHi.
+// CLZ(x) = x == 0 ? 32 : (31 - firstbitHi(x))
+// For signed: firstbitSHi returns position of highest bit differing from sign.
+func (e *Emitter) emitMathCountLeadingZeros(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	argType := e.resolveExprType(fn, mathExpr.Arg)
+	scalar, _ := scalarOfType(argType)
+
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	ol := overloadI32
+
+	var opcode DXILOpcode
+	var opName string
+	if scalar.Kind == ir.ScalarSint {
+		opcode = OpFirstbitShiHi
+		opName = "dx.op.firstbitSHi"
+	} else {
+		opcode = OpFirstbitHi
+		opName = "dx.op.firstbitHi"
+	}
+
+	dxFn := e.getDxOpUnaryFunc(opName, ol)
+	opcodeVal := e.getIntConstID(int64(opcode))
+	fbhi := e.addCallInstr(dxFn, i32Ty, []int{opcodeVal, arg})
+
+	// If firstbitHi returned -1 (all zeros/no significant bit), return 32.
+	negOne := e.getIntConstID(-1)
+	thirty2 := e.getIntConstID(32)
+	_ = i1Ty // used by addCmpInstr internally
+	cmp := e.addCmpInstr(ICmpEQ, fbhi, negOne)
+
+	if scalar.Kind == ir.ScalarSint {
+		// For signed, firstbitSHi returns position from MSB of highest differing bit.
+		// CLZ for signed = firstbitSHi value directly (it already counts from MSB).
+		return e.emitSelect3(i32Ty, cmp, thirty2, fbhi), nil
+	}
+	// For unsigned: firstbitHi returns position from LSB. CLZ = 31 - firstbitHi.
+	thirtyOne := e.getIntConstID(31)
+	sub := e.addBinOpInstr(i32Ty, BinOpSub, thirtyOne, fbhi)
+	return e.emitSelect3(i32Ty, cmp, thirty2, sub), nil
+}
+
+// getOrCreateDxOpFunc gets or creates a dx.op function with a custom type.
+func (e *Emitter) getOrCreateDxOpFunc(name string, ol overloadType, funcTy *module.Type) *module.Function {
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	suffix := overloadSuffix(ol)
+	fullName := name + suffix
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpQuaternaryFunc creates a dx.op function with 4 value arguments
+// (plus the opcode argument).
+func (e *Emitter) getDxOpQuaternaryFunc(name string, ol overloadType) *module.Function {
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	retTy := e.overloadReturnType(ol)
+	i32Ty := e.mod.GetIntType(32)
+	params := []*module.Type{i32Ty, retTy, retTy, retTy, retTy} // opcode + 4 values
+	funcTy := e.mod.GetFunctionType(retTy, params)
+	suffix := overloadSuffix(ol)
+	fullName := name + suffix
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
 // emitSelect emits a select (ternary) instruction.
+// For vector operands, emits per-component LLVM select instructions since DXIL
+// scalarizes all vector operations.
 func (e *Emitter) emitSelect(fn *ir.Function, sel ir.ExprSelect) (int, error) {
 	cond, err := e.emitExpression(fn, sel.Condition)
 	if err != nil {
@@ -999,6 +2640,28 @@ func (e *Emitter) emitSelect(fn *ir.Function, sel ir.ExprSelect) (int, error) {
 	}
 
 	acceptType := e.resolveExprType(fn, sel.Accept)
+	numComps := componentCount(acceptType)
+
+	if numComps > 1 {
+		// Vector select: emit per-component selects.
+		condType := e.resolveExprType(fn, sel.Condition)
+		condComps := componentCount(condType)
+		acceptComps := numComps
+		rejectType := e.resolveExprType(fn, sel.Reject)
+		rejectComps := componentCount(rejectType)
+
+		scalarTy, _ := typeToDXIL(e.mod, e.ir, acceptType)
+		comps := make([]int, numComps)
+		for c := 0; c < numComps; c++ {
+			condC := e.getComponentIDSafe(sel.Condition, c, condComps)
+			acceptC := e.getComponentIDSafe(sel.Accept, c, acceptComps)
+			rejectC := e.getComponentIDSafe(sel.Reject, c, rejectComps)
+			comps[c] = e.emitSelect3(scalarTy, condC, acceptC, rejectC)
+		}
+		e.pendingComponents = comps
+		return comps[0], nil
+	}
+
 	resultTy, _ := typeToDXIL(e.mod, e.ir, acceptType)
 
 	valueID := e.allocValue()
@@ -1013,17 +2676,242 @@ func (e *Emitter) emitSelect(fn *ir.Function, sel ir.ExprSelect) (int, error) {
 	return valueID, nil
 }
 
+// emitArrayLength emits a runtime array length query.
+//
+// In DXIL, buffer size is obtained via dx.op.getDimensions(72, handle, undef).
+// The result is a %dx.types.Dimensions = {i32, i32, i32, i32}; component 0
+// is the total byte size for buffer resources.
+// The element count is computed as: (totalBytes - offset) / stride
+//
+// For a global variable that IS an array: offset=0, stride from ArrayType.
+// For a global variable that is a struct with a runtime array as last member:
+// offset = last member's offset, stride from the array type.
+//
+// Reference: Mesa nir_to_dxil.c emit_get_ssbo_size() ~4344
+//
+//nolint:nestif,gocognit,gocyclo,cyclop,funlen // type resolution for array vs struct wrapping the runtime array
+func (e *Emitter) emitArrayLength(fn *ir.Function, al ir.ExprArrayLength) (int, error) {
+	// Resolve the global variable that owns this runtime array.
+	// Walk up the expression chain to find the GlobalVariable, handling binding arrays.
+	var varHandle ir.GlobalVariableHandle
+	var found bool
+	var bindingArrayIndex int64
+	var hasBindingArrayIndex bool
+
+	if int(al.Array) < len(fn.Expressions) {
+		// Walk up through AccessIndex/Access chains to find GlobalVariable.
+		cur := al.Array
+		for depth := 0; depth < 5; depth++ {
+			if int(cur) >= len(fn.Expressions) {
+				break
+			}
+			expr := fn.Expressions[cur]
+			switch ek := expr.Kind.(type) {
+			case ir.ExprGlobalVariable:
+				varHandle = ek.Variable
+				found = true
+			case ir.ExprAccessIndex:
+				// Check if this is a binding array index (base is GlobalVariable of binding array).
+				if int(ek.Base) < len(fn.Expressions) {
+					if gv, ok := fn.Expressions[ek.Base].Kind.(ir.ExprGlobalVariable); ok {
+						if idx, isRes := e.resourceHandles[gv.Variable]; isRes && e.resources[idx].isBindingArray {
+							varHandle = gv.Variable
+							found = true
+							bindingArrayIndex = int64(ek.Index)
+							hasBindingArrayIndex = true
+						} else {
+							varHandle = gv.Variable
+							found = true
+						}
+					} else {
+						cur = ek.Base
+						continue
+					}
+				}
+			case ir.ExprAccess:
+				// Dynamic binding array access: Access(base=GlobalVariable, index=expr).
+				if int(ek.Base) < len(fn.Expressions) {
+					if gv, ok := fn.Expressions[ek.Base].Kind.(ir.ExprGlobalVariable); ok {
+						if idx, isRes := e.resourceHandles[gv.Variable]; isRes && e.resources[idx].isBindingArray {
+							varHandle = gv.Variable
+							found = true
+							// Dynamic index needs emitting. For now set flag but leave index for later.
+							hasBindingArrayIndex = true
+							bindingArrayIndex = -1 // sentinel: need to emit dynamic index
+						}
+					}
+				}
+			}
+			break
+		}
+	}
+	if !found {
+		return 0, fmt.Errorf("ExprArrayLength: cannot resolve global variable from expression [%d]", al.Array)
+	}
+
+	// Look up the resource handle for this global variable.
+	resIdx, hasRes := e.resourceHandles[varHandle]
+	if !hasRes {
+		return 0, fmt.Errorf("ExprArrayLength: no resource handle for global variable [%d]", varHandle)
+	}
+
+	// Get or create the resource handle (dynamic for binding arrays).
+	var handleID int
+	res := &e.resources[resIdx]
+	if res.isBindingArray && hasBindingArrayIndex {
+		if bindingArrayIndex >= 0 {
+			// Constant index from AccessIndex.
+			var err2 error
+			handleID, err2 = e.emitDynamicCreateHandleConst(res, bindingArrayIndex)
+			if err2 != nil {
+				return 0, fmt.Errorf("ExprArrayLength: binding array handle: %w", err2)
+			}
+		} else {
+			// Dynamic index from Access — need to find and emit the index expression.
+			// Walk the chain to find the Access expression.
+			expr := fn.Expressions[al.Array]
+			if ai, ok := expr.Kind.(ir.ExprAccessIndex); ok {
+				if acc, ok2 := fn.Expressions[ai.Base].Kind.(ir.ExprAccess); ok2 {
+					var err2 error
+					handleID, err2 = e.emitDynamicCreateHandle(fn, res, acc.Index)
+					if err2 != nil {
+						return 0, fmt.Errorf("ExprArrayLength: binding array handle: %w", err2)
+					}
+				}
+			}
+		}
+	} else {
+		handleID = res.handleID
+	}
+
+	// Determine offset and stride from the type.
+	// For binding arrays, unwrap to get the base element type.
+	gv := &e.ir.GlobalVariables[varHandle]
+	var offset, stride uint32
+	if int(gv.Type) < len(e.ir.Types) {
+		inner := e.ir.Types[gv.Type].Inner
+		// Unwrap binding array to get the element type.
+		if ba, ok := inner.(ir.BindingArrayType); ok {
+			if int(ba.Base) < len(e.ir.Types) {
+				inner = e.ir.Types[ba.Base].Inner
+			}
+		}
+		switch typed := inner.(type) {
+		case ir.ArrayType:
+			offset = 0
+			stride = typed.Stride
+		case ir.StructType:
+			if len(typed.Members) > 0 {
+				last := typed.Members[len(typed.Members)-1]
+				offset = last.Offset
+				if int(last.Type) < len(e.ir.Types) {
+					if arr, ok := e.ir.Types[last.Type].Inner.(ir.ArrayType); ok {
+						stride = arr.Stride
+					}
+				}
+			}
+		}
+	}
+	if stride == 0 {
+		stride = 4 // Default to 4 bytes (f32/i32/u32).
+	}
+
+	// Emit dx.op.getDimensions(72, handle, undef) → %dx.types.Dimensions
+	i32Ty := e.mod.GetIntType(32)
+	dimTy := e.getDxDimensionsType()
+	getDimFn := e.getDxOpGetDimensionsFunc()
+
+	opcodeVal := e.getIntConstID(int64(OpGetDimensions))
+	undefVal := e.getUndefConstID()
+
+	dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, handleID, undefVal})
+
+	// Extract component 0 = total byte size.
+	totalBytesID := e.allocValue()
+	extractInstr := &module.Instruction{
+		Kind:       module.InstrExtractVal,
+		HasValue:   true,
+		ResultType: i32Ty,
+		Operands:   []int{dimRetID, 0},
+		ValueID:    totalBytesID,
+	}
+	e.currentBB.AddInstruction(extractInstr)
+
+	resultID := totalBytesID
+
+	// Subtract offset if nonzero: (totalBytes - offset)
+	if offset > 0 {
+		offsetID := e.getIntConstID(int64(offset))
+		resultID = e.addBinOpInstr(i32Ty, BinOpSub, resultID, offsetID)
+	}
+
+	// Divide by stride: result / stride
+	strideID := e.getIntConstID(int64(stride))
+	resultID = e.addBinOpInstr(i32Ty, BinOpUDiv, resultID, strideID)
+
+	return resultID, nil
+}
+
 // emitLoad emits a load through a pointer.
 func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
+	// Check if this load is from a CBV (constant buffer) pointer chain.
+	// CBV loads use dx.op.cbufferLoadLegacy instead of LLVM load instructions.
+	// Reference: Mesa nir_to_dxil.c emit_load_ubo_vec4() line ~3527
+	if chain, ok := e.resolveCBVPointerChain(fn, load.Pointer); ok {
+		return e.emitCBVLoad(fn, chain)
+	}
+
+	// Check if this load is from a UAV (storage buffer) pointer chain.
+	// UAV loads use dx.op.bufferLoad instead of LLVM load instructions.
+	// Reference: Mesa nir_to_dxil.c emit_bufferload_call() line ~833
+	if chain, ok := e.resolveUAVPointerChain(fn, load.Pointer); ok {
+		return e.emitUAVLoad(fn, chain)
+	}
+
+	// Emit the pointer expression first (may create allocas for local vars).
 	ptr, err := e.emitExpression(fn, load.Pointer)
 	if err != nil {
 		return 0, err
+	}
+
+	// Check if this is a vector load from a local variable with per-component allocas.
+	// This check is AFTER emitting the pointer so that allocas are created.
+	if lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable); ok {
+		if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
+			return e.emitVectorLoad(fn, compPtrs, load.Pointer)
+		}
+
+		// Check if this is a struct load from a local variable.
+		// DXIL does not support aggregate (struct) loads — decompose into
+		// per-member GEP + scalar load, tracking components for downstream use.
+		if dxilStructTy, hasStruct := e.localVarStructTypes[lv.Variable]; hasStruct {
+			return e.emitStructLoad(ptr, dxilStructTy)
+		}
+	}
+
+	// Check struct/array loads from global variable allocas.
+	if id, handled, loadErr := e.tryGlobalVarAllocaLoad(fn, load.Pointer, ptr); loadErr != nil {
+		return 0, loadErr
+	} else if handled {
+		return id, nil
 	}
 
 	// Resolve the loaded type from the pointer's target type.
 	loadedTy, err := e.resolveLoadType(fn, load.Pointer)
 	if err != nil {
 		return 0, fmt.Errorf("load type resolution: %w", err)
+	}
+
+	// For struct types, decompose into per-member scalar loads.
+	// This handles cases where the pointer source is not a simple local/global variable.
+	if loadedTy.Kind == module.TypeStruct {
+		return e.emitStructLoad(ptr, loadedTy)
+	}
+
+	// For array types, decompose into per-element scalar loads.
+	// DXIL does not support aggregate (array) type loads.
+	if loadedTy.Kind == module.TypeArray && loadedTy.ElemType != nil {
+		return e.emitArrayLoad(ptr, loadedTy)
 	}
 
 	// Emit LLVM load instruction: %val = load TYPE, TYPE* %ptr, align N
@@ -1040,12 +2928,135 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 	return valueID, nil
 }
 
-// emitLocalVariable emits an alloca for the local variable (on first use)
-// and returns the pointer value ID.
+// emitVectorLoad loads each component from separate allocas and tracks them
+// as per-component values. Returns the first component's value ID.
+func (e *Emitter) emitVectorLoad(fn *ir.Function, compPtrs []int, ptrHandle ir.ExpressionHandle) (int, error) {
+	// Resolve the scalar element type.
+	loadedTy, err := e.resolveLoadType(fn, ptrHandle)
+	if err != nil {
+		return 0, fmt.Errorf("vector load type resolution: %w", err)
+	}
+	align := e.alignForType(loadedTy)
+
+	componentIDs := make([]int, len(compPtrs))
+	for i, ptr := range compPtrs {
+		valueID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrLoad,
+			HasValue:   true,
+			ResultType: loadedTy,
+			Operands:   []int{ptr, loadedTy.ID, align, 0},
+			ValueID:    valueID,
+		}
+		e.currentBB.AddInstruction(instr)
+		componentIDs[i] = valueID
+	}
+
+	// Store per-component IDs so getComponentID can resolve them.
+	e.pendingComponents = componentIDs
+	return componentIDs[0], nil
+}
+
+// tryGlobalVarAllocaLoad checks if a load pointer targets a global variable alloca
+// with a struct or array type and decomposes the load accordingly.
+func (e *Emitter) tryGlobalVarAllocaLoad(fn *ir.Function, ptrHandle ir.ExpressionHandle, ptrID int) (int, bool, error) {
+	gv, ok := fn.Expressions[ptrHandle].Kind.(ir.ExprGlobalVariable)
+	if !ok {
+		return 0, false, nil
+	}
+	dxilTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
+	if !hasTy {
+		return 0, false, nil
+	}
+	if dxilTy.Kind == module.TypeStruct {
+		id, err := e.emitStructLoad(ptrID, dxilTy)
+		return id, true, err
+	}
+	if dxilTy.Kind == module.TypeArray && dxilTy.ElemType != nil {
+		id, err := e.emitArrayLoad(ptrID, dxilTy)
+		return id, true, err
+	}
+	return 0, false, nil
+}
+
+// emitArrayLoad decomposes an array load into per-element GEP + scalar loads.
+// DXIL does not support aggregate (array) type loads, so we load each element
+// individually and track them as components.
+func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error) {
+	elemTy := arrayTy.ElemType
+	if elemTy == nil {
+		return e.getIntConstID(0), nil
+	}
+	numElems := int(arrayTy.ElemCount) //nolint:gosec // ElemCount bounded by shader array size
+	if numElems == 0 {
+		return e.getIntConstID(0), nil
+	}
+
+	resultPtrTy := e.mod.GetPointerType(elemTy)
+	zeroID := e.getIntConstID(0)
+	align := e.alignForType(elemTy)
+
+	componentIDs := make([]int, numElems)
+	for i := 0; i < numElems; i++ {
+		indexID := e.getIntConstID(int64(i))
+		gepID := e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
+
+		valueID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrLoad,
+			HasValue:   true,
+			ResultType: elemTy,
+			Operands:   []int{gepID, elemTy.ID, align, 0},
+			ValueID:    valueID,
+		}
+		e.currentBB.AddInstruction(instr)
+		componentIDs[i] = valueID
+	}
+
+	e.pendingComponents = componentIDs
+	return componentIDs[0], nil
+}
+
+// emitStructLoad decomposes a struct load into per-member GEP + scalar loads.
+// DXIL does not support aggregate (struct) type loads, so we must load each
+// scalar field individually and track them as components.
+// Returns the first component's value ID and sets pendingComponents.
+func (e *Emitter) emitStructLoad(basePtrID int, dxilStructTy *module.Type) (int, error) {
+	if len(dxilStructTy.StructElems) == 0 {
+		return e.getIntConstID(0), nil
+	}
+
+	zeroID := e.getIntConstID(0)
+	componentIDs := make([]int, len(dxilStructTy.StructElems))
+
+	for i, elemTy := range dxilStructTy.StructElems {
+		indexID := e.getIntConstID(int64(i))
+		resultPtrTy := e.mod.GetPointerType(elemTy)
+		gepID := e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
+
+		align := e.alignForType(elemTy)
+		valueID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrLoad,
+			HasValue:   true,
+			ResultType: elemTy,
+			Operands:   []int{gepID, elemTy.ID, align, 0},
+			ValueID:    valueID,
+		}
+		e.currentBB.AddInstruction(instr)
+		componentIDs[i] = valueID
+	}
+
+	e.pendingComponents = componentIDs
+	return componentIDs[0], nil
+}
+
+// emitLocalVariable emits alloca(s) for the local variable (on first use)
+// and returns the pointer value ID of the first component.
 //
-// DXIL uses the standard LLVM stack allocation pattern:
-//
-//	%ptr = alloca TYPE, i32 1, align N
+// For scalar types, a single alloca is emitted.
+// For vector types (vec2/vec3/vec4), one alloca per component is emitted
+// since DXIL scalarizes all vector operations.
 //
 // Reference: Mesa nir_to_dxil.c emit_scratch() — dxil_emit_alloca(mod, type, 1, 16)
 func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (int, error) {
@@ -1061,7 +3072,25 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	localVar := &fn.LocalVars[lv.Variable]
 	irType := e.ir.Types[localVar.Type]
 
-	// Resolve the DXIL element type for the allocation.
+	// For struct types, allocate the full struct (GEP will be used for member access).
+	if _, isSt := irType.Inner.(ir.StructType); isSt {
+		return e.emitStructLocalVariable(lv.Variable, localVar, irType)
+	}
+
+	// For array types, allocate the full array (GEP will be used for element access).
+	if _, isArr := irType.Inner.(ir.ArrayType); isArr {
+		return e.emitArrayLocalVariable(lv.Variable, localVar, irType)
+	}
+
+	// Determine number of components and scalar type.
+	numComponents := 1
+	if vt, ok := irType.Inner.(ir.VectorType); ok {
+		numComponents = int(vt.Size)
+	} else if mt, ok := irType.Inner.(ir.MatrixType); ok {
+		numComponents = int(mt.Columns) * int(mt.Rows)
+	}
+
+	// Resolve the DXIL scalar element type for the allocation.
 	elemTy, err := typeToDXIL(e.mod, e.ir, irType.Inner)
 	if err != nil {
 		return 0, fmt.Errorf("local var %q type: %w", localVar.Name, err)
@@ -1073,13 +3102,116 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	// Size operand: i32 constant 1 (allocate a single element).
 	sizeID := e.getIntConstID(1)
 
-	// Alignment: log2(align) + 1, with bit 6 set (Mesa convention).
-	// Mesa uses 16-byte alignment for scratch variables.
-	align := e.alignForType(elemTy)
-	alignFlags := align | (1 << 6) // bit 6 = InAlloca flag in LLVM encoding
+	// Alignment: log2(align) + 1, with bit 6 set for explicit type (LLVM 3.7).
+	// Mesa: util_logbase2(align) + 1, then |= (1 << 6).
+	// Reference: Mesa dxil_module.c dxil_emit_alloca().
+	align := e.alignForType(elemTy) + 1 // log2(bytes) + 1
+	alignFlags := align | (1 << 6)
+
+	i32Ty := e.mod.GetIntType(32)
+	componentPtrs := make([]int, numComponents)
+
+	for i := 0; i < numComponents; i++ {
+		valueID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrAlloca,
+			HasValue:   true,
+			ResultType: ptrTy,
+			Operands:   []int{elemTy.ID, i32Ty.ID, sizeID, alignFlags},
+			ValueID:    valueID,
+		}
+		e.currentBB.AddInstruction(instr)
+		componentPtrs[i] = valueID
+	}
+
+	e.localVarPtrs[lv.Variable] = componentPtrs[0]
+	if numComponents > 1 {
+		e.localVarComponentPtrs[lv.Variable] = componentPtrs
+	}
+	return componentPtrs[0], nil
+}
+
+// emitStructLocalVariable emits a single alloca for a struct-typed local variable.
+// Member access is via GEP instructions (emitted by emitAccessIndex).
+func (e *Emitter) emitStructLocalVariable(varIdx uint32, localVar *ir.LocalVariable, irType ir.Type) (int, error) {
+	structTy, err := typeToDXILFull(e.mod, e.ir, irType.Inner)
+	if err != nil {
+		return 0, fmt.Errorf("local var %q struct type: %w", localVar.Name, err)
+	}
+	e.localVarStructTypes[varIdx] = structTy
+	valueID := e.emitCompositeAlloca(structTy)
+	e.localVarPtrs[varIdx] = valueID
+	return valueID, nil
+}
+
+// emitArrayLocalVariable emits a single alloca for an array-typed local variable.
+// Element access is via GEP instructions (emitted by emitAccess).
+func (e *Emitter) emitArrayLocalVariable(varIdx uint32, localVar *ir.LocalVariable, irType ir.Type) (int, error) {
+	arrayTy, err := typeToDXIL(e.mod, e.ir, irType.Inner)
+	if err != nil {
+		return 0, fmt.Errorf("local var %q array type: %w", localVar.Name, err)
+	}
+	e.localVarArrayTypes[varIdx] = arrayTy
+	valueID := e.emitCompositeAlloca(arrayTy)
+	e.localVarPtrs[varIdx] = valueID
+	return valueID, nil
+}
+
+// emitCompositeAlloca emits an alloca instruction for a composite type
+// (struct or array) and returns the pointer value ID.
+func (e *Emitter) emitCompositeAlloca(elemTy *module.Type) int {
+	ptrTy := e.mod.GetPointerType(elemTy)
+	sizeID := e.getIntConstID(1)
+	i32Ty := e.mod.GetIntType(32)
+
+	// Alignment: log2(4) + 1 = 3, with bit 6 set for explicit type.
+	alignFlags := 3 | (1 << 6)
 
 	valueID := e.allocValue()
+	instr := &module.Instruction{
+		Kind:       module.InstrAlloca,
+		HasValue:   true,
+		ResultType: ptrTy,
+		Operands:   []int{elemTy.ID, i32Ty.ID, sizeID, alignFlags},
+		ValueID:    valueID,
+	}
+	e.currentBB.AddInstruction(instr)
+	return valueID
+}
+
+// emitGlobalVarAlloca emits an alloca for a non-resource global variable
+// (workgroup, private, push-constant without binding). Returns the alloca pointer ID.
+// Caches the result so multiple references to the same global get the same alloca.
+//
+// In proper DXIL, workgroup variables should be address-space 3 globals.
+// For now, we emit them as function-local allocas so load/store work correctly.
+func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, error) {
+	// Return cached alloca if already emitted.
+	if ptr, ok := e.globalVarAllocas[varHandle]; ok {
+		return ptr, nil
+	}
+
+	if int(varHandle) >= len(e.ir.GlobalVariables) {
+		return 0, fmt.Errorf("global variable %d out of range", varHandle)
+	}
+	gv := &e.ir.GlobalVariables[varHandle]
+	irType := e.ir.Types[gv.Type]
+
+	// Get DXIL type for the alloca.
+	elemTy, err := typeToDXILFull(e.mod, e.ir, irType.Inner)
+	if err != nil {
+		return 0, fmt.Errorf("global var %q type: %w", gv.Name, err)
+	}
+	ptrTy := e.mod.GetPointerType(elemTy)
+
+	sizeID := e.getIntConstID(1)
 	i32Ty := e.mod.GetIntType(32)
+
+	// Alignment: log2(align) + 1, with bit 6 set for explicit type (LLVM 3.7).
+	align := e.alignForType(elemTy) + 1
+	alignFlags := align | (1 << 6)
+
+	valueID := e.allocValue()
 	instr := &module.Instruction{
 		Kind:       module.InstrAlloca,
 		HasValue:   true,
@@ -1089,19 +3221,24 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	}
 	e.currentBB.AddInstruction(instr)
 
-	e.localVarPtrs[lv.Variable] = valueID
+	e.globalVarAllocas[varHandle] = valueID
+	e.globalVarAllocaTypes[varHandle] = elemTy
 	return valueID, nil
 }
 
 // resolveLoadType determines the DXIL type produced by loading from the given
-// pointer expression. It examines the pointer expression kind (local variable
-// or global variable) to find the element type.
+// pointer expression. It examines the pointer expression kind (local variable,
+// global variable, or access index) to find the element type.
 func (e *Emitter) resolveLoadType(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*module.Type, error) {
 	expr := fn.Expressions[ptrHandle]
 	switch pk := expr.Kind.(type) {
 	case ir.ExprLocalVariable:
 		if int(pk.Variable) >= len(fn.LocalVars) {
 			return nil, fmt.Errorf("local variable %d out of range", pk.Variable)
+		}
+		// For struct local vars, return the cached flattened type to match the alloca.
+		if cachedTy, ok := e.localVarStructTypes[pk.Variable]; ok {
+			return cachedTy, nil
 		}
 		lv := &fn.LocalVars[pk.Variable]
 		irType := e.ir.Types[lv.Type]
@@ -1115,9 +3252,167 @@ func (e *Emitter) resolveLoadType(fn *ir.Function, ptrHandle ir.ExpressionHandle
 		irType := e.ir.Types[gv.Type]
 		return typeToDXIL(e.mod, e.ir, irType.Inner)
 
+	case ir.ExprAccessIndex:
+		// AccessIndex into a struct produces a GEP pointer to the member.
+		// Resolve the member type.
+		innerTy := e.resolveAccessIndexResultType(fn, pk)
+		if innerTy != nil {
+			return typeToDXIL(e.mod, e.ir, innerTy)
+		}
+		return e.resolveLoadTypeFromExpressionInfo(fn, ptrHandle)
+
+	case ir.ExprAccess:
+		// Dynamic access into an array produces a GEP pointer to the element.
+		// Resolve the element type from the base array type.
+		innerTy := e.resolveAccessResultType(fn, pk)
+		if innerTy != nil {
+			return typeToDXIL(e.mod, e.ir, innerTy)
+		}
+		return e.resolveLoadTypeFromExpressionInfo(fn, ptrHandle)
+
 	default:
 		return e.resolveLoadTypeFromExpressionInfo(fn, ptrHandle)
 	}
+}
+
+// resolveNestedStructAccess walks an AccessIndex chain to find the root local
+// variable and compute the cumulative flat offset for nested struct access.
+// Returns (rootVarIdx, rootAllocaID, flatOffset, ok).
+func (e *Emitter) resolveNestedStructAccess(fn *ir.Function, ai ir.ExprAccessIndex) (uint32, int, int, bool) {
+	baseExpr := fn.Expressions[ai.Base]
+
+	bk, isAI := baseExpr.Kind.(ir.ExprAccessIndex)
+	if !isAI {
+		return 0, 0, 0, false
+	}
+
+	// Try to resolve from a 2-level chain: AccessIndex → AccessIndex → LocalVariable.
+	if result, ok := e.resolveNestedFromLocalVar(fn, bk, ai); ok {
+		return result.varIdx, result.allocaID, result.flatOffset, true
+	}
+
+	// Deeper nesting: recursively resolve.
+	if rootVar, rootAlloca, parentOffset, ok := e.resolveNestedStructAccess(fn, bk); ok {
+		return rootVar, rootAlloca, parentOffset + int(ai.Index), true
+	}
+
+	return 0, 0, 0, false
+}
+
+// nestedStructResult holds the result of nested struct access resolution.
+type nestedStructResult struct {
+	varIdx     uint32
+	allocaID   int
+	flatOffset int
+}
+
+// resolveNestedFromLocalVar resolves a 2-level chain: parentAI → LocalVariable.
+func (e *Emitter) resolveNestedFromLocalVar(fn *ir.Function, parentAI ir.ExprAccessIndex, childAI ir.ExprAccessIndex) (nestedStructResult, bool) {
+	innerExpr := fn.Expressions[parentAI.Base]
+	lv, ok := innerExpr.Kind.(ir.ExprLocalVariable)
+	if !ok || int(lv.Variable) >= len(fn.LocalVars) {
+		return nestedStructResult{}, false
+	}
+
+	localVar := &fn.LocalVars[lv.Variable]
+	irType := e.ir.Types[localVar.Type]
+	st, isSt := irType.Inner.(ir.StructType)
+	if !isSt || int(parentAI.Index) >= len(st.Members) {
+		return nestedStructResult{}, false
+	}
+
+	parentFlat := flatMemberOffset(e.ir, st, int(parentAI.Index))
+	parentMemberTy := e.ir.Types[st.Members[parentAI.Index].Type]
+	innerSt, ok := parentMemberTy.Inner.(ir.StructType)
+	if !ok {
+		return nestedStructResult{}, false
+	}
+
+	innerFlat := flatMemberOffset(e.ir, innerSt, int(childAI.Index))
+	allocaID := e.localVarPtrs[lv.Variable]
+	return nestedStructResult{
+		varIdx:     lv.Variable,
+		allocaID:   allocaID,
+		flatOffset: parentFlat + innerFlat,
+	}, true
+}
+
+// resolveAccessIndexResultType resolves the IR type that an AccessIndex expression
+// points to, by walking the base expression chain to find the struct and extracting
+// the member type at the given index.
+func (e *Emitter) resolveAccessIndexResultType(fn *ir.Function, ai ir.ExprAccessIndex) ir.TypeInner {
+	// Walk to find the base type.
+	baseExpr := fn.Expressions[ai.Base]
+	var baseInner ir.TypeInner
+
+	switch bk := baseExpr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		if int(bk.Variable) < len(fn.LocalVars) {
+			lv := &fn.LocalVars[bk.Variable]
+			baseInner = e.ir.Types[lv.Type].Inner
+		}
+	case ir.ExprGlobalVariable:
+		if int(bk.Variable) < len(e.ir.GlobalVariables) {
+			gv := &e.ir.GlobalVariables[bk.Variable]
+			baseInner = e.ir.Types[gv.Type].Inner
+		}
+	case ir.ExprAccessIndex:
+		// Nested access — recursively resolve.
+		baseInner = e.resolveAccessIndexResultType(fn, bk)
+	}
+
+	if baseInner == nil {
+		return nil
+	}
+
+	// Extract the member type at the given index.
+	switch t := baseInner.(type) {
+	case ir.StructType:
+		if int(ai.Index) < len(t.Members) {
+			return e.ir.Types[t.Members[ai.Index].Type].Inner
+		}
+	case ir.VectorType:
+		return t.Scalar
+	case ir.ArrayType:
+		return e.ir.Types[t.Base].Inner
+	}
+	return nil
+}
+
+// resolveAccessResultType resolves the IR type that a dynamic Access expression
+// points to. For array access, returns the element type.
+func (e *Emitter) resolveAccessResultType(fn *ir.Function, acc ir.ExprAccess) ir.TypeInner {
+	baseExpr := fn.Expressions[acc.Base]
+	var baseInner ir.TypeInner
+
+	switch bk := baseExpr.Kind.(type) {
+	case ir.ExprLocalVariable:
+		if int(bk.Variable) < len(fn.LocalVars) {
+			lv := &fn.LocalVars[bk.Variable]
+			baseInner = e.ir.Types[lv.Type].Inner
+		}
+	case ir.ExprGlobalVariable:
+		if int(bk.Variable) < len(e.ir.GlobalVariables) {
+			gv := &e.ir.GlobalVariables[bk.Variable]
+			baseInner = e.ir.Types[gv.Type].Inner
+		}
+	case ir.ExprAccessIndex:
+		baseInner = e.resolveAccessIndexResultType(fn, bk)
+	}
+
+	if baseInner == nil {
+		return nil
+	}
+
+	switch t := baseInner.(type) {
+	case ir.ArrayType:
+		if int(t.Base) < len(e.ir.Types) {
+			return e.ir.Types[t.Base].Inner
+		}
+	case ir.VectorType:
+		return t.Scalar
+	}
+	return nil
 }
 
 // resolveLoadTypeFromExpressionInfo resolves the loaded type by examining
@@ -1178,26 +3473,58 @@ func (e *Emitter) alignForType(ty *module.Type) int {
 }
 
 // emitZeroValue emits a zero-initialized constant.
-func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) { //nolint:unparam // error return for interface consistency
+func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) {
 	ty := e.ir.Types[zv.Type]
 	inner := ty.Inner
 
-	switch inner.(type) {
+	switch t := inner.(type) {
 	case ir.ScalarType:
-		s := inner.(ir.ScalarType)
-		if s.Kind == ir.ScalarFloat {
+		if t.Kind == ir.ScalarFloat {
 			return e.getFloatConstID(0.0), nil
 		}
 		return e.getIntConstID(0), nil
 	case ir.VectorType:
-		vt := inner.(ir.VectorType)
-		if vt.Scalar.Kind == ir.ScalarFloat {
-			return e.getFloatConstID(0.0), nil
+		var zeroID int
+		if t.Scalar.Kind == ir.ScalarFloat {
+			zeroID = e.getFloatConstID(0.0)
+		} else {
+			zeroID = e.getIntConstID(0)
 		}
-		return e.getIntConstID(0), nil
+		// Set up per-component tracking — all components are the same zero value.
+		size := int(t.Size)
+		if size > 1 {
+			comps := make([]int, size)
+			for i := range comps {
+				comps[i] = zeroID
+			}
+			e.pendingComponents = comps
+		}
+		return zeroID, nil
 	default:
 		return e.getIntConstID(0), nil
 	}
+}
+
+// emitOverride emits a pipeline-overridable constant's default value.
+// DXIL has no direct equivalent to WGSL overrides; we emit them as their
+// default init values (matching ProcessOverrides with empty constants map).
+func (e *Emitter) emitOverride(eo ir.ExprOverride) (int, error) {
+	if int(eo.Override) >= len(e.ir.Overrides) {
+		return 0, fmt.Errorf("override %d out of range", eo.Override)
+	}
+	ov := &e.ir.Overrides[eo.Override]
+
+	// Use the override's init expression if available.
+	if ov.Init != nil {
+		return e.emitGlobalExpression(*ov.Init)
+	}
+
+	// No default value — emit zero for the override's type.
+	inner := e.ir.Types[ov.Ty].Inner
+	if s, ok := scalarOfType(inner); ok && s.Kind == ir.ScalarFloat {
+		return e.getFloatConstID(0.0), nil
+	}
+	return e.getIntConstID(0), nil
 }
 
 // emitConstant emits a reference to a module-scope constant.
@@ -1206,14 +3533,71 @@ func (e *Emitter) emitConstant(ec ir.ExprConstant) (int, error) {
 
 	// Look at the init expression in GlobalExpressions.
 	if int(c.Init) < len(e.ir.GlobalExpressions) {
-		globalExpr := e.ir.GlobalExpressions[c.Init]
-		if lit, ok := globalExpr.Kind.(ir.Literal); ok {
-			return e.emitLiteral(lit)
-		}
+		return e.emitGlobalExpression(c.Init)
 	}
 
 	// Fallback: zero value.
 	return e.getIntConstID(0), nil
+}
+
+// emitGlobalExpression recursively emits a global expression, handling
+// Literal, Compose (for vector/struct constants), ZeroValue, and Splat.
+func (e *Emitter) emitGlobalExpression(handle ir.ExpressionHandle) (int, error) {
+	if int(handle) >= len(e.ir.GlobalExpressions) {
+		return e.getIntConstID(0), nil
+	}
+	globalExpr := e.ir.GlobalExpressions[handle]
+
+	switch gk := globalExpr.Kind.(type) {
+	case ir.Literal:
+		return e.emitLiteral(gk)
+
+	case ir.ExprCompose:
+		// Vector/struct constant: emit each component from global expressions.
+		if len(gk.Components) == 0 {
+			return e.getIntConstID(0), nil
+		}
+		var flatIDs []int
+		for _, ch := range gk.Components {
+			v, err := e.emitGlobalExpression(ch)
+			if err != nil {
+				return 0, err
+			}
+			flatIDs = append(flatIDs, v)
+		}
+		e.pendingComponents = flatIDs
+		return flatIDs[0], nil
+
+	case ir.ExprZeroValue:
+		return e.emitZeroValue(gk)
+
+	case ir.ExprSplat:
+		// Splat: emit the single value and replicate for all components.
+		v, err := e.emitGlobalExpression(gk.Value)
+		if err != nil {
+			return 0, err
+		}
+		// Determine vector size from the type.
+		if int(gk.Size) >= 2 {
+			comps := make([]int, gk.Size)
+			for i := range comps {
+				comps[i] = v
+			}
+			e.pendingComponents = comps
+		}
+		return v, nil
+
+	case ir.ExprConstant:
+		// Nested constant reference.
+		return e.emitConstant(gk)
+
+	case ir.ExprOverride:
+		return e.emitOverride(gk)
+
+	default:
+		// Unsupported global expression kind — fall back to zero.
+		return e.getIntConstID(0), nil
+	}
 }
 
 // emitAs emits a type cast expression using LLVM cast instructions.
@@ -1602,4 +3986,353 @@ func (e *Emitter) emitRelational(fn *ir.Function, rel ir.ExprRelational) (int, e
 	default:
 		return 0, fmt.Errorf("unsupported relational function: %d", rel.Fun)
 	}
+}
+
+// resolveExprTypeInner returns the IR TypeInner for an expression.
+// Uses ExpressionTypes if available, otherwise falls back to heuristics.
+func (e *Emitter) resolveExprTypeInner(fn *ir.Function, handle ir.ExpressionHandle) ir.TypeInner {
+	if int(handle) < len(fn.ExpressionTypes) {
+		tr := &fn.ExpressionTypes[handle]
+		if tr.Handle != nil {
+			return e.ir.Types[*tr.Handle].Inner
+		}
+		if tr.Value != nil {
+			return tr.Value
+		}
+	}
+	// Fallback: use existing resolveExprType which infers from expression kind.
+	return e.resolveExprType(fn, handle)
+}
+
+// ============================================================================
+// Pack/Unpack math polyfills
+// ============================================================================
+
+// emitMathPack4x8snorm packs vec4<f32> into u32 using signed normalization.
+func (e *Emitter) emitMathPack4x8snorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitPackNorm(fn, mathExpr, 4, 8, -1.0, 127.0, true)
+}
+
+// emitMathPack4x8unorm packs vec4<f32> into u32 using unsigned normalization.
+func (e *Emitter) emitMathPack4x8unorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitPackNorm(fn, mathExpr, 4, 8, 0.0, 255.0, false)
+}
+
+// emitMathPack2x16snorm packs vec2<f32> into u32 using signed 16-bit normalization.
+func (e *Emitter) emitMathPack2x16snorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitPackNorm(fn, mathExpr, 2, 16, -1.0, 32767.0, true)
+}
+
+// emitMathPack2x16unorm packs vec2<f32> into u32 using unsigned 16-bit normalization.
+func (e *Emitter) emitMathPack2x16unorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitPackNorm(fn, mathExpr, 2, 16, 0.0, 65535.0, false)
+}
+
+// emitPackNorm is the shared implementation for packNxMsnorm/unorm operations.
+// components is 2 or 4, bits is 8 or 16, signed selects FPToSI vs FPToUI.
+// The max clamp value is always 1.0.
+func (e *Emitter) emitPackNorm(fn *ir.Function, mathExpr ir.ExprMath,
+	components, bits int, minF, scaleF float64, signed bool,
+) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+
+	minVal := e.getFloatConstID(minF)
+	maxVal := e.getFloatConstID(1.0)
+	scale := e.getFloatConstID(scaleF)
+	maskVal := e.getIntConstID((1 << bits) - 1)
+
+	castOp := CastFPToUI
+	if signed {
+		castOp = CastFPToSI
+	}
+
+	result := e.getIntConstID(0)
+	for c := 0; c < components; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		clamped := e.emitFMaxFMin(f32Ty, comp, minVal, maxVal)
+		scaled := e.addBinOpInstr(f32Ty, BinOpFMul, clamped, scale)
+		rounded := e.emitRoundNE(scaled)
+		intVal := e.addCastInstr(i32Ty, castOp, rounded)
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, intVal, maskVal)
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * bits))
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathPack2x16float packs vec2<f32> into u32 as two f16 values.
+func (e *Emitter) emitMathPack2x16float(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f16Ty := e.mod.GetFloatType(16)
+
+	mask := e.getIntConstID(0xFFFF)
+
+	result := e.getIntConstID(0)
+	for c := 0; c < 2; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		// Convert f32 to f16.
+		f16Val := e.addCastInstr(f16Ty, CastFPTrunc, comp)
+		// Bitcast f16 to i16, then zext to i32.
+		i16Val := e.addCastInstr(i32Ty, CastBitcast, f16Val)
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, i16Val, mask)
+		if c > 0 {
+			shift := e.getIntConstID(16)
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathPack4xI8 packs vec4<i32> into u32 by truncating to 8-bit signed.
+func (e *Emitter) emitMathPack4xI8(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	mask := e.getIntConstID(0xFF)
+
+	result := e.getIntConstID(0)
+	for c := 0; c < 4; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, comp, mask)
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathPack4xU8 packs vec4<u32> into u32 by truncating to 8-bit unsigned.
+func (e *Emitter) emitMathPack4xU8(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitMathPack4xI8(fn, mathExpr) // Same bit pattern.
+}
+
+// emitMathPack4xI8Clamp packs vec4<i32> into u32 with clamping to [-128, 127].
+func (e *Emitter) emitMathPack4xI8Clamp(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	mask := e.getIntConstID(0xFF)
+	clampMin := e.getIntConstID(-128)
+	clampMax := e.getIntConstID(127)
+
+	result := e.getIntConstID(0)
+	for c := 0; c < 4; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		// Clamp to [-128, 127] using IMax + IMin.
+		clamped := e.emitIMaxIMin(i32Ty, comp, clampMin, clampMax)
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, clamped, mask)
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathPack4xU8Clamp packs vec4<u32> into u32 with clamping to [0, 255].
+func (e *Emitter) emitMathPack4xU8Clamp(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	mask := e.getIntConstID(0xFF)
+	clampMax := e.getIntConstID(255)
+
+	result := e.getIntConstID(0)
+	for c := 0; c < 4; c++ {
+		comp := e.getComponentID(mathExpr.Arg, c)
+		// Clamp to [0, 255] using UMin.
+		dxFn := e.getDxOpBinaryFunc("dx.op.umin", overloadI32)
+		opcodeVal := e.getIntConstID(int64(OpUMin))
+		clamped := e.addCallInstr(dxFn, i32Ty, []int{opcodeVal, comp, clampMax})
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, clamped, mask)
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			masked = e.addBinOpInstr(i32Ty, BinOpShl, masked, shift)
+		}
+		result = e.addBinOpInstr(i32Ty, BinOpOr, result, masked)
+	}
+	return result, nil
+}
+
+// emitMathUnpack4x8snorm unpacks u32 into vec4<f32> using signed normalization.
+func (e *Emitter) emitMathUnpack4x8snorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitUnpackNorm(fn, mathExpr, 4, 8, 1.0/127.0, true)
+}
+
+// emitMathUnpack4x8unorm unpacks u32 into vec4<f32> using unsigned normalization.
+func (e *Emitter) emitMathUnpack4x8unorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitUnpackNorm(fn, mathExpr, 4, 8, 1.0/255.0, false)
+}
+
+// emitMathUnpack2x16snorm unpacks u32 into vec2<f32> using signed 16-bit normalization.
+func (e *Emitter) emitMathUnpack2x16snorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitUnpackNorm(fn, mathExpr, 2, 16, 1.0/32767.0, true)
+}
+
+// emitMathUnpack2x16unorm unpacks u32 into vec2<f32> using unsigned 16-bit normalization.
+func (e *Emitter) emitMathUnpack2x16unorm(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	return e.emitUnpackNorm(fn, mathExpr, 2, 16, 1.0/65535.0, false)
+}
+
+// emitUnpackNorm is the shared implementation for unpackNxMsnorm/unorm operations.
+// components is 2 or 4, bits is 8 or 16. signed selects sign-extension + SIToFP.
+func (e *Emitter) emitUnpackNorm(fn *ir.Function, mathExpr ir.ExprMath,
+	components, bits int, scaleF float64, signed bool,
+) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	scale := e.getFloatConstID(scaleF)
+	sextShift := 32 - bits
+
+	comps := make([]int, components)
+	for c := 0; c < components; c++ {
+		shifted := arg
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * bits))
+			shifted = e.addBinOpInstr(i32Ty, BinOpLShr, arg, shift)
+		}
+		var fVal int
+		if signed {
+			// Sign-extend from N bits: shl by (32-N), ashr by (32-N).
+			shl := e.addBinOpInstr(i32Ty, BinOpShl, shifted, e.getIntConstID(int64(sextShift)))
+			sext := e.addBinOpInstr(i32Ty, BinOpAShr, shl, e.getIntConstID(int64(sextShift)))
+			fVal = e.addCastInstr(f32Ty, CastSIToFP, sext)
+		} else {
+			mask := e.getIntConstID((1 << bits) - 1)
+			masked := e.addBinOpInstr(i32Ty, BinOpAnd, shifted, mask)
+			fVal = e.addCastInstr(f32Ty, CastUIToFP, masked)
+		}
+		scaled := e.addBinOpInstr(f32Ty, BinOpFMul, fVal, scale)
+		if signed {
+			// Clamp to [-1.0, 1.0].
+			minVal := e.getFloatConstID(-1.0)
+			maxVal := e.getFloatConstID(1.0)
+			comps[c] = e.emitFMaxFMin(f32Ty, scaled, minVal, maxVal)
+		} else {
+			comps[c] = scaled
+		}
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMathUnpack2x16float unpacks u32 into vec2<f32> as two f16 values.
+func (e *Emitter) emitMathUnpack2x16float(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
+	f16Ty := e.mod.GetFloatType(16)
+	mask := e.getIntConstID(0xFFFF)
+
+	comps := make([]int, 2)
+	for c := 0; c < 2; c++ {
+		shifted := arg
+		if c > 0 {
+			shift := e.getIntConstID(16)
+			shifted = e.addBinOpInstr(i32Ty, BinOpLShr, arg, shift)
+		}
+		masked := e.addBinOpInstr(i32Ty, BinOpAnd, shifted, mask)
+		// Bitcast i16 to f16, then extend to f32.
+		f16Val := e.addCastInstr(f16Ty, CastBitcast, masked)
+		comps[c] = e.addCastInstr(f32Ty, CastFPExt, f16Val)
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMathUnpack4xI8 unpacks u32 into vec4<i32> with sign extension.
+func (e *Emitter) emitMathUnpack4xI8(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+
+	comps := make([]int, 4)
+	for c := 0; c < 4; c++ {
+		shifted := arg
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			shifted = e.addBinOpInstr(i32Ty, BinOpLShr, arg, shift)
+		}
+		// Sign-extend from 8 bits: shift left 24, arithmetic shift right 24.
+		shl := e.addBinOpInstr(i32Ty, BinOpShl, shifted, e.getIntConstID(24))
+		comps[c] = e.addBinOpInstr(i32Ty, BinOpAShr, shl, e.getIntConstID(24))
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitMathUnpack4xU8 unpacks u32 into vec4<u32> by extracting bytes.
+func (e *Emitter) emitMathUnpack4xU8(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	arg, err := e.emitExpression(fn, mathExpr.Arg)
+	if err != nil {
+		return 0, err
+	}
+	i32Ty := e.mod.GetIntType(32)
+	mask := e.getIntConstID(0xFF)
+
+	comps := make([]int, 4)
+	for c := 0; c < 4; c++ {
+		shifted := arg
+		if c > 0 {
+			shift := e.getIntConstID(int64(c * 8))
+			shifted = e.addBinOpInstr(i32Ty, BinOpLShr, arg, shift)
+		}
+		comps[c] = e.addBinOpInstr(i32Ty, BinOpAnd, shifted, mask)
+	}
+	e.pendingComponents = comps
+	return comps[0], nil
+}
+
+// emitFMaxFMin performs clamp(val, minV, maxV) using dx.op.fmax and dx.op.fmin.
+func (e *Emitter) emitFMaxFMin(f32Ty *module.Type, val, minVal, maxVal int) int {
+	// max(val, minVal) then min(result, maxVal)
+	fmaxFn := e.getDxOpBinaryFunc("dx.op.fmax", overloadF32)
+	fminFn := e.getDxOpBinaryFunc("dx.op.fmin", overloadF32)
+	opcodeMax := e.getIntConstID(int64(OpFMax))
+	opcodeMin := e.getIntConstID(int64(OpFMin))
+	clamped := e.addCallInstr(fmaxFn, f32Ty, []int{opcodeMax, val, minVal})
+	return e.addCallInstr(fminFn, f32Ty, []int{opcodeMin, clamped, maxVal})
+}
+
+// emitIMaxIMin performs clamp(val, minV, maxV) using dx.op.imax and dx.op.imin.
+func (e *Emitter) emitIMaxIMin(i32Ty *module.Type, val, minVal, maxVal int) int {
+	imaxFn := e.getDxOpBinaryFunc("dx.op.imax", overloadI32)
+	iminFn := e.getDxOpBinaryFunc("dx.op.imin", overloadI32)
+	opcodeMax := e.getIntConstID(int64(OpIMax))
+	opcodeMin := e.getIntConstID(int64(OpIMin))
+	clamped := e.addCallInstr(imaxFn, i32Ty, []int{opcodeMax, val, minVal})
+	return e.addCallInstr(iminFn, i32Ty, []int{opcodeMin, clamped, maxVal})
+}
+
+// emitRoundNE emits a dx.op.round_ne (round to nearest even) call.
+func (e *Emitter) emitRoundNE(arg int) int {
+	dxFn := e.getDxOpUnaryFunc("dx.op.round_ne", overloadF32)
+	opcodeVal := e.getIntConstID(int64(OpRoundNE))
+	return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg})
 }

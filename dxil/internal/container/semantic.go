@@ -36,6 +36,10 @@ func MapBuiltinToSemantic(builtin ir.BuiltinValue) SemanticMapping {
 		return SemanticMapping{"SV_SampleIndex", 0, SVSampleIndex}
 	case ir.BuiltinClipDistance:
 		return SemanticMapping{"SV_ClipDistance", 0, SVClipDistance}
+	case ir.BuiltinPrimitiveIndex:
+		return SemanticMapping{"SV_PrimitiveID", 0, SVPrimitiveID}
+	case ir.BuiltinCullPrimitive:
+		return SemanticMapping{"SV_CullPrimitive", 0, SVCullPrimitive}
 	default:
 		return SemanticMapping{fmt.Sprintf("SV_Unknown%d", builtin), 0, SVArbitrary}
 	}

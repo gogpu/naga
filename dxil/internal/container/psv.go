@@ -25,9 +25,11 @@ import (
 type PSVShaderKind uint8
 
 const (
-	PSVVertex  PSVShaderKind = 0
-	PSVPixel   PSVShaderKind = 1
-	PSVCompute PSVShaderKind = 5
+	PSVVertex        PSVShaderKind = 0
+	PSVPixel         PSVShaderKind = 1
+	PSVCompute       PSVShaderKind = 5
+	PSVMesh          PSVShaderKind = 13
+	PSVAmplification PSVShaderKind = 14
 )
 
 // PSVInfo holds the data needed to build a PSV0 part.
@@ -41,9 +43,21 @@ type PSVInfo struct {
 	DepthOutput     bool
 	SampleFrequency bool
 
+	// Mesh shader specific (PSVRuntimeInfo0 union + PSVRuntimeInfo1 union + PSVRuntimeInfo2).
+	MaxOutputVertices   uint16
+	MaxOutputPrimitives uint16
+	MeshOutputTopology  uint8 // 0=undefined, 1=line, 2=triangle
+	NumThreadsX         uint32
+	NumThreadsY         uint32
+	NumThreadsZ         uint32
+
+	// PSVRuntimeInfo3 extension: entry function name offset in string table.
+	EntryFunctionName uint32
+
 	// Signature element counts (for PSV1).
-	SigInputElements  uint8
-	SigOutputElements uint8
+	SigInputElements            uint8
+	SigOutputElements           uint8
+	SigPatchConstOrPrimElements uint8 // patch constant (hull) or primitive (mesh) element count
 
 	// Number of packed signature vectors.
 	SigInputVectors  uint8
@@ -88,10 +102,29 @@ const psvSignatureElementSize = 4 + 4 + 8 // two uint32 + 8 bytes = 16 bytes
 //	2(union) + 3(sig elements) + 1(sig_input_vectors) + 4(sig_output_vectors[4]) = 36
 const runtimeInfo1Size = 36
 
+// runtimeInfo2Size is the wire size of PSVRuntimeInfo2.
+// PSVRuntimeInfo2 = PSVRuntimeInfo1(36) + 3*4(numthreads) = 48
+const runtimeInfo2Size = 48
+
+// runtimeInfo3Size is the wire size of PSVRuntimeInfo3.
+// PSVRuntimeInfo3 = PSVRuntimeInfo2(48) + 4(EntryFunctionName) = 52
+// Required for validator 1.8+ (which checks entry point name in PSV).
+const runtimeInfo3Size = 52
+
 // EncodePSV0 serializes PSVInfo into the PSV0 part binary format.
+//
+//nolint:gocyclo,cyclop,funlen // PSV encoding requires many stage-specific branches
 func EncodePSV0(info PSVInfo) []byte {
-	// We emit PSVRuntimeInfo1 format (required for signature element counts).
+	// Use PSVRuntimeInfo3 for stages with numthreads + entry name (mesh/amplification/compute),
+	// PSVRuntimeInfo1 for others.
 	psvSize := uint32(runtimeInfo1Size)
+	if info.ShaderStage == PSVCompute || info.ShaderStage == PSVMesh || info.ShaderStage == PSVAmplification {
+		if info.EntryFunctionName > 0 || len(info.StringTable) > 0 {
+			psvSize = uint32(runtimeInfo3Size) // includes EntryFunctionName
+		} else {
+			psvSize = uint32(runtimeInfo2Size)
+		}
+	}
 
 	// Calculate total part size.
 	resourceCount := uint32(0) // no resource bindings for now
@@ -130,6 +163,10 @@ func EncodePSV0(info PSVInfo) []byte {
 	//   Bytes 0-15: stage-specific union (max 16 bytes padded)
 	//   Bytes 16-19: min_expected_wave_lane_count
 	//   Bytes 20-23: max_expected_wave_lane_count
+	// PSVRuntimeInfo0 (24 bytes):
+	//   Bytes 0-15: stage-specific union (max 16 bytes padded)
+	//   Bytes 16-19: min_expected_wave_lane_count
+	//   Bytes 20-23: max_expected_wave_lane_count
 	switch info.ShaderStage {
 	case PSVVertex:
 		if info.OutputPositionPresent {
@@ -142,6 +179,12 @@ func EncodePSV0(info PSVInfo) []byte {
 		if info.SampleFrequency {
 			out[pos+1] = 1
 		}
+	case PSVMesh:
+		// Mesh shader union at offset 12-15:
+		//   uint16 MaxOutputVertices (offset 12)
+		//   uint16 MaxOutputPrimitives (offset 14)
+		binary.LittleEndian.PutUint16(out[pos+12:], info.MaxOutputVertices)
+		binary.LittleEndian.PutUint16(out[pos+14:], info.MaxOutputPrimitives)
 	}
 	binary.LittleEndian.PutUint32(out[pos+16:], info.MinWaveLaneCount)
 	binary.LittleEndian.PutUint32(out[pos+20:], info.MaxWaveLaneCount)
@@ -149,7 +192,7 @@ func EncodePSV0(info PSVInfo) []byte {
 	// PSVRuntimeInfo1 extension (12 bytes at offset 24):
 	//   Byte 0: shader_stage
 	//   Byte 1: uses_view_id
-	//   Bytes 2-3: union (max_vertex_count / sig_patch_const)
+	//   Bytes 2-3: union (for mesh: byte 3 = mesh_output_topology)
 	//   Byte 4: sig_input_elements
 	//   Byte 5: sig_output_elements
 	//   Byte 6: sig_patch_const_or_prim_elements
@@ -157,12 +200,26 @@ func EncodePSV0(info PSVInfo) []byte {
 	//   Bytes 8-11: sig_output_vectors[4]
 	out[pos+24] = uint8(info.ShaderStage)
 	// uses_view_id = 0
-	// union = 0
+	if info.ShaderStage == PSVMesh {
+		out[pos+27] = info.MeshOutputTopology // mesh output topology in union byte 3
+	}
 	out[pos+28] = info.SigInputElements
 	out[pos+29] = info.SigOutputElements
-	// sig_patch_const = 0
+	out[pos+30] = info.SigPatchConstOrPrimElements
 	out[pos+31] = info.SigInputVectors
 	out[pos+32] = info.SigOutputVectors
+
+	// PSVRuntimeInfo2 extension (12 bytes at offset 36) — for compute/mesh/amplification.
+	if psvSize >= runtimeInfo2Size {
+		binary.LittleEndian.PutUint32(out[pos+36:], info.NumThreadsX)
+		binary.LittleEndian.PutUint32(out[pos+40:], info.NumThreadsY)
+		binary.LittleEndian.PutUint32(out[pos+44:], info.NumThreadsZ)
+	}
+
+	// PSVRuntimeInfo3 extension (4 bytes at offset 48) — EntryFunctionName.
+	if psvSize >= runtimeInfo3Size {
+		binary.LittleEndian.PutUint32(out[pos+48:], info.EntryFunctionName)
+	}
 	pos += int(psvSize)
 
 	// 3. Resource count.

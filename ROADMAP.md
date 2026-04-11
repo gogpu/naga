@@ -19,7 +19,7 @@
 
 ---
 
-## Current State: v0.17.0 (2026-04-06)
+## Current State: v0.17.3 (2026-04-10)
 
 ✅ **Production-ready** shader compiler (~102K LOC) with **complete Rust naga parity**,
 **100% SPIR-V binary validation**, and **experimental DXIL backend**:
@@ -27,10 +27,14 @@
 ### What We Have
 
 - **Full WGSL frontend** — Lexer (120+ tokens), parser, AST → IR lowerer
-- **5 backend outputs** — SPIR-V, MSL, GLSL, HLSL — all at 100% Rust naga golden parity. DXIL (experimental) — first Pure Go DXIL generator
-- **164/164 SPIR-V binary validation** — every shader compiles and passes spirv-val (100%)
-- **Five-layer exact match** — IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 72/72
-- **DXIL backend** — Direct DXIL generation (SM 6.0), verified 2400+ frames at 60 FPS on D3D12. Eliminates FXC/DXC dependency. ~12.5K LOC, 190 tests. Rust naga has not implemented this (open issue since 2020)
+- **6 backend outputs — ALL at 100% validation:**
+  - SPIR-V: 165/165 spirv-val (Vulkan)
+  - MSL: 91/91 Rust naga parity (Metal)
+  - GLSL: 68/68 Rust naga parity (OpenGL)
+  - HLSL: 72/72 Rust naga parity (DirectX 11/12)
+  - DXIL: **163/163 DXC dumpbin (DirectX 12, SM 6.0-6.5)** — world's first Pure Go DXIL generator
+  - IR: 144/144 Rust naga parity
+- **DXIL backend** (~25K LOC, 173 unit tests) — VS/PS/CS/MS, CBV/SRV/UAV, atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave ops (13 intrinsics), mesh shaders (SM 6.5), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Eliminates FXC/DXC dependency. Verified 2400+ frames at 60 FPS on D3D12. Rust naga has NOT implemented this (open issue since 2020)
 - **100+ WGSL built-in functions** — math, geometric, bit manipulation, packing, derivatives
 - **Compute shaders** — atomics (int32/int64/float32), barriers, workgroups, runtime-sized arrays
 - **Ray tracing** — ray query types, acceleration structures, 7 ray query builtins
@@ -56,7 +60,7 @@
 | Task | Priority | Effort | Description |
 |------|----------|--------|-------------|
 | **Internal packages refactor** | P2 | 13 | Move implementations to `internal/`, reduce public API 398→~118 symbols |
-| **SPIR-V structural parity** | P3 | 3 | 90/93 → 93/93 Rust match (Int8 native, extra Block decoration) |
+| **SPIR-V structural parity** | P3 | 3 | 87/93 match + 6 allow-listed (3 ahead of Rust: Workgroup layout-free types) |
 | **Test coverage 80%** | P2 | 8 | After ARCH-001 — wgsl 40%→80%, msl 40%→80%, hlsl 48%→80% |
 
 ### Next: DXIL Backend (direct DXIL generation, no FXC)
@@ -64,9 +68,13 @@
 | Task | Priority | Effort | Description |
 |------|----------|--------|-------------|
 | **DXIL Phase 0: Bitcode writer** | P1 | 8 | ✅ Done. LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash. |
-| **DXIL Phase 1: Vertex+fragment** | P1 | 21 | ✅ Done. Full IR → DXIL lowering: math, casts, control flow, locals, resources, signatures. 190 tests, ~12.5K LOC. |
-| **DXIL Phase 2: Compute shaders** | P2 | 5 | UAV, atomics, barriers, thread ID intrinsics |
-| **DXIL Phase 3: SM 6.x features** | P3 | ongoing | Wave intrinsics, f16, mesh shaders, dynamic resources |
+| **DXIL Phase 1: Vertex+fragment** | P1 | 21 | ✅ Done. Full IR → DXIL lowering: math, casts, control flow, locals, resources, signatures. |
+| **DXIL CBV loads** | P1 | 2 | ✅ Done. `dx.op.cbufferLoadLegacy` for uniform buffers. Register index + component extraction. |
+| **DXIL Phase 2a: Compute foundation** | P2 | 5 | ✅ Done. Thread IDs, numthreads, UAV bufferLoad/bufferStore. |
+| **DXIL Phase 2b: Atomics + barriers** | P2 | 3 | ✅ Done. atomicBinOp (8 ops), atomicCmpXchg, dx.op.barrier, workgroup atomicrmw/cmpxchg. |
+| **DXIL Phase 2c: Mesh shaders** | P2 | 5 | ✅ Done. SM 6.5 intrinsics (168-172), PSG1 signatures, mesh metadata. |
+| **DXIL DXC validation** | ✅ Done | — | **163/163 (100%)** pass DXC dumpbin. All features: ray query, image atomics, wave ops. |
+| **DXIL Phase 3: SM 6.x features** | ✅ Done | — | Ray query (SM 6.5), wave intrinsics (SM 6.0), mesh shaders (SM 6.5), image atomics. |
 
 ### v1.0.0 — Stable Release
 
@@ -79,7 +87,7 @@
 | Subgroup operations | ✅ Done | Ballot, shuffle, broadcast, quad |
 | Mesh shaders | ✅ Done | MeshEXT/TaskEXT |
 | Internal packages | Planned | ARCH-001: `internal/` for all backends |
-| DXIL backend | ✅ Phase 1 done | Direct DXIL, no FXC dependency (~12.5K LOC, 190 tests) |
+| DXIL backend | ✅ Done | Direct DXIL, no FXC dependency (~25K LOC, 163/163 DXC) |
 | API stability guarantee | Planned | Semantic versioning contract |
 | Test coverage 80%+ | Planned | awesome-go requirement, after ARCH-001 |
 

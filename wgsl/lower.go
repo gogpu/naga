@@ -13161,8 +13161,8 @@ func (l *Lowerer) extractMeshInfo(attrs []Attribute) *ir.MeshStageInfo {
 
 		if int(outputVarType) < len(l.module.Types) {
 			meshOutputType := l.module.Types[outputVarType]
-			if st, ok := meshOutputType.Inner.(*ir.StructType); ok {
-				l.analyzeMeshOutputStruct(st, info)
+			if st, ok := meshOutputType.Inner.(ir.StructType); ok {
+				l.analyzeMeshOutputStruct(&st, info)
 			}
 		}
 
@@ -13189,7 +13189,7 @@ func (l *Lowerer) analyzeMeshOutputStruct(st *ir.StructType, info *ir.MeshStageI
 			// Extract N as max_vertices and VertexOutput as vertex_output_type
 			if int(member.Type) < len(l.module.Types) {
 				arrType := l.module.Types[member.Type]
-				if arr, ok := arrType.Inner.(*ir.ArrayType); ok {
+				if arr, ok := arrType.Inner.(ir.ArrayType); ok {
 					info.VertexOutputType = arr.Base
 					if arr.Size.Constant != nil {
 						info.MaxVertices = *arr.Size.Constant
@@ -13201,7 +13201,7 @@ func (l *Lowerer) analyzeMeshOutputStruct(st *ir.StructType, info *ir.MeshStageI
 			// Extract N as max_primitives and PrimitiveOutput as primitive_output_type
 			if int(member.Type) < len(l.module.Types) {
 				arrType := l.module.Types[member.Type]
-				if arr, ok := arrType.Inner.(*ir.ArrayType); ok {
+				if arr, ok := arrType.Inner.(ir.ArrayType); ok {
 					info.PrimitiveOutputType = arr.Base
 					if arr.Size.Constant != nil {
 						info.MaxPrimitives = *arr.Size.Constant
@@ -13209,8 +13209,8 @@ func (l *Lowerer) analyzeMeshOutputStruct(st *ir.StructType, info *ir.MeshStageI
 					// Determine topology from PrimitiveOutput struct's index builtin
 					if int(arr.Base) < len(l.module.Types) {
 						primType := l.module.Types[arr.Base]
-						if primSt, ok := primType.Inner.(*ir.StructType); ok {
-							info.Topology = l.determineMeshTopology(primSt)
+						if primSt, ok := primType.Inner.(ir.StructType); ok {
+							info.Topology = l.determineMeshTopology(&primSt)
 						}
 					}
 				}

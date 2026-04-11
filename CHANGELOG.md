@@ -7,6 +7,166 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-04-11
+
+### Added
+
+- **DXIL: CBV (Constant Buffer) loads** — `dx.op.cbufferLoadLegacy` for `var<uniform>`.
+  Register index calculation (byteOffset/16), component extraction via `extractvalue`.
+  Supports f32/i32/f64/i64/f16 overloads, struct member access at arbitrary offsets.
+
+- **DXIL: Compute shader support (Phase 2)** — `@compute` entry points now compile to DXIL:
+  - Thread ID builtins: `dx.op.threadId`, `dx.op.groupId`, `dx.op.threadIdInGroup`,
+    `dx.op.flattenedThreadIdInGroup`
+  - `numthreads` metadata from `@workgroup_size(X,Y,Z)`
+  - UAV storage buffers: `dx.op.bufferLoad`/`dx.op.bufferStore` for `var<storage, read_write>`
+  - Atomic operations: `dx.op.atomicBinOp` (add, subtract, and, or, xor, min, max, exchange),
+    `dx.op.atomicCompareExchange`, atomic load/store
+  - Barriers: `dx.op.barrier` with storage/workgroup/subgroup flag mapping
+  - Reference: Mesa `nir_to_dxil.c`
+
+### Fixed
+
+- **DXIL: bitcode binary operation opcodes** — `BinOpKind` constants used LLVM IR enum
+  numbering (FAdd=1) instead of bitcode unified opcodes (Add/FAdd=0). DXC decoded our
+  FAdd as FSub. Fixed to match Mesa `dxil_module.h` encoding.
+
+- **DXIL: finalize() operand remapping** — `finalize()` remapped ALL instruction operands
+  as value IDs, corrupting type IDs, opcodes, alignment values, and basic block indices.
+  Added `valueOperandIndices()` that precisely identifies which operands are values per
+  instruction type.
+
+- **DXIL: alloca alignment encoding** — Was `log2(bytes)`, should be `log2(bytes)+1` per
+  LLVM 3.7 / Mesa `dxil_emit_alloca()`.
+
+- **DXIL: vector local variable scalarization** — Single alloca for `vec4<f32>` replaced
+  with per-component allocas. Store/Load now operate on correct components.
+
+- **DXIL: GEP struct access** — Added `getelementptr` (FUNC_CODE_INST_GEP=43) for struct
+  member access from local variable pointers. Nested struct access with flat offset
+  computation. Struct store decomposed into per-scalar-field GEP + store.
+
+- **DXIL: retail hash wired up** — `ComputeRetailHash()` (INF-0004 modified MD5) was
+  implemented but never called. Now used when `UseBypassHash=false`.
+
+- **DXIL: push constants as CBV** — `SpacePushConstant` and `SpaceImmediate` globals
+  classified as CBV resources with synthetic bindings.
+
+- **DXIL: resource metadata rewrite** — Per-class metadata matching Mesa exactly. CBV
+  fields[6] = buffer size (was resource kind), SRV/UAV 9-11 fields with element type tags,
+  fields[1] = undef pointer (was null). Fixes 23 DXC validator crashes.
+
+- **DXIL: struct return decomposition** — Multi-output shaders (struct returns with multiple
+  @location fields) now decompose into per-field GEP + scalar load + storeOutput.
+
+- **DXIL: binary op vector scalarization** — Vector binary operations decomposed into
+  per-component scalar ops with scalar-vector broadcast.
+
+- **DXIL: global variable allocas** — Non-resource globals (workgroup, private) get proper
+  alloca pointers instead of placeholder values.
+
+- **DXIL: array/matrix CBV loads, dynamic GEP, UAV constant-index fix** — Matrix
+  CBV loads (one cbufferLoadLegacy per column), array local variable allocas,
+  dynamic Access with GEP, UAV constant-index access fix. 3 more shaders pass DXC.
+
+- **DXIL: SRV/UAV direct loads, dynamic CBV index, array output decomposition** —
+  SRV/UAV loads routed to bufferLoad (not LLVM load), dynamic CBV index with stride
+  arithmetic, ZeroValue/Compose dynamic array access, array-typed builtin outputs.
+
+- **DXIL: typed undef for bufferStore, deep UAV chains, entry-block allocas** —
+  Float bufferStore uses typed undef (f32, was i32). Deep UAV pointer chains
+  (struct-wrapped arrays, nested Access). All allocas in entry block (was lazy).
+
+- **DXIL: mesh shader intrinsics (SM 6.5)** — SetMeshOutputCounts (168),
+  StoreVertexOutput (171), StorePrimitiveOutput (172), EmitIndices (169).
+  All 4 mesh shaders pass DXC (9 entry points). PSG1 primitive signatures.
+
+- **DXIL: struct-typed entry point arguments** — Fragment/vertex shaders with struct
+  inputs (e.g., `vertex: VertexOutput`) now correctly load per-member with row tracking.
+  Fixes 14 additional shaders.
+
+- **DXIL: helper function emission with per-function value ID isolation** — Each helper
+  function gets independent value ID space. `collectCalledFunctions()` pre-scans entry point.
+
+- **DXIL: switch statements** — Cascading `icmp eq` + conditional branches with merge block.
+
+- **DXIL: 17 pack/unpack math functions** — pack4x8snorm/unorm, unpack4x8snorm/unorm,
+  pack2x16float/snorm/unorm, unpack variants, pack4xI8/U8/clamp, unpack4xI8/U8.
+
+- **DXIL: matrix operations** — mat*vec, vec*mat, mat*mat, mat+/-mat, mat*scalar, transpose.
+  All scalarized to component-wise DXIL instructions (dot products for multiply).
+
+- **DXIL: workgroup atomics** — LLVM `atomicrmw`/`cmpxchg` for workgroup variables
+  (add, sub, and, or, xor, min, max, xchg, compare-exchange).
+
+- **DXIL: vector select scalarization, math broadcast, ExprArrayLength, helper vector returns,
+  struct member component stores, atomic compare-exchange result struct, abstract literals,
+  matrix alloca, refract/modf/frexp/quantizeF16** — systematic fixes across emitter.
+
+- **DXIL: atomic type width support (i32/i64/f32)** — workgroup atomics now use correct
+  type width instead of hardcoded i32. Fixes f32/i64 atomic shaders.
+
+- **DXIL: ExprOverride + ProcessOverrides** — pipeline override constants now compile.
+  DXIL test harness processes overrides (same as SPIR-V/HLSL).
+
+- **DXIL: matrix column extraction, f16 constant encoding** — AccessIndex on matrix
+  returns full column vector (was single scalar). F16 constants use IEEE 754 half-precision.
+
+- **DXIL: typed zero constants, CBV/UAV resource pass-through, struct field loads** —
+  f16/i64 zero constants use correct types. CBV resource AccessIndex pass-through.
+  UAV struct field byte offset + scalar type resolution. Multi-register struct loads.
+
+- **DXIL: FRem lowering** — LLVM FRem lowered to `a - b * floor(a/b)` (DXC rejects FRem).
+
+- **DXIL: texture intrinsics** — `dx.op.getDimensions` (72) for textureDimensions/numLevels/numSamples/numLayers,
+  `dx.op.textureLoad` (66) for imageLoad, `dx.op.textureStore` (67) for imageStore.
+
+- **DXIL: complex UAV access chains, array load/store decomposition, workgroup uniform load** —
+  Matrix column+component UAV access, multi-member struct arrays, 512-element array copy,
+  StmtWorkGroupUniformLoad as barrier+load+barrier pattern.
+
+- **DXIL: 8 texture sampling intrinsics** — OpSample(60), OpSampleBias(61),
+  OpSampleLevel(62), OpSampleGrad(63), OpSampleCmp(64), OpSampleCmpLevelZero(65),
+  OpTextureGather(73), OpTextureGatherCmp(74). Previously only OpSample.
+
+- **DXIL: binding array dynamic handles** — `dx.op.createHandle` with dynamic index
+  for `binding_array<T>` resources. Both ExprAccess and ExprAccessIndex paths.
+
+- **DXIL: NumWorkGroups via synthetic CBV** — `$Globals` CBV with cbufferLoadLegacy
+  for compute dispatch dimensions (DXIL has no intrinsic, matches DXC approach).
+
+- **DXIL: ray query intrinsics (SM 6.5)** — 35 new opcodes (178-212): allocateRayQuery,
+  traceRayInline, proceed, candidateType, committedStatus, all intersection getters.
+  RayIntersection struct (34 components). Auto SM upgrade to 6.5.
+
+- **DXIL: image atomics** — StmtImageAtomic via dx.op.atomicBinOp/atomicCompareExchange
+  with texture handles and spatial coordinates.
+
+- **DXIL: wave/subgroup operations (SM 6.0+)** — 13 wave intrinsics: waveGetLaneIndex(111),
+  waveGetLaneCount(112), waveAnyTrue(113), waveAllTrue(114), waveActiveBallot(116),
+  waveReadLaneAt(117), waveReadLaneFirst(118), waveActiveOp(119), waveActiveBit(120),
+  wavePrefixOp(121), quadReadLaneAt(122), quadOp(123).
+
+- **DXIL: DXC dumpbin validation** — **163/163 testable shaders pass DXC dumpbin (100%)**.
+  Zero val_fail. Zero compile_fail. 2 expected fail (no entry points).
+  ALL 6 backends at 100%. World's first Pure Go DXIL generator at full validation.
+
+### Fixed (other backends)
+
+- **SPIR-V: OpIMul for vec4\<f32\>*f32 after unpack4x8unorm (BUG-SPIRV-003)** —
+  `resolveMathType()` missing return types for 10 pack/unpack functions. `unpack4x8unorm(u32)`
+  returned `u32` instead of `vec4<f32>`, causing `OpIMul` instead of `OpVectorTimesScalar`.
+  Fixes gg#252, naga#61.
+
+### Changed
+
+- **SPIR-V Rust reference: allow-list for intentional divergences** — Unified allow-list
+  across all backends (SPIR-V/MSL/HLSL/GLSL) for shaders where our output intentionally
+  differs from Rust naga (Workgroup layout-free types per VUID-StandaloneSpirv-None-10684,
+  no-compact-pass for entry-point-less shaders). 0 fail across all backends.
+
+- **SPIR-V validation: 165/165** — Added `ptr-deref-test` shader (+1 from v0.17.2).
+
 ## [0.17.2] - 2026-04-10
 
 ### Fixed

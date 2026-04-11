@@ -70,7 +70,7 @@ const (
 	funcCodeDeclareBlocks = 1
 	funcCodeInstBinop     = 2
 	funcCodeInstCast      = 3
-	funcCodeInstGEP       = 9
+	funcCodeInstGEPOld    = 9
 	funcCodeInstRet       = 10
 	funcCodeInstBr        = 11
 	funcCodeInstSelect    = 29 // FUNC_CODE_INST_VSELECT
@@ -78,7 +78,10 @@ const (
 	funcCodeInstCall      = 34
 	funcCodeInstAlloca    = 19
 	funcCodeInstLoad      = 20
+	funcCodeInstGEP       = 43 // FUNC_CODE_INST_GEP (new format, LLVM 3.7)
 	funcCodeInstStore     = 44
+	funcCodeInstAtomicRMW = 38 // FUNC_CODE_INST_ATOMICRMW
+	funcCodeInstCmpXchg   = 46 // FUNC_CODE_INST_CMPXCHG_OLD (LLVM 3.7)
 )
 
 // Metadata record codes.
@@ -111,6 +114,7 @@ const (
 //  10. Function bodies
 //  11. VALUE_SYMTAB_BLOCK — symbol names
 //  12. Exit MODULE_BLOCK
+
 func Serialize(m *Module) []byte {
 	s := &serializer{
 		mod: m,
@@ -356,6 +360,13 @@ func (s *serializer) emitConstants() {
 
 		if c.IsUndef {
 			s.w.EmitRecord(constCodeUndef, nil)
+		} else if c.IsAggregate {
+			// AGGREGATE: [elt0_valueid, elt1_valueid, ...]
+			vals := make([]uint64, len(c.Elements))
+			for i, elem := range c.Elements {
+				vals[i] = uid(elem.ValueID)
+			}
+			s.w.EmitRecord(constCodeAggregate, vals)
 		} else if c.ConstType.Kind == TypeInteger {
 			// Encode signed integers using the LLVM sign-rotating encoding:
 			// positive N → 2*N, negative N → 2*(-N)-1
@@ -383,14 +394,63 @@ func encodeSignRotated(v int64) uint64 {
 }
 
 // floatBits returns the IEEE 754 bit pattern for a float constant.
-// For f16 and f32, returns 32-bit pattern; for f64, returns 64-bit pattern.
+// Each precision stores its native-width bit pattern:
+//   - f16: 16-bit half-float pattern (zero-extended to uint64)
+//   - f32: 32-bit float pattern
+//   - f64: 64-bit double pattern
+//
+// Reference: LLVM LLVMBitCodes.h CST_CODE_FLOAT stores native-width bits.
 func floatBits(c *Constant) uint64 {
 	switch c.ConstType.FloatBits {
+	case 16:
+		return uint64(float32ToF16Bits(float32(c.FloatValue)))
 	case 64:
 		return math.Float64bits(c.FloatValue)
 	default:
-		// f16 and f32 are stored as 32-bit float bit patterns.
 		return uint64(math.Float32bits(float32(c.FloatValue)))
+	}
+}
+
+// float32ToF16Bits converts a float32 value to IEEE 754 half-precision (float16)
+// bit representation. Handles normal, subnormal, infinity, NaN, and rounds to
+// nearest even.
+func float32ToF16Bits(f float32) uint16 {
+	bits := math.Float32bits(f)
+	sign := uint16((bits >> 16) & 0x8000)
+	exp := int((bits>>23)&0xFF) - 127
+	frac := bits & 0x7FFFFF
+
+	switch {
+	case exp == 128: // inf or NaN
+		if frac != 0 {
+			return sign | 0x7C00 | uint16(frac>>13)
+		}
+		return sign | 0x7C00
+	case exp > 15:
+		return sign | 0x7C00 // overflow → infinity
+	case exp > -15:
+		// Normal range for f16. Round to nearest even.
+		f16Frac := uint16(frac >> 13)
+		remainder := frac & 0x1FFF
+		if remainder > 0x1000 || (remainder == 0x1000 && f16Frac&1 != 0) {
+			f16Frac++
+			if f16Frac >= 0x400 {
+				f16Frac = 0
+				exp++
+				if exp > 15 {
+					return sign | 0x7C00
+				}
+			}
+		}
+		return sign | uint16(exp+15)<<10 | f16Frac
+	case exp > -25:
+		// Subnormal range for f16.
+		frac |= 0x800000
+		shift := uint(-14 - exp)
+		f16Frac := uint16(frac >> (shift + 13)) //nolint:gosec // frac>>shift always fits in uint16
+		return sign | f16Frac
+	default:
+		return sign // underflow → zero
 	}
 }
 
@@ -484,9 +544,13 @@ func (s *serializer) emitFunctionBody(fn *Function) {
 	// DECLAREBLOCKS: number of basic blocks.
 	s.w.EmitRecord(funcCodeDeclareBlocks, []uint64{uint64(len(fn.BasicBlocks))})
 
-	// The current value ID counter starts after all global values.
+	// The current value ID counter starts after all global values
+	// plus function parameters (which have implicit value IDs in LLVM bitcode).
 	// Each instruction that produces a value increments this counter.
 	nextValueID := s.globalValueCount()
+	if fn.FuncType != nil {
+		nextValueID += len(fn.FuncType.ParamTypes)
+	}
 
 	for _, bb := range fn.BasicBlocks {
 		for _, instr := range bb.Instructions {
@@ -510,7 +574,7 @@ func (s *serializer) globalValueCount() int {
 //
 // Reference: Mesa dxil_module.c emit_instr()
 //
-//nolint:gocyclo,cyclop,funlen // instruction dispatch requires handling all LLVM instruction kinds
+//nolint:gocognit,gocyclo,cyclop,funlen,maintidx // instruction dispatch requires handling all LLVM instruction kinds
 func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 	switch instr.Kind {
 	case InstrRet:
@@ -600,6 +664,16 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 			s.w.EmitRecord(26, []uint64{opDelta, idx})            // FUNC_CODE_INST_EXTRACTVAL = 26
 		}
 
+	case InstrInsertVal:
+		// INSERTVALUE: [agg_delta, val_delta, idx]
+		// Operands: [aggValueID, insertedValueID, index]
+		if len(instr.Operands) >= 3 {
+			aggDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
+			valDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always positive
+			idx := uint64(instr.Operands[2])                       //nolint:gosec // index is small positive int
+			s.w.EmitRecord(27, []uint64{aggDelta, valDelta, idx})  // FUNC_CODE_INST_INSERTVAL = 27
+		}
+
 	case InstrAlloca:
 		// ALLOCA: [alloc_type_id, size_type_id, size_value_delta, align_flags]
 		// Operands: [allocTypeID, sizeTypeID, sizeValueID, alignFlags]
@@ -622,6 +696,24 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 			s.w.EmitRecord(funcCodeInstLoad, []uint64{ptrDelta, typeID, align, isVolatile})
 		}
 
+	case InstrGEP:
+		// GEP (new format, code=43): [inbounds, source_elem_type_id, ptr_delta, ...idx_deltas]
+		// Operands: [inbounds, sourceElemTypeID, ptrValueID, ...indexValueIDs]
+		// Reference: Mesa dxil_module.c emit_gep()
+		if len(instr.Operands) >= 3 {
+			inbounds := uint64(instr.Operands[0])                  //nolint:gosec // 0 or 1
+			elemTypeID := uint64(instr.Operands[1])                //nolint:gosec // type ID (not remapped)
+			ptrDelta := uint64(currentValueID - instr.Operands[2]) //nolint:gosec // delta
+			data := make([]uint64, 3, 3+len(instr.Operands)-3)
+			data[0] = inbounds
+			data[1] = elemTypeID
+			data[2] = ptrDelta
+			for i := 3; i < len(instr.Operands); i++ {
+				data = append(data, uint64(currentValueID-instr.Operands[i])) //nolint:gosec // delta
+			}
+			s.w.EmitRecord(funcCodeInstGEP, data)
+		}
+
 	case InstrStore:
 		// STORE: [ptr_delta, value_delta, align, is_volatile]
 		// Operands: [ptrValueID, valueID, align, isVolatile]
@@ -634,6 +726,32 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 			align := uint64(instr.Operands[2])                       //nolint:gosec // alignment
 			isVolatile := uint64(instr.Operands[3])                  //nolint:gosec // 0 or 1
 			s.w.EmitRecord(funcCodeInstStore, []uint64{ptrDelta, valueDelta, align, isVolatile})
+		}
+
+	case InstrAtomicRMW:
+		// ATOMICRMW: [ptr_delta, val_delta, operation, is_volatile, ordering, synchscope]
+		// Operands: [ptrValueID, valueID, atomicOp, isVolatile, ordering, synchscope]
+		if len(instr.Operands) >= 6 {
+			ptrDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
+			valDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always positive
+			atomicOp := uint64(instr.Operands[2])                  //nolint:gosec // atomic operation enum
+			isVolatile := uint64(instr.Operands[3])                //nolint:gosec // 0 or 1
+			ordering := uint64(instr.Operands[4])                  //nolint:gosec // memory ordering
+			synchscope := uint64(instr.Operands[5])                //nolint:gosec // synch scope
+			s.w.EmitRecord(funcCodeInstAtomicRMW, []uint64{ptrDelta, valDelta, atomicOp, isVolatile, ordering, synchscope})
+		}
+
+	case InstrCmpXchg:
+		// CMPXCHG: [ptr_delta, cmp_delta, new_delta, is_volatile, ordering, synchscope]
+		// Operands: [ptrValueID, cmpValueID, newValueID, isVolatile, ordering, synchscope]
+		if len(instr.Operands) >= 6 {
+			ptrDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always positive
+			cmpDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always positive
+			newDelta := uint64(currentValueID - instr.Operands[2]) //nolint:gosec // delta always positive
+			isVolatile := uint64(instr.Operands[3])                //nolint:gosec // 0 or 1
+			ordering := uint64(instr.Operands[4])                  //nolint:gosec // memory ordering
+			synchscope := uint64(instr.Operands[5])                //nolint:gosec // synch scope
+			s.w.EmitRecord(funcCodeInstCmpXchg, []uint64{ptrDelta, cmpDelta, newDelta, isVolatile, ordering, synchscope})
 		}
 	}
 }

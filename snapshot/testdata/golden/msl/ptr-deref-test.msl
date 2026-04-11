@@ -1,0 +1,38 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct Baz {
+    metal::float3x2 m;
+};
+
+void pattern1_local_var_vector(
+) {
+    metal::int4 vec0_ = metal::int4(1, 2, 3, 4);
+    int x = vec0_.x;
+    int y = vec0_.y;
+    return;
+}
+
+void pattern2_storage_buffer_matrix(
+    constant Baz& baz
+) {
+    float l3_ = baz.m[0].y;
+    return;
+}
+
+void pattern3_read_modify_write(
+) {
+    metal::int4 vec0_1 = metal::int4(1, 2, 3, 4);
+    int _e8 = vec0_1.y;
+    vec0_1.y = as_type<int>(as_type<uint>(_e8) + as_type<uint>(1));
+    return;
+}
