@@ -812,7 +812,18 @@ func (e *Emitter) getZeroForType(inner ir.TypeInner) int {
 	scalar, ok := scalarOfType(inner)
 	if ok {
 		if scalar.Kind == ir.ScalarFloat {
+			if scalar.Width != 4 {
+				// Non-f32 floats (f16, f64) need their own typed constant.
+				return e.addFloatConstID(e.mod.GetFloatType(uint(scalar.Width)*8), 0.0)
+			}
 			return e.getFloatConstID(0.0)
+		}
+		if scalar.Width == 8 {
+			// i64/u64 needs a 64-bit zero constant.
+			c := e.mod.AddIntConst(e.mod.GetIntType(64), 0)
+			id := e.allocValue()
+			e.constMap[id] = c
+			return id
 		}
 		return e.getIntConstID(0)
 	}
@@ -974,11 +985,19 @@ func (e *Emitter) emitAtomicSubtract(fn *ir.Function, atomic ir.StmtAtomic, hand
 
 	// Negate: 0 - value.
 	var negatedID int
-	if ol == overloadF32 || ol == overloadF64 {
-		// For float: use fsub(0.0, value).
+	switch ol {
+	case overloadF32:
 		zeroVal := e.getFloatConstID(0.0)
 		negatedID = e.addBinOpInstr(retTy, BinOpFSub, zeroVal, valueID)
-	} else {
+	case overloadF64, overloadF16:
+		zeroVal := e.addFloatConstID(retTy, 0.0)
+		negatedID = e.addBinOpInstr(retTy, BinOpFSub, zeroVal, valueID)
+	case overloadI64:
+		c := e.mod.AddIntConst(e.mod.GetIntType(64), 0)
+		id := e.allocValue()
+		e.constMap[id] = c
+		negatedID = e.addBinOpInstr(retTy, BinOpSub, id, valueID)
+	default:
 		zeroVal := e.getIntConstID(0)
 		negatedID = e.addBinOpInstr(retTy, BinOpSub, zeroVal, valueID)
 	}

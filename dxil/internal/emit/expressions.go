@@ -224,13 +224,51 @@ func (e *Emitter) emitCompose(fn *ir.Function, comp ir.ExprCompose) (int, error)
 	return e.getIntConstID(0), nil
 }
 
+// extractComponentsForAccessIndex extracts a range of components from tracked
+// component IDs based on the base type. For matrices, extracts a column.
+// For structs, extracts all components belonging to the indexed member.
+// Returns (valueID, true) if handled, or (0, false) if not handled (fallback to scalar).
+func (e *Emitter) extractComponentsForAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex, comps []int) (int, bool) {
+	baseType := e.resolveExprTypeInner(fn, ai.Base)
+
+	// Matrix: AccessIndex extracts a column (vec of rows components).
+	if mt, isMat := baseType.(ir.MatrixType); isMat {
+		rows := int(mt.Rows)
+		startIdx := int(ai.Index) * rows
+		if startIdx+rows <= len(comps) {
+			colComps := comps[startIdx : startIdx+rows]
+			e.pendingComponents = colComps
+			return colComps[0], true
+		}
+	}
+
+	// Struct: AccessIndex extracts a member's range of components.
+	if st, isSt := baseType.(ir.StructType); isSt && int(ai.Index) < len(st.Members) {
+		flatOffset := 0
+		for m := 0; m < int(ai.Index); m++ {
+			memberType := e.ir.Types[st.Members[m].Type].Inner
+			flatOffset += cbvComponentCount(e.ir, memberType)
+		}
+		memberType := e.ir.Types[st.Members[ai.Index].Type].Inner
+		memberComps := cbvComponentCount(e.ir, memberType)
+		if flatOffset+memberComps <= len(comps) {
+			memberRange := comps[flatOffset : flatOffset+memberComps]
+			if memberComps > 1 {
+				e.pendingComponents = memberRange
+			}
+			return memberRange[0], true
+		}
+	}
+
+	return 0, false
+}
+
 // emitAccessIndex extracts a component from a composite by constant index.
 //
 // For struct local/global variable access, emits a GEP instruction to get a pointer
 // to the member field. For array access, emits a GEP to the element. For vector
 // component extraction, uses per-component tracking.
 //
-//nolint:gocognit // access index dispatch handles many composite type variants
 func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, error) {
 	baseID, err := e.emitExpression(fn, ai.Base)
 	if err != nil {
@@ -239,19 +277,10 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 
 	// If the base has per-component tracking, extract the indexed component(s).
 	if comps, ok := e.exprComponents[ai.Base]; ok && int(ai.Index) < len(comps) {
-		// Check if the base is a matrix — AccessIndex on a matrix extracts a column
-		// (vec of `rows` components), not a single scalar.
-		baseType := e.resolveExprTypeInner(fn, ai.Base)
-		if mt, isMat := baseType.(ir.MatrixType); isMat {
-			rows := int(mt.Rows)
-			startIdx := int(ai.Index) * rows
-			if startIdx+rows <= len(comps) {
-				colComps := comps[startIdx : startIdx+rows]
-				e.pendingComponents = colComps
-				return colComps[0], nil
-			}
+		if id, handled := e.extractComponentsForAccessIndex(fn, ai, comps); handled {
+			return id, nil
 		}
-		// For vectors, structs with flat components — direct scalar extraction.
+		// For vectors — direct scalar extraction.
 		return comps[ai.Index], nil
 	}
 
@@ -265,13 +294,15 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 		return id, err
 	}
 
-	// Check if this AccessIndex chain leads to a UAV (storage buffer) resource.
-	// UAV access is handled by resolveUAVPointerChain at the load/store site,
-	// not by emitting GEP instructions. Return the base value as a pass-through
-	// so the intermediate expression has a value but doesn't generate invalid code.
+	// Check if this AccessIndex chain leads to a resource (UAV or CBV).
+	// Resource access is handled by resolveUAVPointerChain / resolveCBVPointerChain
+	// at the load/store site, not by emitting GEP instructions.
+	// Return the base value as a pass-through so the intermediate expression
+	// has a value but doesn't generate invalid code.
 	if gv, ok := e.resolveToGlobalVariable(fn, ai.Base); ok {
-		if _, isUAV := e.resourceHandles[gv]; isUAV {
-			if res := &e.resources[e.resourceHandles[gv]]; res.class == resourceClassUAV {
+		if idx, isRes := e.resourceHandles[gv]; isRes {
+			res := &e.resources[idx]
+			if res.class == resourceClassUAV || res.class == resourceClassCBV {
 				return baseID, nil
 			}
 		}

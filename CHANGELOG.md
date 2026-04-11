@@ -112,8 +112,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DXIL: matrix column extraction, f16 constant encoding** — AccessIndex on matrix
   returns full column vector (was single scalar). F16 constants use IEEE 754 half-precision.
 
-- **DXIL: DXC dumpbin validation** — **139/165 shaders pass DXC dumpbin (84.2%)**.
-  11 val_fail, 15 compile_fail.
+- **DXIL: typed zero constants, CBV/UAV resource pass-through, struct field loads** —
+  f16/i64 zero constants use correct types. CBV resource AccessIndex pass-through.
+  UAV struct field byte offset + scalar type resolution. Multi-register struct loads.
+
+- **DXIL: FRem lowering** — LLVM FRem lowered to `a - b * floor(a/b)` (DXC rejects FRem).
+
+- **DXIL: DXC dumpbin validation** — **145/165 shaders pass DXC dumpbin (87.9%)**.
+  5 val_fail (2 ray-query, 2 helper edge case, 1 complex pointers), 15 compile_fail.
   Added `TestDxilValSummary` test (analogous to `TestSpirvValBinarySummary`).
 
 ### Fixed (other backends)

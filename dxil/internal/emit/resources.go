@@ -1483,6 +1483,10 @@ func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.Expr
 	switch bk := baseExpr.Kind.(type) {
 	case ir.ExprGlobalVariable:
 		// Direct: AccessIndex(idx, GlobalVariable)
+		// Check if the variable's type is a struct — if so, this is a struct field access.
+		if chain, ok := e.resolveUAVStructFieldDirect(bk.Variable, constIdx); ok {
+			return chain, true
+		}
 		return e.resolveUAVFromGlobal(bk.Variable, constIdx, true)
 
 	case ir.ExprAccess:
@@ -1581,6 +1585,57 @@ func (e *Emitter) resolveUAVStructFieldChain(varHandle ir.GlobalVariableHandle, 
 	}, true
 }
 
+// resolveUAVStructFieldDirect handles AccessIndex(fieldIdx, GlobalVariable) when the
+// UAV's type is a struct (not wrapped in an array). Computes byte offset from struct
+// layout and uses the field's actual scalar type for the correct bufferStore overload.
+//
+// Example: var<storage, read_write> output: S; store to output.field_f16 needs f16 overload.
+func (e *Emitter) resolveUAVStructFieldDirect(varHandle ir.GlobalVariableHandle, fieldIdx uint32) (*uavPointerChain, bool) {
+	idx, found := e.resourceHandles[varHandle]
+	if !found {
+		return nil, false
+	}
+	res := &e.resources[idx]
+	if res.class != resourceClassUAV {
+		return nil, false
+	}
+	if int(varHandle) >= len(e.ir.GlobalVariables) {
+		return nil, false
+	}
+	gv := &e.ir.GlobalVariables[varHandle]
+	if int(gv.Type) >= len(e.ir.Types) {
+		return nil, false
+	}
+
+	inner := e.ir.Types[gv.Type].Inner
+	st, ok := inner.(ir.StructType)
+	if !ok || int(fieldIdx) >= len(st.Members) {
+		return nil, false
+	}
+
+	member := &st.Members[fieldIdx]
+	fieldInner := e.ir.Types[member.Type].Inner
+	scalar, ok := scalarOfType(fieldInner)
+	if !ok {
+		return nil, false
+	}
+
+	scalarW := uint32(scalar.Width)
+	if scalarW == 0 {
+		scalarW = 4
+	}
+	// Compute buffer element index = fieldByteOffset / scalarWidth
+	bufIndex := member.Offset / scalarW
+
+	return &uavPointerChain{
+		varHandle:  varHandle,
+		constIndex: bufIndex,
+		isConstIdx: true,
+		elemType:   fieldInner,
+		scalar:     scalar,
+	}, true
+}
+
 // resolveUAVFromGlobal checks if a global variable is a UAV and builds a chain.
 func (e *Emitter) resolveUAVFromGlobal(varHandle ir.GlobalVariableHandle, constIdx uint32, isConst bool) (*uavPointerChain, bool) {
 	idx, found := e.resourceHandles[varHandle]
@@ -1634,11 +1689,22 @@ func (e *Emitter) resolveUAVElementType(varHandle ir.GlobalVariableHandle) (ir.T
 		if found {
 			return elemInner, scalar, true
 		}
+		// For struct/array element types, find the deep scalar.
+		if scalar, found := deepScalarOfType(e.ir, elemInner); found {
+			return elemInner, scalar, true
+		}
 	}
 
-	// Direct scalar or vector type (rare for storage buffers).
+	// Direct scalar or vector type.
 	scalar, found := scalarOfType(inner)
-	return inner, scalar, found
+	if found {
+		return inner, scalar, true
+	}
+	// For struct/array types at the top level, find the deep scalar.
+	if scalar, found := deepScalarOfType(e.ir, inner); found {
+		return inner, scalar, true
+	}
+	return inner, ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, false
 }
 
 // emitUAVLoad emits a dx.op.bufferLoad call for reading from a UAV (storage buffer).
@@ -1668,11 +1734,15 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
 	undefVal := e.getUndefConstID()
 
-	// For whole-buffer loads (struct/array), count all scalar components and
-	// emit multiple bufferLoad calls if needed (each returns up to 4 components).
+	// Count all scalar components. For struct/array element types, use deep
+	// component counting to load all fields.
 	numComps := componentCount(chain.elemType)
-	if chain.isWhole {
-		numComps = cbvComponentCount(e.ir, chain.elemType)
+	if chain.isWhole || numComps <= 1 {
+		// cbvComponentCount recursively counts through structs and arrays.
+		deepComps := cbvComponentCount(e.ir, chain.elemType)
+		if deepComps > numComps {
+			numComps = deepComps
+		}
 	}
 
 	if numComps <= 4 {
@@ -1698,18 +1768,24 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 	}
 
 	// Multiple bufferLoad calls for types with >4 scalar components.
+	// For structured buffers, coord0 = element index, coord1 = byte offset within element.
+	// Each batch loads 4 scalars (16 bytes for f32), so byte offset increments by 16.
+	scalarWidth := uint32(chain.scalar.Width)
+	if scalarWidth == 0 {
+		scalarWidth = 4
+	}
+
 	comps := make([]int, 0, numComps)
-	baseIndex := chain.constIndex
 	remaining := numComps
-	batchIdx := 0
+	byteOffset := uint32(0)
 
 	for remaining > 0 {
 		count := 4
 		if remaining < 4 {
 			count = remaining
 		}
-		batchIndexID := e.getIntConstID(int64(baseIndex) + int64(batchIdx))
-		retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, batchIndexID, undefVal})
+		byteOffsetID := e.getIntConstID(int64(byteOffset))
+		retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, byteOffsetID})
 		for i := 0; i < count; i++ {
 			extractID := e.allocValue()
 			instr := &module.Instruction{
@@ -1723,7 +1799,7 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 			comps = append(comps, extractID)
 		}
 		remaining -= count
-		batchIdx++
+		byteOffset += uint32(count) * scalarWidth
 	}
 
 	if len(comps) > 1 {
