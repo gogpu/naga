@@ -792,7 +792,10 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 
 	case ir.BinaryModulo:
 		if isFloat {
-			return e.addBinOpInstr(resultTy, BinOpFRem, lhs, rhs), nil
+			// DXIL does not support the FRem instruction natively (DXC rejects
+			// it with "Invalid record"). Lower to: a - b * floor(a / b).
+			// This matches Mesa nir_to_dxil.c which sets lower_fmod = true.
+			return e.emitFRemLowered(resultTy, lhs, rhs), nil
 		}
 		if isSigned {
 			return e.addBinOpInstr(resultTy, BinOpSRem, lhs, rhs), nil
@@ -901,6 +904,9 @@ func (e *Emitter) emitBinaryVectorized(fn *ir.Function, bin ir.ExprBinary, leftT
 
 		if isCmp {
 			comps[i] = e.addCmpInstr(cmpPred, lComp, rComp)
+		} else if binOp == BinOpFRem {
+			// FRem is not supported in DXIL — use lowered sequence per component.
+			comps[i] = e.emitFRemLowered(scalarTy, lComp, rComp)
 		} else {
 			comps[i] = e.addBinOpInstr(scalarTy, binOp, lComp, rComp)
 		}

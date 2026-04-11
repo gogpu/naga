@@ -806,13 +806,26 @@ func (e *Emitter) getZeroValueForResult(_ *ir.Function, call ir.StmtCall) int {
 }
 
 // getZeroForType returns a zero constant ID for the given type's scalar.
+// Recurses into arrays and structs to find the base scalar type, ensuring
+// the zero constant has the correct type (e.g., f32(0) for float arrays).
 func (e *Emitter) getZeroForType(inner ir.TypeInner) int {
 	scalar, ok := scalarOfType(inner)
-	if !ok {
+	if ok {
+		if scalar.Kind == ir.ScalarFloat {
+			return e.getFloatConstID(0.0)
+		}
 		return e.getIntConstID(0)
 	}
-	if scalar.Kind == ir.ScalarFloat {
-		return e.getFloatConstID(0.0)
+	// Recurse into array/struct to find the base scalar element type.
+	switch t := inner.(type) {
+	case ir.ArrayType:
+		if int(t.Base) < len(e.ir.Types) {
+			return e.getZeroForType(e.ir.Types[t.Base].Inner)
+		}
+	case ir.StructType:
+		if len(t.Members) > 0 && int(t.Members[0].Type) < len(e.ir.Types) {
+			return e.getZeroForType(e.ir.Types[t.Members[0].Type].Inner)
+		}
 	}
 	return e.getIntConstID(0)
 }

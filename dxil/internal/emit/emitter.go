@@ -220,7 +220,7 @@ func Emit(irMod *ir.Module, opts EmitOptions) (*module.Module, error) {
 	}
 
 	// Pre-scan the entry point to find which helper functions are actually called.
-	calledFunctions := collectCalledFunctions(&ep.Function)
+	calledFunctions := collectCalledFunctions(&ep.Function, e.ir.Functions)
 	if err := e.emitHelperFunctions(calledFunctions); err != nil {
 		return nil, fmt.Errorf("dxil/emit: helper functions: %w", err)
 	}
@@ -292,9 +292,29 @@ func shaderKindString(kind module.ShaderKind) string {
 // a Result (non-void calls where the return value is used). Only these helpers
 // need to be emitted to avoid ExprCallResult errors. Void calls can be safely
 // skipped since their side effects are in the entry point body.
-func collectCalledFunctions(fn *ir.Function) map[ir.FunctionHandle]bool {
+//
+// The scan is transitive: if helper A calls helper B, both are collected.
+func collectCalledFunctions(fn *ir.Function, allFunctions []ir.Function) map[ir.FunctionHandle]bool {
 	result := make(map[ir.FunctionHandle]bool)
 	collectCallsFromBlock(fn.Body, result)
+
+	// Transitively collect helpers called by already-collected helpers.
+	// Use a worklist approach to handle arbitrary call depth.
+	changed := true
+	for changed {
+		changed = false
+		for handle := range result {
+			if int(handle) < len(allFunctions) {
+				helperFn := &allFunctions[handle]
+				before := len(result)
+				collectCallsFromBlock(helperFn.Body, result)
+				if len(result) > before {
+					changed = true
+				}
+			}
+		}
+	}
+
 	return result
 }
 
@@ -1501,6 +1521,34 @@ func (e *Emitter) addCallInstr(fn *module.Function, resultTy *module.Type, opera
 }
 
 // addBinOpInstr adds a binary operation instruction.
+// emitFRemLowered implements float remainder without using the LLVM FRem instruction.
+// DXIL does not support FRem natively (DXC rejects it with "Invalid record").
+// Lower to: a - b * floor(a / b), matching Mesa nir_to_dxil.c (lower_fmod = true).
+func (e *Emitter) emitFRemLowered(resultTy *module.Type, lhs, rhs int) int {
+	// floor function: dx.op.round_ni (opcode 27)
+	floorFn := e.getDxOpUnaryFunc("dx.op.round_ni", overloadF32)
+	floorOp := e.getIntConstID(int64(OpRoundNI))
+
+	// Adjust overload for f16/f64 if needed.
+	if resultTy.Kind == module.TypeFloat {
+		switch resultTy.FloatBits {
+		case 16:
+			floorFn = e.getDxOpUnaryFunc("dx.op.round_ni", overloadF16)
+		case 64:
+			floorFn = e.getDxOpUnaryFunc("dx.op.round_ni", overloadF64)
+		}
+	}
+
+	// Step 1: div = a / b
+	div := e.addBinOpInstr(resultTy, BinOpFDiv, lhs, rhs)
+	// Step 2: floorDiv = floor(div)
+	floorDiv := e.addCallInstr(floorFn, resultTy, []int{floorOp, div})
+	// Step 3: prod = b * floorDiv
+	prod := e.addBinOpInstr(resultTy, BinOpFMul, rhs, floorDiv)
+	// Step 4: result = a - prod
+	return e.addBinOpInstr(resultTy, BinOpFSub, lhs, prod)
+}
+
 func (e *Emitter) addBinOpInstr(resultTy *module.Type, op BinOpKind, lhs, rhs int) int {
 	valueID := e.allocValue()
 	instr := &module.Instruction{
