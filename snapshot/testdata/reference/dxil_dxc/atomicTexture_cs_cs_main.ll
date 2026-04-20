@@ -1,0 +1,96 @@
+;
+; Input signature:
+;
+; Name                 Index   Mask Register SysValue  Format   Used
+; -------------------- ----- ------ -------- -------- ------- ------
+; no parameters
+;
+; Output signature:
+;
+; Name                 Index   Mask Register SysValue  Format   Used
+; -------------------- ----- ------ -------- -------- ------- ------
+; no parameters
+; shader hash: <stripped>
+;
+; Pipeline Runtime Information:
+;
+;PSVRuntimeInfo:
+; Compute Shader
+; NumThreads=(2,1,1)
+; MinimumExpectedWaveLaneCount: 0
+; MaximumExpectedWaveLaneCount: 4294967295
+; UsesViewID: false
+; SigInputElements: 0
+; SigOutputElements: 0
+; SigPatchConstOrPrimElements: 0
+; SigInputVectors: 0
+; SigOutputVectors[0]: 0
+; SigOutputVectors[1]: 0
+; SigOutputVectors[2]: 0
+; SigOutputVectors[3]: 0
+; EntryFunctionName: cs_main
+;
+;
+; Buffer Definitions: <stripped>
+; Resource Bindings:
+;
+; Name                                 Type  Format         Dim      ID      HLSL Bind  Count
+; ------------------------------ ---------- ------- ----------- ------- -------------- ------
+; image_u                               UAV     u32          2d      U0             u0     1
+; image_s                               UAV     i32          2d      U1             u1     1
+;
+target datalayout = "e-m:e-p:32:32-i1:32-i8:32-i16:32-i32:32-i64:64-f16:32-f32:32-f64:64-n8:16:32:64"
+target triple = "dxil-ms-dx"
+
+%dx.types.Handle = type { i8* }
+%"class.RWTexture2D<unsigned int>" = type { i32 }
+%"class.RWTexture2D<int>" = type { i32 }
+
+define void @cs_main() {
+  %R0 = call %dx.types.Handle @dx.op.createHandle(i32 57, i8 1, i32 1, i32 1, i1 false)  ; CreateHandle(resourceClass,rangeId,index,nonUniformIndex)
+  %R1 = call %dx.types.Handle @dx.op.createHandle(i32 57, i8 1, i32 0, i32 0, i1 false)  ; CreateHandle(resourceClass,rangeId,index,nonUniformIndex)
+  %R2 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R1, i32 7, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R3 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R1, i32 6, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R4 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R1, i32 0, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R5 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R1, i32 1, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R6 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R1, i32 2, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R7 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R1, i32 3, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R8 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R0, i32 5, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R9 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R0, i32 4, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R10 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R0, i32 0, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R11 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R0, i32 1, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R12 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R0, i32 2, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  %R13 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R0, i32 3, i32 0, i32 0, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
+  ret void
+}
+
+; Function Attrs: nounwind
+declare i32 @dx.op.atomicBinOp.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32) #A0
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
+
+attributes #A0 = { nounwind }
+attributes #A1 = { nounwind readonly }
+
+!llvm.ident = !{!M0}
+!dx.version = !{!M1}
+!dx.valver = !{!M2}
+!dx.shaderModel = !{!M3}
+!dx.resources = !{!M4}
+!dx.entryPoints = !{!M5}
+
+!M0 = !{!"<ident>"}
+!M1 = !{i32 1, i32 0}
+!M2 = !{i32 1, i32 8}
+!M3 = !{!"cs", i32 6, i32 0}
+!M4 = !{null, !M6, null, null}
+!M6 = !{!M7, !M8}
+!M7 = !{i32 0, %"class.RWTexture2D<unsigned int>"* undef, !"", i32 0, i32 0, i32 1, i32 2, i1 false, i1 false, i1 false, !M9}
+!M9 = !{i32 0, i32 5}
+!M8 = !{i32 1, %"class.RWTexture2D<int>"* undef, !"", i32 0, i32 1, i32 1, i32 2, i1 false, i1 false, i1 false, !M10}
+!M10 = !{i32 0, i32 4}
+!M5 = !{void ()* @cs_main, !"cs_main", null, !M4, !M11}
+!M11 = !{i32 4, !M12}
+!M12 = !{i32 2, i32 1, i32 1}
+

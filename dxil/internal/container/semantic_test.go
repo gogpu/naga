@@ -41,9 +41,9 @@ func TestMapLocationToInputSemantic(t *testing.T) {
 		wantName  string
 		wantIndex uint32
 	}{
-		{0, "TEXCOORD", 0},
-		{1, "TEXCOORD", 1},
-		{5, "TEXCOORD", 5},
+		{0, "LOC", 0},
+		{1, "LOC", 1},
+		{5, "LOC", 5},
 	}
 
 	for _, tt := range tests {
@@ -80,8 +80,8 @@ func TestMapLocationToOutputSemantic_Fragment(t *testing.T) {
 
 func TestMapLocationToOutputSemantic_Vertex(t *testing.T) {
 	m := MapLocationToOutputSemantic(0, false)
-	if m.SemanticName != "TEXCOORD" {
-		t.Errorf("name: got %q, want %q", m.SemanticName, "TEXCOORD")
+	if m.SemanticName != "LOC" {
+		t.Errorf("name: got %q, want %q", m.SemanticName, "LOC")
 	}
 	if m.SystemValue != SVArbitrary {
 		t.Errorf("system value: got %d, want SVArbitrary", m.SystemValue)
@@ -97,8 +97,8 @@ func TestMapBindingToSemantic(t *testing.T) {
 
 	// Location input.
 	m2 := MapBindingToSemantic(ir.LocationBinding{Location: 3}, false, false)
-	if m2.SemanticName != "TEXCOORD" || m2.SemanticIndex != 3 {
-		t.Errorf("location input: got %q/%d, want TEXCOORD/3", m2.SemanticName, m2.SemanticIndex)
+	if m2.SemanticName != "LOC" || m2.SemanticIndex != 3 {
+		t.Errorf("location input: got %q/%d, want LOC/3", m2.SemanticName, m2.SemanticIndex)
 	}
 
 	// Location output for fragment.
@@ -109,7 +109,7 @@ func TestMapBindingToSemantic(t *testing.T) {
 
 	// Location output for vertex.
 	m4 := MapBindingToSemantic(ir.LocationBinding{Location: 0}, true, false)
-	if m4.SemanticName != "TEXCOORD" || m4.SemanticIndex != 0 {
-		t.Errorf("vertex output: got %q/%d, want TEXCOORD/0", m4.SemanticName, m4.SemanticIndex)
+	if m4.SemanticName != "LOC" || m4.SemanticIndex != 0 {
+		t.Errorf("vertex output: got %q/%d, want LOC/0", m4.SemanticName, m4.SemanticIndex)
 	}
 }

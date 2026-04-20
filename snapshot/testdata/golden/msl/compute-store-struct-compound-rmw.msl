@@ -1,0 +1,43 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _mslBufferSizes {
+    uint size0;
+};
+
+struct Particle {
+    metal::float2 pos;
+    metal::float2 vel;
+};
+typedef Particle type_1[1];
+
+kernel void main_(
+  device type_1& out [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    Particle p = {};
+    p.pos = metal::float2(1.0, 2.0);
+    p.vel = metal::float2(3.0, 4.0);
+    metal::float2 gravity = metal::float2(0.1, 0.2);
+    metal::float2 _e13 = p.vel;
+    p.vel = _e13 + gravity;
+    metal::float2 _e17 = p.vel;
+    p.vel = _e17 * metal::float2(0.9995);
+    metal::float2 _e22 = p.vel;
+    metal::float2 _e25 = p.pos;
+    p.pos = _e25 + (_e22 * 0.016);
+    Particle _e29 = p;
+    if (uint(0) < 1 + (_buffer_sizes.size0 - 0 - 16) / 16) {
+        out[0] = _e29;
+    }
+    return;
+}

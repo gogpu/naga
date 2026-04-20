@@ -62,7 +62,7 @@
 - **MSL Backend** — Metal Shading Language output for macOS/iOS (**91/91 exact Rust naga parity**), vertex pulling transform, external textures, override pipeline constants
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+ (**68/68 exact Rust naga parity**), dead code elimination, ProcessOverrides, image bounds checking
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12 (**72/72 exact Rust naga parity**)
-- **DXIL Backend** — Direct DXIL generation from naga IR (**163/163 DXC validation, 100%**). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV, atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~25K LOC, 173 unit tests. World's first Pure Go DXIL generator.
+- **DXIL Backend** — Direct DXIL generation from naga IR (**165/165 DXC validation, 100%**). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~25K LOC, 175 unit tests. World's first Pure Go DXIL generator.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -144,6 +144,15 @@ nagac -version
 # SPIR-V disassembler (debugging shader compilation)
 go install github.com/gogpu/naga/cmd/spvdis@latest
 spvdis shader.spv
+
+# DXIL validator — Pure Go wrapper around Microsoft IDxcValidator (Windows)
+# First Pure Go integration with dxil.dll, zero CGO. Runs a three-layer
+# defensive pre-check (DXBC structural + LLVM bitcode metadata walker)
+# before handing blobs to IDxcValidator::Validate.
+go install github.com/gogpu/naga/cmd/dxilval@latest
+dxilval shader.dxil                       # validate a single container
+dxilval --wgsl shader.wgsl                # compile through naga, then validate
+dxilval --corpus snapshot/testdata/in/    # walk a directory, typed-error summary
 
 # Texture shader compile tool (testing)
 go install github.com/gogpu/naga/cmd/texture_compile@latest
@@ -239,7 +248,7 @@ naga/                              ~189K LOC total
 │   ├── storage.go     # Buffer/atomic operations
 │   ├── functions.go   # Entry points with semantics
 │   └── keywords.go    # HLSL reserved words
-├── dxil/              # DXIL backend (~25K LOC, 163/163 DXC validation)
+├── dxil/              # DXIL backend (~25K LOC, 165/165 DXC validation)
 │   ├── dxil.go        # Public API: Compile(), DefaultOptions()
 │   └── internal/      # All implementation internal
 │       ├── bitcode/   # LLVM 3.7 bit-level writer
@@ -328,7 +337,7 @@ naga/                              ~189K LOC total
 | MSL | ✅ **91/91 Rust parity** | Metal (macOS/iOS) |
 | GLSL | ✅ **68/68 Rust parity** | OpenGL 3.3+, ES 3.0+ |
 | HLSL | ✅ **72/72 Rust parity** | DirectX 11/12 |
-| DXIL | **163/163 DXC (100%)** | DirectX 12 (SM 6.0-6.5) |
+| DXIL | **165/165 DXC (100%)** | DirectX 12 (SM 6.0-6.5) |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 

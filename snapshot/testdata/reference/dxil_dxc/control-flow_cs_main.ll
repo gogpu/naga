@@ -1,0 +1,68 @@
+;
+; Input signature:
+;
+; Name                 Index   Mask Register SysValue  Format   Used
+; -------------------- ----- ------ -------- -------- ------- ------
+; no parameters
+;
+; Output signature:
+;
+; Name                 Index   Mask Register SysValue  Format   Used
+; -------------------- ----- ------ -------- -------- ------- ------
+; no parameters
+; shader hash: <stripped>
+;
+; Pipeline Runtime Information:
+;
+;PSVRuntimeInfo:
+; Compute Shader
+; NumThreads=(1,1,1)
+; MinimumExpectedWaveLaneCount: 0
+; MaximumExpectedWaveLaneCount: 4294967295
+; UsesViewID: false
+; SigInputElements: 0
+; SigOutputElements: 0
+; SigPatchConstOrPrimElements: 0
+; SigInputVectors: 0
+; SigOutputVectors[0]: 0
+; SigOutputVectors[1]: 0
+; SigOutputVectors[2]: 0
+; SigOutputVectors[3]: 0
+; EntryFunctionName: main
+;
+;
+; Buffer Definitions: <stripped>
+; Resource Bindings:
+;
+; Name                                 Type  Format         Dim      ID      HLSL Bind  Count
+; ------------------------------ ---------- ------- ----------- ------- -------------- ------
+;
+target datalayout = "e-m:e-p:32:32-i1:32-i8:32-i16:32-i32:32-i64:64-f16:32-f32:32-f64:64-n8:16:32:64"
+target triple = "dxil-ms-dx"
+
+define void @main() {
+  call void @dx.op.barrier(i32 80, i32 3)  ; Barrier(barrierMode)
+  call void @dx.op.barrier(i32 80, i32 9)  ; Barrier(barrierMode)
+  call void @dx.op.barrier(i32 80, i32 3)  ; Barrier(barrierMode)
+  ret void
+}
+
+; Function Attrs: noduplicate nounwind
+declare void @dx.op.barrier(i32, i32) #A0
+
+attributes #A0 = { noduplicate nounwind }
+
+!llvm.ident = !{!M0}
+!dx.version = !{!M1}
+!dx.valver = !{!M2}
+!dx.shaderModel = !{!M3}
+!dx.entryPoints = !{!M4}
+
+!M0 = !{!"<ident>"}
+!M1 = !{i32 1, i32 0}
+!M2 = !{i32 1, i32 8}
+!M3 = !{!"cs", i32 6, i32 0}
+!M4 = !{void ()* @main, !"main", null, null, !M5}
+!M5 = !{i32 4, !M6}
+!M6 = !{i32 1, i32 1, i32 1}
+

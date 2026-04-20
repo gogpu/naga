@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/internal/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -31,14 +32,324 @@ func (e *Emitter) emitFunctionBody(fn *ir.Function) error {
 // preAllocateLocalVars creates allocas for all local variables in the function's
 // entry block. This ensures local variables used inside loops have stable
 // alloca pointers that persist across iterations.
+//
+// Variables that have been promoted to SSA values by the mem2reg pass
+// (BUG-DXIL-039) no longer have any expression or statement reference
+// in the function and are skipped here. Skipping the alloca avoids
+// emitting dead-store stack allocations that DXC's output would have
+// eliminated via LLVM's PromoteMemoryToRegister + DCE pipeline.
+//
+// Additionally, non-scalar locals with a constant Init that are never stored
+// to in the body are registered as "init-only" — their loads resolve directly
+// to the Init value without alloca. This matches DXC's SROA + constant
+// propagation for the pattern `var x = const_expr; return x`.
 func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
+	live := liveLocalVars(fn)
+	stored := localsStoredTo(fn)
 	for i := range fn.LocalVars {
-		lv := ir.ExprLocalVariable{Variable: uint32(i)}
-		if _, err := e.emitLocalVariable(fn, lv); err != nil {
+		if !live[uint32(i)] {
+			continue
+		}
+		// Init-only optimization: if the local has a non-nil Init and is
+		// never stored to, register it so loads resolve to Init directly.
+		lv := &fn.LocalVars[i]
+		if lv.Init != nil && !stored[uint32(i)] {
+			e.initOnlyLocals[uint32(i)] = *lv.Init
+			continue
+		}
+		lvExpr := ir.ExprLocalVariable{Variable: uint32(i)}
+		if _, err := e.emitLocalVariable(fn, lvExpr); err != nil {
 			return fmt.Errorf("local var %d (%s): %w", i, fn.LocalVars[i].Name, err)
 		}
 	}
 	return nil
+}
+
+// localsStoredTo returns the set of local variable indices that have at
+// least one StmtStore targeting them (directly or via AccessIndex/Access
+// chains) in the function body. Locals NOT in this set are never written
+// to after their Init (if any) — their value is immutable.
+func localsStoredTo(fn *ir.Function) map[uint32]bool {
+	// Build ExprLocalVariable handle -> var index map.
+	lvHandles := make(map[ir.ExpressionHandle]uint32)
+	for h, expr := range fn.Expressions {
+		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok {
+			lvHandles[ir.ExpressionHandle(h)] = lv.Variable
+		}
+	}
+	stored := make(map[uint32]bool)
+	localsStoredToBlock(fn, fn.Body, lvHandles, stored)
+	return stored
+}
+
+func localsStoredToBlock(fn *ir.Function, block ir.Block, lvHandles map[ir.ExpressionHandle]uint32, stored map[uint32]bool) {
+	for i := range block {
+		switch sk := block[i].Kind.(type) {
+		case ir.StmtStore:
+			if v, ok := lvHandles[sk.Pointer]; ok {
+				stored[v] = true
+			} else if v, ok := resolveLocalVarEmit(fn, sk.Pointer); ok {
+				stored[v] = true
+			}
+		case ir.StmtIf:
+			localsStoredToBlock(fn, sk.Accept, lvHandles, stored)
+			localsStoredToBlock(fn, sk.Reject, lvHandles, stored)
+		case ir.StmtLoop:
+			localsStoredToBlock(fn, sk.Body, lvHandles, stored)
+			localsStoredToBlock(fn, sk.Continuing, lvHandles, stored)
+		case ir.StmtSwitch:
+			for ci := range sk.Cases {
+				localsStoredToBlock(fn, sk.Cases[ci].Body, lvHandles, stored)
+			}
+		case ir.StmtBlock:
+			localsStoredToBlock(fn, sk.Block, lvHandles, stored)
+		}
+	}
+}
+
+// resolveLocalVarEmit follows AccessIndex/Access chains to find the root
+// local variable. Same logic as DCE's resolveLocalVar but local to the
+// emit package to avoid import cycles.
+func resolveLocalVarEmit(fn *ir.Function, h ir.ExpressionHandle) (uint32, bool) {
+	const maxDepth = 16
+	for depth := 0; depth < maxDepth; depth++ {
+		if int(h) >= len(fn.Expressions) {
+			return 0, false
+		}
+		switch k := fn.Expressions[h].Kind.(type) {
+		case ir.ExprLocalVariable:
+			return k.Variable, true
+		case ir.ExprAccessIndex:
+			h = k.Base
+		case ir.ExprAccess:
+			h = k.Base
+		default:
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+// liveLocalVars returns the set of LocalVariable indices that still
+// have at least one live use after the mem2reg pass.
+//
+// A use is "live" iff some expression OTHER than the ExprLocalVariable
+// definition itself references the variable's pointer handle, OR some
+// statement (StmtStore, StmtAtomic, StmtCall, ...) references it.
+//
+// Variables not in the returned set are dead-stack allocations that
+// would otherwise generate orphan allocas with no readers — those are
+// safe to skip in the bitcode output (DXC achieves the same effect via
+// the post-mem2reg DCE pass).
+func liveLocalVars(fn *ir.Function) map[uint32]bool {
+	// Collect every ExpressionHandle that names a LocalVariable
+	// pointer, plus the variable index it points at.
+	lvHandle := make(map[ir.ExpressionHandle]uint32)
+	for h, expr := range fn.Expressions {
+		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok {
+			lvHandle[ir.ExpressionHandle(h)] = lv.Variable
+		}
+	}
+	live := make(map[uint32]bool)
+	// Mark live: only check expressions within StmtEmit ranges in
+	// the (post-DCE) body. Checking ALL expressions would find dead
+	// references whose emit ranges were removed by the IR-level DCE
+	// pass, causing the emitter to generate orphan allocas.
+	emitted := collectEmittedExprs(fn.Body)
+	for h := range emitted {
+		expr := fn.Expressions[h]
+		if _, isLV := expr.Kind.(ir.ExprLocalVariable); isLV {
+			continue
+		}
+		visitExpressionHandles(expr.Kind, func(eh ir.ExpressionHandle) {
+			if v, ok := lvHandle[eh]; ok {
+				live[v] = true
+			}
+		})
+	}
+	// Mark live: any statement that references one of the handles.
+	visitStatementHandles(fn.Body, func(h ir.ExpressionHandle) {
+		if v, ok := lvHandle[h]; ok {
+			live[v] = true
+		}
+	})
+	return live
+}
+
+// visitExpressionHandles invokes f for every ExpressionHandle field
+// inside the given expression kind. Used by liveLocalVars to find
+// references to LocalVariable pointer handles.
+//
+//nolint:gocyclo,cyclop,funlen // exhaustive expression-kind dispatch mirrors classify.go's referencedLocalVar
+func visitExpressionHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle)) {
+	switch k := kind.(type) {
+	case ir.ExprLoad:
+		f(k.Pointer)
+	case ir.ExprAlias:
+		f(k.Source)
+	case ir.ExprAccess:
+		f(k.Base)
+		f(k.Index)
+	case ir.ExprAccessIndex:
+		f(k.Base)
+	case ir.ExprBinary:
+		f(k.Left)
+		f(k.Right)
+	case ir.ExprUnary:
+		f(k.Expr)
+	case ir.ExprSelect:
+		f(k.Condition)
+		f(k.Accept)
+		f(k.Reject)
+	case ir.ExprSplat:
+		f(k.Value)
+	case ir.ExprSwizzle:
+		f(k.Vector)
+	case ir.ExprCompose:
+		for _, c := range k.Components {
+			f(c)
+		}
+	case ir.ExprAs:
+		f(k.Expr)
+	case ir.ExprDerivative:
+		f(k.Expr)
+	case ir.ExprMath:
+		f(k.Arg)
+		if k.Arg1 != nil {
+			f(*k.Arg1)
+		}
+		if k.Arg2 != nil {
+			f(*k.Arg2)
+		}
+		if k.Arg3 != nil {
+			f(*k.Arg3)
+		}
+	case ir.ExprRelational:
+		f(k.Argument)
+	case ir.ExprArrayLength:
+		f(k.Array)
+	case ir.ExprImageSample:
+		f(k.Image)
+		f(k.Sampler)
+		f(k.Coordinate)
+		if k.ArrayIndex != nil {
+			f(*k.ArrayIndex)
+		}
+		if k.Offset != nil {
+			f(*k.Offset)
+		}
+		if k.DepthRef != nil {
+			f(*k.DepthRef)
+		}
+	case ir.ExprImageLoad:
+		f(k.Image)
+		f(k.Coordinate)
+		if k.ArrayIndex != nil {
+			f(*k.ArrayIndex)
+		}
+		if k.Sample != nil {
+			f(*k.Sample)
+		}
+		if k.Level != nil {
+			f(*k.Level)
+		}
+	case ir.ExprImageQuery:
+		f(k.Image)
+	}
+}
+
+// visitStatementHandles invokes f for every ExpressionHandle field
+// inside any statement of the block (recursively into nested blocks).
+func visitStatementHandles(blk ir.Block, f func(ir.ExpressionHandle)) {
+	for i := range blk {
+		visitStatementHandlesOne(blk[i].Kind, f)
+	}
+}
+
+// visitStatementHandlesOne invokes f for every ExpressionHandle
+// directly referenced by a single statement kind, and recurses into
+// nested control-flow blocks via visitStatementHandles.
+//
+// Split out from visitStatementHandles purely to keep the parent
+// dispatcher's cognitive-complexity score under the linter threshold;
+// the two functions together cover the full statement-kind arena.
+//
+//nolint:gocyclo,cyclop // exhaustive statement-kind dispatch
+func visitStatementHandlesOne(kind ir.StatementKind, f func(ir.ExpressionHandle)) {
+	switch sk := kind.(type) {
+	case ir.StmtStore:
+		f(sk.Pointer)
+		f(sk.Value)
+	case ir.StmtAtomic:
+		f(sk.Pointer)
+		f(sk.Value)
+		if sk.Result != nil {
+			f(*sk.Result)
+		}
+	case ir.StmtImageStore:
+		f(sk.Image)
+		f(sk.Coordinate)
+		f(sk.Value)
+		if sk.ArrayIndex != nil {
+			f(*sk.ArrayIndex)
+		}
+	case ir.StmtImageAtomic:
+		f(sk.Image)
+		f(sk.Coordinate)
+		f(sk.Value)
+		if sk.ArrayIndex != nil {
+			f(*sk.ArrayIndex)
+		}
+	case ir.StmtCall:
+		for _, a := range sk.Arguments {
+			f(a)
+		}
+		if sk.Result != nil {
+			f(*sk.Result)
+		}
+	case ir.StmtReturn:
+		if sk.Value != nil {
+			f(*sk.Value)
+		}
+	case ir.StmtIf:
+		f(sk.Condition)
+		visitStatementHandles(sk.Accept, f)
+		visitStatementHandles(sk.Reject, f)
+	case ir.StmtLoop:
+		visitStatementHandles(sk.Body, f)
+		visitStatementHandles(sk.Continuing, f)
+		if sk.BreakIf != nil {
+			f(*sk.BreakIf)
+		}
+	case ir.StmtSwitch:
+		f(sk.Selector)
+		for ci := range sk.Cases {
+			visitStatementHandles(sk.Cases[ci].Body, f)
+		}
+	case ir.StmtBlock:
+		visitStatementHandles(sk.Block, f)
+	case ir.StmtWorkGroupUniformLoad:
+		f(sk.Pointer)
+		f(sk.Result)
+	case ir.StmtRayQuery:
+		f(sk.Query)
+	case ir.StmtSubgroupBallot:
+		f(sk.Result)
+		if sk.Predicate != nil {
+			f(*sk.Predicate)
+		}
+	case ir.StmtSubgroupCollectiveOperation:
+		f(sk.Argument)
+		f(sk.Result)
+	case ir.StmtSubgroupGather:
+		f(sk.Argument)
+		f(sk.Result)
+	case ir.StmtEmit:
+		// StmtEmit ranges describe expression evaluation timing,
+		// not data flow. Expression bodies are visited separately
+		// by visitExpressionHandles — don't double-count the
+		// range as a use.
+	}
 }
 
 // emitBlock emits all statements in a block.
@@ -126,12 +437,71 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 // emitStmtEmit evaluates expressions in the emit range.
 // In naga IR, StmtEmit marks when expressions should be materialized.
 func (e *Emitter) emitStmtEmit(fn *ir.Function, emit ir.StmtEmit) error {
+	// Identify single-use Binary intermediates that will be flattened
+	// by the Reassociate pass when their parent chain root is emitted.
+	// Skip them here so their value IDs are not pre-materialized.
+	skipChainIntermediate := e.buildChainSkipSet(fn, emit.Range)
+
 	for h := emit.Range.Start; h < emit.Range.End; h++ {
+		if skipChainIntermediate[h] {
+			continue
+		}
 		if _, err := e.emitExpression(fn, h); err != nil {
 			return fmt.Errorf("emit range [%d]: %w", h, err)
 		}
 	}
 	return nil
+}
+
+// buildChainSkipSet identifies expression handles within the emit range
+// that are single-use Binary intermediates of a commutative+associative
+// chain. These should NOT be emitted individually — the Reassociate pass
+// in emitBinary will flatten them into the chain root's emission.
+//
+// A handle is skipped when ALL of the following hold:
+//   - It is an ExprBinary with a commutative+associative operator.
+//   - It has exactly 1 expression-level use (exprUseCount == 1).
+//   - Its sole consumer is another ExprBinary with the same operator
+//     within the same emit range.
+func (e *Emitter) buildChainSkipSet(fn *ir.Function, rng ir.Range) map[ir.ExpressionHandle]bool {
+	// Quick scan: collect all Binary handles in the range.
+	type binInfo struct {
+		handle ir.ExpressionHandle
+		op     ir.BinaryOperator
+		left   ir.ExpressionHandle
+		right  ir.ExpressionHandle
+	}
+	var bins []binInfo
+	for h := rng.Start; h < rng.End; h++ {
+		expr := fn.Expressions[h]
+		if bin, ok := expr.Kind.(ir.ExprBinary); ok && isCommutativeBinOp(bin.Op) {
+			bins = append(bins, binInfo{h, bin.Op, bin.Left, bin.Right})
+		}
+	}
+	if len(bins) < 2 {
+		return nil
+	}
+
+	// For each Binary in the range, check if its left or right child is
+	// a same-op Binary that is single-use. If so, the child is an inner
+	// chain member and should be skipped.
+	skip := map[ir.ExpressionHandle]bool{}
+	for _, b := range bins {
+		for _, child := range [2]ir.ExpressionHandle{b.left, b.right} {
+			if child < rng.Start || child >= rng.End {
+				continue
+			}
+			childExpr := fn.Expressions[child]
+			cbin, ok := childExpr.Kind.(ir.ExprBinary)
+			if !ok || cbin.Op != b.op {
+				continue
+			}
+			if e.exprUseCount[child] == 1 {
+				skip[child] = true
+			}
+		}
+	}
+	return skip
 }
 
 // emitStmtReturn handles the return statement.
@@ -144,6 +514,12 @@ func (e *Emitter) emitStmtEmit(fn *ir.Function, emit ir.StmtEmit) error {
 // For struct returns, the struct must be decomposed into per-member output stores.
 // DXIL does not support struct-typed values — everything is scalarized.
 func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
+	// Inline expansion: capture the return value into inline state instead of
+	// emitting a ret instruction. The caller's emitStmtCallInline consumes it.
+	if e.inInlineExpansion {
+		return e.captureInlineReturn(fn, ret)
+	}
+
 	if ret.Value == nil || fn.Result == nil {
 		// Void return for helper functions.
 		if e.emittingHelperFunction {
@@ -202,16 +578,21 @@ func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
 		return fmt.Errorf("return value: %w", err)
 	}
 
-	// Store the return value as output(s).
+	// Store the return value as output(s). Non-struct return = single
+	// output with signature-element ID 0 regardless of which @location or
+	// @builtin the return binding declares: there's only one output, so
+	// it's the first (and only) element in collectGraphicsSignatures.
+	// The semantic NAME and KIND come from the binding, but the DXIL
+	// storeOutput outputID refers to the sig element index, not the WGSL
+	// location.
 	scalar, ok := scalarOfType(resultType.Inner)
 	if !ok {
 		// Vector type — handle via component access.
 		if vt, isVec := resultType.Inner.(ir.VectorType); isVec {
 			ol := overloadForScalar(vt.Scalar)
-			outputID := e.outputLocationFromBinding(fn.Result.Binding)
 			for comp := 0; comp < int(vt.Size); comp++ {
 				compValueID := e.getComponentID(*ret.Value, comp)
-				e.emitOutputStore(outputID, comp, compValueID, ol)
+				e.emitOutputStore(0, comp, compValueID, ol)
 			}
 			return nil
 		}
@@ -220,11 +601,10 @@ func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
 
 	numComps := componentCount(resultType.Inner)
 	ol := overloadForScalar(scalar)
-	outputID := e.outputLocationFromBinding(fn.Result.Binding)
 
 	for comp := 0; comp < numComps; comp++ {
 		compValueID := e.getComponentID(*ret.Value, comp)
-		e.emitOutputStore(outputID, comp, compValueID, ol)
+		e.emitOutputStore(0, comp, compValueID, ol)
 	}
 
 	return nil
@@ -255,15 +635,27 @@ func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.St
 		return fmt.Errorf("return value: %w", err)
 	}
 
-	// Now emit storeOutput for each struct member using the flattened component IDs.
-	compIdx := 0
-	for _, member := range st.Members {
-		memberType := e.ir.Types[member.Type]
+	// Walk members in graphics output order — locations first, builtins last.
+	// Same convention as buildSignatures (dxil/dxil.go) so storeOutput sigID
+	// stays in lockstep with the OSG1 register slot for each member.
+	//
+	// Compose flattens its sub-expressions in WGSL declaration order, so we
+	// precompute the per-member flat scalar offset once and index into it from
+	// the sorted iteration order.
+	memberCompOffsets := make([]int, len(st.Members))
+	cumComps := 0
+	for i, member := range st.Members {
+		memberCompOffsets[i] = cumComps
+		cumComps += totalScalarCount(e.ir, e.ir.Types[member.Type].Inner)
+	}
 
-		// Handle array members by unwrapping the array.
+	order := backend.SortedMemberIndices(st.Members)
+	sigID := 0
+	for _, idx := range order {
+		member := st.Members[idx]
+		memberType := e.ir.Types[member.Type]
 		scalar, ok := scalarOfType(memberType.Inner)
 		numComps := componentCount(memberType.Inner)
-
 		if !ok {
 			if arr, isArr := memberType.Inner.(ir.ArrayType); isArr {
 				elemInner := e.ir.Types[arr.Base].Inner
@@ -271,18 +663,16 @@ func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.St
 				numComps = totalScalarCount(e.ir, memberType.Inner)
 			}
 		}
-
 		if member.Binding == nil || !ok {
-			compIdx += numComps
 			continue
 		}
 		ol := overloadForScalar(scalar)
-		outputID := e.locationFromBinding(*member.Binding)
+		baseComp := memberCompOffsets[idx]
 		for comp := 0; comp < numComps; comp++ {
-			valueID := e.getComponentID(*ret.Value, compIdx)
-			e.emitOutputStore(outputID, comp, valueID, ol)
-			compIdx++
+			valueID := e.getComponentID(*ret.Value, baseComp+comp)
+			e.emitOutputStore(sigID, comp, valueID, ol)
 		}
+		sigID++
 	}
 
 	return nil
@@ -317,24 +707,46 @@ func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st
 		}
 	}
 
-	// Compute the flattened scalar type for GEP element access.
-	// Since the struct is flattened to all-scalar fields, each GEP
-	// produces a pointer to a scalar element.
-	flatIdx := 0
-	for _, member := range st.Members {
-		delta, err := e.emitStructMemberOutput(fn, structTy, ptr, member, flatIdx)
+	// Walk members in graphics output order (locations first, builtins last)
+	// so storeOutput sigID lines up with the OSG1 register slot. Same
+	// convention as buildSignatures and emitStructReturn.
+	//
+	// flatIdx walks the alloca which is laid out in WGSL declaration order
+	// (the alloca is built from the original struct, not the sorted view).
+	// Precompute per-member offset so sorted iteration indexes correctly.
+	flatOffsets := make([]int, len(st.Members))
+	cum := 0
+	for i, member := range st.Members {
+		flatOffsets[i] = cum
+		mty := e.ir.Types[member.Type].Inner
+		if _, isArr := mty.(ir.ArrayType); isArr {
+			cum++ // arrays bump flat index by 1 (handled specially by emitArrayMemberOutput)
+			continue
+		}
+		cum += componentCount(mty)
+	}
+
+	order := backend.SortedMemberIndices(st.Members)
+	sigID := 0
+	for _, idx := range order {
+		member := st.Members[idx]
+		_, err := e.emitStructMemberOutput(fn, structTy, ptr, member, flatOffsets[idx], sigID)
 		if err != nil {
 			return err
 		}
-		flatIdx += delta
+		if member.Binding != nil {
+			sigID++
+		}
 	}
 
 	return nil
 }
 
 // emitStructMemberOutput emits output stores for a single struct member during return.
-// Returns the flat index delta for the member.
-func (e *Emitter) emitStructMemberOutput(_ *ir.Function, structTy *module.Type, ptr int, member ir.StructMember, flatIdx int) (int, error) {
+// Returns the flat index delta for the member. sigID is the signature
+// element ID assigned to this member — the caller's running counter of
+// members with bindings (matches collectGraphicsSignatures ordering).
+func (e *Emitter) emitStructMemberOutput(_ *ir.Function, structTy *module.Type, ptr int, member ir.StructMember, flatIdx, sigID int) (int, error) {
 	memberType := e.ir.Types[member.Type]
 
 	// Resolve scalar type and component count.
@@ -363,7 +775,7 @@ func (e *Emitter) emitStructMemberOutput(_ *ir.Function, structTy *module.Type, 
 	}
 
 	ol := overloadForScalar(scalar)
-	outputID := e.locationFromBinding(*member.Binding)
+	outputID := sigID
 	scalarTy := e.overloadReturnType(ol)
 	scalarPtrTy := e.mod.GetPointerType(scalarTy)
 	zeroVal := e.getIntConstID(0)
@@ -429,8 +841,6 @@ func (e *Emitter) emitScalarLoad(scalarTy *module.Type, ptrID int) int {
 // For vector local variables, each component is stored separately.
 //
 // Reference: Mesa nir_to_dxil.c dxil_emit_store(), emit_bufferstore_call()
-//
-//nolint:nestif // store dispatch for different pointer targets requires nesting
 func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	// Check if this store targets a mesh output variable.
 	// Mesh output stores are converted to dx.op mesh shader intrinsics.
@@ -448,41 +858,33 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 		return e.emitUAVStore(fn, chain, store.Value)
 	}
 
-	// Check if this is a vector store to a local variable with per-component allocas.
-	if lv, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable); ok {
-		if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
-			// Resolve the actual scalar element type from the local variable's IR type.
-			localVar := &fn.LocalVars[lv.Variable]
-			irType := e.ir.Types[localVar.Type]
-			elemDXILTy, resolveErr := typeToDXIL(e.mod, e.ir, irType.Inner)
-			if resolveErr != nil {
-				return fmt.Errorf("vector store type resolution: %w", resolveErr)
-			}
-			return e.emitVectorStore(fn, compPtrs, store.Value, elemDXILTy)
-		}
-
-		// Check if this is a struct store to a local variable.
-		// Struct stores must be decomposed into per-field GEP + store operations
-		// because the value is represented as per-component scalars.
-		if int(lv.Variable) < len(fn.LocalVars) {
-			localVar := &fn.LocalVars[lv.Variable]
-			irType := e.ir.Types[localVar.Type]
-			if st, isSt := irType.Inner.(ir.StructType); isSt {
-				return e.emitStructStore(fn, lv.Variable, irType, st, store.Value)
-			}
-		}
-
-		// Check if this is an array store to a local variable.
-		// Array stores must be decomposed into per-element GEP + store operations
-		// because DXIL doesn't support aggregate store instructions.
-		if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
-			return e.emitArrayStore(fn, lv.Variable, arrayTy, store.Value)
-		}
+	// Check for whole-local-variable stores: vector/struct/array via dedicated
+	// per-component / per-field / per-element decompose paths.
+	if handled, err := e.tryEmitLocalVariableStore(fn, store); handled || err != nil {
+		return err
 	}
 
 	// Handle AccessIndex chain to struct member's vector component:
 	// Pattern: AccessIndex(AccessIndex(LocalVariable, fieldIdx), compIdx) → store to alloca
 	if handled, hErr := e.tryStructMemberComponentStore(fn, store); hErr != nil {
+		return hErr
+	} else if handled {
+		return nil
+	}
+
+	// Handle whole-aggregate store to a struct member of a flat-per-scalar local
+	// alloca. Pattern: Store(AccessIndex(LocalVariable, fieldIdx), value) where
+	// the field is a vector/matrix/struct/array (N scalar components). The local
+	// alloca is laid out as flat scalars, so a single LLVM store of the aggregate
+	// value would write only the first component (because the GEP for the field
+	// resolves to a float* at the first scalar index). Decompose into N scalar
+	// stores at sequential GEPs starting at the field's flat scalar offset.
+	//
+	// Triggered by WGSL like `out.position = vec4<f32>(...)` where `out` is a
+	// `var` of struct type with vector/aggregate members. Without this path,
+	// uninitialized stack memory leaks into SV_Position w/z and varyings,
+	// producing chaotic vertex placement at runtime.
+	if handled, hErr := e.tryStructMemberAggregateStore(fn, store); hErr != nil {
 		return hErr
 	} else if handled {
 		return nil
@@ -502,6 +904,24 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	if err != nil {
 		return fmt.Errorf("store type resolution: %w", err)
 	}
+
+	// BUG-DXIL-026 (remaining 4 tilecompute shaders): DXIL forbids aggregate
+	// (struct/array) load/store instructions — the validator rejects them
+	// with 0x80aa0009 "Explicit load/store type does not match pointee type
+	// of pointer operand" since the explicit type operand must be a "first
+	// class" scalar/vector type that matches the GEP-computed pointee.
+	// Decompose aggregate stores into per-field / per-element scalar stores,
+	// propagating the source pointer's addrspace so workgroup (addrspace 3)
+	// stores stay in TGSM.
+	if storedTy.Kind == module.TypeStruct {
+		addrSpace := e.resolvePointerAddrSpace(fn, store.Pointer)
+		return e.emitStructStoreDecomposed(ptr, storedTy, store.Value, addrSpace)
+	}
+	if storedTy.Kind == module.TypeArray && storedTy.ElemType != nil {
+		addrSpace := e.resolvePointerAddrSpace(fn, store.Pointer)
+		return e.emitArrayStoreDecomposed(ptr, storedTy, store.Value, addrSpace)
+	}
+
 	align := e.alignForType(storedTy)
 
 	// Emit LLVM store instruction (no value produced).
@@ -512,6 +932,92 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 		ReturnValue: -1,
 	}
 	e.currentBB.AddInstruction(instr)
+	return nil
+}
+
+// emitStructStoreDecomposed fans a struct-typed store out into one scalar
+// store per field, each through a per-field GEP that inherits the base
+// pointer's addrspace. Callers must have already emitted the value
+// expression — per-component IDs are sourced via getComponentID.
+//
+// TGSM origin handling: when basePtrID came from a single-step array GEP
+// off a workgroup global (workgroupElemPtrs), each field GEP is re-rooted
+// directly at the global with indices [0, elemIdx, fieldN]. Same reason
+// as emitStructLoadAS — validator's TGSM-origin analysis rejects GEP-of-GEP.
+func (e *Emitter) emitStructStoreDecomposed(basePtrID int, dxilStructTy *module.Type, valueHandle ir.ExpressionHandle, addrSpace uint8) error {
+	if len(dxilStructTy.StructElems) == 0 {
+		return nil
+	}
+	elemOrigin, hasElemOrigin := e.workgroupElemRoot(basePtrID)
+	zeroID := e.getIntConstID(0)
+	for i, elemTy := range dxilStructTy.StructElems {
+		indexID := e.getIntConstID(int64(i))
+		resultPtrTy := e.mod.GetPointerTypeAS(elemTy, addrSpace)
+		var gepID int
+		if hasElemOrigin {
+			gepID = e.addGEPInstr(
+				elemOrigin.arrayTy,
+				resultPtrTy,
+				elemOrigin.globalAllocaID,
+				[]int{zeroID, elemOrigin.elemIndexID, indexID},
+			)
+		} else {
+			gepID = e.addGEPInstr(dxilStructTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
+		}
+
+		compID := e.getComponentID(valueHandle, i)
+		align := e.alignForType(elemTy)
+		instr := &module.Instruction{
+			Kind:        module.InstrStore,
+			HasValue:    false,
+			Operands:    []int{gepID, compID, align, 0},
+			ReturnValue: -1,
+		}
+		e.currentBB.AddInstruction(instr)
+	}
+	return nil
+}
+
+// emitArrayStoreDecomposed fans an array-typed store out into one scalar
+// store per element through per-element GEPs that inherit the base pointer's
+// addrspace. Mirrors emitStructStoreDecomposed but uses ElemCount and the
+// array's element type.
+func (e *Emitter) emitArrayStoreDecomposed(basePtrID int, arrayTy *module.Type, valueHandle ir.ExpressionHandle, addrSpace uint8) error {
+	elemTy := arrayTy.ElemType
+	if elemTy == nil {
+		return nil
+	}
+	numElems := int(arrayTy.ElemCount) //nolint:gosec // ElemCount bounded by shader array size
+	if numElems == 0 {
+		return nil
+	}
+	elemOrigin, hasElemOrigin := e.workgroupElemRoot(basePtrID)
+	zeroID := e.getIntConstID(0)
+	resultPtrTy := e.mod.GetPointerTypeAS(elemTy, addrSpace)
+	align := e.alignForType(elemTy)
+	for i := 0; i < numElems; i++ {
+		indexID := e.getIntConstID(int64(i))
+		var gepID int
+		if hasElemOrigin {
+			gepID = e.addGEPInstr(
+				elemOrigin.arrayTy,
+				resultPtrTy,
+				elemOrigin.globalAllocaID,
+				[]int{zeroID, elemOrigin.elemIndexID, indexID},
+			)
+		} else {
+			gepID = e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
+		}
+
+		compID := e.getComponentID(valueHandle, i)
+		instr := &module.Instruction{
+			Kind:        module.InstrStore,
+			HasValue:    false,
+			Operands:    []int{gepID, compID, align, 0},
+			ReturnValue: -1,
+		}
+		e.currentBB.AddInstruction(instr)
+	}
 	return nil
 }
 
@@ -622,6 +1128,143 @@ func (e *Emitter) tryStructMemberComponentStore(fn *ir.Function, store ir.StmtSt
 		ReturnValue: -1,
 	}
 	e.currentBB.AddInstruction(storeInstr)
+	return true, nil
+}
+
+// tryEmitLocalVariableStore dispatches whole-local-variable stores to the
+// matching decompose path: vector via per-component allocas, struct via
+// per-field GEP+store, array via per-element GEP+store. Returns (handled,
+// err) — handled=true means the store was fully emitted (caller must return).
+//
+// Reference parity: matches DXC HLOperationLower's pattern of decomposing
+// aggregate writes at the front-end before reaching the LLVM bitcode emitter,
+// since DXIL forbids aggregate store instructions (validator 0x80aa0009).
+// Mesa's NIR pre-pass does the equivalent flattening.
+func (e *Emitter) tryEmitLocalVariableStore(fn *ir.Function, store ir.StmtStore) (bool, error) {
+	lv, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return false, nil
+	}
+
+	if compPtrs, hasComps := e.localVarComponentPtrs[lv.Variable]; hasComps {
+		localVar := &fn.LocalVars[lv.Variable]
+		elemDXILTy, resolveErr := typeToDXIL(e.mod, e.ir, e.ir.Types[localVar.Type].Inner)
+		if resolveErr != nil {
+			return true, fmt.Errorf("vector store type resolution: %w", resolveErr)
+		}
+		return true, e.emitVectorStore(fn, compPtrs, store.Value, elemDXILTy)
+	}
+
+	if int(lv.Variable) < len(fn.LocalVars) {
+		localVar := &fn.LocalVars[lv.Variable]
+		irType := e.ir.Types[localVar.Type]
+		if st, isSt := irType.Inner.(ir.StructType); isSt {
+			return true, e.emitStructStore(fn, lv.Variable, irType, st, store.Value)
+		}
+	}
+
+	if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
+		return true, e.emitArrayStore(fn, lv.Variable, arrayTy, store.Value)
+	}
+
+	return false, nil
+}
+
+// tryStructMemberAggregateStore handles whole-aggregate stores to a struct
+// member of a flat-per-scalar local alloca:
+//
+//	store(AccessIndex(LocalVariable(out), fieldIdx), value)
+//
+// where the field type holds N scalar components (vector, matrix, struct, array).
+// The local alloca is laid out by emitLocalVariable as one DXIL slot per scalar
+// (vectors/aggregates are pre-flattened). The naive single-store would only
+// write the first scalar because emitExpression on a Compose returns only the
+// first component ID; the rest would land in pendingComponents and be lost.
+//
+// Decomposes into N scalar stores at GEPs [0, fieldFlatIdx + i] for i in 0..N-1.
+// Mirrors storeStructFields layout but rooted at a single field rather than
+// the whole struct.
+//
+// WGSL trigger example:
+//
+//	struct VertexOutput { @builtin(position) p: vec4<f32>, @location(0) c: vec3<f32> }
+//	var out: VertexOutput;
+//	out.p = vec4<f32>(x, y, 0.0, 1.0);  // 4 scalar stores at flat indices 0..3
+//	out.c = some_vec3;                  // 3 scalar stores at flat indices 4..6
+//
+// Without this path the SV_Position w/z come from uninitialized stack memory →
+// runtime perspective divide produces chaotic vertex placement (BUG-DXIL-032).
+func (e *Emitter) tryStructMemberAggregateStore(fn *ir.Function, store ir.StmtStore) (bool, error) {
+	ai, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprAccessIndex)
+	if !ok {
+		return false, nil
+	}
+	lv, ok := fn.Expressions[ai.Base].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return false, nil
+	}
+	if int(lv.Variable) >= len(fn.LocalVars) {
+		return false, nil
+	}
+	localVar := &fn.LocalVars[lv.Variable]
+	st, isSt := e.ir.Types[localVar.Type].Inner.(ir.StructType)
+	if !isSt || int(ai.Index) >= len(st.Members) {
+		return false, nil
+	}
+
+	member := st.Members[ai.Index]
+	memberInner := e.ir.Types[member.Type].Inner
+
+	// Only fire when the field is an aggregate (vector/matrix/struct/array).
+	// Scalar fields go through the generic single-store path and don't need
+	// component decomposition.
+	numScalars := totalScalarCount(e.ir, memberInner)
+	if numScalars <= 1 {
+		return false, nil
+	}
+
+	// Compute the flat scalar index of this field within the alloca layout.
+	flatIdx := 0
+	for fi := 0; fi < int(ai.Index); fi++ {
+		flatIdx += totalScalarCount(e.ir, e.ir.Types[st.Members[fi].Type].Inner)
+	}
+
+	// Ensure the struct alloca + cached DXIL type are available.
+	allocaID, err := e.emitLocalVariable(fn, ir.ExprLocalVariable{Variable: lv.Variable})
+	if err != nil {
+		return false, fmt.Errorf("struct member aggregate store alloca: %w", err)
+	}
+	dxilStructTy, hasTy := e.localVarStructTypes[lv.Variable]
+	if !hasTy {
+		return false, nil
+	}
+
+	// Materialize the value's component IDs (Compose etc. populates pendingComponents).
+	if _, err := e.emitExpression(fn, store.Value); err != nil {
+		return false, fmt.Errorf("struct member aggregate store value: %w", err)
+	}
+
+	zeroID := e.getIntConstID(0)
+	for i := 0; i < numScalars; i++ {
+		elemIdx := flatIdx + i
+		if elemIdx >= len(dxilStructTy.StructElems) {
+			break
+		}
+		memberDXILTy := dxilStructTy.StructElems[elemIdx]
+		resultPtrTy := e.mod.GetPointerType(memberDXILTy)
+		indexID := e.getIntConstID(int64(elemIdx))
+		gepID := e.addGEPInstr(dxilStructTy, resultPtrTy, allocaID, []int{zeroID, indexID})
+
+		compID := e.getComponentID(store.Value, i)
+		align := e.alignForType(memberDXILTy)
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind:        module.InstrStore,
+			HasValue:    false,
+			Operands:    []int{gepID, compID, align, 0},
+			ReturnValue: -1,
+		})
+	}
+
 	return true, nil
 }
 
@@ -780,9 +1423,20 @@ func (e *Emitter) emitStmtCall(fn *ir.Function, call ir.StmtCall) error {
 	// If helper function was emitted, generate an actual LLVM call.
 	dxilFn, ok := e.helperFunctions[call.Function]
 	if !ok {
-		// Helper function not emitted (unsupported features). If the call has
-		// a result, provide a zero-valued fallback so the shader compiles
-		// (output may be incorrect for this call, but other paths still work).
+		// Helper function was NOT emitted as a standalone LLVM function —
+		// either the function uses DXIL-forbidden constructs (aggregate
+		// args/returns, global access, complex locals) OR we deliberately
+		// route it through inline expansion. Try to inline the callee body
+		// into the caller's basic block, matching DXC's AlwaysInliner
+		// semantics. See emitStmtCallInline for the full rationale.
+		if int(call.Function) < len(e.ir.Functions) {
+			callee := &e.ir.Functions[call.Function]
+			if e.canInlineCallee(callee) {
+				return e.emitStmtCallInline(fn, call, callee)
+			}
+		}
+		// Final fallback: zero-valued result so the shader still compiles
+		// (other code paths may still produce correct output).
 		if call.Result != nil {
 			zeroID := e.getZeroValueForResult(fn, call)
 			e.callResultValues[*call.Result] = zeroID
@@ -1506,28 +2160,50 @@ func (e *Emitter) isUnsignedAtomicPointer(fn *ir.Function, ptrHandle ir.Expressi
 // Maps naga BarrierFlags to DXIL barrier mode flags:
 //   - BarrierStorage  → UAV_FENCE_GLOBAL (2)
 //   - BarrierWorkGroup → SYNC_THREAD_GROUP (1) | GROUPSHARED_MEM_FENCE (8)
-//   - BarrierSubGroup  → SYNC_THREAD_GROUP (1) (best approximation)
+//   - BarrierSubGroup  → SYNC_THREAD_GROUP (1) | GROUPSHARED_MEM_FENCE (8) |
+//     UAV_FENCE_THREAD_GROUP (4)
 //
-// Reference: Mesa nir_to_dxil.c emit_barrier_impl() ~3082
+// DXIL has no dedicated wave/subgroup barrier intrinsic: the closest HLSL
+// equivalent is GroupMemoryBarrierWithGroupSync, which is what DXC lowers
+// such semantics to. The DXIL validator also rejects a Sync-only flag
+// combination with "sync must include some form of memory barrier" — so
+// for any SubGroup/WorkGroup barrier we MUST include at least one memory
+// fence bit (TGSM and/or UAV).
+//
+// Reference: Mesa nir_to_dxil.c emit_barrier_impl() ~3082;
+// DxilValidation.cpp SyncThreadGroup memory-fence requirement.
 func (e *Emitter) emitStmtBarrier(barrier ir.StmtBarrier) error {
 	var flags DXILBarrierMode
 
 	if barrier.Flags&ir.BarrierStorage != 0 {
-		flags |= BarrierModeUAVFenceGlobal
+		// WGSL storageBarrier() = DeviceMemoryBarrierWithGroupSync in HLSL.
+		// DXC emits SYNC + UAV_FENCE_GLOBAL (flag 3).
+		flags |= BarrierModeSyncThreadGroup | BarrierModeUAVFenceGlobal
 	}
 
 	if barrier.Flags&ir.BarrierWorkGroup != 0 {
+		// WGSL workgroupBarrier() = GroupMemoryBarrierWithGroupSync in HLSL.
+		// DXC emits SYNC + GROUPSHARED_MEM_FENCE (flag 9).
 		flags |= BarrierModeSyncThreadGroup | BarrierModeGroupSharedMemFence
 	}
 
-	if barrier.Flags&ir.BarrierSubGroup != 0 {
-		// DXIL does not have a direct subgroup barrier; use thread group sync.
-		flags |= BarrierModeSyncThreadGroup
+	if barrier.Flags&ir.BarrierTexture != 0 {
+		// WGSL textureBarrier() — no direct HLSL equivalent.
+		// DXC treats texture UAVs as global device memory, so the fence
+		// is SYNC + UAV_FENCE_GLOBAL (flag 3), same as storageBarrier.
+		flags |= BarrierModeSyncThreadGroup | BarrierModeUAVFenceGlobal
 	}
 
-	// If no flags are set, use a default thread group sync.
+	if barrier.Flags&ir.BarrierSubGroup != 0 {
+		flags |= BarrierModeSyncThreadGroup |
+			BarrierModeGroupSharedMemFence |
+			BarrierModeUAVFenceThreadGroup
+	}
+
+	// If no flags are set, use a default thread-group sync WITH a memory
+	// fence (TGSM): a bare sync flag is rejected by DxilValidation.cpp.
 	if flags == 0 {
-		flags = BarrierModeSyncThreadGroup
+		flags = BarrierModeSyncThreadGroup | BarrierModeGroupSharedMemFence
 	}
 
 	barrierFn := e.getDxOpBarrierFunc()
@@ -1631,6 +2307,7 @@ func (e *Emitter) getDxOpBarrierFunc() *module.Function {
 	params := []*module.Type{i32Ty, i32Ty}
 	funcTy := e.mod.GetFunctionType(voidTy, params)
 	fn := e.mod.AddFunction(name, funcTy, true)
+	fn.AttrSetID = module.AttrSetNoDuplicate
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -1660,6 +2337,15 @@ func (e *Emitter) emitIfStatement(fn *ir.Function, stmt ir.StmtIf) error {
 
 	hasReject := len(stmt.Reject) > 0
 
+	// Snapshot the BB the conditional branch is emitted FROM. When
+	// the if has no else branch, the false-target of the conditional
+	// br goes directly to the merge BB — so the phi's reject-incoming
+	// flows from THIS entry BB, not from any synthesized else block.
+	// Capturing the index now (before AddBasicBlock alters anything)
+	// gives us a stable handle for emitPhi to reference via
+	// branchBBs.rejectEndBB when !hasReject.
+	entryBBIndex := bbIndexOf(e.mainFn, e.currentBB)
+
 	// Create basic blocks. We add them to mainFn now so we can
 	// reference their indices for branch instructions.
 	thenBB := e.mainFn.AddBasicBlock("if.then")
@@ -1687,25 +2373,57 @@ func (e *Emitter) emitIfStatement(fn *ir.Function, stmt ir.StmtIf) error {
 	if err := e.emitBlock(fn, stmt.Accept); err != nil {
 		return fmt.Errorf("if accept: %w", err)
 	}
+	// Capture the accept-end BB BEFORE adding the terminator branch
+	// so the BB index reflects where the phi's accept-incoming flows
+	// from. Indexing in mainFn.BasicBlocks: walk to find current.
+	acceptEndIdx := bbIndexOf(e.mainFn, e.currentBB)
 	// Branch from then to merge (unless block already ends with a terminator).
 	if !e.blockHasTerminator(e.currentBB) {
 		e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
 	}
 
-	// Emit reject (else) block if present.
+	// Emit reject (else) block if present. When absent, the
+	// reject-incoming for any post-if phi flows from entryBBIndex
+	// (the BB where the conditional branch was emitted) — its false
+	// edge goes directly to merge.
+	rejectEndIdx := entryBBIndex
 	if hasReject {
 		e.currentBB = e.mainFn.BasicBlocks[elseBBIndex]
 		if err := e.emitBlock(fn, stmt.Reject); err != nil {
 			return fmt.Errorf("if reject: %w", err)
 		}
+		rejectEndIdx = bbIndexOf(e.mainFn, e.currentBB)
 		if !e.blockHasTerminator(e.currentBB) {
 			e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
 		}
 	}
 
+	// Snapshot the BB indices for any ExprPhi that may immediately
+	// follow this StmtIf in the parent block (placed there by the
+	// DXIL mem2reg Phase B walker).
+	e.lastBranchBBs = &branchBBs{
+		kind:        branchKindIf,
+		acceptEndBB: acceptEndIdx,
+		rejectEndBB: rejectEndIdx,
+		hasReject:   hasReject,
+	}
+
 	// Continue emitting into the merge block.
 	e.currentBB = mergeBB
 	return nil
+}
+
+// bbIndexOf returns the slice index of bb within fn.BasicBlocks, or
+// -1 if not found. Used by branch-snapshot logic to record the BB
+// where a control-flow branch terminates so phi nodes at the merge
+// can map PhiPredKey -> BB index for FUNC_CODE_INST_PHI emission.
+func bbIndexOf(fn *module.Function, bb *module.BasicBlock) int {
+	for i, candidate := range fn.BasicBlocks {
+		if candidate == bb {
+			return i
+		}
+	}
+	return -1
 }
 
 // emitSwitchStatement emits a switch construct as a chain of conditional branches.
@@ -1791,12 +2509,14 @@ func (e *Emitter) emitSwitchStatement(fn *ir.Function, stmt ir.StmtSwitch) error
 	}
 
 	// Emit each case body.
+	caseEndBBs := make([]int, len(stmt.Cases))
 	for i := range stmt.Cases {
 		c := &stmt.Cases[i]
 		e.currentBB = e.mainFn.BasicBlocks[caseBBIndices[i]]
 		if err := e.emitBlock(fn, c.Body); err != nil {
 			return fmt.Errorf("switch case %d: %w", i, err)
 		}
+		caseEndBBs[i] = bbIndexOf(e.mainFn, e.currentBB)
 		// If fallthrough, branch to next case body; otherwise branch to merge.
 		if !e.blockHasTerminator(e.currentBB) {
 			if c.FallThrough && i+1 < len(stmt.Cases) {
@@ -1805,6 +2525,15 @@ func (e *Emitter) emitSwitchStatement(fn *ir.Function, stmt ir.StmtSwitch) error
 				e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
 			}
 		}
+	}
+
+	// Snapshot per-case end BB indices for any ExprPhi that
+	// immediately follows this StmtSwitch (placed by DXIL mem2reg
+	// Phase B walker). PhiIncoming.PredKey == PhiPredSwitchCase,
+	// CaseIdx selects which entry of caseEndBBs to use.
+	e.lastBranchBBs = &branchBBs{
+		kind:       branchKindSwitch,
+		caseEndBBs: caseEndBBs,
 	}
 
 	// Continue emitting into the merge block.
@@ -1924,14 +2653,6 @@ func (e *Emitter) blockHasTerminator(bb *module.BasicBlock) bool {
 	}
 	last := bb.Instructions[len(bb.Instructions)-1]
 	return last.Kind == module.InstrRet || last.Kind == module.InstrBr
-}
-
-// outputLocationFromBinding extracts the output location from a binding.
-func (e *Emitter) outputLocationFromBinding(b *ir.Binding) int {
-	if b == nil {
-		return 0
-	}
-	return e.locationFromBinding(*b)
 }
 
 // --- Mesh Shader Store Handling ---
@@ -3246,15 +3967,17 @@ func (e *Emitter) emitRayQueryGetIntersection(fn *ir.Function, gi ir.ExprRayQuer
 		return e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID})
 	}
 	// Helper: emit a component ray query call returning f32 for a vec3.
+	// Component index is i8 per dxc rayQuery_StateVector signature.
 	emitVec3F32 := func(op DXILOpcode) (int, int, int) {
 		rqFn := e.getRayQueryCompF32Func(op)
 		opcodeVal := e.getIntConstID(int64(op))
-		c0 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getIntConstID(0)})
-		c1 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getIntConstID(1)})
-		c2 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getIntConstID(2)})
+		c0 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getI8ConstID(0)})
+		c1 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getI8ConstID(1)})
+		c2 := e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, e.getI8ConstID(2)})
 		return c0, c1, c2
 	}
 	// Helper: emit 4x3 matrix (returns 12 f32 components).
+	// Row is i32, col is i8 per dxc rayQuery_StateMatrix signature.
 	emitMat4x3 := func(op DXILOpcode) [12]int {
 		rqFn := e.getRayQueryMatrixFunc(op)
 		opcodeVal := e.getIntConstID(int64(op))
@@ -3262,7 +3985,7 @@ func (e *Emitter) emitRayQueryGetIntersection(fn *ir.Function, gi ir.ExprRayQuer
 		for row := 0; row < 4; row++ {
 			for col := 0; col < 3; col++ {
 				rowVal := e.getIntConstID(int64(row))
-				colVal := e.getIntConstID(int64(col))
+				colVal := e.getI8ConstID(int64(col))
 				comps[row*3+col] = e.addCallInstr(rqFn, f32Ty, []int{opcodeVal, handleID, rowVal, colVal})
 			}
 		}
@@ -3280,8 +4003,8 @@ func (e *Emitter) emitRayQueryGetIntersection(fn *ir.Function, gi ir.ExprRayQuer
 	// barycentrics (vec2<f32>)
 	baryFn := e.getRayQueryCompF32Func(baryCentricOp)
 	baryOp := e.getIntConstID(int64(baryCentricOp))
-	baryX := e.addCallInstr(baryFn, f32Ty, []int{baryOp, handleID, e.getIntConstID(0)})
-	baryY := e.addCallInstr(baryFn, f32Ty, []int{baryOp, handleID, e.getIntConstID(1)})
+	baryX := e.addCallInstr(baryFn, f32Ty, []int{baryOp, handleID, e.getI8ConstID(0)})
+	baryY := e.addCallInstr(baryFn, f32Ty, []int{baryOp, handleID, e.getI8ConstID(1)})
 
 	// front_face (bool -> i1)
 	frontFaceFn := e.getRayQueryBoolFunc(frontFaceOp)
@@ -3362,8 +4085,12 @@ func (e *Emitter) getRayQueryTraceFunc() *module.Function {
 }
 
 func (e *Emitter) getRayQueryProceedFunc() *module.Function {
+	// DXC (DxilOperations.cpp:1614) declares rayQuery_Proceed with OpClass
+	// "rayQuery_Proceed" and overload mask 0x8 = i1 (bool). Function symbol
+	// is dx.op.rayQuery_Proceed.i1 per OP::ConstructOverloadName:
+	// "dx.op." + className + "." + overloadTypeName.
 	name := "dx.op.rayQuery_Proceed"
-	key := dxOpKey{name: name, overload: overloadVoid}
+	key := dxOpKey{name: name, overload: overloadI1}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
 	}
@@ -3371,7 +4098,8 @@ func (e *Emitter) getRayQueryProceedFunc() *module.Function {
 	i1Ty := e.mod.GetIntType(1)
 	params := []*module.Type{i32Ty, i32Ty}
 	funcTy := e.mod.GetFunctionType(i1Ty, params)
-	fn := e.mod.AddFunction(name, funcTy, true)
+	fullName := name + overloadSuffix(overloadI1)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -3422,8 +4150,11 @@ func (e *Emitter) getRayQueryCommitProceduralFunc() *module.Function {
 	return fn
 }
 
-func (e *Emitter) getRayQueryScalarI32Func(op DXILOpcode) *module.Function {
-	name := fmt.Sprintf("dx.op.rayQuery_%d", op)
+func (e *Emitter) getRayQueryScalarI32Func(_ DXILOpcode) *module.Function {
+	// All RayQuery state-scalar-int opcodes share the OCC::RayQuery_StateScalar
+	// op class. The opcode is encoded in the call's first i32 argument; the
+	// function symbol is dx.op.rayQuery_StateScalar.<overload>.
+	name := "dx.op.rayQuery_StateScalar.i32"
 	key := dxOpKey{name: name, overload: overloadI32}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
@@ -3436,8 +4167,8 @@ func (e *Emitter) getRayQueryScalarI32Func(op DXILOpcode) *module.Function {
 	return fn
 }
 
-func (e *Emitter) getRayQueryScalarF32Func(op DXILOpcode) *module.Function {
-	name := fmt.Sprintf("dx.op.rayQuery_%d", op)
+func (e *Emitter) getRayQueryScalarF32Func(_ DXILOpcode) *module.Function {
+	name := "dx.op.rayQuery_StateScalar.f32"
 	key := dxOpKey{name: name, overload: overloadF32}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
@@ -3451,23 +4182,27 @@ func (e *Emitter) getRayQueryScalarF32Func(op DXILOpcode) *module.Function {
 	return fn
 }
 
-func (e *Emitter) getRayQueryCompF32Func(op DXILOpcode) *module.Function {
-	name := fmt.Sprintf("dx.op.rayQuery_%d.f32", op)
+func (e *Emitter) getRayQueryCompF32Func(_ DXILOpcode) *module.Function {
+	// Vector-component state queries share OCC::RayQuery_StateVector.
+	// Signature per dxc DxilOperations.cpp:5749 (RayQuery_WorldRayOrigin):
+	//   ret f32, args (i32 opcode, i32 rqHandle, i8 componentIdx)
+	name := "dx.op.rayQuery_StateVector.f32"
 	key := dxOpKey{name: name, overload: overloadF32}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
 	}
 	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
 	f32Ty := e.mod.GetFloatType(32)
-	params := []*module.Type{i32Ty, i32Ty, i32Ty}
+	params := []*module.Type{i32Ty, i32Ty, i8Ty}
 	funcTy := e.mod.GetFunctionType(f32Ty, params)
 	fn := e.mod.AddFunction(name, funcTy, true)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
 
-func (e *Emitter) getRayQueryBoolFunc(op DXILOpcode) *module.Function {
-	name := fmt.Sprintf("dx.op.rayQuery_%d", op)
+func (e *Emitter) getRayQueryBoolFunc(_ DXILOpcode) *module.Function {
+	name := "dx.op.rayQuery_StateScalar.i1"
 	key := dxOpKey{name: name, overload: overloadI1}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
@@ -3481,15 +4216,19 @@ func (e *Emitter) getRayQueryBoolFunc(op DXILOpcode) *module.Function {
 	return fn
 }
 
-func (e *Emitter) getRayQueryMatrixFunc(op DXILOpcode) *module.Function {
-	name := fmt.Sprintf("dx.op.rayQuery_%d.f32", op)
-	key := dxOpKey{name: name + ".mat", overload: overloadF32}
+func (e *Emitter) getRayQueryMatrixFunc(_ DXILOpcode) *module.Function {
+	// Matrix state queries share OCC::RayQuery_StateMatrix.
+	// Signature per dxc DxilOperations.cpp (RayQuery_CandidateObjectToWorld3x4):
+	//   ret f32, args (i32 opcode, i32 rqHandle, i32 row, i8 col)
+	name := "dx.op.rayQuery_StateMatrix.f32"
+	key := dxOpKey{name: name, overload: overloadF32}
 	if fn, ok := e.dxOpFuncs[key]; ok {
 		return fn
 	}
 	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
 	f32Ty := e.mod.GetFloatType(32)
-	params := []*module.Type{i32Ty, i32Ty, i32Ty, i32Ty}
+	params := []*module.Type{i32Ty, i32Ty, i32Ty, i8Ty}
 	funcTy := e.mod.GetFunctionType(f32Ty, params)
 	fn := e.mod.AddFunction(name, funcTy, true)
 	e.dxOpFuncs[key] = fn

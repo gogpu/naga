@@ -5,7 +5,10 @@
 
 package container
 
-import "encoding/binary"
+import (
+	"crypto/md5" //nolint:gosec // MD5 is the DXBC-specified shader-hash digest, not a security primitive
+	"encoding/binary"
+)
 
 // BypassHash is the BYPASS sentinel hash value.
 // When this 16-byte value is placed in the container header's digest field,
@@ -39,27 +42,95 @@ func SetBypassHash(containerData []byte) {
 	copy(containerData[4:20], BypassHash[:])
 }
 
+// WriteShaderHashPart fills the HASH part body (flags=0, digest=MD5(bitcode))
+// inside the given container. The "shader hash" stored in the HASH part is
+// a standard MD5 (NOT the retail modified MD5) of the raw LLVM bitcode
+// content — everything from the bitcode wrapper magic (0x42 0x43 0xC0 0xDE)
+// through the end of the bitcode stream. The bitcode content is the payload
+// of the DXIL part's inner bitcode wrapper (DxilProgramHeader followed by
+// BitcodeHeader: BitcodeOffset and BitcodeSize fields point to it).
+//
+// Without this value set correctly, D3D12 rejects graphics pipelines with
+// "Shader is corrupt" (HRESULT 0x80070057) even when the container hash
+// and bitcode are valid.
+//
+// Reference: empirically confirmed that DXC's HASH part body equals
+// md5(DXIL_bitcode_only) for its compiled shaders. Flags byte is retail (0).
+func WriteShaderHashPart(containerData []byte) error {
+	if len(containerData) < 32 {
+		return nil
+	}
+	// Locate the DXIL part and HASH part.
+	partCount := binary.LittleEndian.Uint32(containerData[28:32])
+	partOffsets := make([]uint32, partCount)
+	for i := range partOffsets {
+		partOffsets[i] = binary.LittleEndian.Uint32(containerData[32+i*4 : 36+i*4])
+	}
+	var dxilPartBody []byte
+	var hashPartBody []byte
+	for _, off := range partOffsets {
+		if off+8 > uint32(len(containerData)) { //nolint:gosec // DXIL containers are always < 4GB; len is bounded
+			continue
+		}
+		fcc := containerData[off : off+4]
+		partSize := binary.LittleEndian.Uint32(containerData[off+4 : off+8])
+		body := containerData[off+8 : off+8+partSize]
+		if string(fcc) == "DXIL" {
+			dxilPartBody = body
+		} else if string(fcc) == "HASH" {
+			hashPartBody = body
+		}
+	}
+	if dxilPartBody == nil || hashPartBody == nil || len(hashPartBody) < 20 {
+		return nil
+	}
+	// DxilProgramHeader: ProgramVersion(4) + SizeInUint32(4) + DxilMagic(4)
+	// + DxilVersion(4) + BitcodeOffset(4) + BitcodeSize(4). Bitcode starts
+	// at DxilProgramHeader + 8 + BitcodeOffset (offset is relative to start
+	// of bitcode header at +8).
+	if len(dxilPartBody) < 24 {
+		return nil
+	}
+	bcOffset := binary.LittleEndian.Uint32(dxilPartBody[16:20]) + 8
+	bcSize := binary.LittleEndian.Uint32(dxilPartBody[20:24])
+	if uint32(len(dxilPartBody)) < bcOffset+bcSize { //nolint:gosec // DXIL containers are always < 4GB; len is bounded
+		return nil
+	}
+	bitcode := dxilPartBody[bcOffset : bcOffset+bcSize]
+	//nolint:gosec // MD5 is the DXBC-specified shader-hash digest
+	digest := md5.Sum(bitcode)
+	// Flags = 0 (retail format).
+	for i := 0; i < 4; i++ {
+		hashPartBody[i] = 0
+	}
+	copy(hashPartBody[4:20], digest[:])
+	return nil
+}
+
 // ComputeRetailHash computes the retail (modified MD5) hash of the
-// container data and writes it into the digest field.
+// container data and writes it into the digest field (bytes 4..20).
 //
 // This implements the "Retail Hash" algorithm from INF-0004, which is
 // a modified MD5 that puts the byte count at x[0] instead of x[14],
 // and uses a different x[15] encoding.
 //
-// The hash is computed over the entire container EXCEPT the 16-byte
-// digest field itself (bytes 4-19). During hashing, the digest field
-// is treated as zeros.
+// The hash input spans bytes 20..end (starting at the Version field
+// in DxilContainerHeader). DXC's DxcContainerBuilder.cpp:189-192:
+//
+//	HashStartOffset = offsetof(DxilContainerHeader, Version) = 20
+//	DataToHash = ContainerHeader + HashStartOffset
+//	AmountToHash = ContainerSizeInBytes - HashStartOffset
+//
+// NOT the whole buffer with the digest zeroed — that produced hashes
+// that D3D12 runtime rejected as mismatched and returned id=67/93
+// "shader is corrupt" even for otherwise valid DXIL. Using the DXC
+// start offset yields byte-for-byte matching hashes against DXC-
+// compiled golden blobs.
 func ComputeRetailHash(containerData []byte) {
 	if len(containerData) < 20 {
 		return
 	}
-
-	// Zero the digest area for hashing.
-	for i := 4; i < 20; i++ {
-		containerData[i] = 0
-	}
-
-	hash := retailMD5(containerData)
+	hash := retailMD5(containerData[20:])
 	copy(containerData[4:20], hash[:])
 }
 

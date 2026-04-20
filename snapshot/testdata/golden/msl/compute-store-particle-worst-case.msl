@@ -1,0 +1,88 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _mslBufferSizes {
+    uint size0;
+    uint size1;
+};
+
+struct Particle {
+    metal::float2 pos;
+    metal::float2 vel;
+};
+struct Params {
+    float dt;
+    uint count;
+};
+typedef Particle type_3[1];
+
+struct main_Input {
+};
+kernel void main_(
+  metal::uint3 id [[thread_position_in_grid]]
+, device type_3 const& pin [[user(fake0)]]
+, device type_3& pout [[user(fake0)]]
+, constant Params& params [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    Particle p = {};
+    uint i = id.x;
+    uint _e4 = params.count;
+    if (i >= _e4) {
+        return;
+    }
+    Particle _e8 = uint(i) < 1 + (_buffer_sizes.size0 - 0 - 16) / 16 ? pin[i] : DefaultConstructible();
+    p = _e8;
+    metal::float2 _e11 = p.pos;
+    float r = metal::length(_e11);
+    float rSafe = metal::max(r, 0.05);
+    metal::float2 _e16 = p.pos;
+    float _e26 = params.dt;
+    metal::float2 gravity = ((-(_e16) / metal::float2((rSafe * rSafe) * rSafe)) * 0.15) * _e26;
+    metal::float2 _e29 = p.vel;
+    p.vel = _e29 + gravity;
+    metal::float2 _e33 = p.vel;
+    p.vel = _e33 * metal::float2(0.9995);
+    metal::float2 _e38 = p.vel;
+    float _e41 = params.dt;
+    metal::float2 _e43 = p.pos;
+    p.pos = _e43 + (_e38 * _e41);
+    float _e47 = p.pos.x;
+    if (_e47 > 1.0) {
+        p.pos.x = 1.0;
+        float _e56 = p.vel.x;
+        p.vel.x = _e56 * -0.8;
+    }
+    float _e60 = p.pos.x;
+    if (_e60 < -1.0) {
+        p.pos.x = -1.0;
+        float _e69 = p.vel.x;
+        p.vel.x = _e69 * -0.8;
+    }
+    float _e73 = p.pos.y;
+    if (_e73 > 1.0) {
+        p.pos.y = 1.0;
+        float _e82 = p.vel.y;
+        p.vel.y = _e82 * -0.8;
+    }
+    float _e86 = p.pos.y;
+    if (_e86 < -1.0) {
+        p.pos.y = -1.0;
+        float _e95 = p.vel.y;
+        p.vel.y = _e95 * -0.8;
+    }
+    Particle _e99 = p;
+    if (uint(i) < 1 + (_buffer_sizes.size1 - 0 - 16) / 16) {
+        pout[i] = _e99;
+    }
+    return;
+}

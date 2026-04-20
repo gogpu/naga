@@ -36,6 +36,33 @@ const (
 	moduleCodeFunction   = 8
 )
 
+// PARAMATTR block record codes (LLVM 3.7 bitcode format; Mesa
+// dxil_module.c:1325). PARAMATTR_BLOCK holds CODE_ENTRY records that
+// each reference a group ID defined in PARAMATTR_GROUP_BLOCK.
+const (
+	paramattrCodeEntry    = 2 // old-style: record contains attr flags
+	paramattrGrpCodeEntry = 3 // group entry in PARAMATTR_GROUP_BLOCK
+)
+
+// LLVM attribute kind IDs (subset used by DXIL intrinsic declarations).
+// Full enum: reference/dxil/mesa/src/microsoft/compiler/dxil_enums.h:244.
+const (
+	attrKindNoDuplicate = 12
+	attrKindNoUnwind    = 18
+	attrKindReadNone    = 20
+	attrKindReadOnly    = 21
+)
+
+// Attribute slot marker used for function-level attributes (as opposed
+// to parameter N or return-value attributes).
+const attrSlotFunction = 0xFFFFFFFF
+
+// Attribute record "type" discriminators (dxil_internal.h:103).
+const (
+	attrTypeEnum      = 0
+	attrTypeEnumValue = 1
+)
+
 // Type table record codes.
 const (
 	typeCodeNumEntry    = 1
@@ -63,6 +90,11 @@ const (
 	constCodeInteger   = 4
 	constCodeFloat     = 6
 	constCodeAggregate = 7
+	// CST_CODE_DATA (LLVM LLVMBitCodes.h: 22) — ConstantDataSequential
+	// serialized as raw inline element values rather than references to
+	// separate module-level constants. Required for consumers that
+	// `dyn_cast<ConstantDataArray>` (e.g. DxilMDHelper::LoadDxilViewIdState).
+	constCodeData = 22
 )
 
 // Function body record codes.
@@ -82,6 +114,7 @@ const (
 	funcCodeInstStore     = 44
 	funcCodeInstAtomicRMW = 38 // FUNC_CODE_INST_ATOMICRMW
 	funcCodeInstCmpXchg   = 46 // FUNC_CODE_INST_CMPXCHG_OLD (LLVM 3.7)
+	funcCodeInstPhi       = 16 // FUNC_CODE_INST_PHI: [ty, val0_signed, bb0, ...]
 )
 
 // Metadata record codes.
@@ -177,6 +210,20 @@ func (s *serializer) emitModule() {
 	// VERSION record: value=1 means relative IDs (LLVM 3.7 bitcode).
 	s.w.EmitRecord(moduleCodeVersion, []uint64{1})
 
+	// BLOCKINFO block: shared abbreviation definitions. DXC and Mesa
+	// emit this as the first sub-block of MODULE. We currently emit it
+	// empty (no abbrevs). A minimal BLOCKINFO still signals "proper
+	// bitcode" to D3D12's parser — absence caused graphics pipeline
+	// rejection even with byte-correct container hashes. Reference:
+	// reference/dxil/mesa/src/microsoft/compiler/dxil_module.c:3947.
+	s.emitBlockInfoBlock()
+
+	// PARAMATTR_GROUP_BLOCK + PARAMATTR_BLOCK. Per Mesa order (line
+	// 3948-3949), these precede the TYPE table so MODULE_CODE_FUNCTION
+	// records can cite paramattr indices after type references.
+	s.emitParamAttrGroupBlock()
+	s.emitParamAttrBlock()
+
 	// TRIPLE record.
 	s.emitStringRecord(moduleCodeTriple, s.mod.TargetTriple)
 
@@ -264,8 +311,8 @@ func (s *serializer) emitType(ty *Type) {
 		}
 
 	case TypePointer:
-		// POINTER: [pointee type index, address space=0]
-		s.w.EmitRecord(typeCodePointer, []uint64{uid(ty.PointerElem.ID), 0})
+		// POINTER: [pointee type index, address space]
+		s.w.EmitRecord(typeCodePointer, []uint64{uid(ty.PointerElem.ID), uint64(ty.PointerAddrSpace)})
 
 	case TypeStruct:
 		if ty.StructName != "" {
@@ -315,10 +362,53 @@ func (s *serializer) emitType(ty *Type) {
 
 // emitModuleInfo writes global variable and function declaration records.
 func (s *serializer) emitModuleInfo() {
+	for _, gv := range s.mod.GlobalVars {
+		s.emitGlobalVarDecl(gv)
+	}
 	for i := range s.mod.Functions {
 		fn := s.mod.Functions[i]
 		s.emitFunctionDecl(fn)
 	}
+}
+
+// emitGlobalVarDecl writes a MODULE_CODE_GLOBALVAR record. Encoding mirrors
+// Mesa dxil_module.c:emit_module_info_global:
+//
+//	[ pointee_type_id,
+//	  (addrspace<<2) | EXPLICIT_TYPE_FLAG | (isConst ? CONSTANT_FLAG : 0),
+//	  initid+1 (0 = no initializer),
+//	  linkage (0=external, 3=internal),
+//	  log2(align)+1,
+//	  section ]
+//
+// EXPLICIT_TYPE_FLAG=0x2 tells the bitcode reader the type ID is the
+// element type rather than a (legacy implicit) pointer-to-element.
+func (s *serializer) emitGlobalVarDecl(gv *GlobalVar) {
+	const explicitTypeFlag = 0x2
+	flags := uint64(gv.AddrSpace)<<2 | explicitTypeFlag
+	if gv.IsConstant {
+		flags |= 0x1
+	}
+	initID := uint64(0)
+	linkage := uint64(0) // external
+	if gv.Initializer != nil {
+		initID = uid(gv.Initializer.ValueID) + 1
+		linkage = 3 // internal
+	}
+	// Alignment: log2(align)+1. For workgroup atomics we use the element's
+	// natural alignment (4 for i32, 8 for i64). Hardcode 4 for now —
+	// matches DXC's default for workgroup vars and groupshared atomics
+	// only require 4-byte alignment per the validator.
+	const log2AlignPlus1 = 3 // log2(4) + 1 = 3
+	data := []uint64{
+		uid(gv.VarType.ID),
+		flags,
+		initID,
+		linkage,
+		log2AlignPlus1,
+		0, // section
+	}
+	s.w.EmitRecord(moduleCodeGlobalVar, data)
 }
 
 // emitFunctionDecl writes a MODULE_CODE_FUNCTION record.
@@ -328,22 +418,83 @@ func (s *serializer) emitFunctionDecl(fn *Function) {
 		isDecl = 1
 	}
 	data := []uint64{
-		uid(fn.FuncType.ID), // type
-		0,                   // callingconv (default=0)
-		isDecl,              // isproto
-		0,                   // linkage (external=0)
-		0,                   // paramattr
-		0,                   // alignment
-		0,                   // section
-		0,                   // visibility
-		0,                   // gc
-		0,                   // unnamed_addr
-		0,                   // prologuedata
-		0,                   // dllstorageclass
-		0,                   // comdat
-		0,                   // prefixdata
+		uid(fn.FuncType.ID),  // type
+		0,                    // callingconv (default=0)
+		isDecl,               // isproto
+		0,                    // linkage (external=0)
+		uint64(fn.AttrSetID), // paramattr — 1-based PARAMATTR_BLOCK index
+		0,                    // alignment
+		0,                    // section
+		0,                    // visibility
+		0,                    // gc
+		0,                    // unnamed_addr
+		0,                    // prologuedata
+		0,                    // dllstorageclass
+		0,                    // comdat
+		0,                    // prefixdata
 	}
 	s.w.EmitRecord(moduleCodeFunction, data)
+}
+
+// emitBlockInfoBlock writes an empty BLOCKINFO block. BLOCKINFO is the
+// LLVM standard block for shared abbreviation definitions referenced by
+// later blocks via numeric indices. An empty BLOCKINFO is valid and is
+// what D3D12's graphics pipeline bitcode parser expects to see first
+// after the MODULE VERSION record. Without it, CreateGraphicsPipelineState
+// rejects with HRESULT 0x80070057 even when IDxcValidator accepts the
+// blob. Block ID = 0 (DXIL_BLOCKINFO per Mesa dxil_module.c:1232).
+func (s *serializer) emitBlockInfoBlock() {
+	const blockInfoID = 0
+	s.w.EnterBlock(blockInfoID, 2)
+	s.w.ExitBlock()
+}
+
+// emitParamAttrGroupBlock writes the PARAMATTR_GROUP_BLOCK containing the
+// attribute group definitions. Three groups, one per AttrSet kind:
+//   - id=1 {nounwind}              — impure functions, entry points
+//   - id=2 {nounwind, readnone}    — pure intrinsics (threadId, math, ...)
+//   - id=3 {nounwind, readonly}    — memory-reading intrinsics (bufferLoad, ...)
+//
+// All three are applied at the function-level slot. DXC's per-intrinsic
+// classification (lib/HLSL/DxilOperations.cpp OpFuncAttrType) drives which
+// group each declaration references; downstream LLVM passes (DCE/GVN/LICM)
+// rely on the precision to reason about safe motion and elimination.
+func (s *serializer) emitParamAttrGroupBlock() {
+	s.w.EnterBlock(paramAttrGrpID, 3)
+	// Group 1: {nounwind} — impure
+	s.w.EmitRecord(paramattrGrpCodeEntry, []uint64{
+		1, attrSlotFunction, attrTypeEnum, attrKindNoUnwind,
+	})
+	// Group 2: {nounwind, readnone} — pure
+	s.w.EmitRecord(paramattrGrpCodeEntry, []uint64{
+		2, attrSlotFunction, attrTypeEnum, attrKindNoUnwind, attrTypeEnum, attrKindReadNone,
+	})
+	// Group 3: {nounwind, readonly} — read-only
+	s.w.EmitRecord(paramattrGrpCodeEntry, []uint64{
+		3, attrSlotFunction, attrTypeEnum, attrKindNoUnwind, attrTypeEnum, attrKindReadOnly,
+	})
+	// Group 4: {noduplicate, nounwind} — barrier intrinsics
+	s.w.EmitRecord(paramattrGrpCodeEntry, []uint64{
+		4, attrSlotFunction, attrTypeEnum, attrKindNoDuplicate, attrTypeEnum, attrKindNoUnwind,
+	})
+	s.w.ExitBlock()
+}
+
+// emitParamAttrBlock writes the PARAMATTR_BLOCK containing the attribute
+// set entries. Each entry N is referenced by MODULE_CODE_FUNCTION's
+// paramattr field (1-based). Three entries mirror the three groups above
+// so a function can reference whichever set its AttrSetID points to.
+func (s *serializer) emitParamAttrBlock() {
+	s.w.EnterBlock(paramAttrID, 3)
+	// Entry 1 → group 1 (nounwind)
+	s.w.EmitRecord(paramattrCodeEntry, []uint64{1})
+	// Entry 2 → group 2 (nounwind, readnone)
+	s.w.EmitRecord(paramattrCodeEntry, []uint64{2})
+	// Entry 3 → group 3 (nounwind, readonly)
+	s.w.EmitRecord(paramattrCodeEntry, []uint64{3})
+	// Entry 4 → group 4 (noduplicate, nounwind)
+	s.w.EmitRecord(paramattrCodeEntry, []uint64{4})
+	s.w.ExitBlock()
 }
 
 // emitConstants writes the CONSTANTS_BLOCK.
@@ -360,6 +511,14 @@ func (s *serializer) emitConstants() {
 
 		if c.IsUndef {
 			s.w.EmitRecord(constCodeUndef, nil)
+		} else if c.IsDataArray {
+			// DATA: [v0, v1, v2, ...] — raw element values inlined.
+			// No references to module constants; no value-ID forward refs.
+			// Parsed as ConstantDataArray (not ConstantArray), which is
+			// what `dyn_cast<ConstantDataArray>` consumers require —
+			// critically DxilMDHelper::LoadDxilViewIdState during D3D12
+			// CreateGraphicsPipelineState validation.
+			s.w.EmitRecord(constCodeData, c.DataValues)
 		} else if c.IsAggregate {
 			// AGGREGATE: [elt0_valueid, elt1_valueid, ...]
 			vals := make([]uint64, len(c.Elements))
@@ -385,12 +544,27 @@ func (s *serializer) emitConstants() {
 }
 
 // encodeSignRotated encodes a signed value using LLVM's sign-rotating
-// encoding: non-negative N maps to 2*N, negative N maps to 2*(-N)-1.
+// encoding: non-negative N maps to 2*N, negative N maps to (2*(-N)) | 1.
+//
+// The sign bit must be set via OR, not subtraction. The previous form
+// '(2*(-N)) - 1' produced the wrong encoding for ALL negative values:
+//
+//	v=-1: (2*1)-1 = 1 — decodes (1>>1, sign=1&1) → -0 = 0
+//	v=-2: (2*2)-1 = 3 — decodes (3>>1, sign=3&1) → -1
+//
+// The correct form keeps abs(v) intact in the upper bits and sets bit 0
+// independently as the sign flag:
+//
+//	v=-1: (2*1)|1 = 3 — decodes (3>>1, sign=3&1) → -1
+//	v=-2: (2*2)|1 = 5 — decodes (5>>1, sign=5&1) → -2
+//
+// Reference: Mesa dxil_module.c:2590 encode_signed; LLVM
+// llvm/lib/Bitcode/Writer/BitcodeWriter.cpp emit_vbr_signed.
 func encodeSignRotated(v int64) uint64 {
 	if v >= 0 {
 		return uint64(v) << 1
 	}
-	return (uint64(-v) << 1) - 1
+	return (uint64(-v) << 1) | 1
 }
 
 // floatBits returns the IEEE 754 bit pattern for a float constant.
@@ -477,6 +651,57 @@ func (s *serializer) emitMetadata() {
 	}
 
 	s.w.ExitBlock()
+
+	// Emit the standard LLVM metadata-kind table as a separate
+	// METADATA_BLOCK. DXC emits these 16 kinds for every module even
+	// when the shader has no debug info or metadata attachments. D3D12's
+	// graphics pipeline parser expects the kind table to be present to
+	// decode potential METADATA_ATTACHMENT records in function bodies.
+	s.emitMetadataKindTable()
+}
+
+// Standard LLVM metadata kinds DXC emits unconditionally. Order and
+// names match DXC output for a trivial VS — verified via bitcode dump
+// of lvl0 golden. Codes 0..13 are stock LLVM kinds; 14..15 are DXC-
+// specific. If the kind table is missing, CreateGraphicsPipelineState
+// rejects the shader with HRESULT 0x80070057.
+var standardMetadataKinds = []string{
+	"dbg",                           // 0
+	"tbaa",                          // 1
+	"prof",                          // 2
+	"fpmath",                        // 3
+	"range",                         // 4
+	"tbaa.struct",                   // 5
+	"invariant.load",                // 6
+	"alias.scope",                   // 7
+	"noalias",                       // 8
+	"nontemporal",                   // 9
+	"llvm.mem.parallel_loop_access", // 10
+	"nonnull",                       // 11
+	"dereferenceable",               // 12
+	"dereferenceable_or_null",       // 13
+	"dx.temp",                       // 14
+	"dx.dbg.varlayout",              // 15
+}
+
+// metadataKind is the record code for METADATA_KIND entries.
+// Reference: dxil_module.c:2780 METADATA_KIND = 6.
+const metadataKind = 6
+
+// emitMetadataKindTable writes a second METADATA_BLOCK containing the
+// 16 standard LLVM metadata-kind records that DXC unconditionally emits.
+// Each record layout per DXC bitcode writer: [kind_id, name_byte_0, ...].
+func (s *serializer) emitMetadataKindTable() {
+	s.w.EnterBlock(metadataBlockID, 3)
+	for id, name := range standardMetadataKinds {
+		vals := make([]uint64, 1+len(name))
+		vals[0] = uint64(id)
+		for i := 0; i < len(name); i++ {
+			vals[1+i] = uint64(name[i])
+		}
+		s.w.EmitRecord(metadataKind, vals)
+	}
+	s.w.ExitBlock()
 }
 
 // emitMetadataString writes a METADATA_STRING record.
@@ -495,7 +720,12 @@ func (s *serializer) emitMetadataValue(md *MetadataNode) {
 	if md.ValueType != nil {
 		typeID = uid(md.ValueType.ID)
 	}
-	if md.ValueConst != nil {
+	switch {
+	case md.ValueFunc != nil:
+		// Function reference: value is the function's global value ID.
+		// Used by !dx.entryPoints[0][0] = void()* @main.
+		valueID = uid(md.ValueFunc.ValueID)
+	case md.ValueConst != nil:
 		valueID = uid(md.ValueConst.ValueID)
 	}
 	s.w.EmitRecord(metadataValue, []uint64{typeID, valueID})
@@ -586,13 +816,20 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 		}
 
 	case InstrBinOp:
-		// BINOP: [opval_delta, opval_delta, opcode]
+		// BINOP: [opval_delta, opval_delta, opcode, opt_flags]
 		// Operands: [lhs, rhs, opcode_as_int]
+		// When Flags != 0, a 4th field is appended carrying fast-math flags
+		// (LLVM 3.7 bitcode format). DXC always sets UnsafeAlgebra (bit 0 =
+		// "fast") for non-precise float ops.
 		if len(instr.Operands) >= 3 {
 			lhsDelta := uint64(currentValueID - instr.Operands[0]) //nolint:gosec // delta always non-negative
 			rhsDelta := uint64(currentValueID - instr.Operands[1]) //nolint:gosec // delta always non-negative
 			opcode := uint64(instr.Operands[2])                    //nolint:gosec // opcode is small positive int
-			s.w.EmitRecord(funcCodeInstBinop, []uint64{lhsDelta, rhsDelta, opcode})
+			if instr.Flags != 0 {
+				s.w.EmitRecord(funcCodeInstBinop, []uint64{lhsDelta, rhsDelta, opcode, uint64(instr.Flags)})
+			} else {
+				s.w.EmitRecord(funcCodeInstBinop, []uint64{lhsDelta, rhsDelta, opcode})
+			}
 		}
 
 	case InstrCmp:
@@ -752,6 +989,25 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 			ordering := uint64(instr.Operands[4])                  //nolint:gosec // memory ordering
 			synchscope := uint64(instr.Operands[5])                //nolint:gosec // synch scope
 			s.w.EmitRecord(funcCodeInstCmpXchg, []uint64{ptrDelta, cmpDelta, newDelta, isVolatile, ordering, synchscope})
+		}
+
+	case InstrPhi:
+		// PHI: [ty, val0_signed, bb0, val1_signed, bb1, ...]
+		// Reference: LLVM 3.7 BitcodeWriter.cpp WriteInstruction case
+		// Instruction::PHI uses pushValueSigned for value operands because
+		// phi can reference instructions that appear later in BB order
+		// (forward references). Block IDs are unsigned BB indices.
+		if instr.ResultType != nil && len(instr.PhiIncomings) > 0 {
+			vals := make([]uint64, 0, 1+2*len(instr.PhiIncomings))
+			vals = append(vals, uid(instr.ResultType.ID))
+			for _, inc := range instr.PhiIncomings {
+				diff := int64(currentValueID) - int64(inc.ValueID)
+				vals = append(vals,
+					bitcode.EncodeSignedVBR(diff),
+					uint64(inc.BBIndex), //nolint:gosec // BB index always non-negative
+				)
+			}
+			s.w.EmitRecord(funcCodeInstPhi, vals)
 		}
 	}
 }

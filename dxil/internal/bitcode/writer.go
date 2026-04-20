@@ -115,6 +115,25 @@ func (w *Writer) WriteVBR(value uint64, width uint) {
 	w.WriteBits(uint32(value&0xFFFFFFFF), width) //nolint:mnd // bit mask
 }
 
+// EncodeSignedVBR ZigZag-encodes a signed integer for VBR transmission.
+// LLVM bitcode (release_37 lib/Bitcode/Writer/BitcodeWriter.cpp emitSignedInt64)
+// uses this for instruction operands that may be forward references — most
+// notably FUNC_CODE_INST_PHI value operands, which can reference instructions
+// that appear later in basic-block order than the phi itself.
+//
+// Mapping (LSB carries the sign, magnitude in the upper bits):
+//
+//	v >= 0 → v << 1
+//	v <  0 → (-v << 1) | 1
+//
+// Symmetric to LLVM's BitstreamReader::ReadVBR + sign decode on the read side.
+func EncodeSignedVBR(value int64) uint64 {
+	if value >= 0 {
+		return uint64(value) << 1
+	}
+	return (uint64(-value) << 1) | 1
+}
+
 // WriteChar6 writes a 6-bit character code. Only the characters
 // [a-zA-Z0-9._] are representable.
 func (w *Writer) WriteChar6(ch byte) {

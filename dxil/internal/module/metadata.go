@@ -24,6 +24,12 @@ type MetadataNode struct {
 	ValueType  *Type
 	ValueConst *Constant
 
+	// For MDValue referencing a function: the referenced function.
+	// When set, ValueConst is ignored and the metadata value record
+	// emits [pointer-to-function-type-id, function.ValueID]. This is
+	// how DXIL encodes !dx.entryPoints[0][0] = void()* @main.
+	ValueFunc *Function
+
 	// For MDTuple: sub-nodes. A nil entry represents a null operand.
 	SubNodes []*MetadataNode
 }
@@ -55,6 +61,27 @@ func (m *Module) AddMetadataValue(ty *Type, c *Constant) *MetadataNode {
 		ID:         len(m.Metadata),
 		ValueType:  ty,
 		ValueConst: c,
+	}
+	m.Metadata = append(m.Metadata, node)
+	return node
+}
+
+// AddMetadataFunc creates a metadata value node that references a function.
+//
+// In LLVM 3.7 bitcode, a metadata value referencing a function uses the
+// function's pointer type and the function's global value ID. This is the
+// representation required for !dx.entryPoints[0][0] (the entry function
+// pointer) — the DXIL validator dereferences this pointer when walking
+// entry points, so it must NOT be a null metadata operand.
+//
+// Reference: Mesa dxil_get_metadata_func() in dxil_module.c.
+func (m *Module) AddMetadataFunc(fn *Function) *MetadataNode {
+	ptrTy := m.GetPointerType(fn.FuncType)
+	node := &MetadataNode{
+		Kind:      MDValue,
+		ID:        len(m.Metadata),
+		ValueType: ptrTy,
+		ValueFunc: fn,
 	}
 	m.Metadata = append(m.Metadata, node)
 	return node

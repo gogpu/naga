@@ -130,6 +130,46 @@ func TestWriteVBR_ThreeChunks(t *testing.T) {
 	}
 }
 
+func TestEncodeSignedVBR(t *testing.T) {
+	// Reference: LLVM 3.7 BitcodeWriter.cpp emitSignedInt64.
+	//   v >= 0 → v << 1
+	//   v <  0 → (-v << 1) | 1
+	tests := []struct {
+		name  string
+		input int64
+		want  uint64
+	}{
+		{"zero", 0, 0},
+		{"positive_one", 1, 2},
+		{"positive_max_small", 7, 14},
+		{"negative_one", -1, 3},
+		{"negative_two", -2, 5},
+		{"negative_seven", -7, 15},
+		{"large_positive", 1024, 2048},
+		{"large_negative", -1024, 2049},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := EncodeSignedVBR(tt.input)
+			if got != tt.want {
+				t.Errorf("EncodeSignedVBR(%d) = %d, want %d", tt.input, got, tt.want)
+			}
+			// Round-trip check: LSB carries sign, the rest is magnitude.
+			lsb := got & 1
+			mag := got >> 1
+			var roundtrip int64
+			if lsb == 0 {
+				roundtrip = int64(mag)
+			} else {
+				roundtrip = -int64(mag)
+			}
+			if roundtrip != tt.input {
+				t.Errorf("round-trip(%d): got %d", tt.input, roundtrip)
+			}
+		})
+	}
+}
+
 func TestEncodeChar6(t *testing.T) {
 	tests := []struct {
 		ch   byte

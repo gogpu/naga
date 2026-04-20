@@ -183,6 +183,110 @@ type ExprLoad struct {
 
 func (ExprLoad) expressionKind() {}
 
+// ExprAlias is a transparent passthrough that resolves to another expression.
+//
+// # Backend visibility invariant
+//
+// ExprAlias is a DXIL-internal IR kind. It MUST NOT appear in any module
+// produced by parsing alone: the WGSL frontend never synthesizes it.
+// The only production site is the DXIL backend's mem2reg pass
+// (dxil/internal/passes/mem2reg). Other backends (MSL/GLSL/HLSL/SPIR-V)
+// process the original module (or their own CloneModuleForOverrides
+// clone) and never invoke mem2reg, so they never observe this kind.
+// Their expression-kind type switches treat unknown kinds as errors
+// (e.g. msl/expressions.go writeExpressionInline default returns
+// "unsupported expression kind"), which gives a clear failure mode if
+// the invariant is ever violated.
+//
+// The runtime invariant is verified by TestNoDxilOnlyKindsAfterParse
+// in package ir, which parses every shader in snapshot/testdata/in
+// and asserts no ExprAlias / ExprPhi appears in the resulting module.
+//
+// # Production
+//
+// It is produced by the DXIL backend's mem2reg pass when a promoted local
+// variable's load is rewritten to refer directly to the value last stored
+// into that variable (or, on the first load, to the variable's initializer
+// or a zero value). The DXIL emitter resolves it by returning the source
+// expression's value ID without emitting any instruction of its own.
+//
+// Reference parity: corresponds to the value-substitution step inside LLVM's
+// PromoteMemoryToRegister pass — once an alloca is promoted, every load is
+// rewritten to use the dominating store's stored value, and the load
+// instruction is erased. We achieve the same effect at the IR level with
+// this alias indirection so the existing emit pipeline continues to walk
+// the function's expression arena unmodified.
+type ExprAlias struct {
+	Source ExpressionHandle
+}
+
+func (ExprAlias) expressionKind() {}
+
+// PhiPredKey identifies which structured-CFG predecessor an ExprPhi
+// incoming value flows from. Reference: LLVM PromoteMemoryToRegister.cpp
+// rename pass tracks IncomingVals per predecessor BB; in our structured
+// IR the predecessor is one of a small set of named edges.
+type PhiPredKey uint8
+
+const (
+	// PhiPredIfAccept — value at end of StmtIf.Accept body.
+	PhiPredIfAccept PhiPredKey = iota
+	// PhiPredIfReject — value at end of StmtIf.Reject body (or pre-if value
+	// when Reject is empty / variable not stored there).
+	PhiPredIfReject
+	// PhiPredLoopInit — value at loop header from the pre-loop fall-through edge.
+	PhiPredLoopInit
+	// PhiPredLoopBackEdge — value at loop header from the back-edge
+	// (end of StmtLoop.Continuing or StmtLoop.Body when Continuing is empty).
+	PhiPredLoopBackEdge
+	// PhiPredSwitchCase — base for switch-case predecessors. The actual
+	// predecessor index = uint(PhiPredSwitchCase) + caseIdx, encoded in the
+	// CaseIdx field on PhiIncoming.
+	PhiPredSwitchCase
+	// PhiPredFallThrough — pre-construct value (e.g. into a switch merge
+	// when no case writes to the variable; rarely used in practice but kept
+	// for completeness).
+	PhiPredFallThrough
+)
+
+// PhiIncoming is one (predecessor, value) pair attached to an ExprPhi.
+// PredKey identifies the structured-CFG edge the value flows along.
+// CaseIdx is meaningful only when PredKey == PhiPredSwitchCase.
+type PhiIncoming struct {
+	PredKey PhiPredKey
+	CaseIdx uint32
+	Value   ExpressionHandle
+}
+
+// ExprPhi is an SSA phi node merging values from multiple structured-CFG
+// predecessors.
+//
+// # Backend visibility invariant
+//
+// Same as ExprAlias: DXIL-internal kind, never produced by parsing alone,
+// only synthesized by dxil/internal/passes/mem2reg. Verified by
+// TestNoDxilOnlyKindsAfterParse in package ir.
+//
+// # Production
+//
+// Produced by the DXIL backend's mem2reg pass at if/switch merge points
+// and at loop headers when a promoted local variable is stored on more
+// than one incoming path. The DXIL emitter lowers it to LLVM's
+// FUNC_CODE_INST_PHI at the bitcode-level basic-block prologue, with
+// each incoming value's per-predecessor value-ID resolved via emit-time
+// snapshots taken at the end of each predecessor branch.
+//
+// Reference parity: matches LLVM PromoteMemoryToRegister.cpp's phi
+// insertion at the iterated dominance frontier of defining blocks.
+// Structured CFG makes IDF computation trivial: the merge point is
+// the statement after the StmtIf/StmtSwitch, or the header of a
+// StmtLoop body.
+type ExprPhi struct {
+	Incoming []PhiIncoming
+}
+
+func (ExprPhi) expressionKind() {}
+
 // ExprImageSample samples a point from a sampled or depth image.
 type ExprImageSample struct {
 	Image       ExpressionHandle

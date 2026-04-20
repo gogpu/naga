@@ -306,6 +306,16 @@ func TestSerialize_WithMetadata(t *testing.T) {
 }
 
 func TestEncodeSignRotated(t *testing.T) {
+	// LLVM 3.7 sign-rotated VBR encoding for signed integers:
+	//   non-negative N → N << 1
+	//   negative N     → ((-N) << 1) | 1
+	//
+	// Pinned against Mesa dxil_module.c:2590 encode_signed. The previous
+	// test expected -1→1 / -2→3 / -100→199, matching the (buggy)
+	// '(-N << 1) - 1' form. That form produced encodings that decoded
+	// to WRONG values: dxc bitcode reader takes X=1 and decodes
+	// -(1>>1) = -0 = 0, not -1. Verified by !{i32 -1} round-trip in
+	// dxc -dumpbin: with the new encoding (X=3), dxc displays i32 -1.
 	tests := []struct {
 		input int64
 		want  uint64
@@ -313,10 +323,10 @@ func TestEncodeSignRotated(t *testing.T) {
 		{0, 0},
 		{1, 2},
 		{2, 4},
-		{-1, 1},
-		{-2, 3},
+		{-1, 3},
+		{-2, 5},
 		{100, 200},
-		{-100, 199},
+		{-100, 201},
 	}
 	for _, tt := range tests {
 		got := encodeSignRotated(tt.input)

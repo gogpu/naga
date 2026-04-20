@@ -195,3 +195,104 @@ func TestDxilValSummary(t *testing.T) {
 }
 
 // truncate is defined in snapshot_test.go
+
+// ggProductionCorpora are the gg shader directories that TestDxilValGGProduction
+// walks to guard against BUG-DXIL-026-class regressions. These are Vello-derived
+// compute pipelines and compositor fragments that exercise patterns absent from
+// the testdata/in/ baseline (packed struct UAV loads, workgroup struct arrays
+// with TGSM-origin constraints, complex bind group layouts).
+//
+// Paths are relative to snapshot/. The go.work file puts ../../gg in the
+// workspace so this test runs from the same repo checkout.
+var ggProductionCorpora = []string{
+	"../../gg/internal/gpu/shaders",
+	"../../gg/internal/gpucore/shaders",
+	"../../gg/internal/gpu/tilecompute/shaders",
+}
+
+// TestDxilValGGProduction walks the gg production shader corpora and requires
+// every entry point to produce DXIL that DXC's IDxcValidator accepts. This is
+// the permanent regression guard for BUG-DXIL-026 — the pre-fix baseline was
+// 48 / 57 VALID (9 failures in workgroup struct/array store paths). Skips
+// cleanly when the gg repo is not present in the workspace (e.g. CI builds
+// that only check out naga).
+func TestDxilValGGProduction(t *testing.T) {
+	dxc := dxcPath()
+	if dxc == "" {
+		t.Skip("dxc.exe not found (install Windows SDK)")
+	}
+
+	opts := dxil.DefaultOptions()
+	var failures []string
+	var totalEPs int
+
+	for _, corpusDir := range ggProductionCorpora {
+		entries, err := os.ReadDir(corpusDir)
+		if err != nil {
+			t.Skipf("gg corpus %q unavailable: %v", corpusDir, err)
+			return
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".wgsl") {
+				continue
+			}
+			path := corpusDir + "/" + entry.Name()
+			src, rerr := os.ReadFile(path)
+			if rerr != nil {
+				t.Fatalf("read %s: %v", path, rerr)
+			}
+
+			ast, perr := parseWGSL(string(src))
+			if perr != nil {
+				failures = append(failures, path+": parse: "+perr.Error())
+				continue
+			}
+			module, lerr := lowerToIR(ast, string(src))
+			if lerr != nil {
+				failures = append(failures, path+": lower: "+lerr.Error())
+				continue
+			}
+			if len(module.EntryPoints) == 0 {
+				continue
+			}
+
+			for j := range module.EntryPoints {
+				totalEPs++
+				singleEP := &ir.Module{
+					Types:             module.Types,
+					Constants:         module.Constants,
+					GlobalVariables:   module.GlobalVariables,
+					GlobalExpressions: module.GlobalExpressions,
+					Functions:         module.Functions,
+					EntryPoints:       []ir.EntryPoint{module.EntryPoints[j]},
+					Overrides:         module.Overrides,
+					SpecialTypes:      module.SpecialTypes,
+				}
+				blob, cerr := dxil.Compile(singleEP, opts)
+				if cerr != nil {
+					failures = append(failures, path+"/"+module.EntryPoints[j].Name+": compile: "+cerr.Error())
+					continue
+				}
+				tmp, terr := os.CreateTemp("", "ggprod-*.dxil")
+				if terr != nil {
+					t.Fatalf("tmp: %v", terr)
+				}
+				_, _ = tmp.Write(blob)
+				tmp.Close()
+				out, verr := exec.Command(dxc, "-dumpbin", tmp.Name()).CombinedOutput()
+				os.Remove(tmp.Name())
+				if verr != nil {
+					failures = append(failures, path+"/"+module.EntryPoints[j].Name+": val: "+truncate(strings.TrimSpace(string(out)), 160))
+				}
+			}
+		}
+	}
+
+	t.Logf("gg production DXIL validation: %d entry points, %d failures", totalEPs, len(failures))
+	if len(failures) > 0 {
+		for _, f := range failures {
+			t.Errorf("  %s", f)
+		}
+	}
+}
