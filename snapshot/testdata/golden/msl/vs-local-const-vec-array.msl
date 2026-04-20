@@ -1,0 +1,28 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct type_3 {
+    metal::float2 inner[3];
+};
+
+struct vs_mainInput {
+};
+struct vs_mainOutput {
+    metal::float4 member [[position]];
+};
+vertex vs_mainOutput vs_main(
+  uint idx [[vertex_id]]
+) {
+    type_3 positions = type_3 {metal::float2(0.0, 0.5), metal::float2(-0.5, -0.5), metal::float2(0.5, -0.5)};
+    metal::float2 _e13 = uint(idx) < 3 ? positions.inner[idx] : DefaultConstructible();
+    return vs_mainOutput { metal::float4(_e13, 0.0, 1.0) };
+}

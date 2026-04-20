@@ -711,6 +711,35 @@ func (e *Emitter) tryFlatGEPWorkgroupNested(fn *ir.Function, ai, bai ir.ExprAcce
 	return id, true
 }
 
+// tryAccessIndexArrayGEP checks if the Access base is an AccessIndex that
+// produced a pointer to an array (struct member that is an array type).
+// If so, emits a flat GEP or array GEP as appropriate. Returns (id, true)
+// if handled, (0, false) otherwise.
+func (e *Emitter) tryAccessIndexArrayGEP(fn *ir.Function, acc ir.ExprAccess, baseID, indexID int) (int, bool) {
+	ai, ok := fn.Expressions[acc.Base].Kind.(ir.ExprAccessIndex)
+	if !ok {
+		return 0, false
+	}
+	innerTy := e.resolveAccessIndexResultType(fn, ai)
+	if _, isArr := innerTy.(ir.ArrayType); !isArr {
+		return 0, false
+	}
+	// Local-var nested array — emit a single flat GEP rooted at
+	// the alloca (see tryFlatGEPLocalVarNested for rationale).
+	if id, handled := e.tryFlatGEPLocalVarNested(fn, acc.Base, indexID); handled {
+		return id, true
+	}
+	arrayDxilTy, err := typeToDXIL(e.mod, e.ir, innerTy)
+	if err != nil {
+		return 0, false
+	}
+	id, err := e.emitArrayGEP(baseID, arrayDxilTy, indexID)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
 // tryFlatGEPLocalVarNested handles the access pattern
 //
 //	ExprAccess(ExprAccess(ExprLocalVariable, idx0), idx1)
@@ -1066,19 +1095,8 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 
 	// Check if the base is an AccessIndex that produced a pointer to an array
 	// (e.g., struct member that is an array type).
-	if ai, ok := fn.Expressions[acc.Base].Kind.(ir.ExprAccessIndex); ok {
-		innerTy := e.resolveAccessIndexResultType(fn, ai)
-		if _, isArr := innerTy.(ir.ArrayType); isArr {
-			// Local-var nested array — emit a single flat GEP rooted at
-			// the alloca (see tryFlatGEPLocalVarNested for rationale).
-			if id, handled := e.tryFlatGEPLocalVarNested(fn, acc.Base, indexID); handled {
-				return id, nil
-			}
-			arrayDxilTy, err2 := typeToDXIL(e.mod, e.ir, innerTy)
-			if err2 == nil {
-				return e.emitArrayGEP(baseID, arrayDxilTy, indexID)
-			}
-		}
+	if id, ok := e.tryAccessIndexArrayGEP(fn, acc, baseID, indexID); ok {
+		return id, nil
 	}
 
 	// Local-var nested array via Access(Access(LV, idx0), idx1) — the inner
@@ -1323,8 +1341,6 @@ func (e *Emitter) emitSplat(fn *ir.Function, sp ir.ExprSplat) (int, error) {
 // emitBinary emits a binary operation.
 // For vector operands, the operation is scalarized: per-component binops are emitted.
 // Scalar-vector broadcasts the scalar to each component.
-//
-//nolint:gocognit,gocyclo,cyclop,funlen // binary op dispatch requires many cases
 func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 	// Check if operands are vectors — if so, scalarize the operation.
 	leftType := e.resolveExprType(fn, bin.Left)
@@ -1390,117 +1406,129 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 		}
 	}
 
-	switch bin.Op {
+	return e.emitScalarBinaryOp(bin.Op, resultTy, lhs, rhs, isFloat, isSigned)
+}
+
+// emitScalarBinaryOp dispatches a scalar binary operation to the appropriate
+// DXIL instruction (binop, cmp, or lowered FRem).
+func (e *Emitter) emitScalarBinaryOp(op ir.BinaryOperator, resultTy *module.Type, lhs, rhs int, isFloat, isSigned bool) (int, error) {
+	switch op {
 	case ir.BinaryAdd:
-		if isFloat {
-			return e.addBinOpInstr(resultTy, BinOpFAdd, lhs, rhs), nil
-		}
-		return e.addBinOpInstr(resultTy, BinOpAdd, lhs, rhs), nil
-
+		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFAdd, BinOpAdd), lhs, rhs), nil
 	case ir.BinarySubtract:
-		if isFloat {
-			return e.addBinOpInstr(resultTy, BinOpFSub, lhs, rhs), nil
-		}
-		return e.addBinOpInstr(resultTy, BinOpSub, lhs, rhs), nil
-
+		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFSub, BinOpSub), lhs, rhs), nil
 	case ir.BinaryMultiply:
-		if isFloat {
-			return e.addBinOpInstr(resultTy, BinOpFMul, lhs, rhs), nil
-		}
-		return e.addBinOpInstr(resultTy, BinOpMul, lhs, rhs), nil
-
+		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFMul, BinOpMul), lhs, rhs), nil
 	case ir.BinaryDivide:
-		if isFloat {
-			return e.addBinOpInstr(resultTy, BinOpFDiv, lhs, rhs), nil
-		}
-		if isSigned {
-			return e.addBinOpInstr(resultTy, BinOpSDiv, lhs, rhs), nil
-		}
-		return e.addBinOpInstr(resultTy, BinOpUDiv, lhs, rhs), nil
-
+		return e.addBinOpInstr(resultTy, selectDivOp(isFloat, isSigned), lhs, rhs), nil
 	case ir.BinaryModulo:
-		if isFloat {
-			// DXIL does not support the FRem instruction natively (DXC rejects
-			// it with "Invalid record"). Lower to: a - b * floor(a / b).
-			// This matches Mesa nir_to_dxil.c which sets lower_fmod = true.
-			return e.emitFRemLowered(resultTy, lhs, rhs), nil
-		}
-		if isSigned {
-			return e.addBinOpInstr(resultTy, BinOpSRem, lhs, rhs), nil
-		}
-		return e.addBinOpInstr(resultTy, BinOpURem, lhs, rhs), nil
-
+		return e.emitModulo(resultTy, lhs, rhs, isFloat, isSigned)
 	case ir.BinaryAnd:
 		return e.addBinOpInstr(resultTy, BinOpAnd, lhs, rhs), nil
 	case ir.BinaryExclusiveOr:
 		return e.addBinOpInstr(resultTy, BinOpXor, lhs, rhs), nil
 	case ir.BinaryInclusiveOr:
 		return e.addBinOpInstr(resultTy, BinOpOr, lhs, rhs), nil
-
 	case ir.BinaryShiftLeft:
 		return e.addBinOpInstr(resultTy, BinOpShl, lhs, rhs), nil
 	case ir.BinaryShiftRight:
-		if isSigned {
-			return e.addBinOpInstr(resultTy, BinOpAShr, lhs, rhs), nil
-		}
-		return e.addBinOpInstr(resultTy, BinOpLShr, lhs, rhs), nil
-
-	// Comparison operations.
-	case ir.BinaryEqual:
-		if isFloat {
-			return e.addCmpInstr(FCmpOEQ, lhs, rhs), nil
-		}
-		return e.addCmpInstr(ICmpEQ, lhs, rhs), nil
-
-	case ir.BinaryNotEqual:
-		if isFloat {
-			return e.addCmpInstr(FCmpONE, lhs, rhs), nil
-		}
-		return e.addCmpInstr(ICmpNE, lhs, rhs), nil
-
-	case ir.BinaryLess:
-		if isFloat {
-			return e.addCmpInstr(FCmpOLT, lhs, rhs), nil
-		}
-		if isSigned {
-			return e.addCmpInstr(ICmpSLT, lhs, rhs), nil
-		}
-		return e.addCmpInstr(ICmpULT, lhs, rhs), nil
-
-	case ir.BinaryLessEqual:
-		if isFloat {
-			return e.addCmpInstr(FCmpOLE, lhs, rhs), nil
-		}
-		if isSigned {
-			return e.addCmpInstr(ICmpSLE, lhs, rhs), nil
-		}
-		return e.addCmpInstr(ICmpULE, lhs, rhs), nil
-
-	case ir.BinaryGreater:
-		if isFloat {
-			return e.addCmpInstr(FCmpOGT, lhs, rhs), nil
-		}
-		if isSigned {
-			return e.addCmpInstr(ICmpSGT, lhs, rhs), nil
-		}
-		return e.addCmpInstr(ICmpUGT, lhs, rhs), nil
-
-	case ir.BinaryGreaterEqual:
-		if isFloat {
-			return e.addCmpInstr(FCmpOGE, lhs, rhs), nil
-		}
-		if isSigned {
-			return e.addCmpInstr(ICmpSGE, lhs, rhs), nil
-		}
-		return e.addCmpInstr(ICmpUGE, lhs, rhs), nil
-
+		return e.addBinOpInstr(resultTy, selectBinOp(isSigned, BinOpAShr, BinOpLShr), lhs, rhs), nil
+	case ir.BinaryEqual, ir.BinaryNotEqual, ir.BinaryLess,
+		ir.BinaryLessEqual, ir.BinaryGreater, ir.BinaryGreaterEqual:
+		return e.emitComparison(op, lhs, rhs, isFloat, isSigned)
 	case ir.BinaryLogicalAnd:
 		return e.addBinOpInstr(e.mod.GetIntType(1), BinOpAnd, lhs, rhs), nil
 	case ir.BinaryLogicalOr:
 		return e.addBinOpInstr(e.mod.GetIntType(1), BinOpOr, lhs, rhs), nil
-
 	default:
-		return 0, fmt.Errorf("unsupported binary operator: %d", bin.Op)
+		return 0, fmt.Errorf("unsupported binary operator: %d", op)
+	}
+}
+
+// selectBinOp returns the float opcode if cond is true, otherwise the int opcode.
+func selectBinOp(cond bool, ifTrue, ifFalse BinOpKind) BinOpKind {
+	if cond {
+		return ifTrue
+	}
+	return ifFalse
+}
+
+// selectDivOp returns the appropriate division opcode for the given type.
+func selectDivOp(isFloat, isSigned bool) BinOpKind {
+	if isFloat {
+		return BinOpFDiv
+	}
+	if isSigned {
+		return BinOpSDiv
+	}
+	return BinOpUDiv
+}
+
+// emitModulo emits a modulo/remainder operation. DXIL does not support FRem
+// natively (DXC rejects it with "Invalid record"), so float modulo is lowered
+// to: a - b * floor(a / b). This matches Mesa nir_to_dxil.c lower_fmod.
+func (e *Emitter) emitModulo(resultTy *module.Type, lhs, rhs int, isFloat, isSigned bool) (int, error) {
+	if isFloat {
+		return e.emitFRemLowered(resultTy, lhs, rhs), nil
+	}
+	if isSigned {
+		return e.addBinOpInstr(resultTy, BinOpSRem, lhs, rhs), nil
+	}
+	return e.addBinOpInstr(resultTy, BinOpURem, lhs, rhs), nil
+}
+
+// emitComparison emits a comparison instruction with the correct predicate
+// for the given operator, type (float vs int), and signedness.
+func (e *Emitter) emitComparison(op ir.BinaryOperator, lhs, rhs int, isFloat, isSigned bool) (int, error) {
+	pred := comparisonPredicate(op, isFloat, isSigned)
+	return e.addCmpInstr(pred, lhs, rhs), nil
+}
+
+// comparisonPredicate maps a binary comparison operator to the DXIL CmpPredicate.
+func comparisonPredicate(op ir.BinaryOperator, isFloat, isSigned bool) CmpPredicate {
+	switch op {
+	case ir.BinaryEqual:
+		if isFloat {
+			return FCmpOEQ
+		}
+		return ICmpEQ
+	case ir.BinaryNotEqual:
+		if isFloat {
+			return FCmpONE
+		}
+		return ICmpNE
+	case ir.BinaryLess:
+		if isFloat {
+			return FCmpOLT
+		}
+		if isSigned {
+			return ICmpSLT
+		}
+		return ICmpULT
+	case ir.BinaryLessEqual:
+		if isFloat {
+			return FCmpOLE
+		}
+		if isSigned {
+			return ICmpSLE
+		}
+		return ICmpULE
+	case ir.BinaryGreater:
+		if isFloat {
+			return FCmpOGT
+		}
+		if isSigned {
+			return ICmpSGT
+		}
+		return ICmpUGT
+	default: // ir.BinaryGreaterEqual
+		if isFloat {
+			return FCmpOGE
+		}
+		if isSigned {
+			return ICmpSGE
+		}
+		return ICmpUGE
 	}
 }
 

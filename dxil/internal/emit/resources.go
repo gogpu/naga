@@ -2412,7 +2412,7 @@ func (e *Emitter) buildSamplerMetadata(res *resourceInfo) *module.MetadataNode {
 // addMetadataI1 creates a metadata value node wrapping an i1 boolean constant.
 //
 // Reference: Mesa dxil_module.c dxil_get_metadata_int1() line ~2897
-func (e *Emitter) addMetadataI1(value bool) *module.MetadataNode { //nolint:unparam // value can be true for coherent UAVs
+func (e *Emitter) addMetadataI1(value bool) *module.MetadataNode {
 	i1Ty := e.mod.GetIntType(1)
 	var v int64
 	if value {

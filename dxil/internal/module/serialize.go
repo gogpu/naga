@@ -509,38 +509,44 @@ func (s *serializer) emitConstants() {
 			lastType = c.ConstType
 		}
 
-		if c.IsUndef {
-			s.w.EmitRecord(constCodeUndef, nil)
-		} else if c.IsDataArray {
-			// DATA: [v0, v1, v2, ...] — raw element values inlined.
-			// No references to module constants; no value-ID forward refs.
-			// Parsed as ConstantDataArray (not ConstantArray), which is
-			// what `dyn_cast<ConstantDataArray>` consumers require —
-			// critically DxilMDHelper::LoadDxilViewIdState during D3D12
-			// CreateGraphicsPipelineState validation.
-			s.w.EmitRecord(constCodeData, c.DataValues)
-		} else if c.IsAggregate {
-			// AGGREGATE: [elt0_valueid, elt1_valueid, ...]
-			vals := make([]uint64, len(c.Elements))
-			for i, elem := range c.Elements {
-				vals[i] = uid(elem.ValueID)
-			}
-			s.w.EmitRecord(constCodeAggregate, vals)
-		} else if c.ConstType.Kind == TypeInteger {
-			// Encode signed integers using the LLVM sign-rotating encoding:
-			// positive N → 2*N, negative N → 2*(-N)-1
-			encoded := encodeSignRotated(c.IntValue)
-			s.w.EmitRecord(constCodeInteger, []uint64{encoded})
-		} else if c.ConstType.Kind == TypeFloat {
-			// Float constants are stored as IEEE 754 bit patterns.
-			bits := floatBits(c)
-			s.w.EmitRecord(constCodeFloat, []uint64{bits})
-		} else {
-			s.w.EmitRecord(constCodeNull, nil)
-		}
+		s.emitConstant(c)
 	}
 
 	s.w.ExitBlock()
+}
+
+// emitConstant writes a single constant record to the CONSTANTS_BLOCK.
+func (s *serializer) emitConstant(c *Constant) {
+	switch {
+	case c.IsUndef:
+		s.w.EmitRecord(constCodeUndef, nil)
+	case c.IsDataArray:
+		// DATA: [v0, v1, v2, ...] — raw element values inlined.
+		// No references to module constants; no value-ID forward refs.
+		// Parsed as ConstantDataArray (not ConstantArray), which is
+		// what `dyn_cast<ConstantDataArray>` consumers require —
+		// critically DxilMDHelper::LoadDxilViewIdState during D3D12
+		// CreateGraphicsPipelineState validation.
+		s.w.EmitRecord(constCodeData, c.DataValues)
+	case c.IsAggregate:
+		// AGGREGATE: [elt0_valueid, elt1_valueid, ...]
+		vals := make([]uint64, len(c.Elements))
+		for i, elem := range c.Elements {
+			vals[i] = uid(elem.ValueID)
+		}
+		s.w.EmitRecord(constCodeAggregate, vals)
+	case c.ConstType.Kind == TypeInteger:
+		// Encode signed integers using the LLVM sign-rotating encoding:
+		// positive N → 2*N, negative N → 2*(-N)-1
+		encoded := encodeSignRotated(c.IntValue)
+		s.w.EmitRecord(constCodeInteger, []uint64{encoded})
+	case c.ConstType.Kind == TypeFloat:
+		// Float constants are stored as IEEE 754 bit patterns.
+		bits := floatBits(c)
+		s.w.EmitRecord(constCodeFloat, []uint64{bits})
+	default:
+		s.w.EmitRecord(constCodeNull, nil)
+	}
 }
 
 // encodeSignRotated encodes a signed value using LLVM's sign-rotating

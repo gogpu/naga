@@ -35,7 +35,7 @@
 | Category | Capabilities |
 |----------|--------------|
 | **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors |
-| **Outputs** | SPIR-V, MSL, GLSL, HLSL, DXIL — all 6 backends at 100% validation |
+| **Outputs** | SPIR-V, MSL, GLSL, HLSL — 100% validation; DXIL — 94.7% IDxcValidator (experimental) |
 | **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
 | **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |
 | **Compatibility** | **144/144 (100%)** reference shaders compile. Five-layer exact match: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 72/72** — complete Rust naga parity on all backends |
@@ -62,7 +62,7 @@
 - **MSL Backend** — Metal Shading Language output for macOS/iOS (**91/91 exact Rust naga parity**), vertex pulling transform, external textures, override pipeline constants
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+ (**68/68 exact Rust naga parity**), dead code elimination, ProcessOverrides, image bounds checking
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12 (**72/72 exact Rust naga parity**)
-- **DXIL Backend** — Direct DXIL generation from naga IR (**165/165 DXC validation, 100%**). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~25K LOC, 175 unit tests. World's first Pure Go DXIL generator.
+- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**161/170 IDxcValidator validation, 94.7%**; **72/208 DXC golden parity, diff=0**; **gg production: 57/57 entry points VALID**; visual: renders circles + text on D3D12). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (mark-and-sweep), SROA (struct decomposition), mem2reg (SSA promotion), function inlining (early-return wrapping). `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~48K LOC, 315 unit tests. World's first Pure Go DXIL generator.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -204,7 +204,7 @@ spirvBytes, err := naga.GenerateSPIRV(module, spirvOpts)
 ## Architecture
 
 ```
-naga/                              ~189K LOC total
+naga/                              ~192K LOC total
 ├── wgsl/              # WGSL frontend (~19.5K LOC)
 │   ├── token.go       # Token types (120+)
 │   ├── lexer.go       # Tokenizer
@@ -248,7 +248,7 @@ naga/                              ~189K LOC total
 │   ├── storage.go     # Buffer/atomic operations
 │   ├── functions.go   # Entry points with semantics
 │   └── keywords.go    # HLSL reserved words
-├── dxil/              # DXIL backend (~25K LOC, 165/165 DXC validation)
+├── dxil/              # DXIL backend (~48K LOC, 161/170 IDxcValidator)
 │   ├── dxil.go        # Public API: Compile(), DefaultOptions()
 │   └── internal/      # All implementation internal
 │       ├── bitcode/   # LLVM 3.7 bit-level writer
@@ -337,7 +337,7 @@ naga/                              ~189K LOC total
 | MSL | ✅ **91/91 Rust parity** | Metal (macOS/iOS) |
 | GLSL | ✅ **68/68 Rust parity** | OpenGL 3.3+, ES 3.0+ |
 | HLSL | ✅ **72/72 Rust parity** | DirectX 11/12 |
-| DXIL | **165/165 DXC (100%)** | DirectX 12 (SM 6.0-6.5) |
+| DXIL | **161/170 IDxcValidator (94.7%)** | DirectX 12 (SM 6.0-6.5, experimental) |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 

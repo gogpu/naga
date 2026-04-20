@@ -168,6 +168,81 @@ func convertSamplerBufferBindingMap(m map[uint32]BindTarget) map[uint32]emit.Bin
 	return out
 }
 
+// autoUpgradeSMPre returns the minimum SM minor version required by the
+// module's features that can be determined before DCE (inlining/optimization).
+// Post-DCE upgrades (rawBuffer, int64 buffer) are applied separately after
+// reachableGlobals is computed.
+func autoUpgradeSMPre(irModule *ir.Module, ep *ir.EntryPoint, smMinor uint32) uint32 {
+	// Mesh/amplification shaders require SM 6.5 minimum.
+	if (ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask) && smMinor < 5 {
+		smMinor = 5
+	}
+	// Ray query requires SM 6.5.
+	if moduleUsesRayQuery(irModule) && smMinor < 5 {
+		smMinor = 5
+	}
+	// 64-bit atomic operations require SM 6.6+ per dxc validator.
+	if moduleUsesInt64Atomics(irModule) && smMinor < 6 {
+		smMinor = 6
+	}
+	// Native low precision (WGSL f16 / i16) requires SM 6.2+.
+	if moduleUsesLowPrecision(irModule) && smMinor < 2 {
+		smMinor = 2
+	}
+	// dx.op.viewID (opcode 138) is valid from SM 6.1.
+	if moduleUsesViewID(irModule) && smMinor < 1 {
+		smMinor = 1
+	}
+	return smMinor
+}
+
+// prepareModule clones the IR module and inlines user helper functions.
+// Returns the prepared module ready for optimization passes.
+//
+// BUG-DXIL-029: inline user helper functions at IR level so the DXIL
+// emitter never sees a StmtCall to a helper with features it cannot
+// emit as a standalone LLVM function (globals access, aggregate
+// return, complex locals).
+//
+// Two-tier inline policy:
+//  1. MUST inline: helpers that cannot be emitted standalone
+//  2. ALSO inline: pure helpers (no globals access, no break/continue)
+//     that CAN be emitted standalone but produce cleaner output inlined
+//
+// Helpers with side effects (UAV writes, globals) that CAN be emitted
+// standalone stay as separate LLVM functions.
+func prepareModule(irModule *ir.Module) (*ir.Module, error) {
+	if len(irModule.Functions) == 0 {
+		return ir.CloneModuleForOverrides(irModule), nil
+	}
+	irModule = ir.CloneModuleForOverrides(irModule)
+	shouldInline := func(callee *ir.Function) bool {
+		if helperNeedsInlining(irModule, callee) {
+			return true
+		}
+		if functionHasBreakContinue(callee) {
+			return false
+		}
+		if emit.FunctionAccessesGlobals(callee) {
+			return false
+		}
+		if emit.FunctionHasComplexLocals(callee, irModule) {
+			return false
+		}
+		if emit.FunctionHasComplexExpressions(callee, irModule) {
+			return false
+		}
+		if functionHasControlFlow(callee) {
+			return false
+		}
+		return true
+	}
+	if err := ir.InlineUserFunctions(irModule, shouldInline); err != nil {
+		return nil, fmt.Errorf("dxil: inline user functions: %w", err)
+	}
+	return irModule, nil
+}
+
 // Compile translates a naga IR module to DXIL bytecode wrapped in
 // a DXBC container.
 //
@@ -178,8 +253,6 @@ func convertSamplerBufferBindingMap(m map[uint32]BindTarget) map[uint32]emit.Bin
 //
 // The result is a valid DXBC container that can be loaded by D3D12
 // or inspected with dxc.exe -dumpbin.
-//
-//nolint:gocyclo,cyclop,funlen // single SM auto-upgrade dispatch over independent triggers
 func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	if irModule == nil {
 		return nil, fmt.Errorf("dxil: nil IR module")
@@ -188,95 +261,16 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("dxil: module has no entry points")
 	}
 
-	// Auto-upgrade shader model for features that require higher versions.
 	ep := &irModule.EntryPoints[0]
-	smMinor := opts.ShaderModel.Minor
-	// Mesh/amplification shaders require SM 6.5 minimum.
-	if ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask {
-		if smMinor < 5 {
-			smMinor = 5
-		}
-	}
-	// Ray query requires SM 6.5.
-	if moduleUsesRayQuery(irModule) && smMinor < 5 {
-		smMinor = 5
-	}
-	// 64-bit atomic operations require SM 6.6+ per dxc validator
-	// (lib/DxilValidation/DxilValidation.cpp DxilValidator). Auto-upgrade
-	// when the IR uses any int64 atomic.
-	if moduleUsesInt64Atomics(irModule) && smMinor < 6 {
-		smMinor = 6
-	}
-	// Native low precision (WGSL f16 / i16) requires SM 6.2+. This mirrors
-	// HLSL -enable-16bit-types which also forces SM 6.2. Using native half
-	// under SM 6.0/6.1 trips 'Function uses features incompatible with the
-	// shader model' at validation time.
-	if moduleUsesLowPrecision(irModule) && smMinor < 2 {
-		smMinor = 2
-	}
-	// NOTE: rawBufferLoad/Store (SM 6.2) and int64 buffer (SM 6.3) checks
-	// are deferred until after DCE + reachableGlobals computation. When DCE
-	// eliminates all storage buffer accesses (dead code), no rawBuffer ops
-	// are emitted and the SM upgrade is unnecessary. DXC's optimizer has the
-	// same effect: dead stores are eliminated before SM requirements kick in.
-	// dx.op.viewID (opcode 138) is valid from SM 6.1. Multiview shaders
-	// reading @builtin(view_index) trip 'Opcode ViewID not valid in
-	// shader model ps_6_0' otherwise.
-	if moduleUsesViewID(irModule) && smMinor < 1 {
-		smMinor = 1
-	}
+	smMinor := autoUpgradeSMPre(irModule, ep, opts.ShaderModel.Minor)
 
-	// BUG-DXIL-029: inline user helper functions at IR level so the DXIL
-	// emitter never sees a StmtCall to a helper with features it cannot
-	// emit as a standalone LLVM function (globals access, aggregate
-	// return, complex locals). Without this, helper calls fall through
-	// to a zero-valued fallback that silently corrupts fragment shader
-	// output (e.g., rrect_clip_coverage in convex.wgsl → black pixels).
-	//
-	// Matches DXC's post-emit AlwaysInliner pass (DxilLinker.cpp:1248)
-	// and Mesa's nir_inline_functions NIR pre-pass.
-	//
-	// Two-tier inline policy:
-	// 1. MUST inline: helpers that cannot be emitted standalone (old gate)
-	// 2. ALSO inline: pure helpers (no globals access, no break/continue)
-	//    that CAN be emitted standalone but produce cleaner output inlined
-	// Helpers with side effects (UAV writes, globals) that CAN be emitted
-	// standalone stay as separate LLVM functions.
-	if len(irModule.Functions) > 0 { //nolint:nestif // sequential guard-clause inlining policy
-		irModule = ir.CloneModuleForOverrides(irModule)
-		shouldInline := func(callee *ir.Function) bool {
-			if helperNeedsInlining(irModule, callee) {
-				return true
-			}
-			if functionHasBreakContinue(callee) {
-				return false
-			}
-			if emit.FunctionAccessesGlobals(callee) {
-				return false
-			}
-			if emit.FunctionHasComplexLocals(callee, irModule) {
-				return false
-			}
-			if emit.FunctionHasComplexExpressions(callee, irModule) {
-				return false
-			}
-			if functionHasControlFlow(callee) {
-				return false
-			}
-			return true
-		}
-		if inlineErr := ir.InlineUserFunctions(irModule, shouldInline); inlineErr != nil {
-			return nil, fmt.Errorf("dxil: inline user functions: %w", inlineErr)
-		}
-		ep = &irModule.EntryPoints[0]
+	// Inline user helpers and clone the module so we never mutate the caller's IR.
+	var inlineErr error
+	irModule, inlineErr = prepareModule(irModule)
+	if inlineErr != nil {
+		return nil, inlineErr
 	}
-
-	// Clone first when no user-helper inlining ran above, so the
-	// pass never mutates the caller's IR module.
-	if len(irModule.Functions) == 0 {
-		irModule = ir.CloneModuleForOverrides(irModule)
-		ep = &irModule.EntryPoints[0]
-	}
+	ep = &irModule.EntryPoints[0]
 	// Run mem2reg + DCE, mirroring the DXC pipeline order
 	// (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE).
 	if err := runOptPasses(irModule); err != nil {

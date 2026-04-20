@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been left as-is for historical accuracy; new entries distinguish
   "DXC parse" from "IDxcValidator real validation".
 
-## [0.17.4] - 2026-04-13
+## [0.17.4] - 2026-04-21
 
 ### Added
 
@@ -136,6 +136,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Regression corpus: `compute-storage-read-rw.wgsl` (canonical SRV storage
     compute) and `compute-storage-struct-read-rw.wgsl` (minimal particles
     reproducer). `TestDxilValSummary`: **165/165 (100%)**, up from 163/163.
+
+- **DXIL: DCE pass (dead code elimination)** — mark-and-sweep pass removes dead
+  locals, dead control flow, dead pure function calls, and dead resources from
+  the IR before DXIL emission. Matches the `DxilLinker.cpp` optimization pipeline
+  used by DXC.
+
+- **DXIL: SROA pass (scalar replacement of aggregates)** — struct-typed local
+  variables are decomposed into per-member locals, enabling mem2reg promotion
+  of individual fields. Init-only locals emit their initializer directly and
+  skip alloca entirely.
+
+- **DXIL: mem2reg Phase B** — if/switch phi insertion with SSA construction for
+  promoted locals. Extends the existing Phase A (straight-line promotion) with
+  control-flow-aware phi placement.
+
+- **DXIL: inline pass improvements** — alias aggregate/opaque args (struct,
+  texture, sampler) instead of copying; two-tier inline policy (pure simple
+  helpers inlined automatically); early-return wrapping via loop+break pattern
+  for helpers with multiple returns; arg-spill StmtEmit coverage for mem2reg
+  promotion of spilled arguments.
+
+- **DXIL: PrefixStable register packing** — register allocation now matches the
+  DXC algorithm: sort by class priority (UAV > SRV > CBV > Sampler), then by
+  declaration order within each class, producing identical ISG1/OSG1/PSG1 row
+  assignments.
+
+- **DXIL: createHandle class priority ordering** — handle creation order now
+  follows DXC convention (UAV > SRV > CBV > Sampler), fixing validation
+  mismatches in shaders with mixed resource types.
+
+- **DXIL: barrier mode flags + noduplicate** — barrier intrinsics now emit
+  proper DXIL mode flags and carry the `noduplicate` function attribute,
+  matching DXC output exactly.
+
+- **DXIL: fast-math flags + operand canonicalization** — arithmetic instructions
+  carry fast-math flags matching DXC defaults; commutative binary ops follow
+  LLVM InstCombine canonicalization (constants to RHS); Reassociate pass for
+  commutative chains.
+
+- **DXIL: loadInput reverse ISG1 row order** — input loads now emit in reverse
+  ISG1 row order matching DXC, with component-level DCE eliminating unused
+  loads.
+
+- **DXIL: raw buffer i32 overload + bitcast** — float stores to raw buffers use
+  the `i32` `bufferStore` overload with bitcast, matching DXC behavior instead
+  of emitting a non-existent float overload.
+
+- **DXIL: post-DCE shader model version auto-upgrade** — after dead code
+  elimination, the emitter re-scans used intrinsics and upgrades the SM version
+  if remaining code requires a higher minimum (e.g. SM 6.0 → 6.2 for wave ops).
+
+- **DXIL: IR-based input signature Used mask** — ISG1 Used column now computed
+  from IR reachability analysis rather than always marking all inputs as used.
+
+- **DXIL: CBV typed struct members** — uniform buffer types now emit LLVM struct
+  members with proper types (`[4 x <4 x float>]` for mat4x4) instead of raw
+  byte arrays, matching DXC's `hostlayout.struct` convention.
+
+- **DXIL: HLSL-style type naming** — DXIL metadata and type names now use
+  HLSL-compatible naming (`class.Texture2D`, `hostlayout.struct.Uniforms`),
+  matching DXC for golden diff parity.
+
+- **DXIL: sampler heap SRV ordering + configurable bindings** — sampler heap
+  entries follow SRV class ordering; `Options` now supports configurable
+  sampler bindings for custom root signature layouts.
+
+- **DXIL: per-component ViewID taint propagation** — output signature ViewID
+  dependencies are tracked per-component through the dataflow graph, matching
+  DXC's PSV0 ViewID taint analysis.
+
+- **DXIL: dead resource elimination** — unreachable global resources (detected
+  via reachable globals analysis after inlining) are excluded from handle
+  creation and metadata tables.
+
+- **DXIL: input signature extended-properties null mask** — ISG1 extended
+  properties table uses null entries for inputs that carry no extra metadata,
+  matching DXC's sparse encoding.
+
+- **DXIL: TestDxilDxcGolden** — new SPIR-V-style golden parity test comparing
+  naga DXIL output against DXC reference across 182 shaders. Reports line-level
+  parity percentage and exact-match (diff=0) counts.
+
+- **DXIL: TestDxilValGGProduction** — regression guard validating all 57 gg
+  production entry points through IDxcValidator on every test run.
+
+### Metrics (DXIL hardening batch)
+
+- **IDxcValidator:** 152/170 → 161/170 (94.7%, +9 shaders)
+- **DXC golden diff=0:** 24 → 72 (+48 shaders exact match)
+- **DXC golden line parity:** 37.0% → 45.7% (+8.7pp)
+- **gg production:** 50/57 → 57/57 (100%, all entry points VALID)
+- **Visual:** black screen → circles + text rendering on D3D12 DXIL pipeline
+- **Text backends:** 100% unchanged (MSL/HLSL/GLSL/SPIR-V untouched)
 
 ## [0.17.3] - 2026-04-11
 
