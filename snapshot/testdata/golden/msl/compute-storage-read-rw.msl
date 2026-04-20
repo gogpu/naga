@@ -1,0 +1,45 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _mslBufferSizes {
+    uint size0;
+    uint size1;
+};
+
+struct Params {
+    float scale;
+    float offset;
+};
+typedef metal::float4 type_2[1];
+
+struct main_Input {
+};
+kernel void main_(
+  metal::uint3 gid [[thread_position_in_grid]]
+, device type_2 const& pin [[user(fake0)]]
+, device type_2& pout [[user(fake0)]]
+, constant Params& params [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    uint i = gid.x;
+    uint n = 1 + (_buffer_sizes.size0 - 0 - 16) / 16;
+    if (i >= n) {
+        return;
+    }
+    metal::float4 v = uint(i) < 1 + (_buffer_sizes.size0 - 0 - 16) / 16 ? pin[i] : DefaultConstructible();
+    float _e13 = params.scale;
+    float _e17 = params.offset;
+    if (uint(i) < 1 + (_buffer_sizes.size1 - 0 - 16) / 16) {
+        pout[i] = metal::float4((v.xyz * _e13) + metal::float3(_e17), v.w);
+    }
+    return;
+}

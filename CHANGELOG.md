@@ -7,6 +7,229 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Notes
+
+- **DXIL validation gate terminology.** Prior releases reported "N/N DXC
+  validation" pass counts. The underlying command is `dxc.exe -dumpbin`,
+  which is a parser-printer (structural parse + human-readable dump), not
+  a full DXIL validator. It catches malformed bitcode (e.g. the "Invalid
+  record" class of bugs fixed in BUG-DXIL-004) but does NOT cross-check
+  ABI-level metadata against D3D12 runtime expectations (e.g. PSV0
+  `ShaderStage` byte against the pipeline slot). **Genuine validation via
+  `IDxcValidator::Validate()` — including a three-layer defensive wrapper
+  that prevents `dxil.dll` AV on any input — landed in 0.17.4 (see
+  `cmd/dxilval`, `internal/dxcvalidator`, and BUG-DXIL-VALIDATOR-REAL
+  entries below).** CHANGELOG/README/ROADMAP wording in past entries has
+  been left as-is for historical accuracy; new entries distinguish
+  "DXC parse" from "IDxcValidator real validation".
+
+## [0.17.4] - 2026-04-21
+
+### Added
+
+- **`cmd/dxilval` — Pure Go DXIL validation CLI backed by IDxcValidator**
+  (FEAT-DXIL-010 + BUG-DXIL-VALIDATOR-REAL, v0.17.4). First-ever Pure Go
+  integration with Microsoft's `IDxcValidator` (`dxil.dll`), zero CGO.
+  Three modes: `dxilval shader.dxil` validates a single container,
+  `dxilval --wgsl shader.wgsl` compiles through naga and validates each
+  entry point, `dxilval --corpus dir/` walks a directory and reports a
+  typed-error summary. Internal `internal/dxcvalidator` package wraps
+  `IDxcValidator` via `syscall` + a custom `IDxcBlob` implemented through
+  `syscall.NewCallback`, spawns a fresh OS thread via `kernel32!CreateThread`
+  (mandatory — `dxil.dll`'s thread-local allocator is set up in
+  `DLL_THREAD_ATTACH`, which Windows only fires for threads created AFTER
+  `LoadLibrary`), and falls back to Windows 10 SDK paths when `dxil.dll`
+  is not on `PATH`. The empirical "first-ever `VALID (S_OK)`" check on
+  the golden `tmp/min1_final.dxil` fixture is now a permanent unit test
+  (`TestSmokeValidateGoldenFixture`) instead of a one-off PoC.
+
+- **`internal/dxcvalidator` — three-layer defensive validation stack**
+  (BUG-DXIL-VALIDATOR-REAL, v0.17.4). Any blob handed to `dxil.dll`
+  passes through a staged defence that prevents the validator-AV classes
+  documented in Phase 0 research:
+
+  - **Layer 0 — emitter-side assertion.** `dxil/internal/emit/emitter.go`
+    now refuses to emit a container when the entry function is unset.
+    Without this guard, the BUG-DXIL-012 regression class would write
+    `!dx.entryPoints[0][0] = null`, which causes `IDxcValidator` to AV
+    at `dxil.dll+0xe9da` (NULL+0x18) in its entry-point walker. Any
+    future regression becomes an attributable Go error instead of a
+    silent process crash.
+  - **Layer 1 — `PreCheckContainer` structural check**
+    (FEAT-VALIDATOR-PRECHECK-001). `internal/dxcvalidator/precheck.go`
+    walks the DXBC container at fixed offsets and rejects truncated
+    blobs, bad magic, bad part counts, malformed part headers, missing
+    `DXIL` / `ILDB` / `PSV0` / `ISG1` / `OSG1` parts, invalid PSV0
+    stage bytes, and empty entry-function-name strings. Ten typed
+    sentinel errors (`errors.Is`-switchable), every branch exercised by
+    unit tests, runs before the `HeapAlloc` copy so rejection costs
+    nothing.
+  - **Layer 2 — `bitcheck.Check` bitcode metadata walker**
+    (FEAT-VALIDATOR-BITCHECK-001). `internal/dxcvalidator/bitcheck/` is
+    a minimal Pure Go LLVM 3.7 bitstream reader mirroring
+    `dxil/internal/bitcode/writer.go` one-to-one. It walks just far
+    enough to find the `!dx.entryPoints` named metadata and verify each
+    entry-point tuple has a non-null function reference in operand 0.
+    Skips non-metadata blocks via block-length fast-forward. Scoped
+    specifically to the BUG-DXIL-012 AV class — not a general-purpose
+    LLVM bitcode parser. ~2500 LOC including tests, five typed
+    sentinel errors, 72.3% line coverage, DXC abbreviation-decoding
+    implemented and exercised via hand-assembled fixtures. A minimal
+    real DXC integration fixture is deferred to
+    FEAT-VALIDATOR-BITCHECK-002.
+
+  The wrapper is also defensive against sporadic `dxil.dll` misbehaviour
+  observed during corpus walking — the validator occasionally returns
+  `S_OK` with a `NULL IDxcOperationResult` on some inputs
+  (`debug-symbol-large-source.wgsl`), which the wrapper now catches
+  and surfaces as a clean typed error instead of dereferencing NULL
+  through the COM vtable.
+
+- **DXIL: PSV0 signature element generalization for all binding kinds**
+  (BUG-DXIL-019 follow-up, v0.17.4). `buildGraphicsPSVSigs` /
+  `makePSVSignatureElement` now cover every graphics-stage I/O binding:
+  `LocationBinding` (inputs and non-fragment outputs → arbitrary
+  `TEXCOORD` with real location-based index; fragment color outputs →
+  `SV_Target` with location as semantic index) plus the full system-
+  value set (`BuiltinFrontFacing`, `BuiltinSampleIndex`,
+  `BuiltinSampleMask`, `BuiltinClipDistance`, `BuiltinPrimitiveIndex`,
+  `BuiltinViewIndex`). Interpolation mode mapping covers all DXIL
+  `InterpolationMode` enum values (Constant / Linear / LinearNoperspective
+  / Centroid / Sample variants). Per-side (input/output) start-row
+  tracking replaces the previous always-zero `StartRow`. Refactor into
+  `psvSemanticForBinding` / `psvSemanticForBuiltin` /
+  `psvSemanticForLocation` / `psvInterpolationMode` / `psvComponentType`
+  helpers for readability.
+
+- **DXIL: `Options.BindingMap`** — public API for remapping WGSL `@group`/`@binding`
+  to DXIL `(space, register)`, mirroring `hlsl.Options.BindingMap`. Required for wgpu
+  root signatures, which use monotonic per-class counters
+  (`SRV=t0,t1,…` / `UAV=u0,u1,…` / `CBV=b0,b1,…`). Without a map, behavior is
+  unchanged (raw WGSL numbers used as absolute DXIL registers — backward compatible).
+  New public types: `dxil.BindingLocation`, `dxil.BindTarget`, `dxil.BindingMap`.
+
+### Fixed
+
+- **DXIL: read-only storage buffers classified as SRV** — `var<storage, read>` now
+  lowers to SRV (t-register, `ByteAddressBuffer`), while `var<storage, read_write>`
+  stays UAV (u-register, `RWByteAddressBuffer`), matching the HLSL backend. Previously
+  all `SpaceStorage` globals became UAV, causing register collisions in pipelines
+  that mix read-only and read-write storage buffers (e.g. particle sim `pin`/`pout`).
+  Also fixes latent bug in `resourceKind` where SRV storage buffers fell through to
+  `Texture2D` metadata kind.
+
+- **DXIL: SRV storage compute path — binding arrays and struct vector loads**
+  (BUG-DXIL-004). Two fixes needed after the SRV classification change to unblock
+  real compute workloads:
+  - `resolveBindingArrayUAVChainFromGV` was still gated on `class == UAV`, so
+    `binding_array<T>` over `var<storage, read>` fell through to a generic scalar
+    load path (`binding-buffer-arrays` regressed 163/163 → 162/163). Relaxed to
+    `isStorageBufferClass`, matching the other nine `resolveUAV*` helpers.
+  - Pre-existing "Invalid record" in `@compute` + vector-field-of-local-struct
+    loads, exposed by particles sim: loading `p.vel` where `p` is a local
+    `Particle{pos: vec2, vel: vec2}` fell through to generic `emitLoad`, which
+    emitted a single scalar `load float` and never set `pendingComponents`.
+    Downstream `emitBinaryVectorized`/`getComponentID` grabbed the adjacent
+    `cbufferLoadLegacy` struct-typed result as an f32 operand, corrupting the
+    bitcode. Fixed by decomposing vector struct-field loads into N per-component
+    GEP + scalar load with proper `pendingComponents` tracking.
+  - Regression corpus: `compute-storage-read-rw.wgsl` (canonical SRV storage
+    compute) and `compute-storage-struct-read-rw.wgsl` (minimal particles
+    reproducer). `TestDxilValSummary`: **165/165 (100%)**, up from 163/163.
+
+- **DXIL: DCE pass (dead code elimination)** — mark-and-sweep pass removes dead
+  locals, dead control flow, dead pure function calls, and dead resources from
+  the IR before DXIL emission. Matches the `DxilLinker.cpp` optimization pipeline
+  used by DXC.
+
+- **DXIL: SROA pass (scalar replacement of aggregates)** — struct-typed local
+  variables are decomposed into per-member locals, enabling mem2reg promotion
+  of individual fields. Init-only locals emit their initializer directly and
+  skip alloca entirely.
+
+- **DXIL: mem2reg Phase B** — if/switch phi insertion with SSA construction for
+  promoted locals. Extends the existing Phase A (straight-line promotion) with
+  control-flow-aware phi placement.
+
+- **DXIL: inline pass improvements** — alias aggregate/opaque args (struct,
+  texture, sampler) instead of copying; two-tier inline policy (pure simple
+  helpers inlined automatically); early-return wrapping via loop+break pattern
+  for helpers with multiple returns; arg-spill StmtEmit coverage for mem2reg
+  promotion of spilled arguments.
+
+- **DXIL: PrefixStable register packing** — register allocation now matches the
+  DXC algorithm: sort by class priority (UAV > SRV > CBV > Sampler), then by
+  declaration order within each class, producing identical ISG1/OSG1/PSG1 row
+  assignments.
+
+- **DXIL: createHandle class priority ordering** — handle creation order now
+  follows DXC convention (UAV > SRV > CBV > Sampler), fixing validation
+  mismatches in shaders with mixed resource types.
+
+- **DXIL: barrier mode flags + noduplicate** — barrier intrinsics now emit
+  proper DXIL mode flags and carry the `noduplicate` function attribute,
+  matching DXC output exactly.
+
+- **DXIL: fast-math flags + operand canonicalization** — arithmetic instructions
+  carry fast-math flags matching DXC defaults; commutative binary ops follow
+  LLVM InstCombine canonicalization (constants to RHS); Reassociate pass for
+  commutative chains.
+
+- **DXIL: loadInput reverse ISG1 row order** — input loads now emit in reverse
+  ISG1 row order matching DXC, with component-level DCE eliminating unused
+  loads.
+
+- **DXIL: raw buffer i32 overload + bitcast** — float stores to raw buffers use
+  the `i32` `bufferStore` overload with bitcast, matching DXC behavior instead
+  of emitting a non-existent float overload.
+
+- **DXIL: post-DCE shader model version auto-upgrade** — after dead code
+  elimination, the emitter re-scans used intrinsics and upgrades the SM version
+  if remaining code requires a higher minimum (e.g. SM 6.0 → 6.2 for wave ops).
+
+- **DXIL: IR-based input signature Used mask** — ISG1 Used column now computed
+  from IR reachability analysis rather than always marking all inputs as used.
+
+- **DXIL: CBV typed struct members** — uniform buffer types now emit LLVM struct
+  members with proper types (`[4 x <4 x float>]` for mat4x4) instead of raw
+  byte arrays, matching DXC's `hostlayout.struct` convention.
+
+- **DXIL: HLSL-style type naming** — DXIL metadata and type names now use
+  HLSL-compatible naming (`class.Texture2D`, `hostlayout.struct.Uniforms`),
+  matching DXC for golden diff parity.
+
+- **DXIL: sampler heap SRV ordering + configurable bindings** — sampler heap
+  entries follow SRV class ordering; `Options` now supports configurable
+  sampler bindings for custom root signature layouts.
+
+- **DXIL: per-component ViewID taint propagation** — output signature ViewID
+  dependencies are tracked per-component through the dataflow graph, matching
+  DXC's PSV0 ViewID taint analysis.
+
+- **DXIL: dead resource elimination** — unreachable global resources (detected
+  via reachable globals analysis after inlining) are excluded from handle
+  creation and metadata tables.
+
+- **DXIL: input signature extended-properties null mask** — ISG1 extended
+  properties table uses null entries for inputs that carry no extra metadata,
+  matching DXC's sparse encoding.
+
+- **DXIL: TestDxilDxcGolden** — new SPIR-V-style golden parity test comparing
+  naga DXIL output against DXC reference across 182 shaders. Reports line-level
+  parity percentage and exact-match (diff=0) counts.
+
+- **DXIL: TestDxilValGGProduction** — regression guard validating all 57 gg
+  production entry points through IDxcValidator on every test run.
+
+### Metrics (DXIL hardening batch)
+
+- **IDxcValidator:** 152/170 → 161/170 (94.7%, +9 shaders)
+- **DXC golden diff=0:** 24 → 72 (+48 shaders exact match)
+- **DXC golden line parity:** 37.0% → 45.7% (+8.7pp)
+- **gg production:** 50/57 → 57/57 (100%, all entry points VALID)
+- **Visual:** black screen → circles + text rendering on D3D12 DXIL pipeline
+- **Text backends:** 100% unchanged (MSL/HLSL/GLSL/SPIR-V untouched)
+
 ## [0.17.3] - 2026-04-11
 
 ### Added

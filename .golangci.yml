@@ -205,6 +205,28 @@ linters:
         linters:
           - gosec
 
+      # dxilval — Windows-only DXIL validator CLI. Uses io.Writer
+      # parameters for testability, which trips errcheck's fmt.Print*
+      # heuristic (only fires for concrete *os.File). gosec G304 flags
+      # paths read from CLI args, which is the entire point of a CLI.
+      # corpus.go has a long mode-dispatch switch (gocognit).
+      - path: cmd/dxilval/.*\.go
+        linters:
+          - gosec
+          - errcheck
+          - gocognit
+
+      # IDxcValidator (dxil.dll) Pure Go wrapper — entire file is COM/syscall
+      # glue (vtable dispatch, IDxcBlob impl via syscall.NewCallback,
+      # process heap allocator). Every line touches unsafe.Pointer or uintptr
+      # by design. govet's unsafeptr flags every COM vtable read; dogsled
+      # flags every `_, _, _ = syscall.SyscallN(...)` discard.
+      - path: internal/dxcvalidator/.*\.go
+        linters:
+          - gosec
+          - govet
+          - dogsled
+
       # WGSL Lowerer - ported from Rust front/wgsl/lower/mod.rs
       # Contains 15K+ lines of complex type resolution and expression lowering
       # that must match Rust behavior exactly. Refactoring breaks parity.

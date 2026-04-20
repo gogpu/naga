@@ -1,0 +1,31 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _mslBufferSizes {
+    uint size0;
+};
+
+typedef metal::float2 type_1[1];
+
+kernel void main_(
+  device type_1& out [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    metal::float2 v = metal::float2(0.0, 0.0);
+    v.x = 1.0;
+    v.y = 2.0;
+    metal::float2 _e10 = v;
+    if (uint(0) < 1 + (_buffer_sizes.size0 - 0 - 8) / 8) {
+        out[0] = _e10;
+    }
+    return;
+}

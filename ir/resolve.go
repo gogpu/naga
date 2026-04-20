@@ -60,6 +60,17 @@ func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle
 		return TypeResolution{Value: PointerType{Base: lv.Type, Space: SpaceFunction}}, nil
 	case ExprLoad:
 		return resolveLoadType(module, fn, kind)
+	case ExprAlias:
+		// Alias is a transparent passthrough — defer to the source.
+		// Produced by the DXIL mem2reg pass; never seen by other backends.
+		return ResolveExpressionType(module, fn, kind.Source)
+	case ExprPhi:
+		// Phi result type matches every incoming (SSA invariant) — defer
+		// to the first one. Produced by the DXIL mem2reg pass.
+		if len(kind.Incoming) == 0 {
+			return TypeResolution{}, fmt.Errorf("ExprPhi with zero incomings")
+		}
+		return ResolveExpressionType(module, fn, kind.Incoming[0].Value)
 	case ExprImageSample:
 		return resolveImageSampleType(module, fn, kind)
 	case ExprImageLoad:

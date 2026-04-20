@@ -2,10 +2,29 @@ package emit
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
 )
+
+// dxcClassPriority maps DXIL resource class constants to DXC's handle emission
+// priority order. DXC processes resources via GenerateDxilResourceHandles in
+// the order CBV → Sampler → SRV → UAV, with each batch inserted sequentially
+// at the entry block's alloca insertion point. The result in the bitcode is the
+// same sequential order (CBV first). However, the LLVM bitcode writer serializes
+// instructions in reverse basic-block order for the function body value table,
+// producing the final disassembly order: UAV → SRV → CBV → Sampler. Within each
+// class, resources are emitted in ascending ID order by DXC, which reverses to
+// descending rangeID in the final output.
+//
+// Lower priority number = emitted FIRST in the bitcode output.
+var dxcClassPriority = [4]int{
+	resourceClassSRV:     1, // SRV (class 0) → second
+	resourceClassUAV:     0, // UAV (class 1) → first
+	resourceClassCBV:     2, // CBV (class 2) → third
+	resourceClassSampler: 3, // Sampler (class 3) → last
+}
 
 // Resource handling for DXIL emission.
 //
@@ -37,19 +56,74 @@ type resourceInfo struct {
 	handleID       int    // emitter value ID of the created handle (-1 if not yet created)
 	isBindingArray bool   // true if this resource is a binding_array<T, N>
 	arraySize      uint32 // binding array size (0 = unbounded)
+	// virtual is true for synthetic per-WGSL-binding sampler entries that
+	// only carry a materialized handleID for downstream resolveResourceHandle
+	// lookups; they MUST NOT appear in dx.resources metadata or PSV0
+	// resource bindings (the actual heap entries already cover them).
+	virtual bool
+	// kindOverride, if non-zero, forces resourceKind() to return this
+	// DXIL ResourceKind enum value instead of deriving from typeHandle.
+	// Used for synthetic resources (sampler heap StructuredBuffer index
+	// arrays) whose typeHandle doesn't point at a real IR type.
+	kindOverride int
+	// comparisonSampler forces buildSamplerMetadata to emit the
+	// DXIL_SAMPLER_KIND_COMPARISON(1) shape tag even though the synthetic
+	// resource has no backing IR SamplerType. Only meaningful when
+	// class == resourceClassSampler.
+	comparisonSampler bool
 }
 
 // analyzeResources scans the module's global variables and classifies them
 // into resource categories. Must be called before emitting function bodies.
+//
+//nolint:gocognit // dispatch over resource classes + binding map + array sizes
 func (e *Emitter) analyzeResources() {
 	e.resources = nil
 	e.resourceHandles = make(map[ir.GlobalVariableHandle]int)
 
+	// Detect sampler-heap mode up front so per-WGSL sampler globals can
+	// be skipped during the main classify loop.
+	e.samplerHeap = e.detectSamplerHeapNeeded()
+
 	// Track per-class range IDs.
 	rangeCounters := [4]int{} // SRV, UAV, CBV, Sampler
 
+	// Track which groups have already had their index buffer SRV inserted.
+	// In the HLSL backend, the index buffer StructuredBuffer<uint> is declared
+	// WHEN the first sampler of each group is encountered during globals
+	// traversal. DXC assigns the SRV rangeID at that point. We mirror this
+	// by inserting the index buffer SRV at the position of each group's
+	// first sampler in the globals list.
+	insertedIdxBufGroups := make(map[uint32]bool)
+
 	for i := range e.ir.GlobalVariables {
 		gv := &e.ir.GlobalVariables[i]
+
+		// BUG-DXIL-016: skip globals not reachable from the current
+		// entry point. Multi-EP modules share the global variable
+		// arena across all entry points; without this filter, unrelated
+		// resources from sibling EPs would be assigned binding slots
+		// and create fake "Resource X overlap" errors at validation.
+		if e.reachableGlobals != nil && !e.reachableGlobals[ir.GlobalVariableHandle(i)] {
+			continue
+		}
+
+		// Sampler-heap mode: skip per-WGSL sampler entries. But FIRST,
+		// when this is the first sampler of its group encountered in
+		// traversal order, insert the per-group index buffer SRV at this
+		// position. This mirrors the HLSL backend which writes the
+		// StructuredBuffer<uint> declaration when it first encounters a
+		// sampler from each group — giving DXC the same SRV rangeID
+		// assignment point.
+		if e.samplerHeap != nil {
+			if bind, isSampler := e.samplerHeap.samplerWGSLBinding[ir.GlobalVariableHandle(i)]; isSampler {
+				if !insertedIdxBufGroups[bind.group] {
+					insertedIdxBufGroups[bind.group] = true
+					e.insertSamplerIndexBufferSRV(bind.group, &rangeCounters)
+				}
+				continue
+			}
+		}
 
 		class, ok := e.classifyGlobalVariable(gv)
 		if !ok {
@@ -86,13 +160,36 @@ func (e *Emitter) analyzeResources() {
 			}
 		}
 
+		// Apply caller-supplied binding remap, if any. Bindings not
+		// present in the map keep their raw WGSL numbers. See
+		// EmitOptions.BindingMap (and dxil.Options.BindingMap) for
+		// rationale — wgpu/hal/dx12 uses monotonic per-class register
+		// counters that do not match raw @group/@binding numbers.
+		//
+		// When the map supplies BindingArraySize for an IR-unbounded
+		// binding_array, use it as the concrete range size. DXIL PSV0
+		// and bitcode resource metadata MUST agree on the size or the
+		// validator trips 'ResourceBindInfo mismatch'; unbounded stays
+		// as the fallback when no override is present.
+		grp := gv.Binding.Group
+		bnd := gv.Binding.Binding
+		if e.opts.BindingMap != nil {
+			if tgt, ok := e.opts.BindingMap[BindingLocation{Group: grp, Binding: bnd}]; ok {
+				grp = tgt.Space
+				bnd = tgt.Register
+				if isBA && baSize == 0 && tgt.BindingArraySize != nil {
+					baSize = *tgt.BindingArraySize
+				}
+			}
+		}
+
 		info := resourceInfo{
 			varHandle:      ir.GlobalVariableHandle(uint32(i)),
 			name:           gv.Name,
 			class:          class,
 			rangeID:        rangeID,
-			group:          gv.Binding.Group,
-			binding:        gv.Binding.Binding,
+			group:          grp,
+			binding:        bnd,
 			typeHandle:     gv.Type,
 			handleID:       -1,
 			isBindingArray: isBA,
@@ -102,6 +199,10 @@ func (e *Emitter) analyzeResources() {
 		e.resourceHandles[info.varHandle] = len(e.resources)
 		e.resources = append(e.resources, info)
 	}
+
+	// After the main loop: synthesize the sampler array heap entries.
+	// Index buffer SRVs were already prepended above.
+	e.appendSamplerHeapSamplers(&rangeCounters)
 }
 
 // classifyGlobalVariable determines the resource class of a global variable.
@@ -114,6 +215,14 @@ func (e *Emitter) classifyGlobalVariable(gv *ir.GlobalVariable) (uint8, bool) {
 		return resourceClassCBV, true
 
 	case ir.SpaceStorage:
+		// Read-only storage buffers (var<storage, read>) map to SRV
+		// (t-register, ByteAddressBuffer in HLSL terms). Read-write
+		// storage buffers (var<storage, read_write>) map to UAV
+		// (u-register, RWByteAddressBuffer). Matches the HLSL backend's
+		// classifier (hlsl/storage.go getRegisterTypeForAddressSpace).
+		if gv.Access == ir.StorageRead {
+			return resourceClassSRV, true
+		}
 		return resourceClassUAV, true
 
 	case ir.SpaceHandle:
@@ -148,36 +257,199 @@ func (e *Emitter) classifyGlobalVariable(gv *ir.GlobalVariable) (uint8, bool) {
 	}
 }
 
-// emitResourceHandles creates dx.op.createHandle calls for all analyzed resources.
-// Must be called at function entry before any resource accesses.
+// emitResourceHandles creates handle-creation calls for all analyzed
+// resources. Must be called at function entry before any resource accesses.
 //
-// dx.op.createHandle(i32 57, i8 class, i32 rangeID, i32 index, i1 false)
+// SM 6.0–6.5: dx.op.createHandle(i32 57, i8 class, i32 rangeID, i32 index, i1 false)
+// SM 6.6+:    dx.op.createHandleFromBinding(i32 217, %dx.types.ResBind, i32 index, i1 false)
+//
+//	followed by
+//	dx.op.annotateHandle(i32 216, %handle, %dx.types.ResourceProperties)
+//
+// The validator rejects createHandle from SM 6.6 onward
+// ('opcode CreateHandle should only be used in Shader Model 6.5 and below'),
+// while createHandleFromBinding+annotateHandle requires SM 6.2+ for the
+// surrounding feature mask. We dispatch on opts.ShaderModelMinor.
+//
+// Reference: DXC DxilOperations.cpp:CreateHandleFromBinding/AnnotateHandle.
 func (e *Emitter) emitResourceHandles() {
 	if len(e.resources) == 0 {
 		return
 	}
 
-	handleTy := e.getDxHandleType()
-	createFn := e.getDxOpCreateHandleFunc()
+	useRDAT := e.opts.ShaderModelMinor >= 6
 
+	// Build the emission order indices. DXC emits createHandle calls sorted by:
+	//   1. DXC class priority: UAV first, SRV second, CBV third, Sampler last
+	//   2. Within each class: descending rangeID (highest rangeID first)
+	// This order arises from DXC's GenerateDxilResourceHandles processing
+	// (CBV→Sampler→SRV→UAV ascending) combined with LLVM bitcode serialization
+	// that reverses the final instruction sequence in output.
+	emitOrder := e.buildHandleEmitOrder()
+
+	for _, idx := range emitOrder {
+		res := &e.resources[idx]
+
+		if useRDAT {
+			res.handleID = e.emitCreateHandleFromBinding(res)
+		} else {
+			res.handleID = e.emitCreateHandleLegacy(res)
+		}
+	}
+
+	// Sampler-heap mode: after the regular createHandle calls (which have
+	// produced handles for the per-group index buffer SRVs), emit one
+	// bufferLoad+createHandle pair per WGSL sampler binding. This stays
+	// inside the entry block so the resulting handles dominate every
+	// downstream sample site.
+	e.emitSamplerHeapHandles()
+}
+
+// buildHandleEmitOrder returns indices into e.resources in DXC's createHandle
+// emission order: UAV (class 1) first, SRV (class 0) second, CBV (class 2)
+// third, Sampler (class 3) last. Within each class, descending rangeID.
+// Binding arrays and virtual entries are excluded.
+func (e *Emitter) buildHandleEmitOrder() []int {
+	order := make([]int, 0, len(e.resources))
 	for i := range e.resources {
 		res := &e.resources[i]
-
 		// Binding arrays get dynamic handles at point of use, not here.
 		if res.isBindingArray {
 			continue
 		}
-
-		opcodeVal := e.getIntConstID(int64(OpCreateHandle))
-		classVal := e.getI8ConstID(int64(res.class))
-		rangeIDVal := e.getIntConstID(int64(res.rangeID))
-		indexVal := e.getIntConstID(int64(res.binding))
-		nonUniformVal := e.getI1ConstID(0) // false
-
-		handleID := e.addCallInstr(createFn, handleTy,
-			[]int{opcodeVal, classVal, rangeIDVal, indexVal, nonUniformVal})
-		res.handleID = handleID
+		// Virtual entries are placeholders that get their handleID set
+		// later (emitSamplerHeapHandles). They do not emit createHandle.
+		if res.virtual {
+			continue
+		}
+		order = append(order, i)
 	}
+
+	sort.Slice(order, func(a, b int) bool {
+		ra := &e.resources[order[a]]
+		rb := &e.resources[order[b]]
+		pa := dxcClassPriority[ra.class]
+		pb := dxcClassPriority[rb.class]
+		if pa != pb {
+			return pa < pb
+		}
+		// Within the same class: descending rangeID (highest first).
+		return ra.rangeID > rb.rangeID
+	})
+	return order
+}
+
+// emitCreateHandleLegacy emits the SM 6.0-6.5 dx.op.createHandle path.
+func (e *Emitter) emitCreateHandleLegacy(res *resourceInfo) int {
+	handleTy := e.getDxHandleType()
+	createFn := e.getDxOpCreateHandleFunc()
+	opcodeVal := e.getIntConstID(int64(OpCreateHandle))
+	classVal := e.getI8ConstID(int64(res.class))
+	rangeIDVal := e.getIntConstID(int64(res.rangeID))
+	indexVal := e.getIntConstID(int64(res.binding))
+	nonUniformVal := e.getI1ConstID(0)
+	return e.addCallInstr(createFn, handleTy,
+		[]int{opcodeVal, classVal, rangeIDVal, indexVal, nonUniformVal})
+}
+
+// emitCreateHandleFromBinding emits the SM 6.6+ pair: createHandleFromBinding
+// produces an unannotated handle from a ResBind struct constant, then
+// annotateHandle attaches resource-kind/typed-format metadata. Both ops
+// are required — the validator rejects an unannotated handle used by
+// dx.op.bufferLoad et al.
+func (e *Emitter) emitCreateHandleFromBinding(res *resourceInfo) int {
+	handleTy := e.getDxHandleType()
+
+	// Step 1: build the ResBind struct constant {lower, upper, space, class}.
+	resBindConst := e.buildResBindConstant(res)
+	resBindValID := e.constMap[resBindConst.idCacheKey]
+	_ = resBindValID
+
+	createFn := e.getDxOpCreateHandleFromBindingFunc()
+	opcodeVal := e.getIntConstID(int64(OpCreateHandleFromBinding))
+	indexVal := e.getIntConstID(int64(res.binding))
+	nonUniformVal := e.getI1ConstID(0)
+	rawHandleID := e.addCallInstr(createFn, handleTy,
+		[]int{opcodeVal, resBindConst.valueID, indexVal, nonUniformVal})
+
+	// Step 2: build the ResourceProperties struct constant and annotate.
+	resPropsConst := e.buildResourcePropertiesConstant(res)
+	annotateFn := e.getDxOpAnnotateHandleFunc()
+	annotateOpcodeVal := e.getIntConstID(int64(OpAnnotateHandle))
+	return e.addCallInstr(annotateFn, handleTy,
+		[]int{annotateOpcodeVal, rawHandleID, resPropsConst.valueID})
+}
+
+// constHandle pairs an emitter value ID with the underlying *module.Constant
+// for aggregate constants emitted via the build helpers below.
+type constHandle struct {
+	valueID    int
+	idCacheKey int
+}
+
+// buildResBindConstant materializes a %dx.types.ResBind constant for the
+// given resource. ResBind layout per DxilOperations.cpp:4131:
+//
+//	{ i32 RangeLowerBound, i32 RangeUpperBound, i32 SpaceID, i8 ResourceClass }
+//
+// For a single-binding resource the lower and upper bounds are equal.
+func (e *Emitter) buildResBindConstant(res *resourceInfo) constHandle {
+	resBindTy := e.getDxResBindType()
+	lower := e.mod.AddIntConst(e.mod.GetIntType(32), int64(res.binding))
+	upper := e.mod.AddIntConst(e.mod.GetIntType(32), int64(res.binding))
+	space := e.mod.AddIntConst(e.mod.GetIntType(32), int64(res.group))
+	class := e.mod.AddIntConst(e.mod.GetIntType(8), int64(res.class))
+	c := e.mod.AddAggregateConst(resBindTy, []*module.Constant{lower, upper, space, class})
+	id := e.allocValue()
+	e.constMap[id] = c
+	return constHandle{valueID: id, idCacheKey: id}
+}
+
+// buildResourcePropertiesConstant materializes a %dx.types.ResourceProperties
+// constant for the given resource. The two raw dwords pack basic + typed
+// information per DxilResourceProperties.h:
+//
+//	dword 0 (BasicProps):
+//	    byte 0 = ResourceKind (DXIL enum)
+//	    byte 1 = (BaseAlignLog2:4 | IsUAV<<4 | IsROV<<5 | IsGloballyCoherent<<6 | SamplerCmpOrHasCounter<<7)
+//	    byte 2 = (IsReorderCoherent:1 | Reserved2:7)
+//	    byte 3 = Reserved3
+//
+//	dword 1 (kind-specific):
+//	    Typed image/buffer: byte 0 = CompType, byte 1 = CompCount, ...
+//	    StructuredBuffer: byte stride
+//	    CBuffer: size in bytes
+//	    Sampler / RawBuffer: 0
+//
+// Reference: DXC DxilResourceProperties.cpp:90 getAsConstant.
+func (e *Emitter) buildResourcePropertiesConstant(res *resourceInfo) constHandle {
+	resPropsTy := e.getDxResourcePropertiesType()
+	d0, d1 := e.resourcePropertiesDwords(res)
+	w0 := e.mod.AddIntConst(e.mod.GetIntType(32), int64(d0))
+	w1 := e.mod.AddIntConst(e.mod.GetIntType(32), int64(d1))
+	c := e.mod.AddAggregateConst(resPropsTy, []*module.Constant{w0, w1})
+	id := e.allocValue()
+	e.constMap[id] = c
+	return constHandle{valueID: id, idCacheKey: id}
+}
+
+// resourcePropertiesDwords computes the two ResourceProperties raw dwords
+// for a resource. Conservative defaults: alignment unknown, no ROV/coherent
+// bits set. Caller is the only emit site so the assumption that the
+// resourceInfo has been fully classified holds.
+func (e *Emitter) resourcePropertiesDwords(res *resourceInfo) (uint32, uint32) {
+	kind := uint32(e.resourceKind(res)) & 0xff //nolint:gosec // resource kind enum is 0..32
+	var byte1 uint32
+	if res.class == resourceClassUAV {
+		byte1 |= 1 << 4 // IsUAV
+	}
+	dword0 := kind | (byte1 << 8)
+	// dword1 is kind-specific. RawBuffer/StructuredBuffer atomics are the
+	// SM 6.6 critical path for now — leave dword1 = 0 for those (DXC uses
+	// stride for structured but the validator accepts 0 when no struct
+	// member layout is provided). Typed image/buffer/CBuffer paths are
+	// follow-ups for shaders that need them.
+	return dword0, 0
 }
 
 // getResourceHandleID returns the emitter value ID of the handle for a
@@ -229,12 +501,33 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 	coordType := e.resolveExprType(fn, sample.Coordinate)
 	coordComps := componentCount(coordType)
 
-	// Determine overload (f32 for sampled/depth textures).
+	// Determine overload from the texture's sampled kind. Most sampled
+	// textures are f32 (ScalarFloat → overloadF32), but textureGather on
+	// integer textures (texture_2d<u32>/texture_2d<i32>) requires the i32
+	// overload so dx.op.textureGather.i32 returns i32 ResRet components.
+	// Using f32 unconditionally caused downstream u32→f32 /i32→f32 casts
+	// to compile as identity float→float uitofp/sitofp instructions,
+	// tripping the LLVM verifier.
 	ol := overloadF32
+	var imgType ir.ImageType
+	var haveImgType bool
+	if imgInner, okImg := e.resolveExprType(fn, sample.Image).(ir.ImageType); okImg {
+		ol = imageOverload(imgInner)
+		imgType = imgInner
+		haveImgType = true
+	}
 
-	// Scalarize coordinates into coord0..coord3.
-	zeroF := e.getFloatConstID(0.0)
-	coords := [4]int{zeroF, zeroF, zeroF, zeroF}
+	// Out-of-bound coordinate / offset / clamp slots must be undef per the
+	// DXIL validator rule 'out of bound X must be undef'. DXC itself emits
+	// 'float undef' / 'i32 undef' for every unused slot (verified against
+	// dxc -T ps_6_0 for tex.Sample(samp, uv, int2(3,1))), not zero.
+	f32Ty := e.mod.GetFloatType(32)
+	f32UndefID := e.getTypedUndefConstID(f32Ty)
+	i32UndefID := e.getUndefConstID()
+
+	// Scalarize coordinates into coord0..coord3. Slots past (coordComps +
+	// array index) stay undef.
+	coords := [4]int{f32UndefID, f32UndefID, f32UndefID, f32UndefID}
 	for i := 0; i < 4 && i < coordComps; i++ {
 		coords[i] = e.getComponentID(sample.Coordinate, i)
 	}
@@ -245,13 +538,17 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 		if err2 != nil {
 			return 0, fmt.Errorf("array index: %w", err2)
 		}
-		// Convert i32 array index to float for sample coordinates.
-		f32Ty := e.mod.GetFloatType(32)
-		castID := e.allocValue()
-		e.currentBB.AddInstruction(&module.Instruction{
-			Kind: module.InstrCast, HasValue: true, ResultType: f32Ty,
-			Operands: []int{int(CastUIToFP), arrID}, ValueID: castID,
-		})
+		// Convert array index to float for sample coordinates. WGSL array
+		// indices are typed i32 or u32; DXIL sample intrinsics take all
+		// coordinates as f32, so we need SIToFP/UIToFP depending on signedness
+		// of the ArrayIndex expression. Default to UIToFP — WGSL array indices
+		// are non-negative and the two produce identical bit patterns for the
+		// in-range case, but signed sources should use SIToFP for clarity.
+		arrCastOp := CastUIToFP
+		if arrScalar, okScal := scalarOfType(e.resolveExprType(fn, *sample.ArrayIndex)); okScal && arrScalar.Kind == ir.ScalarSint {
+			arrCastOp = CastSIToFP
+		}
+		castID := e.addCastInstr(f32Ty, arrCastOp, arrID)
 		if coordComps < 4 {
 			coords[coordComps] = castID
 		}
@@ -266,9 +563,33 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 		}
 	}
 
-	// Default offsets (i32 0).
+	// Offset slots. Per DXC's lowering (verified via dxc -T ps_6_0 -dumpbin
+	// on Texture1D.Sample / Texture2D.Sample / Texture3D.Sample), in-bound
+	// offset slots always carry a real i32 value — defaulting to 'i32 0'
+	// when the HLSL call has no offset argument — while out-of-bound slots
+	// are 'i32 undef'. Cube textures do not allow any offset at all: all
+	// three slots stay undef for them. Using 'i32 undef' on an in-bound
+	// slot trips the DXIL validator rule 'coord uninitialized' (the rule
+	// text is imprecise — it covers both coord and offset parameters).
+	numOffsetDims := 0
+	if haveImgType && imgType.Dim != ir.DimCube {
+		numOffsetDims = imageDimSpatialComponents(imgType.Dim)
+	}
 	zeroI := e.getIntConstID(0)
-	offsets := [3]int{zeroI, zeroI, zeroI}
+	offsets := [3]int{i32UndefID, i32UndefID, i32UndefID}
+	for i := 0; i < numOffsetDims; i++ {
+		offsets[i] = zeroI
+	}
+	if sample.Offset != nil && numOffsetDims > 0 {
+		if _, err2 := e.emitExpression(fn, *sample.Offset); err2 != nil {
+			return 0, fmt.Errorf("sample offset: %w", err2)
+		}
+		offsetType := e.resolveExprType(fn, *sample.Offset)
+		offsetComps := componentCount(offsetType)
+		for i := 0; i < numOffsetDims && i < offsetComps && i < 3; i++ {
+			offsets[i] = e.getComponentID(*sample.Offset, i)
+		}
+	}
 
 	// Dispatch to appropriate intrinsic.
 	resRetTy := e.getDxResRetType(ol)
@@ -321,7 +642,7 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 				coords[0], coords[1], coords[2], coords[3],
 				offsets[0], offsets[1], offsets[2],
 				depthRefID,
-				zeroF, // clamp
+				f32UndefID, // clamp
 			})
 		}
 
@@ -340,7 +661,7 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 				coords[0], coords[1], coords[2], coords[3],
 				offsets[0], offsets[1], offsets[2],
 				biasID,
-				zeroF, // clamp
+				f32UndefID, // clamp
 			})
 
 		case ir.SampleLevelExact:
@@ -370,8 +691,8 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 			}
 			ddxType := e.resolveExprType(fn, lvl.X)
 			ddxComps := componentCount(ddxType)
-			ddx := [3]int{zeroF, zeroF, zeroF}
-			ddy := [3]int{zeroF, zeroF, zeroF}
+			ddx := [3]int{f32UndefID, f32UndefID, f32UndefID}
+			ddy := [3]int{f32UndefID, f32UndefID, f32UndefID}
 			for i := 0; i < 3 && i < ddxComps; i++ {
 				ddx[i] = e.getComponentID(lvl.X, i)
 				ddy[i] = e.getComponentID(lvl.Y, i)
@@ -384,7 +705,7 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 				offsets[0], offsets[1], offsets[2],
 				ddx[0], ddx[1], ddx[2],
 				ddy[0], ddy[1], ddy[2],
-				zeroF, // clamp
+				f32UndefID, // clamp
 			})
 
 		default:
@@ -395,7 +716,7 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 				imageHandleID, samplerHandleID,
 				coords[0], coords[1], coords[2], coords[3],
 				offsets[0], offsets[1], offsets[2],
-				zeroF, // clamp
+				f32UndefID, // clamp
 			})
 		}
 	}
@@ -587,14 +908,19 @@ func imageDimArrayComponent(dim ir.ImageDimension) int {
 }
 
 // imageOverload returns the DXIL overload type for an image's element type.
-// For sampled/depth images, the overload comes from SampledKind.
+// For sampled images, the overload comes from SampledKind.
+// For depth images, the overload is always f32 — depth textures are defined
+// to return floating-point depth values; ImageType.SampledKind is not valid
+// for ImageClassDepth (per the struct doc) and defaults to ScalarSint, which
+// would incorrectly select i32 overload.
 // For storage images, the overload comes from StorageFormat.
 func imageOverload(img ir.ImageType) overloadType {
 	switch img.Class {
 	case ir.ImageClassStorage:
 		return overloadForScalar(img.StorageFormat.Scalar())
+	case ir.ImageClassDepth:
+		return overloadF32
 	default:
-		// Sampled and depth textures use the sampled kind.
 		return overloadForScalar(ir.ScalarType{Kind: img.SampledKind, Width: 4})
 	}
 }
@@ -812,6 +1138,7 @@ func (e *Emitter) getDxOpTextureLoadFunc(ol overloadType) *module.Function {
 	// 9 params: opcode, handle, mip/sample, c0, c1, c2, o0, o1, o2
 	funcTy := e.mod.GetFunctionType(resRetTy, []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty, i32Ty})
 	fn := e.mod.AddFunction(name, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(name)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -832,6 +1159,7 @@ func (e *Emitter) getDxOpTextureStoreFunc(ol overloadType) *module.Function {
 	// 10 params: opcode, handle, c0, c1, c2, v0, v1, v2, v3, mask(i8)
 	funcTy := e.mod.GetFunctionType(voidTy, []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i32Ty, scalarTy, scalarTy, scalarTy, scalarTy, i8Ty})
 	fn := e.mod.AddFunction(name, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(name)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -979,12 +1307,19 @@ func (e *Emitter) getDxOpGetDimensionsFunc() *module.Function {
 	handleTy := e.getDxHandleType()
 	funcTy := e.mod.GetFunctionType(dimTy, []*module.Type{i32Ty, handleTy, i32Ty})
 	fn := e.mod.AddFunction("dx.op.getDimensions", funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr("dx.op.getDimensions")
 	e.dxOpFuncs[key] = fn
 	return fn
 }
 
 // getDxOpCreateHandleFunc creates the dx.op.createHandle function declaration.
 // Signature: %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1)
+//
+// SM 6.0–6.5 only. Starting with SM 6.6 the validator rejects with
+// 'opcode CreateHandle should only be used in Shader Model 6.5 and below';
+// the SM 6.6+ replacement is the createHandleFromBinding +
+// annotateHandle pair (see getDxOpCreateHandleFromBindingFunc /
+// getDxOpAnnotateHandleFunc below).
 func (e *Emitter) getDxOpCreateHandleFunc() *module.Function {
 	key := dxOpKey{name: dxOpCreateHandleName, overload: overloadVoid}
 	if fn, ok := e.dxOpFuncs[key]; ok {
@@ -999,6 +1334,84 @@ func (e *Emitter) getDxOpCreateHandleFunc() *module.Function {
 	params := []*module.Type{i32Ty, i8Ty, i32Ty, i32Ty, i1Ty}
 	funcTy := e.mod.GetFunctionType(handleTy, params)
 	fn := e.mod.AddFunction(dxOpCreateHandleName, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(dxOpCreateHandleName)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxResBindType returns the %dx.types.ResBind = type {i32, i32, i32, i8}
+// struct used by dx.op.createHandleFromBinding (SM 6.6+) to describe a
+// resource binding range. Fields:
+//
+//	i32 RangeLowerBound
+//	i32 RangeUpperBound
+//	i32 SpaceID
+//	i8  ResourceClass  (0=SRV, 1=UAV, 2=CBV, 3=Sampler)
+//
+// Reference: DXC DxilOperations.cpp:4131 m_pResourceBindingType.
+func (e *Emitter) getDxResBindType() *module.Type {
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	return e.mod.GetStructType("dx.types.ResBind", []*module.Type{i32Ty, i32Ty, i32Ty, i8Ty})
+}
+
+// getDxResourcePropertiesType returns the %dx.types.ResourceProperties =
+// type {i32, i32} struct used by dx.op.annotateHandle (SM 6.6+) to attach
+// resource metadata to a runtime-created handle. The two raw dwords pack:
+//
+//	dword 0: BasicProps (kind, IsUAV, IsROV, sampler-cmp, etc.)
+//	dword 1: kind-specific (typed comp/count, struct stride, cbuffer size)
+//
+// Reference: DXC DxilResourceProperties.h:23 / DxilOperations.cpp:4121.
+func (e *Emitter) getDxResourcePropertiesType() *module.Type {
+	i32Ty := e.mod.GetIntType(32)
+	return e.mod.GetStructType("dx.types.ResourceProperties", []*module.Type{i32Ty, i32Ty})
+}
+
+// getDxOpCreateHandleFromBindingFunc returns the dx.op.createHandleFromBinding
+// function declaration. SM 6.6+ replacement for createHandle.
+//
+//	%dx.types.Handle @dx.op.createHandleFromBinding(
+//	    i32 217, %dx.types.ResBind, i32 index, i1 nonUniformIndex)
+//
+// Reference: DXC DxilOperations.cpp:CreateHandleFromBinding.
+func (e *Emitter) getDxOpCreateHandleFromBindingFunc() *module.Function {
+	const name = "dx.op.createHandleFromBinding"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	handleTy := e.getDxHandleType()
+	resBindTy := e.getDxResBindType()
+	i32Ty := e.mod.GetIntType(32)
+	i1Ty := e.mod.GetIntType(1)
+	params := []*module.Type{i32Ty, resBindTy, i32Ty, i1Ty}
+	funcTy := e.mod.GetFunctionType(handleTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(name)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpAnnotateHandleFunc returns the dx.op.annotateHandle declaration.
+//
+//	%dx.types.Handle @dx.op.annotateHandle(
+//	    i32 216, %dx.types.Handle, %dx.types.ResourceProperties)
+//
+// Reference: DXC DxilOperations.cpp:AnnotateHandle.
+func (e *Emitter) getDxOpAnnotateHandleFunc() *module.Function {
+	const name = "dx.op.annotateHandle"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	handleTy := e.getDxHandleType()
+	resPropsTy := e.getDxResourcePropertiesType()
+	i32Ty := e.mod.GetIntType(32)
+	params := []*module.Type{i32Ty, handleTy, resPropsTy}
+	funcTy := e.mod.GetFunctionType(handleTy, params)
+	fn := e.mod.AddFunction(name, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(name)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -1151,18 +1564,15 @@ func (e *Emitter) ensureFloat(fn *ir.Function, valueID int, handle ir.Expression
 			if sc.Kind == ir.ScalarUint {
 				castOp = CastUIToFP
 			}
-			castID := e.allocValue()
-			e.currentBB.AddInstruction(&module.Instruction{
-				Kind: module.InstrCast, HasValue: true, ResultType: f32Ty,
-				Operands: []int{int(castOp), valueID}, ValueID: castID,
-			})
-			return castID
+			return e.addCastInstr(f32Ty, castOp, valueID)
 		}
 	}
 	return valueID
 }
 
 // getI1ConstID returns the emitter value ID for a cached i1 constant.
+//
+//nolint:unparam // generic helper kept for future i1 true/1 emission
 func (e *Emitter) getI1ConstID(v int64) int {
 	key := v + (1 << 41) // offset to distinguish from i32 and i8
 	if id, ok := e.intConsts[key]; ok {
@@ -1194,6 +1604,13 @@ func (e *Emitter) emitResourceMetadata() *module.MetadataNode {
 
 	for i := range e.resources {
 		res := &e.resources[i]
+
+		// Skip virtual entries — synthetic per-WGSL-binding sampler slots
+		// that only cache the materialized handleID for resolveResourceHandle.
+		// The actual sampler heap resource is already present.
+		if res.virtual {
+			continue
+		}
 
 		switch res.class {
 		case resourceClassSRV:
@@ -1231,10 +1648,26 @@ func (e *Emitter) emitResourceMetadata() *module.MetadataNode {
 func (e *Emitter) fillResourceMetadataCommon(res *resourceInfo, structType *module.Type) [6]*module.MetadataNode {
 	i32Ty := e.mod.GetIntType(32)
 
-	// fields[1] = metadata value wrapping an undef pointer to the resource struct type.
+	// For binding arrays, wrap the resource struct in an LLVM array type
+	// so the validator's HLSL-type walk recognizes it as array-backed
+	// (DxilValidationUtils.cpp:209 checks
+	// `Res->GetHLSLType()->getPointerElementType()->isArrayTy()` — if
+	// false, a non-constant index into the resource is rejected with
+	// InstrOpConstRange 'Constant values must be in-range for operation').
+	// The element type for the LLVM pointer is therefore:
+	//   non-array:          struct.SRVType
+	//   binding_array<T,N>: [N x struct.SRVType]
+	//   binding_array<T>:   [0 x struct.SRVType] (unbounded)
+	elemTypeForPtr := structType
+	if res.isBindingArray {
+		arrLen := uint(res.arraySize)
+		elemTypeForPtr = e.mod.GetArrayType(structType, arrLen)
+	}
+
+	// fields[1] = metadata value wrapping an undef pointer to the resource type.
 	// DXC validator requires this non-null reference.
 	// Reference: Mesa fill_resource_metadata() line ~457-458
-	pointerType := e.mod.GetPointerType(structType)
+	pointerType := e.mod.GetPointerType(elemTypeForPtr)
 	pointerUndef := e.mod.AddUndefConst(pointerType)
 
 	// Range size: 1 for non-array, N for bounded binding arrays, 0xFFFFFFFF for unbounded.
@@ -1258,24 +1691,21 @@ func (e *Emitter) fillResourceMetadataCommon(res *resourceInfo, structType *modu
 }
 
 // getResourceStructType returns an LLVM struct type appropriate for this resource.
-// For CBV: named struct wrapping a float array sized to the buffer.
-// For SRV/UAV: the dx.types.Handle-like struct or image type struct.
+// For CBV: named struct wrapping a float array sized to the buffer. DXC uses
+// "hostlayout.<varName>" for the outer wrapper when the type needs layout
+// transformation (matrices, arrays); plain "<varName>" otherwise.
+// For SRV/UAV textures: DXC uses HLSL-style class names like
+// class.Texture2D<vector<float, 4>> with a nested ::mips_type member.
 // For Sampler: struct.SamplerState { i32 }.
 //
-// Reference: Mesa nir_to_dxil.c emit_cbv() line ~1549-1552, emit_sampler_metadata() line ~1597-1598
+// Reference:
+//   - DXC DxilCondenseResources.cpp:1794 — hostlayout prefix logic
+//   - DXC DxilModule.cpp:87 — kHostLayoutTypePrefix = "hostlayout."
+//   - Mesa nir_to_dxil.c emit_cbv() line ~1549-1552
 func (e *Emitter) getResourceStructType(res *resourceInfo) *module.Type {
 	switch res.class {
 	case resourceClassCBV:
-		// CBV struct: named struct containing a float array.
-		// Mesa: buffer_type = struct { float[size] } where size = num vec4 regs.
-		numVec4 := e.computeCBVVec4Count(res)
-		f32Ty := e.mod.GetFloatType(32)
-		arrayTy := e.mod.GetArrayType(f32Ty, uint(numVec4)) //nolint:gosec // numVec4 always positive
-		name := res.name
-		if name == "" {
-			name = "cb"
-		}
-		return e.mod.GetStructType(name, []*module.Type{arrayTy})
+		return e.getCBVStructType(res)
 
 	case resourceClassSampler:
 		// Sampler: struct.SamplerState { i32 }
@@ -1284,21 +1714,522 @@ func (e *Emitter) getResourceStructType(res *resourceInfo) *module.Type {
 		return e.mod.GetStructType("struct.SamplerState", []*module.Type{i32Ty})
 
 	case resourceClassSRV:
-		// SRV: use the image component type to build a typed resource struct.
-		compType := e.getResourceComponentType(res)
-		scalarTy := e.componentTypeToLLVMType(compType)
-		return e.mod.GetStructType("struct.SRVType", []*module.Type{scalarTy})
+		return e.getSRVStructType(res)
 
 	case resourceClassUAV:
-		// UAV: similar to SRV struct for metadata purposes.
-		compType := e.getResourceComponentType(res)
-		scalarTy := e.componentTypeToLLVMType(compType)
-		return e.mod.GetStructType("struct.UAVType", []*module.Type{scalarTy})
+		return e.getUAVStructType(res)
 
 	default:
 		// Fallback: i8 pointer struct.
 		i8Ty := e.mod.GetIntType(8)
 		return e.mod.GetStructType("struct.Resource", []*module.Type{i8Ty})
+	}
+}
+
+// getCBVStructType builds the CBV wrapper struct type with DXC-matching naming
+// and typed member layout.
+//
+// DXC creates a two-level type hierarchy for CBV resources:
+//   - Outer: "hostlayout.<varName>" or just "<varName>" wrapping the inner struct
+//   - Inner: "hostlayout.struct.<StructName>" for the concrete data type
+//
+// DXC applies the "hostlayout." prefix when the struct needs layout
+// transformation for cbuffer packing (matrices, arrays with alignment padding).
+// For all-scalar structs, no hostlayout prefix is used.
+//
+// DXC represents struct members with their LLVM types rather than flat float
+// arrays. For example, mat4x4<f32> becomes [4 x <4 x float>], vec4<f32>
+// becomes <4 x float>, and scalars remain as their primitive types.
+func (e *Emitter) getCBVStructType(res *resourceInfo) *module.Type {
+	varName := res.name
+	if varName == "" {
+		varName = "cb"
+	}
+
+	// Build typed member list matching DXC convention.
+	memberTypes := e.buildCBVMemberTypes(res)
+
+	// Determine whether the CBV type needs hostlayout prefix.
+	// DXC applies hostlayout when the struct requires layout transformation
+	// for cbuffer packing (matrices, arrays, vectors).
+	needsHostLayout := e.cbvNeedsHostLayout(res)
+
+	if needsHostLayout {
+		// Build inner struct with hostlayout.struct.<Name> naming when the
+		// IR type is a named struct.
+		innerName := e.cbvInnerStructName(res)
+		if innerName != "" {
+			innerTy := e.mod.GetStructType("hostlayout.struct."+innerName, memberTypes)
+			return e.mod.GetStructType("hostlayout."+varName, []*module.Type{innerTy})
+		}
+		return e.mod.GetStructType("hostlayout."+varName, memberTypes)
+	}
+
+	// No hostlayout needed: use plain variable name wrapping struct.S<N>.
+	innerName := e.cbvInnerStructName(res)
+	if innerName != "" {
+		innerTy := e.mod.GetStructType("struct."+innerName, memberTypes)
+		return e.mod.GetStructType(varName, []*module.Type{innerTy})
+	}
+	return e.mod.GetStructType(varName, memberTypes)
+}
+
+// buildCBVMemberTypes constructs the LLVM type list for a CBV struct's members,
+// matching DXC's typed member convention.
+//
+// DXC convention:
+//   - mat{C}x{R}<f32> -> [C x <R x float>]
+//   - vec{N}<f32>     -> <N x float>
+//   - vec{N}<u32>     -> <N x i32>
+//   - scalar f32      -> float
+//   - scalar u32/i32  -> i32
+//
+// For bare (non-struct) CBV types (e.g., var<uniform> m: mat4x4<f32>), the
+// result is a single-element slice with that type's LLVM representation.
+func (e *Emitter) buildCBVMemberTypes(res *resourceInfo) []*module.Type {
+	if int(res.typeHandle) >= len(e.ir.Types) {
+		// Fallback: single vec4 register as flat float array.
+		f32Ty := e.mod.GetFloatType(32)
+		return []*module.Type{e.mod.GetArrayType(f32Ty, 4)}
+	}
+
+	irType := e.ir.Types[res.typeHandle]
+	if st, ok := irType.Inner.(ir.StructType); ok {
+		return e.buildCBVStructMemberTypes(st)
+	}
+	// Bare non-struct type (e.g., mat4x4 directly as uniform).
+	ty := e.irTypeToCBVLLVMType(res.typeHandle)
+	if ty != nil {
+		return []*module.Type{ty}
+	}
+	// Fallback for unrecognized types.
+	f32Ty := e.mod.GetFloatType(32)
+	numVec4 := e.computeCBVVec4Count(res)
+	return []*module.Type{e.mod.GetArrayType(f32Ty, uint(numVec4))} //nolint:gosec // numVec4 always positive
+}
+
+// buildCBVStructMemberTypes converts each member of an IR struct to its
+// corresponding LLVM type for CBV representation.
+func (e *Emitter) buildCBVStructMemberTypes(st ir.StructType) []*module.Type {
+	result := make([]*module.Type, 0, len(st.Members))
+	for _, m := range st.Members {
+		if int(m.Type) >= len(e.ir.Types) {
+			continue
+		}
+		ty := e.irTypeToCBVLLVMType(m.Type)
+		if ty != nil {
+			result = append(result, ty)
+		}
+	}
+	if len(result) == 0 {
+		// Fallback: single float if no members could be converted.
+		result = append(result, e.mod.GetFloatType(32))
+	}
+	return result
+}
+
+// irTypeToCBVLLVMType converts an IR type (by handle) to its DXC-matching
+// LLVM type for CBV struct members.
+//
+// This follows the DXC convention observed in golden reference files:
+//   - MatrixType{C,R,Float32} -> [C x <R x float>]
+//   - VectorType{N,Float32}   -> <N x float>
+//   - VectorType{N,Uint32}    -> <N x i32>
+//   - ScalarType{Float,4}     -> float
+//   - ScalarType{Uint/Sint,4} -> i32
+func (e *Emitter) irTypeToCBVLLVMType(th ir.TypeHandle) *module.Type {
+	if int(th) >= len(e.ir.Types) {
+		return nil
+	}
+	irType := &e.ir.Types[th]
+	switch t := irType.Inner.(type) {
+	case ir.MatrixType:
+		// mat{C}x{R}<T> -> [C x <R x scalarTy>]
+		scalarTy := e.scalarToLLVMType(t.Scalar)
+		vecTy := e.mod.GetVectorType(scalarTy, uint(t.Rows))
+		return e.mod.GetArrayType(vecTy, uint(t.Columns))
+
+	case ir.VectorType:
+		// vec{N}<T> -> <N x scalarTy>
+		scalarTy := e.scalarToLLVMType(t.Scalar)
+		return e.mod.GetVectorType(scalarTy, uint(t.Size))
+
+	case ir.ScalarType:
+		return e.scalarToLLVMType(t)
+
+	case ir.ArrayType:
+		// Array of elements: [N x elemType]
+		if int(t.Base) >= len(e.ir.Types) {
+			return nil
+		}
+		elemTy := e.irTypeToCBVLLVMType(t.Base)
+		if elemTy == nil {
+			return nil
+		}
+		arrayLen := uint(0)
+		if t.Size.Constant != nil {
+			arrayLen = uint(*t.Size.Constant)
+		}
+		return e.mod.GetArrayType(elemTy, arrayLen)
+
+	case ir.StructType:
+		// Nested struct: build recursively with hostlayout.struct.<Name> naming.
+		memberTypes := e.buildCBVStructMemberTypes(t)
+		typeName := "hostlayout.struct.anon"
+		if irType.Name != "" {
+			typeName = "hostlayout.struct." + irType.Name
+		}
+		return e.mod.GetStructType(typeName, memberTypes)
+
+	default:
+		return nil
+	}
+}
+
+// scalarToLLVMType converts an IR ScalarType to the corresponding LLVM type.
+func (e *Emitter) scalarToLLVMType(s ir.ScalarType) *module.Type {
+	switch s.Kind {
+	case ir.ScalarFloat:
+		return e.mod.GetFloatType(uint(s.Width) * 8)
+	case ir.ScalarUint, ir.ScalarSint:
+		return e.mod.GetIntType(uint(s.Width) * 8)
+	case ir.ScalarBool:
+		return e.mod.GetIntType(1)
+	default:
+		return e.mod.GetFloatType(32)
+	}
+}
+
+// cbvNeedsHostLayout returns true if the CBV's underlying type contains
+// vectors, matrices, or arrays that require layout transformation for
+// cbuffer packing. DXC applies the "hostlayout." prefix in this case.
+func (e *Emitter) cbvNeedsHostLayout(res *resourceInfo) bool {
+	if int(res.typeHandle) >= len(e.ir.Types) {
+		return false
+	}
+	return e.typeNeedsHostLayout(e.ir.Types[res.typeHandle].Inner)
+}
+
+// typeNeedsHostLayout recursively checks if a type contains matrices or
+// arrays that would cause DXC to apply hostlayout layout transformation for
+// cbuffer packing. Plain vectors do NOT trigger hostlayout in DXC - only
+// matrices (which get decomposed into arrays of vectors) and arrays (which
+// get 16-byte element alignment padding).
+func (e *Emitter) typeNeedsHostLayout(inner ir.TypeInner) bool {
+	switch t := inner.(type) {
+	case ir.MatrixType:
+		return true
+	case ir.ArrayType:
+		return true
+	case ir.StructType:
+		for _, m := range t.Members {
+			if int(m.Type) < len(e.ir.Types) {
+				if e.typeNeedsHostLayout(e.ir.Types[m.Type].Inner) {
+					return true
+				}
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// cbvInnerStructName returns the WGSL struct name for the CBV's underlying type.
+// Returns empty string if the type is not a named struct.
+func (e *Emitter) cbvInnerStructName(res *resourceInfo) string {
+	if int(res.typeHandle) >= len(e.ir.Types) {
+		return ""
+	}
+	ty := e.ir.Types[res.typeHandle]
+	if _, ok := ty.Inner.(ir.StructType); ok && ty.Name != "" {
+		return ty.Name
+	}
+	return ""
+}
+
+// getSRVStructType builds the SRV struct type with DXC-matching HLSL class
+// names for textures and typed buffers.
+//
+// DXC naming conventions:
+//   - RawBuffer(11):        struct.ByteAddressBuffer { i32 }
+//   - StructuredBuffer(12): class.StructuredBuffer<unsigned int> { i32 }
+//   - Texture1D:            class.Texture1D<ELEM> { LLVM_ELEM, ::mips_type { i32 } }
+//   - Texture2D:            class.Texture2D<ELEM> { LLVM_ELEM, ::mips_type { i32 } }
+//   - Texture3D:            class.Texture3D<ELEM> { LLVM_ELEM, ::mips_type { i32 } }
+//   - TextureCube:          class.TextureCube<ELEM> { LLVM_ELEM }  (no mips_type)
+//   - TextureCubeArray:     class.TextureCubeArray<ELEM> { LLVM_ELEM }
+//   - Texture2DMS:          class.Texture2DMS<ELEM, 0> { LLVM_ELEM, ::sample_type { i32 } }
+//   - Array variants:       class.Texture2DArray<ELEM> { LLVM_ELEM, ::mips_type { i32 } }
+func (e *Emitter) getSRVStructType(res *resourceInfo) *module.Type {
+	switch e.resourceKind(res) {
+	case 11: // RawBuffer
+		return e.mod.GetStructType("struct.ByteAddressBuffer", []*module.Type{e.mod.GetIntType(32)})
+	case 12: // StructuredBuffer
+		return e.mod.GetStructType("class.StructuredBuffer<unsigned int>", []*module.Type{e.mod.GetIntType(32)})
+	}
+
+	// Texture SRV: build class.TextureXD<ELEM> with proper members.
+	return e.buildTextureClassType(res, false)
+}
+
+// getUAVStructType builds the UAV struct type with DXC-matching names.
+//
+// DXC naming:
+//   - RawBuffer(11): struct.RWByteAddressBuffer { i32 }
+//   - Texture UAV:   class.RWTexture2D<ELEM> { LLVM_ELEM }  (no mips/sample member)
+func (e *Emitter) getUAVStructType(res *resourceInfo) *module.Type {
+	switch e.resourceKind(res) {
+	case 11: // RawBuffer
+		return e.mod.GetStructType("struct.RWByteAddressBuffer", []*module.Type{e.mod.GetIntType(32)})
+	}
+
+	// Texture UAV: build class.RWTextureXD<ELEM>.
+	return e.buildTextureClassType(res, true)
+}
+
+// buildTextureClassType constructs the DXC HLSL-style class type for a
+// texture resource. For read-only textures (SRV), this includes a
+// ::mips_type or ::sample_type member; for read-write textures (UAV),
+// it's just the element type.
+//
+// The type name follows DXC's convention:
+//
+//	class.Texture2D<vector<float, 4>>         (sampled vec4 float)
+//	class.TextureCube<float>                   (depth float)
+//	class.RWTexture2D<vector<float, 4>>        (storage rgba float)
+//	class.RWTexture2D<unsigned int>             (storage r32uint)
+func (e *Emitter) buildTextureClassType(res *resourceInfo, isUAV bool) *module.Type {
+	// Resolve the image type from the IR.
+	var imgType *ir.ImageType
+	if int(res.typeHandle) < len(e.ir.Types) {
+		inner := unwrapBindingArray(e.ir, e.ir.Types[res.typeHandle].Inner)
+		if img, ok := inner.(ir.ImageType); ok {
+			imgType = &img
+		}
+	}
+
+	// Build the HLSL element type name and corresponding LLVM type.
+	elemName, elemTy := e.textureElementType(imgType)
+
+	// Build the DXC texture dimension name.
+	dimName := e.textureDimensionName(imgType)
+
+	// Construct the full class name.
+	var prefix string
+	if isUAV {
+		prefix = "class.RW"
+	} else {
+		prefix = "class."
+	}
+
+	// Multisampled textures include a sample count parameter in the class name.
+	// DXC always uses 0 for the sample count in the type name.
+	templateArgs := elemName
+	if imgType != nil && imgType.Multisampled {
+		templateArgs = elemName + ", 0"
+	}
+
+	// DXC adds a space before the closing ">" when the template argument ends
+	// with ">" to avoid C++ ">>" tokenization ambiguity. For example:
+	//   Texture2D<vector<float, 4> >     (space before outer >)
+	//   Texture2DMS<vector<float, 4>, 0> (no space: last char is 0)
+	//   TextureCube<float>               (no space: last char is t)
+	closingBracket := ">"
+	if len(templateArgs) > 0 && templateArgs[len(templateArgs)-1] == '>' {
+		closingBracket = " >"
+	}
+
+	className := prefix + dimName + "<" + templateArgs + closingBracket
+
+	if isUAV {
+		// RW textures have no mips/sample member — just the element.
+		return e.mod.GetStructType(className, []*module.Type{elemTy})
+	}
+
+	// Determine if this texture has a mips_type or sample_type sub-member.
+	// TextureCube and TextureCubeArray have no mips_type in DXC output.
+	// Texture2DMS uses ::sample_type instead of ::mips_type.
+	hasMips := true
+	subTypeSuffix := "mips_type"
+	if imgType != nil {
+		if imgType.Dim == ir.DimCube {
+			hasMips = false
+		}
+		if imgType.Multisampled {
+			subTypeSuffix = "sample_type"
+		}
+	}
+
+	if !hasMips {
+		return e.mod.GetStructType(className, []*module.Type{elemTy})
+	}
+
+	// Build the ::mips_type or ::sample_type sub-struct.
+	i32Ty := e.mod.GetIntType(32)
+	subClassName := className + "::" + subTypeSuffix
+	subTy := e.mod.GetStructType(subClassName, []*module.Type{i32Ty})
+	return e.mod.GetStructType(className, []*module.Type{elemTy, subTy})
+}
+
+// textureElementType returns the HLSL template element name and corresponding
+// LLVM type for a texture resource. The naming follows DXC conventions:
+//
+//	Sampled vec4 float:   "vector<float, 4>"   → <4 x float>
+//	Sampled vec4 int:     "vector<int, 4>"     → <4 x i32>
+//	Sampled vec4 uint:    "vector<unsigned int, 4>" → <4 x i32>
+//	Depth float:          "float"              → float
+//	Storage r32float:     "float"              → float
+//	Storage rgba8unorm:   "vector<float, 4>"   → <4 x float>
+//	Storage r32uint:      "unsigned int"       → i32
+//	Storage r64uint:      "unsigned long long" → i64
+func (e *Emitter) textureElementType(imgType *ir.ImageType) (string, *module.Type) {
+	if imgType == nil {
+		// Fallback: assume vec4 float.
+		name := "vector<float, 4>"
+		ty := e.mod.GetVectorType(e.mod.GetFloatType(32), 4)
+		return name, ty
+	}
+
+	// Depth textures: always scalar float.
+	if imgType.Class == ir.ImageClassDepth {
+		return "float", e.mod.GetFloatType(32)
+	}
+
+	// Storage textures: derive from storage format.
+	if imgType.Class == ir.ImageClassStorage {
+		return e.storageTextureElementType(imgType)
+	}
+
+	// Sampled textures: always vec4 of the sampled kind.
+	return e.sampledTextureElementType(imgType.SampledKind)
+}
+
+// sampledTextureElementType returns the HLSL element name and LLVM type for
+// a sampled texture. DXC always uses 4-component vectors for sampled textures.
+func (e *Emitter) sampledTextureElementType(kind ir.ScalarKind) (string, *module.Type) {
+	switch kind {
+	case ir.ScalarSint:
+		ty := e.mod.GetVectorType(e.mod.GetIntType(32), 4)
+		return "vector<int, 4>", ty
+	case ir.ScalarUint:
+		ty := e.mod.GetVectorType(e.mod.GetIntType(32), 4)
+		return "vector<unsigned int, 4>", ty
+	default: // ScalarFloat
+		ty := e.mod.GetVectorType(e.mod.GetFloatType(32), 4)
+		return "vector<float, 4>", ty
+	}
+}
+
+// storageTextureElementType returns the HLSL element name and LLVM type for
+// a storage texture, derived from its StorageFormat.
+// DXC promotes all multi-channel formats (2+ channels) to vec4 in the type
+// declaration — HLSL has no float2 RWTexture types, only float and float4.
+func (e *Emitter) storageTextureElementType(img *ir.ImageType) (string, *module.Type) {
+	channels := storageFormatChannelCount(img.StorageFormat)
+	scalar := img.StorageFormat.Scalar()
+
+	scalarName := hlslScalarTypeName(scalar)
+	llvmScalar := scalarToDXIL(e.mod, scalar)
+
+	if channels == 1 {
+		return scalarName, llvmScalar
+	}
+
+	// DXC promotes 2- and 3-channel formats to 4-component vectors.
+	// HLSL RWTexture types only support scalar or float4/int4/uint4.
+	vecName := fmt.Sprintf("vector<%s, 4>", scalarName)
+	vecTy := e.mod.GetVectorType(llvmScalar, 4)
+	return vecName, vecTy
+}
+
+// DXC texture dimension name constants used in HLSL class type names.
+const dxcTexture2DName = "Texture2D"
+
+// textureDimensionName returns the DXC HLSL texture dimension name (without
+// the "Texture" prefix class wrapper).
+func (e *Emitter) textureDimensionName(imgType *ir.ImageType) string {
+	if imgType == nil {
+		return dxcTexture2DName
+	}
+
+	switch imgType.Dim {
+	case ir.Dim1D:
+		if imgType.Arrayed {
+			return "Texture1DArray"
+		}
+		return "Texture1D"
+	case ir.Dim2D:
+		if imgType.Multisampled {
+			if imgType.Arrayed {
+				return "Texture2DMSArray"
+			}
+			return "Texture2DMS"
+		}
+		if imgType.Arrayed {
+			return "Texture2DArray"
+		}
+		return dxcTexture2DName
+	case ir.Dim3D:
+		return "Texture3D"
+	case ir.DimCube:
+		if imgType.Arrayed {
+			return "TextureCubeArray"
+		}
+		return "TextureCube"
+	default:
+		return dxcTexture2DName
+	}
+}
+
+// hlslScalarTypeName returns the HLSL scalar type name for use in DXC class
+// template parameters.
+func hlslScalarTypeName(s ir.ScalarType) string {
+	switch s.Kind {
+	case ir.ScalarSint:
+		if s.Width == 8 {
+			return "long long"
+		}
+		return "int"
+	case ir.ScalarUint:
+		if s.Width == 8 {
+			return "unsigned long long"
+		}
+		return "unsigned int"
+	default: // ScalarFloat
+		if s.Width == 8 {
+			return "double"
+		}
+		if s.Width == 2 {
+			return "half"
+		}
+		return "float"
+	}
+}
+
+// storageFormatChannelCount returns the number of channels in a storage format.
+func storageFormatChannelCount(f ir.StorageFormat) int {
+	switch f {
+	// 1-channel formats
+	case ir.StorageFormatR8Unorm, ir.StorageFormatR8Snorm,
+		ir.StorageFormatR8Uint, ir.StorageFormatR8Sint,
+		ir.StorageFormatR16Uint, ir.StorageFormatR16Sint, ir.StorageFormatR16Float,
+		ir.StorageFormatR32Uint, ir.StorageFormatR32Sint, ir.StorageFormatR32Float,
+		ir.StorageFormatR16Unorm, ir.StorageFormatR16Snorm,
+		ir.StorageFormatR64Uint, ir.StorageFormatR64Sint:
+		return 1
+
+	// 2-channel formats
+	case ir.StorageFormatRg8Unorm, ir.StorageFormatRg8Snorm,
+		ir.StorageFormatRg8Uint, ir.StorageFormatRg8Sint,
+		ir.StorageFormatRg16Uint, ir.StorageFormatRg16Sint, ir.StorageFormatRg16Float,
+		ir.StorageFormatRg32Uint, ir.StorageFormatRg32Sint, ir.StorageFormatRg32Float,
+		ir.StorageFormatRg16Unorm, ir.StorageFormatRg16Snorm:
+		return 2
+
+	// 4-channel formats (includes packed 3-channel which DXC treats as 4)
+	default:
+		return 4
 	}
 }
 
@@ -1316,21 +2247,33 @@ func (e *Emitter) buildSRVMetadata(res *resourceInfo) *module.MetadataNode {
 	// fields[6] = resource shape (kind)
 	mdKind := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(resKind)))
 
-	// fields[7] = sample count (i1 false)
-	// Reference: Mesa emit_srv_metadata() line ~480
-	mdSampleCount := e.addMetadataI1(false)
+	// fields[7] = sample count (i32 0). DXC emits this as i32 — not i1
+	// boolean — because it represents a count (multi-sample textures carry
+	// the MSAA sample count here). Mesa uses i1 but DXC uses i32 0.
+	mdSampleCount := e.mod.AddMetadataValue(i32Ty, e.getIntConst(0))
 
-	// fields[8] = element type tag metadata, or null for raw/structured buffers.
-	// Reference: Mesa emit_srv_metadata() line ~481-489
+	// fields[8] = element type tag metadata, or null for raw buffer.
+	// For typed buffers / images: (0 = TypedBufferElementType, compType).
+	// For structured buffers: (1 = StructuredBufferElementStride, stride).
+	// Reference: DXC DxilMetadataHelper.cpp:EmitSRVProperties.
 	var mdTag *module.MetadataNode
-	if resKind != 11 && resKind != 12 { // not RawBuffer(11) or StructuredBuffer(12)
+	switch resKind {
+	case 11: // RawBuffer — no element tag
+		mdTag = nil
+	case 12: // StructuredBuffer — (kDxilStructuredBufferElementStrideTag=1, stride)
+		stride := e.resourceStructuredStride(res)
 		tagNodes := []*module.MetadataNode{
-			e.mod.AddMetadataValue(i32Ty, e.getIntConst(0)), // DXIL_TYPED_BUFFER_ELEMENT_TYPE_TAG = 0
+			e.mod.AddMetadataValue(i32Ty, e.getIntConst(1)),
+			e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(stride))),
+		}
+		mdTag = e.mod.AddMetadataTuple(tagNodes)
+	default: // Typed buffer or image — (kDxilTypedBufferElementTypeTag=0, compType)
+		tagNodes := []*module.MetadataNode{
+			e.mod.AddMetadataValue(i32Ty, e.getIntConst(0)),
 			e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(compType))),
 		}
 		mdTag = e.mod.AddMetadataTuple(tagNodes)
 	}
-	// nil mdTag for raw buffer
 
 	fields := []*module.MetadataNode{
 		common[0], common[1], common[2], common[3], common[4], common[5],
@@ -1340,6 +2283,19 @@ func (e *Emitter) buildSRVMetadata(res *resourceInfo) *module.MetadataNode {
 	}
 
 	return e.mod.AddMetadataTuple(fields)
+}
+
+// resourceStructuredStride returns the element stride in bytes for a
+// StructuredBuffer SRV/UAV. For the synthesized sampler-heap index buffer
+// the element type is u32 (4 bytes). For real IR-backed structured
+// buffers this would derive from the struct size, but WGSL storage buffers
+// currently lower to RawBuffer kind (11), not StructuredBuffer (12), so
+// the synthetic path is the only caller today.
+func (e *Emitter) resourceStructuredStride(res *resourceInfo) uint32 {
+	// TODO: derive stride from res.typeHandle for real structured buffers
+	// once the SRV classifier ever chooses kind 12 for user code.
+	_ = res
+	return 4
 }
 
 // buildUAVMetadata builds UAV metadata entry with 11 fields.
@@ -1426,9 +2382,22 @@ func (e *Emitter) buildSamplerMetadata(res *resourceInfo) *module.MetadataNode {
 	i32Ty := e.mod.GetIntType(32)
 
 	// fields[6] = sampler kind (0=default, 1=comparison).
-	// Reference: Mesa emit_sampler_metadata() line ~545-547
+	// Reference: Mesa emit_sampler_metadata() line ~545-547;
+	// DXC DxilConstants.h enum SamplerKind. The validator enforces this
+	// via the rule 'sample_c_*/gather_c instructions require sampler
+	// declared in comparison mode' — any sampleCmp/gatherCmp touching
+	// a Default-kind sampler is rejected. WGSL models this through
+	// ir.SamplerType.Comparison (true for `sampler_comparison`), so read
+	// it directly off the resource's type handle.
 	samplerKind := 0 // DXIL_SAMPLER_KIND_DEFAULT
-	// TODO: detect comparison samplers from IR SamplerType if available.
+	if res.comparisonSampler {
+		samplerKind = 1 // DXIL_SAMPLER_KIND_COMPARISON — synthetic sampler heap
+	} else if int(res.typeHandle) < len(e.ir.Types) {
+		inner := unwrapBindingArray(e.ir, e.ir.Types[res.typeHandle].Inner)
+		if st, ok := inner.(ir.SamplerType); ok && st.Comparison {
+			samplerKind = 1 // DXIL_SAMPLER_KIND_COMPARISON
+		}
+	}
 	mdKind := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(samplerKind)))
 
 	fields := []*module.MetadataNode{
@@ -1443,7 +2412,7 @@ func (e *Emitter) buildSamplerMetadata(res *resourceInfo) *module.MetadataNode {
 // addMetadataI1 creates a metadata value node wrapping an i1 boolean constant.
 //
 // Reference: Mesa dxil_module.c dxil_get_metadata_int1() line ~2897
-func (e *Emitter) addMetadataI1(value bool) *module.MetadataNode { //nolint:unparam // value can be true for coherent UAVs
+func (e *Emitter) addMetadataI1(value bool) *module.MetadataNode {
 	i1Ty := e.mod.GetIntType(1)
 	var v int64
 	if value {
@@ -1529,6 +2498,18 @@ const (
 )
 
 // getResourceComponentType returns the DXIL component type for a resource.
+//
+// ir.ImageType.SampledKind is documented as 'only valid when
+// Class == ImageClassSampled' (ir.go:380). For depth and storage image
+// classes the IR parser leaves it at the zero value (ScalarSint) which
+// would otherwise incorrectly resolve to I32 here. Mirror imageOverload
+// (commit 21466c5 for the same class of bug):
+//   - Depth textures → always F32.
+//   - Storage textures → derive from StorageFormat.Scalar().
+//   - Sampled textures → SampledKind is authoritative.
+//
+// Getting this wrong trips 'sample_* instructions require resource to
+// be declared to return UNORM, SNORM or FLOAT' in the validator.
 func (e *Emitter) getResourceComponentType(res *resourceInfo) int {
 	if int(res.typeHandle) >= len(e.ir.Types) {
 		return dxilCompTypeF32 // default
@@ -1541,7 +2522,14 @@ func (e *Emitter) getResourceComponentType(res *resourceInfo) int {
 		}
 	}
 	if img, ok := inner.(ir.ImageType); ok {
-		return e.sampledKindToDxilCompType(img.SampledKind)
+		switch img.Class {
+		case ir.ImageClassDepth:
+			return dxilCompTypeF32
+		case ir.ImageClassStorage:
+			return e.sampledKindToDxilCompType(img.StorageFormat.Scalar().Kind)
+		default:
+			return e.sampledKindToDxilCompType(img.SampledKind)
+		}
 	}
 	return dxilCompTypeF32
 }
@@ -1558,22 +2546,6 @@ func (e *Emitter) sampledKindToDxilCompType(kind ir.ScalarKind) int {
 		return dxilCompTypeU32
 	default:
 		return dxilCompTypeF32
-	}
-}
-
-// componentTypeToLLVMType returns the LLVM type for a DXIL component type.
-func (e *Emitter) componentTypeToLLVMType(compType int) *module.Type {
-	switch compType {
-	case dxilCompTypeF16:
-		return e.mod.GetFloatType(16)
-	case dxilCompTypeF64:
-		return e.mod.GetFloatType(64)
-	case dxilCompTypeI32:
-		return e.mod.GetIntType(32)
-	case dxilCompTypeU32:
-		return e.mod.GetIntType(32)
-	default:
-		return e.mod.GetFloatType(32)
 	}
 }
 
@@ -2061,6 +3033,7 @@ func (e *Emitter) getDxOpCBufLoadFunc(ol overloadType) *module.Function {
 	params := []*module.Type{i32Ty, handleTy, i32Ty}
 	funcTy := e.mod.GetFunctionType(cbufRetTy, params)
 	fn := e.mod.AddFunction(fullName, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(fullName)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -2076,10 +3049,18 @@ type uavPointerChain struct {
 	isWhole    bool                // true if this is a whole-buffer load (direct GlobalVariable reference)
 	elemType   ir.TypeInner        // element type (what's being loaded/stored)
 	scalar     ir.ScalarType       // scalar element type for overload selection
-	// stride and fieldByteOffset are used for struct-in-array access patterns.
-	// The final raw buffer index = (arrayIndex * stride + fieldByteOffset) / scalarWidth.
-	stride          uint32 // array element stride in bytes (0 = no stride adjustment)
-	fieldByteOffset uint32 // byte offset of the accessed field within the struct element
+	// stride and fieldByteOffset together encode coord0 (in BYTES) per the
+	// formula:  coord0 = (constIdx | dynIdx) * stride + fieldByteOffset
+	//
+	// stride > 0: dynamic-index byte stride (or constIdx byte multiplier).
+	// stride == 0: no per-index multiplication; constIndex is treated as
+	//              precomputed byte offset directly (used for direct struct field access).
+	//
+	// All values are in BYTES. The DXIL spec (DXIL.rst:1789) requires bufferStore
+	// coord0 in bytes for RWRawBuffer (kind 11), which is how naga registers all
+	// storage buffer UAVs/SRVs.
+	stride          uint32 // byte stride per index unit (0 = constIndex is precomputed byte offset)
+	fieldByteOffset uint32 // additional static byte offset (struct member offset, etc.)
 	// dynamicHandleID is set for binding array UAVs where the handle is created
 	// at point of use (not at function entry). -1 means use the static handle.
 	dynamicHandleID int
@@ -2089,6 +3070,16 @@ type uavPointerChain struct {
 	// isBindingArrayConstIdx is true when the binding array index is a constant (AccessIndex pattern).
 	isBindingArrayConstIdx bool
 	bindingArrayConstIndex int64
+}
+
+// isStorageBufferClass returns true if the given resource class represents
+// a storage buffer in DXIL terms — either read-only (SRV, ByteAddressBuffer)
+// or read-write (UAV, RWByteAddressBuffer). The dx.op.bufferLoad /
+// dx.op.bufferStore opcodes are class-agnostic (they take a handle), so the
+// same pointer-chain resolution and emit code applies to both.
+// Atomics still require UAV — enforced at the atomic emit site.
+func isStorageBufferClass(class uint8) bool {
+	return class == resourceClassUAV || class == resourceClassSRV
 }
 
 // resolveUAVPointerChain walks an expression chain and determines whether it
@@ -2180,7 +3171,7 @@ func (e *Emitter) resolveBindingArrayUAVChainFromGV(
 		return nil, false
 	}
 	res := &e.resources[resIdx]
-	if res.class != resourceClassUAV || !res.isBindingArray {
+	if !isStorageBufferClass(res.class) || !res.isBindingArray {
 		return nil, false
 	}
 
@@ -2251,7 +3242,7 @@ func (e *Emitter) resolveUAVDirectGlobal(varHandle ir.GlobalVariableHandle) (*ua
 		return nil, false
 	}
 	res := &e.resources[idx]
-	if res.class != resourceClassUAV {
+	if !isStorageBufferClass(res.class) {
 		return nil, false
 	}
 
@@ -2309,59 +3300,115 @@ func deepScalarOfType(irMod *ir.Module, inner ir.TypeInner) (ir.ScalarType, bool
 	return ir.ScalarType{}, false
 }
 
-// resolveUAVIndex computes the buffer index value ID for a UAV access.
-// Handles simple constant/dynamic indices, as well as stride-scaled struct field access.
+// resolveUAVIndex computes the coord0 value ID (in BYTES) for a UAV access.
+//
+// Per DXIL spec (DXIL.rst:1789), bufferStore/bufferLoad on RWRawBuffer (kind 11)
+// expect coord0 in BYTES. Naga registers all storage buffers as RWRawBuffer, so
+// the raw element/scalar index from WGSL must be byte-scaled before emit.
+//
+// chain.stride is the byte-stride per dynamic-index unit (or per constIndex unit
+// when isConstIdx). chain.fieldByteOffset is the additional static byte offset
+// (struct member, etc.). When stride == 0, isConstIdx is treated as a precomputed
+// byte offset directly (constIndex is bytes); otherwise constIndex is multiplied.
+//
+// Final formula:  coord0 = (constIdx | dynIdx) * stride + fieldByteOffset   [bytes]
+//
+// Reference: DXC HLOperationLower.cpp:4651 — `Coord0 (Index)` already byte-scaled
+// from HLSL frontend; same expectation here.
 func (e *Emitter) resolveUAVIndex(fn *ir.Function, chain *uavPointerChain) (int, error) {
-	scalarW := uint32(chain.scalar.Width)
-	if scalarW == 0 {
-		scalarW = 4
-	}
-
-	if chain.stride > 0 {
-		return e.resolveUAVStridedIndex(fn, chain, scalarW)
-	}
 	if chain.isConstIdx {
-		return e.getIntConstID(int64(chain.constIndex)), nil
+		var bytes uint32
+		if chain.stride == 0 {
+			// constIndex IS the byte offset (struct field direct, etc.)
+			bytes = chain.constIndex + chain.fieldByteOffset
+		} else {
+			bytes = chain.constIndex*chain.stride + chain.fieldByteOffset
+		}
+		return e.getIntConstID(int64(bytes)), nil
 	}
-	indexID, err := e.emitExpression(fn, chain.indexExpr)
-	if err != nil {
-		return 0, fmt.Errorf("UAV index: %w", err)
-	}
-	return indexID, nil
-}
 
-// resolveUAVStridedIndex handles stride-scaled index for struct-in-array UAV access.
-// index = arrayIndex * (stride / scalarWidth) + (fieldByteOffset / scalarWidth).
-func (e *Emitter) resolveUAVStridedIndex(fn *ir.Function, chain *uavPointerChain, scalarW uint32) (int, error) {
-	strideWords := chain.stride / scalarW
-	fieldOffWords := chain.fieldByteOffset / scalarW
-
-	if chain.isConstIdx {
-		finalIdx := int64(chain.constIndex)*int64(strideWords) + int64(fieldOffWords)
-		return e.getIntConstID(finalIdx), nil
+	// Try constant folding: if the index expression resolves to a literal
+	// integer (possibly through ExprAlias chains from mem2reg), fold the
+	// byte offset at compile time. This matches DXC's SimplifyInst pass
+	// which constant-folds `1 * 4` to `4`.
+	if constVal, ok := e.tryResolveConstInt(fn, chain.indexExpr); ok {
+		var bytes uint64
+		if chain.stride == 0 {
+			bytes = constVal + uint64(chain.fieldByteOffset)
+		} else {
+			bytes = constVal*uint64(chain.stride) + uint64(chain.fieldByteOffset)
+		}
+		return e.getIntConstID(int64(bytes)), nil //nolint:gosec // bytes bounded by shader address space (32-bit)
 	}
 
 	dynID, err := e.emitExpression(fn, chain.indexExpr)
 	if err != nil {
-		return 0, fmt.Errorf("UAV strided index: %w", err)
+		return 0, fmt.Errorf("UAV index: %w", err)
 	}
 	i32Ty := e.mod.GetIntType(32)
-	indexID := dynID
-	if strideWords > 1 {
-		strideID := e.getIntConstID(int64(strideWords))
-		indexID = e.addBinOpInstr(i32Ty, BinOpMul, dynID, strideID)
+	if chain.stride > 1 {
+		strideID := e.getIntConstID(int64(chain.stride))
+		dynID = e.addBinOpInstr(i32Ty, BinOpMul, dynID, strideID)
 	}
-	if fieldOffWords > 0 {
-		offID := e.getIntConstID(int64(fieldOffWords))
-		indexID = e.addBinOpInstr(i32Ty, BinOpAdd, indexID, offID)
+	if chain.fieldByteOffset > 0 {
+		offID := e.getIntConstID(int64(chain.fieldByteOffset))
+		dynID = e.addBinOpInstr(i32Ty, BinOpAdd, dynID, offID)
 	}
-	return indexID, nil
+	return dynID, nil
+}
+
+// tryResolveConstInt follows ExprAlias chains from the given expression
+// handle to see if it resolves to a constant integer literal. Returns
+// the unsigned value and true if successful, (0, false) otherwise.
+// This enables constant folding of byte-offset calculations after
+// mem2reg promotes inlined function arguments to alias chains pointing
+// at literal values.
+func (e *Emitter) tryResolveConstInt(fn *ir.Function, h ir.ExpressionHandle) (uint64, bool) {
+	const maxDepth = 16
+	for depth := 0; depth < maxDepth; depth++ {
+		if int(h) >= len(fn.Expressions) {
+			return 0, false
+		}
+		switch ek := fn.Expressions[h].Kind.(type) {
+		case ir.Literal:
+			switch v := ek.Value.(type) {
+			case ir.LiteralI32:
+				return uint64(int32(v)), true //nolint:gosec // sign extension intentional for signed index values
+			case ir.LiteralU32:
+				return uint64(v), true
+			case ir.LiteralI64:
+				return uint64(int64(v)), true //nolint:gosec // sign extension for signed index
+			case ir.LiteralU64:
+				return uint64(v), true
+			default:
+				return 0, false
+			}
+		case ir.ExprAlias:
+			h = ek.Source
+		default:
+			return 0, false
+		}
+	}
+	return 0, false
 }
 
 // resolveUAVAccessChain resolves a dynamic-index access to a UAV global variable.
 // Handles patterns:
 //   - Access(dynIdx, GlobalVariable) — direct array element access
 //   - Access(dynIdx, AccessIndex(structFieldIdx, GlobalVariable)) — struct-wrapped array access
+//
+// Sets stride to the BYTE stride per dynamic-index unit, and fieldByteOffset to
+// the static struct field offset (if AccessIndex peeled a struct member).
+//
+// Matrix-column write: when the AccessIndex selects a matrix struct member, the
+// outer Access dynamically indexes a column. The resolved chain reflects:
+//   - elemType = column vector (vec<R>)
+//   - stride   = column byte stride (R*scalarW or 16 for matCxR with R=3)
+//   - fieldByteOffset = struct member byte offset
+//
+// This mirrors DXC HLOperationLower.cpp which lowers `m[i] = v` to a single
+// rawBufferStore at byte offset (memberOffset + i*columnStride) with mask covering
+// all column components — fixes BUG-DXIL-030.
 func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle ir.ExpressionHandle, _ bool) (*uavPointerChain, bool) {
 	if int(baseHandle) >= len(fn.Expressions) {
 		return nil, false
@@ -2369,6 +3416,8 @@ func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle
 	baseExpr := fn.Expressions[baseHandle]
 
 	var varHandle ir.GlobalVariableHandle
+	var fieldOffset uint32 // struct member byte offset (0 if no struct wrap)
+	var fieldType ir.TypeInner
 
 	switch bk := baseExpr.Kind.(type) {
 	case ir.ExprGlobalVariable:
@@ -2382,6 +3431,8 @@ func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle
 			return nil, false
 		}
 		varHandle = gv
+		// Look up field byte offset and field type for stride computation below.
+		fieldOffset, fieldType = e.resolveStructFieldInfo(varHandle, bk.Index)
 
 	default:
 		return nil, false
@@ -2392,22 +3443,97 @@ func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle
 		return nil, false
 	}
 	res := &e.resources[idx]
-	if res.class != resourceClassUAV {
+	if !isStorageBufferClass(res.class) {
 		return nil, false
 	}
 
-	// Determine element type from the array base type.
-	elemType, scalar, ok := e.resolveUAVElementType(varHandle)
-	if !ok {
-		return nil, false
+	// Determine the effective element type after the dynamic dimension is peeled.
+	//
+	// Three cases:
+	//   1. Field is array<T>: dyn dim peels array → elemType = T, stride = arr.Stride.
+	//   2. Field is matrix<C,R>: dyn dim peels matrix → elemType = vec<R>, stride = column.
+	//   3. No struct wrap: dyn dim peels the global's outer array. Use resolveUAVElementType.
+	var elemType ir.TypeInner
+	var scalar ir.ScalarType
+	var stride uint32
+
+	switch ft := fieldType.(type) {
+	case ir.ArrayType:
+		elemType = e.ir.Types[ft.Base].Inner
+		stride = ft.Stride
+		if stride == 0 {
+			stride = elemByteSize(e.ir, elemType)
+		}
+		if s, ok := scalarOfType(elemType); ok {
+			scalar = s
+		} else if s, ok := deepScalarOfType(e.ir, elemType); ok {
+			scalar = s
+		}
+
+	case ir.MatrixType:
+		// Matrix column write: dynamic index selects a column (vec<R>).
+		// Reference: DXC HLOperationLower.cpp `m[i] = v` lowering to a single
+		// rawBufferStore at (memberOffset + i*columnStride), mask covers all
+		// R components.
+		elemType = ir.VectorType{Size: ft.Rows, Scalar: ft.Scalar}
+		stride = matrixColumnByteStride(ft)
+		scalar = ft.Scalar
+
+	case ir.VectorType:
+		// Dynamic index into a vector member (rare): scalar element with stride = scalar width.
+		elemType = ft.Scalar
+		stride = uint32(ft.Scalar.Width)
+		scalar = ft.Scalar
+
+	case nil:
+		// No struct wrap — fall back to resolveUAVElementType for global's outer array.
+		var ok bool
+		elemType, scalar, ok = e.resolveUAVElementType(varHandle)
+		if !ok {
+			return nil, false
+		}
+		stride = elemByteSize(e.ir, elemType)
+
+	default:
+		// Other field types (struct member without dynamic indexing handled by other paths).
+		var ok bool
+		elemType, scalar, ok = e.resolveUAVElementType(varHandle)
+		if !ok {
+			return nil, false
+		}
+		stride = elemByteSize(e.ir, elemType)
 	}
 
 	return &uavPointerChain{
-		varHandle: varHandle,
-		indexExpr: indexHandle,
-		elemType:  elemType,
-		scalar:    scalar,
+		varHandle:       varHandle,
+		indexExpr:       indexHandle,
+		elemType:        elemType,
+		scalar:          scalar,
+		stride:          stride,
+		fieldByteOffset: fieldOffset,
 	}, true
+}
+
+// resolveStructFieldInfo returns the byte offset and IR type of a struct member,
+// unwrapping a top-level struct wrapper around the global variable. Returns
+// (0, nil) when the global is not a struct or fieldIdx is out of range.
+func (e *Emitter) resolveStructFieldInfo(varHandle ir.GlobalVariableHandle, fieldIdx uint32) (uint32, ir.TypeInner) {
+	if int(varHandle) >= len(e.ir.GlobalVariables) {
+		return 0, nil
+	}
+	gv := &e.ir.GlobalVariables[varHandle]
+	if int(gv.Type) >= len(e.ir.Types) {
+		return 0, nil
+	}
+	st, ok := e.ir.Types[gv.Type].Inner.(ir.StructType)
+	if !ok || int(fieldIdx) >= len(st.Members) {
+		return 0, nil
+	}
+	m := &st.Members[fieldIdx]
+	if int(m.Type) >= len(e.ir.Types) {
+		return m.Offset, nil
+	}
+	return m.Offset, e.ir.Types[m.Type].Inner
 }
 
 // resolveToGlobalVariable walks through an expression to find the underlying GlobalVariable handle.
@@ -2545,7 +3671,7 @@ func (e *Emitter) resolveUAVFromStructMemberArray(
 		return nil, false
 	}
 	res := &e.resources[idx]
-	if res.class != resourceClassUAV {
+	if !isStorageBufferClass(res.class) {
 		return nil, false
 	}
 	if int(gv) >= len(e.ir.GlobalVariables) {
@@ -2580,17 +3706,12 @@ func (e *Emitter) resolveUAVFromStructMemberArray(
 		}
 	}
 
-	scalarW := uint32(scalar.Width)
-	if scalarW == 0 {
-		scalarW = 4
-	}
-
-	// Compute the buffer index: (memberByteOffset + elemIdx * elemStride) / scalarWidth
-	bufIdx := (arrayMember.Offset + elemIdx*arr.Stride) / scalarW
+	// constIndex carries the byte offset directly (stride==0 path in resolveUAVIndex).
+	byteOffset := arrayMember.Offset + elemIdx*arr.Stride
 
 	return &uavPointerChain{
 		varHandle:  gv,
-		constIndex: bufIdx,
+		constIndex: byteOffset,
 		isConstIdx: true,
 		elemType:   elemInner,
 		scalar:     scalar,
@@ -2631,7 +3752,7 @@ func (e *Emitter) resolveUAVStructFieldChainAtMember(
 		return nil, false
 	}
 	res := &e.resources[idx]
-	if res.class != resourceClassUAV {
+	if !isStorageBufferClass(res.class) {
 		return nil, false
 	}
 	if int(varHandle) >= len(e.ir.GlobalVariables) {
@@ -2711,7 +3832,7 @@ func (e *Emitter) resolveUAVStructFieldChain(varHandle ir.GlobalVariableHandle, 
 		return nil, false
 	}
 	res := &e.resources[idx]
-	if res.class != resourceClassUAV {
+	if !isStorageBufferClass(res.class) {
 		return nil, false
 	}
 
@@ -2789,7 +3910,7 @@ func (e *Emitter) resolveUAVMatrixColumnComponent(
 		return nil, false
 	}
 	res := &e.resources[idx]
-	if res.class != resourceClassUAV {
+	if !isStorageBufferClass(res.class) {
 		return nil, false
 	}
 
@@ -2873,7 +3994,7 @@ func (e *Emitter) resolveUAVMatrixConstAccess(
 		return nil, false
 	}
 	res := &e.resources[idx]
-	if res.class != resourceClassUAV {
+	if !isStorageBufferClass(res.class) {
 		return nil, false
 	}
 	if int(gv) >= len(e.ir.GlobalVariables) {
@@ -2903,19 +4024,13 @@ func (e *Emitter) resolveUAVMatrixConstAccess(
 		scalarW = 4
 	}
 
-	rows := uint32(mt.Rows)
-	columnStride := rows * scalarW
-	if columnStride < 16 {
-		columnStride = 16
-	}
-
 	colIdx := outerAI.Index
-	byteOffset := member.Offset + colIdx*columnStride + compIdx*scalarW
-	bufIdx := byteOffset / scalarW
+	byteOffset := member.Offset + colIdx*matrixColumnByteStride(mt) + compIdx*scalarW
 
+	// constIndex carries the byte offset directly (stride==0 path in resolveUAVIndex).
 	return &uavPointerChain{
 		varHandle:  gv,
-		constIndex: bufIdx,
+		constIndex: byteOffset,
 		isConstIdx: true,
 		elemType:   scalar,
 		scalar:     scalar,
@@ -2933,7 +4048,7 @@ func (e *Emitter) resolveUAVStructFieldDirect(varHandle ir.GlobalVariableHandle,
 		return nil, false
 	}
 	res := &e.resources[idx]
-	if res.class != resourceClassUAV {
+	if !isStorageBufferClass(res.class) {
 		return nil, false
 	}
 	if int(varHandle) >= len(e.ir.GlobalVariables) {
@@ -2961,16 +4076,11 @@ func (e *Emitter) resolveUAVStructFieldDirect(varHandle ir.GlobalVariableHandle,
 		}
 	}
 
-	scalarW := uint32(scalar.Width)
-	if scalarW == 0 {
-		scalarW = 4
-	}
-	// Compute buffer element index = fieldByteOffset / scalarWidth
-	bufIndex := member.Offset / scalarW
-
+	// constIndex carries the byte offset directly (stride==0 path in resolveUAVIndex).
+	// Per DXIL spec, bufferStore coord0 for RWRawBuffer is in bytes.
 	return &uavPointerChain{
 		varHandle:  varHandle,
-		constIndex: bufIndex,
+		constIndex: member.Offset,
 		isConstIdx: true,
 		elemType:   fieldInner,
 		scalar:     scalar,
@@ -2984,7 +4094,7 @@ func (e *Emitter) resolveUAVFromGlobal(varHandle ir.GlobalVariableHandle, constI
 		return nil, false
 	}
 	res := &e.resources[idx]
-	if res.class != resourceClassUAV {
+	if !isStorageBufferClass(res.class) {
 		return nil, false
 	}
 
@@ -2993,9 +4103,12 @@ func (e *Emitter) resolveUAVFromGlobal(varHandle ir.GlobalVariableHandle, constI
 		return nil, false
 	}
 
+	// constIdx is the WGSL element index. Convert to byte offset by multiplying
+	// by element size — chain.stride==0 means constIndex is precomputed bytes.
+	elemBytes := elemByteSize(e.ir, elemType)
 	return &uavPointerChain{
 		varHandle:  varHandle,
-		constIndex: constIdx,
+		constIndex: constIdx * elemBytes,
 		isConstIdx: isConst,
 		elemType:   elemType,
 		scalar:     scalar,
@@ -3093,11 +4206,21 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		return 0, err
 	}
 
+	// BUG-DXIL-026 (Group A): mixed-scalar struct/array element types must be
+	// decomposed into per-field bufferLoads with per-field overload. Otherwise a
+	// single bufferLoad.f32 returns 4 floats and the float component for an
+	// integer field is then stored into an i32* alloca, tripping the validator
+	// rule "Explicit load/store type does not match pointee type of pointer
+	// operand" (0x80aa0009). DXC's pattern is identical (separate bufferLoad
+	// per field with .i32 + bitcast), but we keep per-field overload which
+	// validates equally and avoids extra bitcast traffic.
+	if hasMixedScalarTypes(e.ir, chain.elemType) {
+		return e.emitUAVLoadDecomposed(chain, handleID, indexID)
+	}
+
 	ol := overloadForScalar(chain.scalar)
 	resRetTy := e.getDxResRetType(ol)
-	bufLoadFn := e.getDxOpBufferLoadFunc(ol)
 	scalarTy := e.overloadReturnType(ol)
-	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
 	undefVal := e.getUndefConstID()
 
 	// Count all scalar components. For struct/array element types, use deep
@@ -3111,8 +4234,16 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		}
 	}
 
-	if numComps <= 4 {
-		// Single bufferLoad call.
+	// dx.op.bufferLoad supports overloads f16/f32/i16/i32 only (mask 0x63
+	// in DxilOperations.cpp:BufferLoad). For 64-bit element types
+	// (i64/u64/f64) we MUST use dx.op.rawBufferLoad (mask 0xe7) which
+	// covers i16/i32/i64/f16/f32/f64. The atomic-int64 / int64 storage
+	// buffer test corpus depends on this routing.
+	is64Bit := chain.scalar.Width == 8
+	if numComps <= 4 && !is64Bit {
+		// Single bufferLoad call (≤4 components fit one ResRet).
+		bufLoadFn := e.getDxOpBufferLoadFunc(ol)
+		opcodeVal := e.getIntConstID(int64(OpBufferLoad))
 		retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, undefVal})
 		comps := make([]int, numComps)
 		for i := 0; i < numComps; i++ {
@@ -3133,13 +4264,31 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		return comps[0], nil
 	}
 
-	// Multiple bufferLoad calls for types with >4 scalar components.
-	// For structured buffers, coord0 = element index, coord1 = byte offset within element.
-	// Each batch loads 4 scalars (16 bytes for f32), so byte offset increments by 16.
+	return e.emitUAVLoadRaw(chain, handleID, indexID, numComps, ol, resRetTy, scalarTy, undefVal)
+}
+
+// emitUAVLoadRaw emits chunked dx.op.rawBufferLoad calls for elements with
+// more than 4 scalar components or 64-bit scalar width — dx.op.bufferLoad
+// caps at 4 components per call and rejects coord1 for non-structured
+// buffers, so we switch to rawBufferLoad which covers all buffer kinds and
+// supports the full i16/i32/i64/f16/f32/f64 overload set.
+//
+// Mesa nir_to_dxil.c:810 emit_raw_bufferload_call is the reference. coord0
+// carries the current byte offset (our chain index is already in scalar
+// units), coord1 is undef, mask = (1<<count)-1, alignment = scalarWidth.
+func (e *Emitter) emitUAVLoadRaw(
+	chain *uavPointerChain,
+	handleID, indexID, numComps int,
+	ol overloadType, resRetTy, scalarTy *module.Type, undefVal int,
+) (int, error) {
+	rawLoadFn := e.getDxOpRawBufferLoadFunc(ol)
+	rawOpcodeVal := e.getIntConstID(int64(OpRawBufferLoad))
+
 	scalarWidth := uint32(chain.scalar.Width)
 	if scalarWidth == 0 {
 		scalarWidth = 4
 	}
+	alignmentID := e.getIntConstID(int64(scalarWidth))
 
 	comps := make([]int, 0, numComps)
 	remaining := numComps
@@ -3150,8 +4299,15 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		if remaining < 4 {
 			count = remaining
 		}
-		byteOffsetID := e.getIntConstID(int64(byteOffset))
-		retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, byteOffsetID})
+		coord0 := indexID
+		if byteOffset > 0 {
+			ofsID := e.getIntConstID(int64(byteOffset))
+			coord0 = e.addBinOpInstr(e.mod.GetIntType(32), BinOpAdd, indexID, ofsID)
+		}
+		mask := int64((1 << count) - 1)
+		maskID := e.getI8ConstID(mask)
+		retID := e.addCallInstr(rawLoadFn, resRetTy,
+			[]int{rawOpcodeVal, handleID, coord0, undefVal, maskID, alignmentID})
 		for i := 0; i < count; i++ {
 			extractID := e.allocValue()
 			instr := &module.Instruction{
@@ -3174,6 +4330,194 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 	return comps[0], nil
 }
 
+// flatScalarField describes a single scalar field within a flattened
+// struct/array element layout — used by per-field UAV decomposition.
+type flatScalarField struct {
+	offsetWords uint32        // byte offset of this scalar from element base, divided by min(scalarWidth)
+	byteOffset  uint32        // raw byte offset from element base
+	scalar      ir.ScalarType // scalar type of this field (drives overload + bitcast)
+}
+
+// flattenScalarFields walks a TypeInner in source order and emits a flat list
+// of (offset, scalar) entries. Vectors expand into N consecutive scalars,
+// matrices into Cols*Rows, arrays into ElemCount * inner. Struct member
+// offsets respect the IR-supplied member.Offset (which encodes WGSL alignment
+// and padding).
+//
+// All offsets are in BYTES from the element base. The caller divides by
+// scalarWidth when constructing bufferLoad raw byte indices.
+func flattenScalarFields(irMod *ir.Module, inner ir.TypeInner, baseByte uint32) []flatScalarField {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return []flatScalarField{{byteOffset: baseByte, scalar: t}}
+	case ir.VectorType:
+		w := uint32(t.Scalar.Width)
+		size := uint32(t.Size)
+		out := make([]flatScalarField, 0, size)
+		for i := uint32(0); i < size; i++ {
+			out = append(out, flatScalarField{byteOffset: baseByte + i*w, scalar: t.Scalar})
+		}
+		return out
+	case ir.MatrixType:
+		// Matrix layout in storage: column-major, each column padded to vec4
+		// alignment when the row count is < 4. We walk columns then rows so
+		// the flat order matches our compose/extract conventions elsewhere.
+		w := uint32(t.Scalar.Width)
+		cols := uint32(t.Columns)
+		rows := uint32(t.Rows)
+		colBytes := rows * w
+		colStride := (colBytes + 15) &^ 15
+		if rows == 4 {
+			colStride = colBytes
+		}
+		out := make([]flatScalarField, 0, cols*rows)
+		for c := uint32(0); c < cols; c++ {
+			for r := uint32(0); r < rows; r++ {
+				out = append(out, flatScalarField{
+					byteOffset: baseByte + c*colStride + r*w,
+					scalar:     t.Scalar,
+				})
+			}
+		}
+		return out
+	case ir.AtomicType:
+		return []flatScalarField{{byteOffset: baseByte, scalar: t.Scalar}}
+	case ir.ArrayType:
+		if t.Size.Constant == nil || int(t.Base) >= len(irMod.Types) {
+			return nil
+		}
+		count := *t.Size.Constant
+		stride := t.Stride
+		elemInner := irMod.Types[t.Base].Inner
+		out := make([]flatScalarField, 0, int(count))
+		for i := uint32(0); i < count; i++ {
+			out = append(out, flattenScalarFields(irMod, elemInner, baseByte+i*stride)...)
+		}
+		return out
+	case ir.StructType:
+		out := make([]flatScalarField, 0, len(t.Members))
+		for _, m := range t.Members {
+			if int(m.Type) >= len(irMod.Types) {
+				continue
+			}
+			out = append(out, flattenScalarFields(irMod, irMod.Types[m.Type].Inner, baseByte+m.Offset)...)
+		}
+		return out
+	}
+	return nil
+}
+
+// hasMixedScalarTypes returns true when an aggregate element type contains
+// scalar leaves of more than one DXIL type signature (kind+width).
+//
+// dx.op.bufferLoad uses a SINGLE overload for all 4 ResRet slots. When the
+// flat scalar list mixes f32 and i32 leaves, the validator rejects downstream
+// store/use of the mismatched component with 0x80aa0009 — see BUG-DXIL-026
+// Group A reproducer in gpucore/fine.wgsl (struct Segment {x0:f32, w:i32}).
+//
+// Pure scalar/vector/matrix and homogeneous structs/arrays continue to use
+// the single-overload fast path in emitUAVLoad.
+func hasMixedScalarTypes(irMod *ir.Module, inner ir.TypeInner) bool {
+	fields := flattenScalarFields(irMod, inner, 0)
+	if len(fields) < 2 {
+		return false
+	}
+	first := fields[0].scalar
+	for i := 1; i < len(fields); i++ {
+		s := fields[i].scalar
+		if s.Kind != first.Kind || s.Width != first.Width {
+			// Treat ScalarSint and ScalarUint as the same DXIL type — both
+			// map to LLVM iN. Only differing Kind across {bool, int, float}
+			// or differing widths force decomposition.
+			if scalarsShareDXILType(first, s) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// scalarsShareDXILType returns true when two ScalarTypes lower to the same
+// LLVM type (and thus the same dx.op overload). Sint and Uint of equal
+// width both lower to iN — they share .iN overload and need no per-field
+// decomposition.
+func scalarsShareDXILType(a, b ir.ScalarType) bool {
+	if a.Width != b.Width {
+		return false
+	}
+	switch a.Kind {
+	case ir.ScalarSint, ir.ScalarUint:
+		return b.Kind == ir.ScalarSint || b.Kind == ir.ScalarUint
+	case ir.ScalarBool:
+		return b.Kind == ir.ScalarBool
+	case ir.ScalarFloat:
+		return b.Kind == ir.ScalarFloat
+	}
+	return false
+}
+
+// emitUAVLoadDecomposed emits one dx.op.bufferLoad per scalar field of a
+// mixed-type aggregate element, each with the field's own overload. Per-field
+// component IDs are tracked in pendingComponents so downstream
+// extract/AccessIndex paths see the correctly-typed value.
+//
+// Each per-field load is a single-component bufferLoad with byte offset
+// computed from the element base via integer add. We prefer .iN/.fN overloads
+// matching the field type so the extracted value matches the DXIL store/use
+// type without bitcast — equivalent in validity to DXC's "always .i32 +
+// bitcast" pattern but more direct for the typical mixed-int+float case.
+//
+// Reference: Mesa nir_to_dxil.c emit_load_ssbo (~3427) emits per-intrinsic
+// loads after NIR scalarization passes; we do the equivalent decomposition
+// at emit time because our IR retains aggregate loads.
+func (e *Emitter) emitUAVLoadDecomposed(chain *uavPointerChain, handleID, indexID int) (int, error) {
+	fields := flattenScalarFields(e.ir, chain.elemType, 0)
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("UAV load: cannot flatten elem type %T", chain.elemType)
+	}
+
+	// indexID from resolveUAVIndex is the BYTE coord0 base (BUG-DXIL-031).
+	// Each field's byteOffset adds directly without scalar-unit conversion.
+	undefVal := e.getUndefConstID()
+	i32Ty := e.mod.GetIntType(32)
+	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
+
+	comps := make([]int, len(fields))
+	for i, f := range fields {
+		ol := overloadForScalar(f.scalar)
+		resRetTy := e.getDxResRetType(ol)
+		scalarTy := e.overloadReturnType(ol)
+		bufLoadFn := e.getDxOpBufferLoadFunc(ol)
+
+		coord := indexID
+		if f.byteOffset > 0 {
+			ofsID := e.getIntConstID(int64(f.byteOffset))
+			coord = e.addBinOpInstr(i32Ty, BinOpAdd, indexID, ofsID)
+		}
+
+		retID := e.addCallInstr(bufLoadFn, resRetTy,
+			[]int{opcodeVal, handleID, coord, undefVal})
+
+		extractID := e.allocValue()
+		instr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: scalarTy,
+			Operands:   []int{retID, 0},
+			ValueID:    extractID,
+		}
+		e.currentBB.AddInstruction(instr)
+		comps[i] = extractID
+		_ = f.offsetWords // reserved for stride-based path
+	}
+
+	if len(comps) > 1 {
+		e.pendingComponents = comps
+	}
+	return comps[0], nil
+}
+
 // emitUAVStore emits a dx.op.bufferStore call for writing to a UAV (storage buffer).
 //
 // dx.op.bufferStore signature:
@@ -3181,7 +4525,14 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 //	void @dx.op.bufferStore.XX(i32 69, %handle, i32 index, i32 offset,
 //	                           XX val0, XX val1, XX val2, XX val3, i8 mask)
 //
+// For RWByteAddressBuffer (raw buffer, kind 11) stores, DXC always uses the
+// i32 overload regardless of the source data type. Float values are bitcast
+// to i32 before being passed as arguments. This matches the HLSL semantics
+// where RWByteAddressBuffer.Store takes uint values and asuint() converts
+// floats. Verified against DXC golden output for all compute-store shaders.
+//
 // Reference: Mesa nir_to_dxil.c emit_bufferstore_call() ~877
+// Reference: DXC HLOperationLower.cpp:4590 (TranslateStore uses i32Ty for raw buffers)
 func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHandle ir.ExpressionHandle) error {
 	// Large aggregate stores (e.g., output = w_mem.arr for array<u32, 512>) are
 	// decomposed into multiple batched bufferStore calls below (4 components each).
@@ -3203,19 +4554,49 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 	}
 
 	ol := overloadForScalar(chain.scalar)
-	bufStoreFn := e.getDxOpBufferStoreFunc(ol)
-	opcodeVal := e.getIntConstID(int64(OpBufferStore))
+	// dx.op.bufferStore overload mask 0x63 covers f16/f32/i16/i32 only;
+	// 64-bit element types must use dx.op.rawBufferStore (mask 0xe7) just
+	// like the load side does. atomicOps-int64.wgsl trips
+	// 'DXIL intrinsic overload must be valid' on bufferStore.i64 without
+	// this routing.
+	is64Bit := chain.scalar.Width == 8
+
+	// For raw buffer stores (all naga storage buffers are RWByteAddressBuffer,
+	// kind 11), DXC always uses the i32 overload. Float values are bitcast to
+	// i32 (matching HLSL's asuint pattern). Force the overload to i32 for
+	// non-64-bit float types so our output matches DXC's convention.
+	needsBitcast := !is64Bit && chain.scalar.Kind == ir.ScalarFloat
+	if needsBitcast {
+		ol = overloadI32
+	}
+
+	var bufStoreFn *module.Function
+	if is64Bit {
+		bufStoreFn = e.getDxOpRawBufferStoreFunc(ol)
+	} else {
+		bufStoreFn = e.getDxOpBufferStoreFunc(ol)
+	}
+	storeOpcode := int64(OpBufferStore)
+	if is64Bit {
+		storeOpcode = int64(OpRawBufferStore)
+	}
+	opcodeVal := e.getIntConstID(storeOpcode)
 	undefI32 := e.getUndefConstID()
-	// Value channel undefs must match the overload type (e.g., undef f32 for float stores).
-	// Using i32 undef for float channels causes DXC "Invalid record" / "Cast of incompatible type".
+	// Value channel undefs must match the overload type. Since we use i32
+	// overload for raw buffer float stores, i32 undef is correct for both
+	// integer and bitcast-float paths.
 	valUndefID := e.getTypedUndefConstID(e.overloadReturnType(ol))
 
 	// Determine total number of scalar components.
-	numComps := componentCount(chain.elemType)
-	if chain.isWhole {
-		numComps = cbvComponentCount(e.ir, chain.elemType)
-	}
+	//
+	// For struct/array UAV element types (e.g. `pout: array<Particle>`
+	// where Particle = {vec2<f32>, vec2<f32>}), componentCount returns 1 because
+	// its default branch treats non-scalar/vector/matrix types as a single component.
+	// cbvComponentCount recursively flattens and returns the true scalar count (4
+	// for Particle), fixing the store to emit all components.
+	numComps := cbvComponentCount(e.ir, chain.elemType)
 
+	//nolint:nestif // dispatch over single-call vs multi-batch buffer store
 	if numComps <= 4 {
 		// Single bufferStore call.
 		vals := [4]int{valUndefID, valUndefID, valUndefID, valUndefID}
@@ -3225,17 +4606,50 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 			} else {
 				vals[i] = e.getComponentID(valueHandle, i)
 			}
+			// Bitcast float values to i32 for raw buffer stores.
+			if needsBitcast {
+				vals[i] = e.addCastInstr(e.mod.GetIntType(32), CastBitcast, vals[i])
+			}
 		}
 		writeMask := (1 << numComps) - 1
 		maskVal := e.getI8ConstID(int64(writeMask))
-		e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
+		args := []int{
 			opcodeVal, handleID, indexID, undefI32,
 			vals[0], vals[1], vals[2], vals[3], maskVal,
-		})
+		}
+		if is64Bit {
+			// rawBufferStore takes an additional alignment operand.
+			scalarWidth := uint32(chain.scalar.Width)
+			if scalarWidth == 0 {
+				scalarWidth = 8
+			}
+			args = append(args, e.getIntConstID(int64(scalarWidth)))
+		}
+		e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), args)
 		return nil
 	}
 
-	// Multiple bufferStore calls for types with >4 scalar components.
+	return e.emitUAVStoreBatched(chain, valueHandle, bufStoreFn, opcodeVal,
+		handleID, indexID, undefI32, valUndefID, numComps, needsBitcast)
+}
+
+// emitUAVStoreBatched emits N bufferStore calls for element types with >4
+// scalar components. coord0 advances by `count * scalarWidth` BYTES per batch
+// per DXIL spec (RWRawBuffer coord0 in bytes). Mirrors DXC HLOperationLower.cpp
+// :4722 `NewCoord = EltSize * MaxStoreElemCount * j`.
+//
+// When needsBitcast is true, float values are bitcast to i32 before storing
+// (matching DXC's raw buffer store convention).
+func (e *Emitter) emitUAVStoreBatched(
+	chain *uavPointerChain, valueHandle ir.ExpressionHandle,
+	bufStoreFn *module.Function, opcodeVal, handleID, indexID, undefI32, valUndefID, numComps int,
+	needsBitcast bool,
+) error {
+	i32Ty := e.mod.GetIntType(32)
+	scalarW := uint32(chain.scalar.Width)
+	if scalarW == 0 {
+		scalarW = 4
+	}
 	compIdx := 0
 	batchIdx := 0
 	remaining := numComps
@@ -3245,10 +4659,18 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 		if remaining < 4 {
 			count = remaining
 		}
-		batchIndexID := e.getIntConstID(int64(chain.constIndex) + int64(batchIdx))
+		batchIndexID := indexID
+		if batchIdx > 0 {
+			batchByteOff := uint32(batchIdx) * 4 * scalarW
+			ofsID := e.getIntConstID(int64(batchByteOff))
+			batchIndexID = e.addBinOpInstr(i32Ty, BinOpAdd, indexID, ofsID)
+		}
 		vals := [4]int{valUndefID, valUndefID, valUndefID, valUndefID}
 		for i := 0; i < count; i++ {
 			vals[i] = e.getComponentID(valueHandle, compIdx+i)
+			if needsBitcast {
+				vals[i] = e.addCastInstr(i32Ty, CastBitcast, vals[i])
+			}
 		}
 		writeMask := (1 << count) - 1
 		maskVal := e.getI8ConstID(int64(writeMask))
@@ -3260,7 +4682,6 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 		remaining -= count
 		batchIdx++
 	}
-
 	return nil
 }
 
@@ -3283,6 +4704,81 @@ func (e *Emitter) getDxOpBufferLoadFunc(ol overloadType) *module.Function {
 	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty}
 	funcTy := e.mod.GetFunctionType(resRetTy, params)
 	fn := e.mod.AddFunction(fullName, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(fullName)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpRawBufferStoreFunc creates the dx.op.rawBufferStore.XX function
+// declaration. SM 6.2+ replacement for bufferStore. Signature mirrors DXC
+// DxilOperations.cpp:RawBufferStore + Mesa emit_raw_bufferstore_call:
+//
+//	void @dx.op.rawBufferStore.XX(
+//	    i32 opcode,
+//	    %dx.types.Handle handle,
+//	    i32 coord0,
+//	    i32 coord1,            // structured-buffer offset, or i32 undef
+//	    XX v0, XX v1, XX v2, XX v3,
+//	    i8  componentMask,
+//	    i32 alignment)
+//
+// Overload mask 0xe7 = {f16,f32,f64,i16,i32,i64}. dx.op.bufferStore.i64
+// is rejected by the validator with 'DXIL intrinsic overload must be
+// valid' (BufferStore mask 0x63 = {f16,f32,i16,i32}); rawBufferStore
+// is the only path for 64-bit element types.
+func (e *Emitter) getDxOpRawBufferStoreFunc(ol overloadType) *module.Function {
+	name := "dx.op.rawBufferStore"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	voidTy := e.mod.GetVoidType()
+	handleTy := e.getDxHandleType()
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+	valTy := e.overloadReturnType(ol)
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, valTy, valTy, valTy, valTy, i8Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(voidTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(fullName)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
+// getDxOpRawBufferLoadFunc creates the dx.op.rawBufferLoad.XX function
+// declaration. Signature mirrors DXC DxilOperations.cpp + Mesa
+// emit_raw_bufferload_call (nir_to_dxil.c:810):
+//
+//	%dx.types.ResRet.XX @dx.op.rawBufferLoad.XX(
+//	    i32 opcode,
+//	    %dx.types.Handle handle,
+//	    i32 coord0,           // byte offset (raw) or element index (structured)
+//	    i32 coord1,           // structured-buffer element-offset, or i32 undef
+//	    i8  componentMask,    // (1 << count) - 1
+//	    i32 alignment)
+//
+// Available since SM 6.2. Overload mask 0xe7 = {f16,f32,f64,i16,i32,i64}.
+// Use this for >4-component loads from typed/raw buffers (where
+// dx.op.bufferLoad cannot represent the layout) and for native i64/f64
+// access. The validator rejects i8/i1 overloads.
+func (e *Emitter) getDxOpRawBufferLoadFunc(ol overloadType) *module.Function {
+	name := "dx.op.rawBufferLoad"
+	key := dxOpKey{name: name, overload: ol}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+
+	resRetTy := e.getDxResRetType(ol)
+	handleTy := e.getDxHandleType()
+	i32Ty := e.mod.GetIntType(32)
+	i8Ty := e.mod.GetIntType(8)
+
+	fullName := name + overloadSuffix(ol)
+	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, i8Ty, i32Ty}
+	funcTy := e.mod.GetFunctionType(resRetTy, params)
+	fn := e.mod.AddFunction(fullName, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(fullName)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -3308,91 +4804,113 @@ func (e *Emitter) getDxOpBufferStoreFunc(ol overloadType) *module.Function {
 	params := []*module.Type{i32Ty, handleTy, i32Ty, i32Ty, valTy, valTy, valTy, valTy, i8Ty}
 	funcTy := e.mod.GetFunctionType(voidTy, params)
 	fn := e.mod.AddFunction(fullName, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(fullName)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
 
 // resourceKind returns the DXIL resource kind integer for metadata.
 // Reference: D3D12_SRV_DIMENSION / DXIL resource kinds.
-//
-//nolint:gocognit,nestif // type dispatch for all resource classes and image dimensions
 func (e *Emitter) resourceKind(res *resourceInfo) int {
+	if res.kindOverride != 0 {
+		return res.kindOverride
+	}
 	switch res.class {
 	case resourceClassCBV:
 		return 13 // CBuffer
 	case resourceClassSampler:
 		return 0 // Sampler (no dimension)
 	case resourceClassSRV:
-		// Determine from the image type.
+		// SRV: image (texture), storage buffer, or ray-tracing acceleration
+		// structure. The DXIL enum, per
+		// reference/dxil/dxc/include/dxc/DXIL/DxilConstants.h:433
+		//   1=Texture1D, 2=Texture2D, 3=Texture2DMS, 4=Texture3D,
+		//   10=TypedBuffer, 11=RawBuffer, 12=StructuredBuffer,
+		//   16=RTAccelerationStructure.
+		// The PSV0 side already picks RTAccelerationStructure for AS
+		// bindings via classifyPSVResource in dxil.go. The bitcode side
+		// must agree, otherwise the validator rejects with
+		// 'Container mismatch for ResourceBindInfo between PSV0 part
+		// (ResKind: RTAccelerationStructure) and DXIL module (ResKind:
+		// RawBuffer)'.
 		if int(res.typeHandle) < len(e.ir.Types) {
-			inner := e.ir.Types[res.typeHandle].Inner
-			// Unwrap binding array to get base type.
-			if ba, ok := inner.(ir.BindingArrayType); ok {
-				if int(ba.Base) < len(e.ir.Types) {
-					inner = e.ir.Types[ba.Base].Inner
-				}
-			}
-			if img, ok := inner.(ir.ImageType); ok {
-				return e.imageResourceKind(img)
+			inner := unwrapBindingArray(e.ir, e.ir.Types[res.typeHandle].Inner)
+			switch t := inner.(type) {
+			case ir.ImageType:
+				return e.imageResourceKind(t)
+			case ir.AccelerationStructureType:
+				return 16 // RTAccelerationStructure
 			}
 		}
-		return 4 // default Texture2D
+		return 11 // RawBuffer for read-only storage buffers
 	case resourceClassUAV:
-		// Determine from type: typed buffer vs structured buffer vs raw buffer.
+		// UAV: storage image, storage buffer, or atomic counter buffer.
+		// Same RawBuffer (11) default as SRV — kept in sync so PSV0 and
+		// bitcode metadata agree on resource kind.
 		if int(res.typeHandle) < len(e.ir.Types) {
-			inner := e.ir.Types[res.typeHandle].Inner
-			// Unwrap binding array to get base type.
-			if ba, ok := inner.(ir.BindingArrayType); ok {
-				if int(ba.Base) < len(e.ir.Types) {
-					inner = e.ir.Types[ba.Base].Inner
-				}
-			}
-			// Storage images: determine kind from image dimension.
+			inner := unwrapBindingArray(e.ir, e.ir.Types[res.typeHandle].Inner)
 			if img, ok := inner.(ir.ImageType); ok {
 				return e.imageResourceKind(img)
 			}
-			// Unwrap struct wrapper (common for storage buffers).
-			if st, ok := inner.(ir.StructType); ok && len(st.Members) > 0 {
-				inner = e.ir.Types[st.Members[0].Type].Inner
-			}
-			switch inner.(type) {
-			case ir.ArrayType:
-				return 12 // RawBuffer (for typed array storage buffers)
-			}
 		}
-		return 12 // default RawBuffer for UAV storage buffers
+		return 11 // RawBuffer for read-write storage buffers
 	default:
 		return 0
 	}
 }
 
+// unwrapBindingArray peels a single BindingArrayType layer if present.
+// Used by resourceKind to look through binding_array<T, N> to the base
+// resource type for shape classification.
+func unwrapBindingArray(mod *ir.Module, inner ir.TypeInner) ir.TypeInner {
+	if ba, ok := inner.(ir.BindingArrayType); ok {
+		if int(ba.Base) < len(mod.Types) {
+			return mod.Types[ba.Base].Inner
+		}
+	}
+	return inner
+}
+
 // imageResourceKind returns the DXIL resource kind for an image type.
+// imageResourceKind returns the DXIL ResourceKind enum value for an image.
+// Values match reference/dxil/dxc/include/dxc/DXIL/DxilConstants.h
+// `enum class ResourceKind`:
+//
+//	1=Texture1D, 2=Texture2D, 3=Texture2DMS, 4=Texture3D,
+//	5=TextureCube, 6=Texture1DArray, 7=Texture2DArray,
+//	8=Texture2DMSArray, 9=TextureCubeArray.
+//
+// BUG-DXIL-022 follow-up: the prior table used completely wrong
+// numeric values (Dim2D→4 / Texture3D, Dim3D→7 / Texture2DArray, etc.)
+// which made every image-resource shader fail
+// 'ResourceBindInfo mismatch' between PSV0 (correct via
+// container.PSVResKind*) and bitcode metadata.
 func (e *Emitter) imageResourceKind(img ir.ImageType) int {
 	switch img.Dim {
 	case ir.Dim1D:
 		if img.Arrayed {
-			return 3 // Texture1DArray
+			return 6 // Texture1DArray
 		}
-		return 2 // Texture1D
+		return 1 // Texture1D
 	case ir.Dim2D:
 		if img.Multisampled {
 			if img.Arrayed {
-				return 6 // Texture2DMSArray
+				return 8 // Texture2DMSArray
 			}
-			return 5 // Texture2DMS
+			return 3 // Texture2DMS
 		}
 		if img.Arrayed {
-			return 8 // Texture2DArray (note: 8 in DXIL, not 5)
+			return 7 // Texture2DArray
 		}
-		return 4 // Texture2D
+		return 2 // Texture2D
 	case ir.Dim3D:
-		return 7 // Texture3D
+		return 4 // Texture3D
 	case ir.DimCube:
 		if img.Arrayed {
-			return 10 // TextureCubeArray
+			return 9 // TextureCubeArray
 		}
-		return 9 // TextureCube
+		return 5 // TextureCube
 	default:
-		return 4 // default Texture2D
+		return 2 // default Texture2D
 	}
 }

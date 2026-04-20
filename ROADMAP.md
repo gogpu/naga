@@ -19,9 +19,9 @@
 
 ---
 
-## Current State: v0.17.3 (2026-04-10)
+## Current State: v0.17.4 (2026-04-21)
 
-✅ **Production-ready** shader compiler (~102K LOC) with **complete Rust naga parity**,
+✅ **Production-ready** shader compiler (~192K LOC) with **complete Rust naga parity**,
 **100% SPIR-V binary validation**, and **experimental DXIL backend**:
 
 ### What We Have
@@ -32,9 +32,9 @@
   - MSL: 91/91 Rust naga parity (Metal)
   - GLSL: 68/68 Rust naga parity (OpenGL)
   - HLSL: 72/72 Rust naga parity (DirectX 11/12)
-  - DXIL: **163/163 DXC dumpbin (DirectX 12, SM 6.0-6.5)** — world's first Pure Go DXIL generator
+  - DXIL: **161/170 IDxcValidator (94.7%)**, 72/208 DXC golden parity (DirectX 12, SM 6.0-6.5) — world's first Pure Go DXIL generator
   - IR: 144/144 Rust naga parity
-- **DXIL backend** (~25K LOC, 173 unit tests) — VS/PS/CS/MS, CBV/SRV/UAV, atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave ops (13 intrinsics), mesh shaders (SM 6.5), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Eliminates FXC/DXC dependency. Verified 2400+ frames at 60 FPS on D3D12. Rust naga has NOT implemented this (open issue since 2020)
+- **DXIL backend** (~48K LOC, 315 unit tests) — VS/PS/CS/MS, CBV/SRV/UAV (read-only storage → SRV, read-write → UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave ops (13 intrinsics), mesh shaders (SM 6.5), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE, SROA, mem2reg, function inlining. `Options.BindingMap` for wgpu root signature compatibility. Eliminates FXC/DXC dependency. Verified 2400+ frames at 60 FPS on D3D12. Renders circles + text in gg production integration. Rust naga has NOT implemented this (open issue since 2020)
 - **100+ WGSL built-in functions** — math, geometric, bit manipulation, packing, derivatives
 - **Compute shaders** — atomics (int32/int64/float32), barriers, workgroups, runtime-sized arrays
 - **Ray tracing** — ray query types, acceleration structures, 7 ray query builtins
@@ -49,7 +49,7 @@
 - **Image bounds checking** — Restrict and ReadZeroSkipWrite policies
 - **Pointer function arguments** — copy-in/copy-out spill pattern
 - **994+ golden output files** across 4 backends
-- **Development tools** — nagac CLI, spvdis disassembler
+- **Development tools** — nagac CLI, spvdis disassembler, dxilval CLI (Pure Go `IDxcValidator` wrapper with three-layer defensive pre-check)
 
 ---
 
@@ -73,8 +73,9 @@
 | **DXIL Phase 2a: Compute foundation** | P2 | 5 | ✅ Done. Thread IDs, numthreads, UAV bufferLoad/bufferStore. |
 | **DXIL Phase 2b: Atomics + barriers** | P2 | 3 | ✅ Done. atomicBinOp (8 ops), atomicCmpXchg, dx.op.barrier, workgroup atomicrmw/cmpxchg. |
 | **DXIL Phase 2c: Mesh shaders** | P2 | 5 | ✅ Done. SM 6.5 intrinsics (168-172), PSG1 signatures, mesh metadata. |
-| **DXIL DXC validation** | ✅ Done | — | **163/163 (100%)** pass DXC dumpbin. All features: ray query, image atomics, wave ops. |
+| **DXIL DXC validation** | ✅ Done | — | **161/170 IDxcValidator (94.7%)**. 72/208 DXC golden parity. gg 57/57. All features: ray query, image atomics, wave ops. |
 | **DXIL Phase 3: SM 6.x features** | ✅ Done | — | Ray query (SM 6.5), wave intrinsics (SM 6.0), mesh shaders (SM 6.5), image atomics. |
+| **DXIL real validation — `IDxcValidator` wrapper** | ✅ Done | — | `cmd/dxilval` CLI + `internal/dxcvalidator` Pure Go wrapper around Microsoft `dxil.dll` (zero CGO). Three-layer defensive stack: (0) emitter assertion against null entry-point function refs, (1) `PreCheckContainer` fixed-offset DXBC structural check, (2) `bitcheck.Check` minimal LLVM 3.7 bitstream walker verifying `!dx.entryPoints[i][0]` is non-null. Prevents the `dxil.dll+0xe9da` AV class on any input (our own naga output, DXC output, third-party tool output, hand-crafted garbage). Closes BUG-DXIL-VALIDATOR-REAL. |
 
 ### v1.0.0 — Stable Release
 
@@ -87,7 +88,7 @@
 | Subgroup operations | ✅ Done | Ballot, shuffle, broadcast, quad |
 | Mesh shaders | ✅ Done | MeshEXT/TaskEXT |
 | Internal packages | Planned | ARCH-001: `internal/` for all backends |
-| DXIL backend | ✅ Done | Direct DXIL, no FXC dependency (~25K LOC, 163/163 DXC) |
+| DXIL backend | ✅ Done | Direct DXIL, no FXC dependency (~48K LOC, 161/170 IDxcValidator) |
 | API stability guarantee | Planned | Semantic versioning contract |
 | Test coverage 80%+ | Planned | awesome-go requirement, after ARCH-001 |
 
@@ -108,8 +109,10 @@
 | Pass | Priority | Description |
 |------|----------|-------------|
 | Constant folding | Medium | Evaluate constant expressions at compile time |
-| Dead code elimination | Medium | Remove unreachable functions and statements (GLSL already has entry-point reachability) |
-| Inlining | Low | Inline small functions to reduce call overhead |
+| Dead code elimination | ✅ Done | Mark-and-sweep DCE in DXIL pipeline (dead locals, control flow, pure calls, resources) |
+| Inlining | ✅ Done | Two-tier inline policy in DXIL pipeline (alias aggregates, early-return wrapping) |
+| SROA | ✅ Done | Struct locals → per-member locals in DXIL pipeline |
+| mem2reg | ✅ Done | SSA promotion with phi insertion (Phase A + B) in DXIL pipeline |
 | Dead store elimination | Low | Remove stores that are never read |
 
 ### Tooling & DX

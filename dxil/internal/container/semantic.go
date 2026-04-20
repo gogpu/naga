@@ -9,6 +9,7 @@ package container
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/internal/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -46,19 +47,21 @@ func MapBuiltinToSemantic(builtin ir.BuiltinValue) SemanticMapping {
 }
 
 // MapLocationToInputSemantic converts a location binding to an input semantic.
-// Input locations use TEXCOORD semantics by convention.
+// User-defined @location(N) inputs use LocationSemantic — must match
+// wgpu/hal/dx12's D3D12_INPUT_ELEMENT_DESC.SemanticName (BUG-DXIL-028).
 func MapLocationToInputSemantic(loc uint32) SemanticMapping {
-	return SemanticMapping{"TEXCOORD", loc, SVArbitrary}
+	return SemanticMapping{backend.LocationSemantic, loc, SVArbitrary}
 }
 
 // MapLocationToOutputSemantic converts a location binding to an output semantic.
-// For fragment shader outputs, locations map to SV_Target.
-// For vertex shader outputs, locations use TEXCOORD.
+// Fragment outputs map to SV_Target; non-fragment (VS / DS / HS / GS)
+// outputs use LocationSemantic so VS→FS wiring stays consistent with
+// the input side.
 func MapLocationToOutputSemantic(loc uint32, isFragment bool) SemanticMapping {
 	if isFragment {
 		return SemanticMapping{"SV_Target", loc, SVTarget}
 	}
-	return SemanticMapping{"TEXCOORD", loc, SVArbitrary}
+	return SemanticMapping{backend.LocationSemantic, loc, SVArbitrary}
 }
 
 // MapBindingToSemantic converts any naga IR binding to a DXIL semantic.

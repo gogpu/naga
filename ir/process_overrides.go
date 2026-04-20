@@ -505,6 +505,18 @@ func overrideRemapExprHandles(kind ExpressionKind, handleMap []ExpressionHandle)
 		return ExprUnary{Op: k.Op, Expr: remap(k.Expr)}
 	case ExprLoad:
 		return ExprLoad{Pointer: remap(k.Pointer)}
+	case ExprAlias:
+		return ExprAlias{Source: remap(k.Source)}
+	case ExprPhi:
+		incomings := make([]PhiIncoming, len(k.Incoming))
+		for i, inc := range k.Incoming {
+			incomings[i] = PhiIncoming{
+				PredKey: inc.PredKey,
+				CaseIdx: inc.CaseIdx,
+				Value:   remap(inc.Value),
+			}
+		}
+		return ExprPhi{Incoming: incomings}
 	case ExprSelect:
 		return ExprSelect{Condition: remap(k.Condition), Accept: remap(k.Accept), Reject: remap(k.Reject)}
 	case ExprSplat:

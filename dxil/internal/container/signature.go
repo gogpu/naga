@@ -26,18 +26,22 @@ type SystemValueKind uint32
 // These match the D3D_NAME enumeration from d3dcommon.h, NOT the DXIL semantic kind.
 // Reference: D3D12 SDK d3dcommon.h enum D3D_NAME
 const (
-	SVArbitrary     SystemValueKind = 0  // D3D_NAME_UNDEFINED — user-defined (TEXCOORD, etc.)
-	SVPosition      SystemValueKind = 1  // D3D_NAME_POSITION — SV_Position
-	SVClipDistance  SystemValueKind = 2  // D3D_NAME_CLIP_DISTANCE — SV_ClipDistance
-	SVCullDistance  SystemValueKind = 3  // D3D_NAME_CULL_DISTANCE — SV_CullDistance
-	SVVertexID      SystemValueKind = 6  // D3D_NAME_VERTEX_ID — SV_VertexID
-	SVPrimitiveID   SystemValueKind = 7  // D3D_NAME_PRIMITIVE_ID — SV_PrimitiveID
-	SVInstanceID    SystemValueKind = 8  // D3D_NAME_INSTANCE_ID — SV_InstanceID
-	SVIsFrontFace   SystemValueKind = 9  // D3D_NAME_IS_FRONT_FACE — SV_IsFrontFace
-	SVSampleIndex   SystemValueKind = 10 // D3D_NAME_SAMPLE_INDEX — SV_SampleIndex
-	SVTarget        SystemValueKind = 64 // D3D_NAME_TARGET — SV_Target
-	SVDepth         SystemValueKind = 65 // D3D_NAME_DEPTH — SV_Depth
-	SVCullPrimitive SystemValueKind = 24 // SV_CullPrimitive (mesh shader)
+	SVArbitrary         SystemValueKind = 0  // D3D_NAME_UNDEFINED — user-defined (TEXCOORD, etc.)
+	SVPosition          SystemValueKind = 1  // D3D_NAME_POSITION — SV_Position
+	SVClipDistance      SystemValueKind = 2  // D3D_NAME_CLIP_DISTANCE — SV_ClipDistance
+	SVCullDistance      SystemValueKind = 3  // D3D_NAME_CULL_DISTANCE — SV_CullDistance
+	SVVertexID          SystemValueKind = 6  // D3D_NAME_VERTEX_ID — SV_VertexID
+	SVPrimitiveID       SystemValueKind = 7  // D3D_NAME_PRIMITIVE_ID — SV_PrimitiveID
+	SVInstanceID        SystemValueKind = 8  // D3D_NAME_INSTANCE_ID — SV_InstanceID
+	SVIsFrontFace       SystemValueKind = 9  // D3D_NAME_IS_FRONT_FACE — SV_IsFrontFace
+	SVSampleIndex       SystemValueKind = 10 // D3D_NAME_SAMPLE_INDEX — SV_SampleIndex
+	SVTarget            SystemValueKind = 64 // D3D_NAME_TARGET — SV_Target
+	SVDepth             SystemValueKind = 65 // D3D_NAME_DEPTH — SV_Depth
+	SVCoverage          SystemValueKind = 66 // D3D_NAME_COVERAGE — SV_Coverage
+	SVDepthGreaterEqual SystemValueKind = 67 // D3D_NAME_DEPTH_GREATER_EQUAL — SV_DepthGreaterEqual
+	SVDepthLessEqual    SystemValueKind = 68 // D3D_NAME_DEPTH_LESS_EQUAL — SV_DepthLessEqual
+	SVStencilRef        SystemValueKind = 69 // D3D_NAME_STENCIL_REF — SV_StencilRef
+	SVCullPrimitive     SystemValueKind = 24 // SV_CullPrimitive (mesh shader)
 )
 
 // ProgSigCompType identifies the component data type in a signature element.
@@ -89,27 +93,30 @@ func EncodeSignature(elements []SignatureElement) []byte {
 		return hdr[:]
 	}
 
-	// Build string table with deduplication for SV_ names.
+	// Build string table with full deduplication. dxc reuses the same
+	// string offset whenever two signature elements share a semantic
+	// name (e.g. multiple TEXCOORD elements all point to the same
+	// "TEXCOORD\0" entry). Without this, our ISG1 disagrees with
+	// what NewProgramSignatureWriter regenerates from the bitcode
+	// signature, and dxil.dll reports
+	// "Container part 'Program Input/Output Signature' does not match
+	// expected for module".
 	headerSize := 8 // paramCount + paramOffset
 	fixedSize := headerSize + signatureElementSize*len(elements)
 
 	nameOffsets := make([]uint32, len(elements))
-	svCache := make(map[string]uint32) // deduplicate SV_ names
+	nameCache := make(map[string]uint32)
 	var stringTable []byte
 
 	for i, elem := range elements {
 		name := elem.SemanticName
-		if len(name) >= 3 && name[:3] == "SV_" {
-			if off, ok := svCache[name]; ok {
-				nameOffsets[i] = off
-				continue
-			}
+		if off, ok := nameCache[name]; ok {
+			nameOffsets[i] = off
+			continue
 		}
 		off := uint32(fixedSize + len(stringTable)) //nolint:gosec // bounded by signature size
 		nameOffsets[i] = off
-		if len(name) >= 3 && name[:3] == "SV_" {
-			svCache[name] = off
-		}
+		nameCache[name] = off
 		stringTable = append(stringTable, []byte(name)...)
 		stringTable = append(stringTable, 0) // null terminator
 	}

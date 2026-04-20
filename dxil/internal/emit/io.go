@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/internal/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -11,16 +12,29 @@ import (
 // Each vector component becomes a separate loadInput call.
 // For compute shaders, builtin arguments use dx.op.threadId/groupId/etc.
 //
+// DXC emits loadInput calls in reverse ISG1 row order (last signature element
+// first). This is a consequence of DXC's expression-tree-driven code generation
+// which evaluates inputs at point of first use. Our pre-load approach mimics
+// this by iterating loadInput-producing args in reverse after handling special
+// intrinsics (compute builtins, ViewID, coverage).
+//
 // Reference: Mesa nir_to_dxil.c emit_load_input_via_intrinsic(),
 // emit_load_global_invocation_id(), emit_load_local_invocation_id()
 func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
-	// inputRow tracks the ISG1 row index. Each loadInput call uses this as
-	// the inputID operand. Must match the order in buildSignatures/buildSignaturesEx.
+	// Phase 1: classify each argument. Identify which args need loadInput,
+	// which need special intrinsics, and assign ISG1 row indices (sigId).
+	type loadInputArg struct {
+		argIdx   int
+		arg      *ir.FunctionArgument
+		inputRow int
+	}
+	var loadArgs []loadInputArg
 	inputRow := 0
 
-	for argIdx, arg := range fn.Arguments {
+	for argIdx := range fn.Arguments {
+		arg := &fn.Arguments[argIdx]
 		if arg.Binding == nil {
-			// Struct-typed arguments have per-member bindings instead of a top-level binding.
+			// Struct-typed arguments: handled separately with their own reverse logic.
 			argType := e.ir.Types[arg.Type]
 			if st, isSt := argType.Inner.(ir.StructType); isSt {
 				n, err := e.emitStructInputLoads(fn, argIdx, &st, stage, inputRow)
@@ -32,26 +46,93 @@ func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
 			continue
 		}
 
-		// For compute and mesh shaders, builtins are loaded via dx.op thread ID intrinsics.
-		if stage == ir.StageCompute || stage == ir.StageMesh || stage == ir.StageTask {
-			if bb, ok := (*arg.Binding).(ir.BuiltinBinding); ok {
-				if err := e.emitComputeBuiltinLoad(fn, argIdx, bb.Builtin); err != nil {
-					return err
-				}
-				continue
-			}
+		if handled, err := e.tryEmitComputeBuiltin(fn, argIdx, arg, stage); err != nil {
+			return err
+		} else if handled {
+			continue
 		}
 
-		if err := e.emitSingleInputLoad(fn, argIdx, &arg, stage, inputRow); err != nil {
-			return err
+		// Vertex / fragment SV_ViewID: not a signature element. DXC reads
+		// it via dx.op.viewID(i32 138) returning i32 — see
+		// DxilOperations.cpp:ViewID. The skipBuiltin / addElement paths
+		// already exclude it from ISG1 / PSV0; we must NOT emit a
+		// loadInput call here either, and we must NOT advance inputRow.
+		if bb, ok := (*arg.Binding).(ir.BuiltinBinding); ok && bb.Builtin == ir.BuiltinViewIndex {
+			if err := e.emitViewIDLoad(fn, argIdx); err != nil {
+				return err
+			}
+			continue
 		}
+
+		// Fragment shader @builtin(sample_mask): read via dx.op.coverage
+		// (opcode 91) instead of loadInput. SV_Coverage on PS input is
+		// NotInSig (DxilSigPoint.inl:97-98) — the validator rejects an
+		// SV_Coverage element in the input signature.
+		if bb, ok := (*arg.Binding).(ir.BuiltinBinding); ok && bb.Builtin == ir.BuiltinSampleMask && stage == ir.StageFragment {
+			if err := e.emitCoverageLoad(fn, argIdx); err != nil {
+				return err
+			}
+			continue
+		}
+
+		loadArgs = append(loadArgs, loadInputArg{argIdx: argIdx, arg: arg, inputRow: inputRow})
 		inputRow++
 	}
+
+	// Phase 2: emit loadInput calls in reverse ISG1 row order to match DXC.
+	// DCE: skip loadInput for arguments whose value is never consumed.
+	// DXC's downstream LLVM ADCE removes these dead loads; the ISG1
+	// signature element is retained (for pipeline compatibility) but the
+	// bitcode body omits the call. loadInput is readnone so elision is
+	// observably correct.
+	for i := len(loadArgs) - 1; i >= 0; i-- {
+		la := &loadArgs[i]
+		if !isArgRead(fn, la.argIdx) {
+			continue
+		}
+		if err := e.emitSingleInputLoad(fn, la.argIdx, la.arg, stage, la.inputRow); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// emitCoverageLoad emits dx.op.coverage.i32(i32 91) and binds the result
+// to the entry point's @builtin(sample_mask) input argument. DXC reads
+// PS coverage via this dedicated intrinsic; SV_Coverage as PS input is
+// NotInSig per DxilSigPoint.inl:97 'NotInSig _50'.
+func (e *Emitter) emitCoverageLoad(fn *ir.Function, argIdx int) error {
+	i32Ty := e.mod.GetIntType(32)
+	covFn := e.getDxOpComputeBuiltinFunc("dx.op.coverage", false)
+	opcodeVal := e.getIntConstID(int64(OpCoverage))
+	valueID := e.addCallInstr(covFn, i32Ty, []int{opcodeVal})
+	exprHandle := e.findArgExprHandle(fn, argIdx)
+	e.exprValues[exprHandle] = valueID
+	return nil
+}
+
+// emitViewIDLoad emits dx.op.viewID.i32(i32 138) and binds the result to
+// the entry point's view_index argument. Mirrors DXC's lowering of
+// SV_ViewID — the value is read via the dedicated intrinsic instead of
+// participating in the input signature.
+func (e *Emitter) emitViewIDLoad(fn *ir.Function, argIdx int) error {
+	i32Ty := e.mod.GetIntType(32)
+	viewFn := e.getDxOpComputeBuiltinFunc("dx.op.viewID", false)
+	opcodeVal := e.getIntConstID(int64(OpViewID))
+	valueID := e.addCallInstr(viewFn, i32Ty, []int{opcodeVal})
+	exprHandle := e.findArgExprHandle(fn, argIdx)
+	e.exprValues[exprHandle] = valueID
 	return nil
 }
 
 // emitSingleInputLoad emits dx.op.loadInput calls for a single argument.
 // inputRow is the ISG1 row index for this argument's signature element.
+//
+// Bool inputs (e.g. @builtin(front_facing) for SV_IsFrontFace) cannot use
+// dx.op.loadInput.i1 — DXC's DxilOperations.cpp:LoadInput declares overload
+// mask 0x63 = {f16, f32, i16, i32}, no i1. DXC instead loads the value as
+// i32 and converts via `icmp ne i32 %loaded, 0` to produce the i1 the
+// shader code expects. We mirror that lowering here.
 func (e *Emitter) emitSingleInputLoad(fn *ir.Function, argIdx int, arg *ir.FunctionArgument, stage ir.ShaderStage, inputRow int) error {
 	argType := e.ir.Types[arg.Type]
 	scalar, ok := scalarOfType(argType.Inner)
@@ -63,34 +144,89 @@ func (e *Emitter) emitSingleInputLoad(fn *ir.Function, argIdx int, arg *ir.Funct
 		return fmt.Errorf("unsupported input type for argument %d", argIdx)
 	}
 
+	// Bool inputs are loaded as i32 then converted with icmp ne 0.
+	isBoolInput := scalar.Kind == ir.ScalarBool
+	loadOl := overloadForScalar(scalar)
+	if isBoolInput {
+		loadOl = overloadI32
+	}
+
 	numComps := componentCount(argType.Inner)
-	ol := overloadForScalar(scalar)
-	loadFn := e.getDxOpLoadFunc(ol)
-	inputID := inputRow
+	loadFn := e.getDxOpLoadFunc(loadOl)
 	exprHandle := e.findArgExprHandle(fn, argIdx)
 
+	// Component-level DCE: determine which components are actually used.
+	// DXC's ADCE only emits loadInput for consumed components. For vector
+	// inputs accessed only via Swizzle/AccessIndex with known indices, we
+	// can emit just the needed components.
+	compMask := usedComponentMask(fn, exprHandle, numComps)
+
+	// Initialize component storage if vector.
+	if numComps > 1 {
+		e.exprComponents[exprHandle] = make([]int, numComps)
+	}
+
 	for comp := 0; comp < numComps; comp++ {
-		opcodeVal := e.getIntConstID(int64(OpLoadInput))
-		inputIDVal := e.getIntConstID(int64(inputID))
-		rowVal := e.getIntConstID(0)
-		colVal := e.getI8ConstID(int64(comp))
-		vertexIDVal := e.getUndefConstID()
+		if compMask&(1<<comp) == 0 {
+			continue
+		}
+		valueID := e.emitLoadInputCall(loadFn, inputRow, comp, isBoolInput)
+		e.registerInputComponent(exprHandle, comp, numComps, valueID)
+	}
 
-		valueID := e.addCallInstr(loadFn, loadFn.FuncType.RetType,
-			[]int{opcodeVal, inputIDVal, rowVal, colVal, vertexIDVal})
+	// Ensure exprValues points to the first loaded component.
+	e.fixExprValuesForPartialLoad(exprHandle, numComps)
+	return nil
+}
 
-		if comp == 0 {
-			e.exprValues[exprHandle] = valueID
-			if numComps > 1 {
-				comps := make([]int, numComps)
-				comps[0] = valueID
-				e.exprComponents[exprHandle] = comps
-			}
-		} else if comps, ok := e.exprComponents[exprHandle]; ok && comp < len(comps) {
-			comps[comp] = valueID
+// emitLoadInputCall emits a single dx.op.loadInput call for one component
+// and returns the value ID. Handles bool-to-i32 conversion.
+func (e *Emitter) emitLoadInputCall(loadFn *module.Function, inputID, comp int, isBoolInput bool) int {
+	opcodeVal := e.getIntConstID(int64(OpLoadInput))
+	inputIDVal := e.getIntConstID(int64(inputID))
+	rowVal := e.getIntConstID(0)
+	colVal := e.getI8ConstID(int64(comp))
+	vertexIDVal := e.getUndefConstID()
+
+	valueID := e.addCallInstr(loadFn, loadFn.FuncType.RetType,
+		[]int{opcodeVal, inputIDVal, rowVal, colVal, vertexIDVal})
+
+	if isBoolInput {
+		zero := e.getIntConstID(0)
+		valueID = e.addCmpInstr(ICmpNE, valueID, zero)
+	}
+	return valueID
+}
+
+// registerInputComponent stores a loaded component value in the expression
+// value/component tracking maps.
+func (e *Emitter) registerInputComponent(exprHandle ir.ExpressionHandle, comp, numComps, valueID int) {
+	if numComps == 1 {
+		e.exprValues[exprHandle] = valueID
+		return
+	}
+	if comps, ok := e.exprComponents[exprHandle]; ok && comp < len(comps) {
+		comps[comp] = valueID
+	}
+}
+
+// fixExprValuesForPartialLoad ensures exprValues[handle] points to the first
+// non-zero (loaded) component. Called after partial component loading where
+// earlier components may have been skipped by DCE.
+func (e *Emitter) fixExprValuesForPartialLoad(exprHandle ir.ExpressionHandle, numComps int) {
+	if numComps <= 1 {
+		return
+	}
+	comps, ok := e.exprComponents[exprHandle]
+	if !ok {
+		return
+	}
+	for _, v := range comps {
+		if v != 0 {
+			e.exprValues[exprHandle] = v
+			return
 		}
 	}
-	return nil
 }
 
 // emitComputeBuiltinLoad emits dx.op thread ID intrinsic calls for compute
@@ -298,9 +434,16 @@ func (e *Emitter) getDxOpComputeBuiltinFunc(name string, hasComponent bool) *mod
 // The inputRow parameter is the starting ISG1 row index; returns the number of
 // signature elements consumed so the caller can advance the row counter.
 //
+// DXC emits loadInput calls for struct members in reverse ISG1 row order (last
+// signature element first). We match this by first handling compute builtins
+// (which don't produce loadInput), then emitting loadInput-producing members
+// in reverse of their sorted (ISG1) order with correct sigId assignment.
+//
 // The loaded values are pre-registered on AccessIndex expressions that reference
 // this struct's members, so downstream expression evaluation resolves them directly.
-func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.StructType, _ ir.ShaderStage, inputRow int) (int, error) {
+//
+//nolint:gocognit,gocyclo,cyclop,funlen // dispatch over builtin/scalar/vector struct-member shapes
+func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.StructType, stage ir.ShaderStage, inputRow int) (int, error) {
 	// Find the expression handle for this FunctionArgument.
 	argExprHandle := e.findArgExprHandle(fn, argIdx)
 
@@ -309,11 +452,56 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 		comps   []int
 	}
 	memberValues := make(map[int]*memberInfo, len(st.Members))
+
+	isComputeLike := stage == ir.StageCompute || stage == ir.StageMesh || stage == ir.StageTask
+
+	// Phase 1: Handle compute builtins (they don't produce loadInput).
+	// Also identify which sorted members will produce loadInput calls and
+	// their ISG1 row assignments.
+	order := backend.SortedMemberIndices(st.Members)
+	type loadMember struct {
+		memberIdx int
+		inputID   int // ISG1 row for this member
+	}
+	var loadMembers []loadMember
 	rowCount := 0
 
-	for memberIdx := range st.Members {
+	for _, memberIdx := range order {
 		member := &st.Members[memberIdx]
 		if member.Binding == nil {
+			continue
+		}
+
+		// Compute-shader struct members carrying a compute builtin (e.g.
+		// num_subgroups, subgroup_size) must NOT go through loadInput —
+		// DXIL has no signature element for them and the validator
+		// rejects the fabricated input IDs as out-of-range. Route each
+		// one through its dedicated dx.op intrinsic and do NOT consume
+		// an ISG1 row for it.
+		if bb, ok := (*member.Binding).(ir.BuiltinBinding); ok && isComputeLike {
+			valueID, err := e.emitComputeBuiltinMemberLoad(bb.Builtin)
+			if err != nil {
+				return 0, fmt.Errorf("struct member %q: %w", member.Name, err)
+			}
+			memberValues[memberIdx] = &memberInfo{firstID: valueID, comps: []int{valueID}}
+			continue
+		}
+
+		loadMembers = append(loadMembers, loadMember{memberIdx: memberIdx, inputID: inputRow + rowCount})
+		rowCount++
+	}
+
+	// Phase 2: Emit loadInput calls in reverse ISG1 row order to match DXC.
+	// DCE: if the entire struct argument is never referenced by any emitted
+	// expression or statement, skip all loadInput calls for it.
+	// DXC's LLVM ADCE removes dead loads; signature elements are retained.
+	argReadable := isArgRead(fn, argIdx)
+	for i := len(loadMembers) - 1; i >= 0; i-- {
+		lm := loadMembers[i]
+		member := &st.Members[lm.memberIdx]
+
+		// Skip loading this member if the entire struct arg is dead.
+		if !argReadable {
 			continue
 		}
 
@@ -326,12 +514,11 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 		numComps := componentCount(memberType.Inner)
 		ol := overloadForScalar(scalar)
 		loadFn := e.getDxOpLoadFunc(ol)
-		inputID := inputRow + rowCount
 
 		info := &memberInfo{comps: make([]int, numComps)}
 		for comp := 0; comp < numComps; comp++ {
 			opcodeVal := e.getIntConstID(int64(OpLoadInput))
-			inputIDVal := e.getIntConstID(int64(inputID))
+			inputIDVal := e.getIntConstID(int64(lm.inputID))
 			rowVal := e.getIntConstID(0)
 			colVal := e.getI8ConstID(int64(comp))
 			vertexIDVal := e.getUndefConstID()
@@ -343,8 +530,7 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 				info.firstID = valueID
 			}
 		}
-		memberValues[memberIdx] = info
-		rowCount++
+		memberValues[lm.memberIdx] = info
 	}
 
 	// Build a flat component list for the whole struct argument so that
@@ -416,18 +602,6 @@ func (e *Emitter) findArgExprHandle(fn *ir.Function, argIdx int) ir.ExpressionHa
 		}
 	}
 	return 0
-}
-
-// locationFromBinding extracts the location index from a Binding.
-func (e *Emitter) locationFromBinding(b ir.Binding) int {
-	switch bb := b.(type) {
-	case ir.LocationBinding:
-		return int(bb.Location)
-	case ir.BuiltinBinding:
-		return builtinSemanticIndex(bb.Builtin)
-	default:
-		return 0
-	}
 }
 
 // builtinSemanticIndex maps naga builtins to DXIL semantic indices.
@@ -577,32 +751,54 @@ func (e *Emitter) emitScalarWaveLoad(_ *ir.Function, exprHandle ir.ExpressionHan
 	return nil
 }
 
+// getOrCreateWaveGetLaneCountFunc declares (or returns the cached)
+// dx.op.waveGetLaneCount intrinsic. DXC's DxilOperations.cpp:1015 declares
+// WaveGetLaneCount with overload count 0 (Overloads: v), so the function
+// symbol carries NO type suffix — it is exactly "dx.op.waveGetLaneCount".
+// Multiple call sites need this declaration; centralizing it here keeps
+// the cache key consistent and avoids the .i32 trap that
+// getDxOpComputeBuiltinFunc would introduce.
+func (e *Emitter) getOrCreateWaveGetLaneCountFunc() *module.Function {
+	key := dxOpKey{name: "dx.op.waveGetLaneCount", overload: overloadVoid}
+	if fn, ok := e.dxOpFuncs[key]; ok {
+		return fn
+	}
+	i32Ty := e.mod.GetIntType(32)
+	funcTy := e.mod.GetFunctionType(i32Ty, []*module.Type{i32Ty})
+	fn := e.mod.AddFunction("dx.op.waveGetLaneCount", funcTy, true)
+	e.dxOpFuncs[key] = fn
+	return fn
+}
+
 // emitSubgroupIDLoad emits: flattenedThreadIdInGroup / WaveGetLaneCount()
 // DXC/HLSL translates SubgroupId as local_invocation_index / WaveGetLaneCount().
+//
+// Both intrinsic function symbols must include the ".i32" overload suffix per
+// DXC OP::ConstructOverloadName ("dx.op." + className + "." + overloadTypeName,
+// DxilOperations.cpp:3219). Historically this helper declared them without the
+// suffix, which produced "'dx.op.flattenedThreadIdInGroup' is not a
+// DXILOpFuncition" validator errors when this path ran before
+// getDxOpComputeBuiltinFunc populated the shared dxOpFuncs cache with the
+// correctly-suffixed variant. Use the shared helper to keep one source of
+// truth for the declaration.
 func (e *Emitter) emitSubgroupIDLoad(_ *ir.Function, exprHandle ir.ExpressionHandle) error {
 	i32Ty := e.mod.GetIntType(32)
 
-	// flattenedThreadIdInGroup (opcode 96)
-	flattenedKey := dxOpKey{name: "dx.op.flattenedThreadIdInGroup", overload: overloadI32}
-	flatFn, ok := e.dxOpFuncs[flattenedKey]
-	if !ok {
-		params := []*module.Type{i32Ty}
-		funcTy := e.mod.GetFunctionType(i32Ty, params)
-		flatFn = e.mod.AddFunction("dx.op.flattenedThreadIdInGroup", funcTy, true)
-		e.dxOpFuncs[flattenedKey] = flatFn
-	}
+	// flattenedThreadIdInGroup (opcode 96) — DXC OpClass
+	// "flattenedThreadIdInGroup" with overload mask 0x40 (i32), so the
+	// canonical symbol is "dx.op.flattenedThreadIdInGroup.i32" per
+	// OP::ConstructOverloadName. Routed through the shared compute-builtin
+	// helper which appends the .i32 suffix.
+	flatFn := e.getDxOpComputeBuiltinFunc("dx.op.flattenedThreadIdInGroup", false)
 	flatOp := e.getIntConstID(int64(OpFlattenedTIDInGroup))
 	flatID := e.addCallInstr(flatFn, i32Ty, []int{flatOp})
 
-	// WaveGetLaneCount (opcode 112)
-	laneCountKey := dxOpKey{name: "dx.op.waveGetLaneCount", overload: overloadI32}
-	lcFn, ok := e.dxOpFuncs[laneCountKey]
-	if !ok {
-		params := []*module.Type{i32Ty}
-		funcTy := e.mod.GetFunctionType(i32Ty, params)
-		lcFn = e.mod.AddFunction("dx.op.waveGetLaneCount", funcTy, true)
-		e.dxOpFuncs[laneCountKey] = lcFn
-	}
+	// WaveGetLaneCount (opcode 112) — DxilOperations.cpp:1015 has overload
+	// count 0 / "Overloads: v", meaning NO type overload — the canonical
+	// symbol is just "dx.op.waveGetLaneCount" without any suffix. We
+	// therefore declare it manually here (the compute-builtin helper would
+	// always append .i32 and produce a name the validator does not know).
+	lcFn := e.getOrCreateWaveGetLaneCountFunc()
 	lcOp := e.getIntConstID(int64(OpWaveGetLaneCount))
 	lcID := e.addCallInstr(lcFn, i32Ty, []int{lcOp})
 
@@ -622,15 +818,9 @@ func (e *Emitter) emitNumSubgroupsLoad(_ *ir.Function, exprHandle ir.ExpressionH
 	totalThreads := int64(ep.Workgroup[0]) * int64(ep.Workgroup[1]) * int64(ep.Workgroup[2])
 	totalID := e.getIntConstID(totalThreads)
 
-	// WaveGetLaneCount (opcode 112)
-	laneCountKey := dxOpKey{name: "dx.op.waveGetLaneCount", overload: overloadI32}
-	lcFn, ok := e.dxOpFuncs[laneCountKey]
-	if !ok {
-		params := []*module.Type{i32Ty}
-		funcTy := e.mod.GetFunctionType(i32Ty, params)
-		lcFn = e.mod.AddFunction("dx.op.waveGetLaneCount", funcTy, true)
-		e.dxOpFuncs[laneCountKey] = lcFn
-	}
+	// WaveGetLaneCount (opcode 112) — no overload suffix. See
+	// getOrCreateWaveGetLaneCountFunc for the rationale.
+	lcFn := e.getOrCreateWaveGetLaneCountFunc()
 	lcOp := e.getIntConstID(int64(OpWaveGetLaneCount))
 	lcID := e.addCallInstr(lcFn, i32Ty, []int{lcOp})
 
@@ -644,5 +834,377 @@ func (e *Emitter) emitNumSubgroupsLoad(_ *ir.Function, exprHandle ir.ExpressionH
 	return nil
 }
 
+// emitComputeBuiltinMemberLoad emits the dx.op intrinsic for a compute
+// builtin appearing as a *struct member* of the entry point argument, and
+// returns the resulting scalar value ID. Mirrors the per-argument cases in
+// emitComputeBuiltinLoad, but returns a value instead of binding it to a
+// function-argument expression handle — the caller wires it up to the
+// member's entry in the struct's pre-registered component list.
+//
+// Scope: scalar builtins only. Vector builtins (global_invocation_id etc.)
+// are not expected as struct members in practice and are rejected with an
+// unsupported error rather than silently producing a scalar for the first
+// lane only.
+func (e *Emitter) emitComputeBuiltinMemberLoad(builtin ir.BuiltinValue) (int, error) {
+	i32Ty := e.mod.GetIntType(32)
+
+	switch builtin {
+	case ir.BuiltinSubgroupInvocationID:
+		fn := e.getDxOpComputeBuiltinFunc("dx.op.waveGetLaneIndex", false)
+		op := e.getIntConstID(int64(OpWaveGetLaneIndex))
+		return e.addCallInstr(fn, i32Ty, []int{op}), nil
+
+	case ir.BuiltinSubgroupSize:
+		// DxilOperations.cpp:1015 — WaveGetLaneCount has overload count 0
+		// so the symbol is exactly "dx.op.waveGetLaneCount" (no suffix).
+		fn := e.getOrCreateWaveGetLaneCountFunc()
+		op := e.getIntConstID(int64(OpWaveGetLaneCount))
+		return e.addCallInstr(fn, i32Ty, []int{op}), nil
+
+	case ir.BuiltinSubgroupID:
+		// SubgroupId = flattenedThreadIdInGroup / WaveGetLaneCount
+		flatFn := e.getDxOpComputeBuiltinFunc("dx.op.flattenedThreadIdInGroup", false)
+		flatOp := e.getIntConstID(int64(OpFlattenedTIDInGroup))
+		flatID := e.addCallInstr(flatFn, i32Ty, []int{flatOp})
+
+		lcFn := e.getOrCreateWaveGetLaneCountFunc()
+		lcOp := e.getIntConstID(int64(OpWaveGetLaneCount))
+		lcID := e.addCallInstr(lcFn, i32Ty, []int{lcOp})
+
+		return e.addBinOpInstr(i32Ty, BinOpUDiv, flatID, lcID), nil
+
+	case ir.BuiltinNumSubgroups:
+		// NumSubgroups = ceil(totalThreads / WaveGetLaneCount)
+		//              = (totalThreads + lc - 1) / lc
+		ep := &e.ir.EntryPoints[0]
+		totalThreads := int64(ep.Workgroup[0]) * int64(ep.Workgroup[1]) * int64(ep.Workgroup[2])
+		totalID := e.getIntConstID(totalThreads)
+
+		lcFn := e.getOrCreateWaveGetLaneCountFunc()
+		lcOp := e.getIntConstID(int64(OpWaveGetLaneCount))
+		lcID := e.addCallInstr(lcFn, i32Ty, []int{lcOp})
+
+		oneID := e.getIntConstID(1)
+		addID := e.addBinOpInstr(i32Ty, BinOpAdd, totalID, lcID)
+		subID := e.addBinOpInstr(i32Ty, BinOpSub, addID, oneID)
+		return e.addBinOpInstr(i32Ty, BinOpUDiv, subID, lcID), nil
+
+	case ir.BuiltinLocalInvocationIndex:
+		fn := e.getDxOpComputeBuiltinFunc("dx.op.flattenedThreadIdInGroup", false)
+		op := e.getIntConstID(int64(OpFlattenedTIDInGroup))
+		return e.addCallInstr(fn, i32Ty, []int{op}), nil
+
+	default:
+		return 0, fmt.Errorf("compute builtin %d not supported as struct member (scalar only)", builtin)
+	}
+}
+
 // TODO: emitGetMeshPayload — implement when task payload access is needed.
 // Signature: TYPE* @dx.op.getMeshPayload.TYPE(i32 170)
+
+// isArgRead reports whether any expression or statement in fn's body
+// references ExprFunctionArgument(argIdx) — directly, or transitively via
+// AccessIndex/Access chains, Loads, Composes, function call arguments, etc.
+// Used by emitInputLoads to skip the dx.op intrinsic call for compute
+// builtins whose result is never consumed (DCE parity with DXC's downstream
+// LLVM ADCE pass).
+//
+// The check walks fn.Expressions and looks at every operand-style field that
+// holds an ExpressionHandle. If any expression references the arg's handle
+// AND that expression is itself reachable from a statement (via StmtEmit
+// range or direct statement operand), the arg is "read".
+//
+// We use a coarse-but-safe approximation: any ExpressionHandle in any
+// expression field that equals the arg's expression handle counts as a read.
+// False positives are safe (we just emit the load when not strictly needed);
+// false negatives would silently drop required values.
+func isComputeLikeStage(stage ir.ShaderStage) bool {
+	return stage == ir.StageCompute || stage == ir.StageMesh || stage == ir.StageTask
+}
+
+// tryEmitComputeBuiltin handles compute/mesh/task stage builtin args.
+// Returns (handled=true, _) if the arg was a compute-like builtin (whether
+// or not the dx.op intrinsic was actually emitted — DCE may elide it).
+// Returns (false, nil) for non-builtin or non-compute-like cases so the
+// caller can continue to other binding kinds.
+func (e *Emitter) tryEmitComputeBuiltin(fn *ir.Function, argIdx int, arg *ir.FunctionArgument, stage ir.ShaderStage) (bool, error) {
+	if !isComputeLikeStage(stage) {
+		return false, nil
+	}
+	bb, ok := (*arg.Binding).(ir.BuiltinBinding)
+	if !ok {
+		return false, nil
+	}
+	// DCE-style elision: skip the dx.op intrinsic when the builtin arg
+	// is unread. DXC's downstream LLVM ADCE drops these, so the roundtrip
+	// golden lacks them. The compute thread/groupId intrinsics are
+	// readnone so dropping is observably correct.
+	if !isArgRead(fn, argIdx) {
+		return true, nil
+	}
+	if err := e.emitComputeBuiltinLoad(fn, argIdx, bb.Builtin); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func isArgRead(fn *ir.Function, argIdx int) bool {
+	argHandle, ok := findArgHandle(fn, argIdx)
+	if !ok {
+		return false
+	}
+	// Check only expressions within live StmtEmit ranges in the
+	// (possibly DCE-swept) body. Walking ALL expressions would
+	// catch dead ones whose emit ranges were removed by the IR-level
+	// DCE pass, causing the emitter to emit threadId/groupId calls
+	// whose results are never consumed.
+	emitted := collectEmittedExprs(fn.Body)
+	for h := range emitted {
+		if h == argHandle {
+			continue
+		}
+		if expressionReferences(fn.Expressions[h].Kind, argHandle) {
+			return true
+		}
+	}
+	return statementsReference(fn.Body, argHandle)
+}
+
+// collectEmittedExprs gathers every expression handle that falls within
+// a StmtEmit range anywhere in the (post-DCE) body. Only these handles
+// will actually be emitted as DXIL instructions; expressions outside
+// any emit range are dead.
+func collectEmittedExprs(block ir.Block) map[ir.ExpressionHandle]bool {
+	m := make(map[ir.ExpressionHandle]bool)
+	collectEmitsBlock(block, m)
+	return m
+}
+
+func collectEmitsBlock(block ir.Block, out map[ir.ExpressionHandle]bool) {
+	for _, st := range block {
+		switch sk := st.Kind.(type) {
+		case ir.StmtEmit:
+			for h := sk.Range.Start; h < sk.Range.End; h++ {
+				out[h] = true
+			}
+		case ir.StmtIf:
+			collectEmitsBlock(sk.Accept, out)
+			collectEmitsBlock(sk.Reject, out)
+		case ir.StmtLoop:
+			collectEmitsBlock(sk.Body, out)
+			collectEmitsBlock(sk.Continuing, out)
+		case ir.StmtSwitch:
+			for ci := range sk.Cases {
+				collectEmitsBlock(sk.Cases[ci].Body, out)
+			}
+		case ir.StmtBlock:
+			collectEmitsBlock(sk.Block, out)
+		}
+	}
+}
+
+// usedComponentMask determines which components of a vector-typed expression
+// are actually consumed by live expressions/statements. Returns a bitmask
+// where bit N means component N is used. If the vector is used in any way
+// that requires all components (e.g., passed to a binary op, composed into
+// another vector, used as a function argument), returns all-bits-set.
+//
+// This enables component-level DCE to match DXC's ADCE behavior: DXC only
+// emits loadInput for vector components that are actually consumed.
+func usedComponentMask(fn *ir.Function, exprHandle ir.ExpressionHandle, numComps int) uint32 {
+	allMask := uint32((1 << numComps) - 1)
+	emitted := collectEmittedExprs(fn.Body)
+
+	var mask uint32
+	for h := range emitted {
+		kind := fn.Expressions[h].Kind
+		switch k := kind.(type) {
+		case ir.ExprSwizzle:
+			if k.Vector == exprHandle {
+				// Only the swizzled components are used.
+				for i := 0; i < int(k.Size); i++ {
+					mask |= 1 << uint(k.Pattern[i])
+				}
+			}
+		case ir.ExprAccessIndex:
+			if k.Base == exprHandle {
+				// Direct index access -- only that component is used.
+				if int(k.Index) < numComps {
+					mask |= 1 << k.Index
+				} else {
+					return allMask
+				}
+			}
+		case ir.ExprAccess:
+			if k.Base == exprHandle {
+				// Dynamic index -- all components might be needed.
+				return allMask
+			}
+		default:
+			// If the vector handle is referenced by any other expression kind
+			// (binary op, compose, math, image sample, etc.), all components
+			// are potentially needed.
+			if expressionReferences(kind, exprHandle) {
+				// Check if this is a Swizzle/AccessIndex (already handled above).
+				// For all other reference types, assume all components needed.
+				return allMask
+			}
+		}
+	}
+	// Also check statement-level references (store, call, return).
+	if statementsReference(fn.Body, exprHandle) {
+		return allMask
+	}
+
+	if mask == 0 {
+		// No components referenced at all -- shouldn't happen if isArgRead was true,
+		// but return all to be safe.
+		return allMask
+	}
+	return mask
+}
+
+func findArgHandle(fn *ir.Function, argIdx int) (ir.ExpressionHandle, bool) {
+	for h, expr := range fn.Expressions {
+		if fa, isArg := expr.Kind.(ir.ExprFunctionArgument); isArg && int(fa.Index) == argIdx {
+			return ir.ExpressionHandle(h), true
+		}
+	}
+	return 0, false
+}
+
+func anyHandleEq(handles []ir.ExpressionHandle, target ir.ExpressionHandle) bool {
+	for _, h := range handles {
+		if h == target {
+			return true
+		}
+	}
+	return false
+}
+
+func ptrHandleEq(p *ir.ExpressionHandle, target ir.ExpressionHandle) bool {
+	return p != nil && *p == target
+}
+
+func expressionReferences(kind ir.ExpressionKind, target ir.ExpressionHandle) bool {
+	switch k := kind.(type) {
+	case ir.ExprAccess:
+		return k.Base == target || k.Index == target
+	case ir.ExprAccessIndex:
+		return k.Base == target
+	case ir.ExprBinary:
+		return k.Left == target || k.Right == target
+	case ir.ExprSelect:
+		return k.Condition == target || k.Accept == target || k.Reject == target
+	case ir.ExprMath:
+		return k.Arg == target || ptrHandleEq(k.Arg1, target) || ptrHandleEq(k.Arg2, target) || ptrHandleEq(k.Arg3, target)
+	case ir.ExprCompose:
+		return anyHandleEq(k.Components, target)
+	case ir.ExprImageSample, ir.ExprImageLoad, ir.ExprImageQuery:
+		return expressionReferencesImage(kind, target)
+	case ir.ExprAlias:
+		return k.Source == target
+	}
+	return expressionReferencesUnary(kind, target)
+}
+
+// expressionReferencesImage checks if an image expression references the target.
+func expressionReferencesImage(kind ir.ExpressionKind, target ir.ExpressionHandle) bool {
+	switch k := kind.(type) {
+	case ir.ExprImageSample:
+		return k.Image == target || k.Sampler == target || k.Coordinate == target ||
+			ptrHandleEq(k.ArrayIndex, target) || ptrHandleEq(k.Offset, target) ||
+			ptrHandleEq(k.DepthRef, target) || sampleLevelReferences(k.Level, target)
+	case ir.ExprImageLoad:
+		return k.Image == target || k.Coordinate == target ||
+			ptrHandleEq(k.ArrayIndex, target) || ptrHandleEq(k.Sample, target) ||
+			ptrHandleEq(k.Level, target)
+	case ir.ExprImageQuery:
+		return k.Image == target || imageQueryReferences(k.Query, target)
+	}
+	return false
+}
+
+// sampleLevelReferences checks if a SampleLevel references the target handle.
+func sampleLevelReferences(level ir.SampleLevel, target ir.ExpressionHandle) bool {
+	switch l := level.(type) {
+	case ir.SampleLevelExact:
+		return l.Level == target
+	case ir.SampleLevelBias:
+		return l.Bias == target
+	case ir.SampleLevelGradient:
+		return l.X == target || l.Y == target
+	}
+	return false
+}
+
+// imageQueryReferences checks if an ImageQuery references the target handle.
+func imageQueryReferences(query ir.ImageQuery, target ir.ExpressionHandle) bool {
+	switch q := query.(type) {
+	case ir.ImageQuerySize:
+		return ptrHandleEq(q.Level, target)
+	}
+	return false
+}
+
+func expressionReferencesUnary(kind ir.ExpressionKind, target ir.ExpressionHandle) bool {
+	switch k := kind.(type) {
+	case ir.ExprLoad:
+		return k.Pointer == target
+	case ir.ExprUnary:
+		return k.Expr == target
+	case ir.ExprAs:
+		return k.Expr == target
+	case ir.ExprSplat:
+		return k.Value == target
+	case ir.ExprDerivative:
+		return k.Expr == target
+	case ir.ExprRelational:
+		return k.Argument == target
+	case ir.ExprArrayLength:
+		return k.Array == target
+	case ir.ExprSwizzle:
+		return k.Vector == target
+	}
+	return false
+}
+
+func statementReferences(kind ir.StatementKind, target ir.ExpressionHandle) bool {
+	switch sk := kind.(type) {
+	case ir.StmtStore:
+		return sk.Pointer == target || sk.Value == target
+	case ir.StmtCall:
+		return anyHandleEq(sk.Arguments, target)
+	case ir.StmtAtomic:
+		return sk.Pointer == target
+	case ir.StmtReturn:
+		return ptrHandleEq(sk.Value, target)
+	case ir.StmtIf:
+		return sk.Condition == target ||
+			statementsReference(sk.Accept, target) ||
+			statementsReference(sk.Reject, target)
+	case ir.StmtLoop:
+		return statementsReference(sk.Body, target) || statementsReference(sk.Continuing, target)
+	case ir.StmtBlock:
+		return statementsReference(sk.Block, target)
+	case ir.StmtSwitch:
+		if sk.Selector == target {
+			return true
+		}
+		for _, c := range sk.Cases {
+			if statementsReference(c.Body, target) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func statementsReference(block ir.Block, target ir.ExpressionHandle) bool {
+	for _, st := range block {
+		if statementReferences(st.Kind, target) {
+			return true
+		}
+	}
+	return false
+}

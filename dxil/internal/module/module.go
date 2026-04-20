@@ -112,6 +112,11 @@ type Type struct {
 
 	// For TypePointer: the element type pointed to.
 	PointerElem *Type
+	// For TypePointer: address space (0 = default, 3 = thread group shared).
+	// Workgroup global variables in DXIL live in addrspace 3 and any pointer
+	// derived from them carries the same addrspace, which the validator
+	// memcmp's against atomicrmw operand types.
+	PointerAddrSpace uint8
 
 	// For TypeStruct: name (empty for anonymous) and element types.
 	StructName  string
@@ -190,15 +195,26 @@ func (m *Module) GetFloatType(bits uint) *Type {
 	}
 }
 
-// GetPointerType returns a pointer type to the given element type.
+// GetPointerType returns a pointer type to the given element type in the
+// default address space (0).
 func (m *Module) GetPointerType(elem *Type) *Type {
-	// Search for existing pointer type.
+	return m.GetPointerTypeAS(elem, 0)
+}
+
+// GetPointerTypeAS returns a pointer type to the given element type in the
+// specified address space. addrspace 3 is the DXIL thread-group-shared
+// space used by var<workgroup> globals; pointers derived from such globals
+// MUST carry the matching addrspace or atomicrmw on them is rejected by
+// the validator with 'Non-groupshared or node record destination to
+// atomic operation'.
+func (m *Module) GetPointerTypeAS(elem *Type, addrSpace uint8) *Type {
+	// Search for existing pointer type with matching addrspace.
 	for _, ty := range m.Types {
-		if ty.Kind == TypePointer && ty.PointerElem == elem {
+		if ty.Kind == TypePointer && ty.PointerElem == elem && ty.PointerAddrSpace == addrSpace {
 			return ty
 		}
 	}
-	return m.addType(&Type{Kind: TypePointer, PointerElem: elem})
+	return m.addType(&Type{Kind: TypePointer, PointerElem: elem, PointerAddrSpace: addrSpace})
 }
 
 // GetFunctionType returns a function type with the given return and parameter types.
@@ -219,10 +235,39 @@ func (m *Module) GetStructType(name string, elems []*Type) *Type {
 	})
 }
 
-// GetArrayType returns an array type.
+// GetArrayType returns an array type. Identical (elem, count) pairs return the
+// SAME *Type instance — LLVM's type system is structural, and the validator
+// rejects load/store pairs whose pointee types are nominally distinct even
+// when structurally identical (HRESULT 0x80aa0009 "Explicit load/store type
+// does not match pointee type"). Without dedup, two callers walking the same
+// IR ArrayType independently would mint different *Type IDs, and a store
+// rooted at one alloca would be unloadable through a pointer typed by the
+// other.
 func (m *Module) GetArrayType(elem *Type, count uint) *Type {
+	for _, ty := range m.Types {
+		if ty.Kind == TypeArray && ty.ElemType == elem && ty.ElemCount == count {
+			return ty
+		}
+	}
 	return m.addType(&Type{
 		Kind:      TypeArray,
+		ElemType:  elem,
+		ElemCount: count,
+	})
+}
+
+// GetVectorType returns a vector type with the given element type and count.
+// Deduplicates identical (elem, count) pairs like GetArrayType.
+// Used for texture resource struct types that carry vector members
+// (e.g., class.Texture2D<vector<float, 4>> needs <4 x float> in its struct).
+func (m *Module) GetVectorType(elem *Type, count uint) *Type {
+	for _, ty := range m.Types {
+		if ty.Kind == TypeVector && ty.ElemType == elem && ty.ElemCount == count {
+			return ty
+		}
+	}
+	return m.addType(&Type{
+		Kind:      TypeVector,
 		ElemType:  elem,
 		ElemCount: count,
 	})
@@ -260,14 +305,59 @@ type Function struct {
 
 	// ValueID is assigned during serialization.
 	ValueID int
+
+	// AttrSetID is the 1-based index into the PARAMATTR_BLOCK (0 = none).
+	// DXC marks every intrinsic declaration with at least "nounwind", which
+	// the D3D12 runtime validator checks. Declarations default to
+	// AttrSetNounwind; bodies default to 0.
+	AttrSetID uint32
 }
+
+// Function attribute set IDs emitted in the PARAMATTR_GROUP_BLOCK.
+// Keep in sync with serialize.go::emitParamAttrGroupBlock and the per-
+// intrinsic classification table in dxil/internal/emit. DXC distinguishes
+// pure functions (provably no memory effects), readonly functions (read but
+// don't write), and impure functions; correct attribution lets downstream
+// LLVM passes (DCE, GVN, LICM) reason about safe motion / elimination.
+//
+// The set IDs are the positional indices in the emitted PARAMATTR_BLOCK,
+// 1-based; 0 means "no attributes".
+const (
+	// AttrSetNone is the sentinel for "no attributes".
+	AttrSetNone uint32 = 0
+	// AttrSetNounwind = group {nounwind} on the function-level slot. Used
+	// for impure intrinsics (stores, atomics, barriers, discard) and for
+	// the entry point @main (it stores outputs, so not pure).
+	AttrSetNounwind uint32 = 1
+	// AttrSetReadNone = group {nounwind, readnone} — pure intrinsics:
+	// threadId/groupId/loadInput, math, conversions. No memory effects at
+	// all; LLVM may freely move, eliminate, or hoist these calls.
+	AttrSetReadNone uint32 = 2
+	// AttrSetReadOnly = group {nounwind, readonly} — memory-reading
+	// intrinsics: bufferLoad/cbufferLoadLegacy/sample/textureLoad. Don't
+	// write memory but do read it; LLVM can hoist out of loops over
+	// memory-disjoint stores but must not eliminate as dead.
+	AttrSetReadOnly uint32 = 3
+	// AttrSetNoDuplicate = group {noduplicate, nounwind} — barrier
+	// intrinsics. DXC marks dx.op.barrier with noduplicate to prevent
+	// LLVM from duplicating barrier calls across code paths.
+	AttrSetNoDuplicate uint32 = 4
+)
 
 // AddFunction adds a function declaration or definition to the module.
 func (m *Module) AddFunction(name string, funcType *Type, isDecl bool) *Function {
+	attrs := AttrSetNone
+	if isDecl {
+		// Every DXIL intrinsic declaration carries "nounwind". D3D12
+		// rejects DXIL modules whose declarations omit this attribute
+		// with "shader is corrupt" (HRESULT 0x80070057).
+		attrs = AttrSetNounwind
+	}
 	f := &Function{
 		Name:          name,
 		FuncType:      funcType,
 		IsDeclaration: isDecl,
+		AttrSetID:     attrs,
 	}
 	m.Functions = append(m.Functions, f)
 	return f
@@ -297,6 +387,17 @@ func (bb *BasicBlock) AddInstruction(instr *Instruction) {
 	bb.Instructions = append(bb.Instructions, instr)
 }
 
+// PrependInstruction inserts an instruction at the front of the basic
+// block. Used for late-discovered allocas: LLVM's SSA verifier requires
+// alloca instructions to live in the entry block so they dominate every
+// use; emitting them where the first use happens (e.g. inside an if/loop
+// body) trips 'Instruction does not dominate all uses'. Insertion at the
+// front of the entry block guarantees the alloca is the earliest user
+// of its name and dominates every subsequent reference.
+func (bb *BasicBlock) PrependInstruction(instr *Instruction) {
+	bb.Instructions = append([]*Instruction{instr}, bb.Instructions...)
+}
+
 // InstrKind identifies the type of an Instruction.
 type InstrKind int
 
@@ -320,6 +421,15 @@ const (
 	InstrCmpXchg                     // cmpxchg (atomic compare-exchange)
 )
 
+// PhiIncoming is one (value, predecessor-block) pair attached to an
+// InstrPhi instruction. ValueID identifies the SSA value that flows in
+// from BBIndex; BBIndex is the position of the predecessor in the
+// parent function's BasicBlocks slice.
+type PhiIncoming struct {
+	ValueID int
+	BBIndex int
+}
+
 // Instruction represents a single LLVM IR instruction.
 type Instruction struct {
 	Kind InstrKind
@@ -339,6 +449,17 @@ type Instruction struct {
 
 	// For InstrCall: the called function.
 	CalledFunc *Function
+
+	// For InstrPhi: incoming (value, predecessor-bb) pairs.
+	PhiIncomings []PhiIncoming
+
+	// Flags holds optional instruction-level flags. For InstrBinOp with
+	// floating-point operands, this carries fast-math flags (FMF) matching
+	// the LLVM 3.7 bitcode encoding: bit 0 = UnsafeAlgebra ("fast"),
+	// bit 1 = NoNaNs, bit 2 = NoInfs, bit 3 = NoSignedZeros,
+	// bit 4 = AllowReciprocal. DXC always sets UnsafeAlgebra (bit 0) for
+	// non-precise float ops, producing the "fast" keyword in IR text.
+	Flags uint32
 
 	// ValueID is assigned during serialization.
 	ValueID int
@@ -377,6 +498,23 @@ func NewBrCondInstr(trueBBIndex, falseBBIndex, cond int) *Instruction {
 	}
 }
 
+// NewPhiInstr creates an SSA phi node merging values from multiple
+// predecessor basic blocks. resultType is the i1/i32/f32/etc. type of
+// the merged value; incomings pairs each predecessor BB index with the
+// value ID that flows in from it. LLVM 3.7 FUNC_CODE_INST_PHI requires
+// exactly one (value, bb) pair per predecessor at serialization time;
+// callers should ensure the incomings slice covers every predecessor of
+// the BB that hosts the phi.
+func NewPhiInstr(resultType *Type, incomings []PhiIncoming) *Instruction {
+	return &Instruction{
+		Kind:         InstrPhi,
+		HasValue:     true,
+		ResultType:   resultType,
+		PhiIncomings: incomings,
+		ReturnValue:  -1,
+	}
+}
+
 // Constant represents a constant value in the module.
 type Constant struct {
 	// ConstType is the type of this constant.
@@ -395,6 +533,23 @@ type Constant struct {
 	// Elements contains the sub-constant value IDs.
 	IsAggregate bool
 	Elements    []*Constant
+
+	// IsDataArray is true for ConstantDataArray constants — serialized as
+	// CST_CODE_DATA (code 22) instead of CST_CODE_AGGREGATE (code 7).
+	//
+	// Required for metadata payloads whose consumer-side loader does a
+	// hard `dyn_cast<ConstantDataArray>`. Example: dx.viewIdState —
+	// `DxilMDHelper::LoadDxilViewIdState` (DxilMetadataHelper.cpp:2211)
+	// runs at D3D12 runtime format validation during
+	// CreateGraphicsPipelineState and rejects the `ConstantArray` form
+	// that CST_CODE_AGGREGATE produces.
+	//
+	// Element values are stored inline as raw uint64; decoding rules
+	// depend on the array element type (i32 → unsigned integer value,
+	// f32 → Float32bits, etc.). The element type is carried by
+	// ConstType.ArrayElem.
+	IsDataArray bool
+	DataValues  []uint64
 
 	// ValueID is assigned during serialization.
 	ValueID int
@@ -422,6 +577,33 @@ func (m *Module) AddAggregateConst(ty *Type, elements []*Constant) *Constant {
 	return c
 }
 
+// AddDataArrayConst adds a ConstantDataArray constant — an array of primitive
+// elements encoded inline as CST_CODE_DATA (code 22) rather than referencing
+// separate element constants by value ID (CST_CODE_AGGREGATE, code 7).
+//
+// Required for metadata payloads whose consumer performs a hard
+// `dyn_cast<ConstantDataArray>`. The most important case is dx.viewIdState,
+// which D3D12's CreateGraphicsPipelineState validates via
+// DxilMDHelper::LoadDxilViewIdState and rejects the ConstantArray form.
+//
+// Each value in `values` is the raw element bit pattern:
+//   - i32: the unsigned integer value
+//   - i8/i16: the unsigned integer value (zero-extended)
+//   - f32: math.Float32bits result zero-extended
+//   - f64: math.Float64bits result
+//
+// Reference: LLVM Bitcode/LLVMBitCodes.h (CST_CODE_DATA = 22) and
+// BitcodeReader's handling of ConstantDataSequential.
+func (m *Module) AddDataArrayConst(ty *Type, values []uint64) *Constant {
+	c := &Constant{
+		ConstType:   ty,
+		IsDataArray: true,
+		DataValues:  values,
+	}
+	m.Constants = append(m.Constants, c)
+	return c
+}
+
 // AddUndefConst creates an undef constant of the given type.
 // Used for resource metadata fields[1] which require an undef pointer value.
 //
@@ -436,10 +618,30 @@ func (m *Module) AddUndefConst(ty *Type) *Constant {
 }
 
 // GlobalVar represents a global variable.
+//
+// VarType is the POINTEE type (the element stored at the global), NOT the
+// pointer type. LLVM bitcode uses the EXPLICIT_TYPE flag (Mesa
+// dxil_module.c:GVAR_FLAG_EXPLICIT_TYPE) to indicate that the type ID in
+// the GLOBALVAR record is the element type — the global itself is
+// implicitly an addrspace(N) pointer to that element.
 type GlobalVar struct {
 	Name        string
 	VarType     *Type
+	AddrSpace   uint8
 	IsConstant  bool
 	Initializer *Constant
 	ValueID     int
+}
+
+// AddGlobalVar registers a global variable with the given pointee type
+// and address space. Returns the GlobalVar so the caller can read its
+// ValueID after serialization.
+func (m *Module) AddGlobalVar(name string, elemType *Type, addrSpace uint8) *GlobalVar {
+	gv := &GlobalVar{
+		Name:      name,
+		VarType:   elemType,
+		AddrSpace: addrSpace,
+	}
+	m.GlobalVars = append(m.GlobalVars, gv)
+	return gv
 }

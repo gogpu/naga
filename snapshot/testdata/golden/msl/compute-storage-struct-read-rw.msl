@@ -1,0 +1,56 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _mslBufferSizes {
+    uint size0;
+    uint size1;
+};
+
+struct Particle {
+    metal::float2 pos;
+    metal::float2 vel;
+};
+struct Params {
+    float dt;
+    uint count;
+};
+typedef Particle type_3[1];
+
+struct main_Input {
+};
+kernel void main_(
+  metal::uint3 id [[thread_position_in_grid]]
+, device type_3 const& pin [[user(fake0)]]
+, device type_3& pout [[user(fake0)]]
+, constant Params& params [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    Particle p = {};
+    uint i = id.x;
+    uint _e4 = params.count;
+    if (i >= _e4) {
+        return;
+    }
+    Particle _e8 = uint(i) < 1 + (_buffer_sizes.size0 - 0 - 16) / 16 ? pin[i] : DefaultConstructible();
+    p = _e8;
+    metal::float2 _e12 = p.vel;
+    p.vel = _e12 * metal::float2(0.9995);
+    metal::float2 _e17 = p.vel;
+    float _e20 = params.dt;
+    metal::float2 _e22 = p.pos;
+    p.pos = _e22 + (_e17 * _e20);
+    Particle _e26 = p;
+    if (uint(i) < 1 + (_buffer_sizes.size1 - 0 - 16) / 16) {
+        pout[i] = _e26;
+    }
+    return;
+}
