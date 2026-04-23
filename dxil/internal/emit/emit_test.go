@@ -5707,6 +5707,199 @@ func TestEmitRawBufferIntStoreNoBitcast(t *testing.T) {
 	}
 }
 
+// buildComputeWithFloatVec2Load creates a compute shader module that loads
+// vec2<f32> from a storage buffer (ByteAddressBuffer).
+//
+//	@group(0) @binding(0) var<storage, read> data: array<vec2<f32>>;
+//	@group(0) @binding(1) var<storage, read_write> out: array<vec2<f32>>;
+//
+//	@compute @workgroup_size(1)
+//	fn main() {
+//	    out[0] = data[0];
+//	}
+func buildComputeWithFloatVec2Load() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec2f32Handle := ir.TypeHandle(1)
+	arrayVec2Handle := ir.TypeHandle(2)
+	u32Handle := ir.TypeHandle(3)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ArrayType{Base: vec2f32Handle, Stride: 8}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:   "data",
+				Space:  ir.SpaceStorage,
+				Access: ir.StorageRead,
+				Binding: &ir.ResourceBinding{
+					Group: 0, Binding: 0,
+				},
+				Type: arrayVec2Handle,
+			},
+			{
+				Name:   "out",
+				Space:  ir.SpaceStorage,
+				Access: ir.StorageReadWrite,
+				Binding: &ir.ResourceBinding{
+					Group: 0, Binding: 1,
+				},
+				Type: arrayVec2Handle,
+			},
+		},
+	}
+
+	// Load data[0], store to out[0].
+	fn := ir.Function{
+		Name: "main",
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},  // [0] &data
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // [1] 0u
+			{Kind: ir.ExprAccess{Base: 0, Index: 1}},    // [2] &data[0]
+			{Kind: ir.ExprLoad{Pointer: 2}},             // [3] data[0]
+			{Kind: ir.ExprGlobalVariable{Variable: 1}},  // [4] &out
+			{Kind: ir.ExprAccess{Base: 4, Index: 1}},    // [5] &out[0]
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &arrayVec2Handle},                            // &data
+			{Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0u
+			{Handle: &vec2f32Handle},                              // &data[0]
+			{Handle: &vec2f32Handle},                              // data[0]
+			{Handle: &arrayVec2Handle},                            // &out
+			{Handle: &vec2f32Handle},                              // &out[0]
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
+			{Kind: ir.StmtStore{Pointer: 5, Value: 3}},
+		},
+	}
+	_ = f32Handle
+	_ = u32Handle
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{1, 1, 1},
+		},
+	}
+
+	return mod
+}
+
+// TestEmitRawBufferFloatLoadUsesI32Overload verifies that float loads from
+// raw buffers (ByteAddressBuffer/RWByteAddressBuffer) use the i32 overload
+// with bitcast, matching DXC's convention. DXC always loads via
+// bufferLoad.i32 for raw buffers because HLSL's ByteAddressBuffer.Load
+// returns uint and asfloat() wraps it.
+//
+// Checks:
+//  1. dx.op.bufferLoad.i32 is declared (not .f32)
+//  2. Bitcast (i32->float) instructions are present in the function body
+//  3. ExtractValue instructions use i32 result type (not float)
+func TestEmitRawBufferFloatLoadUsesI32Overload(t *testing.T) {
+	irMod := buildComputeWithFloatVec2Load()
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Check declared functions: must have bufferLoad.i32, not bufferLoad.f32.
+	hasI32Load := false
+	hasF32Load := false
+	for _, fn := range result.Functions {
+		switch fn.Name {
+		case "dx.op.bufferLoad.i32":
+			hasI32Load = true
+		case "dx.op.bufferLoad.f32":
+			hasF32Load = true
+		}
+	}
+	if !hasI32Load {
+		t.Error("dx.op.bufferLoad.i32 not declared; raw buffer float loads must use i32 overload")
+	}
+	if hasF32Load {
+		t.Error("dx.op.bufferLoad.f32 declared; raw buffer float loads should NOT use f32 overload")
+	}
+
+	// Check that bitcast instructions (i32 -> float) exist in the main function.
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	bitcastCount := 0
+	bufferLoadI32Count := 0
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCast && len(instr.Operands) >= 2 &&
+				CastOpKind(instr.Operands[1]) == CastBitcast {
+				bitcastCount++
+			}
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil &&
+				instr.CalledFunc.Name == "dx.op.bufferLoad.i32" {
+				bufferLoadI32Count++
+			}
+		}
+	}
+
+	// vec2<f32> load: 2 extractvalue(i32) + 2 bitcast(i32->float) + store uses
+	// 2 bitcast(float->i32). Total bitcasts = 4 (2 load + 2 store).
+	if bitcastCount < 2 {
+		t.Errorf("expected at least 2 bitcast instructions (i32->float for vec2 load), got %d", bitcastCount)
+	}
+	if bufferLoadI32Count < 1 {
+		t.Errorf("expected at least 1 bufferLoad.i32 call, got %d", bufferLoadI32Count)
+	}
+
+	// Verify serialization.
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+
+	t.Logf("raw buffer float load: %d bitcasts, %d bufferLoad.i32 calls, %d bytes bitcode",
+		bitcastCount, bufferLoadI32Count, len(bc))
+}
+
+// TestEmitRawBufferIntLoadNoBitcast verifies that integer loads from raw
+// buffers do NOT produce unnecessary bitcast instructions — i32 values are
+// extracted directly from bufferLoad.i32 without any cast.
+func TestEmitRawBufferIntLoadNoBitcast(t *testing.T) {
+	irMod := buildComputeWithUAV() // loads u32, should use i32 directly
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Count bitcast instructions in the main function. Integer loads from raw
+	// buffers should not need any bitcast (i32 load returns i32 directly).
+	bitcastCount := 0
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCast && len(instr.Operands) >= 2 &&
+				CastOpKind(instr.Operands[1]) == CastBitcast {
+				bitcastCount++
+			}
+		}
+	}
+
+	if bitcastCount > 0 {
+		t.Errorf("expected 0 bitcast instructions for integer UAV load, got %d", bitcastCount)
+	}
+}
+
 // TestResourceNameSuffix verifies that the DXIL emitter applies the
 // HLSL namer trailing-underscore convention to resource names in
 // dx.resources metadata. DXC processes HLSL variable names through

@@ -4247,22 +4247,15 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		return 0, err
 	}
 
-	// BUG-DXIL-026 (Group A): mixed-scalar struct/array element types must be
-	// decomposed into per-field bufferLoads with per-field overload. Otherwise a
-	// single bufferLoad.f32 returns 4 floats and the float component for an
-	// integer field is then stored into an i32* alloca, tripping the validator
-	// rule "Explicit load/store type does not match pointee type of pointer
-	// operand" (0x80aa0009). DXC's pattern is identical (separate bufferLoad
-	// per field with .i32 + bitcast), but we keep per-field overload which
-	// validates equally and avoids extra bitcast traffic.
+	// Mixed-scalar struct/array element types must be decomposed into per-field
+	// bufferLoads. Otherwise a single bufferLoad.i32 returns 4 i32s and the
+	// integer field would need different handling than float fields. DXC uses
+	// separate bufferLoad per field with i32 overload + bitcast for float fields.
 	if hasMixedScalarTypes(e.ir, chain.elemType) {
 		return e.emitUAVLoadDecomposed(chain, handleID, indexID)
 	}
 
 	ol := overloadForScalar(chain.scalar)
-	resRetTy := e.getDxResRetType(ol)
-	scalarTy := e.overloadReturnType(ol)
-	undefVal := e.getUndefConstID()
 
 	// Count all scalar components. For struct/array element types, use deep
 	// component counting to load all fields.
@@ -4281,12 +4274,34 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 	// covers i16/i32/i64/f16/f32/f64. The atomic-int64 / int64 storage
 	// buffer test corpus depends on this routing.
 	is64Bit := chain.scalar.Width == 8
+
+	// For raw buffer loads (all naga storage buffers are ByteAddressBuffer /
+	// RWByteAddressBuffer, kind 11), DXC always uses the i32 overload.
+	// HLSL ByteAddressBuffer.Load() returns uint; asfloat() wraps the result.
+	// This mirrors the store side which already uses i32+bitcast. After
+	// extractvalue we bitcast i32 to float to recover the original type.
+	needsBitcast := !is64Bit && chain.scalar.Kind == ir.ScalarFloat
+	if needsBitcast {
+		ol = overloadI32
+	}
+
+	resRetTy := e.getDxResRetType(ol)
+	scalarTy := e.overloadReturnType(ol)
+	undefVal := e.getUndefConstID()
+
+	// The original scalar type for bitcasting extracted i32 values back to float.
+	var targetScalarTy *module.Type
+	if needsBitcast {
+		targetScalarTy = e.mod.GetFloatType(32)
+	}
+
 	if numComps <= 4 && !is64Bit {
 		// Single bufferLoad call (≤4 components fit one ResRet).
 		bufLoadFn := e.getDxOpBufferLoadFunc(ol)
 		opcodeVal := e.getIntConstID(int64(OpBufferLoad))
 		retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, undefVal})
 		comps := make([]int, numComps)
+		// Extract all components first (DXC groups extractvalues together).
 		for i := 0; i < numComps; i++ {
 			extractID := e.allocValue()
 			instr := &module.Instruction{
@@ -4299,13 +4314,20 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 			e.currentBB.AddInstruction(instr)
 			comps[i] = extractID
 		}
+		// Then bitcast i32 to float for raw buffer loads of float data.
+		// DXC groups bitcasts after all extractvalues from the same load.
+		if needsBitcast {
+			for i := 0; i < numComps; i++ {
+				comps[i] = e.addCastInstr(targetScalarTy, CastBitcast, comps[i])
+			}
+		}
 		if numComps > 1 {
 			e.pendingComponents = comps
 		}
 		return comps[0], nil
 	}
 
-	return e.emitUAVLoadRaw(chain, handleID, indexID, numComps, ol, resRetTy, scalarTy, undefVal)
+	return e.emitUAVLoadRaw(chain, handleID, indexID, numComps, ol, resRetTy, scalarTy, undefVal, needsBitcast)
 }
 
 // emitUAVLoadRaw emits chunked dx.op.rawBufferLoad calls for elements with
@@ -4314,6 +4336,10 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 // buffers, so we switch to rawBufferLoad which covers all buffer kinds and
 // supports the full i16/i32/i64/f16/f32/f64 overload set.
 //
+// When needsBitcast is true, extracted i32 values are bitcast to float to
+// recover the original type (matching DXC's raw buffer load convention where
+// ByteAddressBuffer.Load returns uint and asfloat wraps it).
+//
 // Mesa nir_to_dxil.c:810 emit_raw_bufferload_call is the reference. coord0
 // carries the current byte offset (our chain index is already in scalar
 // units), coord1 is undef, mask = (1<<count)-1, alignment = scalarWidth.
@@ -4321,6 +4347,7 @@ func (e *Emitter) emitUAVLoadRaw(
 	chain *uavPointerChain,
 	handleID, indexID, numComps int,
 	ol overloadType, resRetTy, scalarTy *module.Type, undefVal int,
+	needsBitcast bool,
 ) (int, error) {
 	rawLoadFn := e.getDxOpRawBufferLoadFunc(ol)
 	rawOpcodeVal := e.getIntConstID(int64(OpRawBufferLoad))
@@ -4330,6 +4357,11 @@ func (e *Emitter) emitUAVLoadRaw(
 		scalarWidth = 4
 	}
 	alignmentID := e.getIntConstID(int64(scalarWidth))
+
+	var targetScalarTy *module.Type
+	if needsBitcast {
+		targetScalarTy = e.mod.GetFloatType(32)
+	}
 
 	comps := make([]int, 0, numComps)
 	remaining := numComps
@@ -4349,6 +4381,8 @@ func (e *Emitter) emitUAVLoadRaw(
 		maskID := e.getI8ConstID(mask)
 		retID := e.addCallInstr(rawLoadFn, resRetTy,
 			[]int{rawOpcodeVal, handleID, coord0, undefVal, maskID, alignmentID})
+		// Extract all components from this chunk first.
+		chunkStart := len(comps)
 		for i := 0; i < count; i++ {
 			extractID := e.allocValue()
 			instr := &module.Instruction{
@@ -4360,6 +4394,13 @@ func (e *Emitter) emitUAVLoadRaw(
 			}
 			e.currentBB.AddInstruction(instr)
 			comps = append(comps, extractID)
+		}
+		// Then bitcast extracted i32 values to float (DXC groups bitcasts
+		// after all extractvalues from the same load).
+		if needsBitcast {
+			for i := chunkStart; i < len(comps); i++ {
+				comps[i] = e.addCastInstr(targetScalarTy, CastBitcast, comps[i])
+			}
 		}
 		remaining -= count
 		byteOffset += uint32(count) * scalarWidth
@@ -4499,15 +4540,14 @@ func scalarsShareDXILType(a, b ir.ScalarType) bool {
 }
 
 // emitUAVLoadDecomposed emits one dx.op.bufferLoad per scalar field of a
-// mixed-type aggregate element, each with the field's own overload. Per-field
-// component IDs are tracked in pendingComponents so downstream
-// extract/AccessIndex paths see the correctly-typed value.
+// mixed-type aggregate element. Per-field component IDs are tracked in
+// pendingComponents so downstream extract/AccessIndex paths see the
+// correctly-typed value.
 //
 // Each per-field load is a single-component bufferLoad with byte offset
-// computed from the element base via integer add. We prefer .iN/.fN overloads
-// matching the field type so the extracted value matches the DXIL store/use
-// type without bitcast — equivalent in validity to DXC's "always .i32 +
-// bitcast" pattern but more direct for the typical mixed-int+float case.
+// computed from the element base via integer add. For raw buffer loads,
+// DXC always uses the i32 overload (ByteAddressBuffer.Load returns uint)
+// and then bitcasts to float when needed. We match that convention here.
 //
 // Reference: Mesa nir_to_dxil.c emit_load_ssbo (~3427) emits per-intrinsic
 // loads after NIR scalarization passes; we do the equivalent decomposition
@@ -4522,11 +4562,17 @@ func (e *Emitter) emitUAVLoadDecomposed(chain *uavPointerChain, handleID, indexI
 	// Each field's byteOffset adds directly without scalar-unit conversion.
 	undefVal := e.getUndefConstID()
 	i32Ty := e.mod.GetIntType(32)
+	f32Ty := e.mod.GetFloatType(32)
 	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
 
 	comps := make([]int, len(fields))
 	for i, f := range fields {
 		ol := overloadForScalar(f.scalar)
+		// For raw buffer loads of float fields, use i32 overload + bitcast.
+		fieldNeedsBitcast := f.scalar.Kind == ir.ScalarFloat && f.scalar.Width != 8
+		if fieldNeedsBitcast {
+			ol = overloadI32
+		}
 		resRetTy := e.getDxResRetType(ol)
 		scalarTy := e.overloadReturnType(ol)
 		bufLoadFn := e.getDxOpBufferLoadFunc(ol)
@@ -4549,6 +4595,10 @@ func (e *Emitter) emitUAVLoadDecomposed(chain *uavPointerChain, handleID, indexI
 			ValueID:    extractID,
 		}
 		e.currentBB.AddInstruction(instr)
+		// Bitcast i32 to float for raw buffer loads of float fields.
+		if fieldNeedsBitcast {
+			extractID = e.addCastInstr(f32Ty, CastBitcast, extractID)
+		}
 		comps[i] = extractID
 		_ = f.offsetWords // reserved for stride-based path
 	}
