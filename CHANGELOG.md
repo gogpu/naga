@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.5] - 2026-04-23
+
+### Added
+
+- **`ir.TypeSize()` — shared type size calculation** matching Rust naga
+  `TypeInner::try_size(gctx)`. Returns byte size for all IR types following
+  WGSL/WebGPU alignment rules. Used by wgpu core for late buffer binding
+  size validation (VAL-006). 23 unit tests covering scalars, vectors,
+  matrices, arrays, structs, atomics, pointers, and opaque types.
+
+- **`ir.StorageFormat.IsUnorm()` / `IsSnorm()`** — predicate methods for
+  storage texture format classification, used by DXIL backend for correct
+  component type metadata.
+
+### Fixed (DXIL)
+
+- **UNorm/SNorm component types** — storage textures with `rgba8unorm` now
+  emit `UNormF32` (14) instead of `F32` (9) in DXIL extended resource
+  properties metadata. Same for SNorm formats. Matches DXC behavior.
+
+- **CBV metadata size** — constant buffer metadata field[6] now uses actual
+  struct byte size instead of vec4-rounded size. For a push-constant struct
+  with a single `f32`, this emits 4 bytes (not 16). Matches DXC.
+
+- **Named metadata ordering** — `!dx.resources` now emits before
+  `!dx.viewIdState`, matching DXC output order.
+
+- **dx.op attribute classification** — sample, mesh output, and store
+  vertex/primitive output functions now get correct `nounwind readonly`
+  attributes instead of plain `nounwind`.
+
+### Changed
+
+- **DXC golden normalizer** — function declarations and attribute definitions
+  are now sorted alphabetically for comparison, eliminating false-positive
+  diffs from DXC's non-deterministic declaration ordering.
+
+### Metrics
+
+- DXC golden diff=0: 72 → **82** (+10)
+- Line parity: 45.7% → **46.4%**
+- IDxcValidator: 161/170 (94.7%, unchanged)
+- gg production: 58/59 (fine.wgsl pre-existing failure)
+- Text backends: 100% (unchanged)
+- SPIR-V validation: 172/172 (100%, unchanged)
+
 ### Notes
 
 - **DXIL validation gate terminology.** Prior releases reported "N/N DXC
