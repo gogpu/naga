@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   storage texture format classification, used by DXIL backend for correct
   component type metadata.
 
+- **Single-store local promotion** — new emitter optimization that detects
+  vector/scalar locals stored exactly once in straight-line code and resolves
+  loads directly to the stored value, eliminating alloca/store/load chains
+  for vertex/fragment output staging. Matches DXC's direct `storeOutput`
+  pattern.
+
+- **Strength reduction** — `urem x, 2^N` emitted as `and x, (2^N-1)` at
+  emit time, matching DXC's LLVM InstCombine optimization.
+
 ### Fixed (DXIL)
 
 - **UNorm/SNorm component types** — storage textures with `rgba8unorm` now
@@ -38,6 +47,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vertex/primitive output functions now get correct `nounwind readonly`
   attributes instead of plain `nounwind`.
 
+- **HLSL namer suffix on resource names** — resource metadata names now get
+  trailing `_` when ending with a digit or matching an HLSL keyword,
+  matching the DXC roundtrip path (WGSL→HLSL→DXC→DXIL).
+
+- **Sampler heap handles after input loads** — `emitSamplerHeapHandles()`
+  moved after `emitInputLoads()` to match DXC emit ordering for fragment
+  shaders with both samplers and input varyings.
+
+- **Raw buffer float loads use i32 overload** — `bufferLoad` for
+  ByteAddressBuffer now always uses i32 overload with bitcast to float,
+  matching DXC behavior. Fixes `%dx.types.ResRet.f32` → `.i32` type
+  declaration difference.
+
+- **Fragment input signature ordering** — LOC semantics sorted before
+  SV_Position in fragment shader input signatures, matching DXC convention.
+  Applied across ISG1, metadata, loadInput, and ViewID analysis.
+
+- **Input used mask sorted order** — `computeInputElementUsedMasks` now
+  iterates in sorted signature order, fixing incorrect extended properties
+  metadata for fragment shaders with multiple struct inputs.
+
 ### Changed
 
 - **DXC golden normalizer** — function declarations and attribute definitions
@@ -46,8 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Metrics
 
-- DXC golden diff=0: 72 → **82** (+10)
-- Line parity: 45.7% → **46.4%**
+- DXC golden diff=0: 72 → **94** (+22)
+- Line parity: 45.7% → **48.1%**
 - IDxcValidator: 161/170 (94.7%, unchanged)
 - gg production: 58/59 (fine.wgsl pre-existing failure)
 - Text backends: 100% (unchanged)
