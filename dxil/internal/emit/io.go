@@ -2,6 +2,7 @@ package emit
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/backend"
@@ -21,6 +22,12 @@ import (
 // Reference: Mesa nir_to_dxil.c emit_load_input_via_intrinsic(),
 // emit_load_global_invocation_id(), emit_load_local_invocation_id()
 func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
+	// Precompute ISG1 row assignments that match the sorted order produced
+	// by collectFlatArgBindings + PackSignatureElements. This ensures the
+	// loadInput sigId values match the ISG1 register layout exactly.
+	rowMap := e.buildInputRowMap(fn, stage)
+	e.inputRowMap = rowMap
+
 	// Phase 1: classify each argument. Identify which args need loadInput,
 	// which need special intrinsics, and assign ISG1 row indices (sigId).
 	type loadInputArg struct {
@@ -29,7 +36,6 @@ func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
 		inputRow int
 	}
 	var loadArgs []loadInputArg
-	inputRow := 0
 
 	for argIdx := range fn.Arguments {
 		arg := &fn.Arguments[argIdx]
@@ -37,11 +43,10 @@ func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
 			// Struct-typed arguments: handled separately with their own reverse logic.
 			argType := e.ir.Types[arg.Type]
 			if st, isSt := argType.Inner.(ir.StructType); isSt {
-				n, err := e.emitStructInputLoads(fn, argIdx, &st, stage, inputRow)
-				if err != nil {
+				startRow := rowMap[inputRowKey{argIdx: argIdx, memberIdx: -1}]
+				if err := e.emitStructInputLoads(fn, argIdx, &st, stage, startRow); err != nil {
 					return err
 				}
-				inputRow += n
 			}
 			continue
 		}
@@ -75,8 +80,8 @@ func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
 			continue
 		}
 
-		loadArgs = append(loadArgs, loadInputArg{argIdx: argIdx, arg: arg, inputRow: inputRow})
-		inputRow++
+		row := rowMap[inputRowKey{argIdx: argIdx, memberIdx: -1}]
+		loadArgs = append(loadArgs, loadInputArg{argIdx: argIdx, arg: arg, inputRow: row})
 	}
 
 	// Phase 2: emit loadInput calls in reverse ISG1 row order to match DXC.
@@ -85,6 +90,10 @@ func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
 	// signature element is retained (for pipeline compatibility) but the
 	// bitcode body omits the call. loadInput is readnone so elision is
 	// observably correct.
+	// Sort by inputRow so reverse iteration matches reverse ISG1 order.
+	sort.SliceStable(loadArgs, func(i, j int) bool {
+		return loadArgs[i].inputRow < loadArgs[j].inputRow
+	})
 	for i := len(loadArgs) - 1; i >= 0; i-- {
 		la := &loadArgs[i]
 		if !isArgRead(fn, la.argIdx) {
@@ -95,6 +104,158 @@ func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
 		}
 	}
 	return nil
+}
+
+// inputRowKey identifies a specific binding element in the flat input list.
+// argIdx is the function argument index; memberIdx is the struct member index
+// (or -1 for non-struct arguments or as a struct-level start row marker).
+type inputRowKey struct {
+	argIdx    int
+	memberIdx int
+}
+
+// buildInputRowMap precomputes the ISG1 row assignment for every input binding
+// element, matching the sorted order from collectFlatArgBindings + PackSignatureElements.
+// Returns a map from (argIdx, memberIdx) to ISG1 row index.
+//
+// For struct arguments, the map contains an entry with memberIdx=-1 whose
+// value is the starting row for that struct's first loadInput-producing member
+// in the sorted order. emitStructInputLoads uses its own SortedMemberIndices
+// walk, so the starting row is sufficient.
+func (e *Emitter) buildInputRowMap(fn *ir.Function, stage ir.ShaderStage) map[inputRowKey]int {
+	isFragment := stage == ir.StageFragment
+	isVSInput := stage == ir.StageVertex
+	isComputeLike := stage == ir.StageCompute || stage == ir.StageMesh || stage == ir.StageTask
+
+	interpFn := func(loc ir.LocationBinding) backend.SigPackInterp {
+		return backend.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, false))
+	}
+
+	entries := e.collectFlatInputEntries(fn, isVSInput)
+
+	// Build SigElementInfo for packing (mirrors collectGraphicsSignatures).
+	infos := make([]backend.SigElementInfo, len(entries))
+	for i, ent := range entries {
+		infos[i] = backend.SigElementInfoForBinding(e.ir, ent.binding, ent.typeH, stage, false, interpFn)
+		if isVSInput && infos[i].Kind == backend.SigPackLocation {
+			infos[i].Kind = backend.SigPackBuiltinSystemValue
+		}
+	}
+	packed := backend.PackSignatureElements(infos, true)
+
+	// Map each entry to its packed register row.
+	result := make(map[inputRowKey]int, len(entries))
+	for i, ent := range entries {
+		pe := packed[i]
+		if pe.Rows == 0 {
+			continue
+		}
+		if isSkippedInputBinding(ent.binding, stage, isComputeLike) {
+			continue
+		}
+		result[inputRowKey{argIdx: ent.argIdx, memberIdx: ent.memberIdx}] = int(pe.Register)
+	}
+
+	// Add struct-level start row sentinels.
+	addStructStartRows(e.ir, fn, result, stage, isComputeLike)
+	return result
+}
+
+// inputFlatEntry represents one binding element in the flattened input list.
+type inputFlatEntry struct {
+	argIdx    int
+	memberIdx int // -1 for direct-binding args
+	binding   ir.Binding
+	typeH     ir.TypeHandle
+}
+
+// collectFlatInputEntries builds the sorted flat binding list for all
+// function arguments (same order as collectFlatArgBindings).
+func (e *Emitter) collectFlatInputEntries(fn *ir.Function, isVSInput bool) []inputFlatEntry {
+	var entries []inputFlatEntry
+	for argIdx := range fn.Arguments {
+		arg := &fn.Arguments[argIdx]
+		if arg.Binding != nil {
+			entries = append(entries, inputFlatEntry{argIdx: argIdx, memberIdx: -1, binding: *arg.Binding, typeH: arg.Type})
+			continue
+		}
+		argType := e.ir.Types[arg.Type]
+		st, ok := argType.Inner.(ir.StructType)
+		if !ok {
+			continue
+		}
+		order := backend.SortedMemberIndices(st.Members)
+		for _, idx := range order {
+			m := st.Members[idx]
+			if m.Binding == nil {
+				continue
+			}
+			entries = append(entries, inputFlatEntry{argIdx: argIdx, memberIdx: idx, binding: *m.Binding, typeH: m.Type})
+		}
+	}
+	if !isVSInput {
+		sort.SliceStable(entries, func(i, j int) bool {
+			ki := backend.NewMemberInterfaceKey(&entries[i].binding)
+			kj := backend.NewMemberInterfaceKey(&entries[j].binding)
+			return backend.MemberInterfaceLess(ki, kj)
+		})
+	}
+	return entries
+}
+
+// addStructStartRows adds memberIdx=-1 sentinel entries to the row map
+// for each struct-typed argument, using the minimum row of any member.
+func addStructStartRows(irMod *ir.Module, fn *ir.Function, result map[inputRowKey]int, stage ir.ShaderStage, isComputeLike bool) {
+	for argIdx := range fn.Arguments {
+		arg := &fn.Arguments[argIdx]
+		if arg.Binding != nil {
+			continue
+		}
+		argType := irMod.Types[arg.Type]
+		st, ok := argType.Inner.(ir.StructType)
+		if !ok {
+			continue
+		}
+		minRow := -1
+		order := backend.SortedMemberIndices(st.Members)
+		for _, idx := range order {
+			m := st.Members[idx]
+			if m.Binding == nil {
+				continue
+			}
+			if isSkippedInputBinding(*m.Binding, stage, isComputeLike) {
+				continue
+			}
+			if r, ok := result[inputRowKey{argIdx: argIdx, memberIdx: idx}]; ok {
+				if minRow < 0 || r < minRow {
+					minRow = r
+				}
+			}
+		}
+		if minRow >= 0 {
+			result[inputRowKey{argIdx: argIdx, memberIdx: -1}] = minRow
+		}
+	}
+}
+
+// isSkippedInputBinding returns true for bindings that don't produce
+// loadInput calls and don't consume ISG1 rows. Used by buildInputRowMap
+// to filter out ViewID, Coverage, and compute builtins.
+func isSkippedInputBinding(binding ir.Binding, stage ir.ShaderStage, isComputeLike bool) bool {
+	bb, ok := binding.(ir.BuiltinBinding)
+	if !ok {
+		return false
+	}
+	if bb.Builtin == ir.BuiltinViewIndex {
+		return true
+	}
+	if bb.Builtin == ir.BuiltinSampleMask && stage == ir.StageFragment {
+		return true
+	}
+	if isComputeLike {
+		return true
+	}
+	return false
 }
 
 // emitCoverageLoad emits dx.op.coverage.i32(i32 91) and binds the result
@@ -138,8 +299,7 @@ func (e *Emitter) emitSingleInputLoad(fn *ir.Function, argIdx int, arg *ir.Funct
 	scalar, ok := scalarOfType(argType.Inner)
 	if !ok {
 		if st, isSt := argType.Inner.(ir.StructType); isSt {
-			_, err := e.emitStructInputLoads(fn, argIdx, &st, stage, inputRow)
-			return err
+			return e.emitStructInputLoads(fn, argIdx, &st, stage, inputRow)
 		}
 		return fmt.Errorf("unsupported input type for argument %d", argIdx)
 	}
@@ -444,7 +604,7 @@ func (e *Emitter) getDxOpComputeBuiltinFunc(name string, hasComponent bool) *mod
 // this struct's members, so downstream expression evaluation resolves them directly.
 //
 //nolint:gocognit,gocyclo,cyclop,funlen // dispatch over builtin/scalar/vector struct-member shapes
-func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.StructType, stage ir.ShaderStage, inputRow int) (int, error) {
+func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.StructType, stage ir.ShaderStage, inputRow int) error {
 	// Find the expression handle for this FunctionArgument.
 	argExprHandle := e.findArgExprHandle(fn, argIdx)
 
@@ -482,13 +642,24 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 		if bb, ok := (*member.Binding).(ir.BuiltinBinding); ok && isComputeLike {
 			valueID, err := e.emitComputeBuiltinMemberLoad(bb.Builtin)
 			if err != nil {
-				return 0, fmt.Errorf("struct member %q: %w", member.Name, err)
+				return fmt.Errorf("struct member %q: %w", member.Name, err)
 			}
 			memberValues[memberIdx] = &memberInfo{firstID: valueID, comps: []int{valueID}}
 			continue
 		}
 
-		loadMembers = append(loadMembers, loadMember{memberIdx: memberIdx, inputID: inputRow + rowCount})
+		// Look up the ISG1 row from the precomputed map if available.
+		// The map accounts for cross-argument sorting (locations before
+		// builtins), so each member gets its correct packed register.
+		// Fallback to sequential assignment for compute shaders and
+		// cases where the map was not populated (emitSingleInputLoad path).
+		memberRow := inputRow + rowCount
+		if e.inputRowMap != nil {
+			if r, ok := e.inputRowMap[inputRowKey{argIdx: argIdx, memberIdx: memberIdx}]; ok {
+				memberRow = r
+			}
+		}
+		loadMembers = append(loadMembers, loadMember{memberIdx: memberIdx, inputID: memberRow})
 		rowCount++
 	}
 
@@ -509,7 +680,7 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 		memberType := e.ir.Types[member.Type]
 		scalar, ok := scalarOfType(memberType.Inner)
 		if !ok {
-			return 0, fmt.Errorf("unsupported struct member type for input %q", member.Name)
+			return fmt.Errorf("unsupported struct member type for input %q", member.Name)
 		}
 
 		numComps := componentCount(memberType.Inner)
@@ -578,7 +749,7 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 			e.exprComponents[handle] = info.comps
 		}
 	}
-	return rowCount, nil
+	return nil
 }
 
 // emitOutputStore emits a dx.op.storeOutput call for a single output.

@@ -112,7 +112,7 @@ naga/                              ~189K LOC total
 │   ├── functions.go               # Entry points with semantics
 │   └── keywords.go                # HLSL reserved words
 │
-├── dxil/                          # DXIL backend (~48K LOC, 161/170 IDxcValidator, experimental)
+├── dxil/                          # DXIL backend (~50K LOC, 161/170 IDxcValidator, experimental)
 │   ├── dxil.go                    # Public API: Compile, DefaultOptions, Options, ShaderModel
 │   ├── sig_usage.go               # Input signature Used mask analysis
 │   ├── validate.go                # IDxcValidator integration

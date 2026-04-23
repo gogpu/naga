@@ -3,12 +3,21 @@ package emit
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/dxil/internal/viewid"
 	"github.com/gogpu/naga/internal/backend"
 	"github.com/gogpu/naga/ir"
 )
+
+// outputStoreKey identifies a specific struct member within an
+// output-promoted local variable. Used as a map key to track the
+// value expression stored to each member.
+type outputStoreKey struct {
+	varIdx    uint32 // local variable index
+	memberIdx int    // struct member index (WGSL declaration order)
+}
 
 // Emitter translates naga IR into a DXIL module.
 type Emitter struct {
@@ -60,6 +69,37 @@ type Emitter struct {
 	// alloca+store path entirely — access code (getLocalConstVecLane)
 	// synthesizes per-lane selects or constant lookups.
 	localConstVecArrays map[uint32][][]float32
+
+	// outputPromotedLocals identifies struct-typed local variables that
+	// serve exclusively as output staging: each member is assigned once
+	// via field-level stores, and the struct is returned as the entry
+	// point's output. For such locals the alloca/GEP/store/load chain
+	// is unnecessary -- DXC's SROA + mem2reg eliminates it entirely,
+	// emitting direct dx.op.storeOutput calls instead. When a local is
+	// in this set, preAllocateLocalVars skips the alloca, store handlers
+	// record the value expression handle instead of emitting GEP+store,
+	// and emitStructReturnFromLoad evaluates the recorded expressions
+	// directly into storeOutput calls.
+	outputPromotedLocals map[uint32]bool
+
+	// outputPromotedStores records the value expression handle stored to
+	// each member of an output-promoted struct local. Keyed by
+	// (varIdx, memberIdx). The memberIdx is the WGSL struct member index,
+	// not the flat scalar index. At return time, emitStructReturnFromLoad
+	// evaluates each member's expression and emits per-component
+	// storeOutput calls.
+	outputPromotedStores map[outputStoreKey]ir.ExpressionHandle
+
+	// singleStoreLocals tracks vector/scalar locals that are stored to
+	// exactly once in straight-line code (top-level body, no control flow).
+	// For such locals the alloca/store/load chain is unnecessary -- we
+	// record the stored value expression handle and resolve loads directly
+	// to it. This extends the initOnlyLocals optimization to the common
+	// SROA decomposition pattern: after struct SROA, per-member vector
+	// locals are stored once and loaded once in the return Compose.
+	// DXC's mem2reg promotes both scalar AND vector locals; our mem2reg
+	// only handles scalars, so this fills the gap for vectors.
+	singleStoreLocals map[uint32]ir.ExpressionHandle
 
 	// initOnlyLocals tracks non-scalar locals (vector, array, struct)
 	// that have a non-nil Init expression and are never stored to in the
@@ -251,6 +291,13 @@ type Emitter struct {
 	// order. nil when no ViewID analysis has been performed (non-graphics
 	// stages).
 	inputUsedMasks []int64
+
+	// inputRowMap maps (argIdx, memberIdx) to ISG1 register row for input
+	// signature elements. Precomputed by emitInputLoads using the same
+	// sorted+packed order as collectFlatArgBindings + PackSignatureElements.
+	// Used by emitStructInputLoads to assign correct loadInput sigId values
+	// when cross-argument sorting places locations before builtins.
+	inputRowMap map[inputRowKey]int
 }
 
 // meshContext holds state for mesh shader intrinsic emission.
@@ -983,6 +1030,9 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.localVarArrayTypes = make(map[uint32]*module.Type)
 	e.localConstVecArrays = make(map[uint32][][]float32)
 	e.initOnlyLocals = make(map[uint32]ir.ExpressionHandle)
+	e.singleStoreLocals = make(map[uint32]ir.ExpressionHandle)
+	e.outputPromotedLocals = make(map[uint32]bool)
+	e.outputPromotedStores = make(map[outputStoreKey]ir.ExpressionHandle)
 	e.globalVarAllocas = make(map[ir.GlobalVariableHandle]int)
 	e.globalVarAllocaTypes = make(map[ir.GlobalVariableHandle]*module.Type)
 	e.workgroupFieldPtrs = make(map[int]workgroupFieldOrigin)
@@ -1027,6 +1077,13 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	if err := e.emitInputLoads(fn, ep.Stage); err != nil {
 		return fmt.Errorf("input loads: %w", err)
 	}
+
+	// Sampler-heap handles: emit bufferLoad+createHandle for each sampler
+	// binding AFTER loadInput calls. DXC's lazy evaluation places loadInput
+	// for vertex/fragment interpolants before the sampler index lookup from
+	// the heap index buffer. Calling this here (rather than inside
+	// emitResourceHandles) produces the same instruction ordering.
+	e.emitSamplerHeapHandles()
 
 	if err := e.emitFunctionBody(fn); err != nil {
 		return fmt.Errorf("function body: %w", err)
@@ -2631,7 +2688,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 
 	// Inputs: flatten args + struct members into a single binding list.
 	{
-		bindings, types := collectFlatArgBindings(e.ir, fn.Arguments)
+		bindings, types := collectFlatArgBindings(e.ir, fn.Arguments, isVSInput)
 		infos := make([]backend.SigElementInfo, len(bindings))
 		for i, b := range bindings {
 			infos[i] = backend.SigElementInfoForBinding(e.ir, b, types[i], stage, false, interpFnIn)
@@ -2672,7 +2729,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 // collectFlatArgBindings flattens a function's arg list (and any struct-typed
 // arg's members) into a sorted (binding, type) pair list using the shared
 // interface-order convention. Mirrors dxil/dxil.go collectFlatBindings.
-func collectFlatArgBindings(irMod *ir.Module, args []ir.FunctionArgument) ([]ir.Binding, []ir.TypeHandle) {
+func collectFlatArgBindings(irMod *ir.Module, args []ir.FunctionArgument, isVSInput bool) ([]ir.Binding, []ir.TypeHandle) {
 	var bindings []ir.Binding
 	var types []ir.TypeHandle
 	for _, arg := range args {
@@ -2696,6 +2753,12 @@ func collectFlatArgBindings(irMod *ir.Module, args []ir.FunctionArgument) ([]ir.
 			types = append(types, m.Type)
 		}
 	}
+	// Sort across all arguments so locations come before builtins.
+	// Within-struct ordering is handled by SortedMemberIndices above,
+	// but cross-argument ordering must also be locations-first to match
+	// DXC's fragment input register assignment. VS inputs use
+	// InputAssembler packing which preserves declaration order.
+	backend.SortFlatBindings(bindings, types, isVSInput)
 	return bindings, types
 }
 
@@ -2974,46 +3037,88 @@ func (e *Emitter) emitGraphicsViewIDState(ep *ir.EntryPoint) {
 // (from sig_usage.go analysis) to per-input-signature-element masks, clamped
 // to the element's actual channel count. Returns nil-length slice when no
 // usage data is available.
+//
+// The iteration order MUST match the signature element order produced by
+// collectGraphicsSignatures / collectFlatArgBindings -- which sorts
+// locations before builtins for non-VS inputs. An earlier version
+// iterated arguments in declaration order, causing the usage mask for
+// a builtin (@builtin(position)) in arg0 to land on the LOC slot when
+// a location from arg1 was sorted first. This produced incorrect null
+// extended-properties metadata for used inputs and non-null for unused.
 func (e *Emitter) computeInputElementUsedMasks(ep *ir.EntryPoint, inElems []viewid.SigElement) []int64 {
 	masks := make([]int64, len(inElems))
 	if e.opts.InputUsedMasks == nil {
 		return masks
 	}
-	elemIdx := 0
-	for argIdx := range ep.Function.Arguments {
-		arg := &ep.Function.Arguments[argIdx]
-		argType := e.ir.Types[arg.Type]
-		if st, ok := argType.Inner.(ir.StructType); ok { //nolint:nestif // struct-member vs direct-binding dispatch
-			for mi := range st.Members {
-				if st.Members[mi].Binding == nil {
-					continue
-				}
-				if elemIdx >= len(masks) {
-					break
-				}
-				key := InputUsageKey{ArgIdx: argIdx, MemberIdx: mi}
-				mask := e.opts.InputUsedMasks[key]
-				channels := inElems[elemIdx].NumChannels
-				if channels > 0 && channels <= 4 {
-					mask &= uint8((1 << channels) - 1)
-				}
-				masks[elemIdx] = int64(mask)
-				elemIdx++
-			}
-		} else if arg.Binding != nil {
-			if elemIdx < len(masks) {
-				key := InputUsageKey{ArgIdx: argIdx, MemberIdx: -1}
-				mask := e.opts.InputUsedMasks[key]
-				channels := inElems[elemIdx].NumChannels
-				if channels > 0 && channels <= 4 {
-					mask &= uint8((1 << channels) - 1)
-				}
-				masks[elemIdx] = int64(mask)
-				elemIdx++
-			}
+	isVSInput := ep.Stage == ir.StageVertex
+	// Build sorted flat key list using the same convention as
+	// collectFlatArgBindings -- this guarantees element index i
+	// corresponds to inElems[i].
+	sortedKeys := buildSortedInputUsageKeys(e.ir, ep.Function.Arguments, isVSInput)
+	for i, key := range sortedKeys {
+		if i >= len(masks) {
+			break
 		}
+		mask := e.opts.InputUsedMasks[key]
+		channels := inElems[i].NumChannels
+		if channels > 0 && channels <= 4 {
+			mask &= uint8((1 << channels) - 1)
+		}
+		masks[i] = int64(mask)
 	}
 	return masks
+}
+
+// buildSortedInputUsageKeys produces an InputUsageKey per flat binding in
+// the same sorted order as collectFlatArgBindings. This mapping lets
+// computeInputElementUsedMasks look up the correct per-argument usage
+// mask for each signature element position.
+func buildSortedInputUsageKeys(irMod *ir.Module, args []ir.FunctionArgument, isVSInput bool) []InputUsageKey {
+	type keyedBinding struct {
+		key     InputUsageKey
+		binding ir.Binding
+	}
+	var items []keyedBinding
+	for argIdx := range args {
+		arg := &args[argIdx]
+		if arg.Binding != nil {
+			items = append(items, keyedBinding{
+				key:     InputUsageKey{ArgIdx: argIdx, MemberIdx: -1},
+				binding: *arg.Binding,
+			})
+			continue
+		}
+		argType := irMod.Types[arg.Type]
+		st, ok := argType.Inner.(ir.StructType)
+		if !ok {
+			continue
+		}
+		order := backend.SortedMemberIndices(st.Members)
+		for _, idx := range order {
+			m := st.Members[idx]
+			if m.Binding == nil {
+				continue
+			}
+			items = append(items, keyedBinding{
+				key:     InputUsageKey{ArgIdx: argIdx, MemberIdx: idx},
+				binding: *m.Binding,
+			})
+		}
+	}
+	// Apply the same cross-argument sort as collectFlatArgBindings.
+	// VS inputs use InputAssembler packing which preserves declaration order.
+	if !isVSInput && len(items) > 1 {
+		sort.SliceStable(items, func(i, j int) bool {
+			ki := backend.NewMemberInterfaceKey(&items[i].binding)
+			kj := backend.NewMemberInterfaceKey(&items[j].binding)
+			return backend.MemberInterfaceLess(ki, kj)
+		})
+	}
+	keys := make([]InputUsageKey, len(items))
+	for i, item := range items {
+		keys[i] = item.key
+	}
+	return keys
 }
 
 func sigInfosToViewIDElems(infos []dxilSigInfo) []viewid.SigElement {

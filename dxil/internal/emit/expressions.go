@@ -90,6 +90,11 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		valueID, err = e.emitPhi(fn, ek)
 
 	case ir.ExprLocalVariable:
+		// Single-store locals bypass alloca -- their loads resolve to the
+		// stored value directly. Return a sentinel to prevent alloca creation.
+		if _, isSingle := e.singleStoreLocals[ek.Variable]; isSingle {
+			return 0, nil
+		}
 		valueID, err = e.emitLocalVariable(fn, ek)
 
 	case ir.ExprGlobalVariable:
@@ -1477,6 +1482,10 @@ func selectDivOp(isFloat, isSigned bool) BinOpKind {
 // emitModulo emits a modulo/remainder operation. DXIL does not support FRem
 // natively (DXC rejects it with "Invalid record"), so float modulo is lowered
 // to: a - b * floor(a / b). This matches Mesa nir_to_dxil.c lower_fmod.
+//
+// For unsigned integer modulo by a constant power of 2, DXC's LLVM
+// InstCombine applies strength reduction: urem x, 2^N -> and x, (2^N - 1).
+// We match this to produce identical output.
 func (e *Emitter) emitModulo(resultTy *module.Type, lhs, rhs int, isFloat, isSigned bool) (int, error) {
 	if isFloat {
 		return e.emitFRemLowered(resultTy, lhs, rhs), nil
@@ -1484,7 +1493,34 @@ func (e *Emitter) emitModulo(resultTy *module.Type, lhs, rhs int, isFloat, isSig
 	if isSigned {
 		return e.addBinOpInstr(resultTy, BinOpSRem, lhs, rhs), nil
 	}
+	// Strength reduction: urem x, 2^N -> and x, (2^N - 1).
+	if maskID, ok := e.tryURemToBitwiseAnd(rhs); ok {
+		return e.addBinOpInstr(resultTy, BinOpAnd, lhs, maskID), nil
+	}
 	return e.addBinOpInstr(resultTy, BinOpURem, lhs, rhs), nil
+}
+
+// tryURemToBitwiseAnd checks whether valueID refers to an integer constant
+// that is a power of 2 (>= 2). If so, returns the value ID for the bitmask
+// (value - 1) for use in strength reduction: urem x, 2^N -> and x, (2^N - 1).
+// This matches DXC's LLVM InstCombine pass.
+func (e *Emitter) tryURemToBitwiseAnd(valueID int) (int, bool) {
+	c, ok := e.constMap[valueID]
+	if !ok || c.IsUndef || c.IsAggregate {
+		return 0, false
+	}
+	if c.ConstType == nil || c.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	v := c.IntValue
+	if v < 2 {
+		return 0, false
+	}
+	// Check power of 2: v & (v-1) == 0.
+	if v&(v-1) != 0 {
+		return 0, false
+	}
+	return e.getIntConstID(v - 1), true
 }
 
 // emitComparison emits a comparison instruction with the correct predicate
@@ -3834,6 +3870,30 @@ func (e *Emitter) tryLoadInitOnly(fn *ir.Function, load ir.ExprLoad) (int, bool,
 	return id, true, nil
 }
 
+// tryLoadSingleStore resolves a load from a single-store vector/scalar local
+// directly to the stored value expression, bypassing alloca+store+load.
+// This mirrors DXC's mem2reg for the common SROA decomposition pattern.
+func (e *Emitter) tryLoadSingleStore(fn *ir.Function, load ir.ExprLoad) (int, bool, error) {
+	lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return 0, false, nil
+	}
+	valueHandle, isSingleStore := e.singleStoreLocals[lv.Variable]
+	if !isSingleStore {
+		return 0, false, nil
+	}
+	id, err := e.emitExpression(fn, valueHandle)
+	if err != nil {
+		return 0, false, err
+	}
+	// Propagate component tracking from the stored value expression so
+	// downstream getComponentID calls resolve correctly for the Load handle.
+	if comps, hasComps := e.exprComponents[valueHandle]; hasComps {
+		e.pendingComponents = comps
+	}
+	return id, true, nil
+}
+
 // Constant idx collapses at the validator's constant-folding step;
 // dynamic idx emits N-1 selects and N-1 icmps per lane. Per-lane
 // results are tracked via pendingComponents so downstream compose /
@@ -3919,6 +3979,16 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 	// value. This eliminates the alloca+load and matches DXC's SROA output
 	// for `var x = const_expr; return x` patterns.
 	if id, handled, emitErr := e.tryLoadInitOnly(fn, load); emitErr != nil {
+		return 0, emitErr
+	} else if handled {
+		return id, nil
+	}
+
+	// Single-store local optimization: if loading from a vector/scalar local
+	// that was stored to exactly once, resolve directly to the stored value
+	// expression. This eliminates alloca+store+load for per-member vector
+	// locals created by struct SROA, matching DXC's mem2reg output.
+	if id, handled, emitErr := e.tryLoadSingleStore(fn, load); emitErr != nil {
 		return 0, emitErr
 	} else if handled {
 		return id, nil

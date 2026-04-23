@@ -44,10 +44,30 @@ func (e *Emitter) emitFunctionBody(fn *ir.Function) error {
 // to the Init value without alloca. This matches DXC's SROA + constant
 // propagation for the pattern `var x = const_expr; return x`.
 func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
+	// Identify struct locals that serve exclusively as output staging.
+	// Must run before alloca creation so promoted locals can be skipped.
+	e.analyzeOutputPromotableLocals(fn)
+
+	// Identify vector/scalar locals stored to exactly once in straight-line
+	// code. These bypass alloca -- loads resolve to the stored value directly.
+	singleStores := analyzeSingleStoreLocals(fn, e.ir)
+
 	live := liveLocalVars(fn)
 	stored := localsStoredTo(fn)
 	for i := range fn.LocalVars {
 		if !live[uint32(i)] {
+			continue
+		}
+		// Output-promoted locals bypass the alloca entirely.
+		// Their field stores record expression handles, and the return
+		// emits storeOutput directly from those values.
+		if e.outputPromotedLocals[uint32(i)] {
+			continue
+		}
+		// Single-store vector/scalar local: skip alloca, record the stored
+		// value so loads resolve directly to it.
+		if valueH, ok := singleStores[uint32(i)]; ok {
+			e.singleStoreLocals[uint32(i)] = valueH
 			continue
 		}
 		// Init-only optimization: if the local has a non-nil Init and is
@@ -105,6 +125,375 @@ func localsStoredToBlock(fn *ir.Function, block ir.Block, lvHandles map[ir.Expre
 			localsStoredToBlock(fn, sk.Block, lvHandles, stored)
 		}
 	}
+}
+
+// analyzeSingleStoreLocals identifies vector/scalar local variables that
+// are stored to exactly once in straight-line code (top-level function body).
+// For such locals, the alloca/store/load chain can be bypassed: loads
+// resolve directly to the stored value expression.
+//
+// This fills the gap left by mem2reg (which only handles scalar locals)
+// for the common SROA decomposition pattern: after struct SROA, per-member
+// vector locals are stored once and loaded once in the return's Compose.
+// DXC's LLVM mem2reg handles both scalar and vector promotions; ours
+// does not, so this targeted analysis handles the vector case.
+//
+// A local is eligible when ALL of:
+//  1. It is scalar or vector typed (not struct/array/matrix)
+//  2. It has exactly one whole-variable Store in the top-level body
+//  3. It has no Init expression (Init locals are handled by initOnlyLocals)
+//  4. No stores to it exist inside control flow (if/loop/switch)
+//  5. No AccessIndex/Access chains reference it (only direct Load/Store)
+func analyzeSingleStoreLocals(fn *ir.Function, mod *ir.Module) map[uint32]ir.ExpressionHandle {
+	lvHandles := buildLocalVarHandleMap(fn)
+	hasChainRef := findChainReferencedLocals(fn, lvHandles)
+	storeCount, storeValue := countTopLevelStores(fn, lvHandles)
+	nestedStored := findNestedStoredLocals(fn, lvHandles)
+
+	result := make(map[uint32]ir.ExpressionHandle)
+	for varIdx, count := range storeCount {
+		if !isSingleStoreEligible(fn, mod, varIdx, count, nestedStored, hasChainRef) {
+			continue
+		}
+		result[varIdx] = storeValue[varIdx]
+	}
+	return result
+}
+
+// buildLocalVarHandleMap maps ExprLocalVariable expression handles to
+// their local variable indices.
+func buildLocalVarHandleMap(fn *ir.Function) map[ir.ExpressionHandle]uint32 {
+	lvHandles := make(map[ir.ExpressionHandle]uint32)
+	for h, expr := range fn.Expressions {
+		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok {
+			lvHandles[ir.ExpressionHandle(h)] = lv.Variable
+		}
+	}
+	return lvHandles
+}
+
+// findChainReferencedLocals identifies locals referenced via AccessIndex
+// or Access chains, which need pointer semantics and cannot be promoted.
+func findChainReferencedLocals(fn *ir.Function, lvHandles map[ir.ExpressionHandle]uint32) map[uint32]bool {
+	hasChainRef := make(map[uint32]bool)
+	for _, expr := range fn.Expressions {
+		switch k := expr.Kind.(type) {
+		case ir.ExprAccessIndex:
+			if v, ok := lvHandles[k.Base]; ok {
+				hasChainRef[v] = true
+			}
+		case ir.ExprAccess:
+			if v, ok := lvHandles[k.Base]; ok {
+				hasChainRef[v] = true
+			}
+		}
+	}
+	return hasChainRef
+}
+
+// countTopLevelStores counts whole-variable stores per local in the
+// top-level function body only (not inside control flow).
+func countTopLevelStores(fn *ir.Function, lvHandles map[ir.ExpressionHandle]uint32) (map[uint32]int, map[uint32]ir.ExpressionHandle) {
+	storeCount := make(map[uint32]int)
+	storeValue := make(map[uint32]ir.ExpressionHandle)
+	for _, stmt := range fn.Body {
+		if sk, ok := stmt.Kind.(ir.StmtStore); ok {
+			if v, ok := lvHandles[sk.Pointer]; ok {
+				storeCount[v]++
+				storeValue[v] = sk.Value
+			}
+		}
+	}
+	return storeCount, storeValue
+}
+
+// findNestedStoredLocals identifies locals that have stores inside
+// control flow blocks (if/loop/switch), which cannot be promoted.
+func findNestedStoredLocals(fn *ir.Function, lvHandles map[ir.ExpressionHandle]uint32) map[uint32]bool {
+	nestedStored := make(map[uint32]bool)
+	for _, stmt := range fn.Body {
+		switch sk := stmt.Kind.(type) {
+		case ir.StmtIf:
+			markNestedStores(sk.Accept, lvHandles, nestedStored)
+			markNestedStores(sk.Reject, lvHandles, nestedStored)
+		case ir.StmtLoop:
+			markNestedStores(sk.Body, lvHandles, nestedStored)
+			markNestedStores(sk.Continuing, lvHandles, nestedStored)
+		case ir.StmtSwitch:
+			for ci := range sk.Cases {
+				markNestedStores(sk.Cases[ci].Body, lvHandles, nestedStored)
+			}
+		case ir.StmtBlock:
+			markNestedStores(sk.Block, lvHandles, nestedStored)
+		}
+	}
+	return nestedStored
+}
+
+// isSingleStoreEligible checks if a local variable with the given store
+// count is eligible for single-store promotion.
+func isSingleStoreEligible(fn *ir.Function, mod *ir.Module, varIdx uint32, count int,
+	nestedStored, hasChainRef map[uint32]bool) bool {
+	if count != 1 || nestedStored[varIdx] || hasChainRef[varIdx] {
+		return false
+	}
+	if int(varIdx) >= len(fn.LocalVars) {
+		return false
+	}
+	lv := &fn.LocalVars[varIdx]
+	if lv.Init != nil {
+		return false // handled by initOnlyLocals
+	}
+	if int(lv.Type) >= len(mod.Types) {
+		return false
+	}
+	inner := mod.Types[lv.Type].Inner
+	switch inner.(type) {
+	case ir.ScalarType, ir.VectorType:
+		return true
+	}
+	return false
+}
+
+// markNestedStores marks local variables that have stores inside a block.
+func markNestedStores(block ir.Block, lvHandles map[ir.ExpressionHandle]uint32, stored map[uint32]bool) {
+	for _, stmt := range block {
+		switch sk := stmt.Kind.(type) {
+		case ir.StmtStore:
+			if v, ok := lvHandles[sk.Pointer]; ok {
+				stored[v] = true
+			}
+		case ir.StmtIf:
+			markNestedStores(sk.Accept, lvHandles, stored)
+			markNestedStores(sk.Reject, lvHandles, stored)
+		case ir.StmtLoop:
+			markNestedStores(sk.Body, lvHandles, stored)
+			markNestedStores(sk.Continuing, lvHandles, stored)
+		case ir.StmtSwitch:
+			for ci := range sk.Cases {
+				markNestedStores(sk.Cases[ci].Body, lvHandles, stored)
+			}
+		case ir.StmtBlock:
+			markNestedStores(sk.Block, lvHandles, stored)
+		}
+	}
+}
+
+// analyzeOutputPromotableLocals identifies struct-typed local variables
+// that can bypass the alloca/GEP/store/load chain and emit storeOutput
+// directly. A local is promotable when ALL of the following hold:
+//
+//  1. The function has a struct result type (entry point returns a struct)
+//  2. The local variable has the same type as the result
+//  3. The return statement loads from exactly this local variable
+//  4. All stores to the local are field-level (AccessIndex) in straight-line
+//     code (not inside if/loop/switch) -- each member stored exactly once
+//  5. The local is not read mid-body (only loaded in the return)
+//
+// DXC's LLVM SROA + mem2reg eliminates the alloca entirely for this pattern,
+// producing direct storeOutput calls. We replicate that at the emitter level.
+func (e *Emitter) analyzeOutputPromotableLocals(fn *ir.Function) {
+	// Must be an entry point with a struct return type.
+	if fn.Result == nil || e.emittingHelperFunction {
+		return
+	}
+	resultType := e.ir.Types[fn.Result.Type]
+	st, isSt := resultType.Inner.(ir.StructType)
+	if !isSt {
+		return
+	}
+
+	// Find the return statement and its load source in the top-level body.
+	retVarIdx, retFound := findReturnLoadVar(fn)
+	if !retFound {
+		return
+	}
+
+	// Verify the local variable is a struct of the same type as the result.
+	if int(retVarIdx) >= len(fn.LocalVars) {
+		return
+	}
+	localVar := &fn.LocalVars[retVarIdx]
+	if localVar.Type != fn.Result.Type {
+		return
+	}
+
+	// Find the ExprLocalVariable handle for this variable.
+	var lvHandle ir.ExpressionHandle
+	foundLV := false
+	for h, expr := range fn.Expressions {
+		if lv, ok := expr.Kind.(ir.ExprLocalVariable); ok && lv.Variable == retVarIdx {
+			lvHandle = ir.ExpressionHandle(h)
+			foundLV = true
+			break
+		}
+	}
+	if !foundLV {
+		return
+	}
+
+	// Verify all stores to this local are field-level AccessIndex stores
+	// in straight-line code (top-level body only, not inside control flow).
+	// Also verify no other reads happen (no Load of this local except in return).
+	if !isOutputOnlyLocal(fn, lvHandle, retVarIdx, &st) {
+		return
+	}
+
+	e.outputPromotedLocals[retVarIdx] = true
+}
+
+// findReturnLoadVar finds the local variable index loaded in the return
+// statement of a function. Returns (varIdx, true) if the function body
+// ends with StmtReturn whose value is an ExprLoad of an ExprLocalVariable.
+func findReturnLoadVar(fn *ir.Function) (uint32, bool) {
+	for i := len(fn.Body) - 1; i >= 0; i-- {
+		ret, ok := fn.Body[i].Kind.(ir.StmtReturn)
+		if !ok {
+			continue
+		}
+		if ret.Value == nil {
+			return 0, false
+		}
+		retExpr := fn.Expressions[*ret.Value]
+		load, ok := retExpr.Kind.(ir.ExprLoad)
+		if !ok {
+			return 0, false
+		}
+		lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable)
+		if !ok {
+			return 0, false
+		}
+		return lv.Variable, true
+	}
+	return 0, false
+}
+
+// isOutputOnlyLocal checks that a struct local variable is only used for
+// field-level stores in straight-line code (the top-level function body)
+// and is never read except via the return-time Load. Returns false if any
+// usage pattern would make output promotion unsafe:
+//   - Store inside control flow (if/loop/switch)
+//   - Whole-variable store (Store to the LocalVariable directly)
+//   - Dynamic access (Access instead of AccessIndex)
+//   - Load mid-body (any Load except the final return)
+//   - Passed as a function call argument
+func isOutputOnlyLocal(fn *ir.Function, _ ir.ExpressionHandle, varIdx uint32, st *ir.StructType) bool {
+	aiHandles := collectFieldAccessHandles(fn, varIdx)
+	memberStored := make(map[int]bool)
+
+	for _, stmt := range fn.Body {
+		switch sk := stmt.Kind.(type) {
+		case ir.StmtStore:
+			if ok := classifyOutputStore(fn, sk, varIdx, aiHandles, memberStored); !ok {
+				return false
+			}
+		case ir.StmtReturn, ir.StmtEmit:
+			continue
+		case ir.StmtIf:
+			if blockStoresTo(fn, sk.Accept, varIdx) || blockStoresTo(fn, sk.Reject, varIdx) {
+				return false
+			}
+		case ir.StmtLoop:
+			if blockStoresTo(fn, sk.Body, varIdx) || blockStoresTo(fn, sk.Continuing, varIdx) {
+				return false
+			}
+		case ir.StmtSwitch:
+			for ci := range sk.Cases {
+				if blockStoresTo(fn, sk.Cases[ci].Body, varIdx) {
+					return false
+				}
+			}
+		case ir.StmtBlock:
+			if blockStoresTo(fn, sk.Block, varIdx) {
+				return false
+			}
+		}
+	}
+
+	// Verify all members with bindings were stored to.
+	for idx, member := range st.Members {
+		if member.Binding != nil && !memberStored[idx] {
+			return false
+		}
+	}
+	return true
+}
+
+// collectFieldAccessHandles finds all ExprAccessIndex handles rooted at
+// a local variable, returning a map from expression handle to member index.
+func collectFieldAccessHandles(fn *ir.Function, varIdx uint32) map[ir.ExpressionHandle]int {
+	aiHandles := make(map[ir.ExpressionHandle]int)
+	for h, expr := range fn.Expressions {
+		if ai, ok := expr.Kind.(ir.ExprAccessIndex); ok {
+			if inner, ok2 := fn.Expressions[ai.Base].Kind.(ir.ExprLocalVariable); ok2 {
+				if inner.Variable == varIdx {
+					aiHandles[ir.ExpressionHandle(h)] = int(ai.Index)
+				}
+			}
+		}
+	}
+	return aiHandles
+}
+
+// classifyOutputStore checks a single store statement against the output-only
+// local variable rules. Returns false if the store disqualifies the local.
+func classifyOutputStore(fn *ir.Function, sk ir.StmtStore, varIdx uint32,
+	aiHandles map[ir.ExpressionHandle]int, memberStored map[int]bool) bool {
+	// Whole-variable store -> not promotable.
+	if lv, ok := fn.Expressions[sk.Pointer].Kind.(ir.ExprLocalVariable); ok {
+		if lv.Variable == varIdx {
+			return false
+		}
+	}
+	// Field-level store via AccessIndex.
+	if memberIdx, ok := aiHandles[sk.Pointer]; ok {
+		if memberStored[memberIdx] {
+			return false // stored more than once
+		}
+		memberStored[memberIdx] = true
+		return true
+	}
+	// Two-level AccessIndex -> component-level store, bail.
+	if ai, ok := fn.Expressions[sk.Pointer].Kind.(ir.ExprAccessIndex); ok {
+		if _, ok2 := aiHandles[ai.Base]; ok2 {
+			return false
+		}
+	}
+	return true
+}
+
+// blockStoresTo checks if any statement in a block stores to the given
+// local variable (directly or via AccessIndex/Access chains).
+func blockStoresTo(fn *ir.Function, block ir.Block, varIdx uint32) bool {
+	for _, stmt := range block {
+		if stmtStoresTo(fn, stmt, varIdx) {
+			return true
+		}
+	}
+	return false
+}
+
+// stmtStoresTo checks a single statement and its children for stores
+// to the given local variable.
+func stmtStoresTo(fn *ir.Function, stmt ir.Statement, varIdx uint32) bool {
+	switch sk := stmt.Kind.(type) {
+	case ir.StmtStore:
+		v, ok := resolveLocalVarEmit(fn, sk.Pointer)
+		return ok && v == varIdx
+	case ir.StmtIf:
+		return blockStoresTo(fn, sk.Accept, varIdx) || blockStoresTo(fn, sk.Reject, varIdx)
+	case ir.StmtLoop:
+		return blockStoresTo(fn, sk.Body, varIdx) || blockStoresTo(fn, sk.Continuing, varIdx)
+	case ir.StmtSwitch:
+		for ci := range sk.Cases {
+			if blockStoresTo(fn, sk.Cases[ci].Body, varIdx) {
+				return true
+			}
+		}
+	case ir.StmtBlock:
+		return blockStoresTo(fn, sk.Block, varIdx)
+	}
+	return false
 }
 
 // resolveLocalVarEmit follows AccessIndex/Access chains to find the root
@@ -686,6 +1075,14 @@ func (e *Emitter) emitStructReturn(fn *ir.Function, ret ir.StmtReturn, st *ir.St
 // For a struct {vec4<f32>, vec4<f32>}, the DXIL type is {f32, f32, f32, f32, f32, f32, f32, f32}.
 // So member 0 (vec4) uses flattened indices 0..3, member 1 uses indices 4..7.
 func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st *ir.StructType) error {
+	// Output-promoted path: skip alloca/GEP/load entirely and emit
+	// storeOutput directly from the recorded value expressions.
+	if lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable); ok {
+		if e.outputPromotedLocals[lv.Variable] {
+			return e.emitPromotedStructReturn(fn, lv.Variable, st)
+		}
+	}
+
 	// Ensure the pointer expression (local variable) is emitted.
 	ptr, err := e.emitExpression(fn, load.Pointer)
 	if err != nil {
@@ -739,6 +1136,61 @@ func (e *Emitter) emitStructReturnFromLoad(fn *ir.Function, load ir.ExprLoad, st
 		}
 	}
 
+	return nil
+}
+
+// emitPromotedStructReturn emits storeOutput calls for an output-promoted
+// struct local variable. Instead of GEP+load from an alloca, this evaluates
+// each member's stored value expression (recorded during statement emission)
+// and emits storeOutput directly. Produces the same output as DXC's
+// SROA+mem2reg pipeline for the "var out: S; out.x = a; return out;" pattern.
+//
+// Members are walked in graphics output order (locations first, builtins last)
+// to match the signature element ID assignment in buildSignatures and
+// collectGraphicsSignatures.
+func (e *Emitter) emitPromotedStructReturn(fn *ir.Function, varIdx uint32, st *ir.StructType) error {
+	order := backend.SortedMemberIndices(st.Members)
+	sigID := 0
+	for _, idx := range order {
+		member := st.Members[idx]
+		if member.Binding == nil {
+			continue
+		}
+
+		// Look up the recorded value expression for this member.
+		key := outputStoreKey{varIdx: varIdx, memberIdx: idx}
+		valueHandle, ok := e.outputPromotedStores[key]
+		if !ok {
+			return fmt.Errorf("output-promoted struct: no stored value for member %d", idx)
+		}
+
+		// Evaluate the value expression.
+		if _, err := e.emitExpression(fn, valueHandle); err != nil {
+			return fmt.Errorf("output-promoted struct member %d value: %w", idx, err)
+		}
+
+		memberType := e.ir.Types[member.Type]
+		scalar, ok := scalarOfType(memberType.Inner)
+		numComps := componentCount(memberType.Inner)
+		if !ok {
+			if arr, isArr := memberType.Inner.(ir.ArrayType); isArr {
+				elemInner := e.ir.Types[arr.Base].Inner
+				scalar, ok = scalarOfType(elemInner)
+				numComps = totalScalarCount(e.ir, memberType.Inner)
+				_ = arr
+			}
+		}
+		if !ok {
+			return fmt.Errorf("output-promoted struct member %d: unsupported type", idx)
+		}
+
+		ol := overloadForScalar(scalar)
+		for comp := 0; comp < numComps; comp++ {
+			compID := e.getComponentID(valueHandle, comp)
+			e.emitOutputStore(sigID, comp, compID, ol)
+		}
+		sigID++
+	}
 	return nil
 }
 
@@ -833,6 +1285,30 @@ func (e *Emitter) emitScalarLoad(scalarTy *module.Type, ptrID int) int {
 	return loadID
 }
 
+// tryOutputPromotedStore checks if a store targets a field of an
+// output-promoted struct local. If so, records the value expression
+// handle for later storeOutput emission and returns true (handled).
+// Handles both aggregate fields (vec4, vec3) and scalar fields (f32, u32).
+// Pattern: Store(AccessIndex(LocalVariable(V), memberIdx), value)
+func (e *Emitter) tryOutputPromotedStore(fn *ir.Function, store ir.StmtStore) bool {
+	ai, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprAccessIndex)
+	if !ok {
+		return false
+	}
+	lv, ok := fn.Expressions[ai.Base].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return false
+	}
+	if !e.outputPromotedLocals[lv.Variable] {
+		return false
+	}
+	e.outputPromotedStores[outputStoreKey{
+		varIdx:    lv.Variable,
+		memberIdx: int(ai.Index),
+	}] = store.Value
+	return true
+}
+
 // emitStmtStore handles store statements.
 //
 // In naga IR, stores write a value through a pointer expression.
@@ -856,6 +1332,20 @@ func (e *Emitter) emitStmtStore(fn *ir.Function, store ir.StmtStore) error {
 	// UAV stores use dx.op.bufferStore instead of LLVM store instructions.
 	if chain, ok := e.resolveUAVPointerChain(fn, store.Pointer); ok {
 		return e.emitUAVStore(fn, chain, store.Value)
+	}
+
+	// Output-promoted struct field store: record the value expression
+	// for later direct storeOutput emission, skip alloca/GEP/store.
+	if handled := e.tryOutputPromotedStore(fn, store); handled {
+		return nil
+	}
+
+	// Single-store local: the value is already recorded in singleStoreLocals
+	// by the analysis. Skip the store -- the load will resolve directly.
+	if lv, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable); ok {
+		if _, isSingle := e.singleStoreLocals[lv.Variable]; isSingle {
+			return nil
+		}
 	}
 
 	// Check for whole-local-variable stores: vector/struct/array via dedicated
@@ -1210,6 +1700,16 @@ func (e *Emitter) tryStructMemberAggregateStore(fn *ir.Function, store ir.StmtSt
 	st, isSt := e.ir.Types[localVar.Type].Inner.(ir.StructType)
 	if !isSt || int(ai.Index) >= len(st.Members) {
 		return false, nil
+	}
+
+	// Output-promoted local: record the store for later storeOutput emission
+	// at return time, skip the alloca/GEP/store chain entirely.
+	if e.outputPromotedLocals[lv.Variable] {
+		e.outputPromotedStores[outputStoreKey{
+			varIdx:    lv.Variable,
+			memberIdx: int(ai.Index),
+		}] = store.Value
+		return true, nil
 	}
 
 	member := st.Members[ai.Index]

@@ -3002,33 +3002,22 @@ func TestEmitMultipleLocals(t *testing.T) {
 		t.Fatal("main function not found")
 	}
 
-	// Two local variables should produce exactly 2 alloca instructions.
+	// Single-store scalar locals are promoted directly to SSA values,
+	// bypassing alloca/store/load. This matches DXC's mem2reg behavior
+	// for locals stored once in straight-line code.
 	allocaCount := countInstrKind(mod, module.InstrAlloca)
-	if allocaCount != 2 {
-		t.Errorf("expected 2 alloca instructions for 2 local vars, got %d", allocaCount)
+	if allocaCount != 0 {
+		t.Errorf("expected 0 alloca instructions (single-store promotion), got %d", allocaCount)
 	}
 
-	// 2 stores (a = 1.0, b = 2.0).
 	storeCount := countInstrKind(mod, module.InstrStore)
-	if storeCount != 2 {
-		t.Errorf("expected 2 store instructions, got %d", storeCount)
+	if storeCount != 0 {
+		t.Errorf("expected 0 store instructions (single-store promotion), got %d", storeCount)
 	}
 
-	// 2 loads (load a, load b).
 	loadCount := countInstrKind(mod, module.InstrLoad)
-	if loadCount != 2 {
-		t.Errorf("expected 2 load instructions, got %d", loadCount)
-	}
-
-	// Verify alloca result types are pointer types to f32.
-	for _, bb := range mainFn.BasicBlocks {
-		for _, instr := range bb.Instructions {
-			if instr.Kind == module.InstrAlloca {
-				if instr.ResultType == nil || instr.ResultType.Kind != module.TypePointer {
-					t.Errorf("alloca should produce pointer type, got %v", instr.ResultType)
-				}
-			}
-		}
+	if loadCount != 0 {
+		t.Errorf("expected 0 load instructions (single-store promotion), got %d", loadCount)
 	}
 
 	bc := module.Serialize(mod)
@@ -5704,5 +5693,754 @@ func TestEmitRawBufferIntStoreNoBitcast(t *testing.T) {
 
 	if bitcastCount > 0 {
 		t.Errorf("expected 0 bitcast instructions for integer UAV store, got %d", bitcastCount)
+	}
+}
+
+// buildComputeWithFloatVec2Load creates a compute shader module that loads
+// vec2<f32> from a storage buffer (ByteAddressBuffer).
+//
+//	@group(0) @binding(0) var<storage, read> data: array<vec2<f32>>;
+//	@group(0) @binding(1) var<storage, read_write> out: array<vec2<f32>>;
+//
+//	@compute @workgroup_size(1)
+//	fn main() {
+//	    out[0] = data[0];
+//	}
+func buildComputeWithFloatVec2Load() *ir.Module {
+	f32Handle := ir.TypeHandle(0)
+	vec2f32Handle := ir.TypeHandle(1)
+	arrayVec2Handle := ir.TypeHandle(2)
+	u32Handle := ir.TypeHandle(3)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "", Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.ArrayType{Base: vec2f32Handle, Stride: 8}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:   "data",
+				Space:  ir.SpaceStorage,
+				Access: ir.StorageRead,
+				Binding: &ir.ResourceBinding{
+					Group: 0, Binding: 0,
+				},
+				Type: arrayVec2Handle,
+			},
+			{
+				Name:   "out",
+				Space:  ir.SpaceStorage,
+				Access: ir.StorageReadWrite,
+				Binding: &ir.ResourceBinding{
+					Group: 0, Binding: 1,
+				},
+				Type: arrayVec2Handle,
+			},
+		},
+	}
+
+	// Load data[0], store to out[0].
+	fn := ir.Function{
+		Name: "main",
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},  // [0] &data
+			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // [1] 0u
+			{Kind: ir.ExprAccess{Base: 0, Index: 1}},    // [2] &data[0]
+			{Kind: ir.ExprLoad{Pointer: 2}},             // [3] data[0]
+			{Kind: ir.ExprGlobalVariable{Variable: 1}},  // [4] &out
+			{Kind: ir.ExprAccess{Base: 4, Index: 1}},    // [5] &out[0]
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &arrayVec2Handle},                            // &data
+			{Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0u
+			{Handle: &vec2f32Handle},                              // &data[0]
+			{Handle: &vec2f32Handle},                              // data[0]
+			{Handle: &arrayVec2Handle},                            // &out
+			{Handle: &vec2f32Handle},                              // &out[0]
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 6}}},
+			{Kind: ir.StmtStore{Pointer: 5, Value: 3}},
+		},
+	}
+	_ = f32Handle
+	_ = u32Handle
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Function:  fn,
+			Workgroup: [3]uint32{1, 1, 1},
+		},
+	}
+
+	return mod
+}
+
+// TestEmitRawBufferFloatLoadUsesI32Overload verifies that float loads from
+// raw buffers (ByteAddressBuffer/RWByteAddressBuffer) use the i32 overload
+// with bitcast, matching DXC's convention. DXC always loads via
+// bufferLoad.i32 for raw buffers because HLSL's ByteAddressBuffer.Load
+// returns uint and asfloat() wraps it.
+//
+// Checks:
+//  1. dx.op.bufferLoad.i32 is declared (not .f32)
+//  2. Bitcast (i32->float) instructions are present in the function body
+//  3. ExtractValue instructions use i32 result type (not float)
+func TestEmitRawBufferFloatLoadUsesI32Overload(t *testing.T) {
+	irMod := buildComputeWithFloatVec2Load()
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Check declared functions: must have bufferLoad.i32, not bufferLoad.f32.
+	hasI32Load := false
+	hasF32Load := false
+	for _, fn := range result.Functions {
+		switch fn.Name {
+		case "dx.op.bufferLoad.i32":
+			hasI32Load = true
+		case "dx.op.bufferLoad.f32":
+			hasF32Load = true
+		}
+	}
+	if !hasI32Load {
+		t.Error("dx.op.bufferLoad.i32 not declared; raw buffer float loads must use i32 overload")
+	}
+	if hasF32Load {
+		t.Error("dx.op.bufferLoad.f32 declared; raw buffer float loads should NOT use f32 overload")
+	}
+
+	// Check that bitcast instructions (i32 -> float) exist in the main function.
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	bitcastCount := 0
+	bufferLoadI32Count := 0
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCast && len(instr.Operands) >= 2 &&
+				CastOpKind(instr.Operands[1]) == CastBitcast {
+				bitcastCount++
+			}
+			if instr.Kind == module.InstrCall && instr.CalledFunc != nil &&
+				instr.CalledFunc.Name == "dx.op.bufferLoad.i32" {
+				bufferLoadI32Count++
+			}
+		}
+	}
+
+	// vec2<f32> load: 2 extractvalue(i32) + 2 bitcast(i32->float) + store uses
+	// 2 bitcast(float->i32). Total bitcasts = 4 (2 load + 2 store).
+	if bitcastCount < 2 {
+		t.Errorf("expected at least 2 bitcast instructions (i32->float for vec2 load), got %d", bitcastCount)
+	}
+	if bufferLoadI32Count < 1 {
+		t.Errorf("expected at least 1 bufferLoad.i32 call, got %d", bufferLoadI32Count)
+	}
+
+	// Verify serialization.
+	bc := module.Serialize(result)
+	if len(bc) == 0 {
+		t.Fatal("serialization produced empty bitcode")
+	}
+
+	t.Logf("raw buffer float load: %d bitcasts, %d bufferLoad.i32 calls, %d bytes bitcode",
+		bitcastCount, bufferLoadI32Count, len(bc))
+}
+
+// TestEmitRawBufferIntLoadNoBitcast verifies that integer loads from raw
+// buffers do NOT produce unnecessary bitcast instructions — i32 values are
+// extracted directly from bufferLoad.i32 without any cast.
+func TestEmitRawBufferIntLoadNoBitcast(t *testing.T) {
+	irMod := buildComputeWithUAV() // loads u32, should use i32 directly
+
+	result, err := Emit(irMod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	mainFn := findMainFunction(result)
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Count bitcast instructions in the main function. Integer loads from raw
+	// buffers should not need any bitcast (i32 load returns i32 directly).
+	bitcastCount := 0
+	for _, bb := range mainFn.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind == module.InstrCast && len(instr.Operands) >= 2 &&
+				CastOpKind(instr.Operands[1]) == CastBitcast {
+				bitcastCount++
+			}
+		}
+	}
+
+	if bitcastCount > 0 {
+		t.Errorf("expected 0 bitcast instructions for integer UAV load, got %d", bitcastCount)
+	}
+}
+
+// TestResourceNameSuffix verifies that the DXIL emitter applies the
+// HLSL namer trailing-underscore convention to resource names in
+// dx.resources metadata. DXC processes HLSL variable names through
+// its namer (Rust naga proc::Namer) which appends "_" when the name
+// ends with a digit or is an HLSL keyword. Our DXIL backend must
+// match this convention so dxc -dumpbin shows identical resource
+// names in the Resource Bindings comment table.
+func TestResourceNameSuffix(t *testing.T) {
+	tests := []struct {
+		irName   string
+		wantName string
+	}{
+		// Ends with digit -> trailing underscore
+		{"t1", "t1_"},
+		{"atomic_i32", "atomic_i32_"},
+		{"input3", "input3_"},
+		// HLSL keyword -> trailing underscore
+		{"in", "in_"},
+		{"out", "out_"},
+		{"indices", "indices_"},
+		// Normal name -> no change
+		{"data", "data"},
+		{"params", "params"},
+		{"camera", "camera"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.irName, func(t *testing.T) {
+			u32Handle := ir.TypeHandle(0)
+			arrayU32Handle := ir.TypeHandle(1)
+
+			mod := &ir.Module{
+				Types: []ir.Type{
+					{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+					{Inner: ir.ArrayType{
+						Base:   u32Handle,
+						Size:   ir.ArraySize{},
+						Stride: 4,
+					}},
+				},
+				GlobalVariables: []ir.GlobalVariable{
+					{
+						Name:   tt.irName,
+						Space:  ir.SpaceStorage,
+						Access: ir.StorageReadWrite,
+						Binding: &ir.ResourceBinding{
+							Group:   0,
+							Binding: 0,
+						},
+						Type: arrayU32Handle,
+					},
+				},
+				EntryPoints: []ir.EntryPoint{
+					{
+						Name:      "main",
+						Stage:     ir.StageCompute,
+						Function:  ir.Function{Name: "main"},
+						Workgroup: [3]uint32{1, 1, 1},
+					},
+				},
+			}
+
+			result, err := Emit(mod, EmitOptions{
+				ShaderModelMajor: 6,
+				ShaderModelMinor: 0,
+				ReachableGlobals: map[ir.GlobalVariableHandle]bool{0: true},
+			})
+			if err != nil {
+				t.Fatalf("Emit failed: %v", err)
+			}
+
+			// Find the resource name in metadata strings. The name
+			// appears as an MDString operand in the dx.resources
+			// metadata tuple. Scan all metadata for string nodes
+			// containing the expected name.
+			found := false
+			for _, md := range result.Metadata {
+				if md.Kind == module.MDString && md.StringValue == tt.wantName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("metadata string %q not found; IR name was %q", tt.wantName, tt.irName)
+			}
+		})
+	}
+}
+
+// TestSamplerHeapHandleAfterInputLoads verifies that in fragment shaders with
+// sampler heap bindings, dx.op.loadInput calls for interpolated varyings appear
+// BEFORE dx.op.bufferLoad calls for the sampler heap index lookup. DXC's lazy
+// evaluation produces this ordering because loadInput for vertex inputs is
+// resolved before the sampler index indirection at the sample call site. We
+// match by emitting sampler heap handles after input loads in emitEntryPoint.
+func TestSamplerHeapHandleAfterInputLoads(t *testing.T) {
+	vec4f32Handle := ir.TypeHandle(1)
+	vec2f32Handle := ir.TypeHandle(2)
+	tex2dHandle := ir.TypeHandle(3)
+	samplerTyHandle := ir.TypeHandle(4)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},                                         // [0] f32
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},         // [1] vec4<f32>
+			{Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},         // [2] vec2<f32>
+			{Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}}, // [3] texture_2d<f32>
+			{Inner: ir.SamplerType{Comparison: false}},                                                     // [4] sampler
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "tex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: tex2dHandle},
+			{Name: "samp", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: samplerTyHandle},
+		},
+	}
+
+	// Build a fragment shader: @fragment fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32>
+	// that does textureSample(tex, samp, uv).
+	uvBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+
+	sampleExprHandle := ir.ExpressionHandle(3)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "uv", Type: vec2f32Handle, Binding: &uvBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                       // [0] uv
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},                      // [1] tex
+			{Kind: ir.ExprGlobalVariable{Variable: 1}},                      // [2] samp
+			{Kind: ir.ExprImageSample{Image: 1, Sampler: 2, Coordinate: 0}}, // [3] textureSample
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec2f32Handle},   // uv
+			{Handle: &tex2dHandle},     // tex
+			{Handle: &samplerTyHandle}, // samp
+			{Handle: &vec4f32Handle},   // sample result
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+			{Kind: ir.StmtReturn{Value: &sampleExprHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	result, err := Emit(mod, EmitOptions{
+		ShaderModelMajor: 6,
+		ShaderModelMinor: 0,
+		ReachableGlobals: map[ir.GlobalVariableHandle]bool{0: true, 1: true},
+	})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Find the entry function body.
+	var entryFn *module.Function
+	for _, fn := range result.Functions {
+		if !fn.IsDeclaration && fn.Name == "main" {
+			entryFn = fn
+			break
+		}
+	}
+	if entryFn == nil {
+		t.Fatal("entry function 'main' not found")
+	}
+	if len(entryFn.BasicBlocks) == 0 {
+		t.Fatal("entry function has no basic blocks")
+	}
+
+	// Walk the instruction sequence and record the position of:
+	// - first dx.op.loadInput call (input varyings)
+	// - first dx.op.bufferLoad call (sampler heap index lookup)
+	firstLoadInput := -1
+	firstBufferLoad := -1
+	bb := entryFn.BasicBlocks[0]
+	for i, instr := range bb.Instructions {
+		if instr.Kind != module.InstrCall || instr.CalledFunc == nil {
+			continue
+		}
+		name := instr.CalledFunc.Name
+		if firstLoadInput < 0 && (name == "dx.op.loadInput.f32" || name == "dx.op.loadInput.i32") {
+			firstLoadInput = i
+		}
+		if firstBufferLoad < 0 && name == "dx.op.bufferLoad.i32" {
+			firstBufferLoad = i
+		}
+	}
+
+	if firstLoadInput < 0 {
+		t.Fatal("no dx.op.loadInput call found in entry function")
+	}
+	if firstBufferLoad < 0 {
+		t.Fatal("no dx.op.bufferLoad call found in entry function (sampler heap)")
+	}
+
+	if firstLoadInput >= firstBufferLoad {
+		t.Errorf("dx.op.loadInput (pos %d) should appear BEFORE dx.op.bufferLoad (pos %d); "+
+			"DXC emits loadInput for interpolated varyings before sampler heap index lookups",
+			firstLoadInput, firstBufferLoad)
+	}
+}
+
+// buildStructReturnVertex creates a vertex shader that returns a struct
+// through a local variable:
+//
+//	struct VertexOutput {
+//	    @location(0) color: vec3<f32>,
+//	    @builtin(position) position: vec4<f32>,
+//	}
+//	@vertex fn vs_main(@location(0) in_color: vec3<f32>) -> VertexOutput {
+//	    var out: VertexOutput;
+//	    out.color = in_color;
+//	    out.position = vec4<f32>(1.0, 2.0, 0.0, 1.0);
+//	    return out;
+//	}
+func buildStructReturnVertex() *ir.Module {
+	vec3Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	structHandle := ir.TypeHandle(2)
+	f32Handle := ir.TypeHandle(3)
+
+	locBinding0 := ir.Binding(ir.LocationBinding{Location: 0})
+	posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "VertexOutput", Inner: ir.StructType{
+				Members: []ir.StructMember{
+					{Name: "color", Type: vec3Handle, Offset: 0, Binding: &locBinding0},
+					{Name: "position", Type: vec4Handle, Offset: 16, Binding: &posBinding},
+				},
+				Span: 32,
+			}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+		},
+	}
+
+	// Expression handles
+	lvH := ir.ExpressionHandle(1)
+	colorFieldH := ir.ExpressionHandle(2)
+	posFieldH := ir.ExpressionHandle(3)
+	literal1 := ir.ExpressionHandle(4)
+	literal2 := ir.ExpressionHandle(5)
+	literal0 := ir.ExpressionHandle(6)
+	composeH := ir.ExpressionHandle(7)
+	loadH := ir.ExpressionHandle(8)
+
+	fn := ir.Function{
+		Name: "vs_main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "in_color", Type: vec3Handle, Binding: &locBinding0},
+		},
+		Result: &ir.FunctionResult{
+			Type:    structHandle,
+			Binding: nil,
+		},
+		LocalVars: []ir.LocalVariable{
+			{Name: "out", Type: structHandle, Init: nil},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},
+			{Kind: ir.ExprLocalVariable{Variable: 0}},
+			{Kind: ir.ExprAccessIndex{Base: lvH, Index: 0}},
+			{Kind: ir.ExprAccessIndex{Base: lvH, Index: 1}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
+			{Kind: ir.ExprCompose{Type: vec4Handle, Components: []ir.ExpressionHandle{literal1, literal2, literal0, literal1}}},
+			{Kind: ir.ExprLoad{Pointer: lvH}},
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3Handle},
+			{Handle: &structHandle},
+			{Handle: &vec3Handle},
+			{Handle: &vec4Handle},
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &vec4Handle},
+			{Handle: &structHandle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+			{Kind: ir.StmtStore{Pointer: colorFieldH, Value: ir.ExpressionHandle(0)}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 8}}},
+			{Kind: ir.StmtStore{Pointer: posFieldH, Value: composeH}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 8, End: 9}}},
+			{Kind: ir.StmtReturn{Value: &loadH}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "vs_main", Stage: ir.StageVertex, Function: fn},
+	}
+
+	return mod
+}
+
+// TestOutputStructPromotion verifies that struct-typed local variables
+// used exclusively as output staging (var out: S; out.x = a; return out)
+// are identified as promotable by the analysis function.
+// DXC's SROA+mem2reg achieves the same elimination.
+func TestOutputStructPromotion(t *testing.T) {
+	irMod := buildStructReturnVertex()
+
+	mod := module.NewModule(module.VertexShader)
+	e := &Emitter{
+		ir:                   irMod,
+		mod:                  mod,
+		outputPromotedLocals: make(map[uint32]bool),
+		outputPromotedStores: make(map[outputStoreKey]ir.ExpressionHandle),
+	}
+
+	fn := &irMod.EntryPoints[0].Function
+	e.currentFn = fn
+
+	// Run the analysis.
+	e.analyzeOutputPromotableLocals(fn)
+
+	if !e.outputPromotedLocals[0] {
+		t.Fatal("expected local var 0 ('out') to be identified as output-promotable")
+	}
+}
+
+// TestOutputStructPromotionNotInLoop verifies that struct locals stored
+// inside control flow are NOT identified as output-promotable.
+func TestOutputStructPromotionNotInLoop(t *testing.T) {
+	irMod := buildStructReturnVertex()
+	fn := &irMod.EntryPoints[0].Function
+
+	// Wrap the stores inside an if block to make them non-promotable.
+	origBody := fn.Body
+	fn.Body = []ir.Statement{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+		{Kind: ir.StmtIf{
+			Condition: ir.ExpressionHandle(0), // doesn't matter
+			Accept:    origBody[1:4],          // stores + emits inside if
+			Reject:    nil,
+		}},
+		origBody[4], // emit for load
+		origBody[5], // return
+	}
+
+	mod := module.NewModule(module.VertexShader)
+	e := &Emitter{
+		ir:                   irMod,
+		mod:                  mod,
+		outputPromotedLocals: make(map[uint32]bool),
+		outputPromotedStores: make(map[outputStoreKey]ir.ExpressionHandle),
+	}
+	e.currentFn = fn
+
+	e.analyzeOutputPromotableLocals(fn)
+
+	if e.outputPromotedLocals[0] {
+		t.Fatal("expected local var 0 NOT to be promotable when stores are inside an if block")
+	}
+}
+
+// TestSingleStoreVectorLocalPromotion verifies that vector-typed locals
+// stored once in straight-line code are identified by analyzeSingleStoreLocals.
+// This covers the pattern created by SROA: struct decomposition produces
+// per-member vector locals with exactly one store and one load.
+func TestSingleStoreVectorLocalPromotion(t *testing.T) {
+	vec3Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retH := ir.ExpressionHandle(6)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		LocalVars: []ir.LocalVariable{
+			{Name: "color", Type: vec3Handle},    // stored once, loaded once
+			{Name: "position", Type: vec4Handle}, // stored once, loaded once
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                                         // [0] &color
+			{Kind: ir.ExprCompose{Type: vec3Handle}},                                          // [1] vec3(...)
+			{Kind: ir.ExprLocalVariable{Variable: 1}},                                         // [2] &position
+			{Kind: ir.ExprCompose{Type: vec4Handle}},                                          // [3] vec4(...)
+			{Kind: ir.ExprLoad{Pointer: ir.ExpressionHandle(0)}},                              // [4] load color
+			{Kind: ir.ExprLoad{Pointer: ir.ExpressionHandle(2)}},                              // [5] load position
+			{Kind: ir.ExprCompose{Type: vec4Handle, Components: []ir.ExpressionHandle{4, 5}}}, // [6]
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3Handle}, {Handle: &vec3Handle},
+			{Handle: &vec4Handle}, {Handle: &vec4Handle},
+			{Handle: &vec3Handle}, {Handle: &vec4Handle},
+			{Handle: &vec4Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtStore{Pointer: ir.ExpressionHandle(0), Value: ir.ExpressionHandle(1)}},
+			{Kind: ir.StmtStore{Pointer: ir.ExpressionHandle(2), Value: ir.ExpressionHandle(3)}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 7}}},
+			{Kind: ir.StmtReturn{Value: &retH}},
+		},
+	}
+
+	irMod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	result := analyzeSingleStoreLocals(&fn, irMod)
+	if _, ok := result[0]; !ok {
+		t.Error("expected local var 0 (vec3 color) to be single-store promotable")
+	}
+	if _, ok := result[1]; !ok {
+		t.Error("expected local var 1 (vec4 position) to be single-store promotable")
+	}
+}
+
+// TestSingleStoreLocalNotInLoop verifies that locals stored inside control
+// flow are NOT identified as single-store promotable.
+func TestSingleStoreLocalNotInLoop(t *testing.T) {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	fn := ir.Function{
+		Name: "main",
+		LocalVars: []ir.LocalVariable{
+			{Name: "x", Type: f32Handle},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprLocalVariable{Variable: 0}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle}, {Handle: &f32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtIf{
+				Condition: ir.ExpressionHandle(1),
+				Accept: []ir.Statement{
+					{Kind: ir.StmtStore{Pointer: ir.ExpressionHandle(0), Value: ir.ExpressionHandle(1)}},
+				},
+			}},
+		},
+	}
+
+	result := analyzeSingleStoreLocals(&fn, irMod)
+	if _, ok := result[0]; ok {
+		t.Error("expected local var 0 NOT to be promotable when stored inside an if block")
+	}
+	_ = vec4Handle
+}
+
+// TestURemStrengthReduction verifies that unsigned modulo by a power
+// of 2 is strength-reduced to a bitwise AND. This matches DXC's LLVM
+// InstCombine pass: urem x, 2^N -> and x, (2^N - 1).
+func TestURemStrengthReduction(t *testing.T) {
+	e := &Emitter{
+		constMap:    make(map[int]*module.Constant),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+	}
+	e.mod = &module.Module{}
+
+	// Test power-of-2 constants.
+	tests := []struct {
+		value     int64
+		expectAnd bool
+		mask      int64
+	}{
+		{2, true, 1},
+		{4, true, 3},
+		{8, true, 7},
+		{16, true, 15},
+		{256, true, 255},
+		{1024, true, 1023},
+		{1, false, 0},  // 1 is NOT >= 2
+		{3, false, 0},  // 3 is not a power of 2
+		{5, false, 0},  // 5 is not a power of 2
+		{6, false, 0},  // 6 is not a power of 2
+		{7, false, 0},  // 7 is not a power of 2
+		{0, false, 0},  // 0 is not a power of 2
+		{-2, false, 0}, // negative values are not power of 2
+	}
+
+	for _, tt := range tests {
+		// Create a constant for the value.
+		constID := e.getIntConstID(tt.value)
+		maskID, ok := e.tryURemToBitwiseAnd(constID)
+		if ok != tt.expectAnd {
+			t.Errorf("tryURemToBitwiseAnd(%d): got ok=%v, want %v", tt.value, ok, tt.expectAnd)
+			continue
+		}
+		if ok {
+			maskConst, hasConst := e.constMap[maskID]
+			if !hasConst {
+				t.Errorf("tryURemToBitwiseAnd(%d): mask ID not in constMap", tt.value)
+				continue
+			}
+			if maskConst.IntValue != tt.mask {
+				t.Errorf("tryURemToBitwiseAnd(%d): mask = %d, want %d", tt.value, maskConst.IntValue, tt.mask)
+			}
+		}
+	}
+}
+
+// TestURemStrengthReductionNonInt verifies that float and undef
+// constants are not treated as power-of-2 for strength reduction.
+func TestURemStrengthReductionNonInt(t *testing.T) {
+	e := &Emitter{
+		constMap:    make(map[int]*module.Constant),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+	}
+	e.mod = &module.Module{}
+
+	// Float constant should not trigger.
+	floatID := e.getFloatConstID(2.0)
+	if _, ok := e.tryURemToBitwiseAnd(floatID); ok {
+		t.Error("tryURemToBitwiseAnd should not trigger for float constant")
+	}
+
+	// Undef should not trigger.
+	undefID := e.getUndefConstID()
+	if _, ok := e.tryURemToBitwiseAnd(undefID); ok {
+		t.Error("tryURemToBitwiseAnd should not trigger for undef")
+	}
+
+	// Non-existent ID should not trigger.
+	if _, ok := e.tryURemToBitwiseAnd(99999); ok {
+		t.Error("tryURemToBitwiseAnd should not trigger for unknown value ID")
 	}
 }

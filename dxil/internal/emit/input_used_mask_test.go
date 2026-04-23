@@ -170,6 +170,142 @@ func TestInputUsedMaskNull(t *testing.T) {
 	}
 }
 
+// TestInputUsedMaskSortedOrder verifies that computeInputElementUsedMasks
+// assigns masks in sorted signature order (locations before builtins) rather
+// than declaration order. Regression test for the msl-varyings/fs_main bug
+// where @builtin(position) from arg0 got LOC's slot and @location(1) from
+// arg1 got SV_Position's slot.
+func TestInputUsedMaskSortedOrder(t *testing.T) {
+	// Fragment shader with:
+	//   arg0: VertexOutput { @builtin(position) position: vec4f }
+	//   arg1: NoteInstance { @location(1) position: vec2f }
+	// Sorted order: LOC1 (sig element 0), SV_Position (sig element 1)
+	vec4Type := ir.TypeHandle(0)
+	vec2Type := ir.TypeHandle(1)
+	vertexOutputType := ir.TypeHandle(2) // struct { @builtin(position) vec4f }
+	noteInstanceType := ir.TypeHandle(3) // struct { @location(1) vec2f }
+
+	posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+	loc1Binding := ir.Binding(ir.LocationBinding{Location: 1})
+
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Inner: ir.StructType{Members: []ir.StructMember{
+				{Name: "position", Type: vec4Type, Binding: &posBinding},
+			}}},
+			{Inner: ir.StructType{Members: []ir.StructMember{
+				{Name: "position", Type: vec2Type, Binding: &loc1Binding},
+			}}},
+		},
+	}
+
+	targetBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	ep := &ir.EntryPoint{
+		Name:  "fs_main",
+		Stage: ir.StageFragment,
+		Function: ir.Function{
+			Name: "fs_main",
+			Arguments: []ir.FunctionArgument{
+				{Type: vertexOutputType}, // arg0: has @builtin(position)
+				{Type: noteInstanceType}, // arg1: has @location(1)
+			},
+			Result: &ir.FunctionResult{
+				Type:    vec4Type,
+				Binding: &targetBinding,
+			},
+		},
+	}
+
+	// SV_Position is used (mask=15), LOC1 is not used (mask=0)
+	usedMasks := map[InputUsageKey]uint8{
+		{ArgIdx: 0, MemberIdx: 0}: 0x0F, // SV_Position used
+		// arg1/member0 (LOC1) absent = not used
+	}
+
+	e := &Emitter{
+		ir:   irMod,
+		opts: EmitOptions{InputUsedMasks: usedMasks},
+	}
+
+	// inElems in sorted order: LOC1 first (2 channels), SV_Position second (4 channels)
+	inElems := []viewid.SigElement{
+		{ScalarStart: 0, NumChannels: 2, VectorRow: 0}, // LOC1
+		{ScalarStart: 2, NumChannels: 4, VectorRow: 1}, // SV_Position
+	}
+
+	masks := e.computeInputElementUsedMasks(ep, inElems)
+
+	// LOC1 (element 0) is not used -> mask should be 0
+	if masks[0] != 0 {
+		t.Errorf("LOC1 (element 0): expected mask 0 (unused), got %d", masks[0])
+	}
+	// SV_Position (element 1) is used -> mask should be 15
+	if masks[1] != 15 {
+		t.Errorf("SV_Position (element 1): expected mask 15 (all 4 channels used), got %d", masks[1])
+	}
+}
+
+// TestInputUsedMaskVSInputPreservesOrder verifies that VS inputs use
+// declaration order (not sorted) for the usage mask mapping.
+func TestInputUsedMaskVSInputPreservesOrder(t *testing.T) {
+	vec4Type := ir.TypeHandle(0)
+	u32Type := ir.TypeHandle(1)
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+		},
+	}
+
+	vidBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex})
+	loc0Binding := ir.Binding(ir.LocationBinding{Location: 0})
+	posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+
+	ep := &ir.EntryPoint{
+		Name:  "vs_main",
+		Stage: ir.StageVertex,
+		Function: ir.Function{
+			Name: "vs_main",
+			Arguments: []ir.FunctionArgument{
+				{Type: u32Type, Binding: &vidBinding},   // arg0: SV_VertexID
+				{Type: vec4Type, Binding: &loc0Binding}, // arg1: LOC0
+			},
+			Result: &ir.FunctionResult{
+				Type:    vec4Type,
+				Binding: &posBinding,
+			},
+		},
+	}
+
+	usedMasks := map[InputUsageKey]uint8{
+		{ArgIdx: 0, MemberIdx: -1}: 0x01, // SV_VertexID used
+		{ArgIdx: 1, MemberIdx: -1}: 0x0F, // LOC0 used
+	}
+
+	e := &Emitter{
+		ir:   irMod,
+		opts: EmitOptions{InputUsedMasks: usedMasks},
+	}
+
+	// VS inputs in declaration order: SV_VertexID (1 channel), LOC0 (4 channels)
+	inElems := []viewid.SigElement{
+		{ScalarStart: 0, NumChannels: 1, VectorRow: 0}, // SV_VertexID
+		{ScalarStart: 1, NumChannels: 4, VectorRow: 1}, // LOC0
+	}
+
+	masks := e.computeInputElementUsedMasks(ep, inElems)
+
+	// Declaration order preserved for VS: element 0 = SV_VertexID
+	if masks[0] != 1 {
+		t.Errorf("SV_VertexID (element 0): expected mask 1, got %d", masks[0])
+	}
+	if masks[1] != 15 {
+		t.Errorf("LOC0 (element 1): expected mask 15, got %d", masks[1])
+	}
+}
+
 // TestViewIDMaxPackedLocationIncludesStartCol verifies that the ViewID state
 // scalar count uses DXC's DetermineMaxPackedLocation formula:
 // max(StartRow*4 + StartCol + NumChannels) over all non-system-managed elements.
