@@ -10,6 +10,14 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
+// outputStoreKey identifies a specific struct member within an
+// output-promoted local variable. Used as a map key to track the
+// value expression stored to each member.
+type outputStoreKey struct {
+	varIdx    uint32 // local variable index
+	memberIdx int    // struct member index (WGSL declaration order)
+}
+
 // Emitter translates naga IR into a DXIL module.
 type Emitter struct {
 	ir   *ir.Module
@@ -60,6 +68,37 @@ type Emitter struct {
 	// alloca+store path entirely — access code (getLocalConstVecLane)
 	// synthesizes per-lane selects or constant lookups.
 	localConstVecArrays map[uint32][][]float32
+
+	// outputPromotedLocals identifies struct-typed local variables that
+	// serve exclusively as output staging: each member is assigned once
+	// via field-level stores, and the struct is returned as the entry
+	// point's output. For such locals the alloca/GEP/store/load chain
+	// is unnecessary -- DXC's SROA + mem2reg eliminates it entirely,
+	// emitting direct dx.op.storeOutput calls instead. When a local is
+	// in this set, preAllocateLocalVars skips the alloca, store handlers
+	// record the value expression handle instead of emitting GEP+store,
+	// and emitStructReturnFromLoad evaluates the recorded expressions
+	// directly into storeOutput calls.
+	outputPromotedLocals map[uint32]bool
+
+	// outputPromotedStores records the value expression handle stored to
+	// each member of an output-promoted struct local. Keyed by
+	// (varIdx, memberIdx). The memberIdx is the WGSL struct member index,
+	// not the flat scalar index. At return time, emitStructReturnFromLoad
+	// evaluates each member's expression and emits per-component
+	// storeOutput calls.
+	outputPromotedStores map[outputStoreKey]ir.ExpressionHandle
+
+	// singleStoreLocals tracks vector/scalar locals that are stored to
+	// exactly once in straight-line code (top-level body, no control flow).
+	// For such locals the alloca/store/load chain is unnecessary -- we
+	// record the stored value expression handle and resolve loads directly
+	// to it. This extends the initOnlyLocals optimization to the common
+	// SROA decomposition pattern: after struct SROA, per-member vector
+	// locals are stored once and loaded once in the return Compose.
+	// DXC's mem2reg promotes both scalar AND vector locals; our mem2reg
+	// only handles scalars, so this fills the gap for vectors.
+	singleStoreLocals map[uint32]ir.ExpressionHandle
 
 	// initOnlyLocals tracks non-scalar locals (vector, array, struct)
 	// that have a non-nil Init expression and are never stored to in the
@@ -983,6 +1022,9 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.localVarArrayTypes = make(map[uint32]*module.Type)
 	e.localConstVecArrays = make(map[uint32][][]float32)
 	e.initOnlyLocals = make(map[uint32]ir.ExpressionHandle)
+	e.singleStoreLocals = make(map[uint32]ir.ExpressionHandle)
+	e.outputPromotedLocals = make(map[uint32]bool)
+	e.outputPromotedStores = make(map[outputStoreKey]ir.ExpressionHandle)
 	e.globalVarAllocas = make(map[ir.GlobalVariableHandle]int)
 	e.globalVarAllocaTypes = make(map[ir.GlobalVariableHandle]*module.Type)
 	e.workgroupFieldPtrs = make(map[int]workgroupFieldOrigin)

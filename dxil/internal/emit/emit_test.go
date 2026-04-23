@@ -3002,33 +3002,22 @@ func TestEmitMultipleLocals(t *testing.T) {
 		t.Fatal("main function not found")
 	}
 
-	// Two local variables should produce exactly 2 alloca instructions.
+	// Single-store scalar locals are promoted directly to SSA values,
+	// bypassing alloca/store/load. This matches DXC's mem2reg behavior
+	// for locals stored once in straight-line code.
 	allocaCount := countInstrKind(mod, module.InstrAlloca)
-	if allocaCount != 2 {
-		t.Errorf("expected 2 alloca instructions for 2 local vars, got %d", allocaCount)
+	if allocaCount != 0 {
+		t.Errorf("expected 0 alloca instructions (single-store promotion), got %d", allocaCount)
 	}
 
-	// 2 stores (a = 1.0, b = 2.0).
 	storeCount := countInstrKind(mod, module.InstrStore)
-	if storeCount != 2 {
-		t.Errorf("expected 2 store instructions, got %d", storeCount)
+	if storeCount != 0 {
+		t.Errorf("expected 0 store instructions (single-store promotion), got %d", storeCount)
 	}
 
-	// 2 loads (load a, load b).
 	loadCount := countInstrKind(mod, module.InstrLoad)
-	if loadCount != 2 {
-		t.Errorf("expected 2 load instructions, got %d", loadCount)
-	}
-
-	// Verify alloca result types are pointer types to f32.
-	for _, bb := range mainFn.BasicBlocks {
-		for _, instr := range bb.Instructions {
-			if instr.Kind == module.InstrAlloca {
-				if instr.ResultType == nil || instr.ResultType.Kind != module.TypePointer {
-					t.Errorf("alloca should produce pointer type, got %v", instr.ResultType)
-				}
-			}
-		}
+	if loadCount != 0 {
+		t.Errorf("expected 0 load instructions (single-store promotion), got %d", loadCount)
 	}
 
 	bc := module.Serialize(mod)
@@ -6108,4 +6097,269 @@ func TestSamplerHeapHandleAfterInputLoads(t *testing.T) {
 			"DXC emits loadInput for interpolated varyings before sampler heap index lookups",
 			firstLoadInput, firstBufferLoad)
 	}
+}
+
+// buildStructReturnVertex creates a vertex shader that returns a struct
+// through a local variable:
+//
+//	struct VertexOutput {
+//	    @location(0) color: vec3<f32>,
+//	    @builtin(position) position: vec4<f32>,
+//	}
+//	@vertex fn vs_main(@location(0) in_color: vec3<f32>) -> VertexOutput {
+//	    var out: VertexOutput;
+//	    out.color = in_color;
+//	    out.position = vec4<f32>(1.0, 2.0, 0.0, 1.0);
+//	    return out;
+//	}
+func buildStructReturnVertex() *ir.Module {
+	vec3Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	structHandle := ir.TypeHandle(2)
+	f32Handle := ir.TypeHandle(3)
+
+	locBinding0 := ir.Binding(ir.LocationBinding{Location: 0})
+	posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "VertexOutput", Inner: ir.StructType{
+				Members: []ir.StructMember{
+					{Name: "color", Type: vec3Handle, Offset: 0, Binding: &locBinding0},
+					{Name: "position", Type: vec4Handle, Offset: 16, Binding: &posBinding},
+				},
+				Span: 32,
+			}},
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+		},
+	}
+
+	// Expression handles
+	lvH := ir.ExpressionHandle(1)
+	colorFieldH := ir.ExpressionHandle(2)
+	posFieldH := ir.ExpressionHandle(3)
+	literal1 := ir.ExpressionHandle(4)
+	literal2 := ir.ExpressionHandle(5)
+	literal0 := ir.ExpressionHandle(6)
+	composeH := ir.ExpressionHandle(7)
+	loadH := ir.ExpressionHandle(8)
+
+	fn := ir.Function{
+		Name: "vs_main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "in_color", Type: vec3Handle, Binding: &locBinding0},
+		},
+		Result: &ir.FunctionResult{
+			Type:    structHandle,
+			Binding: nil,
+		},
+		LocalVars: []ir.LocalVariable{
+			{Name: "out", Type: structHandle, Init: nil},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},
+			{Kind: ir.ExprLocalVariable{Variable: 0}},
+			{Kind: ir.ExprAccessIndex{Base: lvH, Index: 0}},
+			{Kind: ir.ExprAccessIndex{Base: lvH, Index: 1}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
+			{Kind: ir.ExprCompose{Type: vec4Handle, Components: []ir.ExpressionHandle{literal1, literal2, literal0, literal1}}},
+			{Kind: ir.ExprLoad{Pointer: lvH}},
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3Handle},
+			{Handle: &structHandle},
+			{Handle: &vec3Handle},
+			{Handle: &vec4Handle},
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &f32Handle},
+			{Handle: &vec4Handle},
+			{Handle: &structHandle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+			{Kind: ir.StmtStore{Pointer: colorFieldH, Value: ir.ExpressionHandle(0)}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 8}}},
+			{Kind: ir.StmtStore{Pointer: posFieldH, Value: composeH}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 8, End: 9}}},
+			{Kind: ir.StmtReturn{Value: &loadH}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "vs_main", Stage: ir.StageVertex, Function: fn},
+	}
+
+	return mod
+}
+
+// TestOutputStructPromotion verifies that struct-typed local variables
+// used exclusively as output staging (var out: S; out.x = a; return out)
+// are identified as promotable by the analysis function.
+// DXC's SROA+mem2reg achieves the same elimination.
+func TestOutputStructPromotion(t *testing.T) {
+	irMod := buildStructReturnVertex()
+
+	mod := module.NewModule(module.VertexShader)
+	e := &Emitter{
+		ir:                   irMod,
+		mod:                  mod,
+		outputPromotedLocals: make(map[uint32]bool),
+		outputPromotedStores: make(map[outputStoreKey]ir.ExpressionHandle),
+	}
+
+	fn := &irMod.EntryPoints[0].Function
+	e.currentFn = fn
+
+	// Run the analysis.
+	e.analyzeOutputPromotableLocals(fn)
+
+	if !e.outputPromotedLocals[0] {
+		t.Fatal("expected local var 0 ('out') to be identified as output-promotable")
+	}
+}
+
+// TestOutputStructPromotionNotInLoop verifies that struct locals stored
+// inside control flow are NOT identified as output-promotable.
+func TestOutputStructPromotionNotInLoop(t *testing.T) {
+	irMod := buildStructReturnVertex()
+	fn := &irMod.EntryPoints[0].Function
+
+	// Wrap the stores inside an if block to make them non-promotable.
+	origBody := fn.Body
+	fn.Body = []ir.Statement{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+		{Kind: ir.StmtIf{
+			Condition: ir.ExpressionHandle(0), // doesn't matter
+			Accept:    origBody[1:4],          // stores + emits inside if
+			Reject:    nil,
+		}},
+		origBody[4], // emit for load
+		origBody[5], // return
+	}
+
+	mod := module.NewModule(module.VertexShader)
+	e := &Emitter{
+		ir:                   irMod,
+		mod:                  mod,
+		outputPromotedLocals: make(map[uint32]bool),
+		outputPromotedStores: make(map[outputStoreKey]ir.ExpressionHandle),
+	}
+	e.currentFn = fn
+
+	e.analyzeOutputPromotableLocals(fn)
+
+	if e.outputPromotedLocals[0] {
+		t.Fatal("expected local var 0 NOT to be promotable when stores are inside an if block")
+	}
+}
+
+// TestSingleStoreVectorLocalPromotion verifies that vector-typed locals
+// stored once in straight-line code are identified by analyzeSingleStoreLocals.
+// This covers the pattern created by SROA: struct decomposition produces
+// per-member vector locals with exactly one store and one load.
+func TestSingleStoreVectorLocalPromotion(t *testing.T) {
+	vec3Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retH := ir.ExpressionHandle(6)
+
+	fn := ir.Function{
+		Name: "main",
+		Result: &ir.FunctionResult{
+			Type:    vec4Handle,
+			Binding: &resultBinding,
+		},
+		LocalVars: []ir.LocalVariable{
+			{Name: "color", Type: vec3Handle},    // stored once, loaded once
+			{Name: "position", Type: vec4Handle}, // stored once, loaded once
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                                         // [0] &color
+			{Kind: ir.ExprCompose{Type: vec3Handle}},                                          // [1] vec3(...)
+			{Kind: ir.ExprLocalVariable{Variable: 1}},                                         // [2] &position
+			{Kind: ir.ExprCompose{Type: vec4Handle}},                                          // [3] vec4(...)
+			{Kind: ir.ExprLoad{Pointer: ir.ExpressionHandle(0)}},                              // [4] load color
+			{Kind: ir.ExprLoad{Pointer: ir.ExpressionHandle(2)}},                              // [5] load position
+			{Kind: ir.ExprCompose{Type: vec4Handle, Components: []ir.ExpressionHandle{4, 5}}}, // [6]
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec3Handle}, {Handle: &vec3Handle},
+			{Handle: &vec4Handle}, {Handle: &vec4Handle},
+			{Handle: &vec3Handle}, {Handle: &vec4Handle},
+			{Handle: &vec4Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtStore{Pointer: ir.ExpressionHandle(0), Value: ir.ExpressionHandle(1)}},
+			{Kind: ir.StmtStore{Pointer: ir.ExpressionHandle(2), Value: ir.ExpressionHandle(3)}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 7}}},
+			{Kind: ir.StmtReturn{Value: &retH}},
+		},
+	}
+
+	irMod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	result := analyzeSingleStoreLocals(&fn, irMod)
+	if _, ok := result[0]; !ok {
+		t.Error("expected local var 0 (vec3 color) to be single-store promotable")
+	}
+	if _, ok := result[1]; !ok {
+		t.Error("expected local var 1 (vec4 position) to be single-store promotable")
+	}
+}
+
+// TestSingleStoreLocalNotInLoop verifies that locals stored inside control
+// flow are NOT identified as single-store promotable.
+func TestSingleStoreLocalNotInLoop(t *testing.T) {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+
+	fn := ir.Function{
+		Name: "main",
+		LocalVars: []ir.LocalVariable{
+			{Name: "x", Type: f32Handle},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprLocalVariable{Variable: 0}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &f32Handle}, {Handle: &f32Handle},
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtIf{
+				Condition: ir.ExpressionHandle(1),
+				Accept: []ir.Statement{
+					{Kind: ir.StmtStore{Pointer: ir.ExpressionHandle(0), Value: ir.ExpressionHandle(1)}},
+				},
+			}},
+		},
+	}
+
+	result := analyzeSingleStoreLocals(&fn, irMod)
+	if _, ok := result[0]; ok {
+		t.Error("expected local var 0 NOT to be promotable when stored inside an if block")
+	}
+	_ = vec4Handle
 }
