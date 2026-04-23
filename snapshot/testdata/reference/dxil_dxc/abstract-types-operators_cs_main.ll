@@ -123,14 +123,14 @@ define void @main() {
   ret void
 }
 
-; Function Attrs: nounwind readnone
-declare i32 @dx.op.threadIdInGroup.i32(i32, i32) #A0
-
 ; Function Attrs: noduplicate nounwind
-declare void @dx.op.barrier(i32, i32) #A1
+declare void @dx.op.barrier(i32, i32) #A0
 
-attributes #A0 = { nounwind readnone }
-attributes #A1 = { noduplicate nounwind }
+; Function Attrs: nounwind readnone
+declare i32 @dx.op.threadIdInGroup.i32(i32, i32) #A1
+
+attributes #A0 = { noduplicate nounwind }
+attributes #A1 = { nounwind readnone }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

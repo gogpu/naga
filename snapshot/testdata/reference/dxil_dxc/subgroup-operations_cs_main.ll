@@ -89,45 +89,45 @@ define void @main() {
   ret void
 }
 
+; Function Attrs: nounwind
+declare i32 @dx.op.quadOp.i32(i32, i32, i8) #A0
+
+; Function Attrs: nounwind
+declare i32 @dx.op.quadReadLaneAt.i32(i32, i32, i32) #A0
+
+; Function Attrs: nounwind
+declare %dx.types.fouri32 @dx.op.waveActiveBallot(i32, i1) #A0
+
+; Function Attrs: nounwind
+declare i32 @dx.op.waveActiveBit.i32(i32, i32, i8) #A0
+
+; Function Attrs: nounwind
+declare i32 @dx.op.waveActiveOp.i32(i32, i32, i8, i8) #A0
+
+; Function Attrs: nounwind
+declare i1 @dx.op.waveAllTrue(i32, i1) #A0
+
+; Function Attrs: nounwind
+declare i1 @dx.op.waveAnyTrue(i32, i1) #A0
+
 ; Function Attrs: nounwind readnone
-declare i32 @dx.op.waveGetLaneCount(i32) #A0
+declare i32 @dx.op.waveGetLaneCount(i32) #A1
 
 ; Function Attrs: nounwind readonly
-declare i32 @dx.op.waveGetLaneIndex(i32) #A1
+declare i32 @dx.op.waveGetLaneIndex(i32) #A2
 
 ; Function Attrs: nounwind
-declare %dx.types.fouri32 @dx.op.waveActiveBallot(i32, i1) #A2
+declare i32 @dx.op.wavePrefixOp.i32(i32, i32, i8, i8) #A0
 
 ; Function Attrs: nounwind
-declare i1 @dx.op.waveAnyTrue(i32, i1) #A2
+declare i32 @dx.op.waveReadLaneAt.i32(i32, i32, i32) #A0
 
 ; Function Attrs: nounwind
-declare i1 @dx.op.waveAllTrue(i32, i1) #A2
+declare i32 @dx.op.waveReadLaneFirst.i32(i32, i32) #A0
 
-; Function Attrs: nounwind
-declare i32 @dx.op.waveReadLaneFirst.i32(i32, i32) #A2
-
-; Function Attrs: nounwind
-declare i32 @dx.op.wavePrefixOp.i32(i32, i32, i8, i8) #A2
-
-; Function Attrs: nounwind
-declare i32 @dx.op.waveActiveBit.i32(i32, i32, i8) #A2
-
-; Function Attrs: nounwind
-declare i32 @dx.op.waveActiveOp.i32(i32, i32, i8, i8) #A2
-
-; Function Attrs: nounwind
-declare i32 @dx.op.quadReadLaneAt.i32(i32, i32, i32) #A2
-
-; Function Attrs: nounwind
-declare i32 @dx.op.waveReadLaneAt.i32(i32, i32, i32) #A2
-
-; Function Attrs: nounwind
-declare i32 @dx.op.quadOp.i32(i32, i32, i8) #A2
-
-attributes #A0 = { nounwind readnone }
-attributes #A1 = { nounwind readonly }
-attributes #A2 = { nounwind }
+attributes #A0 = { nounwind }
+attributes #A1 = { nounwind readnone }
+attributes #A2 = { nounwind readonly }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

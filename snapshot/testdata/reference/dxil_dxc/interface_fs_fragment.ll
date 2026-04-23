@@ -90,9 +90,6 @@ define void @fragment() {
 }
 
 ; Function Attrs: nounwind readnone
-declare i32 @dx.op.sampleIndex.i32(i32) #A0
-
-; Function Attrs: nounwind readnone
 declare i32 @dx.op.coverage.i32(i32) #A0
 
 ; Function Attrs: nounwind readnone
@@ -100,6 +97,9 @@ declare float @dx.op.loadInput.f32(i32, i32, i32, i8, i32) #A0
 
 ; Function Attrs: nounwind readnone
 declare i32 @dx.op.loadInput.i32(i32, i32, i32, i8, i32) #A0
+
+; Function Attrs: nounwind readnone
+declare i32 @dx.op.sampleIndex.i32(i32) #A0
 
 ; Function Attrs: nounwind
 declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A1

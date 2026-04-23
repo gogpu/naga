@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -420,8 +421,20 @@ func normalizeDxilDump(s string) string {
 	// Normalize resource name strings in dx.resources metadata (see dxilResNameRE).
 	s = dxilResNameRE.ReplaceAllString(s, `${1}!""${2}`)
 
+	// Sort function declarations into a canonical order so that DXC-internal
+	// lowering pass scheduling (which controls the order intrinsic declarations
+	// appear in the output) does not pollute the diff. Declaration order has no
+	// runtime semantic effect — the actual function resolution is by name, and
+	// the attribute groups themselves are compared independently.
+	s = sortFuncDeclarations(s)
+
 	s = renumberMatches(s, dxilLocalRegRE, "%R")
 	s = renumberMatches(s, dxilAttrIDRE, "#A")
+
+	// Sort "attributes #AN = { ... }" lines into canonical order by ID so
+	// that the declaration-order normalization above doesn't leave residual
+	// diffs in the attribute definition block at the end of the file.
+	s = sortAttrDefinitions(s)
 	s = renumberMatches(s, dxilMetadataRE, "!M")
 	s = renameStructs(s, dxilStructRE)
 
@@ -478,6 +491,143 @@ func renameStructs(s string, re *regexp.Regexp) string {
 	})
 }
 
+// sortAttrDefinitions sorts "attributes #AN = { ... }" lines into canonical
+// order by their numeric ID. After declaration sorting and attribute
+// renumbering, the attribute definition block at the end of the file may
+// have its entries in a different order between DXC and naga. Since the
+// attribute IDs have already been renumbered, sorting by ID gives a
+// deterministic canonical order.
+func sortAttrDefinitions(s string) string {
+	lines := strings.Split(s, "\n")
+	firstIdx := -1
+	lastIdx := -1
+	var attrLines []string
+	for i, ln := range lines {
+		if strings.HasPrefix(ln, "attributes #") {
+			if firstIdx == -1 {
+				firstIdx = i
+			}
+			lastIdx = i
+			attrLines = append(attrLines, ln)
+		}
+	}
+	if len(attrLines) < 2 {
+		return s
+	}
+	sort.Strings(attrLines)
+	result := make([]string, 0, len(lines))
+	result = append(result, lines[:firstIdx]...)
+	result = append(result, attrLines...)
+	result = append(result, lines[lastIdx+1:]...)
+	return strings.Join(result, "\n")
+}
+
+// sortFuncDeclarations sorts LLVM-IR function declaration blocks into a
+// canonical alphabetical order by function name. Each declaration consists
+// of an optional "; Function Attrs: ..." comment immediately preceding a
+// "declare ..." line. DXC orders declarations according to its internal
+// HLSL lowering pass schedule, which varies across shaders and cannot be
+// reproduced by a third-party emitter. Declaration order has no runtime
+// semantic effect — function calls resolve by name/value-ID, and attribute
+// groups are independently compared. Sorting into a canonical order removes
+// this source of noise from the parity diff while preserving all other
+// semantically meaningful content (signatures, dx.op call patterns, metadata).
+func sortFuncDeclarations(s string) string {
+	lines := strings.Split(s, "\n")
+	// Collect declaration pairs: each pair is (attrs-comment, declare-line).
+	type declPair struct {
+		attrLine    string // "; Function Attrs: ..." or empty
+		declareLine string // "declare ..."
+		funcName    string // extracted for sorting
+	}
+	var pairs []declPair
+	// Track positions of the first and last declaration in the line array.
+	firstIdx := -1
+	lastIdx := -1
+
+	i := 0
+	for i < len(lines) {
+		trim := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trim, "; Function Attrs:") && i+1 < len(lines) {
+			nextTrim := strings.TrimSpace(lines[i+1])
+			if strings.HasPrefix(nextTrim, "declare ") {
+				if firstIdx == -1 {
+					firstIdx = i
+				}
+				// Extract function name from declare line for sorting.
+				name := extractDeclFuncName(lines[i+1])
+				pairs = append(pairs, declPair{
+					attrLine:    lines[i],
+					declareLine: lines[i+1],
+					funcName:    name,
+				})
+				lastIdx = i + 1
+				i += 2
+				continue
+			}
+		}
+		if strings.HasPrefix(trim, "declare ") {
+			if firstIdx == -1 {
+				firstIdx = i
+			}
+			name := extractDeclFuncName(lines[i])
+			pairs = append(pairs, declPair{
+				declareLine: lines[i],
+				funcName:    name,
+			})
+			lastIdx = i
+			i++
+			continue
+		}
+		i++
+	}
+
+	if len(pairs) < 2 {
+		return s // 0 or 1 declaration — nothing to sort
+	}
+
+	// Sort pairs alphabetically by function name.
+	sort.Slice(pairs, func(a, b int) bool {
+		return pairs[a].funcName < pairs[b].funcName
+	})
+
+	// Rebuild the declaration section. The declaration block spans from
+	// firstIdx to lastIdx (inclusive), with possible blank lines between
+	// pairs. Rebuild with a blank line between each sorted pair.
+	var declLines []string
+	for j, p := range pairs {
+		if j > 0 {
+			declLines = append(declLines, "")
+		}
+		if p.attrLine != "" {
+			declLines = append(declLines, p.attrLine)
+		}
+		declLines = append(declLines, p.declareLine)
+	}
+
+	// Replace the declaration section in the original lines.
+	result := make([]string, 0, len(lines))
+	result = append(result, lines[:firstIdx]...)
+	result = append(result, declLines...)
+	result = append(result, lines[lastIdx+1:]...)
+	return strings.Join(result, "\n")
+}
+
+// extractDeclFuncName extracts the function name from a "declare" line.
+// Example: "declare i32 @dx.op.atomicBinOp.i32(...) #0" -> "dx.op.atomicBinOp.i32"
+func extractDeclFuncName(line string) string {
+	idx := strings.Index(line, "@")
+	if idx < 0 {
+		return line
+	}
+	rest := line[idx+1:]
+	end := strings.IndexAny(rest, "(")
+	if end < 0 {
+		return rest
+	}
+	return rest[:end]
+}
+
 // simpleDiff returns a unified-style diff for golden vs actual line strings.
 // Not a full diff algorithm — just shows the first few mismatched lines with
 // surrounding context, which is enough for triage. For full diff use external tools.
@@ -507,4 +657,139 @@ func simpleDiff(golden, actual string) string {
 		fmt.Fprintf(&b, "  ... and more (truncated)\n")
 	}
 	return b.String()
+}
+
+// --- Unit tests for normalizer helpers ---
+
+func TestSortFuncDeclarations(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "single declaration unchanged",
+			in: `define void @main() {
+  ret void
+}
+
+; Function Attrs: nounwind
+declare void @dx.op.bufferStore.i32(i32) #0
+
+attributes #0 = { nounwind }`,
+			want: `define void @main() {
+  ret void
+}
+
+; Function Attrs: nounwind
+declare void @dx.op.bufferStore.i32(i32) #0
+
+attributes #0 = { nounwind }`,
+		},
+		{
+			name: "two declarations sorted alphabetically",
+			in: `}
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32) #1
+
+; Function Attrs: nounwind
+declare void @dx.op.bufferStore.i32(i32) #0
+
+attributes #0 = { nounwind }`,
+			want: `}
+
+; Function Attrs: nounwind
+declare void @dx.op.bufferStore.i32(i32) #0
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32) #1
+
+attributes #0 = { nounwind }`,
+		},
+		{
+			name: "three declarations sorted",
+			in: `}
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32) #0
+
+; Function Attrs: nounwind
+declare i32 @dx.op.atomicBinOp.i32(i32) #1
+
+; Function Attrs: nounwind readonly
+declare %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(i32) #0
+
+attributes #0 = { nounwind readonly }`,
+			want: `}
+
+; Function Attrs: nounwind
+declare i32 @dx.op.atomicBinOp.i32(i32) #1
+
+; Function Attrs: nounwind readonly
+declare %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(i32) #0
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32) #0
+
+attributes #0 = { nounwind readonly }`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sortFuncDeclarations(tt.in)
+			if got != tt.want {
+				t.Errorf("sortFuncDeclarations() mismatch:\ngot:\n%s\nwant:\n%s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSortAttrDefinitions(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "already sorted",
+			in:   "attributes #A0 = { nounwind }\nattributes #A1 = { nounwind readonly }",
+			want: "attributes #A0 = { nounwind }\nattributes #A1 = { nounwind readonly }",
+		},
+		{
+			name: "reverse order",
+			in:   "attributes #A1 = { nounwind readonly }\nattributes #A0 = { nounwind }",
+			want: "attributes #A0 = { nounwind }\nattributes #A1 = { nounwind readonly }",
+		},
+		{
+			name: "single attr unchanged",
+			in:   "attributes #A0 = { nounwind }",
+			want: "attributes #A0 = { nounwind }",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sortAttrDefinitions(tt.in)
+			if got != tt.want {
+				t.Errorf("sortAttrDefinitions() mismatch:\ngot:\n%s\nwant:\n%s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractDeclFuncName(t *testing.T) {
+	tests := []struct {
+		line string
+		want string
+	}{
+		{"declare void @dx.op.bufferStore.i32(i32) #0", "dx.op.bufferStore.i32"},
+		{"declare %dx.types.Handle @dx.op.createHandle(i32) #1", "dx.op.createHandle"},
+		{"declare i32 @dx.op.atomicBinOp.i32(i32) #0", "dx.op.atomicBinOp.i32"},
+	}
+	for _, tt := range tests {
+		got := extractDeclFuncName(tt.line)
+		if got != tt.want {
+			t.Errorf("extractDeclFuncName(%q) = %q, want %q", tt.line, got, tt.want)
+		}
+	}
 }

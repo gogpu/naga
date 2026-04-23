@@ -51,14 +51,14 @@ define void @main() {
   ret void
 }
 
-; Function Attrs: nounwind
-declare void @dx.op.textureStore.f32(i32, %dx.types.Handle, i32, i32, i32, float, float, float, float, i8) #A0
-
 ; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A0
 
-attributes #A0 = { nounwind }
-attributes #A1 = { nounwind readonly }
+; Function Attrs: nounwind
+declare void @dx.op.textureStore.f32(i32, %dx.types.Handle, i32, i32, i32, float, float, float, float, i8) #A1
+
+attributes #A0 = { nounwind readonly }
+attributes #A1 = { nounwind }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

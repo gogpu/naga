@@ -165,28 +165,28 @@ define void @cs_main() {
   ret void
 }
 
-; Function Attrs: nounwind readnone
-declare i32 @dx.op.threadIdInGroup.i32(i32, i32) #A0
+; Function Attrs: nounwind
+declare i32 @dx.op.atomicBinOp.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32) #A0
+
+; Function Attrs: nounwind
+declare i32 @dx.op.atomicCompareExchange.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32) #A0
 
 ; Function Attrs: noduplicate nounwind
 declare void @dx.op.barrier(i32, i32) #A1
 
 ; Function Attrs: nounwind
-declare i32 @dx.op.atomicBinOp.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32) #A2
-
-; Function Attrs: nounwind
-declare i32 @dx.op.atomicCompareExchange.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32) #A2
+declare void @dx.op.bufferStore.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32, i32, i8) #A0
 
 ; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A3
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A2
 
-; Function Attrs: nounwind
-declare void @dx.op.bufferStore.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32, i32, i8) #A2
+; Function Attrs: nounwind readnone
+declare i32 @dx.op.threadIdInGroup.i32(i32, i32) #A3
 
-attributes #A0 = { nounwind readnone }
+attributes #A0 = { nounwind }
 attributes #A1 = { noduplicate nounwind }
-attributes #A2 = { nounwind }
-attributes #A3 = { nounwind readonly }
+attributes #A2 = { nounwind readonly }
+attributes #A3 = { nounwind readnone }
 
 !llvm.ident = !{!M1}
 !dx.version = !{!M2}

@@ -101,10 +101,10 @@ define void @vert_main() {
 }
 
 ; Function Attrs: nounwind
-declare void @dx.op.storeOutput.i32(i32, i32, i32, i8, i32) #A0
+declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A0
 
 ; Function Attrs: nounwind
-declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A0
+declare void @dx.op.storeOutput.i32(i32, i32, i32, i8, i32) #A0
 
 attributes #A0 = { nounwind }
 

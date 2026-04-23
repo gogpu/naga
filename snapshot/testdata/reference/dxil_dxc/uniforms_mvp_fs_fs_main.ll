@@ -86,13 +86,13 @@ define void @fs_main() {
 }
 
 ; Function Attrs: nounwind readnone
+declare float @dx.op.dot3.f32(i32, float, float, float, float, float, float) #A0
+
+; Function Attrs: nounwind readnone
 declare float @dx.op.loadInput.f32(i32, i32, i32, i8, i32) #A0
 
 ; Function Attrs: nounwind
 declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A1
-
-; Function Attrs: nounwind readnone
-declare float @dx.op.dot3.f32(i32, float, float, float, float, float, float) #A0
 
 ; Function Attrs: nounwind readnone
 declare float @dx.op.unary.f32(i32, float) #A0

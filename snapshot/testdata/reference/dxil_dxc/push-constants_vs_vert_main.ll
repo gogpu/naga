@@ -94,24 +94,24 @@ define void @vert_main() {
   ret void
 }
 
-; Function Attrs: nounwind readnone
-declare float @dx.op.loadInput.f32(i32, i32, i32, i8, i32) #A0
+; Function Attrs: nounwind readonly
+declare %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32, %dx.types.Handle, i32) #A0
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A0
 
 ; Function Attrs: nounwind readnone
-declare i32 @dx.op.loadInput.i32(i32, i32, i32, i8, i32) #A0
+declare float @dx.op.loadInput.f32(i32, i32, i32, i8, i32) #A1
+
+; Function Attrs: nounwind readnone
+declare i32 @dx.op.loadInput.i32(i32, i32, i32, i8, i32) #A1
 
 ; Function Attrs: nounwind
-declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A1
+declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A2
 
-; Function Attrs: nounwind readonly
-declare %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32, %dx.types.Handle, i32) #A2
-
-; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A2
-
-attributes #A0 = { nounwind readnone }
-attributes #A1 = { nounwind }
-attributes #A2 = { nounwind readonly }
+attributes #A0 = { nounwind readonly }
+attributes #A1 = { nounwind readnone }
+attributes #A2 = { nounwind }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

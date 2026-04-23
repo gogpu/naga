@@ -107,17 +107,17 @@ define void @levels_queries() {
   ret void
 }
 
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A0
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Dimensions @dx.op.getDimensions(i32, %dx.types.Handle, i32) #A0
+
 ; Function Attrs: nounwind
-declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A0
+declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A1
 
-; Function Attrs: nounwind readonly
-declare %dx.types.Dimensions @dx.op.getDimensions(i32, %dx.types.Handle, i32) #A1
-
-; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
-
-attributes #A0 = { nounwind }
-attributes #A1 = { nounwind readonly }
+attributes #A0 = { nounwind readonly }
+attributes #A1 = { nounwind }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

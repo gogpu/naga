@@ -1372,6 +1372,11 @@ func (e *Emitter) emitMetadata(ep *ir.EntryPoint, kind module.ShaderKind) error 
 	mdSM := e.mod.AddMetadataTuple([]*module.MetadataNode{mdKind, mdSMMajor, mdSMMinor})
 	e.mod.AddNamedMetadata("dx.shaderModel", []*module.MetadataNode{mdSM})
 
+	// Emit resource metadata before viewIdState — DXC outputs !dx.resources
+	// before !dx.viewIdState in the named metadata section. Matching this
+	// order ensures metadata IDs renumber identically after normalization.
+	mdResources := e.emitResourceMetadata()
+
 	// dx.viewIdState — required by the DXIL validator for graphics stages
 	// AND by the D3D12 runtime format validator for CreateGraphicsPipelineState.
 	// IDxcValidator does not demand it, so lack of emission was hidden until
@@ -1380,26 +1385,6 @@ func (e *Emitter) emitMetadata(ep *ir.EntryPoint, kind module.ShaderKind) error 
 	// Mesh shaders use their own variant (emitViewIDState). Every other
 	// graphics stage (VS/PS/HS/DS/GS) must emit the conservative aggregate
 	// form via emitGraphicsViewIDState.
-	//
-	// Open follow-up (BUG-DXIL-018 phase 3): 34 of 170 corpus shaders fail
-	// `dxc -dumpbin` with 0x80aa0018 DXC_E_GENERAL_INTERNAL_ERROR after
-	// wiring this call. Session 12 reference-read (tmp/session12_reference_
-	// emission_order.md) confirms:
-	//   • Serialization order is Mesa-parity (CONSTANTS_BLOCK before
-	//     METADATA_BLOCK before FUNCTION_BLOCK). Constants appended to
-	//     mod.Constants after emitFunctionBody still land in the correct
-	//     bitcode block because Serialize(mod) is a later pass.
-	//   • The aggregate [3 x i32] form itself parses fine — triangle VS
-	//     and `fs_extra` etc. pass with the exact same aggregate shape.
-	//   • What fails is a subset where the entry point has input signature
-	//     elements; the root cause is NOT viewIdState aggregate ordering
-	//     but something orthogonal in those 34 shaders' input metadata.
-	//     Likely candidates: CST_CODE_AGGREGATE (code 7) producing
-	//     ConstantArray where DXC paths downstream expect
-	//     ConstantDataArray (code 22 / CST_CODE_DATA), or an unrelated
-	//     interaction with MSAA/interpolation flags in those shaders.
-	// The call stays wired — removing it trades parse-gate failures for
-	// runtime failures on ALL graphics shaders, strictly worse.
 	switch kind {
 	case module.MeshShader:
 		e.emitViewIDState(ep)
@@ -1407,9 +1392,6 @@ func (e *Emitter) emitMetadata(ep *ir.EntryPoint, kind module.ShaderKind) error 
 		module.DomainShader, module.GeometryShader:
 		e.emitGraphicsViewIDState(ep)
 	}
-
-	// Emit resource metadata if we have any resources.
-	mdResources := e.emitResourceMetadata()
 
 	// Build shader properties (tag-value pairs) for the entry point.
 	// Tag 0 = ShaderFlags (i64). Tag 4 = NumThreads (compute/mesh).
@@ -2942,18 +2924,17 @@ func (e *Emitter) emitGraphicsViewIDState(ep *ir.EntryPoint) {
 	// still matches what D3D12 runtime expects for such shapes.
 	const uintBits = 32
 	outUINTs := (outComps + uintBits - 1) / uintBits
-	if outUINTs < 1 {
-		outUINTs = 1
-	}
+	// DXC's RoundUpToUINT(0) = 0 — when there are no output scalars the
+	// contribution section is empty (NumInputs * 0 = 0 dwords). Do NOT
+	// pad outUINTs to 1 here; that inflates the array from [2 x i32] to
+	// [2+inComps x i32] with trailing zeros, mismatching the DXC golden.
+	// Reference: ComputeViewIdState.cpp:208 RoundUpToUINT, line 264-268.
 	totalUINTs := 2 + uint64(inComps)*uint64(outUINTs)
 	values := make([]uint64, totalUINTs)
 	values[0] = uint64(inComps)
 	values[1] = uint64(outComps)
 
-	// Run the dataflow analyzer when we have a real signature. When
-	// inComps or outComps was padded from 0 to 1 above we skip the
-	// analysis entirely — the pad exists only to keep the array non-
-	// degenerate for downstream consumers that assume >= 2 entries.
+	// Run the dataflow analyzer when we have both inputs and outputs.
 	var deps *viewid.Deps
 	if len(inElems) > 0 && len(outElems) > 0 {
 		deps = viewid.Analyze(e.ir, ep, inElems, outElems)
@@ -3222,6 +3203,26 @@ func (e *Emitter) getFloatConstID(v float64) int {
 func (e *Emitter) isConstValueID(id int) bool {
 	_, ok := e.constMap[id]
 	return ok
+}
+
+// tryNegateFloatConst checks whether valueID refers to a non-zero float
+// constant and, if so, returns a new constant with the negated value.
+// Used for LLVM InstCombine canonicalization: fsub(a, +C) -> fadd(a, -C).
+func (e *Emitter) tryNegateFloatConst(valueID int) (int, bool) {
+	c, ok := e.constMap[valueID]
+	if !ok || c.IsUndef || c.IsAggregate {
+		return 0, false
+	}
+	// Only negate non-zero float constants (zero stays as fsub).
+	if c.ConstType == nil || c.FloatValue == 0 {
+		return 0, false
+	}
+	// Verify it's a float type.
+	if c.ConstType.Kind != module.TypeFloat {
+		return 0, false
+	}
+	negated := e.addFloatConstID(c.ConstType, -c.FloatValue)
+	return negated, true
 }
 
 // addFloatConstID adds a floating-point constant and returns its emitter value ID.

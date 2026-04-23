@@ -2354,14 +2354,11 @@ func (e *Emitter) buildCBVMetadata(res *resourceInfo) *module.MetadataNode {
 	common := e.fillResourceMetadataCommon(res, structType)
 	i32Ty := e.mod.GetIntType(32)
 
-	// fields[6] = constant buffer size in bytes.
-	// Mesa: 4 * size (where size = number of vec4 registers).
-	// Reference: Mesa emit_cbv() line ~1557: emit_cbv_metadata(..., 4 * size)
-	cbvSizeBytes := e.computeCBVVec4Count(res) * 4 // each vec4 register = 4 floats = 16 bytes... wait
-	// Actually Mesa passes 4 * size where size = num float elements in the array.
-	// The array is float[size], so total = 4 * size bytes.
-	// But our computeCBVVec4Count returns the array size (num floats).
-	// So bytes = 4 * numFloats = 4 * computeCBVVec4Count.
+	// fields[6] = constant buffer size in bytes. DXC uses the actual
+	// struct size (not rounded to vec4 boundary). For push-constants
+	// with a single f32, this is 4 (not 16). computeCBVSizeBytes
+	// returns the raw struct byte count.
+	cbvSizeBytes := e.computeCBVSizeBytes(res)
 	mdSize := e.mod.AddMetadataValue(i32Ty, e.getIntConst(int64(cbvSizeBytes)))
 
 	fields := []*module.MetadataNode{
@@ -2420,6 +2417,20 @@ func (e *Emitter) addMetadataI1(value bool) *module.MetadataNode {
 	}
 	c := e.mod.AddIntConst(i1Ty, v)
 	return e.mod.AddMetadataValue(i1Ty, c)
+}
+
+// computeCBVSizeBytes returns the actual byte size of the CBV struct, without
+// rounding to vec4 boundary. DXC uses this value directly in the resource
+// metadata field[6]. For a struct with a single f32, this returns 4.
+func (e *Emitter) computeCBVSizeBytes(res *resourceInfo) int {
+	if int(res.typeHandle) >= len(e.ir.Types) {
+		return 16 // default: 1 vec4 register
+	}
+	sizeBytes := e.computeIRTypeSizeBytes(e.ir.Types[res.typeHandle].Inner)
+	if sizeBytes == 0 {
+		return 16 // default
+	}
+	return int(sizeBytes)
 }
 
 // computeCBVVec4Count returns the number of float elements in the CBV array
@@ -2488,13 +2499,17 @@ func (e *Emitter) computeIRTypeSizeBytes(inner ir.TypeInner) uint32 {
 }
 
 // DXIL component type constants.
-// Reference: Mesa dxil_enums.h enum dxil_component_type line ~170
+// Reference: DXC include/dxc/DXIL/DxilConstants.h enum ComponentType, line ~164
 const (
-	dxilCompTypeF32 = 9  // DXIL_COMP_TYPE_F32
-	dxilCompTypeI32 = 4  // DXIL_COMP_TYPE_I32
-	dxilCompTypeU32 = 5  // DXIL_COMP_TYPE_U32
-	dxilCompTypeF16 = 8  // DXIL_COMP_TYPE_F16
-	dxilCompTypeF64 = 10 // DXIL_COMP_TYPE_F64
+	dxilCompTypeI32      = 4  // DXIL_COMP_TYPE_I32
+	dxilCompTypeU32      = 5  // DXIL_COMP_TYPE_U32
+	dxilCompTypeF16      = 8  // DXIL_COMP_TYPE_F16
+	dxilCompTypeF32      = 9  // DXIL_COMP_TYPE_F32
+	dxilCompTypeF64      = 10 // DXIL_COMP_TYPE_F64
+	dxilCompTypeSNormF16 = 11 // DXIL_COMP_TYPE_SNORM_F16
+	dxilCompTypeUNormF16 = 12 // DXIL_COMP_TYPE_UNORM_F16
+	dxilCompTypeSNormF32 = 13 // DXIL_COMP_TYPE_SNORM_F32
+	dxilCompTypeUNormF32 = 14 // DXIL_COMP_TYPE_UNORM_F32
 )
 
 // getResourceComponentType returns the DXIL component type for a resource.
@@ -2526,12 +2541,27 @@ func (e *Emitter) getResourceComponentType(res *resourceInfo) int {
 		case ir.ImageClassDepth:
 			return dxilCompTypeF32
 		case ir.ImageClassStorage:
-			return e.sampledKindToDxilCompType(img.StorageFormat.Scalar().Kind)
+			return e.storageFormatToDxilCompType(img.StorageFormat)
 		default:
 			return e.sampledKindToDxilCompType(img.SampledKind)
 		}
 	}
 	return dxilCompTypeF32
+}
+
+// storageFormatToDxilCompType maps an IR StorageFormat to DXIL ComponentType,
+// distinguishing unorm/snorm/float. DXC marks unorm storage textures as
+// UNormF32 (14) and snorm as SNormF32 (13) in the extended resource properties
+// metadata. Getting this wrong causes dxc -dumpbin to show "UAV f32" instead
+// of "UAVunorm_f32" in the Resource Bindings table and mismatches the metadata.
+func (e *Emitter) storageFormatToDxilCompType(sf ir.StorageFormat) int {
+	if sf.IsUnorm() {
+		return dxilCompTypeUNormF32
+	}
+	if sf.IsSnorm() {
+		return dxilCompTypeSNormF32
+	}
+	return e.sampledKindToDxilCompType(sf.Scalar().Kind)
 }
 
 // sampledKindToDxilCompType converts an IR ScalarKind to DXIL component type.

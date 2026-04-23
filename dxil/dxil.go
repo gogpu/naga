@@ -2832,9 +2832,14 @@ func reachableUsesInt64Buffer(m *ir.Module, reachable map[ir.GlobalVariableHandl
 	return false
 }
 
-// compositeHasMoreThanFour returns true when the type's flattened scalar
-// component count exceeds 4 — the threshold above which our emitUAVLoad
-// switches from single bufferLoad to multi-call rawBufferLoad.
+// compositeHasMoreThanFour returns true when an individual element access on
+// this type would require more than 4 scalar components — the threshold
+// above which emitUAVLoad switches from bufferLoad to rawBufferLoad.
+//
+// The check considers per-element component counts, not total array extent,
+// because storage buffer accesses are per-element (arr[i] loads one element,
+// not the whole array). This matches DXC behavior: a runtime array<u32> uses
+// bufferLoad at SM 6.0, not rawBufferLoad at SM 6.2.
 func compositeHasMoreThanFour(m *ir.Module, inner ir.TypeInner) bool {
 	switch t := inner.(type) {
 	case ir.VectorType:
@@ -2842,12 +2847,8 @@ func compositeHasMoreThanFour(m *ir.Module, inner ir.TypeInner) bool {
 	case ir.MatrixType:
 		return int(t.Columns)*int(t.Rows) > 4
 	case ir.ArrayType:
-		if t.Size.Constant != nil && *t.Size.Constant > 4 {
-			return true
-		}
-		base := m.Types[t.Base].Inner
-		// For arrays of compounds the per-element check is enough.
-		return compositeHasMoreThanFour(m, base)
+		// Per-element access: check the base element type, not array extent.
+		return compositeHasMoreThanFour(m, m.Types[t.Base].Inner)
 	case ir.StructType:
 		total := 0
 		for _, mb := range t.Members {
@@ -2862,7 +2863,15 @@ func compositeHasMoreThanFour(m *ir.Module, inner ir.TypeInner) bool {
 }
 
 // memberScalarCount returns the flattened scalar count of a struct member's
-// type. Conservative — recursive structs / runtime arrays count as >4.
+// type for the purpose of determining whether individual element accesses
+// will require rawBufferLoad (> 4 components per access).
+//
+// For runtime-sized arrays, what matters is the per-element component count
+// (since the emitter accesses elements individually), not the array extent.
+// A runtime array<u32> is accessed one u32 at a time (1 component),
+// so bufferLoad suffices and SM 6.0 is adequate. DXC uses the same logic:
+// the pointers.wgsl shader with DynamicArray{arr: array<u32>} compiles
+// to SM 6.0 with bufferLoad/bufferStore, not rawBuffer variants.
 func memberScalarCount(m *ir.Module, inner ir.TypeInner) int {
 	switch t := inner.(type) {
 	case ir.ScalarType:
@@ -2872,12 +2881,16 @@ func memberScalarCount(m *ir.Module, inner ir.TypeInner) int {
 	case ir.MatrixType:
 		return int(t.Columns) * int(t.Rows)
 	case ir.ArrayType:
-		if t.Size.Constant == nil {
-			return 5 // runtime array — treat as "more than four"
-		}
-		return int(*t.Size.Constant) * memberScalarCount(m, m.Types[t.Base].Inner)
+		// For both fixed and runtime arrays, the SM upgrade decision
+		// depends on the per-element component count, because the emitter
+		// accesses array elements individually via bufferLoad/bufferStore.
+		return memberScalarCount(m, m.Types[t.Base].Inner)
 	case ir.StructType:
-		return 5 // nested struct — treat as "more than four"
+		total := 0
+		for _, mb := range t.Members {
+			total += memberScalarCount(m, m.Types[mb.Type].Inner)
+		}
+		return total
 	}
 	return 1
 }

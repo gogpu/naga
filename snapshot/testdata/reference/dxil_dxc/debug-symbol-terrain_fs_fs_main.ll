@@ -173,29 +173,29 @@ define void @fs_main() {
 }
 
 ; Function Attrs: nounwind readnone
-declare float @dx.op.loadInput.f32(i32, i32, i32, i8, i32) #A0
+declare float @dx.op.binary.f32(i32, float, float) #A0
 
-; Function Attrs: nounwind
-declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A1
+; Function Attrs: nounwind readonly
+declare %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32, %dx.types.Handle, i32) #A1
 
-; Function Attrs: nounwind readnone
-declare float @dx.op.unary.f32(i32, float) #A0
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
 
 ; Function Attrs: nounwind readnone
 declare float @dx.op.dot3.f32(i32, float, float, float, float, float, float) #A0
 
 ; Function Attrs: nounwind readnone
-declare float @dx.op.binary.f32(i32, float, float) #A0
+declare float @dx.op.loadInput.f32(i32, i32, i32, i8, i32) #A0
 
-; Function Attrs: nounwind readonly
-declare %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32, %dx.types.Handle, i32) #A2
+; Function Attrs: nounwind
+declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A2
 
-; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A2
+; Function Attrs: nounwind readnone
+declare float @dx.op.unary.f32(i32, float) #A0
 
 attributes #A0 = { nounwind readnone }
-attributes #A1 = { nounwind }
-attributes #A2 = { nounwind readonly }
+attributes #A1 = { nounwind readonly }
+attributes #A2 = { nounwind }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

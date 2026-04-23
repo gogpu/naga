@@ -59,13 +59,13 @@ define void @main() {
 }
 
 ; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A0
-
-; Function Attrs: nounwind readonly
 declare %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(i32, %dx.types.Handle, i32, i32) #A0
 
 ; Function Attrs: nounwind
 declare void @dx.op.bufferStore.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32, i32, i8) #A1
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A0
 
 attributes #A0 = { nounwind readonly }
 attributes #A1 = { nounwind }

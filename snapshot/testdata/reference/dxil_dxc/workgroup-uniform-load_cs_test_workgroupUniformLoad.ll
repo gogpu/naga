@@ -201,20 +201,20 @@ define void @test_workgroupUniformLoad() {
   ret void
 }
 
-; Function Attrs: nounwind readnone
-declare i32 @dx.op.groupId.i32(i32, i32) #A0
-
-; Function Attrs: nounwind readnone
-declare i32 @dx.op.threadIdInGroup.i32(i32, i32) #A0
-
 ; Function Attrs: noduplicate nounwind
-declare void @dx.op.barrier(i32, i32) #A1
+declare void @dx.op.barrier(i32, i32) #A0
 
 ; Function Attrs: nounwind readnone
-declare i32 @dx.op.binary.i32(i32, i32, i32) #A0
+declare i32 @dx.op.binary.i32(i32, i32, i32) #A1
 
-attributes #A0 = { nounwind readnone }
-attributes #A1 = { noduplicate nounwind }
+; Function Attrs: nounwind readnone
+declare i32 @dx.op.groupId.i32(i32, i32) #A1
+
+; Function Attrs: nounwind readnone
+declare i32 @dx.op.threadIdInGroup.i32(i32, i32) #A1
+
+attributes #A0 = { noduplicate nounwind }
+attributes #A1 = { nounwind readnone }
 
 !llvm.ident = !{!M1}
 !dx.version = !{!M2}

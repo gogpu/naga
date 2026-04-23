@@ -425,6 +425,7 @@ func (e *Emitter) getDxOpComputeBuiltinFunc(name string, hasComponent bool) *mod
 
 	funcTy := e.mod.GetFunctionType(i32Ty, params)
 	fn := e.mod.AddFunction(fullName, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(fullName)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -645,6 +646,7 @@ func (e *Emitter) getDxOpSetMeshOutputCountsFunc() *module.Function {
 	params := []*module.Type{i32Ty, i32Ty, i32Ty}
 	funcTy := e.mod.GetFunctionType(voidTy, params)
 	fn := e.mod.AddFunction(name, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(name)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -669,6 +671,7 @@ func (e *Emitter) getDxOpEmitIndicesFunc() *module.Function {
 	params := []*module.Type{i32Ty, i32Ty, i32Ty, i32Ty, i32Ty}
 	funcTy := e.mod.GetFunctionType(voidTy, params)
 	fn := e.mod.AddFunction(name, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(name)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
