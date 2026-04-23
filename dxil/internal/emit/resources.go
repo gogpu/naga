@@ -309,12 +309,11 @@ func (e *Emitter) emitResourceHandles() {
 		}
 	}
 
-	// Sampler-heap mode: after the regular createHandle calls (which have
-	// produced handles for the per-group index buffer SRVs), emit one
-	// bufferLoad+createHandle pair per WGSL sampler binding. This stays
-	// inside the entry block so the resulting handles dominate every
-	// downstream sample site.
-	e.emitSamplerHeapHandles()
+	// Sampler-heap handles are emitted separately via emitSamplerHeapHandles()
+	// AFTER emitInputLoads() in the entry-point emission sequence. DXC emits
+	// loadInput calls before the sampler heap bufferLoad+createHandle sequence
+	// (lazy evaluation places input reads before sampler index lookups). Matching
+	// this order avoids instruction-scheduling diffs in the golden comparison.
 }
 
 // buildHandleEmitOrder returns indices into e.resources in DXC's createHandle

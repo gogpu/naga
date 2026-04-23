@@ -1028,6 +1028,13 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 		return fmt.Errorf("input loads: %w", err)
 	}
 
+	// Sampler-heap handles: emit bufferLoad+createHandle for each sampler
+	// binding AFTER loadInput calls. DXC's lazy evaluation places loadInput
+	// for vertex/fragment interpolants before the sampler index lookup from
+	// the heap index buffer. Calling this here (rather than inside
+	// emitResourceHandles) produces the same instruction ordering.
+	e.emitSamplerHeapHandles()
+
 	if err := e.emitFunctionBody(fn); err != nil {
 		return fmt.Errorf("function body: %w", err)
 	}

@@ -5795,3 +5795,124 @@ func TestResourceNameSuffix(t *testing.T) {
 		})
 	}
 }
+
+// TestSamplerHeapHandleAfterInputLoads verifies that in fragment shaders with
+// sampler heap bindings, dx.op.loadInput calls for interpolated varyings appear
+// BEFORE dx.op.bufferLoad calls for the sampler heap index lookup. DXC's lazy
+// evaluation produces this ordering because loadInput for vertex inputs is
+// resolved before the sampler index indirection at the sample call site. We
+// match by emitting sampler heap handles after input loads in emitEntryPoint.
+func TestSamplerHeapHandleAfterInputLoads(t *testing.T) {
+	vec4f32Handle := ir.TypeHandle(1)
+	vec2f32Handle := ir.TypeHandle(2)
+	tex2dHandle := ir.TypeHandle(3)
+	samplerTyHandle := ir.TypeHandle(4)
+
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},                                         // [0] f32
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},         // [1] vec4<f32>
+			{Inner: ir.VectorType{Size: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},         // [2] vec2<f32>
+			{Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled, SampledKind: ir.ScalarFloat}}, // [3] texture_2d<f32>
+			{Inner: ir.SamplerType{Comparison: false}},                                                     // [4] sampler
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "tex", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}, Type: tex2dHandle},
+			{Name: "samp", Space: ir.SpaceHandle, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}, Type: samplerTyHandle},
+		},
+	}
+
+	// Build a fragment shader: @fragment fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32>
+	// that does textureSample(tex, samp, uv).
+	uvBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+
+	sampleExprHandle := ir.ExpressionHandle(3)
+
+	fn := ir.Function{
+		Name: "main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "uv", Type: vec2f32Handle, Binding: &uvBinding},
+		},
+		Result: &ir.FunctionResult{
+			Type:    vec4f32Handle,
+			Binding: &resultBinding,
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                       // [0] uv
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},                      // [1] tex
+			{Kind: ir.ExprGlobalVariable{Variable: 1}},                      // [2] samp
+			{Kind: ir.ExprImageSample{Image: 1, Sampler: 2, Coordinate: 0}}, // [3] textureSample
+		},
+		ExpressionTypes: []ir.TypeResolution{
+			{Handle: &vec2f32Handle},   // uv
+			{Handle: &tex2dHandle},     // tex
+			{Handle: &samplerTyHandle}, // samp
+			{Handle: &vec4f32Handle},   // sample result
+		},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+			{Kind: ir.StmtReturn{Value: &sampleExprHandle}},
+		},
+	}
+
+	mod.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageFragment, Function: fn},
+	}
+
+	result, err := Emit(mod, EmitOptions{
+		ShaderModelMajor: 6,
+		ShaderModelMinor: 0,
+		ReachableGlobals: map[ir.GlobalVariableHandle]bool{0: true, 1: true},
+	})
+	if err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Find the entry function body.
+	var entryFn *module.Function
+	for _, fn := range result.Functions {
+		if !fn.IsDeclaration && fn.Name == "main" {
+			entryFn = fn
+			break
+		}
+	}
+	if entryFn == nil {
+		t.Fatal("entry function 'main' not found")
+	}
+	if len(entryFn.BasicBlocks) == 0 {
+		t.Fatal("entry function has no basic blocks")
+	}
+
+	// Walk the instruction sequence and record the position of:
+	// - first dx.op.loadInput call (input varyings)
+	// - first dx.op.bufferLoad call (sampler heap index lookup)
+	firstLoadInput := -1
+	firstBufferLoad := -1
+	bb := entryFn.BasicBlocks[0]
+	for i, instr := range bb.Instructions {
+		if instr.Kind != module.InstrCall || instr.CalledFunc == nil {
+			continue
+		}
+		name := instr.CalledFunc.Name
+		if firstLoadInput < 0 && (name == "dx.op.loadInput.f32" || name == "dx.op.loadInput.i32") {
+			firstLoadInput = i
+		}
+		if firstBufferLoad < 0 && name == "dx.op.bufferLoad.i32" {
+			firstBufferLoad = i
+		}
+	}
+
+	if firstLoadInput < 0 {
+		t.Fatal("no dx.op.loadInput call found in entry function")
+	}
+	if firstBufferLoad < 0 {
+		t.Fatal("no dx.op.bufferLoad call found in entry function (sampler heap)")
+	}
+
+	if firstLoadInput >= firstBufferLoad {
+		t.Errorf("dx.op.loadInput (pos %d) should appear BEFORE dx.op.bufferLoad (pos %d); "+
+			"DXC emits loadInput for interpolated varyings before sampler heap index lookups",
+			firstLoadInput, firstBufferLoad)
+	}
+}
