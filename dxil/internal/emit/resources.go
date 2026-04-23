@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -183,9 +184,20 @@ func (e *Emitter) analyzeResources() {
 			}
 		}
 
+		// Apply the HLSL namer suffix convention: names that end
+		// with a digit or match an HLSL keyword get a trailing
+		// underscore. DXC reads the resource name from dx.resources
+		// metadata and displays it in the "Resource Bindings"
+		// comment table emitted by dxc -dumpbin. Matching this
+		// convention keeps the resource table identical to DXC.
+		resName := gv.Name
+		if hlsl.NeedsTrailingUnderscore(resName) {
+			resName += "_"
+		}
+
 		info := resourceInfo{
 			varHandle:      ir.GlobalVariableHandle(uint32(i)),
-			name:           gv.Name,
+			name:           resName,
 			class:          class,
 			rangeID:        rangeID,
 			group:          grp,

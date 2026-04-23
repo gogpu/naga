@@ -262,3 +262,23 @@ func (n *namer) callWithPrefix(prefix, base string) string {
 func isASCIIAlphanumeric(c rune) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
+
+// NeedsTrailingUnderscore reports whether a variable name requires a
+// trailing underscore suffix in HLSL output. The HLSL namer (matching
+// Rust naga's proc::Namer) appends "_" when the sanitized name ends
+// with an ASCII digit or collides with an HLSL reserved keyword. The
+// DXIL backend uses this to produce metadata resource names that match
+// what DXC would generate from the HLSL roundtrip.
+func NeedsTrailingUnderscore(name string) bool {
+	if name == "" {
+		return false
+	}
+	if endsWithDigit(name) {
+		return true
+	}
+	if _, found := reservedKeywords[name]; found {
+		return true
+	}
+	_, found := caseInsensitiveKeywords[strings.ToLower(name)]
+	return found
+}

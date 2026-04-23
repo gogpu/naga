@@ -5706,3 +5706,92 @@ func TestEmitRawBufferIntStoreNoBitcast(t *testing.T) {
 		t.Errorf("expected 0 bitcast instructions for integer UAV store, got %d", bitcastCount)
 	}
 }
+
+// TestResourceNameSuffix verifies that the DXIL emitter applies the
+// HLSL namer trailing-underscore convention to resource names in
+// dx.resources metadata. DXC processes HLSL variable names through
+// its namer (Rust naga proc::Namer) which appends "_" when the name
+// ends with a digit or is an HLSL keyword. Our DXIL backend must
+// match this convention so dxc -dumpbin shows identical resource
+// names in the Resource Bindings comment table.
+func TestResourceNameSuffix(t *testing.T) {
+	tests := []struct {
+		irName   string
+		wantName string
+	}{
+		// Ends with digit -> trailing underscore
+		{"t1", "t1_"},
+		{"atomic_i32", "atomic_i32_"},
+		{"input3", "input3_"},
+		// HLSL keyword -> trailing underscore
+		{"in", "in_"},
+		{"out", "out_"},
+		{"indices", "indices_"},
+		// Normal name -> no change
+		{"data", "data"},
+		{"params", "params"},
+		{"camera", "camera"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.irName, func(t *testing.T) {
+			u32Handle := ir.TypeHandle(0)
+			arrayU32Handle := ir.TypeHandle(1)
+
+			mod := &ir.Module{
+				Types: []ir.Type{
+					{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+					{Inner: ir.ArrayType{
+						Base:   u32Handle,
+						Size:   ir.ArraySize{},
+						Stride: 4,
+					}},
+				},
+				GlobalVariables: []ir.GlobalVariable{
+					{
+						Name:   tt.irName,
+						Space:  ir.SpaceStorage,
+						Access: ir.StorageReadWrite,
+						Binding: &ir.ResourceBinding{
+							Group:   0,
+							Binding: 0,
+						},
+						Type: arrayU32Handle,
+					},
+				},
+				EntryPoints: []ir.EntryPoint{
+					{
+						Name:      "main",
+						Stage:     ir.StageCompute,
+						Function:  ir.Function{Name: "main"},
+						Workgroup: [3]uint32{1, 1, 1},
+					},
+				},
+			}
+
+			result, err := Emit(mod, EmitOptions{
+				ShaderModelMajor: 6,
+				ShaderModelMinor: 0,
+				ReachableGlobals: map[ir.GlobalVariableHandle]bool{0: true},
+			})
+			if err != nil {
+				t.Fatalf("Emit failed: %v", err)
+			}
+
+			// Find the resource name in metadata strings. The name
+			// appears as an MDString operand in the dx.resources
+			// metadata tuple. Scan all metadata for string nodes
+			// containing the expected name.
+			found := false
+			for _, md := range result.Metadata {
+				if md.Kind == module.MDString && md.StringValue == tt.wantName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("metadata string %q not found; IR name was %q", tt.wantName, tt.irName)
+			}
+		})
+	}
+}

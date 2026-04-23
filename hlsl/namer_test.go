@@ -290,3 +290,55 @@ func TestIsASCIIAlphanumeric(t *testing.T) {
 		}
 	}
 }
+
+// TestNeedsTrailingUnderscore verifies the exported helper used by the
+// DXIL backend to match DXC resource name conventions. DXC applies the
+// HLSL namer to all resource variable names before emitting DXIL
+// metadata, so our DXIL backend must replicate the same suffix logic.
+func TestNeedsTrailingUnderscore(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		// Ends with digit -> true
+		{"t1", true},
+		{"t2", true},
+		{"atomic_i32", true},
+		{"atomic_u32", true},
+		{"input1", true},
+		{"input2", true},
+		{"input3", true},
+		{"image_2d_i32", true},
+		{"in_data_storage_g0_b3", true},
+
+		// HLSL keyword (case sensitive) -> true
+		{"in", true},
+		{"out", true},
+		{"float", true},
+		{"int", true},
+		{"struct", true},
+		{"texture", true},  // reserved keyword (case-sensitive)
+		{"indices", true},  // reserved keyword
+		{"vertices", true}, // reserved keyword
+
+		// Normal names -> false
+		{"params", false},
+		{"uniformOne", false},
+		{"camera", false},
+		{"globals", false},
+		{"output", false},
+		{"result", false},
+		{"nagaSamplerHeap", false},
+
+		// Empty -> false
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NeedsTrailingUnderscore(tt.name); got != tt.want {
+				t.Errorf("NeedsTrailingUnderscore(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
