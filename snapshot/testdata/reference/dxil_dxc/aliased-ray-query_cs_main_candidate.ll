@@ -72,10 +72,7 @@ define void @main_candidate() {
 declare i32 @dx.op.allocateRayQuery(i32, i32) #A0
 
 ; Function Attrs: nounwind readonly
-declare i32 @dx.op.rayQuery_StateScalar.i32(i32, i32) #A1
-
-; Function Attrs: nounwind
-declare void @dx.op.rayQuery_TraceRayInline(i32, i32, %dx.types.Handle, i32, i32, float, float, float, float, float, float, float, float) #A0
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
 
 ; Function Attrs: nounwind
 declare void @dx.op.rayQuery_CommitNonOpaqueTriangleHit(i32, i32) #A0
@@ -84,7 +81,10 @@ declare void @dx.op.rayQuery_CommitNonOpaqueTriangleHit(i32, i32) #A0
 declare void @dx.op.rayQuery_CommitProceduralPrimitiveHit(i32, i32, float) #A0
 
 ; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
+declare i32 @dx.op.rayQuery_StateScalar.i32(i32, i32) #A1
+
+; Function Attrs: nounwind
+declare void @dx.op.rayQuery_TraceRayInline(i32, i32, %dx.types.Handle, i32, i32, float, float, float, float, float, float, float, float) #A0
 
 attributes #A0 = { nounwind }
 attributes #A1 = { nounwind readonly }

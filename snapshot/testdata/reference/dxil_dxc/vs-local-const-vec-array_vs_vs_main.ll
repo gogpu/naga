@@ -81,13 +81,13 @@ define void @vs_main() {
 }
 
 ; Function Attrs: nounwind readnone
+declare i32 @dx.op.binary.i32(i32, i32, i32) #A0
+
+; Function Attrs: nounwind readnone
 declare i32 @dx.op.loadInput.i32(i32, i32, i32, i8, i32) #A0
 
 ; Function Attrs: nounwind
 declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A1
-
-; Function Attrs: nounwind readnone
-declare i32 @dx.op.binary.i32(i32, i32, i32) #A0
 
 attributes #A0 = { nounwind readnone }
 attributes #A1 = { nounwind }

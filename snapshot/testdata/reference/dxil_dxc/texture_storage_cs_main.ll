@@ -71,21 +71,21 @@ define void @main() {
   ret void
 }
 
-; Function Attrs: nounwind readnone
-declare i32 @dx.op.threadId.i32(i32, i32) #A0
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A0
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Dimensions @dx.op.getDimensions(i32, %dx.types.Handle, i32) #A0
 
 ; Function Attrs: nounwind
 declare void @dx.op.textureStore.f32(i32, %dx.types.Handle, i32, i32, i32, float, float, float, float, i8) #A1
 
-; Function Attrs: nounwind readonly
-declare %dx.types.Dimensions @dx.op.getDimensions(i32, %dx.types.Handle, i32) #A2
+; Function Attrs: nounwind readnone
+declare i32 @dx.op.threadId.i32(i32, i32) #A2
 
-; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A2
-
-attributes #A0 = { nounwind readnone }
+attributes #A0 = { nounwind readonly }
 attributes #A1 = { nounwind }
-attributes #A2 = { nounwind readonly }
+attributes #A2 = { nounwind readnone }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

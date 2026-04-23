@@ -501,6 +501,33 @@ func (f StorageFormat) Scalar() ScalarType {
 	return ScalarType{Kind: f.ScalarKind(), Width: width}
 }
 
+// IsUnorm returns true for storage formats with unsigned normalized components
+// (e.g., rgba8unorm, rgb10a2unorm). DXIL metadata requires distinguishing
+// UNormF32 (component type 14) from plain F32 (9) for typed UAV resources.
+func (f StorageFormat) IsUnorm() bool {
+	switch f {
+	case StorageFormatR8Unorm, StorageFormatRg8Unorm, StorageFormatRgba8Unorm,
+		StorageFormatBgra8Unorm, StorageFormatRgb10a2Unorm,
+		StorageFormatR16Unorm, StorageFormatRg16Unorm, StorageFormatRgba16Unorm:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsSnorm returns true for storage formats with signed normalized components
+// (e.g., rgba8snorm, r16snorm). DXIL metadata requires distinguishing
+// SNormF32 (component type 13) from plain F32 (9) for typed UAV resources.
+func (f StorageFormat) IsSnorm() bool {
+	switch f {
+	case StorageFormatR8Snorm, StorageFormatRg8Snorm, StorageFormatRgba8Snorm,
+		StorageFormatR16Snorm, StorageFormatRg16Snorm, StorageFormatRgba16Snorm:
+		return true
+	default:
+		return false
+	}
+}
+
 // StorageAccess represents access modes for storage textures.
 type StorageAccess uint8
 

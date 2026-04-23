@@ -74,16 +74,16 @@ define void @main() {
 }
 
 ; Function Attrs: nounwind
+declare i32 @dx.op.atomicBinOp.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32) #A0
+
+; Function Attrs: nounwind
 declare i32 @dx.op.atomicCompareExchange.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32) #A0
 
 ; Function Attrs: nounwind
-declare i32 @dx.op.atomicBinOp.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32) #A0
+declare void @dx.op.bufferStore.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32, i32, i8) #A0
 
 ; Function Attrs: nounwind readonly
 declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
-
-; Function Attrs: nounwind
-declare void @dx.op.bufferStore.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32, i32, i8) #A0
 
 attributes #A0 = { nounwind }
 attributes #A1 = { nounwind readonly }

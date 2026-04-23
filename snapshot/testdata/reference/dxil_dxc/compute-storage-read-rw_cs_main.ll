@@ -92,27 +92,27 @@ define void @main() {
   ret void
 }
 
-; Function Attrs: nounwind readnone
-declare i32 @dx.op.threadId.i32(i32, i32) #A0
-
 ; Function Attrs: nounwind readonly
-declare %dx.types.Dimensions @dx.op.getDimensions(i32, %dx.types.Handle, i32) #A1
-
-; Function Attrs: nounwind readonly
-declare %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32, %dx.types.Handle, i32) #A1
-
-; Function Attrs: nounwind readonly
-declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
-
-; Function Attrs: nounwind readonly
-declare %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(i32, %dx.types.Handle, i32, i32) #A1
+declare %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(i32, %dx.types.Handle, i32, i32) #A0
 
 ; Function Attrs: nounwind
-declare void @dx.op.bufferStore.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32, i32, i8) #A2
+declare void @dx.op.bufferStore.i32(i32, %dx.types.Handle, i32, i32, i32, i32, i32, i32, i8) #A1
 
-attributes #A0 = { nounwind readnone }
-attributes #A1 = { nounwind readonly }
-attributes #A2 = { nounwind }
+; Function Attrs: nounwind readonly
+declare %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32, %dx.types.Handle, i32) #A0
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A0
+
+; Function Attrs: nounwind readonly
+declare %dx.types.Dimensions @dx.op.getDimensions(i32, %dx.types.Handle, i32) #A0
+
+; Function Attrs: nounwind readnone
+declare i32 @dx.op.threadId.i32(i32, i32) #A2
+
+attributes #A0 = { nounwind readonly }
+attributes #A1 = { nounwind }
+attributes #A2 = { nounwind readnone }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

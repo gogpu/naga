@@ -1406,6 +1406,16 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 		}
 	}
 
+	// LLVM canonicalization: fsub(a, +C) -> fadd(a, -C).
+	// DXC (via LLVM InstCombine) folds subtraction of a positive float
+	// constant into addition of the negated constant. Match this to
+	// produce identical output for e.g. `pos.z - 0.1`.
+	if bin.Op == ir.BinarySubtract && isFloat {
+		if negID, ok := e.tryNegateFloatConst(rhs); ok {
+			return e.emitScalarBinaryOp(ir.BinaryAdd, resultTy, lhs, negID, isFloat, isSigned)
+		}
+	}
+
 	return e.emitScalarBinaryOp(bin.Op, resultTy, lhs, rhs, isFloat, isSigned)
 }
 
@@ -3528,6 +3538,7 @@ func (e *Emitter) getOrCreateDxOpFunc(name string, ol overloadType, funcTy *modu
 	suffix := overloadSuffix(ol)
 	fullName := name + suffix
 	fn := e.mod.AddFunction(fullName, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(fullName)
 	e.dxOpFuncs[key] = fn
 	return fn
 }
@@ -3546,6 +3557,7 @@ func (e *Emitter) getDxOpQuaternaryFunc(name string, ol overloadType) *module.Fu
 	suffix := overloadSuffix(ol)
 	fullName := name + suffix
 	fn := e.mod.AddFunction(fullName, funcTy, true)
+	fn.AttrSetID = classifyDxOpAttr(fullName)
 	e.dxOpFuncs[key] = fn
 	return fn
 }

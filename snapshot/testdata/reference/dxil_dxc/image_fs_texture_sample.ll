@@ -268,33 +268,33 @@ define void @texture_sample() {
   ret void
 }
 
-; Function Attrs: nounwind
-declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A0
-
-; Function Attrs: nounwind readonly
-declare %dx.types.ResRet.f32 @dx.op.sample.f32(i32, %dx.types.Handle, %dx.types.Handle, float, float, float, float, i32, i32, i32, float) #A1
-
-; Function Attrs: nounwind readonly
-declare %dx.types.ResRet.f32 @dx.op.sampleLevel.f32(i32, %dx.types.Handle, %dx.types.Handle, float, float, float, float, i32, i32, i32, float) #A1
-
-; Function Attrs: nounwind readonly
-declare %dx.types.ResRet.f32 @dx.op.sampleBias.f32(i32, %dx.types.Handle, %dx.types.Handle, float, float, float, float, i32, i32, i32, float, float) #A1
-
-; Function Attrs: nounwind readonly
-declare %dx.types.Dimensions @dx.op.getDimensions(i32, %dx.types.Handle, i32) #A1
-
 ; Function Attrs: nounwind readnone
-declare float @dx.op.binary.f32(i32, float, float) #A2
+declare float @dx.op.binary.f32(i32, float, float) #A0
+
+; Function Attrs: nounwind readonly
+declare %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(i32, %dx.types.Handle, i32, i32) #A1
 
 ; Function Attrs: nounwind readonly
 declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1) #A1
 
 ; Function Attrs: nounwind readonly
-declare %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(i32, %dx.types.Handle, i32, i32) #A1
+declare %dx.types.Dimensions @dx.op.getDimensions(i32, %dx.types.Handle, i32) #A1
 
-attributes #A0 = { nounwind }
+; Function Attrs: nounwind readonly
+declare %dx.types.ResRet.f32 @dx.op.sample.f32(i32, %dx.types.Handle, %dx.types.Handle, float, float, float, float, i32, i32, i32, float) #A1
+
+; Function Attrs: nounwind readonly
+declare %dx.types.ResRet.f32 @dx.op.sampleBias.f32(i32, %dx.types.Handle, %dx.types.Handle, float, float, float, float, i32, i32, i32, float, float) #A1
+
+; Function Attrs: nounwind readonly
+declare %dx.types.ResRet.f32 @dx.op.sampleLevel.f32(i32, %dx.types.Handle, %dx.types.Handle, float, float, float, float, i32, i32, i32, float) #A1
+
+; Function Attrs: nounwind
+declare void @dx.op.storeOutput.f32(i32, i32, i32, i8, float) #A2
+
+attributes #A0 = { nounwind readnone }
 attributes #A1 = { nounwind readonly }
-attributes #A2 = { nounwind readnone }
+attributes #A2 = { nounwind }
 
 !llvm.ident = !{!M0}
 !dx.version = !{!M1}

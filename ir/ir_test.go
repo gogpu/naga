@@ -110,6 +110,57 @@ func TestStorageFormatScalarKind(t *testing.T) {
 	}
 }
 
+// --- StorageFormat.IsUnorm / IsSnorm tests ---
+
+func TestStorageFormatIsUnorm(t *testing.T) {
+	unorm := []StorageFormat{
+		StorageFormatR8Unorm, StorageFormatRg8Unorm, StorageFormatRgba8Unorm,
+		StorageFormatBgra8Unorm, StorageFormatRgb10a2Unorm,
+		StorageFormatR16Unorm, StorageFormatRg16Unorm, StorageFormatRgba16Unorm,
+	}
+	for _, f := range unorm {
+		if !f.IsUnorm() {
+			t.Errorf("StorageFormat(%d).IsUnorm() = false, want true", f)
+		}
+	}
+	notUnorm := []StorageFormat{
+		StorageFormatR8Snorm, StorageFormatRgba8Snorm, StorageFormatR16Snorm,
+		StorageFormatR32Float, StorageFormatRgba32Float,
+		StorageFormatR8Uint, StorageFormatR32Uint,
+		StorageFormatR8Sint, StorageFormatR32Sint,
+		StorageFormatUnknown,
+	}
+	for _, f := range notUnorm {
+		if f.IsUnorm() {
+			t.Errorf("StorageFormat(%d).IsUnorm() = true, want false", f)
+		}
+	}
+}
+
+func TestStorageFormatIsSnorm(t *testing.T) {
+	snorm := []StorageFormat{
+		StorageFormatR8Snorm, StorageFormatRg8Snorm, StorageFormatRgba8Snorm,
+		StorageFormatR16Snorm, StorageFormatRg16Snorm, StorageFormatRgba16Snorm,
+	}
+	for _, f := range snorm {
+		if !f.IsSnorm() {
+			t.Errorf("StorageFormat(%d).IsSnorm() = false, want true", f)
+		}
+	}
+	notSnorm := []StorageFormat{
+		StorageFormatR8Unorm, StorageFormatRgba8Unorm, StorageFormatR16Unorm,
+		StorageFormatR32Float, StorageFormatRgba32Float,
+		StorageFormatR8Uint, StorageFormatR32Uint,
+		StorageFormatR8Sint, StorageFormatR32Sint,
+		StorageFormatUnknown,
+	}
+	for _, f := range notSnorm {
+		if f.IsSnorm() {
+			t.Errorf("StorageFormat(%d).IsSnorm() = true, want false", f)
+		}
+	}
+}
+
 // --- TypeInner interface marker tests ---
 
 func TestTypeInnerInterfaceImplementation(t *testing.T) {
