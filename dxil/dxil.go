@@ -441,7 +441,7 @@ func buildSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool) ([]co
 	// This mirrors DXC's MarkUsedSignatureElements pass which sets
 	// AlwaysReadsMask based on actual loadInput instructions in the bitcode.
 	usedMasks := computeInputUsedMasks(irMod, &ep.Function)
-	flatArgMapping := buildFlatArgMapping(irMod, ep.Function.Arguments)
+	flatArgMapping := buildFlatArgMapping(irMod, ep.Function.Arguments, isVSInput)
 
 	inputs := make([]container.SignatureElement, 0, len(bindings))
 	for i, b := range bindings {
@@ -552,7 +552,7 @@ func collectFlatBindings(
 	irMod *ir.Module,
 	args []ir.FunctionArgument,
 	_ []ir.StructMember,
-	_ ir.ShaderStage,
+	stage ir.ShaderStage,
 	_ bool,
 ) ([]ir.Binding, []ir.TypeHandle) {
 	var bindings []ir.Binding
@@ -578,18 +578,34 @@ func collectFlatBindings(
 			types = append(types, m.Type)
 		}
 	}
+	// Sort across all arguments so locations come before builtins.
+	// Within-struct ordering is handled by SortedMemberIndices above,
+	// but when multiple struct-typed arguments contribute members (e.g.,
+	// fs_main(in: VertexOutput, note: NoteInstance)), the cross-argument
+	// ordering must also be locations-first to match DXC's fragment input
+	// register assignment. VS inputs use InputAssembler packing which
+	// preserves declaration order.
+	backend.SortFlatBindings(bindings, types, stage == ir.StageVertex)
 	return bindings, types
 }
 
 // buildFlatArgMapping constructs a parallel mapping from the flat binding list
 // (as produced by collectFlatBindings) back to (argIdx, memberIdx) keys for the
-// input usage analysis. The iteration order MUST match collectFlatBindings exactly.
-func buildFlatArgMapping(irMod *ir.Module, args []ir.FunctionArgument) []inputUsageKey {
-	var keys []inputUsageKey
+// input usage analysis. The iteration order MUST match collectFlatBindings exactly,
+// including the cross-argument locations-first sort for non-VS inputs.
+func buildFlatArgMapping(irMod *ir.Module, args []ir.FunctionArgument, isVSInput bool) []inputUsageKey {
+	type keyedBinding struct {
+		key     inputUsageKey
+		binding ir.Binding
+	}
+	var items []keyedBinding
 	for argIdx := range args {
 		arg := &args[argIdx]
 		if arg.Binding != nil {
-			keys = append(keys, inputUsageKey{argIdx: argIdx, memberIdx: -1})
+			items = append(items, keyedBinding{
+				key:     inputUsageKey{argIdx: argIdx, memberIdx: -1},
+				binding: *arg.Binding,
+			})
 			continue
 		}
 		argType := irMod.Types[arg.Type]
@@ -603,8 +619,24 @@ func buildFlatArgMapping(irMod *ir.Module, args []ir.FunctionArgument) []inputUs
 			if m.Binding == nil {
 				continue
 			}
-			keys = append(keys, inputUsageKey{argIdx: argIdx, memberIdx: idx})
+			items = append(items, keyedBinding{
+				key:     inputUsageKey{argIdx: argIdx, memberIdx: idx},
+				binding: *m.Binding,
+			})
 		}
+	}
+	// Apply the same cross-argument sort as collectFlatBindings.
+	// VS inputs use InputAssembler packing which preserves declaration order.
+	if !isVSInput {
+		sort.SliceStable(items, func(i, j int) bool {
+			ki := backend.NewMemberInterfaceKey(&items[i].binding)
+			kj := backend.NewMemberInterfaceKey(&items[j].binding)
+			return backend.MemberInterfaceLess(ki, kj)
+		})
+	}
+	keys := make([]inputUsageKey, len(items))
+	for i, item := range items {
+		keys[i] = item.key
 	}
 	return keys
 }

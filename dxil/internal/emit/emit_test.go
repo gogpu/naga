@@ -6363,3 +6363,84 @@ func TestSingleStoreLocalNotInLoop(t *testing.T) {
 	}
 	_ = vec4Handle
 }
+
+// TestURemStrengthReduction verifies that unsigned modulo by a power
+// of 2 is strength-reduced to a bitwise AND. This matches DXC's LLVM
+// InstCombine pass: urem x, 2^N -> and x, (2^N - 1).
+func TestURemStrengthReduction(t *testing.T) {
+	e := &Emitter{
+		constMap:    make(map[int]*module.Constant),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+	}
+	e.mod = &module.Module{}
+
+	// Test power-of-2 constants.
+	tests := []struct {
+		value     int64
+		expectAnd bool
+		mask      int64
+	}{
+		{2, true, 1},
+		{4, true, 3},
+		{8, true, 7},
+		{16, true, 15},
+		{256, true, 255},
+		{1024, true, 1023},
+		{1, false, 0},  // 1 is NOT >= 2
+		{3, false, 0},  // 3 is not a power of 2
+		{5, false, 0},  // 5 is not a power of 2
+		{6, false, 0},  // 6 is not a power of 2
+		{7, false, 0},  // 7 is not a power of 2
+		{0, false, 0},  // 0 is not a power of 2
+		{-2, false, 0}, // negative values are not power of 2
+	}
+
+	for _, tt := range tests {
+		// Create a constant for the value.
+		constID := e.getIntConstID(tt.value)
+		maskID, ok := e.tryURemToBitwiseAnd(constID)
+		if ok != tt.expectAnd {
+			t.Errorf("tryURemToBitwiseAnd(%d): got ok=%v, want %v", tt.value, ok, tt.expectAnd)
+			continue
+		}
+		if ok {
+			maskConst, hasConst := e.constMap[maskID]
+			if !hasConst {
+				t.Errorf("tryURemToBitwiseAnd(%d): mask ID not in constMap", tt.value)
+				continue
+			}
+			if maskConst.IntValue != tt.mask {
+				t.Errorf("tryURemToBitwiseAnd(%d): mask = %d, want %d", tt.value, maskConst.IntValue, tt.mask)
+			}
+		}
+	}
+}
+
+// TestURemStrengthReductionNonInt verifies that float and undef
+// constants are not treated as power-of-2 for strength reduction.
+func TestURemStrengthReductionNonInt(t *testing.T) {
+	e := &Emitter{
+		constMap:    make(map[int]*module.Constant),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+	}
+	e.mod = &module.Module{}
+
+	// Float constant should not trigger.
+	floatID := e.getFloatConstID(2.0)
+	if _, ok := e.tryURemToBitwiseAnd(floatID); ok {
+		t.Error("tryURemToBitwiseAnd should not trigger for float constant")
+	}
+
+	// Undef should not trigger.
+	undefID := e.getUndefConstID()
+	if _, ok := e.tryURemToBitwiseAnd(undefID); ok {
+		t.Error("tryURemToBitwiseAnd should not trigger for undef")
+	}
+
+	// Non-existent ID should not trigger.
+	if _, ok := e.tryURemToBitwiseAnd(99999); ok {
+		t.Error("tryURemToBitwiseAnd should not trigger for unknown value ID")
+	}
+}

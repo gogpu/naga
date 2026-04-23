@@ -135,3 +135,52 @@ func SortedMemberIndices(members []ir.StructMember) []int {
 	}
 	return out
 }
+
+// SortFlatBindings sorts parallel (bindings, types) slices in graphics
+// interface order: @location bindings first (ascending by location index),
+// then @builtin bindings (ascending by builtin enum value).
+//
+// This is needed when multiple struct-typed arguments each contribute
+// members to the flat input binding list. SortedMemberIndices handles
+// within-struct ordering, but cross-argument ordering requires a final
+// sort of the concatenated result. Without this, a builtin from an
+// earlier argument (e.g., @builtin(position) from VertexOutput) appears
+// before a location from a later argument (e.g., @location(1) from
+// NoteInstance), producing wrong register assignments for fragment input
+// signatures.
+//
+// isVSInput should be true for vertex shader inputs (InputAssembler
+// packing). DXC keeps VS inputs in declaration order — system values
+// first, then locations — not the locations-first order used for
+// fragment/geometry inputs. When isVSInput is true, this function is
+// a no-op.
+func SortFlatBindings(bindings []ir.Binding, types []ir.TypeHandle, isVSInput bool) {
+	if isVSInput {
+		return
+	}
+	if len(bindings) <= 1 {
+		return
+	}
+	type keyed struct {
+		idx     int
+		key     MemberInterfaceKey
+		binding ir.Binding
+		th      ir.TypeHandle
+	}
+	tmp := make([]keyed, len(bindings))
+	for i := range bindings {
+		tmp[i] = keyed{
+			idx:     i,
+			key:     NewMemberInterfaceKey(&bindings[i]),
+			binding: bindings[i],
+			th:      types[i],
+		}
+	}
+	sort.SliceStable(tmp, func(i, j int) bool {
+		return MemberInterfaceLess(tmp[i].key, tmp[j].key)
+	})
+	for i, k := range tmp {
+		bindings[i] = k.binding
+		types[i] = k.th
+	}
+}

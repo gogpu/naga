@@ -290,6 +290,13 @@ type Emitter struct {
 	// order. nil when no ViewID analysis has been performed (non-graphics
 	// stages).
 	inputUsedMasks []int64
+
+	// inputRowMap maps (argIdx, memberIdx) to ISG1 register row for input
+	// signature elements. Precomputed by emitInputLoads using the same
+	// sorted+packed order as collectFlatArgBindings + PackSignatureElements.
+	// Used by emitStructInputLoads to assign correct loadInput sigId values
+	// when cross-argument sorting places locations before builtins.
+	inputRowMap map[inputRowKey]int
 }
 
 // meshContext holds state for mesh shader intrinsic emission.
@@ -2680,7 +2687,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 
 	// Inputs: flatten args + struct members into a single binding list.
 	{
-		bindings, types := collectFlatArgBindings(e.ir, fn.Arguments)
+		bindings, types := collectFlatArgBindings(e.ir, fn.Arguments, isVSInput)
 		infos := make([]backend.SigElementInfo, len(bindings))
 		for i, b := range bindings {
 			infos[i] = backend.SigElementInfoForBinding(e.ir, b, types[i], stage, false, interpFnIn)
@@ -2721,7 +2728,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 // collectFlatArgBindings flattens a function's arg list (and any struct-typed
 // arg's members) into a sorted (binding, type) pair list using the shared
 // interface-order convention. Mirrors dxil/dxil.go collectFlatBindings.
-func collectFlatArgBindings(irMod *ir.Module, args []ir.FunctionArgument) ([]ir.Binding, []ir.TypeHandle) {
+func collectFlatArgBindings(irMod *ir.Module, args []ir.FunctionArgument, isVSInput bool) ([]ir.Binding, []ir.TypeHandle) {
 	var bindings []ir.Binding
 	var types []ir.TypeHandle
 	for _, arg := range args {
@@ -2745,6 +2752,12 @@ func collectFlatArgBindings(irMod *ir.Module, args []ir.FunctionArgument) ([]ir.
 			types = append(types, m.Type)
 		}
 	}
+	// Sort across all arguments so locations come before builtins.
+	// Within-struct ordering is handled by SortedMemberIndices above,
+	// but cross-argument ordering must also be locations-first to match
+	// DXC's fragment input register assignment. VS inputs use
+	// InputAssembler packing which preserves declaration order.
+	backend.SortFlatBindings(bindings, types, isVSInput)
 	return bindings, types
 }
 

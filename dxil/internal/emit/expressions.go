@@ -1482,6 +1482,10 @@ func selectDivOp(isFloat, isSigned bool) BinOpKind {
 // emitModulo emits a modulo/remainder operation. DXIL does not support FRem
 // natively (DXC rejects it with "Invalid record"), so float modulo is lowered
 // to: a - b * floor(a / b). This matches Mesa nir_to_dxil.c lower_fmod.
+//
+// For unsigned integer modulo by a constant power of 2, DXC's LLVM
+// InstCombine applies strength reduction: urem x, 2^N -> and x, (2^N - 1).
+// We match this to produce identical output.
 func (e *Emitter) emitModulo(resultTy *module.Type, lhs, rhs int, isFloat, isSigned bool) (int, error) {
 	if isFloat {
 		return e.emitFRemLowered(resultTy, lhs, rhs), nil
@@ -1489,7 +1493,34 @@ func (e *Emitter) emitModulo(resultTy *module.Type, lhs, rhs int, isFloat, isSig
 	if isSigned {
 		return e.addBinOpInstr(resultTy, BinOpSRem, lhs, rhs), nil
 	}
+	// Strength reduction: urem x, 2^N -> and x, (2^N - 1).
+	if maskID, ok := e.tryURemToBitwiseAnd(rhs); ok {
+		return e.addBinOpInstr(resultTy, BinOpAnd, lhs, maskID), nil
+	}
 	return e.addBinOpInstr(resultTy, BinOpURem, lhs, rhs), nil
+}
+
+// tryURemToBitwiseAnd checks whether valueID refers to an integer constant
+// that is a power of 2 (>= 2). If so, returns the value ID for the bitmask
+// (value - 1) for use in strength reduction: urem x, 2^N -> and x, (2^N - 1).
+// This matches DXC's LLVM InstCombine pass.
+func (e *Emitter) tryURemToBitwiseAnd(valueID int) (int, bool) {
+	c, ok := e.constMap[valueID]
+	if !ok || c.IsUndef || c.IsAggregate {
+		return 0, false
+	}
+	if c.ConstType == nil || c.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	v := c.IntValue
+	if v < 2 {
+		return 0, false
+	}
+	// Check power of 2: v & (v-1) == 0.
+	if v&(v-1) != 0 {
+		return 0, false
+	}
+	return e.getIntConstID(v - 1), true
 }
 
 // emitComparison emits a comparison instruction with the correct predicate

@@ -3,6 +3,8 @@ package backend
 import (
 	"reflect"
 	"testing"
+
+	"github.com/gogpu/naga/ir"
 )
 
 // TestPackSignatureElements_Empty verifies the nil/empty case.
@@ -218,5 +220,91 @@ func TestPackSignatureElements_OtherBindingPlaceholder(t *testing.T) {
 	}
 	if got[1].Rows != 0 {
 		t.Fatalf("placeholder Rows = %d, want 0 (no row consumed)", got[1].Rows)
+	}
+}
+
+// TestSortFlatBindings_LocationsBeforeBuiltins verifies that
+// SortFlatBindings reorders bindings so locations come before builtins.
+// This matches DXC's fragment input signature element ordering.
+func TestSortFlatBindings_LocationsBeforeBuiltins(t *testing.T) {
+	// Simulate the msl-varyings fragment shader case:
+	// arg 0 = VertexOutput with @builtin(position)
+	// arg 1 = NoteInstance with @location(1)
+	// Expected after sort: location(1) first, then builtin(position).
+	bindings := []ir.Binding{
+		ir.BuiltinBinding{Builtin: ir.BuiltinPosition},
+		ir.LocationBinding{Location: 1},
+	}
+	types := []ir.TypeHandle{10, 20} // arbitrary handles
+
+	SortFlatBindings(bindings, types, false)
+
+	// After sort: location should be first.
+	if _, ok := bindings[0].(ir.LocationBinding); !ok {
+		t.Errorf("after sort, bindings[0] should be LocationBinding, got %T", bindings[0])
+	}
+	if _, ok := bindings[1].(ir.BuiltinBinding); !ok {
+		t.Errorf("after sort, bindings[1] should be BuiltinBinding, got %T", bindings[1])
+	}
+	// Types should follow the same reordering.
+	if types[0] != 20 {
+		t.Errorf("types[0] = %d, want 20 (location's type)", types[0])
+	}
+	if types[1] != 10 {
+		t.Errorf("types[1] = %d, want 10 (builtin's type)", types[1])
+	}
+}
+
+// TestSortFlatBindings_VSInputPreservesOrder verifies that VS inputs
+// are NOT sorted (InputAssembler packing preserves declaration order).
+func TestSortFlatBindings_VSInputPreservesOrder(t *testing.T) {
+	bindings := []ir.Binding{
+		ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex},
+		ir.BuiltinBinding{Builtin: ir.BuiltinInstanceIndex},
+		ir.LocationBinding{Location: 10},
+	}
+	types := []ir.TypeHandle{1, 2, 3}
+
+	SortFlatBindings(bindings, types, true)
+
+	// Order should be unchanged for VS input.
+	if bb, ok := bindings[0].(ir.BuiltinBinding); !ok || bb.Builtin != ir.BuiltinVertexIndex {
+		t.Errorf("VS input bindings[0] should be BuiltinVertexIndex, got %v", bindings[0])
+	}
+	if bb, ok := bindings[1].(ir.BuiltinBinding); !ok || bb.Builtin != ir.BuiltinInstanceIndex {
+		t.Errorf("VS input bindings[1] should be BuiltinInstanceIndex, got %v", bindings[1])
+	}
+	if lb, ok := bindings[2].(ir.LocationBinding); !ok || lb.Location != 10 {
+		t.Errorf("VS input bindings[2] should be LOC 10, got %v", bindings[2])
+	}
+}
+
+// TestSortFlatBindings_MultipleLocations verifies that multiple
+// locations sort by location index (ascending).
+func TestSortFlatBindings_MultipleLocations(t *testing.T) {
+	bindings := []ir.Binding{
+		ir.LocationBinding{Location: 5},
+		ir.BuiltinBinding{Builtin: ir.BuiltinPosition},
+		ir.LocationBinding{Location: 2},
+		ir.LocationBinding{Location: 8},
+	}
+	types := []ir.TypeHandle{50, 10, 20, 80}
+
+	SortFlatBindings(bindings, types, false)
+
+	// Expected order: loc(2), loc(5), loc(8), builtin(position).
+	wantLocs := []uint32{2, 5, 8}
+	for i, wantLoc := range wantLocs {
+		lb, ok := bindings[i].(ir.LocationBinding)
+		if !ok {
+			t.Errorf("bindings[%d] should be LocationBinding, got %T", i, bindings[i])
+			continue
+		}
+		if lb.Location != wantLoc {
+			t.Errorf("bindings[%d].Location = %d, want %d", i, lb.Location, wantLoc)
+		}
+	}
+	if _, ok := bindings[3].(ir.BuiltinBinding); !ok {
+		t.Errorf("bindings[3] should be BuiltinBinding, got %T", bindings[3])
 	}
 }

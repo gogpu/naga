@@ -31,11 +31,9 @@ func scalarBinding(n uint32) *ir.Binding {
 //	    return vec4<f32>(input.color, 1.0);
 //	}
 //
-// Expected dependency:
-//   - input scalars 0..3 (position): contribute to nothing
-//   - input scalar 4 (color.r): contributes to output scalar 0 (.r)
-//   - input scalar 5 (color.g): contributes to output scalar 1 (.g)
-//   - input scalar 6 (color.b): contributes to output scalar 2 (.b)
+// Expected dependency (after locations-first input sorting):
+//   - input scalars 0..2 (color): contribute to output scalars 0..2
+//   - input scalars 4..7 (position): contribute to nothing
 //   - output scalar 3 (alpha): constant 1.0, no input deps
 func TestTrianglePassThroughFS(t *testing.T) {
 	mod := makeBasicMod()
@@ -99,9 +97,12 @@ func TestTrianglePassThroughFS(t *testing.T) {
 		Function: fn,
 	}
 
+	// Inputs are ordered locations-first: color (LOC 0) before position
+	// (SV_Position), matching the fragment input sorted order produced by
+	// collectGraphicsSignatures.
 	inputs := []SigElement{
-		{ScalarStart: 0, NumChannels: 4, VectorRow: 0}, // position
-		{ScalarStart: 4, NumChannels: 3, VectorRow: 1}, // color
+		{ScalarStart: 0, NumChannels: 3, VectorRow: 0}, // color (LOC 0)
+		{ScalarStart: 4, NumChannels: 4, VectorRow: 1}, // position (SV_Position)
 	}
 	outputs := []SigElement{
 		{ScalarStart: 0, NumChannels: 4, VectorRow: 0}, // SV_Target
@@ -109,35 +110,42 @@ func TestTrianglePassThroughFS(t *testing.T) {
 
 	deps := Analyze(mod, &ep, inputs, outputs)
 
-	if deps.NumInputScalars != 7 {
-		t.Errorf("NumInputScalars = %d, want 7", deps.NumInputScalars)
+	// With locations-first ordering: color at scalars 0-2, position at 4-7.
+	// Total: 3 (color) + gap + 4 (position) → cumScalar layout depends on
+	// packer; in this test color occupies row 0 (3 channels), position row 1
+	// (4 channels), so total = max(row*4+startCol+numChannels) = 1*4+0+4 = 8.
+	if deps.NumInputScalars != 8 {
+		t.Errorf("NumInputScalars = %d, want 8", deps.NumInputScalars)
 	}
 	if deps.NumOutputScalars != 4 {
 		t.Errorf("NumOutputScalars = %d, want 4", deps.NumOutputScalars)
 	}
 
-	// ViewIdState table: one row per input scalar, 1 dword per row
-	// (NumOutUINTs(4) = 1).
-	if got, want := len(deps.InputScalarToOutputs), 7; got != want {
+	// ViewIdState table: one row per input scalar.
+	if got, want := len(deps.InputScalarToOutputs), 8; got != want {
 		t.Fatalf("InputScalarToOutputs len = %d, want %d", got, want)
 	}
-	// Position scalars 0..3: no contribution.
-	for i := 0; i < 4; i++ {
+	// Color scalar 0 → bit 0 (output 0).
+	if got := deps.InputScalarToOutputs[0]; got != 0x1 {
+		t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1", got)
+	}
+	// Color scalar 1 → bit 1 (output 1).
+	if got := deps.InputScalarToOutputs[1]; got != 0x2 {
+		t.Errorf("InputScalarToOutputs[1] = 0x%x, want 0x2", got)
+	}
+	// Color scalar 2 → bit 2 (output 2).
+	if got := deps.InputScalarToOutputs[2]; got != 0x4 {
+		t.Errorf("InputScalarToOutputs[2] = 0x%x, want 0x4", got)
+	}
+	// Color scalar 3 (unused, padding to 4-component row): no deps.
+	if deps.InputScalarToOutputs[3] != 0 {
+		t.Errorf("InputScalarToOutputs[3] = 0x%x, want 0", deps.InputScalarToOutputs[3])
+	}
+	// Position scalars 4..7: no contribution (not used in output).
+	for i := 4; i < 8; i++ {
 		if deps.InputScalarToOutputs[i] != 0 {
 			t.Errorf("InputScalarToOutputs[%d] = 0x%x, want 0", i, deps.InputScalarToOutputs[i])
 		}
-	}
-	// Color scalar 4 → bit 0 (output 0).
-	if got := deps.InputScalarToOutputs[4]; got != 0x1 {
-		t.Errorf("InputScalarToOutputs[4] = 0x%x, want 0x1", got)
-	}
-	// Color scalar 5 → bit 1 (output 1).
-	if got := deps.InputScalarToOutputs[5]; got != 0x2 {
-		t.Errorf("InputScalarToOutputs[5] = 0x%x, want 0x2", got)
-	}
-	// Color scalar 6 → bit 2 (output 2).
-	if got := deps.InputScalarToOutputs[6]; got != 0x4 {
-		t.Errorf("InputScalarToOutputs[6] = 0x%x, want 0x4", got)
 	}
 
 	// PSV0 table: SigInputVectors = 2, SigOutputVectors = 1.
@@ -146,27 +154,25 @@ func TestTrianglePassThroughFS(t *testing.T) {
 	if got, want := len(deps.InputCompToOutputComps), 8; got != want {
 		t.Fatalf("InputCompToOutputComps len = %d, want %d", got, want)
 	}
-	// Input comps 0..3 (position vector 0): no deps.
-	for i := 0; i < 4; i++ {
+	// Input comps 0-2 (color vector 0): r->out0, g->out1, b->out2.
+	if got := deps.InputCompToOutputComps[0]; got != 0x1 {
+		t.Errorf("InputCompToOutputComps[0] = 0x%x, want 0x1", got)
+	}
+	if got := deps.InputCompToOutputComps[1]; got != 0x2 {
+		t.Errorf("InputCompToOutputComps[1] = 0x%x, want 0x2", got)
+	}
+	if got := deps.InputCompToOutputComps[2]; got != 0x4 {
+		t.Errorf("InputCompToOutputComps[2] = 0x%x, want 0x4", got)
+	}
+	// Input comp 3 (unused padding): no deps.
+	if deps.InputCompToOutputComps[3] != 0 {
+		t.Errorf("InputCompToOutputComps[3] = 0x%x, want 0", deps.InputCompToOutputComps[3])
+	}
+	// Input comps 4..7 (position vector 1): no deps.
+	for i := 4; i < 8; i++ {
 		if deps.InputCompToOutputComps[i] != 0 {
 			t.Errorf("InputCompToOutputComps[%d] = 0x%x, want 0", i, deps.InputCompToOutputComps[i])
 		}
-	}
-	// Input comp 4 (color.r) → output comp 0.
-	if got := deps.InputCompToOutputComps[4]; got != 0x1 {
-		t.Errorf("InputCompToOutputComps[4] = 0x%x, want 0x1", got)
-	}
-	// Input comp 5 (color.g) → output comp 1.
-	if got := deps.InputCompToOutputComps[5]; got != 0x2 {
-		t.Errorf("InputCompToOutputComps[5] = 0x%x, want 0x2", got)
-	}
-	// Input comp 6 (color.b) → output comp 2.
-	if got := deps.InputCompToOutputComps[6]; got != 0x4 {
-		t.Errorf("InputCompToOutputComps[6] = 0x%x, want 0x4", got)
-	}
-	// Input comp 7 (color.w, unused): no deps.
-	if deps.InputCompToOutputComps[7] != 0 {
-		t.Errorf("InputCompToOutputComps[7] = 0x%x, want 0", deps.InputCompToOutputComps[7])
 	}
 }
 

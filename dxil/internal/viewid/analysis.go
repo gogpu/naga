@@ -1,6 +1,9 @@
 package viewid
 
 import (
+	"sort"
+
+	"github.com/gogpu/naga/internal/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -124,12 +127,20 @@ func (s *analysisState) markEverythingDependsOnEverything() {
 
 // initArgumentTaint populates exprTaint for every ExprFunctionArgument
 // with per-scalar taint from the input signature elements.
+//
+// The sig-element index (sigIdx) must advance in the same order as
+// collectGraphicsSignatures / collectFlatArgBindings, which sort
+// bindings across arguments (locations first, builtins second) for
+// non-vertex-input stages. For VS inputs the declaration order is
+// preserved (InputAssembler packing).
 func (s *analysisState) initArgumentTaint() {
 	fn := &s.ep.Function
-	// Walk arguments the same way collectGraphicsSignatures does, so the
-	// sig-element index we track matches the emitter's and PSV0's
-	// ordering.
-	sigIdx := 0
+	isVSInput := s.ep.Stage == ir.StageVertex
+
+	// Build a mapping from (argIdx, memberIdx) -> sigIdx using the same
+	// sorted flat binding list as collectFlatArgBindings.
+	sigIdxMap := buildViewIDSigMap(s.irMod, fn.Arguments, isVSInput)
+
 	for argIdx := range fn.Arguments {
 		arg := &fn.Arguments[argIdx]
 
@@ -142,8 +153,11 @@ func (s *analysisState) initArgumentTaint() {
 		argType := s.irMod.Types[arg.Type]
 		if arg.Binding != nil {
 			// Direct binding on argument.
-			taint := s.taintForSig(sigIdx)
-			sigIdx++
+			si, hasSig := sigIdxMap[viewIDArgKey{argIdx: argIdx, memberIdx: -1}]
+			if !hasSig {
+				continue
+			}
+			taint := s.taintForSig(si)
 			// Replicate scalar taint across argument's component count.
 			s.exprTaint[argHandle] = expandTaintToType(s.irMod, argType.Inner, taint)
 			continue
@@ -170,8 +184,14 @@ func (s *analysisState) initArgumentTaint() {
 				memberTaints[memIdx] = emptyTaint(n)
 				continue
 			}
-			taint := s.taintForSig(sigIdx)
-			sigIdx++
+			si, hasSig := sigIdxMap[viewIDArgKey{argIdx: argIdx, memberIdx: memIdx}]
+			if !hasSig {
+				memberTy := s.irMod.Types[member.Type]
+				n := totalScalarCount(s.irMod, memberTy.Inner)
+				memberTaints[memIdx] = emptyTaint(n)
+				continue
+			}
+			taint := s.taintForSig(si)
 			memberTy := s.irMod.Types[member.Type]
 			memberTaints[memIdx] = expandTaintToType(s.irMod, memberTy.Inner, taint)
 		}
@@ -196,6 +216,64 @@ func (s *analysisState) initArgumentTaint() {
 			s.exprTaint[ir.ExpressionHandle(exprIdx)] = memberTaints[ai.Index]
 		}
 	}
+}
+
+// viewIDArgKey identifies a specific binding element for the ViewID
+// signature index mapping. memberIdx is -1 for direct-binding arguments.
+type viewIDArgKey struct {
+	argIdx    int
+	memberIdx int
+}
+
+// buildViewIDSigMap builds a mapping from (argIdx, memberIdx) to the
+// signature element index, using the same sorted order as
+// collectFlatArgBindings. This ensures the ViewID analysis assigns
+// taint from the correct input signature element.
+func buildViewIDSigMap(irMod *ir.Module, args []ir.FunctionArgument, isVSInput bool) map[viewIDArgKey]int {
+	type entry struct {
+		key     viewIDArgKey
+		binding ir.Binding
+	}
+	var entries []entry
+	for argIdx := range args {
+		arg := &args[argIdx]
+		if arg.Binding != nil {
+			entries = append(entries, entry{
+				key:     viewIDArgKey{argIdx: argIdx, memberIdx: -1},
+				binding: *arg.Binding,
+			})
+			continue
+		}
+		argType := irMod.Types[arg.Type]
+		st, ok := argType.Inner.(ir.StructType)
+		if !ok {
+			continue
+		}
+		order := backend.SortedMemberIndices(st.Members)
+		for _, idx := range order {
+			m := st.Members[idx]
+			if m.Binding == nil {
+				continue
+			}
+			entries = append(entries, entry{
+				key:     viewIDArgKey{argIdx: argIdx, memberIdx: idx},
+				binding: *m.Binding,
+			})
+		}
+	}
+	// Apply the same cross-argument sort for non-VS inputs.
+	if !isVSInput {
+		sort.SliceStable(entries, func(i, j int) bool {
+			ki := backend.NewMemberInterfaceKey(&entries[i].binding)
+			kj := backend.NewMemberInterfaceKey(&entries[j].binding)
+			return backend.MemberInterfaceLess(ki, kj)
+		})
+	}
+	result := make(map[viewIDArgKey]int, len(entries))
+	for i, e := range entries {
+		result[e.key] = i
+	}
+	return result
 }
 
 // findArgHandle finds the ExpressionHandle for a FunctionArgument with
