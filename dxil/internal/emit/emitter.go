@@ -3,6 +3,7 @@ package emit
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/dxil/internal/viewid"
@@ -3036,46 +3037,88 @@ func (e *Emitter) emitGraphicsViewIDState(ep *ir.EntryPoint) {
 // (from sig_usage.go analysis) to per-input-signature-element masks, clamped
 // to the element's actual channel count. Returns nil-length slice when no
 // usage data is available.
+//
+// The iteration order MUST match the signature element order produced by
+// collectGraphicsSignatures / collectFlatArgBindings -- which sorts
+// locations before builtins for non-VS inputs. An earlier version
+// iterated arguments in declaration order, causing the usage mask for
+// a builtin (@builtin(position)) in arg0 to land on the LOC slot when
+// a location from arg1 was sorted first. This produced incorrect null
+// extended-properties metadata for used inputs and non-null for unused.
 func (e *Emitter) computeInputElementUsedMasks(ep *ir.EntryPoint, inElems []viewid.SigElement) []int64 {
 	masks := make([]int64, len(inElems))
 	if e.opts.InputUsedMasks == nil {
 		return masks
 	}
-	elemIdx := 0
-	for argIdx := range ep.Function.Arguments {
-		arg := &ep.Function.Arguments[argIdx]
-		argType := e.ir.Types[arg.Type]
-		if st, ok := argType.Inner.(ir.StructType); ok { //nolint:nestif // struct-member vs direct-binding dispatch
-			for mi := range st.Members {
-				if st.Members[mi].Binding == nil {
-					continue
-				}
-				if elemIdx >= len(masks) {
-					break
-				}
-				key := InputUsageKey{ArgIdx: argIdx, MemberIdx: mi}
-				mask := e.opts.InputUsedMasks[key]
-				channels := inElems[elemIdx].NumChannels
-				if channels > 0 && channels <= 4 {
-					mask &= uint8((1 << channels) - 1)
-				}
-				masks[elemIdx] = int64(mask)
-				elemIdx++
-			}
-		} else if arg.Binding != nil {
-			if elemIdx < len(masks) {
-				key := InputUsageKey{ArgIdx: argIdx, MemberIdx: -1}
-				mask := e.opts.InputUsedMasks[key]
-				channels := inElems[elemIdx].NumChannels
-				if channels > 0 && channels <= 4 {
-					mask &= uint8((1 << channels) - 1)
-				}
-				masks[elemIdx] = int64(mask)
-				elemIdx++
-			}
+	isVSInput := ep.Stage == ir.StageVertex
+	// Build sorted flat key list using the same convention as
+	// collectFlatArgBindings -- this guarantees element index i
+	// corresponds to inElems[i].
+	sortedKeys := buildSortedInputUsageKeys(e.ir, ep.Function.Arguments, isVSInput)
+	for i, key := range sortedKeys {
+		if i >= len(masks) {
+			break
 		}
+		mask := e.opts.InputUsedMasks[key]
+		channels := inElems[i].NumChannels
+		if channels > 0 && channels <= 4 {
+			mask &= uint8((1 << channels) - 1)
+		}
+		masks[i] = int64(mask)
 	}
 	return masks
+}
+
+// buildSortedInputUsageKeys produces an InputUsageKey per flat binding in
+// the same sorted order as collectFlatArgBindings. This mapping lets
+// computeInputElementUsedMasks look up the correct per-argument usage
+// mask for each signature element position.
+func buildSortedInputUsageKeys(irMod *ir.Module, args []ir.FunctionArgument, isVSInput bool) []InputUsageKey {
+	type keyedBinding struct {
+		key     InputUsageKey
+		binding ir.Binding
+	}
+	var items []keyedBinding
+	for argIdx := range args {
+		arg := &args[argIdx]
+		if arg.Binding != nil {
+			items = append(items, keyedBinding{
+				key:     InputUsageKey{ArgIdx: argIdx, MemberIdx: -1},
+				binding: *arg.Binding,
+			})
+			continue
+		}
+		argType := irMod.Types[arg.Type]
+		st, ok := argType.Inner.(ir.StructType)
+		if !ok {
+			continue
+		}
+		order := backend.SortedMemberIndices(st.Members)
+		for _, idx := range order {
+			m := st.Members[idx]
+			if m.Binding == nil {
+				continue
+			}
+			items = append(items, keyedBinding{
+				key:     InputUsageKey{ArgIdx: argIdx, MemberIdx: idx},
+				binding: *m.Binding,
+			})
+		}
+	}
+	// Apply the same cross-argument sort as collectFlatArgBindings.
+	// VS inputs use InputAssembler packing which preserves declaration order.
+	if !isVSInput && len(items) > 1 {
+		sort.SliceStable(items, func(i, j int) bool {
+			ki := backend.NewMemberInterfaceKey(&items[i].binding)
+			kj := backend.NewMemberInterfaceKey(&items[j].binding)
+			return backend.MemberInterfaceLess(ki, kj)
+		})
+	}
+	keys := make([]InputUsageKey, len(items))
+	for i, item := range items {
+		keys[i] = item.key
+	}
+	return keys
 }
 
 func sigInfosToViewIDElems(infos []dxilSigInfo) []viewid.SigElement {
