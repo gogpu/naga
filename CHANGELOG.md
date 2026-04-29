@@ -7,81 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Function call argument type validation** ([#66](https://github.com/gogpu/naga/issues/66)).
+  WGSL lowerer now validates argument count and types against function
+  parameters. Passing `vec2<u32>` where `u32` is expected now produces a
+  clear compile error instead of silently generating invalid shader code
+  that crashes at pipeline creation. Reported by @maxsupermanhd.
+  9 test cases covering shape mismatches, count mismatches, and abstract
+  type concretization.
+
+## [0.17.6] - 2026-04-23
+
+### Fixed (DXIL)
+
+- **Single-store local promotion** — eliminates alloca/store/load chains
+  for vertex/fragment output staging, matching DXC's direct `storeOutput`.
+- **Sampler heap after input loads** — DXC emit ordering for fragment shaders.
+- **HLSL namer suffix** — trailing `_` on resource names ending with
+  digits or matching HLSL keywords.
+- **Input used mask sorted order** — correct extended properties metadata
+  for fragment shaders with multiple struct inputs.
+- **Fragment input signature ordering** — LOC semantics before SV_Position.
+- **Raw buffer i32 overload** — float loads via i32 + bitcast, matching
+  DXC ByteAddressBuffer convention.
+- **Strength reduction** — `urem x, 2^N` → `and x, (2^N-1)` at emit time.
+
+### Metrics
+
+- DXC golden diff=0: 82 → **94** (+12)
+- Line parity: 46.5% → **48.1%**
+
 ## [0.17.5] - 2026-04-23
 
 ### Added
 
 - **`ir.TypeSize()` — shared type size calculation** matching Rust naga
-  `TypeInner::try_size(gctx)`. Returns byte size for all IR types following
-  WGSL/WebGPU alignment rules. Used by wgpu core for late buffer binding
-  size validation (VAL-006). 23 unit tests covering scalars, vectors,
-  matrices, arrays, structs, atomics, pointers, and opaque types.
+  `TypeInner::try_size(gctx)`. Used by wgpu core for late buffer binding
+  size validation (VAL-006). 23 unit tests.
 
 - **`ir.StorageFormat.IsUnorm()` / `IsSnorm()`** — predicate methods for
   storage texture format classification, used by DXIL backend for correct
   component type metadata.
 
-- **Single-store local promotion** — new emitter optimization that detects
-  vector/scalar locals stored exactly once in straight-line code and resolves
-  loads directly to the stored value, eliminating alloca/store/load chains
-  for vertex/fragment output staging. Matches DXC's direct `storeOutput`
-  pattern.
-
-- **Strength reduction** — `urem x, 2^N` emitted as `and x, (2^N-1)` at
-  emit time, matching DXC's LLVM InstCombine optimization.
-
 ### Fixed (DXIL)
 
-- **UNorm/SNorm component types** — storage textures with `rgba8unorm` now
-  emit `UNormF32` (14) instead of `F32` (9) in DXIL extended resource
-  properties metadata. Same for SNorm formats. Matches DXC behavior.
-
-- **CBV metadata size** — constant buffer metadata field[6] now uses actual
-  struct byte size instead of vec4-rounded size. For a push-constant struct
-  with a single `f32`, this emits 4 bytes (not 16). Matches DXC.
-
-- **Named metadata ordering** — `!dx.resources` now emits before
-  `!dx.viewIdState`, matching DXC output order.
-
-- **dx.op attribute classification** — sample, mesh output, and store
-  vertex/primitive output functions now get correct `nounwind readonly`
-  attributes instead of plain `nounwind`.
-
-- **HLSL namer suffix on resource names** — resource metadata names now get
-  trailing `_` when ending with a digit or matching an HLSL keyword,
-  matching the DXC roundtrip path (WGSL→HLSL→DXC→DXIL).
-
-- **Sampler heap handles after input loads** — `emitSamplerHeapHandles()`
-  moved after `emitInputLoads()` to match DXC emit ordering for fragment
-  shaders with both samplers and input varyings.
-
-- **Raw buffer float loads use i32 overload** — `bufferLoad` for
-  ByteAddressBuffer now always uses i32 overload with bitcast to float,
-  matching DXC behavior. Fixes `%dx.types.ResRet.f32` → `.i32` type
-  declaration difference.
-
-- **Fragment input signature ordering** — LOC semantics sorted before
-  SV_Position in fragment shader input signatures, matching DXC convention.
-  Applied across ISG1, metadata, loadInput, and ViewID analysis.
-
-- **Input used mask sorted order** — `computeInputElementUsedMasks` now
-  iterates in sorted signature order, fixing incorrect extended properties
-  metadata for fragment shaders with multiple struct inputs.
+- **UNorm/SNorm component types** — `rgba8unorm` → `UNormF32` (14) in metadata.
+- **CBV metadata size** — actual struct size, not vec4-rounded.
+- **Named metadata ordering** — `!dx.resources` before `!dx.viewIdState`.
+- **dx.op attribute classification** — correct `nounwind readonly` attributes.
 
 ### Changed
 
 - **DXC golden normalizer** — function declarations and attribute definitions
-  are now sorted alphabetically for comparison, eliminating false-positive
-  diffs from DXC's non-deterministic declaration ordering.
+  sorted alphabetically, eliminating false-positive ordering diffs.
 
 ### Metrics
 
-- DXC golden diff=0: 72 → **94** (+22)
-- Line parity: 45.7% → **48.1%**
-- IDxcValidator: 161/170 (94.7%, unchanged)
-- gg production: 58/59 (fine.wgsl pre-existing failure)
-- Text backends: 100% (unchanged)
-- SPIR-V validation: 172/172 (100%, unchanged)
+- DXC golden diff=0: 72 → **82** (+10)
+- Line parity: 45.7% → **46.5%**
 
 ### Notes
 

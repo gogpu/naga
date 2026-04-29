@@ -1504,3 +1504,128 @@ fn main() {
 		t.Errorf("matrix Compose type name = %q, want empty (anonymous); scalar grouping should use anonymous type", composeTypeName)
 	}
 }
+
+func TestCallArgumentTypeMismatch(t *testing.T) {
+	tests := []struct {
+		name    string
+		src     string
+		wantErr string
+	}{
+		{
+			name: "vec2 passed as scalar (issue #66)",
+			src: `fn takes_scalar(n: u32) -> u32 { return n; }
+@compute @workgroup_size(1)
+fn main() {
+    let v = vec2<u32>(1u, 2u);
+    takes_scalar(v);
+}`,
+			wantErr: "type mismatch (expected u32, got vec2<u32>)",
+		},
+		{
+			name: "scalar passed as vec2",
+			src: `fn takes_vec(v: vec2<f32>) -> vec2<f32> { return v; }
+@compute @workgroup_size(1)
+fn main() {
+    takes_vec(1.0);
+}`,
+			wantErr: "type mismatch (expected vec2<f32>, got f32)",
+		},
+		{
+			name: "vec3 passed as vec4",
+			src: `fn takes_vec4(v: vec4<f32>) -> vec4<f32> { return v; }
+@compute @workgroup_size(1)
+fn main() {
+    let v = vec3<f32>(1.0, 2.0, 3.0);
+    takes_vec4(v);
+}`,
+			wantErr: "type mismatch (expected vec4<f32>, got vec3<f32>)",
+		},
+		{
+			name: "wrong argument count — too many",
+			src: `fn takes_one(a: u32) -> u32 { return a; }
+@compute @workgroup_size(1)
+fn main() {
+    takes_one(1u, 2u);
+}`,
+			wantErr: "expects 1 argument(s), got 2",
+		},
+		{
+			name: "wrong argument count — too few",
+			src: `fn takes_two(a: u32, b: u32) -> u32 { return a + b; }
+@compute @workgroup_size(1)
+fn main() {
+    takes_two(1u);
+}`,
+			wantErr: "expects 2 argument(s), got 1",
+		},
+		{
+			name: "correct call compiles",
+			src: `fn add(a: u32, b: u32) -> u32 { return a + b; }
+@compute @workgroup_size(1)
+fn main() {
+    let x = add(1u, 2u);
+}`,
+			wantErr: "",
+		},
+		{
+			name: "abstract int concretizes to u32",
+			src: `fn takes_u32(n: u32) -> u32 { return n; }
+@compute @workgroup_size(1)
+fn main() {
+    let x = takes_u32(42);
+}`,
+			wantErr: "",
+		},
+		{
+			name: "abstract float concretizes to f32",
+			src: `fn takes_f32(n: f32) -> f32 { return n; }
+@compute @workgroup_size(1)
+fn main() {
+    let x = takes_f32(3.14);
+}`,
+			wantErr: "",
+		},
+		{
+			name: "multiple args — second wrong",
+			src: `fn mixed(a: vec2<u32>, b: u32) -> u32 { return b; }
+@compute @workgroup_size(1)
+fn main() {
+    let a = vec2<u32>(1u, 2u);
+    let b = vec2<u32>(3u, 4u);
+    mixed(a, b);
+}`,
+			wantErr: "argument 1: type mismatch (expected u32, got vec2<u32>)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := compileWGSL(t, tt.src)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, but compilation succeeded", tt.wantErr)
+			}
+			if !contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want containing %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchSubstring(s, substr)
+}
+
+func searchSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

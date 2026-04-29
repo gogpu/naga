@@ -6990,6 +6990,90 @@ func (l *Lowerer) getTypeScalar(typeHandle ir.TypeHandle) (ir.ScalarType, bool) 
 // This implements WGSL's automatic type conversion at declaration sites:
 //
 // let x: vec2<u32> = vec2(44, 45) → concretize 44,45 from AbstractInt to u32.
+// checkArgumentType verifies that a call argument's resolved type matches the
+// expected parameter type. Abstract types are allowed (concretization handles them).
+func (l *Lowerer) checkArgumentType(argHandle ir.ExpressionHandle, paramType ir.TypeHandle, funcName string, argIndex int) error {
+	if l.currentFunc == nil || int(argHandle) >= len(l.currentFunc.ExpressionTypes) {
+		return nil
+	}
+	argInner := ir.TypeResInner(l.module, l.currentFunc.ExpressionTypes[argHandle])
+	if argInner == nil {
+		return nil
+	}
+	// Skip abstract types — concretization will handle or report them.
+	if s, ok := argInner.(ir.ScalarType); ok && (s.Kind == ir.ScalarAbstractInt || s.Kind == ir.ScalarAbstractFloat) {
+		return nil
+	}
+	if int(paramType) >= len(l.module.Types) {
+		return nil
+	}
+	paramInner := l.module.Types[paramType].Inner
+	if !typeShapeMatches(argInner, paramInner) {
+		return fmt.Errorf("function '%s' argument %d: type mismatch (expected %s, got %s)", funcName, argIndex, typeName(paramInner), typeName(argInner))
+	}
+	return nil
+}
+
+// typeShapeMatches checks if two TypeInner values have compatible shapes.
+// Scalar↔Scalar, Vector↔Vector (same size), Matrix↔Matrix (same dims), etc.
+func typeShapeMatches(arg, param ir.TypeInner) bool {
+	switch p := param.(type) {
+	case ir.ScalarType:
+		a, ok := arg.(ir.ScalarType)
+		return ok && (a.Kind == p.Kind || a.Kind == ir.ScalarAbstractInt || a.Kind == ir.ScalarAbstractFloat)
+	case ir.VectorType:
+		a, ok := arg.(ir.VectorType)
+		return ok && a.Size == p.Size
+	case ir.MatrixType:
+		a, ok := arg.(ir.MatrixType)
+		return ok && a.Columns == p.Columns && a.Rows == p.Rows
+	case ir.ArrayType:
+		_, ok := arg.(ir.ArrayType)
+		return ok
+	case ir.StructType:
+		_, ok := arg.(ir.StructType)
+		return ok
+	case ir.PointerType:
+		_, ok := arg.(ir.PointerType)
+		return ok
+	case ir.AtomicType:
+		_, ok := arg.(ir.AtomicType)
+		return ok
+	default:
+		return true // opaque types — trust downstream validation
+	}
+}
+
+func typeName(inner ir.TypeInner) string {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		switch t.Kind {
+		case ir.ScalarFloat:
+			if t.Width == 2 {
+				return "f16"
+			}
+			return "f32"
+		case ir.ScalarSint:
+			return "i32"
+		case ir.ScalarUint:
+			return "u32"
+		case ir.ScalarBool:
+			return "bool"
+		}
+	case ir.VectorType:
+		return fmt.Sprintf("vec%d<%s>", t.Size, typeName(t.Scalar))
+	case ir.MatrixType:
+		return fmt.Sprintf("mat%dx%d<%s>", t.Columns, t.Rows, typeName(t.Scalar))
+	case ir.ArrayType:
+		return "array<...>"
+	case ir.StructType:
+		return "struct"
+	case ir.PointerType:
+		return "ptr<...>"
+	}
+	return "unknown"
+}
+
 func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetType ir.TypeHandle) {
 	targetScalar, ok := l.getTypeScalar(targetType)
 	if !ok {
@@ -7391,12 +7475,16 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 		args[i] = handle
 	}
 
-	// Concretize abstract literal arguments to match the function parameter types.
+	// Validate argument count and types, then concretize abstract literals.
 	if int(funcHandle) < len(l.module.Functions) {
 		fn := &l.module.Functions[funcHandle]
+		if len(args) != len(fn.Arguments) {
+			return 0, fmt.Errorf("function '%s' expects %d argument(s), got %d", funcName, len(fn.Arguments), len(args))
+		}
 		for i, argHandle := range args {
-			if i < len(fn.Arguments) {
-				l.concretizeExpressionToType(argHandle, fn.Arguments[i].Type)
+			l.concretizeExpressionToType(argHandle, fn.Arguments[i].Type)
+			if err := l.checkArgumentType(argHandle, fn.Arguments[i].Type, funcName, i); err != nil {
+				return 0, err
 			}
 		}
 	}
