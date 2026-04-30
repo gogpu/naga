@@ -757,13 +757,135 @@ func visitStatementHandlesOne(kind ir.StatementKind, f func(ir.ExpressionHandle)
 }
 
 // emitBlock emits all statements in a block.
+//
+// When consecutive StmtEmit statements appear with no intervening
+// non-emit statements, they are merged into a single combined emission.
+// This allows the reassociate pass (buildChainSkipSet) and the
+// evalRightFirst scheduling in emitBinaryOperands to see the full
+// expression tree across what the WGSL lowerer split into separate
+// emit ranges. DXC's LLVM sees all instructions in one basic block
+// and reorders freely; merging emit ranges gives our emitter the same
+// visibility.
+//
+// Expression handles that fall in gaps between the original ranges
+// (e.g., handles emitted as side effects of other statements like
+// StmtCall) are excluded via a membership set -- only handles that
+// belong to at least one of the original ranges are emitted.
 func (e *Emitter) emitBlock(fn *ir.Function, block ir.Block) error {
-	for i := range block {
-		if err := e.emitStatement(fn, &block[i]); err != nil {
+	i := 0
+	for i < len(block) {
+		// Check if this is the start of a consecutive StmtEmit run.
+		firstEmit, isEmit := block[i].Kind.(ir.StmtEmit)
+		if !isEmit {
+			if err := e.emitStatement(fn, &block[i]); err != nil {
+				return err
+			}
+			i++
+			continue
+		}
+
+		// Check if the next statement is also StmtEmit.
+		if i+1 >= len(block) {
+			if err := e.emitStatement(fn, &block[i]); err != nil {
+				return err
+			}
+			i++
+			continue
+		}
+		if _, nextIsEmit := block[i+1].Kind.(ir.StmtEmit); !nextIsEmit {
+			if err := e.emitStatement(fn, &block[i]); err != nil {
+				return err
+			}
+			i++
+			continue
+		}
+
+		// Found consecutive StmtEmit statements -- collect them all.
+		ranges := []ir.Range{firstEmit.Range}
+		j := i + 1
+		for j < len(block) {
+			nextEmit, nextOk := block[j].Kind.(ir.StmtEmit)
+			if !nextOk {
+				break
+			}
+			ranges = append(ranges, nextEmit.Range)
+			j++
+		}
+
+		if err := e.emitMergedStmtEmit(fn, ranges); err != nil {
 			return err
 		}
+		i = j
 	}
 	return nil
+}
+
+// mergeConsecutiveEmitRanges coalesces directly adjacent StmtEmit
+// statements into a single StmtEmit covering the union of their
+// expression handle ranges. Only StmtEmit statements that appear
+// consecutively with no other statement kinds between them are merged.
+//
+// This is safe because within a flat statement list, consecutive
+// StmtEmit ranges belong to the same basic block -- there is no
+// intervening control flow. The merged range simply evaluates more
+// expressions before proceeding, which does not change semantics for
+// side-effect-free expressions.
+//
+// When no merging occurs, the original block is returned unmodified
+// (zero allocation).
+func mergeConsecutiveEmitRanges(block ir.Block) ir.Block {
+	if len(block) < 2 {
+		return block
+	}
+
+	// Quick scan: is there anything to merge?
+	hasMerge := false
+	for i := 1; i < len(block); i++ {
+		_, prevIsEmit := block[i-1].Kind.(ir.StmtEmit)
+		_, curIsEmit := block[i].Kind.(ir.StmtEmit)
+		if prevIsEmit && curIsEmit {
+			hasMerge = true
+			break
+		}
+	}
+	if !hasMerge {
+		return block
+	}
+
+	result := make(ir.Block, 0, len(block))
+	i := 0
+	for i < len(block) {
+		emit, ok := block[i].Kind.(ir.StmtEmit)
+		if !ok {
+			result = append(result, block[i])
+			i++
+			continue
+		}
+
+		// Start of a run of consecutive StmtEmit statements.
+		// Merge all directly adjacent ones into a single range.
+		merged := emit.Range
+		j := i + 1
+		for j < len(block) {
+			nextEmit, nextOk := block[j].Kind.(ir.StmtEmit)
+			if !nextOk {
+				break
+			}
+			if nextEmit.Range.End > merged.End {
+				merged.End = nextEmit.Range.End
+			}
+			if nextEmit.Range.Start < merged.Start {
+				merged.Start = nextEmit.Range.Start
+			}
+			j++
+		}
+
+		result = append(result, ir.Statement{
+			Kind: ir.StmtEmit{Range: merged},
+		})
+		i = j
+	}
+	return result
 }
 
 // emitStatement emits a single statement.
@@ -855,6 +977,99 @@ func (e *Emitter) emitStmtEmit(fn *ir.Function, emit ir.StmtEmit) error {
 		}
 	}
 	return nil
+}
+
+// emitMergedStmtEmit evaluates expressions from multiple consecutive
+// StmtEmit ranges as a single combined emission. This allows
+// buildChainSkipSet to detect reassociation chains that span across
+// what the WGSL lowerer split into separate emit ranges, and lets
+// emitBinaryOperands evaluate resource reads before ALU when both
+// appear within the combined range.
+//
+// Expression handles that fall in gaps between the original ranges
+// are skipped -- only handles covered by at least one original range
+// are emitted. This prevents emitting ExprCallResult or other handles
+// that are materialized by side-effect statements (StmtCall etc.).
+func (e *Emitter) emitMergedStmtEmit(fn *ir.Function, ranges []ir.Range) error {
+	// Build a membership set of handles that belong to original ranges.
+	inRange := make(map[ir.ExpressionHandle]bool)
+	var minStart, maxEnd ir.ExpressionHandle
+	minStart = ranges[0].Start
+	maxEnd = ranges[0].End
+	for _, r := range ranges {
+		for h := r.Start; h < r.End; h++ {
+			inRange[h] = true
+		}
+		if r.Start < minStart {
+			minStart = r.Start
+		}
+		if r.End > maxEnd {
+			maxEnd = r.End
+		}
+	}
+
+	// Build the chain skip set over the full combined range so it can
+	// detect chains that span across original range boundaries.
+	combinedRange := ir.Range{Start: minStart, End: maxEnd}
+	skipChainIntermediate := e.buildChainSkipSetFiltered(fn, combinedRange, inRange)
+
+	// Emit handles in order, skipping gaps and chain intermediates.
+	for h := minStart; h < maxEnd; h++ {
+		if !inRange[h] {
+			continue
+		}
+		if skipChainIntermediate[h] {
+			continue
+		}
+		if _, err := e.emitExpression(fn, h); err != nil {
+			return fmt.Errorf("emit range [%d]: %w", h, err)
+		}
+	}
+	return nil
+}
+
+// buildChainSkipSetFiltered is like buildChainSkipSet but only considers
+// handles that are in the provided membership set. This is used when
+// merging multiple StmtEmit ranges to avoid inspecting expression
+// handles in gaps between the original ranges.
+func (e *Emitter) buildChainSkipSetFiltered(fn *ir.Function, rng ir.Range, inRange map[ir.ExpressionHandle]bool) map[ir.ExpressionHandle]bool {
+	type binInfo struct {
+		handle ir.ExpressionHandle
+		op     ir.BinaryOperator
+		left   ir.ExpressionHandle
+		right  ir.ExpressionHandle
+	}
+	var bins []binInfo
+	for h := rng.Start; h < rng.End; h++ {
+		if !inRange[h] {
+			continue
+		}
+		expr := fn.Expressions[h]
+		if bin, ok := expr.Kind.(ir.ExprBinary); ok && isCommutativeBinOp(bin.Op) {
+			bins = append(bins, binInfo{h, bin.Op, bin.Left, bin.Right})
+		}
+	}
+	if len(bins) < 2 {
+		return nil
+	}
+
+	skip := map[ir.ExpressionHandle]bool{}
+	for _, b := range bins {
+		for _, child := range [2]ir.ExpressionHandle{b.left, b.right} {
+			if !inRange[child] {
+				continue
+			}
+			childExpr := fn.Expressions[child]
+			cbin, ok := childExpr.Kind.(ir.ExprBinary)
+			if !ok || cbin.Op != b.op {
+				continue
+			}
+			if e.exprUseCount[child] == 1 {
+				skip[child] = true
+			}
+		}
+	}
+	return skip
 }
 
 // buildChainSkipSet identifies expression handles within the emit range

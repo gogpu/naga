@@ -7207,3 +7207,140 @@ func TestLeafEmitPriority(t *testing.T) {
 		})
 	}
 }
+
+// TestMergeConsecutiveEmitRanges verifies that directly adjacent StmtEmit
+// statements are coalesced into a single StmtEmit covering the union range.
+func TestMergeConsecutiveEmitRanges(t *testing.T) {
+	retH := ir.ExpressionHandle(10)
+	tests := []struct {
+		name  string
+		input ir.Block
+		want  []ir.Range // expected emit ranges in output
+		wantN int        // expected total statement count
+	}{
+		{
+			name: "two consecutive emits merged",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 6}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 7, End: 11}}},
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  []ir.Range{{Start: 3, End: 11}},
+			wantN: 2, // merged emit + return
+		},
+		{
+			name: "three consecutive emits merged",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 5}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 5, End: 8}}},
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  []ir.Range{{Start: 0, End: 8}},
+			wantN: 2,
+		},
+		{
+			name: "emits separated by store not merged",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+				{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 5}}},
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  []ir.Range{{Start: 0, End: 3}, {Start: 3, End: 5}},
+			wantN: 4, // emit + store + emit + return
+		},
+		{
+			name: "single emit unchanged",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  []ir.Range{{Start: 0, End: 5}},
+			wantN: 2,
+		},
+		{
+			name: "no emits unchanged",
+			input: ir.Block{
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  nil,
+			wantN: 1,
+		},
+		{
+			name:  "empty block",
+			input: ir.Block{},
+			want:  nil,
+			wantN: 0,
+		},
+		{
+			name: "two groups separated by if",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 4}}},
+				{Kind: ir.StmtIf{Condition: 3}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 6}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 6, End: 8}}},
+			},
+			want:  []ir.Range{{Start: 0, End: 4}, {Start: 4, End: 8}},
+			wantN: 3, // merged emit + if + merged emit
+		},
+		{
+			name: "non-contiguous ranges merged by max end",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 5, End: 8}}},
+			},
+			want:  []ir.Range{{Start: 0, End: 8}},
+			wantN: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := mergeConsecutiveEmitRanges(tc.input)
+			if len(result) != tc.wantN {
+				t.Fatalf("got %d statements, want %d", len(result), tc.wantN)
+			}
+
+			// Collect emit ranges from result.
+			var gotRanges []ir.Range
+			for _, stmt := range result {
+				if emit, ok := stmt.Kind.(ir.StmtEmit); ok {
+					gotRanges = append(gotRanges, emit.Range)
+				}
+			}
+
+			if len(gotRanges) != len(tc.want) {
+				t.Fatalf("got %d emit ranges, want %d: %+v", len(gotRanges), len(tc.want), gotRanges)
+			}
+			for i, got := range gotRanges {
+				if got != tc.want[i] {
+					t.Errorf("range[%d] = %+v, want %+v", i, got, tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestMergeConsecutiveEmitRangesNoAlloc verifies that when no merging is
+// needed, the original block slice is returned without allocation.
+func TestMergeConsecutiveEmitRangesNoAlloc(t *testing.T) {
+	retH := ir.ExpressionHandle(5)
+	block := ir.Block{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+		{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 5}}},
+		{Kind: ir.StmtReturn{Value: &retH}},
+	}
+
+	result := mergeConsecutiveEmitRanges(block)
+	// When no merge occurs, should return the original slice.
+	if len(result) != len(block) {
+		t.Fatalf("expected same length %d, got %d", len(block), len(result))
+	}
+	// Verify identity: same backing array.
+	if &result[0] != &block[0] {
+		t.Error("expected same backing array when no merge needed")
+	}
+}
