@@ -605,7 +605,7 @@ fn foo() {
 			errContains: "missing @workgroup_size",
 		},
 		{
-			name: "compute_with_workgroup_size_ok",
+			name:   "compute_with_workgroup_size_ok",
 			source: `@compute @workgroup_size(1) fn main() {}`,
 			// This should compile; errContains is empty to indicate no error expected.
 			// But this table expects ALL entries to fail. So we use the success table below.
