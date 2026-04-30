@@ -4707,12 +4707,18 @@ func (l *Lowerer) lowerSwitchCaseValue(expr Expr) (ir.SwitchValue, error) {
 }
 
 // evalConstAssert evaluates a const_assert condition expression.
-// Returns an error if the condition evaluates to false, or if it cannot be evaluated
-// as a boolean constant expression. Matches Rust naga's ConstAssertFailed / NotBool.
+// Returns an error if the condition evaluates to false.
+// If the expression cannot be evaluated (complex const functions, float comparisons),
+// it is silently accepted to avoid regressions on valid but complex shaders.
+// Matches Rust naga's ConstAssertFailed error for the evaluable case.
 func (l *Lowerer) evalConstAssert(condition Expr) error {
 	val, ok := l.tryEvalConstantBool(condition)
 	if !ok {
-		return fmt.Errorf("const_assert condition must be a constant boolean expression")
+		// Cannot evaluate — silently accept. Full constant evaluator would
+		// handle select(), all(), float comparisons etc. For now we only
+		// enforce the evaluable subset (bool literals, int comparisons,
+		// logical operators, named int/bool constants).
+		return nil
 	}
 	if !val {
 		return fmt.Errorf("const_assert failed")
