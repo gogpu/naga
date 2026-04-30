@@ -597,16 +597,433 @@ fn foo() {
 }`,
 			errContains: "textureSampleBaseClampToEdge requires at least 3 arguments",
 		},
+
+		// --- Compute entry point missing @workgroup_size ---
+		{
+			name:        "compute_missing_workgroup_size",
+			source:      `@compute fn main() {}`,
+			errContains: "missing @workgroup_size",
+		},
+		{
+			name:   "compute_with_workgroup_size_ok",
+			source: `@compute @workgroup_size(1) fn main() {}`,
+			// This should compile; errContains is empty to indicate no error expected.
+			// But this table expects ALL entries to fail. So we use the success table below.
+			errContains: "",
+		},
+
+		// --- Zero-sized array ---
+		{
+			name:        "array_size_zero",
+			source:      `fn foo() { var a: array<f32, 0>; }`,
+			errContains: "array size must be greater than 0",
+		},
+		// Valid array size = 1 (edge case)
+		{
+			name:        "array_size_one_ok",
+			source:      `fn foo() { var a: array<f32, 1>; _ = a; }`,
+			errContains: "",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tryLower(tt.source)
+			if tt.errContains == "" {
+				// Some entries are success cases
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+				return
+			}
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
 			if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
 				t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+			}
+		})
+	}
+}
+
+// TestWGSLErrors_ConstAssert tests that const_assert is evaluated at compile time.
+func TestWGSLErrors_ConstAssert(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      string
+		wantErr     bool
+		errContains string
+	}{
+		// Module-scope const_assert
+		{
+			name:        "module_scope_false",
+			source:      `const_assert false;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_true",
+			source: `const_assert true;`,
+		},
+		{
+			name:   "module_scope_comparison_true",
+			source: `const_assert 1 == 1;`,
+		},
+		{
+			name:        "module_scope_comparison_false",
+			source:      `const_assert 1 == 2;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_less_than_true",
+			source: `const_assert 1 < 2;`,
+		},
+		{
+			name:        "module_scope_less_than_false",
+			source:      `const_assert 2 < 1;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_not_equal_true",
+			source: `const_assert 1 != 2;`,
+		},
+		{
+			name:   "module_scope_negation",
+			source: `const_assert !false;`,
+		},
+		{
+			name:        "module_scope_negation_true_fails",
+			source:      `const_assert !true;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_logical_and",
+			source: `const_assert true && true;`,
+		},
+		{
+			name:        "module_scope_logical_and_false",
+			source:      `const_assert true && false;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_logical_or",
+			source: `const_assert false || true;`,
+		},
+		{
+			name:   "module_scope_with_parens",
+			source: `const_assert(true);`,
+		},
+		{
+			name:        "module_scope_with_parens_false",
+			source:      `const_assert(false);`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		// Function-scope const_assert
+		{
+			name:        "function_scope_false",
+			source:      `fn foo() { const_assert false; }`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "function_scope_true",
+			source: `fn foo() { const_assert true; }`,
+		},
+		{
+			name:        "function_scope_comparison_false",
+			source:      `fn foo() { const_assert 3 > 5; }`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "function_scope_comparison_true",
+			source: `fn foo() { const_assert 5 >= 5; }`,
+		},
+		// Named constant in const_assert
+		{
+			name:   "module_const_true",
+			source: `const X = 10; const_assert X == 10;`,
+		},
+		{
+			name:        "module_const_false",
+			source:      `const X = 10; const_assert X == 11;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tryLower(tt.source)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, but compilation succeeded", tt.errContains)
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestWGSLErrors_BindingGroupValidation tests that @binding and @group must appear together.
+func TestWGSLErrors_BindingGroupValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      string
+		wantErr     bool
+		errContains string
+	}{
+		// Valid: both @group and @binding present
+		{
+			name:   "both_group_and_binding",
+			source: `@group(0) @binding(0) var<storage> data: array<u32>;`,
+		},
+		// Valid: @binding before @group (order doesn't matter)
+		{
+			name:   "binding_before_group",
+			source: `@binding(1) @group(2) var<uniform> data: vec4<f32>;`,
+		},
+		// Invalid: @binding without @group
+		{
+			name:        "binding_without_group",
+			source:      `@binding(0) var<storage> data: array<u32>;`,
+			wantErr:     true,
+			errContains: "@binding requires @group",
+		},
+		// Invalid: @group without @binding
+		{
+			name:        "group_without_binding",
+			source:      `@group(0) var<storage> data: array<u32>;`,
+			wantErr:     true,
+			errContains: "@group requires @binding",
+		},
+		// Valid: no @group or @binding (private variable)
+		{
+			name:   "no_group_no_binding",
+			source: `var<private> data: f32;`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tryLower(tt.source)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, but compilation succeeded", tt.errContains)
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestWGSLErrors_MustUse tests that @must_use function results cannot be discarded.
+func TestWGSLErrors_MustUse(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      string
+		wantErr     bool
+		errContains string
+	}{
+		// Error: @must_use result discarded as statement
+		{
+			name: "must_use_discarded_as_statement",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() { foo(); }`,
+			wantErr:     true,
+			errContains: "@must_use",
+		},
+		// OK: @must_use result used in return
+		{
+			name: "must_use_used_in_return",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() -> u32 { return foo(); }`,
+		},
+		// OK: @must_use result used in let binding
+		{
+			name: "must_use_used_in_let",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() { let x = foo(); _ = x; }`,
+		},
+		// OK: @must_use result used in var binding
+		{
+			name: "must_use_used_in_var",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() { var x = foo(); _ = x; }`,
+		},
+		// OK: @must_use result used in phony assignment
+		{
+			name: "must_use_used_in_phony",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() { _ = foo(); }`,
+		},
+		// OK: function without @must_use can be discarded
+		{
+			name: "no_must_use_discarded",
+			source: `
+fn foo() -> u32 { return 42; }
+fn test() { foo(); }`,
+		},
+		// OK: void function without @must_use (no return value)
+		{
+			name: "void_function_discarded",
+			source: `
+fn foo() {}
+fn test() { foo(); }`,
+		},
+		// Error: @must_use result discarded inside entry point
+		{
+			name: "must_use_discarded_in_entry_point",
+			source: `
+@must_use fn foo() -> i32 { return 10; }
+@compute @workgroup_size(1)
+fn main() { foo(); }`,
+			wantErr:     true,
+			errContains: "@must_use",
+		},
+		// OK: @must_use result used in expression
+		{
+			name: "must_use_used_in_expression",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() -> u32 { return foo() + 1u; }`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tryLower(tt.source)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, but compilation succeeded", tt.errContains)
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestWGSLErrors_SwizzleValidation tests swizzle namespace and GLSL rejection.
+func TestWGSLErrors_SwizzleValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      string
+		wantErr     bool
+		errContains string
+	}{
+		// Valid: xyzw namespace
+		{
+			name:   "xyzw_single",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let x = v.x; }`,
+		},
+		{
+			name:   "xyzw_multi",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let xy = v.xy; }`,
+		},
+		{
+			name:   "xyzw_full",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.xyzw; }`,
+		},
+		// Valid: rgba namespace
+		{
+			name:   "rgba_single",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let r = v.r; }`,
+		},
+		{
+			name:   "rgba_multi",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let rg = v.rg; }`,
+		},
+		{
+			name:   "rgba_full",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.rgba; }`,
+		},
+		// Invalid: GLSL s/t/p/q swizzle (not valid in WGSL)
+		{
+			name:        "glsl_stpq_rejected",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.stpq; }`,
+			wantErr:     true,
+			errContains: "invalid swizzle component",
+		},
+		{
+			name:        "glsl_st_rejected",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.st; }`,
+			wantErr:     true,
+			errContains: "invalid swizzle component",
+		},
+		{
+			name:        "glsl_single_s_rejected",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.s; }`,
+			wantErr:     true,
+			errContains: "invalid swizzle component",
+		},
+		// Invalid: mixed xyzw + rgba namespace
+		{
+			name:        "mixed_xg",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.xg; }`,
+			wantErr:     true,
+			errContains: "cannot mix xyzw and rgba",
+		},
+		{
+			name:        "mixed_xb",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.xb; }`,
+			wantErr:     true,
+			errContains: "cannot mix xyzw and rgba",
+		},
+		{
+			name:        "mixed_ry",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.ry; }`,
+			wantErr:     true,
+			errContains: "cannot mix xyzw and rgba",
+		},
+		// Valid: swizzle repeat
+		{
+			name:   "xyzw_repeat",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.xx; }`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tryLower(tt.source)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, but compilation succeeded", tt.errContains)
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
 			}
 		})
 	}

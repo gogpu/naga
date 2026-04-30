@@ -37,6 +37,7 @@ type Lowerer struct {
 	// Function resolution
 	functions       map[string]ir.FunctionHandle // Named function lookup (non-entry-point only)
 	entryPointFuncs map[string]bool              // Names of entry point functions
+	funcMustUse     map[string]bool              // Functions with @must_use attribute
 
 	// Variable usage tracking for unused variable warnings
 	localDecls        map[string]Span // Where each local variable was declared
@@ -179,6 +180,7 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 		abstractConstants: make(map[string]*abstractConstInfo, 4),
 		functions:         make(map[string]ir.FunctionHandle, nFuncs),
 		entryPointFuncs:   make(map[string]bool, 4),
+		funcMustUse:       make(map[string]bool, 4),
 		localDecls:        make(map[string]Span, 16),
 		usedLocals:        make(map[string]bool, 16),
 		localConsts:       make(map[string]bool, 4),
@@ -203,10 +205,16 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 	// IMPORTANT: Handles are assigned in dependency-sorted order (not source order)
 	// to match Rust naga's visit_ordered() which processes functions in DFS post-order.
 	{
-		// First pass: identify entry points
+		// First pass: identify entry points and @must_use functions
 		for _, f := range ast.Functions {
 			if l.entryPointStage(f.Attributes) != nil {
 				l.entryPointFuncs[f.Name] = true
+			}
+			for _, attr := range f.Attributes {
+				if attr.Name == "must_use" {
+					l.funcMustUse[f.Name] = true
+					break
+				}
 			}
 		}
 		// Second pass: assign handles in dependency order
@@ -249,6 +257,12 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 				l.addError(err.Error(), d.Span)
 			}
 			processedFunctions[d.Name] = true
+		case *ConstAssertDecl:
+			// Module-scope const_assert — evaluate and error if false.
+			// Matches Rust naga: ConstAssertFailed / NotBool.
+			if err := l.evalConstAssert(d.Condition); err != nil {
+				l.addError(err.Error(), d.Span)
+			}
 		}
 	}
 
@@ -883,6 +897,8 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 	var binding *ir.ResourceBinding
 
 	// Parse @group and @binding attributes
+	hasGroup := false
+	hasBinding := false
 	for _, attr := range v.Attributes {
 		if attr.Name == "group" && len(attr.Args) > 0 {
 			if lit, ok := attr.Args[0].(*Literal); ok {
@@ -891,6 +907,7 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 					binding = &ir.ResourceBinding{}
 				}
 				binding.Group = uint32(group)
+				hasGroup = true
 			}
 		}
 		if attr.Name == "binding" && len(attr.Args) > 0 {
@@ -900,8 +917,18 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 					binding = &ir.ResourceBinding{}
 				}
 				binding.Binding = uint32(bind)
+				hasBinding = true
 			}
 		}
+	}
+
+	// Validate that @binding and @group appear together.
+	// WGSL spec requires both attributes on resource variables.
+	if hasBinding && !hasGroup {
+		return fmt.Errorf("global var '%s': @binding requires @group attribute", v.Name)
+	}
+	if hasGroup && !hasBinding {
+		return fmt.Errorf("global var '%s': @group requires @binding attribute", v.Name)
 	}
 
 	// Determine storage access mode from WGSL access mode annotation.
@@ -3803,8 +3830,20 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 			Stage:    *stage,
 			Function: *fn,
 		}
-		// Extract workgroup_size for compute/mesh/task shaders
+		// Extract workgroup_size for compute/mesh/task shaders.
+		// Validate that @workgroup_size is present — required by WGSL spec.
+		// Matches Rust naga: Error::MissingWorkgroupSize.
 		if *stage == ir.StageCompute || *stage == ir.StageMesh || *stage == ir.StageTask {
+			hasWGSize := false
+			for _, attr := range f.Attributes {
+				if attr.Name == "workgroup_size" {
+					hasWGSize = true
+					break
+				}
+			}
+			if !hasWGSize {
+				return fmt.Errorf("@compute entry point '%s' is missing @workgroup_size attribute", f.Name)
+			}
 			ep.Workgroup = l.extractWorkgroupSize(f.Attributes)
 		}
 		// Extract early_depth_test for fragment shaders
@@ -3944,8 +3983,9 @@ func (l *Lowerer) lowerStatement(stmt Stmt, target *[]ir.Statement) error {
 		// from the continuing block). It should not reach here in normal code flow.
 		return fmt.Errorf("'break if' must appear inside a continuing block of a loop")
 	case *ConstAssertDecl:
-		// const_assert is a compile-time assertion, treated as no-op in lowering.
-		return nil
+		// const_assert is a compile-time assertion — WGSL spec requires evaluation.
+		// Matches Rust naga: eval_expr_to_bool → ConstAssertFailed / NotBool.
+		return l.evalConstAssert(s.Condition)
 	case *ContinueStmt:
 		*target = append(*target, ir.Statement{Kind: ir.StmtContinue{}})
 		return nil
@@ -4664,6 +4704,114 @@ func (l *Lowerer) lowerSwitchCaseValue(expr Expr) (ir.SwitchValue, error) {
 	default:
 		return nil, fmt.Errorf("switch case selector must be integer, got %v", kind)
 	}
+}
+
+// evalConstAssert evaluates a const_assert condition expression.
+// Returns an error if the condition evaluates to false.
+// If the expression cannot be evaluated (complex const functions, float comparisons),
+// it is silently accepted to avoid regressions on valid but complex shaders.
+// Matches Rust naga's ConstAssertFailed error for the evaluable case.
+func (l *Lowerer) evalConstAssert(condition Expr) error {
+	val, ok := l.tryEvalConstantBool(condition)
+	if !ok {
+		// Cannot evaluate — silently accept. Full constant evaluator would
+		// handle select(), all(), float comparisons etc. For now we only
+		// enforce the evaluable subset (bool literals, int comparisons,
+		// logical operators, named int/bool constants).
+		return nil
+	}
+	if !val {
+		return fmt.Errorf("const_assert failed")
+	}
+	return nil
+}
+
+// tryEvalConstantBool tries to evaluate an expression as a constant boolean.
+// Supports bool literals, named bool constants, negation, and comparison operators.
+// Returns (value, true) on success, or (false, false) if not evaluable.
+func (l *Lowerer) tryEvalConstantBool(expr Expr) (bool, bool) {
+	switch e := expr.(type) {
+	case *Literal:
+		switch e.Kind {
+		case TokenTrue:
+			return true, true
+		case TokenFalse:
+			return false, true
+		case TokenBoolLiteral:
+			return e.Value == "true", true
+		}
+		return false, false
+	case *Ident:
+		// Check abstract constants for bool values
+		if info, ok := l.abstractConstants[e.Name]; ok && info.scalarValue != nil {
+			if info.scalarValue.Kind == ir.ScalarBool {
+				return info.scalarValue.Bits != 0, true
+			}
+		}
+		// Check module-level constants
+		if constHandle, ok := l.moduleConstants[e.Name]; ok {
+			c := &l.module.Constants[constHandle]
+			if int(c.Init) < len(l.module.GlobalExpressions) {
+				ge := &l.module.GlobalExpressions[c.Init]
+				if lit, ok := ge.Kind.(ir.Literal); ok {
+					if bv, ok := lit.Value.(ir.LiteralBool); ok {
+						return bool(bv), true
+					}
+				}
+			}
+		}
+		return false, false
+	case *UnaryExpr:
+		if e.Op == TokenBang {
+			val, ok := l.tryEvalConstantBool(e.Operand)
+			if ok {
+				return !val, true
+			}
+		}
+		return false, false
+	case *BinaryExpr:
+		// Logical operators on booleans
+		switch e.Op {
+		case TokenAmpAmp:
+			lv, lok := l.tryEvalConstantBool(e.Left)
+			rv, rok := l.tryEvalConstantBool(e.Right)
+			if lok && rok {
+				return lv && rv, true
+			}
+			return false, false
+		case TokenPipePipe:
+			lv, lok := l.tryEvalConstantBool(e.Left)
+			rv, rok := l.tryEvalConstantBool(e.Right)
+			if lok && rok {
+				return lv || rv, true
+			}
+			return false, false
+		case TokenEqualEqual, TokenBangEqual, TokenLess, TokenLessEqual,
+			TokenGreater, TokenGreaterEqual:
+			// Integer comparison → bool result
+			_, lv, lerr := l.evalConstantIntExpr(e.Left)
+			_, rv, rerr := l.evalConstantIntExpr(e.Right)
+			if lerr == nil && rerr == nil {
+				switch e.Op {
+				case TokenEqualEqual:
+					return lv == rv, true
+				case TokenBangEqual:
+					return lv != rv, true
+				case TokenLess:
+					return lv < rv, true
+				case TokenLessEqual:
+					return lv <= rv, true
+				case TokenGreater:
+					return lv > rv, true
+				case TokenGreaterEqual:
+					return lv >= rv, true
+				}
+			}
+			return false, false
+		}
+		return false, false
+	}
+	return false, false
 }
 
 // tryEvalConstantUint tries to evaluate an expression as a constant unsigned integer.
@@ -7466,6 +7614,13 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 		return 0, fmt.Errorf("unknown function: %s", funcName)
 	}
 
+	// Enforce @must_use: if the function is marked @must_use and its result
+	// is discarded as a statement, emit an error.
+	// Matches Rust naga: FunctionMustUseUnused.
+	if l.funcMustUse[funcName] && l.isStatement {
+		return 0, fmt.Errorf("result of @must_use function '%s' must be used", funcName)
+	}
+
 	args := make([]ir.ExpressionHandle, len(call.Args))
 	for i, arg := range call.Args {
 		handle, err := l.lowerExpression(arg, target)
@@ -10127,6 +10282,9 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 		var size ir.ArraySize
 		if t.Size != nil {
 			if n, ok := l.tryEvalConstantUint(t.Size); ok {
+				if n == 0 {
+					return 0, fmt.Errorf("array size must be greater than 0")
+				}
 				constSize := uint32(n)
 				size.Constant = &constSize
 			}
@@ -13831,6 +13989,24 @@ func (l *Lowerer) swizzlePattern(member string, vecSize ir.VectorSize) (ir.Vecto
 	if len(member) < 2 || len(member) > 4 {
 		return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle %q", member)
 	}
+
+	// Validate namespace consistency: all components must be xyzw or all rgba.
+	// Mixing namespaces (e.g., v.xg) is invalid per WGSL spec.
+	// Matches Rust naga: Components::new() validates all chars are same namespace.
+	firstNs := swizzleComponentNamespace(member[0])
+	if firstNs == swizzleNsNone {
+		return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle component %q", member)
+	}
+	for i := 1; i < len(member); i++ {
+		ns := swizzleComponentNamespace(member[i])
+		if ns == swizzleNsNone {
+			return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle component %q", member)
+		}
+		if ns != firstNs {
+			return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle %q: cannot mix xyzw and rgba components", member)
+		}
+	}
+
 	var pattern [4]ir.SwizzleComponent
 	for i := 0; i < len(member); i++ {
 		comp, ok := swizzleComponent(member[i])
@@ -13856,18 +14032,48 @@ func (l *Lowerer) swizzlePattern(member string, vecSize ir.VectorSize) (ir.Vecto
 	return size, pattern, nil
 }
 
+// swizzleNamespace identifies which WGSL swizzle namespace a character belongs to.
+// WGSL only allows xyzw and rgba — s/t/p/q are GLSL-only and rejected.
+type swizzleNamespace int
+
+const (
+	swizzleNsNone swizzleNamespace = iota
+	swizzleNsXYZW
+	swizzleNsRGBA
+)
+
 func swizzleComponent(c byte) (ir.SwizzleComponent, bool) {
 	switch c {
-	case 'x', 'r', 's':
+	case 'x':
 		return ir.SwizzleX, true
-	case 'y', 'g', 't':
+	case 'y':
 		return ir.SwizzleY, true
-	case 'z', 'b', 'p':
+	case 'z':
 		return ir.SwizzleZ, true
-	case 'w', 'a', 'q':
+	case 'w':
+		return ir.SwizzleW, true
+	case 'r':
+		return ir.SwizzleX, true
+	case 'g':
+		return ir.SwizzleY, true
+	case 'b':
+		return ir.SwizzleZ, true
+	case 'a':
 		return ir.SwizzleW, true
 	default:
 		return 0, false
+	}
+}
+
+// swizzleComponentNamespace returns the namespace of a swizzle character.
+func swizzleComponentNamespace(c byte) swizzleNamespace {
+	switch c {
+	case 'x', 'y', 'z', 'w':
+		return swizzleNsXYZW
+	case 'r', 'g', 'b', 'a':
+		return swizzleNsRGBA
+	default:
+		return swizzleNsNone
 	}
 }
 
