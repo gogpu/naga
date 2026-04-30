@@ -6,9 +6,10 @@ import (
 
 // Parser parses WGSL tokens into an AST.
 type Parser struct {
-	tokens  []Token
-	current int
-	errors  []ParseError
+	tokens      []Token
+	current     int
+	errors      []ParseError
+	inForHeader bool // true when parsing for-loop init/update (no trailing semicolon)
 }
 
 // ParseError represents a parsing error.
@@ -392,7 +393,9 @@ func (p *Parser) varDecl(attrs []Attribute) (*VarDecl, *ParseError) {
 		init = e
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 
 	return &VarDecl{
 		Name:         name.Lexeme,
@@ -438,7 +441,9 @@ func (p *Parser) constDecl() (*ConstDecl, *ParseError) {
 		return nil, err
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 
 	return &ConstDecl{
 		Name:    name.Lexeme,
@@ -482,7 +487,9 @@ func (p *Parser) letDecl() (*ConstDecl, *ParseError) {
 		return nil, err
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 
 	return &ConstDecl{
 		Name: name.Lexeme,
@@ -528,7 +535,9 @@ func (p *Parser) overrideDecl(attrs []Attribute) (*OverrideDecl, *ParseError) {
 		init = expr
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 
 	return &OverrideDecl{
 		Name:       name.Lexeme,
@@ -562,7 +571,9 @@ func (p *Parser) aliasDecl() (*AliasDecl, *ParseError) {
 		return nil, err
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 
 	return &AliasDecl{
 		Name: name.Lexeme,
@@ -593,7 +604,9 @@ func (p *Parser) constAssertDecl() (*ConstAssertDecl, *ParseError) {
 		}
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 
 	return &ConstAssertDecl{
 		Condition: cond,
@@ -840,7 +853,9 @@ func (p *Parser) returnStmt() (*ReturnStmt, *ParseError) {
 		value = e
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 
 	return &ReturnStmt{
 		Value: value,
@@ -894,16 +909,19 @@ func (p *Parser) forStmt() (*ForStmt, *ParseError) {
 		return nil, err
 	}
 
-	// Init
+	// Init — parsed without trailing semicolon (for-loop uses ; as separator)
 	var init Stmt
 	if !p.check(TokenSemicolon) {
+		p.inForHeader = true
 		s, err := p.statement()
+		p.inForHeader = false
 		if err != nil {
 			return nil, err
 		}
 		init = s
-	} else {
-		p.advance()
+	}
+	if err := p.expectErr(TokenSemicolon); err != nil {
+		return nil, err
 	}
 
 	// Condition
@@ -915,12 +933,16 @@ func (p *Parser) forStmt() (*ForStmt, *ParseError) {
 		}
 		cond = e
 	}
-	p.match(TokenSemicolon)
+	if err := p.expectErr(TokenSemicolon); err != nil {
+		return nil, err
+	}
 
-	// Update
+	// Update — parsed without trailing semicolon (for-loop ends with ))
 	var update Stmt
 	if !p.check(TokenRightParen) {
+		p.inForHeader = true
 		s, err := p.statement()
+		p.inForHeader = false
 		if err != nil {
 			return nil, err
 		}
@@ -1142,7 +1164,9 @@ func (p *Parser) breakStmt() (Stmt, *ParseError) {
 		if err != nil {
 			return nil, err
 		}
-		p.match(TokenSemicolon)
+		if err := p.expectSemicolon(); err != nil {
+			return nil, err
+		}
 		return &BreakIfStmt{
 			Condition: cond,
 			Span: Span{
@@ -1151,7 +1175,9 @@ func (p *Parser) breakStmt() (Stmt, *ParseError) {
 		}, nil
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 	return &BreakStmt{
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
@@ -1162,7 +1188,9 @@ func (p *Parser) breakStmt() (Stmt, *ParseError) {
 // continueStmt parses a continue statement.
 func (p *Parser) continueStmt() (*ContinueStmt, *ParseError) {
 	start := p.advance() // consume 'continue'
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 	return &ContinueStmt{
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
@@ -1173,7 +1201,9 @@ func (p *Parser) continueStmt() (*ContinueStmt, *ParseError) {
 // discardStmt parses a discard statement.
 func (p *Parser) discardStmt() (*DiscardStmt, *ParseError) {
 	start := p.advance() // consume 'discard'
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 	return &DiscardStmt{
 		Span: Span{
 			Start: Position{Line: start.Line, Column: start.Column},
@@ -1209,7 +1239,9 @@ func (p *Parser) letStmt() (*ConstDecl, *ParseError) {
 		return nil, err
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 
 	return &ConstDecl{
 		Name: name.Lexeme,
@@ -1237,7 +1269,9 @@ func (p *Parser) exprOrAssignStmt() (Stmt, *ParseError) {
 			op = TokenMinusEqual
 		}
 		p.advance() // consume ++ or --
-		p.match(TokenSemicolon)
+		if err := p.expectSemicolon(); err != nil {
+			return nil, err
+		}
 		return &AssignStmt{
 			Left: expr,
 			Op:   op,
@@ -1258,7 +1292,9 @@ func (p *Parser) exprOrAssignStmt() (Stmt, *ParseError) {
 		if err != nil {
 			return nil, err
 		}
-		p.match(TokenSemicolon)
+		if err := p.expectSemicolon(); err != nil {
+			return nil, err
+		}
 		return &AssignStmt{
 			Left:  expr,
 			Op:    op.Kind,
@@ -1269,7 +1305,9 @@ func (p *Parser) exprOrAssignStmt() (Stmt, *ParseError) {
 		}, nil
 	}
 
-	p.match(TokenSemicolon)
+	if err := p.expectSemicolon(); err != nil {
+		return nil, err
+	}
 	return &ExprStmt{
 		Expr: expr,
 		Span: Span{
@@ -1748,6 +1786,15 @@ func (p *Parser) check(kind TokenKind) bool {
 		return false
 	}
 	return p.peek().Kind == kind
+}
+
+// expectSemicolon requires a semicolon unless inside a for-loop header
+// (where semicolons are separators consumed by the for-loop parser).
+func (p *Parser) expectSemicolon() *ParseError {
+	if p.inForHeader {
+		return nil
+	}
+	return p.expectErr(TokenSemicolon)
 }
 
 func (p *Parser) match(kind TokenKind) bool {
