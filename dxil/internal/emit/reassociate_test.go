@@ -13,7 +13,8 @@ func ptrUint8(v uint8) *uint8 { return &v }
 // TestShlAndCombineDetectsAndMul verifies that tryShlAndCombine transforms
 // mul(as(and(X, 1)), 2) -> and(shl(X, 1), 2), matching LLVM InstCombine.
 // This pattern appears in force_point_size_vertex_shader_webgl:
-//   let y = f32(i32(in_vertex_index & 1u) * 2 - 1);
+//
+//	let y = f32(i32(in_vertex_index & 1u) * 2 - 1);
 func TestShlAndCombineDetectsAndMul(t *testing.T) {
 	// IR expression tree:
 	//   [0] FuncArg(0)      -- vertex_index (u32)
