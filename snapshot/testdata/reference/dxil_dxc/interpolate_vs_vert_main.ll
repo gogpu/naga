@@ -120,7 +120,7 @@ attributes #A0 = { nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"vs", i32 6, i32 0}
 !M4 = !{[2 x i32] [i32 0, i32 36]}
 !M5 = !{void ()* @vert_main, !"vert_main", !M6, null, null}

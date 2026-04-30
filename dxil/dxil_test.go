@@ -661,27 +661,29 @@ func TestBuildPSVStageDispatch(t *testing.T) {
 func TestFeatureInfoFromShaderFlags(t *testing.T) {
 	const (
 		// Source bits in bitcode ShaderFlags.
-		flagDoublePrec  uint64 = 0x4       // bit 2  EnableDoublePrecision
-		flagLowPrec     uint64 = 0x20      // bit 5  LowPrecisionPresent
-		flagDoubleExt   uint64 = 0x40      // bit 6  EnableDoubleExtensions
-		flagUAVsAtEvery uint64 = 0x10000   // bit 16 UAVsAtEveryStage
-		flagWaveOps     uint64 = 0x80000   // bit 19 WaveOps
-		flagInt64       uint64 = 0x100000  // bit 20 Int64Ops
-		flagViewID      uint64 = 0x200000  // bit 21 ViewID
-		flagNativeLP    uint64 = 0x800000  // bit 23 UseNativeLowPrecision
-		flagRaytracing  uint64 = 0x2000000 // bit 25 RaytracingTier1_1
+		flagDoublePrec  uint64 = 0x4         // bit 2  EnableDoublePrecision
+		flagLowPrec     uint64 = 0x20        // bit 5  LowPrecisionPresent
+		flagDoubleExt   uint64 = 0x40        // bit 6  EnableDoubleExtensions
+		flagUAVsAtEvery uint64 = 0x10000     // bit 16 UAVsAtEveryStage
+		flagWaveOps     uint64 = 0x80000     // bit 19 WaveOps
+		flagInt64       uint64 = 0x100000    // bit 20 Int64Ops
+		flagViewID      uint64 = 0x200000    // bit 21 ViewID
+		flagNativeLP    uint64 = 0x800000    // bit 23 UseNativeLowPrecision
+		flagRaytracing  uint64 = 0x2000000   // bit 25 RaytracingTier1_1
+		flagAtom64Heap  uint64 = 0x100000000 // bit 32 AtomicInt64OnHeapResource
 
 		// Target bits in SFI0. Values from
 		// reference/dxil/dxc/include/dxc/DXIL/DxilConstants.h:2299+.
-		sfiDoubles   uint64 = 0x1      // ShaderFeatureInfo_Doubles
-		sfiUAVsEvery uint64 = 0x4      // ShaderFeatureInfo_UAVsAtEveryStage
-		sfiMinPrec   uint64 = 0x10     // ShaderFeatureInfo_MinimumPrecision
-		sfi11_1Doub  uint64 = 0x20     // ShaderFeatureInfo_11_1_DoubleExtensions
-		sfiWaveOps   uint64 = 0x4000   // ShaderFeatureInfo_WaveOps
-		sfiInt64     uint64 = 0x8000   // ShaderFeatureInfo_Int64Ops
-		sfiViewID    uint64 = 0x10000  // ShaderFeatureInfo_ViewID
-		sfiNativeLP  uint64 = 0x40000  // ShaderFeatureInfo_NativeLowPrecision
-		sfiRayTier11 uint64 = 0x100000 // ShaderFeatureInfo_Raytracing_Tier_1_1
+		sfiDoubles    uint64 = 0x1        // ShaderFeatureInfo_Doubles
+		sfiUAVsEvery  uint64 = 0x4        // ShaderFeatureInfo_UAVsAtEveryStage
+		sfiMinPrec    uint64 = 0x10       // ShaderFeatureInfo_MinimumPrecision
+		sfi11_1Doub   uint64 = 0x20       // ShaderFeatureInfo_11_1_DoubleExtensions
+		sfiWaveOps    uint64 = 0x4000     // ShaderFeatureInfo_WaveOps
+		sfiInt64      uint64 = 0x8000     // ShaderFeatureInfo_Int64Ops
+		sfiViewID     uint64 = 0x10000    // ShaderFeatureInfo_ViewID
+		sfiNativeLP   uint64 = 0x40000    // ShaderFeatureInfo_NativeLowPrecision
+		sfiRayTier11  uint64 = 0x100000   // ShaderFeatureInfo_Raytracing_Tier_1_1
+		sfiAtom64Heap uint64 = 0x10000000 // ShaderFeatureInfo_AtomicInt64OnHeapResource
 	)
 	cases := []struct {
 		name string
@@ -713,8 +715,13 @@ func TestFeatureInfoFromShaderFlags(t *testing.T) {
 			sfiMinPrec | sfiInt64,
 		},
 		{
+			"atomic int64 on heap resource",
+			flagAtom64Heap,
+			sfiAtom64Heap,
+		},
+		{
 			"unrelated high bits must not leak into SFI0",
-			0xffffffff_00000000, // every high bit set
+			0xfffffffe_00000000, // high bits excluding bit 32 (AtomicInt64OnHeapResource)
 			0,
 		},
 		{"doubles bit alone (mostly EnableDoublePrecision)", flagDoublePrec, sfiDoubles},
@@ -1100,21 +1107,15 @@ func TestEntryWritesDepth(t *testing.T) {
 	}
 }
 
-// TestModuleUsesLowPrecision_DetectsQuantizeF16 is the auto-upgrade
-// regression gate for the QuantizeF16-without-f16-types path. WGSL
-// shaders like snapshot/testdata/in/math-functions.wgsl declare
-// only f32 types but invoke quantizeToF16 — the lowering injects
-// fptrunc/fpext casts that materialize f16 in the emitted bitcode.
-// DXC's CollectShaderFlagsForModule counts these fptrunc/fpext pairs
-// toward m_bLowPrecisionPresent, and the SM compatibility checker
-// requires SM 6.2+ for native f16. Without auto-upgrade, the emitted
-// module at SM 6.0 trips 'Function uses features incompatible with
-// the shader model'.
-func TestModuleUsesLowPrecision_DetectsQuantizeF16(t *testing.T) {
+// TestModuleUsesLowPrecision_QuantizeF16NotTriggered verifies that
+// QuantizeF16 does NOT trigger NativeLowPrecision because the lowering
+// uses dx.op.legacyF32ToF16/legacyF16ToF32 (opcodes 130/131) which
+// operate on i32/f32 without introducing the LLVM half type. The DXIL
+// spec explicitly notes these are "not related to min-precision".
+func TestModuleUsesLowPrecision_QuantizeF16NotTriggered(t *testing.T) {
 	// Build a minimal f32-only fragment shader that calls QuantizeF16.
-	// If moduleUsesLowPrecision returns false for this input, the
-	// auto-upgrade in Compile will leave ShaderModel at 6.0 and the
-	// blob will fail validation on real dxil.dll.
+	// moduleUsesLowPrecision must return false because the legacy ops
+	// do not create half types in the emitted bitcode.
 	f32 := ir.TypeHandle(0)
 	vec4 := ir.TypeHandle(1)
 	irMod := &ir.Module{
@@ -1151,29 +1152,11 @@ func TestModuleUsesLowPrecision_DetectsQuantizeF16(t *testing.T) {
 		{Name: "main", Stage: ir.StageFragment, Function: fn},
 	}
 
-	// Type-arena scan alone must miss this (no f16 types declared).
-	// Verify the baseline: if we ever accidentally start declaring
-	// f16 types in this fixture, the test loses its purpose.
-	for _, ty := range irMod.Types {
-		switch t := ty.Inner.(type) {
-		case ir.ScalarType:
-			if t.Width == 2 {
-				t2 := t
-				_ = t2
-				// Unexpected — fixture grew an f16 scalar by accident.
-				// That would make the expression walk untestable.
-				// Fail loudly so we know to retune the fixture.
-				panic("fixture invariant violated: f16 scalar in type arena")
-			}
-		}
+	if moduleUsesLowPrecision(irMod) {
+		t.Errorf("moduleUsesLowPrecision must NOT trigger on QuantizeF16 (legacy ops, no half type)")
 	}
 
-	if !moduleUsesLowPrecision(irMod) {
-		t.Errorf("moduleUsesLowPrecision must detect QuantizeF16 even with no f16 types declared")
-	}
-
-	// Also verify the Compile path actually upgrades SM >= 6.2 so
-	// the validator sees a compatible shader model.
+	// Shader model must stay at 6.0 since legacy ops are available from SM 6.0.
 	blob, err := Compile(irMod, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile: %v", err)

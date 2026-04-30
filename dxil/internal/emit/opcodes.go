@@ -96,11 +96,9 @@ const (
 	OpBufferLoad              DXILOpcode = 68
 	OpBufferStore             DXILOpcode = 69
 	OpRawBufferLoad           DXILOpcode = 139
-	OpRawBufferStore          DXILOpcode = 140
-	OpViewID                  DXILOpcode = 138
-	OpAnnotateHandle          DXILOpcode = 216
-	OpCreateHandleFromBinding DXILOpcode = 217
-	OpCoverage                DXILOpcode = 91
+	OpRawBufferStore DXILOpcode = 140
+	OpViewID         DXILOpcode = 138
+	OpCoverage       DXILOpcode = 91
 
 	// Query operations.
 	OpGetDimensions DXILOpcode = 72

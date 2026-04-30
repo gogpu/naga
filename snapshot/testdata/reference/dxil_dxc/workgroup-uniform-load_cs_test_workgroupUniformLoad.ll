@@ -224,7 +224,7 @@ attributes #A1 = { nounwind readnone }
 
 !M1 = !{!"<ident>"}
 !M2 = !{i32 1, i32 0}
-!M3 = !{i32 1, i32 8}
+!M3 = !{i32 1, i32 0}
 !M4 = !{!"cs", i32 6, i32 0}
 !M5 = !{void ()* @test_workgroupUniformLoad, !"test_workgroupUniformLoad", null, null, !M6}
 !M6 = !{i32 4, !M7}

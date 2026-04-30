@@ -1420,3 +1420,20 @@ func TestBuildHandleEmitOrder(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateHandleLegacyName verifies that getDxOpCreateHandleFunc returns
+// the correct function name (dx.op.createHandle, opcode 57). DXC uses this
+// for all shader models; the SM 6.6+ createHandleFromBinding path has been
+// removed since DXC's default compilation mode doesn't use it.
+func TestCreateHandleLegacyName(t *testing.T) {
+	e := &Emitter{
+		ir:        &ir.Module{},
+		mod:       module.NewModule(module.ComputeShader),
+		dxOpFuncs: make(map[dxOpKey]*module.Function),
+		opts:      EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 6},
+	}
+	fn := e.getDxOpCreateHandleFunc()
+	if fn.Name != "dx.op.createHandle" {
+		t.Errorf("got function name %q, want %q", fn.Name, "dx.op.createHandle")
+	}
+}
