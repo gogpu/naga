@@ -249,6 +249,12 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 				l.addError(err.Error(), d.Span)
 			}
 			processedFunctions[d.Name] = true
+		case *ConstAssertDecl:
+			// Module-scope const_assert — evaluate and error if false.
+			// Matches Rust naga: ConstAssertFailed / NotBool.
+			if err := l.evalConstAssert(d.Condition); err != nil {
+				l.addError(err.Error(), d.Span)
+			}
 		}
 	}
 
@@ -3956,8 +3962,9 @@ func (l *Lowerer) lowerStatement(stmt Stmt, target *[]ir.Statement) error {
 		// from the continuing block). It should not reach here in normal code flow.
 		return fmt.Errorf("'break if' must appear inside a continuing block of a loop")
 	case *ConstAssertDecl:
-		// const_assert is a compile-time assertion, treated as no-op in lowering.
-		return nil
+		// const_assert is a compile-time assertion — WGSL spec requires evaluation.
+		// Matches Rust naga: eval_expr_to_bool → ConstAssertFailed / NotBool.
+		return l.evalConstAssert(s.Condition)
 	case *ContinueStmt:
 		*target = append(*target, ir.Statement{Kind: ir.StmtContinue{}})
 		return nil
@@ -4676,6 +4683,108 @@ func (l *Lowerer) lowerSwitchCaseValue(expr Expr) (ir.SwitchValue, error) {
 	default:
 		return nil, fmt.Errorf("switch case selector must be integer, got %v", kind)
 	}
+}
+
+// evalConstAssert evaluates a const_assert condition expression.
+// Returns an error if the condition evaluates to false, or if it cannot be evaluated
+// as a boolean constant expression. Matches Rust naga's ConstAssertFailed / NotBool.
+func (l *Lowerer) evalConstAssert(condition Expr) error {
+	val, ok := l.tryEvalConstantBool(condition)
+	if !ok {
+		return fmt.Errorf("const_assert condition must be a constant boolean expression")
+	}
+	if !val {
+		return fmt.Errorf("const_assert failed")
+	}
+	return nil
+}
+
+// tryEvalConstantBool tries to evaluate an expression as a constant boolean.
+// Supports bool literals, named bool constants, negation, and comparison operators.
+// Returns (value, true) on success, or (false, false) if not evaluable.
+func (l *Lowerer) tryEvalConstantBool(expr Expr) (bool, bool) {
+	switch e := expr.(type) {
+	case *Literal:
+		switch e.Kind {
+		case TokenTrue:
+			return true, true
+		case TokenFalse:
+			return false, true
+		case TokenBoolLiteral:
+			return e.Value == "true", true
+		}
+		return false, false
+	case *Ident:
+		// Check abstract constants for bool values
+		if info, ok := l.abstractConstants[e.Name]; ok && info.scalarValue != nil {
+			if info.scalarValue.Kind == ir.ScalarBool {
+				return info.scalarValue.Bits != 0, true
+			}
+		}
+		// Check module-level constants
+		if constHandle, ok := l.moduleConstants[e.Name]; ok {
+			c := &l.module.Constants[constHandle]
+			if int(c.Init) < len(l.module.GlobalExpressions) {
+				ge := &l.module.GlobalExpressions[c.Init]
+				if lit, ok := ge.Kind.(ir.Literal); ok {
+					if bv, ok := lit.Value.(ir.LiteralBool); ok {
+						return bool(bv), true
+					}
+				}
+			}
+		}
+		return false, false
+	case *UnaryExpr:
+		if e.Op == TokenBang {
+			val, ok := l.tryEvalConstantBool(e.Operand)
+			if ok {
+				return !val, true
+			}
+		}
+		return false, false
+	case *BinaryExpr:
+		// Logical operators on booleans
+		switch e.Op {
+		case TokenAmpAmp:
+			lv, lok := l.tryEvalConstantBool(e.Left)
+			rv, rok := l.tryEvalConstantBool(e.Right)
+			if lok && rok {
+				return lv && rv, true
+			}
+			return false, false
+		case TokenPipePipe:
+			lv, lok := l.tryEvalConstantBool(e.Left)
+			rv, rok := l.tryEvalConstantBool(e.Right)
+			if lok && rok {
+				return lv || rv, true
+			}
+			return false, false
+		case TokenEqualEqual, TokenBangEqual, TokenLess, TokenLessEqual,
+			TokenGreater, TokenGreaterEqual:
+			// Integer comparison → bool result
+			_, lv, lerr := l.evalConstantIntExpr(e.Left)
+			_, rv, rerr := l.evalConstantIntExpr(e.Right)
+			if lerr == nil && rerr == nil {
+				switch e.Op {
+				case TokenEqualEqual:
+					return lv == rv, true
+				case TokenBangEqual:
+					return lv != rv, true
+				case TokenLess:
+					return lv < rv, true
+				case TokenLessEqual:
+					return lv <= rv, true
+				case TokenGreater:
+					return lv > rv, true
+				case TokenGreaterEqual:
+					return lv >= rv, true
+				}
+			}
+			return false, false
+		}
+		return false, false
+	}
+	return false, false
 }
 
 // tryEvalConstantUint tries to evaluate an expression as a constant unsigned integer.

@@ -646,6 +646,136 @@ fn foo() {
 	}
 }
 
+// TestWGSLErrors_ConstAssert tests that const_assert is evaluated at compile time.
+func TestWGSLErrors_ConstAssert(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      string
+		wantErr     bool
+		errContains string
+	}{
+		// Module-scope const_assert
+		{
+			name:        "module_scope_false",
+			source:      `const_assert false;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_true",
+			source: `const_assert true;`,
+		},
+		{
+			name:   "module_scope_comparison_true",
+			source: `const_assert 1 == 1;`,
+		},
+		{
+			name:        "module_scope_comparison_false",
+			source:      `const_assert 1 == 2;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_less_than_true",
+			source: `const_assert 1 < 2;`,
+		},
+		{
+			name:        "module_scope_less_than_false",
+			source:      `const_assert 2 < 1;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_not_equal_true",
+			source: `const_assert 1 != 2;`,
+		},
+		{
+			name:   "module_scope_negation",
+			source: `const_assert !false;`,
+		},
+		{
+			name:        "module_scope_negation_true_fails",
+			source:      `const_assert !true;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_logical_and",
+			source: `const_assert true && true;`,
+		},
+		{
+			name:        "module_scope_logical_and_false",
+			source:      `const_assert true && false;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "module_scope_logical_or",
+			source: `const_assert false || true;`,
+		},
+		{
+			name:   "module_scope_with_parens",
+			source: `const_assert(true);`,
+		},
+		{
+			name:        "module_scope_with_parens_false",
+			source:      `const_assert(false);`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		// Function-scope const_assert
+		{
+			name:        "function_scope_false",
+			source:      `fn foo() { const_assert false; }`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "function_scope_true",
+			source: `fn foo() { const_assert true; }`,
+		},
+		{
+			name:        "function_scope_comparison_false",
+			source:      `fn foo() { const_assert 3 > 5; }`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+		{
+			name:   "function_scope_comparison_true",
+			source: `fn foo() { const_assert 5 >= 5; }`,
+		},
+		// Named constant in const_assert
+		{
+			name:   "module_const_true",
+			source: `const X = 10; const_assert X == 10;`,
+		},
+		{
+			name:        "module_const_false",
+			source:      `const X = 10; const_assert X == 11;`,
+			wantErr:     true,
+			errContains: "const_assert failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tryLower(tt.source)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, but compilation succeeded", tt.errContains)
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+			}
+		})
+	}
+}
+
 // TestWGSLErrors_SwizzleValidation tests swizzle namespace and GLSL rejection.
 func TestWGSLErrors_SwizzleValidation(t *testing.T) {
 	tests := []struct {
