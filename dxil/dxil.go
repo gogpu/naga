@@ -185,10 +185,10 @@ func autoUpgradeSMPre(irModule *ir.Module, ep *ir.EntryPoint, smMinor uint32) ui
 	if moduleUsesInt64Atomics(irModule) && smMinor < 6 {
 		smMinor = 6
 	}
-	// Native low precision (WGSL f16 / i16) requires SM 6.2+.
-	if moduleUsesLowPrecision(irModule) && smMinor < 2 {
-		smMinor = 2
-	}
+	// Note: NativeLowPrecision SM 6.2 upgrade is not applied because
+	// our DXC golden pipeline uses min16float polyfill (no native half).
+	// QuantizeF16 uses legacy ops (SM 6.0). When we add native
+	// -enable-16bit-types support, this should be gated on a compile option.
 	// dx.op.viewID (opcode 138) is valid from SM 6.1.
 	if moduleUsesViewID(irModule) && smMinor < 1 {
 		smMinor = 1
@@ -2695,17 +2695,18 @@ func stageToPSVKind(stage ir.ShaderStage) container.PSVShaderKind {
 func featureInfoFromShaderFlags(sf uint64) uint64 {
 	var bits uint64
 	const (
-		flagDoublePrec      = uint64(0x4)        // bit 2
-		flagLowPrecision    = uint64(0x20)       // bit 5
-		flagDoubleExt       = uint64(0x40)       // bit 6
-		flagUAVsAtEvery     = uint64(0x10000)    // bit 16
-		flagWaveOps         = uint64(0x80000)    // bit 19
-		flagInt64Ops        = uint64(0x100000)   // bit 20
-		flagViewID          = uint64(0x200000)   // bit 21
-		flagNativeLowPrec   = uint64(0x800000)   // bit 23
-		flagRaytracingTier1 = uint64(0x2000000)  // bit 25
-		flagAtomic64Typed   = uint64(0x8000000)  // bit 27
-		flagAtomic64GS      = uint64(0x10000000) // bit 28
+		flagDoublePrec      = uint64(0x4)         // bit 2
+		flagLowPrecision    = uint64(0x20)        // bit 5
+		flagDoubleExt       = uint64(0x40)        // bit 6
+		flagUAVsAtEvery     = uint64(0x10000)     // bit 16
+		flagWaveOps         = uint64(0x80000)     // bit 19
+		flagInt64Ops        = uint64(0x100000)    // bit 20
+		flagViewID          = uint64(0x200000)    // bit 21
+		flagNativeLowPrec   = uint64(0x800000)    // bit 23
+		flagRaytracingTier1 = uint64(0x2000000)   // bit 25
+		flagAtomic64Typed   = uint64(0x8000000)   // bit 27
+		flagAtomic64GS      = uint64(0x10000000)  // bit 28
+		flagAtomic64Heap    = uint64(0x100000000) // bit 32
 	)
 	if sf&flagDoublePrec != 0 {
 		bits |= 0x0001 // Doubles
@@ -2744,6 +2745,9 @@ func featureInfoFromShaderFlags(sf uint64) uint64 {
 	}
 	if sf&flagAtomic64GS != 0 {
 		bits |= 0x800000 // AtomicInt64OnGroupShared
+	}
+	if sf&flagAtomic64Heap != 0 {
+		bits |= 0x10000000 // AtomicInt64OnHeapResource
 	}
 	if sf&flagRaytracingTier1 != 0 {
 		bits |= 0x100000 // Raytracing_Tier_1_1
@@ -2946,34 +2950,10 @@ func moduleUsesLowPrecision(m *ir.Module) bool {
 			}
 		}
 	}
-	// ir.MathQuantizeF16 lowers to fptrunc f32→f16 + fpext f16→f32, so
-	// it materializes f16 in the emitted bitcode even when no f16 type
-	// is declared in the IR type arena. The validator still counts
-	// that toward m_bLowPrecisionPresent and SM compatibility checks,
-	// so the auto-upgrade must see it here as well. math-functions.wgsl
-	// trips this: the declared arena is pure f32 but quantizeToF16 is
-	// used on scalar/vec2/vec3/vec4 paths.
-	for i := range m.Functions {
-		if functionContainsQuantizeF16(&m.Functions[i]) {
-			return true
-		}
-	}
-	for i := range m.EntryPoints {
-		if functionContainsQuantizeF16(&m.EntryPoints[i].Function) {
-			return true
-		}
-	}
-	return false
-}
-
-// functionContainsQuantizeF16 reports whether fn contains any
-// ir.ExprMath with Fun == ir.MathQuantizeF16.
-func functionContainsQuantizeF16(fn *ir.Function) bool {
-	for i := range fn.Expressions {
-		if me, ok := fn.Expressions[i].Kind.(ir.ExprMath); ok && me.Fun == ir.MathQuantizeF16 {
-			return true
-		}
-	}
+	// Note: ir.MathQuantizeF16 no longer requires SM 6.2 because the
+	// lowering now uses dx.op.legacyF32ToF16/legacyF16ToF32 (opcodes
+	// 130/131) which are available since SM 6.0 and do not introduce
+	// the LLVM half type.
 	return false
 }
 

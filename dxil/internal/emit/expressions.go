@@ -3666,7 +3666,15 @@ func (e *Emitter) emitMathFrexp(fn *ir.Function, mathExpr ir.ExprMath) (int, err
 	return comps[0], nil
 }
 
-// emitMathQuantizeF16 rounds f32 to f16 precision: f32 → fptrunc f16 → fpext f32.
+// emitMathQuantizeF16 rounds f32 to f16 precision via legacy F32<->F16
+// conversion opcodes: dx.op.legacyF32ToF16 (130) + dx.op.legacyF16ToF32 (131).
+//
+// These opcodes do NOT introduce the LLVM half type, so the shader does
+// not require the NativeLowPrecision (UseNativeLowPrecision) shader flag.
+// This matches DXC's lowering of HLSL f32tof16/f16tof32 which also avoids
+// native half — the DXIL spec explicitly notes these are "not related to
+// min-precision" (DXIL.rst lines 2249-2250).
+//
 // For vectors, applies per-component.
 func (e *Emitter) emitMathQuantizeF16(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
@@ -3676,16 +3684,20 @@ func (e *Emitter) emitMathQuantizeF16(fn *ir.Function, mathExpr ir.ExprMath) (in
 	argType := e.resolveExprType(fn, mathExpr.Arg)
 	size := componentCount(argType)
 
-	f16Ty := e.mod.GetFloatType(16)
+	i32Ty := e.mod.GetIntType(32)
 	f32Ty := e.mod.GetFloatType(32)
+	f32ToF16Fn := e.getDxOpLegacyF32ToF16Func()
+	f16ToF32Fn := e.getDxOpLegacyF16ToF32Func()
+	f32ToF16Op := e.getIntConstID(int64(OpLegacyF32ToF16))
+	f16ToF32Op := e.getIntConstID(int64(OpLegacyF16ToF32))
 
 	comps := make([]int, size)
 	for i := 0; i < size; i++ {
 		x := e.getComponentID(mathExpr.Arg, i)
-		// fptrunc f32 → f16
-		f16Val := e.addCastInstr(f16Ty, CastFPTrunc, x)
-		// fpext f16 → f32
-		comps[i] = e.addCastInstr(f32Ty, CastFPExt, f16Val)
+		// f32 -> i32 (f16 bits in low 16): dx.op.legacyF32ToF16
+		i32Val := e.addCallInstr(f32ToF16Fn, i32Ty, []int{f32ToF16Op, x})
+		// i32 (f16 bits) -> f32: dx.op.legacyF16ToF32
+		comps[i] = e.addCallInstr(f16ToF32Fn, f32Ty, []int{f16ToF32Op, i32Val})
 	}
 
 	if size > 1 {
@@ -5063,7 +5075,8 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	// var's bitcode ValueID and threads it through idMap so subsequent
 	// instructions (load/store/atomicrmw) reference the correct global.
 	if gv.Space == ir.SpaceWorkGroup {
-		modGV := e.mod.AddGlobalVar(gv.Name, elemTy, 3)
+		mangledName := hlslMangledGroupsharedName(e.ir, gv)
+		modGV := e.mod.AddGlobalVar(mangledName, elemTy, 3)
 		emitterID := e.allocValue()
 		if e.globalVarModuleVars == nil {
 			e.globalVarModuleVars = make(map[int]*module.GlobalVar)
@@ -5079,7 +5092,6 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	}
 
 	ptrTy := e.mod.GetPointerType(elemTy)
-
 	sizeID := e.getIntConstID(1)
 	i32Ty := e.mod.GetIntType(32)
 
@@ -6585,4 +6597,105 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccess(fn *ir.Function, acc ir.ExprAcce
 		ValueID:    valID,
 	})
 	return valID, true, nil
+}
+
+// hlslMangledGroupsharedName produces the MSVC-decorated name for a
+// groupshared (workgroup) variable, matching DXC's HLSL lowering.
+//
+// Format: \01?<hlsl_name>@@3<type_code>A
+//
+// The \01 prefix is LLVM's marker for an already-mangled name.
+// @@3 encodes "global" storage class in MSVC decoration.
+// The type code follows MSVC C++ name decoration rules:
+//   - Scalar: M=float, I=uint32, H=int32, _K=uint64, _J=int64
+//   - Array:  PA<element_code> (pointer to array of element)
+//   - A suffix terminates the decoration.
+//
+// For struct-typed variables, DXC uses U<struct_name>@@A.<member_suffix>
+// which requires per-member SROA decomposition; we fall back to the raw
+// IR name when the type cannot be simply encoded.
+func hlslMangledGroupsharedName(irMod *ir.Module, gv *ir.GlobalVariable) string {
+	name := gv.Name
+	// Apply HLSL namer trailing-underscore rule: names ending with an
+	// ASCII digit or matching HLSL keywords get an underscore suffix.
+	if len(name) > 0 && name[len(name)-1] >= '0' && name[len(name)-1] <= '9' {
+		name += "_"
+	}
+
+	typeCode := msvcTypeCode(irMod, gv.Type)
+	if typeCode == "" {
+		// Cannot encode -- use raw name (unnamed global @N).
+		return gv.Name
+	}
+
+	return "\x01?" + name + "@@3" + typeCode + "A"
+}
+
+// msvcTypeCode returns the MSVC name decoration type code for an IR type.
+// Returns "" if the type cannot be encoded in simple MSVC decoration.
+func msvcTypeCode(irMod *ir.Module, th ir.TypeHandle) string {
+	if int(th) >= len(irMod.Types) {
+		return ""
+	}
+	t := irMod.Types[th].Inner
+	switch tt := t.(type) {
+	case ir.ScalarType:
+		return msvcScalarCode(tt)
+	case ir.VectorType:
+		return ""
+	case ir.ArrayType:
+		elemCode := msvcElementTypeCode(irMod, tt.Base)
+		if elemCode == "" {
+			return ""
+		}
+		return "PA" + elemCode
+	case ir.AtomicType:
+		return msvcScalarCode(tt.Scalar)
+	default:
+		return ""
+	}
+}
+
+// msvcElementTypeCode returns the type code for an array element type.
+func msvcElementTypeCode(irMod *ir.Module, th ir.TypeHandle) string {
+	if int(th) >= len(irMod.Types) {
+		return ""
+	}
+	t := irMod.Types[th].Inner
+	switch tt := t.(type) {
+	case ir.ScalarType:
+		return msvcScalarCode(tt)
+	case ir.AtomicType:
+		return msvcScalarCode(tt.Scalar)
+	default:
+		return ""
+	}
+}
+
+// msvcScalarCode returns the MSVC type decoration code for a scalar type.
+func msvcScalarCode(s ir.ScalarType) string {
+	switch s.Kind {
+	case ir.ScalarFloat:
+		switch s.Width {
+		case 4:
+			return "M" // float
+		case 8:
+			return "N" // double
+		}
+	case ir.ScalarUint:
+		switch s.Width {
+		case 4:
+			return "I" // unsigned int
+		case 8:
+			return "_K" // unsigned __int64
+		}
+	case ir.ScalarSint:
+		switch s.Width {
+		case 4:
+			return "H" // int
+		case 8:
+			return "_J" // __int64
+		}
+	}
+	return ""
 }

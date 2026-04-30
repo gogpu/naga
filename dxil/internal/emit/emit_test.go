@@ -1773,7 +1773,8 @@ func buildCastShader(srcScalar ir.ScalarType, dstKind ir.ScalarKind, convertWidt
 }
 
 // ptrU8 returns a pointer to a uint8 value.
-func ptrU8(v uint8) *uint8 { return &v }
+func ptrU8(v uint8) *uint8    { return &v }
+func ptrU32(v uint32) *uint32 { return &v }
 
 // countInstrKind counts the number of instructions of the given kind in the main function.
 func countInstrKind(mod *module.Module, kind module.InstrKind) int {
@@ -6759,5 +6760,144 @@ func TestURemStrengthReductionNonInt(t *testing.T) {
 	// Non-existent ID should not trigger.
 	if _, ok := e.tryURemToBitwiseAnd(99999); ok {
 		t.Error("tryURemToBitwiseAnd should not trigger for unknown value ID")
+	}
+}
+
+// TestHlslMangledGroupsharedName verifies the MSVC name decoration for
+// workgroup (groupshared) variables matches DXC's output pattern.
+func TestHlslMangledGroupsharedName(t *testing.T) {
+	cases := []struct {
+		name    string
+		varName string
+		varType ir.TypeInner
+		want    string
+	}{
+		{
+			"float array",
+			"shared_data",
+			ir.ArrayType{
+				Base: 0,
+				Size: ir.ArraySize{Constant: ptrU32(256)},
+			},
+			"\x01?shared_data@@3PAMA",
+		},
+		{
+			"uint scalar",
+			"shared_counter",
+			ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
+			"\x01?shared_counter@@3IA",
+		},
+		{
+			"int array",
+			"arr_i32_",
+			ir.ArrayType{
+				Base: 1,
+				Size: ir.ArraySize{Constant: ptrU32(128)},
+			},
+			"\x01?arr_i32_@@3PAHA",
+		},
+		{
+			"uint64 scalar",
+			"workgroup_atomic_scalar",
+			ir.ScalarType{Kind: ir.ScalarUint, Width: 8},
+			"\x01?workgroup_atomic_scalar@@3_KA",
+		},
+		{
+			"digit-ending name gets underscore",
+			"arr_i32",
+			ir.ArrayType{
+				Base: 1,
+				Size: ir.ArraySize{Constant: ptrU32(128)},
+			},
+			"\x01?arr_i32_@@3PAHA",
+		},
+		{
+			"atomic uint scalar",
+			"a",
+			ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
+			"\x01?a@@3IA",
+		},
+		{
+			"atomic uint array",
+			"a",
+			ir.ArrayType{
+				Base: 2,
+				Size: ir.ArraySize{Constant: ptrU32(64)},
+			},
+			"\x01?a@@3PAIA",
+		},
+	}
+
+	types := []ir.Type{
+		{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},                       // [0] float
+		{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                        // [1] int
+		{Inner: ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}}, // [2] atomic<uint>
+	}
+	irMod := &ir.Module{Types: types}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gv := &ir.GlobalVariable{
+				Name:  tc.varName,
+				Space: ir.SpaceWorkGroup,
+			}
+			// Add the variable's type to the module if needed.
+			th := ir.TypeHandle(len(irMod.Types))
+			irMod.Types = append(irMod.Types, ir.Type{Inner: tc.varType})
+			gv.Type = th
+
+			got := hlslMangledGroupsharedName(irMod, gv)
+			if got != tc.want {
+				t.Errorf("hlslMangledGroupsharedName(%q) = %q, want %q", tc.varName, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMsvcScalarCode verifies the MSVC type decoration codes for scalar types.
+func TestMsvcScalarCode(t *testing.T) {
+	cases := []struct {
+		name string
+		s    ir.ScalarType
+		want string
+	}{
+		{"float", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, "M"},
+		{"double", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, "N"},
+		{"uint", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, "I"},
+		{"uint64", ir.ScalarType{Kind: ir.ScalarUint, Width: 8}, "_K"},
+		{"int", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, "H"},
+		{"int64", ir.ScalarType{Kind: ir.ScalarSint, Width: 8}, "_J"},
+		{"unknown width", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := msvcScalarCode(tc.s)
+			if got != tc.want {
+				t.Errorf("msvcScalarCode(%v) = %q, want %q", tc.s, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestIsInt64Type verifies the module-level i64 type detector.
+func TestIsInt64Type(t *testing.T) {
+	cases := []struct {
+		name string
+		ty   *module.Type
+		want bool
+	}{
+		{"nil", nil, false},
+		{"i32", &module.Type{Kind: module.TypeInteger, IntBits: 32}, false},
+		{"i64", &module.Type{Kind: module.TypeInteger, IntBits: 64}, true},
+		{"f64", &module.Type{Kind: module.TypeFloat, FloatBits: 64}, false},
+		{"i16", &module.Type{Kind: module.TypeInteger, IntBits: 16}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isInt64Type(tc.ty)
+			if got != tc.want {
+				t.Errorf("isInt64Type(%v) = %v, want %v", tc.ty, got, tc.want)
+			}
+		})
 	}
 }
