@@ -889,6 +889,8 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 	var binding *ir.ResourceBinding
 
 	// Parse @group and @binding attributes
+	hasGroup := false
+	hasBinding := false
 	for _, attr := range v.Attributes {
 		if attr.Name == "group" && len(attr.Args) > 0 {
 			if lit, ok := attr.Args[0].(*Literal); ok {
@@ -897,6 +899,7 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 					binding = &ir.ResourceBinding{}
 				}
 				binding.Group = uint32(group)
+				hasGroup = true
 			}
 		}
 		if attr.Name == "binding" && len(attr.Args) > 0 {
@@ -906,8 +909,18 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 					binding = &ir.ResourceBinding{}
 				}
 				binding.Binding = uint32(bind)
+				hasBinding = true
 			}
 		}
+	}
+
+	// Validate that @binding and @group appear together.
+	// WGSL spec requires both attributes on resource variables.
+	if hasBinding && !hasGroup {
+		return fmt.Errorf("global var '%s': @binding requires @group attribute", v.Name)
+	}
+	if hasGroup && !hasBinding {
+		return fmt.Errorf("global var '%s': @group requires @binding attribute", v.Name)
 	}
 
 	// Determine storage access mode from WGSL access mode annotation.

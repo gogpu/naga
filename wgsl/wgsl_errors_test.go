@@ -776,6 +776,64 @@ func TestWGSLErrors_ConstAssert(t *testing.T) {
 	}
 }
 
+// TestWGSLErrors_BindingGroupValidation tests that @binding and @group must appear together.
+func TestWGSLErrors_BindingGroupValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      string
+		wantErr     bool
+		errContains string
+	}{
+		// Valid: both @group and @binding present
+		{
+			name:   "both_group_and_binding",
+			source: `@group(0) @binding(0) var<storage> data: array<u32>;`,
+		},
+		// Valid: @binding before @group (order doesn't matter)
+		{
+			name:   "binding_before_group",
+			source: `@binding(1) @group(2) var<uniform> data: vec4<f32>;`,
+		},
+		// Invalid: @binding without @group
+		{
+			name:        "binding_without_group",
+			source:      `@binding(0) var<storage> data: array<u32>;`,
+			wantErr:     true,
+			errContains: "@binding requires @group",
+		},
+		// Invalid: @group without @binding
+		{
+			name:        "group_without_binding",
+			source:      `@group(0) var<storage> data: array<u32>;`,
+			wantErr:     true,
+			errContains: "@group requires @binding",
+		},
+		// Valid: no @group or @binding (private variable)
+		{
+			name:   "no_group_no_binding",
+			source: `var<private> data: f32;`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tryLower(tt.source)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, but compilation succeeded", tt.errContains)
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+			}
+		})
+	}
+}
+
 // TestWGSLErrors_SwizzleValidation tests swizzle namespace and GLSL rejection.
 func TestWGSLErrors_SwizzleValidation(t *testing.T) {
 	tests := []struct {
