@@ -611,3 +611,101 @@ fn foo() {
 		})
 	}
 }
+
+// TestWGSLErrors_SwizzleValidation tests swizzle namespace and GLSL rejection.
+func TestWGSLErrors_SwizzleValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      string
+		wantErr     bool
+		errContains string
+	}{
+		// Valid: xyzw namespace
+		{
+			name:   "xyzw_single",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let x = v.x; }`,
+		},
+		{
+			name:   "xyzw_multi",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let xy = v.xy; }`,
+		},
+		{
+			name:   "xyzw_full",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.xyzw; }`,
+		},
+		// Valid: rgba namespace
+		{
+			name:   "rgba_single",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let r = v.r; }`,
+		},
+		{
+			name:   "rgba_multi",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let rg = v.rg; }`,
+		},
+		{
+			name:   "rgba_full",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.rgba; }`,
+		},
+		// Invalid: GLSL s/t/p/q swizzle (not valid in WGSL)
+		{
+			name:        "glsl_stpq_rejected",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.stpq; }`,
+			wantErr:     true,
+			errContains: "invalid swizzle component",
+		},
+		{
+			name:        "glsl_st_rejected",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.st; }`,
+			wantErr:     true,
+			errContains: "invalid swizzle component",
+		},
+		{
+			name:        "glsl_single_s_rejected",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.s; }`,
+			wantErr:     true,
+			errContains: "invalid swizzle component",
+		},
+		// Invalid: mixed xyzw + rgba namespace
+		{
+			name:        "mixed_xg",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.xg; }`,
+			wantErr:     true,
+			errContains: "cannot mix xyzw and rgba",
+		},
+		{
+			name:        "mixed_xb",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.xb; }`,
+			wantErr:     true,
+			errContains: "cannot mix xyzw and rgba",
+		},
+		{
+			name:        "mixed_ry",
+			source:      `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.ry; }`,
+			wantErr:     true,
+			errContains: "cannot mix xyzw and rgba",
+		},
+		// Valid: swizzle repeat
+		{
+			name:   "xyzw_repeat",
+			source: `fn foo() { let v = vec4<f32>(1.0, 2.0, 3.0, 4.0); let s = v.xx; }`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tryLower(tt.source)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, but compilation succeeded", tt.errContains)
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+			}
+		})
+	}
+}

@@ -13831,6 +13831,24 @@ func (l *Lowerer) swizzlePattern(member string, vecSize ir.VectorSize) (ir.Vecto
 	if len(member) < 2 || len(member) > 4 {
 		return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle %q", member)
 	}
+
+	// Validate namespace consistency: all components must be xyzw or all rgba.
+	// Mixing namespaces (e.g., v.xg) is invalid per WGSL spec.
+	// Matches Rust naga: Components::new() validates all chars are same namespace.
+	firstNs := swizzleComponentNamespace(member[0])
+	if firstNs == swizzleNsNone {
+		return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle component %q", member)
+	}
+	for i := 1; i < len(member); i++ {
+		ns := swizzleComponentNamespace(member[i])
+		if ns == swizzleNsNone {
+			return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle component %q", member)
+		}
+		if ns != firstNs {
+			return 0, [4]ir.SwizzleComponent{}, fmt.Errorf("invalid swizzle %q: cannot mix xyzw and rgba components", member)
+		}
+	}
+
 	var pattern [4]ir.SwizzleComponent
 	for i := 0; i < len(member); i++ {
 		comp, ok := swizzleComponent(member[i])
@@ -13856,18 +13874,48 @@ func (l *Lowerer) swizzlePattern(member string, vecSize ir.VectorSize) (ir.Vecto
 	return size, pattern, nil
 }
 
+// swizzleNamespace identifies which WGSL swizzle namespace a character belongs to.
+// WGSL only allows xyzw and rgba — s/t/p/q are GLSL-only and rejected.
+type swizzleNamespace int
+
+const (
+	swizzleNsNone swizzleNamespace = iota
+	swizzleNsXYZW
+	swizzleNsRGBA
+)
+
 func swizzleComponent(c byte) (ir.SwizzleComponent, bool) {
 	switch c {
-	case 'x', 'r', 's':
+	case 'x':
 		return ir.SwizzleX, true
-	case 'y', 'g', 't':
+	case 'y':
 		return ir.SwizzleY, true
-	case 'z', 'b', 'p':
+	case 'z':
 		return ir.SwizzleZ, true
-	case 'w', 'a', 'q':
+	case 'w':
+		return ir.SwizzleW, true
+	case 'r':
+		return ir.SwizzleX, true
+	case 'g':
+		return ir.SwizzleY, true
+	case 'b':
+		return ir.SwizzleZ, true
+	case 'a':
 		return ir.SwizzleW, true
 	default:
 		return 0, false
+	}
+}
+
+// swizzleComponentNamespace returns the namespace of a swizzle character.
+func swizzleComponentNamespace(c byte) swizzleNamespace {
+	switch c {
+	case 'x', 'y', 'z', 'w':
+		return swizzleNsXYZW
+	case 'r', 'g', 'b', 'a':
+		return swizzleNsRGBA
+	default:
+		return swizzleNsNone
 	}
 }
 
