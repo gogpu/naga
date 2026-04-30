@@ -834,6 +834,103 @@ func TestWGSLErrors_BindingGroupValidation(t *testing.T) {
 	}
 }
 
+// TestWGSLErrors_MustUse tests that @must_use function results cannot be discarded.
+func TestWGSLErrors_MustUse(t *testing.T) {
+	tests := []struct {
+		name        string
+		source      string
+		wantErr     bool
+		errContains string
+	}{
+		// Error: @must_use result discarded as statement
+		{
+			name: "must_use_discarded_as_statement",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() { foo(); }`,
+			wantErr:     true,
+			errContains: "@must_use",
+		},
+		// OK: @must_use result used in return
+		{
+			name: "must_use_used_in_return",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() -> u32 { return foo(); }`,
+		},
+		// OK: @must_use result used in let binding
+		{
+			name: "must_use_used_in_let",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() { let x = foo(); _ = x; }`,
+		},
+		// OK: @must_use result used in var binding
+		{
+			name: "must_use_used_in_var",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() { var x = foo(); _ = x; }`,
+		},
+		// OK: @must_use result used in phony assignment
+		{
+			name: "must_use_used_in_phony",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() { _ = foo(); }`,
+		},
+		// OK: function without @must_use can be discarded
+		{
+			name: "no_must_use_discarded",
+			source: `
+fn foo() -> u32 { return 42; }
+fn test() { foo(); }`,
+		},
+		// OK: void function without @must_use (no return value)
+		{
+			name: "void_function_discarded",
+			source: `
+fn foo() {}
+fn test() { foo(); }`,
+		},
+		// Error: @must_use result discarded inside entry point
+		{
+			name: "must_use_discarded_in_entry_point",
+			source: `
+@must_use fn foo() -> i32 { return 10; }
+@compute @workgroup_size(1)
+fn main() { foo(); }`,
+			wantErr:     true,
+			errContains: "@must_use",
+		},
+		// OK: @must_use result used in expression
+		{
+			name: "must_use_used_in_expression",
+			source: `
+@must_use fn foo() -> u32 { return 42; }
+fn test() -> u32 { return foo() + 1u; }`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tryLower(tt.source)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, but compilation succeeded", tt.errContains)
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+			}
+		})
+	}
+}
+
 // TestWGSLErrors_SwizzleValidation tests swizzle namespace and GLSL rejection.
 func TestWGSLErrors_SwizzleValidation(t *testing.T) {
 	tests := []struct {

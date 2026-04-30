@@ -37,6 +37,7 @@ type Lowerer struct {
 	// Function resolution
 	functions       map[string]ir.FunctionHandle // Named function lookup (non-entry-point only)
 	entryPointFuncs map[string]bool              // Names of entry point functions
+	funcMustUse     map[string]bool              // Functions with @must_use attribute
 
 	// Variable usage tracking for unused variable warnings
 	localDecls        map[string]Span // Where each local variable was declared
@@ -179,6 +180,7 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 		abstractConstants: make(map[string]*abstractConstInfo, 4),
 		functions:         make(map[string]ir.FunctionHandle, nFuncs),
 		entryPointFuncs:   make(map[string]bool, 4),
+		funcMustUse:       make(map[string]bool, 4),
 		localDecls:        make(map[string]Span, 16),
 		usedLocals:        make(map[string]bool, 16),
 		localConsts:       make(map[string]bool, 4),
@@ -203,10 +205,16 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 	// IMPORTANT: Handles are assigned in dependency-sorted order (not source order)
 	// to match Rust naga's visit_ordered() which processes functions in DFS post-order.
 	{
-		// First pass: identify entry points
+		// First pass: identify entry points and @must_use functions
 		for _, f := range ast.Functions {
 			if l.entryPointStage(f.Attributes) != nil {
 				l.entryPointFuncs[f.Name] = true
+			}
+			for _, attr := range f.Attributes {
+				if attr.Name == "must_use" {
+					l.funcMustUse[f.Name] = true
+					break
+				}
 			}
 		}
 		// Second pass: assign handles in dependency order
@@ -7598,6 +7606,13 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 	funcHandle, ok := l.functions[funcName]
 	if !ok {
 		return 0, fmt.Errorf("unknown function: %s", funcName)
+	}
+
+	// Enforce @must_use: if the function is marked @must_use and its result
+	// is discarded as a statement, emit an error.
+	// Matches Rust naga: FunctionMustUseUnused.
+	if l.funcMustUse[funcName] && l.isStatement {
+		return 0, fmt.Errorf("result of @must_use function '%s' must be used", funcName)
 	}
 
 	args := make([]ir.ExpressionHandle, len(call.Args))
