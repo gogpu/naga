@@ -3803,8 +3803,20 @@ func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
 			Stage:    *stage,
 			Function: *fn,
 		}
-		// Extract workgroup_size for compute/mesh/task shaders
+		// Extract workgroup_size for compute/mesh/task shaders.
+		// Validate that @workgroup_size is present — required by WGSL spec.
+		// Matches Rust naga: Error::MissingWorkgroupSize.
 		if *stage == ir.StageCompute || *stage == ir.StageMesh || *stage == ir.StageTask {
+			hasWGSize := false
+			for _, attr := range f.Attributes {
+				if attr.Name == "workgroup_size" {
+					hasWGSize = true
+					break
+				}
+			}
+			if !hasWGSize {
+				return fmt.Errorf("@compute entry point '%s' is missing @workgroup_size attribute", f.Name)
+			}
 			ep.Workgroup = l.extractWorkgroupSize(f.Attributes)
 		}
 		// Extract early_depth_test for fragment shaders

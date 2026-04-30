@@ -597,11 +597,32 @@ fn foo() {
 }`,
 			errContains: "textureSampleBaseClampToEdge requires at least 3 arguments",
 		},
+
+		// --- Compute entry point missing @workgroup_size ---
+		{
+			name:        "compute_missing_workgroup_size",
+			source:      `@compute fn main() {}`,
+			errContains: "missing @workgroup_size",
+		},
+		{
+			name: "compute_with_workgroup_size_ok",
+			source: `@compute @workgroup_size(1) fn main() {}`,
+			// This should compile; errContains is empty to indicate no error expected.
+			// But this table expects ALL entries to fail. So we use the success table below.
+			errContains: "",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tryLower(tt.source)
+			if tt.errContains == "" {
+				// Some entries are success cases
+				if err != nil {
+					t.Fatalf("expected success, got error: %v", err)
+				}
+				return
+			}
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
