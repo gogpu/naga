@@ -1549,6 +1549,17 @@ func (e *Emitter) tryURemToBitwiseAnd(valueID int) (int, bool) {
 	return e.getIntConstID(v - 1), true
 }
 
+// addMulOrShlInstr emits either a shl (if rhsConst is a power of 2) or a mul
+// instruction. This applies the DXC InstCombine strength reduction:
+// mul X, 2^N -> shl X, N. Use this instead of raw addBinOpInstr(BinOpMul)
+// for integer multiplies with a constant RHS.
+func (e *Emitter) addMulOrShlInstr(resultTy *module.Type, lhs, rhs int) int {
+	if shiftAmt, ok := e.tryMulToShl(rhs); ok {
+		return e.addBinOpInstr(resultTy, BinOpShl, lhs, shiftAmt)
+	}
+	return e.addBinOpInstr(resultTy, BinOpMul, lhs, rhs)
+}
+
 // tryMulToShl checks whether valueID refers to an integer constant that is a
 // power of 2 (>= 2). If so, returns the value ID for the shift amount
 // (log2(value)) for use in strength reduction: mul X, 2^N -> shl X, N.
@@ -1616,6 +1627,30 @@ func (e *Emitter) tryFoldBitcast(c *module.Constant, src, dst ir.ScalarType) (in
 			f := math.Float32frombits(uint32(c.IntValue)) //nolint:gosec // intentional reinterpret
 			return e.getFloatConstID(float64(f)), true
 		}
+	}
+	return 0, false
+}
+
+// tryFoldNumericCast folds a constant int-to-float or float-to-int cast at
+// compile time. DXC's LLVM constant folder evaluates these (e.g.,
+// sitofp i32 0 to float -> float 0.0, fptoui float 1.0 to i32 -> i32 1).
+func (e *Emitter) tryFoldNumericCast(c *module.Constant, src, dst ir.ScalarType) (int, bool) {
+	if isIntegerKind(src.Kind) && dst.Kind == ir.ScalarFloat {
+		// int -> float: evaluate the cast
+		if src.Kind == ir.ScalarSint {
+			return e.getFloatConstID(float64(c.IntValue)), true
+		}
+		return e.getFloatConstID(float64(uint64(c.IntValue))), true //nolint:gosec // unsigned conversion
+	}
+	if src.Kind == ir.ScalarFloat && isIntegerKind(dst.Kind) {
+		// float -> int: evaluate the cast (truncation toward zero)
+		if dst.Kind == ir.ScalarSint {
+			return e.getIntConstID(int64(c.FloatValue)), true
+		}
+		if c.FloatValue >= 0 {
+			return e.getIntConstID(int64(uint64(c.FloatValue))), true //nolint:gosec // unsigned truncation
+		}
+		return e.getIntConstID(0), true // negative float -> unsigned int = 0 (clamped)
 	}
 	return 0, false
 }
@@ -5862,6 +5897,15 @@ func (e *Emitter) emitScalarCast(src int, srcScalar, dstScalar ir.ScalarType, is
 	// Bool target: numeric → bool requires comparison with zero.
 	if dstScalar.Kind == ir.ScalarBool {
 		return e.emitNumericToBoolDXIL(src, srcScalar)
+	}
+
+	// Constant fold: cast of a constant integer to float or vice versa can
+	// be evaluated at compile time. DXC's LLVM folds these (e.g.,
+	// sitofp i32 0 to float -> float 0.0, uitofp i32 1 to float -> float 1.0).
+	if c, ok := e.constMap[src]; ok && !c.IsUndef {
+		if folded, ok := e.tryFoldNumericCast(c, srcScalar, dstScalar); ok {
+			return folded, nil
+		}
 	}
 
 	op, err := selectDXILCastOp(srcScalar, dstScalar)

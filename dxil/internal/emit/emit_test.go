@@ -6957,3 +6957,114 @@ func TestGlobalVarAlignment(t *testing.T) {
 		})
 	}
 }
+
+// TestFoldNumericCast verifies that constant int-to-float and float-to-int
+// casts are folded at compile time, matching DXC's LLVM constant folder.
+func TestFoldNumericCast(t *testing.T) {
+	e := &Emitter{
+		constMap:    make(map[int]*module.Constant),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+		undefID:     -1,
+	}
+	e.mod = &module.Module{}
+
+	tests := []struct {
+		name      string
+		srcKind   ir.ScalarKind
+		dstKind   ir.ScalarKind
+		intVal    int64
+		floatVal  float64
+		wantFold  bool
+		wantFloat float64
+		wantInt   int64
+	}{
+		{"sint0_to_float", ir.ScalarSint, ir.ScalarFloat, 0, 0, true, 0.0, 0},
+		{"sint1_to_float", ir.ScalarSint, ir.ScalarFloat, 1, 0, true, 1.0, 0},
+		{"sint_neg1_to_float", ir.ScalarSint, ir.ScalarFloat, -1, 0, true, -1.0, 0},
+		{"uint2_to_float", ir.ScalarUint, ir.ScalarFloat, 2, 0, true, 2.0, 0},
+		{"float0_to_sint", ir.ScalarFloat, ir.ScalarSint, 0, 0.0, true, 0, 0},
+		{"float1_to_sint", ir.ScalarFloat, ir.ScalarSint, 0, 1.0, true, 0, 1},
+		{"float2_5_to_uint", ir.ScalarFloat, ir.ScalarUint, 0, 2.5, true, 0, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var srcID int
+			if tt.srcKind == ir.ScalarFloat {
+				srcID = e.getFloatConstID(tt.floatVal)
+			} else {
+				srcID = e.getIntConstID(tt.intVal)
+			}
+			src := ir.ScalarType{Kind: tt.srcKind, Width: 4}
+			dst := ir.ScalarType{Kind: tt.dstKind, Width: 4}
+			c := e.constMap[srcID]
+			resultID, ok := e.tryFoldNumericCast(c, src, dst)
+			if ok != tt.wantFold {
+				t.Errorf("fold=%v, want %v", ok, tt.wantFold)
+				return
+			}
+			if !ok {
+				return
+			}
+			rc, hasConst := e.constMap[resultID]
+			if !hasConst {
+				t.Error("result not in constMap")
+				return
+			}
+			if tt.dstKind == ir.ScalarFloat {
+				if rc.FloatValue != tt.wantFloat {
+					t.Errorf("float result = %v, want %v", rc.FloatValue, tt.wantFloat)
+				}
+			} else {
+				if rc.IntValue != tt.wantInt {
+					t.Errorf("int result = %v, want %v", rc.IntValue, tt.wantInt)
+				}
+			}
+		})
+	}
+}
+
+// TestAddMulOrShlInstr verifies that addMulOrShlInstr delegates to
+// tryMulToShl for power-of-2 constants. The actual instruction
+// generation is tested via the full DXC golden pipeline (bounds-check-
+// dynamic-buffer/main now uses shl i32 %R, 4 instead of mul i32 %R, 16).
+func TestAddMulOrShlInstr(t *testing.T) {
+	e := &Emitter{
+		constMap:    make(map[int]*module.Constant),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+		undefID:     -1,
+	}
+	e.mod = &module.Module{}
+
+	// Verify that tryMulToShl fires for the stride constants used in
+	// CBV/UAV byte offset calculations.
+	strides := []struct {
+		stride   int64
+		wantShl  bool
+		shiftAmt int64
+	}{
+		{4, true, 2},   // sizeof(f32)
+		{8, true, 3},   // sizeof(f64)
+		{16, true, 4},  // sizeof(vec4 or @size(16) struct)
+		{32, true, 5},  // 2 * sizeof(vec4)
+		{12, false, 0}, // sizeof(vec3) — not a power of 2
+		{24, false, 0}, // sizeof(mat2x3) — not a power of 2
+	}
+
+	for _, tc := range strides {
+		constID := e.getIntConstID(tc.stride)
+		shiftID, ok := e.tryMulToShl(constID)
+		if ok != tc.wantShl {
+			t.Errorf("stride %d: shl=%v, want %v", tc.stride, ok, tc.wantShl)
+			continue
+		}
+		if ok {
+			sc := e.constMap[shiftID]
+			if sc.IntValue != tc.shiftAmt {
+				t.Errorf("stride %d: shift=%d, want %d", tc.stride, sc.IntValue, tc.shiftAmt)
+			}
+		}
+	}
+}

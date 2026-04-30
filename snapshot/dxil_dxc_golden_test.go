@@ -566,6 +566,48 @@ func sortAttrDefinitions(s string) string {
 	return strings.Join(result, "\n")
 }
 
+// sortTypeDeclarations sorts LLVM-IR named type declarations (%name = type {...})
+// into a canonical alphabetical order. Type declarations in LLVM IR are order-
+// independent — types are resolved by name, not position. When one emitter
+// produces an extra type (e.g., DXC emits %dx.types.CBufRet.f32 for a shader
+// where naga only uses .i32), the 1-line insertion cascades through the entire
+// file in line-based comparison. Sorting eliminates this noise.
+//
+// Type declarations appear between the "target triple" line and the first
+// "define" or global variable declaration. Blank lines and the preceding
+// "target datalayout" / "target triple" lines are NOT included in the sort.
+func sortTypeDeclarations(s string) string {
+	lines := strings.Split(s, "\n")
+	var typeLines []string
+	firstIdx := -1
+	lastIdx := -1
+
+	for i, ln := range lines {
+		trimmed := strings.TrimSpace(ln)
+		// Match: %name = type { ... } or %"name" = type { ... }
+		if (strings.HasPrefix(trimmed, "%") || strings.HasPrefix(trimmed, `%"`)) &&
+			strings.Contains(trimmed, " = type ") {
+			if firstIdx == -1 {
+				firstIdx = i
+			}
+			lastIdx = i
+			typeLines = append(typeLines, ln)
+		}
+	}
+
+	if len(typeLines) < 2 {
+		return s // 0 or 1 type declaration — nothing to sort
+	}
+
+	sort.Strings(typeLines)
+
+	result := make([]string, 0, len(lines))
+	result = append(result, lines[:firstIdx]...)
+	result = append(result, typeLines...)
+	result = append(result, lines[lastIdx+1:]...)
+	return strings.Join(result, "\n")
+}
+
 // sortFuncDeclarations sorts LLVM-IR function declaration blocks into a
 // canonical alphabetical order by function name. Each declaration consists
 // of an optional "; Function Attrs: ..." comment immediately preceding a
@@ -704,6 +746,82 @@ func simpleDiff(golden, actual string) string {
 }
 
 // --- Unit tests for normalizer helpers ---
+
+func TestSortTypeDeclarations(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "single type unchanged",
+			in: `target triple = "dxil-ms-dx"
+
+%dx.types.Handle = type { i8* }
+
+define void @main() {`,
+			want: `target triple = "dxil-ms-dx"
+
+%dx.types.Handle = type { i8* }
+
+define void @main() {`,
+		},
+		{
+			name: "types sorted alphabetically",
+			in: `target triple = "dxil-ms-dx"
+
+%dx.types.Handle = type { i8* }
+%dx.types.CBufRet.f32 = type { float, float, float, float }
+%dx.types.CBufRet.i32 = type { i32, i32, i32, i32 }
+%chunk_data = type { %struct.S1 }
+
+define void @main() {`,
+			want: `target triple = "dxil-ms-dx"
+
+%chunk_data = type { %struct.S1 }
+%dx.types.CBufRet.f32 = type { float, float, float, float }
+%dx.types.CBufRet.i32 = type { i32, i32, i32, i32 }
+%dx.types.Handle = type { i8* }
+
+define void @main() {`,
+		},
+		{
+			name: "extra type in one emitter does not cascade",
+			in: `target triple = "dxil-ms-dx"
+
+%dx.types.Handle = type { i8* }
+%dx.types.CBufRet.i32 = type { i32, i32, i32, i32 }
+%struct.S0 = type { i32 }
+
+define void @main() {`,
+			want: `target triple = "dxil-ms-dx"
+
+%dx.types.CBufRet.i32 = type { i32, i32, i32, i32 }
+%dx.types.Handle = type { i8* }
+%struct.S0 = type { i32 }
+
+define void @main() {`,
+		},
+		{
+			name: "quoted type names",
+			in: `%dx.types.Handle = type { i8* }
+%"class.Texture2D<float>" = type { float }
+%chunk_data = type { i32 }`,
+			want: `%"class.Texture2D<float>" = type { float }
+%chunk_data = type { i32 }
+%dx.types.Handle = type { i8* }`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sortTypeDeclarations(tt.in)
+			if got != tt.want {
+				t.Errorf("sortTypeDeclarations:\ngot:\n%s\nwant:\n%s", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestSortFuncDeclarations(t *testing.T) {
 	tests := []struct {
