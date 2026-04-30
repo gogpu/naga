@@ -10139,6 +10139,9 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 		var size ir.ArraySize
 		if t.Size != nil {
 			if n, ok := l.tryEvalConstantUint(t.Size); ok {
+				if n == 0 {
+					return 0, fmt.Errorf("array size must be greater than 0")
+				}
 				constSize := uint32(n)
 				size.Constant = &constSize
 			}

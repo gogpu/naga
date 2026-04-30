@@ -611,6 +611,19 @@ fn foo() {
 			// But this table expects ALL entries to fail. So we use the success table below.
 			errContains: "",
 		},
+
+		// --- Zero-sized array ---
+		{
+			name:        "array_size_zero",
+			source:      `fn foo() { var a: array<f32, 0>; }`,
+			errContains: "array size must be greater than 0",
+		},
+		// Valid array size = 1 (edge case)
+		{
+			name:        "array_size_one_ok",
+			source:      `fn foo() { var a: array<f32, 1>; _ = a; }`,
+			errContains: "",
+		},
 	}
 
 	for _, tt := range tests {
