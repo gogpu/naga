@@ -1381,6 +1381,12 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 		}
 	}
 
+	// LLVM InstCombine: shl(and(X, C1), C2) -> and(shl(X, C2), C1 << C2).
+	// Also matches mul(and(X, C1), 2^N) since mul is strength-reduced to shl.
+	if result, ok := e.tryShlAndCombine(fn, bin, leftType, numComps); ok {
+		return result, nil
+	}
+
 	lhs, err := e.emitExpression(fn, bin.Left)
 	if err != nil {
 		return 0, err
@@ -1431,8 +1437,21 @@ func (e *Emitter) emitScalarBinaryOp(op ir.BinaryOperator, resultTy *module.Type
 	case ir.BinaryAdd:
 		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFAdd, BinOpAdd), lhs, rhs), nil
 	case ir.BinarySubtract:
+		// LLVM canonicalizes integer sub X, C to add X, -C.
+		// Apply the same transformation when the RHS is a constant.
+		if !isFloat {
+			if negID, ok := e.trySubToAddNeg(rhs); ok {
+				return e.addBinOpInstr(resultTy, BinOpAdd, lhs, negID), nil
+			}
+		}
 		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFSub, BinOpSub), lhs, rhs), nil
 	case ir.BinaryMultiply:
+		// LLVM strength-reduces mul X, 2^N to shl X, N for integers.
+		if !isFloat {
+			if shiftAmt, ok := e.tryMulToShl(rhs); ok {
+				return e.addBinOpInstr(resultTy, BinOpShl, lhs, shiftAmt), nil
+			}
+		}
 		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFMul, BinOpMul), lhs, rhs), nil
 	case ir.BinaryDivide:
 		return e.addBinOpInstr(resultTy, selectDivOp(isFloat, isSigned), lhs, rhs), nil
@@ -1521,6 +1540,184 @@ func (e *Emitter) tryURemToBitwiseAnd(valueID int) (int, bool) {
 		return 0, false
 	}
 	return e.getIntConstID(v - 1), true
+}
+
+// tryMulToShl checks whether valueID refers to an integer constant that is a
+// power of 2 (>= 2). If so, returns the value ID for the shift amount
+// (log2(value)) for use in strength reduction: mul X, 2^N -> shl X, N.
+// This matches DXC's LLVM InstCombine pass.
+func (e *Emitter) tryMulToShl(valueID int) (int, bool) {
+	c, ok := e.constMap[valueID]
+	if !ok || c.IsUndef || c.IsAggregate {
+		return 0, false
+	}
+	if c.ConstType == nil || c.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	v := c.IntValue
+	if v < 2 {
+		return 0, false
+	}
+	// Check power of 2: v & (v-1) == 0.
+	if v&(v-1) != 0 {
+		return 0, false
+	}
+	// Compute log2.
+	shift := int64(0)
+	tmp := v
+	for tmp > 1 {
+		tmp >>= 1
+		shift++
+	}
+	return e.getIntConstID(shift), true
+}
+
+// trySubToAddNeg checks whether valueID refers to a positive integer constant.
+// If so, returns the value ID for the negated constant (-value) for use in
+// canonicalization: sub X, C -> add X, -C. This matches DXC's LLVM
+// canonicalization where sub is converted to add with negative operand.
+func (e *Emitter) trySubToAddNeg(valueID int) (int, bool) {
+	c, ok := e.constMap[valueID]
+	if !ok || c.IsUndef || c.IsAggregate {
+		return 0, false
+	}
+	if c.ConstType == nil || c.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	// Only canonicalize when the constant is positive (> 0).
+	// sub X, 0 is already a no-op and sub X, negative is rare.
+	if c.IntValue <= 0 {
+		return 0, false
+	}
+	return e.getIntConstID(-c.IntValue), true
+}
+
+// tryShlAndCombine detects mul(and(X, C1), 2^N) or mul(as(and(X, C1)), 2^N)
+// in the IR expression tree and rewrites to and(shl(X, N), C1 << N). This
+// matches LLVM InstCombine's canonicalization which hoists the shift before
+// the and and adjusts the mask. The As (cast) peeling handles cases like
+// i32(vertex_index & 1u) * 2 where a u32->i32 cast wraps the And.
+// Returns (valueID, true) if the transform applied, (0, false) otherwise.
+func (e *Emitter) tryShlAndCombine(fn *ir.Function, bin ir.ExprBinary, leftType ir.TypeInner, numComps int) (int, bool) {
+	// Only applies to integer scalar ShiftLeft or Multiply.
+	if numComps != 1 || isFloatType(leftType) {
+		return 0, false
+	}
+
+	shlAmt, ok := e.shlAmtForBinOp(fn, bin)
+	if !ok {
+		return 0, false
+	}
+
+	// Peel through single-use As (cast) expressions to find an And.
+	andHandle, ok := e.peelToAndExpr(fn, bin.Left)
+	if !ok {
+		return 0, false
+	}
+
+	andBin := fn.Expressions[andHandle].Kind.(ir.ExprBinary)
+	andMask, okMask := e.irExprIntConst(fn, andBin.Right)
+	if !okMask {
+		return 0, false
+	}
+
+	// Emit: shl(X, C2) then and(result, C1 << C2).
+	xID, err := e.emitExpression(fn, andBin.Left)
+	if err != nil {
+		return 0, false
+	}
+	newMask := andMask << shlAmt
+	resultTy, _ := typeToDXIL(e.mod, e.ir, leftType)
+	shlResult := e.addBinOpInstr(resultTy, BinOpShl, xID, e.getIntConstID(shlAmt))
+
+	lhs, rhs := shlResult, e.getIntConstID(newMask)
+	if e.isConstValueID(lhs) && !e.isConstValueID(rhs) {
+		lhs, rhs = rhs, lhs
+	}
+	return e.addBinOpInstr(resultTy, BinOpAnd, lhs, rhs), true
+}
+
+// shlAmtForBinOp extracts the effective shift amount from a ShiftLeft or
+// Multiply (power-of-2 constant) binary expression. Returns (0, false) if
+// the expression is not a shift or power-of-2 multiply.
+func (e *Emitter) shlAmtForBinOp(fn *ir.Function, bin ir.ExprBinary) (int64, bool) {
+	if bin.Op == ir.BinaryShiftLeft {
+		amt, ok := e.irExprIntConst(fn, bin.Right)
+		if !ok || amt <= 0 || amt >= 32 {
+			return 0, false
+		}
+		return amt, true
+	}
+	if bin.Op == ir.BinaryMultiply {
+		mulConst, ok := e.irExprIntConst(fn, bin.Right)
+		if !ok || mulConst < 2 || mulConst&(mulConst-1) != 0 {
+			return 0, false
+		}
+		var shift int64
+		tmp := mulConst
+		for tmp > 1 {
+			tmp >>= 1
+			shift++
+		}
+		return shift, true
+	}
+	return 0, false
+}
+
+// peelToAndExpr walks through the expression at h, peeling through single-use
+// As (cast) expressions, and returns the handle of an And binary expression
+// underneath. Returns (0, false) if no And is found or intermediate expressions
+// are already emitted or multi-use.
+func (e *Emitter) peelToAndExpr(fn *ir.Function, h ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
+	for {
+		if _, cached := e.exprValues[h]; cached {
+			return 0, false
+		}
+		if e.exprUseCount[h] > 1 {
+			return 0, false
+		}
+		expr := fn.Expressions[h]
+		if asExpr, isAs := expr.Kind.(ir.ExprAs); isAs {
+			h = asExpr.Expr
+			continue
+		}
+		andBin, isAnd := expr.Kind.(ir.ExprBinary)
+		if isAnd && andBin.Op == ir.BinaryAnd {
+			return h, true
+		}
+		return 0, false
+	}
+}
+
+// irExprIntConst checks if an expression handle refers to a literal or
+// constant integer and returns its value. Used by tryShlAndCombine to
+// detect constant masks/shift amounts in the IR expression tree before
+// emission.
+func (e *Emitter) irExprIntConst(fn *ir.Function, h ir.ExpressionHandle) (int64, bool) {
+	expr := fn.Expressions[h]
+	switch ek := expr.Kind.(type) {
+	case ir.Literal:
+		switch v := ek.Value.(type) {
+		case ir.LiteralI32:
+			return int64(v), true
+		case ir.LiteralU32:
+			return int64(v), true
+		}
+	case ir.ExprConstant:
+		c := e.ir.Constants[ek.Constant]
+		if int(c.Init) < len(e.ir.GlobalExpressions) {
+			initExpr := e.ir.GlobalExpressions[c.Init]
+			if lit, ok := initExpr.Kind.(ir.Literal); ok {
+				switch v := lit.Value.(type) {
+				case ir.LiteralI32:
+					return int64(v), true
+				case ir.LiteralU32:
+					return int64(v), true
+				}
+			}
+		}
+	}
+	return 0, false
 }
 
 // emitComparison emits a comparison instruction with the correct predicate
@@ -3469,7 +3666,15 @@ func (e *Emitter) emitMathFrexp(fn *ir.Function, mathExpr ir.ExprMath) (int, err
 	return comps[0], nil
 }
 
-// emitMathQuantizeF16 rounds f32 to f16 precision: f32 → fptrunc f16 → fpext f32.
+// emitMathQuantizeF16 rounds f32 to f16 precision via legacy F32<->F16
+// conversion opcodes: dx.op.legacyF32ToF16 (130) + dx.op.legacyF16ToF32 (131).
+//
+// These opcodes do NOT introduce the LLVM half type, so the shader does
+// not require the NativeLowPrecision (UseNativeLowPrecision) shader flag.
+// This matches DXC's lowering of HLSL f32tof16/f16tof32 which also avoids
+// native half — the DXIL spec explicitly notes these are "not related to
+// min-precision" (DXIL.rst lines 2249-2250).
+//
 // For vectors, applies per-component.
 func (e *Emitter) emitMathQuantizeF16(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
@@ -3479,16 +3684,20 @@ func (e *Emitter) emitMathQuantizeF16(fn *ir.Function, mathExpr ir.ExprMath) (in
 	argType := e.resolveExprType(fn, mathExpr.Arg)
 	size := componentCount(argType)
 
-	f16Ty := e.mod.GetFloatType(16)
+	i32Ty := e.mod.GetIntType(32)
 	f32Ty := e.mod.GetFloatType(32)
+	f32ToF16Fn := e.getDxOpLegacyF32ToF16Func()
+	f16ToF32Fn := e.getDxOpLegacyF16ToF32Func()
+	f32ToF16Op := e.getIntConstID(int64(OpLegacyF32ToF16))
+	f16ToF32Op := e.getIntConstID(int64(OpLegacyF16ToF32))
 
 	comps := make([]int, size)
 	for i := 0; i < size; i++ {
 		x := e.getComponentID(mathExpr.Arg, i)
-		// fptrunc f32 → f16
-		f16Val := e.addCastInstr(f16Ty, CastFPTrunc, x)
-		// fpext f16 → f32
-		comps[i] = e.addCastInstr(f32Ty, CastFPExt, f16Val)
+		// f32 -> i32 (f16 bits in low 16): dx.op.legacyF32ToF16
+		i32Val := e.addCallInstr(f32ToF16Fn, i32Ty, []int{f32ToF16Op, x})
+		// i32 (f16 bits) -> f32: dx.op.legacyF16ToF32
+		comps[i] = e.addCallInstr(f16ToF32Fn, f32Ty, []int{f16ToF32Op, i32Val})
 	}
 
 	if size > 1 {
@@ -3870,6 +4079,41 @@ func (e *Emitter) tryLoadInitOnly(fn *ir.Function, load ir.ExprLoad) (int, bool,
 	return id, true, nil
 }
 
+// tryLoadPromotedLocal attempts to resolve a load from a promoted local
+// variable (zero-store, init-only, or single-store) without emitting an
+// alloca+load chain. Returns (valueID, true, nil) on success.
+func (e *Emitter) tryLoadPromotedLocal(fn *ir.Function, load ir.ExprLoad) (int, bool, error) {
+	if id, ok, err := e.tryLoadZeroStore(fn, load); err != nil || ok {
+		return id, ok, err
+	}
+	if id, ok, err := e.tryLoadInitOnly(fn, load); err != nil || ok {
+		return id, ok, err
+	}
+	return e.tryLoadSingleStore(fn, load)
+}
+
+// tryLoadZeroStore resolves a load from a zero-store local variable
+// (no Init, never stored to) to the zero constant of its type.
+// WGSL spec requires such locals to be default-initialized to zero.
+// DXC's LLVM SROA+DCE eliminates these entirely; we emit the zero
+// constant inline, matching DXC's output.
+func (e *Emitter) tryLoadZeroStore(fn *ir.Function, load ir.ExprLoad) (int, bool, error) {
+	lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return 0, false, nil
+	}
+	tyHandle, isZero := e.zeroStoreLocals[lv.Variable]
+	if !isZero {
+		return 0, false, nil
+	}
+	// Emit the zero value for this type.
+	id, err := e.emitZeroValue(ir.ExprZeroValue{Type: tyHandle})
+	if err != nil {
+		return 0, false, err
+	}
+	return id, true, nil
+}
+
 // tryLoadSingleStore resolves a load from a single-store vector/scalar local
 // directly to the stored value expression, bypassing alloca+store+load.
 // This mirrors DXC's mem2reg for the common SROA decomposition pattern.
@@ -3974,21 +4218,9 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 		return e.emitUAVLoad(fn, chain)
 	}
 
-	// Init-only local optimization: if loading from a local that has a
-	// constant Init and no stores, resolve directly to the Init expression
-	// value. This eliminates the alloca+load and matches DXC's SROA output
-	// for `var x = const_expr; return x` patterns.
-	if id, handled, emitErr := e.tryLoadInitOnly(fn, load); emitErr != nil {
-		return 0, emitErr
-	} else if handled {
-		return id, nil
-	}
-
-	// Single-store local optimization: if loading from a vector/scalar local
-	// that was stored to exactly once, resolve directly to the stored value
-	// expression. This eliminates alloca+store+load for per-member vector
-	// locals created by struct SROA, matching DXC's mem2reg output.
-	if id, handled, emitErr := e.tryLoadSingleStore(fn, load); emitErr != nil {
+	// Local variable promotion: eliminate alloca+load chains for
+	// zero-store, init-only, and single-store locals.
+	if id, handled, emitErr := e.tryLoadPromotedLocal(fn, load); emitErr != nil {
 		return 0, emitErr
 	} else if handled {
 		return id, nil
@@ -4843,7 +5075,8 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	// var's bitcode ValueID and threads it through idMap so subsequent
 	// instructions (load/store/atomicrmw) reference the correct global.
 	if gv.Space == ir.SpaceWorkGroup {
-		modGV := e.mod.AddGlobalVar(gv.Name, elemTy, 3)
+		mangledName := hlslMangledGroupsharedName(e.ir, gv)
+		modGV := e.mod.AddGlobalVar(mangledName, elemTy, 3)
 		emitterID := e.allocValue()
 		if e.globalVarModuleVars == nil {
 			e.globalVarModuleVars = make(map[int]*module.GlobalVar)
@@ -4859,7 +5092,6 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	}
 
 	ptrTy := e.mod.GetPointerType(elemTy)
-
 	sizeID := e.getIntConstID(1)
 	i32Ty := e.mod.GetIntType(32)
 
@@ -5459,6 +5691,15 @@ func (e *Emitter) emitAs(fn *ir.Function, as ir.ExprAs) (int, error) {
 
 // emitScalarCast emits a single scalar cast instruction.
 func (e *Emitter) emitScalarCast(src int, srcScalar, dstScalar ir.ScalarType, isBitcast bool) (int, error) {
+	// Same-type cast is a no-op (e.g., bitcast i32 to i32). Also, integer
+	// sign reinterpretation (u32 <-> i32) maps to the same DXIL type (i32)
+	// so the bitcast is a no-op. DXC never emits these.
+	if srcScalar == dstScalar {
+		return src, nil
+	}
+	if srcScalar.Width == dstScalar.Width && isIntegerKind(srcScalar.Kind) && isIntegerKind(dstScalar.Kind) {
+		return src, nil
+	}
 	if isBitcast {
 		destTy := scalarToDXIL(e.mod, dstScalar)
 		return e.addCastInstr(destTy, CastBitcast, src), nil
@@ -5534,6 +5775,11 @@ func (e *Emitter) emitNumericToBoolDXIL(src int, srcScalar ir.ScalarType) (int, 
 	default:
 		return 0, fmt.Errorf("%v to bool: unsupported", srcScalar.Kind)
 	}
+}
+
+// isIntegerKind returns true if the scalar kind is a signed or unsigned integer.
+func isIntegerKind(k ir.ScalarKind) bool {
+	return k == ir.ScalarSint || k == ir.ScalarUint
 }
 
 // selectDXILCastOp selects the LLVM cast opcode for a scalar conversion.
@@ -6351,4 +6597,105 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccess(fn *ir.Function, acc ir.ExprAcce
 		ValueID:    valID,
 	})
 	return valID, true, nil
+}
+
+// hlslMangledGroupsharedName produces the MSVC-decorated name for a
+// groupshared (workgroup) variable, matching DXC's HLSL lowering.
+//
+// Format: \01?<hlsl_name>@@3<type_code>A
+//
+// The \01 prefix is LLVM's marker for an already-mangled name.
+// @@3 encodes "global" storage class in MSVC decoration.
+// The type code follows MSVC C++ name decoration rules:
+//   - Scalar: M=float, I=uint32, H=int32, _K=uint64, _J=int64
+//   - Array:  PA<element_code> (pointer to array of element)
+//   - A suffix terminates the decoration.
+//
+// For struct-typed variables, DXC uses U<struct_name>@@A.<member_suffix>
+// which requires per-member SROA decomposition; we fall back to the raw
+// IR name when the type cannot be simply encoded.
+func hlslMangledGroupsharedName(irMod *ir.Module, gv *ir.GlobalVariable) string {
+	name := gv.Name
+	// Apply HLSL namer trailing-underscore rule: names ending with an
+	// ASCII digit or matching HLSL keywords get an underscore suffix.
+	if len(name) > 0 && name[len(name)-1] >= '0' && name[len(name)-1] <= '9' {
+		name += "_"
+	}
+
+	typeCode := msvcTypeCode(irMod, gv.Type)
+	if typeCode == "" {
+		// Cannot encode -- use raw name (unnamed global @N).
+		return gv.Name
+	}
+
+	return "\x01?" + name + "@@3" + typeCode + "A"
+}
+
+// msvcTypeCode returns the MSVC name decoration type code for an IR type.
+// Returns "" if the type cannot be encoded in simple MSVC decoration.
+func msvcTypeCode(irMod *ir.Module, th ir.TypeHandle) string {
+	if int(th) >= len(irMod.Types) {
+		return ""
+	}
+	t := irMod.Types[th].Inner
+	switch tt := t.(type) {
+	case ir.ScalarType:
+		return msvcScalarCode(tt)
+	case ir.VectorType:
+		return ""
+	case ir.ArrayType:
+		elemCode := msvcElementTypeCode(irMod, tt.Base)
+		if elemCode == "" {
+			return ""
+		}
+		return "PA" + elemCode
+	case ir.AtomicType:
+		return msvcScalarCode(tt.Scalar)
+	default:
+		return ""
+	}
+}
+
+// msvcElementTypeCode returns the type code for an array element type.
+func msvcElementTypeCode(irMod *ir.Module, th ir.TypeHandle) string {
+	if int(th) >= len(irMod.Types) {
+		return ""
+	}
+	t := irMod.Types[th].Inner
+	switch tt := t.(type) {
+	case ir.ScalarType:
+		return msvcScalarCode(tt)
+	case ir.AtomicType:
+		return msvcScalarCode(tt.Scalar)
+	default:
+		return ""
+	}
+}
+
+// msvcScalarCode returns the MSVC type decoration code for a scalar type.
+func msvcScalarCode(s ir.ScalarType) string {
+	switch s.Kind {
+	case ir.ScalarFloat:
+		switch s.Width {
+		case 4:
+			return "M" // float
+		case 8:
+			return "N" // double
+		}
+	case ir.ScalarUint:
+		switch s.Width {
+		case 4:
+			return "I" // unsigned int
+		case 8:
+			return "_K" // unsigned __int64
+		}
+	case ir.ScalarSint:
+		switch s.Width {
+		case 4:
+			return "H" // int
+		case 8:
+			return "_J" // __int64
+		}
+	}
+	return ""
 }

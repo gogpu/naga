@@ -107,7 +107,7 @@ attributes #A3 = { nounwind readnone }
 
 !M1 = !{!"<ident>"}
 !M2 = !{i32 1, i32 0}
-!M3 = !{i32 1, i32 8}
+!M3 = !{i32 1, i32 0}
 !M4 = !{!"cs", i32 6, i32 0}
 !M5 = !{null, !M7, null, null}
 !M7 = !{!M8, !M9}

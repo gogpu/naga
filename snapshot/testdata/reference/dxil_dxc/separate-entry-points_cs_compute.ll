@@ -60,7 +60,7 @@ attributes #A0 = { noduplicate nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"cs", i32 6, i32 0}
 !M4 = !{void ()* @compute, !"compute", null, null, !M5}
 !M5 = !{i32 4, !M6}

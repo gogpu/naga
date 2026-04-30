@@ -83,24 +83,22 @@ const (
 	OpDot4 DXILOpcode = 56
 
 	// Resource operations.
-	OpCreateHandle            DXILOpcode = 57
-	OpCBufferLoadLegacy       DXILOpcode = 59
-	OpSample                  DXILOpcode = 60
-	OpSampleBias              DXILOpcode = 61
-	OpSampleLevel             DXILOpcode = 62
-	OpSampleGrad              DXILOpcode = 63
-	OpSampleCmp               DXILOpcode = 64
-	OpSampleCmpLevelZero      DXILOpcode = 65
-	OpTextureLoad             DXILOpcode = 66
-	OpTextureStore            DXILOpcode = 67
-	OpBufferLoad              DXILOpcode = 68
-	OpBufferStore             DXILOpcode = 69
-	OpRawBufferLoad           DXILOpcode = 139
-	OpRawBufferStore          DXILOpcode = 140
-	OpViewID                  DXILOpcode = 138
-	OpAnnotateHandle          DXILOpcode = 216
-	OpCreateHandleFromBinding DXILOpcode = 217
-	OpCoverage                DXILOpcode = 91
+	OpCreateHandle       DXILOpcode = 57
+	OpCBufferLoadLegacy  DXILOpcode = 59
+	OpSample             DXILOpcode = 60
+	OpSampleBias         DXILOpcode = 61
+	OpSampleLevel        DXILOpcode = 62
+	OpSampleGrad         DXILOpcode = 63
+	OpSampleCmp          DXILOpcode = 64
+	OpSampleCmpLevelZero DXILOpcode = 65
+	OpTextureLoad        DXILOpcode = 66
+	OpTextureStore       DXILOpcode = 67
+	OpBufferLoad         DXILOpcode = 68
+	OpBufferStore        DXILOpcode = 69
+	OpRawBufferLoad      DXILOpcode = 139
+	OpRawBufferStore     DXILOpcode = 140
+	OpViewID             DXILOpcode = 138
+	OpCoverage           DXILOpcode = 91
 
 	// Query operations.
 	OpGetDimensions DXILOpcode = 72

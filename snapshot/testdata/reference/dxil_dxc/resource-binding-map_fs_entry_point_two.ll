@@ -120,14 +120,14 @@ attributes #A1 = { nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"ps", i32 6, i32 0}
 !M4 = !{!M7, null, !M8, !M9}
 !M7 = !{!M10, !M11}
 !M10 = !{i32 0, %"class.Texture2D<vector<float, 4> >"* undef, !"", i32 0, i32 0, i32 1, i32 2, i32 0, !M12}
 !M12 = !{i32 0, i32 9}
 !M11 = !{i32 1, %"class.StructuredBuffer<unsigned int>"* undef, !"", i32 255, i32 0, i32 1, i32 12, i32 0, !M13}
-!M13 = !{i32 1, i32 4}
+!M13 = !{i32 1, i32 0}
 !M8 = !{!M14}
 !M14 = !{i32 0, %uniformOne* undef, !"", i32 0, i32 4, i32 1, i32 8, null}
 !M9 = !{!M15}

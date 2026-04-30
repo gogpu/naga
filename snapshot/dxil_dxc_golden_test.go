@@ -346,6 +346,26 @@ var (
 	// the Resource Bindings reflection table (which IS compared) captures
 	// names regardless. Normalize to empty to avoid false-positive diffs.
 	dxilResNameRE = regexp.MustCompile(`(undef, )!"[^"]*"(, i32)`)
+	// LLVM instruction flags (nsw, nuw, exact) on integer arithmetic are
+	// pure optimization hints without runtime semantic effect. DXC's LLVM
+	// passes set these when they can prove absence of overflow; we don't
+	// because we have no optimization infrastructure. Strip them from
+	// instructions like "add nsw i32 %R, -1" to match "add i32 %R, -1".
+	// Note: uses \b word boundary to avoid matching fmul/fadd/fsub which
+	// carry the separate "fast" flag (both DXC and naga emit it).
+	dxilInstrFlagsRE = regexp.MustCompile(`(\b(?:add|sub|mul|shl|lshr|ashr)\b )(?:nsw |nuw |exact )+`)
+	// Strip "fast" flag from fcmp comparisons. DXC sometimes sets this but
+	// we don't; it only affects NaN handling which is defined-away in WGSL.
+	dxilFcmpFastRE = regexp.MustCompile(`(fcmp )fast `)
+	// SM minor version in dx.version and dx.shaderModel metadata. Our
+	// emitter auto-upgrades SM (e.g., SM 6.6 for int64 atomics, SM 6.1
+	// for ViewID) while the golden pipeline uses a fixed -T profile
+	// (cs_6_0 etc.). The SM minor version is redundant information —
+	// the PSVRuntimeInfo header comment (which IS compared) shows the
+	// actual shader model. Normalize to 0 to avoid false positives from
+	// the auto-upgrade vs fixed-profile divergence.
+	dxilSMVersionRE      = regexp.MustCompile(`(!{i32 1, i32 )\d+(})`)
+	dxilShaderModelMinRE = regexp.MustCompile(`(!{!"(?:vs|ps|cs|ms|as)", i32 6, i32 )\d+(})`)
 )
 
 // stripReflectionSection removes a dxc -dumpbin reflection comment section
@@ -420,6 +440,21 @@ func normalizeDxilDump(s string) string {
 
 	// Normalize resource name strings in dx.resources metadata (see dxilResNameRE).
 	s = dxilResNameRE.ReplaceAllString(s, `${1}!""${2}`)
+
+	// Strip LLVM instruction flags that are pure optimization hints without
+	// runtime semantic effect. DXC's LLVM passes set these when they can
+	// prove absence of overflow (nsw/nuw/exact on integer ops) or allow
+	// fast-math rewrites (fast on fcmp). Our emitter doesn't set these
+	// because we have no optimization infrastructure.
+	s = dxilInstrFlagsRE.ReplaceAllString(s, "$1")
+	s = dxilFcmpFastRE.ReplaceAllString(s, "$1")
+
+	// Normalize SM minor version in dx.version and dx.shaderModel metadata
+	// to 0. Our emitter auto-upgrades SM based on features (e.g., int64
+	// atomics -> SM 6.6, ViewID -> SM 6.1) while the golden pipeline uses
+	// a fixed -T profile (cs_6_0). Both are correct for their context.
+	s = dxilSMVersionRE.ReplaceAllString(s, "${1}0${2}")
+	s = dxilShaderModelMinRE.ReplaceAllString(s, "${1}0${2}")
 
 	// Sort function declarations into a canonical order so that DXC-internal
 	// lowering pass scheduling (which controls the order intrinsic declarations
@@ -791,5 +826,57 @@ func TestExtractDeclFuncName(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("extractDeclFuncName(%q) = %q, want %q", tt.line, got, tt.want)
 		}
+	}
+}
+
+// TestNormalizeSMVersion verifies that the SM minor version in dx.version
+// and dx.shaderModel metadata is normalized to 0. This prevents false diffs
+// when our emitter auto-upgrades SM (e.g., SM 6.6 for int64 atomics) while
+// the DXC golden pipeline uses a fixed -T profile (cs_6_0).
+func TestNormalizeSMVersion(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "dx.version SM 6.0 unchanged",
+			input: `!5 = !{i32 1, i32 0}`,
+			want:  `!5 = !{i32 1, i32 0}`,
+		},
+		{
+			name:  "dx.version SM 6.6 normalized to 0",
+			input: `!5 = !{i32 1, i32 6}`,
+			want:  `!5 = !{i32 1, i32 0}`,
+		},
+		{
+			name:  "dx.shaderModel cs 6.0 unchanged",
+			input: `!7 = !{!"cs", i32 6, i32 0}`,
+			want:  `!7 = !{!"cs", i32 6, i32 0}`,
+		},
+		{
+			name:  "dx.shaderModel cs 6.6 normalized",
+			input: `!7 = !{!"cs", i32 6, i32 6}`,
+			want:  `!7 = !{!"cs", i32 6, i32 0}`,
+		},
+		{
+			name:  "dx.shaderModel vs 6.1 normalized",
+			input: `!7 = !{!"vs", i32 6, i32 1}`,
+			want:  `!7 = !{!"vs", i32 6, i32 0}`,
+		},
+		{
+			name:  "dx.shaderModel ms 6.5 normalized",
+			input: `!7 = !{!"ms", i32 6, i32 5}`,
+			want:  `!7 = !{!"ms", i32 6, i32 0}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := dxilSMVersionRE.ReplaceAllString(tt.input, "${1}0${2}")
+			got = dxilShaderModelMinRE.ReplaceAllString(got, "${1}0${2}")
+			if got != tt.want {
+				t.Errorf("normalize(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
 }

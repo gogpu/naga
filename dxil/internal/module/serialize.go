@@ -1018,14 +1018,23 @@ func (s *serializer) emitInstruction(instr *Instruction, currentValueID int) {
 	}
 }
 
-// emitValueSymtab writes the VALUE_SYMTAB_BLOCK containing function names.
+// emitValueSymtab writes the VALUE_SYMTAB_BLOCK containing names for
+// global variables and functions. Global variable names are needed for
+// workgroup (groupshared) variables which DXC references by mangled
+// name in the DXIL bitcode.
 func (s *serializer) emitValueSymtab() {
-	// Collect entries: we need names for all functions.
+	// Collect entries: we need names for global variables and functions.
 	type entry struct {
 		valueID int
 		name    string
 	}
 	var entries []entry
+	for i := range s.mod.GlobalVars {
+		gv := s.mod.GlobalVars[i]
+		if gv.Name != "" {
+			entries = append(entries, entry{gv.ValueID, gv.Name})
+		}
+	}
 	for i := range s.mod.Functions {
 		fn := s.mod.Functions[i]
 		if fn.Name != "" {

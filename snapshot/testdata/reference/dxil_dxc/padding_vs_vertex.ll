@@ -108,7 +108,7 @@ attributes #A1 = { nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"vs", i32 6, i32 0}
 !M4 = !{null, null, !M7, null}
 !M7 = !{!M8, !M9, !M10}

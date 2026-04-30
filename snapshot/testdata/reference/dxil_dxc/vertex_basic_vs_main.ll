@@ -83,7 +83,7 @@ attributes #A0 = { nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"vs", i32 6, i32 0}
 !M4 = !{[3 x i32] [i32 1, i32 4, i32 0]}
 !M5 = !{void ()* @main, !"main", !M6, null, null}

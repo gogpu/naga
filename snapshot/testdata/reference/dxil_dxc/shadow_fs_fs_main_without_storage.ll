@@ -151,7 +151,7 @@ define void @fs_main_without_storage() {
   %R58 = call float @dx.op.tertiary.f32(i32 46, float %R6, float %R50, float %R57)  ; FMad(a,b,c)
   %R59 = call float @dx.op.tertiary.f32(i32 46, float %R7, float %R53, float %R58)  ; FMad(a,b,c)
   %R60 = call float @dx.op.tertiary.f32(i32 46, float %R8, float %R56, float %R59)  ; FMad(a,b,c)
-  %R61 = fcmp fast ugt float %R60, 0.000000e+00
+  %R61 = fcmp ugt float %R60, 0.000000e+00
   br i1 %R61, label %R62, label %R22
 
 ; <label>:57                                      ; preds = %R43
@@ -295,14 +295,14 @@ attributes #A2 = { nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"ps", i32 6, i32 0}
 !M4 = !{!M7, null, !M8, !M9}
 !M7 = !{!M10, !M11}
 !M10 = !{i32 0, %"class.Texture2DArray<float>"* undef, !"", i32 0, i32 2, i32 1, i32 7, i32 0, !M12}
 !M12 = !{i32 0, i32 9}
 !M11 = !{i32 1, %"class.StructuredBuffer<unsigned int>"* undef, !"", i32 255, i32 0, i32 1, i32 12, i32 0, !M13}
-!M13 = !{i32 1, i32 4}
+!M13 = !{i32 1, i32 0}
 !M8 = !{!M14, !M15, !M16}
 !M14 = !{i32 0, %hostlayout.u_globals* undef, !"", i32 0, i32 0, i32 1, i32 80, null}
 !M15 = !{i32 1, %hostlayout.u_entity* undef, !"", i32 1, i32 0, i32 1, i32 80, null}

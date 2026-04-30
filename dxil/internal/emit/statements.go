@@ -77,6 +77,21 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 			e.initOnlyLocals[uint32(i)] = *lv.Init
 			continue
 		}
+		// Zero-store optimization: if the local has no Init (nil) and is
+		// never stored to, it is zero-initialized by definition (WGSL spec).
+		// For scalar/vector types, loads resolve to the zero constant of
+		// the type, eliminating an unnecessary alloca+load chain. This
+		// handles the SROA pattern where unassigned struct members become
+		// separate locals that are read but never written.
+		if lv.Init == nil && !stored[uint32(i)] {
+			if int(lv.Type) < len(e.ir.Types) {
+				switch e.ir.Types[lv.Type].Inner.(type) {
+				case ir.ScalarType, ir.VectorType:
+					e.zeroStoreLocals[uint32(i)] = lv.Type
+					continue
+				}
+			}
+		}
 		lvExpr := ir.ExprLocalVariable{Variable: uint32(i)}
 		if _, err := e.emitLocalVariable(fn, lvExpr); err != nil {
 			return fmt.Errorf("local var %d (%s): %w", i, fn.LocalVars[i].Name, err)

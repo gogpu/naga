@@ -106,7 +106,7 @@ attributes #A1 = { nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"vs", i32 6, i32 0}
 !M4 = !{[9 x i32] [i32 7, i32 8, i32 16, i32 32, i32 64, i32 0, i32 1, i32 2, i32 4]}
 !M5 = !{void ()* @vs_main, !"vs_main", !M6, null, null}

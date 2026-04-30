@@ -109,7 +109,7 @@ define void @gen_terrain_compute() {
   %R57 = call float @dx.op.dot2.f32(i32 54, float %R53, float %R54, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R58 = fadd fast float %R57, %R55
   %R59 = fadd fast float %R56, %R57
-  %R60 = fcmp fast olt float %R58, %R59
+  %R60 = fcmp olt float %R58, %R59
   %R61 = select i1 %R60, float 0.000000e+00, float 1.000000e+00
   %R62 = select i1 %R60, float 1.000000e+00, float 0.000000e+00
   %R63 = fadd fast float %R58, 0x3FCB0CB180000000
@@ -299,7 +299,7 @@ define void @gen_terrain_compute() {
   %R241 = call float @dx.op.dot2.f32(i32 54, float %R237, float %R238, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R242 = fadd fast float %R241, %R239
   %R243 = fadd fast float %R240, %R241
-  %R244 = fcmp fast olt float %R242, %R243
+  %R244 = fcmp olt float %R242, %R243
   %R245 = select i1 %R244, float 0.000000e+00, float 1.000000e+00
   %R246 = select i1 %R244, float 1.000000e+00, float 0.000000e+00
   %R247 = fadd fast float %R242, 0x3FCB0CB180000000
@@ -488,7 +488,7 @@ define void @gen_terrain_compute() {
   %R424 = call float @dx.op.dot2.f32(i32 54, float %R420, float %R421, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R425 = fadd fast float %R424, %R422
   %R426 = fadd fast float %R423, %R424
-  %R427 = fcmp fast olt float %R425, %R426
+  %R427 = fcmp olt float %R425, %R426
   %R428 = select i1 %R427, float 0.000000e+00, float 1.000000e+00
   %R429 = select i1 %R427, float 1.000000e+00, float 0.000000e+00
   %R430 = fadd fast float %R425, 0x3FCB0CB180000000
@@ -677,7 +677,7 @@ define void @gen_terrain_compute() {
   %R607 = call float @dx.op.dot2.f32(i32 54, float %R603, float %R604, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R608 = fadd fast float %R607, %R605
   %R609 = fadd fast float %R606, %R607
-  %R610 = fcmp fast olt float %R608, %R609
+  %R610 = fcmp olt float %R608, %R609
   %R611 = select i1 %R610, float 0.000000e+00, float 1.000000e+00
   %R612 = select i1 %R610, float 1.000000e+00, float 0.000000e+00
   %R613 = fadd fast float %R608, 0x3FCB0CB180000000
@@ -866,7 +866,7 @@ define void @gen_terrain_compute() {
   %R790 = call float @dx.op.dot2.f32(i32 54, float %R786, float %R787, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R791 = fadd fast float %R790, %R788
   %R792 = fadd fast float %R789, %R790
-  %R793 = fcmp fast olt float %R791, %R792
+  %R793 = fcmp olt float %R791, %R792
   %R794 = select i1 %R793, float 0.000000e+00, float 1.000000e+00
   %R795 = select i1 %R793, float 1.000000e+00, float 0.000000e+00
   %R796 = fadd fast float %R791, 0x3FCB0CB180000000
@@ -1130,7 +1130,7 @@ attributes #A2 = { nounwind readonly }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"cs", i32 6, i32 0}
 !M4 = !{null, !M6, !M7, null}
 !M6 = !{!M8, !M9}

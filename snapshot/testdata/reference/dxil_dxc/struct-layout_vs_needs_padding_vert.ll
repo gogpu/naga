@@ -87,7 +87,7 @@ attributes #A0 = { nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"vs", i32 6, i32 0}
 !M4 = !{[11 x i32] [i32 9, i32 4, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0]}
 !M5 = !{void ()* @needs_padding_vert, !"needs_padding_vert", !M6, null, null}

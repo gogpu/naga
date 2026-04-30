@@ -306,7 +306,7 @@ attributes #A2 = { nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"ps", i32 6, i32 0}
 !M4 = !{!M7, null, null, !M8}
 !M7 = !{!M9, !M10, !M11, !M12, !M13}
@@ -316,7 +316,7 @@ attributes #A2 = { nounwind }
 !M11 = !{i32 2, %"class.Texture2DArray<vector<float, 4> >"* undef, !"", i32 0, i32 4, i32 1, i32 7, i32 0, !M14}
 !M12 = !{i32 3, %"class.TextureCubeArray<vector<float, 4> >"* undef, !"", i32 0, i32 6, i32 1, i32 9, i32 0, !M14}
 !M13 = !{i32 4, %"class.StructuredBuffer<unsigned int>"* undef, !"", i32 255, i32 1, i32 1, i32 12, i32 0, !M15}
-!M15 = !{i32 1, i32 4}
+!M15 = !{i32 1, i32 0}
 !M8 = !{!M16}
 !M16 = !{i32 0, [2048 x %struct.S0]* undef, !"", i32 0, i32 0, i32 2048, i32 0, null}
 !M5 = !{[2 x i32] [i32 0, i32 4]}

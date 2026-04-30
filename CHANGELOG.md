@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.9] - 2026-04-30
+
+### Added (DXIL)
+
+- **Per-member loadInput DCE** — backwards reachability analysis eliminates
+  `dx.op.loadInput` calls for unused struct input members after inlining.
+- **Zero-store local promotion** — unassigned struct members resolve to zero
+  constants, eliminating alloca/load chains.
+- **Same-type integer cast elimination** — `bitcast i32↔i32` is no-op.
+- **Sub→add canonicalization** — `sub X, C` → `add X, -C` for positive constants.
+- **Mul→shl strength reduction** — `mul X, 2^N` → `shl X, N`.
+- **QuantizeF16 via legacy ops** — `dx.op.legacyF32ToF16`/`F16ToF32` instead
+  of `fptrunc`/`fpext`. Eliminates NativeLowPrecision flag cascade (13 shaders).
+- **Int64 flag from emitted bitcode** — scans LLVM module, not IR type arena.
+- **AtomicInt64OnHeapResource flag** — 64-bit atomics on non-workgroup resources.
+- **MSVC groupshared name decoration** — `\01?name@@3typeA` format for workgroup vars.
+- **createHandle legacy path** — always use opcode 57, removed unused
+  createHandleFromBinding path.
+
+### Fixed (DXIL)
+
+- **Input sigId** — uses element index, not register row. Fixes packed inputs.
+- **ViewID StartCol** — packed linear indexing includes column offset.
+- **Cross-argument struct input ordering** — reverse signature order globally.
+
+### Metrics
+
+- DXC golden diff=0: 94 → **104** (+10)
+- Line parity: 48.1% → **54.5%** (+6.4pp)
+
 ## [0.17.8] - 2026-04-30
 
 ### Fixed

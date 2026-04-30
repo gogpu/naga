@@ -101,6 +101,16 @@ type Emitter struct {
 	// only handles scalars, so this fills the gap for vectors.
 	singleStoreLocals map[uint32]ir.ExpressionHandle
 
+	// zeroStoreLocals tracks scalar/vector local variables that have
+	// no Init expression and are never stored to. Such locals are
+	// zero-initialized by definition (WGSL spec: vars without init
+	// are default-initialized to zero). Loads resolve to the zero
+	// constant of the variable's type. This handles the SROA
+	// decomposition case where unassigned struct members become
+	// separate locals that are read but never written.
+	// Maps local variable index -> TypeHandle of the variable.
+	zeroStoreLocals map[uint32]ir.TypeHandle
+
 	// initOnlyLocals tracks non-scalar locals (vector, array, struct)
 	// that have a non-nil Init expression and are never stored to in the
 	// function body. For such locals, Load can resolve directly to the
@@ -1029,6 +1039,7 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.localVarStructTypes = make(map[uint32]*module.Type)
 	e.localVarArrayTypes = make(map[uint32]*module.Type)
 	e.localConstVecArrays = make(map[uint32][][]float32)
+	e.zeroStoreLocals = make(map[uint32]ir.TypeHandle)
 	e.initOnlyLocals = make(map[uint32]ir.ExpressionHandle)
 	e.singleStoreLocals = make(map[uint32]ir.ExpressionHandle)
 	e.outputPromotedLocals = make(map[uint32]bool)
@@ -1651,16 +1662,13 @@ func (e *Emitter) computeBitcodeShaderFlags() uint64 {
 		flags |= 0x4  // EnableDoublePrecision (bit 2)
 		flags |= 0x40 // EnableDoubleExtensions (bit 6)
 	}
-	if e.moduleUsesLowPrecision() {
-		// WGSL f16 always maps to native half (SM 6.2+, -enable-16bit-types
-		// semantics). Set both LowPrecisionPresent and UseNativeLowPrecision
-		// — dxc's GetFeatureInfo uses the pair to pick NativeLowPrecision in
-		// SFI0; setting only one of the two would mis-regenerate SFI0 and
-		// trip 'Container part Feature Info does not match expected for
-		// module'.
-		flags |= 0x20     // LowPrecisionPresent
-		flags |= 0x800000 // UseNativeLowPrecision
-	}
+	// Note: NativeLowPrecision (UseNativeLowPrecision bit 23 + LowPrecisionPresent
+	// bit 5) is intentionally NOT set. Our DXC golden pipeline uses naga HLSL
+	// which emits min16float for WGSL f16 (polyfill semantics, no -enable-16bit-types).
+	// DXC therefore never sets these flags. QuantizeF16 uses dx.op.legacyF32ToF16 /
+	// legacyF16ToF32 (opcodes 130/131) which do not introduce the LLVM half type.
+	// When we add native -enable-16bit-types support, these flags should be gated
+	// on a compile option, not on IR type presence.
 	if e.moduleUsesRayQuery() {
 		flags |= 0x2000000 // RaytracingTier1_1
 	}
@@ -1672,6 +1680,14 @@ func (e *Emitter) computeBitcodeShaderFlags() uint64 {
 	}
 	if e.moduleUsesInt64GroupSharedAtomic() {
 		flags |= 0x10000000 // AtomicInt64OnGroupShared (bit 28)
+	}
+	if e.moduleUsesInt64HeapAtomic() {
+		// Our emitter uses createHandleFromHeap for all resource handles
+		// (both storage buffers and typed textures). DXC sets
+		// AtomicInt64OnHeapResource (bit 32) when 64-bit atomics target
+		// a resource resolved via CreateHandleFromHeap rather than
+		// CreateHandle (DxilShaderFlags.cpp ~line 663).
+		flags |= 0x100000000 // AtomicInt64OnHeapResource (bit 32)
 	}
 	if e.moduleUsesWaveOps() {
 		// WaveOps (bit 19, 0x80000) — DXC DxilShaderFlags.h /
@@ -1833,6 +1849,38 @@ func globalVarHasInt64Atomic(irMod *ir.Module, gv *ir.GlobalVariable) bool {
 	return walk(gv.Type)
 }
 
+// moduleUsesInt64HeapAtomic reports whether any reachable non-workgroup
+// global variable holds a 64-bit atomic. Since our emitter uses
+// createHandleFromHeap for all resource handles, any 64-bit atomic on
+// a storage buffer or typed resource counts. DXC sets
+// m_bAtomicInt64OnHeapResource (bit 32) when the resource comes from
+// CreateHandleFromHeap (DxilShaderFlags.cpp ~line 663).
+func (e *Emitter) moduleUsesInt64HeapAtomic() bool {
+	for i := range e.ir.GlobalVariables {
+		gv := &e.ir.GlobalVariables[i]
+		if gv.Space == ir.SpaceWorkGroup {
+			continue // workgroup = groupshared, not heap
+		}
+		if e.reachableGlobals != nil && !e.reachableGlobals[ir.GlobalVariableHandle(i)] {
+			continue
+		}
+		// Check storage buffers with atomic<u64/i64> members.
+		if globalVarHasInt64Atomic(e.ir, gv) {
+			return true
+		}
+		// Check typed textures with R64 format.
+		if int(gv.Type) < len(e.ir.Types) {
+			if img, ok := e.ir.Types[gv.Type].Inner.(ir.ImageType); ok {
+				if img.Class == ir.ImageClassStorage &&
+					(img.StorageFormat == ir.StorageFormatR64Uint || img.StorageFormat == ir.StorageFormatR64Sint) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // moduleUsesInt64TypedAtomic reports whether any reachable global resource
 // in the current module is a storage texture with R64Uint or R64Sint
 // format — i.e. a typed UAV that supports textureAtomic{Min,Max,...}
@@ -1884,62 +1932,11 @@ func (e *Emitter) entryUsesViewIDInput() bool {
 // forces 16-bit float/int operations in the emitted bitcode. DXC's
 // CollectShaderFlagsForModule sets m_bLowPrecisionPresent (bit 5,
 // 0x20) on ANY f16/i16 materialization, and the validator rejects a
-// mismatch with 'Flags must match usage. declared=0 actual=32'.
-//
-// Two trigger paths:
-//
-//  1. Explicit 16-bit types declared in the IR type arena — the
-//     straightforward case (f16 attribute, i16 storage, etc.).
-//
-//  2. ir.MathQuantizeF16 used in any reachable function, even though
-//     the surrounding shader is pure f32: the lowering injects
-//     fptrunc f32→f16 / fpext f16→f32 casts, so the emitted bitcode
-//     contains f16 values that the validator counts toward bit 5.
-//     math-functions.wgsl declares ONLY f32 but uses quantizeToF16
-//     on scalar/vec2/vec3/vec4 paths and tripped this gap.
-func (e *Emitter) moduleUsesLowPrecision() bool {
-	for i := range e.ir.Types {
-		switch t := e.ir.Types[i].Inner.(type) {
-		case ir.ScalarType:
-			if t.Width == 2 {
-				return true
-			}
-		case ir.VectorType:
-			if t.Scalar.Width == 2 {
-				return true
-			}
-		case ir.MatrixType:
-			if t.Scalar.Width == 2 {
-				return true
-			}
-		}
-	}
-
-	// Walk reachable function expressions for QuantizeF16 — even a
-	// single use forces f16 into the emitted bitcode via fptrunc.
-	if e.currentEntryPoint != nil {
-		if functionUsesQuantizeF16(&e.currentEntryPoint.Function) {
-			return true
-		}
-	}
-	for i := range e.ir.Functions {
-		if functionUsesQuantizeF16(&e.ir.Functions[i]) {
-			return true
-		}
-	}
-	return false
-}
-
-// functionUsesQuantizeF16 reports whether any expression in fn is an
-// ir.ExprMath with Fun == ir.MathQuantizeF16.
-func functionUsesQuantizeF16(fn *ir.Function) bool {
-	for i := range fn.Expressions {
-		if me, ok := fn.Expressions[i].Kind.(ir.ExprMath); ok && me.Fun == ir.MathQuantizeF16 {
-			return true
-		}
-	}
-	return false
-}
+// Note: moduleUsesLowPrecision was removed because NativeLowPrecision
+// flags are no longer set. Our DXC golden pipeline uses min16float
+// polyfill (no native half), and QuantizeF16 uses legacy ops that do
+// not introduce the LLVM half type. When we add native -enable-16bit-types
+// support, a new flag detection method should be added.
 
 // moduleUsesDouble returns true when the EMITTED bitcode actually contains
 // f64 values (as opposed to merely declaring f64 types in the IR).
@@ -2001,23 +1998,41 @@ func isDoubleType(t *module.Type) bool {
 	return t != nil && t.Kind == module.TypeFloat && t.FloatBits == 64
 }
 
-// moduleUsesInt64 returns true if any IR type in the current module is
-// a 64-bit integer scalar / vector. dxc's CollectShaderFlagsForModule
-// sets m_bInt64Ops whenever int64 types appear anywhere.
+// moduleUsesInt64 returns true if the EMITTED bitcode actually contains
+// i64 types — function declaration signatures or instruction result types.
+// Mirrors the moduleUsesDouble approach: scan the emitted module (e.mod),
+// NOT the IR type arena (e.ir.Types). This prevents false positives when
+// constant-folded expressions eliminate all i64 code (e.g.,
+// conversion-float-to-int.wgsl where i64() casts on constants are folded).
 func (e *Emitter) moduleUsesInt64() bool {
-	for i := range e.ir.Types {
-		switch t := e.ir.Types[i].Inner.(type) {
-		case ir.ScalarType:
-			if (t.Kind == ir.ScalarSint || t.Kind == ir.ScalarUint) && t.Width == 8 {
+	for _, fn := range e.mod.Functions {
+		if fn.FuncType != nil {
+			if isInt64Type(fn.FuncType.RetType) {
 				return true
 			}
-		case ir.VectorType:
-			if (t.Scalar.Kind == ir.ScalarSint || t.Scalar.Kind == ir.ScalarUint) && t.Scalar.Width == 8 {
-				return true
+			for _, p := range fn.FuncType.ParamTypes {
+				if isInt64Type(p) {
+					return true
+				}
+			}
+		}
+		if fn.IsDeclaration {
+			continue
+		}
+		for _, bb := range fn.BasicBlocks {
+			for _, instr := range bb.Instructions {
+				if instr.ResultType != nil && isInt64Type(instr.ResultType) {
+					return true
+				}
 			}
 		}
 	}
 	return false
+}
+
+// isInt64Type reports whether a module.Type is a 64-bit integer scalar.
+func isInt64Type(t *module.Type) bool {
+	return t != nil && t.Kind == module.TypeInteger && t.IntBits == 64
 }
 
 // moduleUsesRayQuery returns true if the current entry point's EMITTED

@@ -69,7 +69,7 @@ define void @vs_main() {
   %R2 = sitofp i32 %R1 to float
   %R3 = shl i32 %R0, 1
   %R4 = and i32 %R3, 2
-  %R5 = add nsw i32 %R4, -1
+  %R5 = add i32 %R4, -1
   %R6 = sitofp i32 %R5 to float
   call void @dx.op.storeOutput.f32(i32 5, i32 0, i32 0, i8 0, float %R2)  ; StoreOutput(outputSigId,rowIndex,colIndex,value)
   call void @dx.op.storeOutput.f32(i32 5, i32 0, i32 0, i8 1, float %R6)  ; StoreOutput(outputSigId,rowIndex,colIndex,value)
@@ -96,7 +96,7 @@ attributes #A1 = { nounwind }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"vs", i32 6, i32 0}
 !M4 = !{[3 x i32] [i32 1, i32 4, i32 3]}
 !M5 = !{void ()* @vs_main, !"vs_main", !M6, null, null}

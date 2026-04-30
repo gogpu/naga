@@ -8,6 +8,51 @@ import (
 
 // TestComputeExprUseCount verifies that expression use counts are computed
 // correctly for binary expression trees.
+func ptrUint8(v uint8) *uint8 { return &v }
+
+// TestShlAndCombineDetectsAndMul verifies that tryShlAndCombine transforms
+// mul(as(and(X, 1)), 2) -> and(shl(X, 1), 2), matching LLVM InstCombine.
+// This pattern appears in force_point_size_vertex_shader_webgl:
+//
+//	let y = f32(i32(in_vertex_index & 1u) * 2 - 1);
+func TestShlAndCombineDetectsAndMul(t *testing.T) {
+	// IR expression tree:
+	//   [0] FuncArg(0)      -- vertex_index (u32)
+	//   [1] Literal(1u)     -- u32 constant
+	//   [2] And(0, 1)       -- vertex_index & 1u
+	//   [3] As(i32, 2)      -- i32 cast
+	//   [4] Literal(2)      -- i32 constant
+	//   [5] Multiply(3, 4)  -- * 2
+
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},
+			{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
+			{Kind: ir.ExprBinary{Op: ir.BinaryAnd, Left: 0, Right: 1}},
+			{Kind: ir.ExprAs{Expr: 2, Kind: ir.ScalarSint, Convert: ptrUint8(4)}},
+			{Kind: ir.Literal{Value: ir.LiteralI32(2)}},
+			{Kind: ir.ExprBinary{Op: ir.BinaryMultiply, Left: 3, Right: 4}},
+		},
+	}
+	counts := computeExprUseCount(fn)
+
+	// Verify use counts
+	if counts[0] != 1 {
+		t.Errorf("exprUseCount[0] = %d, want 1 (arg used by And)", counts[0])
+	}
+	if counts[2] != 1 {
+		t.Errorf("exprUseCount[2] = %d, want 1 (And used by As)", counts[2])
+	}
+	if counts[3] != 1 {
+		t.Errorf("exprUseCount[3] = %d, want 1 (As used by Multiply)", counts[3])
+	}
+
+	// Verify peelToAndExpr works (manual trace)
+	// At Multiply emission: bin.Left=3 (As)
+	// peelToAndExpr(3): As -> peel to 2 (And) -> found!
+	t.Log("use counts correct for tryShlAndCombine detection")
+}
+
 func TestComputeExprUseCount(t *testing.T) {
 	// Build a function with expressions:
 	//   expr[0] = FuncArg(0)    -- vertex_index

@@ -289,7 +289,12 @@ func (e *Emitter) emitResourceHandles() {
 		return
 	}
 
-	useRDAT := e.opts.ShaderModelMinor >= 6
+	// Always use createHandle (opcode 57) — DXC uses this for all shader
+	// models in its default compilation mode. createHandleFromBinding
+	// (opcode 217, SM 6.6+) is only emitted when the shader explicitly
+	// opts into descriptor heap resources via specific DXC flags. Our
+	// DXC golden pipeline compiles with default flags, so createHandle
+	// is the correct match.
 
 	// Build the emission order indices. DXC emits createHandle calls sorted by:
 	//   1. DXC class priority: UAV first, SRV second, CBV third, Sampler last
@@ -301,12 +306,7 @@ func (e *Emitter) emitResourceHandles() {
 
 	for _, idx := range emitOrder {
 		res := &e.resources[idx]
-
-		if useRDAT {
-			res.handleID = e.emitCreateHandleFromBinding(res)
-		} else {
-			res.handleID = e.emitCreateHandleLegacy(res)
-		}
+		res.handleID = e.emitCreateHandleLegacy(res)
 	}
 
 	// Sampler-heap handles are emitted separately via emitSamplerHeapHandles()
@@ -361,106 +361,6 @@ func (e *Emitter) emitCreateHandleLegacy(res *resourceInfo) int {
 	nonUniformVal := e.getI1ConstID(0)
 	return e.addCallInstr(createFn, handleTy,
 		[]int{opcodeVal, classVal, rangeIDVal, indexVal, nonUniformVal})
-}
-
-// emitCreateHandleFromBinding emits the SM 6.6+ pair: createHandleFromBinding
-// produces an unannotated handle from a ResBind struct constant, then
-// annotateHandle attaches resource-kind/typed-format metadata. Both ops
-// are required — the validator rejects an unannotated handle used by
-// dx.op.bufferLoad et al.
-func (e *Emitter) emitCreateHandleFromBinding(res *resourceInfo) int {
-	handleTy := e.getDxHandleType()
-
-	// Step 1: build the ResBind struct constant {lower, upper, space, class}.
-	resBindConst := e.buildResBindConstant(res)
-	resBindValID := e.constMap[resBindConst.idCacheKey]
-	_ = resBindValID
-
-	createFn := e.getDxOpCreateHandleFromBindingFunc()
-	opcodeVal := e.getIntConstID(int64(OpCreateHandleFromBinding))
-	indexVal := e.getIntConstID(int64(res.binding))
-	nonUniformVal := e.getI1ConstID(0)
-	rawHandleID := e.addCallInstr(createFn, handleTy,
-		[]int{opcodeVal, resBindConst.valueID, indexVal, nonUniformVal})
-
-	// Step 2: build the ResourceProperties struct constant and annotate.
-	resPropsConst := e.buildResourcePropertiesConstant(res)
-	annotateFn := e.getDxOpAnnotateHandleFunc()
-	annotateOpcodeVal := e.getIntConstID(int64(OpAnnotateHandle))
-	return e.addCallInstr(annotateFn, handleTy,
-		[]int{annotateOpcodeVal, rawHandleID, resPropsConst.valueID})
-}
-
-// constHandle pairs an emitter value ID with the underlying *module.Constant
-// for aggregate constants emitted via the build helpers below.
-type constHandle struct {
-	valueID    int
-	idCacheKey int
-}
-
-// buildResBindConstant materializes a %dx.types.ResBind constant for the
-// given resource. ResBind layout per DxilOperations.cpp:4131:
-//
-//	{ i32 RangeLowerBound, i32 RangeUpperBound, i32 SpaceID, i8 ResourceClass }
-//
-// For a single-binding resource the lower and upper bounds are equal.
-func (e *Emitter) buildResBindConstant(res *resourceInfo) constHandle {
-	resBindTy := e.getDxResBindType()
-	lower := e.mod.AddIntConst(e.mod.GetIntType(32), int64(res.binding))
-	upper := e.mod.AddIntConst(e.mod.GetIntType(32), int64(res.binding))
-	space := e.mod.AddIntConst(e.mod.GetIntType(32), int64(res.group))
-	class := e.mod.AddIntConst(e.mod.GetIntType(8), int64(res.class))
-	c := e.mod.AddAggregateConst(resBindTy, []*module.Constant{lower, upper, space, class})
-	id := e.allocValue()
-	e.constMap[id] = c
-	return constHandle{valueID: id, idCacheKey: id}
-}
-
-// buildResourcePropertiesConstant materializes a %dx.types.ResourceProperties
-// constant for the given resource. The two raw dwords pack basic + typed
-// information per DxilResourceProperties.h:
-//
-//	dword 0 (BasicProps):
-//	    byte 0 = ResourceKind (DXIL enum)
-//	    byte 1 = (BaseAlignLog2:4 | IsUAV<<4 | IsROV<<5 | IsGloballyCoherent<<6 | SamplerCmpOrHasCounter<<7)
-//	    byte 2 = (IsReorderCoherent:1 | Reserved2:7)
-//	    byte 3 = Reserved3
-//
-//	dword 1 (kind-specific):
-//	    Typed image/buffer: byte 0 = CompType, byte 1 = CompCount, ...
-//	    StructuredBuffer: byte stride
-//	    CBuffer: size in bytes
-//	    Sampler / RawBuffer: 0
-//
-// Reference: DXC DxilResourceProperties.cpp:90 getAsConstant.
-func (e *Emitter) buildResourcePropertiesConstant(res *resourceInfo) constHandle {
-	resPropsTy := e.getDxResourcePropertiesType()
-	d0, d1 := e.resourcePropertiesDwords(res)
-	w0 := e.mod.AddIntConst(e.mod.GetIntType(32), int64(d0))
-	w1 := e.mod.AddIntConst(e.mod.GetIntType(32), int64(d1))
-	c := e.mod.AddAggregateConst(resPropsTy, []*module.Constant{w0, w1})
-	id := e.allocValue()
-	e.constMap[id] = c
-	return constHandle{valueID: id, idCacheKey: id}
-}
-
-// resourcePropertiesDwords computes the two ResourceProperties raw dwords
-// for a resource. Conservative defaults: alignment unknown, no ROV/coherent
-// bits set. Caller is the only emit site so the assumption that the
-// resourceInfo has been fully classified holds.
-func (e *Emitter) resourcePropertiesDwords(res *resourceInfo) (uint32, uint32) {
-	kind := uint32(e.resourceKind(res)) & 0xff //nolint:gosec // resource kind enum is 0..32
-	var byte1 uint32
-	if res.class == resourceClassUAV {
-		byte1 |= 1 << 4 // IsUAV
-	}
-	dword0 := kind | (byte1 << 8)
-	// dword1 is kind-specific. RawBuffer/StructuredBuffer atomics are the
-	// SM 6.6 critical path for now — leave dword1 = 0 for those (DXC uses
-	// stride for structured but the validator accepts 0 when no struct
-	// member layout is provided). Typed image/buffer/CBuffer paths are
-	// follow-ups for shaders that need them.
-	return dword0, 0
 }
 
 // getResourceHandleID returns the emitter value ID of the handle for a
@@ -1326,11 +1226,9 @@ func (e *Emitter) getDxOpGetDimensionsFunc() *module.Function {
 // getDxOpCreateHandleFunc creates the dx.op.createHandle function declaration.
 // Signature: %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1)
 //
-// SM 6.0–6.5 only. Starting with SM 6.6 the validator rejects with
-// 'opcode CreateHandle should only be used in Shader Model 6.5 and below';
-// the SM 6.6+ replacement is the createHandleFromBinding +
-// annotateHandle pair (see getDxOpCreateHandleFromBindingFunc /
-// getDxOpAnnotateHandleFunc below).
+// DXC uses createHandle for all SM versions in its default compilation
+// mode (matching our golden pipeline). createHandleFromBinding (SM 6.6+)
+// is only used when specific DXC flags are set.
 func (e *Emitter) getDxOpCreateHandleFunc() *module.Function {
 	key := dxOpKey{name: dxOpCreateHandleName, overload: overloadVoid}
 	if fn, ok := e.dxOpFuncs[key]; ok {
@@ -1346,83 +1244,6 @@ func (e *Emitter) getDxOpCreateHandleFunc() *module.Function {
 	funcTy := e.mod.GetFunctionType(handleTy, params)
 	fn := e.mod.AddFunction(dxOpCreateHandleName, funcTy, true)
 	fn.AttrSetID = classifyDxOpAttr(dxOpCreateHandleName)
-	e.dxOpFuncs[key] = fn
-	return fn
-}
-
-// getDxResBindType returns the %dx.types.ResBind = type {i32, i32, i32, i8}
-// struct used by dx.op.createHandleFromBinding (SM 6.6+) to describe a
-// resource binding range. Fields:
-//
-//	i32 RangeLowerBound
-//	i32 RangeUpperBound
-//	i32 SpaceID
-//	i8  ResourceClass  (0=SRV, 1=UAV, 2=CBV, 3=Sampler)
-//
-// Reference: DXC DxilOperations.cpp:4131 m_pResourceBindingType.
-func (e *Emitter) getDxResBindType() *module.Type {
-	i32Ty := e.mod.GetIntType(32)
-	i8Ty := e.mod.GetIntType(8)
-	return e.mod.GetStructType("dx.types.ResBind", []*module.Type{i32Ty, i32Ty, i32Ty, i8Ty})
-}
-
-// getDxResourcePropertiesType returns the %dx.types.ResourceProperties =
-// type {i32, i32} struct used by dx.op.annotateHandle (SM 6.6+) to attach
-// resource metadata to a runtime-created handle. The two raw dwords pack:
-//
-//	dword 0: BasicProps (kind, IsUAV, IsROV, sampler-cmp, etc.)
-//	dword 1: kind-specific (typed comp/count, struct stride, cbuffer size)
-//
-// Reference: DXC DxilResourceProperties.h:23 / DxilOperations.cpp:4121.
-func (e *Emitter) getDxResourcePropertiesType() *module.Type {
-	i32Ty := e.mod.GetIntType(32)
-	return e.mod.GetStructType("dx.types.ResourceProperties", []*module.Type{i32Ty, i32Ty})
-}
-
-// getDxOpCreateHandleFromBindingFunc returns the dx.op.createHandleFromBinding
-// function declaration. SM 6.6+ replacement for createHandle.
-//
-//	%dx.types.Handle @dx.op.createHandleFromBinding(
-//	    i32 217, %dx.types.ResBind, i32 index, i1 nonUniformIndex)
-//
-// Reference: DXC DxilOperations.cpp:CreateHandleFromBinding.
-func (e *Emitter) getDxOpCreateHandleFromBindingFunc() *module.Function {
-	const name = "dx.op.createHandleFromBinding"
-	key := dxOpKey{name: name, overload: overloadVoid}
-	if fn, ok := e.dxOpFuncs[key]; ok {
-		return fn
-	}
-	handleTy := e.getDxHandleType()
-	resBindTy := e.getDxResBindType()
-	i32Ty := e.mod.GetIntType(32)
-	i1Ty := e.mod.GetIntType(1)
-	params := []*module.Type{i32Ty, resBindTy, i32Ty, i1Ty}
-	funcTy := e.mod.GetFunctionType(handleTy, params)
-	fn := e.mod.AddFunction(name, funcTy, true)
-	fn.AttrSetID = classifyDxOpAttr(name)
-	e.dxOpFuncs[key] = fn
-	return fn
-}
-
-// getDxOpAnnotateHandleFunc returns the dx.op.annotateHandle declaration.
-//
-//	%dx.types.Handle @dx.op.annotateHandle(
-//	    i32 216, %dx.types.Handle, %dx.types.ResourceProperties)
-//
-// Reference: DXC DxilOperations.cpp:AnnotateHandle.
-func (e *Emitter) getDxOpAnnotateHandleFunc() *module.Function {
-	const name = "dx.op.annotateHandle"
-	key := dxOpKey{name: name, overload: overloadVoid}
-	if fn, ok := e.dxOpFuncs[key]; ok {
-		return fn
-	}
-	handleTy := e.getDxHandleType()
-	resPropsTy := e.getDxResourcePropertiesType()
-	i32Ty := e.mod.GetIntType(32)
-	params := []*module.Type{i32Ty, handleTy, resPropsTy}
-	funcTy := e.mod.GetFunctionType(handleTy, params)
-	fn := e.mod.AddFunction(name, funcTy, true)
-	fn.AttrSetID = classifyDxOpAttr(name)
 	e.dxOpFuncs[key] = fn
 	return fn
 }

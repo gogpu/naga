@@ -91,7 +91,7 @@ define void @frag_main() {
   %R10 = extractvalue %dx.types.ResRet.f32 %R8, 1
   %R11 = extractvalue %dx.types.ResRet.f32 %R8, 2
   %R12 = extractvalue %dx.types.ResRet.f32 %R8, 3
-  %R13 = fcmp fast oeq float %R12, 0.000000e+00
+  %R13 = fcmp oeq float %R12, 0.000000e+00
   br i1 %R13, label %R14, label %R15
 
 ; <label>:15                                      ; preds = %R16
@@ -142,14 +142,14 @@ attributes #A2 = { nounwind readnone }
 
 !M0 = !{!"<ident>"}
 !M1 = !{i32 1, i32 0}
-!M2 = !{i32 1, i32 8}
+!M2 = !{i32 1, i32 0}
 !M3 = !{!"ps", i32 6, i32 0}
 !M4 = !{!M7, null, null, !M8}
 !M7 = !{!M9, !M10}
 !M9 = !{i32 0, %"class.Texture2D<vector<float, 4> >"* undef, !"", i32 0, i32 0, i32 1, i32 2, i32 0, !M11}
 !M11 = !{i32 0, i32 9}
 !M10 = !{i32 1, %"class.StructuredBuffer<unsigned int>"* undef, !"", i32 255, i32 0, i32 1, i32 12, i32 0, !M12}
-!M12 = !{i32 1, i32 4}
+!M12 = !{i32 1, i32 0}
 !M8 = !{!M13}
 !M13 = !{i32 0, [2048 x %struct.S0]* undef, !"", i32 0, i32 0, i32 2048, i32 0, null}
 !M5 = !{[4 x i32] [i32 2, i32 4, i32 15, i32 15]}
