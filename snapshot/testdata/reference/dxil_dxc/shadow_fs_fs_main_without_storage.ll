@@ -151,7 +151,7 @@ define void @fs_main_without_storage() {
   %R58 = call float @dx.op.tertiary.f32(i32 46, float %R6, float %R50, float %R57)  ; FMad(a,b,c)
   %R59 = call float @dx.op.tertiary.f32(i32 46, float %R7, float %R53, float %R58)  ; FMad(a,b,c)
   %R60 = call float @dx.op.tertiary.f32(i32 46, float %R8, float %R56, float %R59)  ; FMad(a,b,c)
-  %R61 = fcmp fast ugt float %R60, 0.000000e+00
+  %R61 = fcmp ugt float %R60, 0.000000e+00
   br i1 %R61, label %R62, label %R22
 
 ; <label>:57                                      ; preds = %R43

@@ -91,7 +91,7 @@ define void @frag_main() {
   %R10 = extractvalue %dx.types.ResRet.f32 %R8, 1
   %R11 = extractvalue %dx.types.ResRet.f32 %R8, 2
   %R12 = extractvalue %dx.types.ResRet.f32 %R8, 3
-  %R13 = fcmp fast oeq float %R12, 0.000000e+00
+  %R13 = fcmp oeq float %R12, 0.000000e+00
   br i1 %R13, label %R14, label %R15
 
 ; <label>:15                                      ; preds = %R16

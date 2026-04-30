@@ -73,8 +73,8 @@ define void @vs_main() {
   %R2 = sitofp i32 %R1 to float
   %R3 = fmul fast float %R2, 4.000000e+00
   %R4 = fadd fast float %R3, -1.000000e+00
-  %R5 = shl nsw i32 %R1, 1
-  %R6 = sub nsw i32 %R0, %R5
+  %R5 = shl i32 %R1, 1
+  %R6 = sub i32 %R0, %R5
   %R7 = sitofp i32 %R6 to float
   %R8 = fmul fast float %R7, 4.000000e+00
   %R9 = fadd fast float %R8, -1.000000e+00

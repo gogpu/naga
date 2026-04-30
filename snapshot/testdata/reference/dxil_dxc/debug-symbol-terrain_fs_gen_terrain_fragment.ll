@@ -156,7 +156,7 @@ define void @gen_terrain_fragment() {
   %R77 = call float @dx.op.dot2.f32(i32 54, float %R73, float %R74, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R78 = fadd fast float %R77, %R75
   %R79 = fadd fast float %R76, %R77
-  %R80 = fcmp fast olt float %R78, %R79
+  %R80 = fcmp olt float %R78, %R79
   %R81 = select i1 %R80, float 0.000000e+00, float 1.000000e+00
   %R82 = select i1 %R80, float 1.000000e+00, float 0.000000e+00
   %R83 = fadd fast float %R78, 0x3FCB0CB180000000
@@ -346,7 +346,7 @@ define void @gen_terrain_fragment() {
   %R261 = call float @dx.op.dot2.f32(i32 54, float %R257, float %R258, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R262 = fadd fast float %R261, %R259
   %R263 = fadd fast float %R260, %R261
-  %R264 = fcmp fast olt float %R262, %R263
+  %R264 = fcmp olt float %R262, %R263
   %R265 = select i1 %R264, float 0.000000e+00, float 1.000000e+00
   %R266 = select i1 %R264, float 1.000000e+00, float 0.000000e+00
   %R267 = fadd fast float %R262, 0x3FCB0CB180000000
@@ -535,7 +535,7 @@ define void @gen_terrain_fragment() {
   %R444 = call float @dx.op.dot2.f32(i32 54, float %R440, float %R441, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R445 = fadd fast float %R444, %R442
   %R446 = fadd fast float %R443, %R444
-  %R447 = fcmp fast olt float %R445, %R446
+  %R447 = fcmp olt float %R445, %R446
   %R448 = select i1 %R447, float 0.000000e+00, float 1.000000e+00
   %R449 = select i1 %R447, float 1.000000e+00, float 0.000000e+00
   %R450 = fadd fast float %R445, 0x3FCB0CB180000000
@@ -724,7 +724,7 @@ define void @gen_terrain_fragment() {
   %R627 = call float @dx.op.dot2.f32(i32 54, float %R623, float %R624, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R628 = fadd fast float %R627, %R625
   %R629 = fadd fast float %R626, %R627
-  %R630 = fcmp fast olt float %R628, %R629
+  %R630 = fcmp olt float %R628, %R629
   %R631 = select i1 %R630, float 0.000000e+00, float 1.000000e+00
   %R632 = select i1 %R630, float 1.000000e+00, float 0.000000e+00
   %R633 = fadd fast float %R628, 0x3FCB0CB180000000
@@ -913,7 +913,7 @@ define void @gen_terrain_fragment() {
   %R810 = call float @dx.op.dot2.f32(i32 54, float %R806, float %R807, float 0x3FCB0CB180000000, float 0x3FCB0CB180000000)  ; Dot2(ax,ay,bx,by)
   %R811 = fadd fast float %R810, %R808
   %R812 = fadd fast float %R809, %R810
-  %R813 = fcmp fast olt float %R811, %R812
+  %R813 = fcmp olt float %R811, %R812
   %R814 = select i1 %R813, float 0.000000e+00, float 1.000000e+00
   %R815 = select i1 %R813, float 1.000000e+00, float 0.000000e+00
   %R816 = fadd fast float %R811, 0x3FCB0CB180000000

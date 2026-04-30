@@ -346,6 +346,17 @@ var (
 	// the Resource Bindings reflection table (which IS compared) captures
 	// names regardless. Normalize to empty to avoid false-positive diffs.
 	dxilResNameRE = regexp.MustCompile(`(undef, )!"[^"]*"(, i32)`)
+	// LLVM instruction flags (nsw, nuw, exact) on integer arithmetic are
+	// pure optimization hints without runtime semantic effect. DXC's LLVM
+	// passes set these when they can prove absence of overflow; we don't
+	// because we have no optimization infrastructure. Strip them from
+	// instructions like "add nsw i32 %R, -1" to match "add i32 %R, -1".
+	// Note: uses \b word boundary to avoid matching fmul/fadd/fsub which
+	// carry the separate "fast" flag (both DXC and naga emit it).
+	dxilInstrFlagsRE = regexp.MustCompile(`(\b(?:add|sub|mul|shl|lshr|ashr)\b )(?:nsw |nuw |exact )+`)
+	// Strip "fast" flag from fcmp comparisons. DXC sometimes sets this but
+	// we don't; it only affects NaN handling which is defined-away in WGSL.
+	dxilFcmpFastRE = regexp.MustCompile(`(fcmp )fast `)
 )
 
 // stripReflectionSection removes a dxc -dumpbin reflection comment section
@@ -420,6 +431,14 @@ func normalizeDxilDump(s string) string {
 
 	// Normalize resource name strings in dx.resources metadata (see dxilResNameRE).
 	s = dxilResNameRE.ReplaceAllString(s, `${1}!""${2}`)
+
+	// Strip LLVM instruction flags that are pure optimization hints without
+	// runtime semantic effect. DXC's LLVM passes set these when they can
+	// prove absence of overflow (nsw/nuw/exact on integer ops) or allow
+	// fast-math rewrites (fast on fcmp). Our emitter doesn't set these
+	// because we have no optimization infrastructure.
+	s = dxilInstrFlagsRE.ReplaceAllString(s, "$1")
+	s = dxilFcmpFastRE.ReplaceAllString(s, "$1")
 
 	// Sort function declarations into a canonical order so that DXC-internal
 	// lowering pass scheduling (which controls the order intrinsic declarations

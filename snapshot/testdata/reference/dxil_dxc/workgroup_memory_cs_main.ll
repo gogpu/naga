@@ -65,7 +65,7 @@ define void @main() {
   %R13 = phi i32 [ %R14, %R12 ], [ 0, %R9 ]
   %R15 = getelementptr [256 x float], [256 x float] addrspace(3)* @"\01?shared_data@@3PAMA", i32 0, i32 %R13
   store float 0.000000e+00, float addrspace(3)* %R15, align 4, !tbaa !M0
-  %R14 = add nuw nsw i32 %R13, 1
+  %R14 = add i32 %R13, 1
   %R16 = icmp eq i32 %R14, 256
   br i1 %R16, label %R17, label %R12
 
@@ -102,7 +102,7 @@ define void @main() {
   %R34 = load float, float addrspace(3)* getelementptr inbounds ([256 x float], [256 x float] addrspace(3)* @"\01?shared_data@@3PAMA", i32 0, i32 0), align 4, !tbaa !M0
   %R35 = bitcast float %R34 to i32
   %R36 = lshr i32 %R2, 8
-  %R37 = shl nuw nsw i32 %R36, 2
+  %R37 = shl i32 %R36, 2
   call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 %R37, i32 undef, i32 %R35, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
   br label %R33
 

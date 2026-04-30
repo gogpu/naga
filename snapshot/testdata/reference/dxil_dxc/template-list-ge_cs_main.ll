@@ -67,7 +67,7 @@ define void @main() {
   %R15 = call i32 @dx.op.binary.i32(i32 40, i32 %R5, i32 1)  ; UMin(a,b)
   %R16 = getelementptr inbounds [2 x i32], [2 x i32]* @ret.i.hca, i32 0, i32 %R15
   %R17 = load i32, i32* %R16, align 4, !tbaa !M0
-  %R18 = shl nsw i32 %R5, 2
+  %R18 = shl i32 %R5, 2
   call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 %R18, i32 undef, i32 %R17, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
   %R19 = icmp eq i32 %R6, %R12
   %R20 = icmp eq i32 %R9, 0

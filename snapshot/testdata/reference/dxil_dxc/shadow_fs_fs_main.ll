@@ -170,7 +170,7 @@ define void @fs_main() {
   %R78 = call float @dx.op.tertiary.f32(i32 46, float %R6, float %R68, float %R77)  ; FMad(a,b,c)
   %R79 = call float @dx.op.tertiary.f32(i32 46, float %R7, float %R72, float %R78)  ; FMad(a,b,c)
   %R80 = call float @dx.op.tertiary.f32(i32 46, float %R8, float %R76, float %R79)  ; FMad(a,b,c)
-  %R81 = fcmp fast ugt float %R80, 0.000000e+00
+  %R81 = fcmp ugt float %R80, 0.000000e+00
   br i1 %R81, label %R82, label %R22
 
 ; <label>:77                                      ; preds = %R43

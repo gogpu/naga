@@ -101,6 +101,16 @@ type Emitter struct {
 	// only handles scalars, so this fills the gap for vectors.
 	singleStoreLocals map[uint32]ir.ExpressionHandle
 
+	// zeroStoreLocals tracks scalar/vector local variables that have
+	// no Init expression and are never stored to. Such locals are
+	// zero-initialized by definition (WGSL spec: vars without init
+	// are default-initialized to zero). Loads resolve to the zero
+	// constant of the variable's type. This handles the SROA
+	// decomposition case where unassigned struct members become
+	// separate locals that are read but never written.
+	// Maps local variable index -> TypeHandle of the variable.
+	zeroStoreLocals map[uint32]ir.TypeHandle
+
 	// initOnlyLocals tracks non-scalar locals (vector, array, struct)
 	// that have a non-nil Init expression and are never stored to in the
 	// function body. For such locals, Load can resolve directly to the
@@ -1029,6 +1039,7 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.localVarStructTypes = make(map[uint32]*module.Type)
 	e.localVarArrayTypes = make(map[uint32]*module.Type)
 	e.localConstVecArrays = make(map[uint32][][]float32)
+	e.zeroStoreLocals = make(map[uint32]ir.TypeHandle)
 	e.initOnlyLocals = make(map[uint32]ir.ExpressionHandle)
 	e.singleStoreLocals = make(map[uint32]ir.ExpressionHandle)
 	e.outputPromotedLocals = make(map[uint32]bool)

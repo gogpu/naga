@@ -1431,8 +1431,21 @@ func (e *Emitter) emitScalarBinaryOp(op ir.BinaryOperator, resultTy *module.Type
 	case ir.BinaryAdd:
 		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFAdd, BinOpAdd), lhs, rhs), nil
 	case ir.BinarySubtract:
+		// LLVM canonicalizes integer sub X, C to add X, -C.
+		// Apply the same transformation when the RHS is a constant.
+		if !isFloat {
+			if negID, ok := e.trySubToAddNeg(rhs); ok {
+				return e.addBinOpInstr(resultTy, BinOpAdd, lhs, negID), nil
+			}
+		}
 		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFSub, BinOpSub), lhs, rhs), nil
 	case ir.BinaryMultiply:
+		// LLVM strength-reduces mul X, 2^N to shl X, N for integers.
+		if !isFloat {
+			if shiftAmt, ok := e.tryMulToShl(rhs); ok {
+				return e.addBinOpInstr(resultTy, BinOpShl, lhs, shiftAmt), nil
+			}
+		}
 		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFMul, BinOpMul), lhs, rhs), nil
 	case ir.BinaryDivide:
 		return e.addBinOpInstr(resultTy, selectDivOp(isFloat, isSigned), lhs, rhs), nil
@@ -1521,6 +1534,56 @@ func (e *Emitter) tryURemToBitwiseAnd(valueID int) (int, bool) {
 		return 0, false
 	}
 	return e.getIntConstID(v - 1), true
+}
+
+// tryMulToShl checks whether valueID refers to an integer constant that is a
+// power of 2 (>= 2). If so, returns the value ID for the shift amount
+// (log2(value)) for use in strength reduction: mul X, 2^N -> shl X, N.
+// This matches DXC's LLVM InstCombine pass.
+func (e *Emitter) tryMulToShl(valueID int) (int, bool) {
+	c, ok := e.constMap[valueID]
+	if !ok || c.IsUndef || c.IsAggregate {
+		return 0, false
+	}
+	if c.ConstType == nil || c.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	v := c.IntValue
+	if v < 2 {
+		return 0, false
+	}
+	// Check power of 2: v & (v-1) == 0.
+	if v&(v-1) != 0 {
+		return 0, false
+	}
+	// Compute log2.
+	shift := int64(0)
+	tmp := v
+	for tmp > 1 {
+		tmp >>= 1
+		shift++
+	}
+	return e.getIntConstID(shift), true
+}
+
+// trySubToAddNeg checks whether valueID refers to a positive integer constant.
+// If so, returns the value ID for the negated constant (-value) for use in
+// canonicalization: sub X, C -> add X, -C. This matches DXC's LLVM
+// canonicalization where sub is converted to add with negative operand.
+func (e *Emitter) trySubToAddNeg(valueID int) (int, bool) {
+	c, ok := e.constMap[valueID]
+	if !ok || c.IsUndef || c.IsAggregate {
+		return 0, false
+	}
+	if c.ConstType == nil || c.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	// Only canonicalize when the constant is positive (> 0).
+	// sub X, 0 is already a no-op and sub X, negative is rare.
+	if c.IntValue <= 0 {
+		return 0, false
+	}
+	return e.getIntConstID(-c.IntValue), true
 }
 
 // emitComparison emits a comparison instruction with the correct predicate
@@ -3870,6 +3933,41 @@ func (e *Emitter) tryLoadInitOnly(fn *ir.Function, load ir.ExprLoad) (int, bool,
 	return id, true, nil
 }
 
+// tryLoadPromotedLocal attempts to resolve a load from a promoted local
+// variable (zero-store, init-only, or single-store) without emitting an
+// alloca+load chain. Returns (valueID, true, nil) on success.
+func (e *Emitter) tryLoadPromotedLocal(fn *ir.Function, load ir.ExprLoad) (int, bool, error) {
+	if id, ok, err := e.tryLoadZeroStore(fn, load); err != nil || ok {
+		return id, ok, err
+	}
+	if id, ok, err := e.tryLoadInitOnly(fn, load); err != nil || ok {
+		return id, ok, err
+	}
+	return e.tryLoadSingleStore(fn, load)
+}
+
+// tryLoadZeroStore resolves a load from a zero-store local variable
+// (no Init, never stored to) to the zero constant of its type.
+// WGSL spec requires such locals to be default-initialized to zero.
+// DXC's LLVM SROA+DCE eliminates these entirely; we emit the zero
+// constant inline, matching DXC's output.
+func (e *Emitter) tryLoadZeroStore(fn *ir.Function, load ir.ExprLoad) (int, bool, error) {
+	lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return 0, false, nil
+	}
+	tyHandle, isZero := e.zeroStoreLocals[lv.Variable]
+	if !isZero {
+		return 0, false, nil
+	}
+	// Emit the zero value for this type.
+	id, err := e.emitZeroValue(ir.ExprZeroValue{Type: tyHandle})
+	if err != nil {
+		return 0, false, err
+	}
+	return id, true, nil
+}
+
 // tryLoadSingleStore resolves a load from a single-store vector/scalar local
 // directly to the stored value expression, bypassing alloca+store+load.
 // This mirrors DXC's mem2reg for the common SROA decomposition pattern.
@@ -3974,21 +4072,9 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 		return e.emitUAVLoad(fn, chain)
 	}
 
-	// Init-only local optimization: if loading from a local that has a
-	// constant Init and no stores, resolve directly to the Init expression
-	// value. This eliminates the alloca+load and matches DXC's SROA output
-	// for `var x = const_expr; return x` patterns.
-	if id, handled, emitErr := e.tryLoadInitOnly(fn, load); emitErr != nil {
-		return 0, emitErr
-	} else if handled {
-		return id, nil
-	}
-
-	// Single-store local optimization: if loading from a vector/scalar local
-	// that was stored to exactly once, resolve directly to the stored value
-	// expression. This eliminates alloca+store+load for per-member vector
-	// locals created by struct SROA, matching DXC's mem2reg output.
-	if id, handled, emitErr := e.tryLoadSingleStore(fn, load); emitErr != nil {
+	// Local variable promotion: eliminate alloca+load chains for
+	// zero-store, init-only, and single-store locals.
+	if id, handled, emitErr := e.tryLoadPromotedLocal(fn, load); emitErr != nil {
 		return 0, emitErr
 	} else if handled {
 		return id, nil
@@ -5459,6 +5545,15 @@ func (e *Emitter) emitAs(fn *ir.Function, as ir.ExprAs) (int, error) {
 
 // emitScalarCast emits a single scalar cast instruction.
 func (e *Emitter) emitScalarCast(src int, srcScalar, dstScalar ir.ScalarType, isBitcast bool) (int, error) {
+	// Same-type cast is a no-op (e.g., bitcast i32 to i32). Also, integer
+	// sign reinterpretation (u32 <-> i32) maps to the same DXIL type (i32)
+	// so the bitcast is a no-op. DXC never emits these.
+	if srcScalar == dstScalar {
+		return src, nil
+	}
+	if srcScalar.Width == dstScalar.Width && isIntegerKind(srcScalar.Kind) && isIntegerKind(dstScalar.Kind) {
+		return src, nil
+	}
 	if isBitcast {
 		destTy := scalarToDXIL(e.mod, dstScalar)
 		return e.addCastInstr(destTy, CastBitcast, src), nil
@@ -5534,6 +5629,11 @@ func (e *Emitter) emitNumericToBoolDXIL(src int, srcScalar ir.ScalarType) (int, 
 	default:
 		return 0, fmt.Errorf("%v to bool: unsupported", srcScalar.Kind)
 	}
+}
+
+// isIntegerKind returns true if the scalar kind is a signed or unsigned integer.
+func isIntegerKind(k ir.ScalarKind) bool {
+	return k == ir.ScalarSint || k == ir.ScalarUint
 }
 
 // selectDXILCastOp selects the LLVM cast opcode for a scalar conversion.

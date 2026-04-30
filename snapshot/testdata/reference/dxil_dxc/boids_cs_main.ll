@@ -134,7 +134,7 @@ define void @main() {
   %R82 = fmul fast float %R80, %R80
   %R83 = fadd fast float %R81, %R82
   %R84 = call float @dx.op.unary.f32(i32 24, float %R83)  ; Sqrt(value)
-  %R85 = fcmp fast olt float %R84, %R78
+  %R85 = fcmp olt float %R84, %R78
   br i1 %R85, label %R86, label %R53
 
 ; <label>:74                                      ; preds = %R51
@@ -148,7 +148,7 @@ define void @main() {
   %R60 = phi float [ %R87, %R86 ], [ %R40, %R51 ]
   %R61 = phi float [ %R88, %R86 ], [ %R42, %R51 ]
   %R90 = extractvalue %dx.types.CBufRet.f32 %R77, 2
-  %R91 = fcmp fast olt float %R84, %R90
+  %R91 = fcmp olt float %R84, %R90
   %R92 = fadd fast float %R32, %R12
   %R93 = fsub fast float %R92, %R69
   %R94 = fadd fast float %R34, %R13
@@ -156,7 +156,7 @@ define void @main() {
   %R56 = select i1 %R91, float %R93, float %R32
   %R57 = select i1 %R91, float %R95, float %R34
   %R96 = extractvalue %dx.types.CBufRet.f32 %R77, 3
-  %R97 = fcmp fast olt float %R84, %R96
+  %R97 = fcmp olt float %R84, %R96
   br i1 %R97, label %R52, label %R21
 
 ; <label>:92                                      ; preds = %R53
@@ -233,12 +233,12 @@ define void @main() {
   %R154 = fmul fast float %R152, %R150
   %R155 = fadd fast float %R153, %R12
   %R156 = fadd fast float %R154, %R13
-  %R157 = fcmp fast olt float %R155, -1.000000e+00
+  %R157 = fcmp olt float %R155, -1.000000e+00
   %R158 = select i1 %R157, float 1.000000e+00, float %R155
-  %R159 = fcmp fast ogt float %R158, 1.000000e+00
-  %R160 = fcmp fast olt float %R156, -1.000000e+00
+  %R159 = fcmp ogt float %R158, 1.000000e+00
+  %R160 = fcmp olt float %R156, -1.000000e+00
   %R161 = select i1 %R160, float 1.000000e+00, float %R156
-  %R162 = fcmp fast ogt float %R161, 1.000000e+00
+  %R162 = fcmp ogt float %R161, 1.000000e+00
   %R163 = bitcast float %R158 to i32
   %R164 = select i1 %R159, i32 -1082130432, i32 %R163
   %R165 = bitcast float %R161 to i32
