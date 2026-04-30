@@ -522,6 +522,60 @@ func TestExpressionOperands(t *testing.T) {
 	}
 }
 
+// TestBuildInputRowMapSequentialSigId verifies that buildInputRowMap assigns
+// sequential signature element indices (sigId) rather than packed register
+// rows. When two scalar elements pack into the same register row (e.g.,
+// @location(1) and @location(3) sharing register 0 with different columns),
+// each must get a unique sigId (0 and 1), not both mapped to register 0.
+func TestBuildInputRowMapSequentialSigId(t *testing.T) {
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},                                       // 0: f32
+			{Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}}, // 1: vec4<f32>
+			{Inner: ir.StructType{Members: []ir.StructMember{ // 2: FragmentIn
+				{Name: "value", Type: 0, Binding: bindingPtr(ir.LocationBinding{Location: 1})},
+				{Name: "value2", Type: 0, Binding: bindingPtr(ir.LocationBinding{Location: 3})},
+				{Name: "position", Type: 1, Binding: bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})},
+			}}},
+		},
+	}
+
+	fn := ir.Function{
+		Name: "fs_main",
+		Arguments: []ir.FunctionArgument{
+			{Name: "v_out", Type: 2},
+		},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},
+		},
+	}
+
+	e := &Emitter{ir: irMod}
+	rowMap := e.buildInputRowMap(&fn, ir.StageFragment)
+
+	// LOC1 and LOC3 pack into the same register (row 0, cols 0 and 1).
+	// They must get DIFFERENT sigIds: 0 and 1.
+	loc1SigId, ok1 := rowMap[inputRowKey{argIdx: 0, memberIdx: 0}]
+	loc3SigId, ok3 := rowMap[inputRowKey{argIdx: 0, memberIdx: 1}]
+
+	if !ok1 {
+		t.Fatal("LOC1 (member 0) not in rowMap")
+	}
+	if !ok3 {
+		t.Fatal("LOC3 (member 1) not in rowMap")
+	}
+
+	if loc1SigId == loc3SigId {
+		t.Errorf("LOC1 and LOC3 have same sigId=%d (both mapped to register row); want different sequential indices", loc1SigId)
+	}
+	if loc1SigId != 0 {
+		t.Errorf("LOC1 sigId=%d, want 0 (first element in sorted order)", loc1SigId)
+	}
+	if loc3SigId != 1 {
+		t.Errorf("LOC3 sigId=%d, want 1 (second element in sorted order)", loc3SigId)
+	}
+}
+
 // helper to create *ir.Binding from a binding value
 func bindingPtr(b ir.Binding) *ir.Binding {
 	return &b

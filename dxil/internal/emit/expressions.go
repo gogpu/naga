@@ -1381,6 +1381,12 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 		}
 	}
 
+	// LLVM InstCombine: shl(and(X, C1), C2) -> and(shl(X, C2), C1 << C2).
+	// Also matches mul(and(X, C1), 2^N) since mul is strength-reduced to shl.
+	if result, ok := e.tryShlAndCombine(fn, bin, leftType, numComps); ok {
+		return result, nil
+	}
+
 	lhs, err := e.emitExpression(fn, bin.Left)
 	if err != nil {
 		return 0, err
@@ -1584,6 +1590,134 @@ func (e *Emitter) trySubToAddNeg(valueID int) (int, bool) {
 		return 0, false
 	}
 	return e.getIntConstID(-c.IntValue), true
+}
+
+// tryShlAndCombine detects mul(and(X, C1), 2^N) or mul(as(and(X, C1)), 2^N)
+// in the IR expression tree and rewrites to and(shl(X, N), C1 << N). This
+// matches LLVM InstCombine's canonicalization which hoists the shift before
+// the and and adjusts the mask. The As (cast) peeling handles cases like
+// i32(vertex_index & 1u) * 2 where a u32->i32 cast wraps the And.
+// Returns (valueID, true) if the transform applied, (0, false) otherwise.
+func (e *Emitter) tryShlAndCombine(fn *ir.Function, bin ir.ExprBinary, leftType ir.TypeInner, numComps int) (int, bool) {
+	// Only applies to integer scalar ShiftLeft or Multiply.
+	if numComps != 1 || isFloatType(leftType) {
+		return 0, false
+	}
+
+	shlAmt, ok := e.shlAmtForBinOp(fn, bin)
+	if !ok {
+		return 0, false
+	}
+
+	// Peel through single-use As (cast) expressions to find an And.
+	andHandle, ok := e.peelToAndExpr(fn, bin.Left)
+	if !ok {
+		return 0, false
+	}
+
+	andBin := fn.Expressions[andHandle].Kind.(ir.ExprBinary)
+	andMask, okMask := e.irExprIntConst(fn, andBin.Right)
+	if !okMask {
+		return 0, false
+	}
+
+	// Emit: shl(X, C2) then and(result, C1 << C2).
+	xID, err := e.emitExpression(fn, andBin.Left)
+	if err != nil {
+		return 0, false
+	}
+	newMask := andMask << shlAmt
+	resultTy, _ := typeToDXIL(e.mod, e.ir, leftType)
+	shlResult := e.addBinOpInstr(resultTy, BinOpShl, xID, e.getIntConstID(shlAmt))
+
+	lhs, rhs := shlResult, e.getIntConstID(newMask)
+	if e.isConstValueID(lhs) && !e.isConstValueID(rhs) {
+		lhs, rhs = rhs, lhs
+	}
+	return e.addBinOpInstr(resultTy, BinOpAnd, lhs, rhs), true
+}
+
+// shlAmtForBinOp extracts the effective shift amount from a ShiftLeft or
+// Multiply (power-of-2 constant) binary expression. Returns (0, false) if
+// the expression is not a shift or power-of-2 multiply.
+func (e *Emitter) shlAmtForBinOp(fn *ir.Function, bin ir.ExprBinary) (int64, bool) {
+	if bin.Op == ir.BinaryShiftLeft {
+		amt, ok := e.irExprIntConst(fn, bin.Right)
+		if !ok || amt <= 0 || amt >= 32 {
+			return 0, false
+		}
+		return amt, true
+	}
+	if bin.Op == ir.BinaryMultiply {
+		mulConst, ok := e.irExprIntConst(fn, bin.Right)
+		if !ok || mulConst < 2 || mulConst&(mulConst-1) != 0 {
+			return 0, false
+		}
+		var shift int64
+		tmp := mulConst
+		for tmp > 1 {
+			tmp >>= 1
+			shift++
+		}
+		return shift, true
+	}
+	return 0, false
+}
+
+// peelToAndExpr walks through the expression at h, peeling through single-use
+// As (cast) expressions, and returns the handle of an And binary expression
+// underneath. Returns (0, false) if no And is found or intermediate expressions
+// are already emitted or multi-use.
+func (e *Emitter) peelToAndExpr(fn *ir.Function, h ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
+	for {
+		if _, cached := e.exprValues[h]; cached {
+			return 0, false
+		}
+		if e.exprUseCount[h] > 1 {
+			return 0, false
+		}
+		expr := fn.Expressions[h]
+		if asExpr, isAs := expr.Kind.(ir.ExprAs); isAs {
+			h = asExpr.Expr
+			continue
+		}
+		andBin, isAnd := expr.Kind.(ir.ExprBinary)
+		if isAnd && andBin.Op == ir.BinaryAnd {
+			return h, true
+		}
+		return 0, false
+	}
+}
+
+// irExprIntConst checks if an expression handle refers to a literal or
+// constant integer and returns its value. Used by tryShlAndCombine to
+// detect constant masks/shift amounts in the IR expression tree before
+// emission.
+func (e *Emitter) irExprIntConst(fn *ir.Function, h ir.ExpressionHandle) (int64, bool) {
+	expr := fn.Expressions[h]
+	switch ek := expr.Kind.(type) {
+	case ir.Literal:
+		switch v := ek.Value.(type) {
+		case ir.LiteralI32:
+			return int64(v), true
+		case ir.LiteralU32:
+			return int64(v), true
+		}
+	case ir.ExprConstant:
+		c := e.ir.Constants[ek.Constant]
+		if int(c.Init) < len(e.ir.GlobalExpressions) {
+			initExpr := e.ir.GlobalExpressions[c.Init]
+			if lit, ok := initExpr.Kind.(ir.Literal); ok {
+				switch v := lit.Value.(type) {
+				case ir.LiteralI32:
+					return int64(v), true
+				case ir.LiteralU32:
+					return int64(v), true
+				}
+			}
+		}
+	}
+	return 0, false
 }
 
 // emitComparison emits a comparison instruction with the correct predicate

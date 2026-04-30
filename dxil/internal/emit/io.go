@@ -22,80 +22,32 @@ import (
 // Reference: Mesa nir_to_dxil.c emit_load_input_via_intrinsic(),
 // emit_load_global_invocation_id(), emit_load_local_invocation_id()
 func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
-	// Precompute ISG1 row assignments that match the sorted order produced
-	// by collectFlatArgBindings + PackSignatureElements. This ensures the
-	// loadInput sigId values match the ISG1 register layout exactly.
+	// Precompute signature element index (sigId) assignments that match the
+	// sorted order produced by collectFlatArgBindings + PackSignatureElements.
 	rowMap := e.buildInputRowMap(fn, stage)
 	e.inputRowMap = rowMap
 
-	// Phase 1: classify each argument. Identify which args need loadInput,
-	// which need special intrinsics, and assign ISG1 row indices (sigId).
-	type loadInputArg struct {
-		argIdx   int
-		arg      *ir.FunctionArgument
-		inputRow int
-	}
-	var loadArgs []loadInputArg
-
-	for argIdx := range fn.Arguments {
-		arg := &fn.Arguments[argIdx]
-		if arg.Binding == nil {
-			// Struct-typed arguments: handled separately with their own reverse logic.
-			argType := e.ir.Types[arg.Type]
-			if st, isSt := argType.Inner.(ir.StructType); isSt {
-				startRow := rowMap[inputRowKey{argIdx: argIdx, memberIdx: -1}]
-				if err := e.emitStructInputLoads(fn, argIdx, &st, stage, startRow); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-
-		if handled, err := e.tryEmitComputeBuiltin(fn, argIdx, arg, stage); err != nil {
-			return err
-		} else if handled {
-			continue
-		}
-
-		// Vertex / fragment SV_ViewID: not a signature element. DXC reads
-		// it via dx.op.viewID(i32 138) returning i32 — see
-		// DxilOperations.cpp:ViewID. The skipBuiltin / addElement paths
-		// already exclude it from ISG1 / PSV0; we must NOT emit a
-		// loadInput call here either, and we must NOT advance inputRow.
-		if bb, ok := (*arg.Binding).(ir.BuiltinBinding); ok && bb.Builtin == ir.BuiltinViewIndex {
-			if err := e.emitViewIDLoad(fn, argIdx); err != nil {
-				return err
-			}
-			continue
-		}
-
-		// Fragment shader @builtin(sample_mask): read via dx.op.coverage
-		// (opcode 91) instead of loadInput. SV_Coverage on PS input is
-		// NotInSig (DxilSigPoint.inl:97-98) — the validator rejects an
-		// SV_Coverage element in the input signature.
-		if bb, ok := (*arg.Binding).(ir.BuiltinBinding); ok && bb.Builtin == ir.BuiltinSampleMask && stage == ir.StageFragment {
-			if err := e.emitCoverageLoad(fn, argIdx); err != nil {
-				return err
-			}
-			continue
-		}
-
-		row := rowMap[inputRowKey{argIdx: argIdx, memberIdx: -1}]
-		loadArgs = append(loadArgs, loadInputArg{argIdx: argIdx, arg: arg, inputRow: row})
+	// Phase 1: classify arguments. Emit special intrinsics (compute
+	// builtins, ViewID, coverage) immediately via tryEmitSpecialInput.
+	// Collect loadInput-producing args (struct and direct) for deferred
+	// emission in reverse sigId order to match DXC.
+	loadArgs, err := e.classifyInputArgs(fn, stage, rowMap)
+	if err != nil {
+		return err
 	}
 
-	// Phase 2: emit loadInput calls in reverse ISG1 row order to match DXC.
-	// DCE: skip loadInput for arguments whose value is never consumed.
-	// DXC's downstream LLVM ADCE removes these dead loads; the ISG1
-	// signature element is retained (for pipeline compatibility) but the
-	// bitcode body omits the call. loadInput is readnone so elision is
-	// observably correct.
-	// Sort by inputRow so reverse iteration matches reverse ISG1 order.
+	// Phase 2: emit loadInput calls in reverse sigId order to match DXC.
 	sort.SliceStable(loadArgs, func(i, j int) bool {
 		return loadArgs[i].inputRow < loadArgs[j].inputRow
 	})
 	for i := len(loadArgs) - 1; i >= 0; i-- {
 		la := &loadArgs[i]
+		if la.isStruct {
+			if err := e.emitStructInputLoads(fn, la.argIdx, la.st, stage, la.inputRow); err != nil {
+				return err
+			}
+			continue
+		}
 		if !isArgRead(fn, la.argIdx) {
 			continue
 		}
@@ -104,6 +56,64 @@ func (e *Emitter) emitInputLoads(fn *ir.Function, stage ir.ShaderStage) error {
 		}
 	}
 	return nil
+}
+
+// loadInputArg describes a deferred loadInput-producing argument.
+type loadInputArg struct {
+	argIdx   int
+	arg      *ir.FunctionArgument
+	isStruct bool
+	st       *ir.StructType
+	inputRow int // sigId for direct args; min sigId for struct args
+}
+
+// classifyInputArgs iterates function arguments, emitting special intrinsics
+// (compute builtins, ViewID, coverage) immediately and collecting loadInput-
+// producing arguments for deferred emission.
+func (e *Emitter) classifyInputArgs(fn *ir.Function, stage ir.ShaderStage, rowMap map[inputRowKey]int) ([]loadInputArg, error) {
+	var loadArgs []loadInputArg
+	for argIdx := range fn.Arguments {
+		arg := &fn.Arguments[argIdx]
+		if arg.Binding == nil {
+			argType := e.ir.Types[arg.Type]
+			if st, isSt := argType.Inner.(ir.StructType); isSt {
+				startRow := rowMap[inputRowKey{argIdx: argIdx, memberIdx: -1}]
+				stCopy := st
+				loadArgs = append(loadArgs, loadInputArg{argIdx: argIdx, arg: arg, isStruct: true, st: &stCopy, inputRow: startRow})
+			}
+			continue
+		}
+		if handled, err := e.tryEmitComputeBuiltin(fn, argIdx, arg, stage); err != nil {
+			return nil, err
+		} else if handled {
+			continue
+		}
+		if e.tryEmitSpecialInput(fn, argIdx, arg, stage) {
+			continue
+		}
+		row := rowMap[inputRowKey{argIdx: argIdx, memberIdx: -1}]
+		loadArgs = append(loadArgs, loadInputArg{argIdx: argIdx, arg: arg, inputRow: row})
+	}
+	return loadArgs, nil
+}
+
+// tryEmitSpecialInput handles input arguments that require dedicated dx.op
+// intrinsics instead of loadInput (ViewID, SampleMask/Coverage). Returns
+// true if the argument was handled.
+func (e *Emitter) tryEmitSpecialInput(fn *ir.Function, argIdx int, arg *ir.FunctionArgument, stage ir.ShaderStage) bool {
+	bb, ok := (*arg.Binding).(ir.BuiltinBinding)
+	if !ok {
+		return false
+	}
+	if bb.Builtin == ir.BuiltinViewIndex {
+		e.emitViewIDLoad(fn, argIdx)
+		return true
+	}
+	if bb.Builtin == ir.BuiltinSampleMask && stage == ir.StageFragment {
+		e.emitCoverageLoad(fn, argIdx)
+		return true
+	}
+	return false
 }
 
 // inputRowKey identifies a specific binding element in the flat input list.
@@ -143,8 +153,14 @@ func (e *Emitter) buildInputRowMap(fn *ir.Function, stage ir.ShaderStage) map[in
 	}
 	packed := backend.PackSignatureElements(infos, true)
 
-	// Map each entry to its packed register row.
+	// Map each entry to its signature element index (sigId).
+	// The sigId in loadInput/storeOutput is the sequential index of the
+	// element in the input signature, NOT the packed register row. When
+	// multiple scalar elements pack into the same register row (e.g.,
+	// @location(1) and @location(3) sharing register 0 with different
+	// column offsets), each still gets a unique sigId.
 	result := make(map[inputRowKey]int, len(entries))
+	sigIdx := 0
 	for i, ent := range entries {
 		pe := packed[i]
 		if pe.Rows == 0 {
@@ -153,7 +169,8 @@ func (e *Emitter) buildInputRowMap(fn *ir.Function, stage ir.ShaderStage) map[in
 		if isSkippedInputBinding(ent.binding, stage, isComputeLike) {
 			continue
 		}
-		result[inputRowKey{argIdx: ent.argIdx, memberIdx: ent.memberIdx}] = int(pe.Register)
+		result[inputRowKey{argIdx: ent.argIdx, memberIdx: ent.memberIdx}] = sigIdx
+		sigIdx++
 	}
 
 	// Add struct-level start row sentinels.
@@ -203,8 +220,8 @@ func (e *Emitter) collectFlatInputEntries(fn *ir.Function, isVSInput bool) []inp
 	return entries
 }
 
-// addStructStartRows adds memberIdx=-1 sentinel entries to the row map
-// for each struct-typed argument, using the minimum row of any member.
+// addStructStartRows adds memberIdx=-1 sentinel entries to the sigId map
+// for each struct-typed argument, using the minimum sigId of any member.
 func addStructStartRows(irMod *ir.Module, fn *ir.Function, result map[inputRowKey]int, stage ir.ShaderStage, isComputeLike bool) {
 	for argIdx := range fn.Arguments {
 		arg := &fn.Arguments[argIdx]
@@ -262,32 +279,30 @@ func isSkippedInputBinding(binding ir.Binding, stage ir.ShaderStage, isComputeLi
 // to the entry point's @builtin(sample_mask) input argument. DXC reads
 // PS coverage via this dedicated intrinsic; SV_Coverage as PS input is
 // NotInSig per DxilSigPoint.inl:97 'NotInSig _50'.
-func (e *Emitter) emitCoverageLoad(fn *ir.Function, argIdx int) error {
+func (e *Emitter) emitCoverageLoad(fn *ir.Function, argIdx int) {
 	i32Ty := e.mod.GetIntType(32)
 	covFn := e.getDxOpComputeBuiltinFunc("dx.op.coverage", false)
 	opcodeVal := e.getIntConstID(int64(OpCoverage))
 	valueID := e.addCallInstr(covFn, i32Ty, []int{opcodeVal})
 	exprHandle := e.findArgExprHandle(fn, argIdx)
 	e.exprValues[exprHandle] = valueID
-	return nil
 }
 
 // emitViewIDLoad emits dx.op.viewID.i32(i32 138) and binds the result to
 // the entry point's view_index argument. Mirrors DXC's lowering of
 // SV_ViewID — the value is read via the dedicated intrinsic instead of
 // participating in the input signature.
-func (e *Emitter) emitViewIDLoad(fn *ir.Function, argIdx int) error {
+func (e *Emitter) emitViewIDLoad(fn *ir.Function, argIdx int) {
 	i32Ty := e.mod.GetIntType(32)
 	viewFn := e.getDxOpComputeBuiltinFunc("dx.op.viewID", false)
 	opcodeVal := e.getIntConstID(int64(OpViewID))
 	valueID := e.addCallInstr(viewFn, i32Ty, []int{opcodeVal})
 	exprHandle := e.findArgExprHandle(fn, argIdx)
 	e.exprValues[exprHandle] = valueID
-	return nil
 }
 
 // emitSingleInputLoad emits dx.op.loadInput calls for a single argument.
-// inputRow is the ISG1 row index for this argument's signature element.
+// inputRow is the signature element index (sigId) for loadInput.
 //
 // Bool inputs (e.g. @builtin(front_facing) for SV_IsFrontFace) cannot use
 // dx.op.loadInput.i1 — DXC's DxilOperations.cpp:LoadInput declares overload
@@ -622,7 +637,7 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 	order := backend.SortedMemberIndices(st.Members)
 	type loadMember struct {
 		memberIdx int
-		inputID   int // ISG1 row for this member
+		inputID   int // signature element index (sigId) for loadInput
 	}
 	var loadMembers []loadMember
 	rowCount := 0
@@ -648,11 +663,10 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 			continue
 		}
 
-		// Look up the ISG1 row from the precomputed map if available.
-		// The map accounts for cross-argument sorting (locations before
-		// builtins), so each member gets its correct packed register.
-		// Fallback to sequential assignment for compute shaders and
-		// cases where the map was not populated (emitSingleInputLoad path).
+		// Look up the signature element index (sigId) from the precomputed
+		// map if available. The map accounts for cross-argument sorting
+		// (locations before builtins). Fallback to sequential assignment
+		// for compute shaders and cases where the map was not populated.
 		memberRow := inputRow + rowCount
 		if e.inputRowMap != nil {
 			if r, ok := e.inputRowMap[inputRowKey{argIdx: argIdx, memberIdx: memberIdx}]; ok {

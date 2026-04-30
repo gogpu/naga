@@ -194,9 +194,12 @@ func Analyze(irMod *ir.Module, ep *ir.EntryPoint, inputs, outputs []SigElement) 
 		return deps
 	}
 
-	// Scalar → input-component index map. Analyzer's internal taint uses
+	// Scalar -> input-component index map. Analyzer's internal taint uses
 	// cumulative ScalarStart indexing, but DXC's ViewIdState layout uses
-	// packed linear indexing (VectorRow*4 + col). Map one to the other.
+	// packed linear indexing (VectorRow*4 + StartCol + channelOffset).
+	// StartCol is critical when multiple elements pack into the same
+	// register row with different column offsets (e.g., two scalar
+	// @location inputs sharing register 0 at columns 0 and 1).
 	inScalarToComp := make([]uint32, 0)
 	for i := range inputs {
 		inp := &inputs[i]
@@ -204,7 +207,7 @@ func Analyze(irMod *ir.Module, ep *ir.EntryPoint, inputs, outputs []SigElement) 
 			continue
 		}
 		for c := uint32(0); c < inp.NumChannels; c++ {
-			inScalarToComp = append(inScalarToComp, inp.VectorRow*4+c)
+			inScalarToComp = append(inScalarToComp, inp.VectorRow*4+inp.StartCol+c)
 		}
 	}
 
@@ -234,8 +237,8 @@ func emitTaintResults(
 			continue
 		}
 		for outCol := uint32(0); outCol < outSig.NumChannels; outCol++ {
-			outScalar := outSig.VectorRow*4 + outCol // packed linear, matches DXC
-			outComp := outSig.VectorRow*4 + outCol
+			outScalar := outSig.VectorRow*4 + outSig.StartCol + outCol // packed linear, matches DXC
+			outComp := outSig.VectorRow*4 + outSig.StartCol + outCol
 			taint := state.outputTaint[outSigIdx][outCol]
 			for inScalar := range taint {
 				// inScalar is the analyzer's cumulative index. Remap to

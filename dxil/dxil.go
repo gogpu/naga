@@ -3233,14 +3233,16 @@ func psvSigsToViewIDElems(elems []container.PSVSignatureElement) []viewid.SigEle
 		// (output `dx.viewIdState` / PSV0 dep table indexing) uses
 		// elem.StartRow*4 + col. After BUG-DXIL-029 reordered locations
 		// before builtins, an arg-order counter diverged.
-		var row uint32
+		var row, startCol uint32
 		if !sysManaged {
 			row = uint32(e.StartRow)
+			startCol = uint32((e.ColsAndStart >> 4) & 0x03)
 		}
 		out[i] = viewid.SigElement{
 			ScalarStart:   cumScalars,
 			NumChannels:   cols,
 			VectorRow:     row,
+			StartCol:      startCol,
 			SystemManaged: sysManaged,
 		}
 		cumScalars += cols
