@@ -1387,11 +1387,8 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 		return result, nil
 	}
 
-	lhs, err := e.emitExpression(fn, bin.Left)
-	if err != nil {
-		return 0, err
-	}
-	rhs, err := e.emitExpression(fn, bin.Right)
+	// Emit both operands, possibly reordering to match DXC's scheduling.
+	lhs, rhs, err := e.emitBinaryOperands(fn, bin.Left, bin.Right)
 	if err != nil {
 		return 0, err
 	}
@@ -1428,6 +1425,41 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 	}
 
 	return e.emitScalarBinaryOp(bin.Op, resultTy, lhs, rhs, isFloat, isSigned)
+}
+
+// emitBinaryOperands evaluates both operands of a binary expression. DXC's LLVM
+// instruction scheduler prefers to evaluate memory-reading operands
+// (cbufferLoadLegacy, bufferLoad) before pure ALU operands (uitofp, fmul)
+// within a binary expression. When the right operand leads to a resource read
+// and the left does not (and the left is not already cached), the right is
+// evaluated first. This is safe because both operands are independent
+// sub-expressions with no side effects.
+func (e *Emitter) emitBinaryOperands(fn *ir.Function, left, right ir.ExpressionHandle) (lhs, rhs int, err error) {
+	_, leftCached := e.exprValues[left]
+	evalRightFirst := !leftCached &&
+		!e.exprLeadsToResourceRead(fn, left) &&
+		e.exprLeadsToResourceRead(fn, right)
+
+	if evalRightFirst {
+		rhs, err = e.emitExpression(fn, right)
+		if err != nil {
+			return 0, 0, err
+		}
+		lhs, err = e.emitExpression(fn, left)
+		if err != nil {
+			return 0, 0, err
+		}
+		return lhs, rhs, nil
+	}
+	lhs, err = e.emitExpression(fn, left)
+	if err != nil {
+		return 0, 0, err
+	}
+	rhs, err = e.emitExpression(fn, right)
+	if err != nil {
+		return 0, 0, err
+	}
+	return lhs, rhs, nil
 }
 
 // emitScalarBinaryOp dispatches a scalar binary operation to the appropriate
@@ -2082,9 +2114,25 @@ func (e *Emitter) flattenBinaryChain(fn *ir.Function, op ir.BinaryOperator,
 // ascending value ID (matching LLVM Reassociate's rank-based ordering),
 // and combined into a left-leaning tree with commutative canonicalization
 // (higher value ID first within each pair).
+//
+// Leaf emission order: DXC's LLVM evaluates memory reads (cbufferLoadLegacy,
+// bufferLoad) before pure ALU (uitofp, fmul) within a reassociated chain.
+// We sort leaves before emission: already-emitted first (they have existing
+// value IDs), then memory-reading (global variable accesses that produce
+// dx.op calls), then pure ALU. This gives memory reads lower value IDs,
+// matching DXC's instruction scheduling within expression chains.
 func (e *Emitter) emitReassociatedChain(fn *ir.Function, op ir.BinaryOperator,
 	elemType ir.TypeInner, leaves []ir.ExpressionHandle,
 ) (int, error) {
+	// Sort leaves by emission priority: already-emitted (0), memory-reading (1),
+	// pure ALU (2). This matches DXC's scheduling preference for memory reads.
+	//
+	sort.SliceStable(leaves, func(i, j int) bool {
+		pi := e.leafEmitPriority(fn, leaves[i])
+		pj := e.leafEmitPriority(fn, leaves[j])
+		return pi < pj
+	})
+
 	// Emit all leaves so their value IDs are known.
 	ids := make([]int, len(leaves))
 	for i, h := range leaves {
@@ -2126,6 +2174,56 @@ func (e *Emitter) emitReassociatedChain(fn *ir.Function, op ir.BinaryOperator,
 		acc = e.addBinOpInstr(resultTy, binOp, lhs, rhs)
 	}
 	return acc, nil
+}
+
+// leafEmitPriority classifies a leaf expression in a reassociated chain by
+// when it should be emitted relative to other leaves. DXC's LLVM evaluates
+// memory reads before pure ALU within expression chains.
+//
+// Returns:
+//
+//	0: already emitted (has a value ID in exprValues) -- free, gets lowest rank
+//	1: memory-reading (resolves to a CBV/UAV/SRV global variable access that
+//	   will produce a dx.op call like cbufferLoadLegacy or bufferLoad)
+//	2: pure computation (type cast, literal, etc.)
+func (e *Emitter) leafEmitPriority(fn *ir.Function, h ir.ExpressionHandle) int {
+	// Already emitted -- free, existing value ID.
+	if _, ok := e.exprValues[h]; ok {
+		return 0
+	}
+	// Walk through the expression to find whether it ultimately reads from
+	// a resource-bound global variable (CBV, UAV, SRV). The IR lowerer
+	// produces chains like Load(AccessIndex(GlobalVariable(gv), idx)) for
+	// struct member access on uniform/push-constant globals. We need to
+	// peel through Load and AccessIndex/Access to find the root global.
+	if e.exprLeadsToResourceRead(fn, h) {
+		return 1
+	}
+	return 2
+}
+
+// exprLeadsToResourceRead returns true if the expression h, when emitted,
+// will produce a memory-reading dx.op call (cbufferLoadLegacy, bufferLoad,
+// etc.). This walks through Load, AccessIndex, and Access expression chains
+// to find whether the root is a resource-bound global variable.
+func (e *Emitter) exprLeadsToResourceRead(fn *ir.Function, h ir.ExpressionHandle) bool {
+	if int(h) >= len(fn.Expressions) {
+		return false
+	}
+	expr := fn.Expressions[h]
+	switch ek := expr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		_, isRes := e.resourceHandles[ek.Variable]
+		return isRes
+	case ir.ExprAccessIndex:
+		return e.exprLeadsToResourceRead(fn, ek.Base)
+	case ir.ExprAccess:
+		return e.exprLeadsToResourceRead(fn, ek.Base)
+	case ir.ExprLoad:
+		return e.exprLeadsToResourceRead(fn, ek.Pointer)
+	default:
+		return false
+	}
 }
 
 // emitBinaryVectorized emits a vector binary operation by scalarizing it.

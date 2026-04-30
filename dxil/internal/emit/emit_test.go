@@ -7068,3 +7068,142 @@ func TestAddMulOrShlInstr(t *testing.T) {
 		}
 	}
 }
+
+// TestExprLeadsToResourceRead verifies that exprLeadsToResourceRead correctly
+// identifies expression chains that resolve to resource-bound global variables
+// (CBV/UAV/SRV). These chains produce dx.op memory read calls when emitted.
+func TestExprLeadsToResourceRead(t *testing.T) {
+	f32Handle := ir.TypeHandle(0)
+	structHandle := ir.TypeHandle(1)
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "Params", Inner: ir.StructType{
+				Members: []ir.StructMember{{Name: "value", Type: f32Handle, Offset: 0}},
+				Span:    4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:    "params",
+				Space:   ir.SpaceUniform,
+				Type:    structHandle,
+				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
+			},
+		},
+	}
+
+	// Function with expressions:
+	// expr0 = GlobalVariable(0)
+	// expr1 = AccessIndex(expr0, 0)
+	// expr2 = Load(expr1)
+	// expr3 = As(f32, expr0) -- pure ALU
+	w4 := uint8(4)
+	fn := &ir.Function{
+		Name: "test",
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
+			{Kind: ir.ExprLoad{Pointer: 1}},
+			{Kind: ir.ExprAs{Kind: ir.ScalarFloat, Expr: 0, Convert: &w4}},
+		},
+	}
+
+	e := &Emitter{
+		ir:              mod,
+		mod:             module.NewModule(module.VertexShader),
+		resourceHandles: map[ir.GlobalVariableHandle]int{0: 0},
+		exprValues:      make(map[ir.ExpressionHandle]int),
+	}
+
+	tests := []struct {
+		name   string
+		handle ir.ExpressionHandle
+		want   bool
+	}{
+		{"GlobalVariable(resource)", 0, true},
+		{"AccessIndex(resource, 0)", 1, true},
+		{"Load(AccessIndex(resource))", 2, true},
+		{"As(pure ALU)", 3, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := e.exprLeadsToResourceRead(fn, tc.handle)
+			if got != tc.want {
+				t.Errorf("exprLeadsToResourceRead(expr%d) = %v, want %v", tc.handle, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLeafEmitPriority verifies the leaf emission priority classification for
+// reassociated binary chains. Memory-reading leaves should be emitted before
+// pure ALU leaves so their value IDs are lower, matching DXC's instruction
+// scheduling within expression chains.
+func TestLeafEmitPriority(t *testing.T) {
+	f32Handle := ir.TypeHandle(0)
+	structHandle := ir.TypeHandle(1)
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "Params", Inner: ir.StructType{
+				Members: []ir.StructMember{{Name: "value", Type: f32Handle, Offset: 0}},
+				Span:    4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:    "params",
+				Space:   ir.SpaceUniform,
+				Type:    structHandle,
+				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
+			},
+		},
+	}
+
+	// expr0 = GlobalVariable(0)            -- resource global
+	// expr1 = AccessIndex(expr0, 0)        -- access into resource
+	// expr2 = Load(expr1)                  -- load from resource (memory read)
+	// expr3 = As(f32, expr0)               -- pure ALU (cast)
+	// expr4 = Literal(1.0)                 -- constant
+	w4 := uint8(4)
+	fn := &ir.Function{
+		Name: "test",
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
+			{Kind: ir.ExprLoad{Pointer: 1}},
+			{Kind: ir.ExprAs{Kind: ir.ScalarFloat, Expr: 0, Convert: &w4}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+		},
+	}
+
+	e := &Emitter{
+		ir:              mod,
+		mod:             module.NewModule(module.VertexShader),
+		resourceHandles: map[ir.GlobalVariableHandle]int{0: 0},
+		exprValues: map[ir.ExpressionHandle]int{
+			4: 42, // expr4 is already emitted with value ID 42
+		},
+	}
+
+	tests := []struct {
+		name   string
+		handle ir.ExpressionHandle
+		want   int // 0=cached, 1=memory-read, 2=pure ALU
+	}{
+		{"already emitted literal", 4, 0},
+		{"Load(AccessIndex(resource))", 2, 1},
+		{"As(pure cast)", 3, 2},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := e.leafEmitPriority(fn, tc.handle)
+			if got != tc.want {
+				t.Errorf("leafEmitPriority(expr%d) = %d, want %d", tc.handle, got, tc.want)
+			}
+		})
+	}
+}
