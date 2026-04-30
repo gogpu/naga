@@ -366,6 +366,11 @@ var (
 	// the auto-upgrade vs fixed-profile divergence.
 	dxilSMVersionRE      = regexp.MustCompile(`(!{i32 1, i32 )\d+(})`)
 	dxilShaderModelMinRE = regexp.MustCompile(`(!{!"(?:vs|ps|cs|ms|as)", i32 6, i32 )\d+(})`)
+	// TBAA (Type-Based Alias Analysis) metadata annotations on load/store
+	// instructions. DXC's LLVM attaches these as optimization hints; our
+	// emitter does not generate them. They have no runtime semantic effect
+	// — TBAA is purely an LLVM optimization pass annotation.
+	dxilTBAAAnnotRE = regexp.MustCompile(`, !tbaa !\S+`)
 )
 
 // stripReflectionSection removes a dxc -dumpbin reflection comment section
@@ -455,6 +460,10 @@ func normalizeDxilDump(s string) string {
 	// a fixed -T profile (cs_6_0). Both are correct for their context.
 	s = dxilSMVersionRE.ReplaceAllString(s, "${1}0${2}")
 	s = dxilShaderModelMinRE.ReplaceAllString(s, "${1}0${2}")
+
+	// Strip TBAA metadata annotations from store/load instructions.
+	// These are pure LLVM optimization hints with no runtime effect.
+	s = dxilTBAAAnnotRE.ReplaceAllString(s, "")
 
 	// Sort function declarations into a canonical order so that DXC-internal
 	// lowering pass scheduling (which controls the order intrinsic declarations
@@ -876,6 +885,40 @@ func TestNormalizeSMVersion(t *testing.T) {
 			got = dxilShaderModelMinRE.ReplaceAllString(got, "${1}0${2}")
 			if got != tt.want {
 				t.Errorf("normalize(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNormalizeTBAA verifies that TBAA metadata annotations are stripped
+// from store/load instructions. TBAA is a pure LLVM optimization hint.
+func TestNormalizeTBAA(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "store with tbaa",
+			input: `  store i64 0, i64 addrspace(3)* @var, align 8, !tbaa !M0`,
+			want:  `  store i64 0, i64 addrspace(3)* @var, align 8`,
+		},
+		{
+			name:  "store without tbaa unchanged",
+			input: `  store i32 1, i32 addrspace(3)* @var, align 4`,
+			want:  `  store i32 1, i32 addrspace(3)* @var, align 4`,
+		},
+		{
+			name:  "load with tbaa",
+			input: `  %R0 = load i32, i32* %ptr, align 4, !tbaa !5`,
+			want:  `  %R0 = load i32, i32* %ptr, align 4`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := dxilTBAAAnnotRE.ReplaceAllString(tt.input, "")
+			if got != tt.want {
+				t.Errorf("tbaa strip(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

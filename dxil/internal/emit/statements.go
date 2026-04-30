@@ -2438,9 +2438,9 @@ func (e *Emitter) emitWorkgroupAtomic(fn *ir.Function, atomic ir.StmtAtomic) err
 	atomicScalar := e.resolveAtomicScalar(fn, atomic.Pointer)
 	bitWidth := uint(atomicScalar.Width) * 8
 	atomicTy := e.mod.GetIntType(bitWidth)
-	align := 2 // log2(4) for i32
+	align := 3 // log2(4)+1 for i32
 	if bitWidth == 64 {
-		align = 3 // log2(8) for i64
+		align = 4 // log2(8)+1 for i64
 	}
 
 	switch af := atomic.Fun.(type) {

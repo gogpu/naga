@@ -5647,9 +5647,9 @@ func TestEmitRawBufferFloatStoreUsesI32Overload(t *testing.T) {
 		}
 	}
 
-	if bitcastCount < 2 {
-		t.Errorf("expected at least 2 bitcast instructions (float->i32 for vec2), got %d", bitcastCount)
-	}
+	// With constant folding, float literals are folded to i32 at compile time,
+	// so bitcasts may be 0 when all store values are constant. The key invariant
+	// is that bufferStore.i32 is used (not .f32).
 	if bufferStoreI32Count < 1 {
 		t.Errorf("expected at least 1 bufferStore.i32 call, got %d", bufferStoreI32Count)
 	}
@@ -6897,6 +6897,62 @@ func TestIsInt64Type(t *testing.T) {
 			got := isInt64Type(tc.ty)
 			if got != tc.want {
 				t.Errorf("isInt64Type(%v) = %v, want %v", tc.ty, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAlignForType verifies that alignForType returns the LLVM bitcode
+// alignment encoding (log2(bytes)+1) for each scalar type.
+// Reference: LLVM INST_STORE/INST_LOAD alignment field, Mesa dxil_module.c.
+func TestAlignForType(t *testing.T) {
+	e := &Emitter{mod: module.NewModule(module.ComputeShader)}
+	cases := []struct {
+		name string
+		ty   *module.Type
+		want int // log2(bytes)+1
+	}{
+		{"i1", e.mod.GetIntType(1), 1},     // 1-byte: log2(1)+1=1
+		{"i8", e.mod.GetIntType(8), 1},     // 1-byte: log2(1)+1=1
+		{"i16", e.mod.GetIntType(16), 2},   // 2-byte: log2(2)+1=2
+		{"i32", e.mod.GetIntType(32), 3},   // 4-byte: log2(4)+1=3
+		{"i64", e.mod.GetIntType(64), 4},   // 8-byte: log2(8)+1=4
+		{"f16", e.mod.GetFloatType(16), 2}, // 2-byte: log2(2)+1=2
+		{"f32", e.mod.GetFloatType(32), 3}, // 4-byte: log2(4)+1=3
+		{"f64", e.mod.GetFloatType(64), 4}, // 8-byte: log2(8)+1=4
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := e.alignForType(tc.ty)
+			if got != tc.want {
+				t.Errorf("alignForType(%s) = %d, want %d", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestGlobalVarAlignment verifies that globalVarAlignment returns the
+// correct byte alignment for workgroup global variables. DXC uses
+// align 8 for i64/f64 types and align 4 for everything else.
+func TestGlobalVarAlignment(t *testing.T) {
+	m := module.NewModule(module.ComputeShader)
+	cases := []struct {
+		name string
+		ty   *module.Type
+		want uint32
+	}{
+		{"i32", m.GetIntType(32), 4},
+		{"i64", m.GetIntType(64), 8},
+		{"f32", m.GetFloatType(32), 4},
+		{"f64", m.GetFloatType(64), 8},
+		{"[2 x i32]", m.GetArrayType(m.GetIntType(32), 2), 4},
+		{"[2 x i64]", m.GetArrayType(m.GetIntType(64), 2), 8},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := globalVarAlignment(tc.ty)
+			if got != tc.want {
+				t.Errorf("globalVarAlignment(%s) = %d, want %d", tc.name, got, tc.want)
 			}
 		})
 	}

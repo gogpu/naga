@@ -2,6 +2,7 @@ package emit
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
@@ -4519,8 +4520,14 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 				vals[i] = e.getComponentID(valueHandle, i)
 			}
 			// Bitcast float values to i32 for raw buffer stores.
+			// Fold constant floats to their IEEE 754 i32 representation.
 			if needsBitcast {
-				vals[i] = e.addCastInstr(e.mod.GetIntType(32), CastBitcast, vals[i])
+				if c, ok := e.constMap[vals[i]]; ok && !c.IsUndef && c.ConstType != nil && c.ConstType.Kind == module.TypeFloat {
+					bits := math.Float32bits(float32(c.FloatValue))
+					vals[i] = e.getIntConstID(int64(bits))
+				} else {
+					vals[i] = e.addCastInstr(e.mod.GetIntType(32), CastBitcast, vals[i])
+				}
 			}
 		}
 		writeMask := (1 << numComps) - 1
@@ -4581,7 +4588,12 @@ func (e *Emitter) emitUAVStoreBatched(
 		for i := 0; i < count; i++ {
 			vals[i] = e.getComponentID(valueHandle, compIdx+i)
 			if needsBitcast {
-				vals[i] = e.addCastInstr(i32Ty, CastBitcast, vals[i])
+				if c, ok := e.constMap[vals[i]]; ok && !c.IsUndef && c.ConstType != nil && c.ConstType.Kind == module.TypeFloat {
+					bits := math.Float32bits(float32(c.FloatValue))
+					vals[i] = e.getIntConstID(int64(bits))
+				} else {
+					vals[i] = e.addCastInstr(i32Ty, CastBitcast, vals[i])
+				}
 			}
 		}
 		writeMask := (1 << count) - 1

@@ -1238,7 +1238,7 @@ func (e *Emitter) emitTempAllocaAccess(fn *ir.Function, baseID, indexID int, arr
 	// Alloca for the array.
 	i32Ty := e.mod.GetIntType(32)
 	sizeID := e.getIntConstID(1)
-	align := e.alignForType(arrayDxilTy) + 1
+	align := e.alignForType(arrayDxilTy)
 	alignFlags := align | (1 << 6)
 
 	allocaID := e.allocValue()
@@ -1433,6 +1433,13 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 // emitScalarBinaryOp dispatches a scalar binary operation to the appropriate
 // DXIL instruction (binop, cmp, or lowered FRem).
 func (e *Emitter) emitScalarBinaryOp(op ir.BinaryOperator, resultTy *module.Type, lhs, rhs int, isFloat, isSigned bool) (int, error) {
+	// Constant folding: when both operands are constants, compute the
+	// result at compile time. DXC's LLVM constant folder does this for
+	// all arithmetic on constant operands.
+	if id, ok := e.tryFoldBinOp(op, lhs, rhs, isFloat); ok {
+		return id, nil
+	}
+
 	switch op {
 	case ir.BinaryAdd:
 		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFAdd, BinOpAdd), lhs, rhs), nil
@@ -1590,6 +1597,107 @@ func (e *Emitter) trySubToAddNeg(valueID int) (int, bool) {
 		return 0, false
 	}
 	return e.getIntConstID(-c.IntValue), true
+}
+
+// tryFoldBitcast folds a bitcast of a constant to a different scalar type.
+// float32 -> int32: returns the IEEE 754 bit representation.
+// int32 -> float32: returns the float value from the IEEE 754 bits.
+func (e *Emitter) tryFoldBitcast(c *module.Constant, src, dst ir.ScalarType) (int, bool) {
+	if src.Kind == ir.ScalarFloat && dst.Kind != ir.ScalarFloat && src.Width == dst.Width {
+		// float -> int: IEEE 754 bits as integer
+		if src.Width == 4 {
+			bits := math.Float32bits(float32(c.FloatValue))
+			return e.getIntConstID(int64(bits)), true
+		}
+	}
+	if src.Kind != ir.ScalarFloat && dst.Kind == ir.ScalarFloat && src.Width == dst.Width {
+		// int -> float: integer bits as IEEE 754
+		if src.Width == 4 {
+			f := math.Float32frombits(uint32(c.IntValue)) //nolint:gosec // intentional reinterpret
+			return e.getFloatConstID(float64(f)), true
+		}
+	}
+	return 0, false
+}
+
+// tryFoldBinOp dispatches constant folding to the float or int path.
+func (e *Emitter) tryFoldBinOp(op ir.BinaryOperator, lhs, rhs int, isFloat bool) (int, bool) {
+	if isFloat {
+		return e.tryFoldFloatBinOp(op, lhs, rhs)
+	}
+	return e.tryFoldIntBinOp(op, lhs, rhs, false)
+}
+
+// tryFoldFloatBinOp checks if both lhs and rhs are float constants and
+// folds the binary operation at compile time. DXC's LLVM constant folder
+// evaluates arithmetic on constant operands during compilation.
+func (e *Emitter) tryFoldFloatBinOp(op ir.BinaryOperator, lhs, rhs int) (int, bool) {
+	lc, lok := e.constMap[lhs]
+	if !lok || lc.IsUndef || lc.ConstType == nil || lc.ConstType.Kind != module.TypeFloat {
+		return 0, false
+	}
+	rc, rok := e.constMap[rhs]
+	if !rok || rc.IsUndef || rc.ConstType == nil || rc.ConstType.Kind != module.TypeFloat {
+		return 0, false
+	}
+	lv := lc.FloatValue
+	rv := rc.FloatValue
+	var result float64
+	switch op {
+	case ir.BinaryAdd:
+		result = lv + rv
+	case ir.BinarySubtract:
+		result = lv - rv
+	case ir.BinaryMultiply:
+		result = lv * rv
+	case ir.BinaryDivide:
+		if rv == 0 {
+			return 0, false // avoid division by zero
+		}
+		result = lv / rv
+	default:
+		return 0, false
+	}
+	return e.getFloatConstID(result), true
+}
+
+// tryFoldIntBinOp checks if both lhs and rhs are integer constants and
+// folds the binary operation at compile time.
+func (e *Emitter) tryFoldIntBinOp(op ir.BinaryOperator, lhs, rhs int, _ bool) (int, bool) {
+	lc, lok := e.constMap[lhs]
+	if !lok || lc.IsUndef || lc.ConstType == nil || lc.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	rc, rok := e.constMap[rhs]
+	if !rok || rc.IsUndef || rc.ConstType == nil || rc.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	lv := lc.IntValue
+	rv := rc.IntValue
+	var result int64
+	switch op {
+	case ir.BinaryAdd:
+		result = lv + rv
+	case ir.BinarySubtract:
+		result = lv - rv
+	case ir.BinaryMultiply:
+		result = lv * rv
+	case ir.BinaryAnd:
+		result = lv & rv
+	case ir.BinaryInclusiveOr:
+		result = lv | rv
+	case ir.BinaryExclusiveOr:
+		result = lv ^ rv
+	case ir.BinaryShiftLeft:
+		if rv >= 0 && rv < 64 {
+			result = lv << uint(rv)
+		} else {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	return e.getIntConstID(result), true
 }
 
 // tryShlAndCombine detects mul(and(X, C1), 2^N) or mul(as(and(X, C1)), 2^N)
@@ -4835,7 +4943,7 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	// Alignment: log2(align) + 1, with bit 6 set for explicit type (LLVM 3.7).
 	// Mesa: util_logbase2(align) + 1, then |= (1 << 6).
 	// Reference: Mesa dxil_module.c dxil_emit_alloca().
-	align := e.alignForType(elemTy) + 1 // log2(bytes) + 1
+	align := e.alignForType(elemTy)
 	alignFlags := align | (1 << 6)
 
 	i32Ty := e.mod.GetIntType(32)
@@ -5077,6 +5185,7 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	if gv.Space == ir.SpaceWorkGroup {
 		mangledName := hlslMangledGroupsharedName(e.ir, gv)
 		modGV := e.mod.AddGlobalVar(mangledName, elemTy, 3)
+		modGV.Alignment = globalVarAlignment(elemTy)
 		emitterID := e.allocValue()
 		if e.globalVarModuleVars == nil {
 			e.globalVarModuleVars = make(map[int]*module.GlobalVar)
@@ -5095,8 +5204,8 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	sizeID := e.getIntConstID(1)
 	i32Ty := e.mod.GetIntType(32)
 
-	// Alignment: log2(align) + 1, with bit 6 set for explicit type (LLVM 3.7).
-	align := e.alignForType(elemTy) + 1
+	// Alignment: log2(align)+1, with bit 6 set for explicit type (LLVM 3.7).
+	align := e.alignForType(elemTy)
 	alignFlags := align | (1 << 6)
 
 	valueID := e.allocValue()
@@ -5343,34 +5452,66 @@ func (e *Emitter) resolveLoadTypeFromExpressionInfo(fn *ir.Function, ptrHandle i
 	return e.mod.GetIntType(32), nil
 }
 
-// alignForType returns the alignment value for a DXIL type.
-// For alloca this is encoded as log2(bytes)+1, for load/store it's log2(bytes).
-// Uses the natural alignment of the type.
+// alignForType returns the LLVM bitcode alignment encoding for a DXIL type.
+// The encoding is log2(bytes)+1, where 0 means default. This value is used
+// directly in INST_STORE, INST_LOAD, and INST_ALLOCA records.
+// Reference: Mesa dxil_module.c uses util_logbase2(align)+1 for all three.
 func (e *Emitter) alignForType(ty *module.Type) int {
 	switch ty.Kind {
 	case module.TypeFloat:
 		switch ty.FloatBits {
 		case 16:
-			return 1 // log2(2) = 1
+			return 2 // log2(2)+1 = 2
 		case 64:
-			return 3 // log2(8) = 3
+			return 4 // log2(8)+1 = 4
 		default:
-			return 2 // log2(4) = 2 for f32
+			return 3 // log2(4)+1 = 3 for f32
 		}
 	case module.TypeInteger:
 		switch ty.IntBits {
 		case 1, 8:
-			return 0 // log2(1) = 0
+			return 1 // log2(1)+1 = 1
 		case 16:
-			return 1 // log2(2) = 1
+			return 2 // log2(2)+1 = 2
 		case 64:
-			return 3 // log2(8) = 3
+			return 4 // log2(8)+1 = 4
 		default:
-			return 2 // log2(4) = 2 for i32
+			return 3 // log2(4)+1 = 3 for i32
 		}
 	default:
-		return 2 // default 4-byte alignment
+		return 3 // default 4-byte alignment: log2(4)+1 = 3
 	}
+}
+
+// globalVarAlignment returns the byte alignment for a workgroup global
+// variable based on its element type. DXC uses the natural alignment of
+// the scalar element: 8 bytes for i64/f64, 4 bytes for all smaller types.
+// For arrays and structs, walks to the leaf element type.
+func globalVarAlignment(ty *module.Type) uint32 {
+	switch ty.Kind {
+	case module.TypeInteger:
+		if ty.IntBits == 64 {
+			return 8
+		}
+	case module.TypeFloat:
+		if ty.FloatBits == 64 {
+			return 8
+		}
+	case module.TypeArray:
+		if ty.ElemType != nil {
+			return globalVarAlignment(ty.ElemType)
+		}
+	case module.TypeStruct:
+		// Return the max alignment of any member.
+		maxAlign := uint32(4)
+		for _, elem := range ty.StructElems {
+			if a := globalVarAlignment(elem); a > maxAlign {
+				maxAlign = a
+			}
+		}
+		return maxAlign
+	}
+	return 4
 }
 
 // emitZeroValue emits a zero-initialized constant.
@@ -5701,6 +5842,14 @@ func (e *Emitter) emitScalarCast(src int, srcScalar, dstScalar ir.ScalarType, is
 		return src, nil
 	}
 	if isBitcast {
+		// Constant fold: bitcast of a float constant to int produces the
+		// IEEE 754 bit representation as an integer literal. DXC folds
+		// these at compile time (e.g., bitcast float 1.0 to i32 = 1065353216).
+		if c, ok := e.constMap[src]; ok && !c.IsUndef {
+			if folded, ok := e.tryFoldBitcast(c, srcScalar, dstScalar); ok {
+				return folded, nil
+			}
+		}
 		destTy := scalarToDXIL(e.mod, dstScalar)
 		return e.addCastInstr(destTy, CastBitcast, src), nil
 	}

@@ -64,7 +64,7 @@ define void @compute() {
   %R13 = add i32 %R1, %R0
   %R14 = add i32 %R13, %R2
   %R15 = add i32 %R14, %R12
-  store i32 %R15, i32 addrspace(3)* getelementptr inbounds ([1 x i32], [1 x i32] addrspace(3)* @"\01?output@@3PAIA", i32 0, i32 0), align 4, !tbaa !M0
+  store i32 %R15, i32 addrspace(3)* getelementptr inbounds ([1 x i32], [1 x i32] addrspace(3)* @"\01?output@@3PAIA", i32 0, i32 0), align 4
   ret void
 }
 
@@ -86,20 +86,20 @@ declare i32 @dx.op.threadIdInGroup.i32(i32, i32) #A1
 attributes #A0 = { noduplicate nounwind }
 attributes #A1 = { nounwind readnone }
 
-!llvm.ident = !{!M1}
-!dx.version = !{!M2}
-!dx.valver = !{!M3}
-!dx.shaderModel = !{!M4}
-!dx.entryPoints = !{!M5}
+!llvm.ident = !{!M0}
+!dx.version = !{!M1}
+!dx.valver = !{!M2}
+!dx.shaderModel = !{!M3}
+!dx.entryPoints = !{!M4}
 
-!M1 = !{!"<ident>"}
+!M0 = !{!"<ident>"}
+!M1 = !{i32 1, i32 0}
 !M2 = !{i32 1, i32 0}
-!M3 = !{i32 1, i32 0}
-!M4 = !{!"cs", i32 6, i32 0}
-!M5 = !{void ()* @compute, !"compute", null, null, !M6}
-!M6 = !{i32 4, !M7}
-!M7 = !{i32 1, i32 1, i32 1}
-!M0 = !{!M8, !M8, i64 0}
+!M3 = !{!"cs", i32 6, i32 0}
+!M4 = !{void ()* @compute, !"compute", null, null, !M5}
+!M5 = !{i32 4, !M6}
+!M6 = !{i32 1, i32 1, i32 1}
+!M7 = !{!M8, !M8, i64 0}
 !M8 = !{!"int", !M9, i64 0}
 !M9 = !{!"omnipotent char", !M10, i64 0}
 !M10 = !{!"<ident>"}

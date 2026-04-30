@@ -631,6 +631,9 @@ type GlobalVar struct {
 	IsConstant  bool
 	Initializer *Constant
 	ValueID     int
+	// Alignment is the byte alignment for the global variable.
+	// 0 means use the default (4). Set to 8 for i64/f64 types.
+	Alignment uint32
 }
 
 // AddGlobalVar registers a global variable with the given pointee type

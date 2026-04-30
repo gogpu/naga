@@ -58,7 +58,7 @@ define void @main() {
   br i1 %R7, label %R8, label %R9
 
 ; <label>:9                                       ; preds = %R10
-  store i32 0, i32 addrspace(3)* @"\01?shared_counter@@3IA", align 4, !tbaa !M0
+  store i32 0, i32 addrspace(3)* @"\01?shared_counter@@3IA", align 4
   br label %R9
 
 ; <label>:10                                      ; preds = %R8, %R10
@@ -67,7 +67,7 @@ define void @main() {
   br i1 %R11, label %R12, label %R13
 
 ; <label>:12                                      ; preds = %R9
-  store i32 0, i32 addrspace(3)* @"\01?shared_counter@@3IA", align 4, !tbaa !M0
+  store i32 0, i32 addrspace(3)* @"\01?shared_counter@@3IA", align 4
   br label %R13
 
 ; <label>:13                                      ; preds = %R12, %R9
@@ -78,7 +78,7 @@ define void @main() {
   br i1 %R14, label %R16, label %R17
 
 ; <label>:16                                      ; preds = %R13
-  %R18 = load i32, i32 addrspace(3)* @"\01?shared_counter@@3IA", align 4, !tbaa !M0
+  %R18 = load i32, i32 addrspace(3)* @"\01?shared_counter@@3IA", align 4
   call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 0, i32 undef, i32 %R18, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
   br label %R17
 
@@ -106,24 +106,24 @@ attributes #A1 = { nounwind }
 attributes #A2 = { nounwind readonly }
 attributes #A3 = { nounwind readnone }
 
-!llvm.ident = !{!M1}
-!dx.version = !{!M2}
-!dx.valver = !{!M3}
-!dx.shaderModel = !{!M4}
-!dx.resources = !{!M5}
-!dx.entryPoints = !{!M6}
+!llvm.ident = !{!M0}
+!dx.version = !{!M1}
+!dx.valver = !{!M2}
+!dx.shaderModel = !{!M3}
+!dx.resources = !{!M4}
+!dx.entryPoints = !{!M5}
 
-!M1 = !{!"<ident>"}
+!M0 = !{!"<ident>"}
+!M1 = !{i32 1, i32 0}
 !M2 = !{i32 1, i32 0}
-!M3 = !{i32 1, i32 0}
-!M4 = !{!"cs", i32 6, i32 0}
-!M5 = !{null, !M7, null, null}
-!M7 = !{!M8}
-!M8 = !{i32 0, %struct.S0* undef, !"", i32 0, i32 0, i32 1, i32 11, i1 false, i1 false, i1 false, null}
-!M6 = !{void ()* @main, !"main", null, !M5, !M9}
-!M9 = !{i32 0, i64 16, i32 4, !M10}
-!M10 = !{i32 64, i32 1, i32 1}
-!M0 = !{!M11, !M11, i64 0}
+!M3 = !{!"cs", i32 6, i32 0}
+!M4 = !{null, !M6, null, null}
+!M6 = !{!M7}
+!M7 = !{i32 0, %struct.S0* undef, !"", i32 0, i32 0, i32 1, i32 11, i1 false, i1 false, i1 false, null}
+!M5 = !{void ()* @main, !"main", null, !M4, !M8}
+!M8 = !{i32 0, i64 16, i32 4, !M9}
+!M9 = !{i32 64, i32 1, i32 1}
+!M10 = !{!M11, !M11, i64 0}
 !M11 = !{!"int", !M12, i64 0}
 !M12 = !{!"omnipotent char", !M13, i64 0}
 !M13 = !{!"<ident>"}
