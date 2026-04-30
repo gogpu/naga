@@ -66,7 +66,7 @@
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
-- **Validation** — Type checking, semantic validation, function call argument type/count verification
+- **Validation** — Type checking, semantic validation, function call argument type/count verification, `@must_use` enforcement, `const_assert` evaluation, `@binding`/`@group` pairing, array size validation, swizzle namespace enforcement, mandatory semicolons
 - **CLI Tool** — `nagac` command-line compiler
 
 ---

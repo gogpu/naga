@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.8] - 2026-04-30
+
 ### Fixed
 
 - **Function call argument type validation** ([#66](https://github.com/gogpu/naga/issues/66)).
@@ -14,8 +16,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameters. Passing `vec2<u32>` where `u32` is expected now produces a
   clear compile error instead of silently generating invalid shader code
   that crashes at pipeline creation. Reported by @maxsupermanhd.
-  9 test cases covering shape mismatches, count mismatches, and abstract
-  type concretization.
+
+- **Mandatory semicolons** — 16 places in the parser changed from optional
+  to required semicolons per WGSL grammar. `const X: u32 = 42` without `;`
+  now errors. For-loop init/update handled via `inForHeader` context flag.
+
+- **`@must_use` enforcement** — functions with `@must_use` attribute now
+  reject calls where the result is discarded as a statement.
+
+- **`@compute` requires `@workgroup_size`** — compute entry points without
+  `@workgroup_size` attribute now error at compile time.
+
+- **`const_assert` evaluation** — `const_assert false;` now produces a
+  compile error. Supports bool literals, negation, logical ops, integer
+  comparisons, and named constants. Complex expressions gracefully skipped.
+
+- **`@binding`/`@group` pairing** — resource variables with `@binding`
+  but no `@group` (or vice versa) now error.
+
+- **Zero-sized arrays rejected** — `array<T, 0>` now produces a compile
+  error per WGSL spec (array size must be positive).
+
+- **Invalid swizzle components** — GLSL-only `s/t/p/q` swizzle names
+  rejected. Mixed namespaces (`v.xg`, `v.rb`) rejected. Only `x/y/z/w`
+  and `r/g/b/a` accepted, each set must be used consistently.
+
+### Validation parity
+
+All 8 fixes verified against Rust naga — identical rejection behavior.
 
 ## [0.17.6] - 2026-04-23
 
