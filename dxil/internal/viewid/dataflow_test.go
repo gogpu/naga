@@ -516,3 +516,338 @@ func builtinBinding(b ir.BuiltinValue) *ir.Binding {
 	v := ir.Binding(ir.BuiltinBinding{Builtin: b})
 	return &v
 }
+
+// TestVertexTwoStructsPrecision models the interface/vertex_two_structs shader:
+//
+//	struct Input1 { @builtin(vertex_index) index: u32 }
+//	struct Input2 { @builtin(instance_index) index: u32 }
+//	@vertex
+//	fn vertex_two_structs(in1: Input1, in2: Input2) -> @builtin(position) vec4<f32> {
+//	    var index = 2u;
+//	    return vec4<f32>(f32(in1.index), f32(in2.index), f32(index), 0.0);
+//	}
+//
+// Expected (DXC): output 0 depends on inputs: { 0 }, output 1 depends on inputs: { 4 },
+// outputs 2-3 depend on nothing (constant values).
+func TestVertexTwoStructsPrecision(t *testing.T) {
+	mod := makeBasicMod()
+	// Type 0: f32, Type 1: vec3<f32>, Type 2: vec4<f32>
+	u32H := ir.TypeHandle(len(mod.Types))
+	mod.Types = append(mod.Types, ir.Type{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}) // 3: u32
+
+	// Struct Input1 { @builtin(vertex_index) index: u32 }
+	input1H := ir.TypeHandle(len(mod.Types))
+	mod.Types = append(mod.Types, ir.Type{
+		Name: "Input1",
+		Inner: ir.StructType{
+			Members: []ir.StructMember{
+				{Name: "index", Type: u32H, Binding: builtinBinding(ir.BuiltinVertexIndex)},
+			},
+		},
+	}) // 4: Input1
+
+	// Struct Input2 { @builtin(instance_index) index: u32 }
+	input2H := ir.TypeHandle(len(mod.Types))
+	mod.Types = append(mod.Types, ir.Type{
+		Name: "Input2",
+		Inner: ir.StructType{
+			Members: []ir.StructMember{
+				{Name: "index", Type: u32H, Binding: builtinBinding(ir.BuiltinInstanceIndex)},
+			},
+		},
+	}) // 5: Input2
+
+	// Return type: @builtin(position) vec4<f32>
+	outBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+
+	fn := ir.Function{
+		Arguments: []ir.FunctionArgument{
+			{Name: "in1", Type: input1H, Binding: nil},
+			{Name: "in2", Type: input2H, Binding: nil},
+		},
+		Result: &ir.FunctionResult{Type: 2, Binding: &outBinding},
+		LocalVars: []ir.LocalVariable{
+			{Name: "index", Type: u32H, Init: ptrExprHandle(6)}, // init = Literal(2u)
+		},
+	}
+
+	// Expressions:
+	// 0: FunctionArgument(0)    = in1 : Input1
+	// 1: FunctionArgument(1)    = in2 : Input2
+	// 2: AccessIndex(0, 0)      = in1.index : u32
+	// 3: AccessIndex(1, 0)      = in2.index : u32
+	// 4: As(2, f32)             = f32(in1.index) : f32
+	// 5: As(3, f32)             = f32(in2.index) : f32
+	// 6: Literal(2u)            = 2u : u32
+	// 7: LocalVariable(0)       = &index : ptr<u32>
+	// 8: Load(7)                = *index : u32
+	// 9: As(8, f32)             = f32(index) : f32
+	// 10: Literal(0.0)          = 0.0 : f32
+	// 11: Compose(vec4, [4,5,9,10])
+	fn.Expressions = []ir.Expression{
+		{Kind: ir.ExprFunctionArgument{Index: 0}},
+		{Kind: ir.ExprFunctionArgument{Index: 1}},
+		{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
+		{Kind: ir.ExprAccessIndex{Base: 1, Index: 0}},
+		{Kind: ir.ExprAs{Expr: 2, Kind: ir.ScalarFloat, Convert: ptrU8(4)}},
+		{Kind: ir.ExprAs{Expr: 3, Kind: ir.ScalarFloat, Convert: ptrU8(4)}},
+		{Kind: ir.Literal{Value: ir.LiteralU32(2)}},
+		{Kind: ir.ExprLocalVariable{Variable: 0}},
+		{Kind: ir.ExprLoad{Pointer: 7}},
+		{Kind: ir.ExprAs{Expr: 8, Kind: ir.ScalarFloat, Convert: ptrU8(4)}},
+		{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
+		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{4, 5, 9, 10}}},
+	}
+
+	f32H := ir.TypeHandle(0)
+	vec4H := ir.TypeHandle(2)
+	fn.ExpressionTypes = []ir.TypeResolution{
+		{Handle: &input1H}, // 0: FunctionArgument(0)
+		{Handle: &input2H}, // 1: FunctionArgument(1)
+		{Handle: &u32H},    // 2: AccessIndex
+		{Handle: &u32H},    // 3: AccessIndex
+		{Handle: &f32H},    // 4: As -> f32
+		{Handle: &f32H},    // 5: As -> f32
+		{Handle: &u32H},    // 6: Literal
+		{Handle: &u32H},    // 7: LocalVariable (ptr type simplified)
+		{Handle: &u32H},    // 8: Load
+		{Handle: &f32H},    // 9: As -> f32
+		{Handle: &f32H},    // 10: Literal
+		{Handle: &vec4H},   // 11: Compose
+	}
+
+	// Body:
+	// StmtEmit [2..6)   -- lower in1.index, in2.index, f32 casts
+	// StmtEmit [8..12)  -- Load, As, Literal, Compose
+	// StmtReturn(11)
+	ret := ir.ExpressionHandle(11)
+	fn.Body = []ir.Statement{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 6}}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 8, End: 12}}},
+		{Kind: ir.StmtReturn{Value: &ret}},
+	}
+
+	ep := ir.EntryPoint{
+		Name:     "vertex_two_structs",
+		Stage:    ir.StageVertex,
+		Function: fn,
+	}
+
+	// Input signature: VS inputs in declaration order (InputAssembler packing).
+	// Input1.index = @builtin(vertex_index) at row 0
+	// Input2.index = @builtin(instance_index) at row 1
+	inputs := []SigElement{
+		{ScalarStart: 0, NumChannels: 1, VectorRow: 0, StartCol: 0}, // SV_VertexID
+		{ScalarStart: 1, NumChannels: 1, VectorRow: 1, StartCol: 0}, // SV_InstanceID
+	}
+	// Output: @builtin(position) vec4<f32> at row 0
+	outputs := []SigElement{
+		{ScalarStart: 0, NumChannels: 4, VectorRow: 0, StartCol: 0}, // SV_Position
+	}
+
+	deps := Analyze(mod, &ep, inputs, outputs)
+
+	// Check: packed linear indexing.
+	// Input scalar 0 = SV_VertexID (row 0, col 0, packed = 0)
+	// Input scalar 1 = SV_InstanceID (row 1, col 0, packed = 4)
+	// Output scalars 0..3 = SV_Position.xyzw
+
+	// DXC expected:
+	//   output 0 depends on inputs: { 0 }       (in1.index -> out.x)
+	//   output 1 depends on inputs: { 4 }       (in2.index -> out.y)
+	//   outputs 2-3: no deps                     (constants)
+	outMask := MaskDwordsForScalars(deps.NumOutputScalars)
+
+	// Input packed 0 (SV_VertexID) -> should set only output bit 0
+	if got := deps.InputScalarToOutputs[0*outMask]; got != 0x1 {
+		t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (only output.x)", got)
+	}
+	// Input packed 1..3 (padding in row 0): no deps
+	for i := uint32(1); i < 4 && i*outMask < uint32(len(deps.InputScalarToOutputs)); i++ {
+		if deps.InputScalarToOutputs[i*outMask] != 0 {
+			t.Errorf("InputScalarToOutputs[%d] = 0x%x, want 0 (padding)", i, deps.InputScalarToOutputs[i*outMask])
+		}
+	}
+	// Input packed 4 (SV_InstanceID) -> should set only output bit 1
+	if 4*outMask < uint32(len(deps.InputScalarToOutputs)) {
+		if got := deps.InputScalarToOutputs[4*outMask]; got != 0x2 {
+			t.Errorf("InputScalarToOutputs[4] = 0x%x, want 0x2 (only output.y)", got)
+		}
+	} else {
+		t.Errorf("InputScalarToOutputs too short: len=%d, need index 4+", len(deps.InputScalarToOutputs))
+	}
+}
+
+// TestExprAliasTaintForwarding verifies that ExprAlias (produced by
+// mem2reg) correctly forwards the source expression's taint. After
+// mem2reg promotes a scalar local, loads are rewritten to ExprAlias
+// pointing at the stored value. The ViewID analyzer must follow this
+// alias chain to produce precise per-component dependencies.
+//
+// Models a post-mem2reg IR where a local variable init is aliased:
+//
+//	original: var idx: u32 = vertex_index; ... f32(idx) ...
+//	after mem2reg: ExprAlias(vertex_index) replaces ExprLoad(localvar)
+func TestExprAliasTaintForwarding(t *testing.T) {
+	mod := makeBasicMod()
+	u32H := ir.TypeHandle(len(mod.Types))
+	mod.Types = append(mod.Types, ir.Type{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}})
+
+	argBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex})
+	outBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+
+	fn := ir.Function{
+		Arguments: []ir.FunctionArgument{
+			{Name: "vertex_index", Type: u32H, Binding: &argBinding},
+		},
+		Result: &ir.FunctionResult{Type: 2, Binding: &outBinding},
+	}
+
+	// Expressions (after mem2reg):
+	// 0: FunctionArgument(0) = vertex_index : u32
+	// 1: ExprAlias(0)        = alias of vertex_index (was: load of promoted local)
+	// 2: ExprAs(1, f32)      = f32(alias) : f32
+	// 3: Literal(0.0)        = 0.0 : f32
+	// 4: Compose(vec4, [2, 3, 3, 3])
+	fn.Expressions = []ir.Expression{
+		{Kind: ir.ExprFunctionArgument{Index: 0}},
+		{Kind: ir.ExprAlias{Source: 0}},
+		{Kind: ir.ExprAs{Expr: 1, Kind: ir.ScalarFloat, Convert: ptrU8(4)}},
+		{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
+		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{2, 3, 3, 3}}},
+	}
+
+	f32H := ir.TypeHandle(0)
+	vec4H := ir.TypeHandle(2)
+	fn.ExpressionTypes = []ir.TypeResolution{
+		{Handle: &u32H},
+		{Handle: &u32H},
+		{Handle: &f32H},
+		{Handle: &f32H},
+		{Handle: &vec4H},
+	}
+
+	ret := ir.ExpressionHandle(4)
+	fn.Body = []ir.Statement{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 1, End: 5}}},
+		{Kind: ir.StmtReturn{Value: &ret}},
+	}
+
+	ep := ir.EntryPoint{
+		Name: "main", Stage: ir.StageVertex,
+		Function: fn,
+	}
+
+	inputs := []SigElement{
+		{ScalarStart: 0, NumChannels: 1, VectorRow: 0, StartCol: 0},
+	}
+	outputs := []SigElement{
+		{ScalarStart: 0, NumChannels: 4, VectorRow: 0, StartCol: 0},
+	}
+
+	deps := Analyze(mod, &ep, inputs, outputs)
+
+	// Only output 0 (x) depends on input 0 (vertex_index).
+	// Outputs 1-3 are constant (0.0), no deps.
+	outMask := MaskDwordsForScalars(deps.NumOutputScalars)
+	if got := deps.InputScalarToOutputs[0*outMask]; got != 0x1 {
+		t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (alias should forward taint only to output.x)", got)
+	}
+}
+
+// TestExprPhiTaintMerge verifies that ExprPhi (produced by mem2reg for
+// multi-block locals) correctly merges taint from all incoming values.
+//
+// Models:
+//
+//	if (cond) { x = input_a; } else { x = input_b; }
+//	return vec4(x, 0, 0, 0);
+//
+// After mem2reg, the load of x becomes ExprPhi([input_a, input_b]).
+// Output 0 should depend on BOTH input_a and input_b.
+func TestExprPhiTaintMerge(t *testing.T) {
+	mod := makeBasicMod()
+
+	argABinding := ir.Binding(ir.LocationBinding{Location: 0})
+	argBBinding := ir.Binding(ir.LocationBinding{Location: 1})
+	outBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
+
+	fn := ir.Function{
+		Arguments: []ir.FunctionArgument{
+			{Name: "a", Type: 0, Binding: &argABinding}, // f32
+			{Name: "b", Type: 0, Binding: &argBBinding}, // f32
+		},
+		Result: &ir.FunctionResult{Type: 2, Binding: &outBinding},
+	}
+
+	// Expressions:
+	// 0: FunctionArgument(0) = a : f32
+	// 1: FunctionArgument(1) = b : f32
+	// 2: ExprPhi([a, b])     = merged value from if/else
+	// 3: Literal(0.0)        = 0.0 : f32
+	// 4: Compose(vec4, [2, 3, 3, 3])
+	fn.Expressions = []ir.Expression{
+		{Kind: ir.ExprFunctionArgument{Index: 0}},
+		{Kind: ir.ExprFunctionArgument{Index: 1}},
+		{Kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{
+			{PredKey: ir.PhiPredIfAccept, Value: 0},
+			{PredKey: ir.PhiPredIfReject, Value: 1},
+		}}},
+		{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
+		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{2, 3, 3, 3}}},
+	}
+
+	f32H := ir.TypeHandle(0)
+	vec4H := ir.TypeHandle(2)
+	fn.ExpressionTypes = []ir.TypeResolution{
+		{Handle: &f32H},
+		{Handle: &f32H},
+		{Handle: &f32H},
+		{Handle: &f32H},
+		{Handle: &vec4H},
+	}
+
+	ret := ir.ExpressionHandle(4)
+	fn.Body = []ir.Statement{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 5}}},
+		{Kind: ir.StmtReturn{Value: &ret}},
+	}
+
+	ep := ir.EntryPoint{
+		Name: "main", Stage: ir.StageVertex,
+		Function: fn,
+	}
+
+	inputs := []SigElement{
+		{ScalarStart: 0, NumChannels: 1, VectorRow: 0, StartCol: 0},
+		{ScalarStart: 1, NumChannels: 1, VectorRow: 1, StartCol: 0},
+	}
+	outputs := []SigElement{
+		{ScalarStart: 0, NumChannels: 4, VectorRow: 0, StartCol: 0},
+	}
+
+	deps := Analyze(mod, &ep, inputs, outputs)
+
+	// Output 0 (x) depends on BOTH inputs (phi merges a and b).
+	// Outputs 1-3 are constant, no deps.
+	outMask := MaskDwordsForScalars(deps.NumOutputScalars)
+
+	// Input 0 (location 0, packed index 0) -> output 0
+	if got := deps.InputScalarToOutputs[0*outMask]; got != 0x1 {
+		t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (input a -> output.x via phi)", got)
+	}
+	// Input 4 (location 1, packed index 4) -> output 0
+	if 4*outMask < uint32(len(deps.InputScalarToOutputs)) {
+		if got := deps.InputScalarToOutputs[4*outMask]; got != 0x1 {
+			t.Errorf("InputScalarToOutputs[4] = 0x%x, want 0x1 (input b -> output.x via phi)", got)
+		}
+	}
+}
+
+func ptrExprHandle(h ir.ExpressionHandle) *ir.ExpressionHandle {
+	return &h
+}
+
+func ptrU8(v uint8) *uint8 {
+	return &v
+}

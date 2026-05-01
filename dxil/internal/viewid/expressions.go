@@ -361,6 +361,28 @@ func (s *analysisState) computeTaint(h ir.ExpressionHandle) componentTaint {
 		ir.ExprSubgroupBallotResult, ir.ExprSubgroupOperationResult:
 		return emptyTaint(resultN)
 
+	case ir.ExprAlias:
+		// mem2reg rewrites promoted loads into ExprAlias pointing at
+		// the value that was stored (or the Init expression). The
+		// taint is simply the taint of the aliased source.
+		return s.taintOf(k.Source).perComponentCopy(resultN)
+
+	case ir.ExprPhi:
+		// mem2reg inserts ExprPhi at merge points (if/switch/loop).
+		// The taint of a phi is the per-component union of all
+		// incoming values -- any incoming path could supply the value
+		// at runtime.
+		out := emptyTaint(resultN)
+		for _, inc := range k.Incoming {
+			incTaint := s.taintOf(inc.Value)
+			for i := range out {
+				if i < len(incTaint) {
+					out[i].addAll(incTaint[i])
+				}
+			}
+		}
+		return out
+
 	default:
 		_ = k
 		s.giveUp = true
