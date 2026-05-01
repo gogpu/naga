@@ -5647,9 +5647,9 @@ func TestEmitRawBufferFloatStoreUsesI32Overload(t *testing.T) {
 		}
 	}
 
-	if bitcastCount < 2 {
-		t.Errorf("expected at least 2 bitcast instructions (float->i32 for vec2), got %d", bitcastCount)
-	}
+	// With constant folding, float literals are folded to i32 at compile time,
+	// so bitcasts may be 0 when all store values are constant. The key invariant
+	// is that bufferStore.i32 is used (not .f32).
 	if bufferStoreI32Count < 1 {
 		t.Errorf("expected at least 1 bufferStore.i32 call, got %d", bufferStoreI32Count)
 	}
@@ -6899,5 +6899,626 @@ func TestIsInt64Type(t *testing.T) {
 				t.Errorf("isInt64Type(%v) = %v, want %v", tc.ty, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestAlignForType verifies that alignForType returns the LLVM bitcode
+// alignment encoding (log2(bytes)+1) for each scalar type.
+// Reference: LLVM INST_STORE/INST_LOAD alignment field, Mesa dxil_module.c.
+func TestAlignForType(t *testing.T) {
+	e := &Emitter{mod: module.NewModule(module.ComputeShader)}
+	cases := []struct {
+		name string
+		ty   *module.Type
+		want int // log2(bytes)+1
+	}{
+		{"i1", e.mod.GetIntType(1), 1},     // 1-byte: log2(1)+1=1
+		{"i8", e.mod.GetIntType(8), 1},     // 1-byte: log2(1)+1=1
+		{"i16", e.mod.GetIntType(16), 2},   // 2-byte: log2(2)+1=2
+		{"i32", e.mod.GetIntType(32), 3},   // 4-byte: log2(4)+1=3
+		{"i64", e.mod.GetIntType(64), 4},   // 8-byte: log2(8)+1=4
+		{"f16", e.mod.GetFloatType(16), 2}, // 2-byte: log2(2)+1=2
+		{"f32", e.mod.GetFloatType(32), 3}, // 4-byte: log2(4)+1=3
+		{"f64", e.mod.GetFloatType(64), 4}, // 8-byte: log2(8)+1=4
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := e.alignForType(tc.ty)
+			if got != tc.want {
+				t.Errorf("alignForType(%s) = %d, want %d", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestGlobalVarAlignment verifies that globalVarAlignment returns the
+// correct byte alignment for workgroup global variables. DXC uses
+// align 8 for i64/f64 types and align 4 for everything else.
+func TestGlobalVarAlignment(t *testing.T) {
+	m := module.NewModule(module.ComputeShader)
+	cases := []struct {
+		name string
+		ty   *module.Type
+		want uint32
+	}{
+		{"i32", m.GetIntType(32), 4},
+		{"i64", m.GetIntType(64), 8},
+		{"f32", m.GetFloatType(32), 4},
+		{"f64", m.GetFloatType(64), 8},
+		{"[2 x i32]", m.GetArrayType(m.GetIntType(32), 2), 4},
+		{"[2 x i64]", m.GetArrayType(m.GetIntType(64), 2), 8},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := globalVarAlignment(tc.ty)
+			if got != tc.want {
+				t.Errorf("globalVarAlignment(%s) = %d, want %d", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFoldNumericCast verifies that constant int-to-float and float-to-int
+// casts are folded at compile time, matching DXC's LLVM constant folder.
+func TestFoldNumericCast(t *testing.T) {
+	e := &Emitter{
+		constMap:    make(map[int]*module.Constant),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+		undefID:     -1,
+	}
+	e.mod = &module.Module{}
+
+	tests := []struct {
+		name      string
+		srcKind   ir.ScalarKind
+		dstKind   ir.ScalarKind
+		intVal    int64
+		floatVal  float64
+		wantFold  bool
+		wantFloat float64
+		wantInt   int64
+	}{
+		{"sint0_to_float", ir.ScalarSint, ir.ScalarFloat, 0, 0, true, 0.0, 0},
+		{"sint1_to_float", ir.ScalarSint, ir.ScalarFloat, 1, 0, true, 1.0, 0},
+		{"sint_neg1_to_float", ir.ScalarSint, ir.ScalarFloat, -1, 0, true, -1.0, 0},
+		{"uint2_to_float", ir.ScalarUint, ir.ScalarFloat, 2, 0, true, 2.0, 0},
+		{"float0_to_sint", ir.ScalarFloat, ir.ScalarSint, 0, 0.0, true, 0, 0},
+		{"float1_to_sint", ir.ScalarFloat, ir.ScalarSint, 0, 1.0, true, 0, 1},
+		{"float2_5_to_uint", ir.ScalarFloat, ir.ScalarUint, 0, 2.5, true, 0, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var srcID int
+			if tt.srcKind == ir.ScalarFloat {
+				srcID = e.getFloatConstID(tt.floatVal)
+			} else {
+				srcID = e.getIntConstID(tt.intVal)
+			}
+			src := ir.ScalarType{Kind: tt.srcKind, Width: 4}
+			dst := ir.ScalarType{Kind: tt.dstKind, Width: 4}
+			c := e.constMap[srcID]
+			resultID, ok := e.tryFoldNumericCast(c, src, dst)
+			if ok != tt.wantFold {
+				t.Errorf("fold=%v, want %v", ok, tt.wantFold)
+				return
+			}
+			if !ok {
+				return
+			}
+			rc, hasConst := e.constMap[resultID]
+			if !hasConst {
+				t.Error("result not in constMap")
+				return
+			}
+			if tt.dstKind == ir.ScalarFloat {
+				if rc.FloatValue != tt.wantFloat {
+					t.Errorf("float result = %v, want %v", rc.FloatValue, tt.wantFloat)
+				}
+			} else {
+				if rc.IntValue != tt.wantInt {
+					t.Errorf("int result = %v, want %v", rc.IntValue, tt.wantInt)
+				}
+			}
+		})
+	}
+}
+
+// TestAddMulOrShlInstr verifies that addMulOrShlInstr delegates to
+// tryMulToShl for power-of-2 constants. The actual instruction
+// generation is tested via the full DXC golden pipeline (bounds-check-
+// dynamic-buffer/main now uses shl i32 %R, 4 instead of mul i32 %R, 16).
+func TestAddMulOrShlInstr(t *testing.T) {
+	e := &Emitter{
+		constMap:    make(map[int]*module.Constant),
+		intConsts:   make(map[int64]int),
+		floatConsts: make(map[uint64]int),
+		undefID:     -1,
+	}
+	e.mod = &module.Module{}
+
+	// Verify that tryMulToShl fires for the stride constants used in
+	// CBV/UAV byte offset calculations.
+	strides := []struct {
+		stride   int64
+		wantShl  bool
+		shiftAmt int64
+	}{
+		{4, true, 2},   // sizeof(f32)
+		{8, true, 3},   // sizeof(f64)
+		{16, true, 4},  // sizeof(vec4 or @size(16) struct)
+		{32, true, 5},  // 2 * sizeof(vec4)
+		{12, false, 0}, // sizeof(vec3) — not a power of 2
+		{24, false, 0}, // sizeof(mat2x3) — not a power of 2
+	}
+
+	for _, tc := range strides {
+		constID := e.getIntConstID(tc.stride)
+		shiftID, ok := e.tryMulToShl(constID)
+		if ok != tc.wantShl {
+			t.Errorf("stride %d: shl=%v, want %v", tc.stride, ok, tc.wantShl)
+			continue
+		}
+		if ok {
+			sc := e.constMap[shiftID]
+			if sc.IntValue != tc.shiftAmt {
+				t.Errorf("stride %d: shift=%d, want %d", tc.stride, sc.IntValue, tc.shiftAmt)
+			}
+		}
+	}
+}
+
+// TestExprLeadsToResourceRead verifies that exprLeadsToResourceRead correctly
+// identifies expression chains that resolve to resource-bound global variables
+// (CBV/UAV/SRV). These chains produce dx.op memory read calls when emitted.
+func TestExprLeadsToResourceRead(t *testing.T) {
+	f32Handle := ir.TypeHandle(0)
+	structHandle := ir.TypeHandle(1)
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "Params", Inner: ir.StructType{
+				Members: []ir.StructMember{{Name: "value", Type: f32Handle, Offset: 0}},
+				Span:    4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:    "params",
+				Space:   ir.SpaceUniform,
+				Type:    structHandle,
+				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
+			},
+		},
+	}
+
+	// Function with expressions:
+	// expr0 = GlobalVariable(0)
+	// expr1 = AccessIndex(expr0, 0)
+	// expr2 = Load(expr1)
+	// expr3 = As(f32, expr0) -- pure ALU
+	w4 := uint8(4)
+	fn := &ir.Function{
+		Name: "test",
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
+			{Kind: ir.ExprLoad{Pointer: 1}},
+			{Kind: ir.ExprAs{Kind: ir.ScalarFloat, Expr: 0, Convert: &w4}},
+		},
+	}
+
+	e := &Emitter{
+		ir:              mod,
+		mod:             module.NewModule(module.VertexShader),
+		resourceHandles: map[ir.GlobalVariableHandle]int{0: 0},
+		exprValues:      make(map[ir.ExpressionHandle]int),
+	}
+
+	tests := []struct {
+		name   string
+		handle ir.ExpressionHandle
+		want   bool
+	}{
+		{"GlobalVariable(resource)", 0, true},
+		{"AccessIndex(resource, 0)", 1, true},
+		{"Load(AccessIndex(resource))", 2, true},
+		{"As(pure ALU)", 3, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := e.exprLeadsToResourceRead(fn, tc.handle)
+			if got != tc.want {
+				t.Errorf("exprLeadsToResourceRead(expr%d) = %v, want %v", tc.handle, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLeafEmitPriority verifies the leaf emission priority classification for
+// reassociated binary chains. Memory-reading leaves should be emitted before
+// pure ALU leaves so their value IDs are lower, matching DXC's instruction
+// scheduling within expression chains.
+func TestLeafEmitPriority(t *testing.T) {
+	f32Handle := ir.TypeHandle(0)
+	structHandle := ir.TypeHandle(1)
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "Params", Inner: ir.StructType{
+				Members: []ir.StructMember{{Name: "value", Type: f32Handle, Offset: 0}},
+				Span:    4,
+			}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{
+				Name:    "params",
+				Space:   ir.SpaceUniform,
+				Type:    structHandle,
+				Binding: &ir.ResourceBinding{Group: 0, Binding: 0},
+			},
+		},
+	}
+
+	// expr0 = GlobalVariable(0)            -- resource global
+	// expr1 = AccessIndex(expr0, 0)        -- access into resource
+	// expr2 = Load(expr1)                  -- load from resource (memory read)
+	// expr3 = As(f32, expr0)               -- pure ALU (cast)
+	// expr4 = Literal(1.0)                 -- constant
+	w4 := uint8(4)
+	fn := &ir.Function{
+		Name: "test",
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},
+			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
+			{Kind: ir.ExprLoad{Pointer: 1}},
+			{Kind: ir.ExprAs{Kind: ir.ScalarFloat, Expr: 0, Convert: &w4}},
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+		},
+	}
+
+	e := &Emitter{
+		ir:              mod,
+		mod:             module.NewModule(module.VertexShader),
+		resourceHandles: map[ir.GlobalVariableHandle]int{0: 0},
+		exprValues: map[ir.ExpressionHandle]int{
+			4: 42, // expr4 is already emitted with value ID 42
+		},
+	}
+
+	tests := []struct {
+		name   string
+		handle ir.ExpressionHandle
+		want   int // 0=cached, 1=memory-read, 2=pure ALU
+	}{
+		{"already emitted literal", 4, 0},
+		{"Load(AccessIndex(resource))", 2, 1},
+		{"As(pure cast)", 3, 2},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := e.leafEmitPriority(fn, tc.handle)
+			if got != tc.want {
+				t.Errorf("leafEmitPriority(expr%d) = %d, want %d", tc.handle, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMergeConsecutiveEmitRanges verifies that directly adjacent StmtEmit
+// statements are coalesced into a single StmtEmit covering the union range.
+func TestMergeConsecutiveEmitRanges(t *testing.T) {
+	retH := ir.ExpressionHandle(10)
+	tests := []struct {
+		name  string
+		input ir.Block
+		want  []ir.Range // expected emit ranges in output
+		wantN int        // expected total statement count
+	}{
+		{
+			name: "two consecutive emits merged",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 6}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 7, End: 11}}},
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  []ir.Range{{Start: 3, End: 11}},
+			wantN: 2, // merged emit + return
+		},
+		{
+			name: "three consecutive emits merged",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 5}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 5, End: 8}}},
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  []ir.Range{{Start: 0, End: 8}},
+			wantN: 2,
+		},
+		{
+			name: "emits separated by store not merged",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+				{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 5}}},
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  []ir.Range{{Start: 0, End: 3}, {Start: 3, End: 5}},
+			wantN: 4, // emit + store + emit + return
+		},
+		{
+			name: "single emit unchanged",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  []ir.Range{{Start: 0, End: 5}},
+			wantN: 2,
+		},
+		{
+			name: "no emits unchanged",
+			input: ir.Block{
+				{Kind: ir.StmtReturn{Value: &retH}},
+			},
+			want:  nil,
+			wantN: 1,
+		},
+		{
+			name:  "empty block",
+			input: ir.Block{},
+			want:  nil,
+			wantN: 0,
+		},
+		{
+			name: "two groups separated by if",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 4}}},
+				{Kind: ir.StmtIf{Condition: 3}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 6}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 6, End: 8}}},
+			},
+			want:  []ir.Range{{Start: 0, End: 4}, {Start: 4, End: 8}},
+			wantN: 3, // merged emit + if + merged emit
+		},
+		{
+			name: "non-contiguous ranges merged by max end",
+			input: ir.Block{
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+				{Kind: ir.StmtEmit{Range: ir.Range{Start: 5, End: 8}}},
+			},
+			want:  []ir.Range{{Start: 0, End: 8}},
+			wantN: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := mergeConsecutiveEmitRanges(tc.input)
+			if len(result) != tc.wantN {
+				t.Fatalf("got %d statements, want %d", len(result), tc.wantN)
+			}
+
+			// Collect emit ranges from result.
+			var gotRanges []ir.Range
+			for _, stmt := range result {
+				if emit, ok := stmt.Kind.(ir.StmtEmit); ok {
+					gotRanges = append(gotRanges, emit.Range)
+				}
+			}
+
+			if len(gotRanges) != len(tc.want) {
+				t.Fatalf("got %d emit ranges, want %d: %+v", len(gotRanges), len(tc.want), gotRanges)
+			}
+			for i, got := range gotRanges {
+				if got != tc.want[i] {
+					t.Errorf("range[%d] = %+v, want %+v", i, got, tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestMergeConsecutiveEmitRangesNoAlloc verifies that when no merging is
+// needed, the original block slice is returned without allocation.
+func TestMergeConsecutiveEmitRangesNoAlloc(t *testing.T) {
+	retH := ir.ExpressionHandle(5)
+	block := ir.Block{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+		{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 3, End: 5}}},
+		{Kind: ir.StmtReturn{Value: &retH}},
+	}
+
+	result := mergeConsecutiveEmitRanges(block)
+	// When no merge occurs, should return the original slice.
+	if len(result) != len(block) {
+		t.Fatalf("expected same length %d, got %d", len(block), len(result))
+	}
+	// Verify identity: same backing array.
+	if &result[0] != &block[0] {
+		t.Error("expected same backing array when no merge needed")
+	}
+}
+
+// TestDecomposeWorkgroupStructNames verifies that decomposeWorkgroupStruct
+// produces per-member globals with correct MSVC-mangled names matching DXC's
+// groupshared struct decomposition convention.
+func TestDecomposeWorkgroupStructNames(t *testing.T) {
+	// Build a minimal IR module with a struct workgroup var:
+	//   struct WStruct { arr: array<u32, 512>, atom: atomic<i32>, atom_arr: array<array<atomic<i32>, 8>, 8> }
+	//   var<workgroup> w_mem: WStruct;
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},                                  // [0] u32
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                                  // [1] i32
+			{Name: "", Inner: ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},           // [2] atomic<i32>
+			{Name: "", Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: ptrU32(512)}}},              // [3] array<u32, 512>
+			{Name: "", Inner: ir.ArrayType{Base: 2, Size: ir.ArraySize{Constant: ptrU32(8)}}},                // [4] array<atomic<i32>, 8>
+			{Name: "", Inner: ir.ArrayType{Base: ir.TypeHandle(4), Size: ir.ArraySize{Constant: ptrU32(8)}}}, // [5] array<array<atomic<i32>, 8>, 8>
+			{Name: "WStruct", Inner: ir.StructType{Members: []ir.StructMember{ // [6] WStruct
+				{Name: "arr", Type: 3},
+				{Name: "atom", Type: 2},
+				{Name: "atom_arr", Type: ir.TypeHandle(5)},
+			}}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "w_mem", Type: ir.TypeHandle(6), Space: ir.SpaceWorkGroup},
+		},
+	}
+
+	mod := module.NewModule(module.ComputeShader)
+	e := &Emitter{
+		ir:                      irMod,
+		mod:                     mod,
+		globalVarAllocas:        make(map[ir.GlobalVariableHandle]int),
+		globalVarAllocaTypes:    make(map[ir.GlobalVariableHandle]*module.Type),
+		globalVarModuleVars:     make(map[int]*module.GlobalVar),
+		decomposedWGMembers:     make(map[wgMemberKey]int),
+		decomposedWGMemberTypes: make(map[wgMemberKey]*module.Type),
+	}
+
+	gv := &irMod.GlobalVariables[0]
+	st := irMod.Types[gv.Type].Inner.(ir.StructType)
+
+	_, err := e.decomposeWorkgroupStruct(0, gv, st, "WStruct")
+	if err != nil {
+		t.Fatalf("decomposeWorkgroupStruct failed: %v", err)
+	}
+
+	// Verify sentinel in globalVarAllocas.
+	if id, ok := e.globalVarAllocas[0]; !ok || id != -1 {
+		t.Errorf("expected globalVarAllocas[0] = -1, got %d (exists=%v)", id, ok)
+	}
+
+	// Verify 3 decomposed members created.
+	if len(e.decomposedWGMembers) != 3 {
+		t.Fatalf("expected 3 decomposed members, got %d", len(e.decomposedWGMembers))
+	}
+
+	// Verify global var names match DXC convention.
+	wantNames := []string{
+		"\x01?w_mem@@3UWStruct@@A.0",
+		"\x01?w_mem@@3UWStruct@@A.1",
+		"\x01?w_mem@@3UWStruct@@A.2.1dim",
+	}
+	for i, want := range wantNames {
+		key := wgMemberKey{varHandle: 0, memberIndex: i}
+		memberID, ok := e.decomposedWGMembers[key]
+		if !ok {
+			t.Errorf("member %d not found in decomposedWGMembers", i)
+			continue
+		}
+		modGV, ok := e.globalVarModuleVars[memberID]
+		if !ok {
+			t.Errorf("member %d globalVar not found in globalVarModuleVars", i)
+			continue
+		}
+		if modGV.Name != want {
+			t.Errorf("member %d name = %q, want %q", i, modGV.Name, want)
+		}
+		// Verify undef initializer and external linkage.
+		if modGV.Initializer == nil {
+			t.Errorf("member %d missing undef initializer", i)
+		} else if !modGV.Initializer.IsUndef {
+			t.Errorf("member %d initializer is not undef", i)
+		}
+		if modGV.Linkage != 0 {
+			t.Errorf("member %d linkage = %d, want 0 (external)", i, modGV.Linkage)
+		}
+		if modGV.AddrSpace != 3 {
+			t.Errorf("member %d addrspace = %d, want 3", i, modGV.AddrSpace)
+		}
+	}
+}
+
+// TestIsMultiDimArray verifies the multi-dimensional array detection used
+// for the ".1dim" name suffix in decomposed workgroup struct members.
+func TestIsMultiDimArray(t *testing.T) {
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                                  // [0] i32
+			{Inner: ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},           // [1] atomic<i32>
+			{Inner: ir.ArrayType{Base: 1, Size: ir.ArraySize{Constant: ptrU32(8)}}},                // [2] array<atomic<i32>, 8>
+			{Inner: ir.ArrayType{Base: ir.TypeHandle(2), Size: ir.ArraySize{Constant: ptrU32(8)}}}, // [3] array<array<..., 8>, 8>
+			{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: ptrU32(512)}}},              // [4] array<i32, 512>
+		},
+	}
+
+	tests := []struct {
+		name string
+		ty   ir.TypeInner
+		want bool
+	}{
+		{"scalar", irMod.Types[0].Inner, false},
+		{"atomic", irMod.Types[1].Inner, false},
+		{"1D array", irMod.Types[4].Inner, false},
+		{"2D array", irMod.Types[3].Inner, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isMultiDimArray(irMod, tt.ty)
+			if got != tt.want {
+				t.Errorf("isMultiDimArray(%s) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDecomposeWorkgroupStructMemberTypes verifies that decomposed member
+// globals get the correct DXIL types (atomics unwrapped, arrays flattened).
+func TestDecomposeWorkgroupStructMemberTypes(t *testing.T) {
+	// struct S { scalar: atomic<u32>, arr: array<i32, 2> }
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},                        // [0] u32
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                        // [1] i32
+			{Inner: ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}}, // [2] atomic<u32>
+			{Inner: ir.ArrayType{Base: 1, Size: ir.ArraySize{Constant: ptrU32(2)}}},      // [3] array<i32, 2>
+			{Name: "Struct", Inner: ir.StructType{Members: []ir.StructMember{ // [4] Struct
+				{Name: "atomic_scalar", Type: 2},
+				{Name: "atomic_arr", Type: 3},
+			}}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "workgroup_struct", Type: ir.TypeHandle(4), Space: ir.SpaceWorkGroup},
+		},
+	}
+
+	mod := module.NewModule(module.ComputeShader)
+	e := &Emitter{
+		ir:                      irMod,
+		mod:                     mod,
+		globalVarAllocas:        make(map[ir.GlobalVariableHandle]int),
+		globalVarAllocaTypes:    make(map[ir.GlobalVariableHandle]*module.Type),
+		globalVarModuleVars:     make(map[int]*module.GlobalVar),
+		decomposedWGMembers:     make(map[wgMemberKey]int),
+		decomposedWGMemberTypes: make(map[wgMemberKey]*module.Type),
+	}
+
+	gv := &irMod.GlobalVariables[0]
+	st := irMod.Types[gv.Type].Inner.(ir.StructType)
+
+	_, err := e.decomposeWorkgroupStruct(0, gv, st, "Struct")
+	if err != nil {
+		t.Fatalf("decomposeWorkgroupStruct failed: %v", err)
+	}
+
+	// Member 0: atomic<u32> -> i32 (32-bit int, atomics unwrapped)
+	key0 := wgMemberKey{varHandle: 0, memberIndex: 0}
+	ty0 := e.decomposedWGMemberTypes[key0]
+	if ty0 == nil || ty0.Kind != module.TypeInteger || ty0.IntBits != 32 {
+		t.Errorf("member 0 type: expected i32, got %v", ty0)
+	}
+
+	// Member 1: array<i32, 2> -> [2 x i32]
+	key1 := wgMemberKey{varHandle: 0, memberIndex: 1}
+	ty1 := e.decomposedWGMemberTypes[key1]
+	if ty1 == nil || ty1.Kind != module.TypeArray || ty1.ElemCount != 2 {
+		t.Errorf("member 1 type: expected [2 x i32], got %v", ty1)
 	}
 }

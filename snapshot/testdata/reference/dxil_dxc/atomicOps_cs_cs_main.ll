@@ -64,7 +64,7 @@ define void @cs_main() {
   br i1 %R8, label %R9, label %R10
 
 ; <label>:10                                      ; preds = %R11
-  store i32 0, i32 addrspace(3)* @"\01?workgroup_atomic_scalar@@3IA", align 4, !tbaa !M0
+  store i32 0, i32 addrspace(3)* @"\01?workgroup_atomic_scalar@@3IA", align 4
   store i32 0, i32 addrspace(3)* getelementptr inbounds ([2 x i32], [2 x i32] addrspace(3)* @"\01?workgroup_atomic_arr@@3PAHA", i32 0, i32 0), align 4
   store i32 0, i32 addrspace(3)* getelementptr inbounds ([2 x i32], [2 x i32] addrspace(3)* @"\01?workgroup_atomic_arr@@3PAHA", i32 0, i32 1), align 4
   store i32 0, i32 addrspace(3)* @"\01?workgroup_struct@@3UStruct@@A.0", align 4
@@ -78,10 +78,10 @@ define void @cs_main() {
   call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R1, i32 4, i32 undef, i32 1, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
   call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 0, i32 undef, i32 1, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
   call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 8, i32 undef, i32 1, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
-  store i32 1, i32 addrspace(3)* @"\01?workgroup_atomic_scalar@@3IA", align 4, !tbaa !M0
-  store i32 1, i32 addrspace(3)* getelementptr inbounds ([2 x i32], [2 x i32] addrspace(3)* @"\01?workgroup_atomic_arr@@3PAHA", i32 0, i32 1), align 4, !tbaa !M0
-  store i32 1, i32 addrspace(3)* @"\01?workgroup_struct@@3UStruct@@A.0", align 4, !tbaa !M0
-  store i32 1, i32 addrspace(3)* getelementptr inbounds ([2 x i32], [2 x i32] addrspace(3)* @"\01?workgroup_struct@@3UStruct@@A.1", i32 0, i32 1), align 4, !tbaa !M0
+  store i32 1, i32 addrspace(3)* @"\01?workgroup_atomic_scalar@@3IA", align 4
+  store i32 1, i32 addrspace(3)* getelementptr inbounds ([2 x i32], [2 x i32] addrspace(3)* @"\01?workgroup_atomic_arr@@3PAHA", i32 0, i32 1), align 4
+  store i32 1, i32 addrspace(3)* @"\01?workgroup_struct@@3UStruct@@A.0", align 4
+  store i32 1, i32 addrspace(3)* getelementptr inbounds ([2 x i32], [2 x i32] addrspace(3)* @"\01?workgroup_struct@@3UStruct@@A.1", i32 0, i32 1), align 4
   call void @dx.op.barrier(i32 80, i32 9)  ; Barrier(barrierMode)
   call void @dx.op.barrier(i32 80, i32 9)  ; Barrier(barrierMode)
   %R12 = call i32 @dx.op.atomicBinOp.i32(i32 78, %dx.types.Handle %R2, i32 0, i32 0, i32 undef, i32 undef, i32 1)  ; AtomicBinOp(handle,atomicOp,offset0,offset1,offset2,newValue)
@@ -188,26 +188,26 @@ attributes #A1 = { noduplicate nounwind }
 attributes #A2 = { nounwind readonly }
 attributes #A3 = { nounwind readnone }
 
-!llvm.ident = !{!M1}
-!dx.version = !{!M2}
-!dx.valver = !{!M3}
-!dx.shaderModel = !{!M4}
-!dx.resources = !{!M5}
-!dx.entryPoints = !{!M6}
+!llvm.ident = !{!M0}
+!dx.version = !{!M1}
+!dx.valver = !{!M2}
+!dx.shaderModel = !{!M3}
+!dx.resources = !{!M4}
+!dx.entryPoints = !{!M5}
 
-!M1 = !{!"<ident>"}
+!M0 = !{!"<ident>"}
+!M1 = !{i32 1, i32 0}
 !M2 = !{i32 1, i32 0}
-!M3 = !{i32 1, i32 0}
-!M4 = !{!"cs", i32 6, i32 0}
-!M5 = !{null, !M7, null, null}
-!M7 = !{!M8, !M9, !M10}
-!M8 = !{i32 0, %struct.S0* undef, !"", i32 0, i32 0, i32 1, i32 11, i1 false, i1 false, i1 false, null}
-!M9 = !{i32 1, %struct.S0* undef, !"", i32 0, i32 1, i32 1, i32 11, i1 false, i1 false, i1 false, null}
-!M10 = !{i32 2, %struct.S0* undef, !"", i32 0, i32 2, i32 1, i32 11, i1 false, i1 false, i1 false, null}
-!M6 = !{void ()* @cs_main, !"cs_main", null, !M5, !M11}
-!M11 = !{i32 0, i64 16, i32 4, !M12}
-!M12 = !{i32 2, i32 1, i32 1}
-!M0 = !{!M13, !M13, i64 0}
+!M3 = !{!"cs", i32 6, i32 0}
+!M4 = !{null, !M6, null, null}
+!M6 = !{!M7, !M8, !M9}
+!M7 = !{i32 0, %struct.S0* undef, !"", i32 0, i32 0, i32 1, i32 11, i1 false, i1 false, i1 false, null}
+!M8 = !{i32 1, %struct.S0* undef, !"", i32 0, i32 1, i32 1, i32 11, i1 false, i1 false, i1 false, null}
+!M9 = !{i32 2, %struct.S0* undef, !"", i32 0, i32 2, i32 1, i32 11, i1 false, i1 false, i1 false, null}
+!M5 = !{void ()* @cs_main, !"cs_main", null, !M4, !M10}
+!M10 = !{i32 0, i64 16, i32 4, !M11}
+!M11 = !{i32 2, i32 1, i32 1}
+!M12 = !{!M13, !M13, i64 0}
 !M13 = !{!"int", !M14, i64 0}
 !M14 = !{!"omnipotent char", !M15, i64 0}
 !M15 = !{!"<ident>"}

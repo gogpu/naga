@@ -2,6 +2,7 @@ package emit
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
@@ -455,11 +456,7 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 		// of the ArrayIndex expression. Default to UIToFP — WGSL array indices
 		// are non-negative and the two produce identical bit patterns for the
 		// in-range case, but signed sources should use SIToFP for clarity.
-		arrCastOp := CastUIToFP
-		if arrScalar, okScal := scalarOfType(e.resolveExprType(fn, *sample.ArrayIndex)); okScal && arrScalar.Kind == ir.ScalarSint {
-			arrCastOp = CastSIToFP
-		}
-		castID := e.addCastInstr(f32Ty, arrCastOp, arrID)
+		castID := e.ensureFloat(fn, arrID, *sample.ArrayIndex)
 		if coordComps < 4 {
 			coords[coordComps] = castID
 		}
@@ -1389,17 +1386,27 @@ func (e *Emitter) sampleBaseParams(numOffsets int) []*module.Type {
 // may pass integer expressions (e.g., `let level = 1` for textureSampleLevel on depth textures).
 func (e *Emitter) ensureFloat(fn *ir.Function, valueID int, handle ir.ExpressionHandle) int {
 	exprType := e.resolveExprType(fn, handle)
-	if sc, ok := exprType.(ir.ScalarType); ok {
-		if sc.Kind == ir.ScalarSint || sc.Kind == ir.ScalarUint || sc.Kind == ir.ScalarAbstractInt {
-			f32Ty := e.mod.GetFloatType(32)
-			castOp := CastSIToFP
-			if sc.Kind == ir.ScalarUint {
-				castOp = CastUIToFP
-			}
-			return e.addCastInstr(f32Ty, castOp, valueID)
+	sc, ok := exprType.(ir.ScalarType)
+	if !ok {
+		return valueID
+	}
+	if sc.Kind != ir.ScalarSint && sc.Kind != ir.ScalarUint && sc.Kind != ir.ScalarAbstractInt {
+		return valueID
+	}
+	// Constant fold: sitofp/uitofp of a constant integer can be evaluated
+	// at compile time. DXC folds these (e.g., i32 1 -> float 1.0).
+	if c, cOk := e.constMap[valueID]; cOk && !c.IsUndef {
+		dstScalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+		if folded, fOk := e.tryFoldNumericCast(c, sc, dstScalar); fOk {
+			return folded
 		}
 	}
-	return valueID
+	f32Ty := e.mod.GetFloatType(32)
+	castOp := CastSIToFP
+	if sc.Kind == ir.ScalarUint {
+		castOp = CastUIToFP
+	}
+	return e.addCastInstr(f32Ty, castOp, valueID)
 }
 
 // getI1ConstID returns the emitter value ID for a cached i1 constant.
@@ -2558,7 +2565,7 @@ func (e *Emitter) resolveCBVRegIndex(fn *ir.Function, chain *cbvPointerChain, sc
 		regIdx := dynID
 		if regsPerElem > 1 {
 			mulID := e.getIntConstID(int64(regsPerElem))
-			regIdx = e.addBinOpInstr(i32Ty, BinOpMul, dynID, mulID)
+			regIdx = e.addMulOrShlInstr(i32Ty, dynID, mulID)
 		}
 		if staticRegOff := chain.byteOffset / 16; staticRegOff > 0 {
 			offID := e.getIntConstID(int64(staticRegOff))
@@ -2569,7 +2576,7 @@ func (e *Emitter) resolveCBVRegIndex(fn *ir.Function, chain *cbvPointerChain, sc
 
 	// Non-aligned stride: totalByteOff = dynIndex * stride + byteOffset, regIndex = totalByteOff >> 4.
 	strideID := e.getIntConstID(int64(chain.dynStride))
-	totalOff := e.addBinOpInstr(i32Ty, BinOpMul, dynID, strideID)
+	totalOff := e.addMulOrShlInstr(i32Ty, dynID, strideID)
 	if chain.byteOffset > 0 {
 		offID := e.getIntConstID(int64(chain.byteOffset))
 		totalOff = e.addBinOpInstr(i32Ty, BinOpAdd, totalOff, offID)
@@ -3210,7 +3217,7 @@ func (e *Emitter) resolveUAVIndex(fn *ir.Function, chain *uavPointerChain) (int,
 	i32Ty := e.mod.GetIntType(32)
 	if chain.stride > 1 {
 		strideID := e.getIntConstID(int64(chain.stride))
-		dynID = e.addBinOpInstr(i32Ty, BinOpMul, dynID, strideID)
+		dynID = e.addMulOrShlInstr(i32Ty, dynID, strideID)
 	}
 	if chain.fieldByteOffset > 0 {
 		offID := e.getIntConstID(int64(chain.fieldByteOffset))
@@ -4519,8 +4526,14 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 				vals[i] = e.getComponentID(valueHandle, i)
 			}
 			// Bitcast float values to i32 for raw buffer stores.
+			// Fold constant floats to their IEEE 754 i32 representation.
 			if needsBitcast {
-				vals[i] = e.addCastInstr(e.mod.GetIntType(32), CastBitcast, vals[i])
+				if c, ok := e.constMap[vals[i]]; ok && !c.IsUndef && c.ConstType != nil && c.ConstType.Kind == module.TypeFloat {
+					bits := math.Float32bits(float32(c.FloatValue))
+					vals[i] = e.getIntConstID(int64(bits))
+				} else {
+					vals[i] = e.addCastInstr(e.mod.GetIntType(32), CastBitcast, vals[i])
+				}
 			}
 		}
 		writeMask := (1 << numComps) - 1
@@ -4581,7 +4594,12 @@ func (e *Emitter) emitUAVStoreBatched(
 		for i := 0; i < count; i++ {
 			vals[i] = e.getComponentID(valueHandle, compIdx+i)
 			if needsBitcast {
-				vals[i] = e.addCastInstr(i32Ty, CastBitcast, vals[i])
+				if c, ok := e.constMap[vals[i]]; ok && !c.IsUndef && c.ConstType != nil && c.ConstType.Kind == module.TypeFloat {
+					bits := math.Float32bits(float32(c.FloatValue))
+					vals[i] = e.getIntConstID(int64(bits))
+				} else {
+					vals[i] = e.addCastInstr(i32Ty, CastBitcast, vals[i])
+				}
 			}
 		}
 		writeMask := (1 << count) - 1

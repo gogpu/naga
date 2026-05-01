@@ -144,6 +144,21 @@ type Emitter struct {
 	// referencing the remapped ID get the right addrspace.
 	globalVarModuleVars map[int]*module.GlobalVar
 
+	// decomposedWGMembers maps (globalVarHandle, memberIndex) to the
+	// emitter value ID of the per-member decomposed workgroup global.
+	// DXC decomposes struct-typed groupshared variables into separate
+	// globals per member, each with the member's own type and an MSVC-
+	// mangled name like \01?name@@3U<StructType>@@A.<memberIdx>.
+	// When this map is populated for a global, tryGlobalVarAccessIndex
+	// returns the member global directly instead of emitting a GEP
+	// into a monolithic struct global.
+	decomposedWGMembers map[wgMemberKey]int
+
+	// decomposedWGMemberTypes caches the DXIL type of each decomposed
+	// workgroup member global, keyed the same as decomposedWGMembers.
+	// Used by load/store paths that need the element type.
+	decomposedWGMemberTypes map[wgMemberKey]*module.Type
+
 	// workgroupFieldPtrs tracks pointers obtained via a single-step
 	// struct-field GEP off a workgroup addrspace(3) global. Keyed by the
 	// emitter value ID of the field pointer, holds the info needed to
@@ -344,6 +359,13 @@ type meshOutputKey struct {
 	isBuiltin bool
 	builtin   ir.BuiltinValue
 	location  uint32
+}
+
+// wgMemberKey identifies a specific member of a decomposed struct-typed
+// workgroup global. Used as map key in decomposedWGMembers.
+type wgMemberKey struct {
+	varHandle   ir.GlobalVariableHandle
+	memberIndex int
 }
 
 // loopContext holds the branch targets for the innermost loop,
@@ -1046,6 +1068,8 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.outputPromotedStores = make(map[outputStoreKey]ir.ExpressionHandle)
 	e.globalVarAllocas = make(map[ir.GlobalVariableHandle]int)
 	e.globalVarAllocaTypes = make(map[ir.GlobalVariableHandle]*module.Type)
+	e.decomposedWGMembers = make(map[wgMemberKey]int)
+	e.decomposedWGMemberTypes = make(map[wgMemberKey]*module.Type)
 	e.workgroupFieldPtrs = make(map[int]workgroupFieldOrigin)
 	e.workgroupElemPtrs = make(map[int]workgroupElemOrigin)
 	e.loopStack = e.loopStack[:0]

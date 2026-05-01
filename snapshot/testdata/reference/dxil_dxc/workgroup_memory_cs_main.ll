@@ -64,7 +64,7 @@ define void @main() {
 ; <label>:11                                      ; preds = %R12, %R9
   %R13 = phi i32 [ %R14, %R12 ], [ 0, %R9 ]
   %R15 = getelementptr [256 x float], [256 x float] addrspace(3)* @"\01?shared_data@@3PAMA", i32 0, i32 %R13
-  store float 0.000000e+00, float addrspace(3)* %R15, align 4, !tbaa !M0
+  store float 0.000000e+00, float addrspace(3)* %R15, align 4
   %R14 = add i32 %R13, 1
   %R16 = icmp eq i32 %R14, 256
   br i1 %R16, label %R17, label %R12
@@ -78,19 +78,19 @@ define void @main() {
   %R19 = fmul fast float %R18, 5.000000e-01
   %R20 = call i32 @dx.op.binary.i32(i32 40, i32 %R1, i32 255)  ; UMin(a,b)
   %R21 = getelementptr [256 x float], [256 x float] addrspace(3)* @"\01?shared_data@@3PAMA", i32 0, i32 %R20
-  store float %R19, float addrspace(3)* %R21, align 4, !tbaa !M0
+  store float %R19, float addrspace(3)* %R21, align 4
   call void @dx.op.barrier(i32 80, i32 9)  ; Barrier(barrierMode)
   %R22 = icmp ult i32 %R1, 128
   br i1 %R22, label %R23, label %R24
 
 ; <label>:23                                      ; preds = %R10
-  %R25 = load float, float addrspace(3)* %R21, align 4, !tbaa !M0
+  %R25 = load float, float addrspace(3)* %R21, align 4
   %R26 = add i32 %R1, 128
   %R27 = call i32 @dx.op.binary.i32(i32 40, i32 %R26, i32 255)  ; UMin(a,b)
   %R28 = getelementptr [256 x float], [256 x float] addrspace(3)* @"\01?shared_data@@3PAMA", i32 0, i32 %R27
-  %R29 = load float, float addrspace(3)* %R28, align 4, !tbaa !M0
+  %R29 = load float, float addrspace(3)* %R28, align 4
   %R30 = fadd fast float %R29, %R25
-  store float %R30, float addrspace(3)* %R21, align 4, !tbaa !M0
+  store float %R30, float addrspace(3)* %R21, align 4
   br label %R24
 
 ; <label>:30                                      ; preds = %R23, %R10
@@ -99,7 +99,7 @@ define void @main() {
   br i1 %R31, label %R32, label %R33
 
 ; <label>:32                                      ; preds = %R24
-  %R34 = load float, float addrspace(3)* getelementptr inbounds ([256 x float], [256 x float] addrspace(3)* @"\01?shared_data@@3PAMA", i32 0, i32 0), align 4, !tbaa !M0
+  %R34 = load float, float addrspace(3)* getelementptr inbounds ([256 x float], [256 x float] addrspace(3)* @"\01?shared_data@@3PAMA", i32 0, i32 0), align 4
   %R35 = bitcast float %R34 to i32
   %R36 = lshr i32 %R2, 8
   %R37 = shl i32 %R36, 2
@@ -136,24 +136,24 @@ attributes #A1 = { nounwind readnone }
 attributes #A2 = { nounwind }
 attributes #A3 = { nounwind readonly }
 
-!llvm.ident = !{!M1}
-!dx.version = !{!M2}
-!dx.valver = !{!M3}
-!dx.shaderModel = !{!M4}
-!dx.resources = !{!M5}
-!dx.entryPoints = !{!M6}
+!llvm.ident = !{!M0}
+!dx.version = !{!M1}
+!dx.valver = !{!M2}
+!dx.shaderModel = !{!M3}
+!dx.resources = !{!M4}
+!dx.entryPoints = !{!M5}
 
-!M1 = !{!"<ident>"}
+!M0 = !{!"<ident>"}
+!M1 = !{i32 1, i32 0}
 !M2 = !{i32 1, i32 0}
-!M3 = !{i32 1, i32 0}
-!M4 = !{!"cs", i32 6, i32 0}
-!M5 = !{null, !M7, null, null}
-!M7 = !{!M8}
-!M8 = !{i32 0, %struct.S0* undef, !"", i32 0, i32 1, i32 1, i32 11, i1 false, i1 false, i1 false, null}
-!M6 = !{void ()* @main, !"main", null, !M5, !M9}
-!M9 = !{i32 0, i64 16, i32 4, !M10}
-!M10 = !{i32 256, i32 1, i32 1}
-!M0 = !{!M11, !M11, i64 0}
+!M3 = !{!"cs", i32 6, i32 0}
+!M4 = !{null, !M6, null, null}
+!M6 = !{!M7}
+!M7 = !{i32 0, %struct.S0* undef, !"", i32 0, i32 1, i32 1, i32 11, i1 false, i1 false, i1 false, null}
+!M5 = !{void ()* @main, !"main", null, !M4, !M8}
+!M8 = !{i32 0, i64 16, i32 4, !M9}
+!M9 = !{i32 256, i32 1, i32 1}
+!M10 = !{!M11, !M11, i64 0}
 !M11 = !{!"float", !M12, i64 0}
 !M12 = !{!"omnipotent char", !M13, i64 0}
 !M13 = !{!"<ident>"}

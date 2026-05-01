@@ -366,6 +366,11 @@ var (
 	// the auto-upgrade vs fixed-profile divergence.
 	dxilSMVersionRE      = regexp.MustCompile(`(!{i32 1, i32 )\d+(})`)
 	dxilShaderModelMinRE = regexp.MustCompile(`(!{!"(?:vs|ps|cs|ms|as)", i32 6, i32 )\d+(})`)
+	// TBAA (Type-Based Alias Analysis) metadata annotations on load/store
+	// instructions. DXC's LLVM attaches these as optimization hints; our
+	// emitter does not generate them. They have no runtime semantic effect
+	// — TBAA is purely an LLVM optimization pass annotation.
+	dxilTBAAAnnotRE = regexp.MustCompile(`, !tbaa !\S+`)
 )
 
 // stripReflectionSection removes a dxc -dumpbin reflection comment section
@@ -455,6 +460,10 @@ func normalizeDxilDump(s string) string {
 	// a fixed -T profile (cs_6_0). Both are correct for their context.
 	s = dxilSMVersionRE.ReplaceAllString(s, "${1}0${2}")
 	s = dxilShaderModelMinRE.ReplaceAllString(s, "${1}0${2}")
+
+	// Strip TBAA metadata annotations from store/load instructions.
+	// These are pure LLVM optimization hints with no runtime effect.
+	s = dxilTBAAAnnotRE.ReplaceAllString(s, "")
 
 	// Sort function declarations into a canonical order so that DXC-internal
 	// lowering pass scheduling (which controls the order intrinsic declarations
@@ -553,6 +562,48 @@ func sortAttrDefinitions(s string) string {
 	result := make([]string, 0, len(lines))
 	result = append(result, lines[:firstIdx]...)
 	result = append(result, attrLines...)
+	result = append(result, lines[lastIdx+1:]...)
+	return strings.Join(result, "\n")
+}
+
+// sortTypeDeclarations sorts LLVM-IR named type declarations (%name = type {...})
+// into a canonical alphabetical order. Type declarations in LLVM IR are order-
+// independent — types are resolved by name, not position. When one emitter
+// produces an extra type (e.g., DXC emits %dx.types.CBufRet.f32 for a shader
+// where naga only uses .i32), the 1-line insertion cascades through the entire
+// file in line-based comparison. Sorting eliminates this noise.
+//
+// Type declarations appear between the "target triple" line and the first
+// "define" or global variable declaration. Blank lines and the preceding
+// "target datalayout" / "target triple" lines are NOT included in the sort.
+func sortTypeDeclarations(s string) string {
+	lines := strings.Split(s, "\n")
+	var typeLines []string
+	firstIdx := -1
+	lastIdx := -1
+
+	for i, ln := range lines {
+		trimmed := strings.TrimSpace(ln)
+		// Match: %name = type { ... } or %"name" = type { ... }
+		if (strings.HasPrefix(trimmed, "%") || strings.HasPrefix(trimmed, `%"`)) &&
+			strings.Contains(trimmed, " = type ") {
+			if firstIdx == -1 {
+				firstIdx = i
+			}
+			lastIdx = i
+			typeLines = append(typeLines, ln)
+		}
+	}
+
+	if len(typeLines) < 2 {
+		return s // 0 or 1 type declaration — nothing to sort
+	}
+
+	sort.Strings(typeLines)
+
+	result := make([]string, 0, len(lines))
+	result = append(result, lines[:firstIdx]...)
+	result = append(result, typeLines...)
 	result = append(result, lines[lastIdx+1:]...)
 	return strings.Join(result, "\n")
 }
@@ -695,6 +746,82 @@ func simpleDiff(golden, actual string) string {
 }
 
 // --- Unit tests for normalizer helpers ---
+
+func TestSortTypeDeclarations(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "single type unchanged",
+			in: `target triple = "dxil-ms-dx"
+
+%dx.types.Handle = type { i8* }
+
+define void @main() {`,
+			want: `target triple = "dxil-ms-dx"
+
+%dx.types.Handle = type { i8* }
+
+define void @main() {`,
+		},
+		{
+			name: "types sorted alphabetically",
+			in: `target triple = "dxil-ms-dx"
+
+%dx.types.Handle = type { i8* }
+%dx.types.CBufRet.f32 = type { float, float, float, float }
+%dx.types.CBufRet.i32 = type { i32, i32, i32, i32 }
+%chunk_data = type { %struct.S1 }
+
+define void @main() {`,
+			want: `target triple = "dxil-ms-dx"
+
+%chunk_data = type { %struct.S1 }
+%dx.types.CBufRet.f32 = type { float, float, float, float }
+%dx.types.CBufRet.i32 = type { i32, i32, i32, i32 }
+%dx.types.Handle = type { i8* }
+
+define void @main() {`,
+		},
+		{
+			name: "extra type in one emitter does not cascade",
+			in: `target triple = "dxil-ms-dx"
+
+%dx.types.Handle = type { i8* }
+%dx.types.CBufRet.i32 = type { i32, i32, i32, i32 }
+%struct.S0 = type { i32 }
+
+define void @main() {`,
+			want: `target triple = "dxil-ms-dx"
+
+%dx.types.CBufRet.i32 = type { i32, i32, i32, i32 }
+%dx.types.Handle = type { i8* }
+%struct.S0 = type { i32 }
+
+define void @main() {`,
+		},
+		{
+			name: "quoted type names",
+			in: `%dx.types.Handle = type { i8* }
+%"class.Texture2D<float>" = type { float }
+%chunk_data = type { i32 }`,
+			want: `%"class.Texture2D<float>" = type { float }
+%chunk_data = type { i32 }
+%dx.types.Handle = type { i8* }`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sortTypeDeclarations(tt.in)
+			if got != tt.want {
+				t.Errorf("sortTypeDeclarations:\ngot:\n%s\nwant:\n%s", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestSortFuncDeclarations(t *testing.T) {
 	tests := []struct {
@@ -876,6 +1003,40 @@ func TestNormalizeSMVersion(t *testing.T) {
 			got = dxilShaderModelMinRE.ReplaceAllString(got, "${1}0${2}")
 			if got != tt.want {
 				t.Errorf("normalize(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNormalizeTBAA verifies that TBAA metadata annotations are stripped
+// from store/load instructions. TBAA is a pure LLVM optimization hint.
+func TestNormalizeTBAA(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "store with tbaa",
+			input: `  store i64 0, i64 addrspace(3)* @var, align 8, !tbaa !M0`,
+			want:  `  store i64 0, i64 addrspace(3)* @var, align 8`,
+		},
+		{
+			name:  "store without tbaa unchanged",
+			input: `  store i32 1, i32 addrspace(3)* @var, align 4`,
+			want:  `  store i32 1, i32 addrspace(3)* @var, align 4`,
+		},
+		{
+			name:  "load with tbaa",
+			input: `  %R0 = load i32, i32* %ptr, align 4, !tbaa !5`,
+			want:  `  %R0 = load i32, i32* %ptr, align 4`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := dxilTBAAAnnotRE.ReplaceAllString(tt.input, "")
+			if got != tt.want {
+				t.Errorf("tbaa strip(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

@@ -69,10 +69,10 @@ define void @main() {
   call void @dx.op.barrier(i32 80, i32 9)  ; Barrier(barrierMode)
   %R11 = call %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(i32 68, %dx.types.Handle %R1, i32 0, i32 undef)  ; BufferLoad(srv,index,wot)
   %R12 = extractvalue %dx.types.ResRet.i32 %R11, 0
-  store i32 %R12, i32 addrspace(3)* getelementptr inbounds ([1 x i32], [1 x i32] addrspace(3)* @"\01?sized_comma@@3PAIA", i32 0, i32 0), align 4, !tbaa !M0
+  store i32 %R12, i32 addrspace(3)* getelementptr inbounds ([1 x i32], [1 x i32] addrspace(3)* @"\01?sized_comma@@3PAIA", i32 0, i32 0), align 4
   %R13 = call %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(i32 68, %dx.types.Handle %R0, i32 0, i32 undef)  ; BufferLoad(srv,index,wot)
   %R14 = extractvalue %dx.types.ResRet.i32 %R13, 0
-  store i32 %R14, i32 addrspace(3)* getelementptr inbounds ([1 x i32], [1 x i32] addrspace(3)* @"\01?sized_no_comma@@3PAIA", i32 0, i32 0), align 4, !tbaa !M0
+  store i32 %R14, i32 addrspace(3)* getelementptr inbounds ([1 x i32], [1 x i32] addrspace(3)* @"\01?sized_no_comma@@3PAIA", i32 0, i32 0), align 4
   %R15 = add i32 %R14, %R12
   call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %R0, i32 0, i32 undef, i32 %R15, i32 undef, i32 undef, i32 undef, i8 1)  ; BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
   ret void
@@ -98,25 +98,25 @@ attributes #A1 = { nounwind readonly }
 attributes #A2 = { nounwind }
 attributes #A3 = { nounwind readnone }
 
-!llvm.ident = !{!M1}
-!dx.version = !{!M2}
-!dx.valver = !{!M3}
-!dx.shaderModel = !{!M4}
-!dx.resources = !{!M5}
-!dx.entryPoints = !{!M6}
+!llvm.ident = !{!M0}
+!dx.version = !{!M1}
+!dx.valver = !{!M2}
+!dx.shaderModel = !{!M3}
+!dx.resources = !{!M4}
+!dx.entryPoints = !{!M5}
 
-!M1 = !{!"<ident>"}
+!M0 = !{!"<ident>"}
+!M1 = !{i32 1, i32 0}
 !M2 = !{i32 1, i32 0}
-!M3 = !{i32 1, i32 0}
-!M4 = !{!"cs", i32 6, i32 0}
-!M5 = !{null, !M7, null, null}
-!M7 = !{!M8, !M9}
-!M8 = !{i32 0, %struct.S0* undef, !"", i32 0, i32 0, i32 1, i32 11, i1 false, i1 false, i1 false, null}
-!M9 = !{i32 1, %struct.S0* undef, !"", i32 0, i32 1, i32 1, i32 11, i1 false, i1 false, i1 false, null}
-!M6 = !{void ()* @main, !"main", null, !M5, !M10}
-!M10 = !{i32 0, i64 16, i32 4, !M11}
-!M11 = !{i32 1, i32 1, i32 1}
-!M0 = !{!M12, !M12, i64 0}
+!M3 = !{!"cs", i32 6, i32 0}
+!M4 = !{null, !M6, null, null}
+!M6 = !{!M7, !M8}
+!M7 = !{i32 0, %struct.S0* undef, !"", i32 0, i32 0, i32 1, i32 11, i1 false, i1 false, i1 false, null}
+!M8 = !{i32 1, %struct.S0* undef, !"", i32 0, i32 1, i32 1, i32 11, i1 false, i1 false, i1 false, null}
+!M5 = !{void ()* @main, !"main", null, !M4, !M9}
+!M9 = !{i32 0, i64 16, i32 4, !M10}
+!M10 = !{i32 1, i32 1, i32 1}
+!M11 = !{!M12, !M12, i64 0}
 !M12 = !{!"int", !M13, i64 0}
 !M13 = !{!"omnipotent char", !M14, i64 0}
 !M14 = !{!"<ident>"}

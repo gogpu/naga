@@ -432,10 +432,16 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 				return id, nil
 			}
 			// The base produced a pointer to an array. GEP into element ai.Index.
+			// For decomposed workgroup struct members the GEP must target
+			// addrspace 3 so the validator's TGSM-origin check succeeds.
 			arrayDxilTy, err2 := typeToDXIL(e.mod, e.ir, arrTy)
 			if err2 == nil {
 				indexIDConst := e.getIntConstID(int64(ai.Index))
-				return e.emitArrayGEP(baseID, arrayDxilTy, indexIDConst)
+				addrSpace := uint8(0)
+				if _, isWG := e.globalVarModuleVars[baseID]; isWG {
+					addrSpace = 3
+				}
+				return e.emitArrayGEPAS(baseID, arrayDxilTy, indexIDConst, addrSpace)
 			}
 		}
 	}
@@ -738,7 +744,14 @@ func (e *Emitter) tryAccessIndexArrayGEP(fn *ir.Function, acc ir.ExprAccess, bas
 	if err != nil {
 		return 0, false
 	}
-	id, err := e.emitArrayGEP(baseID, arrayDxilTy, indexID)
+	// Decomposed workgroup struct members are addrspace(3) globals.
+	// The GEP result pointer must carry addrspace 3 so the validator's
+	// TGSM-origin check succeeds on downstream load/store/atomicrmw.
+	addrSpace := uint8(0)
+	if _, isWG := e.globalVarModuleVars[baseID]; isWG {
+		addrSpace = 3
+	}
+	id, err := e.emitArrayGEPAS(baseID, arrayDxilTy, indexID, addrSpace)
 	if err != nil {
 		return 0, false
 	}
@@ -937,6 +950,22 @@ func (e *Emitter) tryGlobalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex
 	if !hasAlloca {
 		return -1, nil
 	}
+
+	// Decomposed struct workgroup var: the per-member global is already
+	// created during decomposeWorkgroupStruct. Return it directly instead
+	// of emitting a GEP into a monolithic struct. The member global is a
+	// top-level addrspace(3) global with the member's own type (array,
+	// scalar, etc.), so downstream code treats it as any other workgroup
+	// global -- no struct GEP needed.
+	if allocaID == -1 {
+		key := wgMemberKey{varHandle: gv.Variable, memberIndex: int(ai.Index)}
+		memberID, found := e.decomposedWGMembers[key]
+		if !found {
+			return -1, fmt.Errorf("decomposed workgroup member (%d, %d) not found", gv.Variable, ai.Index)
+		}
+		return memberID, nil
+	}
+
 	allocaTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
 	if !hasTy {
 		return -1, nil
@@ -1238,7 +1267,7 @@ func (e *Emitter) emitTempAllocaAccess(fn *ir.Function, baseID, indexID int, arr
 	// Alloca for the array.
 	i32Ty := e.mod.GetIntType(32)
 	sizeID := e.getIntConstID(1)
-	align := e.alignForType(arrayDxilTy) + 1
+	align := e.alignForType(arrayDxilTy)
 	alignFlags := align | (1 << 6)
 
 	allocaID := e.allocValue()
@@ -1387,11 +1416,8 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 		return result, nil
 	}
 
-	lhs, err := e.emitExpression(fn, bin.Left)
-	if err != nil {
-		return 0, err
-	}
-	rhs, err := e.emitExpression(fn, bin.Right)
+	// Emit both operands, possibly reordering to match DXC's scheduling.
+	lhs, rhs, err := e.emitBinaryOperands(fn, bin.Left, bin.Right)
 	if err != nil {
 		return 0, err
 	}
@@ -1430,9 +1456,51 @@ func (e *Emitter) emitBinary(fn *ir.Function, bin ir.ExprBinary) (int, error) {
 	return e.emitScalarBinaryOp(bin.Op, resultTy, lhs, rhs, isFloat, isSigned)
 }
 
+// emitBinaryOperands evaluates both operands of a binary expression. DXC's LLVM
+// instruction scheduler prefers to evaluate memory-reading operands
+// (cbufferLoadLegacy, bufferLoad) before pure ALU operands (uitofp, fmul)
+// within a binary expression. When the right operand leads to a resource read
+// and the left does not (and the left is not already cached), the right is
+// evaluated first. This is safe because both operands are independent
+// sub-expressions with no side effects.
+func (e *Emitter) emitBinaryOperands(fn *ir.Function, left, right ir.ExpressionHandle) (lhs, rhs int, err error) {
+	_, leftCached := e.exprValues[left]
+	evalRightFirst := !leftCached &&
+		!e.exprLeadsToResourceRead(fn, left) &&
+		e.exprLeadsToResourceRead(fn, right)
+
+	if evalRightFirst {
+		rhs, err = e.emitExpression(fn, right)
+		if err != nil {
+			return 0, 0, err
+		}
+		lhs, err = e.emitExpression(fn, left)
+		if err != nil {
+			return 0, 0, err
+		}
+		return lhs, rhs, nil
+	}
+	lhs, err = e.emitExpression(fn, left)
+	if err != nil {
+		return 0, 0, err
+	}
+	rhs, err = e.emitExpression(fn, right)
+	if err != nil {
+		return 0, 0, err
+	}
+	return lhs, rhs, nil
+}
+
 // emitScalarBinaryOp dispatches a scalar binary operation to the appropriate
 // DXIL instruction (binop, cmp, or lowered FRem).
 func (e *Emitter) emitScalarBinaryOp(op ir.BinaryOperator, resultTy *module.Type, lhs, rhs int, isFloat, isSigned bool) (int, error) {
+	// Constant folding: when both operands are constants, compute the
+	// result at compile time. DXC's LLVM constant folder does this for
+	// all arithmetic on constant operands.
+	if id, ok := e.tryFoldBinOp(op, lhs, rhs, isFloat); ok {
+		return id, nil
+	}
+
 	switch op {
 	case ir.BinaryAdd:
 		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFAdd, BinOpAdd), lhs, rhs), nil
@@ -1542,6 +1610,17 @@ func (e *Emitter) tryURemToBitwiseAnd(valueID int) (int, bool) {
 	return e.getIntConstID(v - 1), true
 }
 
+// addMulOrShlInstr emits either a shl (if rhsConst is a power of 2) or a mul
+// instruction. This applies the DXC InstCombine strength reduction:
+// mul X, 2^N -> shl X, N. Use this instead of raw addBinOpInstr(BinOpMul)
+// for integer multiplies with a constant RHS.
+func (e *Emitter) addMulOrShlInstr(resultTy *module.Type, lhs, rhs int) int {
+	if shiftAmt, ok := e.tryMulToShl(rhs); ok {
+		return e.addBinOpInstr(resultTy, BinOpShl, lhs, shiftAmt)
+	}
+	return e.addBinOpInstr(resultTy, BinOpMul, lhs, rhs)
+}
+
 // tryMulToShl checks whether valueID refers to an integer constant that is a
 // power of 2 (>= 2). If so, returns the value ID for the shift amount
 // (log2(value)) for use in strength reduction: mul X, 2^N -> shl X, N.
@@ -1590,6 +1669,131 @@ func (e *Emitter) trySubToAddNeg(valueID int) (int, bool) {
 		return 0, false
 	}
 	return e.getIntConstID(-c.IntValue), true
+}
+
+// tryFoldBitcast folds a bitcast of a constant to a different scalar type.
+// float32 -> int32: returns the IEEE 754 bit representation.
+// int32 -> float32: returns the float value from the IEEE 754 bits.
+func (e *Emitter) tryFoldBitcast(c *module.Constant, src, dst ir.ScalarType) (int, bool) {
+	if src.Kind == ir.ScalarFloat && dst.Kind != ir.ScalarFloat && src.Width == dst.Width {
+		// float -> int: IEEE 754 bits as integer
+		if src.Width == 4 {
+			bits := math.Float32bits(float32(c.FloatValue))
+			return e.getIntConstID(int64(bits)), true
+		}
+	}
+	if src.Kind != ir.ScalarFloat && dst.Kind == ir.ScalarFloat && src.Width == dst.Width {
+		// int -> float: integer bits as IEEE 754
+		if src.Width == 4 {
+			f := math.Float32frombits(uint32(c.IntValue)) //nolint:gosec // intentional reinterpret
+			return e.getFloatConstID(float64(f)), true
+		}
+	}
+	return 0, false
+}
+
+// tryFoldNumericCast folds a constant int-to-float or float-to-int cast at
+// compile time. DXC's LLVM constant folder evaluates these (e.g.,
+// sitofp i32 0 to float -> float 0.0, fptoui float 1.0 to i32 -> i32 1).
+func (e *Emitter) tryFoldNumericCast(c *module.Constant, src, dst ir.ScalarType) (int, bool) {
+	if isIntegerKind(src.Kind) && dst.Kind == ir.ScalarFloat {
+		// int -> float: evaluate the cast
+		if src.Kind == ir.ScalarSint {
+			return e.getFloatConstID(float64(c.IntValue)), true
+		}
+		return e.getFloatConstID(float64(uint64(c.IntValue))), true //nolint:gosec // unsigned conversion
+	}
+	if src.Kind == ir.ScalarFloat && isIntegerKind(dst.Kind) {
+		// float -> int: evaluate the cast (truncation toward zero)
+		if dst.Kind == ir.ScalarSint {
+			return e.getIntConstID(int64(c.FloatValue)), true
+		}
+		if c.FloatValue >= 0 {
+			return e.getIntConstID(int64(uint64(c.FloatValue))), true //nolint:gosec // unsigned truncation
+		}
+		return e.getIntConstID(0), true // negative float -> unsigned int = 0 (clamped)
+	}
+	return 0, false
+}
+
+// tryFoldBinOp dispatches constant folding to the float or int path.
+func (e *Emitter) tryFoldBinOp(op ir.BinaryOperator, lhs, rhs int, isFloat bool) (int, bool) {
+	if isFloat {
+		return e.tryFoldFloatBinOp(op, lhs, rhs)
+	}
+	return e.tryFoldIntBinOp(op, lhs, rhs, false)
+}
+
+// tryFoldFloatBinOp checks if both lhs and rhs are float constants and
+// folds the binary operation at compile time. DXC's LLVM constant folder
+// evaluates arithmetic on constant operands during compilation.
+func (e *Emitter) tryFoldFloatBinOp(op ir.BinaryOperator, lhs, rhs int) (int, bool) {
+	lc, lok := e.constMap[lhs]
+	if !lok || lc.IsUndef || lc.ConstType == nil || lc.ConstType.Kind != module.TypeFloat {
+		return 0, false
+	}
+	rc, rok := e.constMap[rhs]
+	if !rok || rc.IsUndef || rc.ConstType == nil || rc.ConstType.Kind != module.TypeFloat {
+		return 0, false
+	}
+	lv := lc.FloatValue
+	rv := rc.FloatValue
+	var result float64
+	switch op {
+	case ir.BinaryAdd:
+		result = lv + rv
+	case ir.BinarySubtract:
+		result = lv - rv
+	case ir.BinaryMultiply:
+		result = lv * rv
+	case ir.BinaryDivide:
+		if rv == 0 {
+			return 0, false // avoid division by zero
+		}
+		result = lv / rv
+	default:
+		return 0, false
+	}
+	return e.getFloatConstID(result), true
+}
+
+// tryFoldIntBinOp checks if both lhs and rhs are integer constants and
+// folds the binary operation at compile time.
+func (e *Emitter) tryFoldIntBinOp(op ir.BinaryOperator, lhs, rhs int, _ bool) (int, bool) {
+	lc, lok := e.constMap[lhs]
+	if !lok || lc.IsUndef || lc.ConstType == nil || lc.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	rc, rok := e.constMap[rhs]
+	if !rok || rc.IsUndef || rc.ConstType == nil || rc.ConstType.Kind != module.TypeInteger {
+		return 0, false
+	}
+	lv := lc.IntValue
+	rv := rc.IntValue
+	var result int64
+	switch op {
+	case ir.BinaryAdd:
+		result = lv + rv
+	case ir.BinarySubtract:
+		result = lv - rv
+	case ir.BinaryMultiply:
+		result = lv * rv
+	case ir.BinaryAnd:
+		result = lv & rv
+	case ir.BinaryInclusiveOr:
+		result = lv | rv
+	case ir.BinaryExclusiveOr:
+		result = lv ^ rv
+	case ir.BinaryShiftLeft:
+		if rv >= 0 && rv < 64 {
+			result = lv << uint(rv)
+		} else {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	return e.getIntConstID(result), true
 }
 
 // tryShlAndCombine detects mul(and(X, C1), 2^N) or mul(as(and(X, C1)), 2^N)
@@ -1939,9 +2143,25 @@ func (e *Emitter) flattenBinaryChain(fn *ir.Function, op ir.BinaryOperator,
 // ascending value ID (matching LLVM Reassociate's rank-based ordering),
 // and combined into a left-leaning tree with commutative canonicalization
 // (higher value ID first within each pair).
+//
+// Leaf emission order: DXC's LLVM evaluates memory reads (cbufferLoadLegacy,
+// bufferLoad) before pure ALU (uitofp, fmul) within a reassociated chain.
+// We sort leaves before emission: already-emitted first (they have existing
+// value IDs), then memory-reading (global variable accesses that produce
+// dx.op calls), then pure ALU. This gives memory reads lower value IDs,
+// matching DXC's instruction scheduling within expression chains.
 func (e *Emitter) emitReassociatedChain(fn *ir.Function, op ir.BinaryOperator,
 	elemType ir.TypeInner, leaves []ir.ExpressionHandle,
 ) (int, error) {
+	// Sort leaves by emission priority: already-emitted (0), memory-reading (1),
+	// pure ALU (2). This matches DXC's scheduling preference for memory reads.
+	//
+	sort.SliceStable(leaves, func(i, j int) bool {
+		pi := e.leafEmitPriority(fn, leaves[i])
+		pj := e.leafEmitPriority(fn, leaves[j])
+		return pi < pj
+	})
+
 	// Emit all leaves so their value IDs are known.
 	ids := make([]int, len(leaves))
 	for i, h := range leaves {
@@ -1983,6 +2203,56 @@ func (e *Emitter) emitReassociatedChain(fn *ir.Function, op ir.BinaryOperator,
 		acc = e.addBinOpInstr(resultTy, binOp, lhs, rhs)
 	}
 	return acc, nil
+}
+
+// leafEmitPriority classifies a leaf expression in a reassociated chain by
+// when it should be emitted relative to other leaves. DXC's LLVM evaluates
+// memory reads before pure ALU within expression chains.
+//
+// Returns:
+//
+//	0: already emitted (has a value ID in exprValues) -- free, gets lowest rank
+//	1: memory-reading (resolves to a CBV/UAV/SRV global variable access that
+//	   will produce a dx.op call like cbufferLoadLegacy or bufferLoad)
+//	2: pure computation (type cast, literal, etc.)
+func (e *Emitter) leafEmitPriority(fn *ir.Function, h ir.ExpressionHandle) int {
+	// Already emitted -- free, existing value ID.
+	if _, ok := e.exprValues[h]; ok {
+		return 0
+	}
+	// Walk through the expression to find whether it ultimately reads from
+	// a resource-bound global variable (CBV, UAV, SRV). The IR lowerer
+	// produces chains like Load(AccessIndex(GlobalVariable(gv), idx)) for
+	// struct member access on uniform/push-constant globals. We need to
+	// peel through Load and AccessIndex/Access to find the root global.
+	if e.exprLeadsToResourceRead(fn, h) {
+		return 1
+	}
+	return 2
+}
+
+// exprLeadsToResourceRead returns true if the expression h, when emitted,
+// will produce a memory-reading dx.op call (cbufferLoadLegacy, bufferLoad,
+// etc.). This walks through Load, AccessIndex, and Access expression chains
+// to find whether the root is a resource-bound global variable.
+func (e *Emitter) exprLeadsToResourceRead(fn *ir.Function, h ir.ExpressionHandle) bool {
+	if int(h) >= len(fn.Expressions) {
+		return false
+	}
+	expr := fn.Expressions[h]
+	switch ek := expr.Kind.(type) {
+	case ir.ExprGlobalVariable:
+		_, isRes := e.resourceHandles[ek.Variable]
+		return isRes
+	case ir.ExprAccessIndex:
+		return e.exprLeadsToResourceRead(fn, ek.Base)
+	case ir.ExprAccess:
+		return e.exprLeadsToResourceRead(fn, ek.Base)
+	case ir.ExprLoad:
+		return e.exprLeadsToResourceRead(fn, ek.Pointer)
+	default:
+		return false
+	}
 }
 
 // emitBinaryVectorized emits a vector binary operation by scalarizing it.
@@ -4500,8 +4770,12 @@ func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error
 	// switch to rooting each element GEP at the global with a 3-index path.
 	wgOrigin, rootAtGlobal := workgroupFieldRoot(e, basePtrID)
 
+	// Decomposed workgroup struct members are addrspace(3) globals.
+	// They are NOT in workgroupFieldPtrs but ARE in globalVarModuleVars.
 	addrSpace := uint8(0)
 	if rootAtGlobal {
+		addrSpace = 3
+	} else if _, isWG := e.globalVarModuleVars[basePtrID]; isWG {
 		addrSpace = 3
 	}
 	resultPtrTy := e.mod.GetPointerTypeAS(elemTy, addrSpace)
@@ -4835,7 +5109,7 @@ func (e *Emitter) emitLocalVariable(fn *ir.Function, lv ir.ExprLocalVariable) (i
 	// Alignment: log2(align) + 1, with bit 6 set for explicit type (LLVM 3.7).
 	// Mesa: util_logbase2(align) + 1, then |= (1 << 6).
 	// Reference: Mesa dxil_module.c dxil_emit_alloca().
-	align := e.alignForType(elemTy) + 1 // log2(bytes) + 1
+	align := e.alignForType(elemTy)
 	alignFlags := align | (1 << 6)
 
 	i32Ty := e.mod.GetIntType(32)
@@ -5070,17 +5344,26 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	// encoding is a top-level @globalshared.X = addrspace(3) global,
 	// matching DXC's groupshared HLSL lowering.
 	//
-	// We register the GlobalVar in the module BEFORE the instruction
-	// pre-allocates a value ID for it. finalize() assigns the global
-	// var's bitcode ValueID and threads it through idMap so subsequent
-	// instructions (load/store/atomicrmw) reference the correct global.
+	// For struct-typed workgroup vars, DXC decomposes the struct into
+	// separate per-member globals, each with its own MSVC-mangled name
+	// containing the struct type name and member index suffix. The
+	// emitter value ID stored in globalVarAllocas is a sentinel (-1)
+	// indicating decomposition; actual member globals are in
+	// decomposedWGMembers keyed by (varHandle, memberIndex).
 	if gv.Space == ir.SpaceWorkGroup {
-		mangledName := hlslMangledGroupsharedName(e.ir, gv)
-		modGV := e.mod.AddGlobalVar(mangledName, elemTy, 3)
-		emitterID := e.allocValue()
 		if e.globalVarModuleVars == nil {
 			e.globalVarModuleVars = make(map[int]*module.GlobalVar)
 		}
+
+		// Struct-typed workgroup vars: decompose into per-member globals.
+		if st, isSt := irType.Inner.(ir.StructType); isSt {
+			return e.decomposeWorkgroupStruct(varHandle, gv, st, irType.Name)
+		}
+
+		mangledName := hlslMangledGroupsharedName(e.ir, gv)
+		modGV := e.mod.AddGlobalVar(mangledName, elemTy, 3)
+		modGV.Alignment = globalVarAlignment(elemTy)
+		emitterID := e.allocValue()
 		e.globalVarModuleVars[emitterID] = modGV
 		e.globalVarAllocas[varHandle] = emitterID
 		// The alloca-type map is consulted by load/store paths to know
@@ -5095,8 +5378,8 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	sizeID := e.getIntConstID(1)
 	i32Ty := e.mod.GetIntType(32)
 
-	// Alignment: log2(align) + 1, with bit 6 set for explicit type (LLVM 3.7).
-	align := e.alignForType(elemTy) + 1
+	// Alignment: log2(align)+1, with bit 6 set for explicit type (LLVM 3.7).
+	align := e.alignForType(elemTy)
 	alignFlags := align | (1 << 6)
 
 	valueID := e.allocValue()
@@ -5125,6 +5408,83 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	e.globalVarAllocas[varHandle] = valueID
 	e.globalVarAllocaTypes[varHandle] = elemTy
 	return valueID, nil
+}
+
+// decomposeWorkgroupStruct creates per-member addrspace(3) globals for a
+// struct-typed workgroup variable, matching DXC's groupshared decomposition.
+//
+// DXC flattens each struct member into its own global with an MSVC-mangled
+// name:  \01?<var>@@3U<StructType>@@A.<memberIdx>
+// Multi-dimensional arrays get a ".1dim" suffix after flattening to 1D.
+// Atomic members are unwrapped to their scalar type.
+//
+// The sentinel value -1 is stored in globalVarAllocas to indicate that this
+// global has been decomposed. Member globals are in decomposedWGMembers.
+func (e *Emitter) decomposeWorkgroupStruct(
+	varHandle ir.GlobalVariableHandle,
+	gv *ir.GlobalVariable,
+	st ir.StructType,
+	structTypeName string,
+) (int, error) {
+	varName := gv.Name
+	if len(varName) > 0 && varName[len(varName)-1] >= '0' && varName[len(varName)-1] <= '9' {
+		varName += "_"
+	}
+
+	// Name prefix: \01?<var>@@3U<StructName>@@A
+	namePrefix := "\x01?" + varName + "@@3U" + structTypeName + "@@A"
+
+	for i, m := range st.Members {
+		memberIRType := e.ir.Types[m.Type]
+		memberTy, err := typeToDXIL(e.mod, e.ir, memberIRType.Inner)
+		if err != nil {
+			return 0, fmt.Errorf("workgroup struct member %d (%s): %w", i, m.Name, err)
+		}
+
+		// Build the per-member mangled name with member index suffix.
+		// Multi-dimensional arrays that get flattened to 1D get ".1dim".
+		suffix := fmt.Sprintf(".%d", i)
+		if isMultiDimArray(e.ir, memberIRType.Inner) {
+			suffix += ".1dim"
+		}
+		mangledName := namePrefix + suffix
+
+		modGV := e.mod.AddGlobalVar(mangledName, memberTy, 3)
+		modGV.Alignment = globalVarAlignment(memberTy)
+		// DXC emits decomposed workgroup members with `undef` initializer
+		// and external linkage (linkage=0). The disassembly shows
+		// `addrspace(3) global [N x T] undef` without `external` or
+		// `internal` keyword (external is the default in LLVM IR text).
+		modGV.Initializer = e.mod.AddUndefConst(memberTy)
+		modGV.Linkage = 0 // external (override auto=internal for init'd globals)
+		emitterID := e.allocValue()
+		e.globalVarModuleVars[emitterID] = modGV
+
+		key := wgMemberKey{varHandle: varHandle, memberIndex: i}
+		e.decomposedWGMembers[key] = emitterID
+		e.decomposedWGMemberTypes[key] = memberTy
+	}
+
+	// Store sentinel -1 in globalVarAllocas to mark this var as decomposed.
+	// tryGlobalVarAccessIndex checks this to redirect member accesses.
+	e.globalVarAllocas[varHandle] = -1
+
+	// Return -1; callers should access members via tryGlobalVarAccessIndex,
+	// not the base variable directly.
+	return -1, nil
+}
+
+// isMultiDimArray returns true if the given IR type is an array whose element
+// type is also an array (i.e., array<array<T, N>, M>). DXC appends ".1dim" to
+// the decomposed member name for such cases after flattening to 1D.
+func isMultiDimArray(irMod *ir.Module, inner ir.TypeInner) bool {
+	arr, ok := inner.(ir.ArrayType)
+	if !ok {
+		return false
+	}
+	elemInner := irMod.Types[arr.Base].Inner
+	_, isNestedArr := elemInner.(ir.ArrayType)
+	return isNestedArr
 }
 
 // resolveLoadType determines the DXIL type produced by loading from the given
@@ -5343,34 +5703,66 @@ func (e *Emitter) resolveLoadTypeFromExpressionInfo(fn *ir.Function, ptrHandle i
 	return e.mod.GetIntType(32), nil
 }
 
-// alignForType returns the alignment value for a DXIL type.
-// For alloca this is encoded as log2(bytes)+1, for load/store it's log2(bytes).
-// Uses the natural alignment of the type.
+// alignForType returns the LLVM bitcode alignment encoding for a DXIL type.
+// The encoding is log2(bytes)+1, where 0 means default. This value is used
+// directly in INST_STORE, INST_LOAD, and INST_ALLOCA records.
+// Reference: Mesa dxil_module.c uses util_logbase2(align)+1 for all three.
 func (e *Emitter) alignForType(ty *module.Type) int {
 	switch ty.Kind {
 	case module.TypeFloat:
 		switch ty.FloatBits {
 		case 16:
-			return 1 // log2(2) = 1
+			return 2 // log2(2)+1 = 2
 		case 64:
-			return 3 // log2(8) = 3
+			return 4 // log2(8)+1 = 4
 		default:
-			return 2 // log2(4) = 2 for f32
+			return 3 // log2(4)+1 = 3 for f32
 		}
 	case module.TypeInteger:
 		switch ty.IntBits {
 		case 1, 8:
-			return 0 // log2(1) = 0
+			return 1 // log2(1)+1 = 1
 		case 16:
-			return 1 // log2(2) = 1
+			return 2 // log2(2)+1 = 2
 		case 64:
-			return 3 // log2(8) = 3
+			return 4 // log2(8)+1 = 4
 		default:
-			return 2 // log2(4) = 2 for i32
+			return 3 // log2(4)+1 = 3 for i32
 		}
 	default:
-		return 2 // default 4-byte alignment
+		return 3 // default 4-byte alignment: log2(4)+1 = 3
 	}
+}
+
+// globalVarAlignment returns the byte alignment for a workgroup global
+// variable based on its element type. DXC uses the natural alignment of
+// the scalar element: 8 bytes for i64/f64, 4 bytes for all smaller types.
+// For arrays and structs, walks to the leaf element type.
+func globalVarAlignment(ty *module.Type) uint32 {
+	switch ty.Kind {
+	case module.TypeInteger:
+		if ty.IntBits == 64 {
+			return 8
+		}
+	case module.TypeFloat:
+		if ty.FloatBits == 64 {
+			return 8
+		}
+	case module.TypeArray:
+		if ty.ElemType != nil {
+			return globalVarAlignment(ty.ElemType)
+		}
+	case module.TypeStruct:
+		// Return the max alignment of any member.
+		maxAlign := uint32(4)
+		for _, elem := range ty.StructElems {
+			if a := globalVarAlignment(elem); a > maxAlign {
+				maxAlign = a
+			}
+		}
+		return maxAlign
+	}
+	return 4
 }
 
 // emitZeroValue emits a zero-initialized constant.
@@ -5701,6 +6093,14 @@ func (e *Emitter) emitScalarCast(src int, srcScalar, dstScalar ir.ScalarType, is
 		return src, nil
 	}
 	if isBitcast {
+		// Constant fold: bitcast of a float constant to int produces the
+		// IEEE 754 bit representation as an integer literal. DXC folds
+		// these at compile time (e.g., bitcast float 1.0 to i32 = 1065353216).
+		if c, ok := e.constMap[src]; ok && !c.IsUndef {
+			if folded, ok := e.tryFoldBitcast(c, srcScalar, dstScalar); ok {
+				return folded, nil
+			}
+		}
 		destTy := scalarToDXIL(e.mod, dstScalar)
 		return e.addCastInstr(destTy, CastBitcast, src), nil
 	}
@@ -5713,6 +6113,15 @@ func (e *Emitter) emitScalarCast(src int, srcScalar, dstScalar ir.ScalarType, is
 	// Bool target: numeric → bool requires comparison with zero.
 	if dstScalar.Kind == ir.ScalarBool {
 		return e.emitNumericToBoolDXIL(src, srcScalar)
+	}
+
+	// Constant fold: cast of a constant integer to float or vice versa can
+	// be evaluated at compile time. DXC's LLVM folds these (e.g.,
+	// sitofp i32 0 to float -> float 0.0, uitofp i32 1 to float -> float 1.0).
+	if c, ok := e.constMap[src]; ok && !c.IsUndef {
+		if folded, ok := e.tryFoldNumericCast(c, srcScalar, dstScalar); ok {
+			return folded, nil
+		}
 	}
 
 	op, err := selectDXILCastOp(srcScalar, dstScalar)

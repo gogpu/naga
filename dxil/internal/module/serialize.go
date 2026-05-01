@@ -393,13 +393,20 @@ func (s *serializer) emitGlobalVarDecl(gv *GlobalVar) {
 	linkage := uint64(0) // external
 	if gv.Initializer != nil {
 		initID = uid(gv.Initializer.ValueID) + 1
-		linkage = 3 // internal
+		linkage = 3 // internal (default for initialized globals)
 	}
-	// Alignment: log2(align)+1. For workgroup atomics we use the element's
-	// natural alignment (4 for i32, 8 for i64). Hardcode 4 for now —
-	// matches DXC's default for workgroup vars and groupshared atomics
-	// only require 4-byte alignment per the validator.
-	const log2AlignPlus1 = 3 // log2(4) + 1 = 3
+	// Allow explicit linkage override (e.g., decomposed groupshared
+	// struct members use external linkage with undef initializer).
+	if gv.Linkage >= 0 {
+		linkage = uint64(gv.Linkage)
+	}
+	// Alignment: log2(align)+1. Use the element type's natural alignment
+	// (4 for i32/f32, 8 for i64/f64). DXC emits align 8 for i64
+	// workgroup variables.
+	log2AlignPlus1 := uint64(3) // default: log2(4) + 1 = 3
+	if gv.Alignment > 0 {
+		log2AlignPlus1 = uint64(log2Uint(gv.Alignment)) + 1
+	}
 	data := []uint64{
 		uid(gv.VarType.ID),
 		flags,
@@ -409,6 +416,15 @@ func (s *serializer) emitGlobalVarDecl(gv *GlobalVar) {
 		0, // section
 	}
 	s.w.EmitRecord(moduleCodeGlobalVar, data)
+}
+
+// log2Uint returns floor(log2(v)) for v > 0. For v == 0 returns 0.
+func log2Uint(v uint32) uint32 {
+	r := uint32(0)
+	for v >>= 1; v > 0; v >>= 1 {
+		r++
+	}
+	return r
 }
 
 // emitFunctionDecl writes a MODULE_CODE_FUNCTION record.

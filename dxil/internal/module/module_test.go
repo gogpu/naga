@@ -392,3 +392,26 @@ func TestSerialize_Deterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestLog2Uint verifies the log2Uint helper used for alignment encoding.
+func TestLog2Uint(t *testing.T) {
+	cases := []struct {
+		in   uint32
+		want uint32
+	}{
+		{0, 0}, // special case: log2(0) = 0
+		{1, 0}, // log2(1) = 0
+		{2, 1}, // log2(2) = 1
+		{4, 2}, // log2(4) = 2
+		{8, 3}, // log2(8) = 3
+		{16, 4},
+		{3, 1}, // floor(log2(3)) = 1
+		{7, 2}, // floor(log2(7)) = 2
+	}
+	for _, tc := range cases {
+		got := log2Uint(tc.in)
+		if got != tc.want {
+			t.Errorf("log2Uint(%d) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
