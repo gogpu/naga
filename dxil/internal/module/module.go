@@ -634,6 +634,12 @@ type GlobalVar struct {
 	// Alignment is the byte alignment for the global variable.
 	// 0 means use the default (4). Set to 8 for i64/f64 types.
 	Alignment uint32
+	// Linkage overrides the auto-derived linkage for this global.
+	// -1 (default) = auto: external (0) when no initializer, internal (3)
+	// when initializer is present. Set to 0 to force external linkage
+	// with an initializer (DXC uses this for decomposed groupshared
+	// struct members: `global T undef` with external linkage).
+	Linkage int8
 }
 
 // AddGlobalVar registers a global variable with the given pointee type
@@ -644,6 +650,7 @@ func (m *Module) AddGlobalVar(name string, elemType *Type, addrSpace uint8) *Glo
 		Name:      name,
 		VarType:   elemType,
 		AddrSpace: addrSpace,
+		Linkage:   -1, // auto: external when no init, internal when init
 	}
 	m.GlobalVars = append(m.GlobalVars, gv)
 	return gv

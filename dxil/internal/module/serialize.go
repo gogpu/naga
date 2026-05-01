@@ -393,7 +393,12 @@ func (s *serializer) emitGlobalVarDecl(gv *GlobalVar) {
 	linkage := uint64(0) // external
 	if gv.Initializer != nil {
 		initID = uid(gv.Initializer.ValueID) + 1
-		linkage = 3 // internal
+		linkage = 3 // internal (default for initialized globals)
+	}
+	// Allow explicit linkage override (e.g., decomposed groupshared
+	// struct members use external linkage with undef initializer).
+	if gv.Linkage >= 0 {
+		linkage = uint64(gv.Linkage)
 	}
 	// Alignment: log2(align)+1. Use the element type's natural alignment
 	// (4 for i32/f32, 8 for i64/f64). DXC emits align 8 for i64

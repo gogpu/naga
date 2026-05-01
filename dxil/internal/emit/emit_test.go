@@ -7344,3 +7344,181 @@ func TestMergeConsecutiveEmitRangesNoAlloc(t *testing.T) {
 		t.Error("expected same backing array when no merge needed")
 	}
 }
+
+// TestDecomposeWorkgroupStructNames verifies that decomposeWorkgroupStruct
+// produces per-member globals with correct MSVC-mangled names matching DXC's
+// groupshared struct decomposition convention.
+func TestDecomposeWorkgroupStructNames(t *testing.T) {
+	// Build a minimal IR module with a struct workgroup var:
+	//   struct WStruct { arr: array<u32, 512>, atom: atomic<i32>, atom_arr: array<array<atomic<i32>, 8>, 8> }
+	//   var<workgroup> w_mem: WStruct;
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},                                  // [0] u32
+			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                                  // [1] i32
+			{Name: "", Inner: ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},           // [2] atomic<i32>
+			{Name: "", Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: ptrU32(512)}}},              // [3] array<u32, 512>
+			{Name: "", Inner: ir.ArrayType{Base: 2, Size: ir.ArraySize{Constant: ptrU32(8)}}},                // [4] array<atomic<i32>, 8>
+			{Name: "", Inner: ir.ArrayType{Base: ir.TypeHandle(4), Size: ir.ArraySize{Constant: ptrU32(8)}}}, // [5] array<array<atomic<i32>, 8>, 8>
+			{Name: "WStruct", Inner: ir.StructType{Members: []ir.StructMember{ // [6] WStruct
+				{Name: "arr", Type: 3},
+				{Name: "atom", Type: 2},
+				{Name: "atom_arr", Type: ir.TypeHandle(5)},
+			}}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "w_mem", Type: ir.TypeHandle(6), Space: ir.SpaceWorkGroup},
+		},
+	}
+
+	mod := module.NewModule(module.ComputeShader)
+	e := &Emitter{
+		ir:                      irMod,
+		mod:                     mod,
+		globalVarAllocas:        make(map[ir.GlobalVariableHandle]int),
+		globalVarAllocaTypes:    make(map[ir.GlobalVariableHandle]*module.Type),
+		globalVarModuleVars:     make(map[int]*module.GlobalVar),
+		decomposedWGMembers:     make(map[wgMemberKey]int),
+		decomposedWGMemberTypes: make(map[wgMemberKey]*module.Type),
+	}
+
+	gv := &irMod.GlobalVariables[0]
+	st := irMod.Types[gv.Type].Inner.(ir.StructType)
+
+	_, err := e.decomposeWorkgroupStruct(0, gv, st, "WStruct")
+	if err != nil {
+		t.Fatalf("decomposeWorkgroupStruct failed: %v", err)
+	}
+
+	// Verify sentinel in globalVarAllocas.
+	if id, ok := e.globalVarAllocas[0]; !ok || id != -1 {
+		t.Errorf("expected globalVarAllocas[0] = -1, got %d (exists=%v)", id, ok)
+	}
+
+	// Verify 3 decomposed members created.
+	if len(e.decomposedWGMembers) != 3 {
+		t.Fatalf("expected 3 decomposed members, got %d", len(e.decomposedWGMembers))
+	}
+
+	// Verify global var names match DXC convention.
+	wantNames := []string{
+		"\x01?w_mem@@3UWStruct@@A.0",
+		"\x01?w_mem@@3UWStruct@@A.1",
+		"\x01?w_mem@@3UWStruct@@A.2.1dim",
+	}
+	for i, want := range wantNames {
+		key := wgMemberKey{varHandle: 0, memberIndex: i}
+		memberID, ok := e.decomposedWGMembers[key]
+		if !ok {
+			t.Errorf("member %d not found in decomposedWGMembers", i)
+			continue
+		}
+		modGV, ok := e.globalVarModuleVars[memberID]
+		if !ok {
+			t.Errorf("member %d globalVar not found in globalVarModuleVars", i)
+			continue
+		}
+		if modGV.Name != want {
+			t.Errorf("member %d name = %q, want %q", i, modGV.Name, want)
+		}
+		// Verify undef initializer and external linkage.
+		if modGV.Initializer == nil {
+			t.Errorf("member %d missing undef initializer", i)
+		} else if !modGV.Initializer.IsUndef {
+			t.Errorf("member %d initializer is not undef", i)
+		}
+		if modGV.Linkage != 0 {
+			t.Errorf("member %d linkage = %d, want 0 (external)", i, modGV.Linkage)
+		}
+		if modGV.AddrSpace != 3 {
+			t.Errorf("member %d addrspace = %d, want 3", i, modGV.AddrSpace)
+		}
+	}
+}
+
+// TestIsMultiDimArray verifies the multi-dimensional array detection used
+// for the ".1dim" name suffix in decomposed workgroup struct members.
+func TestIsMultiDimArray(t *testing.T) {
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                                  // [0] i32
+			{Inner: ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}},           // [1] atomic<i32>
+			{Inner: ir.ArrayType{Base: 1, Size: ir.ArraySize{Constant: ptrU32(8)}}},                // [2] array<atomic<i32>, 8>
+			{Inner: ir.ArrayType{Base: ir.TypeHandle(2), Size: ir.ArraySize{Constant: ptrU32(8)}}}, // [3] array<array<..., 8>, 8>
+			{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: ptrU32(512)}}},              // [4] array<i32, 512>
+		},
+	}
+
+	tests := []struct {
+		name string
+		ty   ir.TypeInner
+		want bool
+	}{
+		{"scalar", irMod.Types[0].Inner, false},
+		{"atomic", irMod.Types[1].Inner, false},
+		{"1D array", irMod.Types[4].Inner, false},
+		{"2D array", irMod.Types[3].Inner, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isMultiDimArray(irMod, tt.ty)
+			if got != tt.want {
+				t.Errorf("isMultiDimArray(%s) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDecomposeWorkgroupStructMemberTypes verifies that decomposed member
+// globals get the correct DXIL types (atomics unwrapped, arrays flattened).
+func TestDecomposeWorkgroupStructMemberTypes(t *testing.T) {
+	// struct S { scalar: atomic<u32>, arr: array<i32, 2> }
+	irMod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},                        // [0] u32
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                        // [1] i32
+			{Inner: ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}}, // [2] atomic<u32>
+			{Inner: ir.ArrayType{Base: 1, Size: ir.ArraySize{Constant: ptrU32(2)}}},      // [3] array<i32, 2>
+			{Name: "Struct", Inner: ir.StructType{Members: []ir.StructMember{ // [4] Struct
+				{Name: "atomic_scalar", Type: 2},
+				{Name: "atomic_arr", Type: 3},
+			}}},
+		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "workgroup_struct", Type: ir.TypeHandle(4), Space: ir.SpaceWorkGroup},
+		},
+	}
+
+	mod := module.NewModule(module.ComputeShader)
+	e := &Emitter{
+		ir:                      irMod,
+		mod:                     mod,
+		globalVarAllocas:        make(map[ir.GlobalVariableHandle]int),
+		globalVarAllocaTypes:    make(map[ir.GlobalVariableHandle]*module.Type),
+		globalVarModuleVars:     make(map[int]*module.GlobalVar),
+		decomposedWGMembers:     make(map[wgMemberKey]int),
+		decomposedWGMemberTypes: make(map[wgMemberKey]*module.Type),
+	}
+
+	gv := &irMod.GlobalVariables[0]
+	st := irMod.Types[gv.Type].Inner.(ir.StructType)
+
+	_, err := e.decomposeWorkgroupStruct(0, gv, st, "Struct")
+	if err != nil {
+		t.Fatalf("decomposeWorkgroupStruct failed: %v", err)
+	}
+
+	// Member 0: atomic<u32> -> i32 (32-bit int, atomics unwrapped)
+	key0 := wgMemberKey{varHandle: 0, memberIndex: 0}
+	ty0 := e.decomposedWGMemberTypes[key0]
+	if ty0 == nil || ty0.Kind != module.TypeInteger || ty0.IntBits != 32 {
+		t.Errorf("member 0 type: expected i32, got %v", ty0)
+	}
+
+	// Member 1: array<i32, 2> -> [2 x i32]
+	key1 := wgMemberKey{varHandle: 0, memberIndex: 1}
+	ty1 := e.decomposedWGMemberTypes[key1]
+	if ty1 == nil || ty1.Kind != module.TypeArray || ty1.ElemCount != 2 {
+		t.Errorf("member 1 type: expected [2 x i32], got %v", ty1)
+	}
+}

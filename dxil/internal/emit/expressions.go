@@ -432,10 +432,16 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 				return id, nil
 			}
 			// The base produced a pointer to an array. GEP into element ai.Index.
+			// For decomposed workgroup struct members the GEP must target
+			// addrspace 3 so the validator's TGSM-origin check succeeds.
 			arrayDxilTy, err2 := typeToDXIL(e.mod, e.ir, arrTy)
 			if err2 == nil {
 				indexIDConst := e.getIntConstID(int64(ai.Index))
-				return e.emitArrayGEP(baseID, arrayDxilTy, indexIDConst)
+				addrSpace := uint8(0)
+				if _, isWG := e.globalVarModuleVars[baseID]; isWG {
+					addrSpace = 3
+				}
+				return e.emitArrayGEPAS(baseID, arrayDxilTy, indexIDConst, addrSpace)
 			}
 		}
 	}
@@ -738,7 +744,14 @@ func (e *Emitter) tryAccessIndexArrayGEP(fn *ir.Function, acc ir.ExprAccess, bas
 	if err != nil {
 		return 0, false
 	}
-	id, err := e.emitArrayGEP(baseID, arrayDxilTy, indexID)
+	// Decomposed workgroup struct members are addrspace(3) globals.
+	// The GEP result pointer must carry addrspace 3 so the validator's
+	// TGSM-origin check succeeds on downstream load/store/atomicrmw.
+	addrSpace := uint8(0)
+	if _, isWG := e.globalVarModuleVars[baseID]; isWG {
+		addrSpace = 3
+	}
+	id, err := e.emitArrayGEPAS(baseID, arrayDxilTy, indexID, addrSpace)
 	if err != nil {
 		return 0, false
 	}
@@ -937,6 +950,22 @@ func (e *Emitter) tryGlobalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex
 	if !hasAlloca {
 		return -1, nil
 	}
+
+	// Decomposed struct workgroup var: the per-member global is already
+	// created during decomposeWorkgroupStruct. Return it directly instead
+	// of emitting a GEP into a monolithic struct. The member global is a
+	// top-level addrspace(3) global with the member's own type (array,
+	// scalar, etc.), so downstream code treats it as any other workgroup
+	// global -- no struct GEP needed.
+	if allocaID == -1 {
+		key := wgMemberKey{varHandle: gv.Variable, memberIndex: int(ai.Index)}
+		memberID, found := e.decomposedWGMembers[key]
+		if !found {
+			return -1, fmt.Errorf("decomposed workgroup member (%d, %d) not found", gv.Variable, ai.Index)
+		}
+		return memberID, nil
+	}
+
 	allocaTy, hasTy := e.globalVarAllocaTypes[gv.Variable]
 	if !hasTy {
 		return -1, nil
@@ -4741,8 +4770,12 @@ func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error
 	// switch to rooting each element GEP at the global with a 3-index path.
 	wgOrigin, rootAtGlobal := workgroupFieldRoot(e, basePtrID)
 
+	// Decomposed workgroup struct members are addrspace(3) globals.
+	// They are NOT in workgroupFieldPtrs but ARE in globalVarModuleVars.
 	addrSpace := uint8(0)
 	if rootAtGlobal {
+		addrSpace = 3
+	} else if _, isWG := e.globalVarModuleVars[basePtrID]; isWG {
 		addrSpace = 3
 	}
 	resultPtrTy := e.mod.GetPointerTypeAS(elemTy, addrSpace)
@@ -5311,18 +5344,26 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	// encoding is a top-level @globalshared.X = addrspace(3) global,
 	// matching DXC's groupshared HLSL lowering.
 	//
-	// We register the GlobalVar in the module BEFORE the instruction
-	// pre-allocates a value ID for it. finalize() assigns the global
-	// var's bitcode ValueID and threads it through idMap so subsequent
-	// instructions (load/store/atomicrmw) reference the correct global.
+	// For struct-typed workgroup vars, DXC decomposes the struct into
+	// separate per-member globals, each with its own MSVC-mangled name
+	// containing the struct type name and member index suffix. The
+	// emitter value ID stored in globalVarAllocas is a sentinel (-1)
+	// indicating decomposition; actual member globals are in
+	// decomposedWGMembers keyed by (varHandle, memberIndex).
 	if gv.Space == ir.SpaceWorkGroup {
+		if e.globalVarModuleVars == nil {
+			e.globalVarModuleVars = make(map[int]*module.GlobalVar)
+		}
+
+		// Struct-typed workgroup vars: decompose into per-member globals.
+		if st, isSt := irType.Inner.(ir.StructType); isSt {
+			return e.decomposeWorkgroupStruct(varHandle, gv, st, irType.Name)
+		}
+
 		mangledName := hlslMangledGroupsharedName(e.ir, gv)
 		modGV := e.mod.AddGlobalVar(mangledName, elemTy, 3)
 		modGV.Alignment = globalVarAlignment(elemTy)
 		emitterID := e.allocValue()
-		if e.globalVarModuleVars == nil {
-			e.globalVarModuleVars = make(map[int]*module.GlobalVar)
-		}
 		e.globalVarModuleVars[emitterID] = modGV
 		e.globalVarAllocas[varHandle] = emitterID
 		// The alloca-type map is consulted by load/store paths to know
@@ -5367,6 +5408,83 @@ func (e *Emitter) emitGlobalVarAlloca(varHandle ir.GlobalVariableHandle) (int, e
 	e.globalVarAllocas[varHandle] = valueID
 	e.globalVarAllocaTypes[varHandle] = elemTy
 	return valueID, nil
+}
+
+// decomposeWorkgroupStruct creates per-member addrspace(3) globals for a
+// struct-typed workgroup variable, matching DXC's groupshared decomposition.
+//
+// DXC flattens each struct member into its own global with an MSVC-mangled
+// name:  \01?<var>@@3U<StructType>@@A.<memberIdx>
+// Multi-dimensional arrays get a ".1dim" suffix after flattening to 1D.
+// Atomic members are unwrapped to their scalar type.
+//
+// The sentinel value -1 is stored in globalVarAllocas to indicate that this
+// global has been decomposed. Member globals are in decomposedWGMembers.
+func (e *Emitter) decomposeWorkgroupStruct(
+	varHandle ir.GlobalVariableHandle,
+	gv *ir.GlobalVariable,
+	st ir.StructType,
+	structTypeName string,
+) (int, error) {
+	varName := gv.Name
+	if len(varName) > 0 && varName[len(varName)-1] >= '0' && varName[len(varName)-1] <= '9' {
+		varName += "_"
+	}
+
+	// Name prefix: \01?<var>@@3U<StructName>@@A
+	namePrefix := "\x01?" + varName + "@@3U" + structTypeName + "@@A"
+
+	for i, m := range st.Members {
+		memberIRType := e.ir.Types[m.Type]
+		memberTy, err := typeToDXIL(e.mod, e.ir, memberIRType.Inner)
+		if err != nil {
+			return 0, fmt.Errorf("workgroup struct member %d (%s): %w", i, m.Name, err)
+		}
+
+		// Build the per-member mangled name with member index suffix.
+		// Multi-dimensional arrays that get flattened to 1D get ".1dim".
+		suffix := fmt.Sprintf(".%d", i)
+		if isMultiDimArray(e.ir, memberIRType.Inner) {
+			suffix += ".1dim"
+		}
+		mangledName := namePrefix + suffix
+
+		modGV := e.mod.AddGlobalVar(mangledName, memberTy, 3)
+		modGV.Alignment = globalVarAlignment(memberTy)
+		// DXC emits decomposed workgroup members with `undef` initializer
+		// and external linkage (linkage=0). The disassembly shows
+		// `addrspace(3) global [N x T] undef` without `external` or
+		// `internal` keyword (external is the default in LLVM IR text).
+		modGV.Initializer = e.mod.AddUndefConst(memberTy)
+		modGV.Linkage = 0 // external (override auto=internal for init'd globals)
+		emitterID := e.allocValue()
+		e.globalVarModuleVars[emitterID] = modGV
+
+		key := wgMemberKey{varHandle: varHandle, memberIndex: i}
+		e.decomposedWGMembers[key] = emitterID
+		e.decomposedWGMemberTypes[key] = memberTy
+	}
+
+	// Store sentinel -1 in globalVarAllocas to mark this var as decomposed.
+	// tryGlobalVarAccessIndex checks this to redirect member accesses.
+	e.globalVarAllocas[varHandle] = -1
+
+	// Return -1; callers should access members via tryGlobalVarAccessIndex,
+	// not the base variable directly.
+	return -1, nil
+}
+
+// isMultiDimArray returns true if the given IR type is an array whose element
+// type is also an array (i.e., array<array<T, N>, M>). DXC appends ".1dim" to
+// the decomposed member name for such cases after flattening to 1D.
+func isMultiDimArray(irMod *ir.Module, inner ir.TypeInner) bool {
+	arr, ok := inner.(ir.ArrayType)
+	if !ok {
+		return false
+	}
+	elemInner := irMod.Types[arr.Base].Inner
+	_, isNestedArr := elemInner.(ir.ArrayType)
+	return isNestedArr
 }
 
 // resolveLoadType determines the DXIL type produced by loading from the given
