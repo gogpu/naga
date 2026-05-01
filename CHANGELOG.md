@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.10] - 2026-04-30
+
+### Added (DXIL)
+
+- **Workgroup struct decomposition** — struct-typed groupshared variables
+  decomposed into per-member globals with MSVC-mangled suffix names.
+- **ViewID ExprAlias/ExprPhi** — precise post-mem2reg dataflow tracking
+  instead of conservative all-inputs→all-outputs fallback.
+- **Instruction scheduling infrastructure** — eval-right-first for resource
+  reads, `exprLeadsToResourceRead()`, `leafEmitPriority()`.
+- **StmtEmit range merging** — consecutive emit ranges merged for
+  cross-range reassociation.
+- **Constant folding** — int-to-float casts (`sitofp`/`uitofp`), bitcast
+  float→i32 for raw buffer stores, binary op folding infrastructure.
+- **Alignment encoding fix** — `log2(bytes)+1` for store/load/alloca/globalvar.
+- **Mul-to-shl in CBV/UAV** — byte-offset stride via `addMulOrShlInstr()`.
+- **TBAA normalizer** — strip LLVM optimization hint metadata.
+
+### Metrics
+
+- DXC golden diff=0: 104 → **105** (+1)
+- Line parity: 54.5% → **55.1%** (+0.6pp)
+
 ## [0.17.9] - 2026-04-30
 
 ### Added (DXIL)
