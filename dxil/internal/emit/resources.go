@@ -1644,7 +1644,7 @@ func (e *Emitter) buildCBVMemberTypes(res *resourceInfo) []*module.Type {
 	// Fallback for unrecognized types.
 	f32Ty := e.mod.GetFloatType(32)
 	numVec4 := e.computeCBVVec4Count(res)
-	return []*module.Type{e.mod.GetArrayType(f32Ty, uint(numVec4))} //nolint:gosec // numVec4 always positive
+	return []*module.Type{e.mod.GetArrayType(f32Ty, uint(numVec4))}
 }
 
 // buildCBVStructMemberTypes converts each member of an IR struct to its
@@ -1932,7 +1932,7 @@ func (e *Emitter) textureElementType(imgType *ir.ImageType) (string, *module.Typ
 
 	// Depth textures: always scalar float.
 	if imgType.Class == ir.ImageClassDepth {
-		return "float", e.mod.GetFloatType(32)
+		return hlslFloat, e.mod.GetFloatType(32)
 	}
 
 	// Storage textures: derive from storage format.
@@ -1982,8 +1982,11 @@ func (e *Emitter) storageTextureElementType(img *ir.ImageType) (string, *module.
 	return vecName, vecTy
 }
 
-// DXC texture dimension name constants used in HLSL class type names.
-const dxcTexture2DName = "Texture2D"
+// DXC texture/element type name constants used in HLSL class type names.
+const (
+	dxcTexture2DName = "Texture2D"
+	hlslFloat        = "float" // HLSL scalar float element type name
+)
 
 // textureDimensionName returns the DXC HLSL texture dimension name (without
 // the "Texture" prefix class wrapper).
@@ -2042,7 +2045,7 @@ func hlslScalarTypeName(s ir.ScalarType) string {
 		if s.Width == 2 {
 			return "half"
 		}
-		return "float"
+		return hlslFloat
 	}
 }
 

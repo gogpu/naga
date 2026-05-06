@@ -4949,7 +4949,7 @@ func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error
 	if elemTy == nil {
 		return e.getIntConstID(0), nil
 	}
-	numElems := int(arrayTy.ElemCount) //nolint:gosec // ElemCount bounded by shader array size
+	numElems := int(arrayTy.ElemCount)
 	if numElems == 0 {
 		return e.getIntConstID(0), nil
 	}
