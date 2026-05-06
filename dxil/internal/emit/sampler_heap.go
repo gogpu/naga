@@ -7,6 +7,12 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
+// Sampler heap resource name constants.
+const (
+	samplerHeapName           = "nagaSamplerHeap"
+	comparisonSamplerHeapName = "nagaComparisonSamplerHeap"
+)
+
 // Sampler heap binding model — DXIL backend mirror of the HLSL backend's
 // nagaSamplerHeap pattern. Aligns with wgpu/hal/dx12 which binds samplers
 // through descriptor heaps, not per-WGSL-binding root parameter slots.
@@ -268,7 +274,7 @@ func (e *Emitter) appendSamplerHeapSamplers(rangeCounters *[4]int) {
 		st.resIdxStandardHeap = len(e.resources)
 		info := resourceInfo{
 			varHandle:      ir.GlobalVariableHandle(0xffffffff), // synthetic — no IR backing
-			name:           "nagaSamplerHeap",
+			name:           samplerHeapName,
 			class:          resourceClassSampler,
 			rangeID:        rangeCounters[resourceClassSampler],
 			group:          e.samplerHeapSpace(),
@@ -285,7 +291,7 @@ func (e *Emitter) appendSamplerHeapSamplers(rangeCounters *[4]int) {
 		st.resIdxComparisonHeap = len(e.resources)
 		info := resourceInfo{
 			varHandle:         ir.GlobalVariableHandle(0xffffffff),
-			name:              "nagaComparisonSamplerHeap",
+			name:              comparisonSamplerHeapName,
 			class:             resourceClassSampler,
 			rangeID:           rangeCounters[resourceClassSampler],
 			group:             e.comparisonSamplerHeapSpace(),

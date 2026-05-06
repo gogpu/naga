@@ -189,12 +189,22 @@ linters:
           - nestif
           - gocritic
           - unparam
+          - goconst      # Keyword map uses string literals as keys — constants would be worse
 
       # Token - String() method is necessarily complex
       - path: wgsl/token\.go
         linters:
           - gocyclo
           - cyclop
+          - goconst      # tokenNames map mirrors keyword strings from lexer — constants would be worse
+
+      # Temporary/scratch tools — not production code, not in CI
+      - path: tmp/.*\.go
+        linters:
+          - gosec
+          - errcheck
+          - goconst
+          - unused
 
       # CLI tools
       - path: cmd/nagac/.*\.go

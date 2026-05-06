@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.11] - 2026-05-06
+
+### Fixed (DXIL)
+
+- **Array-of-vector flattening** ([BUG-DXIL-041](docs/dev/kanban/1-next/BUG-DXIL-041-fine-wgsl-invalid-record.md)).
+  `array<vec4<f32>, N>` locals caused "Invalid record" from IDxcValidator.
+  Three coordinated bugs: (1) GEP index not scaled by vector width,
+  (2) single-scalar load instead of multi-scalar vector load,
+  (3) garbage component IDs from missing `pendingComponents`. Fixed via
+  `tryLoadVectorFromFlatArray()` and `scaleIndexForVecArray()`.
+  Reported by wgpu agent via `fine.wgsl` (tilecompute blend stack).
+
+### Metrics
+
+- gg production: 58/59 → **61/61 (0 failures)** 🏆
+- DXC golden diff=0: 105 (unchanged)
+- Line parity: 55.1% (unchanged)
+- IDxcValidator: 161/170 (unchanged)
+
 ## [0.17.10] - 2026-04-30
 
 ### Added (DXIL)

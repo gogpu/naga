@@ -4,6 +4,14 @@ import (
 	"fmt"
 )
 
+// Parser error message constants.
+const (
+	errExpectedParameterName = "expected parameter name"
+	errExpectedMemberName    = "expected member name"
+	errExpectedVariableName  = "expected variable name"
+	errExpectedType          = "expected type"
+)
+
 // Parser parses WGSL tokens into an AST.
 type Parser struct {
 	tokens      []Token
@@ -253,7 +261,7 @@ func (p *Parser) parameter() (*Parameter, *ParseError) {
 	attrs := p.attributes()
 
 	if !p.check(TokenIdent) {
-		return nil, &ParseError{Message: "expected parameter name", Token: p.peek()}
+		return nil, &ParseError{Message: errExpectedParameterName, Token: p.peek()}
 	}
 	name := p.advance()
 
@@ -322,7 +330,7 @@ func (p *Parser) structMember() (*StructMember, *ParseError) {
 	attrs := p.attributes()
 
 	if !p.check(TokenIdent) {
-		return nil, &ParseError{Message: "expected member name", Token: p.peek()}
+		return nil, &ParseError{Message: errExpectedMemberName, Token: p.peek()}
 	}
 	name := p.advance()
 
@@ -369,7 +377,7 @@ func (p *Parser) varDecl(attrs []Attribute) (*VarDecl, *ParseError) {
 	}
 
 	if !p.check(TokenIdent) {
-		return nil, &ParseError{Message: "expected variable name", Token: p.peek()}
+		return nil, &ParseError{Message: errExpectedVariableName, Token: p.peek()}
 	}
 	name := p.advance()
 
@@ -464,7 +472,7 @@ func (p *Parser) letDecl() (*ConstDecl, *ParseError) {
 	}
 
 	if !p.check(TokenIdent) {
-		return nil, &ParseError{Message: "expected variable name", Token: p.peek()}
+		return nil, &ParseError{Message: errExpectedVariableName, Token: p.peek()}
 	}
 	name := p.advance()
 
@@ -661,7 +669,7 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 		}
 		// No template args: array(...) with inferred type — return as NamedType
 		return &NamedType{
-			Name: "array",
+			Name: "array", //nolint:goconst // WGSL intrinsic type name, also used in lower.go
 			Span: Span{
 				Start: Position{Line: tok.Line, Column: tok.Column},
 			},
@@ -771,7 +779,7 @@ func (p *Parser) typeSpec() (Type, *ParseError) {
 		return namedType, nil
 	}
 
-	return nil, &ParseError{Message: "expected type", Token: tok}
+	return nil, &ParseError{Message: errExpectedType, Token: tok}
 }
 
 // block parses a block statement.
@@ -1217,7 +1225,7 @@ func (p *Parser) letStmt() (*ConstDecl, *ParseError) {
 	p.advance() // consume 'let'
 
 	if !p.check(TokenIdent) {
-		return nil, &ParseError{Message: "expected variable name", Token: p.peek()}
+		return nil, &ParseError{Message: errExpectedVariableName, Token: p.peek()}
 	}
 	name := p.advance()
 
@@ -1647,7 +1655,7 @@ func (p *Parser) postfix() (Expr, *ParseError) {
 		} else if p.match(TokenDot) {
 			// Member access
 			if !p.check(TokenIdent) {
-				return nil, &ParseError{Message: "expected member name", Token: p.peek()}
+				return nil, &ParseError{Message: errExpectedMemberName, Token: p.peek()}
 			}
 			member := p.advance()
 			expr = &MemberExpr{

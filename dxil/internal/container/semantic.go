@@ -13,6 +13,12 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
+// DXIL system-value semantic name constants.
+const (
+	semPosition = "SV_Position"
+	semTarget   = "SV_Target"
+)
+
 // SemanticMapping maps a naga IR binding to its DXIL semantic representation.
 type SemanticMapping struct {
 	SemanticName  string
@@ -24,7 +30,7 @@ type SemanticMapping struct {
 func MapBuiltinToSemantic(builtin ir.BuiltinValue) SemanticMapping {
 	switch builtin {
 	case ir.BuiltinPosition:
-		return SemanticMapping{"SV_Position", 0, SVPosition}
+		return SemanticMapping{semPosition, 0, SVPosition}
 	case ir.BuiltinVertexIndex:
 		return SemanticMapping{"SV_VertexID", 0, SVVertexID}
 	case ir.BuiltinInstanceIndex:
@@ -59,7 +65,7 @@ func MapLocationToInputSemantic(loc uint32) SemanticMapping {
 // the input side.
 func MapLocationToOutputSemantic(loc uint32, isFragment bool) SemanticMapping {
 	if isFragment {
-		return SemanticMapping{"SV_Target", loc, SVTarget}
+		return SemanticMapping{semTarget, loc, SVTarget}
 	}
 	return SemanticMapping{backend.LocationSemantic, loc, SVArbitrary}
 }

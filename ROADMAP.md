@@ -73,7 +73,7 @@
 | **DXIL Phase 2a: Compute foundation** | P2 | 5 | ✅ Done. Thread IDs, numthreads, UAV bufferLoad/bufferStore. |
 | **DXIL Phase 2b: Atomics + barriers** | P2 | 3 | ✅ Done. atomicBinOp (8 ops), atomicCmpXchg, dx.op.barrier, workgroup atomicrmw/cmpxchg. |
 | **DXIL Phase 2c: Mesh shaders** | P2 | 5 | ✅ Done. SM 6.5 intrinsics (168-172), PSG1 signatures, mesh metadata. |
-| **DXIL DXC validation** | ✅ Done | — | **161/170 IDxcValidator (94.7%)**. 104/208 DXC golden parity. gg 58/59. All features: ray query, image atomics, wave ops. |
+| **DXIL DXC validation** | ✅ Done | — | **161/170 IDxcValidator (94.7%)**. 105/208 DXC golden parity. **gg 61/61 (100%)**. All features: ray query, image atomics, wave ops. |
 | **DXIL Phase 3: SM 6.x features** | ✅ Done | — | Ray query (SM 6.5), wave intrinsics (SM 6.0), mesh shaders (SM 6.5), image atomics. |
 | **DXIL real validation — `IDxcValidator` wrapper** | ✅ Done | — | `cmd/dxilval` CLI + `internal/dxcvalidator` Pure Go wrapper around Microsoft `dxil.dll` (zero CGO). Three-layer defensive stack: (0) emitter assertion against null entry-point function refs, (1) `PreCheckContainer` fixed-offset DXBC structural check, (2) `bitcheck.Check` minimal LLVM 3.7 bitstream walker verifying `!dx.entryPoints[i][0]` is non-null. Prevents the `dxil.dll+0xe9da` AV class on any input (our own naga output, DXC output, third-party tool output, hand-crafted garbage). Closes BUG-DXIL-VALIDATOR-REAL. |
 

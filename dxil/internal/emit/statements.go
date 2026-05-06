@@ -1707,7 +1707,7 @@ func (e *Emitter) emitArrayStoreDecomposed(basePtrID int, arrayTy *module.Type, 
 	if elemTy == nil {
 		return nil
 	}
-	numElems := int(arrayTy.ElemCount) //nolint:gosec // ElemCount bounded by shader array size
+	numElems := int(arrayTy.ElemCount)
 	if numElems == 0 {
 		return nil
 	}
@@ -2019,7 +2019,7 @@ func (e *Emitter) emitArrayStore(fn *ir.Function, varIdx uint32, arrayTy *module
 	zeroID := e.getIntConstID(0)
 	align := e.alignForType(elemTy)
 
-	numElems := int(arrayTy.ElemCount) //nolint:gosec // ElemCount bounded by shader array size
+	numElems := int(arrayTy.ElemCount)
 	for i := 0; i < numElems; i++ {
 		indexID := e.getIntConstID(int64(i))
 		gepID := e.addGEPInstr(arrayTy, resultPtrTy, allocaID, []int{zeroID, indexID})

@@ -12,6 +12,9 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
+// Outcome kind constants for corpus validation results.
+const outcomeSkip = "SKIP"
+
 // outcome categorizes a single entry point's fate.
 type outcome struct {
 	shader string
@@ -55,11 +58,11 @@ func runCorpus(dir, save string, quiet bool, stdout, stderr io.Writer) int {
 	for _, c := range precompiled {
 		switch {
 		case c.skipReason != "":
-			outcomes = append(outcomes, outcome{shader: c.shader, kind: "SKIP", detail: c.skipReason})
+			outcomes = append(outcomes, outcome{shader: c.shader, kind: outcomeSkip, detail: c.skipReason})
 		case c.err != nil:
 			outcomes = append(outcomes, outcome{shader: c.shader, kind: "COMPILE_FAIL", detail: c.err.Error()})
 		case len(c.blobs) == 0:
-			outcomes = append(outcomes, outcome{shader: c.shader, kind: "SKIP", detail: "no entry points"})
+			outcomes = append(outcomes, outcome{shader: c.shader, kind: outcomeSkip, detail: "no entry points"})
 		default:
 			toValidate = append(toValidate, c)
 		}
@@ -203,7 +206,7 @@ func logPreCompile(stderr io.Writer, outcomes []outcome, toValidate []compiled) 
 		switch o.kind {
 		case "COMPILE_FAIL":
 			compileFail++
-		case "SKIP":
+		case outcomeSkip:
 			skip++
 		}
 	}
@@ -277,7 +280,7 @@ func renderReport(outcomes []outcome, quiet bool) string {
 	fmt.Fprintf(&b, "  VALID           : %d\n", counts["VALID"])
 	fmt.Fprintf(&b, "  INVALID         : %d\n", counts["INVALID"])
 	fmt.Fprintf(&b, "  COMPILE_FAIL    : %d\n", counts["COMPILE_FAIL"])
-	fmt.Fprintf(&b, "  SKIP            : %d\n", counts["SKIP"])
+	fmt.Fprintf(&b, "  SKIP            : %d\n", counts[outcomeSkip])
 	fmt.Fprintf(&b, "  VALIDATE_ERROR  : %d\n", counts["VALIDATE_ERROR"])
 
 	if !quiet {

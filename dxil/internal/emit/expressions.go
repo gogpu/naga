@@ -657,10 +657,66 @@ func (e *Emitter) tryLocalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex,
 		return e.emitStructGEP(baseID, lv.Variable, st, int(ai.Index))
 	}
 	if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
+		// When the IR element type is a vector (or matrix), the DXIL alloca is
+		// flattened: array<vec4<f32>, 4> becomes [16 x float]. A simple GEP at
+		// index ai.Index would point to element 0 of the vector, not element
+		// ai.Index of the outer array. Scale the index by the vector width so
+		// the GEP points to the first scalar of the correct vector element.
+		if arrIR, isArr := irType.Inner.(ir.ArrayType); isArr {
+			elemInner := e.ir.Types[arrIR.Base].Inner
+			if vt, isVec := elemInner.(ir.VectorType); isVec {
+				scaledIdx := int64(ai.Index) * int64(vt.Size)
+				indexID := e.getIntConstID(scaledIdx)
+				return e.emitArrayGEP(baseID, arrayTy, indexID)
+			}
+		}
 		indexID := e.getIntConstID(int64(ai.Index))
 		return e.emitArrayGEP(baseID, arrayTy, indexID)
 	}
 	return -1, nil
+}
+
+// tryLocalVarArrayAccess handles dynamic array access on a local variable.
+// When the IR element type is a vector, the DXIL alloca is flattened
+// (array<vec4<f32>, 4> -> [16 x float]). This function scales the dynamic
+// index by the vector width so the GEP addresses the correct flat range.
+// Returns (-1, nil) if the base expression is not a local variable array.
+func (e *Emitter) tryLocalVarArrayAccess(
+	fn *ir.Function, baseHandle ir.ExpressionHandle, baseID, indexID int,
+) (int, error) {
+	lv, ok := fn.Expressions[baseHandle].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return -1, nil
+	}
+	arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]
+	if !hasArr {
+		return -1, nil
+	}
+	scaledIdx := e.scaleIndexForVecArray(fn, lv.Variable, indexID)
+	return e.emitArrayGEP(baseID, arrayTy, scaledIdx)
+}
+
+// scaleIndexForVecArray multiplies indexID by the vector width when the local
+// variable has type array<vec<T,W>, N>, returning the scaled index. Returns
+// indexID unchanged for non-vector element types.
+func (e *Emitter) scaleIndexForVecArray(fn *ir.Function, varIdx uint32, indexID int) int {
+	if int(varIdx) >= len(fn.LocalVars) {
+		return indexID
+	}
+	localVar := &fn.LocalVars[varIdx]
+	irType := e.ir.Types[localVar.Type]
+	arrIR, isArr := irType.Inner.(ir.ArrayType)
+	if !isArr {
+		return indexID
+	}
+	elemInner := e.ir.Types[arrIR.Base].Inner
+	vt, isVec := elemInner.(ir.VectorType)
+	if !isVec || vt.Size <= 1 {
+		return indexID
+	}
+	i32Ty := e.mod.GetIntType(32)
+	vecWidthID := e.getIntConstID(int64(vt.Size))
+	return e.addBinOpInstr(i32Ty, BinOpMul, indexID, vecWidthID)
 }
 
 // tryFlatGEPWorkgroupNested handles the access pattern
@@ -1096,10 +1152,8 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 	}
 
 	// Check if the base is a local variable with array type -> GEP into array alloca.
-	if lv, ok := fn.Expressions[acc.Base].Kind.(ir.ExprLocalVariable); ok {
-		if arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]; hasArr {
-			return e.emitArrayGEP(baseID, arrayTy, indexID)
-		}
+	if id, err := e.tryLocalVarArrayAccess(fn, acc.Base, baseID, indexID); err != nil || id != -1 {
+		return id, err
 	}
 
 	// Check if the base is a global variable alloca (workgroup/private array).
@@ -4562,6 +4616,16 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 		return e.emitArrayLoad(ptr, loadedTy)
 	}
 
+	// When the load pointer comes from an AccessIndex into a flattened
+	// array-of-vectors (e.g., array<vec4<f32>, 4> flattened to [16 x float]),
+	// the GEP points to the first scalar of the vector element. The IR type
+	// of the load result is vec4<f32>, but resolveLoadType returns float
+	// (because typeToDXIL scalarizes vectors). We need to load all vector
+	// components and set pendingComponents for correct getComponentID behavior.
+	if id, handled := e.tryLoadVectorFromFlatArray(fn, load.Pointer, ptr, loadedTy); handled {
+		return id, nil
+	}
+
 	// Emit LLVM load instruction: %val = load TYPE, TYPE* %ptr, align N
 	valueID := e.allocValue()
 	align := e.alignForType(loadedTy)
@@ -4574,6 +4638,130 @@ func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
 	}
 	e.currentBB.AddInstruction(instr)
 	return valueID, nil
+}
+
+// tryLoadVectorFromFlatArray detects loads from a flattened array-of-vectors
+// local variable and expands them into per-component scalar loads.
+//
+// Patterns handled:
+//   - ExprLoad(ExprAccessIndex(ExprLocalVariable(v), idx))  -- constant index
+//   - ExprLoad(ExprAccess(ExprLocalVariable(v), idxExpr))   -- dynamic index
+//
+// where v has type array<vec<T,W>, N> and the DXIL alloca is [N*W x T].
+// The GEP from tryLocalVarAccessIndex/emitAccess already points to the first
+// scalar of the vector element (flat index idx*W). This function loads W
+// consecutive scalars from that base and sets pendingComponents.
+//
+// Returns (firstCompID, true) if handled, (0, false) otherwise.
+func (e *Emitter) tryLoadVectorFromFlatArray(
+	fn *ir.Function, ptrHandle ir.ExpressionHandle, gepID int, scalarTy *module.Type,
+) (int, bool) {
+	// Extract the local variable handle and base expression handle.
+	var lvHandle ir.ExprLocalVariable
+	var flatBaseID int // DXIL value ID of the flat base index (idx*vecWidth)
+	var isConst bool
+	var constFlatBase int64
+
+	ptrExpr := fn.Expressions[ptrHandle].Kind
+	switch pk := ptrExpr.(type) {
+	case ir.ExprAccessIndex:
+		lv, ok := fn.Expressions[pk.Base].Kind.(ir.ExprLocalVariable)
+		if !ok || int(lv.Variable) >= len(fn.LocalVars) {
+			return 0, false
+		}
+		lvHandle = lv
+		isConst = true
+	case ir.ExprAccess:
+		lv, ok := fn.Expressions[pk.Base].Kind.(ir.ExprLocalVariable)
+		if !ok || int(lv.Variable) >= len(fn.LocalVars) {
+			return 0, false
+		}
+		lvHandle = lv
+	default:
+		return 0, false
+	}
+
+	localVar := &fn.LocalVars[lvHandle.Variable]
+	irType := e.ir.Types[localVar.Type]
+	arrIR, isArr := irType.Inner.(ir.ArrayType)
+	if !isArr {
+		return 0, false
+	}
+	elemInner := e.ir.Types[arrIR.Base].Inner
+	vt, isVec := elemInner.(ir.VectorType)
+	if !isVec {
+		return 0, false
+	}
+	arrayTy, hasArr := e.localVarArrayTypes[lvHandle.Variable]
+	if !hasArr {
+		return 0, false
+	}
+	basePtrID, hasBase := e.localVarPtrs[lvHandle.Variable]
+	if !hasBase || basePtrID < 0 {
+		return 0, false
+	}
+
+	vecWidth := int(vt.Size)
+	i32Ty := e.mod.GetIntType(32)
+
+	// Compute the flat base index (idx * vecWidth). The GEP already points
+	// to this location for component 0 -- we compute the base explicitly for
+	// components 1..W-1 so we can add an offset via GEP.
+	if isConst {
+		ai := ptrExpr.(ir.ExprAccessIndex)
+		constFlatBase = int64(ai.Index) * int64(vecWidth)
+	} else {
+		// For dynamic access, the index was already scaled by vecWidth in
+		// emitAccess. Retrieve the scaled index from the GEP's last operand.
+		// We recompute it here from the original index expression to keep
+		// the code self-contained.
+		acc := ptrExpr.(ir.ExprAccess)
+		origIdx, ok := e.exprValues[acc.Index]
+		if !ok {
+			return 0, false
+		}
+		vecWidthID := e.getIntConstID(int64(vecWidth))
+		flatBaseID = e.addBinOpInstr(i32Ty, BinOpMul, origIdx, vecWidthID)
+	}
+
+	align := e.alignForType(scalarTy)
+	resultPtrTy := e.mod.GetPointerType(scalarTy)
+	zeroID := e.getIntConstID(0)
+
+	comps := make([]int, vecWidth)
+	// First component: load from the GEP pointer already computed.
+	firstID := e.allocValue()
+	e.currentBB.AddInstruction(&module.Instruction{
+		Kind:       module.InstrLoad,
+		HasValue:   true,
+		ResultType: scalarTy,
+		Operands:   []int{gepID, scalarTy.ID, align, 0},
+		ValueID:    firstID,
+	})
+	comps[0] = firstID
+
+	// Remaining components: GEP to flatBase+c and load.
+	for c := 1; c < vecWidth; c++ {
+		var indexID int
+		if isConst {
+			indexID = e.getIntConstID(constFlatBase + int64(c))
+		} else {
+			cID := e.getIntConstID(int64(c))
+			indexID = e.addBinOpInstr(i32Ty, BinOpAdd, flatBaseID, cID)
+		}
+		nextGEP := e.addGEPInstr(arrayTy, resultPtrTy, basePtrID, []int{zeroID, indexID})
+		nextID := e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind:       module.InstrLoad,
+			HasValue:   true,
+			ResultType: scalarTy,
+			Operands:   []int{nextGEP, scalarTy.ID, align, 0},
+			ValueID:    nextID,
+		})
+		comps[c] = nextID
+	}
+	e.pendingComponents = comps
+	return comps[0], true
 }
 
 // emitPhi materializes an ExprPhi as an LLVM FUNC_CODE_INST_PHI
@@ -4761,7 +4949,7 @@ func (e *Emitter) emitArrayLoad(basePtrID int, arrayTy *module.Type) (int, error
 	if elemTy == nil {
 		return e.getIntConstID(0), nil
 	}
-	numElems := int(arrayTy.ElemCount) //nolint:gosec // ElemCount bounded by shader array size
+	numElems := int(arrayTy.ElemCount)
 	if numElems == 0 {
 		return e.getIntConstID(0), nil
 	}
