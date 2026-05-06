@@ -9,6 +9,7 @@ import (
 	"github.com/gogpu/naga/dxil/internal/container"
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl"
 )
 
 func TestCompile_NilModule(t *testing.T) {
@@ -1164,4 +1165,134 @@ func TestModuleUsesLowPrecision_QuantizeF16NotTriggered(t *testing.T) {
 	if err := Validate(blob, ValidateBitcode); err != nil {
 		t.Fatalf("Validate(Bitcode): %v", err)
 	}
+}
+
+// compileWGSLToDXIL is a helper that parses WGSL source and compiles each
+// compute entry point to DXIL, validating the output bitcode. Fails the test
+// if parsing, lowering, compilation, or validation fails.
+func compileWGSLToDXIL(t *testing.T, src string) {
+	t.Helper()
+	tokens, err := wgsl.NewLexer(src).Tokenize()
+	if err != nil {
+		t.Fatalf("tokenize: %v", err)
+	}
+	ast, err := wgsl.NewParser(tokens).Parse()
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	irMod, err := wgsl.LowerWithSource(ast, src)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	opts := DefaultOptions()
+	for j := range irMod.EntryPoints {
+		ep := irMod.EntryPoints[j]
+		single := &ir.Module{
+			Types:             irMod.Types,
+			Constants:         irMod.Constants,
+			GlobalVariables:   irMod.GlobalVariables,
+			GlobalExpressions: irMod.GlobalExpressions,
+			Functions:         irMod.Functions,
+			EntryPoints:       []ir.EntryPoint{ep},
+			Overrides:         irMod.Overrides,
+			SpecialTypes:      irMod.SpecialTypes,
+		}
+		blob, cerr := Compile(single, opts)
+		if cerr != nil {
+			t.Fatalf("Compile(%s): %v", ep.Name, cerr)
+		}
+		if verr := Validate(blob, ValidateBitcode); verr != nil {
+			t.Fatalf("Validate(%s): %v", ep.Name, verr)
+		}
+		t.Logf("%s: %d bytes, valid", ep.Name, len(blob))
+	}
+}
+
+// TestFlatArrayVectorLoad_ConstIndex verifies that loading a vec4 element from
+// a local array<vec4<f32>, N> via constant index produces valid DXIL.
+// Before the fix, pack4x8unorm(rgba[0]) where rgba is array<vec4<f32>, 4>
+// triggered "Invalid record" because getComponentID returned garbage IDs
+// instead of per-component scalar loads from the flattened [16 x float] alloca.
+func TestFlatArrayVectorLoad_ConstIndex(t *testing.T) {
+	compileWGSLToDXIL(t, `
+@group(0) @binding(0) var<storage, read_write> output: array<u32>;
+
+@compute @workgroup_size(4, 16, 1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var rgba: array<vec4<f32>, 4>;
+    rgba[0] = vec4<f32>(0.5, 0.5, 0.5, 1.0);
+    let packed = pack4x8unorm(rgba[0]);
+    output[gid.x] = packed;
+}
+`)
+}
+
+// TestFlatArrayVectorLoad_DynamicIndex verifies that loading a vec4 element
+// from a local array<vec4<f32>, N> via a dynamic (runtime) index produces
+// valid DXIL. The dynamic index must be scaled by the vector width before
+// being used as the flat array GEP index.
+func TestFlatArrayVectorLoad_DynamicIndex(t *testing.T) {
+	compileWGSLToDXIL(t, `
+@group(0) @binding(0) var<storage, read_write> output: array<u32>;
+
+@compute @workgroup_size(4, 16, 1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var rgba: array<vec4<f32>, 4>;
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        rgba[i] = vec4<f32>(0.0);
+    }
+    let packed = pack4x8unorm(rgba[gid.x % 4u]);
+    output[gid.x] = packed;
+}
+`)
+}
+
+// TestFlatArrayVectorLoad_PackUnpackRoundtrip verifies the full pack -> unpack
+// -> repack pattern that caused fine.wgsl to fail with "Invalid record".
+func TestFlatArrayVectorLoad_PackUnpackRoundtrip(t *testing.T) {
+	compileWGSLToDXIL(t, `
+@group(0) @binding(0) var<storage, read_write> output: array<u32>;
+
+@compute @workgroup_size(4, 16, 1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var rgba: array<vec4<f32>, 4>;
+    var blend_stack: array<array<u32, 4>, 4>;
+
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        rgba[i] = vec4<f32>(0.0);
+    }
+
+    // Pack into nested array
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        blend_stack[0u][i] = pack4x8unorm(rgba[i]);
+    }
+
+    // Unpack from nested array
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        let saved = unpack4x8unorm(blend_stack[0u][i]);
+        rgba[i] = saved;
+    }
+
+    output[gid.x] = pack4x8unorm(rgba[0]);
+}
+`)
+}
+
+// TestFlatArrayVectorLoad_BinaryOps verifies that binary operations on
+// vec4 elements loaded from a flattened array produce valid DXIL.
+func TestFlatArrayVectorLoad_BinaryOps(t *testing.T) {
+	compileWGSLToDXIL(t, `
+@group(0) @binding(0) var<storage, read_write> output: array<u32>;
+
+@compute @workgroup_size(4, 16, 1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    var rgba: array<vec4<f32>, 4>;
+    rgba[0] = vec4<f32>(0.5, 0.5, 0.5, 1.0);
+    rgba[1] = vec4<f32>(0.2, 0.3, 0.4, 0.5);
+
+    // Binary op on loaded array-of-vec4 elements
+    let blended = rgba[0] * 0.5 + rgba[1] * 0.5;
+    output[gid.x] = pack4x8unorm(blended);
+}
+`)
 }
