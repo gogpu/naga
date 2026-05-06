@@ -11071,9 +11071,28 @@ func isFloatOnlyMathFunc(f ir.MathFunction) bool {
 	}
 }
 
+func mathMinArgs(f ir.MathFunction) int {
+	switch f {
+	case ir.MathDot, ir.MathDot4I8Packed, ir.MathDot4U8Packed,
+		ir.MathCross, ir.MathDistance, ir.MathReflect,
+		ir.MathStep, ir.MathPow, ir.MathAtan2,
+		ir.MathMin, ir.MathMax:
+		return 2
+	case ir.MathMix, ir.MathSmoothStep, ir.MathFma,
+		ir.MathClamp, ir.MathRefract, ir.MathFaceForward,
+		ir.MathExtractBits, ir.MathInsertBits:
+		return 3
+	default:
+		return 1
+	}
+}
+
 func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) == 0 {
 		return 0, fmt.Errorf("math function requires at least one argument")
+	}
+	if minArgs := mathMinArgs(mathFunc); len(args) < minArgs {
+		return 0, fmt.Errorf("math function requires at least %d arguments, got %d", minArgs, len(args))
 	}
 
 	arg0, err := l.lowerExpression(args[0], target)
