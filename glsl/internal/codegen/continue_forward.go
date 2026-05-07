@@ -1,7 +1,7 @@
 // Copyright 2025 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-package glsl
+package codegen
 
 // continueCtx tracks nesting of loops and switches to orchestrate forwarding
 // of continue statements inside a do-while (single-body switch) to the enclosing loop.

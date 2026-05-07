@@ -1,7 +1,7 @@
 // Copyright 2025 The GoGPU Authors
 // SPDX-License-Identifier: MIT
 
-package glsl
+package codegen
 
 // glslKeywords contains all GLSL reserved words.
 // This includes current keywords, future reserved words, and built-in names.
