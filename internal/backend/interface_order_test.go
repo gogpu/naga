@@ -178,7 +178,7 @@ func TestSortedMemberIndices_VertexOutputStruct(t *testing.T) {
 func TestSortedMemberIndices_MultipleBuiltinsSortByEnum(t *testing.T) {
 	members := []ir.StructMember{
 		{Name: "inst", Binding: bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinInstanceIndex})}, // enum=2
-		{Name: "vert", Binding: bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex})},    // enum=1
+		{Name: "vert", Binding: bindingPtr(ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex})},   // enum=1
 		{Name: "loc", Binding: bindingPtr(ir.LocationBinding{Location: 0})},
 	}
 	got := SortedMemberIndices(members)

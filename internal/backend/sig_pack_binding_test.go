@@ -32,8 +32,8 @@ func buildModule(types ...ir.TypeInner) *ir.Module {
 func TestSigElementInfoForBinding_AllBuiltinClasses(t *testing.T) {
 	mod := buildModule(
 		ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // type 0: vec4<f32>
-		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},                                        // type 1: f32
-		ir.ScalarType{Kind: ir.ScalarUint, Width: 4},                                         // type 2: u32
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},                                       // type 1: f32
+		ir.ScalarType{Kind: ir.ScalarUint, Width: 4},                                        // type 2: u32
 	)
 
 	tests := []struct {
@@ -277,7 +277,7 @@ func TestComponentDimensions_NilModule(t *testing.T) {
 func TestPackStructMembers_VertexShaderOutput(t *testing.T) {
 	mod := buildModule(
 		ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 0: vec4<f32>
-		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},                                        // 1: f32
+		ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},                                       // 1: f32
 		ir.VectorType{Size: ir.Vec2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 2: vec2<f32>
 	)
 	// Struct declared as: position first, then locations (reverse order).
@@ -413,9 +413,9 @@ func TestPackSignatureElements_TargetOutputAdvancesNextRow(t *testing.T) {
 // previous location packing — DXC PackPrefixStable behavior.
 func TestPackSignatureElements_BuiltinClearsOpenRows(t *testing.T) {
 	got := PackSignatureElements([]SigElementInfo{
-		{Kind: SigPackLocation, ColCount: 1, Rows: 1, Interp: 0},     // row 0 col 0, row open
-		{Kind: SigPackBuiltinSVPosition, ColCount: 4, Rows: 1},       // row 1, clears open rows
-		{Kind: SigPackLocation, ColCount: 1, Rows: 1, Interp: 0},     // must be row 2, NOT row 0
+		{Kind: SigPackLocation, ColCount: 1, Rows: 1, Interp: 0}, // row 0 col 0, row open
+		{Kind: SigPackBuiltinSVPosition, ColCount: 4, Rows: 1},   // row 1, clears open rows
+		{Kind: SigPackLocation, ColCount: 1, Rows: 1, Interp: 0}, // must be row 2, NOT row 0
 	}, false)
 	if got[2].Register != 2 {
 		t.Errorf("location after SV_Position should be row 2, got %d (row 0 leak)", got[2].Register)

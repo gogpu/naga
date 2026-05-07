@@ -1092,7 +1092,7 @@ func TestSerialize_InstrBinOpWithFlags(t *testing.T) {
 		Kind:     InstrBinOp,
 		HasValue: true,
 		Operands: []int{0, 0, 13}, // lhs, rhs, fadd opcode
-		Flags:    1,                // UnsafeAlgebra
+		Flags:    1,               // UnsafeAlgebra
 	})
 	bb.AddInstruction(NewRetVoidInstr())
 
