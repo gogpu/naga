@@ -343,7 +343,7 @@ See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
 ### Test Coverage
 
-12/18 packages at ≥80% statement coverage. Enterprise-quality tests with output verification, edge cases, and regression protection.
+~60% overall (62K tracked lines). 12/18 packages at ≥80%. Enterprise-quality tests with output verification, edge cases, regression protection, and hand-crafted IR for specialized paths.
 
 | Package | Coverage |
 |---------|:---:|
@@ -351,6 +351,11 @@ See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 | internal/backend | **96.6%** |
 | dxil/passes (dce/mem2reg/sroa) | **83-93%** |
 | ir, glsl, wgsl/parser, dxil/bitcode/container/viewid | **80-84%** |
+| spirv | **76.5%** |
+| hlsl | **70.6%** |
+| internal/registry | **75.2%** |
+| wgsl/lower | **65.3%** |
+| msl | **64.2%** |
 
 ### Architecture
 
