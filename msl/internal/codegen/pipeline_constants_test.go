@@ -1,4 +1,4 @@
-package msl
+package codegen
 
 import (
 	"math"

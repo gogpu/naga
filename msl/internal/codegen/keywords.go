@@ -1,4 +1,4 @@
-package msl
+package codegen
 
 // reservedWords contains all MSL and C++ reserved words.
 // These identifiers must be escaped or renamed when generating MSL code.

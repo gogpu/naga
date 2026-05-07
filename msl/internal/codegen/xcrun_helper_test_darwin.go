@@ -1,6 +1,6 @@
 //go:build darwin
 
-package msl
+package codegen
 
 import (
 	"os"
