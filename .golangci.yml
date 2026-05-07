@@ -167,7 +167,7 @@ linters:
           - nilnil
 
       # Parser - complex by nature
-      - path: wgsl/parser\.go
+      - path: wgsl/(internal/parser/)?(parser|errors)\.go
         linters:
           - gocyclo
           - gocognit
@@ -180,7 +180,7 @@ linters:
           - unparam
 
       # Lexer - similar patterns
-      - path: wgsl/lexer\.go
+      - path: wgsl/(internal/parser/)?lexer\.go
         linters:
           - gocyclo
           - cyclop
@@ -192,7 +192,7 @@ linters:
           - goconst      # Keyword map uses string literals as keys — constants would be worse
 
       # Token - String() method is necessarily complex
-      - path: wgsl/token\.go
+      - path: wgsl/(internal/parser/)?token\.go
         linters:
           - gocyclo
           - cyclop
@@ -205,6 +205,20 @@ linters:
           - errcheck
           - goconst
           - unused
+
+      # HLSL keyword maps - string literals as map keys (same as lexer.go)
+      - path: internal/backend/hlsl_keywords\.go
+        linters:
+          - goconst
+
+      # TypeRegistry - complex type deduplication (moved from ir/)
+      - path: internal/registry/.*\.go
+        linters:
+          - funlen
+          - gocyclo
+          - cyclop
+          - gocognit
+          - gosec
 
       # CLI tools
       - path: cmd/nagac/.*\.go
@@ -240,7 +254,7 @@ linters:
       # WGSL Lowerer - ported from Rust front/wgsl/lower/mod.rs
       # Contains 15K+ lines of complex type resolution and expression lowering
       # that must match Rust behavior exactly. Refactoring breaks parity.
-      - path: wgsl/lower\.go
+      - path: wgsl/(internal/lower/)?lower\.go
         linters:
           - gocyclo
           - gocognit
@@ -256,7 +270,7 @@ linters:
           - unused       # Scaffolding for Rust parity — functions will be used as more shaders are ported
 
       # WGSL dependency ordering - complex graph traversal
-      - path: wgsl/deporder\.go
+      - path: wgsl/(internal/parser/)?deporder\.go
         linters:
           - gocyclo
           - gocognit
@@ -265,7 +279,7 @@ linters:
           - goconst
 
       # MSL backend - ported from Rust back/msl/writer.rs
-      - path: msl/.*\.go
+      - path: msl/(internal/codegen/)?.*\.go
         linters:
           - gocyclo
           - gocognit
@@ -281,7 +295,7 @@ linters:
           - unused        # Scaffolding for future Rust parity features
 
       # HLSL backend - ported from Rust back/hlsl/
-      - path: hlsl/.*\.go
+      - path: hlsl/(internal/codegen/)?.*\.go
         linters:
           - gocyclo
           - gocognit
@@ -297,7 +311,7 @@ linters:
           - unused        # Scaffolding for future Rust parity features
 
       # GLSL backend - ported from Rust back/glsl/
-      - path: glsl/.*\.go
+      - path: glsl/(internal/codegen/)?.*\.go
         linters:
           - gocyclo
           - gocognit
@@ -312,7 +326,7 @@ linters:
           - unused       # Scaffolding for future Rust parity features
 
       # SPIR-V backend - ported from Rust back/spv/
-      - path: spirv/.*\.go
+      - path: spirv/(internal/codegen/)?.*\.go
         linters:
           - gocyclo
           - gocognit

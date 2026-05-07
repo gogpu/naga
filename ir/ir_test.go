@@ -491,63 +491,7 @@ func TestGatherModeInterface(t *testing.T) {
 	}
 }
 
-// --- TypeRegistry.Append / GetTypes tests ---
-
-func TestTypeRegistry_Append(t *testing.T) {
-	reg := NewTypeRegistry()
-
-	h1 := reg.Append("", ScalarType{Kind: ScalarFloat, Width: 4})
-	h2 := reg.Append("", ScalarType{Kind: ScalarFloat, Width: 4}) // same type, but Append creates new
-
-	if h1 == h2 {
-		t.Errorf("Append should create distinct handles, got %d and %d", h1, h2)
-	}
-	if reg.Count() != 2 {
-		t.Errorf("expected 2 types, got %d", reg.Count())
-	}
-}
-
-func TestTypeRegistry_GetTypes(t *testing.T) {
-	reg := NewTypeRegistry()
-	reg.GetOrCreate("f32", ScalarType{Kind: ScalarFloat, Width: 4})
-	reg.GetOrCreate("u32", ScalarType{Kind: ScalarUint, Width: 4})
-
-	types := reg.GetTypes()
-	if len(types) != 2 {
-		t.Fatalf("expected 2 types, got %d", len(types))
-	}
-	if types[0].Name != "f32" {
-		t.Errorf("expected f32, got %s", types[0].Name)
-	}
-	if types[1].Name != "u32" {
-		t.Errorf("expected u32, got %s", types[1].Name)
-	}
-}
-
-func TestTypeRegistry_Deduplication(t *testing.T) {
-	reg := NewTypeRegistry()
-
-	h1 := reg.GetOrCreate("", ScalarType{Kind: ScalarFloat, Width: 4})
-	h2 := reg.GetOrCreate("", ScalarType{Kind: ScalarFloat, Width: 4})
-
-	if h1 != h2 {
-		t.Errorf("GetOrCreate should deduplicate same types, got %d and %d", h1, h2)
-	}
-	if reg.Count() != 1 {
-		t.Errorf("expected 1 type (deduplicated), got %d", reg.Count())
-	}
-}
-
-func TestTypeRegistry_NamedStructsNotDeduplicated(t *testing.T) {
-	reg := NewTypeRegistry()
-
-	h1 := reg.GetOrCreate("Input1", StructType{Members: nil, Span: 0})
-	h2 := reg.GetOrCreate("Input2", StructType{Members: nil, Span: 0})
-
-	if h1 == h2 {
-		t.Error("named structs with different names should not be deduplicated")
-	}
-}
+// TypeRegistry tests moved to ir/internal/registry/registry_test.go
 
 // --- stmtSubBlocks tests ---
 

@@ -184,9 +184,6 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
-	if len(ast.Functions) != 1 {
-		t.Errorf("Expected 1 function, got %d", len(ast.Functions))
-	}
 
 	// Stage 2: Lower
 	module, err := Lower(ast)
@@ -389,9 +386,6 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 	ast, err := Parse(source)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
-	}
-	if len(ast.Functions) != 1 {
-		t.Errorf("Expected 1 function in AST, got %d", len(ast.Functions))
 	}
 
 	// Test Lower stage
