@@ -9,46 +9,51 @@ import (
 	"github.com/gogpu/naga/spirv/internal/codegen"
 )
 
-// --- Configuration types ---
+// --- Configuration types (real types, not aliases) ---
 
 // Version represents a SPIR-V version.
-type Version = codegen.Version
+type Version struct {
+	Major uint8
+	Minor uint8
+}
 
 // Common SPIR-V versions.
 var (
-	Version1_0 = codegen.Version1_0
-	Version1_1 = codegen.Version1_1
-	Version1_2 = codegen.Version1_2
-	Version1_3 = codegen.Version1_3
-	Version1_4 = codegen.Version1_4
-	Version1_5 = codegen.Version1_5
-	Version1_6 = codegen.Version1_6
+	Version1_0 = Version{1, 0}
+	Version1_1 = Version{1, 1}
+	Version1_2 = Version{1, 2}
+	Version1_3 = Version{1, 3}
+	Version1_4 = Version{1, 4}
+	Version1_5 = Version{1, 5}
+	Version1_6 = Version{1, 6}
 )
 
-// Options configures SPIR-V generation.
-type Options = codegen.Options
-
 // BoundsCheckPolicy controls how out-of-bounds resource accesses are handled.
-type BoundsCheckPolicy = codegen.BoundsCheckPolicy
+type BoundsCheckPolicy uint8
 
 // BoundsCheckPolicy values.
 const (
-	BoundsCheckUnchecked         = codegen.BoundsCheckUnchecked
-	BoundsCheckRestrict          = codegen.BoundsCheckRestrict
-	BoundsCheckReadZeroSkipWrite = codegen.BoundsCheckReadZeroSkipWrite
+	// BoundsCheckUnchecked performs no bounds checking (default).
+	BoundsCheckUnchecked BoundsCheckPolicy = iota
+	// BoundsCheckRestrict clamps coordinates/level/sample to valid range.
+	BoundsCheckRestrict
+	// BoundsCheckReadZeroSkipWrite returns zero for out-of-bounds reads, skips writes.
+	BoundsCheckReadZeroSkipWrite
 )
 
 // BoundsCheckPolicies holds per-resource-type bounds check policies.
-type BoundsCheckPolicies = codegen.BoundsCheckPolicies
-
-// DefaultOptions returns sensible default options.
-func DefaultOptions() Options {
-	return codegen.DefaultOptions()
+type BoundsCheckPolicies struct {
+	// ImageLoad controls bounds checking for image load operations.
+	ImageLoad BoundsCheckPolicy
+	// ImageStore controls bounds checking for image store operations.
+	ImageStore BoundsCheckPolicy
+	// Index controls bounds checking for buffer index operations.
+	Index BoundsCheckPolicy
 }
 
-// --- Capability ---
-
 // Capability represents a SPIR-V capability.
+// This is an alias because Capability values are used directly with
+// implementation types (ModuleBuilder, Backend) that remain aliases.
 type Capability = codegen.Capability
 
 // Common capabilities.
@@ -93,24 +98,70 @@ const (
 	CapabilityInt64ImageEXT                      = codegen.CapabilityInt64ImageEXT
 )
 
-// --- Backend (high-level IR → SPIR-V) ---
+// Options configures SPIR-V generation.
+type Options struct {
+	// Version is the SPIR-V version to target.
+	Version Version
+
+	// Capabilities are additional capabilities to declare.
+	Capabilities []Capability
+
+	// Debug includes debug information.
+	Debug bool
+
+	// Validation enables output validation.
+	Validation bool
+
+	// UseStorageInputOutput16 enables StorageInputOutput16 capability for f16.
+	UseStorageInputOutput16 bool
+
+	// ForcePointSize adds a BuiltIn PointSize output variable with value 1.0.
+	ForcePointSize bool
+
+	// AdjustCoordinateSpace flips the Y coordinate of Position outputs.
+	AdjustCoordinateSpace bool
+
+	// ForceLoopBounding inserts a decrementing counter to prevent infinite loops.
+	ForceLoopBounding bool
+
+	// BoundsCheckPolicies controls how out-of-bounds image accesses are handled.
+	BoundsCheckPolicies BoundsCheckPolicies
+
+	// CapabilitiesAvailable limits which capabilities may be used.
+	CapabilitiesAvailable map[Capability]struct{}
+
+	// RayQueryInitTracking enables initialization tracking for ray queries.
+	RayQueryInitTracking bool
+}
+
+// DefaultOptions returns sensible default options.
+func DefaultOptions() Options {
+	return Options{
+		Version:                 Version1_1,
+		Debug:                   false,
+		Validation:              true,
+		UseStorageInputOutput16: true,
+		ForceLoopBounding:       true,
+		RayQueryInitTracking:    true,
+	}
+}
+
+// --- Implementation types (aliases — complex types with methods) ---
 
 // Backend translates IR to SPIR-V.
 type Backend = codegen.Backend
 
 // NewBackend creates a new SPIR-V backend.
 func NewBackend(options Options) *Backend {
-	return codegen.NewBackend(options)
+	return codegen.NewBackend(toCodegenOptions(options))
 }
-
-// --- Low-level builder types (used by examples and advanced consumers) ---
 
 // ModuleBuilder builds complete SPIR-V modules.
 type ModuleBuilder = codegen.ModuleBuilder
 
 // NewModuleBuilder creates a new SPIR-V module builder.
 func NewModuleBuilder(version Version) *ModuleBuilder {
-	return codegen.NewModuleBuilder(version)
+	return codegen.NewModuleBuilder(codegen.Version{Major: version.Major, Minor: version.Minor})
 }
 
 // Instruction represents a SPIR-V instruction.
@@ -129,10 +180,8 @@ type Writer = codegen.Writer
 
 // NewWriter creates a new SPIR-V writer.
 func NewWriter(options Options) *Writer {
-	return codegen.NewWriter(options)
+	return codegen.NewWriter(toCodegenOptions(options))
 }
-
-// --- Block model types ---
 
 // Block represents a SPIR-V basic block under construction.
 type Block = codegen.Block
@@ -176,7 +225,7 @@ const (
 // LoopContext provides break/continue targets for loop bodies.
 type LoopContext = codegen.LoopContext
 
-// --- SPIR-V spec constants and types ---
+// --- SPIR-V spec types (aliases — used pervasively in implementation) ---
 
 // OpCode represents a SPIR-V opcode.
 type OpCode = codegen.OpCode
@@ -819,4 +868,30 @@ const (
 // StorageFormatToImageFormat converts an IR storage format to a SPIR-V image format.
 func StorageFormatToImageFormat(format ir.StorageFormat) ImageFormat {
 	return codegen.StorageFormatToImageFormat(format)
+}
+
+// --- Internal conversion ---
+
+// toCodegenOptions converts public Options to internal codegen Options.
+func toCodegenOptions(o Options) codegen.Options {
+	return codegen.Options{
+		Version: codegen.Version{
+			Major: o.Version.Major,
+			Minor: o.Version.Minor,
+		},
+		Capabilities:            o.Capabilities,
+		Debug:                   o.Debug,
+		Validation:              o.Validation,
+		UseStorageInputOutput16: o.UseStorageInputOutput16,
+		ForcePointSize:          o.ForcePointSize,
+		AdjustCoordinateSpace:   o.AdjustCoordinateSpace,
+		ForceLoopBounding:       o.ForceLoopBounding,
+		BoundsCheckPolicies: codegen.BoundsCheckPolicies{
+			ImageLoad:  codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageLoad),
+			ImageStore: codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageStore),
+			Index:      codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Index),
+		},
+		CapabilitiesAvailable: o.CapabilitiesAvailable,
+		RayQueryInitTracking:  o.RayQueryInitTracking,
+	}
 }
