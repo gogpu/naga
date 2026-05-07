@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/gogpu/naga/internal/registry"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl/internal/parser"
 )
@@ -173,7 +174,7 @@ func TestLowerTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			l := &Lowerer{
 				module:   &ir.Module{},
-				registry: ir.NewTypeRegistry(),
+				registry: registry.NewTypeRegistry(),
 				types:    make(map[string]ir.TypeHandle),
 			}
 			l.registerBuiltinTypes()
@@ -194,7 +195,7 @@ func TestLowerTypes(t *testing.T) {
 func TestLowerExpressions(t *testing.T) {
 	l := &Lowerer{
 		module:   &ir.Module{},
-		registry: ir.NewTypeRegistry(),
+		registry: registry.NewTypeRegistry(),
 		types:    make(map[string]ir.TypeHandle),
 		locals:   make(map[string]ir.ExpressionHandle),
 	}

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gogpu/naga/internal/registry"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl/internal/parser"
 )
@@ -23,7 +24,7 @@ type Lowerer struct {
 	source string // Original source code for error messages
 
 	// Type resolution
-	registry *ir.TypeRegistry         // Deduplicates types
+	registry *registry.TypeRegistry   // Deduplicates types
 	types    map[string]ir.TypeHandle // Named type lookup
 
 	// Variable resolution
@@ -171,7 +172,7 @@ func LowerWithWarnings(ast *parser.Module, source string) (*LowerResult, error) 
 	l := &Lowerer{
 		module:            mod,
 		source:            source,
-		registry:          ir.NewTypeRegistryWithCap(estTypes),
+		registry:          registry.NewTypeRegistryWithCap(estTypes),
 		types:             make(map[string]ir.TypeHandle, 16),
 		globals:           make(map[string]ir.GlobalVariableHandle, max(nGlobals, 8)),
 		locals:            make(map[string]ir.ExpressionHandle, 16),
