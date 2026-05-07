@@ -1,4 +1,4 @@
-package wgsl
+package lower
 
 import (
 	"fmt"
@@ -8,12 +8,13 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl/internal/parser"
 )
 
 // Warning represents a compiler warning (not an error).
 type Warning struct {
 	Message string
-	Span    Span
+	Span    parser.Span
 }
 
 // Lowerer converts WGSL AST to Naga IR.
@@ -40,12 +41,12 @@ type Lowerer struct {
 	funcMustUse     map[string]bool              // Functions with @must_use attribute
 
 	// Variable usage tracking for unused variable warnings
-	localDecls        map[string]Span // Where each local variable was declared
-	usedLocals        map[string]bool // Which local variables have been used
-	localConsts       map[string]bool // Which locals are const declarations (not let/var)
-	localIsVar        map[string]bool // Which locals are var declarations (not let/const)
-	localIsPtr        map[string]bool // Which locals are pointer let-bindings (let p = &v[i])
-	localAbstractASTs map[string]Expr // Abstract local const init ASTs (deferred to use site)
+	localDecls        map[string]parser.Span // Where each local variable was declared
+	usedLocals        map[string]bool        // Which local variables have been used
+	localConsts       map[string]bool        // Which locals are const declarations (not let/var)
+	localIsVar        map[string]bool        // Which locals are var declarations (not let/const)
+	localIsPtr        map[string]bool        // Which locals are pointer let-bindings (let p = &v[i])
+	localAbstractASTs map[string]parser.Expr // Abstract local const init ASTs (deferred to use site)
 
 	// Scope stack for lexical scoping of local variables.
 	// Each entry saves the previous binding for names shadowed in a block scope.
@@ -95,13 +96,13 @@ type Lowerer struct {
 	// whose initializers are constructor calls (structs, vectors, etc.).
 	// These are lowered directly into GlobalExpressions (not Constants)
 	// to match Rust naga's behavior where global var inits are expression trees.
-	globalVarInitASTs map[ir.GlobalVariableHandle]Expr
+	globalVarInitASTs map[ir.GlobalVariableHandle]parser.Expr
 
 	// constsWithInlineInit tracks constants whose Init was set inline during lowering.
 	constsWithInlineInit map[ir.ConstantHandle]bool
 
 	// Errors and warnings
-	errors   SourceErrors
+	errors   parser.SourceErrors
 	warnings []Warning
 }
 
@@ -111,7 +112,7 @@ type Lowerer struct {
 // in a separate map to avoid registering abstract types in the type arena.
 type abstractConstInfo struct {
 	scalarValue  *ir.ScalarValue // for scalar abstract constants
-	compositeAST Expr            // original AST for composite abstract constants
+	compositeAST parser.Expr     // original AST for composite abstract constants
 }
 
 // LowerResult contains the result of lowering, including any warnings.
@@ -121,12 +122,12 @@ type LowerResult struct {
 }
 
 // Lower converts a WGSL AST module to Naga IR.
-func Lower(ast *Module) (*ir.Module, error) {
+func Lower(ast *parser.Module) (*ir.Module, error) {
 	return LowerWithSource(ast, "")
 }
 
 // LowerWithSource converts a WGSL AST module to Naga IR, keeping source for error messages.
-func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
+func LowerWithSource(ast *parser.Module, source string) (*ir.Module, error) {
 	result, err := LowerWithWarnings(ast, source)
 	if err != nil {
 		return nil, err
@@ -135,7 +136,7 @@ func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 }
 
 // LowerWithWarnings converts a WGSL AST module to Naga IR, returning warnings.
-func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
+func LowerWithWarnings(ast *parser.Module, source string) (*LowerResult, error) {
 	// Pre-size module-level slices based on AST declaration counts.
 	// This avoids repeated slice growth during lowering.
 	nFuncs := len(ast.Functions)
@@ -181,12 +182,12 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 		functions:         make(map[string]ir.FunctionHandle, nFuncs),
 		entryPointFuncs:   make(map[string]bool, 4),
 		funcMustUse:       make(map[string]bool, 4),
-		localDecls:        make(map[string]Span, 16),
+		localDecls:        make(map[string]parser.Span, 16),
 		usedLocals:        make(map[string]bool, 16),
 		localConsts:       make(map[string]bool, 4),
 		localIsVar:        make(map[string]bool, 16),
 		localIsPtr:        make(map[string]bool, 4),
-		localAbstractASTs: make(map[string]Expr, 4),
+		localAbstractASTs: make(map[string]parser.Expr, 4),
 	}
 
 	// Register built-in types
@@ -196,7 +197,7 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 	// Declarations are topologically sorted by their dependencies, then processed
 	// in a single pass. This ensures every declaration is lowered AFTER all
 	// declarations it references, producing identical type registration order.
-	sortedDecls := dependencyOrder(ast.Declarations)
+	sortedDecls := parser.DependencyOrder(ast.Declarations)
 
 	// Pre-register function names to support forward references.
 	// Entry point functions are NOT added to Module.Functions[] — they are
@@ -220,7 +221,7 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 		// Second pass: assign handles in dependency order
 		nextHandle := ir.FunctionHandle(0)
 		for _, decl := range sortedDecls {
-			if f, ok := decl.(*FunctionDecl); ok {
+			if f, ok := decl.(*parser.FunctionDecl); ok {
 				if !l.entryPointFuncs[f.Name] {
 					l.functions[f.Name] = nextHandle
 					nextHandle++
@@ -232,32 +233,32 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 
 	for _, decl := range sortedDecls {
 		switch d := decl.(type) {
-		case *AliasDecl:
+		case *parser.AliasDecl:
 			if err := l.lowerAlias(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
-		case *StructDecl:
+		case *parser.StructDecl:
 			if err := l.lowerStruct(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
-		case *VarDecl:
+		case *parser.VarDecl:
 			if err := l.lowerGlobalVar(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
-		case *OverrideDecl:
+		case *parser.OverrideDecl:
 			if err := l.lowerOverride(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
-		case *ConstDecl:
+		case *parser.ConstDecl:
 			if err := l.lowerConstant(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
-		case *FunctionDecl:
+		case *parser.FunctionDecl:
 			if err := l.lowerFunction(d); err != nil {
 				l.addError(err.Error(), d.Span)
 			}
 			processedFunctions[d.Name] = true
-		case *ConstAssertDecl:
+		case *parser.ConstAssertDecl:
 			// Module-scope const_assert — evaluate and error if false.
 			// Matches Rust naga: ConstAssertFailed / NotBool.
 			if err := l.evalConstAssert(d.Condition); err != nil {
@@ -328,8 +329,8 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 }
 
 // addError adds an error with source location.
-func (l *Lowerer) addError(message string, span Span) {
-	l.errors.Add(NewSourceError(message, span, l.source))
+func (l *Lowerer) addError(message string, span parser.Span) {
+	l.errors.Add(parser.NewSourceError(message, span, l.source))
 }
 
 // addGlobalExpr adds an expression to Module.GlobalExpressions and returns its handle.
@@ -630,7 +631,7 @@ func (l *Lowerer) registerNamedType(name string, inner ir.TypeInner) ir.TypeHand
 // same inner. This is because Rust's UniqueArena deduplicates by the full Type
 // struct including name, so Type{name: Some("Mat"), inner: Matrix{...}} is
 // distinct from Type{name: None, inner: Matrix{...}}.
-func (l *Lowerer) lowerAlias(a *AliasDecl) error {
+func (l *Lowerer) lowerAlias(a *parser.AliasDecl) error {
 	// Save TypeUseOrder length — resolveType may register intermediate types
 	// (e.g., anonymous scalar for vec3<f32>) that should NOT appear in
 	// TypeUseOrder at the alias position. In Rust naga, resolve_named_ast_type
@@ -685,7 +686,7 @@ func (l *Lowerer) lowerAlias(a *AliasDecl) error {
 }
 
 // lowerStruct converts a struct declaration to IR.
-func (l *Lowerer) lowerStruct(s *StructDecl) error {
+func (l *Lowerer) lowerStruct(s *parser.StructDecl) error {
 	members := make([]ir.StructMember, len(s.Members))
 	var offset uint32
 	var maxAlign uint32 = 1
@@ -736,10 +737,10 @@ func (l *Lowerer) lowerStruct(s *StructDecl) error {
 }
 
 // getAlignAttribute extracts the value from an @align(N) attribute, returns 0 if not found.
-func getAlignAttribute(attrs []Attribute) uint32 {
+func getAlignAttribute(attrs []parser.Attribute) uint32 {
 	for _, attr := range attrs {
 		if attr.Name == "align" && len(attr.Args) == 1 {
-			if lit, ok := attr.Args[0].(*Literal); ok {
+			if lit, ok := attr.Args[0].(*parser.Literal); ok {
 				var val uint32
 				if _, err := fmt.Sscanf(lit.Value, "%d", &val); err == nil {
 					return val
@@ -751,10 +752,10 @@ func getAlignAttribute(attrs []Attribute) uint32 {
 }
 
 // getSizeAttribute extracts the value from a @size(N) attribute, returns 0 if not found.
-func getSizeAttribute(attrs []Attribute) uint32 {
+func getSizeAttribute(attrs []parser.Attribute) uint32 {
 	for _, attr := range attrs {
 		if attr.Name == "size" && len(attr.Args) == 1 {
-			if lit, ok := attr.Args[0].(*Literal); ok {
+			if lit, ok := attr.Args[0].(*parser.Literal); ok {
 				var val uint32
 				if _, err := fmt.Sscanf(lit.Value, "%d", &val); err == nil {
 					return val
@@ -866,7 +867,7 @@ func (l *Lowerer) vectorAlignmentAndSize(components uint8) (align, size uint32) 
 }
 
 // lowerGlobalVar converts a global variable declaration to IR.
-func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
+func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 	var typeHandle ir.TypeHandle
 	var err error
 	if v.Type != nil {
@@ -901,7 +902,7 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 	hasBinding := false
 	for _, attr := range v.Attributes {
 		if attr.Name == "group" && len(attr.Args) > 0 {
-			if lit, ok := attr.Args[0].(*Literal); ok {
+			if lit, ok := attr.Args[0].(*parser.Literal); ok {
 				group, _ := strconv.ParseUint(lit.Value, 10, 32)
 				if binding == nil {
 					binding = &ir.ResourceBinding{}
@@ -911,7 +912,7 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 			}
 		}
 		if attr.Name == "binding" && len(attr.Args) > 0 {
-			if lit, ok := attr.Args[0].(*Literal); ok {
+			if lit, ok := attr.Args[0].(*parser.Literal); ok {
 				bind, _ := strconv.ParseUint(lit.Value, 10, 32)
 				if binding == nil {
 					binding = &ir.ResourceBinding{}
@@ -953,7 +954,7 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 	var init *ir.ConstantHandle
 	var initExpr *ir.ExpressionHandle
 	if v.Init != nil {
-		if lit, ok := v.Init.(*Literal); ok {
+		if lit, ok := v.Init.(*parser.Literal); ok {
 			// Scalar literal init → GlobalExpression directly (no intermediate Constant).
 			scalarKind, bits, litErr := l.evalLiteral(lit)
 			if litErr == nil {
@@ -985,10 +986,10 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 					// For constructor inits (struct, vector, etc.), store the AST
 					// for direct conversion to GlobalExpressions later.
 					switch v.Init.(type) {
-					case *CallExpr, *ConstructExpr:
+					case *parser.CallExpr, *parser.ConstructExpr:
 						gvHandle := ir.GlobalVariableHandle(l.globalIdx)
 						if l.globalVarInitASTs == nil {
-							l.globalVarInitASTs = make(map[ir.GlobalVariableHandle]Expr)
+							l.globalVarInitASTs = make(map[ir.GlobalVariableHandle]parser.Expr)
 						}
 						l.globalVarInitASTs[gvHandle] = v.Init
 					}
@@ -1015,8 +1016,8 @@ func (l *Lowerer) lowerGlobalVar(v *VarDecl) error {
 // lowerGlobalVarInit evaluates a global variable initializer as a constant expression
 // and returns the constant handle. This handles simple literal initializers.
 // Matches Rust naga where global var inits are stored as global constant expressions.
-func (l *Lowerer) lowerGlobalVarInit(varName string, typeHandle ir.TypeHandle, init Expr) (ir.ConstantHandle, error) {
-	lit, ok := init.(*Literal)
+func (l *Lowerer) lowerGlobalVarInit(varName string, typeHandle ir.TypeHandle, init parser.Expr) (ir.ConstantHandle, error) {
+	lit, ok := init.(*parser.Literal)
 	if !ok {
 		return 0, fmt.Errorf("global var %s: non-literal initializers not yet supported", varName)
 	}
@@ -1040,9 +1041,9 @@ func (l *Lowerer) lowerGlobalVarInit(varName string, typeHandle ir.TypeHandle, i
 
 // inferGlobalVarType infers the type of a global variable from its initializer expression.
 // Handles constructors (vec2(1), mat2x2(...), array(...)), literals, and scalar calls.
-func (l *Lowerer) inferGlobalVarType(init Expr) (ir.TypeHandle, error) {
+func (l *Lowerer) inferGlobalVarType(init parser.Expr) (ir.TypeHandle, error) {
 	switch e := init.(type) {
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		// First try direct type resolution (e.g., vec2<i32>(...))
 		if e.Type != nil {
 			h, err := l.resolveType(e.Type)
@@ -1053,7 +1054,7 @@ func (l *Lowerer) inferGlobalVarType(init Expr) (ir.TypeHandle, error) {
 			return l.inferCompositeConstantType(e)
 		}
 		return 0, fmt.Errorf("unsupported type: %v", e.Type)
-	case *CallExpr:
+	case *parser.CallExpr:
 		// Scalar constructor: i32(x), f32(x), bool(x), i64(x), u64(x), f64(x), f16(x)
 		switch e.Func.Name {
 		case "i32":
@@ -1079,14 +1080,14 @@ func (l *Lowerer) inferGlobalVarType(init Expr) (ir.TypeHandle, error) {
 			}
 			return 0, fmt.Errorf("unsupported call type: %s", e.Func.Name)
 		}
-	case *Literal:
+	case *parser.Literal:
 		kind, _, err := l.evalLiteral(e)
 		if err != nil {
 			return 0, err
 		}
 		return l.registerType("", ir.ScalarType{Kind: kind, Width: 4}), nil
-	case *UnaryExpr:
-		if e.Op == TokenMinus {
+	case *parser.UnaryExpr:
+		if e.Op == parser.TokenMinus {
 			return l.inferGlobalVarType(e.Operand)
 		}
 		return 0, fmt.Errorf("unsupported unary op for type inference")
@@ -1098,7 +1099,7 @@ func (l *Lowerer) inferGlobalVarType(init Expr) (ir.TypeHandle, error) {
 // lowerOverride converts an override declaration to an ir.Override.
 // Overrides are stored in Module.Overrides (separate from Constants).
 // Init expressions are deferred to buildGlobalExpressions.
-func (l *Lowerer) lowerOverride(o *OverrideDecl) error {
+func (l *Lowerer) lowerOverride(o *parser.OverrideDecl) error {
 	overrideHandle := ir.OverrideHandle(len(l.module.Overrides))
 
 	// Resolve the type.
@@ -1121,7 +1122,7 @@ func (l *Lowerer) lowerOverride(o *OverrideDecl) error {
 	var id *uint16
 	for _, attr := range o.Attributes {
 		if attr.Name == "id" && len(attr.Args) > 0 {
-			if lit, ok := attr.Args[0].(*Literal); ok {
+			if lit, ok := attr.Args[0].(*parser.Literal); ok {
 				if idVal, parseErr := strconv.ParseUint(lit.Value, 10, 16); parseErr == nil {
 					id16 := uint16(idVal)
 					id = &id16
@@ -1158,13 +1159,13 @@ func (l *Lowerer) lowerOverride(o *OverrideDecl) error {
 
 // inferOverrideType infers the concrete type for an override from its init expression.
 // Overrides are always concrete (never abstract).
-func (l *Lowerer) inferOverrideType(init Expr) ir.TypeHandle {
+func (l *Lowerer) inferOverrideType(init parser.Expr) ir.TypeHandle {
 	switch e := init.(type) {
-	case *Literal:
+	case *parser.Literal:
 		switch e.Kind {
-		case TokenFloatLiteral:
+		case parser.TokenFloatLiteral:
 			return l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-		case TokenIntLiteral:
+		case parser.TokenIntLiteral:
 			// Check for suffix
 			if len(e.Value) > 0 {
 				last := e.Value[len(e.Value)-1]
@@ -1177,10 +1178,10 @@ func (l *Lowerer) inferOverrideType(init Expr) ir.TypeHandle {
 			}
 			// Unsuffixed integer literal in override context => i32
 			return l.registerType("i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
-		case TokenTrue, TokenFalse:
+		case parser.TokenTrue, parser.TokenFalse:
 			return l.registerType("bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 		}
-	case *Ident:
+	case *parser.Ident:
 		// Reference to another override — inherit its type.
 		if oh, ok := l.moduleOverrides[e.Name]; ok {
 			if int(oh) < len(l.module.Overrides) {
@@ -1211,18 +1212,18 @@ func (l *Lowerer) inferOverrideType(init Expr) ir.TypeHandle {
 
 // buildOverrideInitExpr builds a simplified AST for override init re-evaluation.
 // Returns nil if the expression can't be represented.
-func (l *Lowerer) buildOverrideInitExpr(expr Expr) ir.OverrideInitExpr {
+func (l *Lowerer) buildOverrideInitExpr(expr parser.Expr) ir.OverrideInitExpr {
 	switch e := expr.(type) {
-	case *Literal:
+	case *parser.Literal:
 		// Handle bool literals
-		if e.Kind == TokenTrue || (e.Kind == TokenBoolLiteral && e.Value == "true") {
+		if e.Kind == parser.TokenTrue || (e.Kind == parser.TokenBoolLiteral && e.Value == "true") {
 			return ir.OverrideInitBoolLiteral{Value: true}
 		}
-		if e.Kind == TokenFalse || (e.Kind == TokenBoolLiteral && e.Value == "false") {
+		if e.Kind == parser.TokenFalse || (e.Kind == parser.TokenBoolLiteral && e.Value == "false") {
 			return ir.OverrideInitBoolLiteral{Value: false}
 		}
 		// Handle integer literals (may have suffix)
-		if e.Kind == TokenIntLiteral {
+		if e.Kind == parser.TokenIntLiteral {
 			s := e.Value
 			isUnsigned := false
 			if len(s) > 0 && s[len(s)-1] == 'u' {
@@ -1243,12 +1244,12 @@ func (l *Lowerer) buildOverrideInitExpr(expr Expr) ir.OverrideInitExpr {
 			return nil
 		}
 		return ir.OverrideInitLiteral{Value: val}
-	case *Ident:
+	case *parser.Ident:
 		if handle, ok := l.moduleOverrides[e.Name]; ok {
 			return ir.OverrideInitRef{Handle: handle}
 		}
 		return nil
-	case *BinaryExpr:
+	case *parser.BinaryExpr:
 		left := l.buildOverrideInitExpr(e.Left)
 		right := l.buildOverrideInitExpr(e.Right)
 		if left == nil || right == nil {
@@ -1259,18 +1260,18 @@ func (l *Lowerer) buildOverrideInitExpr(expr Expr) ir.OverrideInitExpr {
 			return nil
 		}
 		return ir.OverrideInitBinary{Op: op, Left: left, Right: right}
-	case *UnaryExpr:
+	case *parser.UnaryExpr:
 		inner := l.buildOverrideInitExpr(e.Operand)
 		if inner == nil {
 			return nil
 		}
 		var op ir.UnaryOperator
 		switch e.Op {
-		case TokenMinus:
+		case parser.TokenMinus:
 			op = ir.UnaryNegate
-		case TokenBang:
+		case parser.TokenBang:
 			op = ir.UnaryLogicalNot
-		case TokenTilde:
+		case parser.TokenTilde:
 			op = ir.UnaryBitwiseNot
 		default:
 			return nil
@@ -1405,7 +1406,7 @@ func convertScalarBits(srcKind ir.ScalarKind, bits uint64, target ir.ScalarType)
 }
 
 // lowerConstant converts a constant declaration to IR.
-func (l *Lowerer) lowerConstant(c *ConstDecl) error {
+func (l *Lowerer) lowerConstant(c *parser.ConstDecl) error {
 	if c.Init == nil {
 		return fmt.Errorf("module constant '%s' must have initializer", c.Name)
 	}
@@ -1428,20 +1429,20 @@ func (l *Lowerer) lowerConstant(c *ConstDecl) error {
 
 	var err error
 	switch init := c.Init.(type) {
-	case *Literal:
+	case *parser.Literal:
 		err = l.lowerScalarConstant(c.Name, c.Type, init)
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		err = l.lowerCompositeConstant(c.Name, c.Type, init, false)
-	case *CallExpr:
+	case *parser.CallExpr:
 		// Handle struct constructor: Foo(args...) or scalar constructor: i32(val)
 		err = l.lowerCallConstant(c.Name, c.Type, init)
-	case *Ident:
+	case *parser.Ident:
 		// Alias to another constant: const FOUR_ALIAS = FOUR;
 		err = l.lowerConstantAlias(c.Name, c.Type, init)
-	case *BinaryExpr:
+	case *parser.BinaryExpr:
 		// Constant binary expression: const X = A + B;
 		err = l.lowerConstantBinaryExpr(c.Name, c.Type, init)
-	case *UnaryExpr:
+	case *parser.UnaryExpr:
 		err = l.lowerConstantUnaryExpr(c.Name, c.Type, init)
 	default:
 		return fmt.Errorf("module constant '%s': unsupported initializer %T", c.Name, c.Init)
@@ -1473,18 +1474,18 @@ func (l *Lowerer) lowerConstant(c *ConstDecl) error {
 // without registering types or adding to module.Constants.
 // Abstract scalar constants are stored as ScalarValue for inlining as abstract literals.
 // Abstract composite constants store the original AST for re-lowering at use sites.
-func (l *Lowerer) lowerAbstractConstant(c *ConstDecl) error {
+func (l *Lowerer) lowerAbstractConstant(c *parser.ConstDecl) error {
 	switch init := c.Init.(type) {
-	case *Literal:
+	case *parser.Literal:
 		scalarKind, bits, err := l.evalLiteral(init)
 		if err != nil {
 			return fmt.Errorf("abstract constant '%s': %w", c.Name, err)
 		}
 		sv := ir.ScalarValue{Bits: bits, Kind: scalarKind}
 		l.abstractConstants[c.Name] = &abstractConstInfo{scalarValue: &sv}
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		l.abstractConstants[c.Name] = &abstractConstInfo{compositeAST: init}
-	case *BinaryExpr:
+	case *parser.BinaryExpr:
 		// Abstract binary constant: evaluate and store as scalar
 		scalarKind, bits, err := l.evalConstBinaryExpr(init)
 		if err != nil {
@@ -1492,7 +1493,7 @@ func (l *Lowerer) lowerAbstractConstant(c *ConstDecl) error {
 		}
 		sv := ir.ScalarValue{Bits: bits, Kind: scalarKind}
 		l.abstractConstants[c.Name] = &abstractConstInfo{scalarValue: &sv}
-	case *UnaryExpr:
+	case *parser.UnaryExpr:
 		// Abstract unary constant: evaluate and store as scalar
 		scalarKind, bits, err := l.evalConstUnaryExpr(init)
 		if err != nil {
@@ -1500,7 +1501,7 @@ func (l *Lowerer) lowerAbstractConstant(c *ConstDecl) error {
 		}
 		sv := ir.ScalarValue{Bits: bits, Kind: scalarKind}
 		l.abstractConstants[c.Name] = &abstractConstInfo{scalarValue: &sv}
-	case *Ident:
+	case *parser.Ident:
 		// Alias to another abstract constant
 		if info, ok := l.abstractConstants[init.Name]; ok {
 			l.abstractConstants[c.Name] = info
@@ -1520,7 +1521,7 @@ func (l *Lowerer) lowerAbstractConstant(c *ConstDecl) error {
 
 // evalConstBinaryExpr evaluates a constant binary expression to scalar kind and bits.
 // Used for abstract constant evaluation where we don't want to register types.
-func (l *Lowerer) evalConstBinaryExpr(e *BinaryExpr) (ir.ScalarKind, uint64, error) {
+func (l *Lowerer) evalConstBinaryExpr(e *parser.BinaryExpr) (ir.ScalarKind, uint64, error) {
 	kind, val, err := l.evalConstantBinaryExpr(e)
 	if err != nil {
 		return 0, 0, err
@@ -1530,26 +1531,26 @@ func (l *Lowerer) evalConstBinaryExpr(e *BinaryExpr) (ir.ScalarKind, uint64, err
 
 // evalConstUnaryExpr evaluates a constant unary expression to scalar kind and bits.
 // Used for abstract constant evaluation where we don't want to register types.
-func (l *Lowerer) evalConstUnaryExpr(e *UnaryExpr) (ir.ScalarKind, uint64, error) {
+func (l *Lowerer) evalConstUnaryExpr(e *parser.UnaryExpr) (ir.ScalarKind, uint64, error) {
 	switch operand := e.Operand.(type) {
-	case *Literal:
+	case *parser.Literal:
 		kind, bits, err := l.evalLiteral(operand)
 		if err != nil {
 			return 0, 0, err
 		}
 		switch e.Op {
-		case TokenMinus:
+		case parser.TokenMinus:
 			if kind == ir.ScalarFloat {
 				f := math.Float32frombits(uint32(bits))
 				return kind, uint64(math.Float32bits(-f)), nil
 			}
 			return kind, uint64(-int64(bits)), nil
-		case TokenBang:
+		case parser.TokenBang:
 			if bits == 0 {
 				return kind, 1, nil
 			}
 			return kind, 0, nil
-		case TokenTilde:
+		case parser.TokenTilde:
 			return kind, ^bits, nil
 		}
 	}
@@ -1584,9 +1585,9 @@ func (l *Lowerer) buildConstGlobalExpr(c *ir.Constant) ir.ExpressionHandle {
 // initHasConcreteType checks if a constant initializer expression produces a concrete type.
 // Returns true if the initializer involves an explicit type conversion (e.g., i32(), vec4()),
 // a struct constructor, a suffixed literal, or references to concrete-typed constants.
-func (l *Lowerer) initHasConcreteType(init Expr) bool {
+func (l *Lowerer) initHasConcreteType(init parser.Expr) bool {
 	switch e := init.(type) {
-	case *CallExpr:
+	case *parser.CallExpr:
 		// Check if the call is a type constructor with concrete type.
 		// Bare partial constructors like vec2(1, 2) or mat2x2(1, 2, 3, 4) are NOT concrete
 		// when all arguments are abstract. Only concrete if:
@@ -1607,10 +1608,10 @@ func (l *Lowerer) initHasConcreteType(init Expr) bool {
 		// Concrete type constructors (i32, u32, f32, vec2f, mat2x2f, etc.) or
 		// struct constructors: always concrete.
 		return true
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		// With explicit type params: vec4<f32>(), array<i32, N>() → always concrete.
 		// Without type params: vec2(), mat2x2() → partial constructor, check args.
-		if nt, ok := e.Type.(*NamedType); ok && len(nt.TypeParams) == 0 && isPartialConstructorName(nt.Name) {
+		if nt, ok := e.Type.(*parser.NamedType); ok && len(nt.TypeParams) == 0 && isPartialConstructorName(nt.Name) {
 			for _, arg := range e.Args {
 				if l.initHasConcreteType(arg) {
 					return true
@@ -1619,21 +1620,21 @@ func (l *Lowerer) initHasConcreteType(init Expr) bool {
 			return false
 		}
 		return true
-	case *Literal:
+	case *parser.Literal:
 		// Check if literal has a suffix making it concrete
 		return l.literalHasSuffix(e)
-	case *UnaryExpr:
+	case *parser.UnaryExpr:
 		return l.initHasConcreteType(e.Operand)
-	case *BinaryExpr:
+	case *parser.BinaryExpr:
 		// For shift operators, only the left operand determines concreteness.
 		// The right operand of shifts is always unsigned, but the result type
 		// follows the left: AbstractInt << U32 → AbstractInt (still abstract).
-		if e.Op == TokenLessLess || e.Op == TokenGreaterGreater {
+		if e.Op == parser.TokenLessLess || e.Op == parser.TokenGreaterGreater {
 			return l.initHasConcreteType(e.Left)
 		}
 		// For other operators, concrete if either operand is concrete
 		return l.initHasConcreteType(e.Left) || l.initHasConcreteType(e.Right)
-	case *Ident:
+	case *parser.Ident:
 		// Check if referencing an override (always concrete)
 		if _, ok := l.moduleOverrides[e.Name]; ok {
 			return true
@@ -1645,7 +1646,7 @@ func (l *Lowerer) initHasConcreteType(init Expr) bool {
 			}
 		}
 		return false
-	case *MemberExpr:
+	case *parser.MemberExpr:
 		return l.initHasConcreteType(e.Expr)
 	default:
 		return false
@@ -1673,7 +1674,7 @@ func isPartialConstructorName(name string) bool {
 }
 
 // literalHasSuffix checks if a literal token has a type suffix (i, u, f, h, li, lu, lf).
-func (l *Lowerer) literalHasSuffix(lit *Literal) bool {
+func (l *Lowerer) literalHasSuffix(lit *parser.Literal) bool {
 	v := lit.Value
 	if len(v) == 0 {
 		return false
@@ -1695,7 +1696,7 @@ func (l *Lowerer) literalHasSuffix(lit *Literal) bool {
 
 // lowerCallConstant handles module-level constants with CallExpr initializers.
 // This handles struct zero-value constructors like Foo() and scalar conversions like i32(1u).
-func (l *Lowerer) lowerCallConstant(name string, declType Type, call *CallExpr) error {
+func (l *Lowerer) lowerCallConstant(name string, declType parser.Type, call *parser.CallExpr) error {
 	funcName := call.Func.Name
 
 	// Check if this is a struct constructor
@@ -1703,8 +1704,8 @@ func (l *Lowerer) lowerCallConstant(name string, declType Type, call *CallExpr) 
 		inner := l.module.Types[typeHandle].Inner
 		if _, isStruct := inner.(ir.StructType); isStruct {
 			// Convert to ConstructExpr and delegate
-			construct := &ConstructExpr{
-				Type: &NamedType{Name: funcName},
+			construct := &parser.ConstructExpr{
+				Type: &parser.NamedType{Name: funcName},
 				Args: call.Args,
 			}
 			return l.lowerCompositeConstant(name, declType, construct, false)
@@ -1715,8 +1716,8 @@ func (l *Lowerer) lowerCallConstant(name string, declType Type, call *CallExpr) 
 	switch funcName {
 	case "i32", "u32", "f32", "f16", "i64", "u64", "f64", "bool":
 		// Treat as zero-value or conversion constructor
-		construct := &ConstructExpr{
-			Type: &NamedType{Name: funcName},
+		construct := &parser.ConstructExpr{
+			Type: &parser.NamedType{Name: funcName},
 			Args: call.Args,
 		}
 		return l.lowerCompositeConstant(name, declType, construct, false)
@@ -1726,7 +1727,7 @@ func (l *Lowerer) lowerCallConstant(name string, declType Type, call *CallExpr) 
 }
 
 // lowerConstantAlias creates a constant that references another constant's value.
-func (l *Lowerer) lowerConstantAlias(name string, typ Type, ident *Ident) error {
+func (l *Lowerer) lowerConstantAlias(name string, typ parser.Type, ident *parser.Ident) error {
 	// Check if the source is an abstract constant (not in module.Constants)
 	if info, ok := l.abstractConstants[ident.Name]; ok {
 		if info.scalarValue != nil {
@@ -1817,7 +1818,7 @@ func (l *Lowerer) lowerConstantAlias(name string, typ Type, ident *Ident) error 
 
 // lowerConstantBinaryExpr creates a constant from a binary expression of constants.
 // Handles both integer and float constant expressions.
-func (l *Lowerer) lowerConstantBinaryExpr(name string, typ Type, expr *BinaryExpr) error {
+func (l *Lowerer) lowerConstantBinaryExpr(name string, typ parser.Type, expr *parser.BinaryExpr) error {
 	// Try integer evaluation first
 	kind, val, intErr := l.evalConstantIntExpr(expr)
 	if intErr == nil {
@@ -1880,7 +1881,7 @@ func (l *Lowerer) lowerConstantBinaryExpr(name string, typ Type, expr *BinaryExp
 
 // lowerConstantVectorBinaryExpr handles binary operations on vector constants at module scope.
 // Evaluates: vec2(1.0) + vec2(3.0, 4.0), vec2(3.0) == vec2(3.0, 4.0), etc.
-func (l *Lowerer) lowerConstantVectorBinaryExpr(name string, typ Type, expr *BinaryExpr) error {
+func (l *Lowerer) lowerConstantVectorBinaryExpr(name string, typ parser.Type, expr *parser.BinaryExpr) error {
 	// Evaluate left and right as anonymous vector constants (no name = won't be emitted)
 	leftHandle, leftErr := l.evalAsVectorConstantHandle(expr.Left)
 	if leftErr != nil {
@@ -1921,9 +1922,9 @@ func (l *Lowerer) lowerConstantVectorBinaryExpr(name string, typ Type, expr *Bin
 	}
 
 	// Determine if this is a comparison (returns vec<bool>) or arithmetic (returns vec<T>)
-	isComparison := expr.Op == TokenEqualEqual || expr.Op == TokenBangEqual ||
-		expr.Op == TokenLess || expr.Op == TokenLessEqual ||
-		expr.Op == TokenGreater || expr.Op == TokenGreaterEqual
+	isComparison := expr.Op == parser.TokenEqualEqual || expr.Op == parser.TokenBangEqual ||
+		expr.Op == parser.TokenLess || expr.Op == parser.TokenLessEqual ||
+		expr.Op == parser.TokenGreater || expr.Op == parser.TokenGreaterEqual
 
 	// Evaluate component-wise and create GE directly (matching Rust naga).
 	geComponents := make([]ir.ExpressionHandle, numComponents)
@@ -2002,11 +2003,11 @@ func (l *Lowerer) expandSplatComponents(cv ir.CompositeValue, expectedSize int) 
 }
 
 // evalAsVectorConstant evaluates an expression as a vector constant.
-func (l *Lowerer) evalAsVectorConstant(name string, expr Expr) error {
+func (l *Lowerer) evalAsVectorConstant(name string, expr parser.Expr) error {
 	switch e := expr.(type) {
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		return l.lowerCompositeConstant(name, nil, e, false)
-	case *CallExpr:
+	case *parser.CallExpr:
 		return l.lowerCallConstant(name, nil, e)
 	default:
 		return fmt.Errorf("unsupported vector constant operand: %T", expr)
@@ -2015,14 +2016,14 @@ func (l *Lowerer) evalAsVectorConstant(name string, expr Expr) error {
 
 // evalAsVectorConstantHandle evaluates an expression as an anonymous vector constant
 // and returns its handle. The constant is unnamed (won't be emitted by the backend).
-func (l *Lowerer) evalAsVectorConstantHandle(expr Expr) (ir.ConstantHandle, error) {
+func (l *Lowerer) evalAsVectorConstantHandle(expr parser.Expr) (ir.ConstantHandle, error) {
 	switch e := expr.(type) {
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		if err := l.lowerCompositeConstant("", nil, e, false); err != nil {
 			return 0, err
 		}
 		return ir.ConstantHandle(len(l.module.Constants) - 1), nil
-	case *CallExpr:
+	case *parser.CallExpr:
 		if err := l.lowerCallConstant("", nil, e); err != nil {
 			return 0, err
 		}
@@ -2033,30 +2034,30 @@ func (l *Lowerer) evalAsVectorConstantHandle(expr Expr) (ir.ConstantHandle, erro
 }
 
 // evalScalarComparison evaluates a comparison operation on two scalar values.
-func (l *Lowerer) evalScalarComparison(op TokenKind, left, right ir.ScalarValue) bool {
+func (l *Lowerer) evalScalarComparison(op parser.TokenKind, left, right ir.ScalarValue) bool {
 	if left.Kind == ir.ScalarFloat {
 		lf := math.Float32frombits(uint32(left.Bits))
 		rf := math.Float32frombits(uint32(right.Bits))
 		switch op {
-		case TokenEqualEqual:
+		case parser.TokenEqualEqual:
 			return lf == rf
-		case TokenBangEqual:
+		case parser.TokenBangEqual:
 			return lf != rf
-		case TokenLess:
+		case parser.TokenLess:
 			return lf < rf
-		case TokenLessEqual:
+		case parser.TokenLessEqual:
 			return lf <= rf
-		case TokenGreater:
+		case parser.TokenGreater:
 			return lf > rf
-		case TokenGreaterEqual:
+		case parser.TokenGreaterEqual:
 			return lf >= rf
 		}
 	}
 	// Integer comparison
 	switch op {
-	case TokenEqualEqual:
+	case parser.TokenEqualEqual:
 		return left.Bits == right.Bits
-	case TokenBangEqual:
+	case parser.TokenBangEqual:
 		return left.Bits != right.Bits
 	default:
 		return false
@@ -2064,7 +2065,7 @@ func (l *Lowerer) evalScalarComparison(op TokenKind, left, right ir.ScalarValue)
 }
 
 // evalScalarArithmetic evaluates an arithmetic operation on two scalar values.
-func (l *Lowerer) evalScalarArithmetic(op TokenKind, left, right ir.ScalarValue) uint64 {
+func (l *Lowerer) evalScalarArithmetic(op parser.TokenKind, left, right ir.ScalarValue) uint64 {
 	// Mixed int+float: promote integer to float before arithmetic.
 	// This handles AbstractInt + AbstractFloat (e.g., vec2(1,1) + vec2(1.0,1.0)).
 	if left.Kind != right.Kind {
@@ -2079,13 +2080,13 @@ func (l *Lowerer) evalScalarArithmetic(op TokenKind, left, right ir.ScalarValue)
 		rf := float64(math.Float32frombits(uint32(right.Bits)))
 		var result float64
 		switch op {
-		case TokenPlus:
+		case parser.TokenPlus:
 			result = lf + rf
-		case TokenMinus:
+		case parser.TokenMinus:
 			result = lf - rf
-		case TokenStar:
+		case parser.TokenStar:
 			result = lf * rf
-		case TokenSlash:
+		case parser.TokenSlash:
 			if rf != 0 {
 				result = lf / rf
 			}
@@ -2096,13 +2097,13 @@ func (l *Lowerer) evalScalarArithmetic(op TokenKind, left, right ir.ScalarValue)
 	}
 	// Integer arithmetic
 	switch op {
-	case TokenPlus:
+	case parser.TokenPlus:
 		return left.Bits + right.Bits
-	case TokenMinus:
+	case parser.TokenMinus:
 		return left.Bits - right.Bits
-	case TokenStar:
+	case parser.TokenStar:
 		return left.Bits * right.Bits
-	case TokenSlash:
+	case parser.TokenSlash:
 		if right.Bits != 0 {
 			return left.Bits / right.Bits
 		}
@@ -2205,12 +2206,12 @@ func halfToFloat32(h uint16) float32 {
 
 // lowerConstantUnaryExpr lowers a unary expression at module scope to a constant.
 // Handles negation (-), bitwise NOT (~), and logical NOT (!).
-func (l *Lowerer) lowerConstantUnaryExpr(name string, typ Type, expr *UnaryExpr) error {
+func (l *Lowerer) lowerConstantUnaryExpr(name string, typ parser.Type, expr *parser.UnaryExpr) error {
 	switch expr.Op {
-	case TokenMinus:
+	case parser.TokenMinus:
 		// Handle negation of literals: const X = -0.1;
-		if lit, ok := expr.Operand.(*Literal); ok {
-			negLit := &Literal{Kind: lit.Kind, Value: "-" + lit.Value, Span: lit.Span}
+		if lit, ok := expr.Operand.(*parser.Literal); ok {
+			negLit := &parser.Literal{Kind: lit.Kind, Value: "-" + lit.Value, Span: lit.Span}
 			return l.lowerScalarConstant(name, typ, negLit)
 		}
 		// Negation of constant expression
@@ -2233,7 +2234,7 @@ func (l *Lowerer) lowerConstantUnaryExpr(name string, typ Type, expr *UnaryExpr)
 		}
 		return fmt.Errorf("module constant '%s': unsupported negation operand %T", name, expr.Operand)
 
-	case TokenTilde:
+	case parser.TokenTilde:
 		// Bitwise NOT: const X = ~0xfu;
 		kind, val, err := l.evalConstantIntExpr(expr.Operand)
 		if err != nil {
@@ -2259,7 +2260,7 @@ func (l *Lowerer) lowerConstantUnaryExpr(name string, typ Type, expr *UnaryExpr)
 		l.moduleConstants[name] = handle
 		return nil
 
-	case TokenBang:
+	case parser.TokenBang:
 		// Logical NOT: const X = !true;
 		var typeHandle ir.TypeHandle
 		if typ != nil {
@@ -2269,13 +2270,13 @@ func (l *Lowerer) lowerConstantUnaryExpr(name string, typ Type, expr *UnaryExpr)
 		}
 		// Evaluate boolean operand
 		var result uint64
-		if lit, ok := expr.Operand.(*Literal); ok {
-			if lit.Value == "true" || lit.Kind == TokenTrue {
+		if lit, ok := expr.Operand.(*parser.Literal); ok {
+			if lit.Value == "true" || lit.Kind == parser.TokenTrue {
 				result = 0 // !true = false
 			} else {
 				result = 1 // !false = true
 			}
-		} else if ident, ok := expr.Operand.(*Ident); ok {
+		} else if ident, ok := expr.Operand.(*parser.Ident); ok {
 			if info, exists := l.abstractConstants[ident.Name]; exists && info.scalarValue != nil {
 				if info.scalarValue.Bits == 0 {
 					result = 1
@@ -2304,10 +2305,10 @@ func (l *Lowerer) lowerConstantUnaryExpr(name string, typ Type, expr *UnaryExpr)
 }
 
 // evalConstantFloatExpr evaluates a constant float expression at compile time.
-func (l *Lowerer) evalConstantFloatExpr(expr Expr) (float64, error) {
+func (l *Lowerer) evalConstantFloatExpr(expr parser.Expr) (float64, error) {
 	switch e := expr.(type) {
-	case *Literal:
-		if e.Kind == TokenFloatLiteral {
+	case *parser.Literal:
+		if e.Kind == parser.TokenFloatLiteral {
 			text := e.Value
 			if len(text) >= 2 && text[len(text)-2:] == "lf" {
 				text = text[:len(text)-2]
@@ -2320,7 +2321,7 @@ func (l *Lowerer) evalConstantFloatExpr(expr Expr) (float64, error) {
 			}
 			return v, nil
 		}
-		if e.Kind == TokenIntLiteral {
+		if e.Kind == parser.TokenIntLiteral {
 			text := e.Value
 			if len(text) >= 2 && (text[len(text)-2:] == "li" || text[len(text)-2:] == "lu") {
 				text = text[:len(text)-2]
@@ -2334,7 +2335,7 @@ func (l *Lowerer) evalConstantFloatExpr(expr Expr) (float64, error) {
 			return v, nil
 		}
 		return 0, fmt.Errorf("expected numeric literal, got %v", e.Kind)
-	case *Ident:
+	case *parser.Ident:
 		// Check abstract constants first
 		if info, ok := l.abstractConstants[e.Name]; ok && info.scalarValue != nil {
 			sv := info.scalarValue
@@ -2356,7 +2357,7 @@ func (l *Lowerer) evalConstantFloatExpr(expr Expr) (float64, error) {
 			return float64(int32(sv.Bits)), nil
 		}
 		return 0, fmt.Errorf("'%s' is not a known constant", e.Name)
-	case *BinaryExpr:
+	case *parser.BinaryExpr:
 		left, err := l.evalConstantFloatExpr(e.Left)
 		if err != nil {
 			return 0, fmt.Errorf("left operand: %w", err)
@@ -2366,13 +2367,13 @@ func (l *Lowerer) evalConstantFloatExpr(expr Expr) (float64, error) {
 			return 0, fmt.Errorf("right operand: %w", err)
 		}
 		switch e.Op {
-		case TokenPlus:
+		case parser.TokenPlus:
 			return left + right, nil
-		case TokenMinus:
+		case parser.TokenMinus:
 			return left - right, nil
-		case TokenStar:
+		case parser.TokenStar:
 			return left * right, nil
-		case TokenSlash:
+		case parser.TokenSlash:
 			if right == 0 {
 				return 0, fmt.Errorf("division by zero")
 			}
@@ -2380,8 +2381,8 @@ func (l *Lowerer) evalConstantFloatExpr(expr Expr) (float64, error) {
 		default:
 			return 0, fmt.Errorf("unsupported float operator: %v", e.Op)
 		}
-	case *UnaryExpr:
-		if e.Op == TokenMinus {
+	case *parser.UnaryExpr:
+		if e.Op == parser.TokenMinus {
 			val, err := l.evalConstantFloatExpr(e.Operand)
 			if err != nil {
 				return 0, err
@@ -2395,7 +2396,7 @@ func (l *Lowerer) evalConstantFloatExpr(expr Expr) (float64, error) {
 }
 
 // lowerScalarConstant lowers a scalar literal to an IR constant.
-func (l *Lowerer) lowerScalarConstant(name string, typ Type, lit *Literal) error {
+func (l *Lowerer) lowerScalarConstant(name string, typ parser.Type, lit *parser.Literal) error {
 	scalarKind, bits, err := l.evalLiteral(lit)
 	if err != nil {
 		return fmt.Errorf("module constant '%s': %w", name, err)
@@ -2429,21 +2430,21 @@ func (l *Lowerer) lowerScalarConstant(name string, typ Type, lit *Literal) error
 }
 
 // inferScalarWidth determines the byte width from a literal's suffix.
-func (l *Lowerer) inferScalarWidth(lit *Literal) uint8 {
+func (l *Lowerer) inferScalarWidth(lit *parser.Literal) uint8 {
 	text := lit.Value
 	switch lit.Kind {
-	case TokenIntLiteral:
+	case parser.TokenIntLiteral:
 		if len(text) >= 2 && (text[len(text)-2:] == "li" || text[len(text)-2:] == "lu") {
 			return 8 // i64/u64
 		}
-	case TokenFloatLiteral:
+	case parser.TokenFloatLiteral:
 		if len(text) >= 2 && text[len(text)-2:] == "lf" {
 			return 8 // f64
 		}
 		if len(text) > 0 && text[len(text)-1] == 'h' {
 			return 2 // f16
 		}
-	case TokenTrue, TokenFalse, TokenBoolLiteral:
+	case parser.TokenTrue, parser.TokenFalse, parser.TokenBoolLiteral:
 		return 1 // bool is 1 byte
 	}
 	// Check for bool by value (handles TokenBoolLiteral with "true"/"false")
@@ -2455,7 +2456,7 @@ func (l *Lowerer) inferScalarWidth(lit *Literal) uint8 {
 
 // lowerCompositeConstant lowers a constructor expression to an IR constant.
 // Handles vectors, matrices, arrays, zero-value constructors, and nested constructors.
-func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *ConstructExpr, isAbstract bool) error {
+func (l *Lowerer) lowerCompositeConstant(name string, declType parser.Type, construct *parser.ConstructExpr, isAbstract bool) error {
 	// Resolve the composite type.
 	// Track whether the type was resolved from the constructor's explicit type params
 	// (not from declType or type inference). This affects zero-value rendering.
@@ -2506,7 +2507,7 @@ func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *
 			}
 			bits = 0 // zero value
 		} else if len(construct.Args) == 1 {
-			if lit, ok := construct.Args[0].(*Literal); ok {
+			if lit, ok := construct.Args[0].(*parser.Literal); ok {
 				litKind, litBits, litErr := l.evalLiteral(lit)
 				if litErr != nil {
 					return fmt.Errorf("module constant '%s': %w", name, litErr)
@@ -2704,11 +2705,11 @@ func (l *Lowerer) lowerCompositeConstant(name string, declType Type, construct *
 
 // constructHasExplicitTypeParams checks if a ConstructExpr has explicit template type parameters.
 // E.g., vec4<i32>() returns true, vec2() returns false.
-func constructHasExplicitTypeParams(construct *ConstructExpr) bool {
+func constructHasExplicitTypeParams(construct *parser.ConstructExpr) bool {
 	if construct.Type == nil {
 		return false
 	}
-	named, ok := construct.Type.(*NamedType)
+	named, ok := construct.Type.(*parser.NamedType)
 	if !ok {
 		return false
 	}
@@ -2718,7 +2719,7 @@ func constructHasExplicitTypeParams(construct *ConstructExpr) bool {
 // evalConstantArgsAsGlobalExprs evaluates constant constructor args as GlobalExpressions.
 // Returns ExpressionHandles into Module.GlobalExpressions (not ConstantHandles).
 // This matches Rust naga where scalar components of composites are in global_expressions.
-func (l *Lowerer) evalConstantArgsAsGlobalExprs(name string, args []Expr, parentType ir.TypeInner) ([]ir.ExpressionHandle, error) {
+func (l *Lowerer) evalConstantArgsAsGlobalExprs(name string, args []parser.Expr, parentType ir.TypeInner) ([]ir.ExpressionHandle, error) {
 	var componentScalar ir.ScalarType
 	switch t := parentType.(type) {
 	case ir.VectorType:
@@ -2741,7 +2742,7 @@ func (l *Lowerer) evalConstantArgsAsGlobalExprs(name string, args []Expr, parent
 	handles := make([]ir.ExpressionHandle, len(args))
 	for i, arg := range args {
 		switch a := arg.(type) {
-		case *Literal:
+		case *parser.Literal:
 			litKind, bits, err := l.evalLiteral(a)
 			if err != nil {
 				return nil, err
@@ -2757,7 +2758,7 @@ func (l *Lowerer) evalConstantArgsAsGlobalExprs(name string, args []Expr, parent
 			}
 			handles[i] = l.addGlobalExpr(ir.Literal{Value: lit})
 
-		case *ConstructExpr:
+		case *parser.ConstructExpr:
 			// Nested constructor (e.g., vec2(1, 2) inside vec4(vec2(1,2), vec2(3,4)))
 			// Resolve nested type and recurse.
 			// When the nested constructor is partial (no type params), concretize its
@@ -2811,7 +2812,7 @@ func (l *Lowerer) evalConstantArgsAsGlobalExprs(name string, args []Expr, parent
 				return nil, fmt.Errorf("cannot resolve nested constructor type")
 			}
 
-		case *Ident:
+		case *parser.Ident:
 			// Check abstract constants first
 			if info, absOk := l.abstractConstants[a.Name]; absOk && info.scalarValue != nil {
 				lit := scalarValueToLiteral(*info.scalarValue)
@@ -2831,9 +2832,9 @@ func (l *Lowerer) evalConstantArgsAsGlobalExprs(name string, args []Expr, parent
 				return nil, fmt.Errorf("unknown constant %q", a.Name)
 			}
 
-		case *UnaryExpr:
-			if a.Op == TokenMinus {
-				if lit, ok := a.Operand.(*Literal); ok {
+		case *parser.UnaryExpr:
+			if a.Op == parser.TokenMinus {
+				if lit, ok := a.Operand.(*parser.Literal); ok {
 					litKind, bits, err := l.evalLiteral(lit)
 					if err != nil {
 						return nil, err
@@ -2930,7 +2931,7 @@ func (l *Lowerer) groupMatrixConstantColumns(name string, mat ir.MatrixType, com
 }
 
 // evalConstantArgs evaluates constructor arguments as constants.
-func (l *Lowerer) evalConstantArgs(name string, args []Expr, parentType ir.TypeInner) ([]ir.ConstantHandle, error) {
+func (l *Lowerer) evalConstantArgs(name string, args []parser.Expr, parentType ir.TypeInner) ([]ir.ConstantHandle, error) {
 	componentHandles := make([]ir.ConstantHandle, len(args))
 
 	// Determine component scalar type from parent
@@ -2971,7 +2972,7 @@ func (l *Lowerer) evalConstantArgs(name string, args []Expr, parentType ir.TypeI
 		}
 
 		switch a := arg.(type) {
-		case *Literal:
+		case *parser.Literal:
 			litKind, bits, err := l.evalLiteral(a)
 			if err != nil {
 				return nil, fmt.Errorf("module constant '%s' arg %d: %w", name, i, err)
@@ -2994,7 +2995,7 @@ func (l *Lowerer) evalConstantArgs(name string, args []Expr, parentType ir.TypeI
 			})
 			componentHandles[i] = compHandle
 
-		case *ConstructExpr:
+		case *parser.ConstructExpr:
 			// Nested constructor — recursively lower as anonymous constant.
 			// Pass empty name so it won't be emitted as a named constant.
 			if err := l.lowerCompositeConstant("", nil, a, componentScalar.Kind == ir.ScalarAbstractInt || componentScalar.Kind == ir.ScalarAbstractFloat); err != nil {
@@ -3011,7 +3012,7 @@ func (l *Lowerer) evalConstantArgs(name string, args []Expr, parentType ir.TypeI
 			}
 			componentHandles[i] = nestedHandle
 
-		case *Ident:
+		case *parser.Ident:
 			// Check abstract constants first
 			if info, absOk := l.abstractConstants[a.Name]; absOk && info.scalarValue != nil {
 				sv := *info.scalarValue
@@ -3135,7 +3136,7 @@ func (l *Lowerer) concretizeConstantScalar(handle ir.ConstantHandle, target ir.S
 
 // evalConstantArgExpr evaluates a general constant expression as a composite arg.
 // This handles BinaryExpr, UnaryExpr, and other expressions that can be evaluated at compile time.
-func (l *Lowerer) evalConstantArgExpr(name string, idx int, arg Expr, scalar ir.ScalarType) (ir.ConstantHandle, error) {
+func (l *Lowerer) evalConstantArgExpr(name string, idx int, arg parser.Expr, scalar ir.ScalarType) (ir.ConstantHandle, error) {
 	// Try float evaluation first (most common for vec/mat components)
 	if scalar.Kind == ir.ScalarFloat {
 		val, err := l.evalConstantFloatExpr(arg)
@@ -3280,9 +3281,9 @@ func widenScalar(a, b ir.ScalarType) ir.ScalarType {
 
 // inferCompositeConstantType infers the concrete type for a constructor without template args
 // from its literal arguments. For example, vec3(0.0, 1.0, 2.0) infers vec3<f32>.
-func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr, useAbstract ...bool) (ir.TypeHandle, error) {
+func (l *Lowerer) inferCompositeConstantType(construct *parser.ConstructExpr, useAbstract ...bool) (ir.TypeHandle, error) {
 	abstract := len(useAbstract) > 0 && useAbstract[0]
-	named, ok := construct.Type.(*NamedType)
+	named, ok := construct.Type.(*parser.NamedType)
 	if !ok || len(named.TypeParams) > 0 {
 		return 0, fmt.Errorf("cannot infer type for %T", construct.Type)
 	}
@@ -3294,7 +3295,7 @@ func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr, useAbstra
 	if len(construct.Args) > 0 {
 		for _, arg := range construct.Args {
 			var argScalar ir.ScalarType
-			if lit, ok := arg.(*Literal); ok {
+			if lit, ok := arg.(*parser.Literal); ok {
 				kind, _, err := l.evalLiteral(lit)
 				if err != nil {
 					return 0, err
@@ -3306,7 +3307,7 @@ func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr, useAbstra
 					width = absWidth
 				}
 				argScalar = ir.ScalarType{Kind: kind, Width: width}
-			} else if sub, ok := arg.(*ConstructExpr); ok {
+			} else if sub, ok := arg.(*parser.ConstructExpr); ok {
 				// Nested constructor: mat2x2(vec2(0.), vec2(0.)) — infer from inner
 				subType, err := l.inferCompositeConstantType(sub)
 				if err != nil {
@@ -3321,7 +3322,7 @@ func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr, useAbstra
 				default:
 					return 0, fmt.Errorf("cannot infer scalar from %T", inner)
 				}
-			} else if ident, ok := arg.(*Ident); ok {
+			} else if ident, ok := arg.(*parser.Ident); ok {
 				// Named constant reference: resolve scalar type from the constant
 				if constHandle, exists := l.moduleConstants[ident.Name]; exists {
 					constType := l.module.Constants[constHandle].Type
@@ -3338,9 +3339,9 @@ func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr, useAbstra
 					// Abstract integer: default to i32 for untyped constants
 					argScalar = ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
 				}
-			} else if neg, ok := arg.(*UnaryExpr); ok && neg.Op == TokenMinus {
+			} else if neg, ok := arg.(*parser.UnaryExpr); ok && neg.Op == parser.TokenMinus {
 				// Negated literal: -1 or -1.0
-				if lit, ok := neg.Operand.(*Literal); ok {
+				if lit, ok := neg.Operand.(*parser.Literal); ok {
 					kind, _, err := l.evalLiteral(lit)
 					if err != nil {
 						return 0, err
@@ -3394,7 +3395,7 @@ func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr, useAbstra
 		// For arrays, element type is the full type of the first argument,
 		// not just its scalar. E.g., array(vec3(1)) → array<vec3<i32>, 1>.
 		var elemType ir.TypeHandle
-		if sub, ok := construct.Args[0].(*ConstructExpr); ok {
+		if sub, ok := construct.Args[0].(*parser.ConstructExpr); ok {
 			subType, err := l.inferCompositeConstantType(sub)
 			if err != nil {
 				return 0, err
@@ -3431,9 +3432,9 @@ func (l *Lowerer) inferCompositeConstantType(construct *ConstructExpr, useAbstra
 // abstractScalarKind converts a concrete scalar kind to abstract if the literal
 // has no type suffix. Used by inferCompositeConstantType for module-scope constants
 // where unsuffixed literals should produce abstract types (removed by compact).
-func (l *Lowerer) abstractScalarKind(lit *Literal, concreteKind ir.ScalarKind) (ir.ScalarKind, byte) {
+func (l *Lowerer) abstractScalarKind(lit *parser.Literal, concreteKind ir.ScalarKind) (ir.ScalarKind, byte) {
 	switch lit.Kind {
-	case TokenIntLiteral:
+	case parser.TokenIntLiteral:
 		text := lit.Value
 		// Has concrete suffix? (u, i, lu, li)
 		if len(text) > 0 {
@@ -3443,7 +3444,7 @@ func (l *Lowerer) abstractScalarKind(lit *Literal, concreteKind ir.ScalarKind) (
 			}
 		}
 		return ir.ScalarAbstractInt, 8
-	case TokenFloatLiteral:
+	case parser.TokenFloatLiteral:
 		text := lit.Value
 		if len(text) > 0 {
 			last := text[len(text)-1]
@@ -3465,9 +3466,9 @@ func (l *Lowerer) abstractScalarKind(lit *Literal, concreteKind ir.ScalarKind) (
 }
 
 // evalLiteral evaluates a literal token to its scalar kind and bit representation.
-func (l *Lowerer) evalLiteral(lit *Literal) (ir.ScalarKind, uint64, error) {
+func (l *Lowerer) evalLiteral(lit *parser.Literal) (ir.ScalarKind, uint64, error) {
 	switch lit.Kind {
-	case TokenIntLiteral:
+	case parser.TokenIntLiteral:
 		text := lit.Value
 		isUnsigned := false
 		is64bit := false
@@ -3499,7 +3500,7 @@ func (l *Lowerer) evalLiteral(lit *Literal) (ir.ScalarKind, uint64, error) {
 		}
 		v, _ := strconv.ParseInt(text, 0, bitSize)
 		return ir.ScalarSint, uint64(v), nil
-	case TokenFloatLiteral:
+	case parser.TokenFloatLiteral:
 		text := lit.Value
 		is64bit := false
 		isHalf := false
@@ -3523,12 +3524,12 @@ func (l *Lowerer) evalLiteral(lit *Literal) (ir.ScalarKind, uint64, error) {
 		}
 		v, _ := strconv.ParseFloat(text, 32)
 		return ir.ScalarFloat, uint64(math.Float32bits(float32(v))), nil
-	case TokenTrue, TokenBoolLiteral:
+	case parser.TokenTrue, parser.TokenBoolLiteral:
 		if lit.Value == "true" {
 			return ir.ScalarBool, 1, nil
 		}
 		return ir.ScalarBool, 0, nil
-	case TokenFalse:
+	case parser.TokenFalse:
 		return ir.ScalarBool, 0, nil
 	default:
 		return 0, 0, fmt.Errorf("unsupported literal kind %v", lit.Kind)
@@ -3540,7 +3541,7 @@ func (l *Lowerer) evalLiteral(lit *Literal) (ir.ScalarKind, uint64, error) {
 // function's source position. This matches Rust naga's dependency-ordered
 // processing where function-referenced types are interleaved with struct types.
 // Errors are silently ignored since types will be resolved again during lowerFunction.
-func (l *Lowerer) preRegisterFunctionTypes(f *FunctionDecl) {
+func (l *Lowerer) preRegisterFunctionTypes(f *parser.FunctionDecl) {
 	for _, p := range f.Params {
 		_, _ = l.resolveType(p.Type)
 	}
@@ -3551,7 +3552,7 @@ func (l *Lowerer) preRegisterFunctionTypes(f *FunctionDecl) {
 
 // functionHasForwardRefs checks if a function references any globals that
 // haven't been processed yet. Returns true if the function should be deferred.
-func (l *Lowerer) functionHasForwardRefs(f *FunctionDecl, processedNames, globalNames map[string]bool) bool {
+func (l *Lowerer) functionHasForwardRefs(f *parser.FunctionDecl, processedNames, globalNames map[string]bool) bool {
 	// Collect parameter names (these shadow globals)
 	paramNames := make(map[string]bool)
 	for _, p := range f.Params {
@@ -3560,20 +3561,20 @@ func (l *Lowerer) functionHasForwardRefs(f *FunctionDecl, processedNames, global
 
 	// Walk the function body collecting identifiers
 	var hasForward bool
-	var walkExpr func(e Expr)
-	var walkStmt func(s Stmt)
+	var walkExpr func(e parser.Expr)
+	var walkStmt func(s parser.Stmt)
 
-	walkExpr = func(e Expr) {
+	walkExpr = func(e parser.Expr) {
 		if hasForward || e == nil {
 			return
 		}
 		switch ex := e.(type) {
-		case *Ident:
+		case *parser.Ident:
 			name := ex.Name
 			if !paramNames[name] && globalNames[name] && !processedNames[name] {
 				hasForward = true
 			}
-		case *CallExpr:
+		case *parser.CallExpr:
 			// Check if the callee is a function not yet processed
 			if ex.Func != nil {
 				name := ex.Func.Name
@@ -3584,44 +3585,44 @@ func (l *Lowerer) functionHasForwardRefs(f *FunctionDecl, processedNames, global
 			for _, arg := range ex.Args {
 				walkExpr(arg)
 			}
-		case *BinaryExpr:
+		case *parser.BinaryExpr:
 			walkExpr(ex.Left)
 			walkExpr(ex.Right)
-		case *UnaryExpr:
+		case *parser.UnaryExpr:
 			walkExpr(ex.Operand)
-		case *MemberExpr:
+		case *parser.MemberExpr:
 			walkExpr(ex.Expr)
-		case *IndexExpr:
+		case *parser.IndexExpr:
 			walkExpr(ex.Expr)
 			walkExpr(ex.Index)
-		case *ConstructExpr:
+		case *parser.ConstructExpr:
 			for _, arg := range ex.Args {
 				walkExpr(arg)
 			}
 		}
 	}
 
-	walkStmt = func(s Stmt) {
+	walkStmt = func(s parser.Stmt) {
 		if hasForward || s == nil {
 			return
 		}
 		switch st := s.(type) {
-		case *VarDecl:
+		case *parser.VarDecl:
 			if st.Init != nil {
 				walkExpr(st.Init)
 			}
-		case *ConstDecl:
+		case *parser.ConstDecl:
 			if st.Init != nil {
 				walkExpr(st.Init)
 			}
-		case *AssignStmt:
+		case *parser.AssignStmt:
 			walkExpr(st.Left)
 			walkExpr(st.Right)
-		case *ReturnStmt:
+		case *parser.ReturnStmt:
 			if st.Value != nil {
 				walkExpr(st.Value)
 			}
-		case *IfStmt:
+		case *parser.IfStmt:
 			walkExpr(st.Condition)
 			if st.Body != nil {
 				for _, b := range st.Body.Statements {
@@ -3631,7 +3632,7 @@ func (l *Lowerer) functionHasForwardRefs(f *FunctionDecl, processedNames, global
 			if st.Else != nil {
 				walkStmt(st.Else)
 			}
-		case *ForStmt:
+		case *parser.ForStmt:
 			if st.Init != nil {
 				walkStmt(st.Init)
 			}
@@ -3646,7 +3647,7 @@ func (l *Lowerer) functionHasForwardRefs(f *FunctionDecl, processedNames, global
 					walkStmt(b)
 				}
 			}
-		case *LoopStmt:
+		case *parser.LoopStmt:
 			if st.Body != nil {
 				for _, b := range st.Body.Statements {
 					walkStmt(b)
@@ -3657,14 +3658,14 @@ func (l *Lowerer) functionHasForwardRefs(f *FunctionDecl, processedNames, global
 					walkStmt(b)
 				}
 			}
-		case *WhileStmt:
+		case *parser.WhileStmt:
 			walkExpr(st.Condition)
 			if st.Body != nil {
 				for _, b := range st.Body.Statements {
 					walkStmt(b)
 				}
 			}
-		case *SwitchStmt:
+		case *parser.SwitchStmt:
 			walkExpr(st.Selector)
 			for _, c := range st.Cases {
 				if c.Body != nil {
@@ -3673,11 +3674,11 @@ func (l *Lowerer) functionHasForwardRefs(f *FunctionDecl, processedNames, global
 					}
 				}
 			}
-		case *BlockStmt:
+		case *parser.BlockStmt:
 			for _, b := range st.Statements {
 				walkStmt(b)
 			}
-		case *ExprStmt:
+		case *parser.ExprStmt:
 			walkExpr(st.Expr)
 		}
 	}
@@ -3692,7 +3693,7 @@ func (l *Lowerer) functionHasForwardRefs(f *FunctionDecl, processedNames, global
 }
 
 // lowerFunction converts a function declaration to IR.
-func (l *Lowerer) lowerFunction(f *FunctionDecl) error {
+func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
 	// Reset local context by clearing maps instead of reallocating.
 	for k := range l.locals {
 		delete(l.locals, k)
@@ -3944,7 +3945,7 @@ func (l *Lowerer) scopeSet(name string) {
 }
 
 // lowerBlock converts a block statement to IR statements.
-func (l *Lowerer) lowerBlock(block *BlockStmt, target *[]ir.Statement) error {
+func (l *Lowerer) lowerBlock(block *parser.BlockStmt, target *[]ir.Statement) error {
 	for _, stmt := range block.Statements {
 		if err := l.lowerStatement(stmt, target); err != nil {
 			return err
@@ -3954,45 +3955,45 @@ func (l *Lowerer) lowerBlock(block *BlockStmt, target *[]ir.Statement) error {
 }
 
 // lowerStatement converts a statement to IR.
-func (l *Lowerer) lowerStatement(stmt Stmt, target *[]ir.Statement) error {
+func (l *Lowerer) lowerStatement(stmt parser.Stmt, target *[]ir.Statement) error {
 	switch s := stmt.(type) {
-	case *ReturnStmt:
+	case *parser.ReturnStmt:
 		return l.lowerReturn(s, target)
-	case *VarDecl:
+	case *parser.VarDecl:
 		return l.lowerLocalVar(s, target)
-	case *AssignStmt:
+	case *parser.AssignStmt:
 		return l.lowerAssign(s, target)
-	case *IfStmt:
+	case *parser.IfStmt:
 		return l.lowerIf(s, target)
-	case *ForStmt:
+	case *parser.ForStmt:
 		return l.lowerFor(s, target)
-	case *WhileStmt:
+	case *parser.WhileStmt:
 		return l.lowerWhile(s, target)
-	case *LoopStmt:
+	case *parser.LoopStmt:
 		return l.lowerLoop(s, target)
-	case *SwitchStmt:
+	case *parser.SwitchStmt:
 		return l.lowerSwitch(s, target)
-	case *ConstDecl:
+	case *parser.ConstDecl:
 		// Local const is treated like let (named expression)
 		return l.lowerLocalConst(s, target)
-	case *BreakStmt:
+	case *parser.BreakStmt:
 		*target = append(*target, ir.Statement{Kind: ir.StmtBreak{}})
 		return nil
-	case *BreakIfStmt:
+	case *parser.BreakIfStmt:
 		// BreakIfStmt is handled specially during loop lowering (lowerLoop extracts it
 		// from the continuing block). It should not reach here in normal code flow.
 		return fmt.Errorf("'break if' must appear inside a continuing block of a loop")
-	case *ConstAssertDecl:
+	case *parser.ConstAssertDecl:
 		// const_assert is a compile-time assertion — WGSL spec requires evaluation.
 		// Matches Rust naga: eval_expr_to_bool → ConstAssertFailed / NotBool.
 		return l.evalConstAssert(s.Condition)
-	case *ContinueStmt:
+	case *parser.ContinueStmt:
 		*target = append(*target, ir.Statement{Kind: ir.StmtContinue{}})
 		return nil
-	case *DiscardStmt:
+	case *parser.DiscardStmt:
 		*target = append(*target, ir.Statement{Kind: ir.StmtKill{}})
 		return nil
-	case *ExprStmt:
+	case *parser.ExprStmt:
 		// Evaluate expression for side effects.
 		// Set isStatement flag so atomic calls know their result is discarded.
 		l.isStatement = true
@@ -4005,7 +4006,7 @@ func (l *Lowerer) lowerStatement(stmt Stmt, target *[]ir.Statement) error {
 		l.emitFinish(emitStart, target)
 		l.isStatement = false
 		return nil
-	case *BlockStmt:
+	case *parser.BlockStmt:
 		l.pushScope()
 		var body []ir.Statement
 		if err := l.lowerBlock(s, &body); err != nil {
@@ -4023,7 +4024,7 @@ func (l *Lowerer) lowerStatement(stmt Stmt, target *[]ir.Statement) error {
 // lowerReturn converts a return statement to IR.
 // Concretizes abstract literals in the return value to match the function's return type.
 // E.g., `return 1;` in a function returning f32 → concretize AbstractInt(1) to LiteralF32(1.0).
-func (l *Lowerer) lowerReturn(ret *ReturnStmt, target *[]ir.Statement) error {
+func (l *Lowerer) lowerReturn(ret *parser.ReturnStmt, target *[]ir.Statement) error {
 	var valueHandle *ir.ExpressionHandle
 	if ret.Value != nil {
 		emitStart := l.emitStartWithTarget(target)
@@ -4046,7 +4047,7 @@ func (l *Lowerer) lowerReturn(ret *ReturnStmt, target *[]ir.Statement) error {
 }
 
 // lowerLocalVar converts a local variable declaration to IR.
-func (l *Lowerer) lowerLocalVar(v *VarDecl, target *[]ir.Statement) error {
+func (l *Lowerer) lowerLocalVar(v *parser.VarDecl, target *[]ir.Statement) error {
 	var typeHandle ir.TypeHandle
 	var initHandle *ir.ExpressionHandle
 	hasExplicitType := false
@@ -4233,10 +4234,10 @@ func (l *Lowerer) constEvalExprToU32(handle ir.ExpressionHandle) (uint32, bool) 
 }
 
 // lowerAssign converts an assignment statement to IR.
-func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error {
+func (l *Lowerer) lowerAssign(assign *parser.AssignStmt, target *[]ir.Statement) error {
 	// WGSL discard pattern: _ = expr; evaluates RHS for side effects, discards result.
 	// Matches Rust naga: preserve as named expression "phony" so backends emit it.
-	if ident, ok := assign.Left.(*Ident); ok && ident.Name == "_" {
+	if ident, ok := assign.Left.(*parser.Ident); ok && ident.Name == "_" {
 		// Try const-evaluating the phony RHS. Rust naga's ConstantEvaluator
 		// evaluates pure constant expressions (like select(1, 2f, false)) at
 		// lowering time, producing a single ExprConstant in the function arena
@@ -4275,7 +4276,7 @@ func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error 
 	// Special case: *ptr = value extracts the inner pointer.
 	var pointer ir.ExpressionHandle
 	var err error
-	if unary, ok := assign.Left.(*UnaryExpr); ok && unary.Op == TokenStar {
+	if unary, ok := assign.Left.(*parser.UnaryExpr); ok && unary.Op == parser.TokenStar {
 		// *ptr dereference: the operand itself is the pointer
 		pointer, err = l.lowerExpressionForRef(unary.Operand, target)
 	} else {
@@ -4295,7 +4296,7 @@ func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error 
 	// 2. Load the current LHS value from the pointer
 	// 3. Create the binary operation (left=Load, right=concretized value)
 	// This order matters for expression handle numbering to match Rust.
-	if assign.Op != TokenEqual {
+	if assign.Op != parser.TokenEqual {
 		op := l.assignOpToBinary(assign.Op)
 		// Concretize abstract literals BEFORE loading the pointer value.
 		// This matches Rust naga where the literal is created first (via
@@ -4328,7 +4329,7 @@ func (l *Lowerer) lowerAssign(assign *AssignStmt, target *[]ir.Statement) error 
 }
 
 // lowerIf converts an if statement to IR.
-func (l *Lowerer) lowerIf(ifStmt *IfStmt, target *[]ir.Statement) error {
+func (l *Lowerer) lowerIf(ifStmt *parser.IfStmt, target *[]ir.Statement) error {
 	emitStart := l.emitStartWithTarget(target)
 	condition, err := l.lowerExpression(ifStmt.Condition, target)
 	if err != nil {
@@ -4347,7 +4348,7 @@ func (l *Lowerer) lowerIf(ifStmt *IfStmt, target *[]ir.Statement) error {
 	if ifStmt.Else != nil {
 		l.pushScope()
 		switch e := ifStmt.Else.(type) {
-		case *BlockStmt:
+		case *parser.BlockStmt:
 			// Plain else block: lower contents directly into reject (no StmtBlock wrapper).
 			// Matches Rust naga where else body content goes directly into reject block.
 			if err := l.lowerBlock(e, &reject); err != nil {
@@ -4375,7 +4376,7 @@ func (l *Lowerer) lowerIf(ifStmt *IfStmt, target *[]ir.Statement) error {
 }
 
 // lowerFor converts a for loop to IR.
-func (l *Lowerer) lowerFor(forStmt *ForStmt, target *[]ir.Statement) error {
+func (l *Lowerer) lowerFor(forStmt *parser.ForStmt, target *[]ir.Statement) error {
 	// For loops become: init; loop { if !condition { break }; body; update }
 	// The for's init, body, condition, and update share a scope.
 	l.pushScope()
@@ -4445,7 +4446,7 @@ func (l *Lowerer) lowerFor(forStmt *ForStmt, target *[]ir.Statement) error {
 }
 
 // lowerWhile converts a while loop to IR.
-func (l *Lowerer) lowerWhile(whileStmt *WhileStmt, target *[]ir.Statement) error {
+func (l *Lowerer) lowerWhile(whileStmt *parser.WhileStmt, target *[]ir.Statement) error {
 	prevInsideLoop := l.isInsideLoop
 	l.isInsideLoop = true
 	defer func() { l.isInsideLoop = prevInsideLoop }()
@@ -4494,7 +4495,7 @@ func (l *Lowerer) lowerWhile(whileStmt *WhileStmt, target *[]ir.Statement) error
 }
 
 // lowerLoop converts a loop statement to IR.
-func (l *Lowerer) lowerLoop(loopStmt *LoopStmt, target *[]ir.Statement) error {
+func (l *Lowerer) lowerLoop(loopStmt *parser.LoopStmt, target *[]ir.Statement) error {
 	prevInsideLoop := l.isInsideLoop
 	l.isInsideLoop = true
 	defer func() { l.isInsideLoop = prevInsideLoop }()
@@ -4515,11 +4516,11 @@ func (l *Lowerer) lowerLoop(loopStmt *LoopStmt, target *[]ir.Statement) error {
 	if loopStmt.Continuing != nil {
 		// Lower all statements except the last if it's a BreakIfStmt
 		stmts := loopStmt.Continuing.Statements
-		var nonBreakIfStmts []Stmt
-		var breakIfStmt *BreakIfStmt
+		var nonBreakIfStmts []parser.Stmt
+		var breakIfStmt *parser.BreakIfStmt
 
 		if len(stmts) > 0 {
-			if bi, ok := stmts[len(stmts)-1].(*BreakIfStmt); ok {
+			if bi, ok := stmts[len(stmts)-1].(*parser.BreakIfStmt); ok {
 				breakIfStmt = bi
 				nonBreakIfStmts = stmts[:len(stmts)-1]
 			} else {
@@ -4557,7 +4558,7 @@ func (l *Lowerer) lowerLoop(loopStmt *LoopStmt, target *[]ir.Statement) error {
 }
 
 // lowerSwitch converts a switch statement to IR.
-func (l *Lowerer) lowerSwitch(switchStmt *SwitchStmt, target *[]ir.Statement) error {
+func (l *Lowerer) lowerSwitch(switchStmt *parser.SwitchStmt, target *[]ir.Statement) error {
 	// Lower selector expression
 	emitStart := l.emitStartWithTarget(target)
 	selector, err := l.lowerExpression(switchStmt.Selector, target)
@@ -4691,7 +4692,7 @@ func (l *Lowerer) lowerSwitch(switchStmt *SwitchStmt, target *[]ir.Statement) er
 // lowerSwitchCaseValue converts a switch case selector to IR.
 // Handles literal integers, named constants, constant binary expressions,
 // and type constructor zero values (e.g., i32()).
-func (l *Lowerer) lowerSwitchCaseValue(expr Expr) (ir.SwitchValue, error) {
+func (l *Lowerer) lowerSwitchCaseValue(expr parser.Expr) (ir.SwitchValue, error) {
 	kind, val, err := l.evalConstantIntExpr(expr)
 	if err != nil {
 		return nil, fmt.Errorf("switch case selector: %w", err)
@@ -4711,7 +4712,7 @@ func (l *Lowerer) lowerSwitchCaseValue(expr Expr) (ir.SwitchValue, error) {
 // If the expression cannot be evaluated (complex const functions, float comparisons),
 // it is silently accepted to avoid regressions on valid but complex shaders.
 // Matches Rust naga's ConstAssertFailed error for the evaluable case.
-func (l *Lowerer) evalConstAssert(condition Expr) error {
+func (l *Lowerer) evalConstAssert(condition parser.Expr) error {
 	val, ok := l.tryEvalConstantBool(condition)
 	if !ok {
 		// Cannot evaluate — silently accept. Full constant evaluator would
@@ -4729,19 +4730,19 @@ func (l *Lowerer) evalConstAssert(condition Expr) error {
 // tryEvalConstantBool tries to evaluate an expression as a constant boolean.
 // Supports bool literals, named bool constants, negation, and comparison operators.
 // Returns (value, true) on success, or (false, false) if not evaluable.
-func (l *Lowerer) tryEvalConstantBool(expr Expr) (bool, bool) {
+func (l *Lowerer) tryEvalConstantBool(expr parser.Expr) (bool, bool) {
 	switch e := expr.(type) {
-	case *Literal:
+	case *parser.Literal:
 		switch e.Kind {
-		case TokenTrue:
+		case parser.TokenTrue:
 			return true, true
-		case TokenFalse:
+		case parser.TokenFalse:
 			return false, true
-		case TokenBoolLiteral:
+		case parser.TokenBoolLiteral:
 			return e.Value == "true", true
 		}
 		return false, false
-	case *Ident:
+	case *parser.Ident:
 		// Check abstract constants for bool values
 		if info, ok := l.abstractConstants[e.Name]; ok && info.scalarValue != nil {
 			if info.scalarValue.Kind == ir.ScalarBool {
@@ -4761,49 +4762,49 @@ func (l *Lowerer) tryEvalConstantBool(expr Expr) (bool, bool) {
 			}
 		}
 		return false, false
-	case *UnaryExpr:
-		if e.Op == TokenBang {
+	case *parser.UnaryExpr:
+		if e.Op == parser.TokenBang {
 			val, ok := l.tryEvalConstantBool(e.Operand)
 			if ok {
 				return !val, true
 			}
 		}
 		return false, false
-	case *BinaryExpr:
+	case *parser.BinaryExpr:
 		// Logical operators on booleans
 		switch e.Op {
-		case TokenAmpAmp:
+		case parser.TokenAmpAmp:
 			lv, lok := l.tryEvalConstantBool(e.Left)
 			rv, rok := l.tryEvalConstantBool(e.Right)
 			if lok && rok {
 				return lv && rv, true
 			}
 			return false, false
-		case TokenPipePipe:
+		case parser.TokenPipePipe:
 			lv, lok := l.tryEvalConstantBool(e.Left)
 			rv, rok := l.tryEvalConstantBool(e.Right)
 			if lok && rok {
 				return lv || rv, true
 			}
 			return false, false
-		case TokenEqualEqual, TokenBangEqual, TokenLess, TokenLessEqual,
-			TokenGreater, TokenGreaterEqual:
+		case parser.TokenEqualEqual, parser.TokenBangEqual, parser.TokenLess, parser.TokenLessEqual,
+			parser.TokenGreater, parser.TokenGreaterEqual:
 			// Integer comparison → bool result
 			_, lv, lerr := l.evalConstantIntExpr(e.Left)
 			_, rv, rerr := l.evalConstantIntExpr(e.Right)
 			if lerr == nil && rerr == nil {
 				switch e.Op {
-				case TokenEqualEqual:
+				case parser.TokenEqualEqual:
 					return lv == rv, true
-				case TokenBangEqual:
+				case parser.TokenBangEqual:
 					return lv != rv, true
-				case TokenLess:
+				case parser.TokenLess:
 					return lv < rv, true
-				case TokenLessEqual:
+				case parser.TokenLessEqual:
 					return lv <= rv, true
-				case TokenGreater:
+				case parser.TokenGreater:
 					return lv > rv, true
-				case TokenGreaterEqual:
+				case parser.TokenGreaterEqual:
 					return lv >= rv, true
 				}
 			}
@@ -4816,7 +4817,7 @@ func (l *Lowerer) tryEvalConstantBool(expr Expr) (bool, bool) {
 
 // tryEvalConstantUint tries to evaluate an expression as a constant unsigned integer.
 // Returns (value, true) on success, or (0, false) on failure.
-func (l *Lowerer) tryEvalConstantUint(expr Expr) (uint64, bool) {
+func (l *Lowerer) tryEvalConstantUint(expr parser.Expr) (uint64, bool) {
 	_, val, err := l.evalConstantIntExpr(expr)
 	if err != nil {
 		return 0, false
@@ -4831,23 +4832,23 @@ func (l *Lowerer) tryEvalConstantUint(expr Expr) (uint64, bool) {
 //   - Binary expressions of constants (c1 + 2, c1 - 1)
 //   - Unary negation of constants (-c1)
 //   - Type constructor zero values (i32(), u32())
-func (l *Lowerer) evalConstantIntExpr(expr Expr) (ir.ScalarKind, int64, error) {
+func (l *Lowerer) evalConstantIntExpr(expr parser.Expr) (ir.ScalarKind, int64, error) {
 	switch e := expr.(type) {
-	case *Literal:
+	case *parser.Literal:
 		return l.evalLiteralAsInt(e)
-	case *Ident:
+	case *parser.Ident:
 		return l.evalConstantIdent(e.Name)
-	case *BinaryExpr:
+	case *parser.BinaryExpr:
 		return l.evalConstantBinaryExpr(e)
-	case *UnaryExpr:
+	case *parser.UnaryExpr:
 		switch e.Op {
-		case TokenMinus:
+		case parser.TokenMinus:
 			kind, val, err := l.evalConstantIntExpr(e.Operand)
 			if err != nil {
 				return 0, 0, err
 			}
 			return kind, -val, nil
-		case TokenTilde:
+		case parser.TokenTilde:
 			kind, val, err := l.evalConstantIntExpr(e.Operand)
 			if err != nil {
 				return 0, 0, err
@@ -4856,11 +4857,11 @@ func (l *Lowerer) evalConstantIntExpr(expr Expr) (ir.ScalarKind, int64, error) {
 		default:
 			return 0, 0, fmt.Errorf("unsupported unary operator in constant expression: %v", e.Op)
 		}
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		return l.evalTypeConstructorAsInt(e)
-	case *CallExpr:
+	case *parser.CallExpr:
 		return l.evalCallAsConstantInt(e)
-	case *MemberExpr:
+	case *parser.MemberExpr:
 		return l.evalMemberAsConstantInt(e)
 	default:
 		return 0, 0, fmt.Errorf("unsupported expression type in constant context: %T", expr)
@@ -4868,7 +4869,7 @@ func (l *Lowerer) evalConstantIntExpr(expr Expr) (ir.ScalarKind, int64, error) {
 }
 
 // evalConstantBinaryExpr evaluates a binary expression of constants at compile time.
-func (l *Lowerer) evalConstantBinaryExpr(e *BinaryExpr) (ir.ScalarKind, int64, error) {
+func (l *Lowerer) evalConstantBinaryExpr(e *parser.BinaryExpr) (ir.ScalarKind, int64, error) {
 	leftKind, leftVal, err := l.evalConstantIntExpr(e.Left)
 	if err != nil {
 		return 0, 0, fmt.Errorf("left operand: %w", err)
@@ -4883,31 +4884,31 @@ func (l *Lowerer) evalConstantBinaryExpr(e *BinaryExpr) (ir.ScalarKind, int64, e
 		resultKind = ir.ScalarUint
 	}
 	switch e.Op {
-	case TokenPlus:
+	case parser.TokenPlus:
 		return resultKind, leftVal + rightVal, nil
-	case TokenMinus:
+	case parser.TokenMinus:
 		return resultKind, leftVal - rightVal, nil
-	case TokenStar:
+	case parser.TokenStar:
 		return resultKind, leftVal * rightVal, nil
-	case TokenSlash:
+	case parser.TokenSlash:
 		if rightVal == 0 {
 			return 0, 0, fmt.Errorf("division by zero in constant expression")
 		}
 		return resultKind, leftVal / rightVal, nil
-	case TokenPercent:
+	case parser.TokenPercent:
 		if rightVal == 0 {
 			return 0, 0, fmt.Errorf("modulo by zero in constant expression")
 		}
 		return resultKind, leftVal % rightVal, nil
-	case TokenLessLess:
+	case parser.TokenLessLess:
 		return resultKind, leftVal << uint(rightVal), nil
-	case TokenGreaterGreater:
+	case parser.TokenGreaterGreater:
 		return resultKind, leftVal >> uint(rightVal), nil
-	case TokenAmpersand:
+	case parser.TokenAmpersand:
 		return resultKind, leftVal & rightVal, nil
-	case TokenPipe:
+	case parser.TokenPipe:
 		return resultKind, leftVal | rightVal, nil
-	case TokenCaret:
+	case parser.TokenCaret:
 		return resultKind, leftVal ^ rightVal, nil
 	default:
 		return 0, 0, fmt.Errorf("unsupported operator in constant expression: %v", e.Op)
@@ -4915,8 +4916,8 @@ func (l *Lowerer) evalConstantBinaryExpr(e *BinaryExpr) (ir.ScalarKind, int64, e
 }
 
 // evalLiteralAsInt extracts an integer value from a literal expression.
-func (l *Lowerer) evalLiteralAsInt(lit *Literal) (ir.ScalarKind, int64, error) {
-	if lit.Kind != TokenIntLiteral {
+func (l *Lowerer) evalLiteralAsInt(lit *parser.Literal) (ir.ScalarKind, int64, error) {
+	if lit.Kind != parser.TokenIntLiteral {
 		return 0, 0, fmt.Errorf("expected integer literal, got %v", lit.Kind)
 	}
 	val, suffix := parseIntLiteral(lit.Value)
@@ -5006,8 +5007,8 @@ func (l *Lowerer) evalExpressionAsConstantInt(handle ir.ExpressionHandle) (ir.Sc
 
 // evalTypeConstructorAsInt evaluates a type constructor expression as a constant integer.
 // Handles i32() = 0, u32() = 0, i32(expr), u32(expr).
-func (l *Lowerer) evalTypeConstructorAsInt(cons *ConstructExpr) (ir.ScalarKind, int64, error) {
-	named, ok := cons.Type.(*NamedType)
+func (l *Lowerer) evalTypeConstructorAsInt(cons *parser.ConstructExpr) (ir.ScalarKind, int64, error) {
+	named, ok := cons.Type.(*parser.NamedType)
 	if !ok {
 		return 0, 0, fmt.Errorf("unsupported type constructor in constant expression")
 	}
@@ -5035,7 +5036,7 @@ func (l *Lowerer) evalTypeConstructorAsInt(cons *ConstructExpr) (ir.ScalarKind, 
 
 // evalCallAsConstantInt evaluates a function-style call as a constant integer.
 // Handles i32() and u32() when parsed as CallExpr instead of ConstructExpr.
-func (l *Lowerer) evalCallAsConstantInt(call *CallExpr) (ir.ScalarKind, int64, error) {
+func (l *Lowerer) evalCallAsConstantInt(call *parser.CallExpr) (ir.ScalarKind, int64, error) {
 	switch call.Func.Name {
 	case "i32", "i64":
 		if len(call.Args) == 0 {
@@ -5068,7 +5069,7 @@ func (l *Lowerer) evalCallAsConstantInt(call *CallExpr) (ir.ScalarKind, int64, e
 
 // evalMemberAsConstantInt evaluates a member access expression as a constant integer.
 // Handles patterns like vec4(4).x where a vector constructor's component is accessed.
-func (l *Lowerer) evalMemberAsConstantInt(member *MemberExpr) (ir.ScalarKind, int64, error) {
+func (l *Lowerer) evalMemberAsConstantInt(member *parser.MemberExpr) (ir.ScalarKind, int64, error) {
 	// Determine the swizzle component index from the member name
 	var idx int
 	switch member.Member {
@@ -5086,7 +5087,7 @@ func (l *Lowerer) evalMemberAsConstantInt(member *MemberExpr) (ir.ScalarKind, in
 
 	// The base must be a vector constructor with enough arguments
 	switch base := member.Expr.(type) {
-	case *CallExpr:
+	case *parser.CallExpr:
 		// e.g., vec4(4) — splat constructor, all components are the same
 		name := base.Func.Name
 		if len(name) < 4 || name[:3] != "vec" {
@@ -5100,7 +5101,7 @@ func (l *Lowerer) evalMemberAsConstantInt(member *MemberExpr) (ir.ScalarKind, in
 			return l.evalConstantIntExpr(base.Args[idx])
 		}
 		return 0, 0, fmt.Errorf("member index %d out of range for %d-arg constructor", idx, len(base.Args))
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		if len(base.Args) == 1 {
 			return l.evalConstantIntExpr(base.Args[0])
 		}
@@ -5132,7 +5133,7 @@ func parseIntLiteral(s string) (int64, string) {
 // Local const is treated as a named expression (similar to let).
 // Matches Rust naga: let bindings are stored in Function.NamedExpressions
 // so backends emit them as named temporaries even if unused.
-func (l *Lowerer) lowerLocalConst(decl *ConstDecl, target *[]ir.Statement) error {
+func (l *Lowerer) lowerLocalConst(decl *parser.ConstDecl, target *[]ir.Statement) error {
 	if decl.Init == nil {
 		return fmt.Errorf("local const '%s' must have initializer", decl.Name)
 	}
@@ -5199,7 +5200,7 @@ func (l *Lowerer) lowerLocalConst(decl *ConstDecl, target *[]ir.Statement) error
 	l.locals[decl.Name] = initHandle
 
 	// Track pointer let-bindings: let p = &v[i]
-	if un, ok := decl.Init.(*UnaryExpr); ok && un.Op == TokenAmpersand {
+	if un, ok := decl.Init.(*parser.UnaryExpr); ok && un.Op == parser.TokenAmpersand {
 		l.localIsPtr[decl.Name] = true
 	}
 
@@ -5221,11 +5222,11 @@ func (l *Lowerer) lowerLocalConst(decl *ConstDecl, target *[]ir.Statement) error
 }
 
 // lowerExpression converts an expression to IR.
-func (l *Lowerer) lowerExpression(expr Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerExpression(expr parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	switch e := expr.(type) {
-	case *Literal:
+	case *parser.Literal:
 		return l.lowerLiteral(e)
-	case *Ident:
+	case *parser.Ident:
 		handle, err := l.resolveIdentifier(e.Name)
 		if err != nil {
 			return 0, err
@@ -5236,27 +5237,27 @@ func (l *Lowerer) lowerExpression(expr Expr, target *[]ir.Statement) (ir.Express
 			return handle, nil
 		}
 		return l.applyLoadRule(handle), nil
-	case *BinaryExpr:
+	case *parser.BinaryExpr:
 		return l.lowerBinary(e, target)
-	case *UnaryExpr:
+	case *parser.UnaryExpr:
 		return l.lowerUnary(e, target)
-	case *CallExpr:
+	case *parser.CallExpr:
 		return l.lowerCall(e, target)
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		return l.lowerConstruct(e, target)
-	case *MemberExpr:
+	case *parser.MemberExpr:
 		handle, err := l.lowerMember(e, target)
 		if err != nil {
 			return 0, err
 		}
 		return l.applyLoadRule(handle), nil
-	case *IndexExpr:
+	case *parser.IndexExpr:
 		handle, err := l.lowerIndex(e, target)
 		if err != nil {
 			return 0, err
 		}
 		return l.applyLoadRule(handle), nil
-	case *BitcastExpr:
+	case *parser.BitcastExpr:
 		return l.lowerBitcast(e, target)
 	default:
 		return 0, fmt.Errorf("unsupported expression type: %T", expr)
@@ -5264,11 +5265,11 @@ func (l *Lowerer) lowerExpression(expr Expr, target *[]ir.Statement) (ir.Express
 }
 
 // lowerLiteral converts a literal to IR.
-func (l *Lowerer) lowerLiteral(lit *Literal) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerLiteral(lit *parser.Literal) (ir.ExpressionHandle, error) {
 	var value ir.LiteralValue
 
 	switch lit.Kind {
-	case TokenIntLiteral:
+	case parser.TokenIntLiteral:
 		text := lit.Value
 		isUnsigned := false
 		is64bit := false
@@ -5306,7 +5307,7 @@ func (l *Lowerer) lowerLiteral(lit *Literal) (ir.ExpressionHandle, error) {
 			v, _ := strconv.ParseInt(text, 0, 64)
 			value = ir.LiteralAbstractInt(v)
 		}
-	case TokenFloatLiteral:
+	case parser.TokenFloatLiteral:
 		text := lit.Value
 		// Check for 64-bit suffix: lf
 		if len(text) >= 2 && text[len(text)-2:] == "lf" {
@@ -5327,11 +5328,11 @@ func (l *Lowerer) lowerLiteral(lit *Literal) (ir.ExpressionHandle, error) {
 			v, _ := strconv.ParseFloat(text, 64)
 			value = ir.LiteralAbstractFloat(v)
 		}
-	case TokenTrue:
+	case parser.TokenTrue:
 		value = ir.LiteralBool(true)
-	case TokenFalse:
+	case parser.TokenFalse:
 		value = ir.LiteralBool(false)
-	case TokenBoolLiteral:
+	case parser.TokenBoolLiteral:
 		// Parser normalizes TokenTrue/TokenFalse to TokenBoolLiteral
 		value = ir.LiteralBool(lit.Value == "true")
 	default:
@@ -5344,7 +5345,7 @@ func (l *Lowerer) lowerLiteral(lit *Literal) (ir.ExpressionHandle, error) {
 }
 
 // lowerBinary converts a binary expression to IR.
-func (l *Lowerer) lowerBinary(bin *BinaryExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerBinary(bin *parser.BinaryExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Fast path: if both operands are AST literals, try folding directly
 	// without creating intermediate expressions. This matches Rust naga's
 	// try_eval_and_append which evaluates const expressions before appending,
@@ -5429,7 +5430,7 @@ func (l *Lowerer) lowerBinary(bin *BinaryExpr, target *[]ir.Statement) (ir.Expre
 //	var _eN: bool;
 //	if !lhs { _eN = rhs; } else { _eN = true; }
 //	result = load(_eN)
-func (l *Lowerer) lowerLogicalShortCircuit(op ir.BinaryOperator, leftAST, rightAST Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerLogicalShortCircuit(op ir.BinaryOperator, leftAST, rightAST parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Lower LHS
 	left, err := l.lowerExpression(leftAST, target)
 	if err != nil {
@@ -5547,9 +5548,9 @@ func (l *Lowerer) lowerLogicalShortCircuit(op ir.BinaryOperator, leftAST, rightA
 // Only the final result Literal is added to the expression arena.
 // This matches Rust naga's try_eval_and_append which evaluates const expressions
 // before appending, producing exactly 1 expression instead of 3.
-func (l *Lowerer) tryFoldASTBinary(bin *BinaryExpr) (ir.ExpressionHandle, bool) {
-	leftLit, leftOK := bin.Left.(*Literal)
-	rightLit, rightOK := bin.Right.(*Literal)
+func (l *Lowerer) tryFoldASTBinary(bin *parser.BinaryExpr) (ir.ExpressionHandle, bool) {
+	leftLit, leftOK := bin.Left.(*parser.Literal)
+	rightLit, rightOK := bin.Right.(*parser.Literal)
 	if !leftOK || !rightOK {
 		return 0, false
 	}
@@ -5827,9 +5828,9 @@ func foldBinaryLiterals(op ir.BinaryOperator, left, right ir.LiteralValue) (ir.L
 
 // astLiteralToIRValue converts an AST Literal to an IR LiteralValue without
 // creating an expression in the arena.
-func (l *Lowerer) astLiteralToIRValue(lit *Literal) (ir.LiteralValue, error) {
+func (l *Lowerer) astLiteralToIRValue(lit *parser.Literal) (ir.LiteralValue, error) {
 	switch lit.Kind {
-	case TokenIntLiteral:
+	case parser.TokenIntLiteral:
 		v := lit.Value
 		if len(v) > 0 {
 			last := v[len(v)-1]
@@ -5870,7 +5871,7 @@ func (l *Lowerer) astLiteralToIRValue(lit *Literal) (ir.LiteralValue, error) {
 		}
 		return ir.LiteralAbstractInt(n), nil
 
-	case TokenFloatLiteral:
+	case parser.TokenFloatLiteral:
 		v := lit.Value
 		if strings.HasSuffix(v, "f") {
 			f, err := strconv.ParseFloat(strings.TrimSuffix(v, "f"), 32)
@@ -5893,13 +5894,13 @@ func (l *Lowerer) astLiteralToIRValue(lit *Literal) (ir.LiteralValue, error) {
 		}
 		return ir.LiteralAbstractFloat(f), nil
 
-	case TokenTrue, TokenBoolLiteral:
+	case parser.TokenTrue, parser.TokenBoolLiteral:
 		if lit.Value == "true" {
 			return ir.LiteralBool(true), nil
 		}
 		return ir.LiteralBool(false), nil
 
-	case TokenFalse:
+	case parser.TokenFalse:
 		return ir.LiteralBool(false), nil
 
 	default:
@@ -7400,15 +7401,15 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 }
 
 // lowerUnary converts a unary expression to IR.
-func (l *Lowerer) lowerUnary(un *UnaryExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerUnary(un *parser.UnaryExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Handle address-of operator (&)
 	// Returns the reference (pointer) for the operand without applying load rule.
-	if un.Op == TokenAmpersand {
+	if un.Op == parser.TokenAmpersand {
 		return l.lowerExpressionForRef(un.Operand, target)
 	}
 
 	// Handle dereference operator (*)
-	if un.Op == TokenStar {
+	if un.Op == parser.TokenStar {
 		pointer, err := l.lowerExpression(un.Operand, target)
 		if err != nil {
 			return 0, err
@@ -7421,8 +7422,8 @@ func (l *Lowerer) lowerUnary(un *UnaryExpr, target *[]ir.Statement) (ir.Expressi
 	// Constant fold: negate of a literal directly, without creating the positive
 	// literal first. This matches Rust naga's constant evaluator which evaluates
 	// the entire expression, avoiding extra expression handles.
-	if un.Op == TokenMinus {
-		if lit, ok := un.Operand.(*Literal); ok {
+	if un.Op == parser.TokenMinus {
+		if lit, ok := un.Operand.(*parser.Literal); ok {
 			if result, err := l.lowerNegatedLiteral(lit); err == nil {
 				return result, nil
 			}
@@ -7453,7 +7454,7 @@ func (l *Lowerer) lowerUnary(un *UnaryExpr, target *[]ir.Statement) (ir.Expressi
 
 // lowerNegatedLiteral directly creates a negative literal from a positive one,
 // without creating the positive literal first. Returns the expression handle.
-func (l *Lowerer) lowerNegatedLiteral(lit *Literal) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerNegatedLiteral(lit *parser.Literal) (ir.ExpressionHandle, error) {
 	// First, lower the literal to get its value and type
 	posHandle, err := l.lowerLiteral(lit)
 	if err != nil {
@@ -7492,7 +7493,7 @@ func (l *Lowerer) lowerNegatedLiteral(lit *Literal) (ir.ExpressionHandle, error)
 }
 
 // lowerCall converts a call expression to IR.
-func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerCall(call *parser.CallExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	funcName := call.Func.Name
 
 	// Check if this is a built-in function (vec4, vec3, etc.)
@@ -7598,7 +7599,7 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 	typeHandle, typeExists := l.types[funcName]
 	if !typeExists {
 		// Try resolving as a named type (triggers lazy registration for f16, i64, etc.)
-		resolved, err := l.resolveNamedType(&NamedType{Name: funcName})
+		resolved, err := l.resolveNamedType(&parser.NamedType{Name: funcName})
 		if err == nil {
 			typeHandle = resolved
 			typeExists = true
@@ -7695,7 +7696,7 @@ func (l *Lowerer) lowerCall(call *CallExpr, target *[]ir.Statement) (ir.Expressi
 }
 
 // lowerConstruct converts a type constructor to IR.
-func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerConstruct(cons *parser.ConstructExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Check if this is an inferred matrix constructor with scalar args.
 	// For inferred types (no type params), Rust creates per-column Compose
 	// interleaved with scalar Literals. For explicit types, all scalars first.
@@ -7737,7 +7738,7 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 		//
 		// We only skip for vectors with ALL const components that include nested
 		// Compose/Splat (indicating this is an intermediate in a nested constructor).
-		if nt, ok := cons.Type.(*NamedType); ok && len(nt.TypeParams) == 0 &&
+		if nt, ok := cons.Type.(*parser.NamedType); ok && len(nt.TypeParams) == 0 &&
 			len(nt.Name) == 4 && nt.Name[:3] == "vec" && len(components) > 0 {
 			allConst := true
 			hasNestedCompose := false
@@ -7981,11 +7982,11 @@ func (l *Lowerer) lowerConstruct(cons *ConstructExpr, target *[]ir.Statement) (i
 // creates intermediate Compose expressions for each column vector.
 // isMatrixScalarConstruct checks if a ConstructExpr is a matrix constructor
 // with all scalar literal args (e.g., mat2x2(1, 2, 3, 4)).
-func (l *Lowerer) isMatrixScalarConstruct(cons *ConstructExpr) bool {
+func (l *Lowerer) isMatrixScalarConstruct(cons *parser.ConstructExpr) bool {
 	if cons.Type == nil {
 		return false
 	}
-	nt, ok := cons.Type.(*NamedType)
+	nt, ok := cons.Type.(*parser.NamedType)
 	if !ok {
 		return false
 	}
@@ -8001,12 +8002,12 @@ func (l *Lowerer) isMatrixScalarConstruct(cons *ConstructExpr) bool {
 	// Mixed concrete/abstract uses standard all-scalars-first ordering.
 	for _, arg := range cons.Args {
 		switch a := arg.(type) {
-		case *Literal:
+		case *parser.Literal:
 			if l.literalHasSuffix(a) {
 				return false // concrete suffix → not all-abstract
 			}
-		case *UnaryExpr:
-			if lit, ok := a.Operand.(*Literal); ok {
+		case *parser.UnaryExpr:
+			if lit, ok := a.Operand.(*parser.Literal); ok {
 				if l.literalHasSuffix(lit) {
 					return false
 				}
@@ -8023,8 +8024,8 @@ func (l *Lowerer) isMatrixScalarConstruct(cons *ConstructExpr) bool {
 // lowerMatrixScalarConstruct lowers a matrix constructor with scalar args
 // by grouping args per-column: lower row literals then immediately create
 // column Compose. This matches Rust expression ordering.
-func (l *Lowerer) lowerMatrixScalarConstruct(cons *ConstructExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	nt := cons.Type.(*NamedType)
+func (l *Lowerer) lowerMatrixScalarConstruct(cons *parser.ConstructExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+	nt := cons.Type.(*parser.NamedType)
 	name := nt.Name
 	// Determine cols/rows from name (mat2x2, mat3x2, etc.)
 	// Handle both "mat2x2" and "mat2x2f" patterns
@@ -8191,7 +8192,7 @@ func (l *Lowerer) zeroLiteral(scalar ir.ScalarType) ir.LiteralValue {
 // This means the IR is: GlobalVar → AccessIndex(.x) → Load, producing a scalar load,
 // rather than: GlobalVar → Load (whole struct) → AccessIndex(.x).
 // The caller's applyLoadRule handles the final Load on the pointer-based AccessIndex.
-func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerMember(mem *parser.MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Check for builtin result member access (e.g., modf(x).fract, frexp(x).exp).
 	// These builtins conceptually return structs but we decompose them into
 	// equivalent scalar math operations at lowering time.
@@ -8281,9 +8282,9 @@ func (l *Lowerer) lowerMember(mem *MemberExpr, target *[]ir.Statement) (ir.Expre
 // to extract members: index 0 = fract, index 1 = whole/exp.
 //
 // Returns (handle, true) if handled, or (0, false) if not a builtin result access.
-func (l *Lowerer) tryLowerBuiltinResultMember(mem *MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool) {
+func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool) {
 	// The base expression must be a call: modf(x) or frexp(x)
-	call, ok := mem.Expr.(*CallExpr)
+	call, ok := mem.Expr.(*parser.CallExpr)
 	if !ok {
 		return 0, false
 	}
@@ -8541,7 +8542,7 @@ func (l *Lowerer) typeSize(handle ir.TypeHandle) uint32 {
 
 // lowerIndex converts an index expression to IR.
 // lowerBitcast converts a bitcast<Type>(expr) to IR.
-func (l *Lowerer) lowerBitcast(bc *BitcastExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerBitcast(bc *parser.BitcastExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	exprHandle, err := l.lowerExpression(bc.Expr, target)
 	if err != nil {
 		return 0, err
@@ -8563,9 +8564,9 @@ func (l *Lowerer) lowerBitcast(bc *BitcastExpr, target *[]ir.Statement) (ir.Expr
 }
 
 // resolveTargetScalarKind extracts the scalar kind from a type for bitcast.
-func (l *Lowerer) resolveTargetScalarKind(t Type) (ir.ScalarKind, error) {
+func (l *Lowerer) resolveTargetScalarKind(t parser.Type) (ir.ScalarKind, error) {
 	switch ty := t.(type) {
-	case *NamedType:
+	case *parser.NamedType:
 		switch ty.Name {
 		case "f32", "f16", "f64":
 			return ir.ScalarFloat, nil
@@ -8589,7 +8590,7 @@ func (l *Lowerer) resolveTargetScalarKind(t Type) (ir.ScalarKind, error) {
 	}
 }
 
-func (l *Lowerer) lowerIndex(idx *IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerIndex(idx *parser.IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Try compile-time constant array element evaluation.
 	// When indexing an abstract composite constant with a literal index,
 	// evaluate at compile time and inline just the element. This matches
@@ -8619,9 +8620,9 @@ func (l *Lowerer) lowerIndex(idx *IndexExpr, target *[]ir.Statement) (ir.Express
 // We resolve directly to Literal+Compose in 1 step — fewer arena allocations,
 // no compact cleanup needed. Both produce identical backend output because
 // Literal/Constant/GlobalVariable are needs_pre_emit (order-independent in IR).
-func (l *Lowerer) tryConstantArrayIndex(idx *IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool) {
+func (l *Lowerer) tryConstantArrayIndex(idx *parser.IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool) {
 	// Check if base is an identifier referring to an abstract composite constant
-	ident, ok := idx.Expr.(*Ident)
+	ident, ok := idx.Expr.(*parser.Ident)
 	if !ok {
 		return 0, false
 	}
@@ -8644,8 +8645,8 @@ func (l *Lowerer) tryConstantArrayIndex(idx *IndexExpr, target *[]ir.Statement) 
 	// Check if index is a literal integer
 	var indexVal int
 	switch lit := idx.Index.(type) {
-	case *Literal:
-		if lit.Kind == TokenIntLiteral {
+	case *parser.Literal:
+		if lit.Kind == parser.TokenIntLiteral {
 			n, err := strconv.Atoi(lit.Value)
 			if err != nil {
 				return 0, false
@@ -9693,16 +9694,16 @@ func (l *Lowerer) isUnsizedType(handle ir.ExpressionHandle) bool {
 // Unlike lowerExpression, this does NOT apply the WGSL Load Rule, so the result
 // may be a reference (pointer) to a variable. Used for Store targets (assignment LHS),
 // address-of (&) operator, and atomic pointer arguments.
-func (l *Lowerer) lowerExpressionForRef(expr Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerExpressionForRef(expr parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	switch e := expr.(type) {
-	case *Ident:
+	case *parser.Ident:
 		return l.resolveIdentifier(e.Name)
-	case *MemberExpr:
+	case *parser.MemberExpr:
 		return l.lowerMemberForRef(e, target)
-	case *IndexExpr:
+	case *parser.IndexExpr:
 		return l.lowerIndexForRef(e, target)
-	case *UnaryExpr:
-		if e.Op == TokenStar {
+	case *parser.UnaryExpr:
+		if e.Op == parser.TokenStar {
 			// *ptr dereference: the operand is a pointer, load it to get the inner pointer
 			return l.lowerExpression(e.Operand, target)
 		}
@@ -9715,7 +9716,7 @@ func (l *Lowerer) lowerExpressionForRef(expr Expr, target *[]ir.Statement) (ir.E
 
 // lowerMemberForRef lowers a member access expression in reference context.
 // The base is kept as a reference (no load rule applied).
-func (l *Lowerer) lowerMemberForRef(mem *MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerMemberForRef(mem *parser.MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	base, err := l.lowerExpressionForRef(mem.Expr, target)
 	if err != nil {
 		return 0, err
@@ -9760,7 +9761,7 @@ func (l *Lowerer) lowerMemberForRef(mem *MemberExpr, target *[]ir.Statement) (ir
 
 // lowerIndexForRef lowers an index expression in reference context.
 // The base is kept as a reference (no load rule applied).
-func (l *Lowerer) lowerIndexForRef(idx *IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerIndexForRef(idx *parser.IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Try compile-time constant array element evaluation (same as lowerIndex).
 	if h, ok := l.tryConstantArrayIndex(idx, target); ok {
 		return h, nil
@@ -9779,7 +9780,7 @@ func (l *Lowerer) lowerIndexForRef(idx *IndexExpr, target *[]ir.Statement) (ir.E
 // emitter for needs_pre_emit expressions like Literals), THEN check if it evaluates to
 // a compile-time constant u32. This ensures the same emitter interrupt pattern as Rust.
 // The intermediate expression is removed by the compact pass after lowering.
-func (l *Lowerer) lowerIndexWithBase(idx *IndexExpr, base ir.ExpressionHandle, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerIndexWithBase(idx *parser.IndexExpr, base ir.ExpressionHandle, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Always lower the index expression first (matching Rust naga).
 	// This adds it to the arena and interrupts the emitter for literals.
 	index, err := l.lowerExpression(idx.Index, target)
@@ -9878,29 +9879,29 @@ func (l *Lowerer) interruptEmitter(expr ir.Expression) ir.ExpressionHandle {
 // countStatementsDeep returns a rough count of statements in a block,
 // recursively counting sub-blocks. Used to estimate IR expression count
 // for slice pre-allocation.
-func countStatementsDeep(block *BlockStmt) int {
+func countStatementsDeep(block *parser.BlockStmt) int {
 	if block == nil {
 		return 0
 	}
 	count := len(block.Statements)
 	for _, s := range block.Statements {
 		switch stmt := s.(type) {
-		case *IfStmt:
+		case *parser.IfStmt:
 			count += countStatementsDeep(stmt.Body)
-			if elseBlock, ok := stmt.Else.(*BlockStmt); ok {
+			if elseBlock, ok := stmt.Else.(*parser.BlockStmt); ok {
 				count += countStatementsDeep(elseBlock)
 			}
-		case *ForStmt:
+		case *parser.ForStmt:
 			count += countStatementsDeep(stmt.Body)
-		case *WhileStmt:
+		case *parser.WhileStmt:
 			count += countStatementsDeep(stmt.Body)
-		case *LoopStmt:
+		case *parser.LoopStmt:
 			count += countStatementsDeep(stmt.Body)
-		case *SwitchStmt:
+		case *parser.SwitchStmt:
 			for _, c := range stmt.Cases {
 				count += countStatementsDeep(c.Body)
 			}
-		case *BlockStmt:
+		case *parser.BlockStmt:
 			count += countStatementsDeep(stmt)
 		}
 	}
@@ -9951,8 +9952,8 @@ func ensureBlockReturns(block *[]ir.Statement) {
 //
 // Returns the expression handle and true if const-evaluation succeeded, or (0, false) if the
 // expression is not const-evaluable and should be lowered normally.
-func (l *Lowerer) tryConstEvalPhonyExpr(expr Expr) (ir.ExpressionHandle, bool) {
-	call, ok := expr.(*CallExpr)
+func (l *Lowerer) tryConstEvalPhonyExpr(expr parser.Expr) (ir.ExpressionHandle, bool) {
+	call, ok := expr.(*parser.CallExpr)
 	if !ok || call.Func.Name != "select" || len(call.Args) != 3 {
 		return 0, false
 	}
@@ -9991,14 +9992,14 @@ func (l *Lowerer) tryConstEvalPhonyExpr(expr Expr) (ir.ExpressionHandle, bool) {
 
 // extractLiteralValue extracts a LiteralValue from a literal AST expression.
 // Returns the value and true if the expression is a scalar literal, false otherwise.
-func (l *Lowerer) extractLiteralValue(expr Expr) (ir.LiteralValue, bool) {
-	lit, ok := expr.(*Literal)
+func (l *Lowerer) extractLiteralValue(expr parser.Expr) (ir.LiteralValue, bool) {
+	lit, ok := expr.(*parser.Literal)
 	if !ok {
 		return nil, false
 	}
 
 	switch lit.Kind {
-	case TokenIntLiteral:
+	case parser.TokenIntLiteral:
 		text := lit.Value
 		if len(text) > 0 && text[len(text)-1] == 'u' {
 			text = text[:len(text)-1]
@@ -10014,7 +10015,7 @@ func (l *Lowerer) extractLiteralValue(expr Expr) (ir.LiteralValue, bool) {
 		v, _ := strconv.ParseInt(text, 0, 64)
 		return ir.LiteralAbstractInt(v), true
 
-	case TokenFloatLiteral:
+	case parser.TokenFloatLiteral:
 		text := lit.Value
 		if len(text) > 0 && text[len(text)-1] == 'f' {
 			text = text[:len(text)-1]
@@ -10022,9 +10023,9 @@ func (l *Lowerer) extractLiteralValue(expr Expr) (ir.LiteralValue, bool) {
 		v, _ := strconv.ParseFloat(text, 32)
 		return ir.LiteralF32(v), true
 
-	case TokenTrue, TokenFalse:
-		return ir.LiteralBool(lit.Kind == TokenTrue), true
-	case TokenBoolLiteral:
+	case parser.TokenTrue, parser.TokenFalse:
+		return ir.LiteralBool(lit.Kind == parser.TokenTrue), true
+	case parser.TokenBoolLiteral:
 		return ir.LiteralBool(lit.Value == "true"), true
 	}
 	return nil, false
@@ -10269,11 +10270,11 @@ func (l *Lowerer) resolveIdentifier(name string) (ir.ExpressionHandle, error) {
 }
 
 // resolveType converts a WGSL type to an IR type handle.
-func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
+func (l *Lowerer) resolveType(typ parser.Type) (ir.TypeHandle, error) {
 	switch t := typ.(type) {
-	case *NamedType:
+	case *parser.NamedType:
 		return l.resolveNamedType(t)
-	case *ArrayType:
+	case *parser.ArrayType:
 		base, err := l.resolveType(t.Element)
 		if err != nil {
 			return 0, err
@@ -10295,21 +10296,21 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 		elemAlign, elemSize := l.typeAlignmentAndSize(base)
 		stride := (elemSize + elemAlign - 1) &^ (elemAlign - 1)
 		return l.registerType("", ir.ArrayType{Base: base, Size: size, Stride: stride}), nil
-	case *PtrType:
+	case *parser.PtrType:
 		pointee, err := l.resolveType(t.PointeeType)
 		if err != nil {
 			return 0, err
 		}
 		space := l.addressSpace(t.AddressSpace)
 		return l.registerType("", ir.PointerType{Base: pointee, Space: space}), nil
-	case *BindingArrayType:
+	case *parser.BindingArrayType:
 		base, err := l.resolveType(t.Element)
 		if err != nil {
 			return 0, err
 		}
 		var size *uint32
 		if t.Size != nil {
-			if lit, ok := t.Size.(*Literal); ok && lit.Kind == TokenIntLiteral {
+			if lit, ok := t.Size.(*parser.Literal); ok && lit.Kind == parser.TokenIntLiteral {
 				n, _ := strconv.ParseUint(lit.Value, 0, 32)
 				s := uint32(n)
 				size = &s
@@ -10324,8 +10325,8 @@ func (l *Lowerer) resolveType(typ Type) (ir.TypeHandle, error) {
 // inferConstructorType infers the concrete type for a type constructor without template args
 // (e.g., vec2(a, b) where the scalar type is inferred from arguments).
 // Implements WGSL consensus type rules: concrete types win over abstract, float wins over int.
-func (l *Lowerer) inferConstructorType(typ Type, components []ir.ExpressionHandle) (ir.TypeHandle, error) {
-	namedType, ok := typ.(*NamedType)
+func (l *Lowerer) inferConstructorType(typ parser.Type, components []ir.ExpressionHandle) (ir.TypeHandle, error) {
+	namedType, ok := typ.(*parser.NamedType)
 	if !ok {
 		return 0, fmt.Errorf("cannot infer type")
 	}
@@ -10445,7 +10446,7 @@ func (l *Lowerer) consensusScalarType(components []ir.ExpressionHandle) (ir.Scal
 
 // inferConstructorTypeFromScalar builds a concrete IR type handle for a named constructor
 // given an inferred scalar kind. Supports vec, mat, and array constructors.
-func (l *Lowerer) inferConstructorTypeFromScalar(namedType *NamedType, scalar ir.ScalarType) (ir.TypeHandle, error) {
+func (l *Lowerer) inferConstructorTypeFromScalar(namedType *parser.NamedType, scalar ir.ScalarType) (ir.TypeHandle, error) {
 	name := namedType.Name
 
 	// Vector constructors: vec2, vec3, vec4
@@ -10478,7 +10479,7 @@ func (l *Lowerer) inferConstructorTypeFromScalar(namedType *NamedType, scalar ir
 	return 0, fmt.Errorf("cannot infer type for %s", name)
 }
 
-func (l *Lowerer) resolveNamedType(t *NamedType) (ir.TypeHandle, error) {
+func (l *Lowerer) resolveNamedType(t *parser.NamedType) (ir.TypeHandle, error) {
 	// Check for built-in vector types
 	if len(t.TypeParams) > 0 {
 		return l.resolveParameterizedType(t)
@@ -10540,16 +10541,16 @@ func (l *Lowerer) resolveNamedType(t *NamedType) (ir.TypeHandle, error) {
 
 	// Check for WGSL predeclared short type aliases (e.g., vec3f -> vec3<f32>)
 	if expanded, ok := shortTypeAliases[t.Name]; ok {
-		return l.resolveNamedType(&NamedType{
+		return l.resolveNamedType(&parser.NamedType{
 			Name:       expanded.baseName,
-			TypeParams: []Type{&NamedType{Name: expanded.scalarName}},
+			TypeParams: []parser.Type{&parser.NamedType{Name: expanded.scalarName}},
 		})
 	}
 
 	return 0, fmt.Errorf("unknown type: %s", t.Name)
 }
 
-func (l *Lowerer) resolveParameterizedType(t *NamedType) (ir.TypeHandle, error) {
+func (l *Lowerer) resolveParameterizedType(t *parser.NamedType) (ir.TypeHandle, error) {
 	// Vector types: vec2<f32>, vec3<T>, vec4<T>
 	// Rust naga registers the scalar type via resolve_ast_type, then compaction
 	// (compact::compact with KeepUnused::Yes at the end of lower()) removes
@@ -10630,8 +10631,8 @@ func (l *Lowerer) resolveParameterizedType(t *NamedType) (ir.TypeHandle, error) 
 // registering it in the type arena. This matches Rust naga behavior where
 // atomic<T> embeds the scalar directly (ast::Type::Atomic(scalar)) rather than
 // referencing a separate type handle.
-func (l *Lowerer) resolveScalarFromName(typ Type) (ir.ScalarType, error) {
-	named, ok := typ.(*NamedType)
+func (l *Lowerer) resolveScalarFromName(typ parser.Type) (ir.ScalarType, error) {
+	named, ok := typ.(*parser.NamedType)
 	if !ok || len(named.TypeParams) != 0 {
 		return ir.ScalarType{}, fmt.Errorf("expected scalar type name, got %T", typ)
 	}
@@ -10670,7 +10671,7 @@ func (l *Lowerer) isBuiltinConstructor(name string) bool {
 	return name == "array"
 }
 
-func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerBuiltinConstructor(name string, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Lower all arguments first
 	components := make([]ir.ExpressionHandle, len(args))
 	for i, arg := range args {
@@ -10786,11 +10787,11 @@ func (l *Lowerer) lowerBuiltinConstructor(name string, args []Expr, target *[]ir
 
 // lowerShortAliasConstructor handles constructor calls using short type aliases
 // (e.g., vec3f(1.0, 2.0, 3.0) which expands to vec3<f32>(1.0, 2.0, 3.0)).
-func (l *Lowerer) lowerShortAliasConstructor(alias shortTypeAlias, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerShortAliasConstructor(alias shortTypeAlias, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Resolve the expanded type (e.g., vec3<f32>)
-	typeHandle, err := l.resolveNamedType(&NamedType{
+	typeHandle, err := l.resolveNamedType(&parser.NamedType{
 		Name:       alias.baseName,
-		TypeParams: []Type{&NamedType{Name: alias.scalarName}},
+		TypeParams: []parser.Type{&parser.NamedType{Name: alias.scalarName}},
 	})
 	if err != nil {
 		return 0, fmt.Errorf("short type alias %s<%s>: %w", alias.baseName, alias.scalarName, err)
@@ -11087,7 +11088,7 @@ func mathMinArgs(f ir.MathFunction) int {
 	}
 }
 
-func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) == 0 {
 		return 0, fmt.Errorf("math function requires at least one argument")
 	}
@@ -12914,7 +12915,7 @@ func (l *Lowerer) tryFoldBinaryOp(op ir.BinaryOperator, left, right ir.Expressio
 
 // lowerSelectCall converts select(falseVal, trueVal, condition) to IR ExprSelect.
 // WGSL select() has signature: select(f, t, cond) -- returns t if cond is true, f otherwise.
-func (l *Lowerer) lowerSelectCall(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerSelectCall(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) != 3 {
 		return 0, fmt.Errorf("select() requires exactly 3 arguments, got %d", len(args))
 	}
@@ -12977,7 +12978,7 @@ func (l *Lowerer) getDerivativeFunction(name string) (ir.ExprDerivative, bool) {
 	}
 }
 
-func (l *Lowerer) lowerDerivativeCall(deriv ir.ExprDerivative, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerDerivativeCall(deriv ir.ExprDerivative, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) != 1 {
 		return 0, fmt.Errorf("derivative function requires exactly 1 argument, got %d", len(args))
 	}
@@ -13008,7 +13009,7 @@ func (l *Lowerer) getRelationalFunction(name string) (ir.RelationalFunction, boo
 	}
 }
 
-func (l *Lowerer) lowerRelationalCall(fun ir.RelationalFunction, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerRelationalCall(fun ir.RelationalFunction, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) != 1 {
 		return 0, fmt.Errorf("relational function requires exactly 1 argument, got %d", len(args))
 	}
@@ -13032,7 +13033,7 @@ func (l *Lowerer) lowerRelationalCall(fun ir.RelationalFunction, args []Expr, ta
 	}), nil
 }
 
-func (l *Lowerer) lowerArrayLengthCall(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerArrayLengthCall(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) != 1 {
 		return 0, fmt.Errorf("arrayLength requires exactly 1 argument, got %d", len(args))
 	}
@@ -13047,25 +13048,25 @@ func (l *Lowerer) lowerArrayLengthCall(args []Expr, target *[]ir.Statement) (ir.
 
 // Attribute parsing
 
-func (l *Lowerer) paramBinding(attrs []Attribute) *ir.Binding {
+func (l *Lowerer) paramBinding(attrs []parser.Attribute) *ir.Binding {
 	return l.collectBinding(attrs)
 }
 
-func (l *Lowerer) returnBinding(attrs []Attribute) *ir.Binding {
+func (l *Lowerer) returnBinding(attrs []parser.Attribute) *ir.Binding {
 	return l.collectBinding(attrs)
 }
 
 // memberBindings extracts a binding from a list of struct member attributes.
 // Unlike the single-attribute memberBinding, this accumulates @location, @blend_src,
 // and @interpolate into a single LocationBinding.
-func (l *Lowerer) memberBindings(attrs []Attribute) *ir.Binding {
+func (l *Lowerer) memberBindings(attrs []parser.Attribute) *ir.Binding {
 	return l.collectBinding(attrs)
 }
 
 // collectBinding processes a list of attributes and returns the combined binding.
 // For LocationBinding, it accumulates @location, @blend_src, and @interpolate
 // from separate attributes into a single binding.
-func (l *Lowerer) collectBinding(attrs []Attribute) *ir.Binding {
+func (l *Lowerer) collectBinding(attrs []parser.Attribute) *ir.Binding {
 	var locBinding *ir.LocationBinding
 	var builtinBinding *ir.Binding
 
@@ -13074,14 +13075,14 @@ func (l *Lowerer) collectBinding(attrs []Attribute) *ir.Binding {
 		switch attr.Name {
 		case "builtin":
 			if len(attr.Args) > 0 {
-				if id, ok := attr.Args[0].(*Ident); ok {
+				if id, ok := attr.Args[0].(*parser.Ident); ok {
 					var b ir.Binding = ir.BuiltinBinding{Builtin: l.builtin(id.Name)}
 					builtinBinding = &b
 				}
 			}
 		case "location":
 			if len(attr.Args) > 0 {
-				if lit, ok := attr.Args[0].(*Literal); ok {
+				if lit, ok := attr.Args[0].(*parser.Literal); ok {
 					loc, _ := strconv.ParseUint(lit.Value, 10, 32)
 					if locBinding == nil {
 						locBinding = &ir.LocationBinding{}
@@ -13091,7 +13092,7 @@ func (l *Lowerer) collectBinding(attrs []Attribute) *ir.Binding {
 			}
 		case "blend_src":
 			if len(attr.Args) > 0 {
-				if lit, ok := attr.Args[0].(*Literal); ok {
+				if lit, ok := attr.Args[0].(*parser.Literal); ok {
 					idx, _ := strconv.ParseUint(lit.Value, 10, 32)
 					if locBinding == nil {
 						locBinding = &ir.LocationBinding{}
@@ -13135,11 +13136,11 @@ func (l *Lowerer) collectBinding(attrs []Attribute) *ir.Binding {
 }
 
 // parseInterpolateAttr parses @interpolate(kind[, sampling]) into an Interpolation.
-func (l *Lowerer) parseInterpolateAttr(attr *Attribute) *ir.Interpolation {
+func (l *Lowerer) parseInterpolateAttr(attr *parser.Attribute) *ir.Interpolation {
 	if len(attr.Args) == 0 {
 		return nil
 	}
-	kindIdent, ok := attr.Args[0].(*Ident)
+	kindIdent, ok := attr.Args[0].(*parser.Ident)
 	if !ok {
 		return nil
 	}
@@ -13158,7 +13159,7 @@ func (l *Lowerer) parseInterpolateAttr(attr *Attribute) *ir.Interpolation {
 
 	sampling := ir.SamplingCenter // default
 	if len(attr.Args) >= 2 {
-		if sampIdent, ok := attr.Args[1].(*Ident); ok {
+		if sampIdent, ok := attr.Args[1].(*parser.Ident); ok {
 			switch sampIdent.Name {
 			case "center":
 				sampling = ir.SamplingCenter
@@ -13245,7 +13246,7 @@ func (l *Lowerer) applyDefaultInterpolation(binding *ir.Binding, typeHandle ir.T
 	return binding
 }
 
-func (l *Lowerer) entryPointStage(attrs []Attribute) *ir.ShaderStage {
+func (l *Lowerer) entryPointStage(attrs []parser.Attribute) *ir.ShaderStage {
 	for _, attr := range attrs {
 		switch attr.Name {
 		case "vertex":
@@ -13274,14 +13275,14 @@ func (l *Lowerer) entryPointStage(attrs []Attribute) *ir.ShaderStage {
 // constant expressions (TWO - 1u). Matches Rust naga's const_u32 evaluation.
 // extractEarlyDepthTest checks for @early_depth_test attribute and returns the configuration.
 // Matches Rust: @early_depth_test(force) → Force, @early_depth_test(less_equal) → Allow(LessEqual).
-func (l *Lowerer) extractEarlyDepthTest(attrs []Attribute) *ir.EarlyDepthTest {
+func (l *Lowerer) extractEarlyDepthTest(attrs []parser.Attribute) *ir.EarlyDepthTest {
 	for _, attr := range attrs {
 		if attr.Name != "early_depth_test" {
 			continue
 		}
 		edt := &ir.EarlyDepthTest{}
 		if len(attr.Args) > 0 {
-			if ident, ok := attr.Args[0].(*Ident); ok {
+			if ident, ok := attr.Args[0].(*parser.Ident); ok {
 				switch ident.Name {
 				case "force":
 					edt.Conservative = ir.ConservativeDepthUnchanged
@@ -13299,7 +13300,7 @@ func (l *Lowerer) extractEarlyDepthTest(attrs []Attribute) *ir.EarlyDepthTest {
 	return nil
 }
 
-func (l *Lowerer) extractWorkgroupSize(attrs []Attribute) [3]uint32 {
+func (l *Lowerer) extractWorkgroupSize(attrs []parser.Attribute) [3]uint32 {
 	result := [3]uint32{1, 1, 1}
 	for _, attr := range attrs {
 		if attr.Name != "workgroup_size" {
@@ -13320,9 +13321,9 @@ func (l *Lowerer) extractWorkgroupSize(attrs []Attribute) [3]uint32 {
 
 // evalConstU32Expr evaluates an expression as a compile-time u32 constant.
 // Handles literals, constant identifier references, and simple binary expressions.
-func (l *Lowerer) evalConstU32Expr(expr Expr) (uint32, bool) {
+func (l *Lowerer) evalConstU32Expr(expr parser.Expr) (uint32, bool) {
 	switch e := expr.(type) {
-	case *Literal:
+	case *parser.Literal:
 		if val, err := strconv.ParseUint(e.Value, 10, 32); err == nil {
 			return uint32(val), true
 		}
@@ -13330,7 +13331,7 @@ func (l *Lowerer) evalConstU32Expr(expr Expr) (uint32, bool) {
 		if val, err := strconv.ParseInt(e.Value, 10, 32); err == nil && val >= 0 {
 			return uint32(val), true
 		}
-	case *Ident:
+	case *parser.Ident:
 		// Look up named constant
 		for _, c := range l.module.Constants {
 			if c.Name == e.Name {
@@ -13339,24 +13340,24 @@ func (l *Lowerer) evalConstU32Expr(expr Expr) (uint32, bool) {
 				}
 			}
 		}
-	case *BinaryExpr:
+	case *parser.BinaryExpr:
 		left, okL := l.evalConstU32Expr(e.Left)
 		right, okR := l.evalConstU32Expr(e.Right)
 		if okL && okR {
 			switch e.Op {
-			case TokenPlus:
+			case parser.TokenPlus:
 				return left + right, true
-			case TokenMinus:
+			case parser.TokenMinus:
 				return left - right, true
-			case TokenStar:
+			case parser.TokenStar:
 				return left * right, true
-			case TokenSlash:
+			case parser.TokenSlash:
 				if right != 0 {
 					return left / right, true
 				}
 			}
 		}
-	case *CallExpr:
+	case *parser.CallExpr:
 		// Handle type constructors like u32(expr)
 		if len(e.Args) == 1 {
 			return l.evalConstU32Expr(e.Args[0])
@@ -13366,7 +13367,7 @@ func (l *Lowerer) evalConstU32Expr(expr Expr) (uint32, bool) {
 }
 
 // extractTaskPayload extracts the task payload global variable from @payload(varName) attribute.
-func (l *Lowerer) extractTaskPayload(attrs []Attribute) *ir.GlobalVariableHandle {
+func (l *Lowerer) extractTaskPayload(attrs []parser.Attribute) *ir.GlobalVariableHandle {
 	for _, attr := range attrs {
 		if attr.Name != "payload" {
 			continue
@@ -13374,7 +13375,7 @@ func (l *Lowerer) extractTaskPayload(attrs []Attribute) *ir.GlobalVariableHandle
 		if len(attr.Args) < 1 {
 			continue
 		}
-		if ident, ok := attr.Args[0].(*Ident); ok {
+		if ident, ok := attr.Args[0].(*parser.Ident); ok {
 			// Look up the global variable by name
 			for i, gv := range l.module.GlobalVariables {
 				if gv.Name == ident.Name {
@@ -13390,7 +13391,7 @@ func (l *Lowerer) extractTaskPayload(attrs []Attribute) *ir.GlobalVariableHandle
 // extractMeshInfo extracts mesh shader info from @mesh(outputVar) attribute.
 // Analyzes the output variable's type to determine topology, max_vertices, max_primitives,
 // vertex_output_type, and primitive_output_type.
-func (l *Lowerer) extractMeshInfo(attrs []Attribute) *ir.MeshStageInfo {
+func (l *Lowerer) extractMeshInfo(attrs []parser.Attribute) *ir.MeshStageInfo {
 	for _, attr := range attrs {
 		if attr.Name != "mesh" {
 			continue
@@ -13398,7 +13399,7 @@ func (l *Lowerer) extractMeshInfo(attrs []Attribute) *ir.MeshStageInfo {
 		if len(attr.Args) < 1 {
 			continue
 		}
-		ident, ok := attr.Args[0].(*Ident)
+		ident, ok := attr.Args[0].(*parser.Ident)
 		if !ok {
 			continue
 		}
@@ -13588,7 +13589,7 @@ func (l *Lowerer) isOpaqueResourceType(handle ir.TypeHandle) bool {
 
 // parseTextureType parses a texture type specification and returns an ImageType.
 // Handles: texture_2d<f32>, texture_storage_2d<rgba8unorm, write>, texture_depth_2d, etc.
-func (l *Lowerer) parseTextureType(t *NamedType) ir.ImageType {
+func (l *Lowerer) parseTextureType(t *parser.NamedType) ir.ImageType {
 	name := t.Name
 	img := ir.ImageType{
 		Dim:   ir.Dim2D,
@@ -13673,11 +13674,11 @@ func (l *Lowerer) parseTextureDimSuffix(suffix string) ir.ImageDimension {
 
 // parseSampledScalarKind parses the scalar kind from a texture type parameter.
 // Maps WGSL type names like "f32", "i32", "u32" to IR ScalarKind.
-func (l *Lowerer) parseSampledScalarKind(param Type) ir.ScalarKind {
+func (l *Lowerer) parseSampledScalarKind(param parser.Type) ir.ScalarKind {
 	if param == nil {
 		return ir.ScalarFloat
 	}
-	named, ok := param.(*NamedType)
+	named, ok := param.(*parser.NamedType)
 	if !ok {
 		return ir.ScalarFloat
 	}
@@ -13753,9 +13754,9 @@ var storageFormatTable = map[string]ir.StorageFormat{
 	"r64sint": ir.StorageFormatR64Sint,
 }
 
-func (l *Lowerer) parseStorageFormat(param Type) ir.StorageFormat {
+func (l *Lowerer) parseStorageFormat(param parser.Type) ir.StorageFormat {
 	// The format is typically an identifier like "rgba8unorm"
-	namedType, ok := param.(*NamedType)
+	namedType, ok := param.(*parser.NamedType)
 	if !ok {
 		return ir.StorageFormatUnknown
 	}
@@ -13766,8 +13767,8 @@ func (l *Lowerer) parseStorageFormat(param Type) ir.StorageFormat {
 }
 
 // parseStorageAccess parses a storage texture access mode from a type parameter.
-func (l *Lowerer) parseStorageAccess(param Type) ir.StorageAccess {
-	namedType, ok := param.(*NamedType)
+func (l *Lowerer) parseStorageAccess(param parser.Type) ir.StorageAccess {
+	namedType, ok := param.(*parser.NamedType)
 	if !ok {
 		return ir.StorageAccessWrite
 	}
@@ -13787,42 +13788,42 @@ func (l *Lowerer) parseStorageAccess(param Type) ir.StorageAccess {
 }
 
 // binaryOpTable maps token kinds to binary operators.
-var binaryOpTable = map[TokenKind]ir.BinaryOperator{
-	TokenPlus:           ir.BinaryAdd,
-	TokenMinus:          ir.BinarySubtract,
-	TokenStar:           ir.BinaryMultiply,
-	TokenSlash:          ir.BinaryDivide,
-	TokenPercent:        ir.BinaryModulo,
-	TokenEqualEqual:     ir.BinaryEqual,
-	TokenBangEqual:      ir.BinaryNotEqual,
-	TokenLess:           ir.BinaryLess,
-	TokenLessEqual:      ir.BinaryLessEqual,
-	TokenGreater:        ir.BinaryGreater,
-	TokenGreaterEqual:   ir.BinaryGreaterEqual,
-	TokenAmpAmp:         ir.BinaryLogicalAnd,
-	TokenPipePipe:       ir.BinaryLogicalOr,
-	TokenAmpersand:      ir.BinaryAnd,
-	TokenPipe:           ir.BinaryInclusiveOr,
-	TokenCaret:          ir.BinaryExclusiveOr,
-	TokenLessLess:       ir.BinaryShiftLeft,
-	TokenGreaterGreater: ir.BinaryShiftRight,
+var binaryOpTable = map[parser.TokenKind]ir.BinaryOperator{
+	parser.TokenPlus:           ir.BinaryAdd,
+	parser.TokenMinus:          ir.BinarySubtract,
+	parser.TokenStar:           ir.BinaryMultiply,
+	parser.TokenSlash:          ir.BinaryDivide,
+	parser.TokenPercent:        ir.BinaryModulo,
+	parser.TokenEqualEqual:     ir.BinaryEqual,
+	parser.TokenBangEqual:      ir.BinaryNotEqual,
+	parser.TokenLess:           ir.BinaryLess,
+	parser.TokenLessEqual:      ir.BinaryLessEqual,
+	parser.TokenGreater:        ir.BinaryGreater,
+	parser.TokenGreaterEqual:   ir.BinaryGreaterEqual,
+	parser.TokenAmpAmp:         ir.BinaryLogicalAnd,
+	parser.TokenPipePipe:       ir.BinaryLogicalOr,
+	parser.TokenAmpersand:      ir.BinaryAnd,
+	parser.TokenPipe:           ir.BinaryInclusiveOr,
+	parser.TokenCaret:          ir.BinaryExclusiveOr,
+	parser.TokenLessLess:       ir.BinaryShiftLeft,
+	parser.TokenGreaterGreater: ir.BinaryShiftRight,
 }
 
 // unaryOpTable maps token kinds to unary operators.
-var unaryOpTable = map[TokenKind]ir.UnaryOperator{
-	TokenMinus: ir.UnaryNegate,
-	TokenBang:  ir.UnaryLogicalNot,
-	TokenTilde: ir.UnaryBitwiseNot,
+var unaryOpTable = map[parser.TokenKind]ir.UnaryOperator{
+	parser.TokenMinus: ir.UnaryNegate,
+	parser.TokenBang:  ir.UnaryLogicalNot,
+	parser.TokenTilde: ir.UnaryBitwiseNot,
 }
 
-func (l *Lowerer) tokenToBinaryOp(tok TokenKind) ir.BinaryOperator {
+func (l *Lowerer) tokenToBinaryOp(tok parser.TokenKind) ir.BinaryOperator {
 	if op, ok := binaryOpTable[tok]; ok {
 		return op
 	}
 	return ir.BinaryAdd // Default
 }
 
-func (l *Lowerer) tokenToUnaryOp(tok TokenKind) ir.UnaryOperator {
+func (l *Lowerer) tokenToUnaryOp(tok parser.TokenKind) ir.UnaryOperator {
 	if op, ok := unaryOpTable[tok]; ok {
 		return op
 	}
@@ -13892,20 +13893,20 @@ func (l *Lowerer) registerUnusedLetBindings() {
 }
 
 // assignOpTable maps compound assignment token kinds to binary operators.
-var assignOpTable = map[TokenKind]ir.BinaryOperator{
-	TokenPlusEqual:           ir.BinaryAdd,
-	TokenMinusEqual:          ir.BinarySubtract,
-	TokenStarEqual:           ir.BinaryMultiply,
-	TokenSlashEqual:          ir.BinaryDivide,
-	TokenPercentEqual:        ir.BinaryModulo,
-	TokenAmpEqual:            ir.BinaryAnd,
-	TokenPipeEqual:           ir.BinaryInclusiveOr,
-	TokenCaretEqual:          ir.BinaryExclusiveOr,
-	TokenLessLessEqual:       ir.BinaryShiftLeft,
-	TokenGreaterGreaterEqual: ir.BinaryShiftRight,
+var assignOpTable = map[parser.TokenKind]ir.BinaryOperator{
+	parser.TokenPlusEqual:           ir.BinaryAdd,
+	parser.TokenMinusEqual:          ir.BinarySubtract,
+	parser.TokenStarEqual:           ir.BinaryMultiply,
+	parser.TokenSlashEqual:          ir.BinaryDivide,
+	parser.TokenPercentEqual:        ir.BinaryModulo,
+	parser.TokenAmpEqual:            ir.BinaryAnd,
+	parser.TokenPipeEqual:           ir.BinaryInclusiveOr,
+	parser.TokenCaretEqual:          ir.BinaryExclusiveOr,
+	parser.TokenLessLessEqual:       ir.BinaryShiftLeft,
+	parser.TokenGreaterGreaterEqual: ir.BinaryShiftRight,
 }
 
-func (l *Lowerer) assignOpToBinary(tok TokenKind) ir.BinaryOperator {
+func (l *Lowerer) assignOpToBinary(tok parser.TokenKind) ir.BinaryOperator {
 	if op, ok := assignOpTable[tok]; ok {
 		return op
 	}
@@ -14135,7 +14136,7 @@ func (l *Lowerer) isTextureFunction(name string) bool {
 }
 
 // lowerTextureCall converts a texture function call to IR.
-func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureCall(name string, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 1 {
 		return 0, fmt.Errorf("%s requires at least 1 argument", name)
 	}
@@ -14258,7 +14259,7 @@ func (l *Lowerer) lowerTextureCall(name string, args []Expr, target *[]ir.Statem
 // lowerTextureSample converts a texture sampling call to IR.
 // lowerTextureSampleWithDeferredLevel lowers image/sampler/coord/array_index via
 // lowerTextureSample, then lowers the level/bias arg AFTER (matching Rust expression order).
-func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []Expr, levelArg Expr, kind string, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []parser.Expr, levelArg parser.Expr, kind string, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// First lower image/sampler/coord/array_index (creates GlobalVariable expressions)
 	// by calling lowerTextureSample with a placeholder level.
 	// BUT we need to intercept BEFORE addExpression creates ImageSample.
@@ -14332,7 +14333,7 @@ func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []Expr, levelAr
 }
 
 // lowerTextureSampleWithDeferredGrad is like lowerTextureSampleWithDeferredLevel but for gradients.
-func (l *Lowerer) lowerTextureSampleWithDeferredGrad(sampleArgs []Expr, ddxArg, ddyArg Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureSampleWithDeferredGrad(sampleArgs []parser.Expr, ddxArg, ddyArg parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	image, err := l.lowerExpression(sampleArgs[0], target)
 	if err != nil {
 		return 0, err
@@ -14393,7 +14394,7 @@ func (l *Lowerer) lowerTextureSampleWithDeferredGrad(sampleArgs []Expr, ddxArg, 
 	}), nil
 }
 
-func (l *Lowerer) lowerTextureSample(args []Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureSample(args []parser.Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
 	// args: texture, sampler, coordinate [, array_index_or_offset] [, offset]
 	image, err := l.lowerExpression(args[0], target)
 	if err != nil {
@@ -14453,7 +14454,7 @@ func (l *Lowerer) lowerTextureSample(args []Expr, target *[]ir.Statement, level 
 
 // lowerTextureSampleCompare converts a depth texture comparison sampling call to IR.
 // textureSampleCompare(t, s, coord, depth_ref) or (t, s, coord, array_index, depth_ref)
-func (l *Lowerer) lowerTextureSampleCompare(args []Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureSampleCompare(args []parser.Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
 	if len(args) < 4 {
 		return 0, fmt.Errorf("textureSampleCompare requires at least 4 arguments")
 	}
@@ -14507,7 +14508,7 @@ func (l *Lowerer) lowerTextureSampleCompare(args []Expr, target *[]ir.Statement,
 
 // lowerTextureSampleClampToEdge converts textureSampleBaseClampToEdge(t, s, coord) to IR.
 // Samples at mip level 0 with coordinates clamped to [half_texel, 1-half_texel].
-func (l *Lowerer) lowerTextureSampleClampToEdge(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureSampleClampToEdge(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 3 {
 		return 0, fmt.Errorf("textureSampleBaseClampToEdge requires at least 3 arguments, got %d", len(args))
 	}
@@ -14544,7 +14545,7 @@ func (l *Lowerer) lowerTextureSampleClampToEdge(args []Expr, target *[]ir.Statem
 //
 //	textureGather(component, texture, sampler, coords [, offset])    — sampled/multisampled textures
 //	textureGather(texture, sampler, coords [, offset])               — depth textures (component always 0)
-func (l *Lowerer) lowerTextureGather(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureGather(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 3 {
 		return 0, fmt.Errorf("textureGather requires at least 3 arguments, got %d", len(args))
 	}
@@ -14626,7 +14627,7 @@ func (l *Lowerer) lowerTextureGather(args []Expr, target *[]ir.Statement) (ir.Ex
 
 // lowerTextureGatherCompare converts textureGatherCompare(t, s, coord, depth_ref [, offset]) to IR.
 // Performs a gather operation with depth comparison, always gathering component 0.
-func (l *Lowerer) lowerTextureGatherCompare(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureGatherCompare(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 4 {
 		return 0, fmt.Errorf("textureGatherCompare requires at least 4 arguments, got %d", len(args))
 	}
@@ -14695,7 +14696,7 @@ func (l *Lowerer) lowerTextureGatherCompare(args []Expr, target *[]ir.Statement)
 
 // evalGatherComponent evaluates the component argument of textureGather.
 // The component must be a constant integer expression in range [0, 3].
-func (l *Lowerer) evalGatherComponent(expr Expr) (ir.SwizzleComponent, error) {
+func (l *Lowerer) evalGatherComponent(expr parser.Expr) (ir.SwizzleComponent, error) {
 	_, val, err := l.evalConstantIntExpr(expr)
 	if err != nil {
 		return 0, fmt.Errorf("component must be a constant expression: %w", err)
@@ -14707,8 +14708,8 @@ func (l *Lowerer) evalGatherComponent(expr Expr) (ir.SwizzleComponent, error) {
 }
 
 // isTextureArrayed checks if a texture expression refers to an arrayed image type.
-func (l *Lowerer) isTextureArrayed(expr Expr) bool {
-	ident, ok := expr.(*Ident)
+func (l *Lowerer) isTextureArrayed(expr parser.Expr) bool {
+	ident, ok := expr.(*parser.Ident)
 	if !ok {
 		return false
 	}
@@ -14726,8 +14727,8 @@ func (l *Lowerer) isTextureArrayed(expr Expr) bool {
 }
 
 // isTextureDepth checks if a texture expression refers to a depth image type.
-func (l *Lowerer) isTextureDepth(expr Expr) bool {
-	ident, ok := expr.(*Ident)
+func (l *Lowerer) isTextureDepth(expr parser.Expr) bool {
+	ident, ok := expr.(*parser.Ident)
 	if !ok {
 		return false
 	}
@@ -14745,8 +14746,8 @@ func (l *Lowerer) isTextureDepth(expr Expr) bool {
 }
 
 // isTextureMultisampled checks if a texture expression refers to a multisampled image type.
-func (l *Lowerer) isTextureMultisampled(expr Expr) bool {
-	ident, ok := expr.(*Ident)
+func (l *Lowerer) isTextureMultisampled(expr parser.Expr) bool {
+	ident, ok := expr.(*parser.Ident)
 	if !ok {
 		return false
 	}
@@ -14764,8 +14765,8 @@ func (l *Lowerer) isTextureMultisampled(expr Expr) bool {
 }
 
 // getTextureImageType retrieves the ImageType for a texture expression, if available.
-func (l *Lowerer) getTextureImageType(expr Expr) (ir.ImageType, bool) {
-	ident, ok := expr.(*Ident)
+func (l *Lowerer) getTextureImageType(expr parser.Expr) (ir.ImageType, bool) {
+	ident, ok := expr.(*parser.Ident)
 	if !ok {
 		return ir.ImageType{}, false
 	}
@@ -14783,7 +14784,7 @@ func (l *Lowerer) getTextureImageType(expr Expr) (ir.ImageType, bool) {
 }
 
 // lowerTextureLoad converts a texture load call to IR.
-func (l *Lowerer) lowerTextureLoad(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureLoad(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// textureLoad has different signatures:
 	//   textureLoad(t, coords, level)               — sampled textures
 	//   textureLoad(t, coords, array_index, level)  — arrayed sampled textures
@@ -14849,7 +14850,7 @@ func (l *Lowerer) lowerTextureLoad(args []Expr, target *[]ir.Statement) (ir.Expr
 }
 
 // lowerTextureStore converts a texture store call to IR.
-func (l *Lowerer) lowerTextureStore(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureStore(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// textureStore has different signatures:
 	//   textureStore(t, coords, value)               — non-arrayed storage textures
 	//   textureStore(t, coords, array_index, value)  — arrayed storage textures
@@ -14925,7 +14926,7 @@ func (l *Lowerer) lowerTextureStore(args []Expr, target *[]ir.Statement) (ir.Exp
 }
 
 // lowerTextureAtomic converts a textureAtomic* call to IR.
-func (l *Lowerer) lowerTextureAtomic(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureAtomic(name string, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 3 {
 		return 0, fmt.Errorf("%s requires at least 3 arguments", name)
 	}
@@ -14989,7 +14990,7 @@ func (l *Lowerer) lowerTextureAtomic(name string, args []Expr, target *[]ir.Stat
 }
 
 // lowerTextureQuery converts a texture query call to IR.
-func (l *Lowerer) lowerTextureQuery(args []Expr, target *[]ir.Statement, query ir.ImageQuery) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTextureQuery(args []parser.Expr, target *[]ir.Statement, query ir.ImageQuery) (ir.ExpressionHandle, error) {
 	image, err := l.lowerExpression(args[0], target)
 	if err != nil {
 		return 0, err
@@ -15064,7 +15065,7 @@ func (l *Lowerer) getAtomicFunction(name string) ir.AtomicFunction {
 
 // lowerAtomicCall converts an atomic function call to IR.
 // Atomic functions have the form: atomicOp(&ptr, value) -> old_value
-func (l *Lowerer) lowerAtomicCall(atomicFunc ir.AtomicFunction, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerAtomicCall(atomicFunc ir.AtomicFunction, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 2 {
 		return 0, fmt.Errorf("atomic function requires at least 2 arguments")
 	}
@@ -15154,7 +15155,7 @@ func (l *Lowerer) lowerAtomicCall(atomicFunc ir.AtomicFunction, args []Expr, tar
 
 // lowerAtomicStore converts atomicStore(&ptr, value) to IR.
 // atomicStore is a statement - it has no return value.
-func (l *Lowerer) lowerAtomicStore(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerAtomicStore(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 2 {
 		return 0, fmt.Errorf("atomicStore requires 2 arguments")
 	}
@@ -15187,7 +15188,7 @@ func (l *Lowerer) lowerAtomicStore(args []Expr, target *[]ir.Statement) (ir.Expr
 // lowerAtomicLoad converts atomicLoad(&ptr) to IR.
 // Rust naga lowers atomicLoad to a plain Expression::Load { pointer },
 // not to a Statement::Atomic. See naga/src/front/wgsl/lower/mod.rs.
-func (l *Lowerer) lowerAtomicLoad(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerAtomicLoad(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 1 {
 		return 0, fmt.Errorf("atomicLoad requires 1 argument")
 	}
@@ -15205,7 +15206,7 @@ func (l *Lowerer) lowerAtomicLoad(args []Expr, target *[]ir.Statement) (ir.Expre
 
 // lowerTypeConstructorCall handles a constructor call for a named type (struct, vector, matrix,
 // scalar, or type alias). E.g., VertexOutput(pos, uv), FVec3(0.0), Mat(1.0, 2.0, 3.0, 4.0).
-func (l *Lowerer) lowerTypeConstructorCall(typeHandle ir.TypeHandle, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerTypeConstructorCall(typeHandle ir.TypeHandle, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// Zero-arg constructor: emit ZeroValue (matches Rust naga).
 	// E.g., MyStruct() → ZeroValue(MyStruct)
 	if len(args) == 0 {
@@ -15333,7 +15334,7 @@ func (l *Lowerer) lowerTypeConstructorCall(typeHandle ir.TypeHandle, args []Expr
 // lowerWorkgroupUniformLoad converts workgroupUniformLoad(ptr) to IR.
 // WGSL builtin: workgroupUniformLoad(&workgroup_var) -> value with barrier semantics.
 // The argument is a pointer — do NOT apply the WGSL load rule.
-func (l *Lowerer) lowerWorkgroupUniformLoad(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerWorkgroupUniformLoad(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) != 1 {
 		return 0, fmt.Errorf("workgroupUniformLoad requires 1 argument")
 	}
@@ -15421,7 +15422,7 @@ func getSubgroupGather(name string) (string, bool) {
 }
 
 // lowerSubgroupBallot converts subgroupBallot() or subgroupBallot(predicate) to IR.
-func (l *Lowerer) lowerSubgroupBallot(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerSubgroupBallot(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	var predicate *ir.ExpressionHandle
 	if len(args) == 1 {
 		pred, err := l.lowerExpression(args[0], target)
@@ -15447,7 +15448,7 @@ func (l *Lowerer) lowerSubgroupBallot(args []Expr, target *[]ir.Statement) (ir.E
 }
 
 // lowerSubgroupCollectiveOperation converts subgroup collective operations (subgroupAdd, etc.) to IR.
-func (l *Lowerer) lowerSubgroupCollectiveOperation(op ir.SubgroupOperation, cop ir.CollectiveOperation, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerSubgroupCollectiveOperation(op ir.SubgroupOperation, cop ir.CollectiveOperation, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 1 {
 		return 0, fmt.Errorf("subgroup collective operation requires 1 argument")
 	}
@@ -15483,7 +15484,7 @@ func (l *Lowerer) lowerSubgroupCollectiveOperation(op ir.SubgroupOperation, cop 
 }
 
 // lowerSubgroupGather converts subgroup gather operations to IR.
-func (l *Lowerer) lowerSubgroupGather(gatherKind string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerSubgroupGather(gatherKind string, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 1 {
 		return 0, fmt.Errorf("subgroup gather requires at least 1 argument")
 	}
@@ -15580,7 +15581,7 @@ func (l *Lowerer) lowerSubgroupGather(gatherKind string, args []Expr, target *[]
 }
 
 // lowerQuadSwap converts quadSwapX/quadSwapY/quadSwapDiagonal to IR.
-func (l *Lowerer) lowerQuadSwap(funcName string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerQuadSwap(funcName string, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 1 {
 		return 0, fmt.Errorf("%s requires 1 argument", funcName)
 	}
@@ -15638,7 +15639,7 @@ func (l *Lowerer) ensureTypeHandle(res ir.TypeResolution) ir.TypeHandle {
 // lowerAtomicCompareExchange converts atomicCompareExchangeWeak to IR.
 // atomicCompareExchangeWeak(ptr, compare, value) -> __atomic_compare_exchange_result<T>
 // Rust naga creates a predeclared struct result type with old_value and exchanged fields.
-func (l *Lowerer) lowerAtomicCompareExchange(args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerAtomicCompareExchange(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	if len(args) < 3 {
 		return 0, fmt.Errorf("atomicCompareExchangeWeak requires 3 arguments")
 	}
@@ -15801,7 +15802,7 @@ func (l *Lowerer) isRayQueryFunction(name string) bool {
 }
 
 // lowerRayQueryCall lowers a ray query builtin function call.
-func (l *Lowerer) lowerRayQueryCall(name string, args []Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerRayQueryCall(name string, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	l.registerRayQueryConstants()
 	l.registerRayDescType()
 
@@ -15965,11 +15966,11 @@ func (l *Lowerer) lowerRayQueryCall(name string, args []Expr, target *[]ir.State
 // lowerRayQueryPointer extracts the pointer expression from a &rq argument.
 // Ray query builtins take &rq (address-of ray_query variable).
 // Returns the LocalVariable handle directly (no load rule applied).
-func (l *Lowerer) lowerRayQueryPointer(arg Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
+func (l *Lowerer) lowerRayQueryPointer(arg parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
 	// The argument is typically &rq (UnaryExpr with TokenAmpersand).
 	// Use lowerExpressionForRef to avoid applying the load rule,
 	// matching Rust naga which keeps the pointer as LocalVariable.
-	if unary, ok := arg.(*UnaryExpr); ok && unary.Op == TokenAmpersand {
+	if unary, ok := arg.(*parser.UnaryExpr); ok && unary.Op == parser.TokenAmpersand {
 		return l.lowerExpressionForRef(unary.Operand, target)
 	}
 	// If not address-of, use reference lowering
@@ -16091,12 +16092,12 @@ func (l *Lowerer) buildGlobalExpressions() {
 // This handles constructor inits for global variables (struct, vector, matrix constructors).
 // Returns the ExpressionHandle and true on success, or (0, false) on failure.
 func (l *Lowerer) buildGlobalExprFromAST(
-	expr Expr,
+	expr parser.Expr,
 	expectedType ir.TypeHandle,
 	addExpr func(ir.ExpressionKind) ir.ExpressionHandle,
 ) (ir.ExpressionHandle, bool) {
 	switch e := expr.(type) {
-	case *Literal:
+	case *parser.Literal:
 		// Literal value: convert to the expected type's scalar kind.
 		kind, bits, err := l.evalLiteral(e)
 		if err != nil {
@@ -16114,7 +16115,7 @@ func (l *Lowerer) buildGlobalExprFromAST(
 		}
 		return addExpr(ir.Literal{Value: lit}), true
 
-	case *CallExpr:
+	case *parser.CallExpr:
 		// Struct constructor: StructName(arg1, arg2, ...)
 		structTypeH, ok := l.types[e.Func.Name]
 		if !ok {
@@ -16141,7 +16142,7 @@ func (l *Lowerer) buildGlobalExprFromAST(
 			Components: components,
 		}), true
 
-	case *ConstructExpr:
+	case *parser.ConstructExpr:
 		// Vector/matrix/array constructor: vec3<u32>(0, 0, 0), etc.
 		// Use expectedType (from the parent struct member) rather than resolving
 		// from AST, since this runs after CompactTypes and resolveType could
@@ -16210,8 +16211,8 @@ func (l *Lowerer) buildGlobalExprFromAST(
 			Components: components,
 		}), true
 
-	case *UnaryExpr:
-		if e.Op == TokenMinus {
+	case *parser.UnaryExpr:
+		if e.Op == parser.TokenMinus {
 			h, ok := l.buildGlobalExprFromAST(e.Operand, expectedType, addExpr)
 			if !ok {
 				return 0, false
@@ -16223,7 +16224,7 @@ func (l *Lowerer) buildGlobalExprFromAST(
 		}
 		return 0, false
 
-	case *Ident:
+	case *parser.Ident:
 		// Check abstract constants first.
 		if info, ok := l.abstractConstants[e.Name]; ok && info.scalarValue != nil {
 			lit := scalarValueToLiteral(*info.scalarValue)

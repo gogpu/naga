@@ -1,20 +1,21 @@
-package wgsl
+package lower
 
 import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl/internal/parser"
 )
 
 // parseWGSL is a helper to parse WGSL source code
-func parseWGSL(source string) (*Module, error) {
-	lexer := NewLexer(source)
+func parseWGSL(source string) (*parser.Module, error) {
+	lexer := parser.NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		return nil, err
 	}
-	parser := NewParser(tokens)
-	return parser.Parse()
+	p := parser.NewParser(tokens)
+	return p.Parse()
 }
 
 func TestTypeDeduplication(t *testing.T) {

@@ -1,6 +1,7 @@
-package wgsl
+package lower
 
 import (
+	"github.com/gogpu/naga/wgsl/internal/parser"
 	"runtime"
 	"strings"
 	"testing"
@@ -128,7 +129,7 @@ func BenchmarkLex(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				lexer := NewLexer(bc.source)
+				lexer := parser.NewLexer(bc.source)
 				tokens, err := lexer.Tokenize()
 				if err != nil {
 					b.Fatalf("tokenize failed: %v", err)
@@ -163,7 +164,7 @@ func BenchmarkLexIdentifiers(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		lexer := NewLexer(source)
+		lexer := parser.NewLexer(source)
 		tokens, err := lexer.Tokenize()
 		if err != nil {
 			b.Fatalf("tokenize failed: %v", err)
@@ -194,7 +195,7 @@ func BenchmarkLexNumbers(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		lexer := NewLexer(source)
+		lexer := parser.NewLexer(source)
 		tokens, err := lexer.Tokenize()
 		if err != nil {
 			b.Fatalf("tokenize failed: %v", err)
@@ -225,7 +226,7 @@ func BenchmarkLexKeywords(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		lexer := NewLexer(source)
+		lexer := parser.NewLexer(source)
 		tokens, err := lexer.Tokenize()
 		if err != nil {
 			b.Fatalf("tokenize failed: %v", err)
@@ -255,7 +256,7 @@ func BenchmarkLexOperators(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		lexer := NewLexer(source)
+		lexer := parser.NewLexer(source)
 		tokens, err := lexer.Tokenize()
 		if err != nil {
 			b.Fatalf("tokenize failed: %v", err)
@@ -274,7 +275,7 @@ func BenchmarkParse(b *testing.B) {
 	for _, bc := range benchShaders {
 		b.Run(bc.name, func(b *testing.B) {
 			// Pre-tokenize so we only measure parsing
-			lexer := NewLexer(bc.source)
+			lexer := parser.NewLexer(bc.source)
 			tokens, err := lexer.Tokenize()
 			if err != nil {
 				b.Fatalf("tokenize failed: %v", err)
@@ -285,8 +286,8 @@ func BenchmarkParse(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				parser := NewParser(tokens)
-				module, pErr := parser.Parse()
+				p := parser.NewParser(tokens)
+				module, pErr := p.Parse()
 				if pErr != nil {
 					b.Fatalf("parse failed: %v", pErr)
 				}
@@ -313,7 +314,7 @@ fn main(@location(0) x: f32, @location(1) y: f32, @location(2) z: f32) -> @locat
     return vec4<f32>(h, h, h, 1.0);
 }
 `
-	lexer := NewLexer(source)
+	lexer := parser.NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		b.Fatalf("tokenize failed: %v", err)
@@ -324,8 +325,8 @@ fn main(@location(0) x: f32, @location(1) y: f32, @location(2) z: f32) -> @locat
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		parser := NewParser(tokens)
-		module, pErr := parser.Parse()
+		p := parser.NewParser(tokens)
+		module, pErr := p.Parse()
 		if pErr != nil {
 			b.Fatalf("parse failed: %v", pErr)
 		}
@@ -370,7 +371,7 @@ fn main() -> @builtin(position) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
 }
 `
-	lexer := NewLexer(source)
+	lexer := parser.NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		b.Fatalf("tokenize failed: %v", err)
@@ -381,8 +382,8 @@ fn main() -> @builtin(position) vec4<f32> {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		parser := NewParser(tokens)
-		module, pErr := parser.Parse()
+		p := parser.NewParser(tokens)
+		module, pErr := p.Parse()
 		if pErr != nil {
 			b.Fatalf("parse failed: %v", pErr)
 		}
@@ -400,14 +401,14 @@ func BenchmarkLexAndParse(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				lexer := NewLexer(bc.source)
+				lexer := parser.NewLexer(bc.source)
 				tokens, err := lexer.Tokenize()
 				if err != nil {
 					b.Fatalf("tokenize failed: %v", err)
 				}
 
-				parser := NewParser(tokens)
-				module, pErr := parser.Parse()
+				p := parser.NewParser(tokens)
+				module, pErr := p.Parse()
 				if pErr != nil {
 					b.Fatalf("parse failed: %v", pErr)
 				}
@@ -421,13 +422,13 @@ func BenchmarkLexAndParse(b *testing.B) {
 func BenchmarkLower(b *testing.B) {
 	for _, bc := range benchShaders {
 		b.Run(bc.name, func(b *testing.B) {
-			lexer := NewLexer(bc.source)
+			lexer := parser.NewLexer(bc.source)
 			tokens, err := lexer.Tokenize()
 			if err != nil {
 				b.Fatalf("tokenize failed: %v", err)
 			}
-			parser := NewParser(tokens)
-			ast, err := parser.Parse()
+			p := parser.NewParser(tokens)
+			ast, err := p.Parse()
 			if err != nil {
 				b.Fatalf("parse failed: %v", err)
 			}

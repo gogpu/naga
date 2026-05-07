@@ -1,4 +1,4 @@
-package wgsl
+package parser
 
 import (
 	"unicode"

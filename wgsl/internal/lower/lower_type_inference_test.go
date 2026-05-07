@@ -1,41 +1,42 @@
-package wgsl
+package lower
 
 import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl/internal/parser"
 )
 
 func TestLowerer_TypeInference(t *testing.T) {
 	// Create AST for simple vertex shader with type inference
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name: "vertex_main",
-				Params: []*Parameter{
+				Params: []*parser.Parameter{
 					{
 						Name: "index",
-						Type: &NamedType{Name: "u32"},
-						Attributes: []Attribute{
-							{Name: "builtin", Args: []Expr{&Ident{Name: "vertex_index"}}},
+						Type: &parser.NamedType{Name: "u32"},
+						Attributes: []parser.Attribute{
+							{Name: "builtin", Args: []parser.Expr{&parser.Ident{Name: "vertex_index"}}},
 						},
 					},
 				},
-				ReturnType: &NamedType{
+				ReturnType: &parser.NamedType{
 					Name:       "vec4",
-					TypeParams: []Type{&NamedType{Name: "f32"}},
+					TypeParams: []parser.Type{&parser.NamedType{Name: "f32"}},
 				},
-				Attributes: []Attribute{{Name: "vertex"}},
-				Body: &BlockStmt{
-					Statements: []Stmt{
-						&ReturnStmt{
-							Value: &CallExpr{
-								Func: &Ident{Name: "vec4"},
-								Args: []Expr{
-									&Literal{Kind: TokenFloatLiteral, Value: "0.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "0.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "0.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "1.0"},
+				Attributes: []parser.Attribute{{Name: "vertex"}},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
+						&parser.ReturnStmt{
+							Value: &parser.CallExpr{
+								Func: &parser.Ident{Name: "vec4"},
+								Args: []parser.Expr{
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
 								},
 							},
 						},
@@ -151,18 +152,18 @@ func TestLowerer_TypeInference_BinaryOp(t *testing.T) {
 	// Create AST for function with binary operation on literals.
 	// The constant evaluator folds 1.0 + 2.0 to Literal(F32(3.0)),
 	// matching Rust naga behavior.
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name:       "add_test",
-				ReturnType: &NamedType{Name: "f32"},
-				Body: &BlockStmt{
-					Statements: []Stmt{
-						&ReturnStmt{
-							Value: &BinaryExpr{
-								Op:    TokenPlus,
-								Left:  &Literal{Kind: TokenFloatLiteral, Value: "1.0"},
-								Right: &Literal{Kind: TokenFloatLiteral, Value: "2.0"},
+				ReturnType: &parser.NamedType{Name: "f32"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
+						&parser.ReturnStmt{
+							Value: &parser.BinaryExpr{
+								Op:    parser.TokenPlus,
+								Left:  &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
+								Right: &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "2.0"},
 							},
 						},
 					},
@@ -210,18 +211,18 @@ func TestLowerer_TypeInference_Comparison(t *testing.T) {
 	// Create AST for function with comparison on literals.
 	// The constant evaluator folds 1.0 < 2.0 to Literal(Bool(true)),
 	// matching Rust naga behavior.
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name:       "compare_test",
-				ReturnType: &NamedType{Name: "bool"},
-				Body: &BlockStmt{
-					Statements: []Stmt{
-						&ReturnStmt{
-							Value: &BinaryExpr{
-								Op:    TokenLess,
-								Left:  &Literal{Kind: TokenFloatLiteral, Value: "1.0"},
-								Right: &Literal{Kind: TokenFloatLiteral, Value: "2.0"},
+				ReturnType: &parser.NamedType{Name: "bool"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
+						&parser.ReturnStmt{
+							Value: &parser.BinaryExpr{
+								Op:    parser.TokenLess,
+								Left:  &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
+								Right: &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "2.0"},
 							},
 						},
 					},
@@ -267,21 +268,21 @@ func TestLowerer_TypeInference_Comparison(t *testing.T) {
 
 func TestLowerer_LetTypeInference_Scalar(t *testing.T) {
 	// Test: let x = 1.0; (should infer f32)
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name:       "test_let_scalar",
-				ReturnType: &NamedType{Name: "f32"},
-				Body: &BlockStmt{
-					Statements: []Stmt{
+				ReturnType: &parser.NamedType{Name: "f32"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
 						// let x = 1.0;
-						&VarDecl{
+						&parser.VarDecl{
 							Name: "x",
 							Type: nil, // No explicit type - should be inferred
-							Init: &Literal{Kind: TokenFloatLiteral, Value: "1.0"},
+							Init: &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
 						},
-						&ReturnStmt{
-							Value: &Ident{Name: "x"},
+						&parser.ReturnStmt{
+							Value: &parser.Ident{Name: "x"},
 						},
 					},
 				},
@@ -323,31 +324,31 @@ func TestLowerer_LetTypeInference_Scalar(t *testing.T) {
 
 func TestLowerer_LetTypeInference_Vector(t *testing.T) {
 	// Test: let v = vec3(1.0, 2.0, 3.0); (should infer vec3<f32>)
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name: "test_let_vector",
-				ReturnType: &NamedType{
+				ReturnType: &parser.NamedType{
 					Name:       "vec3",
-					TypeParams: []Type{&NamedType{Name: "f32"}},
+					TypeParams: []parser.Type{&parser.NamedType{Name: "f32"}},
 				},
-				Body: &BlockStmt{
-					Statements: []Stmt{
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
 						// let v = vec3(1.0, 2.0, 3.0);
-						&VarDecl{
+						&parser.VarDecl{
 							Name: "v",
 							Type: nil, // No explicit type - should be inferred
-							Init: &CallExpr{
-								Func: &Ident{Name: "vec3"},
-								Args: []Expr{
-									&Literal{Kind: TokenFloatLiteral, Value: "1.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "2.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "3.0"},
+							Init: &parser.CallExpr{
+								Func: &parser.Ident{Name: "vec3"},
+								Args: []parser.Expr{
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "2.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "3.0"},
 								},
 							},
 						},
-						&ReturnStmt{
-							Value: &Ident{Name: "v"},
+						&parser.ReturnStmt{
+							Value: &parser.Ident{Name: "v"},
 						},
 					},
 				},
@@ -392,25 +393,25 @@ func TestLowerer_LetTypeInference_Vector(t *testing.T) {
 
 func TestLowerer_LetTypeInference_FromBinaryExpr(t *testing.T) {
 	// Test: let sum = 1.0 + 2.0; (should infer f32)
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name:       "test_let_binary",
-				ReturnType: &NamedType{Name: "f32"},
-				Body: &BlockStmt{
-					Statements: []Stmt{
+				ReturnType: &parser.NamedType{Name: "f32"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
 						// let sum = 1.0 + 2.0;
-						&VarDecl{
+						&parser.VarDecl{
 							Name: "sum",
 							Type: nil, // No explicit type - should be inferred
-							Init: &BinaryExpr{
-								Op:    TokenPlus,
-								Left:  &Literal{Kind: TokenFloatLiteral, Value: "1.0"},
-								Right: &Literal{Kind: TokenFloatLiteral, Value: "2.0"},
+							Init: &parser.BinaryExpr{
+								Op:    parser.TokenPlus,
+								Left:  &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
+								Right: &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "2.0"},
 							},
 						},
-						&ReturnStmt{
-							Value: &Ident{Name: "sum"},
+						&parser.ReturnStmt{
+							Value: &parser.Ident{Name: "sum"},
 						},
 					},
 				},
@@ -448,36 +449,36 @@ func TestLowerer_LetTypeInference_FromBinaryExpr(t *testing.T) {
 
 func TestLowerer_LetTypeInference_FromMathFunc(t *testing.T) {
 	// Test: let n = normalize(vec3(1.0, 0.0, 0.0)); (should infer vec3<f32>)
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name: "test_let_math",
-				ReturnType: &NamedType{
+				ReturnType: &parser.NamedType{
 					Name:       "vec3",
-					TypeParams: []Type{&NamedType{Name: "f32"}},
+					TypeParams: []parser.Type{&parser.NamedType{Name: "f32"}},
 				},
-				Body: &BlockStmt{
-					Statements: []Stmt{
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
 						// let n = normalize(vec3(1.0, 0.0, 0.0));
-						&VarDecl{
+						&parser.VarDecl{
 							Name: "n",
 							Type: nil, // No explicit type - should be inferred
-							Init: &CallExpr{
-								Func: &Ident{Name: "normalize"},
-								Args: []Expr{
-									&CallExpr{
-										Func: &Ident{Name: "vec3"},
-										Args: []Expr{
-											&Literal{Kind: TokenFloatLiteral, Value: "1.0"},
-											&Literal{Kind: TokenFloatLiteral, Value: "0.0"},
-											&Literal{Kind: TokenFloatLiteral, Value: "0.0"},
+							Init: &parser.CallExpr{
+								Func: &parser.Ident{Name: "normalize"},
+								Args: []parser.Expr{
+									&parser.CallExpr{
+										Func: &parser.Ident{Name: "vec3"},
+										Args: []parser.Expr{
+											&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
+											&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
+											&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
 										},
 									},
 								},
 							},
 						},
-						&ReturnStmt{
-							Value: &Ident{Name: "n"},
+						&parser.ReturnStmt{
+							Value: &parser.Ident{Name: "n"},
 						},
 					},
 				},
@@ -518,21 +519,21 @@ func TestLowerer_LetTypeInference_FromMathFunc(t *testing.T) {
 
 func TestLowerer_LetTypeInference_Integer(t *testing.T) {
 	// Test: let i = 42; (should infer i32)
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name:       "test_let_int",
-				ReturnType: &NamedType{Name: "i32"},
-				Body: &BlockStmt{
-					Statements: []Stmt{
+				ReturnType: &parser.NamedType{Name: "i32"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
 						// let i = 42;
-						&VarDecl{
+						&parser.VarDecl{
 							Name: "i",
 							Type: nil, // No explicit type - should be inferred
-							Init: &Literal{Kind: TokenIntLiteral, Value: "42"},
+							Init: &parser.Literal{Kind: parser.TokenIntLiteral, Value: "42"},
 						},
-						&ReturnStmt{
-							Value: &Ident{Name: "i"},
+						&parser.ReturnStmt{
+							Value: &parser.Ident{Name: "i"},
 						},
 					},
 				},
@@ -567,21 +568,21 @@ func TestLowerer_LetTypeInference_Integer(t *testing.T) {
 
 func TestLowerer_LetTypeInference_Bool(t *testing.T) {
 	// Test: let b = true; (should infer bool)
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name:       "test_let_bool",
-				ReturnType: &NamedType{Name: "bool"},
-				Body: &BlockStmt{
-					Statements: []Stmt{
+				ReturnType: &parser.NamedType{Name: "bool"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
 						// let b = true;
-						&VarDecl{
+						&parser.VarDecl{
 							Name: "b",
 							Type: nil, // No explicit type - should be inferred
-							Init: &Literal{Kind: TokenTrue, Value: "true"},
+							Init: &parser.Literal{Kind: parser.TokenTrue, Value: "true"},
 						},
-						&ReturnStmt{
-							Value: &Ident{Name: "b"},
+						&parser.ReturnStmt{
+							Value: &parser.Ident{Name: "b"},
 						},
 					},
 				},
@@ -616,28 +617,28 @@ func TestLowerer_LetTypeInference_Bool(t *testing.T) {
 
 func TestLowerer_ArrayInit_Shorthand(t *testing.T) {
 	// Test: let arr = array(1.0, 2.0, 3.0); (should infer array<f32, 3>)
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name:       "test_array_shorthand",
-				ReturnType: &NamedType{Name: "f32"},
-				Body: &BlockStmt{
-					Statements: []Stmt{
+				ReturnType: &parser.NamedType{Name: "f32"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
 						// let arr = array(1.0, 2.0, 3.0);
-						&VarDecl{
+						&parser.VarDecl{
 							Name: "arr",
 							Type: nil, // No explicit type - should be inferred
-							Init: &CallExpr{
-								Func: &Ident{Name: "array"},
-								Args: []Expr{
-									&Literal{Kind: TokenFloatLiteral, Value: "1.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "2.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "3.0"},
+							Init: &parser.CallExpr{
+								Func: &parser.Ident{Name: "array"},
+								Args: []parser.Expr{
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "2.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "3.0"},
 								},
 							},
 						},
-						&ReturnStmt{
-							Value: &Literal{Kind: TokenFloatLiteral, Value: "0.0"},
+						&parser.ReturnStmt{
+							Value: &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
 						},
 					},
 				},
@@ -685,45 +686,45 @@ func TestLowerer_ArrayInit_Shorthand(t *testing.T) {
 
 func TestLowerer_ArrayInit_Vectors(t *testing.T) {
 	// Test: let positions = array(vec2(0.0, 0.5), vec2(-0.5, -0.5), vec2(0.5, -0.5));
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name:       "test_array_vectors",
-				ReturnType: &NamedType{Name: "f32"},
-				Body: &BlockStmt{
-					Statements: []Stmt{
-						&VarDecl{
+				ReturnType: &parser.NamedType{Name: "f32"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
+						&parser.VarDecl{
 							Name: "positions",
 							Type: nil, // Inferred
-							Init: &CallExpr{
-								Func: &Ident{Name: "array"},
-								Args: []Expr{
-									&CallExpr{
-										Func: &Ident{Name: "vec2"},
-										Args: []Expr{
-											&Literal{Kind: TokenFloatLiteral, Value: "0.0"},
-											&Literal{Kind: TokenFloatLiteral, Value: "0.5"},
+							Init: &parser.CallExpr{
+								Func: &parser.Ident{Name: "array"},
+								Args: []parser.Expr{
+									&parser.CallExpr{
+										Func: &parser.Ident{Name: "vec2"},
+										Args: []parser.Expr{
+											&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
+											&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.5"},
 										},
 									},
-									&CallExpr{
-										Func: &Ident{Name: "vec2"},
-										Args: []Expr{
-											&Literal{Kind: TokenFloatLiteral, Value: "-0.5"},
-											&Literal{Kind: TokenFloatLiteral, Value: "-0.5"},
+									&parser.CallExpr{
+										Func: &parser.Ident{Name: "vec2"},
+										Args: []parser.Expr{
+											&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "-0.5"},
+											&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "-0.5"},
 										},
 									},
-									&CallExpr{
-										Func: &Ident{Name: "vec2"},
-										Args: []Expr{
-											&Literal{Kind: TokenFloatLiteral, Value: "0.5"},
-											&Literal{Kind: TokenFloatLiteral, Value: "-0.5"},
+									&parser.CallExpr{
+										Func: &parser.Ident{Name: "vec2"},
+										Args: []parser.Expr{
+											&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.5"},
+											&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "-0.5"},
 										},
 									},
 								},
 							},
 						},
-						&ReturnStmt{
-							Value: &Literal{Kind: TokenFloatLiteral, Value: "0.0"},
+						&parser.ReturnStmt{
+							Value: &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
 						},
 					},
 				},
@@ -771,33 +772,33 @@ func TestLowerer_ArrayInit_Vectors(t *testing.T) {
 
 func TestLowerer_ArrayInit_ExplicitType(t *testing.T) {
 	// Test: var arr: array<f32, 3> = array<f32, 3>(1.0, 2.0, 3.0);
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name:       "test_array_explicit",
-				ReturnType: &NamedType{Name: "f32"},
-				Body: &BlockStmt{
-					Statements: []Stmt{
-						&VarDecl{
+				ReturnType: &parser.NamedType{Name: "f32"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
+						&parser.VarDecl{
 							Name: "arr",
-							Type: &ArrayType{
-								Element: &NamedType{Name: "f32"},
-								Size:    &Literal{Kind: TokenIntLiteral, Value: "3"},
+							Type: &parser.ArrayType{
+								Element: &parser.NamedType{Name: "f32"},
+								Size:    &parser.Literal{Kind: parser.TokenIntLiteral, Value: "3"},
 							},
-							Init: &ConstructExpr{
-								Type: &ArrayType{
-									Element: &NamedType{Name: "f32"},
-									Size:    &Literal{Kind: TokenIntLiteral, Value: "3"},
+							Init: &parser.ConstructExpr{
+								Type: &parser.ArrayType{
+									Element: &parser.NamedType{Name: "f32"},
+									Size:    &parser.Literal{Kind: parser.TokenIntLiteral, Value: "3"},
 								},
-								Args: []Expr{
-									&Literal{Kind: TokenFloatLiteral, Value: "1.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "2.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "3.0"},
+								Args: []parser.Expr{
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "2.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "3.0"},
 								},
 							},
 						},
-						&ReturnStmt{
-							Value: &Literal{Kind: TokenFloatLiteral, Value: "0.0"},
+						&parser.ReturnStmt{
+							Value: &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
 						},
 					},
 				},
@@ -855,13 +856,13 @@ fn main() {
     var g0x = g0;
 }
 `
-	lexer := NewLexer(source)
+	lexer := parser.NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatalf("tokenize: %v", err)
 	}
-	parser := NewParser(tokens)
-	ast, err := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -925,13 +926,13 @@ fn main() {
     var c1x = c1;
 }
 `
-	lexer := NewLexer(source)
+	lexer := parser.NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatalf("tokenize: %v", err)
 	}
-	parser := NewParser(tokens)
-	ast, err := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

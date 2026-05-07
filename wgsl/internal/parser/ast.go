@@ -1,4 +1,4 @@
-package wgsl
+package parser
 
 // Module represents a WGSL module (translation unit).
 type Module struct {

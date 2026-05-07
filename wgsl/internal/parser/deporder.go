@@ -1,13 +1,13 @@
-package wgsl
+package parser
 
-// dependencyOrder returns declarations sorted in dependency order using
+// DependencyOrder returns declarations sorted in dependency order using
 // DFS-based topological sort. This matches Rust naga's visit_ordered()
 // from front/wgsl/index.rs — declarations are ordered so that every
 // declaration appears after all declarations it references.
 //
 // When there are no dependencies between declarations, they appear
 // in source order (the outer DFS loop iterates in original order).
-func dependencyOrder(decls []Decl) []Decl {
+func DependencyOrder(decls []Decl) []Decl {
 	n := len(decls)
 	if n == 0 {
 		return decls

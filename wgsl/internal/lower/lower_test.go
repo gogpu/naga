@@ -1,10 +1,11 @@
-package wgsl
+package lower
 
 import (
 	"fmt"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl/internal/parser"
 )
 
 func TestLowerSimpleVertexShader(t *testing.T) {
@@ -14,45 +15,45 @@ func TestLowerSimpleVertexShader(t *testing.T) {
 	//     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
 	// }
 
-	ast := &Module{
-		Functions: []*FunctionDecl{
+	ast := &parser.Module{
+		Functions: []*parser.FunctionDecl{
 			{
 				Name: "main",
-				Params: []*Parameter{
+				Params: []*parser.Parameter{
 					{
 						Name: "idx",
-						Type: &NamedType{Name: "u32"},
-						Attributes: []Attribute{
+						Type: &parser.NamedType{Name: "u32"},
+						Attributes: []parser.Attribute{
 							{
 								Name: "builtin",
-								Args: []Expr{&Ident{Name: "vertex_index"}},
+								Args: []parser.Expr{&parser.Ident{Name: "vertex_index"}},
 							},
 						},
 					},
 				},
-				ReturnType: &NamedType{
+				ReturnType: &parser.NamedType{
 					Name:       "vec4",
-					TypeParams: []Type{&NamedType{Name: "f32"}},
+					TypeParams: []parser.Type{&parser.NamedType{Name: "f32"}},
 				},
-				ReturnAttrs: []Attribute{
+				ReturnAttrs: []parser.Attribute{
 					{
 						Name: "builtin",
-						Args: []Expr{&Ident{Name: "position"}},
+						Args: []parser.Expr{&parser.Ident{Name: "position"}},
 					},
 				},
-				Attributes: []Attribute{
+				Attributes: []parser.Attribute{
 					{Name: "vertex"},
 				},
-				Body: &BlockStmt{
-					Statements: []Stmt{
-						&ReturnStmt{
-							Value: &CallExpr{
-								Func: &Ident{Name: "vec4"},
-								Args: []Expr{
-									&Literal{Kind: TokenFloatLiteral, Value: "0.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "0.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "0.0"},
-									&Literal{Kind: TokenFloatLiteral, Value: "1.0"},
+				Body: &parser.BlockStmt{
+					Statements: []parser.Stmt{
+						&parser.ReturnStmt{
+							Value: &parser.CallExpr{
+								Func: &parser.Ident{Name: "vec4"},
+								Args: []parser.Expr{
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "0.0"},
+									&parser.Literal{Kind: parser.TokenFloatLiteral, Value: "1.0"},
 								},
 							},
 						},
@@ -148,22 +149,22 @@ func TestLowerSimpleVertexShader(t *testing.T) {
 func TestLowerTypes(t *testing.T) {
 	tests := []struct {
 		name     string
-		wgslType Type
+		wgslType parser.Type
 		wantKind string
 	}{
 		{
 			name:     "f32 scalar",
-			wgslType: &NamedType{Name: "f32"},
+			wgslType: &parser.NamedType{Name: "f32"},
 			wantKind: "ScalarType",
 		},
 		{
 			name:     "vec3<f32>",
-			wgslType: &NamedType{Name: "vec3", TypeParams: []Type{&NamedType{Name: "f32"}}},
+			wgslType: &parser.NamedType{Name: "vec3", TypeParams: []parser.Type{&parser.NamedType{Name: "f32"}}},
 			wantKind: "VectorType",
 		},
 		{
 			name:     "mat4x4<f32>",
-			wgslType: &NamedType{Name: "mat4x4", TypeParams: []Type{&NamedType{Name: "f32"}}},
+			wgslType: &parser.NamedType{Name: "mat4x4", TypeParams: []parser.Type{&parser.NamedType{Name: "f32"}}},
 			wantKind: "MatrixType",
 		},
 	}
@@ -204,23 +205,23 @@ func TestLowerExpressions(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		expr     Expr
+		expr     parser.Expr
 		wantKind string
 	}{
 		{
 			name:     "integer literal",
-			expr:     &Literal{Kind: TokenIntLiteral, Value: "42"},
-			wantKind: "Literal",
+			expr:     &parser.Literal{Kind: parser.TokenIntLiteral, Value: "42"},
+			wantKind: "parser.Literal",
 		},
 		{
 			name:     "float literal",
-			expr:     &Literal{Kind: TokenFloatLiteral, Value: "3.14"},
-			wantKind: "Literal",
+			expr:     &parser.Literal{Kind: parser.TokenFloatLiteral, Value: "3.14"},
+			wantKind: "parser.Literal",
 		},
 		{
 			name:     "bool literal",
-			expr:     &Literal{Kind: TokenTrue},
-			wantKind: "Literal",
+			expr:     &parser.Literal{Kind: parser.TokenTrue},
+			wantKind: "parser.Literal",
 		},
 	}
 
@@ -244,14 +245,14 @@ fn main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(used, used, used, 1.0);
 }
 `
-	lexer := NewLexer(source)
+	lexer := parser.NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
 
-	parser := NewParser(tokens)
-	ast, err := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -279,14 +280,14 @@ fn main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(color.x, color.y, color.z, 1.0);
 }
 `
-	lexer := NewLexer(source)
+	lexer := parser.NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
 
-	parser := NewParser(tokens)
-	ast, err := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -414,15 +415,14 @@ fn test() -> f32 {
 }
 `
 			}
-
-			lexer := NewLexer(source)
+			lexer := parser.NewLexer(source)
 			tokens, err := lexer.Tokenize()
 			if err != nil {
 				t.Fatalf("Tokenize failed: %v", err)
 			}
 
-			parser := NewParser(tokens)
-			ast, err := parser.Parse()
+			p := parser.NewParser(tokens)
+			ast, err := p.Parse()
 			if err != nil {
 				t.Fatalf("Parse failed: %v", err)
 			}
@@ -466,14 +466,14 @@ fn test() -> f32 {
     return select(a, b, c);
 }
 `
-	lexer := NewLexer(source)
+	lexer := parser.NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
 
-	parser := NewParser(tokens)
-	ast, err := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -513,14 +513,14 @@ fn test(x: f32) -> f32 {
     }
 }
 `
-	lexer := NewLexer(source)
+	lexer := parser.NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
 
-	parser := NewParser(tokens)
-	ast, err := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, err := p.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -590,13 +590,13 @@ func TestLowerVec3ZeroValBinop(t *testing.T) {
     var a = vec3(vec2i(), 0) + vec3(1);
     _ = a;
 }`
-	lexer := NewLexer(src)
+	lexer := parser.NewLexer(src)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatal("tokenize:", err)
 	}
-	parser := NewParser(tokens)
-	ast, parseErr := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal("parse:", parseErr)
 	}
@@ -682,13 +682,13 @@ func TestLowerComposeThreeDeep(t *testing.T) {
     var out = vec4(vec3(vec2(6, 7), 8), 9)[0];
     _ = out;
 }`
-	lexer := NewLexer(src)
+	lexer := parser.NewLexer(src)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatal(err)
 	}
-	parser := NewParser(tokens)
-	ast, parseErr := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal(parseErr)
 	}
@@ -719,13 +719,13 @@ func TestLowerSwizzleOfCompose(t *testing.T) {
     var out = vec4(vec2(1, 2), vec2(3, 4)).wzyx;
     _ = out;
 }`
-	lexer := NewLexer(src)
+	lexer := parser.NewLexer(src)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatal(err)
 	}
-	parser := NewParser(tokens)
-	ast, parseErr := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal(parseErr)
 	}
@@ -853,13 +853,13 @@ fn packed_dot_product() {
     var unsigned_seventy = dot4U8Packed(0x01020304u, 0x05060708u);
     var minus_four = dot4I8Packed(0xff02fd04u, 0x0506f9f8u);
 }`
-	lexer := NewLexer(src)
+	lexer := parser.NewLexer(src)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatal(err)
 	}
-	parser := NewParser(tokens)
-	ast, parseErr := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal(parseErr)
 	}
@@ -946,13 +946,13 @@ fn abstract_access(i: u32) {
     var c: i32 = ABSTRACT_ARRAY[i];
     var d: i32 = ABSTRACT_VECTOR[i];
 }`
-	lexer := NewLexer(src)
+	lexer := parser.NewLexer(src)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		t.Fatal(err)
 	}
-	parser := NewParser(tokens)
-	ast, parseErr := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, parseErr := p.Parse()
 	if parseErr != nil {
 		t.Fatal(parseErr)
 	}
@@ -1325,13 +1325,13 @@ fn test(i: u32) {
 // compileWGSL is a test helper that compiles WGSL source to an IR module.
 func compileWGSL(t *testing.T, src string) (*ir.Module, error) {
 	t.Helper()
-	lexer := NewLexer(src)
+	lexer := parser.NewLexer(src)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		return nil, err
 	}
-	parser := NewParser(tokens)
-	ast, err := parser.Parse()
+	p := parser.NewParser(tokens)
+	ast, err := p.Parse()
 	if err != nil {
 		return nil, err
 	}

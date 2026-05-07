@@ -1,5 +1,4 @@
-// Package wgsl provides WGSL (WebGPU Shading Language) parsing.
-package wgsl
+package parser
 
 // TokenKind represents the type of token.
 type TokenKind uint8

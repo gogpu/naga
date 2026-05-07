@@ -1,4 +1,4 @@
-// Package wgsl provides WGSL (WebGPU Shading Language) parsing.
+// Package wgsl provides WGSL (WebGPU Shading Language) parsing and lowering.
 //
 // WGSL is the shader language for WebGPU, designed to be portable
 // and map well to modern GPU APIs like Vulkan, Metal, and DX12.
@@ -9,11 +9,11 @@
 //
 //   - Lexer: Tokenizes WGSL source code into tokens
 //   - Parser: Parses tokens into an AST (Abstract Syntax Tree)
-//   - AST: Type definitions for the abstract syntax tree
+//   - Lowerer: Converts AST to IR (Intermediate Representation)
 //
 // # Usage
 //
-// To parse a WGSL shader:
+// To parse and lower a WGSL shader:
 //
 //	source := `
 //	@vertex
@@ -30,6 +30,11 @@
 //
 //	parser := wgsl.NewParser(tokens)
 //	module, err := parser.Parse()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	irModule, err := wgsl.LowerWithSource(module, source)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
