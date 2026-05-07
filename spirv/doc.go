@@ -3,6 +3,11 @@
 // SPIR-V is the standard intermediate language for GPU shaders,
 // used by Vulkan, OpenCL, and other APIs.
 //
+// # Architecture
+//
+// This package is a thin public API layer. All codegen, builder, and spec
+// logic lives in spirv/internal/codegen (following the DXIL pattern).
+//
 // # IR to SPIR-V Backend
 //
 // The Backend translates naga IR modules to SPIR-V binary format:
@@ -12,17 +17,6 @@
 //	if err != nil {
 //		log.Fatal(err)
 //	}
-//
-// The backend currently supports:
-//   - All scalar types (bool, f32, f64, i32, u32, etc.)
-//   - Vector types (vec2, vec3, vec4)
-//   - Matrix types (mat2x2, mat3x3, mat4x4, etc.)
-//   - Array types (fixed-size)
-//   - Struct types with member decorations
-//   - Pointer types with storage classes
-//   - Sampler and image types
-//   - Scalar constants (bool, float, int)
-//   - Composite constants (vectors, arrays, structs)
 //
 // # Binary Writer
 //
@@ -39,38 +33,6 @@
 //
 //	// Build binary
 //	binary := builder.Build()
-//
-// # SPIR-V Structure
-//
-// SPIR-V modules consist of:
-//   - Header (magic, version, generator, bound, schema)
-//   - Capabilities (required features)
-//   - Extensions (optional extensions)
-//   - Extended instruction imports (GLSL.std.450, etc.)
-//   - Memory model (addressing and memory model)
-//   - Entry points (shader entry functions)
-//   - Execution modes (shader configuration)
-//   - Debug information (names, source info)
-//   - Annotations (decorations)
-//   - Types and constants
-//   - Global variables
-//   - Functions (code)
-//
-// # Implementation Status
-//
-// Current implementation:
-//   - ✅ Types (scalar, vector, matrix, array, struct, pointer, sampler, image)
-//   - ✅ Constants (scalar and composite)
-//   - ✅ Type deduplication by handle
-//   - ✅ Debug names
-//   - ✅ Decorations (bindings, offsets)
-//
-// Next steps:
-//   - ⏳ Global variables
-//   - ⏳ Entry points with bindings
-//   - ⏳ Functions and expressions
-//   - ⏳ Control flow (if, loop, switch)
-//   - ⏳ Built-in functions
 //
 // # References
 //

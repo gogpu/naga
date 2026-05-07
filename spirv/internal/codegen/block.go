@@ -1,4 +1,4 @@
-package spirv
+package codegen
 
 // Block represents a SPIR-V basic block under construction.
 // Instructions are appended via Push; the block is not yet terminated.

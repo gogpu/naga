@@ -1,4 +1,4 @@
-package spirv
+package codegen
 
 // Diagnostic test: compiles the exact span() pattern from path_count.wgsl
 // and disassembles the SPIR-V to inspect instruction ordering around

@@ -1,4 +1,4 @@
-package spirv
+package codegen
 
 import (
 	"math"
