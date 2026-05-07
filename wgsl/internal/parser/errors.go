@@ -75,9 +75,11 @@ func NewSourceErrorf(span Span, source string, format string, args ...interface{
 type SourceErrors []*SourceError
 
 // Error implements the error interface.
+const errNoErrors = "no errors"
+
 func (el SourceErrors) Error() string {
 	if len(el) == 0 {
-		return "no errors"
+		return errNoErrors
 	}
 	if len(el) == 1 {
 		return el[0].Error()
