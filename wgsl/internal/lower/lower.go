@@ -851,22 +851,6 @@ func (l *Lowerer) typeAlignmentAndSize(handle ir.TypeHandle) (align, size uint32
 	return 4, 4
 }
 
-// vectorAlignmentAndSize returns alignment and size for a vector of given component count.
-// Uses default scalar size of 4 bytes (f32/i32/u32).
-func (l *Lowerer) vectorAlignmentAndSize(components uint8) (align, size uint32) {
-	const scalarSize = 4
-	switch components {
-	case 2:
-		return 2 * scalarSize, 2 * scalarSize
-	case 3:
-		return 4 * scalarSize, 3 * scalarSize
-	case 4:
-		return 4 * scalarSize, 4 * scalarSize
-	default:
-		return scalarSize, scalarSize
-	}
-}
-
 // lowerGlobalVar converts a global variable declaration to IR.
 func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 	var typeHandle ir.TypeHandle
@@ -1280,17 +1264,6 @@ func (l *Lowerer) buildOverrideInitExpr(expr parser.Expr) ir.OverrideInitExpr {
 		return ir.OverrideInitUnary{Op: op, Expr: inner}
 	}
 	return nil
-}
-
-// scalarKindForType returns the scalar kind for a type handle.
-func (l *Lowerer) scalarKindForType(th ir.TypeHandle) ir.ScalarKind {
-	if t, ok := l.registry.Lookup(th); ok {
-		switch inner := t.Inner.(type) {
-		case ir.ScalarType:
-			return inner.Kind
-		}
-	}
-	return ir.ScalarFloat
 }
 
 // coerceScalarToType adjusts a scalar value's kind and bits to match the declared type.
@@ -2003,18 +1976,6 @@ func (l *Lowerer) expandSplatComponents(cv ir.CompositeValue, expectedSize int) 
 	return cv
 }
 
-// evalAsVectorConstant evaluates an expression as a vector constant.
-func (l *Lowerer) evalAsVectorConstant(name string, expr parser.Expr) error {
-	switch e := expr.(type) {
-	case *parser.ConstructExpr:
-		return l.lowerCompositeConstant(name, nil, e, false)
-	case *parser.CallExpr:
-		return l.lowerCallConstant(name, nil, e)
-	default:
-		return fmt.Errorf("unsupported vector constant operand: %T", expr)
-	}
-}
-
 // evalAsVectorConstantHandle evaluates an expression as an anonymous vector constant
 // and returns its handle. The constant is unnamed (won't be emitted by the backend).
 func (l *Lowerer) evalAsVectorConstantHandle(expr parser.Expr) (ir.ConstantHandle, error) {
@@ -2112,14 +2073,6 @@ func (l *Lowerer) evalScalarArithmetic(op parser.TokenKind, left, right ir.Scala
 	default:
 		return left.Bits
 	}
-}
-
-// scalarWidth returns the byte width for a scalar kind.
-func scalarWidth(kind ir.ScalarKind) uint8 {
-	if kind == ir.ScalarBool {
-		return 1
-	}
-	return 4
 }
 
 // float32ToHalf converts a float32 value to IEEE 754 half-precision (16-bit) bits
@@ -2704,19 +2657,6 @@ func (l *Lowerer) lowerCompositeConstant(name string, declType parser.Type, cons
 	return nil
 }
 
-// constructHasExplicitTypeParams checks if a ConstructExpr has explicit template type parameters.
-// E.g., vec4<i32>() returns true, vec2() returns false.
-func constructHasExplicitTypeParams(construct *parser.ConstructExpr) bool {
-	if construct.Type == nil {
-		return false
-	}
-	named, ok := construct.Type.(*parser.NamedType)
-	if !ok {
-		return false
-	}
-	return len(named.TypeParams) > 0
-}
-
 // evalConstantArgsAsGlobalExprs evaluates constant constructor args as GlobalExpressions.
 // Returns ExpressionHandles into Module.GlobalExpressions (not ConstantHandles).
 // This matches Rust naga where scalar components of composites are in global_expressions.
@@ -2886,7 +2826,7 @@ func negateScalarBits(scalar ir.ScalarType, bits uint64) uint64 {
 
 // groupMatrixGlobalExprColumns groups scalar GlobalExpression handles into
 // column vector Compose GlobalExpressions for matrix constants.
-func (l *Lowerer) groupMatrixGlobalExprColumns(mat ir.MatrixType, matType ir.TypeHandle, components []ir.ExpressionHandle) []ir.ExpressionHandle {
+func (l *Lowerer) groupMatrixGlobalExprColumns(mat ir.MatrixType, _ ir.TypeHandle, components []ir.ExpressionHandle) []ir.ExpressionHandle {
 	cols := int(mat.Columns)
 	rows := int(mat.Rows)
 	if len(components) != cols*rows {
@@ -2905,7 +2845,7 @@ func (l *Lowerer) groupMatrixGlobalExprColumns(mat ir.MatrixType, matType ir.Typ
 }
 
 // groupMatrixConstantColumns groups scalar matrix constant components into column vector constants.
-func (l *Lowerer) groupMatrixConstantColumns(name string, mat ir.MatrixType, components []ir.ConstantHandle) []ir.ConstantHandle {
+func (l *Lowerer) groupMatrixConstantColumns(_ string, mat ir.MatrixType, components []ir.ConstantHandle) []ir.ConstantHandle {
 	cols := int(mat.Columns)
 	rows := int(mat.Rows)
 
@@ -3534,20 +3474,6 @@ func (l *Lowerer) evalLiteral(lit *parser.Literal) (ir.ScalarKind, uint64, error
 		return ir.ScalarBool, 0, nil
 	default:
 		return 0, 0, fmt.Errorf("unsupported literal kind %v", lit.Kind)
-	}
-}
-
-// preRegisterFunctionTypes resolves argument and return types for a function
-// declaration, causing types to be registered in the type arena at the
-// function's source position. This matches Rust naga's dependency-ordered
-// processing where function-referenced types are interleaved with struct types.
-// Errors are silently ignored since types will be resolved again during lowerFunction.
-func (l *Lowerer) preRegisterFunctionTypes(f *parser.FunctionDecl) {
-	for _, p := range f.Params {
-		_, _ = l.resolveType(p.Type)
-	}
-	if f.ReturnType != nil {
-		_, _ = l.resolveType(f.ReturnType)
 	}
 }
 
@@ -6118,7 +6044,7 @@ func (l *Lowerer) resolvePointerScalar(pointer ir.ExpressionHandle) (ir.ScalarTy
 // operand, matching Rust naga's behavior where concretization via convert_to_leaf_scalar
 // creates a new expression handle (not in-place update). The original abstract literal
 // becomes orphaned and is removed by CompactExpressions.
-func (l *Lowerer) concretizeBinaryOperandNew(handle ir.ExpressionHandle, isInt bool, intVal int64, floatVal float64, target ir.ScalarType) ir.ExpressionHandle {
+func (l *Lowerer) concretizeBinaryOperandNew(_ ir.ExpressionHandle, isInt bool, intVal int64, floatVal float64, target ir.ScalarType) ir.ExpressionHandle {
 	concrete := l.computeConcreteLiteral(isInt, intVal, floatVal, target)
 	return l.interruptEmitter(ir.Expression{
 		Kind: ir.Literal{Value: concrete},
@@ -6300,13 +6226,6 @@ func (l *Lowerer) concretizeAbstractToDefault(handle ir.ExpressionHandle) {
 	case ir.ExprSplat:
 		l.concretizeAbstractToDefault(kind.Value)
 	}
-}
-
-// concretizeMathArgs concretizes abstract arguments in a math function call.
-// If any argument has a concrete type, all abstract arguments are concretized
-// to that type. If all are abstract, they default to I32 (AbstractInt) or F32 (AbstractFloat).
-func (l *Lowerer) concretizeMathArgs(args []ir.ExpressionHandle) {
-	l.concretizeMathArgsWithHint(args, false)
 }
 
 // concretizeMathArgsWithHint concretizes abstract arguments in a math function call.
@@ -6782,7 +6701,7 @@ func (l *Lowerer) innerScalar(inner ir.TypeInner) (ir.ScalarType, bool) {
 
 // concretizeAbstractInt replaces an abstract integer literal expression with
 // a concrete literal matching the target scalar type.
-func (l *Lowerer) concretizeAbstractInt(handle ir.ExpressionHandle, value int64, target ir.ScalarType) ir.ExpressionHandle {
+func (l *Lowerer) concretizeAbstractInt(handle ir.ExpressionHandle, value int64, target ir.ScalarType) {
 	var concrete ir.LiteralValue
 
 	switch target.Kind {
@@ -6822,13 +6741,11 @@ func (l *Lowerer) concretizeAbstractInt(handle ir.ExpressionHandle, value int64,
 			l.currentFunc.ExpressionTypes[handle] = newType
 		}
 	}
-
-	return handle
 }
 
 // concretizeAbstractFloat replaces an abstract float literal expression with
 // a concrete literal matching the target scalar type.
-func (l *Lowerer) concretizeAbstractFloat(handle ir.ExpressionHandle, value float64, target ir.ScalarType) ir.ExpressionHandle {
+func (l *Lowerer) concretizeAbstractFloat(handle ir.ExpressionHandle, value float64, target ir.ScalarType) {
 	var concrete ir.LiteralValue
 
 	switch target.Kind {
@@ -6865,59 +6782,6 @@ func (l *Lowerer) concretizeAbstractFloat(handle ir.ExpressionHandle, value floa
 		if err == nil {
 			l.currentFunc.ExpressionTypes[handle] = newType
 		}
-	}
-
-	return handle
-}
-
-// concretizeAbstractIntValue computes the concrete literal value for an abstract int
-// without modifying any expression. Used by concretizeComponentsToScalar.
-func (l *Lowerer) concretizeAbstractIntValue(value int64, target ir.ScalarType) ir.LiteralValue {
-	switch target.Kind {
-	case ir.ScalarUint:
-		if target.Width == 8 {
-			return ir.LiteralU64(uint64(value))
-		}
-		return ir.LiteralU32(uint32(value))
-	case ir.ScalarSint:
-		if target.Width == 8 {
-			return ir.LiteralI64(value)
-		}
-		return ir.LiteralI32(int32(value))
-	case ir.ScalarFloat:
-		if target.Width == 8 {
-			return ir.LiteralF64(float64(value))
-		}
-		return ir.LiteralF32(float32(value))
-	default:
-		return ir.LiteralI32(int32(value))
-	}
-}
-
-// concretizeAbstractFloatValue computes the concrete literal value for an abstract float
-// without modifying any expression. Used by concretizeComponentsToScalar.
-func (l *Lowerer) concretizeAbstractFloatValue(value float64, target ir.ScalarType) ir.LiteralValue {
-	switch target.Kind {
-	case ir.ScalarFloat:
-		if target.Width == 8 {
-			return ir.LiteralF64(value)
-		}
-		if target.Width == 2 {
-			return ir.LiteralF16(float32(value))
-		}
-		return ir.LiteralF32(float32(value))
-	case ir.ScalarUint:
-		if target.Width == 8 {
-			return ir.LiteralU64(uint64(value))
-		}
-		return ir.LiteralU32(uint32(value))
-	case ir.ScalarSint:
-		if target.Width == 8 {
-			return ir.LiteralI64(int64(value))
-		}
-		return ir.LiteralI32(int32(value))
-	default:
-		return ir.LiteralF32(float32(value))
 	}
 }
 
@@ -8119,48 +7983,6 @@ func (l *Lowerer) groupMatrixColumns(typeHandle ir.TypeHandle, components []ir.E
 	return colComponents
 }
 
-// createZeroLiteralComponents creates explicit zero-valued literal expression handles
-// for a composite type. Matches Rust naga which creates Compose with explicit zero literals
-// instead of using ZeroValue for zero-arg constructors.
-func (l *Lowerer) createZeroLiteralComponents(typeHandle ir.TypeHandle) []ir.ExpressionHandle {
-	if int(typeHandle) >= len(l.module.Types) {
-		return nil
-	}
-	inner := l.module.Types[typeHandle].Inner
-
-	switch t := inner.(type) {
-	case ir.VectorType:
-		n := int(t.Size)
-		comps := make([]ir.ExpressionHandle, n)
-		for i := range comps {
-			// Each component gets its own expression handle to avoid splat detection.
-			comps[i] = l.interruptEmitter(ir.Expression{
-				Kind: ir.Literal{Value: l.zeroLiteral(t.Scalar)},
-			})
-		}
-		return comps
-	case ir.MatrixType:
-		cols := int(t.Columns)
-		rows := int(t.Rows)
-		colTypeHandle := l.registerType("", ir.VectorType{Size: t.Rows, Scalar: t.Scalar})
-		colComps := make([]ir.ExpressionHandle, cols)
-		for c := 0; c < cols; c++ {
-			rowComps := make([]ir.ExpressionHandle, rows)
-			for r := range rowComps {
-				rowComps[r] = l.interruptEmitter(ir.Expression{
-					Kind: ir.Literal{Value: l.zeroLiteral(t.Scalar)},
-				})
-			}
-			colComps[c] = l.addExpression(ir.Expression{
-				Kind: ir.ExprCompose{Type: colTypeHandle, Components: rowComps},
-			})
-		}
-		return colComps
-	default:
-		return nil
-	}
-}
-
 // zeroLiteral returns the zero literal value for a scalar type.
 func (l *Lowerer) zeroLiteral(scalar ir.ScalarType) ir.LiteralValue {
 	switch scalar.Kind {
@@ -8680,7 +8502,7 @@ func (l *Lowerer) tryConstantArrayIndex(idx *parser.IndexExpr, target *[]ir.Stat
 // into the current function. For scalar values, creates a Literal. For composite
 // values, creates Literal + Compose expressions. The type is concretized from
 // abstract to concrete (AbstractFloat -> f32).
-func (l *Lowerer) inlineConstantValue(c *ir.Constant, target *[]ir.Statement) (ir.ExpressionHandle, bool) {
+func (l *Lowerer) inlineConstantValue(c *ir.Constant, _ *[]ir.Statement) (ir.ExpressionHandle, bool) {
 	switch cv := c.Value.(type) {
 	case ir.ScalarValue:
 		lit := scalarValueToLiteral(cv)
@@ -8703,7 +8525,7 @@ func (l *Lowerer) inlineConstantValue(c *ir.Constant, target *[]ir.Statement) (i
 				return 0, false
 			}
 			comp := &l.module.Constants[compHandle]
-			h, ok := l.inlineConstantValue(comp, target)
+			h, ok := l.inlineConstantValue(comp, nil)
 			if !ok {
 				return 0, false
 			}
@@ -15755,39 +15577,6 @@ func (l *Lowerer) getOrCreateAtomicCompareExchangeResultType(scalar ir.ScalarTyp
 		},
 		Span: uint32(scalar.Width) * 2, // Matches Rust: scalar.width * 2
 	})
-}
-
-// fixAtomicResultTypeFromPointer resolves the atomic pointer's inner scalar type
-// and updates the ExpressionTypes for the AtomicResult expression.
-func (l *Lowerer) fixAtomicResultTypeFromPointer(handle ir.ExpressionHandle, pointer ir.ExpressionHandle) {
-	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.ExpressionTypes) {
-		return
-	}
-	// First try ResolveAtomicPointerScalar (works for resolved types).
-	scalar := ir.ResolveAtomicPointerScalar(l.module, l.currentFunc, pointer)
-	if scalar != nil {
-		l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{Value: *scalar}
-		return
-	}
-	// If that didn't work, try resolving the pointer type from ExpressionTypes
-	// which are populated during lowering.
-	if int(pointer) < len(l.currentFunc.ExpressionTypes) {
-		ptrRes := l.currentFunc.ExpressionTypes[pointer]
-		if ptrInner := ir.TypeResInner(l.module, ptrRes); ptrInner != nil {
-			if at, ok := ptrInner.(ir.AtomicType); ok {
-				l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{Value: at.Scalar}
-				return
-			}
-			if pt, ok := ptrInner.(ir.PointerType); ok {
-				if int(pt.Base) < len(l.module.Types) {
-					if at, ok := l.module.Types[pt.Base].Inner.(ir.AtomicType); ok {
-						l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{Value: at.Scalar}
-						return
-					}
-				}
-			}
-		}
-	}
 }
 
 // isRayQueryFunction checks if a function name is a ray query builtin.

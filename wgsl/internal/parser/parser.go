@@ -285,7 +285,7 @@ func (p *Parser) parameter() (*Parameter, *ParseError) {
 }
 
 // structDecl parses a struct declaration.
-func (p *Parser) structDecl(attrs []Attribute) (*StructDecl, *ParseError) {
+func (p *Parser) structDecl(_ []Attribute) (*StructDecl, *ParseError) {
 	start := p.peek()
 	if !p.match(TokenStruct) {
 		return nil, &ParseError{Message: "expected 'struct'", Token: p.peek()}
@@ -1813,17 +1813,15 @@ func (p *Parser) match(kind TokenKind) bool {
 	return false
 }
 
-func (p *Parser) expect(kind TokenKind) bool {
+func (p *Parser) expect(kind TokenKind) {
 	if p.check(kind) {
 		p.advance()
-		return true
+		return
 	}
 	// Handle >> splitting: when expecting >, accept >> and split it
 	if kind == TokenGreater && p.check(TokenGreaterGreater) {
 		p.splitGreaterGreater()
-		return true
 	}
-	return false
 }
 
 func (p *Parser) expectErr(kind TokenKind) *ParseError {

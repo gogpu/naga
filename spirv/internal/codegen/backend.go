@@ -4188,7 +4188,7 @@ func (e *ExpressionEmitter) maybeCopyLogicalForStore(pointerExpr, valueExpr ir.E
 	// Resolve the value expression's IR type to check if it's a composite needing layout.
 	valueTypeRes, err := ir.ResolveExpressionType(e.backend.module, e.function, valueExpr)
 	if err != nil {
-		return valueID, nil
+		return valueID, err
 	}
 
 	// Unwrap pointer types to get the value type handle.
@@ -4209,7 +4209,7 @@ func (e *ExpressionEmitter) maybeCopyLogicalForStore(pointerExpr, valueExpr ir.E
 		var emitErr error
 		targetTypeID, emitErr = e.backend.emitType(*valueTypeHandle)
 		if emitErr != nil {
-			return valueID, nil
+			return valueID, emitErr
 		}
 	} else {
 		// Value is decorated, target needs layout-free type (for Workgroup pointer).
