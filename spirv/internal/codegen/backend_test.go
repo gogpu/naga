@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -1127,9 +1128,9 @@ func TestStorageTextureImageFormat(t *testing.T) {
 
 	// Verify the sampled types are correct by checking emitted OpTypeImage instructions.
 	// OpTypeImage Words: [ResultID, SampledType, Dim, Depth, Arrayed, MS, Sampled, Format]
-	f32TypeID := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-	u32TypeID := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	i32TypeID := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+	f32TypeID, _ := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	u32TypeID, _ := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	i32TypeID, _ := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
 
 	for _, inst := range backend.builder.types {
 		if inst.Opcode != OpTypeImage || len(inst.Words) < 8 {
@@ -1219,9 +1220,9 @@ func TestSampledTextureUsesCorrectScalarKind(t *testing.T) {
 	}
 
 	// Verify sampled types in OpTypeImage instructions
-	f32TypeID := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-	u32TypeID := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	i32TypeID := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+	f32TypeID, _ := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	u32TypeID, _ := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	i32TypeID, _ := backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
 
 	for _, inst := range backend.builder.types {
 		if inst.Opcode != OpTypeImage || len(inst.Words) < 8 {
@@ -1508,5 +1509,144 @@ func buildFragModule() *ir.Module {
 				},
 			},
 		},
+	}
+}
+
+// =============================================================================
+// Error Path Tests — verify error returns from panic→error conversions
+// =============================================================================
+
+// newTestBackend creates a Backend that has been initialized by compiling a minimal module.
+// This populates internal maps (typeIDs, scalarTypeIDs, etc.) so unit tests can call
+// individual methods.
+func newTestBackend(t *testing.T, module *ir.Module) *Backend {
+	t.Helper()
+	backend := NewBackend(DefaultOptions())
+	if _, err := backend.Compile(module); err != nil {
+		t.Fatalf("newTestBackend compile: %v", err)
+	}
+	return backend
+}
+
+func TestEmitScalarType_UnknownKind(t *testing.T) {
+	module := &ir.Module{
+		Types:       []ir.Type{},
+		Constants:   []ir.Constant{},
+		Functions:   []ir.Function{},
+		EntryPoints: []ir.EntryPoint{},
+	}
+	backend := newTestBackend(t, module)
+
+	// ScalarKind 99 is not a valid kind
+	_, err := backend.emitScalarType(ir.ScalarType{Kind: 99, Width: 4})
+	if err == nil {
+		t.Fatal("expected error for unknown scalar kind")
+	}
+	if !strings.Contains(err.Error(), "unknown scalar kind") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestAddressSpaceToStorageClass_UnknownSpace(t *testing.T) {
+	// AddressSpace 99 is not a valid space
+	_, err := addressSpaceToStorageClass(99)
+	if err == nil {
+		t.Fatal("expected error for unknown address space")
+	}
+	if !strings.Contains(err.Error(), "unknown address space") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestFindTypeHandleByID_NotFound(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+		},
+		Constants:   []ir.Constant{},
+		Functions:   []ir.Function{},
+		EntryPoints: []ir.EntryPoint{},
+	}
+	backend := newTestBackend(t, module)
+
+	// Type ID 999 does not exist in the cache
+	_, err := backend.findTypeHandleByID(999)
+	if err == nil {
+		t.Fatal("expected error for type ID not found in cache")
+	}
+	if !strings.Contains(err.Error(), "type ID 999 not found in cache") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestResolveScalarType_WrongType(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+		Constants:   []ir.Constant{},
+		Functions:   []ir.Function{},
+		EntryPoints: []ir.EntryPoint{},
+	}
+	backend := newTestBackend(t, module)
+
+	// The vector type should be in the cache after Compile
+	typeID, ok := backend.typeIDs[ir.TypeHandle(0)]
+	if !ok {
+		t.Fatal("vector type not in cache after Compile")
+	}
+
+	// Trying to resolve a vector type as scalar should fail
+	_, err := backend.resolveScalarType(typeID)
+	if err == nil {
+		t.Fatal("expected error for resolving vector as scalar")
+	}
+	if !strings.Contains(err.Error(), "expected ScalarType or AtomicType") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestEmitScalarConstant_UnknownKind(t *testing.T) {
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+		},
+		Constants:   []ir.Constant{},
+		Functions:   []ir.Function{},
+		EntryPoints: []ir.EntryPoint{},
+	}
+	backend := newTestBackend(t, module)
+
+	typeID, ok := backend.typeIDs[ir.TypeHandle(0)]
+	if !ok {
+		t.Fatal("f32 type not in cache after Compile")
+	}
+
+	// ScalarValue with kind 99 should fail
+	_, err := backend.emitScalarConstant(typeID, ir.ScalarValue{Kind: 99, Bits: 0})
+	if err == nil {
+		t.Fatal("expected error for unknown scalar kind in constant")
+	}
+	if !strings.Contains(err.Error(), "unknown scalar kind") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestEmitInlineType_UnsupportedType(t *testing.T) {
+	module := &ir.Module{
+		Types:       []ir.Type{},
+		Constants:   []ir.Constant{},
+		Functions:   []ir.Function{},
+		EntryPoints: []ir.EntryPoint{},
+	}
+	backend := newTestBackend(t, module)
+
+	// BindingArrayType cannot be emitted inline
+	_, err := backend.emitInlineType(ir.BindingArrayType{Base: 0, Size: nil})
+	if err == nil {
+		t.Fatal("expected error for inline BindingArrayType")
+	}
+	if !strings.Contains(err.Error(), "cannot emit inline type") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }

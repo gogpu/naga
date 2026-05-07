@@ -24,7 +24,9 @@ func TestContinueCtx_LoopOnly(t *testing.T) {
 	if v != "" {
 		t.Errorf("expected empty variable in loop without switch, got %q", v)
 	}
-	ctx.exitLoop()
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop: %v", err)
+	}
 }
 
 func TestContinueCtx_SwitchInsideLoop(t *testing.T) {
@@ -44,7 +46,10 @@ func TestContinueCtx_SwitchInsideLoop(t *testing.T) {
 	}
 
 	// exitSwitch should return exitContinue since continue was encountered
-	result := ctx.exitSwitch()
+	result, err := ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch: %v", err)
+	}
 	if result.kind != exitContinue {
 		t.Errorf("expected exitContinue, got %d", result.kind)
 	}
@@ -52,7 +57,9 @@ func TestContinueCtx_SwitchInsideLoop(t *testing.T) {
 		t.Errorf("expected variable %q, got %q", variable, result.variable)
 	}
 
-	ctx.exitLoop()
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop: %v", err)
+	}
 }
 
 func TestContinueCtx_SwitchInsideLoop_NoContinue(t *testing.T) {
@@ -66,12 +73,17 @@ func TestContinueCtx_SwitchInsideLoop_NoContinue(t *testing.T) {
 	}
 
 	// No continueEncountered -> exitSwitch returns exitNone
-	result := ctx.exitSwitch()
+	result, err := ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch: %v", err)
+	}
 	if result.kind != exitNone {
 		t.Errorf("expected exitNone, got %d", result.kind)
 	}
 
-	ctx.exitLoop()
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop: %v", err)
+	}
 }
 
 func TestContinueCtx_SwitchOutsideLoop(t *testing.T) {
@@ -84,7 +96,10 @@ func TestContinueCtx_SwitchOutsideLoop(t *testing.T) {
 		t.Errorf("expected empty variable for switch outside loop, got %q", variable)
 	}
 
-	result := ctx.exitSwitch()
+	result, err := ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch: %v", err)
+	}
 	if result.kind != exitNone {
 		t.Errorf("expected exitNone, got %d", result.kind)
 	}
@@ -115,18 +130,26 @@ func TestContinueCtx_NestedSwitch(t *testing.T) {
 	}
 
 	// Exit inner switch -> exitBreak (propagates to outer)
-	innerResult := ctx.exitSwitch()
+	innerResult, err := ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch (inner): %v", err)
+	}
 	if innerResult.kind != exitBreak {
 		t.Errorf("expected exitBreak for nested switch, got %d", innerResult.kind)
 	}
 
 	// Exit outer switch -> exitContinue (propagated from inner)
-	outerResult := ctx.exitSwitch()
+	outerResult, err := ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch (outer): %v", err)
+	}
 	if outerResult.kind != exitContinue {
 		t.Errorf("expected exitContinue for outer switch, got %d", outerResult.kind)
 	}
 
-	ctx.exitLoop()
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop: %v", err)
+	}
 }
 
 func TestContinueCtx_Clear(t *testing.T) {
@@ -138,6 +161,46 @@ func TestContinueCtx_Clear(t *testing.T) {
 	ctx.clear()
 	if len(ctx.stack) != 0 {
 		t.Errorf("expected empty stack after clear, got %d items", len(ctx.stack))
+	}
+}
+
+// =============================================================================
+// continueCtx Error Tests — verify error returns on stack misuse
+// =============================================================================
+
+func TestContinueCtx_ExitLoopError(t *testing.T) {
+	ctx := &continueCtx{}
+
+	// exitLoop on empty stack -> error
+	err := ctx.exitLoop()
+	if err == nil {
+		t.Error("expected error from exitLoop on empty stack")
+	}
+	if !strings.Contains(err.Error(), "expected Loop on top") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+
+	// exitLoop when Switch is on top -> error
+	n := newNamer()
+	ctx.enterLoop()
+	ctx.enterSwitch(n)
+	err = ctx.exitLoop()
+	if err == nil {
+		t.Error("expected error from exitLoop when Switch is on top")
+	}
+}
+
+func TestContinueCtx_ExitSwitchError(t *testing.T) {
+	ctx := &continueCtx{}
+
+	// exitSwitch when Loop is on top -> error
+	ctx.enterLoop()
+	_, err := ctx.exitSwitch()
+	if err == nil {
+		t.Error("expected error from exitSwitch when Loop is on top")
+	}
+	if !strings.Contains(err.Error(), "expected Switch on top") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }
 

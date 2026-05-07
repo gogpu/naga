@@ -593,7 +593,10 @@ func (w *Writer) writeSwitchStatement(s ir.StmtSwitch) error {
 	}
 
 	// Exit switch and emit forwarding code if needed
-	ecf := w.continueCtx.exitSwitch()
+	ecf, err := w.continueCtx.exitSwitch()
+	if err != nil {
+		return err
+	}
 	switch ecf.kind {
 	case exitContinue:
 		w.WriteLine("if (%s) {", ecf.variable)
@@ -755,7 +758,9 @@ func (w *Writer) writeLoopStatement(s ir.StmtLoop) error {
 	w.PopIndent()
 	w.WriteLine("}")
 
-	w.continueCtx.exitLoop()
+	if err := w.continueCtx.exitLoop(); err != nil {
+		return err
+	}
 	return nil
 }
 

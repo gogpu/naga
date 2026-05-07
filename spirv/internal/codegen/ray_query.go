@@ -34,9 +34,9 @@ const (
 // emitRayQueryTrackerVars creates the two tracker variables for a ray_query local variable.
 // Returns the tracker IDs. Variables are added to FunctionBuilder.Variables.
 func (b *Backend) emitRayQueryTrackerVars(fb *FunctionBuilder) rayQueryTrackerIDs {
-	u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
-	f32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	f32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
 	f32PtrTypeID := b.emitPointerType(StorageClassFunction, f32TypeID)
 
 	// initialized_tracker: u32, init to 0 (RayQueryPoint::empty)
@@ -70,8 +70,7 @@ func (b *Backend) getRayQueryPointerTypeID() uint32 {
 			var err error
 			rqTypeID, err = b.emitType(ir.TypeHandle(i))
 			if err != nil {
-				// Should not happen for RayQueryType
-				panic(fmt.Sprintf("failed to emit RayQueryType: %v", err))
+				panic(fmt.Sprintf("spirv: failed to emit RayQueryType: %v", err))
 			}
 			break
 		}
@@ -102,7 +101,7 @@ func (b *Backend) writeRayQueryInitialize() uint32 {
 			var err error
 			accelTypeID, err = b.emitType(ir.TypeHandle(i))
 			if err != nil {
-				panic(fmt.Sprintf("failed to emit AccelerationStructureType: %v", err))
+				panic(fmt.Sprintf("spirv: failed to emit AccelerationStructureType: %v", err))
 			}
 			break
 		}
@@ -116,17 +115,17 @@ func (b *Backend) writeRayQueryInitialize() uint32 {
 			var err error
 			rayDescTypeID, err = b.emitType(ir.TypeHandle(i))
 			if err != nil {
-				panic(fmt.Sprintf("failed to emit RayDesc type: %v", err))
+				panic(fmt.Sprintf("spirv: failed to emit RayDesc type: %v", err))
 			}
 			break
 		}
 	}
 
-	u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
-	f32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	f32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
 	f32PtrTypeID := b.emitPointerType(StorageClassFunction, f32TypeID)
-	boolTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	boolVec3TypeID := b.emitVectorType(boolTypeID, 3)
 	vec3f32TypeID := b.emitVectorType(f32TypeID, 3)
 
@@ -290,9 +289,9 @@ func (b *Backend) writeRayQueryProceed() uint32 {
 	}
 
 	rqPtrTypeID := b.getRayQueryPointerTypeID()
-	u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
-	boolTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	boolPtrTypeID := b.emitPointerType(StorageClassFunction, boolTypeID)
 
 	funcTypeID := b.getFuncType(boolTypeID, []uint32{rqPtrTypeID, u32PtrTypeID})
@@ -387,17 +386,17 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 		var err error
 		riTypeID, err = b.emitType(*b.module.SpecialTypes.RayIntersection)
 		if err != nil {
-			panic(fmt.Sprintf("failed to emit RayIntersection type: %v", err))
+			panic(fmt.Sprintf("spirv: failed to emit RayIntersection type: %v", err))
 		}
 	}
 
 	riPtrTypeID := b.emitPointerType(StorageClassFunction, riTypeID)
 
-	u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
-	f32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	f32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
 	f32PtrTypeID := b.emitPointerType(StorageClassFunction, f32TypeID)
-	boolTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	boolPtrTypeID := b.emitPointerType(StorageClassFunction, boolTypeID)
 	vec2f32TypeID := b.emitVectorType(f32TypeID, 2)
 	vec2f32PtrTypeID := b.emitPointerType(StorageClassFunction, vec2f32TypeID)
@@ -617,11 +616,11 @@ func (b *Backend) writeRayQueryGenerateIntersection() uint32 {
 	}
 
 	rqPtrTypeID := b.getRayQueryPointerTypeID()
-	u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
-	f32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+	f32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
 	f32PtrTypeID := b.emitPointerType(StorageClassFunction, f32TypeID)
-	boolTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	voidTypeID := b.getVoidType()
 
 	funcTypeID := b.getFuncType(voidTypeID, []uint32{rqPtrTypeID, u32PtrTypeID, f32TypeID, f32PtrTypeID})
@@ -761,9 +760,9 @@ func (b *Backend) writeRayQueryConfirmIntersection() uint32 {
 	}
 
 	rqPtrTypeID := b.getRayQueryPointerTypeID()
-	u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
 	u32PtrTypeID := b.emitPointerType(StorageClassFunction, u32TypeID)
-	boolTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	voidTypeID := b.getVoidType()
 
 	funcTypeID := b.getFuncType(voidTypeID, []uint32{rqPtrTypeID, u32PtrTypeID})
@@ -834,8 +833,8 @@ func (b *Backend) writeRayQueryConfirmIntersection() uint32 {
 
 // writeRayFlagsContainsFlag checks if a u32 value has a particular bit set.
 func writeRayFlagsContainsFlag(b *Backend, block *Block, id uint32, flag uint32) uint32 {
-	u32TypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	boolTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	u32TypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	bitID := b.builder.AddConstant(u32TypeID, flag)
 	zeroID := b.builder.AddConstant(u32TypeID, 0)
 
@@ -848,7 +847,7 @@ func writeRayFlagsContainsFlag(b *Backend, block *Block, id uint32, flag uint32)
 
 // writeLogicalAnd emits a logical AND of two booleans.
 func writeLogicalAnd(b *Backend, block *Block, one, two uint32) uint32 {
-	boolTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	id := b.builder.AllocID()
 	block.Push(Instruction{Opcode: OpLogicalAnd, Words: []uint32{boolTypeID, id, one, two}})
 	return id
@@ -865,7 +864,7 @@ func writeReduceAnd(b *Backend, block *Block, bools []uint32) uint32 {
 
 // writeLessThan2True checks that fewer than 2 of the given booleans are true.
 func writeLessThan2True(b *Backend, block *Block, bools []uint32) uint32 {
-	boolTypeID := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
+	boolTypeID, _ := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 
 	var eachTwoTrue []uint32
 	// For each pair of booleans, check if both are true
