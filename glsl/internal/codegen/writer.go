@@ -1919,6 +1919,14 @@ func (w *Writer) writeEntryPoints() error {
 
 // writeEntryPoint writes a single entry point.
 func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
+	// GLSL only supports vertex, fragment, and compute stages.
+	switch ep.Stage {
+	case ir.StageVertex, ir.StageFragment, ir.StageCompute:
+		// supported
+	default:
+		return fmt.Errorf("glsl: unsupported shader stage %d for entry point %q", ep.Stage, ep.Name)
+	}
+
 	// Entry point function is stored inline (not in Functions[])
 	fn := &ep.Function
 	w.currentFunction = fn

@@ -20,7 +20,10 @@ func TestContinueCtx_BasicStack(t *testing.T) {
 	if v != "" {
 		t.Errorf("enterSwitch outside loop should return empty, got %q", v)
 	}
-	result := ctx.exitSwitch()
+	result, err := ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch error: %v", err)
+	}
 	if result.kind != exitNone {
 		t.Errorf("exitSwitch outside loop should return exitNone, got %v", result.kind)
 	}
@@ -36,11 +39,16 @@ func TestContinueCtx_BasicStack(t *testing.T) {
 	}
 
 	// No continue encountered → exitNone
-	result = ctx.exitSwitch()
+	result, err = ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch error: %v", err)
+	}
 	if result.kind != exitNone {
 		t.Errorf("exitSwitch without continue should return exitNone, got %v", result.kind)
 	}
-	ctx.exitLoop()
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop error: %v", err)
+	}
 }
 
 // TestContinueCtx_ContinueInSwitch tests continue forwarding inside a switch.
@@ -64,7 +72,10 @@ func TestContinueCtx_ContinueInSwitch(t *testing.T) {
 	}
 
 	// Exit switch should now return exitContinue
-	result := ctx.exitSwitch()
+	result, err := ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch error: %v", err)
+	}
 	if result.kind != exitContinue {
 		t.Errorf("expected exitContinue, got %v", result.kind)
 	}
@@ -72,7 +83,9 @@ func TestContinueCtx_ContinueInSwitch(t *testing.T) {
 		t.Errorf("variable mismatch: got %q, want %q", result.variable, variable)
 	}
 
-	ctx.exitLoop()
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop error: %v", err)
+	}
 }
 
 // TestContinueCtx_NestedSwitches tests nested switches with continue forwarding.
@@ -101,18 +114,26 @@ func TestContinueCtx_NestedSwitches(t *testing.T) {
 	}
 
 	// Exit inner switch should return exitBreak (propagate to outer)
-	result := ctx.exitSwitch()
+	result, err := ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch error: %v", err)
+	}
 	if result.kind != exitBreak {
 		t.Errorf("inner switch exit should return exitBreak, got %v", result.kind)
 	}
 
 	// Exit outer switch should now return exitContinue (propagated from inner)
-	result = ctx.exitSwitch()
+	result, err = ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch error: %v", err)
+	}
 	if result.kind != exitContinue {
 		t.Errorf("outer switch exit should return exitContinue, got %v", result.kind)
 	}
 
-	ctx.exitLoop()
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop error: %v", err)
+	}
 }
 
 // TestContinueCtx_ContinueOutsideSwitch tests that continue outside switch is normal.
@@ -131,7 +152,9 @@ func TestContinueCtx_ContinueOutsideSwitch(t *testing.T) {
 	if v != "" {
 		t.Errorf("continueEncountered inside loop (no switch) should return empty, got %q", v)
 	}
-	ctx.exitLoop()
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop error: %v", err)
+	}
 }
 
 // TestContinueForward_DoWhileOutput tests that continue inside a do-while switch
@@ -194,6 +217,40 @@ func TestContinueForward_DoWhileOutput(t *testing.T) {
 	}
 	if !strings.Contains(source, "do {") {
 		t.Errorf("output should contain 'do {' for single-body switch\nGot:\n%s", source)
+	}
+}
+
+// TestContinueCtx_ExitLoopError tests that exitLoop returns an error on empty stack.
+func TestContinueCtx_ExitLoopError(t *testing.T) {
+	var ctx continueCtx
+	// Empty stack
+	if err := ctx.exitLoop(); err == nil {
+		t.Error("exitLoop on empty stack should return error")
+	} else if !strings.Contains(err.Error(), "expected Loop on top") {
+		t.Errorf("error should mention 'expected Loop on top', got: %v", err)
+	}
+
+	// Stack with Switch on top (wrong kind)
+	ctx.enterLoop()
+	n := newNamer()
+	ctx.enterSwitch(n)
+	if err := ctx.exitLoop(); err == nil {
+		t.Error("exitLoop with Switch on top should return error")
+	} else if !strings.Contains(err.Error(), "expected Loop on top") {
+		t.Errorf("error should mention 'expected Loop on top', got: %v", err)
+	}
+}
+
+// TestContinueCtx_ExitSwitchError tests that exitSwitch returns an error when Loop is on top.
+func TestContinueCtx_ExitSwitchError(t *testing.T) {
+	var ctx continueCtx
+	ctx.enterLoop()
+	// Stack has Loop on top, not Switch
+	_, err := ctx.exitSwitch()
+	if err == nil {
+		t.Error("exitSwitch with Loop on top should return error")
+	} else if !strings.Contains(err.Error(), "expected Switch on top") {
+		t.Errorf("error should mention 'expected Switch on top', got: %v", err)
 	}
 }
 

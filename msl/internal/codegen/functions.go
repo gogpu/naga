@@ -539,6 +539,8 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		stageKeyword = "fragment"
 	case ir.StageCompute:
 		stageKeyword = "kernel"
+	default:
+		return fmt.Errorf("msl: unsupported shader stage %d for entry point %q", ep.Stage, ep.Name)
 	}
 
 	// Return type

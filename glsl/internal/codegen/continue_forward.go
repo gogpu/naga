@@ -3,6 +3,8 @@
 
 package codegen
 
+import "fmt"
+
 // continueCtx tracks nesting of loops and switches to orchestrate forwarding
 // of continue statements inside a do-while (single-body switch) to the enclosing loop.
 //
@@ -52,11 +54,13 @@ func (ctx *continueCtx) enterLoop() {
 }
 
 // exitLoop records leaving a Loop statement.
-func (ctx *continueCtx) exitLoop() {
+// Returns an error if the nesting stack is out of sync (expected Loop on top).
+func (ctx *continueCtx) exitLoop() error {
 	if len(ctx.stack) == 0 || ctx.stack[len(ctx.stack)-1].kind != nestingLoop {
-		panic("continueCtx stack out of sync: expected Loop on top")
+		return fmt.Errorf("glsl: internal error: continueCtx stack out of sync: expected Loop on top")
 	}
 	ctx.stack = ctx.stack[:len(ctx.stack)-1]
+	return nil
 }
 
 // enterSwitch records entering a Switch statement (only do-while switches in GLSL).
@@ -90,21 +94,22 @@ func (ctx *continueCtx) enterSwitch(namer *namer) string {
 }
 
 // exitSwitch records leaving a Switch statement.
-// Returns what code should be emitted after the switch.
-func (ctx *continueCtx) exitSwitch() exitControlFlowResult {
+// Returns what code should be emitted after the switch, or an error if the
+// nesting stack is out of sync.
+func (ctx *continueCtx) exitSwitch() (exitControlFlowResult, error) {
 	if len(ctx.stack) == 0 {
-		return exitControlFlowResult{kind: exitNone}
+		return exitControlFlowResult{kind: exitNone}, nil
 	}
 
 	top := ctx.stack[len(ctx.stack)-1]
 	ctx.stack = ctx.stack[:len(ctx.stack)-1]
 
 	if top.kind != nestingSwitch {
-		panic("continueCtx stack out of sync: expected Switch on top")
+		return exitControlFlowResult{}, fmt.Errorf("glsl: internal error: continueCtx stack out of sync: expected Switch on top")
 	}
 
 	if !top.continueEncountered {
-		return exitControlFlowResult{kind: exitNone}
+		return exitControlFlowResult{kind: exitNone}, nil
 	}
 
 	// Check if the new top is also a Switch (nested switches)
@@ -113,11 +118,11 @@ func (ctx *continueCtx) exitSwitch() exitControlFlowResult {
 		if newTop.kind == nestingSwitch {
 			// Propagate continue_encountered upward
 			newTop.continueEncountered = true
-			return exitControlFlowResult{kind: exitBreak, variable: top.variable}
+			return exitControlFlowResult{kind: exitBreak, variable: top.variable}, nil
 		}
 	}
 
-	return exitControlFlowResult{kind: exitContinue, variable: top.variable}
+	return exitControlFlowResult{kind: exitContinue, variable: top.variable}, nil
 }
 
 // continueEncountered is called when a Continue statement is encountered.

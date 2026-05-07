@@ -682,15 +682,14 @@ func TestCoverage_ContinueCtxClear(t *testing.T) {
 func TestCoverage_ContinueCtxExitLoop(t *testing.T) {
 	ctx := &continueCtx{}
 	ctx.enterLoop()
-	ctx.exitLoop() // Should not panic
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop after enterLoop should not error: %v", err)
+	}
 
-	// exitLoop on empty stack should panic
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("exitLoop on empty stack should panic")
-		}
-	}()
-	ctx.exitLoop()
+	// exitLoop on empty stack should return error
+	if err := ctx.exitLoop(); err == nil {
+		t.Error("exitLoop on empty stack should return error")
+	}
 }
 
 // =============================================================================
@@ -2340,12 +2339,17 @@ func TestCoverage_ContinueEncountered(t *testing.T) {
 	}
 
 	// Exit switch — should return exitContinue
-	result := ctx.exitSwitch()
+	result, err := ctx.exitSwitch()
+	if err != nil {
+		t.Fatalf("exitSwitch error: %v", err)
+	}
 	if result.kind != exitContinue {
 		t.Errorf("exitSwitch kind = %d, want exitContinue", result.kind)
 	}
 
-	ctx.exitLoop()
+	if err := ctx.exitLoop(); err != nil {
+		t.Fatalf("exitLoop error: %v", err)
+	}
 }
 
 // =============================================================================

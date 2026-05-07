@@ -459,7 +459,10 @@ func (w *Writer) writeSwitchAsDoWhile(switchStmt ir.StmtSwitch) error {
 	w.WriteLine("} while(false);")
 
 	// Handle any forwarded continue statements
-	result := w.continueCtx.exitSwitch()
+	result, err := w.continueCtx.exitSwitch()
+	if err != nil {
+		return err
+	}
 	switch result.kind {
 	case exitContinue:
 		w.WriteLine("if (%s) {", result.variable)
@@ -539,8 +542,7 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 
 	w.PopIndent()
 	w.WriteLine("}")
-	w.continueCtx.exitLoop()
-	return nil
+	return w.continueCtx.exitLoop()
 }
 
 // writeReturn writes a return statement.
