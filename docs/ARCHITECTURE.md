@@ -61,56 +61,39 @@ dependencies.
 ```
 naga/                              ~189K LOC total
 ├── naga.go                        # Public API: Compile, Parse, Lower, Validate, GenerateSPIRV
-├── wgsl/                          # WGSL frontend (~19.5K LOC)
-│   ├── token.go                   # 120+ token types (incl. f16, i64, u64, f64)
-│   ├── lexer.go                   # Tokenizer (UTF-8, nested block comments, li/lu/lf suffixes)
-│   ├── ast.go                     # AST types (declarations, statements, expressions)
-│   ├── parser.go                  # Recursive descent parser
-│   ├── lower.go                   # AST → IR lowerer
-│   └── errors.go                  # Source-located error formatting
+├── wgsl/                          # WGSL frontend (~20K LOC)
+│   ├── wgsl.go                    # Public API: Parse, Lower (real types)
+│   └── internal/
+│       ├── parser/                # Lexer, token, parser, AST, errors
+│       └── lower/                 # AST → IR lowerer (~16K LOC)
 │
 ├── ir/                            # Intermediate Representation (~6.5K LOC)
 │   ├── ir.go                      # Module, Type, Function, EntryPoint, handles
 │   ├── expression.go              # 30+ expression kinds (incl. subgroup, ray query)
 │   ├── statement.go               # 20+ statement kinds (incl. subgroup, ray query)
 │   ├── validate.go                # IR validation
-│   ├── resolve.go                 # Type inference engine
-│   └── registry.go                # Type deduplication registry
+│   └── resolve.go                 # Type inference engine
 │
-├── spirv/                         # SPIR-V backend (~10.8K LOC, ~16.2K tests)
-│   ├── spirv.go                   # SPIR-V constants, opcodes, capabilities, subgroup ops
-│   ├── block.go                   # Block ownership model (Rust naga pattern)
-│   ├── writer.go                  # Binary module builder with word arena
-│   ├── backend.go                 # IR → SPIR-V translator
-│   ├── ray_query.go               # Ray query helper functions
-│   └── *_test.go                  # 200+ tests (shader, loop, if/else, vello, reference)
+├── internal/                      # Shared internal packages
+│   ├── textutil/                  # IndentWriter (DRY for glsl/hlsl/msl)
+│   ├── backend/                   # Shared namer, sig packing, interface ordering
+│   └── registry/                  # Type deduplication registry (from ir/)
+│
+├── spirv/                         # SPIR-V backend (~12.5K LOC)
+│   ├── spirv.go                   # Public API: Options, Backend (DXIL pattern)
+│   └── internal/codegen/          # ALL implementation
 │
 ├── msl/                           # MSL backend (~14.2K LOC)
-│   ├── backend.go                 # Public API, Options, Compile()
-│   ├── writer.go                  # MSL code writer
-│   ├── types.go                   # Type generation
-│   ├── expressions.go             # Expression codegen
-│   ├── statements.go              # Statement codegen
-│   ├── functions.go               # Entry points and functions
-│   └── keywords.go                # MSL/C++ reserved words
+│   ├── msl.go                     # Public API: Compile, Options (real types)
+│   └── internal/codegen/          # ALL implementation (DXIL pattern)
 │
 ├── glsl/                          # GLSL backend (~7.8K LOC)
-│   ├── backend.go                 # Public API, version targeting
-│   ├── writer.go                  # GLSL code writer with UBO block syntax
-│   ├── types.go                   # Type generation
-│   ├── expressions.go             # Expression codegen
-│   ├── statements.go              # Statement codegen
-│   └── keywords.go                # Reserved word escaping
+│   ├── glsl.go                    # Public API: Compile, Options (real types)
+│   └── internal/codegen/          # ALL implementation (DXIL pattern)
 │
-├── hlsl/                          # HLSL backend (~13.6K LOC)
-│   ├── backend.go                 # Public API, shader model selection
-│   ├── writer.go                  # HLSL code writer
-│   ├── types.go                   # Type generation
-│   ├── expressions.go             # Expression codegen
-│   ├── statements.go              # Statement codegen
-│   ├── storage.go                 # Buffer/atomic operations
-│   ├── functions.go               # Entry points with semantics
-│   └── keywords.go                # HLSL reserved words
+├── hlsl/                          # HLSL backend (~14.6K LOC)
+│   ├── hlsl.go                    # Public API: Compile, Options (real types)
+│   └── internal/codegen/          # ALL implementation (DXIL pattern)
 │
 ├── dxil/                          # DXIL backend (~50K LOC, 161/170 IDxcValidator, experimental)
 │   ├── dxil.go                    # Public API: Compile, DefaultOptions, Options, ShaderModel

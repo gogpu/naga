@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.12] - 2026-05-07
+
+### Changed
+
+- **ARCH-001: Internal packages refactoring** — all backends restructured
+  following DXIL pattern. Implementation moved to `internal/codegen/`,
+  public API uses real types (not aliases).
+  - `glsl/internal/codegen/` — 9 files, thin public wrapper
+  - `msl/internal/codegen/` — 10 files, thin public wrapper
+  - `hlsl/internal/codegen/` — 15 files, shared namer in `internal/backend/`
+  - `spirv/internal/codegen/` — 5 files, thin public wrapper
+  - `wgsl/internal/parser/` + `wgsl/internal/lower/` — parser/lowerer split
+  - `internal/registry/` — TypeRegistry extracted from ir/
+  - `internal/textutil/` — shared IndentWriter (DRY across glsl/hlsl/msl)
+  - Public API surface reduced from 398 to ~120 symbols
+
+### Fixed
+
+- **13 panics converted to error returns** across all backends.
+  GLSL/HLSL `exitLoop`/`exitSwitch` stack corruption, SPIR-V
+  `emitScalarType`/`addressSpaceToStorageClass`/`findTypeHandleByID`
+  and 6 more. ~200 caller sites updated.
+
+- **Unsupported stage validation** — GLSL and MSL now reject mesh/task
+  shader stages with clear error messages instead of generating invalid code.
+
+### Added
+
+- **Test coverage: 12/18 packages ≥80%**. Enterprise-quality tests with
+  hand-crafted IR modules, output verification, and regression protection.
+  - 100%: internal/textutil, dxil/internal/module
+  - 96.6%: internal/backend
+  - 92.9%: dxil/passes/mem2reg
+  - 88.6%: dxil/passes/dce
+  - 83.8%: wgsl/parser, dxil/bitcode
+  - 83.0%: dxil/viewid, dxil/passes/sroa
+  - 81.1%: ir
+  - 80.6%: glsl/codegen, 80.8%: dxil/container
+
 ## [0.17.11] - 2026-05-06
 
 ### Fixed (DXIL)

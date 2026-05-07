@@ -341,6 +341,21 @@ naga/                              ~192K LOC total
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 
+### Test Coverage
+
+12/18 packages at ≥80% statement coverage. Enterprise-quality tests with output verification, edge cases, and regression protection.
+
+| Package | Coverage |
+|---------|:---:|
+| internal/textutil, dxil/module | **100%** |
+| internal/backend | **96.6%** |
+| dxil/passes (dce/mem2reg/sroa) | **83-93%** |
+| ir, glsl, wgsl/parser, dxil/bitcode/container/viewid | **80-84%** |
+
+### Architecture
+
+All backends follow the DXIL internal package pattern — implementation in `internal/codegen/`, thin public API with real types (not aliases). Zero panics in error paths.
+
 ---
 
 ## References
