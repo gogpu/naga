@@ -90,8 +90,8 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 		stageIO = &shaderStageIO{stage: info.stage, io: IoOutput}
 	}
 
-	w.writeLine("struct %s {", structName)
-	w.pushIndent()
+	w.WriteLine("struct %s {", structName)
+	w.PushIndent()
 
 	var lastOffset uint32
 	for memberIdx, member := range st.Members {
@@ -99,7 +99,7 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 		if member.Binding == nil && member.Offset > lastOffset {
 			padding := (member.Offset - lastOffset) / 4
 			for i := uint32(0); i < padding; i++ {
-				w.writeLine("int _pad%d_%d;", memberIdx, i)
+				w.WriteLine("int _pad%d_%d;", memberIdx, i)
 			}
 		}
 
@@ -136,28 +136,28 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 		// individual column vectors: float2 m_0; float2 m_1; float2 m_2;
 		// For arrays of matCx2, use __matNx2 typedef.
 		// Other matrices get row_major prefix.
-		w.writeIndent()
+		w.WriteIndent()
 		if member.Binding == nil && w.isMatCx2Type(member.Type) {
 			// Decompose matCx2 into column vectors on a single line
 			mat := w.module.Types[member.Type].Inner.(ir.MatrixType)
 			vecTypeName := w.vectorTypeName(mat.Scalar, uint8(mat.Rows))
 			for i := uint8(0); i < uint8(mat.Columns); i++ {
 				if i != 0 {
-					w.out.WriteString("; ")
+					w.Out.WriteString("; ")
 				}
-				fmt.Fprintf(&w.out, "%s %s_%d", vecTypeName, memberName, i)
+				fmt.Fprintf(&w.Out, "%s %s_%d", vecTypeName, memberName, i)
 			}
 		} else if member.Binding == nil && w.isArrayOfMatCx2Type(member.Type) {
 			// Array of matCx2: use __matNx2 typedef with array suffix.
 			// Matches Rust naga: write_global_type + write_array_size for Array{base: matCx2}.
 			m := getInnerMatrixData(w.module, member.Type)
-			fmt.Fprintf(&w.out, "__mat%dx2 %s", m.columns, memberName)
+			fmt.Fprintf(&w.Out, "__mat%dx2 %s", m.columns, memberName)
 			w.writeArraySizes(member.Type)
 		} else {
 			if member.Binding == nil && (isMatrixType(w.module, member.Type) || containsMatrix(w.module, member.Type)) {
-				fmt.Fprintf(&w.out, "row_major ")
+				fmt.Fprintf(&w.Out, "row_major ")
 			}
-			fmt.Fprintf(&w.out, "%s %s%s", memberType, memberName, arraySuffix)
+			fmt.Fprintf(&w.Out, "%s %s%s", memberType, memberName, arraySuffix)
 		}
 
 		// Write semantic for members with bindings (builtins always, locations use LOC{N}
@@ -165,20 +165,20 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 		if member.Binding != nil {
 			w.writeSemantic(member.Binding, stageIO)
 		}
-		w.out.WriteString(";\n")
+		w.Out.WriteString(";\n")
 	}
 
 	// Add end padding if needed (matches Rust naga)
 	if len(st.Members) > 0 && st.Members[len(st.Members)-1].Binding == nil && st.Span > lastOffset {
 		padding := (st.Span - lastOffset) / 4
 		for i := uint32(0); i < padding; i++ {
-			w.writeLine("int _end_pad_%d;", i)
+			w.WriteLine("int _end_pad_%d;", i)
 		}
 	}
 
-	w.popIndent()
-	w.writeLine("};")
-	w.writeLine("")
+	w.PopIndent()
+	w.WriteLine("};")
+	w.WriteLine("")
 	return nil
 }
 
@@ -214,14 +214,14 @@ func (w *Writer) writeSemantic(binding *ir.Binding, stage *shaderStageIO) {
 	}
 	switch b := (*binding).(type) {
 	case ir.BuiltinBinding:
-		fmt.Fprintf(&w.out, " : %s", BuiltInToSemantic(b.Builtin))
+		fmt.Fprintf(&w.Out, " : %s", BuiltInToSemantic(b.Builtin))
 	case ir.LocationBinding:
 		if b.BlendSrc != nil && *b.BlendSrc == 1 {
-			fmt.Fprintf(&w.out, " : SV_Target1")
+			fmt.Fprintf(&w.Out, " : SV_Target1")
 		} else if stage != nil && stage.stage == ir.StageFragment && stage.io == IoOutput {
-			fmt.Fprintf(&w.out, " : SV_Target%d", b.Location)
+			fmt.Fprintf(&w.Out, " : SV_Target%d", b.Location)
 		} else {
-			fmt.Fprintf(&w.out, " : %s%d", locationSemantic, b.Location)
+			fmt.Fprintf(&w.Out, " : %s%d", locationSemantic, b.Location)
 		}
 	}
 }
@@ -506,8 +506,8 @@ func (w *Writer) writeSamplerHeaps() {
 	stdTarget := w.options.SamplerHeapTargets.StandardSamplers
 	cmpTarget := w.options.SamplerHeapTargets.ComparisonSamplers
 
-	w.writeLine("SamplerState nagaSamplerHeap[2048]: register(s%d, space%d);", stdTarget.Register, stdTarget.Space)
-	w.writeLine("SamplerComparisonState nagaComparisonSamplerHeap[2048]: register(s%d, space%d);", cmpTarget.Register, cmpTarget.Space)
+	w.WriteLine("SamplerState nagaSamplerHeap[2048]: register(s%d, space%d);", stdTarget.Register, stdTarget.Space)
+	w.WriteLine("SamplerComparisonState nagaComparisonSamplerHeap[2048]: register(s%d, space%d);", cmpTarget.Register, cmpTarget.Space)
 }
 
 // writeSamplerIndexBuffer writes the StructuredBuffer<uint> for a given group's sampler indices.
@@ -534,7 +534,7 @@ func (w *Writer) writeSamplerIndexBuffer(group uint32) {
 		bt = BindTarget{Space: 255, Register: group}
 	}
 
-	w.writeLine("StructuredBuffer<uint> %s : register(t%d, space%d);", bufName, bt.Register, bt.Space)
+	w.WriteLine("StructuredBuffer<uint> %s : register(t%d, space%d);", bufName, bt.Register, bt.Space)
 	w.samplerIndexBuffers[group] = bufName
 }
 
@@ -669,23 +669,23 @@ func (w *Writer) writeByteAddressBufferType(readOnly bool) string {
 // - No trailing `;` after closing `}`
 // - All on one logical line with `{ ... }` inline
 func (w *Writer) writeCBufferDeclaration(name, _ string, typeHandle ir.TypeHandle, binding *BindTarget) {
-	w.writeIndent()
-	w.out.WriteString("cbuffer")
+	w.WriteIndent()
+	w.Out.WriteString("cbuffer")
 
 	// Write the global variable name
-	fmt.Fprintf(&w.out, " %s", name)
+	fmt.Fprintf(&w.Out, " %s", name)
 
 	// Write register binding
 	if binding != nil {
-		fmt.Fprintf(&w.out, " : register(b%d", binding.Register)
+		fmt.Fprintf(&w.Out, " : register(b%d", binding.Register)
 		if binding.Space != 0 {
-			fmt.Fprintf(&w.out, ", space%d", binding.Space)
+			fmt.Fprintf(&w.Out, ", space%d", binding.Space)
 		}
-		w.out.WriteString(")")
+		w.Out.WriteString(")")
 	}
 
 	// Write inline struct body: { type name[size]; }
-	w.out.WriteString(" { ")
+	w.Out.WriteString(" { ")
 
 	// Check for matCx2 decomposition: matrices with rows=2 in uniform buffers
 	// use __matCx2 struct instead of row_major floatCxR.
@@ -694,20 +694,20 @@ func (w *Writer) writeCBufferDeclaration(name, _ string, typeHandle ir.TypeHandl
 	if matData.isMatCx2() {
 		// Use __matCx2 type, with possible array suffix
 		_, arraySuffix := w.getTypeNameWithArraySuffix(typeHandle)
-		fmt.Fprintf(&w.out, "__mat%dx2 %s%s", uint8(matData.columns), name, arraySuffix)
+		fmt.Fprintf(&w.Out, "__mat%dx2 %s%s", uint8(matData.columns), name, arraySuffix)
 	} else {
 		// For arrays, use the base type name and add array suffix separately
 		// to avoid duplicate array sizes (e.g., "Light[10] u_lights[10]")
 		baseTypeName, arraySuffix := w.getTypeNameWithArraySuffix(typeHandle)
 		// Add row_major prefix for direct matrix types in cbuffer
 		if isMatrixType(w.module, typeHandle) || containsMatrix(w.module, typeHandle) {
-			fmt.Fprintf(&w.out, "row_major %s %s%s", baseTypeName, name, arraySuffix)
+			fmt.Fprintf(&w.Out, "row_major %s %s%s", baseTypeName, name, arraySuffix)
 		} else {
-			fmt.Fprintf(&w.out, "%s %s%s", baseTypeName, name, arraySuffix)
+			fmt.Fprintf(&w.Out, "%s %s%s", baseTypeName, name, arraySuffix)
 		}
 	}
 
-	w.out.WriteString("; }\n")
+	w.Out.WriteString("; }\n")
 }
 
 // writeConstants writes constant definitions.
@@ -727,20 +727,20 @@ func (w *Writer) writeConstants() error {
 			name = fmt.Sprintf("const_%d", handle)
 		}
 		typeName, arraySuffix := w.getTypeNameWithArraySuffix(constant.Type)
-		w.writeIndent()
-		fmt.Fprintf(&w.out, "static const %s %s%s = ", typeName, name, arraySuffix)
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "static const %s %s%s = ", typeName, name, arraySuffix)
 		// Use GlobalExpressions init if available
 		if int(constant.Init) < len(w.module.GlobalExpressions) {
 			if err := w.writeGlobalConstExpression(constant.Init); err != nil {
 				// Fallback to old method
-				w.out.WriteString(w.writeConstantValue(constant))
+				w.Out.WriteString(w.writeConstantValue(constant))
 			}
 		} else {
-			w.out.WriteString(w.writeConstantValue(constant))
+			w.Out.WriteString(w.writeConstantValue(constant))
 		}
-		w.out.WriteString(";\n")
+		w.Out.WriteString(";\n")
 	}
-	w.writeLine("")
+	w.WriteLine("")
 	return nil
 }
 
@@ -863,7 +863,7 @@ func (w *Writer) writeGlobalVariables() error {
 		}
 	}
 	if len(w.module.GlobalVariables) > 0 {
-		w.writeLine("")
+		w.WriteLine("")
 	}
 	return nil
 }
@@ -899,18 +899,18 @@ func (w *Writer) writeGlobalVariable(name string, global *ir.GlobalVariable) err
 			regType = "t"
 		}
 		regStr := formatRegister(regType, binding.Register, binding.Space)
-		w.writeLine("%sByteAddressBuffer %s : %s;", prefix, name, regStr)
+		w.WriteLine("%sByteAddressBuffer %s : %s;", prefix, name, regStr)
 		w.registerBindings[name] = regStr
 
 	case ir.SpaceWorkGroup:
 		// Shared memory in compute shaders — use array suffix for correct declaration
 		baseTypeName, arraySuffix := w.getTypeNameWithArraySuffix(global.Type)
-		w.writeLine("groupshared %s %s%s;", baseTypeName, name, arraySuffix)
+		w.WriteLine("groupshared %s %s%s;", baseTypeName, name, arraySuffix)
 
 	case ir.SpacePrivate:
 		// Module-scope private variable (Rust naga always initializes)
-		w.writeIndent()
-		fmt.Fprintf(&w.out, "static %s %s = ", typeName, name)
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "static %s %s = ", typeName, name)
 		if global.InitExpr != nil {
 			if err := w.writeGlobalConstExpression(*global.InitExpr); err != nil {
 				return err
@@ -919,22 +919,22 @@ func (w *Writer) writeGlobalVariable(name string, global *ir.GlobalVariable) err
 			// Fall back to constant reference
 			constName := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(*global.Init)}]
 			if constName != "" {
-				w.out.WriteString(constName)
+				w.Out.WriteString(constName)
 			} else {
-				fmt.Fprintf(&w.out, "(%s)0", typeName)
+				fmt.Fprintf(&w.Out, "(%s)0", typeName)
 			}
 		} else {
 			// Zero initialize: (Type)0
-			fmt.Fprintf(&w.out, "(%s)0", typeName)
+			fmt.Fprintf(&w.Out, "(%s)0", typeName)
 		}
-		w.out.WriteString(";\n")
+		w.Out.WriteString(";\n")
 
 	case ir.SpaceImmediate:
 		// Immediate data (push constants) — wrapped in ConstantBuffer<T>
 		// Matches Rust naga: `ConstantBuffer<Type> name: register(bN, spaceN);`
 		binding := w.getBindTarget(global.Binding)
 		regStr := formatRegister("b", binding.Register, binding.Space)
-		w.writeLine("ConstantBuffer<%s> %s: %s;", typeName, name, regStr)
+		w.WriteLine("ConstantBuffer<%s> %s: %s;", typeName, name, regStr)
 		w.registerBindings[name] = regStr
 
 	case ir.SpaceHandle:
@@ -943,7 +943,7 @@ func (w *Writer) writeGlobalVariable(name string, global *ir.GlobalVariable) err
 
 	default:
 		// Default: just write type and name
-		w.writeLine("%s %s;", typeName, name)
+		w.WriteLine("%s %s;", typeName, name)
 	}
 
 	return nil
@@ -952,7 +952,7 @@ func (w *Writer) writeGlobalVariable(name string, global *ir.GlobalVariable) err
 // writeResourceHandle writes a texture or sampler declaration.
 func (w *Writer) writeResourceHandle(name string, typeHandle ir.TypeHandle, global *ir.GlobalVariable) {
 	if int(typeHandle) >= len(w.module.Types) {
-		w.writeLine("// Unknown resource type for %s", name)
+		w.WriteLine("// Unknown resource type for %s", name)
 		return
 	}
 
@@ -982,9 +982,9 @@ func (w *Writer) writeResourceHandle(name string, typeHandle ir.TypeHandle, glob
 				heapVar = "nagaComparisonSamplerHeap"
 			}
 			indexBufName := w.samplerIndexBuffers[group]
-			w.writeLine("static const %s %s = %s[%s[%d]];", samplerType, name, heapVar, indexBufName, binding.Register)
+			w.WriteLine("static const %s %s = %s[%s[%d]];", samplerType, name, heapVar, indexBufName, binding.Register)
 		} else {
-			w.writeLine("%s %s;", samplerType, name)
+			w.WriteLine("%s %s;", samplerType, name)
 		}
 
 	case ir.ImageType:
@@ -997,20 +997,20 @@ func (w *Writer) writeResourceHandle(name string, typeHandle ir.TypeHandle, glob
 				reg = "u"
 			}
 			regStr := formatRegister(reg, binding.Register, binding.Space)
-			w.writeLine("%s %s : %s;", texType, name, regStr)
+			w.WriteLine("%s %s : %s;", texType, name, regStr)
 			w.registerBindings[name] = regStr
 		} else {
-			w.writeLine("%s %s;", texType, name)
+			w.WriteLine("%s %s;", texType, name)
 		}
 
 	case ir.AccelerationStructureType:
 		if global.Binding != nil {
 			binding := w.getBindTarget(global.Binding)
 			regStr := formatRegister("t", binding.Register, binding.Space)
-			w.writeLine("RaytracingAccelerationStructure %s : %s;", name, regStr)
+			w.WriteLine("RaytracingAccelerationStructure %s : %s;", name, regStr)
 			w.registerBindings[name] = regStr
 		} else {
-			w.writeLine("RaytracingAccelerationStructure %s;", name)
+			w.WriteLine("RaytracingAccelerationStructure %s;", name)
 		}
 
 	case ir.BindingArrayType:
@@ -1018,7 +1018,7 @@ func (w *Writer) writeResourceHandle(name string, typeHandle ir.TypeHandle, glob
 		w.writeBindingArrayDeclaration(name, inner, global)
 
 	default:
-		w.writeLine("// Unsupported resource type for %s: %T", name, inner)
+		w.WriteLine("// Unsupported resource type for %s: %T", name, inner)
 	}
 }
 
@@ -1028,7 +1028,7 @@ func (w *Writer) writeResourceHandle(name string, typeHandle ir.TypeHandle, glob
 // For texture binding arrays: writes standard array declaration with optional overridden size.
 func (w *Writer) writeBindingArrayDeclaration(name string, ba ir.BindingArrayType, global *ir.GlobalVariable) {
 	if int(ba.Base) >= len(w.module.Types) {
-		w.writeLine("// Unknown binding array base type for %s", name)
+		w.WriteLine("// Unknown binding array base type for %s", name)
 		return
 	}
 
@@ -1042,7 +1042,7 @@ func (w *Writer) writeBindingArrayDeclaration(name string, ba ir.BindingArrayTyp
 			group := global.Binding.Group
 			w.writeSamplerHeaps()
 			w.writeSamplerIndexBuffer(group)
-			w.writeLine("static const uint %s = %d;", name, binding.Register)
+			w.WriteLine("static const uint %s = %d;", name, binding.Register)
 		}
 		return
 	}
@@ -1081,9 +1081,9 @@ func (w *Writer) writeBindingArrayDeclaration(name string, ba ir.BindingArrayTyp
 			}
 		}
 		regStr := formatRegister(reg, binding.Register, binding.Space)
-		w.writeLine("%s %s[%s] : %s;", baseTypeName, name, sizeStr, regStr)
+		w.WriteLine("%s %s[%s] : %s;", baseTypeName, name, sizeStr, regStr)
 	} else {
-		w.writeLine("%s %s[%s];", baseTypeName, name, sizeStr)
+		w.WriteLine("%s %s[%s];", baseTypeName, name, sizeStr)
 	}
 }
 
@@ -1204,9 +1204,9 @@ func (w *Writer) writeArraySizes(handle ir.TypeHandle) {
 		return
 	}
 	if arr.Size.Constant != nil {
-		fmt.Fprintf(&w.out, "[%d]", *arr.Size.Constant)
+		fmt.Fprintf(&w.Out, "[%d]", *arr.Size.Constant)
 	} else {
-		w.out.WriteString("[1]") // runtime-sized fallback
+		w.Out.WriteString("[1]") // runtime-sized fallback
 	}
 	// Handle nested arrays
 	if int(arr.Base) < len(w.module.Types) {
@@ -1419,41 +1419,41 @@ func (m *matrixTypeInfo) isMatCx2() bool {
 // Matches Rust naga help.rs write_mat_cx2_typedef_and_functions.
 func (w *Writer) writeMatCx2TypedefAndFunctions(columns uint8) {
 	// typedef struct { float2 _0; float2 _1; ... } __matCx2;
-	w.out.WriteString("typedef struct { ")
+	w.Out.WriteString("typedef struct { ")
 	for i := uint8(0); i < columns; i++ {
-		fmt.Fprintf(&w.out, "float2 _%d; ", i)
+		fmt.Fprintf(&w.Out, "float2 _%d; ", i)
 	}
-	fmt.Fprintf(&w.out, "} __mat%dx2;\n", columns)
+	fmt.Fprintf(&w.Out, "} __mat%dx2;\n", columns)
 
 	// __get_col_of_matCx2
-	fmt.Fprintf(&w.out, "float2 __get_col_of_mat%dx2(__mat%dx2 mat, uint idx) {\n", columns, columns)
-	w.out.WriteString("    switch(idx) {\n")
+	fmt.Fprintf(&w.Out, "float2 __get_col_of_mat%dx2(__mat%dx2 mat, uint idx) {\n", columns, columns)
+	w.Out.WriteString("    switch(idx) {\n")
 	for i := uint8(0); i < columns; i++ {
-		fmt.Fprintf(&w.out, "    case %d: { return mat._%d; }\n", i, i)
+		fmt.Fprintf(&w.Out, "    case %d: { return mat._%d; }\n", i, i)
 	}
-	w.out.WriteString("    default: { return (float2)0; }\n")
-	w.out.WriteString("    }\n")
-	w.out.WriteString("}\n")
+	w.Out.WriteString("    default: { return (float2)0; }\n")
+	w.Out.WriteString("    }\n")
+	w.Out.WriteString("}\n")
 
 	// __set_col_of_matCx2
-	fmt.Fprintf(&w.out, "void __set_col_of_mat%dx2(__mat%dx2 mat, uint idx, float2 value) {\n", columns, columns)
-	w.out.WriteString("    switch(idx) {\n")
+	fmt.Fprintf(&w.Out, "void __set_col_of_mat%dx2(__mat%dx2 mat, uint idx, float2 value) {\n", columns, columns)
+	w.Out.WriteString("    switch(idx) {\n")
 	for i := uint8(0); i < columns; i++ {
-		fmt.Fprintf(&w.out, "    case %d: { mat._%d = value; break; }\n", i, i)
+		fmt.Fprintf(&w.Out, "    case %d: { mat._%d = value; break; }\n", i, i)
 	}
-	w.out.WriteString("    }\n")
-	w.out.WriteString("}\n")
+	w.Out.WriteString("    }\n")
+	w.Out.WriteString("}\n")
 
 	// __set_el_of_matCx2
-	fmt.Fprintf(&w.out, "void __set_el_of_mat%dx2(__mat%dx2 mat, uint idx, uint vec_idx, float value) {\n", columns, columns)
-	w.out.WriteString("    switch(idx) {\n")
+	fmt.Fprintf(&w.Out, "void __set_el_of_mat%dx2(__mat%dx2 mat, uint idx, uint vec_idx, float value) {\n", columns, columns)
+	w.Out.WriteString("    switch(idx) {\n")
 	for i := uint8(0); i < columns; i++ {
-		fmt.Fprintf(&w.out, "    case %d: { mat._%d[vec_idx] = value; break; }\n", i, i)
+		fmt.Fprintf(&w.Out, "    case %d: { mat._%d[vec_idx] = value; break; }\n", i, i)
 	}
-	w.out.WriteString("    }\n")
-	w.out.WriteString("}\n")
+	w.Out.WriteString("    }\n")
+	w.Out.WriteString("}\n")
 
-	w.out.WriteString("\n")
+	w.Out.WriteString("\n")
 }
 
 // writeAllMatCx2TypedefsAndFunctions scans global variables and struct members
@@ -1519,38 +1519,38 @@ func (w *Writer) writeWrappedStructMatrixAccessFunctions(tyHandle ir.TypeHandle,
 	scalarTypeName := scalarTypeHLSL(mat.Scalar)
 
 	// GetMat{field}On{struct}
-	fmt.Fprintf(&w.out, "%s GetMat%sOn%s(%s obj) {\n", matTypeName, fieldName, structName, structName)
-	fmt.Fprintf(&w.out, "    return %s(", matTypeName)
+	fmt.Fprintf(&w.Out, "%s GetMat%sOn%s(%s obj) {\n", matTypeName, fieldName, structName, structName)
+	fmt.Fprintf(&w.Out, "    return %s(", matTypeName)
 	for i := uint8(0); i < uint8(mat.Columns); i++ {
 		if i != 0 {
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 		}
-		fmt.Fprintf(&w.out, "obj.%s_%d", fieldName, i)
+		fmt.Fprintf(&w.Out, "obj.%s_%d", fieldName, i)
 	}
-	w.out.WriteString(");\n}\n\n")
+	w.Out.WriteString(");\n}\n\n")
 
 	// SetMat{field}On{struct}
-	fmt.Fprintf(&w.out, "void SetMat%sOn%s(%s obj, %s mat) {\n", fieldName, structName, structName, matTypeName)
+	fmt.Fprintf(&w.Out, "void SetMat%sOn%s(%s obj, %s mat) {\n", fieldName, structName, structName, matTypeName)
 	for i := uint8(0); i < uint8(mat.Columns); i++ {
-		fmt.Fprintf(&w.out, "    obj.%s_%d = mat[%d];\n", fieldName, i, i)
+		fmt.Fprintf(&w.Out, "    obj.%s_%d = mat[%d];\n", fieldName, i, i)
 	}
-	w.out.WriteString("}\n\n")
+	w.Out.WriteString("}\n\n")
 
 	// SetMatVec{field}On{struct}
-	fmt.Fprintf(&w.out, "void SetMatVec%sOn%s(%s obj, %s vec, uint mat_idx) {\n", fieldName, structName, structName, vecTypeName)
-	w.out.WriteString("    switch(mat_idx) {\n")
+	fmt.Fprintf(&w.Out, "void SetMatVec%sOn%s(%s obj, %s vec, uint mat_idx) {\n", fieldName, structName, structName, vecTypeName)
+	w.Out.WriteString("    switch(mat_idx) {\n")
 	for i := uint8(0); i < uint8(mat.Columns); i++ {
-		fmt.Fprintf(&w.out, "    case %d: { obj.%s_%d = vec; break; }\n", i, fieldName, i)
+		fmt.Fprintf(&w.Out, "    case %d: { obj.%s_%d = vec; break; }\n", i, fieldName, i)
 	}
-	w.out.WriteString("    }\n}\n\n")
+	w.Out.WriteString("    }\n}\n\n")
 
 	// SetMatScalar{field}On{struct}
-	fmt.Fprintf(&w.out, "void SetMatScalar%sOn%s(%s obj, %s scalar, uint mat_idx, uint vec_idx) {\n", fieldName, structName, structName, scalarTypeName)
-	w.out.WriteString("    switch(mat_idx) {\n")
+	fmt.Fprintf(&w.Out, "void SetMatScalar%sOn%s(%s obj, %s scalar, uint mat_idx, uint vec_idx) {\n", fieldName, structName, structName, scalarTypeName)
+	w.Out.WriteString("    switch(mat_idx) {\n")
 	for i := uint8(0); i < uint8(mat.Columns); i++ {
-		fmt.Fprintf(&w.out, "    case %d: { obj.%s_%d[vec_idx] = scalar; break; }\n", i, fieldName, i)
+		fmt.Fprintf(&w.Out, "    case %d: { obj.%s_%d[vec_idx] = scalar; break; }\n", i, fieldName, i)
 	}
-	w.out.WriteString("    }\n}\n\n")
+	w.Out.WriteString("    }\n}\n\n")
 }
 
 // scalarTypeHLSL returns the HLSL name for a scalar type.

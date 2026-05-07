@@ -1359,8 +1359,8 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool)
 
 	// Build the condition string. Checks are in outer-to-inner order (from the
 	// initial walk), which matches Rust naga's bounds_check_iter ordering.
-	savedOut := w.out
-	w.out = strings.Builder{}
+	savedOut := w.Out
+	w.Out = strings.Builder{}
 
 	for i, c := range checks {
 		if i > 0 {
@@ -1384,8 +1384,8 @@ func (w *Writer) buildRZSWBoundsCheck(handle ir.ExpressionHandle) (string, bool)
 		}
 	}
 
-	result := w.out.String()
-	w.out = savedOut
+	result := w.Out.String()
+	w.Out = savedOut
 	return result, true
 }
 

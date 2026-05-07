@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gogpu/naga/internal/textutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -36,14 +37,10 @@ const (
 
 // Writer generates GLSL source code from IR.
 type Writer struct {
+	textutil.IndentWriter // provides Out, Indent, WriteLine, WriteIndent, PushIndent, PopIndent
+
 	module  *ir.Module
 	options *Options
-
-	// Output buffer
-	out strings.Builder
-
-	// Current indentation level
-	indent int
 
 	// Name management
 	names map[nameKey]string
@@ -286,7 +283,7 @@ func newWriter(module *ir.Module, options *Options) *Writer {
 
 // String returns the generated GLSL source code.
 func (w *Writer) String() string {
-	return w.out.String()
+	return w.Out.String()
 }
 
 // writeModule generates GLSL code for the entire module.
@@ -352,7 +349,7 @@ func (w *Writer) writeModule() error {
 
 	// 7c. Separator between globals/varyings section and functions.
 	// Rust naga always emits a blank line here (after write_varying, before functions).
-	w.writeLine("")
+	w.WriteLine("")
 
 	// 8. Write regular functions
 	if err := w.writeFunctions(); err != nil {
@@ -382,7 +379,7 @@ func (w *Writer) buildReachableSet() {
 
 // writeVersionDirective writes the #version directive.
 func (w *Writer) writeVersionDirective() {
-	w.writeLine("#version %s", w.options.LangVersion.String())
+	w.WriteLine("#version %s", w.options.LangVersion.String())
 }
 
 // getSelectedEntryPoint returns the entry point being compiled.
@@ -403,10 +400,10 @@ func (w *Writer) writePrecisionQualifiers() {
 		return
 	}
 
-	w.writeLine("")
-	w.writeLine("precision highp float;")
-	w.writeLine("precision highp int;")
-	w.writeLine("")
+	w.WriteLine("")
+	w.WriteLine("precision highp float;")
+	w.WriteLine("precision highp int;")
+	w.WriteLine("")
 }
 
 // registerNames assigns unique names to all IR entities.
@@ -706,18 +703,18 @@ func (w *Writer) writeTypes() error {
 		}
 
 		typeName := w.typeNames[ir.TypeHandle(handle)]
-		w.writeLine("struct %s {", typeName)
-		w.pushIndent()
+		w.WriteLine("struct %s {", typeName)
+		w.PushIndent()
 
 		for memberIdx, member := range st.Members {
 			baseType := w.getBaseTypeName(member.Type)
 			arraySuffix := w.getArraySuffix(member.Type)
 			memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}]
-			w.writeLine("%s %s%s;", baseType, memberName, arraySuffix)
+			w.WriteLine("%s %s%s;", baseType, memberName, arraySuffix)
 		}
 
-		w.popIndent()
-		w.writeLine("};")
+		w.PopIndent()
+		w.WriteLine("};")
 	}
 	return nil
 }
@@ -737,11 +734,11 @@ func (w *Writer) writeConstants() error {
 		baseType := w.getBaseTypeName(constant.Type)
 		arraySuffix := w.getArraySuffix(constant.Type)
 		value := w.writeConstantValue(constant)
-		w.writeLine("const %s %s%s = %s;", baseType, name, arraySuffix, value)
+		w.WriteLine("const %s %s%s = %s;", baseType, name, arraySuffix, value)
 		wrote = true
 	}
 	if wrote {
-		w.writeLine("")
+		w.WriteLine("")
 	}
 	return nil
 }
@@ -949,16 +946,16 @@ func (w *Writer) writeGlobalVariables() error {
 				initStr = w.writeConstExpr(*global.InitExpr)
 			}
 			if initStr != "" && initStr != "0" {
-				w.writeLine("%s %s%s = %s;", baseType, name, arraySuffix, initStr)
+				w.WriteLine("%s %s%s = %s;", baseType, name, arraySuffix, initStr)
 			} else if zv := w.zeroInitValue(global.Type); zv != "" {
-				w.writeLine("%s %s%s = %s;", baseType, name, arraySuffix, zv)
+				w.WriteLine("%s %s%s = %s;", baseType, name, arraySuffix, zv)
 			} else {
-				w.writeLine("%s %s%s;", baseType, name, arraySuffix)
+				w.WriteLine("%s %s%s;", baseType, name, arraySuffix)
 			}
 		case ir.SpaceWorkGroup:
 			baseType := w.getBaseTypeName(global.Type)
 			arraySuffix := w.getArraySuffix(global.Type)
-			w.writeLine("shared %s %s%s;", baseType, name, arraySuffix)
+			w.WriteLine("shared %s %s%s;", baseType, name, arraySuffix)
 		case ir.SpacePushConstant:
 			// Push constants emitted as uniform blocks
 			w.writeUniformVariable(name, typeName, global)
@@ -972,7 +969,7 @@ func (w *Writer) writeGlobalVariables() error {
 			case ir.StageVertex:
 				stageSuffix = "vs"
 			}
-			w.writeLine("uniform %s _immediates_binding_%s;", typeName, stageSuffix)
+			w.WriteLine("uniform %s _immediates_binding_%s;", typeName, stageSuffix)
 		default:
 			// Handle texture/sampler globals — textures need "uniform", samplers are skipped
 			if int(global.Type) < len(w.module.Types) {
@@ -986,21 +983,21 @@ func (w *Writer) writeGlobalVariables() error {
 						w.writeCombinedSamplerDecl(infos[0])
 						// Additional pairs get separate declarations with combined names.
 						for _, extra := range infos[1:] {
-							w.writeLine("")
+							w.WriteLine("")
 							w.writeExtraCombinedSamplerDecl(extra)
 						}
 					} else {
 						w.writeImageGlobalDecl(global, name, typeName)
 					}
 				default:
-					w.writeLine("%s %s;", typeName, name)
+					w.WriteLine("%s %s;", typeName, name)
 				}
 			} else {
-				w.writeLine("%s %s;", typeName, name)
+				w.WriteLine("%s %s;", typeName, name)
 			}
 		}
 		// Rust naga adds blank line after each global declaration
-		w.writeLine("")
+		w.WriteLine("")
 	}
 	return nil
 }
@@ -1025,15 +1022,15 @@ func (w *Writer) writeImageGlobalDecl(global ir.GlobalVariable, name, typeName s
 			layoutParts = append(layoutParts, layout)
 		}
 		if len(layoutParts) > 0 {
-			w.writeLine("layout(%s) %suniform %s%s %s;", strings.Join(layoutParts, ", "), access, highp, typeName, name)
+			w.WriteLine("layout(%s) %suniform %s%s %s;", strings.Join(layoutParts, ", "), access, highp, typeName, name)
 		} else {
-			w.writeLine("%suniform %s%s %s;", access, highp, typeName, name)
+			w.WriteLine("%suniform %s%s %s;", access, highp, typeName, name)
 		}
 	} else {
 		if len(layoutParts) > 0 {
-			w.writeLine("layout(%s) uniform %s%s %s;", strings.Join(layoutParts, ", "), highp, typeName, name)
+			w.WriteLine("layout(%s) uniform %s%s %s;", strings.Join(layoutParts, ", "), highp, typeName, name)
 		} else {
-			w.writeLine("uniform %s%s %s;", highp, typeName, name)
+			w.WriteLine("uniform %s%s %s;", highp, typeName, name)
 		}
 	}
 }
@@ -1057,7 +1054,7 @@ func (w *Writer) writeCombinedSamplerDecl(info *combinedSamplerInfo) {
 			layoutPrefix = fmt.Sprintf("layout(binding = %d) ", binding)
 		}
 	}
-	w.writeLine("%suniform %s%s %s;", layoutPrefix, highp, info.glslTypeName, varName)
+	w.WriteLine("%suniform %s%s %s;", layoutPrefix, highp, info.glslTypeName, varName)
 
 	// Update the combined sampler name so expression references use it
 	info.glslName = varName
@@ -1074,7 +1071,7 @@ func (w *Writer) writeExtraCombinedSamplerDecl(info *combinedSamplerInfo) {
 	if w.options.LangVersion.ES {
 		highp = "highp "
 	}
-	w.writeLine("uniform %s%s %s;", highp, info.glslTypeName, info.glslName)
+	w.WriteLine("uniform %s%s %s;", highp, info.glslTypeName, info.glslName)
 	w.textureSamplerPairs = append(w.textureSamplerPairs, info.glslName)
 }
 
@@ -1137,8 +1134,8 @@ func (w *Writer) writeCombinedSamplerDeclarations() {
 				layoutPrefix = fmt.Sprintf("layout(binding = %d) ", binding)
 			}
 		}
-		w.writeLine("%suniform %s%s %s;", layoutPrefix, highp, info.glslTypeName, varName)
-		w.writeLine("")
+		w.WriteLine("%suniform %s%s %s;", layoutPrefix, highp, info.glslTypeName, varName)
+		w.WriteLine("")
 
 		// Update the combined sampler name so expression references use it
 		info.glslName = varName
@@ -1166,12 +1163,12 @@ func (w *Writer) writeUniformVariable(name, typeName string, global ir.GlobalVar
 		baseType := w.getBaseTypeName(global.Type)
 		arraySuffix := w.getArraySuffix(global.Type)
 		if binding, ok := w.lookupBinding(global); ok {
-			w.writeLine("layout(std140, binding = %d) uniform %s { %s %s%s; };", binding, blockName, baseType, instanceName, arraySuffix)
+			w.WriteLine("layout(std140, binding = %d) uniform %s { %s %s%s; };", binding, blockName, baseType, instanceName, arraySuffix)
 		} else {
-			w.writeLine("layout(std140) uniform %s { %s %s%s; };", blockName, baseType, instanceName, arraySuffix)
+			w.WriteLine("layout(std140) uniform %s { %s %s%s; };", blockName, baseType, instanceName, arraySuffix)
 		}
 	} else {
-		w.writeLine("uniform %s %s;", typeName, name)
+		w.WriteLine("uniform %s %s;", typeName, name)
 	}
 }
 
@@ -1182,21 +1179,21 @@ func (w *Writer) writeUniformBlock(name, typeName string, global ir.GlobalVariab
 
 	if global.Binding != nil {
 		if binding, ok := w.lookupBinding(global); ok {
-			w.writeLine("layout(std140, binding = %d) uniform %s { %s %s; };", binding, blockName, typeName, instanceName)
+			w.WriteLine("layout(std140, binding = %d) uniform %s { %s %s; };", binding, blockName, typeName, instanceName)
 		} else {
-			w.writeLine("layout(std140) uniform %s { %s %s; };", blockName, typeName, instanceName)
+			w.WriteLine("layout(std140) uniform %s { %s %s; };", blockName, typeName, instanceName)
 		}
 	} else {
-		w.writeLine("uniform %s {", blockName)
-		w.pushIndent()
+		w.WriteLine("uniform %s {", blockName)
+		w.PushIndent()
 		for memberIdx, member := range st.Members {
 			baseType := w.getBaseTypeName(member.Type)
 			arraySuffix := w.getArraySuffix(member.Type)
 			memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(global.Type), handle2: uint32(memberIdx)}]
-			w.writeLine("%s %s%s;", baseType, memberName, arraySuffix)
+			w.WriteLine("%s %s%s;", baseType, memberName, arraySuffix)
 		}
-		w.popIndent()
-		w.writeLine("} %s;", name)
+		w.PopIndent()
+		w.WriteLine("} %s;", name)
 	}
 }
 
@@ -1331,18 +1328,18 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 			// Non-dynamic structs: { StructType instance; }
 			isDynamic := len(st.Members) > 0 && w.isDynamicallySized(st.Members[len(st.Members)-1].Type)
 			if isDynamic {
-				w.writeLine("%s%sbuffer %s {", layoutPrefix, readOnly, blockName)
-				w.pushIndent()
+				w.WriteLine("%s%sbuffer %s {", layoutPrefix, readOnly, blockName)
+				w.PushIndent()
 				for memberIdx, member := range st.Members {
 					baseType := w.getBaseTypeName(member.Type)
 					arraySuffix := w.getArraySuffix(member.Type)
 					memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(global.Type), handle2: uint32(memberIdx)}]
-					w.writeLine("%s %s%s;", baseType, memberName, arraySuffix)
+					w.WriteLine("%s %s%s;", baseType, memberName, arraySuffix)
 				}
-				w.popIndent()
-				w.writeLine("} %s;", instanceName)
+				w.PopIndent()
+				w.WriteLine("} %s;", instanceName)
 			} else {
-				w.writeLine("%s%sbuffer %s { %s %s; };", layoutPrefix, readOnly, blockName, typeName, instanceName)
+				w.WriteLine("%s%sbuffer %s { %s %s; };", layoutPrefix, readOnly, blockName, typeName, instanceName)
 			}
 			return
 		}
@@ -1351,7 +1348,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 	// Non-struct storage buffer — use C-style array declarations
 	baseType := w.getBaseTypeName(global.Type)
 	arraySuffix := w.getArraySuffix(global.Type)
-	w.writeLine("%s%sbuffer %s { %s %s%s; };", layoutPrefix, readOnly, blockName, baseType, instanceName, arraySuffix)
+	w.WriteLine("%s%sbuffer %s { %s %s%s; };", layoutPrefix, readOnly, blockName, baseType, instanceName, arraySuffix)
 }
 
 // writeVaryingDeclarations writes entry point in/out declarations at module level.
@@ -1403,7 +1400,7 @@ func (w *Writer) writeSingleVarying(binding *ir.Binding, typeHandle ir.TypeHandl
 	if b, ok := (*binding).(ir.BuiltinBinding); ok {
 		if b.Invariant && isOutput {
 			builtinName := glslBuiltIn(b.Builtin, isOutput)
-			w.writeLine("invariant %s;", builtinName)
+			w.WriteLine("invariant %s;", builtinName)
 		}
 		// ClipDistance: emit "out float gl_ClipDistance[N];" declaration.
 		// Matches Rust naga: re-declare gl_ClipDistance with the array size from the type.
@@ -1411,7 +1408,7 @@ func (w *Writer) writeSingleVarying(binding *ir.Binding, typeHandle ir.TypeHandl
 			if int(typeHandle) < len(w.module.Types) {
 				if arr, ok := w.module.Types[typeHandle].Inner.(ir.ArrayType); ok {
 					if arr.Size.Constant != nil {
-						w.writeLine("out float gl_ClipDistance[%d];", *arr.Size.Constant)
+						w.WriteLine("out float gl_ClipDistance[%d];", *arr.Size.Constant)
 					}
 				}
 			}
@@ -1475,11 +1472,11 @@ func (w *Writer) writeSingleVarying(binding *ir.Binding, typeHandle ir.TypeHandl
 	writeLayout := canWriteLayout && w.options.LangVersion.supportsIOLocations()
 
 	if loc.BlendSrc != nil {
-		w.writeLine("layout(location = %d, index = %d) %s%s %s;", loc.Location, *loc.BlendSrc, interpQual, direction, typeName+" "+varName)
+		w.WriteLine("layout(location = %d, index = %d) %s%s %s;", loc.Location, *loc.BlendSrc, interpQual, direction, typeName+" "+varName)
 	} else if writeLayout {
-		w.writeLine("layout(location = %d) %s%s %s;", loc.Location, interpQual, direction, typeName+" "+varName)
+		w.WriteLine("layout(location = %d) %s%s %s;", loc.Location, interpQual, direction, typeName+" "+varName)
 	} else {
-		w.writeLine("%s%s %s;", interpQual, direction, typeName+" "+varName)
+		w.WriteLine("%s%s %s;", interpQual, direction, typeName+" "+varName)
 	}
 }
 
@@ -1587,23 +1584,23 @@ func (w *Writer) writePredeclaredHelpers() {
 		}
 
 		if isModf {
-			w.writeLine("")
-			w.writeLine("%s naga_modf(%s arg) {", structName, argType)
-			w.pushIndent()
-			w.writeLine("%s other;", argType)
-			w.writeLine("%s fract = modf(arg, other);", argType)
-			w.writeLine("return %s(fract, other);", structName)
-			w.popIndent()
-			w.writeLine("}")
+			w.WriteLine("")
+			w.WriteLine("%s naga_modf(%s arg) {", structName, argType)
+			w.PushIndent()
+			w.WriteLine("%s other;", argType)
+			w.WriteLine("%s fract = modf(arg, other);", argType)
+			w.WriteLine("return %s(fract, other);", structName)
+			w.PopIndent()
+			w.WriteLine("}")
 		} else {
-			w.writeLine("")
-			w.writeLine("%s naga_frexp(%s arg) {", structName, argType)
-			w.pushIndent()
-			w.writeLine("%s other;", otherType)
-			w.writeLine("%s fract = frexp(arg, other);", argType)
-			w.writeLine("return %s(fract, other);", structName)
-			w.popIndent()
-			w.writeLine("}")
+			w.WriteLine("")
+			w.WriteLine("%s naga_frexp(%s arg) {", structName, argType)
+			w.PushIndent()
+			w.WriteLine("%s other;", otherType)
+			w.WriteLine("%s fract = frexp(arg, other);", argType)
+			w.WriteLine("return %s(fract, other);", structName)
+			w.PopIndent()
+			w.WriteLine("}")
 		}
 	}
 }
@@ -1789,23 +1786,23 @@ func (w *Writer) scanNeedBakeExpressions(fn *ir.Function) {
 // writeHelperFunctions writes any needed polyfill functions.
 func (w *Writer) writeHelperFunctions() {
 	if w.needsModHelper {
-		w.writeLine("// Safe modulo helper (truncated division semantics)")
-		w.writeLine("int _naga_mod(int a, int b) {")
-		w.pushIndent()
-		w.writeLine("return a - b * (a / b);")
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("// Safe modulo helper (truncated division semantics)")
+		w.WriteLine("int _naga_mod(int a, int b) {")
+		w.PushIndent()
+		w.WriteLine("return a - b * (a / b);")
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 
 	if w.needsDivHelper {
-		w.writeLine("// Safe division helper (handles zero divisor)")
-		w.writeLine("int _naga_div(int a, int b) {")
-		w.pushIndent()
-		w.writeLine("return b != 0 ? a / b : 0;")
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("// Safe division helper (handles zero divisor)")
+		w.WriteLine("int _naga_div(int a, int b) {")
+		w.PushIndent()
+		w.WriteLine("return b != 0 ? a / b : 0;")
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 }
 
@@ -1824,7 +1821,7 @@ func (w *Writer) writeFunctions() error {
 			return err
 		}
 		// Rust naga adds blank line after each function
-		w.writeLine("")
+		w.WriteLine("")
 	}
 	return nil
 }
@@ -1887,8 +1884,8 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		args = append(args, fmt.Sprintf("%s%s%s %s%s", qualifier, precision, baseType, argName, arraySuffix))
 	}
 
-	w.writeLine("%s %s(%s) {", returnType, name, strings.Join(args, ", "))
-	w.pushIndent()
+	w.WriteLine("%s %s(%s) {", returnType, name, strings.Join(args, ", "))
+	w.PushIndent()
 
 	if err := w.writeLocalVars(fn); err != nil {
 		return err
@@ -1898,8 +1895,8 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		return err
 	}
 
-	w.popIndent()
-	w.writeLine("}")
+	w.PopIndent()
+	w.WriteLine("}")
 
 	w.currentFunction = nil
 	return nil
@@ -1942,8 +1939,8 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	w.setupEntryPointIO(ep)
 
 	// Main function
-	w.writeLine("void main() {")
-	w.pushIndent()
+	w.WriteLine("void main() {")
+	w.PushIndent()
 
 	// Workgroup variable zero initialization (compute shaders only).
 	// Rust naga: if zero_initialize_workgroup_memory && compute stage
@@ -1966,10 +1963,10 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// Note: coordinate space adjustment and point size for vertex shaders
 	// are now emitted inside writeDirectReturn/writeStructReturn, matching Rust naga.
 
-	w.popIndent()
-	w.writeLine("}")
+	w.PopIndent()
+	w.WriteLine("}")
 	// Rust naga adds blank line after entry point (end of file newline)
-	w.writeLine("")
+	w.WriteLine("")
 
 	w.currentFunction = nil
 	w.inEntryPoint = false
@@ -1990,7 +1987,7 @@ func (w *Writer) writeVertexIO(_ *ir.EntryPoint, fn *ir.Function) {
 				baseType := w.getBaseTypeName(arg.Type)
 				arraySuffix := w.getArraySuffix(arg.Type)
 				name := escapeKeyword(arg.Name)
-				w.writeLine("layout(location = %d) in %s %s%s;", loc.Location, baseType, name, arraySuffix)
+				w.WriteLine("layout(location = %d) in %s %s%s;", loc.Location, baseType, name, arraySuffix)
 			}
 			// BuiltinBinding: no declaration needed (gl_VertexID, gl_InstanceID are built-in)
 		} else {
@@ -2001,7 +1998,7 @@ func (w *Writer) writeVertexIO(_ *ir.EntryPoint, fn *ir.Function) {
 
 	// Write output varyings
 	w.writeResultIO(fn, "out", true)
-	w.writeLine("")
+	w.WriteLine("")
 }
 
 // writeFragmentIO writes fragment shader input/output declarations.
@@ -2014,7 +2011,7 @@ func (w *Writer) writeFragmentIO(_ *ir.EntryPoint, fn *ir.Function) {
 				baseType := w.getBaseTypeName(arg.Type)
 				arraySuffix := w.getArraySuffix(arg.Type)
 				name := escapeKeyword(arg.Name)
-				w.writeLine("layout(location = %d) in %s %s%s;", loc.Location, baseType, name, arraySuffix)
+				w.WriteLine("layout(location = %d) in %s %s%s;", loc.Location, baseType, name, arraySuffix)
 			}
 			// BuiltinBinding: no declaration needed (gl_FragCoord etc. are built-in)
 		} else {
@@ -2025,7 +2022,7 @@ func (w *Writer) writeFragmentIO(_ *ir.EntryPoint, fn *ir.Function) {
 
 	// Write output colors
 	w.writeResultIO(fn, "out", false)
-	w.writeLine("")
+	w.WriteLine("")
 }
 
 // writeStructArgIO flattens a struct-typed entry point argument into individual IO declarations.
@@ -2055,7 +2052,7 @@ func (w *Writer) writeStructArgIO(argIdx uint32, typeHandle ir.TypeHandle, quali
 		case ir.LocationBinding:
 			baseType := w.getBaseTypeName(member.Type)
 			name := escapeKeyword(member.Name)
-			w.writeLine("layout(location = %d) %s %s %s;", b.Location, qualifier, baseType, name)
+			w.WriteLine("layout(location = %d) %s %s %s;", b.Location, qualifier, baseType, name)
 			info.members[memberIdx] = epStructMemberInfo{
 				glslName: name,
 			}
@@ -2089,7 +2086,7 @@ func (w *Writer) writeResultIO(fn *ir.Function, qualifier string, isVertexOutput
 			if isVertexOutput {
 				outName = "_vs_out"
 			}
-			w.writeLine("layout(location = %d) %s %s %s%s;", b.Location, qualifier, baseType, outName, arraySuffix)
+			w.WriteLine("layout(location = %d) %s %s %s%s;", b.Location, qualifier, baseType, outName, arraySuffix)
 		// BuiltinBinding: uses gl_Position/gl_FragDepth, no declaration needed
 		default:
 			// No output declaration needed for builtins
@@ -2107,7 +2104,7 @@ func (w *Writer) writeResultIO(fn *ir.Function, qualifier string, isVertexOutput
 		if !isVertexOutput {
 			baseType := w.getBaseTypeName(fn.Result.Type)
 			arraySuffix := w.getArraySuffix(fn.Result.Type)
-			w.writeLine("layout(location = 0) %s %s fragColor%s;", qualifier, baseType, arraySuffix)
+			w.WriteLine("layout(location = 0) %s %s fragColor%s;", qualifier, baseType, arraySuffix)
 		}
 		return
 	}
@@ -2139,7 +2136,7 @@ func (w *Writer) writeResultIO(fn *ir.Function, qualifier string, isVertexOutput
 			if isVertexOutput {
 				name = "v_" + name
 			}
-			w.writeLine("layout(location = %d) %s %s %s;", b.Location, qualifier, baseType, name)
+			w.WriteLine("layout(location = %d) %s %s %s;", b.Location, qualifier, baseType, name)
 			info.members[memberIdx] = epStructMemberInfo{
 				glslName: name,
 			}
@@ -2183,16 +2180,16 @@ func (w *Writer) writeWorkgroupVarInit() {
 		return
 	}
 
-	w.writeLine("if (gl_LocalInvocationID == uvec3(0u)) {")
-	w.pushIndent()
+	w.WriteLine("if (gl_LocalInvocationID == uvec3(0u)) {")
+	w.PushIndent()
 	for _, wv := range workgroupVars {
 		name := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(wv.handle)}]
 		w.writeWorkgroupZeroInit(name, wv.global.Type, 0)
 	}
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("memoryBarrierShared();")
-	w.writeLine("barrier();")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("memoryBarrierShared();")
+	w.WriteLine("barrier();")
 }
 
 // workgroupZeroInitLoopThreshold is the minimum array size (in elements) above
@@ -2212,7 +2209,7 @@ func (w *Writer) writeWorkgroupZeroInit(varExpr string, typeHandle ir.TypeHandle
 		if zeroVal == "" {
 			zeroVal = "0"
 		}
-		w.writeLine("%s = %s;", varExpr, zeroVal)
+		w.WriteLine("%s = %s;", varExpr, zeroVal)
 		return
 	}
 	typ := w.module.Types[typeHandle]
@@ -2221,12 +2218,12 @@ func (w *Writer) writeWorkgroupZeroInit(varExpr string, typeHandle ir.TypeHandle
 		if size >= workgroupZeroInitLoopThreshold {
 			// Large array: per-element loop
 			loopVar := fmt.Sprintf("_naga_zi_%d", depth)
-			w.writeLine("for (uint %s = 0u; %s < %du; %s++) {", loopVar, loopVar, size, loopVar)
-			w.pushIndent()
+			w.WriteLine("for (uint %s = 0u; %s < %du; %s++) {", loopVar, loopVar, size, loopVar)
+			w.PushIndent()
 			elemExpr := fmt.Sprintf("%s[%s]", varExpr, loopVar)
 			w.writeWorkgroupZeroInit(elemExpr, arr.Base, depth+1)
-			w.popIndent()
-			w.writeLine("}")
+			w.PopIndent()
+			w.WriteLine("}")
 			return
 		}
 	}
@@ -2235,7 +2232,7 @@ func (w *Writer) writeWorkgroupZeroInit(varExpr string, typeHandle ir.TypeHandle
 	if zeroVal == "" {
 		zeroVal = "0"
 	}
-	w.writeLine("%s = %s;", varExpr, zeroVal)
+	w.WriteLine("%s = %s;", varExpr, zeroVal)
 }
 
 // writeEntryPointArgLocals writes local variable declarations for entry point arguments.
@@ -2300,7 +2297,7 @@ func (w *Writer) writeEntryPointArgLocals(ep *ir.EntryPoint) {
 				}
 			}
 			varName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(w.currentFuncHandle), handle2: uint32(argIdx)}]
-			w.writeLine("%s %s = %s(%s);", structName, varName, structName, strings.Join(components, ", "))
+			w.WriteLine("%s %s = %s(%s);", structName, varName, structName, strings.Join(components, ", "))
 			w.namedExpressions[exprHandle] = varName
 			continue
 		}
@@ -2313,7 +2310,7 @@ func (w *Writer) writeEntryPointArgLocals(ep *ir.EntryPoint) {
 		// Use the already-registered argument name from registerNames
 		typeName := w.getTypeName(arg.Type)
 		varName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(w.currentFuncHandle), handle2: uint32(argIdx)}]
-		w.writeLine("%s %s = %s;", typeName, varName, initValue)
+		w.WriteLine("%s %s = %s;", typeName, varName, initValue)
 
 		// Register in namedExpressions so subsequent references use this name
 		w.namedExpressions[exprHandle] = varName
@@ -2409,11 +2406,11 @@ func (w *Writer) writeEarlyDepthTest() {
 		if ep.Stage == ir.StageFragment && ep.EarlyDepthTest != nil {
 			switch ep.EarlyDepthTest.Conservative {
 			case ir.ConservativeDepthUnchanged:
-				w.writeLine("layout(early_fragment_tests) in;")
+				w.WriteLine("layout(early_fragment_tests) in;")
 			case ir.ConservativeDepthGreaterEqual:
-				w.writeLine("layout (depth_greater) out float gl_FragDepth;")
+				w.WriteLine("layout (depth_greater) out float gl_FragDepth;")
 			case ir.ConservativeDepthLessEqual:
-				w.writeLine("layout (depth_less) out float gl_FragDepth;")
+				w.WriteLine("layout (depth_less) out float gl_FragDepth;")
 			}
 		}
 		break
@@ -2454,8 +2451,8 @@ func (w *Writer) writeComputeLayout(ep *ir.EntryPoint) {
 		z = 1
 	}
 
-	w.writeLine("layout(local_size_x = %d, local_size_y = %d, local_size_z = %d) in;", x, y, z)
-	w.writeLine("")
+	w.WriteLine("layout(local_size_x = %d, local_size_y = %d, local_size_z = %d) in;", x, y, z)
+	w.WriteLine("")
 }
 
 // writeFirstInstanceBinding writes "uniform uint naga_vs_first_instance;" for vertex shaders
@@ -2470,8 +2467,8 @@ func (w *Writer) writeFirstInstanceBinding() {
 		return
 	}
 	// TODO: check for WriterFlagDrawParameters when added
-	w.writeLine("uniform uint naga_vs_first_instance;")
-	w.writeLine("")
+	w.WriteLine("uniform uint naga_vs_first_instance;")
+	w.WriteLine("")
 }
 
 // writeLocalVars writes local variable declarations, including initializers if present.
@@ -2505,13 +2502,13 @@ func (w *Writer) writeLocalVars(fn *ir.Function) error {
 			if err != nil {
 				return err
 			}
-			w.writeLine("%s %s%s = %s;", baseType, localName, arraySuffix, initStr)
+			w.WriteLine("%s %s%s = %s;", baseType, localName, arraySuffix, initStr)
 		} else if zeroInit := w.zeroInitValue(local.Type); zeroInit != "" {
 			// No explicit init but type supports zero initialization.
 			// Rust naga always zero-initializes supported types.
-			w.writeLine("%s %s%s = %s;", baseType, localName, arraySuffix, zeroInit)
+			w.WriteLine("%s %s%s = %s;", baseType, localName, arraySuffix, zeroInit)
 		} else {
-			w.writeLine("%s %s%s;", baseType, localName, arraySuffix)
+			w.WriteLine("%s %s%s;", baseType, localName, arraySuffix)
 		}
 	}
 	return nil
@@ -2630,38 +2627,6 @@ func (w *Writer) resolveTypeInner(res *ir.TypeResolution, handle ir.ExpressionHa
 // Note: writeBlock is defined in statements.go and takes ir.Block directly
 
 // Output helpers
-
-// writeLine writes a line with indentation and newline.
-//
-//nolint:goprintffuncname
-func (w *Writer) writeLine(format string, args ...any) {
-	w.writeIndent()
-	if len(args) == 0 {
-		w.out.WriteString(format)
-	} else {
-		fmt.Fprintf(&w.out, format, args...)
-	}
-	w.out.WriteByte('\n')
-}
-
-// writeIndent writes the current indentation.
-func (w *Writer) writeIndent() {
-	for i := 0; i < w.indent; i++ {
-		w.out.WriteString("    ")
-	}
-}
-
-// pushIndent increases indentation.
-func (w *Writer) pushIndent() {
-	w.indent++
-}
-
-// popIndent decreases indentation.
-func (w *Writer) popIndent() {
-	if w.indent > 0 {
-		w.indent--
-	}
-}
 
 // getTypeName returns the GLSL type name for a type handle.
 // For arrays, this returns the full type including size (e.g., "vec2[3]").

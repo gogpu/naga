@@ -47,13 +47,13 @@ func (w *Writer) writeExpression(handle ir.ExpressionHandle) error {
 		if bi := w.getFixedFunctionInput(handle); bi != nil {
 			switch *bi {
 			case ir.BuiltinVertexIndex:
-				w.out.WriteString("(_NagaConstants.first_vertex + ")
+				w.Out.WriteString("(_NagaConstants.first_vertex + ")
 				closingBracket = ")"
 			case ir.BuiltinInstanceIndex:
-				w.out.WriteString("(_NagaConstants.first_instance + ")
+				w.Out.WriteString("(_NagaConstants.first_instance + ")
 				closingBracket = ")"
 			case ir.BuiltinNumWorkGroups:
-				w.out.WriteString("uint3(_NagaConstants.first_vertex, _NagaConstants.first_instance, _NagaConstants.other)")
+				w.Out.WriteString("uint3(_NagaConstants.first_vertex, _NagaConstants.first_instance, _NagaConstants.other)")
 				return nil
 			}
 		}
@@ -61,8 +61,8 @@ func (w *Writer) writeExpression(handle ir.ExpressionHandle) error {
 
 	// Check if this expression has a cached name (for named expressions)
 	if name, ok := w.namedExpressions[handle]; ok {
-		w.out.WriteString(name)
-		w.out.WriteString(closingBracket)
+		w.Out.WriteString(name)
+		w.Out.WriteString(closingBracket)
 		return nil
 	}
 
@@ -98,7 +98,7 @@ func (w *Writer) writeExpression(handle ir.ExpressionHandle) error {
 	if err := w.writeExpressionKind(expr.Kind); err != nil {
 		return err
 	}
-	w.out.WriteString(closingBracket)
+	w.Out.WriteString(closingBracket)
 	return nil
 }
 
@@ -155,22 +155,22 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind) error {
 		return w.writeArrayLengthExpression(e)
 	case ir.ExprAtomicResult:
 		// Atomic results are written by the atomic statement
-		w.out.WriteString("_atomic_result")
+		w.Out.WriteString("_atomic_result")
 		return nil
 	case ir.ExprSubgroupBallotResult:
 		// Subgroup ballot results are written by the subgroup statement
-		w.out.WriteString("_subgroup_ballot_result")
+		w.Out.WriteString("_subgroup_ballot_result")
 		return nil
 	case ir.ExprSubgroupOperationResult:
 		// Subgroup operation results are written by the subgroup statement
-		w.out.WriteString("_subgroup_op_result")
+		w.Out.WriteString("_subgroup_op_result")
 		return nil
 	case ir.ExprWorkGroupUniformLoadResult:
 		// WorkGroupUniformLoadResult is written by the WorkGroupUniformLoad statement
 		// as a named expression. Nothing to emit here.
 		return nil
 	case ir.ExprRayQueryProceedResult:
-		w.out.WriteString("_rq_proceed_result")
+		w.Out.WriteString("_rq_proceed_result")
 		return nil
 	case ir.ExprRayQueryGetIntersection:
 		return w.writeRayQueryGetIntersection(e)
@@ -222,63 +222,63 @@ func (w *Writer) writeLiteralValue(v ir.LiteralValue) error {
 	switch val := v.(type) {
 	case ir.LiteralBool:
 		if bool(val) {
-			w.out.WriteString("true")
+			w.Out.WriteString("true")
 		} else {
-			w.out.WriteString("false")
+			w.Out.WriteString("false")
 		}
 
 	case ir.LiteralI32:
 		// Rust naga wraps I32 in int() constructor for unambiguous overload resolution
 		i := int32(val)
 		if i == math.MinInt32 {
-			fmt.Fprintf(&w.out, "int(%d - 1)", i+1)
+			fmt.Fprintf(&w.Out, "int(%d - 1)", i+1)
 		} else {
-			fmt.Fprintf(&w.out, "int(%d)", i)
+			fmt.Fprintf(&w.Out, "int(%d)", i)
 		}
 
 	case ir.LiteralU32:
-		fmt.Fprintf(&w.out, "%du", uint32(val))
+		fmt.Fprintf(&w.Out, "%du", uint32(val))
 
 	case ir.LiteralI64:
 		i := int64(val)
 		if i == math.MinInt64 {
-			fmt.Fprintf(&w.out, "(%dL - 1L)", i+1)
+			fmt.Fprintf(&w.Out, "(%dL - 1L)", i+1)
 		} else {
-			fmt.Fprintf(&w.out, "%dL", i)
+			fmt.Fprintf(&w.Out, "%dL", i)
 		}
 
 	case ir.LiteralU64:
-		fmt.Fprintf(&w.out, "%duL", uint64(val))
+		fmt.Fprintf(&w.Out, "%duL", uint64(val))
 
 	case ir.LiteralF32:
-		w.out.WriteString(formatFloat32(float32(val)))
+		w.Out.WriteString(formatFloat32(float32(val)))
 
 	case ir.LiteralF64:
-		w.out.WriteString(formatFloat64(float64(val)))
-		w.out.WriteByte('L')
+		w.Out.WriteString(formatFloat64(float64(val)))
+		w.Out.WriteByte('L')
 
 	case ir.LiteralAbstractInt:
-		fmt.Fprintf(&w.out, "%d", int64(val))
+		fmt.Fprintf(&w.Out, "%d", int64(val))
 
 	case ir.LiteralF16:
 		fval := float32(val)
 		if math.IsInf(float64(fval), 1) {
-			w.out.WriteString("1.#INF")
+			w.Out.WriteString("1.#INF")
 		} else if math.IsInf(float64(fval), -1) {
-			w.out.WriteString("-1.#INF")
+			w.Out.WriteString("-1.#INF")
 		} else if math.IsNaN(float64(fval)) {
-			w.out.WriteString("0.0/0.0")
+			w.Out.WriteString("0.0/0.0")
 		} else {
 			s := strconv.FormatFloat(float64(fval), 'f', -1, 32)
 			if !strings.Contains(s, ".") {
 				s += ".0"
 			}
-			w.out.WriteString(s)
-			w.out.WriteByte('h')
+			w.Out.WriteString(s)
+			w.Out.WriteByte('h')
 		}
 
 	case ir.LiteralAbstractFloat:
-		w.out.WriteString(formatFloat64(float64(val)))
+		w.Out.WriteString(formatFloat64(float64(val)))
 
 	default:
 		return fmt.Errorf("unsupported literal type: %T", v)
@@ -319,15 +319,15 @@ func (w *Writer) writeGlobalConstExpression(handle ir.ExpressionHandle) error {
 // This handles cases like pipeline override arithmetic (e.g., override X + 1).
 func (w *Writer) writeGlobalBinaryExpression(e ir.ExprBinary, _ ir.ExpressionHandle) error {
 	op := binaryOpStr(e.Op)
-	w.out.WriteByte('(')
+	w.Out.WriteByte('(')
 	if err := w.writeGlobalConstExpression(e.Left); err != nil {
 		return fmt.Errorf("global binary left: %w", err)
 	}
-	fmt.Fprintf(&w.out, " %s ", op)
+	fmt.Fprintf(&w.Out, " %s ", op)
 	if err := w.writeGlobalConstExpression(e.Right); err != nil {
 		return fmt.Errorf("global binary right: %w", err)
 	}
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -336,16 +336,16 @@ func (w *Writer) writeGlobalComposeExpression(e ir.ExprCompose) error {
 	// Arrays use constructor function ConstructarrayN_type_()
 	if isArrayType(w.module, e.Type) {
 		typeId := w.hlslTypeId(e.Type)
-		fmt.Fprintf(&w.out, "Construct%s(", typeId)
+		fmt.Fprintf(&w.Out, "Construct%s(", typeId)
 		for i, comp := range e.Components {
 			if i > 0 {
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 			}
 			if err := w.writeGlobalConstExpression(comp); err != nil {
 				return err
 			}
 		}
-		w.out.WriteByte(')')
+		w.Out.WriteByte(')')
 		return nil
 	}
 
@@ -356,22 +356,22 @@ func (w *Writer) writeGlobalComposeExpression(e ir.ExprCompose) error {
 			if typeName == "" {
 				typeName = w.getTypeName(e.Type)
 			}
-			fmt.Fprintf(&w.out, "Construct%s(", typeName)
+			fmt.Fprintf(&w.Out, "Construct%s(", typeName)
 			for i, comp := range e.Components {
 				if i > 0 {
-					w.out.WriteString(", ")
+					w.Out.WriteString(", ")
 				}
 				if err := w.writeGlobalConstExpression(comp); err != nil {
 					return err
 				}
 			}
-			w.out.WriteByte(')')
+			w.Out.WriteByte(')')
 			return nil
 		}
 	}
 
 	typeName := w.getTypeName(e.Type)
-	fmt.Fprintf(&w.out, "%s(", typeName)
+	fmt.Fprintf(&w.Out, "%s(", typeName)
 	if len(e.Components) == 0 {
 		// Empty compose (e.g., vec2()) — expand to explicit zero values
 		if int(e.Type) < len(w.module.Types) {
@@ -380,14 +380,14 @@ func (w *Writer) writeGlobalComposeExpression(e ir.ExprCompose) error {
 	} else {
 		for i, comp := range e.Components {
 			if i > 0 {
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 			}
 			if err := w.writeGlobalConstExpression(comp); err != nil {
 				return err
 			}
 		}
 	}
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -395,16 +395,16 @@ func (w *Writer) writeGlobalComposeExpression(e ir.ExprCompose) error {
 func (w *Writer) writeGlobalSplatExpression(e ir.ExprSplat) error {
 	// Splat has Size and Value, need to construct a vector type name
 	// Get the scalar type from the value expression
-	w.out.WriteByte('(')
+	w.Out.WriteByte('(')
 	if err := w.writeGlobalConstExpression(e.Value); err != nil {
 		return err
 	}
 	// Use swizzle-style splat
 	components := [4]string{"x", "xx", "xxx", "xxxx"}
 	if int(e.Size) > 0 && int(e.Size) <= 4 {
-		fmt.Fprintf(&w.out, ").%s", components[e.Size-1])
+		fmt.Fprintf(&w.Out, ").%s", components[e.Size-1])
 	} else {
-		w.out.WriteByte(')')
+		w.Out.WriteByte(')')
 	}
 	return nil
 }
@@ -419,7 +419,7 @@ func (w *Writer) writeConstantExpression(e ir.ExprConstant) error {
 	if name == "" {
 		name = fmt.Sprintf("const_%d", e.Constant)
 	}
-	w.out.WriteString(name)
+	w.Out.WriteString(name)
 	return nil
 }
 
@@ -427,7 +427,7 @@ func (w *Writer) writeConstantExpression(e ir.ExprConstant) error {
 // Rust naga wraps these in helper functions to avoid parse issues like `(float4)0.y`.
 func (w *Writer) writeZeroValueExpression(e ir.ExprZeroValue) error {
 	typeId := w.hlslTypeId(e.Type)
-	fmt.Fprintf(&w.out, "ZeroValue%s()", typeId)
+	fmt.Fprintf(&w.Out, "ZeroValue%s()", typeId)
 	return nil
 }
 
@@ -440,16 +440,16 @@ func (w *Writer) writeComposeExpression(e ir.ExprCompose) error {
 	// HLSL arrays use constructor function Constructarray{N}_{type}_()
 	if isArrayType(w.module, e.Type) {
 		typeId := w.hlslTypeId(e.Type)
-		fmt.Fprintf(&w.out, "Construct%s(", typeId)
+		fmt.Fprintf(&w.Out, "Construct%s(", typeId)
 		for i, comp := range e.Components {
 			if i > 0 {
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 			}
 			if err := w.writeExpression(comp); err != nil {
 				return fmt.Errorf("compose component %d: %w", i, err)
 			}
 		}
-		w.out.WriteByte(')')
+		w.Out.WriteByte(')')
 		return nil
 	}
 
@@ -457,10 +457,10 @@ func (w *Writer) writeComposeExpression(e ir.ExprCompose) error {
 
 	// Struct types use Construct{Type}() function (matches Rust naga)
 	if _, needsConstructor := w.structConstructors[e.Type]; needsConstructor {
-		fmt.Fprintf(&w.out, "Construct%s(", typeName)
+		fmt.Fprintf(&w.Out, "Construct%s(", typeName)
 	} else {
-		w.out.WriteString(typeName)
-		w.out.WriteByte('(')
+		w.Out.WriteString(typeName)
+		w.Out.WriteByte('(')
 	}
 
 	if len(e.Components) == 0 {
@@ -472,7 +472,7 @@ func (w *Writer) writeComposeExpression(e ir.ExprCompose) error {
 	} else {
 		for i, comp := range e.Components {
 			if i > 0 {
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 			}
 			if err := w.writeExpression(comp); err != nil {
 				return fmt.Errorf("compose component %d: %w", i, err)
@@ -480,7 +480,7 @@ func (w *Writer) writeComposeExpression(e ir.ExprCompose) error {
 		}
 	}
 
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -492,7 +492,7 @@ func (w *Writer) writeExplicitZeroArgs(inner ir.TypeInner) {
 		count := int(t.Size)
 		for i := 0; i < count; i++ {
 			if i > 0 {
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 			}
 			w.writeScalarZeroLiteral(t.Scalar)
 		}
@@ -501,12 +501,12 @@ func (w *Writer) writeExplicitZeroArgs(inner ir.TypeInner) {
 		cols := int(t.Columns)
 		for i := 0; i < cols; i++ {
 			if i > 0 {
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 			}
 			w.writeScalarZeroLiteral(t.Scalar)
 		}
 	default:
-		w.out.WriteString("0")
+		w.Out.WriteString("0")
 	}
 }
 
@@ -514,15 +514,15 @@ func (w *Writer) writeExplicitZeroArgs(inner ir.TypeInner) {
 func (w *Writer) writeScalarZeroLiteral(scalar ir.ScalarType) {
 	switch scalar.Kind {
 	case ir.ScalarFloat:
-		w.out.WriteString("0.0")
+		w.Out.WriteString("0.0")
 	case ir.ScalarSint:
-		w.out.WriteString("0")
+		w.Out.WriteString("0")
 	case ir.ScalarUint:
-		w.out.WriteString("0u")
+		w.Out.WriteString("0u")
 	case ir.ScalarBool:
-		w.out.WriteString("false")
+		w.Out.WriteString("false")
 	default:
-		w.out.WriteString("0")
+		w.Out.WriteString("0")
 	}
 }
 
@@ -537,11 +537,11 @@ func (w *Writer) writeSplatExpression(e ir.ExprSplat) error {
 
 	// HLSL splat: float4(value, value, value, value) or (float4)value
 	// We use the cast form for simplicity
-	w.out.WriteByte('(')
+	w.Out.WriteByte('(')
 	if err := w.writeExpression(e.Value); err != nil {
 		return fmt.Errorf("splat value: %w", err)
 	}
-	w.out.WriteString(").xxxx"[:size+2]) // .xx, .xxx, or .xxxx
+	w.Out.WriteString(").xxxx"[:size+2]) // .xx, .xxx, or .xxxx
 	return nil
 }
 
@@ -551,14 +551,14 @@ func (w *Writer) writeSwizzleExpression(e ir.ExprSwizzle) error {
 		return fmt.Errorf("swizzle vector: %w", err)
 	}
 
-	w.out.WriteByte('.')
+	w.Out.WriteByte('.')
 	swizzleChars := [4]byte{'x', 'y', 'z', 'w'}
 	for i := ir.VectorSize(0); i < e.Size; i++ {
 		comp := e.Pattern[i]
 		if comp > 3 {
 			return fmt.Errorf("invalid swizzle component: %d", comp)
 		}
-		w.out.WriteByte(swizzleChars[comp])
+		w.Out.WriteByte(swizzleChars[comp])
 	}
 	return nil
 }
@@ -579,15 +579,15 @@ func (w *Writer) writeAccessExpression(e ir.ExprAccess) error {
 			m = w.getGlobalUniformMatrix(e.Base)
 		}
 		if m != nil && m.isMatCx2() {
-			fmt.Fprintf(&w.out, "__get_col_of_mat%dx2(", m.columns)
+			fmt.Fprintf(&w.Out, "__get_col_of_mat%dx2(", m.columns)
 			if err := w.writeExpression(e.Base); err != nil {
 				return fmt.Errorf("matCx2 dynamic col base: %w", err)
 			}
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 			if err := w.writeExpression(e.Index); err != nil {
 				return fmt.Errorf("matCx2 dynamic col index: %w", err)
 			}
-			w.out.WriteByte(')')
+			w.Out.WriteByte(')')
 			return nil
 		}
 	}
@@ -604,9 +604,9 @@ func (w *Writer) writeAccessExpression(e ir.ExprAccess) error {
 	// Check if this is a sampler binding array access -- use heap pattern.
 	samplerInfo := w.samplerBindingArrayInfoFromExpression(e.Base)
 	if samplerInfo != nil {
-		fmt.Fprintf(&w.out, "%s[", samplerInfo.samplerHeapName)
+		fmt.Fprintf(&w.Out, "%s[", samplerInfo.samplerHeapName)
 	} else {
-		w.out.WriteByte('[')
+		w.Out.WriteByte('[')
 	}
 
 	// When restrict_indexing is enabled, clamp dynamic indices to valid range
@@ -616,12 +616,12 @@ func (w *Writer) writeAccessExpression(e ir.ExprAccess) error {
 	if needsBoundCheck {
 		if maxIdx, ok := w.getAccessMaxIndex(e.Base); ok {
 			if !w.isConstantIndexInBounds(e.Index, maxIdx+1) {
-				fmt.Fprintf(&w.out, "min(uint(")
+				fmt.Fprintf(&w.Out, "min(uint(")
 				if err := w.writeExpression(e.Index); err != nil {
 					return fmt.Errorf("access index: %w", err)
 				}
-				fmt.Fprintf(&w.out, "), %du)", maxIdx)
-				w.out.WriteByte(']')
+				fmt.Fprintf(&w.Out, "), %du)", maxIdx)
+				w.Out.WriteByte(']')
 				return nil
 			}
 		}
@@ -629,22 +629,22 @@ func (w *Writer) writeAccessExpression(e ir.ExprAccess) error {
 
 	// Write the index, possibly wrapped with NonUniformResourceIndex and/or sampler buffer lookup
 	if nonUniformQualifier {
-		w.out.WriteString("NonUniformResourceIndex(")
+		w.Out.WriteString("NonUniformResourceIndex(")
 	}
 	if samplerInfo != nil {
-		fmt.Fprintf(&w.out, "%s[%s + ", samplerInfo.samplerIndexBufferName, samplerInfo.bindingArrayBaseIndexName)
+		fmt.Fprintf(&w.Out, "%s[%s + ", samplerInfo.samplerIndexBufferName, samplerInfo.bindingArrayBaseIndexName)
 	}
 	if err := w.writeExpression(e.Index); err != nil {
 		return fmt.Errorf("access index: %w", err)
 	}
 	if samplerInfo != nil {
-		w.out.WriteByte(']') // close sampler index buffer lookup
+		w.Out.WriteByte(']') // close sampler index buffer lookup
 	}
 	if nonUniformQualifier {
-		w.out.WriteByte(')') // close NonUniformResourceIndex
+		w.Out.WriteByte(')') // close NonUniformResourceIndex
 	}
 
-	w.out.WriteByte(']')
+	w.Out.WriteByte(']')
 	return nil
 }
 
@@ -851,7 +851,7 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 		if err := w.writeExpression(e.Base); err != nil {
 			return fmt.Errorf("access index base: %w", err)
 		}
-		fmt.Fprintf(&w.out, "[%d]", e.Index)
+		fmt.Fprintf(&w.Out, "[%d]", e.Index)
 		return nil
 	}
 
@@ -893,11 +893,11 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 				if mat, ok := w.module.Types[member.Type].Inner.(ir.MatrixType); ok && mat.Rows == 2 {
 					structName := w.typeNames[*resolvedBaseTyHandle]
 					fieldName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(*resolvedBaseTyHandle), handle2: uint32(e.Index)}]
-					fmt.Fprintf(&w.out, "GetMat%sOn%s(", fieldName, structName)
+					fmt.Fprintf(&w.Out, "GetMat%sOn%s(", fieldName, structName)
 					if err := w.writeExpression(e.Base); err != nil {
 						return fmt.Errorf("matCx2 get base: %w", err)
 					}
-					w.out.WriteByte(')')
+					w.Out.WriteByte(')')
 					return nil
 				}
 			}
@@ -913,15 +913,15 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 			if memberName == "" {
 				memberName = Escape(inner.Members[e.Index].Name)
 			}
-			fmt.Fprintf(&w.out, ".%s", memberName)
+			fmt.Fprintf(&w.Out, ".%s", memberName)
 		} else if int(e.Index) < len(inner.Members) {
 			memberName := inner.Members[e.Index].Name
 			if memberName == "" {
 				memberName = fmt.Sprintf("member_%d", e.Index)
 			}
-			fmt.Fprintf(&w.out, ".%s", Escape(memberName))
+			fmt.Fprintf(&w.Out, ".%s", Escape(memberName))
 		} else {
-			fmt.Fprintf(&w.out, ".member_%d", e.Index)
+			fmt.Fprintf(&w.Out, ".member_%d", e.Index)
 		}
 
 	case ir.VectorType:
@@ -931,9 +931,9 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 		}
 		swizzleChars := [4]byte{'x', 'y', 'z', 'w'}
 		if e.Index < 4 {
-			fmt.Fprintf(&w.out, ".%c", swizzleChars[e.Index])
+			fmt.Fprintf(&w.Out, ".%c", swizzleChars[e.Index])
 		} else {
-			fmt.Fprintf(&w.out, "[%d]", e.Index)
+			fmt.Fprintf(&w.Out, "[%d]", e.Index)
 		}
 
 	case ir.MatrixType:
@@ -949,14 +949,14 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 				if err := w.writeExpression(e.Base); err != nil {
 					return fmt.Errorf("matCx2 column access base: %w", err)
 				}
-				fmt.Fprintf(&w.out, "._%d", e.Index)
+				fmt.Fprintf(&w.Out, "._%d", e.Index)
 				return nil
 			}
 		}
 		if err := w.writeExpression(e.Base); err != nil {
 			return fmt.Errorf("matrix access base: %w", err)
 		}
-		fmt.Fprintf(&w.out, "[%d]", e.Index)
+		fmt.Fprintf(&w.Out, "[%d]", e.Index)
 
 	case ir.BindingArrayType, ir.ArrayType:
 		// Check for sampler binding array pattern -- use heap access.
@@ -967,7 +967,7 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 			if err := w.writeExpression(e.Base); err != nil {
 				return fmt.Errorf("sampler binding array base: %w", err)
 			}
-			fmt.Fprintf(&w.out, "%s[%s[%s + %d]]",
+			fmt.Fprintf(&w.Out, "%s[%s[%s + %d]]",
 				samplerInfo.samplerHeapName,
 				samplerInfo.samplerIndexBufferName,
 				samplerInfo.bindingArrayBaseIndexName,
@@ -976,7 +976,7 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 			if err := w.writeExpression(e.Base); err != nil {
 				return fmt.Errorf("access index base: %w", err)
 			}
-			fmt.Fprintf(&w.out, "[%d]", e.Index)
+			fmt.Fprintf(&w.Out, "[%d]", e.Index)
 		}
 
 	default:
@@ -984,7 +984,7 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 		if err := w.writeExpression(e.Base); err != nil {
 			return fmt.Errorf("access index base: %w", err)
 		}
-		fmt.Fprintf(&w.out, "[%d]", e.Index)
+		fmt.Fprintf(&w.Out, "[%d]", e.Index)
 	}
 
 	return nil
@@ -1061,7 +1061,7 @@ func (w *Writer) writeFunctionArgumentExpression(e ir.ExprFunctionArgument) erro
 	// Check if this is an external texture argument
 	key := externalTextureFuncArgKey{funcHandle: w.currentFuncHandle, argIndex: e.Index}
 	if names, ok := w.externalTextureFuncArgNames[key]; ok {
-		fmt.Fprintf(&w.out, "%s, %s, %s, %s", names[0], names[1], names[2], names[3])
+		fmt.Fprintf(&w.Out, "%s, %s, %s, %s", names[0], names[1], names[2], names[3])
 		return nil
 	}
 
@@ -1069,7 +1069,7 @@ func (w *Writer) writeFunctionArgumentExpression(e ir.ExprFunctionArgument) erro
 	if name == "" {
 		name = fmt.Sprintf("arg_%d", e.Index)
 	}
-	w.out.WriteString(name)
+	w.Out.WriteString(name)
 	return nil
 }
 
@@ -1094,7 +1094,7 @@ func (w *Writer) writeGlobalVariableExpression(e ir.ExprGlobalVariable) error {
 	if name == "" {
 		name = fmt.Sprintf("global_%d", e.Variable)
 	}
-	w.out.WriteString(name)
+	w.Out.WriteString(name)
 	return nil
 }
 
@@ -1104,7 +1104,7 @@ func (w *Writer) writeLocalVariableExpression(e ir.ExprLocalVariable) error {
 	if name == "" {
 		name = fmt.Sprintf("local_%d", e.Variable)
 	}
-	w.out.WriteString(name)
+	w.Out.WriteString(name)
 	return nil
 }
 
@@ -1130,22 +1130,22 @@ func (w *Writer) writeLoadExpression(e ir.ExprLoad) error {
 			}
 		}
 
-		w.out.WriteString("((")
+		w.Out.WriteString("((")
 		if arr, ok := resolved.(ir.ArrayType); ok {
 			// Array: cast to native matrix array, e.g. ((float4x2[2])...)
 			w.writeMatrixValueType(m)
 			if arr.Size.Constant != nil {
-				fmt.Fprintf(&w.out, "[%d]", *arr.Size.Constant)
+				fmt.Fprintf(&w.Out, "[%d]", *arr.Size.Constant)
 			}
 		} else {
 			// Direct matrix: cast to native matrix, e.g. ((float4x2)...)
 			w.writeMatrixValueType(m)
 		}
-		w.out.WriteString(")")
+		w.Out.WriteString(")")
 		if err := w.writeExpression(e.Pointer); err != nil {
 			return err
 		}
-		w.out.WriteString(")")
+		w.Out.WriteString(")")
 		return nil
 	}
 	// In HLSL, loads are implicit - just write the pointer expression
@@ -1266,7 +1266,7 @@ func (w *Writer) getGlobalUniformMatrix(handle ir.ExpressionHandle) *matrixTypeI
 
 // writeMatrixValueType writes the HLSL value type for a matrix (e.g., "float3x2").
 func (w *Writer) writeMatrixValueType(m *matrixTypeInfo) {
-	fmt.Fprintf(&w.out, "float%dx%d", m.columns, m.rows)
+	fmt.Fprintf(&w.Out, "float%dx%d", m.columns, m.rows)
 }
 
 // =============================================================================
@@ -1294,12 +1294,12 @@ func (w *Writer) writeUnaryExpression(e ir.ExprUnary) error {
 		return fmt.Errorf("unsupported unary operator: %d", e.Op)
 	}
 
-	w.out.WriteString(op)
-	w.out.WriteByte('(')
+	w.Out.WriteString(op)
+	w.Out.WriteByte('(')
 	if err := w.writeExpression(e.Expr); err != nil {
 		return fmt.Errorf("unary operand: %w", err)
 	}
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -1348,28 +1348,28 @@ func (w *Writer) writeBinaryExpression(e ir.ExprBinary) error {
 			_, leftIsMatrix := leftType.(ir.MatrixType)
 			_, rightIsMatrix := rightType.(ir.MatrixType)
 			if leftIsMatrix || rightIsMatrix {
-				w.out.WriteString("mul(")
+				w.Out.WriteString("mul(")
 				if err := w.writeExpression(e.Right); err != nil {
 					return fmt.Errorf("binary right: %w", err)
 				}
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 				if err := w.writeExpression(e.Left); err != nil {
 					return fmt.Errorf("binary left: %w", err)
 				}
-				w.out.WriteString(")")
+				w.Out.WriteString(")")
 				return nil
 			}
 		}
 
-		w.out.WriteString("asint(asuint(")
+		w.Out.WriteString("asint(asuint(")
 		if err := w.writeExpression(e.Left); err != nil {
 			return fmt.Errorf("binary left: %w", err)
 		}
-		fmt.Fprintf(&w.out, ") %s asuint(", opStr)
+		fmt.Fprintf(&w.Out, ") %s asuint(", opStr)
 		if err := w.writeExpression(e.Right); err != nil {
 			return fmt.Errorf("binary right: %w", err)
 		}
-		w.out.WriteString("))")
+		w.Out.WriteString("))")
 		return nil
 	}
 
@@ -1388,45 +1388,45 @@ func (w *Writer) writeBinaryExpression(e ir.ExprBinary) error {
 		_, leftIsMatrix := leftType.(ir.MatrixType)
 		_, rightIsMatrix := rightType.(ir.MatrixType)
 		if leftIsMatrix || rightIsMatrix {
-			w.out.WriteString("mul(")
+			w.Out.WriteString("mul(")
 			if err := w.writeExpression(e.Right); err != nil {
 				return fmt.Errorf("binary right: %w", err)
 			}
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 			if err := w.writeExpression(e.Left); err != nil {
 				return fmt.Errorf("binary left: %w", err)
 			}
-			w.out.WriteString(")")
+			w.Out.WriteString(")")
 			return nil
 		}
 		op = "*"
 	case ir.BinaryDivide:
 		// Integer division uses naga_div for safety (matches Rust naga)
 		if w.isIntegerBinaryOp(e) {
-			fmt.Fprintf(&w.out, "%s(", NagaDivFunction)
+			fmt.Fprintf(&w.Out, "%s(", NagaDivFunction)
 			if err := w.writeExpression(e.Left); err != nil {
 				return fmt.Errorf("binary left: %w", err)
 			}
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 			if err := w.writeExpression(e.Right); err != nil {
 				return fmt.Errorf("binary right: %w", err)
 			}
-			w.out.WriteByte(')')
+			w.Out.WriteByte(')')
 			return nil
 		}
 		op = "/"
 	case ir.BinaryModulo:
 		// Integer/float modulo uses naga_mod for safety (matches Rust naga)
 		if w.isIntOrFloatBinaryOp(e) {
-			fmt.Fprintf(&w.out, "%s(", NagaModFunction)
+			fmt.Fprintf(&w.Out, "%s(", NagaModFunction)
 			if err := w.writeExpression(e.Left); err != nil {
 				return fmt.Errorf("binary left: %w", err)
 			}
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 			if err := w.writeExpression(e.Right); err != nil {
 				return fmt.Errorf("binary right: %w", err)
 			}
-			w.out.WriteByte(')')
+			w.Out.WriteByte(')')
 			return nil
 		}
 		op = "%"
@@ -1460,15 +1460,15 @@ func (w *Writer) writeBinaryExpression(e ir.ExprBinary) error {
 		return fmt.Errorf("unsupported binary operator: %d", e.Op)
 	}
 
-	w.out.WriteByte('(')
+	w.Out.WriteByte('(')
 	if err := w.writeExpression(e.Left); err != nil {
 		return fmt.Errorf("binary left: %w", err)
 	}
-	fmt.Fprintf(&w.out, " %s ", op)
+	fmt.Fprintf(&w.Out, " %s ", op)
 	if err := w.writeExpression(e.Right); err != nil {
 		return fmt.Errorf("binary right: %w", err)
 	}
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -1565,19 +1565,19 @@ func (w *Writer) isIntOrFloatBinaryOp(e ir.ExprBinary) bool {
 
 // writeSelectExpression writes a ternary select operation.
 func (w *Writer) writeSelectExpression(e ir.ExprSelect) error {
-	w.out.WriteByte('(')
+	w.Out.WriteByte('(')
 	if err := w.writeExpression(e.Condition); err != nil {
 		return fmt.Errorf("select condition: %w", err)
 	}
-	w.out.WriteString(" ? ")
+	w.Out.WriteString(" ? ")
 	if err := w.writeExpression(e.Accept); err != nil {
 		return fmt.Errorf("select accept: %w", err)
 	}
-	w.out.WriteString(" : ")
+	w.Out.WriteString(" : ")
 	if err := w.writeExpression(e.Reject); err != nil {
 		return fmt.Errorf("select reject: %w", err)
 	}
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -1601,12 +1601,12 @@ func (w *Writer) writeRelationalExpression(e ir.ExprRelational) error {
 		return fmt.Errorf("unsupported relational function: %d", e.Fun)
 	}
 
-	w.out.WriteString(funcName)
-	w.out.WriteByte('(')
+	w.Out.WriteString(funcName)
+	w.Out.WriteByte('(')
 	if err := w.writeExpression(e.Argument); err != nil {
 		return fmt.Errorf("relational argument: %w", err)
 	}
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -1619,11 +1619,11 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 	// Special case: QuantizeToF16 wraps with f16tof32(f32tof16(expr))
 	// Matches Rust naga's Function::QuantizeToF16 handling.
 	if e.Fun == ir.MathQuantizeF16 {
-		w.out.WriteString("f16tof32(f32tof16(")
+		w.Out.WriteString("f16tof32(f32tof16(")
 		if err := w.writeExpression(e.Arg); err != nil {
 			return fmt.Errorf("quantize arg: %w", err)
 		}
-		w.out.WriteString("))")
+		w.Out.WriteString("))")
 		return nil
 	}
 
@@ -1668,13 +1668,13 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 			if e.Fun == ir.MathReverseBits {
 				funcName = "reversebits"
 			}
-			w.out.WriteString("asint(")
-			w.out.WriteString(funcName)
-			w.out.WriteString("(asuint(")
+			w.Out.WriteString("asint(")
+			w.Out.WriteString(funcName)
+			w.Out.WriteString("(asuint(")
 			if err := w.writeExpression(e.Arg); err != nil {
 				return fmt.Errorf("math arg: %w", err)
 			}
-			w.out.WriteString(")))")
+			w.Out.WriteString(")))")
 			return nil
 		}
 	}
@@ -1689,13 +1689,13 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 			if e.Fun == ir.MathFirstLeadingBit {
 				funcName = "firstbithigh"
 			}
-			w.out.WriteString("asint(")
-			w.out.WriteString(funcName)
-			w.out.WriteByte('(')
+			w.Out.WriteString("asint(")
+			w.Out.WriteString(funcName)
+			w.Out.WriteByte('(')
 			if err := w.writeExpression(e.Arg); err != nil {
 				return fmt.Errorf("math arg: %w", err)
 			}
-			w.out.WriteString("))")
+			w.Out.WriteString("))")
 			return nil
 		}
 	}
@@ -1717,17 +1717,17 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 		args = append(args, *e.Arg3)
 	}
 
-	w.out.WriteString(funcName)
-	w.out.WriteByte('(')
+	w.Out.WriteString(funcName)
+	w.Out.WriteByte('(')
 	for i, arg := range args {
 		if i > 0 {
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 		}
 		if err := w.writeExpression(arg); err != nil {
 			return fmt.Errorf("math arg %d: %w", i, err)
 		}
 	}
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -1747,11 +1747,11 @@ func (w *Writer) writePack4xI8U8(e ir.ExprMath) error {
 
 	writeArg := func() error {
 		if clampMin != "" {
-			w.out.WriteString("clamp(")
+			w.Out.WriteString("clamp(")
 			if err := w.writeExpression(e.Arg); err != nil {
 				return err
 			}
-			fmt.Fprintf(&w.out, ", %s, %s)", clampMin, clampMax)
+			fmt.Fprintf(&w.Out, ", %s, %s)", clampMin, clampMax)
 		} else {
 			return w.writeExpression(e.Arg)
 		}
@@ -1759,28 +1759,28 @@ func (w *Writer) writePack4xI8U8(e ir.ExprMath) error {
 	}
 
 	if isSigned {
-		w.out.WriteString("uint(")
+		w.Out.WriteString("uint(")
 	}
 	// (arg[0] & 0xFF) | ((arg[1] & 0xFF) << 8) | ((arg[2] & 0xFF) << 16) | ((arg[3] & 0xFF) << 24)
-	w.out.WriteString("(")
+	w.Out.WriteString("(")
 	if err := writeArg(); err != nil {
 		return err
 	}
-	w.out.WriteString("[0] & 0xFF) | ((")
+	w.Out.WriteString("[0] & 0xFF) | ((")
 	if err := writeArg(); err != nil {
 		return err
 	}
-	w.out.WriteString("[1] & 0xFF) << 8) | ((")
+	w.Out.WriteString("[1] & 0xFF) << 8) | ((")
 	if err := writeArg(); err != nil {
 		return err
 	}
-	w.out.WriteString("[2] & 0xFF) << 16) | ((")
+	w.Out.WriteString("[2] & 0xFF) << 16) | ((")
 	if err := writeArg(); err != nil {
 		return err
 	}
-	w.out.WriteString("[3] & 0xFF) << 24)")
+	w.Out.WriteString("[3] & 0xFF) << 24)")
 	if isSigned {
-		w.out.WriteByte(')')
+		w.Out.WriteByte(')')
 	}
 	return nil
 }
@@ -1789,28 +1789,28 @@ func (w *Writer) writePack4xI8U8(e ir.ExprMath) error {
 // Matches Rust naga: (int4(arg, arg >> 8, arg >> 16, arg >> 24) << 24 >> 24)
 // For unsigned: (uint4(arg, arg >> 8, arg >> 16, arg >> 24) << 24 >> 24)
 func (w *Writer) writeUnpack4xI8U8(e ir.ExprMath) error {
-	w.out.WriteString("(")
+	w.Out.WriteString("(")
 	if e.Fun == ir.MathUnpack4xU8 {
-		w.out.WriteString("uint4(")
+		w.Out.WriteString("uint4(")
 	} else {
-		w.out.WriteString("int4(")
+		w.Out.WriteString("int4(")
 	}
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 8, ")
+	w.Out.WriteString(" >> 8, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 16, ")
+	w.Out.WriteString(" >> 16, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 24) << 24 >> 24)")
+	w.Out.WriteString(" >> 24) << 24 >> 24)")
 	return nil
 }
 
@@ -1825,23 +1825,23 @@ func (w *Writer) writeDot4Packed(e ir.ExprMath) error {
 
 	if w.options.ShaderModel >= ShaderModel6_4 {
 		if e.Fun == ir.MathDot4I8Packed {
-			w.out.WriteString("dot4add_i8packed(")
+			w.Out.WriteString("dot4add_i8packed(")
 		} else {
-			w.out.WriteString("dot4add_u8packed(")
+			w.Out.WriteString("dot4add_u8packed(")
 		}
 		if err := w.writeExpression(e.Arg); err != nil {
 			return err
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(arg1); err != nil {
 			return err
 		}
-		w.out.WriteString(", 0)")
+		w.Out.WriteString(", 0)")
 		return nil
 	}
 
 	// Polyfill for older shader models
-	w.out.WriteString("dot(")
+	w.Out.WriteString("dot(")
 
 	typePrefix := "int4"
 	if e.Fun == ir.MathDot4U8Packed {
@@ -1849,220 +1849,220 @@ func (w *Writer) writeDot4Packed(e ir.ExprMath) error {
 	}
 
 	// First operand
-	w.out.WriteString(typePrefix + "(")
+	w.Out.WriteString(typePrefix + "(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 8, ")
+	w.Out.WriteString(" >> 8, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 16, ")
+	w.Out.WriteString(" >> 16, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 24) << 24 >> 24, ")
+	w.Out.WriteString(" >> 24) << 24 >> 24, ")
 
 	// Second operand
-	w.out.WriteString(typePrefix + "(")
+	w.Out.WriteString(typePrefix + "(")
 	if err := w.writeExpression(arg1); err != nil {
 		return err
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 	if err := w.writeExpression(arg1); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 8, ")
+	w.Out.WriteString(" >> 8, ")
 	if err := w.writeExpression(arg1); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 16, ")
+	w.Out.WriteString(" >> 16, ")
 	if err := w.writeExpression(arg1); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 24) << 24 >> 24)")
+	w.Out.WriteString(" >> 24) << 24 >> 24)")
 	return nil
 }
 
 // writePack4x8snorm writes the inline polyfill for Pack4x8snorm.
 // Matches Rust naga: uint((int(round(clamp(arg[0],-1.0,1.0)*127.0))&0xFF) | ...)
 func (w *Writer) writePack4x8snorm(e ir.ExprMath) error {
-	w.out.WriteString("uint(")
+	w.Out.WriteString("uint(")
 	for i := 0; i < 4; i++ {
 		if i > 0 {
-			w.out.WriteString(" | (")
+			w.Out.WriteString(" | (")
 		}
-		w.out.WriteString("(int(round(clamp(")
+		w.Out.WriteString("(int(round(clamp(")
 		if err := w.writeExpression(e.Arg); err != nil {
 			return err
 		}
-		fmt.Fprintf(&w.out, "[%d], -1.0, 1.0) * 127.0)) & 0xFF)", i)
+		fmt.Fprintf(&w.Out, "[%d], -1.0, 1.0) * 127.0)) & 0xFF)", i)
 		if i > 0 {
-			fmt.Fprintf(&w.out, " << %d)", i*8)
+			fmt.Fprintf(&w.Out, " << %d)", i*8)
 		}
 	}
-	w.out.WriteString(")")
+	w.Out.WriteString(")")
 	return nil
 }
 
 // writePack4x8unorm writes the inline polyfill for Pack4x8unorm.
 // Matches Rust naga: (uint(round(clamp(arg[0],0.0,1.0)*255.0)) | ... << 8 | ... << 16 | ... << 24)
 func (w *Writer) writePack4x8unorm(e ir.ExprMath) error {
-	w.out.WriteString("(")
+	w.Out.WriteString("(")
 	for i := 0; i < 4; i++ {
 		if i > 0 {
-			w.out.WriteString(" | ")
+			w.Out.WriteString(" | ")
 		}
-		w.out.WriteString("uint(round(clamp(")
+		w.Out.WriteString("uint(round(clamp(")
 		if err := w.writeExpression(e.Arg); err != nil {
 			return err
 		}
-		fmt.Fprintf(&w.out, "[%d], 0.0, 1.0) * 255.0))", i)
+		fmt.Fprintf(&w.Out, "[%d], 0.0, 1.0) * 255.0))", i)
 		if i > 0 {
-			fmt.Fprintf(&w.out, " << %d", i*8)
+			fmt.Fprintf(&w.Out, " << %d", i*8)
 		}
 	}
-	w.out.WriteString(")")
+	w.Out.WriteString(")")
 	return nil
 }
 
 // writePack2x16snorm writes the inline polyfill for Pack2x16snorm.
 // Matches Rust naga: uint((int(round(clamp(arg[0],-1.0,1.0)*32767.0))&0xFFFF) | ((int(round(clamp(arg[1],-1.0,1.0)*32767.0))&0xFFFF)<<16))
 func (w *Writer) writePack2x16snorm(e ir.ExprMath) error {
-	w.out.WriteString("uint((int(round(clamp(")
+	w.Out.WriteString("uint((int(round(clamp(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString("[0], -1.0, 1.0) * 32767.0)) & 0xFFFF) | ((int(round(clamp(")
+	w.Out.WriteString("[0], -1.0, 1.0) * 32767.0)) & 0xFFFF) | ((int(round(clamp(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString("[1], -1.0, 1.0) * 32767.0)) & 0xFFFF) << 16))")
+	w.Out.WriteString("[1], -1.0, 1.0) * 32767.0)) & 0xFFFF) << 16))")
 	return nil
 }
 
 // writePack2x16unorm writes the inline polyfill for Pack2x16unorm.
 // Matches Rust naga: (uint(round(clamp(arg[0],0.0,1.0)*65535.0)) | uint(round(clamp(arg[1],0.0,1.0)*65535.0))<<16)
 func (w *Writer) writePack2x16unorm(e ir.ExprMath) error {
-	w.out.WriteString("(uint(round(clamp(")
+	w.Out.WriteString("(uint(round(clamp(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString("[0], 0.0, 1.0) * 65535.0)) | uint(round(clamp(")
+	w.Out.WriteString("[0], 0.0, 1.0) * 65535.0)) | uint(round(clamp(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString("[1], 0.0, 1.0) * 65535.0)) << 16)")
+	w.Out.WriteString("[1], 0.0, 1.0) * 65535.0)) << 16)")
 	return nil
 }
 
 // writePack2x16float writes the inline polyfill for Pack2x16float.
 // Matches Rust naga: (f32tof16(arg[0]) | f32tof16(arg[1]) << 16)
 func (w *Writer) writePack2x16float(e ir.ExprMath) error {
-	w.out.WriteString("(f32tof16(")
+	w.Out.WriteString("(f32tof16(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString("[0]) | f32tof16(")
+	w.Out.WriteString("[0]) | f32tof16(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString("[1]) << 16)")
+	w.Out.WriteString("[1]) << 16)")
 	return nil
 }
 
 // writeUnpack4x8snorm writes the inline polyfill for Unpack4x8snorm.
 // Matches Rust naga: (float4(int4(arg<<24, arg<<16, arg<<8, arg) >> 24) / 127.0)
 func (w *Writer) writeUnpack4x8snorm(e ir.ExprMath) error {
-	w.out.WriteString("(float4(int4(")
+	w.Out.WriteString("(float4(int4(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" << 24, ")
+	w.Out.WriteString(" << 24, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" << 16, ")
+	w.Out.WriteString(" << 16, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" << 8, ")
+	w.Out.WriteString(" << 8, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(") >> 24) / 127.0)")
+	w.Out.WriteString(") >> 24) / 127.0)")
 	return nil
 }
 
 // writeUnpack4x8unorm writes the inline polyfill for Unpack4x8unorm.
 // Matches Rust naga: (float4(arg & 0xFF, arg >> 8 & 0xFF, arg >> 16 & 0xFF, arg >> 24) / 255.0)
 func (w *Writer) writeUnpack4x8unorm(e ir.ExprMath) error {
-	w.out.WriteString("(float4(")
+	w.Out.WriteString("(float4(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" & 0xFF, ")
+	w.Out.WriteString(" & 0xFF, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 8 & 0xFF, ")
+	w.Out.WriteString(" >> 8 & 0xFF, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 16 & 0xFF, ")
+	w.Out.WriteString(" >> 16 & 0xFF, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 24) / 255.0)")
+	w.Out.WriteString(" >> 24) / 255.0)")
 	return nil
 }
 
 // writeUnpack2x16snorm writes the inline polyfill for Unpack2x16snorm.
 // Matches Rust naga: (float2(int2(arg << 16, arg) >> 16) / 32767.0)
 func (w *Writer) writeUnpack2x16snorm(e ir.ExprMath) error {
-	w.out.WriteString("(float2(int2(")
+	w.Out.WriteString("(float2(int2(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" << 16, ")
+	w.Out.WriteString(" << 16, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(") >> 16) / 32767.0)")
+	w.Out.WriteString(") >> 16) / 32767.0)")
 	return nil
 }
 
 // writeUnpack2x16unorm writes the inline polyfill for Unpack2x16unorm.
 // Matches Rust naga: (float2(arg & 0xFFFF, arg >> 16) / 65535.0)
 func (w *Writer) writeUnpack2x16unorm(e ir.ExprMath) error {
-	w.out.WriteString("(float2(")
+	w.Out.WriteString("(float2(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" & 0xFFFF, ")
+	w.Out.WriteString(" & 0xFFFF, ")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(" >> 16) / 65535.0)")
+	w.Out.WriteString(" >> 16) / 65535.0)")
 	return nil
 }
 
 // writeUnpack2x16float writes the inline polyfill for Unpack2x16float.
 // Matches Rust naga: float2(f16tof32(arg), f16tof32((arg) >> 16))
 func (w *Writer) writeUnpack2x16float(e ir.ExprMath) error {
-	w.out.WriteString("float2(f16tof32(")
+	w.Out.WriteString("float2(f16tof32(")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString("), f16tof32((")
+	w.Out.WriteString("), f16tof32((")
 	if err := w.writeExpression(e.Arg); err != nil {
 		return err
 	}
-	w.out.WriteString(") >> 16))")
+	w.Out.WriteString(") >> 16))")
 	return nil
 }
 
@@ -2278,12 +2278,12 @@ func (w *Writer) writeAsExpression(e ir.ExprAs) error {
 					w.f2iCastFunctions = make(map[string]struct{})
 				}
 				w.f2iCastFunctions[funcName] = struct{}{}
-				w.out.WriteString(funcName)
-				w.out.WriteByte('(')
+				w.Out.WriteString(funcName)
+				w.Out.WriteByte('(')
 				if err := w.writeExpression(e.Expr); err != nil {
 					return fmt.Errorf("as conversion f2i: %w", err)
 				}
-				w.out.WriteByte(')')
+				w.Out.WriteByte(')')
 				return nil
 			}
 		}
@@ -2292,17 +2292,17 @@ func (w *Writer) writeAsExpression(e ir.ExprAs) error {
 
 		switch src := srcInner.(type) {
 		case ir.VectorType:
-			fmt.Fprintf(&w.out, "%s%d(", scalarName, src.Size)
+			fmt.Fprintf(&w.Out, "%s%d(", scalarName, src.Size)
 		case ir.MatrixType:
-			fmt.Fprintf(&w.out, "%s%dx%d(", scalarName, src.Columns, src.Rows)
+			fmt.Fprintf(&w.Out, "%s%dx%d(", scalarName, src.Columns, src.Rows)
 		default:
 			// Scalar or unknown — just scalar cast
-			fmt.Fprintf(&w.out, "%s(", scalarName)
+			fmt.Fprintf(&w.Out, "%s(", scalarName)
 		}
 		if err := w.writeExpression(e.Expr); err != nil {
 			return fmt.Errorf("as conversion: %w", err)
 		}
-		w.out.WriteByte(')')
+		w.Out.WriteByte(')')
 	} else {
 		// Bitcast - use asfloat/asint/asuint
 		// For 64-bit types, skip the cast (identity bitcast in HLSL).
@@ -2323,12 +2323,12 @@ func (w *Writer) writeAsExpression(e ir.ExprAs) error {
 			}
 		} else {
 			castFunc := ScalarCast(e.Kind)
-			w.out.WriteString(castFunc)
-			w.out.WriteByte('(')
+			w.Out.WriteString(castFunc)
+			w.Out.WriteByte('(')
 			if err := w.writeExpression(e.Expr); err != nil {
 				return fmt.Errorf("as bitcast: %w", err)
 			}
-			w.out.WriteByte(')')
+			w.Out.WriteByte(')')
 		}
 	}
 	return nil
@@ -2376,15 +2376,15 @@ func (w *Writer) writeDerivativeExpression(e ir.ExprDerivative) error {
 		if e.Control == ir.DerivativeFine {
 			tail = "fine"
 		}
-		fmt.Fprintf(&w.out, "abs(ddx_%s(", tail)
+		fmt.Fprintf(&w.Out, "abs(ddx_%s(", tail)
 		if err := w.writeExpression(e.Expr); err != nil {
 			return fmt.Errorf("derivative expr: %w", err)
 		}
-		fmt.Fprintf(&w.out, ")) + abs(ddy_%s(", tail)
+		fmt.Fprintf(&w.Out, ")) + abs(ddy_%s(", tail)
 		if err := w.writeExpression(e.Expr); err != nil {
 			return fmt.Errorf("derivative expr: %w", err)
 		}
-		w.out.WriteString("))")
+		w.Out.WriteString("))")
 		return nil
 	}
 
@@ -2414,12 +2414,12 @@ func (w *Writer) writeDerivativeExpression(e ir.ExprDerivative) error {
 		return fmt.Errorf("unsupported derivative axis: %d", e.Axis)
 	}
 
-	w.out.WriteString(funcName)
-	w.out.WriteByte('(')
+	w.Out.WriteString(funcName)
+	w.Out.WriteByte('(')
 	if err := w.writeExpression(e.Expr); err != nil {
 		return fmt.Errorf("derivative expr: %w", err)
 	}
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -2435,19 +2435,19 @@ func (w *Writer) writeImageSampleExpression(e ir.ExprImageSample) error {
 		if _, isZero := e.Level.(ir.SampleLevelZero); isZero &&
 			e.DepthRef == nil && e.Gather == nil && e.ArrayIndex == nil && e.Offset == nil {
 			w.needsClampToEdgeHelper = true
-			w.out.WriteString("nagaTextureSampleBaseClampToEdge(")
+			w.Out.WriteString("nagaTextureSampleBaseClampToEdge(")
 			if err := w.writeExpression(e.Image); err != nil {
 				return fmt.Errorf("clamp to edge: image: %w", err)
 			}
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 			if err := w.writeExpression(e.Sampler); err != nil {
 				return fmt.Errorf("clamp to edge: sampler: %w", err)
 			}
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 			if err := w.writeExpression(e.Coordinate); err != nil {
 				return fmt.Errorf("clamp to edge: coordinate: %w", err)
 			}
-			w.out.WriteByte(')')
+			w.Out.WriteByte(')')
 			return nil
 		}
 		// ClampToEdge with non-Zero level should have been validated out
@@ -2517,14 +2517,14 @@ func (w *Writer) writeImageSampleExpression(e ir.ExprImageSample) error {
 		method = fmt.Sprintf(".Gather%s%s", cmpStr, compStr)
 	}
 
-	w.out.WriteString(method)
-	w.out.WriteByte('(')
+	w.Out.WriteString(method)
+	w.Out.WriteByte('(')
 
 	// Sampler
 	if err := w.writeExpression(e.Sampler); err != nil {
 		return fmt.Errorf("image sample: sampler: %w", err)
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 
 	// Coordinate (merged with array index per Rust naga's write_texture_coordinates)
 	if err := w.writeTextureCoordinates("float", e.Coordinate, e.ArrayIndex, nil); err != nil {
@@ -2533,7 +2533,7 @@ func (w *Writer) writeImageSampleExpression(e ir.ExprImageSample) error {
 
 	// Depth reference for comparison samplers
 	if e.DepthRef != nil {
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(*e.DepthRef); err != nil {
 			return fmt.Errorf("image sample: depth ref: %w", err)
 		}
@@ -2553,14 +2553,14 @@ func (w *Writer) writeImageSampleExpression(e ir.ExprImageSample) error {
 	// https://github.com/microsoft/DirectXShaderCompiler/issues/5082#issuecomment-1540147807
 	// Use writeConstExpression to bypass named expression baking (matches Rust naga).
 	if e.Offset != nil {
-		w.out.WriteString(", int2(")
+		w.Out.WriteString(", int2(")
 		if err := w.writeConstExpression(*e.Offset); err != nil {
 			return fmt.Errorf("image sample: offset: %w", err)
 		}
-		w.out.WriteByte(')')
+		w.Out.WriteByte(')')
 	}
 
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 
@@ -2574,25 +2574,25 @@ func (w *Writer) writeSampleLevel(level ir.SampleLevel, hasDepthRef bool) error 
 	case ir.SampleLevelZero:
 		if !hasDepthRef {
 			// SampleLevel(..., 0.0) needs explicit level
-			w.out.WriteString(", 0.0")
+			w.Out.WriteString(", 0.0")
 		}
 		// For SampleCmpLevelZero: level is implicit
 	case ir.SampleLevelExact:
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(l.Level); err != nil {
 			return fmt.Errorf("sample level: %w", err)
 		}
 	case ir.SampleLevelBias:
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(l.Bias); err != nil {
 			return fmt.Errorf("sample bias: %w", err)
 		}
 	case ir.SampleLevelGradient:
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(l.X); err != nil {
 			return fmt.Errorf("sample gradient x: %w", err)
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(l.Y); err != nil {
 			return fmt.Errorf("sample gradient y: %w", err)
 		}
@@ -2605,22 +2605,22 @@ func (w *Writer) writeImageLoadExpression(e ir.ExprImageLoad) error {
 	// Check if this is an external texture -- use nagaTextureLoadExternal helper
 	imgType := w.getImageTypeFromExpr(e.Image)
 	if imgType != nil && imgType.Class == ir.ImageClassExternal {
-		w.out.WriteString("nagaTextureLoadExternal(")
+		w.Out.WriteString("nagaTextureLoadExternal(")
 		if err := w.writeExpression(e.Image); err != nil {
 			return fmt.Errorf("image load external: image: %w", err)
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(e.Coordinate); err != nil {
 			return fmt.Errorf("image load external: coordinate: %w", err)
 		}
-		w.out.WriteByte(')')
+		w.Out.WriteByte(')')
 		return nil
 	}
 
 	// Check if this is a scalar storage texture that needs LoadedStorageValueFrom wrapper
 	scalarHelper := w.getStorageLoadHelper(e.Image)
 	if scalarHelper != "" {
-		fmt.Fprintf(&w.out, "LoadedStorageValueFrom%s(", scalarHelper)
+		fmt.Fprintf(&w.Out, "LoadedStorageValueFrom%s(", scalarHelper)
 	}
 
 	// Write image reference
@@ -2629,7 +2629,7 @@ func (w *Writer) writeImageLoadExpression(e ir.ExprImageLoad) error {
 	}
 
 	// Use Load method
-	w.out.WriteString(".Load(")
+	w.Out.WriteString(".Load(")
 
 	// Bundle coordinates, array index, and mip level into a single vector.
 	// Matches Rust naga write_texture_coordinates("int", ...).
@@ -2639,21 +2639,21 @@ func (w *Writer) writeImageLoadExpression(e ir.ExprImageLoad) error {
 
 	// Sample index for MSAA (not bundled, passed as separate parameter)
 	if e.Sample != nil {
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(*e.Sample); err != nil {
 			return fmt.Errorf("image load: sample: %w", err)
 		}
 	}
 
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	if scalarHelper != "" {
-		w.out.WriteByte(')') // close LoadedStorageValueFrom wrapper
+		w.Out.WriteByte(')') // close LoadedStorageValueFrom wrapper
 	}
 
 	// Append .x if the result type is scalar (depth textures return float, not float4).
 	// Matches Rust naga: "return x component if return type is scalar".
 	if w.isImageLoadResultScalar(e.Image) {
-		w.out.WriteString(".x")
+		w.Out.WriteString(".x")
 	}
 
 	return nil
@@ -2678,33 +2678,33 @@ func (w *Writer) writeTextureCoordinates(kind string, coordinate ir.ExpressionHa
 	numCoords := w.getExpressionVectorSize(coordinate)
 	totalSize := numCoords + extra
 
-	fmt.Fprintf(&w.out, "%s%d(", kind, totalSize)
+	fmt.Fprintf(&w.Out, "%s%d(", kind, totalSize)
 	if err := w.writeExpression(coordinate); err != nil {
 		return err
 	}
 	if arrayIndex != nil {
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(*arrayIndex); err != nil {
 			return err
 		}
 	}
 	if mipLevel != nil {
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		// Cast uint mip level to int if needed.
 		// Also wrap abstract int literals with int() to match Rust naga's behavior
 		// (Rust concretizes abstract ints to i32 before writing).
 		needCast := w.isExpressionUint(*mipLevel) || w.isAbstractIntLiteral(*mipLevel)
 		if needCast {
-			w.out.WriteString("int(")
+			w.Out.WriteString("int(")
 		}
 		if err := w.writeExpression(*mipLevel); err != nil {
 			return err
 		}
 		if needCast {
-			w.out.WriteString(")")
+			w.Out.WriteString(")")
 		}
 	}
-	w.out.WriteString(")")
+	w.Out.WriteString(")")
 	return nil
 }
 
@@ -2861,18 +2861,18 @@ func (w *Writer) writeImageQueryExpression(e ir.ExprImageQuery) error {
 
 	// Write the call: NagaXxxDimensionsYY(tex) or NagaXxxDimensionsYY(tex, mip_level)
 	w.writeImageQueryFunctionName(key)
-	w.out.WriteString("(")
+	w.Out.WriteString("(")
 	if err := w.writeExpression(e.Image); err != nil {
 		return fmt.Errorf("image query: image: %w", err)
 	}
 	if qt == imageQuerySizeLevel {
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		q := e.Query.(ir.ImageQuerySize)
 		if err := w.writeExpression(*q.Level); err != nil {
 			return fmt.Errorf("image query: level: %w", err)
 		}
 	}
-	w.out.WriteString(")")
+	w.Out.WriteString(")")
 
 	return nil
 }
@@ -2941,7 +2941,7 @@ func (w *Writer) writeImageQueryFunctionName(key wrappedImageQueryKey) {
 		arrayedStr = "Array"
 	}
 
-	fmt.Fprintf(&w.out, "Naga%s%s%s%s", classStr, queryStr, dimStr, arrayedStr)
+	fmt.Fprintf(&w.Out, "Naga%s%s%s%s", classStr, queryStr, dimStr, arrayedStr)
 }
 
 // =============================================================================
@@ -2954,7 +2954,7 @@ func (w *Writer) writeImageQueryFunctionName(key wrappedImageQueryKey) {
 // before dispatching here. This fallback exists for safety.
 func (w *Writer) writeCallResultExpression(e ir.ExprCallResult) error {
 	name := w.names[nameKey{kind: nameKeyFunction, handle1: uint32(e.Function)}]
-	fmt.Fprintf(&w.out, "_%s_result", name)
+	fmt.Fprintf(&w.Out, "_%s_result", name)
 	return nil
 }
 
@@ -2984,7 +2984,7 @@ func (w *Writer) writeArrayLengthExpression(e ir.ExprArrayLength) error {
 		if err := w.writeExpression(e.Array); err != nil {
 			return err
 		}
-		w.out.WriteString(".Length")
+		w.Out.WriteString(".Length")
 		return nil
 	}
 
@@ -3025,7 +3025,7 @@ func (w *Writer) writeArrayLengthExpression(e ir.ExprArrayLength) error {
 	if writable {
 		funcName = "NagaBufferLengthRW"
 	}
-	fmt.Fprintf(&w.out, "((%s(%s) - %d) / %d)", funcName, varName, offset, stride)
+	fmt.Fprintf(&w.Out, "((%s(%s) - %d) / %d)", funcName, varName, offset, stride)
 	return nil
 }
 
@@ -3230,15 +3230,15 @@ func (w *Writer) getExpressionType(handle ir.ExpressionHandle) *ir.Type {
 // writeExpressionToString writes an expression to a string.
 func (w *Writer) writeExpressionToString(handle ir.ExpressionHandle) (string, error) {
 	// Save current output
-	oldOut := w.out
-	w.out = strings.Builder{}
+	oldOut := w.Out
+	w.Out = strings.Builder{}
 
 	// Write expression
 	err := w.writeExpression(handle)
 
 	// Get result and restore output
-	result := w.out.String()
-	w.out = oldOut
+	result := w.Out.String()
+	w.Out = oldOut
 
 	return result, err
 }
@@ -3316,16 +3316,16 @@ func (w *Writer) resolveStructTypeHandleForAccess(base ir.ExpressionHandle) *ir.
 // Matches Rust naga: `GetCommittedIntersection(rq)` or `GetCandidateIntersection(rq)`.
 func (w *Writer) writeRayQueryGetIntersection(e ir.ExprRayQueryGetIntersection) error {
 	if e.Committed {
-		w.out.WriteString("GetCommittedIntersection(")
+		w.Out.WriteString("GetCommittedIntersection(")
 		w.needsCommittedIntersectionHelper = true
 	} else {
-		w.out.WriteString("GetCandidateIntersection(")
+		w.Out.WriteString("GetCandidateIntersection(")
 		w.needsCandidateIntersectionHelper = true
 	}
 	if err := w.writeExpression(e.Query); err != nil {
 		return fmt.Errorf("ray query get intersection query: %w", err)
 	}
-	w.out.WriteByte(')')
+	w.Out.WriteByte(')')
 	return nil
 }
 

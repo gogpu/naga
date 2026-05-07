@@ -59,91 +59,91 @@ func (fm *featuresManager) writeExtensions(w *Writer) {
 	opts := w.options
 
 	if fm.contains(FeatureComputeShader) && !opts.LangVersion.ES {
-		w.writeLine("#extension GL_ARB_compute_shader : require")
+		w.WriteLine("#extension GL_ARB_compute_shader : require")
 	}
 
 	if fm.contains(FeatureBufferStorage) && !opts.LangVersion.ES {
-		w.writeLine("#extension GL_ARB_shader_storage_buffer_object : require")
+		w.WriteLine("#extension GL_ARB_shader_storage_buffer_object : require")
 	}
 
 	if fm.contains(FeatureDoubleType) && !opts.LangVersion.ES && opts.LangVersion.versionLessThan(400) {
-		w.writeLine("#extension GL_ARB_gpu_shader_fp64 : require")
+		w.WriteLine("#extension GL_ARB_gpu_shader_fp64 : require")
 	}
 
 	if fm.contains(FeatureCubeTexturesArray) {
 		if opts.LangVersion.ES {
-			w.writeLine("#extension GL_EXT_texture_cube_map_array : require")
+			w.WriteLine("#extension GL_EXT_texture_cube_map_array : require")
 		} else if opts.LangVersion.versionLessThan(400) {
-			w.writeLine("#extension GL_ARB_texture_cube_map_array : require")
+			w.WriteLine("#extension GL_ARB_texture_cube_map_array : require")
 		}
 	}
 
 	if fm.contains(FeatureMultisampledTexArrays) && opts.LangVersion.ES {
-		w.writeLine("#extension GL_OES_texture_storage_multisample_2d_array : require")
+		w.WriteLine("#extension GL_OES_texture_storage_multisample_2d_array : require")
 	}
 
 	if fm.contains(FeatureImageLoadStore) {
 		if !opts.LangVersion.ES && opts.LangVersion.versionLessThan(420) {
-			w.writeLine("#extension GL_ARB_shader_image_load_store : require")
+			w.WriteLine("#extension GL_ARB_shader_image_load_store : require")
 		}
 	}
 
 	if fm.contains(FeatureConservativeDepth) {
 		if opts.LangVersion.ES {
-			w.writeLine("#extension GL_EXT_conservative_depth : require")
+			w.WriteLine("#extension GL_EXT_conservative_depth : require")
 		} else if opts.LangVersion.versionLessThan(420) {
-			w.writeLine("#extension GL_ARB_conservative_depth : require")
+			w.WriteLine("#extension GL_ARB_conservative_depth : require")
 		}
 	}
 
 	if (fm.contains(FeatureClipDistance) || fm.contains(FeatureCullDistance)) && opts.LangVersion.ES {
-		w.writeLine("#extension GL_EXT_clip_cull_distance : require")
+		w.WriteLine("#extension GL_EXT_clip_cull_distance : require")
 	}
 
 	if fm.contains(FeatureSampleVariables) && opts.LangVersion.ES {
-		w.writeLine("#extension GL_OES_sample_variables : require")
+		w.WriteLine("#extension GL_OES_sample_variables : require")
 	}
 
 	if fm.contains(FeatureMultiView) {
 		if opts.LangVersion.ES && opts.LangVersion.isWebGL() {
-			w.writeLine("#extension GL_OVR_multiview2 : require")
+			w.WriteLine("#extension GL_OVR_multiview2 : require")
 		} else {
-			w.writeLine("#extension GL_EXT_multiview : require")
+			w.WriteLine("#extension GL_EXT_multiview : require")
 		}
 	}
 
 	if fm.contains(FeatureTextureSamples) {
-		w.writeLine("#extension GL_ARB_shader_texture_image_samples : require")
+		w.WriteLine("#extension GL_ARB_shader_texture_image_samples : require")
 	}
 
 	if fm.contains(FeatureTextureLevels) && !opts.LangVersion.ES && opts.LangVersion.versionLessThan(430) {
-		w.writeLine("#extension GL_ARB_texture_query_levels : require")
+		w.WriteLine("#extension GL_ARB_texture_query_levels : require")
 	}
 
 	if fm.contains(FeatureDualSourceBlending) && opts.LangVersion.ES {
-		w.writeLine("#extension GL_EXT_blend_func_extended : require")
+		w.WriteLine("#extension GL_EXT_blend_func_extended : require")
 	}
 
 	if fm.contains(FeatureTextureShadowLod) {
-		w.writeLine("#extension GL_EXT_texture_shadow_lod : require")
+		w.WriteLine("#extension GL_EXT_texture_shadow_lod : require")
 	}
 
 	if fm.contains(FeatureSubgroupOperations) {
-		w.writeLine("#extension GL_KHR_shader_subgroup_basic : require")
-		w.writeLine("#extension GL_KHR_shader_subgroup_vote : require")
-		w.writeLine("#extension GL_KHR_shader_subgroup_arithmetic : require")
-		w.writeLine("#extension GL_KHR_shader_subgroup_ballot : require")
-		w.writeLine("#extension GL_KHR_shader_subgroup_shuffle : require")
-		w.writeLine("#extension GL_KHR_shader_subgroup_shuffle_relative : require")
-		w.writeLine("#extension GL_KHR_shader_subgroup_quad : require")
+		w.WriteLine("#extension GL_KHR_shader_subgroup_basic : require")
+		w.WriteLine("#extension GL_KHR_shader_subgroup_vote : require")
+		w.WriteLine("#extension GL_KHR_shader_subgroup_arithmetic : require")
+		w.WriteLine("#extension GL_KHR_shader_subgroup_ballot : require")
+		w.WriteLine("#extension GL_KHR_shader_subgroup_shuffle : require")
+		w.WriteLine("#extension GL_KHR_shader_subgroup_shuffle_relative : require")
+		w.WriteLine("#extension GL_KHR_shader_subgroup_quad : require")
 	}
 
 	if fm.contains(FeatureTextureAtomics) {
-		w.writeLine("#extension GL_OES_shader_image_atomic : require")
+		w.WriteLine("#extension GL_OES_shader_image_atomic : require")
 	}
 
 	if fm.contains(FeatureShaderBarycentrics) {
-		w.writeLine("#extension GL_EXT_fragment_shader_barycentric : require")
+		w.WriteLine("#extension GL_EXT_fragment_shader_barycentric : require")
 	}
 }
 

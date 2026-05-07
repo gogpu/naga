@@ -68,14 +68,14 @@ func (w *Writer) writeTypeDefinition(handle ir.TypeHandle, typ *ir.Type) error {
 			// Get the NagaExternalTextureParams type name.
 			if w.module.SpecialTypes.ExternalTextureParams != nil {
 				paramsTypeName := w.getTypeName(*w.module.SpecialTypes.ExternalTextureParams)
-				w.writeLine("struct NagaExternalTextureWrapper {")
-				w.pushIndent()
-				w.writeLine("%stexture2d<float, %saccess::sample> plane0;", Namespace, Namespace)
-				w.writeLine("%stexture2d<float, %saccess::sample> plane1;", Namespace, Namespace)
-				w.writeLine("%stexture2d<float, %saccess::sample> plane2;", Namespace, Namespace)
-				w.writeLine("%s params;", paramsTypeName)
-				w.popIndent()
-				w.writeLine("};")
+				w.WriteLine("struct NagaExternalTextureWrapper {")
+				w.PushIndent()
+				w.WriteLine("%stexture2d<float, %saccess::sample> plane0;", Namespace, Namespace)
+				w.WriteLine("%stexture2d<float, %saccess::sample> plane1;", Namespace, Namespace)
+				w.WriteLine("%stexture2d<float, %saccess::sample> plane2;", Namespace, Namespace)
+				w.WriteLine("%s params;", paramsTypeName)
+				w.PopIndent()
+				w.WriteLine("};")
 			}
 			w.externalTextureWrapperEmitted = true
 		}
@@ -86,12 +86,12 @@ func (w *Writer) writeTypeDefinition(handle ir.TypeHandle, typ *ir.Type) error {
 		// Matches Rust naga: Metal argument buffers need an indirection wrapper
 		// because textures/samplers can't be directly in argument buffer arrays.
 		if !w.argumentBufferWrapperEmitted {
-			w.writeLine("template <typename T>")
-			w.writeLine("struct NagaArgumentBufferWrapper {")
-			w.pushIndent()
-			w.writeLine("T inner;")
-			w.popIndent()
-			w.writeLine("};")
+			w.WriteLine("template <typename T>")
+			w.WriteLine("struct NagaArgumentBufferWrapper {")
+			w.PushIndent()
+			w.WriteLine("T inner;")
+			w.PopIndent()
+			w.WriteLine("};")
 			w.argumentBufferWrapperEmitted = true
 		}
 		return nil
@@ -105,8 +105,8 @@ func (w *Writer) writeTypeDefinition(handle ir.TypeHandle, typ *ir.Type) error {
 // writeStructDefinition writes a struct type definition.
 func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.StructType) error {
 	structName := w.getTypeName(handle)
-	w.writeLine("struct %s {", structName)
-	w.pushIndent()
+	w.WriteLine("struct %s {", structName)
+	w.PushIndent()
 
 	lastOffset := uint32(0)
 	for memberIdx, member := range st.Members {
@@ -114,7 +114,7 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 		// and this member's offset. Matches Rust naga: writer.rs ~line 4519.
 		if member.Offset > lastOffset {
 			pad := member.Offset - lastOffset
-			w.writeLine("char _pad%d[%d];", memberIdx, pad)
+			w.WriteLine("char _pad%d[%d];", memberIdx, pad)
 			// Track that this member has padding before it, for aggregate init.
 			// Matches Rust naga's struct_member_pads set.
 			w.structPads[nameKey{kind: nameKeyStructMember, handle1: uint32(handle), handle2: uint32(memberIdx)}] = struct{}{}
@@ -129,7 +129,7 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 			memberType = w.packedVectorTypeName(*packed)
 		}
 
-		w.writeLine("%s %s;", memberType, memberName)
+		w.WriteLine("%s %s;", memberType, memberName)
 
 		// Update lastOffset: member.Offset + size of member type.
 		lastOffset = member.Offset + w.typeSize(member.Type)
@@ -150,11 +150,11 @@ func (w *Writer) writeStructDefinition(handle ir.TypeHandle, _ string, st ir.Str
 	// and storage buffer types. Matches Rust naga: writer.rs ~line 4568.
 	if lastOffset < st.Span {
 		pad := st.Span - lastOffset
-		w.writeLine("char _pad%d[%d];", len(st.Members), pad)
+		w.WriteLine("char _pad%d[%d];", len(st.Members), pad)
 	}
 
-	w.popIndent()
-	w.writeLine("};")
+	w.PopIndent()
+	w.WriteLine("};")
 	return nil
 }
 
@@ -173,15 +173,15 @@ func (w *Writer) writeArrayWrapper(handle ir.TypeHandle, arr ir.ArrayType) error
 		// with a nominal size of 1; the actual extent is determined by the buffer binding.
 		// Note: NOT added to arrayWrappers — dynamic arrays use direct indexing (name[i]),
 		// not the struct wrapper pattern (name.inner[i]) used by fixed-size arrays.
-		w.writeLine("typedef %s %s[1];", elementType, wrapperName)
+		w.WriteLine("typedef %s %s[1];", elementType, wrapperName)
 		return nil
 	}
 
-	w.writeLine("struct %s {", wrapperName)
-	w.pushIndent()
-	w.writeLine("%s inner[%d];", elementType, *arr.Size.Constant)
-	w.popIndent()
-	w.writeLine("};")
+	w.WriteLine("struct %s {", wrapperName)
+	w.PushIndent()
+	w.WriteLine("%s inner[%d];", elementType, *arr.Size.Constant)
+	w.PopIndent()
+	w.WriteLine("};")
 
 	w.arrayWrappers[handle] = wrapperName
 	return nil
@@ -676,7 +676,7 @@ func (w *Writer) writeOverrideAsConstant(handle ir.OverrideHandle, ov *ir.Overri
 		// No default value — write zero-initialized value.
 		w.write("%s {}", typeName)
 	}
-	w.writeLine(";")
+	w.WriteLine(";")
 	return nil
 }
 
@@ -695,7 +695,7 @@ func (w *Writer) writeConstant(handle ir.ConstantHandle, constant *ir.Constant) 
 	} else if err := w.writeConstantValue(constant.Value, constant.Type); err != nil {
 		return err
 	}
-	w.writeLine(";")
+	w.WriteLine(";")
 	return nil
 }
 

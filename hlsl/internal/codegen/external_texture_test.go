@@ -71,7 +71,7 @@ func TestExternalTexturePlaneDecomposition(t *testing.T) {
 
 	// Test writeGlobalExternalTexture output
 	w.writeGlobalExternalTexture(0, &module.GlobalVariables[0])
-	output := w.out.String()
+	output := w.Out.String()
 
 	// Should contain 3 plane declarations
 	if !strings.Contains(output, "Texture2D<float4>") {
@@ -119,7 +119,7 @@ func TestExternalTextureHelperFunctions(t *testing.T) {
 		w.typeNames[ir.TypeHandle(0)] = "NagaExternalTextureParams"
 
 		w.writeExternalTextureSampleHelper()
-		output := w.out.String()
+		output := w.Out.String()
 
 		if !strings.Contains(output, "float4 nagaTextureSampleBaseClampToEdge(") {
 			t.Error("missing sample helper function signature")
@@ -141,9 +141,9 @@ func TestExternalTextureHelperFunctions(t *testing.T) {
 		}
 
 		// Second call should be no-op (already written)
-		w.out.Reset()
+		w.Out.Reset()
 		w.writeExternalTextureSampleHelper()
-		if w.out.Len() != 0 {
+		if w.Out.Len() != 0 {
 			t.Error("second call should not write anything")
 		}
 	})
@@ -153,7 +153,7 @@ func TestExternalTextureHelperFunctions(t *testing.T) {
 		w.typeNames[ir.TypeHandle(0)] = "NagaExternalTextureParams"
 
 		w.writeExternalTextureLoadHelper()
-		output := w.out.String()
+		output := w.Out.String()
 
 		if !strings.Contains(output, "float4 nagaTextureLoadExternal(") {
 			t.Error("missing load helper function signature")
@@ -174,7 +174,7 @@ func TestExternalTextureHelperFunctions(t *testing.T) {
 		w.typeNames[ir.TypeHandle(0)] = "NagaExternalTextureParams"
 
 		w.writeExternalTextureDimensionsHelper()
-		output := w.out.String()
+		output := w.Out.String()
 
 		if !strings.Contains(output, "uint2 NagaExternalDimensions2D(") {
 			t.Error("missing dimensions helper function signature")

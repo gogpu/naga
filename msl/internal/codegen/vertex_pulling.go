@@ -76,208 +76,208 @@ func (w *Writer) writeUnpackingFunction(format VertexFormat) (string, uint32, ui
 	switch format {
 	case VertexFormatUint8:
 		name := w.namer.call("unpackUint8")
-		w.out.WriteString(fmt.Sprintf("uint %s(metal::uchar b0) {\n", name))
-		w.out.WriteString("    return uint(b0);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("uint %s(metal::uchar b0) {\n", name))
+		w.Out.WriteString("    return uint(b0);\n}\n")
 		return name, 1, 1
 	case VertexFormatUint8x2:
 		name := w.namer.call("unpackUint8x2")
-		w.out.WriteString(fmt.Sprintf("metal::uint2 %s(metal::uchar b0, metal::uchar b1) {\n", name))
-		w.out.WriteString("    return metal::uint2(b0, b1);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::uint2 %s(metal::uchar b0, metal::uchar b1) {\n", name))
+		w.Out.WriteString("    return metal::uint2(b0, b1);\n}\n")
 		return name, 2, 2
 	case VertexFormatUint8x4:
 		name := w.namer.call("unpackUint8x4")
-		w.out.WriteString(fmt.Sprintf("metal::uint4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
-		w.out.WriteString("    return metal::uint4(b0, b1, b2, b3);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::uint4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
+		w.Out.WriteString("    return metal::uint4(b0, b1, b2, b3);\n}\n")
 		return name, 4, 4
 	case VertexFormatSint8:
 		name := w.namer.call("unpackSint8")
-		w.out.WriteString(fmt.Sprintf("int %s(metal::uchar b0) {\n", name))
-		w.out.WriteString("    return int(as_type<char>(b0));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("int %s(metal::uchar b0) {\n", name))
+		w.Out.WriteString("    return int(as_type<char>(b0));\n}\n")
 		return name, 1, 1
 	case VertexFormatSint8x2:
 		name := w.namer.call("unpackSint8x2")
-		w.out.WriteString(fmt.Sprintf("metal::int2 %s(metal::uchar b0, metal::uchar b1) {\n", name))
-		w.out.WriteString("    return metal::int2(as_type<char>(b0), as_type<char>(b1));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::int2 %s(metal::uchar b0, metal::uchar b1) {\n", name))
+		w.Out.WriteString("    return metal::int2(as_type<char>(b0), as_type<char>(b1));\n}\n")
 		return name, 2, 2
 	case VertexFormatSint8x4:
 		name := w.namer.call("unpackSint8x4")
-		w.out.WriteString(fmt.Sprintf("metal::int4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
-		w.out.WriteString("    return metal::int4(as_type<char>(b0), as_type<char>(b1), as_type<char>(b2), as_type<char>(b3));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::int4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
+		w.Out.WriteString("    return metal::int4(as_type<char>(b0), as_type<char>(b1), as_type<char>(b2), as_type<char>(b3));\n}\n")
 		return name, 4, 4
 	case VertexFormatUnorm8:
 		name := w.namer.call("unpackUnorm8")
-		w.out.WriteString(fmt.Sprintf("float %s(metal::uchar b0) {\n", name))
-		w.out.WriteString("    return float(float(b0) / 255.0f);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("float %s(metal::uchar b0) {\n", name))
+		w.Out.WriteString("    return float(float(b0) / 255.0f);\n}\n")
 		return name, 1, 1
 	case VertexFormatUnorm8x2:
 		name := w.namer.call("unpackUnorm8x2")
-		w.out.WriteString(fmt.Sprintf("metal::float2 %s(metal::uchar b0, metal::uchar b1) {\n", name))
-		w.out.WriteString("    return metal::float2(float(b0) / 255.0f, float(b1) / 255.0f);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float2 %s(metal::uchar b0, metal::uchar b1) {\n", name))
+		w.Out.WriteString("    return metal::float2(float(b0) / 255.0f, float(b1) / 255.0f);\n}\n")
 		return name, 2, 2
 	case VertexFormatUnorm8x4:
 		name := w.namer.call("unpackUnorm8x4")
-		w.out.WriteString(fmt.Sprintf("metal::float4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
-		w.out.WriteString("    return metal::float4(float(b0) / 255.0f, float(b1) / 255.0f, float(b2) / 255.0f, float(b3) / 255.0f);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
+		w.Out.WriteString("    return metal::float4(float(b0) / 255.0f, float(b1) / 255.0f, float(b2) / 255.0f, float(b3) / 255.0f);\n}\n")
 		return name, 4, 4
 	case VertexFormatSnorm8:
 		name := w.namer.call("unpackSnorm8")
-		w.out.WriteString(fmt.Sprintf("float %s(metal::uchar b0) {\n", name))
-		w.out.WriteString("    return float(metal::max(-1.0f, as_type<char>(b0) / 127.0f));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("float %s(metal::uchar b0) {\n", name))
+		w.Out.WriteString("    return float(metal::max(-1.0f, as_type<char>(b0) / 127.0f));\n}\n")
 		return name, 1, 1
 	case VertexFormatSnorm8x2:
 		name := w.namer.call("unpackSnorm8x2")
-		w.out.WriteString(fmt.Sprintf("metal::float2 %s(metal::uchar b0, metal::uchar b1) {\n", name))
-		w.out.WriteString("    return metal::float2(metal::max(-1.0f, as_type<char>(b0) / 127.0f), metal::max(-1.0f, as_type<char>(b1) / 127.0f));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float2 %s(metal::uchar b0, metal::uchar b1) {\n", name))
+		w.Out.WriteString("    return metal::float2(metal::max(-1.0f, as_type<char>(b0) / 127.0f), metal::max(-1.0f, as_type<char>(b1) / 127.0f));\n}\n")
 		return name, 2, 2
 	case VertexFormatSnorm8x4:
 		name := w.namer.call("unpackSnorm8x4")
-		w.out.WriteString(fmt.Sprintf("metal::float4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
-		w.out.WriteString("    return metal::float4(metal::max(-1.0f, as_type<char>(b0) / 127.0f), metal::max(-1.0f, as_type<char>(b1) / 127.0f), metal::max(-1.0f, as_type<char>(b2) / 127.0f), metal::max(-1.0f, as_type<char>(b3) / 127.0f));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
+		w.Out.WriteString("    return metal::float4(metal::max(-1.0f, as_type<char>(b0) / 127.0f), metal::max(-1.0f, as_type<char>(b1) / 127.0f), metal::max(-1.0f, as_type<char>(b2) / 127.0f), metal::max(-1.0f, as_type<char>(b3) / 127.0f));\n}\n")
 		return name, 4, 4
 	case VertexFormatUint16:
 		name := w.namer.call("unpackUint16")
-		w.out.WriteString(fmt.Sprintf("metal::uint %s(metal::uint b0, metal::uint b1) {\n", name))
-		w.out.WriteString("    return metal::uint(b1 << 8 | b0);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::uint %s(metal::uint b0, metal::uint b1) {\n", name))
+		w.Out.WriteString("    return metal::uint(b1 << 8 | b0);\n}\n")
 		return name, 2, 1
 	case VertexFormatUint16x2:
 		name := w.namer.call("unpackUint16x2")
-		w.out.WriteString(fmt.Sprintf("metal::uint2 %s(metal::uint b0, metal::uint b1, metal::uint b2, metal::uint b3) {\n", name))
-		w.out.WriteString("    return metal::uint2(b1 << 8 | b0, b3 << 8 | b2);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::uint2 %s(metal::uint b0, metal::uint b1, metal::uint b2, metal::uint b3) {\n", name))
+		w.Out.WriteString("    return metal::uint2(b1 << 8 | b0, b3 << 8 | b2);\n}\n")
 		return name, 4, 2
 	case VertexFormatUint16x4:
 		name := w.namer.call("unpackUint16x4")
-		w.out.WriteString(fmt.Sprintf("metal::uint4 %s(metal::uint b0, metal::uint b1, metal::uint b2, metal::uint b3, metal::uint b4, metal::uint b5, metal::uint b6, metal::uint b7) {\n", name))
-		w.out.WriteString("    return metal::uint4(b1 << 8 | b0, b3 << 8 | b2, b5 << 8 | b4, b7 << 8 | b6);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::uint4 %s(metal::uint b0, metal::uint b1, metal::uint b2, metal::uint b3, metal::uint b4, metal::uint b5, metal::uint b6, metal::uint b7) {\n", name))
+		w.Out.WriteString("    return metal::uint4(b1 << 8 | b0, b3 << 8 | b2, b5 << 8 | b4, b7 << 8 | b6);\n}\n")
 		return name, 8, 4
 	case VertexFormatSint16:
 		name := w.namer.call("unpackSint16")
-		w.out.WriteString(fmt.Sprintf("int %s(metal::ushort b0, metal::ushort b1) {\n", name))
-		w.out.WriteString("    return int(as_type<short>(metal::ushort(b1 << 8 | b0)));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("int %s(metal::ushort b0, metal::ushort b1) {\n", name))
+		w.Out.WriteString("    return int(as_type<short>(metal::ushort(b1 << 8 | b0)));\n}\n")
 		return name, 2, 1
 	case VertexFormatSint16x2:
 		name := w.namer.call("unpackSint16x2")
-		w.out.WriteString(fmt.Sprintf("metal::int2 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3) {\n", name))
-		w.out.WriteString("    return metal::int2(as_type<short>(metal::ushort(b1 << 8 | b0)), as_type<short>(metal::ushort(b3 << 8 | b2)));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::int2 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3) {\n", name))
+		w.Out.WriteString("    return metal::int2(as_type<short>(metal::ushort(b1 << 8 | b0)), as_type<short>(metal::ushort(b3 << 8 | b2)));\n}\n")
 		return name, 4, 2
 	case VertexFormatSint16x4:
 		name := w.namer.call("unpackSint16x4")
-		w.out.WriteString(fmt.Sprintf("metal::int4 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3, metal::ushort b4, metal::ushort b5, metal::ushort b6, metal::ushort b7) {\n", name))
-		w.out.WriteString("    return metal::int4(as_type<short>(metal::ushort(b1 << 8 | b0)), as_type<short>(metal::ushort(b3 << 8 | b2)), as_type<short>(metal::ushort(b5 << 8 | b4)), as_type<short>(metal::ushort(b7 << 8 | b6)));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::int4 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3, metal::ushort b4, metal::ushort b5, metal::ushort b6, metal::ushort b7) {\n", name))
+		w.Out.WriteString("    return metal::int4(as_type<short>(metal::ushort(b1 << 8 | b0)), as_type<short>(metal::ushort(b3 << 8 | b2)), as_type<short>(metal::ushort(b5 << 8 | b4)), as_type<short>(metal::ushort(b7 << 8 | b6)));\n}\n")
 		return name, 8, 4
 	case VertexFormatUnorm16:
 		name := w.namer.call("unpackUnorm16")
-		w.out.WriteString(fmt.Sprintf("float %s(metal::ushort b0, metal::ushort b1) {\n", name))
-		w.out.WriteString("    return float(float(b1 << 8 | b0) / 65535.0f);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("float %s(metal::ushort b0, metal::ushort b1) {\n", name))
+		w.Out.WriteString("    return float(float(b1 << 8 | b0) / 65535.0f);\n}\n")
 		return name, 2, 1
 	case VertexFormatUnorm16x2:
 		name := w.namer.call("unpackUnorm16x2")
-		w.out.WriteString(fmt.Sprintf("metal::float2 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3) {\n", name))
-		w.out.WriteString("    return metal::float2(float(b1 << 8 | b0) / 65535.0f, float(b3 << 8 | b2) / 65535.0f);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float2 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3) {\n", name))
+		w.Out.WriteString("    return metal::float2(float(b1 << 8 | b0) / 65535.0f, float(b3 << 8 | b2) / 65535.0f);\n}\n")
 		return name, 4, 2
 	case VertexFormatUnorm16x4:
 		name := w.namer.call("unpackUnorm16x4")
-		w.out.WriteString(fmt.Sprintf("metal::float4 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3, metal::ushort b4, metal::ushort b5, metal::ushort b6, metal::ushort b7) {\n", name))
-		w.out.WriteString("    return metal::float4(float(b1 << 8 | b0) / 65535.0f, float(b3 << 8 | b2) / 65535.0f, float(b5 << 8 | b4) / 65535.0f, float(b7 << 8 | b6) / 65535.0f);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3, metal::ushort b4, metal::ushort b5, metal::ushort b6, metal::ushort b7) {\n", name))
+		w.Out.WriteString("    return metal::float4(float(b1 << 8 | b0) / 65535.0f, float(b3 << 8 | b2) / 65535.0f, float(b5 << 8 | b4) / 65535.0f, float(b7 << 8 | b6) / 65535.0f);\n}\n")
 		return name, 8, 4
 	case VertexFormatSnorm16:
 		name := w.namer.call("unpackSnorm16")
-		w.out.WriteString(fmt.Sprintf("float %s(metal::ushort b0, metal::ushort b1) {\n", name))
-		w.out.WriteString("    return metal::unpack_snorm2x16_to_float(b1 << 8 | b0).x;\n}\n")
+		w.Out.WriteString(fmt.Sprintf("float %s(metal::ushort b0, metal::ushort b1) {\n", name))
+		w.Out.WriteString("    return metal::unpack_snorm2x16_to_float(b1 << 8 | b0).x;\n}\n")
 		return name, 2, 1
 	case VertexFormatSnorm16x2:
 		name := w.namer.call("unpackSnorm16x2")
-		w.out.WriteString(fmt.Sprintf("metal::float2 %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
-		w.out.WriteString("    return metal::unpack_snorm2x16_to_float(b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float2 %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
+		w.Out.WriteString("    return metal::unpack_snorm2x16_to_float(b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
 		return name, 4, 2
 	case VertexFormatSnorm16x4:
 		name := w.namer.call("unpackSnorm16x4")
-		w.out.WriteString(fmt.Sprintf("metal::float4 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7) {\n", name))
-		w.out.WriteString("    return metal::float4(metal::unpack_snorm2x16_to_float(b3 << 24 | b2 << 16 | b1 << 8 | b0), metal::unpack_snorm2x16_to_float(b7 << 24 | b6 << 16 | b5 << 8 | b4));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7) {\n", name))
+		w.Out.WriteString("    return metal::float4(metal::unpack_snorm2x16_to_float(b3 << 24 | b2 << 16 | b1 << 8 | b0), metal::unpack_snorm2x16_to_float(b7 << 24 | b6 << 16 | b5 << 8 | b4));\n}\n")
 		return name, 8, 4
 	case VertexFormatFloat16:
 		name := w.namer.call("unpackFloat16")
-		w.out.WriteString(fmt.Sprintf("float %s(metal::ushort b0, metal::ushort b1) {\n", name))
-		w.out.WriteString("    return float(as_type<half>(metal::ushort(b1 << 8 | b0)));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("float %s(metal::ushort b0, metal::ushort b1) {\n", name))
+		w.Out.WriteString("    return float(as_type<half>(metal::ushort(b1 << 8 | b0)));\n}\n")
 		return name, 2, 1
 	case VertexFormatFloat16x2:
 		name := w.namer.call("unpackFloat16x2")
-		w.out.WriteString(fmt.Sprintf("metal::float2 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3) {\n", name))
-		w.out.WriteString("    return metal::float2(as_type<half>(metal::ushort(b1 << 8 | b0)), as_type<half>(metal::ushort(b3 << 8 | b2)));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float2 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3) {\n", name))
+		w.Out.WriteString("    return metal::float2(as_type<half>(metal::ushort(b1 << 8 | b0)), as_type<half>(metal::ushort(b3 << 8 | b2)));\n}\n")
 		return name, 4, 2
 	case VertexFormatFloat16x4:
 		name := w.namer.call("unpackFloat16x4")
-		w.out.WriteString(fmt.Sprintf("metal::float4 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3, metal::ushort b4, metal::ushort b5, metal::ushort b6, metal::ushort b7) {\n", name))
-		w.out.WriteString("    return metal::float4(as_type<half>(metal::ushort(b1 << 8 | b0)), as_type<half>(metal::ushort(b3 << 8 | b2)), as_type<half>(metal::ushort(b5 << 8 | b4)), as_type<half>(metal::ushort(b7 << 8 | b6)));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(metal::ushort b0, metal::ushort b1, metal::ushort b2, metal::ushort b3, metal::ushort b4, metal::ushort b5, metal::ushort b6, metal::ushort b7) {\n", name))
+		w.Out.WriteString("    return metal::float4(as_type<half>(metal::ushort(b1 << 8 | b0)), as_type<half>(metal::ushort(b3 << 8 | b2)), as_type<half>(metal::ushort(b5 << 8 | b4)), as_type<half>(metal::ushort(b7 << 8 | b6)));\n}\n")
 		return name, 8, 4
 	case VertexFormatFloat32:
 		name := w.namer.call("unpackFloat32")
-		w.out.WriteString(fmt.Sprintf("float %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
-		w.out.WriteString("    return as_type<float>(b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("float %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
+		w.Out.WriteString("    return as_type<float>(b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
 		return name, 4, 1
 	case VertexFormatFloat32x2:
 		name := w.namer.call("unpackFloat32x2")
-		w.out.WriteString(fmt.Sprintf("metal::float2 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7) {\n", name))
-		w.out.WriteString("    return metal::float2(as_type<float>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<float>(b7 << 24 | b6 << 16 | b5 << 8 | b4));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float2 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7) {\n", name))
+		w.Out.WriteString("    return metal::float2(as_type<float>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<float>(b7 << 24 | b6 << 16 | b5 << 8 | b4));\n}\n")
 		return name, 8, 2
 	case VertexFormatFloat32x3:
 		name := w.namer.call("unpackFloat32x3")
-		w.out.WriteString(fmt.Sprintf("metal::float3 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11) {\n", name))
-		w.out.WriteString("    return metal::float3(as_type<float>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<float>(b7 << 24 | b6 << 16 | b5 << 8 | b4), as_type<float>(b11 << 24 | b10 << 16 | b9 << 8 | b8));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float3 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11) {\n", name))
+		w.Out.WriteString("    return metal::float3(as_type<float>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<float>(b7 << 24 | b6 << 16 | b5 << 8 | b4), as_type<float>(b11 << 24 | b10 << 16 | b9 << 8 | b8));\n}\n")
 		return name, 12, 3
 	case VertexFormatFloat32x4:
 		name := w.namer.call("unpackFloat32x4")
-		w.out.WriteString(fmt.Sprintf("metal::float4 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11, uint b12, uint b13, uint b14, uint b15) {\n", name))
-		w.out.WriteString("    return metal::float4(as_type<float>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<float>(b7 << 24 | b6 << 16 | b5 << 8 | b4), as_type<float>(b11 << 24 | b10 << 16 | b9 << 8 | b8), as_type<float>(b15 << 24 | b14 << 16 | b13 << 8 | b12));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11, uint b12, uint b13, uint b14, uint b15) {\n", name))
+		w.Out.WriteString("    return metal::float4(as_type<float>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<float>(b7 << 24 | b6 << 16 | b5 << 8 | b4), as_type<float>(b11 << 24 | b10 << 16 | b9 << 8 | b8), as_type<float>(b15 << 24 | b14 << 16 | b13 << 8 | b12));\n}\n")
 		return name, 16, 4
 	case VertexFormatUint32:
 		name := w.namer.call("unpackUint32")
-		w.out.WriteString(fmt.Sprintf("uint %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
-		w.out.WriteString("    return (b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("uint %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
+		w.Out.WriteString("    return (b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
 		return name, 4, 1
 	case VertexFormatUint32x2:
 		name := w.namer.call("unpackUint32x2")
-		w.out.WriteString(fmt.Sprintf("uint2 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7) {\n", name))
-		w.out.WriteString("    return uint2((b3 << 24 | b2 << 16 | b1 << 8 | b0), (b7 << 24 | b6 << 16 | b5 << 8 | b4));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("uint2 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7) {\n", name))
+		w.Out.WriteString("    return uint2((b3 << 24 | b2 << 16 | b1 << 8 | b0), (b7 << 24 | b6 << 16 | b5 << 8 | b4));\n}\n")
 		return name, 8, 2
 	case VertexFormatUint32x3:
 		name := w.namer.call("unpackUint32x3")
-		w.out.WriteString(fmt.Sprintf("uint3 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11) {\n", name))
-		w.out.WriteString("    return uint3((b3 << 24 | b2 << 16 | b1 << 8 | b0), (b7 << 24 | b6 << 16 | b5 << 8 | b4), (b11 << 24 | b10 << 16 | b9 << 8 | b8));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("uint3 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11) {\n", name))
+		w.Out.WriteString("    return uint3((b3 << 24 | b2 << 16 | b1 << 8 | b0), (b7 << 24 | b6 << 16 | b5 << 8 | b4), (b11 << 24 | b10 << 16 | b9 << 8 | b8));\n}\n")
 		return name, 12, 3
 	case VertexFormatUint32x4:
 		name := w.namer.call("unpackUint32x4")
-		w.out.WriteString(fmt.Sprintf("metal::uint4 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11, uint b12, uint b13, uint b14, uint b15) {\n", name))
-		w.out.WriteString("    return metal::uint4((b3 << 24 | b2 << 16 | b1 << 8 | b0), (b7 << 24 | b6 << 16 | b5 << 8 | b4), (b11 << 24 | b10 << 16 | b9 << 8 | b8), (b15 << 24 | b14 << 16 | b13 << 8 | b12));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::uint4 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11, uint b12, uint b13, uint b14, uint b15) {\n", name))
+		w.Out.WriteString("    return metal::uint4((b3 << 24 | b2 << 16 | b1 << 8 | b0), (b7 << 24 | b6 << 16 | b5 << 8 | b4), (b11 << 24 | b10 << 16 | b9 << 8 | b8), (b15 << 24 | b14 << 16 | b13 << 8 | b12));\n}\n")
 		return name, 16, 4
 	case VertexFormatSint32:
 		name := w.namer.call("unpackSint32")
-		w.out.WriteString(fmt.Sprintf("int %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
-		w.out.WriteString("    return as_type<int>(b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("int %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
+		w.Out.WriteString("    return as_type<int>(b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
 		return name, 4, 1
 	case VertexFormatSint32x2:
 		name := w.namer.call("unpackSint32x2")
-		w.out.WriteString(fmt.Sprintf("metal::int2 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7) {\n", name))
-		w.out.WriteString("    return metal::int2(as_type<int>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<int>(b7 << 24 | b6 << 16 | b5 << 8 | b4));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::int2 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7) {\n", name))
+		w.Out.WriteString("    return metal::int2(as_type<int>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<int>(b7 << 24 | b6 << 16 | b5 << 8 | b4));\n}\n")
 		return name, 8, 2
 	case VertexFormatSint32x3:
 		name := w.namer.call("unpackSint32x3")
-		w.out.WriteString(fmt.Sprintf("metal::int3 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11) {\n", name))
-		w.out.WriteString("    return metal::int3(as_type<int>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<int>(b7 << 24 | b6 << 16 | b5 << 8 | b4), as_type<int>(b11 << 24 | b10 << 16 | b9 << 8 | b8));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::int3 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11) {\n", name))
+		w.Out.WriteString("    return metal::int3(as_type<int>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<int>(b7 << 24 | b6 << 16 | b5 << 8 | b4), as_type<int>(b11 << 24 | b10 << 16 | b9 << 8 | b8));\n}\n")
 		return name, 12, 3
 	case VertexFormatSint32x4:
 		name := w.namer.call("unpackSint32x4")
-		w.out.WriteString(fmt.Sprintf("metal::int4 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11, uint b12, uint b13, uint b14, uint b15) {\n", name))
-		w.out.WriteString("    return metal::int4(as_type<int>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<int>(b7 << 24 | b6 << 16 | b5 << 8 | b4), as_type<int>(b11 << 24 | b10 << 16 | b9 << 8 | b8), as_type<int>(b15 << 24 | b14 << 16 | b13 << 8 | b12));\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::int4 %s(uint b0, uint b1, uint b2, uint b3, uint b4, uint b5, uint b6, uint b7, uint b8, uint b9, uint b10, uint b11, uint b12, uint b13, uint b14, uint b15) {\n", name))
+		w.Out.WriteString("    return metal::int4(as_type<int>(b3 << 24 | b2 << 16 | b1 << 8 | b0), as_type<int>(b7 << 24 | b6 << 16 | b5 << 8 | b4), as_type<int>(b11 << 24 | b10 << 16 | b9 << 8 | b8), as_type<int>(b15 << 24 | b14 << 16 | b13 << 8 | b12));\n}\n")
 		return name, 16, 4
 	case VertexFormatUnorm10_10_10_2:
 		name := w.namer.call("unpackUnorm10_10_10_2")
-		w.out.WriteString(fmt.Sprintf("metal::float4 %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
-		w.out.WriteString("    return metal::unpack_unorm10a2_to_float(b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
+		w.Out.WriteString("    return metal::unpack_unorm10a2_to_float(b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
 		return name, 4, 4
 	case VertexFormatUnorm8x4Bgra:
 		name := w.namer.call("unpackUnorm8x4Bgra")
-		w.out.WriteString(fmt.Sprintf("metal::float4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
-		w.out.WriteString("    return metal::float4(float(b2) / 255.0f, float(b1) / 255.0f, float(b0) / 255.0f, float(b3) / 255.0f);\n}\n")
+		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
+		w.Out.WriteString("    return metal::float4(float(b2) / 255.0f, float(b1) / 255.0f, float(b0) / 255.0f, float(b3) / 255.0f);\n}\n")
 		return name, 4, 4
 	}
 	return "", 0, 0
@@ -540,7 +540,7 @@ func (w *Writer) writeVPTBodyPrologue(amResolved map[uint32]vptAttributeResolved
 			if !ok {
 				continue
 			}
-			w.writeLine("%s %s = {};", am.tyName, am.name)
+			w.WriteLine("%s %s = {};", am.tyName, am.name)
 		}
 
 		// Bounds check block.
@@ -562,11 +562,11 @@ func (w *Writer) writeVPTBodyPrologue(amResolved map[uint32]vptAttributeResolved
 			}
 		}
 
-		w.writeLine("if (%s < (_buffer_sizes.buffer_size%d / %d)) {", indexName, vbm.id, vbm.stride)
-		w.pushIndent()
+		w.WriteLine("if (%s < (_buffer_sizes.buffer_size%d / %d)) {", indexName, vbm.id, vbm.stride)
+		w.PushIndent()
 
 		// Read buffer element.
-		w.writeLine("const %s %s = %s[%s];", vbm.tyName, vbm.elemName, vbm.paramName, indexName)
+		w.WriteLine("const %s %s = %s[%s];", vbm.tyName, vbm.elemName, vbm.paramName, indexName)
 
 		// Unpack each attribute.
 		for _, attr := range vbm.attributes {
@@ -589,7 +589,7 @@ func (w *Writer) writeVPTBodyPrologue(amResolved map[uint32]vptAttributeResolved
 			}
 
 			if needsPaddingOrTruncation != 0 {
-				w.writeLine("// %s <- %s", am.tyName, vptFormatDebugName(attr.Format))
+				w.WriteLine("// %s <- %s", am.tyName, vptFormatDebugName(attr.Format))
 			}
 
 			// Build the unpack call.
@@ -630,10 +630,10 @@ func (w *Writer) writeVPTBodyPrologue(amResolved map[uint32]vptAttributeResolved
 			}
 
 			sb.WriteString(";")
-			w.writeLine("%s", sb.String())
+			w.WriteLine("%s", sb.String())
 		}
 
-		w.popIndent()
-		w.writeLine("}")
+		w.PopIndent()
+		w.WriteLine("}")
 	}
 }

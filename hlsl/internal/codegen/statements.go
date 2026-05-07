@@ -382,12 +382,12 @@ func (w *Writer) writeEmittedExpression(handle ir.ExpressionHandle) error {
 	} else {
 		typeName, arraySuffix = w.typeToHLSLWithArraySuffix(exprType)
 	}
-	w.writeIndent()
-	fmt.Fprintf(&w.out, "%s %s%s = ", typeName, name, arraySuffix)
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "%s %s%s = ", typeName, name, arraySuffix)
 	if err := w.writeExpression(handle); err != nil {
 		return err
 	}
-	w.out.WriteString(";\n")
+	w.Out.WriteString(";\n")
 
 	// Cache the name for subsequent references to this expression
 	w.namedExpressions[handle] = name
@@ -491,14 +491,14 @@ func (w *Writer) isPointerExpression(handle ir.ExpressionHandle) bool {
 
 // writeBlockStatement writes a nested block.
 func (w *Writer) writeBlockStatement(s ir.StmtBlock) error {
-	w.writeLine("{")
-	w.pushIndent()
+	w.WriteLine("{")
+	w.PushIndent()
 	if err := w.writeBlock(s.Block); err != nil {
-		w.popIndent()
+		w.PopIndent()
 		return err
 	}
-	w.popIndent()
-	w.writeLine("}")
+	w.PopIndent()
+	w.WriteLine("}")
 	return nil
 }
 
@@ -508,31 +508,31 @@ func (w *Writer) writeBlockStatement(s ir.StmtBlock) error {
 
 // writeIfStatement writes an if/else statement.
 func (w *Writer) writeIfStatement(s ir.StmtIf) error {
-	w.writeIndent()
-	w.out.WriteString("if (")
+	w.WriteIndent()
+	w.Out.WriteString("if (")
 	if err := w.writeExpression(s.Condition); err != nil {
 		return fmt.Errorf("if condition: %w", err)
 	}
-	w.out.WriteString(") {\n")
+	w.Out.WriteString(") {\n")
 
-	w.pushIndent()
+	w.PushIndent()
 	if err := w.writeBlock(s.Accept); err != nil {
-		w.popIndent()
+		w.PopIndent()
 		return fmt.Errorf("if accept block: %w", err)
 	}
-	w.popIndent()
+	w.PopIndent()
 
 	if len(s.Reject) > 0 {
-		w.writeLine("} else {")
-		w.pushIndent()
+		w.WriteLine("} else {")
+		w.PushIndent()
 		if err := w.writeBlock(s.Reject); err != nil {
-			w.popIndent()
+			w.PopIndent()
 			return fmt.Errorf("if reject block: %w", err)
 		}
-		w.popIndent()
+		w.PopIndent()
 	}
 
-	w.writeLine("}")
+	w.WriteLine("}")
 	return nil
 }
 
@@ -559,28 +559,28 @@ func (w *Writer) writeSwitchStatement(s ir.StmtSwitch) error {
 	// Enter switch in continue context (for both one_body and regular switches)
 	variable := w.continueCtx.enterSwitch(w.namer)
 	if variable != "" {
-		w.writeLine("bool %s = false;", variable)
+		w.WriteLine("bool %s = false;", variable)
 	}
 
 	if oneBody {
-		w.writeLine("do {")
-		w.pushIndent()
+		w.WriteLine("do {")
+		w.PushIndent()
 		if len(s.Cases) > 0 {
 			lastCase := &s.Cases[len(s.Cases)-1]
 			if err := w.writeBlock(lastCase.Body); err != nil {
-				w.popIndent()
+				w.PopIndent()
 				return err
 			}
 		}
-		w.popIndent()
-		w.writeLine("} while(false);")
+		w.PopIndent()
+		w.WriteLine("} while(false);")
 	} else {
-		w.writeIndent()
-		w.out.WriteString("switch(")
+		w.WriteIndent()
+		w.Out.WriteString("switch(")
 		if err := w.writeExpression(s.Selector); err != nil {
 			return fmt.Errorf("switch selector: %w", err)
 		}
-		w.out.WriteString(") {\n")
+		w.Out.WriteString(") {\n")
 
 		for i := range s.Cases {
 			c := &s.Cases[i]
@@ -589,24 +589,24 @@ func (w *Writer) writeSwitchStatement(s ir.StmtSwitch) error {
 			}
 		}
 
-		w.writeLine("}")
+		w.WriteLine("}")
 	}
 
 	// Exit switch and emit forwarding code if needed
 	ecf := w.continueCtx.exitSwitch()
 	switch ecf.kind {
 	case exitContinue:
-		w.writeLine("if (%s) {", ecf.variable)
-		w.pushIndent()
-		w.writeLine("continue;")
-		w.popIndent()
-		w.writeLine("}")
+		w.WriteLine("if (%s) {", ecf.variable)
+		w.PushIndent()
+		w.WriteLine("continue;")
+		w.PopIndent()
+		w.WriteLine("}")
 	case exitBreak:
-		w.writeLine("if (%s) {", ecf.variable)
-		w.pushIndent()
-		w.writeLine("break;")
-		w.popIndent()
-		w.writeLine("}")
+		w.WriteLine("if (%s) {", ecf.variable)
+		w.PushIndent()
+		w.WriteLine("break;")
+		w.PopIndent()
+		w.WriteLine("}")
 	}
 
 	return nil
@@ -630,50 +630,50 @@ func blockEndsWithTerminator(block ir.Block) bool {
 // Fall-through cases with empty bodies don't get braces.
 func (w *Writer) writeSwitchCase(c *ir.SwitchCase) error {
 	// Write case label at current indent + 1
-	w.pushIndent()
+	w.PushIndent()
 	switch v := c.Value.(type) {
 	case ir.SwitchValueI32:
-		w.writeIndent()
-		fmt.Fprintf(&w.out, "case %d:", int32(v))
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "case %d:", int32(v))
 	case ir.SwitchValueU32:
-		w.writeIndent()
-		fmt.Fprintf(&w.out, "case %du:", uint32(v))
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "case %du:", uint32(v))
 	case ir.SwitchValueDefault:
-		w.writeIndent()
-		w.out.WriteString("default:")
+		w.WriteIndent()
+		w.Out.WriteString("default:")
 	default:
-		w.popIndent()
+		w.PopIndent()
 		return fmt.Errorf("unsupported switch value type: %T", c.Value)
 	}
 
 	// Determine if we need block braces (Rust naga: non-empty OR non-fallthrough gets braces)
 	writeBlockBraces := !(c.FallThrough && len(c.Body) == 0)
 	if writeBlockBraces {
-		w.out.WriteString(" {\n")
+		w.Out.WriteString(" {\n")
 	} else {
-		w.out.WriteByte('\n')
+		w.Out.WriteByte('\n')
 	}
 
 	// Write case body
-	w.pushIndent()
+	w.PushIndent()
 	if err := w.writeBlock(c.Body); err != nil {
-		w.popIndent()
-		w.popIndent()
+		w.PopIndent()
+		w.PopIndent()
 		return err
 	}
 
 	// Write break unless fallthrough or body already ends with a terminator.
 	if !c.FallThrough && !blockEndsWithTerminator(c.Body) {
-		w.writeLine("break;")
+		w.WriteLine("break;")
 	}
-	w.popIndent()
+	w.PopIndent()
 
 	// Close block braces
 	if writeBlockBraces {
-		w.writeLine("}")
+		w.WriteLine("}")
 	}
 
-	w.popIndent()
+	w.PopIndent()
 	return nil
 }
 
@@ -692,68 +692,68 @@ func (w *Writer) writeLoopStatement(s ir.StmtLoop) error {
 	var loopBoundName string
 	if w.options.ForceLoopBounding {
 		loopBoundName = w.namer.call("loop_bound")
-		w.writeLine("uint2 %s = uint2(%du, %du);", loopBoundName, maxIter, maxIter)
+		w.WriteLine("uint2 %s = uint2(%du, %du);", loopBoundName, maxIter, maxIter)
 	}
 
 	// Continuing gate: ALWAYS when continuing block exists (independent of ForceLoopBounding)
 	var loopInitName string
 	if hasContinuing {
 		loopInitName = w.namer.call("loop_init")
-		w.writeLine("bool %s = true;", loopInitName)
+		w.WriteLine("bool %s = true;", loopInitName)
 	}
 
 	w.continueCtx.enterLoop()
 
-	w.writeLine("while(true) {")
-	w.pushIndent()
+	w.WriteLine("while(true) {")
+	w.PushIndent()
 
 	// Loop bounding: add break check and decrement at loop start
 	if w.options.ForceLoopBounding {
-		w.writeLine("if (all(%s == uint2(0u, 0u))) { break; }", loopBoundName)
-		w.writeLine("%s -= uint2(%s.y == 0u, 1u);", loopBoundName, loopBoundName)
+		w.WriteLine("if (all(%s == uint2(0u, 0u))) { break; }", loopBoundName)
+		w.WriteLine("%s -= uint2(%s.y == 0u, 1u);", loopBoundName, loopBoundName)
 	}
 
 	// Continuing block at top of loop body, guarded by if (!loop_init)
 	// This ALWAYS runs when continuing exists, independent of ForceLoopBounding
 	if hasContinuing {
-		w.writeLine("if (!%s) {", loopInitName)
-		w.pushIndent()
+		w.WriteLine("if (!%s) {", loopInitName)
+		w.PushIndent()
 		// Write continuing block
 		if len(s.Continuing) > 0 {
 			if err := w.writeBlock(s.Continuing); err != nil {
-				w.popIndent()
-				w.popIndent()
+				w.PopIndent()
+				w.PopIndent()
 				return fmt.Errorf("loop continuing: %w", err)
 			}
 		}
 		// Write break-if condition
 		if s.BreakIf != nil {
-			w.writeIndent()
-			w.out.WriteString("if (")
+			w.WriteIndent()
+			w.Out.WriteString("if (")
 			if err := w.writeExpression(*s.BreakIf); err != nil {
-				w.popIndent()
-				w.popIndent()
+				w.PopIndent()
+				w.PopIndent()
 				return fmt.Errorf("loop break-if: %w", err)
 			}
-			w.out.WriteString(") {\n")
-			w.pushIndent()
-			w.writeLine("break;")
-			w.popIndent()
-			w.writeLine("}")
+			w.Out.WriteString(") {\n")
+			w.PushIndent()
+			w.WriteLine("break;")
+			w.PopIndent()
+			w.WriteLine("}")
 		}
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("%s = false;", loopInitName)
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("%s = false;", loopInitName)
 	}
 
 	// Write main body
 	if err := w.writeBlock(s.Body); err != nil {
-		w.popIndent()
+		w.PopIndent()
 		return fmt.Errorf("loop body: %w", err)
 	}
 
-	w.popIndent()
-	w.writeLine("}")
+	w.PopIndent()
+	w.WriteLine("}")
 
 	w.continueCtx.exitLoop()
 	return nil
@@ -761,7 +761,7 @@ func (w *Writer) writeLoopStatement(s ir.StmtLoop) error {
 
 // writeBreakStatement writes a break statement.
 func (w *Writer) writeBreakStatement() error {
-	w.writeLine("break;")
+	w.WriteLine("break;")
 	return nil
 }
 
@@ -770,11 +770,11 @@ func (w *Writer) writeBreakStatement() error {
 func (w *Writer) writeContinueStatement() error {
 	if variable := w.continueCtx.continueEncountered(); variable != "" {
 		// Inside a switch within a loop: set the bool and break from the switch
-		w.writeLine("%s = true;", variable)
-		w.writeLine("break;")
+		w.WriteLine("%s = true;", variable)
+		w.WriteLine("break;")
 	} else {
 		// Normal continue
-		w.writeLine("continue;")
+		w.WriteLine("continue;")
 	}
 	return nil
 }
@@ -791,7 +791,7 @@ func (w *Writer) writeContinueStatement() error {
 //	return var_1;
 func (w *Writer) writeReturnStatement(s ir.StmtReturn) error {
 	if s.Value == nil {
-		w.writeLine("return;")
+		w.WriteLine("return;")
 		return nil
 	}
 
@@ -820,12 +820,12 @@ func (w *Writer) writeReturnStatement(s ir.StmtReturn) error {
 		}
 	}
 
-	w.writeIndent()
-	w.out.WriteString("return ")
+	w.WriteIndent()
+	w.Out.WriteString("return ")
 	if err := w.writeExpression(*s.Value); err != nil {
 		return fmt.Errorf("return value: %w", err)
 	}
-	w.out.WriteString(";\n")
+	w.Out.WriteString(";\n")
 	return nil
 }
 
@@ -836,12 +836,12 @@ func (w *Writer) writeStructReturn(s ir.StmtReturn, epOutput *entryPointBinding)
 	typeHandle := w.getExpressionTypeHandle(*s.Value)
 	if typeHandle == nil {
 		// Fallback to direct return
-		w.writeIndent()
-		w.out.WriteString("return ")
+		w.WriteIndent()
+		w.Out.WriteString("return ")
 		if err := w.writeExpression(*s.Value); err != nil {
 			return err
 		}
-		w.out.WriteString(";\n")
+		w.Out.WriteString(";\n")
 		return nil
 	}
 
@@ -853,41 +853,41 @@ func (w *Writer) writeStructReturn(s ir.StmtReturn, epOutput *entryPointBinding)
 
 	// Step 1: const StructType variable = expr;
 	varName := w.namer.call(strings.ToLower(structName))
-	w.writeIndent()
-	fmt.Fprintf(&w.out, "const %s %s = ", structName, varName)
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "const %s %s = ", structName, varName)
 	if err := w.writeExpression(*s.Value); err != nil {
 		return err
 	}
-	w.out.WriteString(";\n")
+	w.Out.WriteString(";\n")
 
 	// Step 2: If EP output struct, create conversion
 	finalName := varName
 	if epOutput != nil {
 		finalName = w.namer.call(varName)
-		w.writeIndent()
-		fmt.Fprintf(&w.out, "const %s %s = { ", epOutput.tyName, finalName)
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "const %s %s = { ", epOutput.tyName, finalName)
 		for i, m := range epOutput.members {
 			if i > 0 {
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 			}
 			memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(*typeHandle), handle2: m.index}]
 			if memberName == "" {
 				memberName = fmt.Sprintf("member_%d", m.index)
 			}
-			fmt.Fprintf(&w.out, "%s.%s", varName, memberName)
+			fmt.Fprintf(&w.Out, "%s.%s", varName, memberName)
 		}
-		w.out.WriteString(" };\n")
+		w.Out.WriteString(" };\n")
 	}
 
 	// Step 3: return final name;
-	w.writeIndent()
-	fmt.Fprintf(&w.out, "return %s;\n", finalName)
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "return %s;\n", finalName)
 	return nil
 }
 
 // writeKillStatement writes a discard/kill statement.
 func (w *Writer) writeKillStatement() error {
-	w.writeLine("discard;")
+	w.WriteLine("discard;")
 	return nil
 }
 
@@ -906,14 +906,14 @@ func (w *Writer) writeBarrierStatement(s ir.StmtBarrier) error {
 	// Matches Rust naga write_control_barrier: emit each barrier type independently.
 	// SubGroup barrier is a no-op in HLSL (does not exist in DirectX).
 	if hasStorage {
-		w.writeLine("DeviceMemoryBarrierWithGroupSync();")
+		w.WriteLine("DeviceMemoryBarrierWithGroupSync();")
 	}
 	if hasWorkgroup {
-		w.writeLine("GroupMemoryBarrierWithGroupSync();")
+		w.WriteLine("GroupMemoryBarrierWithGroupSync();")
 	}
 	// SUB_GROUP: no-op in HLSL (matches Rust naga)
 	if hasTexture {
-		w.writeLine("DeviceMemoryBarrierWithGroupSync();")
+		w.WriteLine("DeviceMemoryBarrierWithGroupSync();")
 	}
 	_ = hasSubgroup
 
@@ -933,7 +933,7 @@ func (w *Writer) writeStoreStatement(s ir.StmtStore) error {
 			return fmt.Errorf("storage store: %w", err)
 		}
 		sv := storeValue{kind: storeValueExpression, expr: s.Value}
-		return w.writeStorageStore(varHandle, sv, w.indent, nil)
+		return w.writeStorageStore(varHandle, sv, w.Indent, nil)
 	}
 
 	// Check for matCx2 struct member store — use SetMat/SetMatVec/SetMatScalar helpers.
@@ -947,11 +947,11 @@ func (w *Writer) writeStoreStatement(s ir.StmtStore) error {
 		return err
 	}
 
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(s.Pointer); err != nil {
 		return fmt.Errorf("store pointer: %w", err)
 	}
-	w.out.WriteString(" = ")
+	w.Out.WriteString(" = ")
 
 	// Cast RHS when storing to a struct member that is matCx2 or array-of-matCx2.
 	// Matches Rust naga: get_inner_matrix_of_struct_array_member wrapping.
@@ -960,8 +960,8 @@ func (w *Writer) writeStoreStatement(s ir.StmtStore) error {
 	if err := w.writeExpression(s.Value); err != nil {
 		return fmt.Errorf("store value: %w", err)
 	}
-	w.out.WriteString(castClose)
-	w.out.WriteString(";\n")
+	w.Out.WriteString(castClose)
+	w.Out.WriteString(";\n")
 	return nil
 }
 
@@ -998,12 +998,12 @@ func (w *Writer) writeMatCx2StoreCastIfNeeded(pointer ir.ExpressionHandle) strin
 			size = fmt.Sprintf("[%d]", *arr.Size.Constant)
 		}
 		cast := fmt.Sprintf("(__mat%dx2%s)", cols, size)
-		w.out.WriteString(cast)
+		w.Out.WriteString(cast)
 		return ""
 	}
 	// Direct matCx2 member: cast to __matCx2
 	cast := fmt.Sprintf("(__mat%dx2)", cols)
-	w.out.WriteString(cast)
+	w.Out.WriteString(cast)
 	return ""
 }
 
@@ -1154,48 +1154,48 @@ func (w *Writer) writeArrayMatCx2DynamicStoreIfNeeded(s ir.StmtStore) (bool, err
 	}
 
 	cols := uint8(m.columns)
-	w.writeIndent()
+	w.WriteIndent()
 
 	if scalarInfo != nil {
 		// __set_el_of_matCx2(base, col_idx, scalar_idx, value)
-		fmt.Fprintf(&w.out, "__set_el_of_mat%dx2(", cols)
+		fmt.Fprintf(&w.Out, "__set_el_of_mat%dx2(", cols)
 		if err := w.writeExpression(acc.Base); err != nil {
 			return true, err
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(acc.Index); err != nil {
 			return true, err
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if scalarInfo.isStatic {
-			fmt.Fprintf(&w.out, "%d", scalarInfo.static_)
+			fmt.Fprintf(&w.Out, "%d", scalarInfo.static_)
 		} else {
 			if err := w.writeExpression(scalarInfo.dynamic); err != nil {
 				return true, err
 			}
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(s.Value); err != nil {
 			return true, err
 		}
-		w.out.WriteString(");\n")
+		w.Out.WriteString(");\n")
 		return true, nil
 	}
 
 	// __set_col_of_matCx2(base, col_idx, value)
-	fmt.Fprintf(&w.out, "__set_col_of_mat%dx2(", cols)
+	fmt.Fprintf(&w.Out, "__set_col_of_mat%dx2(", cols)
 	if err := w.writeExpression(acc.Base); err != nil {
 		return true, err
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 	if err := w.writeExpression(acc.Index); err != nil {
 		return true, err
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 	if err := w.writeExpression(s.Value); err != nil {
 		return true, err
 	}
-	w.out.WriteString(");\n")
+	w.Out.WriteString(");\n")
 	return true, nil
 }
 
@@ -1253,19 +1253,19 @@ func (w *Writer) writeMatCx2StoreIfNeeded(s ir.StmtStore) (bool, error) {
 	structName := w.typeNames[tyH]
 	fieldName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(tyH), handle2: uint32(ai.Index)}]
 
-	w.writeIndent()
+	w.WriteIndent()
 
 	if vectorIdx == nil {
 		// Direct matrix store: SetMatmOnBaz(base, value)
-		fmt.Fprintf(&w.out, "SetMat%sOn%s(", fieldName, structName)
+		fmt.Fprintf(&w.Out, "SetMat%sOn%s(", fieldName, structName)
 		if err := w.writeExpression(ai.Base); err != nil {
 			return true, err
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(s.Value); err != nil {
 			return true, err
 		}
-		w.out.WriteString(");\n")
+		w.Out.WriteString(");\n")
 		return true, nil
 	}
 
@@ -1274,68 +1274,68 @@ func (w *Writer) writeMatCx2StoreIfNeeded(s ir.StmtStore) (bool, error) {
 		if err := w.writeExpression(ai.Base); err != nil {
 			return true, err
 		}
-		fmt.Fprintf(&w.out, ".%s_%d", fieldName, vectorIdx.static_)
+		fmt.Fprintf(&w.Out, ".%s_%d", fieldName, vectorIdx.static_)
 		if scalarIdx != nil {
 			if scalarIdx.isStatic {
 				// Rust naga uses [N] form for scalar access on decomposed matCx2 columns
-				fmt.Fprintf(&w.out, "[%d]", scalarIdx.static_)
+				fmt.Fprintf(&w.Out, "[%d]", scalarIdx.static_)
 			} else {
-				w.out.WriteByte('[')
+				w.Out.WriteByte('[')
 				if err := w.writeExpression(scalarIdx.value); err != nil {
 					return true, err
 				}
-				w.out.WriteByte(']')
+				w.Out.WriteByte(']')
 			}
 		}
-		w.out.WriteString(" = ")
+		w.Out.WriteString(" = ")
 		if err := w.writeExpression(s.Value); err != nil {
 			return true, err
 		}
-		w.out.WriteString(";\n")
+		w.Out.WriteString(";\n")
 		return true, nil
 	}
 
 	// Dynamic vector index
 	if scalarIdx == nil {
 		// SetMatVecmOnBaz(base, value, vec_idx)
-		fmt.Fprintf(&w.out, "SetMatVec%sOn%s(", fieldName, structName)
+		fmt.Fprintf(&w.Out, "SetMatVec%sOn%s(", fieldName, structName)
 		if err := w.writeExpression(ai.Base); err != nil {
 			return true, err
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(s.Value); err != nil {
 			return true, err
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(vectorIdx.value); err != nil {
 			return true, err
 		}
-		w.out.WriteString(");\n")
+		w.Out.WriteString(");\n")
 		return true, nil
 	}
 
 	// Dynamic vector + scalar: SetMatScalarmOnBaz(base, value, vec_idx, scalar_idx)
-	fmt.Fprintf(&w.out, "SetMatScalar%sOn%s(", fieldName, structName)
+	fmt.Fprintf(&w.Out, "SetMatScalar%sOn%s(", fieldName, structName)
 	if err := w.writeExpression(ai.Base); err != nil {
 		return true, err
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 	if err := w.writeExpression(s.Value); err != nil {
 		return true, err
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 	if err := w.writeExpression(vectorIdx.value); err != nil {
 		return true, err
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 	if scalarIdx.isStatic {
-		fmt.Fprintf(&w.out, "%d", scalarIdx.static_)
+		fmt.Fprintf(&w.Out, "%d", scalarIdx.static_)
 	} else {
 		if err := w.writeExpression(scalarIdx.value); err != nil {
 			return true, err
 		}
 	}
-	w.out.WriteString(");\n")
+	w.Out.WriteString(");\n")
 	return true, nil
 }
 
@@ -1507,14 +1507,14 @@ func (w *Writer) resolveVariableTypeHandle(fn *ir.Function, handle ir.Expression
 
 // writeImageStoreStatement writes an image store statement.
 func (w *Writer) writeImageStoreStatement(s ir.StmtImageStore) error {
-	w.writeIndent()
+	w.WriteIndent()
 
 	// Write image reference with bracket access
 	if err := w.writeExpression(s.Image); err != nil {
 		return fmt.Errorf("image store: image: %w", err)
 	}
 
-	w.out.WriteByte('[')
+	w.Out.WriteByte('[')
 
 	// Write coordinate
 	if err := w.writeExpression(s.Coordinate); err != nil {
@@ -1525,19 +1525,19 @@ func (w *Writer) writeImageStoreStatement(s ir.StmtImageStore) error {
 	if s.ArrayIndex != nil {
 		// For arrayed textures, coordinate includes array index
 		// This is simplified - full implementation would compose int3/int4
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(*s.ArrayIndex); err != nil {
 			return fmt.Errorf("image store: array index: %w", err)
 		}
 	}
 
-	w.out.WriteString("] = ")
+	w.Out.WriteString("] = ")
 
 	// Write value
 	if err := w.writeExpression(s.Value); err != nil {
 		return fmt.Errorf("image store: value: %w", err)
 	}
-	w.out.WriteString(";\n")
+	w.Out.WriteString(";\n")
 
 	return nil
 }
@@ -1545,16 +1545,16 @@ func (w *Writer) writeImageStoreStatement(s ir.StmtImageStore) error {
 // writeImageAtomicStatement writes an atomic operation on a storage texture texel.
 // Matches Rust naga: InterlockedXxx(image[coord], value);
 func (w *Writer) writeImageAtomicStatement(s ir.StmtImageAtomic) error {
-	w.writeIndent()
+	w.WriteIndent()
 
 	funSuffix := atomicFunSuffix(s.Fun)
-	fmt.Fprintf(&w.out, "Interlocked%s(", funSuffix)
+	fmt.Fprintf(&w.Out, "Interlocked%s(", funSuffix)
 
 	// Write image[coord]
 	if err := w.writeExpression(s.Image); err != nil {
 		return fmt.Errorf("image atomic: image: %w", err)
 	}
-	w.out.WriteByte('[')
+	w.Out.WriteByte('[')
 
 	// Write texture coordinates, merging array_index if present
 	// Matches Rust: write_texture_coordinates("int", coordinate, array_index, None, ...)
@@ -1569,28 +1569,28 @@ func (w *Writer) writeImageAtomicStatement(s ir.StmtImageAtomic) error {
 				}
 			}
 		}
-		fmt.Fprintf(&w.out, "int%d(", numCoords+1)
+		fmt.Fprintf(&w.Out, "int%d(", numCoords+1)
 		if err := w.writeExpression(s.Coordinate); err != nil {
 			return fmt.Errorf("image atomic: coordinate: %w", err)
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(*s.ArrayIndex); err != nil {
 			return fmt.Errorf("image atomic: array index: %w", err)
 		}
-		w.out.WriteByte(')')
+		w.Out.WriteByte(')')
 	} else {
 		if err := w.writeExpression(s.Coordinate); err != nil {
 			return fmt.Errorf("image atomic: coordinate: %w", err)
 		}
 	}
 
-	w.out.WriteString("],")
+	w.Out.WriteString("],")
 
 	// Write value
 	if err := w.writeExpression(s.Value); err != nil {
 		return fmt.Errorf("image atomic: value: %w", err)
 	}
-	w.out.WriteString(");\n")
+	w.Out.WriteString(");\n")
 
 	return nil
 }
@@ -1607,7 +1607,7 @@ func (w *Writer) writeImageAtomicStatement(s ir.StmtImageAtomic) error {
 // - Subtract: negate value argument
 // - CompareExchange: extra compare arg, .old_value, .exchanged follow-up
 func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
-	w.writeIndent()
+	w.WriteIndent()
 
 	// Determine the atomic function suffix (Add, And, Or, Xor, Min, Max, Exchange, CompareExchange)
 	funSuffix := atomicFunSuffix(s.Fun)
@@ -1631,11 +1631,11 @@ func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
 				h := *resolution.Handle
 				if int(h) < len(w.module.Types) {
 					typeName := w.getTypeName(h)
-					fmt.Fprintf(&w.out, "%s %s; ", typeName, resVarName)
+					fmt.Fprintf(&w.Out, "%s %s; ", typeName, resVarName)
 				}
 			} else if resolution.Value != nil {
 				typeName := w.typeInnerToHLSLStr(resolution.Value)
-				fmt.Fprintf(&w.out, "%s %s; ", typeName, resVarName)
+				fmt.Fprintf(&w.Out, "%s %s; ", typeName, resVarName)
 			}
 		}
 		w.namedExpressions[resHandle] = resVarName
@@ -1664,7 +1664,7 @@ func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
 			return fmt.Errorf("atomic storage access chain: %w", err)
 		}
 		varName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(varHandle)}]
-		fmt.Fprintf(&w.out, "%s.Interlocked%s%s(", varName, funSuffix, widthSuffix)
+		fmt.Fprintf(&w.Out, "%s.Interlocked%s%s(", varName, funSuffix, widthSuffix)
 		chain := w.tempAccessChain
 		w.tempAccessChain = nil
 		if err := w.writeStorageAddress(chain); err != nil {
@@ -1675,7 +1675,7 @@ func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
 
 	default:
 		// WorkGroup (and other): InterlockedXxx(pointer_expr, ...)
-		fmt.Fprintf(&w.out, "Interlocked%s(", funSuffix)
+		fmt.Fprintf(&w.Out, "Interlocked%s(", funSuffix)
 		if err := w.writeExpression(s.Pointer); err != nil {
 			return fmt.Errorf("atomic pointer: %w", err)
 		}
@@ -1684,12 +1684,12 @@ func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
 
 	// CompareExchange follow-up: .exchanged = (.old_value == compare)
 	if compareExpr != nil && resVarName != "" {
-		w.writeIndent()
-		fmt.Fprintf(&w.out, "%s.exchanged = (%s.old_value == ", resVarName, resVarName)
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "%s.exchanged = (%s.old_value == ", resVarName, resVarName)
 		if err := w.writeExpression(*compareExpr); err != nil {
 			return fmt.Errorf("atomic compare follow-up: %w", err)
 		}
-		w.out.WriteString(");\n")
+		w.Out.WriteString(");\n")
 	}
 
 	return nil
@@ -1699,23 +1699,23 @@ func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
 // argument (pointer or byte offset). Matches Rust naga's emit_hlsl_atomic_tail.
 func (w *Writer) writeAtomicTail(fun ir.AtomicFunction, compareExpr *ir.ExpressionHandle, value ir.ExpressionHandle, resVarName string) {
 	if compareExpr != nil {
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		_ = w.writeExpression(*compareExpr) // error ignored for tail
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 	if _, ok := fun.(ir.AtomicSubtract); ok {
-		w.out.WriteByte('-')
+		w.Out.WriteByte('-')
 	}
 	_ = w.writeExpression(value) // error ignored for tail
 	if resVarName != "" {
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if compareExpr != nil {
-			fmt.Fprintf(&w.out, "%s.old_value", resVarName)
+			fmt.Fprintf(&w.Out, "%s.old_value", resVarName)
 		} else {
-			w.out.WriteString(resVarName)
+			w.Out.WriteString(resVarName)
 		}
 	}
-	w.out.WriteString(");\n")
+	w.Out.WriteString(");\n")
 }
 
 // atomicFunSuffix returns the HLSL suffix for an atomic function.
@@ -1822,7 +1822,7 @@ func getAtomicHLSLFunction(fun ir.AtomicFunction) string {
 
 // writeCallStatement writes a function call statement.
 func (w *Writer) writeCallStatement(s ir.StmtCall) error {
-	w.writeIndent()
+	w.WriteIndent()
 
 	// Get function name
 	funcName := w.names[nameKey{kind: nameKeyFunction, handle1: uint32(s.Function)}]
@@ -1843,23 +1843,23 @@ func (w *Writer) writeCallStatement(s ir.StmtCall) error {
 		}
 		tempName := fmt.Sprintf("_e%d", *s.Result)
 		w.namedExpressions[*s.Result] = tempName
-		fmt.Fprintf(&w.out, "const %s %s%s = ", typeName, tempName, arraySuffix)
+		fmt.Fprintf(&w.Out, "const %s %s%s = ", typeName, tempName, arraySuffix)
 	}
 
 	// Write function call
-	w.out.WriteString(funcName)
-	w.out.WriteByte('(')
+	w.Out.WriteString(funcName)
+	w.Out.WriteByte('(')
 
 	for i, arg := range s.Arguments {
 		if i > 0 {
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 		}
 		if err := w.writeExpression(arg); err != nil {
 			return fmt.Errorf("call arg %d: %w", i, err)
 		}
 	}
 
-	w.out.WriteString(");\n")
+	w.Out.WriteString(");\n")
 	return nil
 }
 
@@ -1867,12 +1867,12 @@ func (w *Writer) writeCallStatement(s ir.StmtCall) error {
 // Matches Rust naga: barrier, typed named expression (type _eN = pointer;), barrier.
 func (w *Writer) writeWorkGroupUniformLoadStatement(s ir.StmtWorkGroupUniformLoad) error {
 	// First barrier
-	w.writeLine("GroupMemoryBarrierWithGroupSync();")
+	w.WriteLine("GroupMemoryBarrierWithGroupSync();")
 
 	// Write the named expression: type _eN = pointer_value;
 	name := fmt.Sprintf("_e%d", s.Result)
 
-	w.writeIndent()
+	w.WriteIndent()
 
 	// Write the type of the result expression
 	if int(s.Result) < len(w.currentFunction.ExpressionTypes) {
@@ -1880,26 +1880,26 @@ func (w *Writer) writeWorkGroupUniformLoadStatement(s ir.StmtWorkGroupUniformLoa
 		if resolution.Handle != nil {
 			h := *resolution.Handle
 			if int(h) < len(w.module.Types) {
-				w.out.WriteString(w.getTypeName(h))
+				w.Out.WriteString(w.getTypeName(h))
 			}
 		} else if resolution.Value != nil {
-			w.out.WriteString(w.typeInnerToHLSLStr(resolution.Value))
+			w.Out.WriteString(w.typeInnerToHLSLStr(resolution.Value))
 		}
 	}
 
-	fmt.Fprintf(&w.out, " %s", name)
+	fmt.Fprintf(&w.Out, " %s", name)
 
-	w.out.WriteString(" = ")
+	w.Out.WriteString(" = ")
 	if err := w.writeExpression(s.Pointer); err != nil {
 		return fmt.Errorf("workgroup uniform load: %w", err)
 	}
-	w.out.WriteString(";\n")
+	w.Out.WriteString(";\n")
 
 	// Cache as named expression so ExprWorkGroupUniformLoadResult references it
 	w.namedExpressions[s.Result] = name
 
 	// Second barrier
-	w.writeLine("GroupMemoryBarrierWithGroupSync();")
+	w.WriteLine("GroupMemoryBarrierWithGroupSync();")
 
 	return nil
 }
@@ -1929,36 +1929,36 @@ func (w *Writer) writeRayQueryStatement(s ir.StmtRayQuery) error {
 // writeRayQueryInitialize writes ray query initialization.
 // Matches Rust naga: rq.TraceRayInline(accel, desc.flags, desc.cull_mask, RayDescFromRayDesc_(desc))
 func (w *Writer) writeRayQueryInitialize(query ir.ExpressionHandle, f ir.RayQueryInitialize) error {
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(query); err != nil {
 		return fmt.Errorf("ray query: %w", err)
 	}
-	w.out.WriteString(".TraceRayInline(")
+	w.Out.WriteString(".TraceRayInline(")
 
 	// Acceleration structure
 	if err := w.writeExpression(f.AccelerationStructure); err != nil {
 		return fmt.Errorf("ray query acceleration structure: %w", err)
 	}
-	w.out.WriteString(", ")
+	w.Out.WriteString(", ")
 
 	// Descriptor.flags
 	if err := w.writeExpression(f.Descriptor); err != nil {
 		return err
 	}
-	w.out.WriteString(".flags, ")
+	w.Out.WriteString(".flags, ")
 
 	// Descriptor.cull_mask
 	if err := w.writeExpression(f.Descriptor); err != nil {
 		return err
 	}
-	w.out.WriteString(".cull_mask, ")
+	w.Out.WriteString(".cull_mask, ")
 
 	// RayDescFromRayDesc_(descriptor)
-	w.out.WriteString("RayDescFromRayDesc_(")
+	w.Out.WriteString("RayDescFromRayDesc_(")
 	if err := w.writeExpression(f.Descriptor); err != nil {
 		return fmt.Errorf("ray query descriptor: %w", err)
 	}
-	w.out.WriteString("));\n")
+	w.Out.WriteString("));\n")
 
 	// Mark that we need the RayDescFromRayDesc_ helper
 	w.needsRayDescHelper = true
@@ -1968,47 +1968,47 @@ func (w *Writer) writeRayQueryInitialize(query ir.ExpressionHandle, f ir.RayQuer
 // writeRayQueryProceed writes ray query proceed.
 // Matches Rust naga: `const bool _eN = rq.Proceed();`
 func (w *Writer) writeRayQueryProceed(query ir.ExpressionHandle, f ir.RayQueryProceed) error {
-	w.writeIndent()
+	w.WriteIndent()
 	name := w.nameExpression(f.Result)
-	fmt.Fprintf(&w.out, "const bool %s = ", name)
+	fmt.Fprintf(&w.Out, "const bool %s = ", name)
 	if err := w.writeExpression(query); err != nil {
 		return fmt.Errorf("ray query: %w", err)
 	}
-	w.out.WriteString(".Proceed();\n")
+	w.Out.WriteString(".Proceed();\n")
 	return nil
 }
 
 // writeRayQueryTerminate writes ray query termination.
 func (w *Writer) writeRayQueryTerminate(query ir.ExpressionHandle) error {
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(query); err != nil {
 		return fmt.Errorf("ray query: %w", err)
 	}
-	w.out.WriteString(".Abort();\n")
+	w.Out.WriteString(".Abort();\n")
 	return nil
 }
 
 // writeRayQueryGenerateIntersection writes ray query generate intersection.
 func (w *Writer) writeRayQueryGenerateIntersection(query ir.ExpressionHandle, f ir.RayQueryGenerateIntersection) error {
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(query); err != nil {
 		return fmt.Errorf("ray query: %w", err)
 	}
-	w.out.WriteString(".CommitProceduralPrimitiveHit(")
+	w.Out.WriteString(".CommitProceduralPrimitiveHit(")
 	if err := w.writeExpression(f.HitT); err != nil {
 		return fmt.Errorf("ray query hit_t: %w", err)
 	}
-	w.out.WriteString(");\n")
+	w.Out.WriteString(");\n")
 	return nil
 }
 
 // writeRayQueryConfirmIntersection writes ray query confirm intersection.
 func (w *Writer) writeRayQueryConfirmIntersection(query ir.ExpressionHandle) error {
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(query); err != nil {
 		return fmt.Errorf("ray query: %w", err)
 	}
-	w.out.WriteString(".CommitNonOpaqueTriangleHit();\n")
+	w.Out.WriteString(".CommitNonOpaqueTriangleHit();\n")
 	return nil
 }
 
@@ -2030,31 +2030,31 @@ func (w *Writer) writeFunctionBody(fn *ir.Function) error {
 
 		// Rust naga always initializes locals: with init expression or (Type)0.
 		// Exception: RayQuery variables are NOT zero-initialized (no init in HLSL).
-		w.writeIndent()
+		w.WriteIndent()
 		isRayQuery := strings.Contains(localType, "RayQuery")
 		if !isRayQuery && int(local.Type) < len(w.module.Types) {
 			_, isRayQuery = w.module.Types[local.Type].Inner.(ir.RayQueryType)
 		}
 		if isRayQuery {
 			// RayQuery<RAY_FLAG_NONE> rq; (no initialization)
-			fmt.Fprintf(&w.out, "%s %s%s;\n", localType, localName, arraySuffix)
+			fmt.Fprintf(&w.Out, "%s %s%s;\n", localType, localName, arraySuffix)
 		} else {
-			fmt.Fprintf(&w.out, "%s %s%s = ", localType, localName, arraySuffix)
+			fmt.Fprintf(&w.Out, "%s %s%s = ", localType, localName, arraySuffix)
 			if local.Init != nil {
 				if err := w.writeExpression(*local.Init); err != nil {
 					return fmt.Errorf("local var init: %w", err)
 				}
 			} else {
 				// Zero initialize: (Type)0 matching Rust naga's write_default_init
-				fmt.Fprintf(&w.out, "(%s%s)0", localType, arraySuffix)
+				fmt.Fprintf(&w.Out, "(%s%s)0", localType, arraySuffix)
 			}
-			w.out.WriteString(";\n")
+			w.Out.WriteString(";\n")
 		}
 	}
 
 	if len(fn.LocalVars) > 0 {
 		// Rust naga writes just a newline (no indentation) after locals
-		w.out.WriteByte('\n')
+		w.Out.WriteByte('\n')
 	}
 
 	// Write function body statements
@@ -2064,27 +2064,27 @@ func (w *Writer) writeFunctionBody(fn *ir.Function) error {
 // writeSubgroupBallotStatement writes a SubgroupBallot statement.
 // Matches Rust naga: `const uint4 _eN = WaveActiveBallot(predicate);`
 func (w *Writer) writeSubgroupBallotStatement(s ir.StmtSubgroupBallot) error {
-	w.writeIndent()
+	w.WriteIndent()
 	name := w.nameExpression(s.Result)
-	fmt.Fprintf(&w.out, "const uint4 %s = WaveActiveBallot(", name)
+	fmt.Fprintf(&w.Out, "const uint4 %s = WaveActiveBallot(", name)
 	if s.Predicate != nil {
 		if err := w.writeExpression(*s.Predicate); err != nil {
 			return err
 		}
 	} else {
-		w.out.WriteString("true")
+		w.Out.WriteString("true")
 	}
-	w.out.WriteString(");\n")
+	w.Out.WriteString(");\n")
 	return nil
 }
 
 // writeSubgroupCollectiveOperationStatement writes a SubgroupCollectiveOperation statement.
 // Matches Rust naga: `const TYPE _eN = WaveActiveOp(argument);`
 func (w *Writer) writeSubgroupCollectiveOperationStatement(s ir.StmtSubgroupCollectiveOperation) error {
-	w.writeIndent()
+	w.WriteIndent()
 	name := w.nameExpression(s.Result)
 	typeName := w.expressionTypeStr(s.Result)
-	fmt.Fprintf(&w.out, "const %s %s = ", typeName, name)
+	fmt.Fprintf(&w.Out, "const %s %s = ", typeName, name)
 
 	// InclusiveScan requires special handling: `arg OP WavePrefixOp(arg)`
 	isInclusiveScan := s.CollectiveOp == ir.CollectiveInclusiveScan
@@ -2095,36 +2095,36 @@ func (w *Writer) writeSubgroupCollectiveOperationStatement(s ir.StmtSubgroupColl
 		}
 		switch s.Op {
 		case ir.SubgroupOperationAdd:
-			w.out.WriteString(" + WavePrefixSum(")
+			w.Out.WriteString(" + WavePrefixSum(")
 		case ir.SubgroupOperationMul:
-			w.out.WriteString(" * WavePrefixProduct(")
+			w.Out.WriteString(" * WavePrefixProduct(")
 		default:
 			return fmt.Errorf("unsupported inclusive scan op: %d", s.Op)
 		}
 	} else {
 		switch {
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationAll:
-			w.out.WriteString("WaveActiveAllTrue(")
+			w.Out.WriteString("WaveActiveAllTrue(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationAny:
-			w.out.WriteString("WaveActiveAnyTrue(")
+			w.Out.WriteString("WaveActiveAnyTrue(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationAdd:
-			w.out.WriteString("WaveActiveSum(")
+			w.Out.WriteString("WaveActiveSum(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationMul:
-			w.out.WriteString("WaveActiveProduct(")
+			w.Out.WriteString("WaveActiveProduct(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationMin:
-			w.out.WriteString("WaveActiveMin(")
+			w.Out.WriteString("WaveActiveMin(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationMax:
-			w.out.WriteString("WaveActiveMax(")
+			w.Out.WriteString("WaveActiveMax(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationAnd:
-			w.out.WriteString("WaveActiveBitAnd(")
+			w.Out.WriteString("WaveActiveBitAnd(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationOr:
-			w.out.WriteString("WaveActiveBitOr(")
+			w.Out.WriteString("WaveActiveBitOr(")
 		case s.CollectiveOp == ir.CollectiveReduce && s.Op == ir.SubgroupOperationXor:
-			w.out.WriteString("WaveActiveBitXor(")
+			w.Out.WriteString("WaveActiveBitXor(")
 		case s.CollectiveOp == ir.CollectiveExclusiveScan && s.Op == ir.SubgroupOperationAdd:
-			w.out.WriteString("WavePrefixSum(")
+			w.Out.WriteString("WavePrefixSum(")
 		case s.CollectiveOp == ir.CollectiveExclusiveScan && s.Op == ir.SubgroupOperationMul:
-			w.out.WriteString("WavePrefixProduct(")
+			w.Out.WriteString("WavePrefixProduct(")
 		default:
 			return fmt.Errorf("unsupported subgroup collective op: %d/%d", s.CollectiveOp, s.Op)
 		}
@@ -2132,31 +2132,31 @@ func (w *Writer) writeSubgroupCollectiveOperationStatement(s ir.StmtSubgroupColl
 	if err := w.writeExpression(s.Argument); err != nil {
 		return err
 	}
-	w.out.WriteString(");\n")
+	w.Out.WriteString(");\n")
 	return nil
 }
 
 // writeSubgroupGatherStatement writes a SubgroupGather statement.
 // Matches Rust naga: `const TYPE _eN = WaveReadLaneAt/First/QuadRead...(argument, index);`
 func (w *Writer) writeSubgroupGatherStatement(s ir.StmtSubgroupGather) error {
-	w.writeIndent()
+	w.WriteIndent()
 	name := w.nameExpression(s.Result)
 	typeName := w.expressionTypeStr(s.Result)
-	fmt.Fprintf(&w.out, "const %s %s = ", typeName, name)
+	fmt.Fprintf(&w.Out, "const %s %s = ", typeName, name)
 
 	switch mode := s.Mode.(type) {
 	case ir.GatherBroadcastFirst:
-		w.out.WriteString("WaveReadLaneFirst(")
+		w.Out.WriteString("WaveReadLaneFirst(")
 		if err := w.writeExpression(s.Argument); err != nil {
 			return err
 		}
 
 	case ir.GatherQuadBroadcast:
-		w.out.WriteString("QuadReadLaneAt(")
+		w.Out.WriteString("QuadReadLaneAt(")
 		if err := w.writeExpression(s.Argument); err != nil {
 			return err
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		if err := w.writeExpression(mode.Index); err != nil {
 			return err
 		}
@@ -2164,11 +2164,11 @@ func (w *Writer) writeSubgroupGatherStatement(s ir.StmtSubgroupGather) error {
 	case ir.GatherQuadSwap:
 		switch mode.Direction {
 		case ir.QuadDirectionX:
-			w.out.WriteString("QuadReadAcrossX(")
+			w.Out.WriteString("QuadReadAcrossX(")
 		case ir.QuadDirectionY:
-			w.out.WriteString("QuadReadAcrossY(")
+			w.Out.WriteString("QuadReadAcrossY(")
 		case ir.QuadDirectionDiagonal:
-			w.out.WriteString("QuadReadAcrossDiagonal(")
+			w.Out.WriteString("QuadReadAcrossDiagonal(")
 		}
 		if err := w.writeExpression(s.Argument); err != nil {
 			return err
@@ -2176,11 +2176,11 @@ func (w *Writer) writeSubgroupGatherStatement(s ir.StmtSubgroupGather) error {
 
 	default:
 		// Broadcast, Shuffle, ShuffleDown, ShuffleUp, ShuffleXor -> WaveReadLaneAt
-		w.out.WriteString("WaveReadLaneAt(")
+		w.Out.WriteString("WaveReadLaneAt(")
 		if err := w.writeExpression(s.Argument); err != nil {
 			return err
 		}
-		w.out.WriteString(", ")
+		w.Out.WriteString(", ")
 		switch m := s.Mode.(type) {
 		case ir.GatherBroadcast:
 			if err := w.writeExpression(m.Index); err != nil {
@@ -2191,23 +2191,23 @@ func (w *Writer) writeSubgroupGatherStatement(s ir.StmtSubgroupGather) error {
 				return err
 			}
 		case ir.GatherShuffleDown:
-			w.out.WriteString("WaveGetLaneIndex() + ")
+			w.Out.WriteString("WaveGetLaneIndex() + ")
 			if err := w.writeExpression(m.Delta); err != nil {
 				return err
 			}
 		case ir.GatherShuffleUp:
-			w.out.WriteString("WaveGetLaneIndex() - ")
+			w.Out.WriteString("WaveGetLaneIndex() - ")
 			if err := w.writeExpression(m.Delta); err != nil {
 				return err
 			}
 		case ir.GatherShuffleXor:
-			w.out.WriteString("WaveGetLaneIndex() ^ ")
+			w.Out.WriteString("WaveGetLaneIndex() ^ ")
 			if err := w.writeExpression(m.Mask); err != nil {
 				return err
 			}
 		}
 	}
-	w.out.WriteString(");\n")
+	w.Out.WriteString(");\n")
 	return nil
 }
 

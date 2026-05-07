@@ -16,38 +16,38 @@ func TestWriter_Indentation(t *testing.T) {
 	w := newWriter(module, opts)
 
 	// Initial state
-	if w.indent != 0 {
-		t.Errorf("initial indent = %d, want 0", w.indent)
+	if w.Indent != 0 {
+		t.Errorf("initial indent = %d, want 0", w.Indent)
 	}
 
 	// Push indent
-	w.pushIndent()
-	if w.indent != 1 {
-		t.Errorf("after pushIndent, indent = %d, want 1", w.indent)
+	w.PushIndent()
+	if w.Indent != 1 {
+		t.Errorf("after pushIndent, indent = %d, want 1", w.Indent)
 	}
 
 	// Push again
-	w.pushIndent()
-	if w.indent != 2 {
-		t.Errorf("after second pushIndent, indent = %d, want 2", w.indent)
+	w.PushIndent()
+	if w.Indent != 2 {
+		t.Errorf("after second pushIndent, indent = %d, want 2", w.Indent)
 	}
 
 	// Pop indent
-	w.popIndent()
-	if w.indent != 1 {
-		t.Errorf("after popIndent, indent = %d, want 1", w.indent)
+	w.PopIndent()
+	if w.Indent != 1 {
+		t.Errorf("after popIndent, indent = %d, want 1", w.Indent)
 	}
 
 	// Pop to zero
-	w.popIndent()
-	if w.indent != 0 {
-		t.Errorf("after second popIndent, indent = %d, want 0", w.indent)
+	w.PopIndent()
+	if w.Indent != 0 {
+		t.Errorf("after second popIndent, indent = %d, want 0", w.Indent)
 	}
 
 	// Pop below zero should stay at 0
-	w.popIndent()
-	if w.indent != 0 {
-		t.Errorf("popIndent below zero should stay at 0, got %d", w.indent)
+	w.PopIndent()
+	if w.Indent != 0 {
+		t.Errorf("popIndent below zero should stay at 0, got %d", w.Indent)
 	}
 }
 
@@ -56,8 +56,8 @@ func TestWriter_WriteLine(t *testing.T) {
 	opts := DefaultOptions()
 	w := newWriter(module, opts)
 
-	w.writeLine("test line")
-	w.writeLine("second line")
+	w.WriteLine("test line")
+	w.WriteLine("second line")
 
 	output := w.String()
 	lines := strings.Split(output, "\n")
@@ -79,8 +79,8 @@ func TestWriter_WriteLineWithFormat(t *testing.T) {
 	opts := DefaultOptions()
 	w := newWriter(module, opts)
 
-	w.writeLine("value = %d", 42)
-	w.writeLine("name = %s", "test")
+	w.WriteLine("value = %d", 42)
+	w.WriteLine("name = %s", "test")
 
 	output := w.String()
 
@@ -97,15 +97,15 @@ func TestWriter_IndentedOutput(t *testing.T) {
 	opts := DefaultOptions()
 	w := newWriter(module, opts)
 
-	w.writeLine("level 0")
-	w.pushIndent()
-	w.writeLine("level 1")
-	w.pushIndent()
-	w.writeLine("level 2")
-	w.popIndent()
-	w.writeLine("back to 1")
-	w.popIndent()
-	w.writeLine("back to 0")
+	w.WriteLine("level 0")
+	w.PushIndent()
+	w.WriteLine("level 1")
+	w.PushIndent()
+	w.WriteLine("level 2")
+	w.PopIndent()
+	w.WriteLine("back to 1")
+	w.PopIndent()
+	w.WriteLine("back to 0")
 
 	output := w.String()
 	lines := strings.Split(output, "\n")

@@ -57,8 +57,8 @@ func setCurrentFunction(w *Writer, fn *ir.Function) {
 
 // output returns the writer's accumulated output and resets the buffer.
 func output(w *Writer) string {
-	s := w.out.String()
-	w.out.Reset()
+	s := w.Out.String()
+	w.Out.Reset()
 	return s
 }
 
@@ -421,8 +421,8 @@ func TestWriteByteAddressBuffer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w.out.Reset()
-			w.indent = 0
+			w.Out.Reset()
+			w.Indent = 0
 			w.writeByteAddressBuffer(tt.bufName, tt.binding, tt.readOnly)
 			got := output(w)
 			if got != tt.want {
@@ -461,8 +461,8 @@ func TestWriteStructuredBuffer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w.out.Reset()
-			w.indent = 0
+			w.Out.Reset()
+			w.Indent = 0
 			w.writeStructuredBuffer(tt.bufName, tt.elemType, tt.binding, tt.readOnly)
 			got := output(w)
 			if got != tt.want {
@@ -481,8 +481,8 @@ func TestWriteConstantBuffer(t *testing.T) {
 	w := newTestWriter(module, nil, nil)
 
 	t.Run("with_binding", func(t *testing.T) {
-		w.out.Reset()
-		w.indent = 0
+		w.Out.Reset()
+		w.Indent = 0
 		w.writeConstantBuffer("Params", []cbufferMember{
 			{name: "mvp", typeName: "float4x4"},
 			{name: "color", typeName: "float4"},
@@ -495,8 +495,8 @@ func TestWriteConstantBuffer(t *testing.T) {
 	})
 
 	t.Run("no_binding", func(t *testing.T) {
-		w.out.Reset()
-		w.indent = 0
+		w.Out.Reset()
+		w.Indent = 0
 		w.writeConstantBuffer("Data", []cbufferMember{
 			{name: "x", typeName: "float"},
 		}, nil)
@@ -531,7 +531,7 @@ func TestWriteBufferLoad(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w.out.Reset()
+			w.Out.Reset()
 			w.writeBufferLoad(tt.bufExpr, tt.offset, tt.components)
 			got := output(w)
 			if got != tt.want {
@@ -580,8 +580,8 @@ func TestWriteBufferStore(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w.out.Reset()
-			w.indent = 0
+			w.Out.Reset()
+			w.Indent = 0
 			w.writeBufferStore(tt.bufExpr, tt.offset, tt.value, tt.components)
 			got := output(w)
 			if got != tt.wantSuffix {
@@ -600,8 +600,8 @@ func TestWriteAtomicOp(t *testing.T) {
 	w := newTestWriter(module, nil, nil)
 
 	t.Run("with_result", func(t *testing.T) {
-		w.out.Reset()
-		w.indent = 0
+		w.Out.Reset()
+		w.Indent = 0
 		result := "orig"
 		err := w.writeAtomicOp(ir.AtomicAdd{}, "dest", "1", &result)
 		if err != nil {
@@ -615,8 +615,8 @@ func TestWriteAtomicOp(t *testing.T) {
 	})
 
 	t.Run("without_result", func(t *testing.T) {
-		w.out.Reset()
-		w.indent = 0
+		w.Out.Reset()
+		w.Indent = 0
 		err := w.writeAtomicOp(ir.AtomicAnd{}, "mem", "mask", nil)
 		if err != nil {
 			t.Fatalf("writeAtomicOp: %v", err)
@@ -636,7 +636,7 @@ func TestWriteAtomicOp(t *testing.T) {
 func TestWriteAtomicCompareExchange(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	w.indent = 0
+	w.Indent = 0
 	w.writeAtomicCompareExchange("dest", "cmp", "val", "orig")
 	got := output(w)
 	want := "InterlockedCompareExchange(dest, cmp, val, orig);\n"
@@ -652,7 +652,7 @@ func TestWriteAtomicCompareExchange(t *testing.T) {
 func TestWriteAtomicCompareStore(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	w.indent = 0
+	w.Indent = 0
 	w.writeAtomicCompareStore("dest", "cmp", "val")
 	got := output(w)
 	want := "InterlockedCompareStore(dest, cmp, val);\n"
@@ -668,7 +668,7 @@ func TestWriteAtomicCompareStore(t *testing.T) {
 func TestWriteAtomicExchange(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	w.indent = 0
+	w.Indent = 0
 	w.writeAtomicExchange("dest", "val", "orig")
 	got := output(w)
 	want := "InterlockedExchange(dest, val, orig);\n"
@@ -851,7 +851,7 @@ func TestWriteStorageAddress(t *testing.T) {
 	w := newTestWriter(module, nil, nil)
 
 	t.Run("empty_chain", func(t *testing.T) {
-		w.out.Reset()
+		w.Out.Reset()
 		err := w.writeStorageAddress(nil)
 		if err != nil {
 			t.Fatalf("writeStorageAddress: %v", err)
@@ -863,7 +863,7 @@ func TestWriteStorageAddress(t *testing.T) {
 	})
 
 	t.Run("single_offset", func(t *testing.T) {
-		w.out.Reset()
+		w.Out.Reset()
 		chain := []subAccess{{kind: subAccessOffset, offset: 16}}
 		err := w.writeStorageAddress(chain)
 		if err != nil {
@@ -876,7 +876,7 @@ func TestWriteStorageAddress(t *testing.T) {
 	})
 
 	t.Run("two_offsets", func(t *testing.T) {
-		w.out.Reset()
+		w.Out.Reset()
 		chain := []subAccess{
 			{kind: subAccessOffset, offset: 8},
 			{kind: subAccessOffset, offset: 4},
@@ -960,7 +960,7 @@ func TestWriteStorageLoad(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w.out.Reset()
+			w.Out.Reset()
 			w.tempAccessChain = tt.chain
 			err := w.writeStorageLoad(0, tt.resultTy, nil)
 			if err != nil {
@@ -1014,7 +1014,7 @@ func TestWriteStorageStore(t *testing.T) {
 	setCurrentFunction(w, fn)
 
 	t.Run("scalar_u32_store", func(t *testing.T) {
-		w.out.Reset()
+		w.Out.Reset()
 		w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
 		sv := storeValue{kind: storeValueTempIndex, depth: 1, index: 0}
 		err := w.writeStorageStore(0, sv, 0, nil)
@@ -1030,7 +1030,7 @@ func TestWriteStorageStore(t *testing.T) {
 	})
 
 	t.Run("vec2_f32_store", func(t *testing.T) {
-		w.out.Reset()
+		w.Out.Reset()
 		// For storeValueTempIndex, the type is resolved via getTypeInner(sv.base)
 		// sv.base should be the vec2<f32> type handle
 		w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 8}}
@@ -1202,7 +1202,7 @@ func TestWriteStorageLoadMatrix(t *testing.T) {
 	w := newTestWriter(module, names, nil)
 
 	// Test mat2x2<f32> load
-	w.out.Reset()
+	w.Out.Reset()
 	w.tempAccessChain = nil
 	matTy := ir.MatrixType{Columns: 2, Rows: 2, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}
 	err := w.writeStorageLoad(0, matTy, nil)
@@ -1262,7 +1262,7 @@ func TestConstructorDependencyOrder(t *testing.T) {
 	// Register constructors for the struct (should write array first, then struct)
 	inner := w.module.Types[2].Inner
 	w.registerConstructorsForType(2, inner)
-	output := w.out.String()
+	output := w.Out.String()
 
 	arrayPos := strings.Index(output, "Constructarray2_float_")
 	structPos := strings.Index(output, "ConstructMyStruct")

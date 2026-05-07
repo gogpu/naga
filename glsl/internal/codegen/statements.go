@@ -44,13 +44,13 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		return w.writeEmit(k)
 
 	case ir.StmtBlock:
-		w.writeLine("{")
-		w.pushIndent()
+		w.WriteLine("{")
+		w.PushIndent()
 		if err := w.writeBlock(k.Block); err != nil {
 			return err
 		}
-		w.popIndent()
-		w.writeLine("}")
+		w.PopIndent()
+		w.WriteLine("}")
 		return nil
 
 	case ir.StmtIf:
@@ -63,17 +63,17 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		return w.writeLoop(k)
 
 	case ir.StmtBreak:
-		w.writeLine("break;")
+		w.WriteLine("break;")
 		return nil
 
 	case ir.StmtContinue:
 		// Sometimes we must render Continue as a break (inside do-while switches).
 		// See continue_forward.go for details.
 		if variable := w.continueCtx.continueEncountered(); variable != "" {
-			w.writeLine("%s = true;", variable)
-			w.writeLine("break;")
+			w.WriteLine("%s = true;", variable)
+			w.WriteLine("break;")
 		} else {
-			w.writeLine("continue;")
+			w.WriteLine("continue;")
 		}
 		return nil
 
@@ -81,7 +81,7 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		return w.writeReturn(k)
 
 	case ir.StmtKill:
-		w.writeLine("discard;")
+		w.WriteLine("discard;")
 		return nil
 
 	case ir.StmtBarrier:
@@ -271,7 +271,7 @@ func (w *Writer) maybeEmitExpression(handle ir.ExpressionHandle) error {
 	if err != nil {
 		return err
 	}
-	w.writeLine("%s %s%s = %s;", baseType, tempName, arraySuffix, exprStr)
+	w.WriteLine("%s %s%s = %s;", baseType, tempName, arraySuffix, exprStr)
 
 	// Cache the name for subsequent references
 	w.namedExpressions[handle] = tempName
@@ -341,23 +341,23 @@ func (w *Writer) writeIf(ifStmt ir.StmtIf) error {
 		return err
 	}
 
-	w.writeLine("if (%s) {", condition)
-	w.pushIndent()
+	w.WriteLine("if (%s) {", condition)
+	w.PushIndent()
 	if err := w.writeBlock(ifStmt.Accept); err != nil {
 		return err
 	}
-	w.popIndent()
+	w.PopIndent()
 
 	if len(ifStmt.Reject) > 0 {
-		w.writeLine("} else {")
-		w.pushIndent()
+		w.WriteLine("} else {")
+		w.PushIndent()
 		if err := w.writeBlock(ifStmt.Reject); err != nil {
 			return err
 		}
-		w.popIndent()
+		w.PopIndent()
 	}
 
-	w.writeLine("}")
+	w.WriteLine("}")
 	return nil
 }
 
@@ -376,8 +376,8 @@ func (w *Writer) writeSwitch(switchStmt ir.StmtSwitch) error {
 		return err
 	}
 
-	w.writeLine("switch(%s) {", selector)
-	w.pushIndent()
+	w.WriteLine("switch(%s) {", selector)
+	w.PushIndent()
 
 	for _, switchCase := range switchStmt.Cases {
 		// Rust naga: braces only when case has body or is not fall-through
@@ -386,39 +386,39 @@ func (w *Writer) writeSwitch(switchStmt ir.StmtSwitch) error {
 		switch v := switchCase.Value.(type) {
 		case ir.SwitchValueI32:
 			if writeBraces {
-				w.writeLine("case %d: {", int32(v))
+				w.WriteLine("case %d: {", int32(v))
 			} else {
-				w.writeLine("case %d:", int32(v))
+				w.WriteLine("case %d:", int32(v))
 			}
 		case ir.SwitchValueU32:
 			if writeBraces {
-				w.writeLine("case %du: {", uint32(v))
+				w.WriteLine("case %du: {", uint32(v))
 			} else {
-				w.writeLine("case %du:", uint32(v))
+				w.WriteLine("case %du:", uint32(v))
 			}
 		case ir.SwitchValueDefault:
 			if writeBraces {
-				w.writeLine("default: {")
+				w.WriteLine("default: {")
 			} else {
-				w.writeLine("default:")
+				w.WriteLine("default:")
 			}
 		}
 
 		if writeBraces {
-			w.pushIndent()
+			w.PushIndent()
 			if err := w.writeBlock(switchCase.Body); err != nil {
 				return err
 			}
 			if !switchCase.FallThrough && !blockEndsWithTerminator(switchCase.Body) {
-				w.writeLine("break;")
+				w.WriteLine("break;")
 			}
-			w.popIndent()
-			w.writeLine("}")
+			w.PopIndent()
+			w.WriteLine("}")
 		}
 	}
 
-	w.popIndent()
-	w.writeLine("}")
+	w.PopIndent()
+	w.WriteLine("}")
 	return nil
 }
 
@@ -442,11 +442,11 @@ func (w *Writer) isSingleBodySwitch(switchStmt ir.StmtSwitch) bool {
 func (w *Writer) writeSwitchAsDoWhile(switchStmt ir.StmtSwitch) error {
 	// Enter switch for continue forwarding (only matters inside a loop)
 	if variable := w.continueCtx.enterSwitch(w.namer); variable != "" {
-		w.writeLine("bool %s = false;", variable)
+		w.WriteLine("bool %s = false;", variable)
 	}
 
-	w.writeLine("do {")
-	w.pushIndent()
+	w.WriteLine("do {")
+	w.PushIndent()
 
 	// Write the last case body
 	if last := &switchStmt.Cases[len(switchStmt.Cases)-1]; len(last.Body) > 0 {
@@ -455,24 +455,24 @@ func (w *Writer) writeSwitchAsDoWhile(switchStmt ir.StmtSwitch) error {
 		}
 	}
 
-	w.popIndent()
-	w.writeLine("} while(false);")
+	w.PopIndent()
+	w.WriteLine("} while(false);")
 
 	// Handle any forwarded continue statements
 	result := w.continueCtx.exitSwitch()
 	switch result.kind {
 	case exitContinue:
-		w.writeLine("if (%s) {", result.variable)
-		w.pushIndent()
-		w.writeLine("continue;")
-		w.popIndent()
-		w.writeLine("}")
+		w.WriteLine("if (%s) {", result.variable)
+		w.PushIndent()
+		w.WriteLine("continue;")
+		w.PopIndent()
+		w.WriteLine("}")
 	case exitBreak:
-		w.writeLine("if (%s) {", result.variable)
-		w.pushIndent()
-		w.writeLine("break;")
-		w.popIndent()
-		w.writeLine("}")
+		w.WriteLine("if (%s) {", result.variable)
+		w.PushIndent()
+		w.WriteLine("break;")
+		w.PopIndent()
+		w.WriteLine("}")
 	}
 
 	return nil
@@ -497,13 +497,13 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 	if hasContinuing || hasBreakIf {
 		// Loops with continuing block or break-if use the loop_init gate pattern
 		gateName := w.namer.call("loop_init")
-		w.writeLine("bool %s = true;", gateName)
-		w.writeLine("while(true) {")
-		w.pushIndent()
+		w.WriteLine("bool %s = true;", gateName)
+		w.WriteLine("while(true) {")
+		w.PushIndent()
 
 		// Continuing block runs on every iteration except the first
-		w.writeLine("if (!%s) {", gateName)
-		w.pushIndent()
+		w.WriteLine("if (!%s) {", gateName)
+		w.PushIndent()
 
 		if hasContinuing {
 			if err := w.writeBlock(loop.Continuing); err != nil {
@@ -516,20 +516,20 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 			if err != nil {
 				return err
 			}
-			w.writeLine("if (%s) {", condition)
-			w.pushIndent()
-			w.writeLine("break;")
-			w.popIndent()
-			w.writeLine("}")
+			w.WriteLine("if (%s) {", condition)
+			w.PushIndent()
+			w.WriteLine("break;")
+			w.PopIndent()
+			w.WriteLine("}")
 		}
 
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("%s = false;", gateName)
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("%s = false;", gateName)
 	} else {
 		// Simple loop — no continuing, no break-if
-		w.writeLine("while(true) {")
-		w.pushIndent()
+		w.WriteLine("while(true) {")
+		w.PushIndent()
 	}
 
 	// Write body
@@ -537,8 +537,8 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 		return err
 	}
 
-	w.popIndent()
-	w.writeLine("}")
+	w.PopIndent()
+	w.WriteLine("}")
 	w.continueCtx.exitLoop()
 	return nil
 }
@@ -547,7 +547,7 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 // In entry points, return values are assigned to output variables instead.
 func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 	if ret.Value == nil {
-		w.writeLine("return;")
+		w.WriteLine("return;")
 		return nil
 	}
 
@@ -567,7 +567,7 @@ func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 	if err != nil {
 		return err
 	}
-	w.writeLine("return %s;", value)
+	w.WriteLine("return %s;", value)
 	return nil
 }
 
@@ -580,25 +580,25 @@ func (w *Writer) writeDirectReturn(ret ir.StmtReturn) error {
 	switch b := (*w.entryPointResult.Binding).(type) {
 	case ir.BuiltinBinding:
 		outputName := glslBuiltIn(b.Builtin, true)
-		w.writeLine("%s = %s;", outputName, value)
+		w.WriteLine("%s = %s;", outputName, value)
 		// For vertex position output, add coordinate space adjustment and point size
 		if b.Builtin == ir.BuiltinPosition {
 			if w.options.WriterFlags&WriterFlagAdjustCoordinateSpace != 0 {
-				w.writeLine("gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);")
+				w.WriteLine("gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);")
 			}
 			if w.options.WriterFlags&WriterFlagForcePointSize != 0 {
-				w.writeLine("gl_PointSize = 1.0;")
+				w.WriteLine("gl_PointSize = 1.0;")
 			}
 		}
-		w.writeLine("return;")
+		w.WriteLine("return;")
 	case ir.LocationBinding:
 		// Use the varying output name matching writeVaryingDeclarations
 		ep := w.getSelectedEntryPoint()
 		varName := w.varyingName(int(b.Location), ep.Stage, true)
-		w.writeLine("%s = %s;", varName, value)
-		w.writeLine("return;")
+		w.WriteLine("%s = %s;", varName, value)
+		w.WriteLine("return;")
 	default:
-		w.writeLine("return %s;", value)
+		w.WriteLine("return %s;", value)
 	}
 	return nil
 }
@@ -619,7 +619,7 @@ func (w *Writer) writeStructReturn(ret ir.StmtReturn, info *epStructInfo) error 
 			if err != nil {
 				return err
 			}
-			w.writeLine("%s %s = %s;", structName, tmpName, composeStr)
+			w.WriteLine("%s %s = %s;", structName, tmpName, composeStr)
 
 			// Assign each member from temp
 			if int(info.structType) < len(w.module.Types) {
@@ -629,12 +629,12 @@ func (w *Writer) writeStructReturn(ret ir.StmtReturn, info *epStructInfo) error 
 							break
 						}
 						memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(info.structType), handle2: uint32(memberIdx)}]
-						w.writeLine("%s = %s.%s;", memberInfo.glslName, tmpName, memberName)
+						w.WriteLine("%s = %s.%s;", memberInfo.glslName, tmpName, memberName)
 					}
 				}
 			}
 			w.writeCoordinateAdjustIfNeeded(info)
-			w.writeLine("return;")
+			w.WriteLine("return;")
 			return nil
 		}
 	}
@@ -652,15 +652,15 @@ func (w *Writer) writeStructReturn(ret ir.StmtReturn, info *epStructInfo) error 
 					break
 				}
 				memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(info.structType), handle2: uint32(memberIdx)}]
-				w.writeLine("%s = %s.%s;", memberInfo.glslName, value, memberName)
+				w.WriteLine("%s = %s.%s;", memberInfo.glslName, value, memberName)
 			}
 			w.writeCoordinateAdjustIfNeeded(info)
-			w.writeLine("return;")
+			w.WriteLine("return;")
 			return nil
 		}
 	}
 
-	w.writeLine("return %s;", value)
+	w.WriteLine("return %s;", value)
 	return nil
 }
 
@@ -670,10 +670,10 @@ func (w *Writer) writeCoordinateAdjustIfNeeded(info *epStructInfo) {
 	for _, member := range info.members {
 		if member.isBuiltin && member.builtinName == "gl_Position" {
 			if w.options.WriterFlags&WriterFlagAdjustCoordinateSpace != 0 {
-				w.writeLine("gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);")
+				w.WriteLine("gl_Position.yz = vec2(-gl_Position.y, gl_Position.z * 2.0 - gl_Position.w);")
 			}
 			if w.options.WriterFlags&WriterFlagForcePointSize != 0 {
-				w.writeLine("gl_PointSize = 1.0;")
+				w.WriteLine("gl_PointSize = 1.0;")
 			}
 			return
 		}
@@ -687,19 +687,19 @@ func (w *Writer) writeCoordinateAdjustIfNeeded(info *epStructInfo) {
 func (w *Writer) writeBarrier(barrier ir.StmtBarrier) error {
 	// Write memory barriers based on flags
 	if barrier.Flags&ir.BarrierStorage != 0 {
-		w.writeLine("memoryBarrierBuffer();")
+		w.WriteLine("memoryBarrierBuffer();")
 	}
 	if barrier.Flags&ir.BarrierWorkGroup != 0 {
-		w.writeLine("memoryBarrierShared();")
+		w.WriteLine("memoryBarrierShared();")
 	}
 	if barrier.Flags&ir.BarrierSubGroup != 0 {
-		w.writeLine("subgroupMemoryBarrier();")
+		w.WriteLine("subgroupMemoryBarrier();")
 	}
 	if barrier.Flags&ir.BarrierTexture != 0 {
-		w.writeLine("memoryBarrierImage();")
+		w.WriteLine("memoryBarrierImage();")
 	}
 	// Execution barrier always follows memory barriers
-	w.writeLine("barrier();")
+	w.WriteLine("barrier();")
 	return nil
 }
 
@@ -714,7 +714,7 @@ func (w *Writer) writeStore(store ir.StmtStore) error {
 		return err
 	}
 	// In GLSL, no explicit dereference needed for most cases
-	w.writeLine("%s = %s;", pointer, value)
+	w.WriteLine("%s = %s;", pointer, value)
 	return nil
 }
 
@@ -738,7 +738,7 @@ func (w *Writer) writeImageStore(imgStore ir.StmtImageStore) error {
 	imgType := w.resolveImageType(imgStore.Image)
 	coordStr := w.buildTextureCoord(coordinate, imgStore.Coordinate, imgStore.ArrayIndex, imgType)
 
-	w.writeLine("imageStore(%s, %s, %s);", image, coordStr, value)
+	w.WriteLine("imageStore(%s, %s, %s);", image, coordStr, value)
 	return nil
 }
 
@@ -796,7 +796,7 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 		coord = fmt.Sprintf("ivec3(%s, %s)", coordinate, arrayIdx)
 	}
 
-	w.writeLine("imageAtomic%s(%s, %s, %s);", funStr, image, coord, value)
+	w.WriteLine("imageAtomic%s(%s, %s, %s);", funStr, image, coord, value)
 	return nil
 }
 
@@ -858,9 +858,9 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 				typeName = w.getTypeName(*res.Handle)
 			}
 		}
-		w.writeLine("%s %s = %s(%s, %s);", typeName, tempName, funcName, pointer, value)
+		w.WriteLine("%s %s = %s(%s, %s);", typeName, tempName, funcName, pointer, value)
 	} else {
-		w.writeLine("%s(%s, %s);", funcName, pointer, value)
+		w.WriteLine("%s(%s, %s);", funcName, pointer, value)
 	}
 	return nil
 }
@@ -895,11 +895,11 @@ func (w *Writer) writeAtomicCompareExchange(atomic ir.StmtAtomic, exchange ir.At
 		}
 
 		// Rust pattern: declare struct, call atomicCompSwap, set exchanged
-		w.writeLine("%s %s; %s.old_value = atomicCompSwap(%s, %s, %s);",
+		w.WriteLine("%s %s; %s.old_value = atomicCompSwap(%s, %s, %s);",
 			resultType, tempName, tempName, pointer, compareVal, exchangeVal)
-		w.writeLine("%s.exchanged = (%s.old_value == %s);", tempName, tempName, compareVal)
+		w.WriteLine("%s.exchanged = (%s.old_value == %s);", tempName, tempName, compareVal)
 	} else {
-		w.writeLine("atomicCompSwap(%s, %s, %s);", pointer, compareVal, exchangeVal)
+		w.WriteLine("atomicCompSwap(%s, %s, %s);", pointer, compareVal, exchangeVal)
 	}
 	return nil
 }
@@ -947,9 +947,9 @@ func (w *Writer) writeCall(call ir.StmtCall) error {
 				arraySuffix = w.getArraySuffix(*resolution.Handle)
 			}
 		}
-		w.writeLine("%s %s%s = %s;", baseType, tempName, arraySuffix, callExpr)
+		w.WriteLine("%s %s%s = %s;", baseType, tempName, arraySuffix, callExpr)
 	} else {
-		w.writeLine("%s;", callExpr)
+		w.WriteLine("%s;", callExpr)
 	}
 	return nil
 }
@@ -973,7 +973,7 @@ func (w *Writer) writeSubgroupBallot(s ir.StmtSubgroupBallot) error {
 		}
 		predicate = p
 	}
-	w.writeLine("%s %s = subgroupBallot(%s);", typeName, tempName, predicate)
+	w.WriteLine("%s %s = subgroupBallot(%s);", typeName, tempName, predicate)
 	return nil
 }
 
@@ -1032,7 +1032,7 @@ func (w *Writer) writeSubgroupCollective(s ir.StmtSubgroupCollectiveOperation) e
 		}
 	}
 
-	w.writeLine("%s %s = %s(%s);", typeName, tempName, funcName, arg)
+	w.WriteLine("%s %s = %s(%s);", typeName, tempName, funcName, arg)
 	return nil
 }
 
@@ -1054,43 +1054,43 @@ func (w *Writer) writeSubgroupGather(s ir.StmtSubgroupGather) error {
 
 	switch m := s.Mode.(type) {
 	case ir.GatherBroadcastFirst:
-		w.writeLine("%s %s = subgroupBroadcastFirst(%s);", typeName, tempName, arg)
+		w.WriteLine("%s %s = subgroupBroadcastFirst(%s);", typeName, tempName, arg)
 	case ir.GatherBroadcast:
 		idx, idxErr := w.writeExpression(m.Index)
 		if idxErr != nil {
 			return idxErr
 		}
-		w.writeLine("%s %s = subgroupBroadcast(%s, %s);", typeName, tempName, arg, idx)
+		w.WriteLine("%s %s = subgroupBroadcast(%s, %s);", typeName, tempName, arg, idx)
 	case ir.GatherShuffle:
 		idx, idxErr := w.writeExpression(m.Index)
 		if idxErr != nil {
 			return idxErr
 		}
-		w.writeLine("%s %s = subgroupShuffle(%s, %s);", typeName, tempName, arg, idx)
+		w.WriteLine("%s %s = subgroupShuffle(%s, %s);", typeName, tempName, arg, idx)
 	case ir.GatherShuffleDown:
 		idx, idxErr := w.writeExpression(m.Delta)
 		if idxErr != nil {
 			return idxErr
 		}
-		w.writeLine("%s %s = subgroupShuffleDown(%s, %s);", typeName, tempName, arg, idx)
+		w.WriteLine("%s %s = subgroupShuffleDown(%s, %s);", typeName, tempName, arg, idx)
 	case ir.GatherShuffleUp:
 		idx, idxErr := w.writeExpression(m.Delta)
 		if idxErr != nil {
 			return idxErr
 		}
-		w.writeLine("%s %s = subgroupShuffleUp(%s, %s);", typeName, tempName, arg, idx)
+		w.WriteLine("%s %s = subgroupShuffleUp(%s, %s);", typeName, tempName, arg, idx)
 	case ir.GatherShuffleXor:
 		idx, idxErr := w.writeExpression(m.Mask)
 		if idxErr != nil {
 			return idxErr
 		}
-		w.writeLine("%s %s = subgroupShuffleXor(%s, %s);", typeName, tempName, arg, idx)
+		w.WriteLine("%s %s = subgroupShuffleXor(%s, %s);", typeName, tempName, arg, idx)
 	case ir.GatherQuadBroadcast:
 		idx, idxErr := w.writeExpression(m.Index)
 		if idxErr != nil {
 			return idxErr
 		}
-		w.writeLine("%s %s = subgroupQuadBroadcast(%s, %s);", typeName, tempName, arg, idx)
+		w.WriteLine("%s %s = subgroupQuadBroadcast(%s, %s);", typeName, tempName, arg, idx)
 	case ir.GatherQuadSwap:
 		funcName := "subgroupQuadSwapHorizontal"
 		switch m.Direction {
@@ -1099,9 +1099,9 @@ func (w *Writer) writeSubgroupGather(s ir.StmtSubgroupGather) error {
 		case ir.QuadDirectionDiagonal:
 			funcName = "subgroupQuadSwapDiagonal"
 		}
-		w.writeLine("%s %s = %s(%s);", typeName, tempName, funcName, arg)
+		w.WriteLine("%s %s = %s(%s);", typeName, tempName, funcName, arg)
 	default:
-		w.writeLine("%s %s = subgroupBroadcastFirst(%s);", typeName, tempName, arg)
+		w.WriteLine("%s %s = subgroupBroadcastFirst(%s);", typeName, tempName, arg)
 	}
 	return nil
 }
@@ -1110,8 +1110,8 @@ func (w *Writer) writeSubgroupGather(s ir.StmtSubgroupGather) error {
 // Matches Rust naga: memoryBarrierShared + barrier, load, memoryBarrierShared + barrier.
 func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) error {
 	// First control barrier
-	w.writeLine("memoryBarrierShared();")
-	w.writeLine("barrier();")
+	w.WriteLine("memoryBarrierShared();")
+	w.WriteLine("barrier();")
 
 	// Create result variable with proper type
 	tempName := fmt.Sprintf("_e%d", load.Result)
@@ -1130,11 +1130,11 @@ func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) err
 			typeName = w.getTypeName(*res.Handle)
 		}
 	}
-	w.writeLine("%s %s = %s;", typeName, tempName, pointer)
+	w.WriteLine("%s %s = %s;", typeName, tempName, pointer)
 
 	// Second control barrier
-	w.writeLine("memoryBarrierShared();")
-	w.writeLine("barrier();")
+	w.WriteLine("memoryBarrierShared();")
+	w.WriteLine("barrier();")
 	return nil
 }
 
@@ -1189,7 +1189,7 @@ func (w *Writer) maybeEmitClampedLod(handle ir.ExpressionHandle) error {
 		return err
 	}
 
-	w.writeLine("int _e%d_clamped_lod = clamp(%s, 0, textureQueryLevels(%s) - 1);",
+	w.WriteLine("int _e%d_clamped_lod = clamp(%s, 0, textureQueryLevels(%s) - 1);",
 		handle, levelExpr, image)
 	return nil
 }

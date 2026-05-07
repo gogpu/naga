@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gogpu/naga/internal/textutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -150,15 +151,11 @@ func epFuncHandle(epIdx int) ir.FunctionHandle {
 
 // Writer generates MSL source code from IR.
 type Writer struct {
+	textutil.IndentWriter // provides Out, Indent, WriteLine, WriteIndent, PushIndent, PopIndent
+
 	module   *ir.Module
 	options  *Options
 	pipeline *PipelineOptions
-
-	// Output buffer
-	out strings.Builder
-
-	// Current indentation level
-	indent int
 
 	// Name management
 	names      map[nameKey]string
@@ -477,7 +474,7 @@ func newWriter(module *ir.Module, options *Options, pipeline *PipelineOptions) *
 // String returns the generated MSL source code.
 // The output is trimmed to end with exactly one newline, matching Rust naga.
 func (w *Writer) String() string {
-	s := w.out.String()
+	s := w.Out.String()
 	s = strings.TrimRight(s, "\n")
 	return s + "\n"
 }
@@ -532,29 +529,29 @@ func (w *Writer) writeModule() error {
 	// Must happen after registerNames but before types are written.
 	var vptUnpackCode string
 	if w.options.VertexPullingTransform && len(w.options.VertexBufferMappings) > 0 {
-		savedOut := w.out
-		w.out = strings.Builder{}
+		savedOut := w.Out
+		w.Out = strings.Builder{}
 		w.initVertexPulling()
-		vptUnpackCode = w.out.String()
-		w.out = savedOut
+		vptUnpackCode = w.Out.String()
+		w.Out = savedOut
 	}
 
 	// 2. Write _mslBufferSizes struct + type definitions to a temporary buffer.
 	// The sizes struct must appear before type definitions (matches Rust naga order).
-	typesOut := w.out
-	w.out = strings.Builder{}
+	typesOut := w.Out
+	w.Out = strings.Builder{}
 	w.writeBufferSizesStruct()
 	if err := w.writeTypes(); err != nil {
 		return err
 	}
-	typesCode := w.out.String()
+	typesCode := w.Out.String()
 
 	// 3. Write constants
-	w.out = strings.Builder{}
+	w.Out = strings.Builder{}
 	if err := w.writeConstants(); err != nil {
 		return err
 	}
-	constantsCode := w.out.String()
+	constantsCode := w.Out.String()
 
 	// 4. Analyze pass-through globals for helper functions
 	w.analyzeFuncPassThroughGlobals()
@@ -582,12 +579,12 @@ func (w *Writer) writeModule() error {
 		if w.isEntryPointFunction(ir.FunctionHandle(handle)) {
 			continue
 		}
-		w.out = strings.Builder{}
+		w.Out = strings.Builder{}
 		if err := w.writeFunction(ir.FunctionHandle(handle), fn); err != nil {
 			return err
 		}
 		funcOutputs = append(funcOutputs, funcOutput{
-			code:              w.out.String(),
+			code:              w.Out.String(),
 			helpersAfter:      len(w.helperOverloads),
 			dotWrappersAfter:  len(w.dotWrappers),
 			f2iHelpersAfter:   len(w.f2iHelpers),
@@ -605,12 +602,12 @@ func (w *Writer) writeModule() error {
 				continue
 			}
 		}
-		w.out = strings.Builder{}
+		w.Out = strings.Builder{}
 		if err := w.writeEntryPoint(epIdx, &ep); err != nil {
 			return err
 		}
 		funcOutputs = append(funcOutputs, funcOutput{
-			code:              w.out.String(),
+			code:              w.Out.String(),
 			helpersAfter:      len(w.helperOverloads),
 			dotWrappersAfter:  len(w.dotWrappers),
 			f2iHelpersAfter:   len(w.f2iHelpers),
@@ -624,45 +621,45 @@ func (w *Writer) writeModule() error {
 	// These are discovered during function/entry point writing (step 5) and must
 	// appear before the struct definitions in Rust naga output order.
 	// Order matches Rust naga's FastIndexMap insertion order (first encounter during lowering).
-	w.out = strings.Builder{}
+	w.Out = strings.Builder{}
 	w.writeModfFrexpStructs()
 	w.writeAtomicCompareExchangeStructs()
-	wrappedStructsCode := w.out.String()
+	wrappedStructsCode := w.Out.String()
 
 	// 5c. Write modf/frexp functions, atomic compare-exchange template functions,
 	// and float-to-int helper functions.
-	w.out = strings.Builder{}
+	w.Out = strings.Builder{}
 	w.writeModfFrexpFunctions()
 	w.writeAtomicCompareExchangeFunctions()
 	w.writeF2IHelpers()
-	wrappedFuncsCode := w.out.String()
+	wrappedFuncsCode := w.Out.String()
 
 	// 6. Now we know the effective Metal version and which helpers are needed.
 	//    Assemble final output: header, DefaultConstructible, RayQuery,
 	//    types, wrapped structs, wrapped funcs, constants, then functions
 	//    with demand-driven helper interleaving.
-	w.out = typesOut
+	w.Out = typesOut
 	w.writeHeader()
 	w.writeDefaultConstructible()
 	w.writeRayQueryStruct()
-	w.out.WriteString(typesCode)
-	w.out.WriteString(wrappedStructsCode)
+	w.Out.WriteString(typesCode)
+	w.Out.WriteString(wrappedStructsCode)
 
 	hasWrappedFuncs := wrappedFuncsCode != ""
 
 	if hasWrappedFuncs {
 		if wrappedStructsCode != "" || typesCode != "" {
-			w.writeLine("")
+			w.WriteLine("")
 		}
-		w.out.WriteString(wrappedFuncsCode)
+		w.Out.WriteString(wrappedFuncsCode)
 	}
 
 	// Constants come after wrapped functions.
-	w.out.WriteString(constantsCode)
+	w.Out.WriteString(constantsCode)
 
 	// VPT unpacking functions come after constants, before function outputs.
 	if vptUnpackCode != "" {
-		w.out.WriteString(vptUnpackCode)
+		w.Out.WriteString(vptUnpackCode)
 	}
 
 	// Emit functions with demand-driven helper interleaving.
@@ -717,10 +714,10 @@ func (w *Writer) writeModule() error {
 		if len(newHelpers) > 0 || len(newDotWrappers) > 0 || len(newF2I) > 0 || len(newAbs) > 0 || len(newNeg) > 0 || needsClampToEdge || needsExternalHelpers {
 			// Blank line before helpers if there are regular functions before them
 			if fo.isRegularFunction {
-				w.writeLine("")
+				w.WriteLine("")
 			}
-			savedOut := w.out
-			w.out = strings.Builder{}
+			savedOut := w.Out
+			w.Out = strings.Builder{}
 			// Emit f2i helpers before dot wrappers to match Rust naga's
 			// write_wrapped_functions ordering (casts come before binary ops).
 			for _, ovl := range newF2I {
@@ -743,17 +740,17 @@ func (w *Writer) writeModule() error {
 			if needsExtDimensions {
 				w.writeExternalTextureDimensionsHelper()
 			}
-			helpersStr := w.out.String()
-			w.out = savedOut
+			helpersStr := w.Out.String()
+			w.Out = savedOut
 
 			// Trim trailing blank when followed by a function (which has its own blank)
 			if fo.isRegularFunction && helpersStr != "" {
 				helpersStr = strings.TrimRight(helpersStr, "\n") + "\n"
 			}
-			w.out.WriteString(helpersStr)
+			w.Out.WriteString(helpersStr)
 		}
 
-		w.out.WriteString(fo.code)
+		w.Out.WriteString(fo.code)
 		prevHelpers = fo.helpersAfter
 		prevDotWrappers = fo.dotWrappersAfter
 		prevF2I = fo.f2iHelpersAfter
@@ -820,20 +817,20 @@ func (w *Writer) writeRayQueryStruct() {
 	if !w.needsRayQuery {
 		return
 	}
-	w.writeLine("struct _RayQuery {")
-	w.pushIndent()
-	w.writeLine("metal::raytracing::intersector<metal::raytracing::instancing, metal::raytracing::triangle_data, metal::raytracing::world_space_data> intersector;")
-	w.writeLine("metal::raytracing::intersector<metal::raytracing::instancing, metal::raytracing::triangle_data, metal::raytracing::world_space_data>::result_type intersection;")
-	w.writeLine("bool ready = false;")
-	w.popIndent()
-	w.writeLine("};")
-	w.writeLine("constexpr metal::uint _map_intersection_type(const metal::raytracing::intersection_type ty) {")
-	w.pushIndent()
-	w.writeLine("return ty==metal::raytracing::intersection_type::triangle ? 1 : ")
-	w.writeLine("    ty==metal::raytracing::intersection_type::bounding_box ? 4 : 0;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("struct _RayQuery {")
+	w.PushIndent()
+	w.WriteLine("metal::raytracing::intersector<metal::raytracing::instancing, metal::raytracing::triangle_data, metal::raytracing::world_space_data> intersector;")
+	w.WriteLine("metal::raytracing::intersector<metal::raytracing::instancing, metal::raytracing::triangle_data, metal::raytracing::world_space_data>::result_type intersection;")
+	w.WriteLine("bool ready = false;")
+	w.PopIndent()
+	w.WriteLine("};")
+	w.WriteLine("constexpr metal::uint _map_intersection_type(const metal::raytracing::intersection_type ty) {")
+	w.PushIndent()
+	w.WriteLine("return ty==metal::raytracing::intersection_type::triangle ? 1 : ")
+	w.WriteLine("    ty==metal::raytracing::intersection_type::bounding_box ? 4 : 0;")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeModfFrexpStructs emits _modf_result_* and _frexp_result_* struct definitions
@@ -843,24 +840,24 @@ func (w *Writer) writeModfFrexpStructs() {
 	for _, r := range w.modfResultTypes {
 		name := r.modfStructName()
 		valType := wrappedMathMSLType(r.scalar, r.vectorSize)
-		w.writeLine("struct %s {", name)
-		w.pushIndent()
-		w.writeLine("%s fract;", valType)
-		w.writeLine("%s whole;", valType)
-		w.popIndent()
-		w.writeLine("};")
+		w.WriteLine("struct %s {", name)
+		w.PushIndent()
+		w.WriteLine("%s fract;", valType)
+		w.WriteLine("%s whole;", valType)
+		w.PopIndent()
+		w.WriteLine("};")
 	}
 	for _, r := range w.frexpResultTypes {
 		name := r.frexpStructName()
 		valType := wrappedMathMSLType(r.scalar, r.vectorSize)
 		// frexp exp field is always int (or int vector)
 		expType := wrappedMathMSLType(ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, r.vectorSize)
-		w.writeLine("struct %s {", name)
-		w.pushIndent()
-		w.writeLine("%s fract;", valType)
-		w.writeLine("%s exp;", expType)
-		w.popIndent()
-		w.writeLine("};")
+		w.WriteLine("struct %s {", name)
+		w.PushIndent()
+		w.WriteLine("%s fract;", valType)
+		w.WriteLine("%s exp;", expType)
+		w.PopIndent()
+		w.WriteLine("};")
 	}
 }
 
@@ -871,15 +868,15 @@ func (w *Writer) writeModfFrexpFunctions() {
 		structName := r.modfStructName()
 		argType := wrappedMathMSLType(r.scalar, r.vectorSize)
 		if i > 0 {
-			w.writeLine("")
+			w.WriteLine("")
 		}
-		w.writeLine("%s naga_modf(%s arg) {", structName, argType)
-		w.pushIndent()
-		w.writeLine("%s other;", argType)
-		w.writeLine("%s fract = %smodf(arg, other);", argType, Namespace)
-		w.writeLine("return %s{ fract, other };", structName)
-		w.popIndent()
-		w.writeLine("}")
+		w.WriteLine("%s naga_modf(%s arg) {", structName, argType)
+		w.PushIndent()
+		w.WriteLine("%s other;", argType)
+		w.WriteLine("%s fract = %smodf(arg, other);", argType, Namespace)
+		w.WriteLine("return %s{ fract, other };", structName)
+		w.PopIndent()
+		w.WriteLine("}")
 	}
 	for i, r := range w.frexpResultTypes {
 		structName := r.frexpStructName()
@@ -894,15 +891,15 @@ func (w *Writer) writeModfFrexpFunctions() {
 			expLocalType = fmt.Sprintf("%s%d", scalarTypeName(expScalar), r.vectorSize)
 		}
 		if i > 0 || len(w.modfResultTypes) > 0 {
-			w.writeLine("")
+			w.WriteLine("")
 		}
-		w.writeLine("%s naga_frexp(%s arg) {", structName, argType)
-		w.pushIndent()
-		w.writeLine("%s other;", expLocalType)
-		w.writeLine("%s fract = %sfrexp(arg, other);", argType, Namespace)
-		w.writeLine("return %s{ fract, other };", structName)
-		w.popIndent()
-		w.writeLine("}")
+		w.WriteLine("%s naga_frexp(%s arg) {", structName, argType)
+		w.PushIndent()
+		w.WriteLine("%s other;", expLocalType)
+		w.WriteLine("%s fract = %sfrexp(arg, other);", argType, Namespace)
+		w.WriteLine("return %s{ fract, other };", structName)
+		w.PopIndent()
+		w.WriteLine("}")
 	}
 }
 
@@ -912,18 +909,18 @@ func (w *Writer) writeAtomicCompareExchangeStructs() {
 	for _, v := range w.atomicCompareExchangeTypes {
 		name := v.atomicExchangeStructName()
 		scalarName := scalarTypeName(v.scalar)
-		w.writeLine("struct %s {", name)
-		w.pushIndent()
-		w.writeLine("%s old_value;", scalarName)
-		w.writeLine("bool exchanged;")
+		w.WriteLine("struct %s {", name)
+		w.PushIndent()
+		w.WriteLine("%s old_value;", scalarName)
+		w.WriteLine("bool exchanged;")
 		// Padding: bool is 1 byte, need to pad to align next field or end of struct.
 		// Rust naga emits char _pad2[3] for 4-byte scalars, char _pad2[7] for 8-byte.
 		padSize := int(v.scalar.Width) - 1
 		if padSize > 0 {
-			w.writeLine("char _pad2[%d];", padSize)
+			w.WriteLine("char _pad2[%d];", padSize)
 		}
-		w.popIndent()
-		w.writeLine("};")
+		w.PopIndent()
+		w.WriteLine("};")
 	}
 }
 
@@ -938,48 +935,48 @@ func (w *Writer) writeAtomicCompareExchangeFunctions() {
 		// Blank line between variants (not before the first one).
 		// Matches Rust naga output.
 		if i > 0 {
-			w.writeLine("")
+			w.WriteLine("")
 		}
 
 		// Device overload
-		w.writeLine("template <typename A>")
-		w.writeLine("%s naga_atomic_compare_exchange_weak_explicit(", structName)
-		w.pushIndent()
-		w.writeLine("device A *atomic_ptr,")
-		w.writeLine("%s cmp,", scalarName)
-		w.writeLine("%s v", scalarName)
-		w.popIndent()
-		w.writeLine(") {")
-		w.pushIndent()
-		w.writeLine("bool swapped = %satomic_compare_exchange_weak_explicit(", Namespace)
-		w.pushIndent()
-		w.writeLine("atomic_ptr, &cmp, v,")
-		w.writeLine("%smemory_order_relaxed, %smemory_order_relaxed", Namespace, Namespace)
-		w.popIndent()
-		w.writeLine(");")
-		w.writeLine("return %s{cmp, swapped};", structName)
-		w.popIndent()
-		w.writeLine("}")
+		w.WriteLine("template <typename A>")
+		w.WriteLine("%s naga_atomic_compare_exchange_weak_explicit(", structName)
+		w.PushIndent()
+		w.WriteLine("device A *atomic_ptr,")
+		w.WriteLine("%s cmp,", scalarName)
+		w.WriteLine("%s v", scalarName)
+		w.PopIndent()
+		w.WriteLine(") {")
+		w.PushIndent()
+		w.WriteLine("bool swapped = %satomic_compare_exchange_weak_explicit(", Namespace)
+		w.PushIndent()
+		w.WriteLine("atomic_ptr, &cmp, v,")
+		w.WriteLine("%smemory_order_relaxed, %smemory_order_relaxed", Namespace, Namespace)
+		w.PopIndent()
+		w.WriteLine(");")
+		w.WriteLine("return %s{cmp, swapped};", structName)
+		w.PopIndent()
+		w.WriteLine("}")
 
 		// Threadgroup overload
-		w.writeLine("template <typename A>")
-		w.writeLine("%s naga_atomic_compare_exchange_weak_explicit(", structName)
-		w.pushIndent()
-		w.writeLine("threadgroup A *atomic_ptr,")
-		w.writeLine("%s cmp,", scalarName)
-		w.writeLine("%s v", scalarName)
-		w.popIndent()
-		w.writeLine(") {")
-		w.pushIndent()
-		w.writeLine("bool swapped = %satomic_compare_exchange_weak_explicit(", Namespace)
-		w.pushIndent()
-		w.writeLine("atomic_ptr, &cmp, v,")
-		w.writeLine("%smemory_order_relaxed, %smemory_order_relaxed", Namespace, Namespace)
-		w.popIndent()
-		w.writeLine(");")
-		w.writeLine("return %s{cmp, swapped};", structName)
-		w.popIndent()
-		w.writeLine("}")
+		w.WriteLine("template <typename A>")
+		w.WriteLine("%s naga_atomic_compare_exchange_weak_explicit(", structName)
+		w.PushIndent()
+		w.WriteLine("threadgroup A *atomic_ptr,")
+		w.WriteLine("%s cmp,", scalarName)
+		w.WriteLine("%s v", scalarName)
+		w.PopIndent()
+		w.WriteLine(") {")
+		w.PushIndent()
+		w.WriteLine("bool swapped = %satomic_compare_exchange_weak_explicit(", Namespace)
+		w.PushIndent()
+		w.WriteLine("atomic_ptr, &cmp, v,")
+		w.WriteLine("%smemory_order_relaxed, %smemory_order_relaxed", Namespace, Namespace)
+		w.PopIndent()
+		w.WriteLine(");")
+		w.WriteLine("return %s{cmp, swapped};", structName)
+		w.PopIndent()
+		w.WriteLine("}")
 	}
 }
 
@@ -1085,12 +1082,12 @@ func (w *Writer) writeF2IHelper(ovl f2iOverload) {
 	// For f32/f64, they're limited by the int type's representable range.
 	minVal, maxVal := f2iClampBounds(ovl.srcScalar, ovl.dstScalar)
 
-	w.writeLine("%s %s(%s value) {", dstTypeName, funName, srcTypeName)
-	w.pushIndent()
-	w.writeLine("return static_cast<%s>(%sclamp(value, %s, %s));", dstTypeName, Namespace, minVal, maxVal)
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("%s %s(%s value) {", dstTypeName, funName, srcTypeName)
+	w.PushIndent()
+	w.WriteLine("return static_cast<%s>(%sclamp(value, %s, %s));", dstTypeName, Namespace, minVal, maxVal)
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // f2iClampBounds returns the (min, max) clamp literal strings for a float-to-int conversion.
@@ -1284,17 +1281,17 @@ func (w *Writer) writeBufferSizesStruct() {
 	if len(w.bufferSizeGlobals) == 0 && len(vptIDs) == 0 {
 		return
 	}
-	w.writeLine("struct _mslBufferSizes {")
-	w.pushIndent()
+	w.WriteLine("struct _mslBufferSizes {")
+	w.PushIndent()
 	for _, handle := range w.bufferSizeGlobals {
-		w.writeLine("uint size%d;", handle)
+		w.WriteLine("uint size%d;", handle)
 	}
 	for _, id := range vptIDs {
-		w.writeLine("uint buffer_size%d;", id)
+		w.WriteLine("uint buffer_size%d;", id)
 	}
-	w.popIndent()
-	w.writeLine("};")
-	w.writeLine("")
+	w.PopIndent()
+	w.WriteLine("};")
+	w.WriteLine("")
 }
 
 // resolveBufferSizesBinding returns the MSL binding attribute for the _buffer_sizes
@@ -1357,16 +1354,16 @@ func (w *Writer) funcNeedsBufferSizes(handle ir.FunctionHandle) bool {
 // effectiveVersion() reflects any features that require a higher Metal version.
 func (w *Writer) writeHeader() {
 	v := w.effectiveVersion()
-	w.writeLine("// language: metal%d.%d", v.Major, v.Minor)
-	w.writeLine("#include <metal_stdlib>")
-	w.writeLine("#include <simd/simd.h>")
-	w.writeLine("")
-	w.writeLine("using metal::uint;")
+	w.WriteLine("// language: metal%d.%d", v.Major, v.Minor)
+	w.WriteLine("#include <metal_stdlib>")
+	w.WriteLine("#include <simd/simd.h>")
+	w.WriteLine("")
+	w.WriteLine("using metal::uint;")
 	// Trailing blank line is omitted when DefaultConstructible or _RayQuery follows
 	// immediately. Matches Rust naga output where the struct starts right after
 	// "using metal::uint;".
 	if !w.needsDefaultConstructible && !w.needsRayQuery {
-		w.writeLine("")
+		w.WriteLine("")
 	}
 }
 
@@ -1379,17 +1376,17 @@ func (w *Writer) writeDefaultConstructible() {
 	if !w.needsDefaultConstructible {
 		return
 	}
-	w.writeLine("struct DefaultConstructible {")
-	w.pushIndent()
-	w.writeLine("template<typename T>")
-	w.writeLine("operator T() && {")
-	w.pushIndent()
-	w.writeLine("return T {};")
-	w.popIndent()
-	w.writeLine("}")
-	w.popIndent()
-	w.writeLine("};")
-	w.writeLine("")
+	w.WriteLine("struct DefaultConstructible {")
+	w.PushIndent()
+	w.WriteLine("template<typename T>")
+	w.WriteLine("operator T() && {")
+	w.PushIndent()
+	w.WriteLine("return T {};")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.PopIndent()
+	w.WriteLine("};")
+	w.WriteLine("")
 }
 
 // scanClampToEdge scans all functions for ImageSample expressions with ClampToEdge
@@ -1468,13 +1465,13 @@ func (w *Writer) writeTextureSampleBaseClampToEdge() {
 	if !w.needsTextureSampleBaseClampToEdge {
 		return
 	}
-	w.writeLine("metal::float4 nagaTextureSampleBaseClampToEdge(metal::texture2d<float, metal::access::sample> tex, metal::sampler samp, metal::float2 coords) {")
-	w.pushIndent()
-	w.writeLine("metal::float2 half_texel = 0.5 / metal::float2(tex.get_width(0u), tex.get_height(0u));")
-	w.writeLine("return tex.sample(samp, metal::clamp(coords, half_texel, 1.0 - half_texel), metal::level(0.0));")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("metal::float4 nagaTextureSampleBaseClampToEdge(metal::texture2d<float, metal::access::sample> tex, metal::sampler samp, metal::float2 coords) {")
+	w.PushIndent()
+	w.WriteLine("metal::float2 half_texel = 0.5 / metal::float2(tex.get_width(0u), tex.get_height(0u));")
+	w.WriteLine("return tex.sample(samp, metal::clamp(coords, half_texel, 1.0 - half_texel), metal::level(0.0));")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeExternalTextureSampleBaseClampToEdge emits the external texture version of
@@ -1761,46 +1758,15 @@ func (w *Writer) registerNames() error {
 
 // Output helpers
 
-// write writes text to the output. If args are provided, uses fmt.Fprintf.
+// write writes text to the output without indentation or newline.
+// If args are provided, uses fmt.Fprintf.
 //
 //nolint:goprintffuncname
 func (w *Writer) write(format string, args ...any) {
 	if len(args) == 0 {
-		w.out.WriteString(format)
+		w.Out.WriteString(format)
 	} else {
-		fmt.Fprintf(&w.out, format, args...)
-	}
-}
-
-// writeLine writes a line with optional format args and a newline.
-//
-//nolint:goprintffuncname
-func (w *Writer) writeLine(format string, args ...any) {
-	w.writeIndent()
-	if len(args) == 0 {
-		w.out.WriteString(format)
-	} else {
-		fmt.Fprintf(&w.out, format, args...)
-	}
-	w.out.WriteByte('\n')
-}
-
-// writeIndent writes the current indentation.
-func (w *Writer) writeIndent() {
-	for i := 0; i < w.indent; i++ {
-		w.out.WriteString("    ")
-	}
-}
-
-// pushIndent increases indentation.
-func (w *Writer) pushIndent() {
-	w.indent++
-}
-
-// popIndent decreases indentation.
-func (w *Writer) popIndent() {
-	if w.indent > 0 {
-		w.indent--
+		fmt.Fprintf(&w.Out, format, args...)
 	}
 }
 
@@ -1816,32 +1782,32 @@ func (w *Writer) writeHelperFunctions() {
 	for _, o := range w.helperOverloads {
 		typeName := o.mslTypeName()
 		if o.isDiv {
-			w.writeLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.pushIndent()
+			w.WriteLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
+			w.PushIndent()
 			switch o.kind {
 			case ir.ScalarSint:
 				minVal := sintMinLiteral(o.width)
-				w.writeLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", minVal)
+				w.WriteLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", minVal)
 			case ir.ScalarUint:
-				w.writeLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
+				w.WriteLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
 			}
-			w.popIndent()
+			w.PopIndent()
 		} else {
-			w.writeLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.pushIndent()
+			w.WriteLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
+			w.PushIndent()
 			switch o.kind {
 			case ir.ScalarSint:
 				minVal := sintMinLiteral(o.width)
-				w.writeLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, minVal)
-				w.writeLine("return lhs - (lhs / divisor) * divisor;")
+				w.WriteLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, minVal)
+				w.WriteLine("return lhs - (lhs / divisor) * divisor;")
 			case ir.ScalarUint:
-				w.writeLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
+				w.WriteLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
 			}
-			w.popIndent()
+			w.PopIndent()
 		}
-		w.writeLine("}")
+		w.WriteLine("}")
 		// Rust naga emits a trailing blank line after each helper function.
-		w.writeLine("")
+		w.WriteLine("")
 	}
 
 	// Abs helpers for signed integers (emitted before dot wrappers to match Rust ordering).
@@ -1854,12 +1820,12 @@ func (w *Writer) writeHelperFunctions() {
 			typeName = fmt.Sprintf("%s%s%d", Namespace, typeName, a.vecSize)
 			unsignedName = fmt.Sprintf("%s%s%d", Namespace, unsignedName, a.vecSize)
 		}
-		w.writeLine("%s naga_abs(%s val) {", typeName, typeName)
-		w.pushIndent()
-		w.writeLine("return %sselect(as_type<%s>(-as_type<%s>(val)), val, val >= 0);", Namespace, typeName, unsignedName)
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("%s naga_abs(%s val) {", typeName, typeName)
+		w.PushIndent()
+		w.WriteLine("return %sselect(as_type<%s>(-as_type<%s>(val)), val, val >= 0);", Namespace, typeName, unsignedName)
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 
 	// Integer dot product wrappers: naga_dot_{type}{size}
@@ -1868,17 +1834,17 @@ func (w *Writer) writeHelperFunctions() {
 	for _, d := range w.dotWrappers {
 		retType := scalarTypeName(d.scalar)
 		vecType := fmt.Sprintf("%s%s%d", Namespace, retType, d.size)
-		w.writeLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
-		w.pushIndent()
-		w.writeIndent()
+		w.WriteLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
+		w.PushIndent()
+		w.WriteIndent()
 		w.write("return (")
 		for i := ir.VectorSize(0); i < d.size; i++ {
 			w.write(" + a.%s * b.%s", components[i], components[i])
 		}
 		w.write(");\n")
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 }
 
@@ -1888,48 +1854,48 @@ func (w *Writer) writeHelperSubset(overloads []divModOverload, dots []dotWrapper
 	for _, o := range overloads {
 		typeName := o.mslTypeName()
 		if o.isDiv {
-			w.writeLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.pushIndent()
+			w.WriteLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
+			w.PushIndent()
 			switch o.kind {
 			case ir.ScalarSint:
 				minVal := sintMinLiteral(o.width)
-				w.writeLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", minVal)
+				w.WriteLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", minVal)
 			case ir.ScalarUint:
-				w.writeLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
+				w.WriteLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
 			}
-			w.popIndent()
+			w.PopIndent()
 		} else {
-			w.writeLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.pushIndent()
+			w.WriteLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
+			w.PushIndent()
 			switch o.kind {
 			case ir.ScalarSint:
 				minVal := sintMinLiteral(o.width)
-				w.writeLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, minVal)
-				w.writeLine("return lhs - (lhs / divisor) * divisor;")
+				w.WriteLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, minVal)
+				w.WriteLine("return lhs - (lhs / divisor) * divisor;")
 			case ir.ScalarUint:
-				w.writeLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
+				w.WriteLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
 			}
-			w.popIndent()
+			w.PopIndent()
 		}
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 
 	components := [4]string{"x", "y", "z", "w"}
 	for _, d := range dots {
 		retType := scalarTypeName(d.scalar)
 		vecType := fmt.Sprintf("%s%s%d", Namespace, retType, d.size)
-		w.writeLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
-		w.pushIndent()
-		w.writeIndent()
+		w.WriteLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
+		w.PushIndent()
+		w.WriteIndent()
 		w.write("return (")
 		for i := ir.VectorSize(0); i < d.size; i++ {
 			w.write(" + a.%s * b.%s", components[i], components[i])
 		}
 		w.write(");\n")
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 }
 
@@ -1944,31 +1910,31 @@ func (w *Writer) writeHelperSubsetDivMod(overloads []divModOverload) {
 	for _, o := range overloads {
 		typeName := o.mslTypeName()
 		if o.isDiv {
-			w.writeLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.pushIndent()
+			w.WriteLine("%s naga_div(%s lhs, %s rhs) {", typeName, typeName, typeName)
+			w.PushIndent()
 			switch o.kind {
 			case ir.ScalarSint:
 				minVal := sintMinLiteral(o.width)
-				w.writeLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", minVal)
+				w.WriteLine("return lhs / metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", minVal)
 			case ir.ScalarUint:
-				w.writeLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
+				w.WriteLine("return lhs / metal::select(rhs, 1u, rhs == 0u);")
 			}
-			w.popIndent()
+			w.PopIndent()
 		} else {
-			w.writeLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
-			w.pushIndent()
+			w.WriteLine("%s naga_mod(%s lhs, %s rhs) {", typeName, typeName, typeName)
+			w.PushIndent()
 			switch o.kind {
 			case ir.ScalarSint:
 				minVal := sintMinLiteral(o.width)
-				w.writeLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, minVal)
-				w.writeLine("return lhs - (lhs / divisor) * divisor;")
+				w.WriteLine("%s divisor = metal::select(rhs, 1, (lhs == %s & rhs == -1) | (rhs == 0));", typeName, minVal)
+				w.WriteLine("return lhs - (lhs / divisor) * divisor;")
 			case ir.ScalarUint:
-				w.writeLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
+				w.WriteLine("return lhs %s metal::select(rhs, 1u, rhs == 0u);", "%")
 			}
-			w.popIndent()
+			w.PopIndent()
 		}
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 }
 
@@ -1981,12 +1947,12 @@ func (w *Writer) writeHelperSubsetAbs(helpers []absHelper) {
 			typeName = fmt.Sprintf("%s%s%d", Namespace, typeName, a.vecSize)
 			unsignedName = fmt.Sprintf("%s%s%d", Namespace, unsignedName, a.vecSize)
 		}
-		w.writeLine("%s naga_abs(%s val) {", typeName, typeName)
-		w.pushIndent()
-		w.writeLine("return metal::select(as_type<%s>(-as_type<%s>(val)), val, val >= 0);", typeName, unsignedName)
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("%s naga_abs(%s val) {", typeName, typeName)
+		w.PushIndent()
+		w.WriteLine("return metal::select(as_type<%s>(-as_type<%s>(val)), val, val >= 0);", typeName, unsignedName)
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 }
 
@@ -1995,17 +1961,17 @@ func (w *Writer) writeHelperSubsetDot(dots []dotWrapper) {
 	for _, d := range dots {
 		retType := scalarTypeName(d.scalar)
 		vecType := fmt.Sprintf("%s%s%d", Namespace, retType, d.size)
-		w.writeLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
-		w.pushIndent()
-		w.writeIndent()
+		w.WriteLine("%s %s(%s a, %s b) {", retType, d.name, vecType, vecType)
+		w.PushIndent()
+		w.WriteIndent()
 		w.write("return (")
 		for i := ir.VectorSize(0); i < d.size; i++ {
 			w.write(" + a.%s * b.%s", components[i], components[i])
 		}
 		w.write(");\n")
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 }
 
@@ -2083,12 +2049,12 @@ func (w *Writer) writeNegHelper(h absHelper) {
 		typeName = fmt.Sprintf("%s%s%d", Namespace, typeName, h.vecSize)
 		unsignedName = fmt.Sprintf("%s%s%d", Namespace, unsignedName, h.vecSize)
 	}
-	w.writeLine("%s naga_neg(%s val) {", typeName, typeName)
-	w.pushIndent()
-	w.writeLine("return as_type<%s>(-as_type<%s>(val));", typeName, unsignedName)
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("%s naga_neg(%s val) {", typeName, typeName)
+	w.PushIndent()
+	w.WriteLine("return as_type<%s>(-as_type<%s>(val));", typeName, unsignedName)
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // registerNegHelper registers a naga_neg helper function for signed integer negation.

@@ -144,12 +144,12 @@ func TestWriteAsExpressionVectorCast(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w.out.Reset()
+			w.Out.Reset()
 			err := w.writeAsExpression(tt.expr)
 			if err != nil {
 				t.Fatalf("writeAsExpression: %v", err)
 			}
-			got := w.out.String()
+			got := w.Out.String()
 			if len(got) < len(tt.wantPfx) || got[:len(tt.wantPfx)] != tt.wantPfx {
 				t.Errorf("writeAsExpression:\n  got:  %q\n  want prefix: %q", got, tt.wantPfx)
 			}
@@ -217,13 +217,13 @@ func TestWrappingSignedArithmetic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w.out.Reset()
+			w.Out.Reset()
 			e := ir.ExprBinary{Op: tt.op, Left: 0, Right: 1}
 			err := w.writeBinaryExpression(e)
 			if err != nil {
 				t.Fatalf("writeBinaryExpression: %v", err)
 			}
-			got := w.out.String()
+			got := w.Out.String()
 			if got != tt.want {
 				t.Errorf("writeBinaryExpression(%s):\n  got:  %q\n  want: %q", tt.name, got, tt.want)
 			}
@@ -344,16 +344,16 @@ func TestWriteConstExpression(t *testing.T) {
 	_ = f32Handle
 
 	// Normal writeExpression should use the baked name
-	w.out.Reset()
+	w.Out.Reset()
 	_ = w.writeExpression(2)
-	if got := w.out.String(); got != "_e6" {
+	if got := w.Out.String(); got != "_e6" {
 		t.Errorf("writeExpression(2) = %q, want %q", got, "_e6")
 	}
 
 	// writeConstExpression should bypass the baked name and write inline
-	w.out.Reset()
+	w.Out.Reset()
 	_ = w.writeConstExpression(2)
-	if got := w.out.String(); got == "_e6" {
+	if got := w.Out.String(); got == "_e6" {
 		t.Errorf("writeConstExpression(2) = %q, should NOT use baked name", got)
 	}
 }
@@ -578,14 +578,14 @@ func TestWritePack4xI8U8(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newTestWriter(module, nil, nil)
 			setCurrentFunction(w, fn)
-			w.out.Reset()
+			w.Out.Reset()
 
 			e := ir.ExprMath{Fun: tt.fun, Arg: 0}
 			err := w.writePack4xI8U8(e)
 			if err != nil {
 				t.Fatalf("writePack4xI8U8: %v", err)
 			}
-			got := w.out.String()
+			got := w.Out.String()
 
 			if len(got) < len(tt.wantPrefix) || got[:len(tt.wantPrefix)] != tt.wantPrefix {
 				t.Errorf("expected prefix %q, got %q", tt.wantPrefix, got)
@@ -636,14 +636,14 @@ func TestWriteUnpack4xI8U8(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newTestWriter(module, nil, nil)
 			setCurrentFunction(w, fn)
-			w.out.Reset()
+			w.Out.Reset()
 
 			e := ir.ExprMath{Fun: tt.fun, Arg: 0}
 			err := w.writeUnpack4xI8U8(e)
 			if err != nil {
 				t.Fatalf("writeUnpack4xI8U8: %v", err)
 			}
-			got := w.out.String()
+			got := w.Out.String()
 
 			if !strings.Contains(got, tt.wantContain) {
 				t.Errorf("expected to contain %q, got %q", tt.wantContain, got)
@@ -698,14 +698,14 @@ func TestWriteDot4Packed(t *testing.T) {
 			w := newTestWriter(module, nil, nil)
 			w.options.ShaderModel = tt.sm
 			setCurrentFunction(w, fn)
-			w.out.Reset()
+			w.Out.Reset()
 
 			e := ir.ExprMath{Fun: tt.fun, Arg: 0, Arg1: &arg1Handle}
 			err := w.writeDot4Packed(e)
 			if err != nil {
 				t.Fatalf("writeDot4Packed: %v", err)
 			}
-			got := w.out.String()
+			got := w.Out.String()
 
 			if !strings.Contains(got, tt.wantContain) {
 				t.Errorf("expected to contain %q, got %q", tt.wantContain, got)
@@ -717,7 +717,7 @@ func TestWriteDot4Packed(t *testing.T) {
 	t.Run("missing_arg1_error", func(t *testing.T) {
 		w := newTestWriter(module, nil, nil)
 		setCurrentFunction(w, fn)
-		w.out.Reset()
+		w.Out.Reset()
 
 		e := ir.ExprMath{Fun: ir.MathDot4I8Packed, Arg: 0, Arg1: nil}
 		err := w.writeDot4Packed(e)
@@ -764,13 +764,13 @@ func TestLiteralF16Formatting(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newTestWriter(module, nil, nil)
 			setCurrentFunction(w, fn)
-			w.out.Reset()
+			w.Out.Reset()
 
 			err := w.writeExpression(tt.handle)
 			if err != nil {
 				t.Fatalf("writeExpression: %v", err)
 			}
-			got := w.out.String()
+			got := w.Out.String()
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
@@ -806,12 +806,12 @@ func TestExprWorkGroupUniformLoadResult(t *testing.T) {
 	// Simulate what writeWorkGroupUniformLoadStatement does: cache the name
 	w.namedExpressions[0] = "_e0"
 
-	w.out.Reset()
+	w.Out.Reset()
 	err := w.writeExpression(0)
 	if err != nil {
 		t.Fatalf("writeExpression(WorkGroupUniformLoadResult): %v", err)
 	}
-	got := w.out.String()
+	got := w.Out.String()
 	if got != "_e0" {
 		t.Errorf("WorkGroupUniformLoadResult: got %q, want %q", got, "_e0")
 	}

@@ -666,9 +666,9 @@ func TestWriteCBufferDeclaration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w.out.Reset()
+			w.Out.Reset()
 			w.writeCBufferDeclaration(tt.bufName, tt.typeName, tt.typeHandle, tt.binding)
-			output := w.out.String()
+			output := w.Out.String()
 
 			for _, want := range tt.wantContains {
 				if !strings.Contains(output, want) {
@@ -842,7 +842,7 @@ func TestWriteMatCx2TypedefAndFunctions(t *testing.T) {
 	}
 
 	w.writeMatCx2TypedefAndFunctions(3)
-	output := w.out.String()
+	output := w.Out.String()
 
 	// Check typedef
 	if !strings.Contains(output, "typedef struct { float2 _0; float2 _1; float2 _2; } __mat3x2;") {
@@ -882,7 +882,7 @@ func TestWriteWrappedStructMatrixAccessFunctions(t *testing.T) {
 	w.names[nameKey{kind: nameKeyStructMember, handle1: 1, handle2: 0}] = "m"
 
 	w.writeWrappedStructMatrixAccessFunctions(1, 0)
-	out := w.out.String()
+	out := w.Out.String()
 
 	if !strings.Contains(out, "float3x2 GetMatmOnBaz(Baz obj)") {
 		t.Error("missing GetMatmOnBaz")
@@ -898,9 +898,9 @@ func TestWriteWrappedStructMatrixAccessFunctions(t *testing.T) {
 	}
 
 	// Verify idempotency - calling again should not produce duplicate output
-	w.out.Reset()
+	w.Out.Reset()
 	w.writeWrappedStructMatrixAccessFunctions(1, 0)
-	if w.out.String() != "" {
+	if w.Out.String() != "" {
 		t.Error("second call should produce no output (already written)")
 	}
 }
@@ -979,9 +979,9 @@ func TestImageQueryFunctionName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			w.out.Reset()
+			w.Out.Reset()
 			w.writeImageQueryFunctionNameDirect(tt.key)
-			if got := w.out.String(); got != tt.want {
+			if got := w.Out.String(); got != tt.want {
 				t.Errorf("writeImageQueryFunctionNameDirect() = %q, want %q", got, tt.want)
 			}
 		})
@@ -996,17 +996,17 @@ func TestWriteSemantic_SkipsSubgroupBuiltins(t *testing.T) {
 
 	// Subgroup builtin should produce no output
 	binding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinSubgroupSize})
-	w.out.Reset()
+	w.Out.Reset()
 	w.writeSemantic(&binding, nil)
-	if got := w.out.String(); got != "" {
+	if got := w.Out.String(); got != "" {
 		t.Errorf("writeSemantic(SubgroupSize) = %q, want empty", got)
 	}
 
 	// Normal builtin should produce output
 	binding2 := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
-	w.out.Reset()
+	w.Out.Reset()
 	w.writeSemantic(&binding2, nil)
-	if got := w.out.String(); got == "" {
+	if got := w.Out.String(); got == "" {
 		t.Error("writeSemantic(Position) should produce output")
 	}
 }

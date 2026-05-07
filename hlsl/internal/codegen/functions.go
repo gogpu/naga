@@ -298,29 +298,29 @@ func (w *Writer) writeInterfaceStruct(
 		}
 	}
 
-	fmt.Fprintf(&w.out, "struct %s", structName)
-	w.out.WriteString(" {\n")
+	fmt.Fprintf(&w.Out, "struct %s", structName)
+	w.Out.WriteString(" {\n")
 	for _, m := range members {
 		// Skip subgroup builtins — they are computed from wave intrinsics
 		if isSubgroupBuiltinBinding(m.binding) {
 			continue
 		}
-		w.out.WriteString("    ")
+		w.Out.WriteString("    ")
 		if m.binding != nil {
 			w.writeModifierForType(m.binding, m.ty)
 		}
 		typeName := w.getTypeName(m.ty)
-		fmt.Fprintf(&w.out, "%s %s", typeName, m.name)
+		fmt.Fprintf(&w.Out, "%s %s", typeName, m.name)
 		if m.binding != nil {
 			w.writeSemantic(m.binding, stageIO)
 		}
-		w.out.WriteString(";\n")
+		w.Out.WriteString(";\n")
 	}
 	// Add __local_invocation_index if SubgroupId is used
 	if hasSubgroupId {
-		w.out.WriteString("    uint __local_invocation_index : SV_GroupIndex;\n")
+		w.Out.WriteString("    uint __local_invocation_index : SV_GroupIndex;\n")
 	}
-	w.out.WriteString("};\n\n")
+	w.Out.WriteString("};\n\n")
 
 	// For input structs, restore original order (by index) for initialization
 	if io == IoInput {
@@ -348,22 +348,22 @@ func (w *Writer) writeModifierForType(binding *ir.Binding, ty ir.TypeHandle) {
 	switch b := (*binding).(type) {
 	case ir.BuiltinBinding:
 		if b.Builtin == ir.BuiltinPosition && b.Invariant {
-			fmt.Fprintf(&w.out, "precise ")
+			fmt.Fprintf(&w.Out, "precise ")
 		}
 	case ir.LocationBinding:
 		if b.Interpolation != nil {
 			if kindStr := InterpolationToHLSL(b.Interpolation.Kind); kindStr != "" {
-				fmt.Fprintf(&w.out, "%s ", kindStr)
+				fmt.Fprintf(&w.Out, "%s ", kindStr)
 			}
 			if sampStr := SamplingToHLSL(b.Interpolation.Sampling); sampStr != "" {
-				fmt.Fprintf(&w.out, "%s ", sampStr)
+				fmt.Fprintf(&w.Out, "%s ", sampStr)
 			}
 		} else {
 			// Apply default interpolation: int/uint -> nointerpolation (matches Rust naga)
 			if int(ty) < len(w.module.Types) {
 				kind, hasKind := getScalarKind(w.module, ty)
 				if hasKind && (kind == ir.ScalarSint || kind == ir.ScalarUint) {
-					fmt.Fprintf(&w.out, "nointerpolation ")
+					fmt.Fprintf(&w.Out, "nointerpolation ")
 				}
 			}
 		}
@@ -384,10 +384,10 @@ func (w *Writer) writeModifier(binding *ir.Binding) {
 	case ir.LocationBinding:
 		if b.Interpolation != nil {
 			if kindStr := InterpolationToHLSL(b.Interpolation.Kind); kindStr != "" {
-				fmt.Fprintf(&w.out, "%s ", kindStr)
+				fmt.Fprintf(&w.Out, "%s ", kindStr)
 			}
 			if sampStr := SamplingToHLSL(b.Interpolation.Sampling); sampStr != "" {
-				fmt.Fprintf(&w.out, "%s ", sampStr)
+				fmt.Fprintf(&w.Out, "%s ", sampStr)
 			}
 		}
 	}
@@ -434,16 +434,16 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	}
 
 	// Write function signature with precise modifier if needed
-	w.writeIndent()
+	w.WriteIndent()
 	// Check for invariant Position on result binding -> "precise" prefix
 	if fn.Result != nil && fn.Result.Binding != nil {
 		if bb, ok := (*fn.Result.Binding).(ir.BuiltinBinding); ok {
 			if bb.Builtin == ir.BuiltinPosition && bb.Invariant {
-				w.out.WriteString("precise ")
+				w.Out.WriteString("precise ")
 			}
 		}
 	}
-	fmt.Fprintf(&w.out, "%s %s(", returnType, epName)
+	fmt.Fprintf(&w.Out, "%s %s(", returnType, epName)
 
 	// Determine if workgroup init is needed
 	needWgInit := w.needWorkgroupInit(ep)
@@ -452,17 +452,17 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	hasParams := false
 	if epIO != nil && epIO.input != nil {
 		// Input struct parameter
-		fmt.Fprintf(&w.out, "%s %s", epIO.input.tyName, epIO.input.argName)
+		fmt.Fprintf(&w.Out, "%s %s", epIO.input.tyName, epIO.input.argName)
 		hasParams = true
 	} else {
 		// Flat parameters with semantics (vertex stage, compute stage)
 		for i, arg := range fn.Arguments {
 			if i > 0 {
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 			}
 			argType := w.getTypeName(arg.Type)
 			argName := w.names[nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(i)}]
-			fmt.Fprintf(&w.out, "%s %s", argType, argName)
+			fmt.Fprintf(&w.Out, "%s %s", argType, argName)
 			if arg.Binding != nil {
 				stageIO := &shaderStageIO{stage: ep.Stage, io: IoInput}
 				w.writeSemantic(arg.Binding, stageIO)
@@ -474,12 +474,12 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	// Add __local_invocation_id parameter for workgroup init
 	if needWgInit {
 		if hasParams {
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 		}
-		w.out.WriteString("uint3 __local_invocation_id : SV_GroupThreadID")
+		w.Out.WriteString("uint3 __local_invocation_id : SV_GroupThreadID")
 	}
 
-	w.out.WriteString(")")
+	w.Out.WriteString(")")
 
 	// Write return semantic for non-struct results (e.g., fragment SV_Target)
 	if epIO == nil || epIO.output == nil {
@@ -490,9 +490,9 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	}
 
 	// Opening brace on next line (matches Rust naga HLSL format)
-	w.out.WriteString("\n")
-	w.writeLine("{")
-	w.pushIndent()
+	w.Out.WriteString("\n")
+	w.WriteLine("{")
+	w.PushIndent()
 
 	// Write workgroup variable zero-initialization if needed
 	if needWgInit {
@@ -516,47 +516,47 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 
 		// Rust naga always initializes locals: with init expression or (Type)0.
 		// Exception: RayQuery variables are NOT zero-initialized.
-		w.writeIndent()
+		w.WriteIndent()
 		isRayQuery := strings.Contains(localType, "RayQuery")
 		if !isRayQuery && int(local.Type) < len(w.module.Types) {
 			_, isRayQuery = w.module.Types[local.Type].Inner.(ir.RayQueryType)
 		}
 		if isRayQuery {
-			fmt.Fprintf(&w.out, "%s %s%s;\n", localType, localName, arraySuffix)
+			fmt.Fprintf(&w.Out, "%s %s%s;\n", localType, localName, arraySuffix)
 		} else {
-			fmt.Fprintf(&w.out, "%s %s%s = ", localType, localName, arraySuffix)
+			fmt.Fprintf(&w.Out, "%s %s%s = ", localType, localName, arraySuffix)
 			if local.Init != nil {
 				if err := w.writeExpression(*local.Init); err != nil {
-					w.popIndent()
+					w.PopIndent()
 					return fmt.Errorf("entry point local var init: %w", err)
 				}
 			} else {
 				// Zero initialize: (Type)0 matching Rust naga's write_default_init
-				fmt.Fprintf(&w.out, "(%s%s)0", localType, arraySuffix)
+				fmt.Fprintf(&w.Out, "(%s%s)0", localType, arraySuffix)
 			}
-			w.out.WriteString(";\n")
+			w.Out.WriteString(";\n")
 		}
 	}
 
 	if len(fn.LocalVars) > 0 {
 		// Rust naga writes just a newline (no indentation) after locals
-		w.out.WriteByte('\n')
+		w.Out.WriteByte('\n')
 	}
 
 	// Write function body statements
 	if err := w.writeBlock(fn.Body); err != nil {
-		w.popIndent()
+		w.PopIndent()
 		return err
 	}
 
 	// Add implicit return for void entry points
 	if fn.Result == nil && !hlslBlockEndsWithReturn(fn.Body) {
-		w.writeLine("return;")
+		w.WriteLine("return;")
 	}
 
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 
 	return nil
 }
@@ -573,30 +573,30 @@ func (w *Writer) writeEPArgumentsInit(epIdx int, fn *ir.Function, ep *ir.EntryPo
 		if int(arg.Type) < len(w.module.Types) {
 			if st, ok := w.module.Types[arg.Type].Inner.(ir.StructType); ok {
 				// Struct argument: initialize with { member1, member2, ... }
-				w.writeIndent()
-				fmt.Fprintf(&w.out, "%s %s = { ", argType, argName)
+				w.WriteIndent()
+				fmt.Fprintf(&w.Out, "%s %s = { ", argType, argName)
 				for j, member := range st.Members {
 					if j > 0 {
-						w.out.WriteString(", ")
+						w.Out.WriteString(", ")
 					}
 					if fakeIter < len(epInput.members) {
 						w.writeEPArgInit(ep, epInput, &epInput.members[fakeIter], member.Binding)
 						fakeIter++
 					}
 				}
-				w.out.WriteString(" };\n")
+				w.Out.WriteString(" };\n")
 				continue
 			}
 		}
 
 		// Simple argument
-		w.writeIndent()
-		fmt.Fprintf(&w.out, "%s %s = ", argType, argName)
+		w.WriteIndent()
+		fmt.Fprintf(&w.Out, "%s %s = ", argType, argName)
 		if fakeIter < len(epInput.members) {
 			w.writeEPArgInit(ep, epInput, &epInput.members[fakeIter], arg.Binding)
 			fakeIter++
 		}
-		w.out.WriteString(";\n")
+		w.Out.WriteString(";\n")
 	}
 }
 
@@ -608,10 +608,10 @@ func (w *Writer) writeEPArgInit(ep *ir.EntryPoint, epInput *entryPointBinding, f
 		if bb, ok := (*binding).(ir.BuiltinBinding); ok {
 			switch bb.Builtin {
 			case ir.BuiltinSubgroupSize:
-				w.out.WriteString("WaveGetLaneCount()")
+				w.Out.WriteString("WaveGetLaneCount()")
 				return
 			case ir.BuiltinSubgroupInvocationID:
-				w.out.WriteString("WaveGetLaneIndex()")
+				w.Out.WriteString("WaveGetLaneIndex()")
 				return
 			case ir.BuiltinNumSubgroups:
 				total := uint32(1)
@@ -621,16 +621,16 @@ func (w *Writer) writeEPArgInit(ep *ir.EntryPoint, epInput *entryPointBinding, f
 						total = 1
 					}
 				}
-				fmt.Fprintf(&w.out, "(%du + WaveGetLaneCount() - 1u) / WaveGetLaneCount()", total)
+				fmt.Fprintf(&w.Out, "(%du + WaveGetLaneCount() - 1u) / WaveGetLaneCount()", total)
 				return
 			case ir.BuiltinSubgroupID:
-				fmt.Fprintf(&w.out, "%s.__local_invocation_index / WaveGetLaneCount()", epInput.argName)
+				fmt.Fprintf(&w.Out, "%s.__local_invocation_index / WaveGetLaneCount()", epInput.argName)
 				return
 			}
 		}
 	}
 	// Default: read from input struct
-	fmt.Fprintf(&w.out, "%s.%s", epInput.argName, fakeMember.name)
+	fmt.Fprintf(&w.Out, "%s.%s", epInput.argName, fakeMember.name)
 }
 
 // writeComputeAttributes writes [numthreads(x,y,z)] attribute for compute shaders.
@@ -645,7 +645,7 @@ func (w *Writer) writeComputeAttributes(ep *ir.EntryPoint) {
 	if z == 0 {
 		z = 1
 	}
-	w.writeLine("[numthreads(%d, %d, %d)]", x, y, z)
+	w.WriteLine("[numthreads(%d, %d, %d)]", x, y, z)
 }
 
 // =============================================================================
@@ -680,119 +680,119 @@ func toLowerFirst(s string) string {
 
 // writeModHelper writes the safe modulo helper function.
 func (w *Writer) writeModHelper() {
-	w.writeLine("// Safe modulo helper (truncated division semantics)")
-	w.writeLine("int %s(int a, int b) {", NagaModFunction)
-	w.pushIndent()
-	w.writeLine("return a - b * (a / b);")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("// Safe modulo helper (truncated division semantics)")
+	w.WriteLine("int %s(int a, int b) {", NagaModFunction)
+	w.PushIndent()
+	w.WriteLine("return a - b * (a / b);")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 
 	// Overload for uint
-	w.writeLine("uint %s(uint a, uint b) {", NagaModFunction)
-	w.pushIndent()
-	w.writeLine("return a - b * (a / b);")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("uint %s(uint a, uint b) {", NagaModFunction)
+	w.PushIndent()
+	w.WriteLine("return a - b * (a / b);")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeDivHelper writes the safe division helper function.
 func (w *Writer) writeDivHelper() {
-	w.writeLine("// Safe division helper (handles zero divisor)")
-	w.writeLine("int %s(int a, int b) {", NagaDivFunction)
-	w.pushIndent()
-	w.writeLine("return b != 0 ? a / b : 0;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("// Safe division helper (handles zero divisor)")
+	w.WriteLine("int %s(int a, int b) {", NagaDivFunction)
+	w.PushIndent()
+	w.WriteLine("return b != 0 ? a / b : 0;")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 
 	// Overload for uint
-	w.writeLine("uint %s(uint a, uint b) {", NagaDivFunction)
-	w.pushIndent()
-	w.writeLine("return b != 0u ? a / b : 0u;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("uint %s(uint a, uint b) {", NagaDivFunction)
+	w.PushIndent()
+	w.WriteLine("return b != 0u ? a / b : 0u;")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeAbsHelper writes the safe abs helper function.
 func (w *Writer) writeAbsHelper() {
-	w.writeLine("// Safe abs helper (handles INT_MIN)")
-	w.writeLine("int %s(int v) {", NagaAbsFunction)
-	w.pushIndent()
-	w.writeLine("return v >= 0 ? v : (v == -2147483648 ? 2147483647 : -v);")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("// Safe abs helper (handles INT_MIN)")
+	w.WriteLine("int %s(int v) {", NagaAbsFunction)
+	w.PushIndent()
+	w.WriteLine("return v >= 0 ? v : (v == -2147483648 ? 2147483647 : -v);")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeNegHelper writes the safe negation helper function.
 func (w *Writer) writeNegHelper() {
-	w.writeLine("// Safe negation helper (handles INT_MIN)")
-	w.writeLine("int %s(int v) {", NagaNegFunction)
-	w.pushIndent()
-	w.writeLine("return v == -2147483648 ? 2147483647 : -v;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("// Safe negation helper (handles INT_MIN)")
+	w.WriteLine("int %s(int v) {", NagaNegFunction)
+	w.PushIndent()
+	w.WriteLine("return v == -2147483648 ? 2147483647 : -v;")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeModfHelper writes the modf wrapper to return result struct like WGSL.
 func (w *Writer) writeModfHelper() {
-	w.writeLine("// modf wrapper returning struct like WGSL")
-	w.writeLine("struct _naga_modf_result_f32 {")
-	w.pushIndent()
-	w.writeLine("float fract;")
-	w.writeLine("float whole;")
-	w.popIndent()
-	w.writeLine("};")
-	w.writeLine("")
+	w.WriteLine("// modf wrapper returning struct like WGSL")
+	w.WriteLine("struct _naga_modf_result_f32 {")
+	w.PushIndent()
+	w.WriteLine("float fract;")
+	w.WriteLine("float whole;")
+	w.PopIndent()
+	w.WriteLine("};")
+	w.WriteLine("")
 
-	w.writeLine("_naga_modf_result_f32 %s(float x) {", NagaModfFunction)
-	w.pushIndent()
-	w.writeLine("_naga_modf_result_f32 result;")
-	w.writeLine("result.fract = modf(x, result.whole);")
-	w.writeLine("return result;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("_naga_modf_result_f32 %s(float x) {", NagaModfFunction)
+	w.PushIndent()
+	w.WriteLine("_naga_modf_result_f32 result;")
+	w.WriteLine("result.fract = modf(x, result.whole);")
+	w.WriteLine("return result;")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeFrexpHelper writes the frexp wrapper to return result struct like WGSL.
 func (w *Writer) writeFrexpHelper() {
-	w.writeLine("// frexp wrapper returning struct like WGSL")
-	w.writeLine("struct _naga_frexp_result_f32 {")
-	w.pushIndent()
-	w.writeLine("float fract;")
-	w.writeLine("int exp;")
-	w.popIndent()
-	w.writeLine("};")
-	w.writeLine("")
+	w.WriteLine("// frexp wrapper returning struct like WGSL")
+	w.WriteLine("struct _naga_frexp_result_f32 {")
+	w.PushIndent()
+	w.WriteLine("float fract;")
+	w.WriteLine("int exp;")
+	w.PopIndent()
+	w.WriteLine("};")
+	w.WriteLine("")
 
-	w.writeLine("_naga_frexp_result_f32 %s(float x) {", NagaFrexpFunction)
-	w.pushIndent()
-	w.writeLine("_naga_frexp_result_f32 result;")
-	w.writeLine("result.fract = frexp(x, result.exp);")
-	w.writeLine("return result;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("_naga_frexp_result_f32 %s(float x) {", NagaFrexpFunction)
+	w.PushIndent()
+	w.WriteLine("_naga_frexp_result_f32 result;")
+	w.WriteLine("result.fract = frexp(x, result.exp);")
+	w.WriteLine("return result;")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeExtractBitsOverload writes a single naga_extractBits overload for a type.
 // Matches Rust naga's write_wrapped_math_functions for ExtractBits.
 func (w *Writer) writeExtractBitsOverload(typeName string, scalarWidth uint8) {
-	fmt.Fprintf(&w.out, "%s %s(\n", typeName, NagaExtractBitsFunction)
-	fmt.Fprintf(&w.out, "    %s e,\n", typeName)
-	fmt.Fprintf(&w.out, "    uint offset,\n")
-	fmt.Fprintf(&w.out, "    uint count\n")
-	fmt.Fprintf(&w.out, ") {\n")
-	fmt.Fprintf(&w.out, "    uint w = %d;\n", scalarWidth*8)
-	fmt.Fprintf(&w.out, "    uint o = min(offset, w);\n")
-	fmt.Fprintf(&w.out, "    uint c = min(count, w - o);\n")
-	fmt.Fprintf(&w.out, "    return (c == 0 ? 0 : (e << (w - c - o)) >> (w - c));\n")
-	fmt.Fprintf(&w.out, "}\n")
+	fmt.Fprintf(&w.Out, "%s %s(\n", typeName, NagaExtractBitsFunction)
+	fmt.Fprintf(&w.Out, "    %s e,\n", typeName)
+	fmt.Fprintf(&w.Out, "    uint offset,\n")
+	fmt.Fprintf(&w.Out, "    uint count\n")
+	fmt.Fprintf(&w.Out, ") {\n")
+	fmt.Fprintf(&w.Out, "    uint w = %d;\n", scalarWidth*8)
+	fmt.Fprintf(&w.Out, "    uint o = min(offset, w);\n")
+	fmt.Fprintf(&w.Out, "    uint c = min(count, w - o);\n")
+	fmt.Fprintf(&w.Out, "    return (c == 0 ? 0 : (e << (w - c - o)) >> (w - c));\n")
+	fmt.Fprintf(&w.Out, "}\n")
 }
 
 // writeInsertBitsOverload writes a single naga_insertBits overload for a type.
@@ -812,40 +812,40 @@ func (w *Writer) writeInsertBitsOverload(typeName string, scalarWidth uint8) {
 	default:
 		scalarMax = 0xFFFFFFFF
 	}
-	fmt.Fprintf(&w.out, "%s %s(\n", typeName, NagaInsertBitsFunction)
-	fmt.Fprintf(&w.out, "    %s e,\n", typeName)
-	fmt.Fprintf(&w.out, "    %s newbits,\n", typeName)
-	fmt.Fprintf(&w.out, "    uint offset,\n")
-	fmt.Fprintf(&w.out, "    uint count\n")
-	fmt.Fprintf(&w.out, ") {\n")
-	fmt.Fprintf(&w.out, "    uint w = %du;\n", scalarBits)
-	fmt.Fprintf(&w.out, "    uint o = min(offset, w);\n")
-	fmt.Fprintf(&w.out, "    uint c = min(count, w - o);\n")
-	fmt.Fprintf(&w.out, "    uint mask = ((%du >> (%du - c)) << o);\n", scalarMax, scalarBits)
-	fmt.Fprintf(&w.out, "    return (c == 0 ? e : ((e & ~mask) | ((newbits << o) & mask)));\n")
-	fmt.Fprintf(&w.out, "}\n")
+	fmt.Fprintf(&w.Out, "%s %s(\n", typeName, NagaInsertBitsFunction)
+	fmt.Fprintf(&w.Out, "    %s e,\n", typeName)
+	fmt.Fprintf(&w.Out, "    %s newbits,\n", typeName)
+	fmt.Fprintf(&w.Out, "    uint offset,\n")
+	fmt.Fprintf(&w.Out, "    uint count\n")
+	fmt.Fprintf(&w.Out, ") {\n")
+	fmt.Fprintf(&w.Out, "    uint w = %du;\n", scalarBits)
+	fmt.Fprintf(&w.Out, "    uint o = min(offset, w);\n")
+	fmt.Fprintf(&w.Out, "    uint c = min(count, w - o);\n")
+	fmt.Fprintf(&w.Out, "    uint mask = ((%du >> (%du - c)) << o);\n", scalarMax, scalarBits)
+	fmt.Fprintf(&w.Out, "    return (c == 0 ? e : ((e & ~mask) | ((newbits << o) & mask)));\n")
+	fmt.Fprintf(&w.Out, "}\n")
 }
 
 // writeF2I32Helper writes the float-to-i32 conversion helper with clamping.
 func (w *Writer) writeF2I32Helper() {
-	w.writeLine("// Float to i32 conversion with clamping (handles NaN, inf)")
-	w.writeLine("int %s(float v) {", NagaF2I32Function)
-	w.pushIndent()
-	w.writeLine("return int(clamp(v, -2147483648.0, 2147483647.0));")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("// Float to i32 conversion with clamping (handles NaN, inf)")
+	w.WriteLine("int %s(float v) {", NagaF2I32Function)
+	w.PushIndent()
+	w.WriteLine("return int(clamp(v, -2147483648.0, 2147483647.0));")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeF2U32Helper writes the float-to-u32 conversion helper with clamping.
 func (w *Writer) writeF2U32Helper() {
-	w.writeLine("// Float to u32 conversion with clamping (handles NaN, inf)")
-	w.writeLine("uint %s(float v) {", NagaF2U32Function)
-	w.pushIndent()
-	w.writeLine("return uint(clamp(v, 0.0, 4294967295.0));")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("// Float to u32 conversion with clamping (handles NaN, inf)")
+	w.WriteLine("uint %s(float v) {", NagaF2U32Function)
+	w.PushIndent()
+	w.WriteLine("return uint(clamp(v, 0.0, 4294967295.0));")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // =============================================================================
@@ -927,8 +927,8 @@ func (w *Writer) needWorkgroupInit(ep *ir.EntryPoint) bool {
 // FXC compilation hangs (e.g. (PathMonoid[256])0 hangs 22s, loop takes 68ms).
 // Nested arrays produce nested loops.
 func (w *Writer) writeWorkgroupInit() {
-	w.writeLine("if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {")
-	w.pushIndent()
+	w.WriteLine("if (all(__local_invocation_id == uint3(0u, 0u, 0u))) {")
+	w.PushIndent()
 	for i, gv := range w.module.GlobalVariables {
 		if gv.Space != ir.SpaceWorkGroup {
 			continue
@@ -936,9 +936,9 @@ func (w *Writer) writeWorkgroupInit() {
 		varName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(i)}]
 		w.writeWorkgroupZeroInit(varName, gv.Type, 0)
 	}
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("GroupMemoryBarrierWithGroupSync();")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("GroupMemoryBarrierWithGroupSync();")
 }
 
 // workgroupZeroInitLoopThreshold is the minimum array size (in elements) above
@@ -958,7 +958,7 @@ const workgroupZeroInitLoopThreshold = 256
 func (w *Writer) writeWorkgroupZeroInit(varExpr string, typeHandle ir.TypeHandle, depth int) {
 	if int(typeHandle) >= len(w.module.Types) {
 		typeName := w.getTypeName(typeHandle)
-		w.writeLine("%s = (%s)0;", varExpr, typeName)
+		w.WriteLine("%s = (%s)0;", varExpr, typeName)
 		return
 	}
 	typ := w.module.Types[typeHandle]
@@ -967,19 +967,19 @@ func (w *Writer) writeWorkgroupZeroInit(varExpr string, typeHandle ir.TypeHandle
 		if size >= workgroupZeroInitLoopThreshold {
 			// Large array: per-element loop to avoid FXC hang
 			loopVar := fmt.Sprintf("_naga_zi_%d", depth)
-			w.writeLine("for (uint %s = 0u; %s < %du; %s++) {", loopVar, loopVar, size, loopVar)
-			w.pushIndent()
+			w.WriteLine("for (uint %s = 0u; %s < %du; %s++) {", loopVar, loopVar, size, loopVar)
+			w.PushIndent()
 			elemExpr := fmt.Sprintf("%s[%s]", varExpr, loopVar)
 			w.writeWorkgroupZeroInit(elemExpr, arr.Base, depth+1)
-			w.popIndent()
-			w.writeLine("}")
+			w.PopIndent()
+			w.WriteLine("}")
 		} else {
 			// Small array: bulk assign (matches Rust naga, FXC handles fine)
 			typeName := w.getTypeName(typeHandle)
-			w.writeLine("%s = (%s)0;", varExpr, typeName)
+			w.WriteLine("%s = (%s)0;", varExpr, typeName)
 		}
 	} else {
 		typeName := w.getTypeName(typeHandle)
-		w.writeLine("%s = (%s)0;", varExpr, typeName)
+		w.WriteLine("%s = (%s)0;", varExpr, typeName)
 	}
 }

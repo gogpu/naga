@@ -127,8 +127,8 @@ func TestWriteAtomicStatementWorkgroup(t *testing.T) {
 	setCurrentFunction(w, fn)
 
 	t.Run("add_with_result", func(t *testing.T) {
-		w.out.Reset()
-		w.indent = 0
+		w.Out.Reset()
+		w.Indent = 0
 		stmt := ir.StmtAtomic{
 			Pointer: 0,
 			Fun:     ir.AtomicAdd{},
@@ -139,7 +139,7 @@ func TestWriteAtomicStatementWorkgroup(t *testing.T) {
 		if err != nil {
 			t.Fatalf("writeAtomicStatement: %v", err)
 		}
-		got := w.out.String()
+		got := w.Out.String()
 		// Should produce: "uint _e2; InterlockedAdd(wg_var, 1u, _e2);\n"
 		if !strings.Contains(got, "uint _e2;") {
 			t.Errorf("missing result declaration: %q", got)
@@ -153,8 +153,8 @@ func TestWriteAtomicStatementWorkgroup(t *testing.T) {
 	})
 
 	t.Run("subtract_negation", func(t *testing.T) {
-		w.out.Reset()
-		w.indent = 0
+		w.Out.Reset()
+		w.Indent = 0
 		fn.NamedExpressions = make(map[ir.ExpressionHandle]string) // reset
 		stmt := ir.StmtAtomic{
 			Pointer: 0,
@@ -166,7 +166,7 @@ func TestWriteAtomicStatementWorkgroup(t *testing.T) {
 		if err != nil {
 			t.Fatalf("writeAtomicStatement: %v", err)
 		}
-		got := w.out.String()
+		got := w.Out.String()
 		// Subtract should use InterlockedAdd with negated value: "-1u"
 		if !strings.Contains(got, "InterlockedAdd(") {
 			t.Errorf("subtract should use InterlockedAdd: %q", got)
@@ -218,8 +218,8 @@ func TestWriteAtomicStatementStorage(t *testing.T) {
 	setCurrentFunction(w, fn)
 
 	t.Run("storage_add", func(t *testing.T) {
-		w.out.Reset()
-		w.indent = 0
+		w.Out.Reset()
+		w.Indent = 0
 		stmt := ir.StmtAtomic{
 			Pointer: 0,
 			Fun:     ir.AtomicAdd{},
@@ -230,7 +230,7 @@ func TestWriteAtomicStatementStorage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("writeAtomicStatement: %v", err)
 		}
-		got := w.out.String()
+		got := w.Out.String()
 		// Storage pattern: "uint _e2; storage_buf.InterlockedAdd(0, 1u, _e2);\n"
 		if !strings.Contains(got, "storage_buf.InterlockedAdd(") {
 			t.Errorf("storage atomic should use buffer.InterlockedAdd: %q", got)
@@ -562,8 +562,8 @@ func TestWriteImageAtomicStatement(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
 			setCurrentFunction(w, fn)
-			w.out.Reset()
-			w.indent = 0
+			w.Out.Reset()
+			w.Indent = 0
 
 			stmt := ir.StmtImageAtomic{
 				Image:      0,
@@ -575,7 +575,7 @@ func TestWriteImageAtomicStatement(t *testing.T) {
 			if err != nil {
 				t.Fatalf("writeImageAtomicStatement: %v", err)
 			}
-			got := w.out.String()
+			got := w.Out.String()
 
 			if !strings.Contains(got, tt.wantContain) {
 				t.Errorf("expected to contain %q, got %q", tt.wantContain, got)
@@ -628,8 +628,8 @@ func TestWriteWorkGroupUniformLoadStatement(t *testing.T) {
 
 	w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
 	setCurrentFunction(w, fn)
-	w.out.Reset()
-	w.indent = 0
+	w.Out.Reset()
+	w.Indent = 0
 
 	stmt := ir.StmtWorkGroupUniformLoad{
 		Pointer: 0,
@@ -639,7 +639,7 @@ func TestWriteWorkGroupUniformLoadStatement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writeWorkGroupUniformLoadStatement: %v", err)
 	}
-	got := w.out.String()
+	got := w.Out.String()
 
 	// Must contain two barriers
 	barrierCount := strings.Count(got, "GroupMemoryBarrierWithGroupSync()")

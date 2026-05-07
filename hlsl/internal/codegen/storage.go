@@ -67,9 +67,9 @@ func (w *Writer) writeByteAddressBuffer(name string, binding *BindTarget, readOn
 	}
 
 	if binding != nil {
-		w.writeLine("%s %s : register(%s%d, space%d);", bufType, name, regType, binding.Register, binding.Space)
+		w.WriteLine("%s %s : register(%s%d, space%d);", bufType, name, regType, binding.Register, binding.Space)
 	} else {
-		w.writeLine("%s %s;", bufType, name)
+		w.WriteLine("%s %s;", bufType, name)
 	}
 }
 
@@ -89,9 +89,9 @@ func (w *Writer) writeStructuredBuffer(name, elementType string, binding *BindTa
 	}
 
 	if binding != nil {
-		w.writeLine("%s<%s> %s : register(%s%d, space%d);", bufType, elementType, name, regType, binding.Register, binding.Space)
+		w.WriteLine("%s<%s> %s : register(%s%d, space%d);", bufType, elementType, name, regType, binding.Register, binding.Space)
 	} else {
-		w.writeLine("%s<%s> %s;", bufType, elementType, name)
+		w.WriteLine("%s<%s> %s;", bufType, elementType, name)
 	}
 }
 
@@ -106,19 +106,19 @@ func (w *Writer) writeStructuredBuffer(name, elementType string, binding *BindTa
 //	};
 func (w *Writer) writeConstantBuffer(name string, members []cbufferMember, binding *BindTarget) {
 	if binding != nil {
-		w.writeLine("%s %s : register(b%d, space%d) {", hlslCBuffer, name, binding.Register, binding.Space)
+		w.WriteLine("%s %s : register(b%d, space%d) {", hlslCBuffer, name, binding.Register, binding.Space)
 	} else {
-		w.writeLine("%s %s {", hlslCBuffer, name)
+		w.WriteLine("%s %s {", hlslCBuffer, name)
 	}
-	w.pushIndent()
+	w.PushIndent()
 
 	for i := range members {
 		member := &members[i]
-		w.writeLine("%s %s;", member.typeName, member.name)
+		w.WriteLine("%s %s;", member.typeName, member.name)
 	}
 
-	w.popIndent()
-	w.writeLine("};")
+	w.PopIndent()
+	w.WriteLine("};")
 }
 
 // cbufferMember represents a member in a constant buffer.
@@ -143,13 +143,13 @@ type cbufferMember struct {
 func (w *Writer) writeBufferLoad(bufferExpr string, offset string, components int) {
 	switch components {
 	case 1:
-		fmt.Fprintf(&w.out, "%s.Load(%s)", bufferExpr, offset)
+		fmt.Fprintf(&w.Out, "%s.Load(%s)", bufferExpr, offset)
 	case 2:
-		fmt.Fprintf(&w.out, "%s.Load2(%s)", bufferExpr, offset)
+		fmt.Fprintf(&w.Out, "%s.Load2(%s)", bufferExpr, offset)
 	case 3:
-		fmt.Fprintf(&w.out, "%s.Load3(%s)", bufferExpr, offset)
+		fmt.Fprintf(&w.Out, "%s.Load3(%s)", bufferExpr, offset)
 	default:
-		fmt.Fprintf(&w.out, "%s.Load4(%s)", bufferExpr, offset)
+		fmt.Fprintf(&w.Out, "%s.Load4(%s)", bufferExpr, offset)
 	}
 }
 
@@ -160,7 +160,7 @@ func (w *Writer) writeBufferLoad(bufferExpr string, offset string, components in
 //
 //	T val = buf.Load<T>(offset);
 func (w *Writer) writeBufferLoadT(bufferExpr, typeName, offset string) {
-	fmt.Fprintf(&w.out, "%s.Load<%s>(%s)", bufferExpr, typeName, offset)
+	fmt.Fprintf(&w.Out, "%s.Load<%s>(%s)", bufferExpr, typeName, offset)
 }
 
 // =============================================================================
@@ -179,13 +179,13 @@ func (w *Writer) writeBufferLoadT(bufferExpr, typeName, offset string) {
 func (w *Writer) writeBufferStore(bufferExpr, offset, value string, components int) {
 	switch components {
 	case 1:
-		w.writeLine("%s.Store(%s, %s);", bufferExpr, offset, value)
+		w.WriteLine("%s.Store(%s, %s);", bufferExpr, offset, value)
 	case 2:
-		w.writeLine("%s.Store2(%s, %s);", bufferExpr, offset, value)
+		w.WriteLine("%s.Store2(%s, %s);", bufferExpr, offset, value)
 	case 3:
-		w.writeLine("%s.Store3(%s, %s);", bufferExpr, offset, value)
+		w.WriteLine("%s.Store3(%s, %s);", bufferExpr, offset, value)
 	default:
-		w.writeLine("%s.Store4(%s, %s);", bufferExpr, offset, value)
+		w.WriteLine("%s.Store4(%s, %s);", bufferExpr, offset, value)
 	}
 }
 
@@ -211,9 +211,9 @@ func (w *Writer) writeAtomicOp(fun ir.AtomicFunction, dest, value string, result
 	}
 
 	if result != nil {
-		w.writeLine("%s(%s, %s, %s);", intrinsic, dest, value, *result)
+		w.WriteLine("%s(%s, %s, %s);", intrinsic, dest, value, *result)
 	} else {
-		w.writeLine("%s(%s, %s);", intrinsic, dest, value)
+		w.WriteLine("%s(%s, %s);", intrinsic, dest, value)
 	}
 	return nil
 }
@@ -225,7 +225,7 @@ func (w *Writer) writeAtomicOp(fun ir.AtomicFunction, dest, value string, result
 //
 //	InterlockedCompareExchange(dest, compare, value, originalValue);
 func (w *Writer) writeAtomicCompareExchange(dest, compare, value, result string) {
-	w.writeLine("%s(%s, %s, %s, %s);", hlslInterlockedCompareExchange, dest, compare, value, result)
+	w.WriteLine("%s(%s, %s, %s, %s);", hlslInterlockedCompareExchange, dest, compare, value, result)
 }
 
 // writeAtomicCompareStore writes an atomic compare-store operation.
@@ -235,7 +235,7 @@ func (w *Writer) writeAtomicCompareExchange(dest, compare, value, result string)
 //
 //	InterlockedCompareStore(dest, compare, value);
 func (w *Writer) writeAtomicCompareStore(dest, compare, value string) {
-	w.writeLine("%s(%s, %s, %s);", hlslInterlockedCompareStore, dest, compare, value)
+	w.WriteLine("%s(%s, %s, %s);", hlslInterlockedCompareStore, dest, compare, value)
 }
 
 // writeAtomicExchange writes an atomic exchange operation.
@@ -245,7 +245,7 @@ func (w *Writer) writeAtomicCompareStore(dest, compare, value string) {
 //
 //	InterlockedExchange(dest, value, originalValue);
 func (w *Writer) writeAtomicExchange(dest, value, result string) {
-	w.writeLine("%s(%s, %s, %s);", hlslInterlockedExchange, dest, value, result)
+	w.WriteLine("%s(%s, %s, %s);", hlslInterlockedExchange, dest, value, result)
 }
 
 // atomicFunctionToHLSL maps IR atomic functions to HLSL intrinsic names.
@@ -654,23 +654,23 @@ func (w *Writer) resolveStorageBaseType(handle ir.ExpressionHandle) ir.TypeInner
 // the given access chain. Matches Rust naga's Writer::write_storage_address.
 func (w *Writer) writeStorageAddress(chain []subAccess) error {
 	if len(chain) == 0 {
-		w.out.WriteString("0")
+		w.Out.WriteString("0")
 		return nil
 	}
 	for i, access := range chain {
 		if i > 0 {
-			w.out.WriteByte('+')
+			w.Out.WriteByte('+')
 		}
 		switch access.kind {
 		case subAccessOffset:
-			fmt.Fprintf(&w.out, "%d", access.offset)
+			fmt.Fprintf(&w.Out, "%d", access.offset)
 		case subAccessIndex:
 			if err := w.writeExpression(access.value); err != nil {
 				return err
 			}
-			fmt.Fprintf(&w.out, "*%d", access.stride)
+			fmt.Fprintf(&w.Out, "*%d", access.stride)
 		case subAccessBufferOffset:
-			fmt.Fprintf(&w.out, "__dynamic_buffer_offsets%d._%d", access.bufferGroup, access.bufferOffset)
+			fmt.Fprintf(&w.Out, "__dynamic_buffer_offsets%d._%d", access.bufferGroup, access.bufferOffset)
 		}
 	}
 	return nil
@@ -701,24 +701,24 @@ func (w *Writer) writeStorageLoad(varHandle ir.GlobalVariableHandle, resultTy ir
 	case ir.ScalarType:
 		if inner.Width == 4 {
 			cast := scalarHLSLCast(inner.Kind)
-			fmt.Fprintf(&w.out, "%s(%s.Load(", cast, varName)
+			fmt.Fprintf(&w.Out, "%s(%s.Load(", cast, varName)
 			// Save and restore chain (matching Rust borrow checker pattern)
 			chain := w.tempAccessChain
 			w.tempAccessChain = nil
 			if err := w.writeStorageAddress(chain); err != nil {
 				return err
 			}
-			w.out.WriteString("))")
+			w.Out.WriteString("))")
 			w.tempAccessChain = chain
 		} else {
 			typeName := scalarToHLSLStr(inner)
-			fmt.Fprintf(&w.out, "%s.Load<%s>(", varName, typeName)
+			fmt.Fprintf(&w.Out, "%s.Load<%s>(", varName, typeName)
 			chain := w.tempAccessChain
 			w.tempAccessChain = nil
 			if err := w.writeStorageAddress(chain); err != nil {
 				return err
 			}
-			w.out.WriteString(")")
+			w.Out.WriteString(")")
 			w.tempAccessChain = chain
 		}
 
@@ -726,33 +726,33 @@ func (w *Writer) writeStorageLoad(varHandle ir.GlobalVariableHandle, resultTy ir
 		size := inner.Size
 		if inner.Scalar.Width == 4 {
 			cast := scalarHLSLCast(inner.Scalar.Kind)
-			fmt.Fprintf(&w.out, "%s(%s.Load%d(", cast, varName, size)
+			fmt.Fprintf(&w.Out, "%s(%s.Load%d(", cast, varName, size)
 			chain := w.tempAccessChain
 			w.tempAccessChain = nil
 			if err := w.writeStorageAddress(chain); err != nil {
 				return err
 			}
-			w.out.WriteString("))")
+			w.Out.WriteString("))")
 			w.tempAccessChain = chain
 		} else {
 			typeName := scalarToHLSLStr(inner.Scalar)
-			fmt.Fprintf(&w.out, "%s.Load<%s%d>(", varName, typeName, size)
+			fmt.Fprintf(&w.Out, "%s.Load<%s%d>(", varName, typeName, size)
 			chain := w.tempAccessChain
 			w.tempAccessChain = nil
 			if err := w.writeStorageAddress(chain); err != nil {
 				return err
 			}
-			w.out.WriteString(")")
+			w.Out.WriteString(")")
 			w.tempAccessChain = chain
 		}
 
 	case ir.MatrixType:
 		typeName := scalarToHLSLStr(inner.Scalar)
-		fmt.Fprintf(&w.out, "%s%dx%d(", typeName, inner.Columns, inner.Rows)
+		fmt.Fprintf(&w.Out, "%s%dx%d(", typeName, inner.Columns, inner.Rows)
 		rowStride := alignmentFromVectorSize(inner.Rows) * uint32(inner.Scalar.Width)
 		for i := ir.VectorSize(0); i < inner.Columns; i++ {
 			if i > 0 {
-				w.out.WriteString(", ")
+				w.Out.WriteString(", ")
 			}
 			w.tempAccessChain = append(w.tempAccessChain, subAccess{kind: subAccessOffset, offset: uint32(i) * rowStride})
 			colType := ir.VectorType{Size: inner.Rows, Scalar: inner.Scalar}
@@ -761,7 +761,7 @@ func (w *Writer) writeStorageLoad(varHandle ir.GlobalVariableHandle, resultTy ir
 			}
 			w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
 		}
-		w.out.WriteString(")")
+		w.Out.WriteString(")")
 
 	case ir.StructType:
 		// Load struct member by member using wrapped constructor
@@ -771,11 +771,11 @@ func (w *Writer) writeStorageLoad(varHandle ir.GlobalVariableHandle, resultTy ir
 		}
 		if resolvedHandle != nil {
 			constructorName := fmt.Sprintf("Construct%s", w.typeNames[*resolvedHandle])
-			w.out.WriteString(constructorName)
-			w.out.WriteByte('(')
+			w.Out.WriteString(constructorName)
+			w.Out.WriteByte('(')
 			for i, member := range inner.Members {
 				if i > 0 {
-					w.out.WriteString(", ")
+					w.Out.WriteString(", ")
 				}
 				w.tempAccessChain = append(w.tempAccessChain, subAccess{kind: subAccessOffset, offset: member.Offset})
 				memberTy := w.getTypeInner(member.Type)
@@ -785,7 +785,7 @@ func (w *Writer) writeStorageLoad(varHandle ir.GlobalVariableHandle, resultTy ir
 				}
 				w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
 			}
-			w.out.WriteByte(')')
+			w.Out.WriteByte(')')
 		}
 
 	case ir.ArrayType:
@@ -798,11 +798,11 @@ func (w *Writer) writeStorageLoad(varHandle ir.GlobalVariableHandle, resultTy ir
 				// Use hlslTypeId for array constructor names (e.g., "array2_float_")
 				// rather than typeNames which may use generic names like "type_1_".
 				constructorName := fmt.Sprintf("Construct%s", w.hlslTypeId(*resolvedHandle))
-				w.out.WriteString(constructorName)
-				w.out.WriteByte('(')
+				w.Out.WriteString(constructorName)
+				w.Out.WriteByte('(')
 				for i := uint32(0); i < *inner.Size.Constant; i++ {
 					if i > 0 {
-						w.out.WriteString(", ")
+						w.Out.WriteString(", ")
 					}
 					w.tempAccessChain = append(w.tempAccessChain, subAccess{kind: subAccessOffset, offset: i * inner.Stride})
 					baseTy := w.getTypeInner(inner.Base)
@@ -812,7 +812,7 @@ func (w *Writer) writeStorageLoad(varHandle ir.GlobalVariableHandle, resultTy ir
 					}
 					w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
 				}
-				w.out.WriteByte(')')
+				w.Out.WriteByte(')')
 			}
 		}
 	}
@@ -854,66 +854,66 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 	switch inner := resultTy.(type) {
 	case ir.ScalarType:
 		if inner.Width == 4 {
-			fmt.Fprintf(&w.out, "%s%s.Store(", indent, varName)
+			fmt.Fprintf(&w.Out, "%s%s.Store(", indent, varName)
 			chain := w.tempAccessChain
 			w.tempAccessChain = nil
 			if err := w.writeStorageAddress(chain); err != nil {
 				return err
 			}
-			w.out.WriteString(", asuint(")
+			w.Out.WriteString(", asuint(")
 			if err := w.writeStoreValue(sv); err != nil {
 				return err
 			}
-			w.out.WriteString("));\n")
+			w.Out.WriteString("));\n")
 			w.tempAccessChain = chain
 		} else {
-			fmt.Fprintf(&w.out, "%s%s.Store(", indent, varName)
+			fmt.Fprintf(&w.Out, "%s%s.Store(", indent, varName)
 			chain := w.tempAccessChain
 			w.tempAccessChain = nil
 			if err := w.writeStorageAddress(chain); err != nil {
 				return err
 			}
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 			if err := w.writeStoreValue(sv); err != nil {
 				return err
 			}
-			w.out.WriteString(");\n")
+			w.Out.WriteString(");\n")
 			w.tempAccessChain = chain
 		}
 
 	case ir.VectorType:
 		size := inner.Size
 		if inner.Scalar.Width == 4 {
-			fmt.Fprintf(&w.out, "%s%s.Store%d(", indent, varName, size)
+			fmt.Fprintf(&w.Out, "%s%s.Store%d(", indent, varName, size)
 			chain := w.tempAccessChain
 			w.tempAccessChain = nil
 			if err := w.writeStorageAddress(chain); err != nil {
 				return err
 			}
-			w.out.WriteString(", asuint(")
+			w.Out.WriteString(", asuint(")
 			if err := w.writeStoreValue(sv); err != nil {
 				return err
 			}
-			w.out.WriteString("));\n")
+			w.Out.WriteString("));\n")
 			w.tempAccessChain = chain
 		} else {
-			fmt.Fprintf(&w.out, "%s%s.Store(", indent, varName)
+			fmt.Fprintf(&w.Out, "%s%s.Store(", indent, varName)
 			chain := w.tempAccessChain
 			w.tempAccessChain = nil
 			if err := w.writeStorageAddress(chain); err != nil {
 				return err
 			}
-			w.out.WriteString(", ")
+			w.Out.WriteString(", ")
 			if err := w.writeStoreValue(sv); err != nil {
 				return err
 			}
-			w.out.WriteString(");\n")
+			w.Out.WriteString(");\n")
 			w.tempAccessChain = chain
 		}
 
 	case ir.StructType:
 		// Decompose into member stores using a temporary
-		fmt.Fprintf(&w.out, "%s{\n", indent)
+		fmt.Fprintf(&w.Out, "%s{\n", indent)
 		depth := level + 1
 		innerIndent := w.indentStr(depth)
 		structTy := w.getTypeHandleForInner(resultTy)
@@ -921,11 +921,11 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 			return fmt.Errorf("cannot find type handle for struct")
 		}
 		structName := w.typeNames[*structTy]
-		fmt.Fprintf(&w.out, "%s%s _value%d = ", innerIndent, structName, depth)
+		fmt.Fprintf(&w.Out, "%s%s _value%d = ", innerIndent, structName, depth)
 		if err := w.writeStoreValue(sv); err != nil {
 			return err
 		}
-		w.out.WriteString(";\n")
+		w.Out.WriteString(";\n")
 		for i, member := range inner.Members {
 			w.tempAccessChain = append(w.tempAccessChain, subAccess{kind: subAccessOffset, offset: member.Offset})
 			memberSv := storeValue{
@@ -939,11 +939,11 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 			}
 			w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
 		}
-		fmt.Fprintf(&w.out, "%s}\n", indent)
+		fmt.Fprintf(&w.Out, "%s}\n", indent)
 
 	case ir.MatrixType:
 		rowStride := alignmentFromVectorSize(inner.Rows) * uint32(inner.Scalar.Width)
-		fmt.Fprintf(&w.out, "%s{\n", indent)
+		fmt.Fprintf(&w.Out, "%s{\n", indent)
 		// matCx2 optimization: when within a struct, directly access decomposed columns
 		// (e.g., _value2.m_0, _value2.m_1) instead of creating a matrix temporary.
 		// Matches Rust naga: within_struct.is_some() && rows == Bi path.
@@ -957,74 +957,74 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 					memberName = fmt.Sprintf("member_%d", sv.memberIdx)
 				}
 				if inner.Scalar.Width == 4 && vecSize >= 2 {
-					fmt.Fprintf(&w.out, "%s%s.Store%d(", innerIndent, varName, vecSize)
+					fmt.Fprintf(&w.Out, "%s%s.Store%d(", innerIndent, varName, vecSize)
 					chain := w.tempAccessChain
 					w.tempAccessChain = nil
 					if err := w.writeStorageAddress(chain); err != nil {
 						return err
 					}
 					// TempColumnAccess: _valueN.member_column (depth = level, NOT level+1)
-					fmt.Fprintf(&w.out, ", asuint(_value%d.%s_%d));\n", sv.depth, memberName, uint8(i))
+					fmt.Fprintf(&w.Out, ", asuint(_value%d.%s_%d));\n", sv.depth, memberName, uint8(i))
 					w.tempAccessChain = chain
 				}
 				w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
 			}
-			fmt.Fprintf(&w.out, "%s}\n", indent)
+			fmt.Fprintf(&w.Out, "%s}\n", indent)
 			return nil
 		}
 		depth := level + 1
 		innerIndent := w.indentStr(depth)
 		typeName := scalarToHLSLStr(inner.Scalar)
-		fmt.Fprintf(&w.out, "%s%s%dx%d _value%d = ", innerIndent, typeName, uint8(inner.Columns), uint8(inner.Rows), depth)
+		fmt.Fprintf(&w.Out, "%s%s%dx%d _value%d = ", innerIndent, typeName, uint8(inner.Columns), uint8(inner.Rows), depth)
 		if err := w.writeStoreValue(sv); err != nil {
 			return err
 		}
-		w.out.WriteString(";\n")
+		w.Out.WriteString(";\n")
 		vecSize := uint8(inner.Rows)
 		for i := ir.VectorSize(0); i < inner.Columns; i++ {
 			w.tempAccessChain = append(w.tempAccessChain, subAccess{kind: subAccessOffset, offset: uint32(i) * rowStride})
 			// Directly emit vector store for each column (Store2/Store3/Store4)
 			if inner.Scalar.Width == 4 && vecSize >= 2 {
-				fmt.Fprintf(&w.out, "%s%s.Store%d(", innerIndent, varName, vecSize)
+				fmt.Fprintf(&w.Out, "%s%s.Store%d(", innerIndent, varName, vecSize)
 				chain := w.tempAccessChain
 				w.tempAccessChain = nil
 				if err := w.writeStorageAddress(chain); err != nil {
 					return err
 				}
-				fmt.Fprintf(&w.out, ", asuint(_value%d[%d]));\n", depth, uint8(i))
+				fmt.Fprintf(&w.Out, ", asuint(_value%d[%d]));\n", depth, uint8(i))
 				w.tempAccessChain = chain
 			} else {
 				// Non-4-byte scalars (e.g. f16): no asuint() wrapping, matches Rust naga
-				fmt.Fprintf(&w.out, "%s%s.Store(", innerIndent, varName)
+				fmt.Fprintf(&w.Out, "%s%s.Store(", innerIndent, varName)
 				chain := w.tempAccessChain
 				w.tempAccessChain = nil
 				if err := w.writeStorageAddress(chain); err != nil {
 					return err
 				}
-				fmt.Fprintf(&w.out, ", _value%d[%d]);\n", depth, uint8(i))
+				fmt.Fprintf(&w.Out, ", _value%d[%d]);\n", depth, uint8(i))
 				w.tempAccessChain = chain
 			}
 			w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
 		}
-		fmt.Fprintf(&w.out, "%s}\n", indent)
+		fmt.Fprintf(&w.Out, "%s}\n", indent)
 
 	case ir.ArrayType:
 		if inner.Size.Constant != nil {
-			fmt.Fprintf(&w.out, "%s{\n", indent)
+			fmt.Fprintf(&w.Out, "%s{\n", indent)
 			depth := level + 1
 			innerIndent := w.indentStr(depth)
 			// Write temp var declaration
-			fmt.Fprintf(&w.out, "%s", innerIndent)
+			fmt.Fprintf(&w.Out, "%s", innerIndent)
 			w.writeTypeByHandle(inner.Base)
-			fmt.Fprintf(&w.out, " _value%d", depth)
+			fmt.Fprintf(&w.Out, " _value%d", depth)
 			if inner.Size.Constant != nil {
-				fmt.Fprintf(&w.out, "[%d]", *inner.Size.Constant)
+				fmt.Fprintf(&w.Out, "[%d]", *inner.Size.Constant)
 			}
-			w.out.WriteString(" = ")
+			w.Out.WriteString(" = ")
 			if err := w.writeStoreValue(sv); err != nil {
 				return err
 			}
-			w.out.WriteString(";\n")
+			w.Out.WriteString(";\n")
 			for i := uint32(0); i < *inner.Size.Constant; i++ {
 				w.tempAccessChain = append(w.tempAccessChain, subAccess{kind: subAccessOffset, offset: i * inner.Stride})
 				elemSv := storeValue{
@@ -1038,7 +1038,7 @@ func (w *Writer) writeStorageStore(varHandle ir.GlobalVariableHandle, sv storeVa
 				}
 				w.tempAccessChain = w.tempAccessChain[:len(w.tempAccessChain)-1]
 			}
-			fmt.Fprintf(&w.out, "%s}\n", indent)
+			fmt.Fprintf(&w.Out, "%s}\n", indent)
 		}
 	}
 
@@ -1051,13 +1051,13 @@ func (w *Writer) writeStoreValue(sv storeValue) error {
 	case storeValueExpression:
 		return w.writeExpression(sv.expr)
 	case storeValueTempIndex:
-		fmt.Fprintf(&w.out, "_value%d[%d]", sv.depth, sv.index)
+		fmt.Fprintf(&w.Out, "_value%d[%d]", sv.depth, sv.index)
 	case storeValueTempAccess:
 		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(sv.base), handle2: sv.memberIdx}]
 		if memberName == "" {
 			memberName = fmt.Sprintf("member_%d", sv.memberIdx)
 		}
-		fmt.Fprintf(&w.out, "_value%d.%s", sv.depth, memberName)
+		fmt.Fprintf(&w.Out, "_value%d.%s", sv.depth, memberName)
 	}
 	return nil
 }
@@ -1161,7 +1161,7 @@ func typesMatch(a, b ir.TypeInner) bool {
 // writeTypeByHandle writes the HLSL type name for a type handle.
 func (w *Writer) writeTypeByHandle(handle ir.TypeHandle) {
 	name := w.getTypeName(handle)
-	w.out.WriteString(name)
+	w.Out.WriteString(name)
 }
 
 // isStoragePointer checks if an expression refers to a storage buffer component.

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gogpu/naga/internal/textutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -73,14 +74,10 @@ type epStructMember struct {
 
 // Writer generates HLSL source code from IR.
 type Writer struct {
+	textutil.IndentWriter // provides Out, Indent, WriteLine, WriteIndent, PushIndent, PopIndent
+
 	module  *ir.Module
 	options *Options
-
-	// Output buffer
-	out strings.Builder
-
-	// Current indentation level
-	indent int
 
 	// Name management
 	names map[nameKey]string
@@ -316,7 +313,7 @@ const (
 // String returns the generated HLSL source code.
 // Output is trimmed to end with exactly one newline, matching Rust naga.
 func (w *Writer) String() string {
-	s := w.out.String()
+	s := w.Out.String()
 	s = strings.TrimRight(s, "\n")
 	return s + "\n"
 }
@@ -645,20 +642,20 @@ func (w *Writer) writeStructConstructors() {
 		}
 
 		// Write constructor function
-		w.writeLine("%s Construct%s(%s) {", typeName, typeName, w.structConstructorArgs(h, st))
-		w.pushIndent()
-		w.writeLine("%s ret = (%s)0;", typeName, typeName)
+		w.WriteLine("%s Construct%s(%s) {", typeName, typeName, w.structConstructorArgs(h, st))
+		w.PushIndent()
+		w.WriteLine("%s ret = (%s)0;", typeName, typeName)
 		for i := range st.Members {
 			memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(h), handle2: uint32(i)}]
 			if memberName == "" {
 				memberName = fmt.Sprintf("member_%d", i)
 			}
-			w.writeLine("ret.%s = arg%d;", memberName, i)
+			w.WriteLine("ret.%s = arg%d;", memberName, i)
 		}
-		w.writeLine("return ret;")
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("return ret;")
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 	}
 }
 
@@ -685,7 +682,7 @@ func (w *Writer) writeArrayConstructor(handle ir.TypeHandle) {
 	size := *arr.Size.Constant
 
 	// Write typedef: typedef float ret_ConstructarrayN_type_[outerSize][innerSize];
-	w.writeLine("typedef %s ret_Construct%s%s;", baseTypeName, typeId, fullArraySuffix)
+	w.WriteLine("typedef %s ret_Construct%s%s;", baseTypeName, typeId, fullArraySuffix)
 
 	// Write constructor function
 	args := make([]string, 0, int(size))
@@ -693,18 +690,18 @@ func (w *Writer) writeArrayConstructor(handle ir.TypeHandle) {
 		argType, argSuffix := w.getTypeNameWithArraySuffix(arr.Base)
 		args = append(args, fmt.Sprintf("%s arg%d%s", argType, i, argSuffix))
 	}
-	w.writeLine("ret_Construct%s Construct%s(%s) {", typeId, typeId, strings.Join(args, ", "))
-	w.pushIndent()
+	w.WriteLine("ret_Construct%s Construct%s(%s) {", typeId, typeId, strings.Join(args, ", "))
+	w.PushIndent()
 	// Array initialization: float ret[outerSize][innerSize] = { ... };
 	initArgs := make([]string, 0, int(size))
 	for i := 0; i < int(size); i++ {
 		initArgs = append(initArgs, fmt.Sprintf("arg%d", i))
 	}
-	w.writeLine("%s ret%s = { %s };", baseTypeName, fullArraySuffix, strings.Join(initArgs, ", "))
-	w.writeLine("return ret;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("%s ret%s = { %s };", baseTypeName, fullArraySuffix, strings.Join(initArgs, ", "))
+	w.WriteLine("return ret;")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeSingleStructConstructor writes a single struct constructor function.
@@ -721,9 +718,9 @@ func (w *Writer) writeSingleStructConstructor(h ir.TypeHandle) {
 		return
 	}
 
-	w.writeLine("%s Construct%s(%s) {", typeName, typeName, w.structConstructorArgs(h, st))
-	w.pushIndent()
-	w.writeLine("%s ret = (%s)0;", typeName, typeName)
+	w.WriteLine("%s Construct%s(%s) {", typeName, typeName, w.structConstructorArgs(h, st))
+	w.PushIndent()
+	w.WriteLine("%s ret = (%s)0;", typeName, typeName)
 	for i, member := range st.Members {
 		memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(h), handle2: uint32(i)}]
 		if memberName == "" {
@@ -733,7 +730,7 @@ func (w *Writer) writeSingleStructConstructor(h ir.TypeHandle) {
 		if member.Binding == nil && w.isMatCx2Type(member.Type) {
 			mat := w.module.Types[member.Type].Inner.(ir.MatrixType)
 			for col := uint8(0); col < uint8(mat.Columns); col++ {
-				w.writeLine("ret.%s_%d = arg%d[%d];", memberName, col, i, col)
+				w.WriteLine("ret.%s_%d = arg%d[%d];", memberName, col, i, col)
 			}
 		} else if member.Binding == nil && w.isArrayOfMatCx2Type(member.Type) {
 			// Array-of-matCx2: cast arg to __matCx2[size] type
@@ -743,15 +740,15 @@ func (w *Writer) writeSingleStructConstructor(h ir.TypeHandle) {
 			if arr.Size.Constant != nil {
 				size = fmt.Sprintf("[%d]", *arr.Size.Constant)
 			}
-			w.writeLine("ret.%s = (__mat%dx2%s)arg%d;", memberName, m.columns, size, i)
+			w.WriteLine("ret.%s = (__mat%dx2%s)arg%d;", memberName, m.columns, size, i)
 		} else {
-			w.writeLine("ret.%s = arg%d;", memberName, i)
+			w.WriteLine("ret.%s = arg%d;", memberName, i)
 		}
 	}
-	w.writeLine("return ret;")
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("return ret;")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // structConstructorArgs generates the argument list for a struct constructor.
@@ -772,19 +769,19 @@ func (w *Writer) writeSpecialConstants() {
 	if bt == nil {
 		return
 	}
-	w.writeLine("struct NagaConstants {")
-	w.pushIndent()
-	w.writeLine("int first_vertex;")
-	w.writeLine("int first_instance;")
-	w.writeLine("uint other;")
-	w.popIndent()
-	w.writeLine("};")
-	w.writeIndent()
-	fmt.Fprintf(&w.out, "ConstantBuffer<NagaConstants> _NagaConstants: register(b%d", bt.Register)
+	w.WriteLine("struct NagaConstants {")
+	w.PushIndent()
+	w.WriteLine("int first_vertex;")
+	w.WriteLine("int first_instance;")
+	w.WriteLine("uint other;")
+	w.PopIndent()
+	w.WriteLine("};")
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "ConstantBuffer<NagaConstants> _NagaConstants: register(b%d", bt.Register)
 	if bt.Space != 0 {
-		fmt.Fprintf(&w.out, ", space%d", bt.Space)
+		fmt.Fprintf(&w.Out, ", space%d", bt.Space)
 	}
-	w.out.WriteString(");\n\n")
+	w.Out.WriteString(");\n\n")
 }
 
 // writeDynamicBufferOffsets writes __dynamic_buffer_offsetsTy structs and their
@@ -804,14 +801,14 @@ func (w *Writer) writeDynamicBufferOffsets() {
 
 	for _, group := range groups {
 		bt := w.options.DynamicStorageBufferOffsetsTargets[group]
-		fmt.Fprintf(&w.out, "struct __dynamic_buffer_offsetsTy%d {\n", group)
+		fmt.Fprintf(&w.Out, "struct __dynamic_buffer_offsetsTy%d {\n", group)
 		for i := uint32(0); i < bt.Size; i++ {
-			fmt.Fprintf(&w.out, "    uint _%d;\n", i)
+			fmt.Fprintf(&w.Out, "    uint _%d;\n", i)
 		}
-		w.out.WriteString("};\n")
-		fmt.Fprintf(&w.out, "ConstantBuffer<__dynamic_buffer_offsetsTy%d> __dynamic_buffer_offsets%d: register(b%d, space%d);\n",
+		w.Out.WriteString("};\n")
+		fmt.Fprintf(&w.Out, "ConstantBuffer<__dynamic_buffer_offsetsTy%d> __dynamic_buffer_offsets%d: register(b%d, space%d);\n",
 			group, group, bt.Register, bt.Space)
-		w.out.WriteByte('\n')
+		w.Out.WriteByte('\n')
 	}
 }
 
@@ -819,35 +816,35 @@ func (w *Writer) writeDynamicBufferOffsets() {
 // Storage load helpers are written per-function to match Rust naga ordering.
 func (w *Writer) writeSpecialHelperFunctions() {
 	if w.needsModHelper {
-		w.writeLine("// Safe modulo helper (truncated division semantics)")
-		w.writeLine("int %s(int a, int b) {", NagaModFunction)
-		w.pushIndent()
-		w.writeLine("return a - b * (a / b);")
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("// Safe modulo helper (truncated division semantics)")
+		w.WriteLine("int %s(int a, int b) {", NagaModFunction)
+		w.PushIndent()
+		w.WriteLine("return a - b * (a / b);")
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 		w.helperFunctions = append(w.helperFunctions, NagaModFunction)
 	}
 
 	if w.needsDivHelper {
-		w.writeLine("// Safe division helper (handles zero divisor)")
-		w.writeLine("int %s(int a, int b) {", NagaDivFunction)
-		w.pushIndent()
-		w.writeLine("return b != 0 ? a / b : 0;")
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("// Safe division helper (handles zero divisor)")
+		w.WriteLine("int %s(int a, int b) {", NagaDivFunction)
+		w.PushIndent()
+		w.WriteLine("return b != 0 ? a / b : 0;")
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 		w.helperFunctions = append(w.helperFunctions, NagaDivFunction)
 	}
 
 	if w.needsAbsHelper {
-		w.writeLine("// Safe abs helper (handles INT_MIN)")
-		w.writeLine("int %s(int v) {", NagaAbsFunction)
-		w.pushIndent()
-		w.writeLine("return v >= 0 ? v : (v == -2147483648 ? 2147483647 : -v);")
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("")
+		w.WriteLine("// Safe abs helper (handles INT_MIN)")
+		w.WriteLine("int %s(int v) {", NagaAbsFunction)
+		w.PushIndent()
+		w.WriteLine("return v >= 0 ? v : (v == -2147483648 ? 2147483647 : -v);")
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("")
 		w.helperFunctions = append(w.helperFunctions, NagaAbsFunction)
 	}
 }
@@ -860,16 +857,16 @@ func (w *Writer) writeModuleLevelSpecialFunctions() {
 		// The module uses ray queries, write the RayDescFromRayDesc_ helper
 		w.rayDescHelperWritten = true
 		rayDescTypeName := "RayDesc_"
-		w.out.WriteString("RayDesc RayDescFromRayDesc_(")
-		w.out.WriteString(rayDescTypeName)
-		w.out.WriteString(" arg0) {\n")
-		w.out.WriteString("    RayDesc ret = (RayDesc)0;\n")
-		w.out.WriteString("    ret.Origin = arg0.origin;\n")
-		w.out.WriteString("    ret.TMin = arg0.tmin;\n")
-		w.out.WriteString("    ret.Direction = arg0.dir;\n")
-		w.out.WriteString("    ret.TMax = arg0.tmax;\n")
-		w.out.WriteString("    return ret;\n")
-		w.out.WriteString("}\n\n")
+		w.Out.WriteString("RayDesc RayDescFromRayDesc_(")
+		w.Out.WriteString(rayDescTypeName)
+		w.Out.WriteString(" arg0) {\n")
+		w.Out.WriteString("    RayDesc ret = (RayDesc)0;\n")
+		w.Out.WriteString("    ret.Origin = arg0.origin;\n")
+		w.Out.WriteString("    ret.TMin = arg0.tmin;\n")
+		w.Out.WriteString("    ret.Direction = arg0.dir;\n")
+		w.Out.WriteString("    ret.TMax = arg0.tmax;\n")
+		w.Out.WriteString("    return ret;\n")
+		w.Out.WriteString("}\n\n")
 	}
 }
 
@@ -994,12 +991,12 @@ func (w *Writer) handleArrayLengthHelper(fn *ir.Function, alExpr ir.ExprArrayLen
 	if writable {
 		accessStr = "RW"
 	}
-	fmt.Fprintf(&w.out, "uint NagaBufferLength%s(%sByteAddressBuffer buffer)\n", accessStr, accessStr)
-	fmt.Fprintf(&w.out, "{\n")
-	fmt.Fprintf(&w.out, "    uint ret;\n")
-	fmt.Fprintf(&w.out, "    buffer.GetDimensions(ret);\n")
-	fmt.Fprintf(&w.out, "    return ret;\n")
-	fmt.Fprintf(&w.out, "}\n\n")
+	fmt.Fprintf(&w.Out, "uint NagaBufferLength%s(%sByteAddressBuffer buffer)\n", accessStr, accessStr)
+	fmt.Fprintf(&w.Out, "{\n")
+	fmt.Fprintf(&w.Out, "    uint ret;\n")
+	fmt.Fprintf(&w.Out, "    buffer.GetDimensions(ret);\n")
+	fmt.Fprintf(&w.Out, "    return ret;\n")
+	fmt.Fprintf(&w.Out, "}\n\n")
 }
 
 // handleClampToEdgeHelper handles a single ImageSample expression for the inline loop.
@@ -1014,12 +1011,12 @@ func (w *Writer) handleClampToEdgeHelper(fn *ir.Function, is ir.ExprImageSample)
 	if imgType != nil && imgType.Class == ir.ImageClassExternal {
 		w.writeExternalTextureSampleHelper()
 	} else {
-		w.out.WriteString("float4 nagaTextureSampleBaseClampToEdge(Texture2D<float4> tex, SamplerState samp, float2 coords) {\n")
-		w.out.WriteString("    float2 size;\n")
-		w.out.WriteString("    tex.GetDimensions(size.x, size.y);\n")
-		w.out.WriteString("    float2 half_texel = float2(0.5, 0.5) / size;\n")
-		w.out.WriteString("    return tex.SampleLevel(samp, clamp(coords, half_texel, 1.0 - half_texel), 0.0);\n")
-		w.out.WriteString("}\n\n")
+		w.Out.WriteString("float4 nagaTextureSampleBaseClampToEdge(Texture2D<float4> tex, SamplerState samp, float2 coords) {\n")
+		w.Out.WriteString("    float2 size;\n")
+		w.Out.WriteString("    tex.GetDimensions(size.x, size.y);\n")
+		w.Out.WriteString("    float2 half_texel = float2(0.5, 0.5) / size;\n")
+		w.Out.WriteString("    return tex.SampleLevel(samp, clamp(coords, half_texel, 1.0 - half_texel), 0.0);\n")
+		w.Out.WriteString("}\n\n")
 	}
 }
 
@@ -1337,34 +1334,34 @@ func (w *Writer) writeWrappedImageQueryFunction(key wrappedImageQueryKey, imgTyp
 	}
 
 	// Write function signature
-	fmt.Fprintf(&w.out, "%s ", retType)
+	fmt.Fprintf(&w.Out, "%s ", retType)
 	w.writeImageQueryFunctionName(key)
-	w.out.WriteString("(")
-	w.out.WriteString(w.imageTypeToHLSL(*imgType))
-	w.out.WriteString(" tex")
+	w.Out.WriteString("(")
+	w.Out.WriteString(w.imageTypeToHLSL(*imgType))
+	w.Out.WriteString(" tex")
 	if key.query == imageQuerySizeLevel {
-		w.out.WriteString(", uint mip_level")
+		w.Out.WriteString(", uint mip_level")
 	}
-	w.out.WriteString(")\n")
+	w.Out.WriteString(")\n")
 
 	// Function body
-	w.out.WriteString("{\n")
-	w.out.WriteString("    uint4 ret;\n")
+	w.Out.WriteString("{\n")
+	w.Out.WriteString("    uint4 ret;\n")
 
 	// GetDimensions call
-	w.out.WriteString("    tex.GetDimensions(")
+	w.Out.WriteString("    tex.GetDimensions(")
 	switch key.query {
 	case imageQuerySizeLevel:
-		w.out.WriteString("mip_level, ")
+		w.Out.WriteString("mip_level, ")
 	default:
 		switch key.class {
 		case ir.ImageClassSampled:
 			if !key.multi {
-				w.out.WriteString("0, ")
+				w.Out.WriteString("0, ")
 			}
 		case ir.ImageClassDepth:
 			if !key.multi {
-				w.out.WriteString("0, ")
+				w.Out.WriteString("0, ")
 			}
 		case ir.ImageClassStorage:
 			// No mip level for storage
@@ -1372,14 +1369,14 @@ func (w *Writer) writeWrappedImageQueryFunction(key wrappedImageQueryKey, imgTyp
 	}
 
 	for i := 0; i < numParams-1; i++ {
-		fmt.Fprintf(&w.out, "ret.%s, ", components[i])
+		fmt.Fprintf(&w.Out, "ret.%s, ", components[i])
 	}
-	fmt.Fprintf(&w.out, "ret.%s", components[numParams-1])
-	w.out.WriteString(");\n")
+	fmt.Fprintf(&w.Out, "ret.%s", components[numParams-1])
+	w.Out.WriteString(");\n")
 
 	// Return
-	fmt.Fprintf(&w.out, "    return ret.%s;\n", retSwizzle)
-	w.out.WriteString("}\n\n")
+	fmt.Fprintf(&w.Out, "    return ret.%s;\n", retSwizzle)
+	w.Out.WriteString("}\n\n")
 }
 
 // writeImageQueryFunctionNameDirect writes the NagaXxx function name directly to output.
@@ -1420,12 +1417,12 @@ func (w *Writer) writeClampToEdgeHelper(fn *ir.Function) {
 	if isExternal {
 		w.writeExternalTextureSampleHelper()
 	} else {
-		w.out.WriteString("float4 nagaTextureSampleBaseClampToEdge(Texture2D<float4> tex, SamplerState samp, float2 coords) {\n")
-		w.out.WriteString("    float2 size;\n")
-		w.out.WriteString("    tex.GetDimensions(size.x, size.y);\n")
-		w.out.WriteString("    float2 half_texel = float2(0.5, 0.5) / size;\n")
-		w.out.WriteString("    return tex.SampleLevel(samp, clamp(coords, half_texel, 1.0 - half_texel), 0.0);\n")
-		w.out.WriteString("}\n\n")
+		w.Out.WriteString("float4 nagaTextureSampleBaseClampToEdge(Texture2D<float4> tex, SamplerState samp, float2 coords) {\n")
+		w.Out.WriteString("    float2 size;\n")
+		w.Out.WriteString("    tex.GetDimensions(size.x, size.y);\n")
+		w.Out.WriteString("    float2 half_texel = float2(0.5, 0.5) / size;\n")
+		w.Out.WriteString("    return tex.SampleLevel(samp, clamp(coords, half_texel, 1.0 - half_texel), 0.0);\n")
+		w.Out.WriteString("}\n\n")
 	}
 }
 
@@ -1470,9 +1467,9 @@ func (w *Writer) writeWrappedUnaryOps(fn *ir.Function) {
 		w.wrappedNegOps[typeStr] = struct{}{}
 
 		// Write the naga_neg helper
-		fmt.Fprintf(&w.out, "%s naga_neg(%s val) {\n", typeStr, typeStr)
-		fmt.Fprintf(&w.out, "    return asint(-asuint(val));\n")
-		fmt.Fprintf(&w.out, "}\n\n")
+		fmt.Fprintf(&w.Out, "%s naga_neg(%s val) {\n", typeStr, typeStr)
+		fmt.Fprintf(&w.Out, "    return asint(-asuint(val));\n")
+		fmt.Fprintf(&w.Out, "}\n\n")
 	}
 }
 
@@ -1528,22 +1525,22 @@ func (w *Writer) writeWrappedMathHelpers(fn *ir.Function) {
 		argTypeName := w.getTypeName(argTypeHandle)
 
 		if isModf {
-			fmt.Fprintf(&w.out, "%s naga_modf(%s arg) {\n", resultStructName, argTypeName)
-			fmt.Fprintf(&w.out, "    %s other;\n", argTypeName)
-			fmt.Fprintf(&w.out, "    %s result;\n", resultStructName)
-			fmt.Fprintf(&w.out, "    result.fract = modf(arg, other);\n")
-			fmt.Fprintf(&w.out, "    result.whole = other;\n")
-			fmt.Fprintf(&w.out, "    return result;\n")
-			fmt.Fprintf(&w.out, "}\n\n")
+			fmt.Fprintf(&w.Out, "%s naga_modf(%s arg) {\n", resultStructName, argTypeName)
+			fmt.Fprintf(&w.Out, "    %s other;\n", argTypeName)
+			fmt.Fprintf(&w.Out, "    %s result;\n", resultStructName)
+			fmt.Fprintf(&w.Out, "    result.fract = modf(arg, other);\n")
+			fmt.Fprintf(&w.Out, "    result.whole = other;\n")
+			fmt.Fprintf(&w.Out, "    return result;\n")
+			fmt.Fprintf(&w.Out, "}\n\n")
 		} else {
 			// frexp: result.fract = sign(arg) * frexp(arg, other)
-			fmt.Fprintf(&w.out, "%s naga_frexp(%s arg) {\n", resultStructName, argTypeName)
-			fmt.Fprintf(&w.out, "    %s other;\n", argTypeName)
-			fmt.Fprintf(&w.out, "    %s result;\n", resultStructName)
-			fmt.Fprintf(&w.out, "    result.fract = sign(arg) * frexp(arg, other);\n")
-			fmt.Fprintf(&w.out, "    result.exp_ = other;\n")
-			fmt.Fprintf(&w.out, "    return result;\n")
-			fmt.Fprintf(&w.out, "}\n\n")
+			fmt.Fprintf(&w.Out, "%s naga_frexp(%s arg) {\n", resultStructName, argTypeName)
+			fmt.Fprintf(&w.Out, "    %s other;\n", argTypeName)
+			fmt.Fprintf(&w.Out, "    %s result;\n", resultStructName)
+			fmt.Fprintf(&w.Out, "    result.fract = sign(arg) * frexp(arg, other);\n")
+			fmt.Fprintf(&w.Out, "    result.exp_ = other;\n")
+			fmt.Fprintf(&w.Out, "    return result;\n")
+			fmt.Fprintf(&w.Out, "}\n\n")
 		}
 	}
 
@@ -1737,9 +1734,9 @@ func (w *Writer) writeWrappedCastFunctions(fn *ir.Function) {
 		// Get min/max clamp values based on source float type and destination int type
 		minVal, maxVal := f2iClampValues(srcScalar.Width, asExpr.Kind, dstWidth)
 
-		fmt.Fprintf(&w.out, "%s %s(%s value) {\n", dstTypeStr, f2iCastFuncName(asExpr.Kind, dstWidth), srcTypeStr)
-		fmt.Fprintf(&w.out, "    return %s(clamp(value, %s, %s));\n", dstTypeStr, minVal, maxVal)
-		fmt.Fprintf(&w.out, "}\n\n")
+		fmt.Fprintf(&w.Out, "%s %s(%s value) {\n", dstTypeStr, f2iCastFuncName(asExpr.Kind, dstWidth), srcTypeStr)
+		fmt.Fprintf(&w.Out, "    return %s(clamp(value, %s, %s));\n", dstTypeStr, minVal, maxVal)
+		fmt.Fprintf(&w.Out, "}\n\n")
 	}
 }
 
@@ -1815,35 +1812,35 @@ func f2iClampValues(srcWidth uint8, dstKind ir.ScalarKind, dstWidth uint8) (stri
 // writeNagaDivHelper writes a naga_div overload for a specific type.
 // Matches Rust naga's write_wrapped_binary_ops for BinaryOperator::Divide.
 func (w *Writer) writeNagaDivHelper(retType, leftType, rightType string, scalar *ir.ScalarType) {
-	w.writeIndent()
-	fmt.Fprintf(&w.out, "%s %s(%s lhs, %s rhs) {\n", retType, NagaDivFunction, leftType, rightType)
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "%s %s(%s lhs, %s rhs) {\n", retType, NagaDivFunction, leftType, rightType)
 	switch scalar.Kind {
 	case ir.ScalarUint:
-		fmt.Fprintf(&w.out, "    return lhs / (rhs == 0u ? 1u : rhs);\n")
+		fmt.Fprintf(&w.Out, "    return lhs / (rhs == 0u ? 1u : rhs);\n")
 	case ir.ScalarSint:
 		minVal := i32MinLiteral(scalar.Width)
-		fmt.Fprintf(&w.out, "    return lhs / (((lhs == %s & rhs == -1) | (rhs == 0)) ? 1 : rhs);\n", minVal)
+		fmt.Fprintf(&w.Out, "    return lhs / (((lhs == %s & rhs == -1) | (rhs == 0)) ? 1 : rhs);\n", minVal)
 	}
-	w.out.WriteString("}\n\n")
+	w.Out.WriteString("}\n\n")
 }
 
 // writeNagaModHelper writes a naga_mod overload for a specific type.
 // Matches Rust naga's write_wrapped_binary_ops for BinaryOperator::Modulo.
 func (w *Writer) writeNagaModHelper(retType, leftType, rightType string, scalar *ir.ScalarType) {
-	w.writeIndent()
-	fmt.Fprintf(&w.out, "%s %s(%s lhs, %s rhs) {\n", retType, NagaModFunction, leftType, rightType)
+	w.WriteIndent()
+	fmt.Fprintf(&w.Out, "%s %s(%s lhs, %s rhs) {\n", retType, NagaModFunction, leftType, rightType)
 	switch scalar.Kind {
 	case ir.ScalarUint:
-		fmt.Fprintf(&w.out, "    return lhs %% (rhs == 0u ? 1u : rhs);\n")
+		fmt.Fprintf(&w.Out, "    return lhs %% (rhs == 0u ? 1u : rhs);\n")
 	case ir.ScalarSint:
 		minVal := i32MinLiteral(scalar.Width)
 		// Use right_type for divisor (e.g., int4 for vector ops)
-		fmt.Fprintf(&w.out, "    %s divisor = ((lhs == %s & rhs == -1) | (rhs == 0)) ? 1 : rhs;\n", rightType, minVal)
-		fmt.Fprintf(&w.out, "    return lhs - (lhs / divisor) * divisor;\n")
+		fmt.Fprintf(&w.Out, "    %s divisor = ((lhs == %s & rhs == -1) | (rhs == 0)) ? 1 : rhs;\n", rightType, minVal)
+		fmt.Fprintf(&w.Out, "    return lhs - (lhs / divisor) * divisor;\n")
 	case ir.ScalarFloat:
-		fmt.Fprintf(&w.out, "    return lhs - rhs * trunc(lhs / rhs);\n")
+		fmt.Fprintf(&w.Out, "    return lhs - rhs * trunc(lhs / rhs);\n")
 	}
-	w.out.WriteString("}\n\n")
+	w.Out.WriteString("}\n\n")
 }
 
 // i32MinLiteral returns the HLSL representation of the minimum signed integer value.
@@ -1962,67 +1959,67 @@ func (w *Writer) writeRayQueryOutputHelpers() {
 				break
 			}
 		}
-		w.out.WriteString("RayDesc RayDescFromRayDesc_(")
-		w.out.WriteString(rayDescTypeName)
-		w.out.WriteString(" arg0) {\n")
-		w.out.WriteString("    RayDesc ret = (RayDesc)0;\n")
-		w.out.WriteString("    ret.Origin = arg0.origin;\n")
-		w.out.WriteString("    ret.TMin = arg0.tmin;\n")
-		w.out.WriteString("    ret.Direction = arg0.dir;\n")
-		w.out.WriteString("    ret.TMax = arg0.tmax;\n")
-		w.out.WriteString("    return ret;\n")
-		w.out.WriteString("}\n\n")
+		w.Out.WriteString("RayDesc RayDescFromRayDesc_(")
+		w.Out.WriteString(rayDescTypeName)
+		w.Out.WriteString(" arg0) {\n")
+		w.Out.WriteString("    RayDesc ret = (RayDesc)0;\n")
+		w.Out.WriteString("    ret.Origin = arg0.origin;\n")
+		w.Out.WriteString("    ret.TMin = arg0.tmin;\n")
+		w.Out.WriteString("    ret.Direction = arg0.dir;\n")
+		w.Out.WriteString("    ret.TMax = arg0.tmax;\n")
+		w.Out.WriteString("    return ret;\n")
+		w.Out.WriteString("}\n\n")
 	}
 
 	// Write GetCommittedIntersection helper
 	if w.needsCommittedIntersectionHelper && !w.committedIntersectionHelperWritten {
 		w.committedIntersectionHelperWritten = true
 		riName := w.getRayIntersectionTypeName()
-		w.out.WriteString(riName + " GetCommittedIntersection(RayQuery<RAY_FLAG_NONE> rq) {\n")
-		w.out.WriteString("    " + riName + " ret = (" + riName + ")0;\n")
-		w.out.WriteString("    ret.kind = rq.CommittedStatus();\n")
-		w.out.WriteString("    if( rq.CommittedStatus() == COMMITTED_NOTHING) {} else {\n")
-		w.out.WriteString("        ret.t = rq.CommittedRayT();\n")
-		w.out.WriteString("        ret.instance_custom_data = rq.CommittedInstanceID();\n")
-		w.out.WriteString("        ret.instance_index = rq.CommittedInstanceIndex();\n")
-		w.out.WriteString("        ret.sbt_record_offset = rq.CommittedInstanceContributionToHitGroupIndex();\n")
-		w.out.WriteString("        ret.geometry_index = rq.CommittedGeometryIndex();\n")
-		w.out.WriteString("        ret.primitive_index = rq.CommittedPrimitiveIndex();\n")
-		w.out.WriteString("        if( rq.CommittedStatus() == COMMITTED_TRIANGLE_HIT ) {\n")
-		w.out.WriteString("            ret.barycentrics = rq.CommittedTriangleBarycentrics();\n")
-		w.out.WriteString("            ret.front_face = rq.CommittedTriangleFrontFace();\n")
-		w.out.WriteString("        }\n")
-		w.out.WriteString("        ret.object_to_world = rq.CommittedObjectToWorld4x3();\n")
-		w.out.WriteString("        ret.world_to_object = rq.CommittedWorldToObject4x3();\n")
-		w.out.WriteString("    }\n")
-		w.out.WriteString("    return ret;\n")
-		w.out.WriteString("}\n\n")
+		w.Out.WriteString(riName + " GetCommittedIntersection(RayQuery<RAY_FLAG_NONE> rq) {\n")
+		w.Out.WriteString("    " + riName + " ret = (" + riName + ")0;\n")
+		w.Out.WriteString("    ret.kind = rq.CommittedStatus();\n")
+		w.Out.WriteString("    if( rq.CommittedStatus() == COMMITTED_NOTHING) {} else {\n")
+		w.Out.WriteString("        ret.t = rq.CommittedRayT();\n")
+		w.Out.WriteString("        ret.instance_custom_data = rq.CommittedInstanceID();\n")
+		w.Out.WriteString("        ret.instance_index = rq.CommittedInstanceIndex();\n")
+		w.Out.WriteString("        ret.sbt_record_offset = rq.CommittedInstanceContributionToHitGroupIndex();\n")
+		w.Out.WriteString("        ret.geometry_index = rq.CommittedGeometryIndex();\n")
+		w.Out.WriteString("        ret.primitive_index = rq.CommittedPrimitiveIndex();\n")
+		w.Out.WriteString("        if( rq.CommittedStatus() == COMMITTED_TRIANGLE_HIT ) {\n")
+		w.Out.WriteString("            ret.barycentrics = rq.CommittedTriangleBarycentrics();\n")
+		w.Out.WriteString("            ret.front_face = rq.CommittedTriangleFrontFace();\n")
+		w.Out.WriteString("        }\n")
+		w.Out.WriteString("        ret.object_to_world = rq.CommittedObjectToWorld4x3();\n")
+		w.Out.WriteString("        ret.world_to_object = rq.CommittedWorldToObject4x3();\n")
+		w.Out.WriteString("    }\n")
+		w.Out.WriteString("    return ret;\n")
+		w.Out.WriteString("}\n\n")
 	}
 
 	// Write GetCandidateIntersection helper
 	if w.needsCandidateIntersectionHelper && !w.candidateIntersectionHelperWritten {
 		w.candidateIntersectionHelperWritten = true
 		riName := w.getRayIntersectionTypeName()
-		w.out.WriteString(riName + " GetCandidateIntersection(RayQuery<RAY_FLAG_NONE> rq) {\n")
-		w.out.WriteString("    " + riName + " ret = (" + riName + ")0;\n")
-		w.out.WriteString("    CANDIDATE_TYPE kind = rq.CandidateType();\n")
-		w.out.WriteString("    if (kind == CANDIDATE_NON_OPAQUE_TRIANGLE) {\n")
-		w.out.WriteString("        ret.kind = 1;\n") // Triangle = 1
-		w.out.WriteString("        ret.t = rq.CandidateTriangleRayT();\n")
-		w.out.WriteString("        ret.barycentrics = rq.CandidateTriangleBarycentrics();\n")
-		w.out.WriteString("        ret.front_face = rq.CandidateTriangleFrontFace();\n")
-		w.out.WriteString("    } else {\n")
-		w.out.WriteString("        ret.kind = 3;\n") // Aabb = 3
-		w.out.WriteString("    }\n")
-		w.out.WriteString("    ret.instance_custom_data = rq.CandidateInstanceID();\n")
-		w.out.WriteString("    ret.instance_index = rq.CandidateInstanceIndex();\n")
-		w.out.WriteString("    ret.sbt_record_offset = rq.CandidateInstanceContributionToHitGroupIndex();\n")
-		w.out.WriteString("    ret.geometry_index = rq.CandidateGeometryIndex();\n")
-		w.out.WriteString("    ret.primitive_index = rq.CandidatePrimitiveIndex();\n")
-		w.out.WriteString("    ret.object_to_world = rq.CandidateObjectToWorld4x3();\n")
-		w.out.WriteString("    ret.world_to_object = rq.CandidateWorldToObject4x3();\n")
-		w.out.WriteString("    return ret;\n")
-		w.out.WriteString("}\n\n")
+		w.Out.WriteString(riName + " GetCandidateIntersection(RayQuery<RAY_FLAG_NONE> rq) {\n")
+		w.Out.WriteString("    " + riName + " ret = (" + riName + ")0;\n")
+		w.Out.WriteString("    CANDIDATE_TYPE kind = rq.CandidateType();\n")
+		w.Out.WriteString("    if (kind == CANDIDATE_NON_OPAQUE_TRIANGLE) {\n")
+		w.Out.WriteString("        ret.kind = 1;\n") // Triangle = 1
+		w.Out.WriteString("        ret.t = rq.CandidateTriangleRayT();\n")
+		w.Out.WriteString("        ret.barycentrics = rq.CandidateTriangleBarycentrics();\n")
+		w.Out.WriteString("        ret.front_face = rq.CandidateTriangleFrontFace();\n")
+		w.Out.WriteString("    } else {\n")
+		w.Out.WriteString("        ret.kind = 3;\n") // Aabb = 3
+		w.Out.WriteString("    }\n")
+		w.Out.WriteString("    ret.instance_custom_data = rq.CandidateInstanceID();\n")
+		w.Out.WriteString("    ret.instance_index = rq.CandidateInstanceIndex();\n")
+		w.Out.WriteString("    ret.sbt_record_offset = rq.CandidateInstanceContributionToHitGroupIndex();\n")
+		w.Out.WriteString("    ret.geometry_index = rq.CandidateGeometryIndex();\n")
+		w.Out.WriteString("    ret.primitive_index = rq.CandidatePrimitiveIndex();\n")
+		w.Out.WriteString("    ret.object_to_world = rq.CandidateObjectToWorld4x3();\n")
+		w.Out.WriteString("    ret.world_to_object = rq.CandidateWorldToObject4x3();\n")
+		w.Out.WriteString("    return ret;\n")
+		w.Out.WriteString("}\n\n")
 	}
 }
 
@@ -2102,12 +2099,12 @@ func (w *Writer) writeNagaBufferLengthHelpers(fn *ir.Function) {
 		if writable {
 			accessStr = "RW"
 		}
-		fmt.Fprintf(&w.out, "uint NagaBufferLength%s(%sByteAddressBuffer buffer)\n", accessStr, accessStr)
-		fmt.Fprintf(&w.out, "{\n")
-		fmt.Fprintf(&w.out, "    uint ret;\n")
-		fmt.Fprintf(&w.out, "    buffer.GetDimensions(ret);\n")
-		fmt.Fprintf(&w.out, "    return ret;\n")
-		fmt.Fprintf(&w.out, "}\n\n")
+		fmt.Fprintf(&w.Out, "uint NagaBufferLength%s(%sByteAddressBuffer buffer)\n", accessStr, accessStr)
+		fmt.Fprintf(&w.Out, "{\n")
+		fmt.Fprintf(&w.Out, "    uint ret;\n")
+		fmt.Fprintf(&w.Out, "    buffer.GetDimensions(ret);\n")
+		fmt.Fprintf(&w.Out, "    return ret;\n")
+		fmt.Fprintf(&w.Out, "}\n\n")
 	}
 }
 
@@ -2225,7 +2222,7 @@ func (w *Writer) writeStorageLoadHelpers() {
 		} else if ty == "int" {
 			zero, one = "0", "1"
 		}
-		w.writeLine("%s4 LoadedStorageValueFrom%s(%s arg) {%s4 ret = %s4(arg, %s, %s, %s);return ret;}", ty, ty, ty, ty, ty, zero, zero, one)
+		w.WriteLine("%s4 LoadedStorageValueFrom%s(%s arg) {%s4 ret = %s4(arg, %s, %s, %s);return ret;}", ty, ty, ty, ty, ty, zero, zero, one)
 	}
 	// Clear so we only write once
 	w.needsStorageLoadHelpers = nil
@@ -2376,23 +2373,23 @@ func (w *Writer) writeZeroValueWrapperFunction(handle ir.TypeHandle) {
 		if arr, ok := w.module.Types[handle].Inner.(ir.ArrayType); ok {
 			baseName, arraySuffix := w.getTypeNameWithArraySuffix(handle)
 			_ = arr
-			w.writeLine("typedef %s ret_ZeroValue%s%s;", baseName, typeId, arraySuffix)
-			w.writeLine("ret_ZeroValue%s ZeroValue%s() {", typeId, typeId)
-			w.pushIndent()
-			w.writeLine("return (%s%s)0;", baseName, arraySuffix)
-			w.popIndent()
-			w.writeLine("}")
-			w.writeLine("")
+			w.WriteLine("typedef %s ret_ZeroValue%s%s;", baseName, typeId, arraySuffix)
+			w.WriteLine("ret_ZeroValue%s ZeroValue%s() {", typeId, typeId)
+			w.PushIndent()
+			w.WriteLine("return (%s%s)0;", baseName, arraySuffix)
+			w.PopIndent()
+			w.WriteLine("}")
+			w.WriteLine("")
 			return
 		}
 	}
 
-	w.writeLine("%s ZeroValue%s() {", typeName, typeId)
-	w.pushIndent()
-	w.writeLine("return (%s)0;", typeName)
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.WriteLine("%s ZeroValue%s() {", typeName, typeId)
+	w.PushIndent()
+	w.WriteLine("return (%s)0;", typeName)
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 }
 
 // writeFunctions writes regular function definitions.
@@ -2434,7 +2431,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 				// Array return type needs typedef
 				baseTypeName, arraySuffix := w.getTypeNameWithArraySuffix(fn.Result.Type)
 				retTypeName := fmt.Sprintf("ret_%s", name)
-				w.writeLine("typedef %s %s%s;", baseTypeName, retTypeName, arraySuffix)
+				w.WriteLine("typedef %s %s%s;", baseTypeName, retTypeName, arraySuffix)
 				returnType = retTypeName
 			} else {
 				returnType = w.getTypeName(fn.Result.Type)
@@ -2487,13 +2484,13 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	}
 
 	// Rust naga puts the opening brace on the next line
-	w.writeLine("%s %s(%s)", returnType, name, strings.Join(args, ", "))
-	w.writeLine("{")
-	w.pushIndent()
+	w.WriteLine("%s %s(%s)", returnType, name, strings.Join(args, ", "))
+	w.WriteLine("{")
+	w.PushIndent()
 
 	// Write function body (local variables + statements)
 	if err := w.writeFunctionBody(fn); err != nil {
-		w.popIndent()
+		w.PopIndent()
 		w.currentFunction = nil
 		return err
 	}
@@ -2502,9 +2499,9 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	// The IR's ensureBlockReturns handles adding returns where needed.
 	// Void functions in HLSL don't need trailing return;.
 
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("")
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("")
 
 	w.currentFunction = nil
 	return nil
@@ -2527,38 +2524,6 @@ func (w *Writer) writeEntryPoints() error {
 }
 
 // Output helpers
-
-// writeLine writes a line with indentation and newline.
-//
-//nolint:goprintffuncname
-func (w *Writer) writeLine(format string, args ...any) {
-	w.writeIndent()
-	if len(args) == 0 {
-		w.out.WriteString(format)
-	} else {
-		fmt.Fprintf(&w.out, format, args...)
-	}
-	w.out.WriteByte('\n')
-}
-
-// writeIndent writes the current indentation.
-func (w *Writer) writeIndent() {
-	for i := 0; i < w.indent; i++ {
-		w.out.WriteString("    ")
-	}
-}
-
-// pushIndent increases indentation.
-func (w *Writer) pushIndent() {
-	w.indent++
-}
-
-// popIndent decreases indentation.
-func (w *Writer) popIndent() {
-	if w.indent > 0 {
-		w.indent--
-	}
-}
 
 // hlslBlockEndsWithReturn checks if a block's last statement terminates
 // all control flow paths with a return (or other terminator like kill).

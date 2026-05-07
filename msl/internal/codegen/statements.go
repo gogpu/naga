@@ -58,13 +58,13 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		if len(k.Block) == 0 {
 			return nil
 		}
-		w.writeLine("{")
-		w.pushIndent()
+		w.WriteLine("{")
+		w.PushIndent()
 		if err := w.writeBlock(k.Block); err != nil {
 			return err
 		}
-		w.popIndent()
-		w.writeLine("}")
+		w.PopIndent()
+		w.WriteLine("}")
 		return nil
 
 	case ir.StmtIf:
@@ -77,18 +77,18 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		return w.writeLoop(k)
 
 	case ir.StmtBreak:
-		w.writeLine("break;")
+		w.WriteLine("break;")
 		return nil
 
 	case ir.StmtContinue:
-		w.writeLine("continue;")
+		w.WriteLine("continue;")
 		return nil
 
 	case ir.StmtReturn:
 		return w.writeReturn(k)
 
 	case ir.StmtKill:
-		w.writeLine("%sdiscard_fragment();", Namespace)
+		w.WriteLine("%sdiscard_fragment();", Namespace)
 		return nil
 
 	case ir.StmtBarrier:
@@ -229,7 +229,7 @@ func (w *Writer) writeImageLoadClampedLodIfNeeded(handle ir.ExpressionHandle) er
 	}
 
 	varName := fmt.Sprintf("clamped_lod_e%d", handle)
-	w.writeIndent()
+	w.WriteIndent()
 	w.write("uint %s = %smin(uint(", varName, Namespace)
 	if err := w.writeExpression(*load.Level); err != nil {
 		return err
@@ -275,7 +275,7 @@ func (w *Writer) writeDot4PackedCharsIfNeeded(handle ir.ExpressionHandle) error 
 
 	for _, arg := range args {
 		varName := w.reinterpretedVarName(packedType, arg)
-		w.writeIndent()
+		w.WriteIndent()
 		w.write("%s %s = as_type<%s>(", packedType, varName, packedType)
 		if err := w.writeExpression(arg); err != nil {
 			return err
@@ -836,7 +836,7 @@ func (w *Writer) bakeExpressionImpl(handle ir.ExpressionHandle, name string, use
 
 	// Write the declaration using writeExpressionInline which does NOT
 	// look up namedExpressions (avoiding self-reference).
-	w.writeIndent()
+	w.WriteIndent()
 	w.write("%s %s = ", typeName, tempName)
 	if err := w.writeExpressionInline(handle); err != nil {
 		return err
@@ -847,28 +847,28 @@ func (w *Writer) bakeExpressionImpl(handle ir.ExpressionHandle, name string, use
 
 // writeIf writes an if statement.
 func (w *Writer) writeIf(ifStmt ir.StmtIf) error {
-	w.writeIndent()
+	w.WriteIndent()
 	w.write("if (")
 	if err := w.writeExpression(ifStmt.Condition); err != nil {
 		return err
 	}
 	w.write(") {\n")
-	w.pushIndent()
+	w.PushIndent()
 	if err := w.writeBlock(ifStmt.Accept); err != nil {
 		return err
 	}
-	w.popIndent()
+	w.PopIndent()
 
 	if len(ifStmt.Reject) > 0 {
-		w.writeLine("} else {")
-		w.pushIndent()
+		w.WriteLine("} else {")
+		w.PushIndent()
 		if err := w.writeBlock(ifStmt.Reject); err != nil {
 			return err
 		}
-		w.popIndent()
+		w.PopIndent()
 	}
 
-	w.writeLine("}")
+	w.WriteLine("}")
 	return nil
 }
 
@@ -883,13 +883,13 @@ func (w *Writer) writeIf(ifStmt ir.StmtIf) error {
 //	    break;
 //	}
 func (w *Writer) writeSwitch(switchStmt ir.StmtSwitch) error {
-	w.writeIndent()
+	w.WriteIndent()
 	w.write("switch(")
 	if err := w.writeExpression(switchStmt.Selector); err != nil {
 		return err
 	}
 	w.write(") {\n")
-	w.pushIndent()
+	w.PushIndent()
 
 	for _, switchCase := range switchStmt.Cases {
 		if switchCase.FallThrough {
@@ -897,11 +897,11 @@ func (w *Writer) writeSwitch(switchStmt ir.StmtSwitch) error {
 			// Rust naga emits "case N:" on its own line for fallthrough.
 			switch v := switchCase.Value.(type) {
 			case ir.SwitchValueI32:
-				w.writeLine("case %d:", int32(v))
+				w.WriteLine("case %d:", int32(v))
 			case ir.SwitchValueU32:
-				w.writeLine("case %du:", uint32(v))
+				w.WriteLine("case %du:", uint32(v))
 			case ir.SwitchValueDefault:
-				w.writeLine("default:")
+				w.WriteLine("default:")
 			}
 			continue
 		}
@@ -909,28 +909,28 @@ func (w *Writer) writeSwitch(switchStmt ir.StmtSwitch) error {
 		// Non-fallthrough: emit label with opening brace, body, break, closing brace.
 		switch v := switchCase.Value.(type) {
 		case ir.SwitchValueI32:
-			w.writeLine("case %d: {", int32(v))
+			w.WriteLine("case %d: {", int32(v))
 		case ir.SwitchValueU32:
-			w.writeLine("case %du: {", uint32(v))
+			w.WriteLine("case %du: {", uint32(v))
 		case ir.SwitchValueDefault:
-			w.writeLine("default: {")
+			w.WriteLine("default: {")
 		}
 
-		w.pushIndent()
+		w.PushIndent()
 		if err := w.writeBlock(switchCase.Body); err != nil {
 			return err
 		}
 		// Only emit break if the last statement is not a terminator (Return, Break, Continue, Kill).
 		// This matches Rust naga's MSL writer (writer.rs:3697).
 		if !blockEndsWithTerminator(switchCase.Body) {
-			w.writeLine("break;")
+			w.WriteLine("break;")
 		}
-		w.popIndent()
-		w.writeLine("}")
+		w.PopIndent()
+		w.WriteLine("}")
 	}
 
-	w.popIndent()
-	w.writeLine("}")
+	w.PopIndent()
+	w.WriteLine("}")
 	return nil
 }
 
@@ -945,7 +945,7 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 	var loopBoundName string
 	if w.options.ForceLoopBounding {
 		loopBoundName = w.namer.call("loop_bound")
-		w.writeLine("uint2 %s = uint2(4294967295u);", loopBoundName)
+		w.WriteLine("uint2 %s = uint2(4294967295u);", loopBoundName)
 	}
 
 	// Generate loop_init gate variable if there's a continuing/break-if block.
@@ -953,22 +953,22 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 	var gateName string
 	if hasContinuing {
 		gateName = w.namer.call("loop_init")
-		w.writeLine("bool %s = true;", gateName)
+		w.WriteLine("bool %s = true;", gateName)
 	}
 
-	w.writeLine("while(true) {")
-	w.pushIndent()
+	w.WriteLine("while(true) {")
+	w.PushIndent()
 
 	// Loop bound check+decrement at the top of the loop body.
 	if w.options.ForceLoopBounding {
-		w.writeLine("if (%sall(%s == uint2(0u))) { break; }", Namespace, loopBoundName)
-		w.writeLine("%s -= uint2(%s.y == 0u, 1u);", loopBoundName, loopBoundName)
+		w.WriteLine("if (%sall(%s == uint2(0u))) { break; }", Namespace, loopBoundName)
+		w.WriteLine("%s -= uint2(%s.y == 0u, 1u);", loopBoundName, loopBoundName)
 	}
 
 	// Continuing block + break-if, gated by !loop_init (skip on first iteration).
 	if hasContinuing {
-		w.writeLine("if (!%s) {", gateName)
-		w.pushIndent()
+		w.WriteLine("if (!%s) {", gateName)
+		w.PushIndent()
 
 		// Write continuing block statements
 		if len(loop.Continuing) > 0 {
@@ -983,21 +983,21 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 		// writeExpression will resolve Load expressions to their original
 		// variable names, matching Rust naga behavior.
 		if loop.BreakIf != nil {
-			w.writeIndent()
+			w.WriteIndent()
 			w.write("if (")
 			if err := w.writeExpression(*loop.BreakIf); err != nil {
 				return err
 			}
 			w.write(") {\n")
-			w.pushIndent()
-			w.writeLine("break;")
-			w.popIndent()
-			w.writeLine("}")
+			w.PushIndent()
+			w.WriteLine("break;")
+			w.PopIndent()
+			w.WriteLine("}")
 		}
 
-		w.popIndent()
-		w.writeLine("}")
-		w.writeLine("%s = false;", gateName)
+		w.PopIndent()
+		w.WriteLine("}")
+		w.WriteLine("%s = false;", gateName)
 	}
 
 	// Write body
@@ -1005,8 +1005,8 @@ func (w *Writer) writeLoop(loop ir.StmtLoop) error {
 		return err
 	}
 
-	w.popIndent()
-	w.writeLine("}")
+	w.PopIndent()
+	w.WriteLine("}")
 	return nil
 }
 
@@ -1024,7 +1024,7 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 		// Simple type with output struct (e.g., float4 with [[position]] or [[color(0)]])
 		// Use aggregate initialization: return StructName { expr };
 		outputStructName := w.getOutputStructName()
-		w.writeIndent()
+		w.WriteIndent()
 		w.write("return %s { ", outputStructName)
 		if err := w.writeExpression(value); err != nil {
 			return false, err
@@ -1042,14 +1042,14 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 	//   return OutputStruct { _tmp.member1, _tmp.member2 };
 	outputStructName := w.getOutputStructName()
 
-	w.writeIndent()
+	w.WriteIndent()
 	w.write("const auto _tmp = ")
 	if err := w.writeExpression(value); err != nil {
 		return false, err
 	}
 	w.write(";\n")
 
-	w.writeIndent()
+	w.WriteIndent()
 	w.write("return %s {", outputStructName)
 
 	isFirst := true
@@ -1090,7 +1090,7 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 // writeReturn writes a return statement.
 func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 	if ret.Value == nil {
-		w.writeLine("return;")
+		w.WriteLine("return;")
 		return nil
 	}
 
@@ -1102,7 +1102,7 @@ func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 		return nil
 	}
 
-	w.writeIndent()
+	w.WriteIndent()
 	w.write("return ")
 	if err := w.writeExpression(*ret.Value); err != nil {
 		return err
@@ -1119,20 +1119,20 @@ func (w *Writer) writeBarrier(barrier ir.StmtBarrier) error {
 	// Both the function and mem_flags must be fully qualified with the metal:: namespace.
 	if barrier.Flags&ir.BarrierSubGroup != 0 {
 		// Subgroup barrier uses simdgroup_barrier instead of threadgroup_barrier.
-		w.writeLine("%ssimdgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
+		w.WriteLine("%ssimdgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
 	}
 	if barrier.Flags&ir.BarrierWorkGroup != 0 {
-		w.writeLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
+		w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
 	}
 	if barrier.Flags&ir.BarrierStorage != 0 {
-		w.writeLine("%sthreadgroup_barrier(%smem_flags::mem_device);", Namespace, Namespace)
+		w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_device);", Namespace, Namespace)
 	}
 	if barrier.Flags&ir.BarrierTexture != 0 {
-		w.writeLine("%sthreadgroup_barrier(%smem_flags::mem_texture);", Namespace, Namespace)
+		w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_texture);", Namespace, Namespace)
 	}
 	if barrier.Flags == 0 {
 		// Pure execution barrier
-		w.writeLine("%sthreadgroup_barrier(%smem_flags::mem_none);", Namespace, Namespace)
+		w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_none);", Namespace, Namespace)
 	}
 	return nil
 }
@@ -1145,17 +1145,17 @@ func (w *Writer) writeStore(store ir.StmtStore) error {
 	policy := w.chooseBoundsCheckPolicy(store.Pointer)
 	if policy == BoundsCheckReadZeroSkipWrite {
 		if check, ok := w.buildRZSWBoundsCheck(store.Pointer); ok {
-			w.writeIndent()
+			w.WriteIndent()
 			w.write("if (%s) {\n", check)
-			w.indent++
+			w.Indent++
 			w.insideRZSW = true
 			err := w.writeUncheckedStore(store)
 			w.insideRZSW = false
-			w.indent--
+			w.Indent--
 			if err != nil {
 				return err
 			}
-			w.writeIndent()
+			w.WriteIndent()
 			w.write("}\n")
 			return nil
 		}
@@ -1170,7 +1170,7 @@ func (w *Writer) writeUncheckedStore(store ir.StmtStore) error {
 	// Rust naga emits StmtStore (not StmtAtomic) for atomicStore(),
 	// and the MSL backend detects atomic pointers at render time.
 	if w.isAtomicPointer(store.Pointer) {
-		w.writeIndent()
+		w.WriteIndent()
 		w.write("%satomic_store_explicit(&", Namespace)
 		if err := w.writeExpression(store.Pointer); err != nil {
 			return err
@@ -1183,7 +1183,7 @@ func (w *Writer) writeUncheckedStore(store ir.StmtStore) error {
 		return nil
 	}
 
-	w.writeIndent()
+	w.WriteIndent()
 	if w.shouldDerefPointer(store.Pointer) {
 		w.write("*")
 	}
@@ -1477,7 +1477,7 @@ func (w *Writer) writeBoundsCheckItem(indexHandle ir.ExpressionHandle, length bo
 // writeImageStore writes an image store statement.
 // Coordinate type is based on image dimension (uint for 1D, metal::uint2 for 2D, etc.).
 func (w *Writer) writeImageStore(imgStore ir.StmtImageStore) error {
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(imgStore.Image); err != nil {
 		return err
 	}
@@ -1509,7 +1509,7 @@ func (w *Writer) writeImageStore(imgStore ir.StmtImageStore) error {
 
 // writeImageAtomic writes an image atomic operation statement.
 func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(imgAtomic.Image); err != nil {
 		return err
 	}
@@ -1619,7 +1619,7 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 		return fmt.Errorf("unsupported atomic function: %T", atomic.Fun)
 	}
 
-	w.writeIndent()
+	w.WriteIndent()
 
 	// If there's a result, assign it.
 	// Rust naga uses the concrete type (not 'auto') and standard expression naming.
@@ -1684,7 +1684,7 @@ func (w *Writer) writeAtomicCompareExchange(atomic ir.StmtAtomic, exchange ir.At
 	w.registerAtomicCompareExchange(*scalar)
 	structName := atomicCompareExchangeVariant{scalar: *scalar}.atomicExchangeStructName()
 
-	w.writeIndent()
+	w.WriteIndent()
 	if atomic.Result != nil {
 		tempName := fmt.Sprintf("_e%d", *atomic.Result)
 		w.namedExpressions[*atomic.Result] = tempName
@@ -1709,7 +1709,7 @@ func (w *Writer) writeAtomicCompareExchange(atomic ir.StmtAtomic, exchange ir.At
 // writeAtomicLoad writes an atomic load operation.
 // MSL: metal::atomic_load_explicit(&pointer, metal::memory_order_relaxed)
 func (w *Writer) writeAtomicLoad(atomic ir.StmtAtomic) error {
-	w.writeIndent()
+	w.WriteIndent()
 
 	// Atomic load always has a result.
 	if atomic.Result != nil {
@@ -1749,7 +1749,7 @@ func (w *Writer) writeAtomicLoad(atomic ir.StmtAtomic) error {
 // writeAtomicStore writes an atomic store operation.
 // MSL: metal::atomic_store_explicit(&pointer, value, metal::memory_order_relaxed)
 func (w *Writer) writeAtomicStore(atomic ir.StmtAtomic) error {
-	w.writeIndent()
+	w.WriteIndent()
 	w.write("%satomic_store_explicit(&", Namespace)
 	if err := w.writeExpression(atomic.Pointer); err != nil {
 		return err
@@ -1764,7 +1764,7 @@ func (w *Writer) writeAtomicStore(atomic ir.StmtAtomic) error {
 
 // writeCall writes a function call statement.
 func (w *Writer) writeCall(call ir.StmtCall) error {
-	w.writeIndent()
+	w.WriteIndent()
 
 	// Assign result if needed
 	if call.Result != nil {
@@ -1821,7 +1821,7 @@ func (w *Writer) writeCall(call ir.StmtCall) error {
 // The result is named via namer.call("") which produces "unnamed", "unnamed_1", etc.
 func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) error {
 	// First barrier
-	w.writeLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
+	w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
 
 	// Get the result type for the variable declaration.
 	resultType := w.getExpressionType(load.Result)
@@ -1838,7 +1838,7 @@ func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) err
 	w.namedExpressions[load.Result] = varName
 
 	// Write: TYPE VARNAME = LOAD_EXPR;
-	w.writeIndent()
+	w.WriteIndent()
 	w.write("%s %s = ", typeName, varName)
 
 	// Use writeLoad pattern: write the pointer's access chain directly.
@@ -1853,7 +1853,7 @@ func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) err
 	w.write(";\n")
 
 	// Second barrier
-	w.writeLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
+	w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
 	return nil
 }
 
@@ -1867,7 +1867,7 @@ func (w *Writer) writeRayQuery(rayQuery ir.StmtRayQuery) error {
 		// bool _eN = query.ready;
 		tempName := fmt.Sprintf("_e%d", f.Result)
 		w.namedExpressions[f.Result] = tempName
-		w.writeIndent()
+		w.WriteIndent()
 		w.write("bool %s = ", tempName)
 		if err := w.writeExpression(rayQuery.Query); err != nil {
 			return err
@@ -1876,7 +1876,7 @@ func (w *Writer) writeRayQuery(rayQuery ir.StmtRayQuery) error {
 
 	case ir.RayQueryTerminate:
 		// RAY_QUERY_MODERN_SUPPORT=false: just set ready = false
-		w.writeIndent()
+		w.WriteIndent()
 		if err := w.writeExpression(rayQuery.Query); err != nil {
 			return err
 		}
@@ -1923,7 +1923,7 @@ func (w *Writer) writeRayQueryInit(query ir.ExpressionHandle, f ir.RayQueryIniti
 		}
 		if typeName != "" {
 			w.namedExpressions[f.Descriptor] = name
-			w.writeIndent()
+			w.WriteIndent()
 			w.write("%s %s = ", typeName, name)
 			if err := w.writeExpressionInline(f.Descriptor); err != nil {
 				return err
@@ -1932,13 +1932,13 @@ func (w *Writer) writeRayQueryInit(query ir.ExpressionHandle, f ir.RayQueryIniti
 		}
 	}
 	// assume_geometry_type(triangle)
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(query); err != nil {
 		return err
 	}
 	w.write(".intersector.assume_geometry_type(%s::geometry_type::triangle);\n", rtNs)
 	// set_opacity_cull_mode: CULL_OPAQUE=64, CULL_NO_OPAQUE=128
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(query); err != nil {
 		return err
 	}
@@ -1952,7 +1952,7 @@ func (w *Writer) writeRayQueryInit(query ir.ExpressionHandle, f ir.RayQueryIniti
 	}
 	w.write(".flags & 128) != 0 ? %s::opacity_cull_mode::non_opaque : %s::opacity_cull_mode::none);\n", rtNs, rtNs)
 	// force_opacity: OPAQUE=1, NO_OPAQUE=2
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(query); err != nil {
 		return err
 	}
@@ -1966,7 +1966,7 @@ func (w *Writer) writeRayQueryInit(query ir.ExpressionHandle, f ir.RayQueryIniti
 	}
 	w.write(".flags & 2) != 0 ? %s::forced_opacity::non_opaque : %s::forced_opacity::none);\n", rtNs, rtNs)
 	// accept_any_intersection: TERMINATE_ON_FIRST_HIT=4
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(query); err != nil {
 		return err
 	}
@@ -1976,7 +1976,7 @@ func (w *Writer) writeRayQueryInit(query ir.ExpressionHandle, f ir.RayQueryIniti
 	}
 	w.write(".flags & 4) != 0);\n")
 	// intersection = intersector.intersect(ray(...), acs, cull_mask);    query.ready = true;
-	w.writeIndent()
+	w.WriteIndent()
 	if err := w.writeExpression(query); err != nil {
 		return err
 	}
@@ -2019,7 +2019,7 @@ func (w *Writer) writeRayQueryInit(query ir.ExpressionHandle, f ir.RayQueryIniti
 // writeSubgroupBallot writes a subgroup ballot statement.
 // Metal: metal::uint4 result = metal::uint4((uint64_t)metal::simd_ballot(predicate), 0, 0, 0);
 func (w *Writer) writeSubgroupBallot(ballot ir.StmtSubgroupBallot) error {
-	w.writeIndent()
+	w.WriteIndent()
 
 	// Register the result name
 	var tempName string
@@ -2051,7 +2051,7 @@ func (w *Writer) writeSubgroupBallot(ballot ir.StmtSubgroupBallot) error {
 // writeSubgroupCollectiveOperation writes a subgroup collective operation statement.
 // Maps SubgroupOperation + CollectiveOperation to metal::simd_* functions.
 func (w *Writer) writeSubgroupCollectiveOperation(op ir.StmtSubgroupCollectiveOperation) error {
-	w.writeIndent()
+	w.WriteIndent()
 
 	// Determine MSL function name
 	var funcName string
@@ -2108,7 +2108,7 @@ func (w *Writer) writeSubgroupCollectiveOperation(op ir.StmtSubgroupCollectiveOp
 // writeSubgroupGather writes a subgroup gather statement.
 // Maps GatherMode to metal::simd_broadcast, simd_shuffle, etc.
 func (w *Writer) writeSubgroupGather(gather ir.StmtSubgroupGather) error {
-	w.writeIndent()
+	w.WriteIndent()
 
 	// Write result assignment
 	resultType := w.getExpressionMSLTypeName(gather.Result)

@@ -23,7 +23,7 @@ func TestHLSL_ZeroValueWrapperFunction(t *testing.T) {
 
 	w := newWriter(module, &Options{FakeMissingBindings: true})
 	w.writeZeroValueWrapperFunctions(module.GlobalExpressions)
-	output := w.out.String()
+	output := w.Out.String()
 
 	if !strings.Contains(output, "int4 ZeroValueint4()") {
 		t.Errorf("expected ZeroValueint4 wrapper function, got:\n%s", output)
@@ -46,7 +46,7 @@ func TestHLSL_ZeroValueExpression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := w.out.String()
+	got := w.Out.String()
 	if got != "ZeroValueint4()" {
 		t.Errorf("writeZeroValueExpression = %q, want %q", got, "ZeroValueint4()")
 	}
@@ -65,7 +65,7 @@ func TestHLSL_EmptyComposeExpandsZeros(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := w.out.String()
+	got := w.Out.String()
 	if got != "float2(0.0, 0.0)" {
 		t.Errorf("empty compose = %q, want %q", got, "float2(0.0, 0.0)")
 	}
@@ -83,7 +83,7 @@ func TestHLSL_ArrayConstructorTypedef(t *testing.T) {
 
 	w := newWriter(module, &Options{FakeMissingBindings: true})
 	w.writeArrayConstructor(1)
-	output := w.out.String()
+	output := w.Out.String()
 
 	if !strings.Contains(output, "typedef float ret_Constructarray4_float_[4];") {
 		t.Errorf("expected typedef, got:\n%s", output)
@@ -115,7 +115,7 @@ func TestHLSL_StructPadding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := w.out.String()
+	output := w.Out.String()
 
 	// Should have padding between a (offset 0, size 4) and b (offset 16)
 	if !strings.Contains(output, "_pad1_") {
@@ -152,7 +152,7 @@ func TestHLSL_PreciseModifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := w.out.String()
+	output := w.Out.String()
 
 	if !strings.Contains(output, "precise float4") {
 		t.Errorf("expected 'precise float4', got:\n%s", output)
@@ -188,7 +188,7 @@ func TestHLSL_FunctionalCast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := w.out.String()
+	got := w.Out.String()
 	// Should use functional cast: float(...)  NOT (float)(...)
 	if strings.Contains(got, "(float)(") {
 		t.Errorf("should use functional cast, got C-style: %q", got)
@@ -223,7 +223,7 @@ func TestHLSL_InoutPointerArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := w.out.String()
+	output := w.Out.String()
 
 	if !strings.Contains(output, "inout int") {
 		t.Errorf("expected 'inout int', got:\n%s", output)
@@ -238,7 +238,7 @@ func TestHLSL_WriteSpecialConstants(t *testing.T) {
 	w.options.SpecialConstantsBinding = &BindTarget{Register: 0, Space: 1}
 
 	w.writeSpecialConstants()
-	output := w.out.String()
+	output := w.Out.String()
 
 	if !strings.Contains(output, "struct NagaConstants {") {
 		t.Error("expected NagaConstants struct")
@@ -278,7 +278,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
 		w.options.ZeroInitializeWorkgroupMemory = true
 		w.writeWorkgroupInit()
-		output := w.out.String()
+		output := w.Out.String()
 		if !strings.Contains(output, "wg_counter = (uint)0;") {
 			t.Errorf("scalar should use (Type)0, got:\n%s", output)
 		}
@@ -303,7 +303,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
 		w.options.ZeroInitializeWorkgroupMemory = true
 		w.writeWorkgroupInit()
-		output := w.out.String()
+		output := w.Out.String()
 		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
 			t.Errorf("array should use loop, got:\n%s", output)
 		}
@@ -329,7 +329,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "float"})
 		w.options.ZeroInitializeWorkgroupMemory = true
 		w.writeWorkgroupInit()
-		output := w.out.String()
+		output := w.Out.String()
 		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
 			t.Errorf("outer loop missing, got:\n%s", output)
 		}
@@ -357,7 +357,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{1: "MyStruct"})
 		w.options.ZeroInitializeWorkgroupMemory = true
 		w.writeWorkgroupInit()
-		output := w.out.String()
+		output := w.Out.String()
 		if !strings.Contains(output, "wg_struct = (MyStruct)0;") {
 			t.Errorf("struct should use (Type)0, got:\n%s", output)
 		}
@@ -385,7 +385,7 @@ func TestHLSL_WorkgroupZeroInitArrayLoop(t *testing.T) {
 		w := newTestWriter(module, names, map[ir.TypeHandle]string{1: "PathMonoid"})
 		w.options.ZeroInitializeWorkgroupMemory = true
 		w.writeWorkgroupInit()
-		output := w.out.String()
+		output := w.Out.String()
 		if !strings.Contains(output, "for (uint _naga_zi_0 = 0u; _naga_zi_0 < 256u; _naga_zi_0++)") {
 			t.Errorf("array of structs should use loop, got:\n%s", output)
 		}

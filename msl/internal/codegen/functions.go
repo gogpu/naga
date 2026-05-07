@@ -129,7 +129,7 @@ func (w *Writer) writeLocalVars(fn *ir.Function) error {
 		w.localNames[uint32(i)] = localName
 
 		localType := w.writeTypeName(local.Type, StorageAccess(0))
-		w.writeIndent()
+		w.WriteIndent()
 		w.write("%s %s", localType, localName)
 
 		if local.Init != nil {
@@ -160,7 +160,7 @@ func (w *Writer) writeLocalVars(fn *ir.Function) error {
 		})
 		for _, e := range entries {
 			typeName := w.writeTypeName(e.tyHandle, StorageAccess(0))
-			w.writeIndent()
+			w.WriteIndent()
 			w.write("%s %s = {};\n", typeName, e.name)
 		}
 	}
@@ -336,7 +336,7 @@ func (w *Writer) isEntryPointFunction(_ ir.FunctionHandle) bool {
 // writeFunction writes a regular function definition.
 func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error {
 	// Blank line before each function (matches Rust naga: writeln!(self.out)?)
-	w.writeLine("")
+	w.WriteLine("")
 
 	// Set context
 	w.currentFunction = fn
@@ -416,7 +416,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	}
 
 	w.write("\n) {\n")
-	w.pushIndent()
+	w.PushIndent()
 
 	// Local variables
 	if err := w.writeLocalVars(fn); err != nil {
@@ -428,8 +428,8 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		return err
 	}
 
-	w.popIndent()
-	w.writeLine("}")
+	w.PopIndent()
+	w.WriteLine("}")
 	return nil
 }
 
@@ -453,7 +453,7 @@ func (w *Writer) writeEntryPoints() error {
 // writeEntryPoint writes a single entry point function.
 func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// Blank line before each entry point (matches Rust naga: writeln!(self.out)?)
-	w.writeLine("")
+	w.WriteLine("")
 
 	// Entry point function is stored inline in ep.Function (not in Module.Functions[]).
 	fn := &ep.Function
@@ -761,7 +761,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	} else {
 		w.write("\n) {\n")
 	}
-	w.pushIndent()
+	w.PushIndent()
 
 	// VPT body prologue: emit zero-init + bounds check + unpacking BEFORE input aliases.
 	// This must happen first because the input alias reconstruction uses the VPT locals.
@@ -782,7 +782,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 				// Direct argument with location binding — extract from varyings struct
 				if _, ok := (*arg.Binding).(ir.LocationBinding); ok {
 					if w.hasVaryings {
-						w.writeLine("const auto %s = %s.%s;", argName, varyingsName, argName)
+						w.WriteLine("const auto %s = %s.%s;", argName, varyingsName, argName)
 					}
 				}
 				continue
@@ -800,7 +800,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 			}
 
 			structName := w.getTypeName(arg.Type)
-			w.writeIndent()
+			w.WriteIndent()
 			w.write("const %s %s = { ", structName, argName)
 			for memberIdx, member := range st.Members {
 				if memberIdx != 0 {
@@ -883,9 +883,9 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		return err
 	}
 
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("") // trailing blank line after entry point (matches Rust naga: writeln!(self.out, "}}")?)
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("") // trailing blank line after entry point (matches Rust naga: writeln!(self.out, "}}")?)
 	return nil
 }
 
@@ -908,11 +908,11 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 	}
 
 	emitInputStruct := func(structName string, emitFields func()) {
-		w.writeLine("struct %s {", structName)
-		w.pushIndent()
+		w.WriteLine("struct %s {", structName)
+		w.PushIndent()
 		emitFields()
-		w.popIndent()
-		w.writeLine("};")
+		w.PopIndent()
+		w.WriteLine("};")
 	}
 
 	epName := w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})
@@ -934,7 +934,7 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 				argType := w.writeTypeName(arg.Type, StorageAccess(0))
 
 				attr := locationInputAttribute(loc, ep.Stage, w.typeScalarKind(arg.Type))
-				w.writeLine("%s %s %s;", argType, argName, attr)
+				w.WriteLine("%s %s %s;", argType, argName, attr)
 			}
 		})
 
@@ -1015,7 +1015,7 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 					memberName := w.flattenedMemberNames[key]
 					memberType := w.writeTypeName(member.Type, StorageAccess(0))
 					attr := locationInputAttribute(loc, ep.Stage, w.typeScalarKind(member.Type))
-					w.writeLine("%s %s %s;", memberType, memberName, attr)
+					w.WriteLine("%s %s %s;", memberType, memberName, attr)
 				}
 			}
 		})
@@ -1067,15 +1067,15 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 			attr := w.writeBindingAttribute(*fn.Result.Binding)
 
 			if attr != "" {
-				w.writeLine("struct %s {", structName)
-				w.pushIndent()
-				w.writeLine("%s %s %s;", returnType, resultMemberName, attr)
+				w.WriteLine("struct %s {", structName)
+				w.PushIndent()
+				w.WriteLine("%s %s %s;", returnType, resultMemberName, attr)
 				// Add _point_size for vertex shaders when forced
 				if ep.Stage == ir.StageVertex && w.options.AllowAndForcePointSize {
-					w.writeLine("float _point_size [[point_size]];")
+					w.WriteLine("float _point_size [[point_size]];")
 				}
-				w.popIndent()
-				w.writeLine("};")
+				w.PopIndent()
+				w.WriteLine("};")
 
 				return structName, true
 			}
@@ -1083,8 +1083,8 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 		return "", false
 	}
 
-	w.writeLine("struct %s {", structName)
-	w.pushIndent()
+	w.WriteLine("struct %s {", structName)
+	w.PushIndent()
 
 	for memberIdx, member := range st.Members {
 		memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(resultType), handle2: uint32(memberIdx)})
@@ -1107,7 +1107,7 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 			}
 		}
 
-		w.writeLine("%s %s %s;", memberType, memberName, attr)
+		w.WriteLine("%s %s %s;", memberType, memberName, attr)
 	}
 
 	// Add _point_size member for vertex shaders when AllowAndForcePointSize is enabled.
@@ -1124,12 +1124,12 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 			}
 		}
 		if !hasPointSize {
-			w.writeLine("float _point_size [[point_size]];")
+			w.WriteLine("float _point_size [[point_size]];")
 		}
 	}
 
-	w.popIndent()
-	w.writeLine("};")
+	w.PopIndent()
+	w.WriteLine("};")
 
 	return structName, true
 }
@@ -1183,7 +1183,7 @@ func (w *Writer) writePrivateVarLocals(fn *ir.Function) error {
 		}
 		name := w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: uint32(i)})
 		typeName := w.writeTypeName(global.Type, StorageAccess(0))
-		w.writeIndent()
+		w.WriteIndent()
 		if global.InitExpr != nil {
 			// Init from GlobalExpressions (preferred, matches Rust naga).
 			w.write("%s %s = ", typeName, name)
@@ -1616,36 +1616,36 @@ func (w *Writer) writeInlineSamplers(epName string, epUsedGlobals map[uint32]str
 		}
 		sampler := &w.options.InlineSamplers[idx]
 		name := w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: uint32(i)})
-		w.writeLine("constexpr %ssampler %s(", Namespace, name)
-		w.pushIndent()
+		w.WriteLine("constexpr %ssampler %s(", Namespace, name)
+		w.PushIndent()
 		// Address modes
 		letters := [3]byte{'s', 't', 'r'}
 		addressStrs := [5]string{"repeat", "mirrored_repeat", "clamp_to_edge", "clamp_to_zero", "clamp_to_border"}
 		for j, addr := range sampler.Address {
-			w.writeLine("%s%c_address::%s,", Namespace, letters[j], addressStrs[addr])
+			w.WriteLine("%s%c_address::%s,", Namespace, letters[j], addressStrs[addr])
 		}
 		// Filters
 		filterStrs := [2]string{"nearest", "linear"}
-		w.writeLine("%smag_filter::%s,", Namespace, filterStrs[sampler.MagFilter])
-		w.writeLine("%smin_filter::%s,", Namespace, filterStrs[sampler.MinFilter])
+		w.WriteLine("%smag_filter::%s,", Namespace, filterStrs[sampler.MagFilter])
+		w.WriteLine("%smin_filter::%s,", Namespace, filterStrs[sampler.MinFilter])
 		if sampler.MipFilter != nil {
-			w.writeLine("%smip_filter::%s,", Namespace, filterStrs[*sampler.MipFilter])
+			w.WriteLine("%smip_filter::%s,", Namespace, filterStrs[*sampler.MipFilter])
 		}
 		// Border color (only if not TransparentBlack)
 		if sampler.BorderColor != SamplerBorderColorTransparentBlack {
 			borderStrs := [3]string{"transparent_black", "opaque_black", "opaque_white"}
-			w.writeLine("%sborder_color::%s,", Namespace, borderStrs[sampler.BorderColor])
+			w.WriteLine("%sborder_color::%s,", Namespace, borderStrs[sampler.BorderColor])
 		}
 		// Compare func (only if not Never)
 		if sampler.CompareFunc != SamplerCompareFuncNever {
 			compareFuncStrs := [8]string{"never", "less", "less_equal", "greater", "greater_equal", "equal", "not_equal", "always"}
-			w.writeLine("%scompare_func::%s,", Namespace, compareFuncStrs[sampler.CompareFunc])
+			w.WriteLine("%scompare_func::%s,", Namespace, compareFuncStrs[sampler.CompareFunc])
 		}
 		// Coord
 		coordStrs := [2]string{"normalized", "pixel"}
-		w.writeLine("%scoord::%s", Namespace, coordStrs[sampler.Coord])
-		w.popIndent()
-		w.writeLine(");")
+		w.WriteLine("%scoord::%s", Namespace, coordStrs[sampler.Coord])
+		w.PopIndent()
+		w.WriteLine(");")
 	}
 }
 
@@ -1843,8 +1843,8 @@ func resolveInterpolationString(interp *ir.Interpolation) string {
 // writeWorkgroupZeroInit writes the zero-initialization prologue for workgroup variables.
 // Matches Rust naga: check __local_invocation_id == uint3(0), then zero-init all workgroup vars.
 func (w *Writer) writeWorkgroupZeroInit(localInvIDName string) error {
-	w.writeLine("if (%sall(%s == %suint3(0u))) {", Namespace, localInvIDName, Namespace)
-	w.pushIndent()
+	w.WriteLine("if (%sall(%s == %suint3(0u))) {", Namespace, localInvIDName, Namespace)
+	w.PushIndent()
 
 	for i, global := range w.module.GlobalVariables {
 		if global.Space != ir.SpaceWorkGroup {
@@ -1856,9 +1856,9 @@ func (w *Writer) writeWorkgroupZeroInit(localInvIDName string) error {
 		}
 	}
 
-	w.popIndent()
-	w.writeLine("}")
-	w.writeLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
+	w.PopIndent()
+	w.WriteLine("}")
+	w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
 	return nil
 }
 
@@ -1869,7 +1869,7 @@ func (w *Writer) writeWorkgroupZeroInit(localInvIDName string) error {
 func (w *Writer) writeZeroInitMember(accessPath string, typeHandle ir.TypeHandle, depth int) error {
 	if int(typeHandle) >= len(w.module.Types) {
 		// Unknown type — use aggregate zero init
-		w.writeLine("%s = {};", accessPath)
+		w.WriteLine("%s = {};", accessPath)
 		return nil
 	}
 
@@ -1878,7 +1878,7 @@ func (w *Writer) writeZeroInitMember(accessPath string, typeHandle ir.TypeHandle
 	switch inner := typeInfo.Inner.(type) {
 	case ir.AtomicType:
 		// Atomic: use atomic_store_explicit
-		w.writeLine("%satomic_store_explicit(&%s, 0, %smemory_order_relaxed);", Namespace, accessPath, Namespace)
+		w.WriteLine("%satomic_store_explicit(&%s, 0, %smemory_order_relaxed);", Namespace, accessPath, Namespace)
 
 	case ir.ArrayType:
 		// Check if the element type contains atomics
@@ -1889,17 +1889,17 @@ func (w *Writer) writeZeroInitMember(accessPath string, typeHandle ir.TypeHandle
 			if inner.Size.Constant != nil {
 				size = *inner.Size.Constant
 			}
-			w.writeLine("for (int %s = 0; %s < %d; %s++) {", iterVar, iterVar, size, iterVar)
-			w.pushIndent()
+			w.WriteLine("for (int %s = 0; %s < %d; %s++) {", iterVar, iterVar, size, iterVar)
+			w.PushIndent()
 			elemPath := fmt.Sprintf("%s.inner[%s]", accessPath, iterVar)
 			if err := w.writeZeroInitMember(elemPath, inner.Base, depth+1); err != nil {
 				return err
 			}
-			w.popIndent()
-			w.writeLine("}")
+			w.PopIndent()
+			w.WriteLine("}")
 		} else {
 			// Plain array — aggregate zero init
-			w.writeLine("%s = {};", accessPath)
+			w.WriteLine("%s = {};", accessPath)
 		}
 
 	case ir.StructType:
@@ -1918,12 +1918,12 @@ func (w *Writer) writeZeroInitMember(accessPath string, typeHandle ir.TypeHandle
 			}
 		} else {
 			// Plain struct — aggregate zero init
-			w.writeLine("%s = {};", accessPath)
+			w.WriteLine("%s = {};", accessPath)
 		}
 
 	default:
 		// All other types — aggregate zero init
-		w.writeLine("%s = {};", accessPath)
+		w.WriteLine("%s = {};", accessPath)
 	}
 
 	return nil
@@ -2013,14 +2013,14 @@ func (w *Writer) writeExternalTextureEntryPointParams(handle uint32, global *ir.
 // Matches Rust naga writer.rs ~line 7497.
 func (w *Writer) writeExternalTextureWrapperConstruction(handle uint32) {
 	wrapperName := w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: handle})
-	w.writeLine("const NagaExternalTextureWrapper %s {", wrapperName)
-	w.pushIndent()
+	w.WriteLine("const NagaExternalTextureWrapper %s {", wrapperName)
+	w.PushIndent()
 	for i, key := range []nameKeyKind{nameKeyExternalTexturePlane0, nameKeyExternalTexturePlane1, nameKeyExternalTexturePlane2} {
 		planeName := w.getName(nameKey{kind: key, handle1: handle})
-		w.writeLine(".plane%d = %s,", i, planeName)
+		w.WriteLine(".plane%d = %s,", i, planeName)
 	}
 	paramsName := w.getName(nameKey{kind: nameKeyExternalTextureParams, handle1: handle})
-	w.writeLine(".params = %s,", paramsName)
-	w.popIndent()
-	w.writeLine("};")
+	w.WriteLine(".params = %s,", paramsName)
+	w.PopIndent()
+	w.WriteLine("};")
 }
