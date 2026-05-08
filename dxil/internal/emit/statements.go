@@ -784,15 +784,8 @@ func (e *Emitter) emitBlock(fn *ir.Function, block ir.Block) error {
 			continue
 		}
 
-		// Check if the next statement is also StmtEmit.
-		if i+1 >= len(block) {
-			if err := e.emitStatement(fn, &block[i]); err != nil {
-				return err
-			}
-			i++
-			continue
-		}
-		if _, nextIsEmit := block[i+1].Kind.(ir.StmtEmit); !nextIsEmit {
+		// Single StmtEmit with no following StmtEmit -- emit directly.
+		if !isFollowedByEmit(block, i) {
 			if err := e.emitStatement(fn, &block[i]); err != nil {
 				return err
 			}
@@ -800,24 +793,98 @@ func (e *Emitter) emitBlock(fn *ir.Function, block ir.Block) error {
 			continue
 		}
 
-		// Found consecutive StmtEmit statements -- collect them all.
-		ranges := []ir.Range{firstEmit.Range}
-		j := i + 1
-		for j < len(block) {
-			nextEmit, nextOk := block[j].Kind.(ir.StmtEmit)
-			if !nextOk {
-				break
-			}
-			ranges = append(ranges, nextEmit.Range)
-			j++
-		}
-
-		if err := e.emitMergedStmtEmit(fn, ranges); err != nil {
+		// Found consecutive StmtEmit statements -- collect and
+		// emit as a group, with phi ranges emitted first.
+		j, err := e.emitConsecutiveEmitRun(fn, block, i, firstEmit)
+		if err != nil {
 			return err
 		}
 		i = j
 	}
 	return nil
+}
+
+// isFollowedByEmit reports whether block[i] is followed by at least
+// one more StmtEmit at block[i+1]. Used by emitBlock to decide
+// between single-emit and consecutive-emit-run paths.
+func isFollowedByEmit(block ir.Block, i int) bool {
+	if i+1 >= len(block) {
+		return false
+	}
+	_, ok := block[i+1].Kind.(ir.StmtEmit)
+	return ok
+}
+
+// emitConsecutiveEmitRun collects all consecutive StmtEmit statements
+// starting at block[i] and emits them. Phi-bearing emit ranges are
+// emitted before non-phi ranges so that LLVM phi instructions appear
+// at the top of the basic block.
+//
+// LLVM requires all phi instructions to be grouped at the top of a
+// basic block, before any non-phi instructions. mem2reg Phase B inserts
+// phi-bearing StmtEmit ranges (single-handle ranges containing ExprPhi)
+// immediately after StmtIf/StmtSwitch in the IR statement list. When
+// these are followed by regular StmtEmit ranges for the merge block's
+// own expressions, merging them all into one combined emission would
+// process handles in ascending order -- and since phi handles are
+// appended later by mem2reg (higher handle numbers), regular
+// expressions would be emitted first, violating the phi-at-top rule.
+//
+// Returns the index of the first statement after the run.
+func (e *Emitter) emitConsecutiveEmitRun(fn *ir.Function, block ir.Block, start int, firstEmit ir.StmtEmit) (int, error) {
+	ranges := []ir.Range{firstEmit.Range}
+	j := start + 1
+	for j < len(block) {
+		nextEmit, nextOk := block[j].Kind.(ir.StmtEmit)
+		if !nextOk {
+			break
+		}
+		ranges = append(ranges, nextEmit.Range)
+		j++
+	}
+
+	phiRanges, nonPhiRanges := splitPhiRanges(fn, ranges)
+	for _, pr := range phiRanges {
+		if err := e.emitStmtEmit(fn, ir.StmtEmit{Range: pr}); err != nil {
+			return 0, err
+		}
+	}
+	if len(nonPhiRanges) == 1 {
+		if err := e.emitStmtEmit(fn, ir.StmtEmit{Range: nonPhiRanges[0]}); err != nil {
+			return 0, err
+		}
+	} else if len(nonPhiRanges) > 1 {
+		if err := e.emitMergedStmtEmit(fn, nonPhiRanges); err != nil {
+			return 0, err
+		}
+	}
+	return j, nil
+}
+
+// splitPhiRanges separates a list of StmtEmit ranges into phi-bearing
+// ranges and non-phi ranges. A range is phi-bearing when it covers
+// exactly one expression handle whose kind is ir.ExprPhi. Phi-bearing
+// ranges must be emitted before non-phi ranges so that LLVM phi
+// instructions appear at the top of the basic block.
+func splitPhiRanges(fn *ir.Function, ranges []ir.Range) (phiRanges, nonPhiRanges []ir.Range) {
+	for _, r := range ranges {
+		if r.End-r.Start == 1 && isPhiExpression(fn, r.Start) {
+			phiRanges = append(phiRanges, r)
+		} else {
+			nonPhiRanges = append(nonPhiRanges, r)
+		}
+	}
+	return phiRanges, nonPhiRanges
+}
+
+// isPhiExpression reports whether the expression at handle h is an
+// ir.ExprPhi node (produced by the DXIL mem2reg Phase B walker).
+func isPhiExpression(fn *ir.Function, h ir.ExpressionHandle) bool {
+	if int(h) >= len(fn.Expressions) {
+		return false
+	}
+	_, ok := fn.Expressions[h].Kind.(ir.ExprPhi)
+	return ok
 }
 
 // mergeConsecutiveEmitRanges coalesces directly adjacent StmtEmit
