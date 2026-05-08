@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.13] - 2026-05-08
+
+### Fixed (DXIL)
+
+- **PHI node ordering** — mem2reg Phase B phi instructions now grouped at
+  top of basic blocks before non-phi instructions. Fixes `path_count.wgsl`
+  (Vello tilecompute) IDxcValidator "PHI nodes not grouped at top of basic
+  block" error. Root cause: merged StmtEmit runs emitted low-handle regular
+  expressions before high-handle phi expressions.
+
+### Added
+
+- Test coverage waves 3-4: hlsl 70.6%, wgsl/lower 65.3%, msl 64.2%,
+  spirv 76.5%, dxil/emit 37.4%. Overall ~60%.
+
 ## [0.17.12] - 2026-05-07
 
 ### Changed
