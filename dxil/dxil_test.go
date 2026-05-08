@@ -1296,3 +1296,92 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 `)
 }
+
+// TestPhiNodesGroupedAtTopOfBasicBlock verifies that phi instructions
+// produced by mem2reg Phase B are placed at the top of their basic
+// block, before any non-phi instructions. LLVM requires this grouping;
+// the IDxcValidator rejects DXIL with misplaced phi nodes.
+//
+// The if body contains both a promoted variable assignment (which mem2reg
+// Phase B turns into a phi at the merge point) AND a buffer store side
+// effect (which keeps the if-statement alive through DCE). At the merge
+// block, the phi must come before the regular expressions that follow.
+func TestPhiNodesGroupedAtTopOfBasicBlock(t *testing.T) {
+	compileWGSLToDXIL(t, `
+@group(0) @binding(0) var<storage, read_write> buf: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    var value: f32 = 1.0;
+
+    if (idx > 32u) {
+        value = 2.0;
+        // Side effect keeps the if alive through DCE.
+        buf[0u] = 99.0;
+    }
+
+    let result = value * 3.0;
+    buf[idx] = result;
+}
+`)
+}
+
+// TestPhiNodesMultipleVars verifies phi ordering with multiple variables
+// that diverge across the same if-else branch. Each variable produces a
+// separate phi instruction; all must appear at the top of the merge BB.
+func TestPhiNodesMultipleVars(t *testing.T) {
+	compileWGSLToDXIL(t, `
+@group(0) @binding(0) var<storage, read_write> buf: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    var a: f32 = 0.0;
+    var b: f32 = 0.0;
+
+    if (idx > 16u) {
+        a = 1.0;
+        b = 2.0;
+        buf[0u] = 99.0;
+    } else {
+        a = 3.0;
+        b = 4.0;
+        buf[1u] = 98.0;
+    }
+
+    let result = a + b;
+    buf[idx] = result;
+}
+`)
+}
+
+// TestPhiNodesNestedIf verifies phi ordering with nested if statements.
+// The outer if's merge phi must not be interleaved with the inner if's
+// merge block expressions.
+func TestPhiNodesNestedIf(t *testing.T) {
+	compileWGSLToDXIL(t, `
+@group(0) @binding(0) var<storage, read_write> buf: array<f32>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    var x: f32 = 0.0;
+
+    if (idx > 10u) {
+        if (idx > 20u) {
+            x = 1.0;
+            buf[0u] = 97.0;
+        } else {
+            x = 2.0;
+            buf[1u] = 96.0;
+        }
+    } else {
+        x = 3.0;
+        buf[2u] = 95.0;
+    }
+
+    buf[idx] = x * 5.0;
+}
+`)
+}

@@ -7345,6 +7345,106 @@ func TestMergeConsecutiveEmitRangesNoAlloc(t *testing.T) {
 	}
 }
 
+// TestSplitPhiRanges verifies that splitPhiRanges correctly separates
+// phi-bearing StmtEmit ranges from non-phi ranges. Phi-bearing ranges
+// must be emitted first so phi instructions appear at the top of the
+// basic block per LLVM requirements.
+func TestSplitPhiRanges(t *testing.T) {
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprBinary{}}, // [0] non-phi
+			{Kind: ir.ExprBinary{}}, // [1] non-phi
+			{Kind: ir.ExprBinary{}}, // [2] non-phi
+			{Kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{{PredKey: ir.PhiPredIfAccept, Value: 0}, {PredKey: ir.PhiPredIfReject, Value: 1}}}}, // [3] phi
+			{Kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{{PredKey: ir.PhiPredIfAccept, Value: 1}, {PredKey: ir.PhiPredIfReject, Value: 2}}}}, // [4] phi
+		},
+	}
+
+	tests := []struct {
+		name         string
+		ranges       []ir.Range
+		wantPhiCount int
+		wantNonCount int
+	}{
+		{
+			name:         "no phi ranges",
+			ranges:       []ir.Range{{Start: 0, End: 3}},
+			wantPhiCount: 0,
+			wantNonCount: 1,
+		},
+		{
+			name:         "only phi ranges",
+			ranges:       []ir.Range{{Start: 3, End: 4}, {Start: 4, End: 5}},
+			wantPhiCount: 2,
+			wantNonCount: 0,
+		},
+		{
+			name:         "mixed phi and non-phi",
+			ranges:       []ir.Range{{Start: 3, End: 4}, {Start: 4, End: 5}, {Start: 0, End: 3}},
+			wantPhiCount: 2,
+			wantNonCount: 1,
+		},
+		{
+			name:         "multi-handle range not treated as phi",
+			ranges:       []ir.Range{{Start: 3, End: 5}},
+			wantPhiCount: 0,
+			wantNonCount: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			phiR, nonR := splitPhiRanges(fn, tc.ranges)
+			if len(phiR) != tc.wantPhiCount {
+				t.Errorf("phi ranges: got %d, want %d", len(phiR), tc.wantPhiCount)
+			}
+			if len(nonR) != tc.wantNonCount {
+				t.Errorf("non-phi ranges: got %d, want %d", len(nonR), tc.wantNonCount)
+			}
+		})
+	}
+}
+
+// TestIsPhiExpression verifies the phi expression detection helper.
+func TestIsPhiExpression(t *testing.T) {
+	fn := &ir.Function{
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprBinary{}},
+			{Kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{{PredKey: ir.PhiPredIfAccept, Value: 0}}}},
+		},
+	}
+
+	if isPhiExpression(fn, 0) {
+		t.Error("handle 0 (ExprBinary) should not be phi")
+	}
+	if !isPhiExpression(fn, 1) {
+		t.Error("handle 1 (ExprPhi) should be phi")
+	}
+	if isPhiExpression(fn, 99) {
+		t.Error("out-of-range handle should not be phi")
+	}
+}
+
+// TestIsFollowedByEmit verifies the consecutive StmtEmit detection.
+func TestIsFollowedByEmit(t *testing.T) {
+	block := ir.Block{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 1, End: 2}}},
+		{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
+	}
+
+	if !isFollowedByEmit(block, 0) {
+		t.Error("block[0] should be followed by emit")
+	}
+	if isFollowedByEmit(block, 1) {
+		t.Error("block[1] should not be followed by emit (store follows)")
+	}
+	if isFollowedByEmit(block, 3) {
+		t.Error("block[3] should not be followed by emit (last element)")
+	}
+}
+
 // TestDecomposeWorkgroupStructNames verifies that decomposeWorkgroupStruct
 // produces per-member globals with correct MSVC-mangled names matching DXC's
 // groupshared struct decomposition convention.
