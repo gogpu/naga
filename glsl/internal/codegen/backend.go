@@ -259,6 +259,23 @@ type TextureMapping struct {
 	SamplerBinding *ir.ResourceBinding
 }
 
+// UniformInfo describes a GLSL uniform or storage buffer block for reflection.
+// Used by the HAL runtime binding fallback on GL < 4.2 where layout(binding=N)
+// is unavailable and bindings must be assigned after linking via GL calls.
+// Matches Rust naga ReflectionInfo.uniforms.
+type UniformInfo struct {
+	// BlockName is the GLSL block name (e.g., "Uniforms_block_0Vertex").
+	// Used with glGetUniformBlockIndex (uniform buffers) or
+	// glGetShaderStorageBlockIndex (storage buffers).
+	BlockName string
+
+	// Binding is the source (group, binding) from the IR.
+	Binding ir.ResourceBinding
+
+	// IsStorage is true for storage buffers (SSBO), false for uniform buffers (UBO).
+	IsStorage bool
+}
+
 // TranslationInfo contains metadata about the translation.
 type TranslationInfo struct {
 	// EntryPointNames maps original entry point names to generated GLSL names.
@@ -280,6 +297,13 @@ type TranslationInfo struct {
 	// (bind GL sampler to texture's unit, not sampler's own binding).
 	// Matches Rust naga ReflectionInfo.texture_mapping.
 	TextureMappings map[string]TextureMapping
+
+	// Uniforms maps global variable block names to their binding info.
+	// Used by GLES HAL for runtime binding fallback on GL < 4.2 where
+	// layout(binding=N) is unavailable. After glLinkProgram, the HAL
+	// queries block indices by name and assigns bindings via GL calls.
+	// Matches Rust naga ReflectionInfo.uniforms.
+	Uniforms []UniformInfo
 }
 
 // Compile generates GLSL source code from an IR module.
@@ -333,6 +357,7 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 		RequiredVersion:     w.requiredVersion,
 		TextureSamplerPairs: w.textureSamplerPairs,
 		TextureMappings:     textureMappings,
+		Uniforms:            w.uniformInfos,
 	}
 
 	return w.String(), info, nil

@@ -19,20 +19,20 @@
 
 ---
 
-## Current State: v0.17.4 (2026-04-21)
+## Current State: v0.17.14 (2026-06-08)
 
-✅ **Production-ready** shader compiler (~192K LOC) with **complete Rust naga parity**,
+✅ **Production-ready** shader compiler (~323K LOC) with **complete Rust naga parity**,
 **100% SPIR-V binary validation**, and **experimental DXIL backend**:
 
 ### What We Have
 
 - **Full WGSL frontend** — Lexer (120+ tokens), parser, AST → IR lowerer
 - **6 backend outputs — ALL at 100% validation:**
-  - SPIR-V: 165/165 spirv-val (Vulkan)
+  - SPIR-V: 172/172 spirv-val (Vulkan)
   - MSL: 91/91 Rust naga parity (Metal)
-  - GLSL: 68/68 Rust naga parity (OpenGL)
+  - GLSL: 68/68 Rust naga parity (OpenGL), version-aware binding (GL 3.3–4.6, ES 3.0–3.2)
   - HLSL: 72/72 Rust naga parity (DirectX 11/12)
-  - DXIL: **161/170 IDxcValidator (94.7%)**, 104/208 DXC golden parity (DirectX 12, SM 6.0-6.5) — world's first Pure Go DXIL generator
+  - DXIL: **161/170 IDxcValidator (94.7%)**, 105/208 DXC golden parity (DirectX 12, SM 6.0-6.5) — world's first Pure Go DXIL generator
   - IR: 144/144 Rust naga parity
 - **DXIL backend** (~50K LOC, 330+ unit tests) — VS/PS/CS/MS, CBV/SRV/UAV (read-only storage → SRV, read-write → UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave ops (13 intrinsics), mesh shaders (SM 6.5), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE, SROA, mem2reg, single-store local promotion, loadInput DCE, function inlining, strength reduction. `Options.BindingMap` for wgpu root signature compatibility. Eliminates FXC/DXC dependency. Verified 2400+ frames at 60 FPS on D3D12. Renders circles + text in gg production integration. Rust naga has NOT implemented this (open issue since 2020)
 - **100+ WGSL built-in functions** — math, geometric, bit manipulation, packing, derivatives
@@ -82,7 +82,7 @@
 | Goal | Status | Notes |
 |------|--------|-------|
 | Complete Rust naga parity | ✅ Done | All 5 layers at 100% |
-| SPIR-V binary validation | ✅ Done | 164/164 pass spirv-val |
+| SPIR-V binary validation | ✅ Done | 172/172 pass spirv-val |
 | Compiler optimizations | ✅ Done | −32% allocs, −34% bytes |
 | Ray tracing | ✅ Done | Ray query types, acceleration structures |
 | Subgroup operations | ✅ Done | Ballot, shuffle, broadcast, quad |
@@ -172,6 +172,9 @@
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **v0.17.14** | 2026-06 | GLSL version-aware binding: `SupportsExplicitLocations`, `UniformInfo` reflection, runtime binding fallback for GL < 4.2 (BUG-GLES-005) |
+| **v0.17.13** | 2026-05 | DXIL PHI node ordering fix, coverage waves 3-4, ~60% overall |
+| **v0.17.12** | 2026-05 | ARCH-001 internal packages refactor, 13 panics→errors |
 | **v0.16.4** | 2026-04 | GLSL workgroup zero-init per-element loop (12KB → compact) |
 | **v0.16.3** | 2026-04 | HLSL FXC workgroup zero-init fix (330× faster). First in industry. |
 | **v0.16.2** | 2026-04 | HLSL 72/72 parity (100%). ForceLoopBounding architecture fix. +14 shaders. |

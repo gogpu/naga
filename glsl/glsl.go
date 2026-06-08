@@ -38,6 +38,17 @@ func (v Version) SupportsCompute() bool {
 	return v.Major > 4 || (v.Major == 4 && v.Minor >= 30)
 }
 
+// SupportsExplicitLocations returns true if explicit layout locations for bindings
+// are supported (layout(binding=N) qualifiers).
+// Desktop GLSL 420+, ES 310+.
+// Matches Rust naga Version::supports_explicit_locations.
+func (v Version) SupportsExplicitLocations() bool {
+	if v.ES {
+		return v.Major > 3 || (v.Major == 3 && v.Minor >= 10)
+	}
+	return v.Major > 4 || (v.Major == 4 && v.Minor >= 20)
+}
+
 // SupportsStorageBuffers returns true if this version supports storage buffers.
 func (v Version) SupportsStorageBuffers() bool {
 	if v.ES {
@@ -180,6 +191,23 @@ type TextureMapping struct {
 	SamplerBinding *ir.ResourceBinding
 }
 
+// UniformInfo describes a GLSL uniform or storage buffer block for reflection.
+// Used by the HAL runtime binding fallback on GL < 4.2 where layout(binding=N)
+// is unavailable and bindings must be assigned after linking via GL calls.
+// Matches Rust naga ReflectionInfo.uniforms.
+type UniformInfo struct {
+	// BlockName is the GLSL block name (e.g., "Uniforms_block_0Vertex").
+	// Used with glGetUniformBlockIndex (uniform buffers) or
+	// glGetShaderStorageBlockIndex (storage buffers).
+	BlockName string
+
+	// Binding is the source (group, binding) from the IR.
+	Binding ir.ResourceBinding
+
+	// IsStorage is true for storage buffers (SSBO), false for uniform buffers (UBO).
+	IsStorage bool
+}
+
 // TranslationInfo contains metadata about the translation.
 type TranslationInfo struct {
 	// EntryPointNames maps original entry point names to generated GLSL names.
@@ -200,6 +228,11 @@ type TranslationInfo struct {
 	// and sampler source bindings. Used by GLES HAL to build SamplerBindMap
 	// (bind GL sampler to texture's unit, not sampler's own binding).
 	TextureMappings map[string]TextureMapping
+
+	// Uniforms lists uniform/storage buffer blocks with their GLSL block
+	// names and source bindings. Used by GLES HAL for runtime binding
+	// fallback on GL < 4.2. Matches Rust naga ReflectionInfo.uniforms.
+	Uniforms []UniformInfo
 }
 
 // DefaultOptions returns sensible default options for GLSL generation.
@@ -264,6 +297,17 @@ func fromCodegenTranslationInfo(ci codegen.TranslationInfo) TranslationInfo {
 			}
 		}
 	}
+	var uniforms []UniformInfo
+	if len(ci.Uniforms) > 0 {
+		uniforms = make([]UniformInfo, len(ci.Uniforms))
+		for i, u := range ci.Uniforms {
+			uniforms[i] = UniformInfo{
+				BlockName: u.BlockName,
+				Binding:   u.Binding,
+				IsStorage: u.IsStorage,
+			}
+		}
+	}
 	return TranslationInfo{
 		EntryPointNames: ci.EntryPointNames,
 		UsedExtensions:  ci.UsedExtensions,
@@ -274,5 +318,6 @@ func fromCodegenTranslationInfo(ci codegen.TranslationInfo) TranslationInfo {
 		},
 		TextureSamplerPairs: ci.TextureSamplerPairs,
 		TextureMappings:     texMappings,
+		Uniforms:            uniforms,
 	}
 }

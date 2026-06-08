@@ -59,7 +59,7 @@ dependencies.
 ## Package Structure
 
 ```
-naga/                              ~189K LOC total
+naga/                              ~323K LOC total
 ├── naga.go                        # Public API: Compile, Parse, Lower, Validate, GenerateSPIRV
 ├── wgsl/                          # WGSL frontend (~20K LOC)
 │   ├── wgsl.go                    # Public API: Parse, Lower (real types)
@@ -387,7 +387,7 @@ type Backend struct {
 
 ### GLSL (OpenGL) — 68/68 Rust parity
 
-- Version targeting: `#version 330`, `#version 430`, `#version 300 es`
+- Version targeting: `#version 330`, `#version 430`, `#version 300 es` (any GL 3.3–4.6, ES 3.0–3.2)
 - Attribute binding: `layout(location=N) in/out`
 - Uniform blocks: `layout(std140, binding=N) uniform BlockName { ... }`
 - Storage blocks: `layout(std430, binding=N) buffer BlockName { ... }`
@@ -395,6 +395,8 @@ type Backend struct {
 - BindingMap: remaps (group, binding) to flat GL binding indices (`group*16 + binding`)
 - Combined texture-sampler: separate WGSL `texture_2d` + `sampler` merged into GLSL `sampler2D` at texture's binding
 - TextureMappings in TranslationInfo: maps each combined sampler2D to its texture/sampler bindings (used by GLES HAL for SamplerBindMap)
+- **Version-aware `layout(binding=N)` emission**: `SupportsExplicitLocations()` gates binding qualifiers on GLSL ≥ 420 (desktop) or ≥ 310 (ES), matching Rust naga `mod.rs:213`. On older GL, bindings are omitted and must be assigned at runtime by the HAL
+- **UniformInfo reflection**: writer collects `UniformInfo` structs (block name, binding, storage flag) during code generation, exposed via `TranslationInfo.Uniforms` for post-link `glGetUniformBlockIndex`/`glUniformBlockBinding` fallback
 - Dead code elimination via `dominates_global_use` reachability
 - ProcessOverrides for pipeline constants
 - Image bounds checking
