@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   test:
     name: Test - ${{ matrix.os }}
@@ -44,11 +48,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           files: ./coverage.txt
           flags: unittests
           name: codecov-naga
-          fail_ci_if_error: true
 
   lint:
     name: Lint
