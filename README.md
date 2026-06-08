@@ -60,7 +60,7 @@
 - **Function Calls** — `OpFunctionCall` support for modular WGSL shaders with helper functions
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation (**87/87 exact Rust naga parity**): integer div/mod safety wrappers, image bounds checking (Restrict/ReadZeroSkipWrite), ray query helpers, force loop bounding, workgroup zero-init polyfill, NonUniform decorations, capability-aware instruction emission
 - **MSL Backend** — Metal Shading Language output for macOS/iOS (**91/91 exact Rust naga parity**), vertex pulling transform, external textures, override pipeline constants
-- **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+ (**68/68 exact Rust naga parity**), dead code elimination, ProcessOverrides, image bounds checking
+- **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+ (**68/68 exact Rust naga parity**), dead code elimination, ProcessOverrides, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12 (**72/72 exact Rust naga parity**)
 - **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**161/170 IDxcValidator validation, 94.7%**; **105/208 DXC golden parity, diff=0**; **gg production: 61/61 entry points VALID (100%)**; visual: renders circles + text on D3D12). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (mark-and-sweep), SROA (struct decomposition), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~50K LOC, 330+ unit tests. World's first Pure Go DXIL generator.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
@@ -204,7 +204,7 @@ spirvBytes, err := naga.GenerateSPIRV(module, spirvOpts)
 ## Architecture
 
 ```
-naga/                              ~192K LOC total
+naga/                              ~323K LOC total
 ├── wgsl/              # WGSL frontend (~19.5K LOC)
 │   ├── token.go       # Token types (120+)
 │   ├── lexer.go       # Tokenizer
@@ -333,11 +333,11 @@ naga/                              ~192K LOC total
 
 | Backend | Status | Target Platform |
 |---------|--------|-----------------|
-| SPIR-V | ✅ **87/87 Rust parity** | Vulkan |
+| SPIR-V | ✅ **87/87 Rust parity**, 172/172 spirv-val | Vulkan |
 | MSL | ✅ **91/91 Rust parity** | Metal (macOS/iOS) |
-| GLSL | ✅ **68/68 Rust parity** | OpenGL 3.3+, ES 3.0+ |
+| GLSL | ✅ **68/68 Rust parity**, version-aware binding | OpenGL 3.3+, ES 3.0+ |
 | HLSL | ✅ **72/72 Rust parity** | DirectX 11/12 |
-| DXIL | **161/170 IDxcValidator (94.7%)** | DirectX 12 (SM 6.0-6.5, experimental) |
+| DXIL | **161/170 IDxcValidator (94.7%)**, 105 DXC golden | DirectX 12 (SM 6.0-6.5, experimental) |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 

@@ -115,6 +115,12 @@ type Writer struct {
 	globalBlockName    map[ir.GlobalVariableHandle]string // block name
 	globalInstanceName map[ir.GlobalVariableHandle]string // instance variable name
 
+	// uniformInfos collects reflection data for uniform/storage blocks.
+	// Populated during writeUniformBlock and writeStorageVariable.
+	// Used to build TranslationInfo.Uniforms for the runtime binding fallback
+	// on GL < 4.2. Matches Rust naga's reflection_names_globals.
+	uniformInfos []UniformInfo
+
 	// Reachability set for dead code elimination.
 	// When set, only reachable types, constants, globals, and functions
 	// are emitted in the output. Built by collectReachable for the
@@ -1167,6 +1173,12 @@ func (w *Writer) writeUniformVariable(name, typeName string, global ir.GlobalVar
 		} else {
 			w.WriteLine("layout(std140) uniform %s { %s %s%s; };", blockName, baseType, instanceName, arraySuffix)
 		}
+		// Record for runtime binding fallback (GL < 4.2).
+		w.uniformInfos = append(w.uniformInfos, UniformInfo{
+			BlockName: blockName,
+			Binding:   *global.Binding,
+			IsStorage: false,
+		})
 	} else {
 		w.WriteLine("uniform %s %s;", typeName, name)
 	}
@@ -1183,6 +1195,12 @@ func (w *Writer) writeUniformBlock(name, typeName string, global ir.GlobalVariab
 		} else {
 			w.WriteLine("layout(std140) uniform %s { %s %s; };", blockName, typeName, instanceName)
 		}
+		// Record for runtime binding fallback (GL < 4.2).
+		w.uniformInfos = append(w.uniformInfos, UniformInfo{
+			BlockName: blockName,
+			Binding:   *global.Binding,
+			IsStorage: false,
+		})
 	} else {
 		w.WriteLine("uniform %s {", blockName)
 		w.PushIndent()
@@ -1341,6 +1359,14 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 			} else {
 				w.WriteLine("%s%sbuffer %s { %s %s; };", layoutPrefix, readOnly, blockName, typeName, instanceName)
 			}
+			// Record for runtime binding fallback (GL < 4.2).
+			if global.Binding != nil {
+				w.uniformInfos = append(w.uniformInfos, UniformInfo{
+					BlockName: blockName,
+					Binding:   *global.Binding,
+					IsStorage: true,
+				})
+			}
 			return
 		}
 	}
@@ -1349,6 +1375,14 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 	baseType := w.getBaseTypeName(global.Type)
 	arraySuffix := w.getArraySuffix(global.Type)
 	w.WriteLine("%s%sbuffer %s { %s %s%s; };", layoutPrefix, readOnly, blockName, baseType, instanceName, arraySuffix)
+	// Record for runtime binding fallback (GL < 4.2).
+	if global.Binding != nil {
+		w.uniformInfos = append(w.uniformInfos, UniformInfo{
+			BlockName: blockName,
+			Binding:   *global.Binding,
+			IsStorage: true,
+		})
+	}
 }
 
 // writeVaryingDeclarations writes entry point in/out declarations at module level.

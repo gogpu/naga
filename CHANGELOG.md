@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.14] - 2026-06-08
+
+### Added (GLSL)
+
+- **GLSL version-aware binding support (BUG-GLES-005)** — GLSL backend now
+  provides full infrastructure for runtime binding fallback on GL < 4.2 drivers
+  (e.g., WSL2 Mesa d3d12 with GL 4.1 / GLSL 410). Follows Rust wgpu-hal
+  `device.rs:438-461` pattern.
+  - `SupportsExplicitLocations()` method on `Version` — gates `layout(binding=N)`
+    emission on GLSL >= 420 (desktop) or >= 310 (ES). Matches Rust naga
+    `mod.rs:213`.
+  - `UniformInfo` struct — reflection data for uniform/storage blocks (block name,
+    binding, storage flag). Populated during GLSL code generation.
+  - `TranslationInfo.Uniforms` field — carries uniform block reflection to the
+    HAL for post-link `glGetUniformBlockIndex`/`glUniformBlockBinding` assignment.
+  - `VersionES300` constant — safe minimum for OpenGL ES contexts.
+  - Writer collects `uniformInfos` during `writeUniformBlock`, `writeUniformVariable`,
+    and `writeStorageVariable` for the runtime binding fallback path.
+
 ## [0.17.13] - 2026-05-08
 
 ### Fixed (DXIL)
