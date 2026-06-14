@@ -30,10 +30,9 @@ void test_g(
 
 kernel void test_ep(
   metal::uint3 __local_invocation_id [[thread_position_in_threadgroup]]
-, threadgroup metal::float2x2& w_mem2_
 ) {
+    threadgroup metal::float2x2 w_mem2_;
     if (metal::all(__local_invocation_id == metal::uint3(0u))) {
-        w_mem = {};
         w_mem2_ = {};
     }
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);

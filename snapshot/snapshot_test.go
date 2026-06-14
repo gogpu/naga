@@ -102,6 +102,13 @@ func TestSnapshots(t *testing.T) {
 //   - "extra-opdecorate": we emit an extra OpDecorate (e.g. NonWritable) that Rust omits.
 //   - "no-compact-pass": shader has no entry points — Rust compact pass removes all dead code,
 //     we emit full output. Rust reference is empty/minimal, comparison is meaningless.
+//   - "msl-threadgroup-function-scope": we declare workgroup variables at function-body
+//     scope inside the kernel ("threadgroup T name;") instead of as threadgroup
+//     entry-point parameters like Rust naga. Rust's approach requires the host to call
+//     setThreadgroupMemoryLength:atIndex: (Rust wgpu-hal does this in its Metal encoder);
+//     the pure-Go wgpu Metal HAL does not, so parameter-based threadgroup memory is
+//     unsized and reads/writes silently no-op. Function-scope declarations are legal MSL
+//     and need no host-side setup. Generated code is otherwise identical.
 var referenceAllowList = map[string]string{
 	"atomicOps":                 "workgroup-layout-free",
 	"atomicOps-int64":           "workgroup-layout-free",
@@ -110,6 +117,13 @@ var referenceAllowList = map[string]string{
 	"bits":                      "missing-int8-capability",
 	"binding-buffer-arrays":     "extra-opdecorate",
 	"ptr-deref-test":            "no-compact-pass",
+
+	"abstract-types-operators":            "msl-threadgroup-function-scope",
+	"globals":                             "msl-threadgroup-function-scope",
+	"interface":                           "msl-threadgroup-function-scope",
+	"overrides-atomicCompareExchangeWeak": "msl-threadgroup-function-scope",
+	"policy-mix":                          "msl-threadgroup-function-scope",
+	"workgroup-uniform-load":              "msl-threadgroup-function-scope",
 }
 
 // TestRustReference compares our compiled output against Rust naga reference outputs.

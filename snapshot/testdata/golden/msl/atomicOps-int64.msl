@@ -85,10 +85,10 @@ kernel void cs_main(
 , device metal::atomic_ulong& storage_atomic_scalar [[user(fake0)]]
 , device type_2& storage_atomic_arr [[user(fake0)]]
 , device Struct& storage_struct [[user(fake0)]]
-, threadgroup metal::atomic_ulong& workgroup_atomic_scalar
-, threadgroup type_2& workgroup_atomic_arr
-, threadgroup Struct& workgroup_struct
 ) {
+    threadgroup metal::atomic_ulong workgroup_atomic_scalar;
+    threadgroup type_2 workgroup_atomic_arr;
+    threadgroup Struct workgroup_struct;
     if (metal::all(id == metal::uint3(0u))) {
         metal::atomic_store_explicit(&workgroup_atomic_scalar, 0, metal::memory_order_relaxed);
         for (int __i0 = 0; __i0 < 2; __i0++) {

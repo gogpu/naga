@@ -573,12 +573,26 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// Collect all parameters, then format them
 	paramCount := 0
 
+	// Build set of globals actually referenced by this entry point (direct + transitive).
+	// Rust naga only emits resources that the entry point actually uses, not ALL globals.
+	epUsedGlobals := make(map[uint32]struct{})
+	if globals, ok := w.funcPassThroughGlobals[epFuncHandle(epIdx)]; ok {
+		for _, h := range globals {
+			epUsedGlobals[h] = struct{}{}
+		}
+	}
+
 	// Check if we need workgroup zero-initialization for this entry point.
-	// This requires: compute shader + ZeroInitializeWorkgroupMemory + workgroup vars.
+	// This requires: compute shader + ZeroInitializeWorkgroupMemory + workgroup vars
+	// actually used by this entry point (matching Rust naga, which filters by
+	// !fun_info[handle].is_empty()).
 	needWorkgroupInit := false
 	localInvocationIDName := ""
 	if w.options.ZeroInitializeWorkgroupMemory && ep.Stage == ir.StageCompute {
-		for _, global := range w.module.GlobalVariables {
+		for i, global := range w.module.GlobalVariables {
+			if _, used := epUsedGlobals[uint32(i)]; !used {
+				continue
+			}
 			if global.Space == ir.SpaceWorkGroup {
 				needWorkgroupInit = true
 				break
@@ -684,15 +698,6 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// preventing collisions when multiple groups share binding numbers.
 	w.computeResourceMap(ep.Name)
 
-	// Build set of globals actually referenced by this entry point (direct + transitive).
-	// Rust naga only emits resources that the entry point actually uses, not ALL globals.
-	epUsedGlobals := make(map[uint32]struct{})
-	if globals, ok := w.funcPassThroughGlobals[epFuncHandle(epIdx)]; ok {
-		for _, h := range globals {
-			epUsedGlobals[h] = struct{}{}
-		}
-	}
-
 	// Global variable parameters — emitted in declaration order (matching Rust naga).
 	// This includes both resource bindings (device/constant with [[buffer]]/[[texture]])
 	// and workgroup variables (threadgroup without binding attributes).
@@ -717,11 +722,12 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 			w.writeEntryPointParam(paramCount, paramStr)
 			paramCount++
 		} else if global.Space == ir.SpaceWorkGroup {
-			// Workgroup variable — threadgroup parameter without binding attribute
-			name := w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: uint32(i)})
-			typeName := w.writeTypeName(global.Type, StorageAccess(0))
-			w.writeEntryPointParam(paramCount, fmt.Sprintf("threadgroup %s& %s", typeName, name))
-			paramCount++
+			// Workgroup variables are NOT emitted as entry-point parameters.
+			// Metal requires the host to call setThreadgroupMemoryLength:atIndex:
+			// for threadgroup entry-point parameters; instead they are declared
+			// at function-body scope inside the kernel (see below), which needs
+			// no host-side setup.
+			continue
 		} else if global.Space == ir.SpaceImmediate {
 			// Immediate data variable — constant buffer parameter.
 			// Resolve binding slot from per-entry-point ImmediatesBuffer config.
@@ -858,11 +864,30 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// For simple results, inline aggregate initialization is used.
 	_ = outputStructName
 
+	// Workgroup variable declarations — function-body scope, threadgroup
+	// address space. Declared inside the kernel (legal MSL) rather than as
+	// entry-point parameters, because threadgroup *parameters* require the
+	// host to call setThreadgroupMemoryLength:atIndex: which the pure-Go
+	// Metal HAL does not do. Names are identical to the former parameters,
+	// so all body references and helper-function call sites resolve unchanged.
+	// Must come BEFORE the zero-init prologue, which references these names.
+	for i, global := range w.module.GlobalVariables {
+		if _, used := epUsedGlobals[uint32(i)]; !used {
+			continue
+		}
+		if global.Space != ir.SpaceWorkGroup {
+			continue
+		}
+		name := w.getName(nameKey{kind: nameKeyGlobalVariable, handle1: uint32(i)})
+		typeName := w.writeTypeName(global.Type, StorageAccess(0))
+		w.WriteLine("threadgroup %s %s;", typeName, name)
+	}
+
 	// Workgroup zero-initialization prologue.
 	// Matches Rust naga: zero all workgroup vars if __local_invocation_id == uint3(0).
 	// Must come BEFORE local variables and private var locals.
 	if needWorkgroupInit {
-		if err := w.writeWorkgroupZeroInit(localInvocationIDName); err != nil {
+		if err := w.writeWorkgroupZeroInit(localInvocationIDName, epUsedGlobals); err != nil {
 			return err
 		}
 	}
@@ -1843,12 +1868,16 @@ func resolveInterpolationString(interp *ir.Interpolation) string {
 }
 
 // writeWorkgroupZeroInit writes the zero-initialization prologue for workgroup variables.
-// Matches Rust naga: check __local_invocation_id == uint3(0), then zero-init all workgroup vars.
-func (w *Writer) writeWorkgroupZeroInit(localInvIDName string) error {
+// Matches Rust naga: check __local_invocation_id == uint3(0), then zero-init the workgroup
+// vars used by this entry point (Rust filters by !fun_info[handle].is_empty()).
+func (w *Writer) writeWorkgroupZeroInit(localInvIDName string, usedGlobals map[uint32]struct{}) error {
 	w.WriteLine("if (%sall(%s == %suint3(0u))) {", Namespace, localInvIDName, Namespace)
 	w.PushIndent()
 
 	for i, global := range w.module.GlobalVariables {
+		if _, used := usedGlobals[uint32(i)]; !used {
+			continue
+		}
 		if global.Space != ir.SpaceWorkGroup {
 			continue
 		}
