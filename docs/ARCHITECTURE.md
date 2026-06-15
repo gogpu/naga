@@ -379,7 +379,7 @@ type Backend struct {
 
 - Entry point qualifiers: `vertex`, `fragment`, `kernel`
 - Buffer bindings: `[[buffer(N)]]`, `[[texture(N)]]`, `[[sampler(N)]]`
-- Workgroup memory: `threadgroup` address space
+- Workgroup memory: function-scope `threadgroup` declarations (no host `setThreadgroupMemoryLength` needed), per-entry-point usage filtering
 - Bounds check policies: Unchecked, ReadZeroSkipWrite, Restrict
 - Vertex pulling transform with buffer size structs
 - External texture support (multi-plane YUV sampling)

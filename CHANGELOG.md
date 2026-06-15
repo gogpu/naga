@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.15] - 2026-06-15
+
+### Fixed (MSL)
+
+- **MSL: workgroup vars at function-body scope** (PR #77, @georgebuilds) —
+  workgroup (`threadgroup`) variables are now declared inside the kernel function
+  body (`threadgroup T name;`) instead of as entry-point parameters
+  (`threadgroup T& name`). The parameter form requires the host to call
+  `setThreadgroupMemoryLength:atIndex:` before dispatch (Rust wgpu-hal does this);
+  our Pure Go Metal HAL does not, causing workgroup memory to silently no-op.
+  Function-scope declarations are legal MSL, statically sized by the compiler,
+  and need no host-side setup. Verified on Apple M3 Max with Metal 3.1 runtime.
+  Intentional divergence from Rust naga, recorded in reference allow-list.
+- **MSL: per-entry-point workgroup zero-init filtering** — `writeWorkgroupZeroInit`
+  now filters by entry-point usage (matching Rust naga `fun_info[handle].is_empty()`),
+  so only workgroup vars actually used by the entry point are declared and zeroed.
+  Fixes latent bug where unused vars were incorrectly zero-initialized.
+
+### Changed
+
+- **CONTRIBUTING.md** — added snapshot test infrastructure documentation
+  (golden file naming convention, reference allow-list, adding new test shaders),
+  updated project structure (hlsl, dxil, snapshot, cmd/spvdis, cmd/dxilval),
+  added testing commands (TestRustReference, UPDATE_GOLDEN, SPIR-V validation).
+
 ## [0.17.14] - 2026-06-08
 
 ### Added (GLSL)

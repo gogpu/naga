@@ -172,6 +172,7 @@
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **v0.17.15** | 2026-06 | MSL function-scope workgroup vars (PR #77, @georgebuilds) — fixes silent no-op on Metal without `setThreadgroupMemoryLength`. Per-EP zero-init filtering. |
 | **v0.17.14** | 2026-06 | GLSL version-aware binding: `SupportsExplicitLocations`, `UniformInfo` reflection, runtime binding fallback for GL < 4.2 (BUG-GLES-005) |
 | **v0.17.13** | 2026-05 | DXIL PHI node ordering fix, coverage waves 3-4, ~60% overall |
 | **v0.17.12** | 2026-05 | ARCH-001 internal packages refactor, 13 panics→errors |
