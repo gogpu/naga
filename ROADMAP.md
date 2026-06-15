@@ -1,134 +1,152 @@
 # naga Roadmap
 
-> **Pure Go Shader Compiler**
+> **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> WGSL to SPIR-V, MSL, GLSL, and HLSL. Zero CGO.
+> Current: **v0.17.15** (June 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
 ## Vision
 
-**naga** is a shader compiler written entirely in Go. It compiles WGSL (WebGPU Shading Language) to multiple backend formats without requiring CGO or external dependencies.
+**naga** is the shader compiler foundation for the [GoGPU](https://github.com/gogpu) ecosystem. It compiles WGSL to every major GPU backend — Vulkan, Metal, OpenGL, DirectX 11/12, and DirectX 12 SM 6.x (DXIL) — in Pure Go with zero CGO.
+
+Our goal: **the most complete, most tested, most portable shader compiler available outside of browser engines.** Not a toy, not a wrapper — a production compiler that powers real GPU applications (2D graphics, GUI toolkits, ML training, game engines).
 
 ### Core Principles
 
 1. **Pure Go** — No CGO, easy cross-compilation, single binary deployment
-2. **Multi-Backend** — SPIR-V (Vulkan), MSL (Metal), GLSL (OpenGL), HLSL (DirectX)
-3. **Spec Compliant** — Follow W3C WGSL and Khronos SPIR-V specifications
-4. **Production-Ready** — Tested on real hardware (Intel, NVIDIA, AMD, Apple)
+2. **Six Backends** — SPIR-V (Vulkan), MSL (Metal), GLSL (OpenGL), HLSL (DirectX 11/12), DXIL (DirectX 12 SM 6.x)
+3. **Spec Compliant** — W3C WGSL, Khronos SPIR-V, Metal Shading Language, HLSL, DXIL specifications
+4. **Production-Ready** — Tested on real hardware (Intel, AMD, Apple Silicon), verified by external contributors
+5. **Rust Naga Parity** — Structural golden-file parity with [Rust naga](https://github.com/gfx-rs/naga) across all text backends
+
+### Who Uses naga
+
+| Consumer | Use Case |
+|----------|----------|
+| [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU — Vulkan, Metal, DX12, GLES, Software backends |
+| [gogpu/gg](https://github.com/gogpu/gg) | 2D graphics — GPU SDF acceleration, Vello compute shaders |
+| [gogpu/ui](https://github.com/gogpu/ui) | GUI toolkit — 22+ widgets, 4 themes, GPU-accelerated rendering |
+| [born-ml/born](https://github.com/born-ml/born) | ML framework — GPU compute training (migrated from go-webgpu) |
+| Flutter embedding (@georgebuilds) | Flutter Impeller on Pure Go GPU stack |
 
 ---
 
-## Current State: v0.17.14 (2026-06-08)
+## Where We Are (v0.17.15)
 
-✅ **Production-ready** shader compiler (~323K LOC) with **complete Rust naga parity**,
-**100% SPIR-V binary validation**, and **experimental DXIL backend**:
+**~323K LOC, 6 backends, 100% Rust parity on all text backends, 172/172 SPIR-V validation.**
 
-### What We Have
-
-- **Full WGSL frontend** — Lexer (120+ tokens), parser, AST → IR lowerer
-- **6 backend outputs — ALL at 100% validation:**
-  - SPIR-V: 172/172 spirv-val (Vulkan)
-  - MSL: 91/91 Rust naga parity (Metal)
-  - GLSL: 68/68 Rust naga parity (OpenGL), version-aware binding (GL 3.3–4.6, ES 3.0–3.2)
-  - HLSL: 72/72 Rust naga parity (DirectX 11/12)
-  - DXIL: **161/170 IDxcValidator (94.7%)**, 105/208 DXC golden parity (DirectX 12, SM 6.0-6.5) — world's first Pure Go DXIL generator
-  - IR: 144/144 Rust naga parity
-- **DXIL backend** (~50K LOC, 330+ unit tests) — VS/PS/CS/MS, CBV/SRV/UAV (read-only storage → SRV, read-write → UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave ops (13 intrinsics), mesh shaders (SM 6.5), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE, SROA, mem2reg, single-store local promotion, loadInput DCE, function inlining, strength reduction. `Options.BindingMap` for wgpu root signature compatibility. Eliminates FXC/DXC dependency. Verified 2400+ frames at 60 FPS on D3D12. Renders circles + text in gg production integration. Rust naga has NOT implemented this (open issue since 2020)
-- **100+ WGSL built-in functions** — math, geometric, bit manipulation, packing, derivatives
-- **Compute shaders** — atomics (int32/int64/float32), barriers, workgroups, runtime-sized arrays
-- **Ray tracing** — ray query types, acceleration structures, 7 ray query builtins
-- **Subgroup operations** — ballot, shuffle, broadcast, quad operations
-- **Mesh shaders** — MeshEXT/TaskEXT execution models with SPV_EXT_mesh_shader
-- **Pipeline overrides** — OpSpecConstant with ProcessOverrides pipeline
-- **Image atomics** — OpImageTexelPointer + atomic ops on storage textures
-- **Texture sampling** — sample, load, store, gather, dimensions (50+ formats)
-- **f16/i64/u64/f64** scalar types with literal suffixes
-- **Pack/Unpack** — 4x8 and 2x16 packing with signed/unsigned/clamped variants
-- **SPIR-V integer safety** — naga_div/naga_mod wrappers prevent UB
-- **Image bounds checking** — Restrict and ReadZeroSkipWrite policies
-- **Pointer function arguments** — copy-in/copy-out spill pattern
-- **994+ golden output files** across 4 backends
-- **Development tools** — nagac CLI, spvdis disassembler, dxilval CLI (Pure Go `IDxcValidator` wrapper with three-layer defensive pre-check)
+| Backend | Parity | Validation | Status |
+|---------|--------|------------|--------|
+| SPIR-V | 87/87 golden | 172/172 spirv-val | Production |
+| MSL | 91/91 golden | M3 Max Metal 3.1 verified | Production |
+| GLSL | 68/68 golden | Version-aware binding (GL 3.3–4.6, ES 3.0–3.2) | Production |
+| HLSL | 72/72 golden | SM 5.0 / SM 6.0 | Production |
+| DXIL | 161/170 IDxcValidator (94.7%) | 105/208 DXC golden (55.1%) | Experimental |
+| IR | 144/144 golden | — | Production |
 
 ---
 
-## Next Up
+## Roadmap to v1.0.0 (December 2026)
 
-### Next: Internal Packages Refactor (ARCH-001)
+### Phase 1: API Stability (July 2026)
 
-| Task | Priority | Effort | Description |
+**Goal: stable public API contract — no breaking changes after this phase.**
+
+| Task | Priority | Status | Description |
 |------|----------|--------|-------------|
-| **Internal packages refactor** | P2 | 13 | Move implementations to `internal/`, reduce public API 398→~118 symbols |
-| **SPIR-V structural parity** | P3 | 3 | 87/93 match + 6 allow-listed (3 ahead of Rust: Workgroup layout-free types) |
-| **Test coverage 80%** | P2 | 8 | After ARCH-001 — wgsl 40%→80%, msl 40%→80%, hlsl 48%→80% |
+| ARCH-001: Internal packages | P1 | In Progress | Move implementations to `internal/`, reduce public API 398→~118 symbols |
+| API review + freeze | P1 | Planned | Review all public types/functions, document stability guarantees |
+| Deprecation pass | P1 | Planned | Mark unstable APIs as deprecated, provide migration paths |
+| `go doc` audit | P2 | Planned | Every exported symbol has clear godoc, every package has doc.go |
 
-### Next: DXIL Backend (direct DXIL generation, no FXC)
+### Phase 2: Test Coverage (August–September 2026)
 
-| Task | Priority | Effort | Description |
+**Goal: 80%+ per-package coverage — awesome-go requirement.**
+
+| Task | Priority | Status | Description |
 |------|----------|--------|-------------|
-| **DXIL Phase 0: Bitcode writer** | P1 | 8 | ✅ Done. LLVM 3.7 bitcode writer, module builder, DXBC container, BYPASS hash. |
-| **DXIL Phase 1: Vertex+fragment** | P1 | 21 | ✅ Done. Full IR → DXIL lowering: math, casts, control flow, locals, resources, signatures. |
-| **DXIL CBV loads** | P1 | 2 | ✅ Done. `dx.op.cbufferLoadLegacy` for uniform buffers. Register index + component extraction. |
-| **DXIL Phase 2a: Compute foundation** | P2 | 5 | ✅ Done. Thread IDs, numthreads, UAV bufferLoad/bufferStore. |
-| **DXIL Phase 2b: Atomics + barriers** | P2 | 3 | ✅ Done. atomicBinOp (8 ops), atomicCmpXchg, dx.op.barrier, workgroup atomicrmw/cmpxchg. |
-| **DXIL Phase 2c: Mesh shaders** | P2 | 5 | ✅ Done. SM 6.5 intrinsics (168-172), PSG1 signatures, mesh metadata. |
-| **DXIL DXC validation** | ✅ Done | — | **161/170 IDxcValidator (94.7%)**. 105/208 DXC golden parity. **gg 61/61 (100%)**. All features: ray query, image atomics, wave ops. |
-| **DXIL Phase 3: SM 6.x features** | ✅ Done | — | Ray query (SM 6.5), wave intrinsics (SM 6.0), mesh shaders (SM 6.5), image atomics. |
-| **DXIL real validation — `IDxcValidator` wrapper** | ✅ Done | — | `cmd/dxilval` CLI + `internal/dxcvalidator` Pure Go wrapper around Microsoft `dxil.dll` (zero CGO). Three-layer defensive stack: (0) emitter assertion against null entry-point function refs, (1) `PreCheckContainer` fixed-offset DXBC structural check, (2) `bitcheck.Check` minimal LLVM 3.7 bitstream walker verifying `!dx.entryPoints[i][0]` is non-null. Prevents the `dxil.dll+0xe9da` AV class on any input (our own naga output, DXC output, third-party tool output, hand-crafted garbage). Closes BUG-DXIL-VALIDATOR-REAL. |
+| Coverage wave 5+ | P1 | Planned | wgsl 65%→80%, msl 64%→80%, hlsl 71%→80% |
+| DXIL downstream corpus | P2 | Planned | Real-world shader corpus from gg/ui/born production |
+| DXIL differential testing | P2 | Planned | naga WGSL→DXIL vs naga WGSL→HLSL→DXC→DXIL roundtrip |
+| Native Go fuzzing | P2 | Planned | `testing/F` fuzzing for WGSL parser and all backends |
+| WebGPU CTS integration | P3 | Planned | Test against WebGPU Conformance Test Suite shaders |
 
-### v1.0.0 — Stable Release
+### Phase 3: DXIL Graduation (September–October 2026)
 
-| Goal | Status | Notes |
-|------|--------|-------|
-| Complete Rust naga parity | ✅ Done | All 5 layers at 100% |
-| SPIR-V binary validation | ✅ Done | 172/172 pass spirv-val |
-| Compiler optimizations | ✅ Done | −32% allocs, −34% bytes |
-| Ray tracing | ✅ Done | Ray query types, acceleration structures |
-| Subgroup operations | ✅ Done | Ballot, shuffle, broadcast, quad |
-| Mesh shaders | ✅ Done | MeshEXT/TaskEXT |
-| Internal packages | Planned | ARCH-001: `internal/` for all backends |
-| DXIL backend | ✅ Done | Direct DXIL, no FXC dependency (~48K LOC, 161/170 IDxcValidator) |
-| API stability guarantee | Planned | Semantic versioning contract |
-| Test coverage 80%+ | Planned | awesome-go requirement, after ARCH-001 |
+**Goal: DXIL backend from experimental to production — 100% IDxcValidator, 80%+ DXC golden parity.**
+
+| Task | Priority | Status | Description |
+|------|----------|--------|-------------|
+| IDxcValidator 170/170 | P1 | 161/170 | Remaining 9: ray tracing, image atomics, subgroups (compile_fail) |
+| DXC golden parity 80%+ | P1 | 105/208 (55%) | Structural match with DXC roundtrip output |
+| DXIL optimization passes | P2 | Done (5 passes) | DCE, SROA, mem2reg, inlining, strength reduction |
+| Microsoft IDxcValidator AV issue | P2 | Draft ready | File upstream issue for validator crash on malformed input |
+| SM 7.0 SPIR-V readiness | P3 | Monitoring | Microsoft adopting SPIR-V for SM 7.0 — our SPIR-V backend (172/172) is the long-term path |
+
+### Phase 4: Hardening & Polish (November 2026)
+
+**Goal: fix remaining edge cases, finalize documentation.**
+
+| Task | Priority | Status | Description |
+|------|----------|--------|-------------|
+| SPIR-V structural parity | P2 | 87/93 | 6 allow-listed (3 ahead of Rust: workgroup layout-free types) |
+| SPV-008 runtime residual | P2 | Workaround in gg | Nested for-loops/if-else incorrect runtime results despite valid SPIR-V |
+| Shared optimization passes | P3 | DXIL-only now | Lift DCE/SROA/mem2reg to IR level for all backends |
+| Documentation finalization | P1 | In Progress | ARCHITECTURE.md, CONTRIBUTING.md, pkg.go.dev, migration guide |
+
+### v1.0.0 Release (December 2026)
+
+**Goal: stable, documented, 80%+ tested, production-proven shader compiler.**
+
+| Milestone | Status | Notes |
+|-----------|--------|-------|
+| Complete Rust naga parity | ✅ Done | All 5 text backends at 100% |
+| SPIR-V binary validation 100% | ✅ Done | 172/172 pass spirv-val |
+| DXIL backend production-ready | In Progress | 94.7% IDxcValidator, target 100% |
+| API stability guarantee | Planned | Semantic versioning contract, Phase 1 |
+| Test coverage 80%+ | Planned | awesome-go requirement, Phase 2 |
+| Performance benchmarks published | ✅ Done | 68 benchmarks, −32% allocs, −34% bytes |
+| Comprehensive documentation | In Progress | ARCHITECTURE.md, CONTRIBUTING.md, pkg.go.dev |
+| Real-world validation | ✅ Done | gg, ui, born-ml, Quake (ironwail-go), Flutter embedding |
 
 ---
 
-## Future Directions
+## Future Directions (post-v1.0)
 
-### Frontends (New Input Formats)
+### New Frontends
 
-| Frontend | Priority | Effort | Description |
-|----------|----------|--------|-------------|
-| **SPIR-V input** | Low | XL | SPIR-V → IR decompiler. Enables roundtrip testing and SPIR-V → MSL/GLSL/HLSL cross-compilation |
-| **GLSL input** | Low | XL | GLSL → IR parser. Enables legacy OpenGL shader migration to modern backends |
-| **WGSL output** | Low | L | IR → WGSL printer. Enables roundtrip testing (WGSL → IR → WGSL) and shader formatting/normalization |
+| Frontend | Priority | Description |
+|----------|----------|-------------|
+| **SPIR-V input** | Medium | SPIR-V → IR decompiler. Enables roundtrip testing and SPIR-V → MSL/GLSL/HLSL cross-compilation |
+| **GLSL input** | Low | GLSL → IR parser. Legacy OpenGL shader migration to modern backends |
+| **WGSL output** | Medium | IR → WGSL printer. Roundtrip testing, shader formatting/normalization |
 
-### Optimization Passes
-
-| Pass | Priority | Description |
-|------|----------|-------------|
-| Constant folding | Medium | Evaluate constant expressions at compile time |
-| Dead code elimination | ✅ Done | Mark-and-sweep DCE in DXIL pipeline (dead locals, control flow, pure calls, resources) |
-| Inlining | ✅ Done | Two-tier inline policy in DXIL pipeline (alias aggregates, early-return wrapping) |
-| SROA | ✅ Done | Struct locals → per-member locals in DXIL pipeline |
-| mem2reg | ✅ Done | SSA promotion with phi insertion (Phase A + B) in DXIL pipeline |
-| Dead store elimination | Low | Remove stores that are never read |
-
-### Tooling & DX
+### Tooling & Developer Experience
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
-| Source maps | Medium | Debug info mapping SPIR-V instructions back to WGSL source locations |
-| Shader minification | Low | Remove debug names, compact identifiers for production builds |
-| LSP integration | Low | Language server protocol for WGSL editor support |
+| **Source maps** | Medium | Debug info mapping SPIR-V/DXIL instructions back to WGSL source locations |
+| **LSP integration** | Medium | Language server protocol for WGSL editor support (syntax, diagnostics, hover) |
+| **Shader minification** | Low | Remove debug names, compact identifiers for production builds |
+| **WGSL formatter** | Low | Canonical formatting (like `gofmt` for WGSL) |
 
-### Known Limitations
+### Ecosystem Integration
 
-| Limitation | Notes |
-|------------|-------|
-| Runtime residual prologue (SPV-008) | Workaround exists in gg (select/flat loops). Nested for-loops and if/else may produce incorrect runtime results despite valid SPIR-V |
-| SPIR-V structural gaps (3 shaders) | Pack/unpack uses polyfill instead of Int8 native types; 1 extra Block decoration. Valid SPIR-V, just different from Rust output |
+| Integration | Description |
+|-------------|-------------|
+| **gogpu/compute** | GPU compute abstraction (shader cache, pipeline cache, buffer pool) — naga as shader compiler |
+| **gogpu/editor** | Code editor widget — WGSL syntax highlighting powered by naga lexer |
+| **WebGPU CTS** | Conformance testing against W3C WebGPU test suite |
+
+---
+
+## Non-Goals
+
+- **Runtime compilation** — naga is ahead-of-time only (compile-time shader compilation)
+- **Shader reflection** — use SPIR-V reflection tools (spirv-cross, spirv-reflect)
+- **GLSL/HLSL as primary input** — WGSL is the primary language; other frontends are future/optional
+- **LLVM dependency** — DXIL backend generates LLVM 3.7 bitcode directly, no LLVM library needed
 
 ---
 
@@ -154,16 +172,15 @@
                    │  ir/resolve   │
                    └───────┬───────┘
                            │
-        ┌──────────┬───────┴───────┬──────────┐
-        ▼          ▼               ▼          ▼
-   ┌─────────┐ ┌─────────┐   ┌─────────┐ ┌─────────┐
-   │  spirv/ │ │   msl/  │   │  glsl/  │ │  hlsl/  │
-   │ backend │ │ backend │   │ backend │ │ backend │
-   └────┬────┘ └────┬────┘   └────┬────┘ └────┬────┘
-        │          │             │          │
-        ▼          ▼             ▼          ▼
-     SPIR-V      MSL           GLSL       HLSL
-    (Vulkan)   (Metal)       (OpenGL)  (DirectX)
+        ┌──────────┬───────┼───────┬──────────┐
+        ▼          ▼       ▼       ▼          ▼
+   ┌─────────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
+   │  spirv/ │ │ msl/ │ │ glsl/│ │ hlsl/│ │ dxil/│
+   └────┬────┘ └───┬──┘ └───┬──┘ └───┬──┘ └───┬──┘
+        │          │        │        │         │
+        ▼          ▼        ▼        ▼         ▼
+     SPIR-V      MSL      GLSL    HLSL      DXIL
+    (Vulkan)   (Metal)  (OpenGL) (DX11/12) (DX12 SM6)
 ```
 
 ---
@@ -172,24 +189,16 @@
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **v0.17.15** | 2026-06 | MSL function-scope workgroup vars (PR #77, @georgebuilds) — fixes silent no-op on Metal without `setThreadgroupMemoryLength`. Per-EP zero-init filtering. |
-| **v0.17.14** | 2026-06 | GLSL version-aware binding: `SupportsExplicitLocations`, `UniformInfo` reflection, runtime binding fallback for GL < 4.2 (BUG-GLES-005) |
+| **v0.17.15** | 2026-06 | MSL function-scope workgroup vars (PR #77, @georgebuilds), per-EP zero-init filtering |
+| **v0.17.14** | 2026-06 | GLSL version-aware binding, UniformInfo reflection, Codecov OIDC (BUG-GLES-005) |
 | **v0.17.13** | 2026-05 | DXIL PHI node ordering fix, coverage waves 3-4, ~60% overall |
 | **v0.17.12** | 2026-05 | ARCH-001 internal packages refactor, 13 panics→errors |
-| **v0.16.4** | 2026-04 | GLSL workgroup zero-init per-element loop (12KB → compact) |
-| **v0.16.3** | 2026-04 | HLSL FXC workgroup zero-init fix (330× faster). First in industry. |
-| **v0.16.2** | 2026-04 | HLSL 72/72 parity (100%). ForceLoopBounding architecture fix. +14 shaders. |
-| **v0.16.1** | 2026-04 | **164/164 spirv-val pass (100%).** +45 SPIR-V fixes. |
-| **v0.16.0** | 2026-04 | GLSL TextureMappings + 34 SPIR-V validation fixes (119/164 pass) |
-| **v0.15.0** | 2026-03 | ALL 5 backends 100% Rust parity: IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 72/72. ~90K LOC |
-| v0.14.8 | 2026-03 | GLSL bind group collision fix |
-| v0.14.0 | 2026-02 | Major WGSL coverage: 15/15 Essential reference shaders |
+| **v0.16.4** | 2026-04 | GLSL workgroup zero-init per-element loop |
+| **v0.16.2** | 2026-04 | HLSL 72/72 parity (100%), ForceLoopBounding |
+| **v0.16.1** | 2026-04 | 164/164 spirv-val pass (100%), +45 SPIR-V fixes |
+| **v0.15.0** | 2026-03 | ALL 5 backends 100% Rust parity (IR/SPIR-V/MSL/GLSL/HLSL) |
 | **v0.13.1** | 2026-02 | SPIR-V OpArrayLength fix, 68 benchmarks, −32% allocs |
-| v0.13.0 | 2026-02 | GLSL backend, HLSL/SPIR-V fixes, all 93 WGSL builtins |
-| v0.12.0 | 2026-02 | Function calls, compute shader codegen |
-| v0.7.0 | 2025-12 | HLSL backend (~8.8K LOC) |
-| v0.5.0 | 2025-12 | MSL backend (~3.6K LOC) |
-| v0.1.0 | 2025-12 | Initial release (~10K LOC) |
+| **v0.1.0** | 2025-12 | Initial release (~10K LOC) |
 
 → **See [CHANGELOG.md](CHANGELOG.md) for detailed release notes**
 
@@ -197,22 +206,15 @@
 
 ## Contributing
 
-We welcome contributions! Priority areas:
+We welcome contributions! Current priority areas:
 
-1. **Test Cases** — Real-world shaders for testing
-2. **Test Coverage** — Help reach 80%+ per-package coverage
-3. **Optimization** — Backend optimization passes
-4. **Documentation** — Improve docs and examples
+1. **MSL/Metal testing** — real hardware verification on Apple Silicon
+2. **Test coverage** — help reach 80%+ per-package (see [CONTRIBUTING.md](CONTRIBUTING.md))
+3. **DXIL parity** — DXC golden diff reduction
+4. **Real-world shaders** — test cases from production applications
+5. **Documentation** — improve docs, examples, tutorials
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
----
-
-## Non-Goals
-
-- **Runtime compilation** — naga is compile-time only (ahead-of-time shader compilation)
-- **Shader reflection** — Use SPIR-V reflection tools (spirv-cross, spirv-reflect)
-- **GLSL/HLSL as primary input** — WGSL is the primary input language; other frontends are future/optional
 
 ---
 
