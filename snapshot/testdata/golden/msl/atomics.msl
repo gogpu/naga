@@ -21,10 +21,10 @@ struct main_Input {
 kernel void main_(
   uint lid [[thread_index_in_threadgroup]]
 , metal::uint3 __local_invocation_id [[thread_position_in_threadgroup]]
-, threadgroup metal::atomic_uint& shared_counter
 , device type_2& result [[user(fake0)]]
 , constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
 ) {
+    threadgroup metal::atomic_uint shared_counter;
     if (metal::all(__local_invocation_id == metal::uint3(0u))) {
         metal::atomic_store_explicit(&shared_counter, 0, metal::memory_order_relaxed);
     }

@@ -32,10 +32,10 @@ kernel void main_(
   uint lid [[thread_index_in_threadgroup]]
 , metal::uint3 gid [[thread_position_in_grid]]
 , metal::uint3 __local_invocation_id [[thread_position_in_threadgroup]]
-, threadgroup type_1& shared_data
 , device type_3& output [[user(fake0)]]
 , constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
 ) {
+    threadgroup type_1 shared_data;
     if (metal::all(__local_invocation_id == metal::uint3(0u))) {
         shared_data = {};
     }

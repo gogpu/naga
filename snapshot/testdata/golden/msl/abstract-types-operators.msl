@@ -115,8 +115,8 @@ void wgpu_4435_(
 
 kernel void main_(
   metal::uint3 __local_invocation_id [[thread_position_in_threadgroup]]
-, threadgroup type_3& a
 ) {
+    threadgroup type_3 a;
     if (metal::all(__local_invocation_id == metal::uint3(0u))) {
         a = {};
     }

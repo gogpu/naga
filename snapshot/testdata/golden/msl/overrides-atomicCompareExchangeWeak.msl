@@ -44,8 +44,8 @@ constant int o = int {};
 
 kernel void f(
   metal::uint3 __local_invocation_id [[thread_position_in_threadgroup]]
-, threadgroup metal::atomic_uint& a
 ) {
+    threadgroup metal::atomic_uint a;
     if (metal::all(__local_invocation_id == metal::uint3(0u))) {
         metal::atomic_store_explicit(&a, 0, metal::memory_order_relaxed);
     }
