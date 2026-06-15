@@ -70,12 +70,21 @@ bash scripts/pre-release-check.sh
 
 ```
 naga/
-├── wgsl/           # WGSL frontend (lexer, parser, AST)
+├── wgsl/           # WGSL frontend (lexer, parser, AST → IR)
 ├── ir/             # Intermediate representation
-├── spirv/          # SPIR-V backend
+├── spirv/          # SPIR-V backend (Vulkan)
 ├── msl/            # MSL backend (Metal)
 ├── glsl/           # GLSL backend (OpenGL)
-├── cmd/nagac/      # CLI tool
+├── hlsl/           # HLSL backend (DirectX 11/12)
+├── dxil/           # DXIL backend (DirectX 12, experimental)
+├── snapshot/       # Snapshot test infrastructure + golden files
+│   └── testdata/
+│       ├── in/             # Input WGSL shaders + TOML configs
+│       ├── golden/         # Our golden outputs (msl/, glsl/, hlsl/, spv/)
+│       └── reference/      # Rust naga reference outputs for comparison
+├── cmd/nagac/      # CLI compiler
+├── cmd/spvdis/     # SPIR-V disassembler
+├── cmd/dxilval/    # DXIL validator (Windows)
 └── scripts/        # Development scripts
 ```
 
@@ -92,7 +101,7 @@ refactor: code refactoring
 chore: maintenance tasks
 ```
 
-Components: `wgsl`, `ir`, `spirv`, `msl`, `glsl`, `cli`, `docs`, `ci`
+Components: `wgsl`, `ir`, `spirv`, `msl`, `glsl`, `hlsl`, `dxil`, `snapshot`, `cli`, `docs`, `ci`
 
 ## Testing
 
@@ -101,15 +110,69 @@ Components: `wgsl`, `ir`, `spirv`, `msl`, `glsl`, `cli`, `docs`, `ci`
 go test ./...
 ```
 
+### Rust Reference Comparison (main quality gate)
+```bash
+# Compare our output against Rust naga reference — ALL must pass
+go test -run TestRustReference -count=1 ./snapshot/
+
+# Single shader, single backend
+go test -run "TestRustReference/atomicOps/msl" -v -count=1 ./snapshot/
+```
+
+### Update Golden Files
+```bash
+# After intentional output changes, regenerate goldens
+UPDATE_GOLDEN=1 go test -run TestSnapshots -count=1 ./snapshot/
+```
+
+### SPIR-V Binary Validation
+```bash
+# All shaders must pass spirv-val (requires spirv-tools installed)
+go test -run TestSpirvValBinarySummary -v -count=1 ./snapshot/
+```
+
 ### With Coverage
 ```bash
 go test -cover ./...
 ```
 
-### Verbose Output
-```bash
-go test -v ./...
+## Snapshot Test Infrastructure
+
+### File naming convention
+
+Golden file names in `snapshot/testdata/golden/` match Rust naga test shader
+names **exactly, 1:1**. This is intentional — `TestRustReference` pairs our
+golden output with the Rust reference output by name.
+
+The Rust naga test suite uses **mixed naming conventions** (camelCase, kebab-case,
+snake_case) that accumulated organically over years:
+
 ```
+atomicOps.msl               ← camelCase (Rust upstream name)
+workgroup-var-init.msl       ← kebab-case (Rust upstream name)
+workgroup_memory.msl         ← snake_case (Rust upstream name)
+types_with_comments.msl      ← snake_case (Rust upstream name)
+```
+
+**Do not rename** golden files to unify the convention — this would break the
+1:1 mapping with Rust naga references. When adding new test shaders, use the
+same name as in the Rust naga test suite.
+
+### Reference allow-list
+
+Some shaders produce intentionally different output from Rust naga. These are
+recorded in `referenceAllowList` in `snapshot/snapshot_test.go` with a reason
+string. When adding a new allow-list entry, document **why** the divergence
+exists and confirm it does not affect correctness.
+
+### Adding a new test shader
+
+1. Copy the `.wgsl` file (and `.toml` config if any) from the
+   [Rust naga test suite](https://github.com/gfx-rs/wgpu/tree/trunk/naga/tests/in/wgsl)
+   to `snapshot/testdata/in/` — **keep the original filename**
+2. Run `UPDATE_GOLDEN=1 go test -run TestSnapshots -count=1 ./snapshot/`
+3. Run `go test -run TestRustReference -count=1 ./snapshot/` to verify parity
+4. If the output intentionally diverges, add the shader to `referenceAllowList`
 
 ## Reporting Issues
 
