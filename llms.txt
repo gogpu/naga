@@ -1,0 +1,14 @@
+# naga — GoGPU Ecosystem
+
+> Part of the GoGPU Pure Go GPU Computing Ecosystem.
+
+## Docs
+
+- [API Reference](https://pkg.go.dev/github.com/gogpu/naga)
+- [AGENTS.md](https://github.com/gogpu/naga/blob/main/AGENTS.md): AI agent instructions
+- [README](https://github.com/gogpu/naga/blob/main/README.md): Human-readable overview
+
+## Ecosystem
+
+- [GoGPU Ecosystem](https://github.com/gogpu/gogpu/blob/main/AGENTS.md): Full ecosystem map
+- [Open Collective](https://opencollective.com/gogpu): Support development
