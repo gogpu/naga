@@ -1,12 +1,16 @@
 # naga — GoGPU Ecosystem
 
-> Part of the GoGPU Pure Go GPU Computing Ecosystem.
+> Pure Go shader compiler (~323K LOC). WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
+> 100% Rust naga parity. 172/172 SPIR-V validation. v1.0 target: December 2026.
 
 ## Docs
 
 - [API Reference](https://pkg.go.dev/github.com/gogpu/naga)
 - [AGENTS.md](https://github.com/gogpu/naga/blob/main/AGENTS.md): AI agent instructions
 - [README](https://github.com/gogpu/naga/blob/main/README.md): Human-readable overview
+- [ROADMAP](https://github.com/gogpu/naga/blob/main/ROADMAP.md): v1.0 roadmap and vision
+- [ARCHITECTURE](https://github.com/gogpu/naga/blob/main/docs/ARCHITECTURE.md): Compiler architecture
+- [CONTRIBUTING](https://github.com/gogpu/naga/blob/main/CONTRIBUTING.md): How to contribute
 
 ## Ecosystem
 
