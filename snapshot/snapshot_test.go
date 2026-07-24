@@ -84,7 +84,17 @@ func TestSnapshots(t *testing.T) {
 			})
 
 			t.Run("msl", func(t *testing.T) {
-				code := compileMSL(t, module)
+				code, compileErr := compileMSL(t, module)
+				if compileErr != nil {
+					target, configErr := rustTargetForShader(shader.name, "METAL")
+					if configErr != nil {
+						t.Fatalf("read Rust target config: %v", configErr)
+					}
+					if target == rustTargetExcluded {
+						t.Skipf("Rust config explicitly excludes METAL: %v", compileErr)
+					}
+					t.Fatalf("MSL compile failed: %v", compileErr)
+				}
 				compareGolden(t, filepath.Join("testdata", "golden", "msl", shader.name+".msl"), code)
 			})
 		})
@@ -1311,12 +1321,12 @@ func glslStageName(stage ir.ShaderStage) string {
 
 // compileMSL compiles the IR module to MSL source.
 // Uses metal1.0 to match Rust naga default for snapshot tests.
-func compileMSL(t *testing.T, module *ir.Module) string {
+func compileMSL(t *testing.T, module *ir.Module) (string, error) {
 	return compileMSLWithVersion(t, module, msl.Version1_0)
 }
 
 // compileMSLWithVersion compiles the IR module to MSL source with a specific version.
-func compileMSLWithVersion(t *testing.T, module *ir.Module, version msl.Version) string {
+func compileMSLWithVersion(t *testing.T, module *ir.Module, version msl.Version) (string, error) {
 	t.Helper()
 
 	opts := msl.DefaultOptions()
@@ -1324,10 +1334,10 @@ func compileMSLWithVersion(t *testing.T, module *ir.Module, version msl.Version)
 	opts.FakeMissingBindings = true
 	code, _, err := msl.Compile(module, opts)
 	if err != nil {
-		t.Skipf("MSL compile failed (skipping): %v", err)
+		return "", err
 	}
 
-	return code
+	return code, nil
 }
 
 // compileMSLWithOpts compiles the IR module to MSL source with fully specified options.
@@ -1348,6 +1358,44 @@ func compileMSLWithOpts(t *testing.T, module *ir.Module, opts msl.Options) (stri
 // These are copies of Rust naga's test configs, stored in the repo so CI
 // can access them without the full Rust reference checkout.
 const rustTomlDir = "testdata/config"
+
+type rustTargetClassification uint8
+
+const (
+	rustTargetUndeclared rustTargetClassification = iota
+	rustTargetEnabled
+	rustTargetExcluded
+)
+
+var rustTargetsPattern = regexp.MustCompile(`(?m)^\s*targets\s*=\s*"([^"]*)"`)
+
+// classifyRustTarget reports whether a Rust naga TOML config explicitly
+// enables or excludes a backend target. Missing target declarations stay
+// undeclared so backend compile errors fail instead of being hidden.
+func classifyRustTarget(content, target string) rustTargetClassification {
+	match := rustTargetsPattern.FindStringSubmatch(content)
+	if len(match) != 2 {
+		return rustTargetUndeclared
+	}
+	for item := range strings.SplitSeq(match[1], "|") {
+		if strings.TrimSpace(item) == target {
+			return rustTargetEnabled
+		}
+	}
+	return rustTargetExcluded
+}
+
+func rustTargetForShader(shaderName, target string) (rustTargetClassification, error) {
+	tomlPath := filepath.Join(rustTomlDir, shaderName+".toml")
+	data, err := os.ReadFile(tomlPath)
+	if os.IsNotExist(err) {
+		return rustTargetUndeclared, nil
+	}
+	if err != nil {
+		return rustTargetUndeclared, fmt.Errorf("read %s: %w", tomlPath, err)
+	}
+	return classifyRustTarget(string(data), target), nil
+}
 
 // readRustMSLConfig reads MSL options from a Rust naga test TOML config file.
 // Parses lang_version, fake_missing_bindings, bounds_check_policies,

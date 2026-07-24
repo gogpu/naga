@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (MSL)
+
+- **64-bit atomic capability validation** ([#79](https://github.com/gogpu/naga/issues/79)) —
+  `msl.Compile` now returns a descriptive error for 64-bit atomic operations
+  that Metal cannot represent instead of emitting invalid intrinsics. Matching
+  Rust Naga, result-discarded `min`/`max` in storage address space remain
+  supported; loads, stores, full operations, result-producing min/max, and
+  workgroup min/max are rejected.
+
 ## [0.17.15] - 2026-06-15
 
 ### Fixed (MSL)
