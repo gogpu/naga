@@ -41,6 +41,22 @@ import (
 	"github.com/gogpu/naga/wgsl"
 )
 
+// Capability constants re-exported from ir for convenience.
+// See [ir.Capabilities] for full documentation.
+const (
+	// CapFloat64 enables f64 scalar type.
+	CapFloat64 = ir.CapFloat64
+
+	// CapShaderInt64 enables i64 and u64 scalar types.
+	CapShaderInt64 = ir.CapShaderInt64
+
+	// CapShaderFloat16 enables f16 scalar type.
+	CapShaderFloat16 = ir.CapShaderFloat16
+
+	// CapAll enables all capabilities.
+	CapAll = ir.CapAll
+)
+
 // CompileOptions configures shader compilation.
 type CompileOptions struct {
 	// SPIRVVersion is the target SPIR-V version (default: 1.3)
@@ -51,6 +67,12 @@ type CompileOptions struct {
 
 	// Validate enables IR validation before code generation
 	Validate bool
+
+	// Capabilities controls which extended scalar types are allowed.
+	// Zero value rejects f64/i64/u64/f16 (matching Rust naga defaults).
+	// Use [CapFloat64], [CapShaderInt64], [CapShaderFloat16] to enable specific types,
+	// or [CapAll] to permit everything.
+	Capabilities ir.Capabilities
 }
 
 // DefaultOptions returns sensible default options.
@@ -84,8 +106,8 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 
-	// Lower AST to IR (pass source for error messages)
-	module, err := LowerWithSource(ast, source)
+	// Lower AST to IR with capability validation
+	module, err := wgsl.LowerWithCapabilities(ast, source, opts.Capabilities)
 	if err != nil {
 		return nil, fmt.Errorf("lowering error: %w", err)
 	}
@@ -137,6 +159,8 @@ func Parse(source string) (*wgsl.Module, error) {
 }
 
 // Lower converts WGSL AST to IR (Intermediate Representation).
+// All capabilities are enabled (permissive mode for tools and tests).
+// For strict capability validation, use [LowerWithCapabilities].
 //
 // The IR is a lower-level representation that includes type information,
 // resolved identifiers, and a simpler structure suitable for code generation.
@@ -145,11 +169,24 @@ func Lower(ast *wgsl.Module) (*ir.Module, error) {
 }
 
 // LowerWithSource converts WGSL AST to IR, keeping source for error messages.
+// All capabilities are enabled (permissive mode for tools and tests).
+// For strict capability validation, use [LowerWithCapabilities].
 //
 // When source is provided, errors will include line:column information
 // and can show source context using ErrorList.FormatAll().
 func LowerWithSource(ast *wgsl.Module, source string) (*ir.Module, error) {
 	module, err := wgsl.LowerWithSource(ast, source)
+	if err != nil {
+		return nil, err
+	}
+	return module, nil
+}
+
+// LowerWithCapabilities converts WGSL AST to IR with explicit capability control.
+// Types that require specific capabilities (f64, i64, u64, f16) are rejected
+// unless the corresponding capability flag is set.
+func LowerWithCapabilities(ast *wgsl.Module, source string, caps ir.Capabilities) (*ir.Module, error) {
+	module, err := wgsl.LowerWithCapabilities(ast, source, caps)
 	if err != nil {
 		return nil, err
 	}

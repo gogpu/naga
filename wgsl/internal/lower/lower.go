@@ -23,6 +23,11 @@ type Lowerer struct {
 	module *ir.Module
 	source string // Original source code for error messages
 
+	// Capabilities control which extended scalar types are allowed.
+	// Zero value (no caps) rejects f64/i64/u64/f16 — matching Rust naga defaults.
+	// CapAll permits everything — used by LowerWithSource for backward compatibility.
+	capabilities ir.Capabilities
+
 	// Type resolution
 	registry *registry.TypeRegistry   // Deduplicates types
 	types    map[string]ir.TypeHandle // Named type lookup
@@ -123,11 +128,14 @@ type LowerResult struct {
 }
 
 // Lower converts a WGSL AST module to Naga IR.
+// All capabilities are enabled (permissive mode for tools and tests).
 func Lower(ast *parser.Module) (*ir.Module, error) {
 	return LowerWithSource(ast, "")
 }
 
 // LowerWithSource converts a WGSL AST module to Naga IR, keeping source for error messages.
+// All capabilities are enabled (permissive mode for tools and tests).
+// For strict capability validation, use [LowerWithCapabilities].
 func LowerWithSource(ast *parser.Module, source string) (*ir.Module, error) {
 	result, err := LowerWithWarnings(ast, source)
 	if err != nil {
@@ -136,8 +144,34 @@ func LowerWithSource(ast *parser.Module, source string) (*ir.Module, error) {
 	return result.Module, nil
 }
 
+// LowerWithCapabilities converts a WGSL AST module to Naga IR with explicit capability control.
+// Types that require specific capabilities (f64, i64, u64, f16) are rejected unless
+// the corresponding capability flag is set.
+//
+// This matches Rust naga's validator behavior where capabilities must be explicitly
+// enabled by the caller (typically wgpu-core mapping device features to capabilities).
+func LowerWithCapabilities(ast *parser.Module, source string, caps ir.Capabilities) (*ir.Module, error) {
+	result, err := lowerWithCaps(ast, source, caps)
+	if err != nil {
+		return nil, err
+	}
+	return result.Module, nil
+}
+
 // LowerWithWarnings converts a WGSL AST module to Naga IR, returning warnings.
+// All capabilities are enabled (permissive mode for tools and tests).
 func LowerWithWarnings(ast *parser.Module, source string) (*LowerResult, error) {
+	return lowerWithCaps(ast, source, ir.CapAll)
+}
+
+// LowerWithWarningsAndCapabilities converts a WGSL AST module to Naga IR,
+// returning warnings and validating scalar widths against the given capabilities.
+func LowerWithWarningsAndCapabilities(ast *parser.Module, source string, caps ir.Capabilities) (*LowerResult, error) {
+	return lowerWithCaps(ast, source, caps)
+}
+
+// lowerWithCaps is the internal implementation shared by all Lower* functions.
+func lowerWithCaps(ast *parser.Module, source string, caps ir.Capabilities) (*LowerResult, error) {
 	// Pre-size module-level slices based on AST declaration counts.
 	// This avoids repeated slice growth during lowering.
 	nFuncs := len(ast.Functions)
@@ -172,6 +206,7 @@ func LowerWithWarnings(ast *parser.Module, source string) (*LowerResult, error) 
 	l := &Lowerer{
 		module:            mod,
 		source:            source,
+		capabilities:      caps,
 		registry:          registry.NewTypeRegistryWithCap(estTypes),
 		types:             make(map[string]ir.TypeHandle, 16),
 		globals:           make(map[string]ir.GlobalVariableHandle, max(nGlobals, 8)),
@@ -1049,12 +1084,24 @@ func (l *Lowerer) inferGlobalVarType(init parser.Expr) (ir.TypeHandle, error) {
 		case "f32":
 			return l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}), nil
 		case "f16":
+			if err := l.checkScalarWidth("f16", ir.ScalarFloat, 2); err != nil {
+				return 0, err
+			}
 			return l.registerType("f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}), nil
 		case "i64":
+			if err := l.checkScalarWidth("i64", ir.ScalarSint, 8); err != nil {
+				return 0, err
+			}
 			return l.registerType("i64", ir.ScalarType{Kind: ir.ScalarSint, Width: 8}), nil
 		case "u64":
+			if err := l.checkScalarWidth("u64", ir.ScalarUint, 8); err != nil {
+				return 0, err
+			}
 			return l.registerType("u64", ir.ScalarType{Kind: ir.ScalarUint, Width: 8}), nil
 		case "f64":
+			if err := l.checkScalarWidth("f64", ir.ScalarFloat, 8); err != nil {
+				return 0, err
+			}
 			return l.registerType("f64", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}), nil
 		case "bool":
 			return l.registerType("bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1}), nil
@@ -5071,10 +5118,12 @@ func (l *Lowerer) lowerLocalConst(decl *parser.ConstDecl, target *[]ir.Statement
 	var explicitType ir.TypeHandle
 	hasExplicitType := false
 	if decl.Type != nil {
-		if th, typeErr := l.resolveType(decl.Type); typeErr == nil {
-			explicitType = th
-			hasExplicitType = true
+		th, typeErr := l.resolveType(decl.Type)
+		if typeErr != nil {
+			return fmt.Errorf("local '%s' type: %w", decl.Name, typeErr)
 		}
+		explicitType = th
+		hasExplicitType = true
 	}
 
 	// For abstract local const declarations (no explicit type, abstract init),
@@ -10330,12 +10379,24 @@ func (l *Lowerer) resolveNamedType(t *parser.NamedType) (ir.TypeHandle, error) {
 	case "sampler_comparison":
 		return l.registerType("sampler_comparison", ir.SamplerType{Comparison: true}), nil
 	case "f16":
+		if err := l.checkScalarWidth("f16", ir.ScalarFloat, 2); err != nil {
+			return 0, err
+		}
 		return l.registerType("f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}), nil
 	case "f64":
+		if err := l.checkScalarWidth("f64", ir.ScalarFloat, 8); err != nil {
+			return 0, err
+		}
 		return l.registerType("f64", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}), nil
 	case "i64":
+		if err := l.checkScalarWidth("i64", ir.ScalarSint, 8); err != nil {
+			return 0, err
+		}
 		return l.registerType("i64", ir.ScalarType{Kind: ir.ScalarSint, Width: 8}), nil
 	case "u64":
+		if err := l.checkScalarWidth("u64", ir.ScalarUint, 8); err != nil {
+			return 0, err
+		}
 		return l.registerType("u64", ir.ScalarType{Kind: ir.ScalarUint, Width: 8}), nil
 	case "acceleration_structure":
 		return l.registerType("acceleration_structure", ir.AccelerationStructureType{}), nil
@@ -10450,6 +10511,33 @@ func (l *Lowerer) resolveParameterizedType(t *parser.NamedType) (ir.TypeHandle, 
 	return 0, fmt.Errorf("unsupported parameterized type: %s", t.Name)
 }
 
+// checkScalarWidth validates that the given scalar type is allowed by the
+// current capabilities. Mirrors Rust naga valid::type.rs check_width().
+//
+// Width=8 (64-bit) requires CapFloat64 (for f64) or CapShaderInt64 (for i64/u64).
+// Width=2 (16-bit) requires CapShaderFloat16 (for f16).
+// Width=4 and width=1 (bool) are always allowed.
+func (l *Lowerer) checkScalarWidth(name string, kind ir.ScalarKind, width byte) error {
+	switch {
+	case width == 8:
+		switch kind {
+		case ir.ScalarFloat:
+			if !l.capabilities.Contains(ir.CapFloat64) {
+				return fmt.Errorf("type %s requires the FLOAT64 capability", name)
+			}
+		case ir.ScalarSint, ir.ScalarUint:
+			if !l.capabilities.Contains(ir.CapShaderInt64) {
+				return fmt.Errorf("type %s requires the SHADER_INT64 capability", name)
+			}
+		}
+	case width == 2 && kind == ir.ScalarFloat:
+		if !l.capabilities.Contains(ir.CapShaderFloat16) {
+			return fmt.Errorf("type %s requires the SHADER_FLOAT16 capability", name)
+		}
+	}
+	return nil
+}
+
 // resolveScalarFromName extracts a scalar type from a type AST node without
 // registering it in the type arena. This matches Rust naga behavior where
 // atomic<T> embeds the scalar directly (ast::Type::Atomic(scalar)) rather than
@@ -10463,16 +10551,28 @@ func (l *Lowerer) resolveScalarFromName(typ parser.Type) (ir.ScalarType, error) 
 	case "f32":
 		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, nil
 	case "f16":
+		if err := l.checkScalarWidth("f16", ir.ScalarFloat, 2); err != nil {
+			return ir.ScalarType{}, err
+		}
 		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}, nil
 	case "f64":
+		if err := l.checkScalarWidth("f64", ir.ScalarFloat, 8); err != nil {
+			return ir.ScalarType{}, err
+		}
 		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, nil
 	case "i32":
 		return ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, nil
 	case "i64":
+		if err := l.checkScalarWidth("i64", ir.ScalarSint, 8); err != nil {
+			return ir.ScalarType{}, err
+		}
 		return ir.ScalarType{Kind: ir.ScalarSint, Width: 8}, nil
 	case "u32":
 		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, nil
 	case "u64":
+		if err := l.checkScalarWidth("u64", ir.ScalarUint, 8); err != nil {
+			return ir.ScalarType{}, err
+		}
 		return ir.ScalarType{Kind: ir.ScalarUint, Width: 8}, nil
 	case "bool":
 		return ir.ScalarType{Kind: ir.ScalarBool, Width: 1}, nil
