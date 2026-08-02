@@ -123,11 +123,14 @@ type LowerResult struct {
 }
 
 // Lower converts a WGSL AST module to Naga IR.
+// All capabilities are enabled (permissive mode for tools and tests).
 func Lower(ast *parser.Module) (*ir.Module, error) {
 	return LowerWithSource(ast, "")
 }
 
 // LowerWithSource converts a WGSL AST module to Naga IR, keeping source for error messages.
+// The lowerer is always permissive — all valid WGSL types are accepted.
+// Capability validation is performed by [ir.ValidateWithCapabilities] after lowering.
 func LowerWithSource(ast *parser.Module, source string) (*ir.Module, error) {
 	result, err := LowerWithWarnings(ast, source)
 	if err != nil {
@@ -137,7 +140,14 @@ func LowerWithSource(ast *parser.Module, source string) (*ir.Module, error) {
 }
 
 // LowerWithWarnings converts a WGSL AST module to Naga IR, returning warnings.
+// The lowerer is always permissive — all valid WGSL types are accepted.
+// Capability validation is performed by [ir.ValidateWithCapabilities] after lowering.
 func LowerWithWarnings(ast *parser.Module, source string) (*LowerResult, error) {
+	return lowerImpl(ast, source)
+}
+
+// lowerImpl is the internal implementation shared by all Lower* functions.
+func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	// Pre-size module-level slices based on AST declaration counts.
 	// This avoids repeated slice growth during lowering.
 	nFuncs := len(ast.Functions)
@@ -5071,10 +5081,12 @@ func (l *Lowerer) lowerLocalConst(decl *parser.ConstDecl, target *[]ir.Statement
 	var explicitType ir.TypeHandle
 	hasExplicitType := false
 	if decl.Type != nil {
-		if th, typeErr := l.resolveType(decl.Type); typeErr == nil {
-			explicitType = th
-			hasExplicitType = true
+		th, typeErr := l.resolveType(decl.Type)
+		if typeErr != nil {
+			return fmt.Errorf("local '%s' type: %w", decl.Name, typeErr)
 		}
+		explicitType = th
+		hasExplicitType = true
 	}
 
 	// For abstract local const declarations (no explicit type, abstract init),

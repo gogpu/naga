@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-07-27
+
+### Added
+
+- **Unified capability-based validator** ([#85](https://github.com/gogpu/naga/issues/85), [ADR-002](docs/dev/architecture/ADR-002-UNIFIED-VALIDATOR-CAPABILITIES.md)) —
+  `ir.ValidateWithCapabilities(module, caps)` enforces scalar width restrictions
+  matching Rust naga's validator architecture. Types `f64`, `i64`, `u64`, `f16`
+  are now rejected unless the caller enables the corresponding capability flag.
+  The validator is the single gate between lowerer and backends — no per-backend
+  duplication. Zero allocations, ~87 ns per module.
+- **`ir.Capabilities` type** — bitflags matching Rust naga `valid::Capabilities`:
+  `CapFloat64` (1<<1), `CapShaderInt64` (1<<16), `CapShaderFloat16` (1<<26), `CapAll`.
+- **`CompileOptions.Capabilities`** — pass device capabilities through the compile
+  pipeline. Default `0` (strict — rejects extended types unless explicitly enabled).
+
+### Changed
+
+- `ir.Validate(module)` now uses `CapAll` (permissive) for backward compatibility.
+  Use `ir.ValidateWithCapabilities(module, caps)` for strict validation.
+- WGSL lowerer is always permissive — capability enforcement moved from lowerer
+  to unified validator (architecture: lowerer → IR → validator → backend).
+
 ## [0.17.16] - 2026-07-26
 
 ### Fixed (MSL)

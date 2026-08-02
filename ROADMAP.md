@@ -2,7 +2,7 @@
 
 > **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> Current: **v0.17.16** (July 2026) · Target: **v1.0.0** (December 2026)
+> Current: **v0.18.0** (July 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
@@ -32,7 +32,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 ---
 
-## Where We Are (v0.17.16)
+## Where We Are (v0.18.0)
 
 **~323K LOC, 6 backends, 100% Rust parity on all text backends, 172/172 SPIR-V validation.**
 
@@ -189,6 +189,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **v0.18.0** | 2026-07 | Unified validator with capabilities (ADR-002, #85), Rust naga architecture parity |
 | **v0.17.16** | 2026-07 | MSL 64-bit atomic validation (PR #82, @besmpl), swizzle parenthesization fix (#83) |
 | **v0.17.15** | 2026-06 | MSL function-scope workgroup vars (PR #77, @georgebuilds), per-EP zero-init filtering |
 | **v0.17.14** | 2026-06 | GLSL version-aware binding, UniformInfo reflection, Codecov OIDC (BUG-GLES-005) |

@@ -29,9 +29,10 @@ func (e ValidationError) Error() string {
 
 // Validator validates IR modules.
 type Validator struct {
-	module  *Module
-	errors  []ValidationError
-	context validationContext
+	module       *Module
+	capabilities Capabilities
+	errors       []ValidationError
+	context      validationContext
 }
 
 // validationContext holds current validation context.
@@ -44,15 +45,28 @@ type validationContext struct {
 }
 
 // Validate checks the IR module for correctness.
-// Returns validation errors if any, or nil if module is valid.
+// All capabilities are enabled (CapAll) — backward-compatible with existing callers.
+// For strict capability validation, use [ValidateWithCapabilities].
 func Validate(module *Module) ([]ValidationError, error) {
+	return ValidateWithCapabilities(module, CapAll)
+}
+
+// ValidateWithCapabilities checks the IR module for correctness, enforcing
+// capability restrictions on scalar types.
+//
+// Types that require specific capabilities (f64, i64, u64, f16) produce
+// validation errors unless the corresponding capability flag is set.
+// This is the SINGLE gate for capability validation — neither the lowerer
+// nor the backends check capabilities.
+func ValidateWithCapabilities(module *Module, caps Capabilities) ([]ValidationError, error) {
 	if module == nil {
 		return nil, fmt.Errorf("module is nil")
 	}
 
 	v := &Validator{
-		module: module,
-		errors: make([]ValidationError, 0),
+		module:       module,
+		capabilities: caps,
+		errors:       make([]ValidationError, 0),
 	}
 
 	v.ValidateModule()
@@ -88,6 +102,33 @@ func (v *Validator) validateTypes() {
 	}
 }
 
+// checkScalarCapability validates that the given scalar type is allowed by the
+// current capabilities. Mirrors Rust naga valid::type.rs check_width().
+//
+// Width=8 (64-bit) requires CapFloat64 (for f64) or CapShaderInt64 (for i64/u64).
+// Width=2 (16-bit) requires CapShaderFloat16 (for f16).
+// Width=4 and width=1 (bool) are always allowed.
+func (v *Validator) checkScalarCapability(handle TypeHandle, scalar ScalarType, context string) {
+	switch {
+	case scalar.Width == 8 && scalar.Kind == ScalarFloat:
+		if !v.capabilities.Contains(CapFloat64) {
+			v.addError(fmt.Sprintf("type [%d]%s: f64 requires the FLOAT64 capability", handle, context))
+		}
+	case scalar.Width == 8 && (scalar.Kind == ScalarSint || scalar.Kind == ScalarUint):
+		name := "i64"
+		if scalar.Kind == ScalarUint {
+			name = "u64"
+		}
+		if !v.capabilities.Contains(CapShaderInt64) {
+			v.addError(fmt.Sprintf("type [%d]%s: %s requires the SHADER_INT64 capability", handle, context, name))
+		}
+	case scalar.Width == 2 && scalar.Kind == ScalarFloat:
+		if !v.capabilities.Contains(CapShaderFloat16) {
+			v.addError(fmt.Sprintf("type [%d]%s: f16 requires the SHADER_FLOAT16 capability", handle, context))
+		}
+	}
+}
+
 // validateType validates a single type.
 func (v *Validator) validateType(handle TypeHandle, typ *Type) {
 	if typ.Inner == nil {
@@ -101,6 +142,7 @@ func (v *Validator) validateType(handle TypeHandle, typ *Type) {
 		if inner.Width != 1 && inner.Width != 2 && inner.Width != 4 && inner.Width != 8 {
 			v.addError(fmt.Sprintf("type %d: scalar width must be 1, 2, 4, or 8 bytes, got %d", handle, inner.Width))
 		}
+		v.checkScalarCapability(handle, inner, "")
 
 	case VectorType:
 		// Vector size must be 2, 3, or 4
@@ -111,6 +153,7 @@ func (v *Validator) validateType(handle TypeHandle, typ *Type) {
 		if inner.Scalar.Width != 1 && inner.Scalar.Width != 2 && inner.Scalar.Width != 4 && inner.Scalar.Width != 8 {
 			v.addError(fmt.Sprintf("type %d: vector scalar width must be 1, 2, 4, or 8 bytes, got %d", handle, inner.Scalar.Width))
 		}
+		v.checkScalarCapability(handle, inner.Scalar, "")
 
 	case MatrixType:
 		// Matrix dimensions must be 2, 3, or 4
@@ -124,6 +167,7 @@ func (v *Validator) validateType(handle TypeHandle, typ *Type) {
 		if inner.Scalar.Kind != ScalarFloat {
 			v.addError(fmt.Sprintf("type %d: matrix scalar must be float, got %v", handle, inner.Scalar.Kind))
 		}
+		v.checkScalarCapability(handle, inner.Scalar, "")
 
 	case ArrayType:
 		// Base type must exist
@@ -161,6 +205,10 @@ func (v *Validator) validateType(handle TypeHandle, typ *Type) {
 		if !v.isValidTypeHandle(inner.Base) {
 			v.addError(fmt.Sprintf("type %d: pointer base type %d does not exist", handle, inner.Base))
 		}
+
+	case AtomicType:
+		// Atomic types embed a scalar directly — check capability.
+		v.checkScalarCapability(handle, inner.Scalar, "")
 
 	case SamplerType:
 		// Sampler types are always valid

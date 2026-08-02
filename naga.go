@@ -41,6 +41,22 @@ import (
 	"github.com/gogpu/naga/wgsl"
 )
 
+// Capability constants re-exported from ir for convenience.
+// See [ir.Capabilities] for full documentation.
+const (
+	// CapFloat64 enables f64 scalar type.
+	CapFloat64 = ir.CapFloat64
+
+	// CapShaderInt64 enables i64 and u64 scalar types.
+	CapShaderInt64 = ir.CapShaderInt64
+
+	// CapShaderFloat16 enables f16 scalar type.
+	CapShaderFloat16 = ir.CapShaderFloat16
+
+	// CapAll enables all capabilities.
+	CapAll = ir.CapAll
+)
+
 // CompileOptions configures shader compilation.
 type CompileOptions struct {
 	// SPIRVVersion is the target SPIR-V version (default: 1.3)
@@ -51,6 +67,12 @@ type CompileOptions struct {
 
 	// Validate enables IR validation before code generation
 	Validate bool
+
+	// Capabilities controls which extended scalar types are allowed.
+	// Zero value rejects f64/i64/u64/f16 (matching Rust naga defaults).
+	// Use [CapFloat64], [CapShaderInt64], [CapShaderFloat16] to enable specific types,
+	// or [CapAll] to permit everything.
+	Capabilities ir.Capabilities
 }
 
 // DefaultOptions returns sensible default options.
@@ -84,15 +106,15 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 
-	// Lower AST to IR (pass source for error messages)
-	module, err := LowerWithSource(ast, source)
+	// Lower AST to IR (always permissive — capability enforcement is in the validator)
+	module, err := wgsl.LowerWithSource(ast, source)
 	if err != nil {
 		return nil, fmt.Errorf("lowering error: %w", err)
 	}
 
-	// Validate IR if requested
+	// Validate IR if requested (includes capability checks)
 	if opts.Validate {
-		validationErrors, err := Validate(module)
+		validationErrors, err := ir.ValidateWithCapabilities(module, opts.Capabilities)
 		if err != nil {
 			return nil, fmt.Errorf("validation error: %w", err)
 		}
@@ -137,6 +159,8 @@ func Parse(source string) (*wgsl.Module, error) {
 }
 
 // Lower converts WGSL AST to IR (Intermediate Representation).
+// All capabilities are enabled (permissive mode for tools and tests).
+// For strict capability validation, use [LowerWithCapabilities].
 //
 // The IR is a lower-level representation that includes type information,
 // resolved identifiers, and a simpler structure suitable for code generation.
@@ -145,6 +169,8 @@ func Lower(ast *wgsl.Module) (*ir.Module, error) {
 }
 
 // LowerWithSource converts WGSL AST to IR, keeping source for error messages.
+// All capabilities are enabled (permissive mode for tools and tests).
+// For strict capability validation, use [LowerWithCapabilities].
 //
 // When source is provided, errors will include line:column information
 // and can show source context using ErrorList.FormatAll().
@@ -156,7 +182,28 @@ func LowerWithSource(ast *wgsl.Module, source string) (*ir.Module, error) {
 	return module, nil
 }
 
-// Validate validates an IR module for correctness.
+// LowerWithCapabilities converts WGSL AST to IR with explicit capability control.
+// The lowerer is always permissive; capability validation is performed by the
+// validator after lowering. Types that require specific capabilities (f64, i64,
+// u64, f16) produce validation errors unless the corresponding flag is set.
+func LowerWithCapabilities(ast *wgsl.Module, source string, caps ir.Capabilities) (*ir.Module, error) {
+	// Lower permissively — all types are accepted during lowering.
+	module, err := wgsl.LowerWithSource(ast, source)
+	if err != nil {
+		return nil, err
+	}
+	// Validate with capability restrictions.
+	validationErrors, verr := ir.ValidateWithCapabilities(module, caps)
+	if verr != nil {
+		return nil, verr
+	}
+	if len(validationErrors) > 0 {
+		return nil, fmt.Errorf("validation failed: %w", &validationErrors[0])
+	}
+	return module, nil
+}
+
+// Validate validates an IR module for correctness with all capabilities enabled.
 //
 // Validation checks include:
 //   - Type consistency
@@ -164,6 +211,7 @@ func LowerWithSource(ast *wgsl.Module, source string) (*ir.Module, error) {
 //   - Control flow validity (structured control flow rules)
 //   - Binding uniqueness (no duplicate @group/@binding)
 //
+// For capability-restricted validation, use [ir.ValidateWithCapabilities] directly.
 // Returns a slice of validation errors. If the slice is empty, validation passed.
 func Validate(module *ir.Module) ([]ir.ValidationError, error) {
 	return ir.Validate(module)

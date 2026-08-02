@@ -97,12 +97,15 @@ func (p *Parser) Parse() (*Module, error) {
 }
 
 // Lower converts a WGSL AST module to Naga IR.
+// All capabilities are enabled (permissive mode for tools and tests).
 func Lower(ast *Module) (*ir.Module, error) {
 	return LowerWithSource(ast, "")
 }
 
 // LowerWithSource converts a WGSL AST module to Naga IR,
 // keeping source for error messages.
+// The lowerer is always permissive — all valid WGSL types are accepted.
+// Capability validation is performed by [ir.ValidateWithCapabilities] after lowering.
 func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 	result, err := LowerWithWarnings(ast, source)
 	if err != nil {
@@ -113,12 +116,19 @@ func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 
 // LowerWithWarnings converts a WGSL AST module to Naga IR,
 // returning warnings alongside the module.
+// The lowerer is always permissive — all valid WGSL types are accepted.
+// Capability validation is performed by [ir.ValidateWithCapabilities] after lowering.
 func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 	lr, err := lower.LowerWithWarnings(ast.inner, source)
 	if err != nil {
 		return nil, err
 	}
 
+	return convertLowerResult(lr), nil
+}
+
+// convertLowerResult converts an internal lower.LowerResult to a public wgsl.LowerResult.
+func convertLowerResult(lr *lower.LowerResult) *LowerResult {
 	// Convert lower.Warning to wgsl.Warning
 	warnings := make([]Warning, len(lr.Warnings))
 	for i, w := range lr.Warnings {
@@ -143,5 +153,5 @@ func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 	return &LowerResult{
 		Module:   lr.Module,
 		Warnings: warnings,
-	}, nil
+	}
 }
