@@ -106,15 +106,15 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 
-	// Lower AST to IR with capability validation
-	module, err := wgsl.LowerWithCapabilities(ast, source, opts.Capabilities)
+	// Lower AST to IR (always permissive — capability enforcement is in the validator)
+	module, err := wgsl.LowerWithSource(ast, source)
 	if err != nil {
 		return nil, fmt.Errorf("lowering error: %w", err)
 	}
 
-	// Validate IR if requested
+	// Validate IR if requested (includes capability checks)
 	if opts.Validate {
-		validationErrors, err := Validate(module)
+		validationErrors, err := ir.ValidateWithCapabilities(module, opts.Capabilities)
 		if err != nil {
 			return nil, fmt.Errorf("validation error: %w", err)
 		}
@@ -183,17 +183,27 @@ func LowerWithSource(ast *wgsl.Module, source string) (*ir.Module, error) {
 }
 
 // LowerWithCapabilities converts WGSL AST to IR with explicit capability control.
-// Types that require specific capabilities (f64, i64, u64, f16) are rejected
-// unless the corresponding capability flag is set.
+// The lowerer is always permissive; capability validation is performed by the
+// validator after lowering. Types that require specific capabilities (f64, i64,
+// u64, f16) produce validation errors unless the corresponding flag is set.
 func LowerWithCapabilities(ast *wgsl.Module, source string, caps ir.Capabilities) (*ir.Module, error) {
-	module, err := wgsl.LowerWithCapabilities(ast, source, caps)
+	// Lower permissively — all types are accepted during lowering.
+	module, err := wgsl.LowerWithSource(ast, source)
 	if err != nil {
 		return nil, err
+	}
+	// Validate with capability restrictions.
+	validationErrors, verr := ir.ValidateWithCapabilities(module, caps)
+	if verr != nil {
+		return nil, verr
+	}
+	if len(validationErrors) > 0 {
+		return nil, fmt.Errorf("validation failed: %w", &validationErrors[0])
 	}
 	return module, nil
 }
 
-// Validate validates an IR module for correctness.
+// Validate validates an IR module for correctness with all capabilities enabled.
 //
 // Validation checks include:
 //   - Type consistency
@@ -201,6 +211,7 @@ func LowerWithCapabilities(ast *wgsl.Module, source string, caps ir.Capabilities
 //   - Control flow validity (structured control flow rules)
 //   - Binding uniqueness (no duplicate @group/@binding)
 //
+// For capability-restricted validation, use [ir.ValidateWithCapabilities] directly.
 // Returns a slice of validation errors. If the slice is empty, validation passed.
 func Validate(module *ir.Module) ([]ir.ValidationError, error) {
 	return ir.Validate(module)

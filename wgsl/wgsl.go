@@ -104,8 +104,8 @@ func Lower(ast *Module) (*ir.Module, error) {
 
 // LowerWithSource converts a WGSL AST module to Naga IR,
 // keeping source for error messages.
-// All capabilities are enabled (permissive mode for tools and tests).
-// For strict capability validation, use [LowerWithCapabilities].
+// The lowerer is always permissive — all valid WGSL types are accepted.
+// Capability validation is performed by [ir.ValidateWithCapabilities] after lowering.
 func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 	result, err := LowerWithWarnings(ast, source)
 	if err != nil {
@@ -114,37 +114,12 @@ func LowerWithSource(ast *Module, source string) (*ir.Module, error) {
 	return result.Module, nil
 }
 
-// LowerWithCapabilities converts a WGSL AST module to Naga IR with explicit
-// capability control. Types that require specific capabilities (f64, i64, u64,
-// f16) are rejected unless the corresponding capability flag is set.
-//
-// This matches Rust naga's validator behavior where capabilities must be
-// explicitly enabled by the caller (typically wgpu-core mapping device
-// features to capabilities).
-func LowerWithCapabilities(ast *Module, source string, caps ir.Capabilities) (*ir.Module, error) {
-	module, err := lower.LowerWithCapabilities(ast.inner, source, caps)
-	if err != nil {
-		return nil, err
-	}
-	return module, nil
-}
-
 // LowerWithWarnings converts a WGSL AST module to Naga IR,
 // returning warnings alongside the module.
-// All capabilities are enabled (permissive mode for tools and tests).
+// The lowerer is always permissive — all valid WGSL types are accepted.
+// Capability validation is performed by [ir.ValidateWithCapabilities] after lowering.
 func LowerWithWarnings(ast *Module, source string) (*LowerResult, error) {
 	lr, err := lower.LowerWithWarnings(ast.inner, source)
-	if err != nil {
-		return nil, err
-	}
-
-	return convertLowerResult(lr), nil
-}
-
-// LowerWithWarningsAndCapabilities converts a WGSL AST module to Naga IR,
-// returning warnings and validating scalar widths against the given capabilities.
-func LowerWithWarningsAndCapabilities(ast *Module, source string, caps ir.Capabilities) (*LowerResult, error) {
-	lr, err := lower.LowerWithWarningsAndCapabilities(ast.inner, source, caps)
 	if err != nil {
 		return nil, err
 	}
