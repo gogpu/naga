@@ -54,8 +54,6 @@ go test ./...
 # Run linter
 golangci-lint run
 
-# Run pre-release checks
-bash scripts/pre-release-check.sh
 ```
 
 ## Code Style
@@ -84,8 +82,7 @@ naga/
 │       └── reference/      # Rust naga reference outputs for comparison
 ├── cmd/nagac/      # CLI compiler
 ├── cmd/spvdis/     # SPIR-V disassembler
-├── cmd/dxilval/    # DXIL validator (Windows)
-└── scripts/        # Development scripts
+└── cmd/dxilval/    # DXIL validator (Windows)
 ```
 
 ## Commit Messages
