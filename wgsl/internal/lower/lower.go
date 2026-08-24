@@ -359,9 +359,6 @@ func (l *Lowerer) expandZeroArgsToGlobalExprs(inner ir.TypeInner) []ir.Expressio
 	switch t := inner.(type) {
 	case ir.VectorType:
 		zeroLit := l.zeroLiteralForScalar(t.Scalar)
-		if zeroLit == nil {
-			return nil
-		}
 		n := int(t.Size)
 		handles := make([]ir.ExpressionHandle, n)
 		for i := range n {
@@ -16067,9 +16064,6 @@ func (l *Lowerer) expandZeroConstructGE(
 	switch t := l.module.Types[typeH].Inner.(type) {
 	case ir.VectorType:
 		zeroLit := l.zeroLiteralForScalar(t.Scalar)
-		if zeroLit == nil {
-			return addExpr(ir.ExprZeroValue{Type: typeH}), true
-		}
 		n := int(t.Size)
 		components := make([]ir.ExpressionHandle, n)
 		for i := range n {
@@ -16080,7 +16074,7 @@ func (l *Lowerer) expandZeroConstructGE(
 		// mat2x2() → Compose(mat, [Compose(col_vec, [0,0]), Compose(col_vec, [0,0])])
 		colTypeH := l.findVectorType(t.Rows, t.Scalar)
 		zeroLit := l.zeroLiteralForScalar(t.Scalar)
-		if zeroLit == nil || colTypeH == 0 {
+		if colTypeH == 0 {
 			return addExpr(ir.ExprZeroValue{Type: typeH}), true
 		}
 		cols := int(t.Columns)
