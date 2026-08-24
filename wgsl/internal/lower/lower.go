@@ -16074,7 +16074,7 @@ func (l *Lowerer) expandZeroConstructGE(
 		// mat2x2() → Compose(mat, [Compose(col_vec, [0,0]), Compose(col_vec, [0,0])])
 		colTypeH := l.findVectorType(t.Rows, t.Scalar)
 		zeroLit := l.zeroLiteralForScalar(t.Scalar)
-		if zeroLit == nil || colTypeH == 0 {
+		if colTypeH == 0 {
 			return addExpr(ir.ExprZeroValue{Type: typeH}), true
 		}
 		cols := int(t.Columns)
