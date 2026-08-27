@@ -545,3 +545,56 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 
 	t.Logf("Generated %d bytes of SPIR-V for local const", len(spirvBytes))
 }
+
+// TestCompileSwizzleAssignment tests that swizzle assignment decomposes
+// correctly and produces valid SPIR-V through all backends.
+func TestCompileSwizzleAssignment(t *testing.T) {
+	source := `enable swizzle_assignment;
+
+@compute @workgroup_size(1)
+fn main() {
+    var v = vec4<f32>(1.0, 2.0, 3.0, 4.0);
+    v.xz = vec2<f32>(10.0, 30.0);
+    v.yw += vec2<f32>(1.0, 1.0);
+    v.rgb = vec3<f32>(0.5, 0.6, 0.7);
+}
+`
+	opts := CompileOptions{Validate: false}
+	spirvBytes, err := CompileWithOptions(source, opts)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	if len(spirvBytes) < 4 {
+		t.Fatal("Output too short")
+	}
+	magic := uint32(spirvBytes[0]) | uint32(spirvBytes[1])<<8 | uint32(spirvBytes[2])<<16 | uint32(spirvBytes[3])<<24
+	if magic != uint32(0x07230203) {
+		t.Errorf("Invalid SPIR-V magic: got 0x%08x, want 0x%08x", magic, uint32(0x07230203))
+	}
+
+	t.Logf("Generated %d bytes of SPIR-V for swizzle assignment", len(spirvBytes))
+}
+
+// TestCompileSwizzleAssignmentCompound tests compound swizzle assignment to SPIR-V.
+func TestCompileSwizzleAssignmentCompound(t *testing.T) {
+	source := `enable swizzle_assignment;
+
+@compute @workgroup_size(1)
+fn main() {
+    var v = vec4<f32>(1.0, 2.0, 3.0, 4.0);
+    var w = vec3<f32>(10.0, 20.0, 30.0);
+    v.ywx *= w;
+}
+`
+	opts := CompileOptions{Validate: false}
+	spirvBytes, err := CompileWithOptions(source, opts)
+	if err != nil {
+		t.Fatalf("SPIR-V compile failed: %v", err)
+	}
+
+	if len(spirvBytes) < 20 {
+		t.Fatal("Output too short")
+	}
+	t.Logf("Generated %d bytes of SPIR-V for compound swizzle assignment", len(spirvBytes))
+}

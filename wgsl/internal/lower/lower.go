@@ -66,6 +66,11 @@ type Lowerer struct {
 	// Any expression referencing a non-const handle cannot be constant-folded.
 	nonConstExprs map[ir.ExpressionHandle]bool
 
+	// enableSwizzleAssignment is true when the shader includes
+	// "enable swizzle_assignment;", allowing multi-component swizzle on the LHS
+	// of assignment statements (e.g., v.xz = vec2(1,2)).
+	enableSwizzleAssignment bool
+
 	// emitStateStart tracks the start of the current pending emit range.
 	// Set by emitStart(), cleared by emitFinish(). Used by lowerCall()
 	// to flush pending argument sub-expressions before the StmtCall,
@@ -199,6 +204,15 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 		localIsVar:        make(map[string]bool, 16),
 		localIsPtr:        make(map[string]bool, 4),
 		localAbstractASTs: make(map[string]parser.Expr, 4),
+	}
+
+	// Process enable directives.
+	for i := range ast.Enables {
+		for _, ext := range ast.Enables[i].Extensions {
+			if ext == "swizzle_assignment" {
+				l.enableSwizzleAssignment = true
+			}
+		}
 	}
 
 	// Register built-in types
@@ -4199,6 +4213,17 @@ func (l *Lowerer) lowerAssign(assign *parser.AssignStmt, target *[]ir.Statement)
 		return nil
 	}
 
+	// Check for multi-component swizzle assignment (e.g., v.xz = vec2(1,2)).
+	// Requires "enable swizzle_assignment;" in the shader.
+	// Decomposed into: Load + AccessIndex + Compose + Store at IR level,
+	// so all backends handle it through standard IR without changes.
+	if sa, ok := l.detectSwizzleAssignment(assign.Left); ok {
+		if !l.enableSwizzleAssignment {
+			return fmt.Errorf("multi-component swizzle assignment requires 'enable swizzle_assignment'")
+		}
+		return l.lowerSwizzleAssign(sa, assign.Op, assign.Right, target)
+	}
+
 	// Start emit range BEFORE LHS lowering. Rust naga's emitter covers both
 	// the LHS reference chain and RHS value in a single Emit statement. This
 	// ensures that Load expressions created as part of LHS dynamic indexing
@@ -4259,6 +4284,224 @@ func (l *Lowerer) lowerAssign(assign *parser.AssignStmt, target *[]ir.Statement)
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtStore{Pointer: pointer, Value: value},
 	})
+	return nil
+}
+
+// swizzleAssignInfo describes a multi-component swizzle on the LHS of an assignment.
+// Used by detectSwizzleAssignment and lowerSwizzleAssign.
+type swizzleAssignInfo struct {
+	base    parser.Expr // The vector variable base expression (e.g., "v" in "v.xz")
+	indices []uint32    // Component indices in original vector order (e.g., [0,2] for .xz)
+	vecSize ir.VectorSize
+}
+
+// detectSwizzleAssignment checks if the LHS expression is a multi-component
+// swizzle on a vector (e.g., v.xz, v.rgb). Single-component access (.x)
+// is handled by the normal AccessIndex path and does not need decomposition.
+//
+// Returns (info, true) if this is a multi-component swizzle assignment,
+// or (zero, false) otherwise.
+func (l *Lowerer) detectSwizzleAssignment(expr parser.Expr) (swizzleAssignInfo, bool) {
+	mem, ok := expr.(*parser.MemberExpr)
+	if !ok || len(mem.Member) < 2 {
+		return swizzleAssignInfo{}, false
+	}
+
+	// Validate that all chars are valid swizzle components in the same namespace.
+	firstNs := swizzleComponentNamespace(mem.Member[0])
+	if firstNs == swizzleNsNone {
+		return swizzleAssignInfo{}, false
+	}
+	for i := 1; i < len(mem.Member); i++ {
+		ns := swizzleComponentNamespace(mem.Member[i])
+		if ns == swizzleNsNone || ns != firstNs {
+			return swizzleAssignInfo{}, false
+		}
+	}
+
+	// Parse each component index.
+	indices := make([]uint32, len(mem.Member))
+	for i := 0; i < len(mem.Member); i++ {
+		comp, ok := swizzleComponent(mem.Member[i])
+		if !ok {
+			return swizzleAssignInfo{}, false
+		}
+		indices[i] = uint32(comp)
+	}
+
+	// Check for duplicate indices (WGSL spec: indices must be distinct).
+	seen := make(map[uint32]bool, len(indices))
+	for _, idx := range indices {
+		if seen[idx] {
+			return swizzleAssignInfo{}, false
+		}
+		seen[idx] = true
+	}
+
+	// Determine vector size from indices.
+	var vecSize ir.VectorSize
+	switch len(indices) {
+	case 2:
+		vecSize = ir.Vec2
+	case 3:
+		vecSize = ir.Vec3
+	case 4:
+		vecSize = ir.Vec4
+	default:
+		return swizzleAssignInfo{}, false
+	}
+
+	return swizzleAssignInfo{
+		base:    mem.Expr,
+		indices: indices,
+		vecSize: vecSize,
+	}, true
+}
+
+// lowerSwizzleAssign decomposes a multi-component swizzle assignment into
+// standard IR operations: Load + AccessIndex (extract components) + Compose + Store.
+//
+// For simple assignment (v.ywx = source):
+//  1. Lower base as pointer reference
+//  2. Load original vector value
+//  3. Lower RHS value expression
+//  4. Extract each source component via AccessIndex
+//  5. Extract unchanged components from original via AccessIndex
+//  6. Compose new vector with all components in correct positions
+//  7. Store the new vector back
+//
+// For compound assignment (v.ywx += source):
+//  1. Lower base as pointer reference
+//  2. Load original vector value
+//  3. Extract swizzled components from original → build sub-vector
+//  4. Lower RHS value expression
+//  5. Apply binary op between extracted sub-vector and RHS
+//  6. Extract result components
+//  7. Compose new full vector with updated components at swizzle positions
+//  8. Store the new vector back
+//
+func (l *Lowerer) lowerSwizzleAssign(
+	sa swizzleAssignInfo,
+	op parser.TokenKind,
+	rhs parser.Expr,
+	target *[]ir.Statement,
+) error {
+	emitStart := l.emitStartWithTarget(target)
+
+	// Step 1: Lower the base as a pointer reference.
+	basePtr, err := l.lowerExpressionForRef(sa.base, target)
+	if err != nil {
+		return fmt.Errorf("swizzle assignment base: %w", err)
+	}
+
+	// Resolve the base vector type to determine the full vector size and scalar type.
+	baseType, err := ir.ResolveExpressionType(l.module, l.currentFunc, basePtr)
+	if err != nil {
+		return fmt.Errorf("swizzle assignment base type: %w", err)
+	}
+	vec, vecOk, vecErr := l.vectorType(baseType)
+	if vecErr != nil {
+		return vecErr
+	}
+	if !vecOk {
+		return fmt.Errorf("swizzle assignment target is not a vector type")
+	}
+	fullSize := int(vec.Size)
+
+	// Step 2: Load original vector value.
+	loadExpr := l.addExpression(ir.Expression{
+		Kind: ir.ExprLoad{Pointer: basePtr},
+	})
+
+	// Step 3: Lower RHS value.
+	rhsValue, err := l.lowerExpression(rhs, target)
+	if err != nil {
+		return fmt.Errorf("swizzle assignment rhs: %w", err)
+	}
+
+	// For compound assignment, compute the binary op result first.
+	var sourceValue ir.ExpressionHandle
+	if op != parser.TokenEqual {
+		binOp := l.assignOpToBinary(op)
+
+		// Build a swizzle of the original vector to match the LHS swizzle pattern,
+		// so we can apply the binary op element-wise.
+		swizzleSize := sa.vecSize
+		var pattern [4]ir.SwizzleComponent
+		for i, idx := range sa.indices {
+			pattern[i] = ir.SwizzleComponent(idx)
+		}
+		origSwizzled := l.addExpression(ir.Expression{
+			Kind: ir.ExprSwizzle{Size: swizzleSize, Vector: loadExpr, Pattern: pattern},
+		})
+
+		// Apply binary operation: origSwizzled op rhs.
+		sourceValue = l.addExpression(ir.Expression{
+			Kind: ir.ExprBinary{
+				Op:    binOp,
+				Left:  origSwizzled,
+				Right: rhsValue,
+			},
+		})
+	} else {
+		sourceValue = rhsValue
+	}
+
+	// Step 4: Extract source components via AccessIndex.
+	sourceComponents := make([]ir.ExpressionHandle, len(sa.indices))
+	for i := range sa.indices {
+		sourceComponents[i] = l.addExpression(ir.Expression{
+			Kind: ir.ExprAccessIndex{Base: sourceValue, Index: uint32(i)},
+		})
+	}
+
+	// Step 5: Extract unchanged components from the original vector.
+	// Build a set of swizzle target indices for quick lookup.
+	swizzleSet := make(map[uint32]int, len(sa.indices))
+	for i, idx := range sa.indices {
+		swizzleSet[idx] = i
+	}
+
+	origComponents := make(map[uint32]ir.ExpressionHandle, fullSize)
+	for i := 0; i < fullSize; i++ {
+		ci := uint32(i)
+		if _, isSwizzled := swizzleSet[ci]; !isSwizzled {
+			origComponents[ci] = l.addExpression(ir.Expression{
+				Kind: ir.ExprAccessIndex{Base: loadExpr, Index: ci},
+			})
+		}
+	}
+
+	// Step 6: Compose the new full vector.
+	// Each position gets either the source component or the original unchanged component.
+	composeComponents := make([]ir.ExpressionHandle, fullSize)
+	for i := 0; i < fullSize; i++ {
+		ci := uint32(i)
+		if srcIdx, isSwizzled := swizzleSet[ci]; isSwizzled {
+			composeComponents[i] = sourceComponents[srcIdx]
+		} else {
+			composeComponents[i] = origComponents[ci]
+		}
+	}
+
+	// Get the full vector type handle for the Compose expression.
+	vecTypeHandle := l.registry.GetOrCreate("", ir.VectorType{
+		Size:   vec.Size,
+		Scalar: vec.Scalar,
+	})
+	l.module.Types = l.registry.GetTypes()
+
+	newVec := l.addExpression(ir.Expression{
+		Kind: ir.ExprCompose{Type: vecTypeHandle, Components: composeComponents},
+	})
+
+	l.emitFinish(emitStart, target)
+
+	// Step 7: Store the new vector back.
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtStore{Pointer: basePtr, Value: newVec},
+	})
+
 	return nil
 }
 

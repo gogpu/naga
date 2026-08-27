@@ -14,10 +14,11 @@ const (
 
 // Parser parses WGSL tokens into an AST.
 type Parser struct {
-	tokens      []Token
-	current     int
-	errors      []ParseError
-	inForHeader bool // true when parsing for-loop init/update (no trailing semicolon)
+	tokens         []Token
+	current        int
+	errors         []ParseError
+	inForHeader    bool // true when parsing for-loop init/update (no trailing semicolon)
+	pendingEnables []Enable
 }
 
 // ParseError represents a parsing error.
@@ -86,6 +87,11 @@ func (p *Parser) Parse() (*Module, error) {
 		}
 	}
 
+	// Store parsed enable directives on the module.
+	if len(p.pendingEnables) > 0 {
+		module.Enables = p.pendingEnables
+	}
+
 	if len(p.errors) > 0 {
 		return module, fmt.Errorf("parsing failed with %d error(s): %w", len(p.errors), p.errors[0])
 	}
@@ -114,14 +120,10 @@ func (p *Parser) declaration() (Decl, *ParseError) {
 	case p.check(TokenConstAssert):
 		return p.constAssertDecl()
 	case p.check(TokenEnable):
-		// Skip enable directives for now
-		p.advance()
-		for !p.check(TokenSemicolon) && !p.isAtEnd() {
-			p.advance()
-		}
-		if p.check(TokenSemicolon) {
-			p.advance()
-		}
+		enable := p.enableDirective()
+		// Store on module but don't return as a Decl (enable is not a declaration).
+		// The caller (Parse) will store it via enableDirectives accumulated in the parser.
+		p.pendingEnables = append(p.pendingEnables, enable)
 		return nil, nil
 	case p.check(TokenDiagnostic):
 		// Skip diagnostic directives for now
@@ -594,6 +596,36 @@ func (p *Parser) aliasDecl() (*AliasDecl, *ParseError) {
 
 // constAssertDecl parses a const_assert declaration.
 // WGSL spec: const_assert expr; or const_assert(expr);
+// enableDirective parses an enable directive: enable ext1, ext2;
+// Returns the Enable with all listed extension names.
+func (p *Parser) enableDirective() Enable {
+	start := p.peek()
+	p.advance() // consume 'enable'
+
+	var extensions []string
+	for {
+		if p.check(TokenSemicolon) || p.isAtEnd() {
+			break
+		}
+		tok := p.peek()
+		extensions = append(extensions, tok.Lexeme)
+		p.advance()
+		if !p.match(TokenComma) {
+			break
+		}
+	}
+	if p.check(TokenSemicolon) {
+		p.advance()
+	}
+
+	return Enable{
+		Extensions: extensions,
+		Span: Span{
+			Start: Position{Line: start.Line, Column: start.Column},
+		},
+	}
+}
+
 func (p *Parser) constAssertDecl() (*ConstAssertDecl, *ParseError) {
 	start := p.peek()
 	if !p.match(TokenConstAssert) {
