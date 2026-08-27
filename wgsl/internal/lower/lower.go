@@ -4213,6 +4213,16 @@ func (l *Lowerer) lowerAssign(assign *parser.AssignStmt, target *[]ir.Statement)
 		return nil
 	}
 
+	// Check for chained/indexed swizzle assignment patterns (e.g., v.zyx.x, v.zyx[1]).
+	// Must be checked BEFORE the simple swizzle check because chained patterns
+	// have a MemberExpr wrapping a MemberExpr (or IndexExpr wrapping a MemberExpr).
+	if csa, ok := l.detectChainedSwizzleAssignment(assign.Left); ok {
+		if !l.enableSwizzleAssignment {
+			return fmt.Errorf("chained swizzle assignment requires 'enable swizzle_assignment'")
+		}
+		return l.lowerChainedSwizzleAssign(csa, assign.Op, assign.Right, target)
+	}
+
 	// Check for multi-component swizzle assignment (e.g., v.xz = vec2(1,2)).
 	// Requires "enable swizzle_assignment;" in the shader.
 	// Decomposed into: Load + AccessIndex + Compose + Store at IR level,
@@ -4379,7 +4389,6 @@ func (l *Lowerer) detectSwizzleAssignment(expr parser.Expr) (swizzleAssignInfo, 
 //  6. Extract result components
 //  7. Compose new full vector with updated components at swizzle positions
 //  8. Store the new vector back
-//
 func (l *Lowerer) lowerSwizzleAssign(
 	sa swizzleAssignInfo,
 	op parser.TokenKind,
@@ -4500,6 +4509,409 @@ func (l *Lowerer) lowerSwizzleAssign(
 	// Step 7: Store the new vector back.
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtStore{Pointer: basePtr, Value: newVec},
+	})
+
+	return nil
+}
+
+// chainedSwizzleAssignInfo describes a chained or indexed swizzle on the LHS of an
+// assignment. Covers Dawn patterns 3-4, 7-11:
+//   - v.zyx.x = 1.0           (chained single: resolvedIndices = [2])
+//   - v.zyx.yz = vec2(1,2)    (chained multi:  resolvedIndices = [1,0])
+//   - v.zyx[1] = 1.0          (indexed const:  resolvedIndices = [1])
+//   - v.zyx[i] = 1.0          (indexed dynamic: swizzleMap + dynamicIndex)
+type chainedSwizzleAssignInfo struct {
+	base            parser.Expr // The ultimate vector variable base (e.g., "v")
+	resolvedIndices []uint32    // Final indices in original vector space (nil for dynamic)
+	swizzleMap      []uint32    // The outer swizzle mapping (e.g., [2,1,0] for "zyx")
+	dynamicIndex    parser.Expr // Non-nil for dynamic-indexed patterns (v.zyx[i])
+	isCompound      bool        // True if compound assignment (+=, etc.)
+}
+
+// detectChainedSwizzleAssignment checks if the LHS expression is a chained swizzle
+// or indexed swizzle pattern. These patterns have:
+//   - MemberExpr on top of a multi-component MemberExpr (chained: v.zyx.x, v.zyx.yz)
+//   - IndexExpr on top of a multi-component MemberExpr (indexed: v.zyx[1], v.zyx[i])
+//
+// Returns (info, true) if a chained/indexed swizzle pattern is detected.
+func (l *Lowerer) detectChainedSwizzleAssignment(expr parser.Expr) (chainedSwizzleAssignInfo, bool) {
+	switch outer := expr.(type) {
+	case *parser.MemberExpr:
+		// Check for chained swizzle: v.zyx.x or v.zyx.yz
+		// The inner expression must be a multi-component swizzle MemberExpr.
+		innerMem, ok := outer.Expr.(*parser.MemberExpr)
+		if !ok || len(innerMem.Member) < 2 {
+			return chainedSwizzleAssignInfo{}, false
+		}
+
+		// Parse outer swizzle map.
+		outerMap, ok := parseSwizzleMap(innerMem.Member)
+		if !ok {
+			return chainedSwizzleAssignInfo{}, false
+		}
+
+		// Parse the second (chained) member access.
+		innerIndices, ok := parseSwizzleIndices(outer.Member)
+		if !ok {
+			return chainedSwizzleAssignInfo{}, false
+		}
+
+		// Resolve through the swizzle chain: each index in the second access
+		// selects from the first swizzle's mapping.
+		resolved := make([]uint32, len(innerIndices))
+		for i, idx := range innerIndices {
+			if int(idx) >= len(outerMap) {
+				return chainedSwizzleAssignInfo{}, false
+			}
+			resolved[i] = outerMap[idx]
+		}
+
+		// For multi-component resolved indices, check for duplicates.
+		if len(resolved) > 1 {
+			seen := make(map[uint32]bool, len(resolved))
+			for _, idx := range resolved {
+				if seen[idx] {
+					return chainedSwizzleAssignInfo{}, false
+				}
+				seen[idx] = true
+			}
+		}
+
+		return chainedSwizzleAssignInfo{
+			base:            innerMem.Expr,
+			resolvedIndices: resolved,
+			swizzleMap:      outerMap,
+		}, true
+
+	case *parser.IndexExpr:
+		// Check for indexed swizzle: v.zyx[1] or v.zyx[i]
+		// The base expression must be a multi-component swizzle MemberExpr.
+		innerMem, ok := outer.Expr.(*parser.MemberExpr)
+		if !ok || len(innerMem.Member) < 2 {
+			return chainedSwizzleAssignInfo{}, false
+		}
+
+		// Parse outer swizzle map.
+		outerMap, ok := parseSwizzleMap(innerMem.Member)
+		if !ok {
+			return chainedSwizzleAssignInfo{}, false
+		}
+
+		// Try to evaluate the index as a compile-time constant.
+		if constIdx, ok := tryParseConstIndex(outer.Index); ok {
+			// Constant index: resolve to specific original component.
+			if constIdx >= len(outerMap) {
+				return chainedSwizzleAssignInfo{}, false
+			}
+			return chainedSwizzleAssignInfo{
+				base:            innerMem.Expr,
+				resolvedIndices: []uint32{outerMap[constIdx]},
+				swizzleMap:      outerMap,
+			}, true
+		}
+
+		// Dynamic index: need runtime remapping.
+		return chainedSwizzleAssignInfo{
+			base:         innerMem.Expr,
+			swizzleMap:   outerMap,
+			dynamicIndex: outer.Index,
+		}, true
+	}
+
+	return chainedSwizzleAssignInfo{}, false
+}
+
+// parseSwizzleMap parses a multi-component swizzle string (e.g., "zyx") into
+// its component indices [2, 1, 0]. Returns the index mapping and true if valid.
+// Rejects duplicate indices since LHS swizzle assignments require distinct components.
+// This also prevents false positives for struct member names like "arr" whose characters
+// happen to be valid RGBA components.
+func parseSwizzleMap(member string) ([]uint32, bool) {
+	if len(member) < 2 {
+		return nil, false
+	}
+
+	firstNs := swizzleComponentNamespace(member[0])
+	if firstNs == swizzleNsNone {
+		return nil, false
+	}
+
+	indices := make([]uint32, len(member))
+	seen := make(map[uint32]bool, len(member))
+	for i := 0; i < len(member); i++ {
+		ns := swizzleComponentNamespace(member[i])
+		if ns == swizzleNsNone || ns != firstNs {
+			return nil, false
+		}
+		comp, ok := swizzleComponent(member[i])
+		if !ok {
+			return nil, false
+		}
+		idx := uint32(comp)
+		if seen[idx] {
+			return nil, false
+		}
+		seen[idx] = true
+		indices[i] = idx
+	}
+	return indices, true
+}
+
+// parseSwizzleIndices parses a swizzle member string into component indices.
+// Works for both single ("x") and multi-component ("yz") access.
+func parseSwizzleIndices(member string) ([]uint32, bool) {
+	if len(member) == 0 {
+		return nil, false
+	}
+
+	firstNs := swizzleComponentNamespace(member[0])
+	if firstNs == swizzleNsNone {
+		return nil, false
+	}
+
+	indices := make([]uint32, len(member))
+	for i := 0; i < len(member); i++ {
+		ns := swizzleComponentNamespace(member[i])
+		if ns == swizzleNsNone || ns != firstNs {
+			return nil, false
+		}
+		comp, ok := swizzleComponent(member[i])
+		if !ok {
+			return nil, false
+		}
+		indices[i] = uint32(comp)
+	}
+	return indices, true
+}
+
+// tryParseConstIndex attempts to extract a compile-time integer constant from
+// an AST expression (integer literal). Returns the integer value and true if
+// the expression is a constant integer.
+func tryParseConstIndex(expr parser.Expr) (int, bool) {
+	lit, ok := expr.(*parser.Literal)
+	if !ok || lit.Kind != parser.TokenIntLiteral {
+		return 0, false
+	}
+	// Parse integer value from string, stripping optional suffix (u, i).
+	s := lit.Value
+	if len(s) > 0 && (s[len(s)-1] == 'u' || s[len(s)-1] == 'i') {
+		s = s[:len(s)-1]
+	}
+	val, err := strconv.ParseInt(s, 0, 64)
+	if err != nil {
+		return 0, false
+	}
+	return int(val), true
+}
+
+// lowerChainedSwizzleAssign handles chained and indexed swizzle assignment patterns.
+// For single-resolved-index patterns (v.zyx.x = 1.0, v.zyx[1] = 1.0):
+//   - Emits store_vector_element on the resolved original index.
+//
+// For multi-resolved-index patterns (v.zyx.yz = vec2(1,2)):
+//   - Decomposes into the same Load + AccessIndex + Compose + Store pattern
+//     as regular swizzle assignment, but with remapped indices.
+//
+// For dynamic-index patterns (v.zyx[i] = 1.0):
+//   - Emits a swizzle index remapping array and store_vector_element with
+//     a dynamic access into the remapping array.
+func (l *Lowerer) lowerChainedSwizzleAssign(
+	csa chainedSwizzleAssignInfo,
+	op parser.TokenKind,
+	rhs parser.Expr,
+	target *[]ir.Statement,
+) error {
+	// Dynamic-index case: v.zyx[i] = 1.0 or v.zyx[i] += 1.0
+	if csa.dynamicIndex != nil {
+		return l.lowerDynamicIndexedSwizzleAssign(csa, op, rhs, target)
+	}
+
+	// Single resolved index: v.zyx.x = 1.0, v.zyx[1] = 1.0
+	// This resolves to a single-component store (store_vector_element).
+	if len(csa.resolvedIndices) == 1 {
+		return l.lowerSingleComponentSwizzleAssign(csa, op, rhs, target)
+	}
+
+	// Multi resolved indices: v.zyx.yz = vec2(1,2) → resolvedIndices = [1, 0]
+	// Reuse the existing swizzle assignment decomposition with remapped indices.
+	sa := swizzleAssignInfo{
+		base:    csa.base,
+		indices: csa.resolvedIndices,
+	}
+	switch len(csa.resolvedIndices) {
+	case 2:
+		sa.vecSize = ir.Vec2
+	case 3:
+		sa.vecSize = ir.Vec3
+	case 4:
+		sa.vecSize = ir.Vec4
+	}
+	return l.lowerSwizzleAssign(sa, op, rhs, target)
+}
+
+// lowerSingleComponentSwizzleAssign handles assignment to a single resolved
+// component of a chained/indexed swizzle (e.g., v.zyx.x = 1.0 → v.z = 1.0).
+// Emits the same IR as a simple v.z = 1.0 assignment: pointer + AccessIndex + Store.
+func (l *Lowerer) lowerSingleComponentSwizzleAssign(
+	csa chainedSwizzleAssignInfo,
+	op parser.TokenKind,
+	rhs parser.Expr,
+	target *[]ir.Statement,
+) error {
+	emitStart := l.emitStartWithTarget(target)
+
+	// Lower the base as pointer reference.
+	basePtr, err := l.lowerExpressionForRef(csa.base, target)
+	if err != nil {
+		return fmt.Errorf("chained swizzle assignment base: %w", err)
+	}
+
+	// Create AccessIndex to the resolved component.
+	componentPtr := l.addExpression(ir.Expression{
+		Kind: ir.ExprAccessIndex{Base: basePtr, Index: csa.resolvedIndices[0]},
+	})
+
+	// Lower the RHS value.
+	value, err := l.lowerExpression(rhs, target)
+	if err != nil {
+		return fmt.Errorf("chained swizzle assignment rhs: %w", err)
+	}
+
+	// Handle compound assignment (+=, -=, etc.).
+	if op != parser.TokenEqual {
+		binOp := l.assignOpToBinary(op)
+		l.concretizeCompoundAssignRHS(componentPtr, &value)
+		loaded := l.applyLoadRule(componentPtr)
+		value = l.addExpression(ir.Expression{
+			Kind: ir.ExprBinary{
+				Op:    binOp,
+				Left:  loaded,
+				Right: value,
+			},
+		})
+	}
+	l.concretizeStoreValue(componentPtr, value)
+
+	l.emitFinish(emitStart, target)
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtStore{Pointer: componentPtr, Value: value},
+	})
+
+	return nil
+}
+
+// lowerDynamicIndexedSwizzleAssign handles assignment to a dynamically-indexed
+// swizzle component (e.g., v.zyx[i] = 1.0 or v.zyx[i] += 1.0).
+//
+// Dawn's approach: create a constant array of the swizzle map indices, then use
+// the dynamic index to look up the original vector component index at runtime.
+//
+// For v.zyx[i] = 1.0 with swizzleMap [2,1,0]:
+//  1. Lower dynamic index expression
+//  2. Create constant array [2u, 1u, 0u]
+//  3. Access array at dynamic index → original component index
+//  4. store_vector_element %v, resolved_idx, value
+//
+// For compound (v.zyx[i] += 1.0):
+//  1. Same as above, but load_vector_element first, apply binary op, then store.
+func (l *Lowerer) lowerDynamicIndexedSwizzleAssign(
+	csa chainedSwizzleAssignInfo,
+	op parser.TokenKind,
+	rhs parser.Expr,
+	target *[]ir.Statement,
+) error {
+	emitStart := l.emitStartWithTarget(target)
+
+	// Lower the base as pointer reference.
+	basePtr, err := l.lowerExpressionForRef(csa.base, target)
+	if err != nil {
+		return fmt.Errorf("dynamic indexed swizzle base: %w", err)
+	}
+
+	// Lower the dynamic index expression.
+	dynIdx, err := l.lowerExpression(csa.dynamicIndex, target)
+	if err != nil {
+		return fmt.Errorf("dynamic indexed swizzle index: %w", err)
+	}
+
+	// Build constant array of swizzle map indices: array<u32, N>(2u, 1u, 0u)
+	// Create u32 constants for each swizzle map entry.
+	mapConstants := make([]ir.ExpressionHandle, len(csa.swizzleMap))
+	for i, idx := range csa.swizzleMap {
+		mapConstants[i] = l.addExpression(ir.Expression{
+			Kind: ir.Literal{Value: ir.LiteralU32(idx)},
+		})
+	}
+
+	// Create the array type: array<u32, N>
+	u32Scalar := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	u32TypeHandle := l.registry.GetOrCreate("", u32Scalar)
+	arrSize := ir.ArraySize{Constant: new(uint32)}
+	*arrSize.Constant = uint32(len(csa.swizzleMap))
+	arrType := ir.ArrayType{
+		Base:   u32TypeHandle,
+		Size:   arrSize,
+		Stride: 4,
+	}
+	arrTypeHandle := l.registry.GetOrCreate("", arrType)
+	l.module.Types = l.registry.GetTypes()
+
+	// Compose the constant array.
+	mapArray := l.addExpression(ir.Expression{
+		Kind: ir.ExprCompose{Type: arrTypeHandle, Components: mapConstants},
+	})
+
+	// Access the array at the dynamic index to get the original component index.
+	resolvedIdx := l.addExpression(ir.Expression{
+		Kind: ir.ExprAccess{Base: mapArray, Index: dynIdx},
+	})
+
+	// Lower the RHS value.
+	value, err := l.lowerExpression(rhs, target)
+	if err != nil {
+		return fmt.Errorf("dynamic indexed swizzle rhs: %w", err)
+	}
+
+	// For compound assignment: load current value at resolved index, apply binary op.
+	if op != parser.TokenEqual {
+		binOp := l.assignOpToBinary(op)
+
+		// Load the current value at the resolved component index.
+		// Use Access (dynamic index) on the loaded vector.
+		loadedVec := l.addExpression(ir.Expression{
+			Kind: ir.ExprLoad{Pointer: basePtr},
+		})
+
+		// Duplicate the array access for the load side (Dawn emits two accesses).
+		resolvedIdxForLoad := l.addExpression(ir.Expression{
+			Kind: ir.ExprAccess{Base: mapArray, Index: dynIdx},
+		})
+
+		currentVal := l.addExpression(ir.Expression{
+			Kind: ir.ExprAccess{Base: loadedVec, Index: resolvedIdxForLoad},
+		})
+
+		value = l.addExpression(ir.Expression{
+			Kind: ir.ExprBinary{
+				Op:    binOp,
+				Left:  currentVal,
+				Right: value,
+			},
+		})
+	}
+
+	l.emitFinish(emitStart, target)
+
+	// Emit store_vector_element with dynamic resolved index.
+	// In naga IR, this maps to Access + Store on a pointer.
+	// Create Access on the pointer base with the resolved index.
+	componentPtr := l.addExpression(ir.Expression{
+		Kind: ir.ExprAccess{Base: basePtr, Index: resolvedIdx},
+	})
+
+	*target = append(*target, ir.Statement{
+		Kind: ir.StmtStore{Pointer: componentPtr, Value: value},
 	})
 
 	return nil
