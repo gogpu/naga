@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-27
+
+### Added
+
+- **`enable swizzle_assignment` extension** ([#89](https://github.com/gogpu/naga/issues/89),
+  [ADR-003](docs/dev/architecture/ADR-003-SWIZZLE-ASSIGNMENT.md)) —
+  multi-component swizzle on the left-hand side of assignments is now supported
+  when the `swizzle_assignment` language extension is enabled. Matches the W3C
+  WGSL spec ([gpuweb/gpuweb#5268](https://github.com/gpuweb/gpuweb/pull/5268),
+  merged 2026-08-25). All 11 Dawn test patterns supported: single/multi-component,
+  chained swizzle, indexed (constant + dynamic), compound assignment. The lowerer
+  decomposes lvalue swizzle to load → per-component extract → construct → store
+  (Dawn pattern) — all backends work without changes. Without the extension,
+  a clear error message guides the user.
+
+### Fixed
+
+- **Swizzle false positive on struct members** — `parseSwizzleMap` no longer
+  treats struct member names like `"arr"` as RGBA swizzle patterns. Restores
+  `pointers.wgsl` SPIR-V validation (172/172).
+
 ## [0.18.0] - 2026-07-27
 
 ### Added
