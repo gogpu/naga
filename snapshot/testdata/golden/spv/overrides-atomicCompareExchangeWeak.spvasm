@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 34
+; Bound: 33
 ; Schema: 0
 
                OpCapability Shader
@@ -17,7 +17,7 @@
          %_4 = OpTypeInt 32 0
          %_5 = OpTypeBool
          %_6 = OpTypeStruct %_4 %_5
-         %_7 = OpConstantNull %_3
+         %_7 = OpConstant %_3 2
          %_8 = OpTypePointer Workgroup %_4
          %_10 = OpTypeFunction %_2
          %_13 = OpTypeVector %_4 3
@@ -27,9 +27,8 @@
          %_23 = OpConstantNull %_4
          %_24 = OpConstant %_4 2
          %_25 = OpConstant %_4 264
-         %_28 = OpConstant %_3 2
-         %_29 = OpConstant %_4 0
-         %_30 = OpConstant %_4 1
+         %_28 = OpConstant %_4 0
+         %_29 = OpConstant %_4 1
          %_9 = OpVariable %_8 Workgroup
          %_15 = OpVariable %_14 Input
          %_11 = OpFunction %_2 None %_10
@@ -47,8 +46,8 @@
                OpBranch %_26
          %_26 = OpLabel
          %_27 = OpBitcast %_4 %_7
-         OpAtomicCompareExchange %_4 %_31 %_9 %_28 %_29 %_29 %_30 %_27
-         %_32 = OpSignBitSet %_5 %_31 %_27
-         %_33 = OpCompositeConstruct %_6 %_31 %_32
+         OpAtomicCompareExchange %_4 %_30 %_9 %_7 %_28 %_28 %_29 %_27
+         %_31 = OpSignBitSet %_5 %_30 %_27
+         %_32 = OpCompositeConstruct %_6 %_30 %_31
                OpReturn
                OpFunctionEnd

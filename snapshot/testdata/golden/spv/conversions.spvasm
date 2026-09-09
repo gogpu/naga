@@ -7,20 +7,20 @@
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_7 "main"
-               OpExecutionMode %_7 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_8 "main"
+               OpExecutionMode %_8 LocalSize 1 1 1
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
          %_4 = OpTypeVector %_3 2
-         %_5 = OpConstantNull %_4
-         %_6 = OpTypeFunction %_2
-         %_9 = OpTypePointer Function %_4
-         %_11 = OpConstant %_3 1073741824
-         %_7 = OpFunction %_2 None %_6
-         %_8 = OpLabel
-         %_10 = OpVariable %_9 Function
-         %_12 = OpCompositeConstruct %_4 %_11 %_11
-               OpStore %_10 %_12
-         %_13 = OpCompositeConstruct %_4 %_11 %_11
+         %_5 = OpConstant %_3 1073741824
+         %_6 = OpConstantComposite %_4 %_5 %_5
+         %_7 = OpTypeFunction %_2
+         %_10 = OpTypePointer Function %_4
+         %_8 = OpFunction %_2 None %_7
+         %_9 = OpLabel
+         %_11 = OpVariable %_10 Function
+         %_12 = OpCompositeConstruct %_4 %_5 %_5
+               OpStore %_11 %_12
+         %_13 = OpCompositeConstruct %_4 %_5 %_5
                OpReturn
                OpFunctionEnd

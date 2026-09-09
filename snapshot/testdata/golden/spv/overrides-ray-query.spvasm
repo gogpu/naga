@@ -26,7 +26,7 @@
          %_6 = OpTypeInt 32 0
          %_7 = OpTypeVector %_3 3
          %_8 = OpTypeStruct %_6 %_6 %_3 %_3 %_7 %_7
-         %_9 = OpConstantNull %_3
+         %_9 = OpConstant %_3 1073741824
          %_10 = OpTypePointer UniformConstant %_4
          %_12 = OpTypeFunction %_2
          %_15 = OpTypePointer Function %_5
