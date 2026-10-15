@@ -659,7 +659,24 @@ func (w *Writer) writeSelect(s ir.ExprSelect) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// A GLSL ternary needs a scalar bool condition; a vector-bool condition is
+	// written as mix(reject, accept, condition), which picks per component the
+	// second argument where the condition is true. Matches Rust naga
+	// (back/glsl/writer.rs, Expression::Select). Like Rust, this needs GLSL ES
+	// 3.10 or desktop 4.50 (or GL_EXT_shader_integer_mix) for non-float values.
+	if w.isVectorExpression(s.Condition) {
+		return fmt.Sprintf("mix(%s, %s, %s)", reject, accept, condition), nil
+	}
 	return fmt.Sprintf("(%s ? %s : %s)", condition, accept, reject), nil
+}
+
+// isVectorExpression reports whether an expression resolves to a vector type.
+func (w *Writer) isVectorExpression(handle ir.ExpressionHandle) bool {
+	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.ExpressionTypes) {
+		return false
+	}
+	_, ok := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[handle], handle).(ir.VectorType)
+	return ok
 }
 
 // writeRelational writes a relational expression.

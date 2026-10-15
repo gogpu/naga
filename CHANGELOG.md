@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a binary operator, matching Rust naga. A vector-condition select
   (`metal::select(...)` call) is no longer wrapped in redundant parentheses
   when accessed (`metal::select(...).y`), also matching Rust naga.
+- **GLSL: `select()` with a vector condition produced invalid GLSL** — it was
+  written as a ternary with a `bvecN` condition, which GLSL rejects (a ternary
+  needs a scalar `bool`). It is now `mix(reject, accept, condition)`, matching
+  Rust naga; output verified with glslangValidator. As in Rust naga, non-float
+  values need GLSL ES 3.10 / desktop 4.50 (or `GL_EXT_shader_integer_mix`).
 
 ### Changed
 
