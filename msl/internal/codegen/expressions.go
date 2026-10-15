@@ -982,9 +982,23 @@ func (w *Writer) needsParens(child ir.ExpressionHandle) bool {
 		// ArrayLength expands to "1 + ..." which contains a binary operator.
 		// Matches Rust naga: ArrayLength uses is_scoped wrapping.
 		return true
+	case ir.ExprSelect:
+		// A scalar-condition select is a C++ ternary, which binds looser than
+		// every binary operator (issue #95). Rust naga writes binop operands
+		// with is_scoped=false and wraps the ternary in that case.
+		return w.isTernarySelect(k)
 	default:
 		return false
 	}
+}
+
+// isTernarySelect reports whether a select is written as a C++ ternary
+// (scalar bool condition) rather than a metal::select call (vector bool
+// condition). Only the ternary form needs parentheses when not scoped —
+// Rust naga back/msl/writer.rs, Expression::Select.
+func (w *Writer) isTernarySelect(sel ir.ExprSelect) bool {
+	vec, ok := w.getExpressionType(sel.Condition).(ir.VectorType)
+	return !ok || vec.Scalar.Kind != ir.ScalarBool
 }
 
 // needsParensInContext checks if an expression would need parentheses when
@@ -1005,11 +1019,12 @@ func (w *Writer) needsParensInContext(handle ir.ExpressionHandle) bool {
 		}
 	}
 	expr := w.currentFunction.Expressions[handle]
-	switch expr.Kind.(type) {
+	switch k := expr.Kind.(type) {
 	case ir.ExprBinary:
 		return true
 	case ir.ExprSelect:
-		return true
+		// Only the ternary form; metal::select(...) is a call and is scoped.
+		return w.isTernarySelect(k)
 	case ir.ExprArrayLength:
 		// ArrayLength expands to "1 + ..." which needs parenthesization.
 		// Matches Rust naga: ArrayLength uses is_scoped wrapping.
@@ -1646,9 +1661,8 @@ func (w *Writer) writeBinary(binary ir.ExprBinary, _ ir.ExpressionHandle) error 
 // Rust naga: scalar bool condition uses ternary (condition ? accept : reject),
 // vector bool condition uses metal::select(reject, accept, condition).
 func (w *Writer) writeSelect(sel ir.ExprSelect) error {
-	// Check if condition is vector bool → use metal::select
-	condType := w.getExpressionType(sel.Condition)
-	if vec, ok := condType.(ir.VectorType); ok && vec.Scalar.Kind == ir.ScalarBool {
+	// Vector bool condition → metal::select call; scalar → ternary.
+	if !w.isTernarySelect(sel) {
 		// metal::select(reject, accept, condition) — note Metal's arg order
 		w.write("%sselect(", Namespace)
 		if err := w.writeExpression(sel.Reject); err != nil {

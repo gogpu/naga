@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - a negated abstract literal in a `var<private>` initializer (`-1`) is folded
     to one literal instead of a `Unary` expression;
   - a matrix built from scalars orders its global expressions as Rust does.
+- **MSL: scalar `select()` as a binary operand lost its parentheses**
+  ([#95](https://github.com/gogpu/naga/issues/95)) — a scalar-condition
+  `select` is written as a C++ ternary, which binds looser than every binary
+  operator, so `a | select(x, y, c)` became `a | c ? y : x` and computed
+  `(a | c) ? y : x` on Metal. The ternary is now parenthesized as an operand of
+  a binary operator, matching Rust naga. A vector-condition select
+  (`metal::select(...)` call) is no longer wrapped in redundant parentheses
+  when accessed (`metal::select(...).y`), also matching Rust naga.
 
 ### Changed
 
