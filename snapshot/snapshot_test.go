@@ -1,8 +1,8 @@
 // Package snapshot_test provides golden snapshot tests for all naga backends.
 //
-// For each WGSL input shader in testdata/in/, the test compiles through all
-// four backends (SPIR-V, GLSL, HLSL, MSL) and compares output to golden files
-// stored in testdata/golden/{spv,glsl,hlsl,msl}/.
+// For each corpus shader (testdata/rust and testdata/own, see corpus_test.go),
+// the test compiles through all four backends (SPIR-V, GLSL, HLSL, MSL) and
+// compares output to golden files stored in testdata/golden/{spv,glsl,hlsl,msl}/.
 //
 // To regenerate golden files after intentional changes:
 //
@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -36,18 +35,16 @@ import (
 
 // shaderFile represents an input WGSL shader loaded from disk.
 type shaderFile struct {
-	name   string // base name without extension (e.g., "vertex_basic")
-	source string // WGSL source code
+	name   string       // base name without extension (e.g., "vertex_basic")
+	source string       // WGSL source code
+	origin shaderOrigin // Rust corpus or our own
 }
 
 // TestSnapshots is the main golden snapshot test. It loads all WGSL inputs,
 // compiles each through all backends, and compares with golden files.
 // For shaders without Rust reference, falls back to self-generated golden.
 func TestSnapshots(t *testing.T) {
-	shaders := loadInputShaders(t, "testdata/in")
-	if len(shaders) == 0 {
-		t.Fatal("no input shaders found in testdata/in/")
-	}
+	shaders := loadCorpus(t)
 
 	for i := range shaders {
 		shader := &shaders[i]
@@ -61,12 +58,12 @@ func TestSnapshots(t *testing.T) {
 			t.Run("spv", func(t *testing.T) {
 				spvBytes := compileSPIRV(t, module)
 				disasm := disassembleSPIRV(spvBytes)
-				compareGolden(t, filepath.Join("testdata", "golden", "spv", shader.name+".spvasm"), disasm)
+				compareGolden(t, filepath.Join(goldenDir, "spv", shader.name+".spvasm"), disasm)
 			})
 
 			t.Run("glsl", func(t *testing.T) {
 				code := compileGLSL(t, module)
-				compareGolden(t, filepath.Join("testdata", "golden", "glsl", shader.name+".glsl"), code)
+				compareGolden(t, filepath.Join(goldenDir, "glsl", shader.name+".glsl"), code)
 			})
 
 			t.Run("hlsl", func(t *testing.T) {
@@ -80,7 +77,7 @@ func TestSnapshots(t *testing.T) {
 					}
 				}
 				code := compileHLSL(t, hlslModule, shader.name)
-				compareGolden(t, filepath.Join("testdata", "golden", "hlsl", shader.name+".hlsl"), code)
+				compareGolden(t, filepath.Join(goldenDir, "hlsl", shader.name+".hlsl"), code)
 			})
 
 			t.Run("msl", func(t *testing.T) {
@@ -95,7 +92,7 @@ func TestSnapshots(t *testing.T) {
 					}
 					t.Fatalf("MSL compile failed: %v", compileErr)
 				}
-				compareGolden(t, filepath.Join("testdata", "golden", "msl", shader.name+".msl"), code)
+				compareGolden(t, filepath.Join(goldenDir, "msl", shader.name+".msl"), code)
 			})
 		})
 	}
@@ -140,13 +137,10 @@ var referenceAllowList = map[string]string{
 // This is the AUTHORITATIVE test — Rust naga output is the ground truth.
 // Our output for the same .wgsl input MUST match Rust's output (structurally).
 //
-// Rust reference files: testdata/reference/{spv,msl,hlsl}/wgsl-{name}.{ext}
-// GLSL has per-entry-point files: testdata/reference/glsl/wgsl-{name}.{entry}.{Stage}.glsl
+// Rust reference files (see corpus_test.go): out/{spv,msl,hlsl}/wgsl-{name}.{spvasm,metal,hlsl}
+// GLSL has per-entry-point files: out/glsl/wgsl-{name}.{entry}.{Stage}.glsl
 func TestRustReference(t *testing.T) {
-	shaders := loadInputShaders(t, "testdata/in")
-	if len(shaders) == 0 {
-		t.Fatal("no input shaders found")
-	}
+	shaders := loadCorpus(t)
 
 	var spvPass, spvFail, spvSkip, spvAllow int
 	var mslPass, mslFail, mslSkip, mslAllow int
@@ -156,9 +150,9 @@ func TestRustReference(t *testing.T) {
 
 	for i := range shaders {
 		shader := &shaders[i]
-		rustSPV := filepath.Join("testdata", "reference", "spv", "wgsl-"+shader.name+".spvasm")
-		rustMSL := filepath.Join("testdata", "reference", "msl", "wgsl-"+shader.name+".msl")
-		rustHLSL := filepath.Join("testdata", "reference", "hlsl", "wgsl-"+shader.name+".hlsl")
+		rustSPV, hasSPV := rustReferencePath(rustOutSPIRV, "wgsl-"+shader.name+".spvasm")
+		rustMSL, hasMSL := rustReferencePath(rustOutMSL, "wgsl-"+shader.name+".metal")
+		rustHLSL, hasHLSL := rustReferencePath(rustOutHLSL, "wgsl-"+shader.name+".hlsl")
 
 		t.Run(shader.name, func(t *testing.T) {
 			module := compileToIR(t, shader.name, shader.source)
@@ -169,9 +163,9 @@ func TestRustReference(t *testing.T) {
 
 			// SPIR-V vs Rust reference (structural comparison via spirv-dis)
 			t.Run("spv_vs_rust", func(t *testing.T) {
-				if _, err := os.Stat(rustSPV); os.IsNotExist(err) {
+				if !hasSPV {
 					spvSkip++
-					t.Skipf("no Rust reference: %s", rustSPV)
+					t.Skipf("no Rust SPIR-V reference for %s", shader.name)
 				}
 				spirvDisPath, lookErr := exec.LookPath("spirv-dis")
 				if lookErr != nil {
@@ -232,9 +226,9 @@ func TestRustReference(t *testing.T) {
 
 			// MSL vs Rust reference
 			t.Run("msl_vs_rust", func(t *testing.T) {
-				if _, err := os.Stat(rustMSL); os.IsNotExist(err) {
+				if !hasMSL {
 					mslSkip++
-					t.Skipf("no Rust reference: %s", rustMSL)
+					t.Skipf("no Rust MSL reference for %s", shader.name)
 				}
 				mslOpts := readRustMSLConfig(shader.name)
 				code, compileErr := compileMSLWithOpts(t, module, mslOpts)
@@ -266,9 +260,9 @@ func TestRustReference(t *testing.T) {
 
 			// HLSL vs Rust reference
 			t.Run("hlsl_vs_rust", func(t *testing.T) {
-				if _, err := os.Stat(rustHLSL); os.IsNotExist(err) {
+				if !hasHLSL {
 					hlslSkip++
-					t.Skipf("no Rust reference: %s", rustHLSL)
+					t.Skipf("no Rust HLSL reference for %s", shader.name)
 				}
 				// Process pipeline overrides before HLSL compilation
 				// (Rust test driver calls process_overrides for all backends)
@@ -313,21 +307,10 @@ func TestRustReference(t *testing.T) {
 				}
 
 				// Find all reference files for this shader
-				glslRefDir := filepath.Join("testdata", "reference", "glsl")
 				prefix := "wgsl-" + shader.name + "."
-				refEntries, dirErr := os.ReadDir(glslRefDir)
-				if dirErr != nil {
-					glslSkip++
-					t.Skipf("no GLSL reference dir: %v", dirErr)
-					return
-				}
-
-				var refFiles []string
-				for _, e := range refEntries {
-					if strings.HasPrefix(e.Name(), prefix) && strings.HasSuffix(e.Name(), ".glsl") {
-						refFiles = append(refFiles, e.Name())
-					}
-				}
+				refFiles := rustReferenceFiles(t, rustOutGLSL, func(name string) bool {
+					return strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".glsl")
+				})
 
 				if len(refFiles) == 0 {
 					glslSkip++
@@ -338,7 +321,8 @@ func TestRustReference(t *testing.T) {
 				// For each reference file, extract entry point name and stage,
 				// compile, and compare
 				allMatch := true
-				for _, refName := range refFiles {
+				for _, refPath := range refFiles {
+					refName := filepath.Base(refPath)
 					// Parse: wgsl-{shader}.{entry}.{Stage}.glsl
 					withoutPrefix := strings.TrimPrefix(refName, prefix)
 					withoutSuffix := strings.TrimSuffix(withoutPrefix, ".glsl")
@@ -357,7 +341,6 @@ func TestRustReference(t *testing.T) {
 						continue
 					}
 
-					refPath := filepath.Join(glslRefDir, refName)
 					rustExpected, readErr := os.ReadFile(refPath)
 					if readErr != nil {
 						t.Errorf("read GLSL ref %s: %v", refPath, readErr)
@@ -457,40 +440,6 @@ func compareRustStructural(actual, expected string) string {
 }
 
 // ---------------------------------------------------------------------------
-// Shader Loading
-// ---------------------------------------------------------------------------
-
-// loadInputShaders reads all .wgsl files from the given directory.
-func loadInputShaders(t *testing.T, dir string) []shaderFile {
-	t.Helper()
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read input directory %q: %v", dir, err)
-	}
-
-	var shaders []shaderFile
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".wgsl") {
-			continue
-		}
-		data, readErr := os.ReadFile(filepath.Join(dir, entry.Name()))
-		if readErr != nil {
-			t.Fatalf("read shader %q: %v", entry.Name(), readErr)
-		}
-		name := strings.TrimSuffix(entry.Name(), ".wgsl")
-		shaders = append(shaders, shaderFile{name: name, source: string(data)})
-	}
-
-	// Sort for deterministic test order
-	sort.Slice(shaders, func(i, j int) bool {
-		return shaders[i].name < shaders[j].name
-	})
-
-	return shaders
-}
-
-// ---------------------------------------------------------------------------
 // Compilation Helpers
 // ---------------------------------------------------------------------------
 
@@ -549,7 +498,7 @@ func compileSPIRVWithOpts(t *testing.T, module *ir.Module, opts spirv.Options) [
 func readRustSPVConfig(shaderName string) spirv.Options {
 	opts := spirv.DefaultOptions()
 
-	tomlPath := filepath.Join(rustTomlDir, shaderName+".toml")
+	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
 	if err != nil {
 		return opts
@@ -652,7 +601,7 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 // readSPVPipelineConstants reads pipeline_constants from a Rust TOML config.
 // Used to process overrides before SPIR-V compilation (same as Rust test driver).
 func readSPVPipelineConstants(shaderName string) ir.PipelineConstants {
-	tomlPath := filepath.Join(rustTomlDir, shaderName+".toml")
+	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
 	if err != nil {
 		return nil
@@ -823,7 +772,7 @@ func compileHLSL(t *testing.T, module *ir.Module, shaderName string) string {
 
 // readHLSLConfig reads HLSL options from a Rust naga test TOML config file.
 func readHLSLConfig(opts *hlsl.Options, shaderName string) {
-	tomlPath := filepath.Join(rustTomlDir, shaderName+".toml")
+	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
 	if err != nil {
 		return // No TOML file — use defaults
@@ -1011,7 +960,7 @@ func readHLSLConfig(opts *hlsl.Options, shaderName string) {
 			epName := m[1]
 			fragPath := m[2]
 			// Load the fragment shader from the same directory as other test inputs
-			fragWGSL, err := os.ReadFile(filepath.Join("testdata", "in", fragPath))
+			fragWGSL, err := os.ReadFile(filepath.Join(rustInputDir, fragPath))
 			if err != nil {
 				return
 			}
@@ -1145,7 +1094,7 @@ func readGLSLConfig(shaderName string) glslConfig {
 		excludeList: make(map[string]bool),
 	}
 
-	tomlPath := filepath.Join(rustTomlDir, shaderName+".toml")
+	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
 	if err != nil {
 		return cfg
@@ -1354,11 +1303,6 @@ func compileMSLWithOpts(t *testing.T, module *ir.Module, opts msl.Options) (stri
 	return code, nil
 }
 
-// rustTomlDir is the path to Rust naga test TOML configs.
-// These are copies of Rust naga's test configs, stored in the repo so CI
-// can access them without the full Rust reference checkout.
-const rustTomlDir = "testdata/config"
-
 type rustTargetClassification uint8
 
 const (
@@ -1386,7 +1330,7 @@ func classifyRustTarget(content, target string) rustTargetClassification {
 }
 
 func rustTargetForShader(shaderName, target string) (rustTargetClassification, error) {
-	tomlPath := filepath.Join(rustTomlDir, shaderName+".toml")
+	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
 	if os.IsNotExist(err) {
 		return rustTargetUndeclared, nil
@@ -1409,7 +1353,7 @@ func readRustMSLConfig(shaderName string) msl.Options {
 	// Override our Go defaults (ReadZeroSkipWrite) to match Rust behavior.
 	opts.BoundsCheckPolicies = msl.BoundsCheckPolicies{}
 
-	tomlPath := filepath.Join(rustTomlDir, shaderName+".toml")
+	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
 	if err != nil {
 		return opts

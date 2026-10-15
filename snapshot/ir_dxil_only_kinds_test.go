@@ -24,10 +24,7 @@ import (
 // invariant statement and rationale (resembling Mesa NIR's pattern of
 // pass-introduced node kinds that backends opt-in to handle).
 func TestNoDxilOnlyKindsAfterParse(t *testing.T) {
-	shaders := loadInputShaders(t, "testdata/in")
-	if len(shaders) == 0 {
-		t.Fatal("no input shaders found in testdata/in/")
-	}
+	shaders := loadCorpus(t)
 
 	for _, sh := range shaders {
 		t.Run(sh.name, func(t *testing.T) {

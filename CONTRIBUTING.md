@@ -162,14 +162,27 @@ recorded in `referenceAllowList` in `snapshot/snapshot_test.go` with a reason
 string. When adding a new allow-list entry, document **why** the divergence
 exists and confirm it does not affect correctness.
 
+### Test corpus
+
+The snapshot tests run over two corpora:
+
+- `snapshot/testdata/rust/` — the [Rust naga test suite](https://github.com/gfx-rs/wgpu/tree/trunk/naga/tests)
+  (WGSL inputs, their `.toml` parameters and Rust's reference outputs),
+  vendored verbatim. **Do not edit or add files there by hand**:
+  `TestRustCorpusIntegrity` checks every file against `MANIFEST.json`. New
+  upstream shaders arrive by re-syncing the whole corpus with
+  `go run ./internal/cmd/corpussync sync` — see
+  `snapshot/testdata/rust/README.md`.
+- `snapshot/testdata/own/in/` — shaders written for this project. They do not
+  count toward Rust parity.
+
 ### Adding a new test shader
 
-1. Copy the `.wgsl` file (and `.toml` config if any) from the
-   [Rust naga test suite](https://github.com/gfx-rs/wgpu/tree/trunk/naga/tests/in/wgsl)
-   to `snapshot/testdata/in/` — **keep the original filename**
-2. Run `UPDATE_GOLDEN=1 go test -run TestSnapshots -count=1 ./snapshot/`
-3. Run `go test -run TestRustReference -count=1 ./snapshot/` to verify parity
-4. If the output intentionally diverges, add the shader to `referenceAllowList`
+1. Add the `.wgsl` file to `snapshot/testdata/own/in/` with a name not used by
+   the Rust corpus
+2. Run `UPDATE_GOLDEN=1 go test -run TestSnapshots -count=1 ./snapshot/` and
+   review the new golden files
+3. Run `go test ./snapshot/` to check SPIR-V and DXIL validation
 
 ## Reporting Issues
 

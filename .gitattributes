@@ -1,0 +1,4 @@
+# Test corpus trees are verified byte for byte against MANIFEST.json
+# (internal/testcorpus): never convert their line endings.
+snapshot/testdata/rust/** -text
+snapshot/testdata/rust-derived/** -text

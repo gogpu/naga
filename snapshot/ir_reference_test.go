@@ -13,10 +13,9 @@ import (
 
 // TestRONParserSmoke checks that the RON parser can parse all reference IR snapshots.
 func TestRONParserSmoke(t *testing.T) {
-	ronFiles, err := filepath.Glob("testdata/reference/ir/wgsl-*.ron")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ronFiles := rustReferenceFiles(t, rustOutIR, func(name string) bool {
+		return strings.HasPrefix(name, "wgsl-") && strings.HasSuffix(name, ".ron")
+	})
 
 	passed := 0
 	total := 0
@@ -82,10 +81,9 @@ var knownGlobalExpressionDiff = map[string]struct {
 }
 
 func TestIRReference(t *testing.T) {
-	ronFiles, err := filepath.Glob("testdata/reference/ir/wgsl-*.ron")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ronFiles := rustReferenceFiles(t, rustOutIR, func(name string) bool {
+		return strings.HasPrefix(name, "wgsl-") && strings.HasSuffix(name, ".ron")
+	})
 
 	passed := 0
 	total := 0
@@ -137,10 +135,13 @@ func TestIRReference(t *testing.T) {
 			}
 
 			// 2. Compile our WGSL
-			wgslFile := fmt.Sprintf("testdata/in/%s.wgsl", shaderName)
+			wgslFile, ok := shaderInputPath(shaderName)
+			if !ok {
+				t.Skipf("no WGSL input for %s", shaderName)
+			}
 			wgslData, err := os.ReadFile(wgslFile)
 			if err != nil {
-				t.Skipf("no WGSL input: %v", err)
+				t.Fatal(err)
 			}
 			ourMod := compileToIR(t, shaderName, string(wgslData))
 
@@ -210,10 +211,9 @@ func TestIRReference(t *testing.T) {
 // TestIRReferenceCompact compares our IR after compaction against Rust compact snapshots.
 // This tests the IR that actually goes into backends.
 func TestIRReferenceCompact(t *testing.T) {
-	ronFiles, err := filepath.Glob("testdata/reference/ir/wgsl-*.compact.ron")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ronFiles := rustReferenceFiles(t, rustOutIR, func(name string) bool {
+		return strings.HasPrefix(name, "wgsl-") && strings.HasSuffix(name, ".compact.ron")
+	})
 
 	passed := 0
 	total := 0
@@ -250,10 +250,13 @@ func TestIRReferenceCompact(t *testing.T) {
 				t.Fatalf("RON parse error: %v", err)
 			}
 
-			wgslFile := fmt.Sprintf("testdata/in/%s.wgsl", shaderName)
+			wgslFile, ok := shaderInputPath(shaderName)
+			if !ok {
+				t.Skipf("no WGSL input for %s", shaderName)
+			}
 			wgslData, err := os.ReadFile(wgslFile)
 			if err != nil {
-				t.Skipf("no WGSL input: %v", err)
+				t.Fatal(err)
 			}
 			ourMod := compileToIR(t, shaderName, string(wgslData))
 

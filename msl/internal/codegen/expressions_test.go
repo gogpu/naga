@@ -665,9 +665,11 @@ fn test() {
 
 func TestMSL_AbstractTypesVarFull(t *testing.T) {
 	// Use the ACTUAL abstract-types-var shader to reproduce the failure.
-	srcBytes, readErr := os.ReadFile("../snapshot/testdata/in/abstract-types-var.wgsl")
+	// The shader is part of the vendored Rust corpus; a missing file means the
+	// path is stale, which must fail rather than silently skip the test.
+	srcBytes, readErr := os.ReadFile("../../../snapshot/testdata/rust/in/wgsl/abstract-types-var.wgsl")
 	if readErr != nil {
-		t.Skip("shader file not found:", readErr)
+		t.Fatal(readErr)
 	}
 	src := string(srcBytes)
 

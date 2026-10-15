@@ -152,7 +152,7 @@ spvdis shader.spv
 go install github.com/gogpu/naga/cmd/dxilval@latest
 dxilval shader.dxil                       # validate a single container
 dxilval --wgsl shader.wgsl                # compile through naga, then validate
-dxilval --corpus snapshot/testdata/in/    # walk a directory, typed-error summary
+dxilval --corpus snapshot/testdata/rust/in/wgsl/  # walk a directory, typed-error summary
 
 # Texture shader compile tool (testing)
 go install github.com/gogpu/naga/cmd/texture_compile@latest

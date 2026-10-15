@@ -1,2 +1,0 @@
-fragment_module = { entry_point = "fs_main", path = "unconsumed_vertex_outputs_frag.wgsl" }
-targets = "HLSL"

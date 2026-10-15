@@ -48,10 +48,7 @@ func TestDxilValSummary(t *testing.T) {
 		t.Skip("dxc.exe not found (install Windows SDK)")
 	}
 
-	shaders := loadInputShaders(t, "testdata/in")
-	if len(shaders) == 0 {
-		t.Fatal("no input shaders found in testdata/in/")
-	}
+	shaders := loadCorpus(t)
 
 	type result struct {
 		name     string
@@ -199,7 +196,7 @@ func TestDxilValSummary(t *testing.T) {
 // ggProductionCorpora are the gg shader directories that TestDxilValGGProduction
 // walks to guard against BUG-DXIL-026-class regressions. These are Vello-derived
 // compute pipelines and compositor fragments that exercise patterns absent from
-// the testdata/in/ baseline (packed struct UAV loads, workgroup struct arrays
+// the corpus baseline (packed struct UAV loads, workgroup struct arrays
 // with TGSM-origin constraints, complex bind group layouts).
 //
 // Paths are relative to snapshot/. The go.work file puts ../../gg in the

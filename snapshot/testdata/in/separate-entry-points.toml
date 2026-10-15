@@ -1,5 +1,0 @@
-targets = "SPIRV | GLSL"
-
-[spv]
-separate_entry_points = true
-version = [1, 0]

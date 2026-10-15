@@ -4,11 +4,11 @@
 // then compare naga's direct DXIL output (via dxc -dumpbin LLVM IR text) line
 // by line against the golden. Diff = 0 = success.
 //
-// References live under `snapshot/testdata/reference/dxil_dxc/<shader>_<stage>_<entry>.ll`.
+// Goldens live under `snapshot/testdata/golden/dxil-dxc/<shader>_<stage>_<entry>.ll`.
 //
 // To regenerate after intentional emit changes:
 //
-//	UPDATE_DXC_GOLDEN=1 GOROOT="/c/Program Files/Go" go test \
+//	UPDATE_DXC_GOLDEN=1 go test \
 //	    -run TestDxilDxcGolden -count=1 ./snapshot/
 //
 // The generation path requires `dxc.exe` in PATH (Windows SDK preferred for
@@ -34,7 +34,7 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-const dxcGoldenDir = "testdata/reference/dxil_dxc"
+const dxcGoldenDir = "testdata/golden/dxil-dxc"
 
 // dxilDxcSkipShaders lists shaders excluded from DXC golden parity (e.g.,
 // known DXIL backend gaps that produce unparseable blobs). These are tracked
@@ -81,10 +81,7 @@ func TestDxilDxcGolden(t *testing.T) {
 		}
 	}
 
-	shaders := loadInputShaders(t, "testdata/in")
-	if len(shaders) == 0 {
-		t.Fatal("no input shaders found in testdata/in/")
-	}
+	shaders := loadCorpus(t)
 
 	var passCount, diffCount, skipCount, missingGoldenCount int
 	var totalMatched, totalLines int
@@ -173,7 +170,7 @@ func TestDxilDxcGolden(t *testing.T) {
 
 	if !updateGolden && diffCount > 0 {
 		t.Logf("\nTip: review diffs above. To update goldens after intentional emit changes:")
-		t.Logf("  UPDATE_DXC_GOLDEN=1 GOROOT=\"/c/Program Files/Go\" go test -run TestDxilDxcGolden -count=1 ./snapshot/")
+		t.Logf("  UPDATE_DXC_GOLDEN=1 go test -run TestDxilDxcGolden -count=1 ./snapshot/")
 	}
 }
 

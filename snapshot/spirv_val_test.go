@@ -31,10 +31,7 @@ func TestSpirvValBinary(t *testing.T) {
 		t.Skip("spirv-val not found in PATH (install Vulkan SDK)")
 	}
 
-	shaders := loadInputShaders(t, "testdata/in")
-	if len(shaders) == 0 {
-		t.Fatal("no input shaders found in testdata/in/")
-	}
+	shaders := loadCorpus(t)
 
 	var passCount, compileFailCount, valFailCount int
 
@@ -95,10 +92,7 @@ func TestSpirvValBinarySummary(t *testing.T) {
 		t.Skip("spirv-val not found in PATH (install Vulkan SDK)")
 	}
 
-	shaders := loadInputShaders(t, "testdata/in")
-	if len(shaders) == 0 {
-		t.Fatal("no input shaders found in testdata/in/")
-	}
+	shaders := loadCorpus(t)
 
 	type result struct {
 		name     string
@@ -246,28 +240,18 @@ func TestRustReferenceComparison(t *testing.T) {
 		t.Skip("spirv-dis not found in PATH (install Vulkan SDK)")
 	}
 
-	refDir := filepath.Join("testdata", "reference", "spv")
-	refEntries, err := os.ReadDir(refDir)
-	if err != nil {
-		t.Fatalf("read reference dir: %v", err)
-	}
-
 	// Build map: shader name -> reference file path.
 	refFiles := map[string]string{}
-	for _, entry := range refEntries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spvasm") {
-			continue
-		}
+	for _, p := range rustReferenceFiles(t, rustOutSPIRV, func(name string) bool {
+		return strings.HasSuffix(name, ".spvasm")
+	}) {
 		// Reference files are named wgsl-{name}.spvasm.
-		name := strings.TrimSuffix(entry.Name(), ".spvasm")
+		name := strings.TrimSuffix(filepath.Base(p), ".spvasm")
 		name = strings.TrimPrefix(name, "wgsl-")
-		refFiles[name] = filepath.Join(refDir, entry.Name())
+		refFiles[name] = p
 	}
 
-	shaders := loadInputShaders(t, "testdata/in")
-	if len(shaders) == 0 {
-		t.Fatal("no input shaders found in testdata/in/")
-	}
+	shaders := loadCorpus(t)
 
 	type diffResult struct {
 		name  string

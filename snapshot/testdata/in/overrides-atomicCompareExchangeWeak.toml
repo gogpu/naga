@@ -1,6 +1,0 @@
-pipeline_constants = { o = 2.0 }
-targets = "IR | SPIRV | METAL"
-
-[spv]
-separate_entry_points = true
-version = [1, 0]

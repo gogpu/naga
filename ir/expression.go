@@ -199,7 +199,7 @@ func (ExprLoad) expressionKind() {}
 // the invariant is ever violated.
 //
 // The runtime invariant is verified by TestNoDxilOnlyKindsAfterParse
-// in package ir, which parses every shader in snapshot/testdata/in
+// in snapshot/ir_dxil_only_kinds_test.go, which parses every corpus shader
 // and asserts no ExprAlias / ExprPhi appears in the resulting module.
 //
 // # Production

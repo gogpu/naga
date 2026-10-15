@@ -1,0 +1,1296 @@
+{
+  "schema": 1,
+  "kind": "derived",
+  "source": {
+    "repository": "https://github.com/gfx-rs/wgpu",
+    "generator": "Rust naga: WGSL front end; IR as RON (PrettyConfig, LF) before and after compact(KeepUnused::No); ptr-deref-test outputs from the snapshot driver",
+    "note": "Generated before provenance was recorded (ADR-006); upstream commit not recorded. Regenerated at the vendored commit by TEST-CORPUS-001."
+  },
+  "files": [
+    {
+      "path": "out/hlsl/wgsl-ptr-deref-test.hlsl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gitBlob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "out/ir/wgsl-6220-break-from-loop.compact.ron",
+      "sha256": "6243374b200f235b12ead84310e4d65edd381d35ad0bb6eca776a46e27ccc2b5",
+      "gitBlob": "0d430c2aaeeaf288172ab2460a074e2654e0a3b4"
+    },
+    {
+      "path": "out/ir/wgsl-6220-break-from-loop.ron",
+      "sha256": "6243374b200f235b12ead84310e4d65edd381d35ad0bb6eca776a46e27ccc2b5",
+      "gitBlob": "0d430c2aaeeaf288172ab2460a074e2654e0a3b4"
+    },
+    {
+      "path": "out/ir/wgsl-6438-conflicting-idents.compact.ron",
+      "sha256": "e2c2ee1a405085e5e971e2acfcdc9d120c038e812b7d964ab47abff724f7becf",
+      "gitBlob": "289b8a0952e848d69b3edc0ad3ff7b628d9532de"
+    },
+    {
+      "path": "out/ir/wgsl-6438-conflicting-idents.ron",
+      "sha256": "e2c2ee1a405085e5e971e2acfcdc9d120c038e812b7d964ab47abff724f7becf",
+      "gitBlob": "289b8a0952e848d69b3edc0ad3ff7b628d9532de"
+    },
+    {
+      "path": "out/ir/wgsl-6772-unpack-expr-accesses.compact.ron",
+      "sha256": "0307e2218191b1cc9f75f1509280e92c37b775d61f01960197f90001a9d89b68",
+      "gitBlob": "2895ae4e5c05d8f72eb43637fee1f3e40f55d133"
+    },
+    {
+      "path": "out/ir/wgsl-6772-unpack-expr-accesses.ron",
+      "sha256": "0307e2218191b1cc9f75f1509280e92c37b775d61f01960197f90001a9d89b68",
+      "gitBlob": "2895ae4e5c05d8f72eb43637fee1f3e40f55d133"
+    },
+    {
+      "path": "out/ir/wgsl-7048-multiple-dynamic-1.compact.ron",
+      "sha256": "bf56baec465dab45ed9d4b10bd35de9e47f8a9948ad918fcdb8685929f0247cf",
+      "gitBlob": "b378bc4bf44023858d1ffcfc45f5c3a5d712c34f"
+    },
+    {
+      "path": "out/ir/wgsl-7048-multiple-dynamic-1.ron",
+      "sha256": "bf56baec465dab45ed9d4b10bd35de9e47f8a9948ad918fcdb8685929f0247cf",
+      "gitBlob": "b378bc4bf44023858d1ffcfc45f5c3a5d712c34f"
+    },
+    {
+      "path": "out/ir/wgsl-7048-multiple-dynamic-2.compact.ron",
+      "sha256": "758654ed266e394db53f115d0864bb83dc38111a475419f670a857a04a7a9818",
+      "gitBlob": "db51ef36cbcc0c9be05476d2c6d3ae964bacd733"
+    },
+    {
+      "path": "out/ir/wgsl-7048-multiple-dynamic-2.ron",
+      "sha256": "758654ed266e394db53f115d0864bb83dc38111a475419f670a857a04a7a9818",
+      "gitBlob": "db51ef36cbcc0c9be05476d2c6d3ae964bacd733"
+    },
+    {
+      "path": "out/ir/wgsl-7048-multiple-dynamic-3.compact.ron",
+      "sha256": "b55d20b427ba246ca0005ea351ecc61eb0155f0bdea4967ed14e3e0457fd9c79",
+      "gitBlob": "29d2dc0fc6e58d53ad2f65539e336e1d68e8d21a"
+    },
+    {
+      "path": "out/ir/wgsl-7048-multiple-dynamic-3.ron",
+      "sha256": "b55d20b427ba246ca0005ea351ecc61eb0155f0bdea4967ed14e3e0457fd9c79",
+      "gitBlob": "29d2dc0fc6e58d53ad2f65539e336e1d68e8d21a"
+    },
+    {
+      "path": "out/ir/wgsl-7995-unicode-idents.compact.ron",
+      "sha256": "5227268846417acbef143980bc9135273ad5933850f17254a3c7a64cb3369f76",
+      "gitBlob": "dc599bd030597a7a42d70e70a18c3bcd43f4c531"
+    },
+    {
+      "path": "out/ir/wgsl-7995-unicode-idents.ron",
+      "sha256": "5227268846417acbef143980bc9135273ad5933850f17254a3c7a64cb3369f76",
+      "gitBlob": "dc599bd030597a7a42d70e70a18c3bcd43f4c531"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-atomic.compact.ron",
+      "sha256": "beaf073d5ae9984143060d29a9b100d86be74f308d1f031202b43de9280e004e",
+      "gitBlob": "5ccd4ef501509fa21fbcce2b03c049130061e621"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-atomic.ron",
+      "sha256": "beaf073d5ae9984143060d29a9b100d86be74f308d1f031202b43de9280e004e",
+      "gitBlob": "5ccd4ef501509fa21fbcce2b03c049130061e621"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-builtins.compact.ron",
+      "sha256": "78a6d0a30953479640bef1f9bdfd58ef94e1c299033d7f2043369c7dd9251ca2",
+      "gitBlob": "4ef5bca334a43176dd6476aad236a651fedfb613"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-builtins.ron",
+      "sha256": "78a6d0a30953479640bef1f9bdfd58ef94e1c299033d7f2043369c7dd9251ca2",
+      "gitBlob": "4ef5bca334a43176dd6476aad236a651fedfb613"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-const.compact.ron",
+      "sha256": "270c9ca85490722b330dea1b29e6950ebf5cf01b5d96d98ac143b03cb64e1113",
+      "gitBlob": "f92ae4d90a7b65700056cc06b7cb1700a5d38273"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-const.ron",
+      "sha256": "270c9ca85490722b330dea1b29e6950ebf5cf01b5d96d98ac143b03cb64e1113",
+      "gitBlob": "f92ae4d90a7b65700056cc06b7cb1700a5d38273"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-function-calls.compact.ron",
+      "sha256": "d7975f2e75cf7272965be0751638768412eee7b9fd2c270edc14a654864459de",
+      "gitBlob": "641a0ba60d4b2d0e98f83d7c5f35cd6c215545d3"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-function-calls.ron",
+      "sha256": "d7975f2e75cf7272965be0751638768412eee7b9fd2c270edc14a654864459de",
+      "gitBlob": "641a0ba60d4b2d0e98f83d7c5f35cd6c215545d3"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-let.compact.ron",
+      "sha256": "42ab7a9e9cd6e9abed9f8902f833719dec32068c3ba67994fa7edd72a8728efb",
+      "gitBlob": "c8be188de93d4917ca931f5403bf506e127d81d4"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-let.ron",
+      "sha256": "42ab7a9e9cd6e9abed9f8902f833719dec32068c3ba67994fa7edd72a8728efb",
+      "gitBlob": "c8be188de93d4917ca931f5403bf506e127d81d4"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-operators.compact.ron",
+      "sha256": "642cc5dbc2721fcb5a86cf0a3df20b1e7e68a16c1090294229ee7ccc427f8e0a",
+      "gitBlob": "9bd001e54e98817d68f6960127fcb509ceb757f4"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-operators.ron",
+      "sha256": "642cc5dbc2721fcb5a86cf0a3df20b1e7e68a16c1090294229ee7ccc427f8e0a",
+      "gitBlob": "9bd001e54e98817d68f6960127fcb509ceb757f4"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-return.compact.ron",
+      "sha256": "e0086356e198a116c27bc78d2b84438ee253e429f1523cdd4efce201df76a830",
+      "gitBlob": "e50763e32bad8271313f8be7cde36305d1133b21"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-return.ron",
+      "sha256": "e0086356e198a116c27bc78d2b84438ee253e429f1523cdd4efce201df76a830",
+      "gitBlob": "e50763e32bad8271313f8be7cde36305d1133b21"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-texture.compact.ron",
+      "sha256": "bbedb3279e4025aca0b8e063e367c8f4600324aa055d4664b9c2e848be2bf5cd",
+      "gitBlob": "8e87861d44826e3c11440f53ff1b67ec2e515600"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-texture.ron",
+      "sha256": "bbedb3279e4025aca0b8e063e367c8f4600324aa055d4664b9c2e848be2bf5cd",
+      "gitBlob": "8e87861d44826e3c11440f53ff1b67ec2e515600"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-var.compact.ron",
+      "sha256": "d3af19dc4d1a4c71d463648a9a90f41407717a28a04e41405b656fdcd8e36c81",
+      "gitBlob": "bfc03377401a571cea3dc371e65b3d25a51a50b3"
+    },
+    {
+      "path": "out/ir/wgsl-abstract-types-var.ron",
+      "sha256": "d3af19dc4d1a4c71d463648a9a90f41407717a28a04e41405b656fdcd8e36c81",
+      "gitBlob": "bfc03377401a571cea3dc371e65b3d25a51a50b3"
+    },
+    {
+      "path": "out/ir/wgsl-aliased-ray-query.compact.ron",
+      "sha256": "d4c117a885df057e44eb0961b902a4b847ea32fa0b5b66df9d8d93c6a21b6ab8",
+      "gitBlob": "749f7da04bd5e791ba49b071c05df276e24bbdf8"
+    },
+    {
+      "path": "out/ir/wgsl-aliased-ray-query.ron",
+      "sha256": "d4c117a885df057e44eb0961b902a4b847ea32fa0b5b66df9d8d93c6a21b6ab8",
+      "gitBlob": "749f7da04bd5e791ba49b071c05df276e24bbdf8"
+    },
+    {
+      "path": "out/ir/wgsl-array-in-ctor.compact.ron",
+      "sha256": "dfed9c6ce0a212654de3d7cd367a30a425ce95808ea1616659093f55d42c99f8",
+      "gitBlob": "ed76b134c97237a0e4e19f5eb717425b8d8025f0"
+    },
+    {
+      "path": "out/ir/wgsl-array-in-ctor.ron",
+      "sha256": "dfed9c6ce0a212654de3d7cd367a30a425ce95808ea1616659093f55d42c99f8",
+      "gitBlob": "ed76b134c97237a0e4e19f5eb717425b8d8025f0"
+    },
+    {
+      "path": "out/ir/wgsl-array-in-function-return-type.compact.ron",
+      "sha256": "12e0f194acc793dacf62190493c8ca470bc1e4415055f6eb51989b50e6f3cb27",
+      "gitBlob": "913a5e20274eba5d4f48f76e959a830f2297af84"
+    },
+    {
+      "path": "out/ir/wgsl-array-in-function-return-type.ron",
+      "sha256": "12e0f194acc793dacf62190493c8ca470bc1e4415055f6eb51989b50e6f3cb27",
+      "gitBlob": "913a5e20274eba5d4f48f76e959a830f2297af84"
+    },
+    {
+      "path": "out/ir/wgsl-atomicCompareExchange-int64.compact.ron",
+      "sha256": "83d8c51a0d9637a614ab427fd4d5cba948e0acf25b8baa12bf702a844179b29b",
+      "gitBlob": "03e9455e4638a998faddddf9407c7fe6afb22331"
+    },
+    {
+      "path": "out/ir/wgsl-atomicCompareExchange-int64.ron",
+      "sha256": "83d8c51a0d9637a614ab427fd4d5cba948e0acf25b8baa12bf702a844179b29b",
+      "gitBlob": "03e9455e4638a998faddddf9407c7fe6afb22331"
+    },
+    {
+      "path": "out/ir/wgsl-atomicCompareExchange.compact.ron",
+      "sha256": "fd0586c1db8a932e5856d90c9ba547efe1864ff815e9d28448f3ed99cee48930",
+      "gitBlob": "25d2078c92dfc45e5f55c99dc7cdca151d965102"
+    },
+    {
+      "path": "out/ir/wgsl-atomicCompareExchange.ron",
+      "sha256": "fd0586c1db8a932e5856d90c9ba547efe1864ff815e9d28448f3ed99cee48930",
+      "gitBlob": "25d2078c92dfc45e5f55c99dc7cdca151d965102"
+    },
+    {
+      "path": "out/ir/wgsl-atomicOps-float32.compact.ron",
+      "sha256": "d61954a82f64e644568857e67eeee2ea47a034efa8386f1dc13568e5956198aa",
+      "gitBlob": "e1fa63f271aef6d984a71fcb7fb221ae5a6e4eb5"
+    },
+    {
+      "path": "out/ir/wgsl-atomicOps-float32.ron",
+      "sha256": "d61954a82f64e644568857e67eeee2ea47a034efa8386f1dc13568e5956198aa",
+      "gitBlob": "e1fa63f271aef6d984a71fcb7fb221ae5a6e4eb5"
+    },
+    {
+      "path": "out/ir/wgsl-atomicOps-int64-min-max.compact.ron",
+      "sha256": "5726f7295a9f579f46f47046a2c1d84d27ea90e391798cf3b32dfb331790116c",
+      "gitBlob": "0c8e9428a580d66a3ed33e4318ad2f9473de14f9"
+    },
+    {
+      "path": "out/ir/wgsl-atomicOps-int64-min-max.ron",
+      "sha256": "5726f7295a9f579f46f47046a2c1d84d27ea90e391798cf3b32dfb331790116c",
+      "gitBlob": "0c8e9428a580d66a3ed33e4318ad2f9473de14f9"
+    },
+    {
+      "path": "out/ir/wgsl-atomicOps-int64.compact.ron",
+      "sha256": "97859d8d7fb6995a382f276b964c0efa3cae22d00fd1fb403c31dc1d6af08cde",
+      "gitBlob": "096c943a0efcb6469afcdf1b321fea08c7bf5b0e"
+    },
+    {
+      "path": "out/ir/wgsl-atomicOps-int64.ron",
+      "sha256": "97859d8d7fb6995a382f276b964c0efa3cae22d00fd1fb403c31dc1d6af08cde",
+      "gitBlob": "096c943a0efcb6469afcdf1b321fea08c7bf5b0e"
+    },
+    {
+      "path": "out/ir/wgsl-atomicOps.compact.ron",
+      "sha256": "e937d819308698be7d56acbc2c8481a7b36c40fb32eba766a2512f9c70537ae2",
+      "gitBlob": "2fcd9e41a4f59ad4b0526017c6c1a847f5a3419f"
+    },
+    {
+      "path": "out/ir/wgsl-atomicOps.ron",
+      "sha256": "e937d819308698be7d56acbc2c8481a7b36c40fb32eba766a2512f9c70537ae2",
+      "gitBlob": "2fcd9e41a4f59ad4b0526017c6c1a847f5a3419f"
+    },
+    {
+      "path": "out/ir/wgsl-atomicTexture-int64.compact.ron",
+      "sha256": "f366986ef74c5d9be91c68588af0fdd6fb8dfa705d55d78c0081b8eab7fe42ab",
+      "gitBlob": "7ba2e0ebc84982e547269408a54c4dd3234937bb"
+    },
+    {
+      "path": "out/ir/wgsl-atomicTexture-int64.ron",
+      "sha256": "f366986ef74c5d9be91c68588af0fdd6fb8dfa705d55d78c0081b8eab7fe42ab",
+      "gitBlob": "7ba2e0ebc84982e547269408a54c4dd3234937bb"
+    },
+    {
+      "path": "out/ir/wgsl-atomicTexture.compact.ron",
+      "sha256": "eb93d4bbdcc8629f7eb799ff85988cd1f4f450fec001675ea623bdd2a9c3202c",
+      "gitBlob": "0901f22d55af4297742f2addc8730a9353421e95"
+    },
+    {
+      "path": "out/ir/wgsl-atomicTexture.ron",
+      "sha256": "eb93d4bbdcc8629f7eb799ff85988cd1f4f450fec001675ea623bdd2a9c3202c",
+      "gitBlob": "0901f22d55af4297742f2addc8730a9353421e95"
+    },
+    {
+      "path": "out/ir/wgsl-barycentrics.compact.ron",
+      "sha256": "0c621e6c35371fccff84be84c2a87b915b7ed2cfbbaaf83027f1ef3520334e1e",
+      "gitBlob": "a036e2c34989b07c18bd84276621b73f939b5d5f"
+    },
+    {
+      "path": "out/ir/wgsl-barycentrics.ron",
+      "sha256": "0c621e6c35371fccff84be84c2a87b915b7ed2cfbbaaf83027f1ef3520334e1e",
+      "gitBlob": "a036e2c34989b07c18bd84276621b73f939b5d5f"
+    },
+    {
+      "path": "out/ir/wgsl-binding-arrays.compact.ron",
+      "sha256": "c4d45b55d017612636426c1d9a4e70ad3dc05c2f982e01a8ee41432846c7debb",
+      "gitBlob": "44ed7ab086f726bcc24a20a2cd8846b58dff78fa"
+    },
+    {
+      "path": "out/ir/wgsl-binding-arrays.ron",
+      "sha256": "c4d45b55d017612636426c1d9a4e70ad3dc05c2f982e01a8ee41432846c7debb",
+      "gitBlob": "44ed7ab086f726bcc24a20a2cd8846b58dff78fa"
+    },
+    {
+      "path": "out/ir/wgsl-binding-buffer-arrays.compact.ron",
+      "sha256": "0d050ade9bc04bdad7b07990feb07c215c36d50c1d5529cc7c29b3b947ac5acd",
+      "gitBlob": "406107def7d6ab5140a2c6509b563c77ad93f27a"
+    },
+    {
+      "path": "out/ir/wgsl-binding-buffer-arrays.ron",
+      "sha256": "0d050ade9bc04bdad7b07990feb07c215c36d50c1d5529cc7c29b3b947ac5acd",
+      "gitBlob": "406107def7d6ab5140a2c6509b563c77ad93f27a"
+    },
+    {
+      "path": "out/ir/wgsl-bitcast.compact.ron",
+      "sha256": "eec45959ae41b624d6663925942c31f6d64bc0614cf9a48238a31b9e6127d170",
+      "gitBlob": "10d883284d7aa06440ba497a4c5ebbfd41a2ee76"
+    },
+    {
+      "path": "out/ir/wgsl-bitcast.ron",
+      "sha256": "eec45959ae41b624d6663925942c31f6d64bc0614cf9a48238a31b9e6127d170",
+      "gitBlob": "10d883284d7aa06440ba497a4c5ebbfd41a2ee76"
+    },
+    {
+      "path": "out/ir/wgsl-bits-optimized-msl.compact.ron",
+      "sha256": "3d610f808098eb6729fe80ad4273bdfc8d7378979779c36c12479498cf857677",
+      "gitBlob": "a1d53455f2b0fc65a7957763d5d422a617b005f5"
+    },
+    {
+      "path": "out/ir/wgsl-bits-optimized-msl.ron",
+      "sha256": "3d610f808098eb6729fe80ad4273bdfc8d7378979779c36c12479498cf857677",
+      "gitBlob": "a1d53455f2b0fc65a7957763d5d422a617b005f5"
+    },
+    {
+      "path": "out/ir/wgsl-bits.compact.ron",
+      "sha256": "3d610f808098eb6729fe80ad4273bdfc8d7378979779c36c12479498cf857677",
+      "gitBlob": "a1d53455f2b0fc65a7957763d5d422a617b005f5"
+    },
+    {
+      "path": "out/ir/wgsl-bits.ron",
+      "sha256": "3d610f808098eb6729fe80ad4273bdfc8d7378979779c36c12479498cf857677",
+      "gitBlob": "a1d53455f2b0fc65a7957763d5d422a617b005f5"
+    },
+    {
+      "path": "out/ir/wgsl-bits_downlevel.compact.ron",
+      "sha256": "6f53bca2f6876ae07a937711a51a79406c3bf3f3422cba0e076914b2faf1daac",
+      "gitBlob": "1ef45cc822e1fcad2a16a234ab66bfd164be1556"
+    },
+    {
+      "path": "out/ir/wgsl-bits_downlevel.ron",
+      "sha256": "6f53bca2f6876ae07a937711a51a79406c3bf3f3422cba0e076914b2faf1daac",
+      "gitBlob": "1ef45cc822e1fcad2a16a234ab66bfd164be1556"
+    },
+    {
+      "path": "out/ir/wgsl-bits_downlevel_webgl.compact.ron",
+      "sha256": "6f53bca2f6876ae07a937711a51a79406c3bf3f3422cba0e076914b2faf1daac",
+      "gitBlob": "1ef45cc822e1fcad2a16a234ab66bfd164be1556"
+    },
+    {
+      "path": "out/ir/wgsl-bits_downlevel_webgl.ron",
+      "sha256": "6f53bca2f6876ae07a937711a51a79406c3bf3f3422cba0e076914b2faf1daac",
+      "gitBlob": "1ef45cc822e1fcad2a16a234ab66bfd164be1556"
+    },
+    {
+      "path": "out/ir/wgsl-boids.compact.ron",
+      "sha256": "667eed97a0ae0e1104a97f6001ff0570430059694f8ffc40c4d274306363c00c",
+      "gitBlob": "82b40d5e13235f76217b16dee4fcc2accdd5d48a"
+    },
+    {
+      "path": "out/ir/wgsl-boids.ron",
+      "sha256": "667eed97a0ae0e1104a97f6001ff0570430059694f8ffc40c4d274306363c00c",
+      "gitBlob": "82b40d5e13235f76217b16dee4fcc2accdd5d48a"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-dynamic-buffer.compact.ron",
+      "sha256": "88f17470c0f499951639e9662cfd41fdc339740986e0c78aafd5bb9247be0698",
+      "gitBlob": "e34de8402c79346811e3428b2eecf1c70838aff6"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-dynamic-buffer.ron",
+      "sha256": "88f17470c0f499951639e9662cfd41fdc339740986e0c78aafd5bb9247be0698",
+      "gitBlob": "e34de8402c79346811e3428b2eecf1c70838aff6"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-image-restrict-depth.compact.ron",
+      "sha256": "0df003f00f92072e48d9066041d7f732a883beab67be331169e37799bcac565c",
+      "gitBlob": "25b4e2af7fa20403fc79b03a6d1cb9e294db7380"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-image-restrict-depth.ron",
+      "sha256": "0df003f00f92072e48d9066041d7f732a883beab67be331169e37799bcac565c",
+      "gitBlob": "25b4e2af7fa20403fc79b03a6d1cb9e294db7380"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-image-restrict.compact.ron",
+      "sha256": "8f0c6e9924d69054f0cba52d9b621d4fa3d9009cde8040dec9ad3cd124ba7b41",
+      "gitBlob": "0e6a9a59b790833daa0a94c3b7360f5114c6b784"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-image-restrict.ron",
+      "sha256": "8f0c6e9924d69054f0cba52d9b621d4fa3d9009cde8040dec9ad3cd124ba7b41",
+      "gitBlob": "0e6a9a59b790833daa0a94c3b7360f5114c6b784"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-image-rzsw-depth.compact.ron",
+      "sha256": "0df003f00f92072e48d9066041d7f732a883beab67be331169e37799bcac565c",
+      "gitBlob": "25b4e2af7fa20403fc79b03a6d1cb9e294db7380"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-image-rzsw-depth.ron",
+      "sha256": "0df003f00f92072e48d9066041d7f732a883beab67be331169e37799bcac565c",
+      "gitBlob": "25b4e2af7fa20403fc79b03a6d1cb9e294db7380"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-image-rzsw.compact.ron",
+      "sha256": "8f0c6e9924d69054f0cba52d9b621d4fa3d9009cde8040dec9ad3cd124ba7b41",
+      "gitBlob": "0e6a9a59b790833daa0a94c3b7360f5114c6b784"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-image-rzsw.ron",
+      "sha256": "8f0c6e9924d69054f0cba52d9b621d4fa3d9009cde8040dec9ad3cd124ba7b41",
+      "gitBlob": "0e6a9a59b790833daa0a94c3b7360f5114c6b784"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-restrict.compact.ron",
+      "sha256": "726b500176f5c1d7609766c9cea91a055a0d76184f1ba465c44c3f47cf0336d6",
+      "gitBlob": "729559dadf609a989107b555235dc8f904b5e881"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-restrict.ron",
+      "sha256": "726b500176f5c1d7609766c9cea91a055a0d76184f1ba465c44c3f47cf0336d6",
+      "gitBlob": "729559dadf609a989107b555235dc8f904b5e881"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-zero-atomic.compact.ron",
+      "sha256": "9773a3f7b99865cb827d41a35c8295b5673fb24acb73d47525576fecb7623cf4",
+      "gitBlob": "2149ef578dfee69c475ca8b3be1f3e5f843bb736"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-zero-atomic.ron",
+      "sha256": "9773a3f7b99865cb827d41a35c8295b5673fb24acb73d47525576fecb7623cf4",
+      "gitBlob": "2149ef578dfee69c475ca8b3be1f3e5f843bb736"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-zero.compact.ron",
+      "sha256": "726b500176f5c1d7609766c9cea91a055a0d76184f1ba465c44c3f47cf0336d6",
+      "gitBlob": "729559dadf609a989107b555235dc8f904b5e881"
+    },
+    {
+      "path": "out/ir/wgsl-bounds-check-zero.ron",
+      "sha256": "726b500176f5c1d7609766c9cea91a055a0d76184f1ba465c44c3f47cf0336d6",
+      "gitBlob": "729559dadf609a989107b555235dc8f904b5e881"
+    },
+    {
+      "path": "out/ir/wgsl-break-if.compact.ron",
+      "sha256": "15a994b019e228acc40797f1abd350e268acb316ce4b23dcea29dfb4b031960f",
+      "gitBlob": "bbcbac6aebc5ff64d3fe4add6978ad6ab81f63f5"
+    },
+    {
+      "path": "out/ir/wgsl-break-if.ron",
+      "sha256": "15a994b019e228acc40797f1abd350e268acb316ce4b23dcea29dfb4b031960f",
+      "gitBlob": "bbcbac6aebc5ff64d3fe4add6978ad6ab81f63f5"
+    },
+    {
+      "path": "out/ir/wgsl-clip-distances.compact.ron",
+      "sha256": "215e77f72db88c7ab28e2190c43680cfe3a023fb4bd739ba57cfea47676e94a7",
+      "gitBlob": "68e60e0eae3b67e9aba451bfdaccd35a7a99b0fc"
+    },
+    {
+      "path": "out/ir/wgsl-clip-distances.ron",
+      "sha256": "215e77f72db88c7ab28e2190c43680cfe3a023fb4bd739ba57cfea47676e94a7",
+      "gitBlob": "68e60e0eae3b67e9aba451bfdaccd35a7a99b0fc"
+    },
+    {
+      "path": "out/ir/wgsl-const-exprs.compact.ron",
+      "sha256": "c70ef0315b5dd7b96230902d452593196cf6501188213e74df1370ee0937c48d",
+      "gitBlob": "7799cdca875bca1b126f58c573c9925bc39d3313"
+    },
+    {
+      "path": "out/ir/wgsl-const-exprs.ron",
+      "sha256": "c70ef0315b5dd7b96230902d452593196cf6501188213e74df1370ee0937c48d",
+      "gitBlob": "7799cdca875bca1b126f58c573c9925bc39d3313"
+    },
+    {
+      "path": "out/ir/wgsl-constructors.compact.ron",
+      "sha256": "4949c3bc5d9d8ce540d2be772dc3129abadce9be17cb4601a1cc60679da46676",
+      "gitBlob": "df7a8eb2c81743f9d530abe887ad2ff2f7f02f92"
+    },
+    {
+      "path": "out/ir/wgsl-constructors.ron",
+      "sha256": "4949c3bc5d9d8ce540d2be772dc3129abadce9be17cb4601a1cc60679da46676",
+      "gitBlob": "df7a8eb2c81743f9d530abe887ad2ff2f7f02f92"
+    },
+    {
+      "path": "out/ir/wgsl-control-flow.compact.ron",
+      "sha256": "003e1efbafe23b7fe3bdffa19fafcf5b5c6f532cd81ede3c87ccbdac736f55a8",
+      "gitBlob": "56f356646de6e70c2670c9255e12279a493b7fcd"
+    },
+    {
+      "path": "out/ir/wgsl-control-flow.ron",
+      "sha256": "003e1efbafe23b7fe3bdffa19fafcf5b5c6f532cd81ede3c87ccbdac736f55a8",
+      "gitBlob": "56f356646de6e70c2670c9255e12279a493b7fcd"
+    },
+    {
+      "path": "out/ir/wgsl-conversion-float-to-int-no-f64.compact.ron",
+      "sha256": "d1f0260f156d78c3ec2330b1fbdb4d52a2f4cb836b8298baf2ff8ffcafec8036",
+      "gitBlob": "8c721b007602426bc642d5a8163ea772cd0f0d49"
+    },
+    {
+      "path": "out/ir/wgsl-conversion-float-to-int-no-f64.ron",
+      "sha256": "d1f0260f156d78c3ec2330b1fbdb4d52a2f4cb836b8298baf2ff8ffcafec8036",
+      "gitBlob": "8c721b007602426bc642d5a8163ea772cd0f0d49"
+    },
+    {
+      "path": "out/ir/wgsl-conversion-float-to-int.compact.ron",
+      "sha256": "4114d5ba52d004a9a44ee304280f21e48fbe745e9a2aae19e75890eea2db0096",
+      "gitBlob": "1b0b7d66637d1cdda918fc84ec15e05de393521f"
+    },
+    {
+      "path": "out/ir/wgsl-conversion-float-to-int.ron",
+      "sha256": "4114d5ba52d004a9a44ee304280f21e48fbe745e9a2aae19e75890eea2db0096",
+      "gitBlob": "1b0b7d66637d1cdda918fc84ec15e05de393521f"
+    },
+    {
+      "path": "out/ir/wgsl-conversions.compact.ron",
+      "sha256": "2820a4b38687ce3831f98ecdea9b6c535b3584c18a88050c3e74f941d377ae97",
+      "gitBlob": "a5356ef28c1da7256874f19105b8a2ef22303f12"
+    },
+    {
+      "path": "out/ir/wgsl-conversions.ron",
+      "sha256": "2820a4b38687ce3831f98ecdea9b6c535b3584c18a88050c3e74f941d377ae97",
+      "gitBlob": "a5356ef28c1da7256874f19105b8a2ef22303f12"
+    },
+    {
+      "path": "out/ir/wgsl-cross.compact.ron",
+      "sha256": "d73db9af9a65e03ece037fc818988a072d8de844485c3add3ec5996979485aac",
+      "gitBlob": "04f66b12038d4da1b63de5012a94d8d01d8bfaa4"
+    },
+    {
+      "path": "out/ir/wgsl-cross.ron",
+      "sha256": "d73db9af9a65e03ece037fc818988a072d8de844485c3add3ec5996979485aac",
+      "gitBlob": "04f66b12038d4da1b63de5012a94d8d01d8bfaa4"
+    },
+    {
+      "path": "out/ir/wgsl-cubeArrayShadow.compact.ron",
+      "sha256": "7aafc0bb2156a863a102dde5191f8a5497c9e42e9d7c13f9e90bb80d226f3547",
+      "gitBlob": "e15098eb4c1fe334d75f99393690ec681b5710f9"
+    },
+    {
+      "path": "out/ir/wgsl-cubeArrayShadow.ron",
+      "sha256": "7aafc0bb2156a863a102dde5191f8a5497c9e42e9d7c13f9e90bb80d226f3547",
+      "gitBlob": "e15098eb4c1fe334d75f99393690ec681b5710f9"
+    },
+    {
+      "path": "out/ir/wgsl-debug-symbol-large-source.compact.ron",
+      "sha256": "d805a6e4eed440a65e63dfc1b9dffa6cefb68f71c9255a1d7ba0cac9c490443c",
+      "gitBlob": "bec0f9b106e772e16125c69da8c5a5dcac647bb3"
+    },
+    {
+      "path": "out/ir/wgsl-debug-symbol-large-source.ron",
+      "sha256": "d805a6e4eed440a65e63dfc1b9dffa6cefb68f71c9255a1d7ba0cac9c490443c",
+      "gitBlob": "bec0f9b106e772e16125c69da8c5a5dcac647bb3"
+    },
+    {
+      "path": "out/ir/wgsl-debug-symbol-simple.compact.ron",
+      "sha256": "79e7ef857686afaf56e9e293cd48946c26269c13a57962cc1e0a9b3e19cd5240",
+      "gitBlob": "8560196a6054cd81c8c67c4e065214dd35ca75f4"
+    },
+    {
+      "path": "out/ir/wgsl-debug-symbol-simple.ron",
+      "sha256": "79e7ef857686afaf56e9e293cd48946c26269c13a57962cc1e0a9b3e19cd5240",
+      "gitBlob": "8560196a6054cd81c8c67c4e065214dd35ca75f4"
+    },
+    {
+      "path": "out/ir/wgsl-debug-symbol-terrain.compact.ron",
+      "sha256": "d805a6e4eed440a65e63dfc1b9dffa6cefb68f71c9255a1d7ba0cac9c490443c",
+      "gitBlob": "bec0f9b106e772e16125c69da8c5a5dcac647bb3"
+    },
+    {
+      "path": "out/ir/wgsl-debug-symbol-terrain.ron",
+      "sha256": "d805a6e4eed440a65e63dfc1b9dffa6cefb68f71c9255a1d7ba0cac9c490443c",
+      "gitBlob": "bec0f9b106e772e16125c69da8c5a5dcac647bb3"
+    },
+    {
+      "path": "out/ir/wgsl-dualsource.compact.ron",
+      "sha256": "7493d6bd41df142c6fa4df7763ad72acc09ddd5da1d2c170465b5a0cf7cf9b0b",
+      "gitBlob": "94118e33e66efedbf7a2c9ca405463e5954f53d5"
+    },
+    {
+      "path": "out/ir/wgsl-dualsource.ron",
+      "sha256": "7493d6bd41df142c6fa4df7763ad72acc09ddd5da1d2c170465b5a0cf7cf9b0b",
+      "gitBlob": "94118e33e66efedbf7a2c9ca405463e5954f53d5"
+    },
+    {
+      "path": "out/ir/wgsl-early-depth-test-conservative.compact.ron",
+      "sha256": "516e73af939ba8d7df905120503e7af63ea6ef701947a225a28225b467a168a4",
+      "gitBlob": "b545944538767e1ba82ac22b46458ba2fcdf66a2"
+    },
+    {
+      "path": "out/ir/wgsl-early-depth-test-conservative.ron",
+      "sha256": "516e73af939ba8d7df905120503e7af63ea6ef701947a225a28225b467a168a4",
+      "gitBlob": "b545944538767e1ba82ac22b46458ba2fcdf66a2"
+    },
+    {
+      "path": "out/ir/wgsl-early-depth-test-force.compact.ron",
+      "sha256": "86645e2828e457dd026a6c1edb97299c9b15f4e9d58c88c0cbb3993418468cb1",
+      "gitBlob": "32e4687b96be139989517b628f303b581be10a4d"
+    },
+    {
+      "path": "out/ir/wgsl-early-depth-test-force.ron",
+      "sha256": "86645e2828e457dd026a6c1edb97299c9b15f4e9d58c88c0cbb3993418468cb1",
+      "gitBlob": "32e4687b96be139989517b628f303b581be10a4d"
+    },
+    {
+      "path": "out/ir/wgsl-empty-if.compact.ron",
+      "sha256": "f7b1bd9712d83f25fb78da7b45f5fc9c18b3faf662986095f4c976d9b380fc0d",
+      "gitBlob": "40de162c9e7862d4c16df701b4caece5cac0f2e3"
+    },
+    {
+      "path": "out/ir/wgsl-empty-if.ron",
+      "sha256": "f7b1bd9712d83f25fb78da7b45f5fc9c18b3faf662986095f4c976d9b380fc0d",
+      "gitBlob": "40de162c9e7862d4c16df701b4caece5cac0f2e3"
+    },
+    {
+      "path": "out/ir/wgsl-empty.compact.ron",
+      "sha256": "32447e494240e9af6752b6cb3cead1201475230e315580788598a977d242e70b",
+      "gitBlob": "ee8bdc3f0783408b675fdea66881fd04486e1882"
+    },
+    {
+      "path": "out/ir/wgsl-empty.ron",
+      "sha256": "32447e494240e9af6752b6cb3cead1201475230e315580788598a977d242e70b",
+      "gitBlob": "ee8bdc3f0783408b675fdea66881fd04486e1882"
+    },
+    {
+      "path": "out/ir/wgsl-extra.compact.ron",
+      "sha256": "7870b093f1d33ab878c08d1987d8a91844a89dfed6035404913ca5dcb299eb83",
+      "gitBlob": "450a0c3da4b1bd15dc96f29b80f8c7cc37c2a997"
+    },
+    {
+      "path": "out/ir/wgsl-extra.ron",
+      "sha256": "7870b093f1d33ab878c08d1987d8a91844a89dfed6035404913ca5dcb299eb83",
+      "gitBlob": "450a0c3da4b1bd15dc96f29b80f8c7cc37c2a997"
+    },
+    {
+      "path": "out/ir/wgsl-f16-native.compact.ron",
+      "sha256": "6a946a4aff2d5f6ccf2d8714a63d17381e3b079e5b4ab27fa4b1160b5bd73c5f",
+      "gitBlob": "5424818eaf3f94e6392ce1c91b2cf71b82ce0d95"
+    },
+    {
+      "path": "out/ir/wgsl-f16-native.ron",
+      "sha256": "6a946a4aff2d5f6ccf2d8714a63d17381e3b079e5b4ab27fa4b1160b5bd73c5f",
+      "gitBlob": "5424818eaf3f94e6392ce1c91b2cf71b82ce0d95"
+    },
+    {
+      "path": "out/ir/wgsl-f16-polyfill.compact.ron",
+      "sha256": "6a946a4aff2d5f6ccf2d8714a63d17381e3b079e5b4ab27fa4b1160b5bd73c5f",
+      "gitBlob": "5424818eaf3f94e6392ce1c91b2cf71b82ce0d95"
+    },
+    {
+      "path": "out/ir/wgsl-f16-polyfill.ron",
+      "sha256": "6a946a4aff2d5f6ccf2d8714a63d17381e3b079e5b4ab27fa4b1160b5bd73c5f",
+      "gitBlob": "5424818eaf3f94e6392ce1c91b2cf71b82ce0d95"
+    },
+    {
+      "path": "out/ir/wgsl-f16.compact.ron",
+      "sha256": "5e848fb1cc065f6c0309ede67b396b6bdcc67d9f2d0b8749ab73dd61fc330bfe",
+      "gitBlob": "1c20e2f03904a5d0201dc2693fb8cb9ac81491e9"
+    },
+    {
+      "path": "out/ir/wgsl-f16.ron",
+      "sha256": "5e848fb1cc065f6c0309ede67b396b6bdcc67d9f2d0b8749ab73dd61fc330bfe",
+      "gitBlob": "1c20e2f03904a5d0201dc2693fb8cb9ac81491e9"
+    },
+    {
+      "path": "out/ir/wgsl-f64.compact.ron",
+      "sha256": "3f24cf887f847a30f6e3ec06a57850d9e8585bd751a2fe7f75ea811051c2933f",
+      "gitBlob": "622e53fdcf2e6b0ee0d8adb0c88838729425cb2c"
+    },
+    {
+      "path": "out/ir/wgsl-f64.ron",
+      "sha256": "3f24cf887f847a30f6e3ec06a57850d9e8585bd751a2fe7f75ea811051c2933f",
+      "gitBlob": "622e53fdcf2e6b0ee0d8adb0c88838729425cb2c"
+    },
+    {
+      "path": "out/ir/wgsl-force_point_size_vertex_shader_webgl.compact.ron",
+      "sha256": "314a14aed2c89d3407f7bf5ab64c1f1e1fbedf99d0dfcf006126fc85a03768a0",
+      "gitBlob": "b3906b305f67d2eecfa535b2f743ef012e6ded6b"
+    },
+    {
+      "path": "out/ir/wgsl-force_point_size_vertex_shader_webgl.ron",
+      "sha256": "314a14aed2c89d3407f7bf5ab64c1f1e1fbedf99d0dfcf006126fc85a03768a0",
+      "gitBlob": "b3906b305f67d2eecfa535b2f743ef012e6ded6b"
+    },
+    {
+      "path": "out/ir/wgsl-fragment-output.compact.ron",
+      "sha256": "aadfcf12d4973c4e9e4d3eb63087ab2a2d37749eca5bc431bcc3b51c621e998a",
+      "gitBlob": "06186fabe6bf749392ec3548984acd8d3600d56a"
+    },
+    {
+      "path": "out/ir/wgsl-fragment-output.ron",
+      "sha256": "aadfcf12d4973c4e9e4d3eb63087ab2a2d37749eca5bc431bcc3b51c621e998a",
+      "gitBlob": "06186fabe6bf749392ec3548984acd8d3600d56a"
+    },
+    {
+      "path": "out/ir/wgsl-functions-optimized-by-capability.compact.ron",
+      "sha256": "f908ae580c6c0fc69763ba9d141d444f1b61368bd4069fe96e0b481c1674a535",
+      "gitBlob": "98ffaba7787cc2c359175549c19d03b6285d1288"
+    },
+    {
+      "path": "out/ir/wgsl-functions-optimized-by-capability.ron",
+      "sha256": "f908ae580c6c0fc69763ba9d141d444f1b61368bd4069fe96e0b481c1674a535",
+      "gitBlob": "98ffaba7787cc2c359175549c19d03b6285d1288"
+    },
+    {
+      "path": "out/ir/wgsl-functions-optimized-by-version.compact.ron",
+      "sha256": "f908ae580c6c0fc69763ba9d141d444f1b61368bd4069fe96e0b481c1674a535",
+      "gitBlob": "98ffaba7787cc2c359175549c19d03b6285d1288"
+    },
+    {
+      "path": "out/ir/wgsl-functions-optimized-by-version.ron",
+      "sha256": "f908ae580c6c0fc69763ba9d141d444f1b61368bd4069fe96e0b481c1674a535",
+      "gitBlob": "98ffaba7787cc2c359175549c19d03b6285d1288"
+    },
+    {
+      "path": "out/ir/wgsl-functions-unoptimized.compact.ron",
+      "sha256": "f908ae580c6c0fc69763ba9d141d444f1b61368bd4069fe96e0b481c1674a535",
+      "gitBlob": "98ffaba7787cc2c359175549c19d03b6285d1288"
+    },
+    {
+      "path": "out/ir/wgsl-functions-unoptimized.ron",
+      "sha256": "f908ae580c6c0fc69763ba9d141d444f1b61368bd4069fe96e0b481c1674a535",
+      "gitBlob": "98ffaba7787cc2c359175549c19d03b6285d1288"
+    },
+    {
+      "path": "out/ir/wgsl-functions-webgl.compact.ron",
+      "sha256": "251aa34d7a4ef3051a1209245fe43d772d2fa25bb390e6eacbb23b7a04cd535e",
+      "gitBlob": "14234b21c3d62a1d1d43e0a32a8606f4ac9250b4"
+    },
+    {
+      "path": "out/ir/wgsl-functions-webgl.ron",
+      "sha256": "251aa34d7a4ef3051a1209245fe43d772d2fa25bb390e6eacbb23b7a04cd535e",
+      "gitBlob": "14234b21c3d62a1d1d43e0a32a8606f4ac9250b4"
+    },
+    {
+      "path": "out/ir/wgsl-functions.compact.ron",
+      "sha256": "bc8098e9aecbf632327aa617a6c7bf3e2fa6e26ff70a160f6cd89ea1183360a8",
+      "gitBlob": "1b35c0d69ab5c6755784b229df9271352d9e8e88"
+    },
+    {
+      "path": "out/ir/wgsl-functions.ron",
+      "sha256": "bc8098e9aecbf632327aa617a6c7bf3e2fa6e26ff70a160f6cd89ea1183360a8",
+      "gitBlob": "1b35c0d69ab5c6755784b229df9271352d9e8e88"
+    },
+    {
+      "path": "out/ir/wgsl-globals.compact.ron",
+      "sha256": "337095f938660c1c06aff323e577b7a88bae08b1e5378a77ef33c7915a8b017c",
+      "gitBlob": "27a58ffae4620105c369b15470169981146292b2"
+    },
+    {
+      "path": "out/ir/wgsl-globals.ron",
+      "sha256": "337095f938660c1c06aff323e577b7a88bae08b1e5378a77ef33c7915a8b017c",
+      "gitBlob": "27a58ffae4620105c369b15470169981146292b2"
+    },
+    {
+      "path": "out/ir/wgsl-hlsl-keyword.compact.ron",
+      "sha256": "14824e8e51bbe1022febdaee301c2d0b0b48e7ebe206ddd87398d0117ae4c2c1",
+      "gitBlob": "966eb9e8d20945e38f0f73ce781e2abf4c5053da"
+    },
+    {
+      "path": "out/ir/wgsl-hlsl-keyword.ron",
+      "sha256": "14824e8e51bbe1022febdaee301c2d0b0b48e7ebe206ddd87398d0117ae4c2c1",
+      "gitBlob": "966eb9e8d20945e38f0f73ce781e2abf4c5053da"
+    },
+    {
+      "path": "out/ir/wgsl-hlsl_mat_cx2.compact.ron",
+      "sha256": "3b496d5c36848f1d3791e167973119a4592540e0aa9478a7962a0a9fea5b8289",
+      "gitBlob": "372c2681bf396e3364e833eda2747979af25b128"
+    },
+    {
+      "path": "out/ir/wgsl-hlsl_mat_cx2.ron",
+      "sha256": "3b496d5c36848f1d3791e167973119a4592540e0aa9478a7962a0a9fea5b8289",
+      "gitBlob": "372c2681bf396e3364e833eda2747979af25b128"
+    },
+    {
+      "path": "out/ir/wgsl-hlsl_mat_cx3.compact.ron",
+      "sha256": "66a344528ef587d5d13ec72344f4e116f208177f8c02c0b71d8633f7f57eaefc",
+      "gitBlob": "0eec0feeb6dbfafc427e9f30278206faf174a0a9"
+    },
+    {
+      "path": "out/ir/wgsl-hlsl_mat_cx3.ron",
+      "sha256": "66a344528ef587d5d13ec72344f4e116f208177f8c02c0b71d8633f7f57eaefc",
+      "gitBlob": "0eec0feeb6dbfafc427e9f30278206faf174a0a9"
+    },
+    {
+      "path": "out/ir/wgsl-image.compact.ron",
+      "sha256": "4deda3a2cf17c3fa3945812eed8a895622dec8d85ff5ca7f4ab211a270196095",
+      "gitBlob": "47911f134d2f92e541c13ee2d584b58d12dc4f9e"
+    },
+    {
+      "path": "out/ir/wgsl-image.ron",
+      "sha256": "4deda3a2cf17c3fa3945812eed8a895622dec8d85ff5ca7f4ab211a270196095",
+      "gitBlob": "47911f134d2f92e541c13ee2d584b58d12dc4f9e"
+    },
+    {
+      "path": "out/ir/wgsl-int64.compact.ron",
+      "sha256": "8d98068815f34b388a453c555c42f787494af10f54707661d36e76d55d5b4b42",
+      "gitBlob": "8badb32cbf47ec14364e4551e5bd1ef2d11dc4f0"
+    },
+    {
+      "path": "out/ir/wgsl-int64.ron",
+      "sha256": "8d98068815f34b388a453c555c42f787494af10f54707661d36e76d55d5b4b42",
+      "gitBlob": "8badb32cbf47ec14364e4551e5bd1ef2d11dc4f0"
+    },
+    {
+      "path": "out/ir/wgsl-interface.compact.ron",
+      "sha256": "9cdd2b8b0198d6a581e9e35f13e6130acf5a013bfc4356970dbfca3f02dc728b",
+      "gitBlob": "1ef7945e0cc3b86e21da105c1b2e0ee5911ffa23"
+    },
+    {
+      "path": "out/ir/wgsl-interface.ron",
+      "sha256": "9cdd2b8b0198d6a581e9e35f13e6130acf5a013bfc4356970dbfca3f02dc728b",
+      "gitBlob": "1ef7945e0cc3b86e21da105c1b2e0ee5911ffa23"
+    },
+    {
+      "path": "out/ir/wgsl-interpolate.compact.ron",
+      "sha256": "333c29dd5ffcb50b8d2db080a68c0f6a858d6d665749ae7d2361dc183d3c25bb",
+      "gitBlob": "be8f2eba317093f2d4ea32987eeec2d954078280"
+    },
+    {
+      "path": "out/ir/wgsl-interpolate.ron",
+      "sha256": "333c29dd5ffcb50b8d2db080a68c0f6a858d6d665749ae7d2361dc183d3c25bb",
+      "gitBlob": "be8f2eba317093f2d4ea32987eeec2d954078280"
+    },
+    {
+      "path": "out/ir/wgsl-interpolate_compat.compact.ron",
+      "sha256": "0cae5891b7c241856673a6df4ced7ecc48b5b209c00ec931cb0593c0af65cd64",
+      "gitBlob": "891e04687f31ec2bea8006485ca90e5112538143"
+    },
+    {
+      "path": "out/ir/wgsl-interpolate_compat.ron",
+      "sha256": "0cae5891b7c241856673a6df4ced7ecc48b5b209c00ec931cb0593c0af65cd64",
+      "gitBlob": "891e04687f31ec2bea8006485ca90e5112538143"
+    },
+    {
+      "path": "out/ir/wgsl-invariant.compact.ron",
+      "sha256": "0ba98ab71653e65d6bec503151d16778d6366473e82c4a0de651b0392d0fe431",
+      "gitBlob": "d952a86f12af21bb43cbc1fb3aec1ae5845bd333"
+    },
+    {
+      "path": "out/ir/wgsl-invariant.ron",
+      "sha256": "0ba98ab71653e65d6bec503151d16778d6366473e82c4a0de651b0392d0fe431",
+      "gitBlob": "d952a86f12af21bb43cbc1fb3aec1ae5845bd333"
+    },
+    {
+      "path": "out/ir/wgsl-lexical-scopes.compact.ron",
+      "sha256": "cd4958008119cb8f7a15913d21b63b2e2bed52f8e89e69a06ccab1f61af33476",
+      "gitBlob": "1d3dc94c5380a90cdd696b84c6a9fcddc1ebef1c"
+    },
+    {
+      "path": "out/ir/wgsl-lexical-scopes.ron",
+      "sha256": "cd4958008119cb8f7a15913d21b63b2e2bed52f8e89e69a06ccab1f61af33476",
+      "gitBlob": "1d3dc94c5380a90cdd696b84c6a9fcddc1ebef1c"
+    },
+    {
+      "path": "out/ir/wgsl-math-functions.compact.ron",
+      "sha256": "ae60985949653f57b91f87f548be9bffb3e7b4e37537c874d615a60eb0a0ea77",
+      "gitBlob": "9f3889b4b306a12d8ed60045fa14a042ca6cb227"
+    },
+    {
+      "path": "out/ir/wgsl-math-functions.ron",
+      "sha256": "ae60985949653f57b91f87f548be9bffb3e7b4e37537c874d615a60eb0a0ea77",
+      "gitBlob": "9f3889b4b306a12d8ed60045fa14a042ca6cb227"
+    },
+    {
+      "path": "out/ir/wgsl-module-scope.compact.ron",
+      "sha256": "d7cfac797b1b486d2b0e8598513f0cfd92df20ce09654e6c4e526a298065372d",
+      "gitBlob": "644d3ce7664d9d1cbbed9e421d0dd326fb394c64"
+    },
+    {
+      "path": "out/ir/wgsl-module-scope.ron",
+      "sha256": "da912171579c6bcb96c5f3182a41663fdd905874e31c5819c871fb3581955506",
+      "gitBlob": "586631b2a051c71b775d90ceac7ffc921e482cf6"
+    },
+    {
+      "path": "out/ir/wgsl-msl-varyings.compact.ron",
+      "sha256": "fac50c6abbc6738fcfb56bb85e16d8cad0b135d8f92af7c75b220f4d0ec1336f",
+      "gitBlob": "97dae07364c418c25432c82493e9255d63683e5b"
+    },
+    {
+      "path": "out/ir/wgsl-msl-varyings.ron",
+      "sha256": "fac50c6abbc6738fcfb56bb85e16d8cad0b135d8f92af7c75b220f4d0ec1336f",
+      "gitBlob": "97dae07364c418c25432c82493e9255d63683e5b"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt-formats-x1.compact.ron",
+      "sha256": "6ca367f573e38b2ab1a4611d52d55cc09dfa4e0c4c8f4728e2e58b819f40ee88",
+      "gitBlob": "f955a5eb54a89cbee59e373b55f673947cb8b17f"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt-formats-x1.ron",
+      "sha256": "6ca367f573e38b2ab1a4611d52d55cc09dfa4e0c4c8f4728e2e58b819f40ee88",
+      "gitBlob": "f955a5eb54a89cbee59e373b55f673947cb8b17f"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt-formats-x2.compact.ron",
+      "sha256": "8dbe7e01af5918d69f2c94fa9042ff02e82283787f1ab64c403757c79fb23967",
+      "gitBlob": "79ed9ef3b1cc36da20f614da5de7b5cb2f29d76c"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt-formats-x2.ron",
+      "sha256": "8dbe7e01af5918d69f2c94fa9042ff02e82283787f1ab64c403757c79fb23967",
+      "gitBlob": "79ed9ef3b1cc36da20f614da5de7b5cb2f29d76c"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt-formats-x3.compact.ron",
+      "sha256": "1f4ef248123b375b3fdd030ee79604e05fc3863784729f12fae4df64b12747a6",
+      "gitBlob": "ff9800d5fef0ad0aa1f0a1d715fb6051a178eeb2"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt-formats-x3.ron",
+      "sha256": "1f4ef248123b375b3fdd030ee79604e05fc3863784729f12fae4df64b12747a6",
+      "gitBlob": "ff9800d5fef0ad0aa1f0a1d715fb6051a178eeb2"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt-formats-x4.compact.ron",
+      "sha256": "059a89d66e1cd5bbd88e2ce920fb911be8268ceb4b7bf424c8539102c2013edd",
+      "gitBlob": "85fd5f60b0fe4bde7eabef5a376622832de73253"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt-formats-x4.ron",
+      "sha256": "059a89d66e1cd5bbd88e2ce920fb911be8268ceb4b7bf424c8539102c2013edd",
+      "gitBlob": "85fd5f60b0fe4bde7eabef5a376622832de73253"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt.compact.ron",
+      "sha256": "a5cd1325789ed401d0bd880d04ca9265bdfeef4cf49d20450c3912ede9659d10",
+      "gitBlob": "330b578d054a3394c6493679cd3274062cf21d59"
+    },
+    {
+      "path": "out/ir/wgsl-msl-vpt.ron",
+      "sha256": "a5cd1325789ed401d0bd880d04ca9265bdfeef4cf49d20450c3912ede9659d10",
+      "gitBlob": "330b578d054a3394c6493679cd3274062cf21d59"
+    },
+    {
+      "path": "out/ir/wgsl-multiview.compact.ron",
+      "sha256": "481afb1606a4ed888ce7219b950db1892b895779189690d5679d254f5a1cf368",
+      "gitBlob": "6039e08036fdad9249683e9a030dfe7a340b0379"
+    },
+    {
+      "path": "out/ir/wgsl-multiview.ron",
+      "sha256": "481afb1606a4ed888ce7219b950db1892b895779189690d5679d254f5a1cf368",
+      "gitBlob": "6039e08036fdad9249683e9a030dfe7a340b0379"
+    },
+    {
+      "path": "out/ir/wgsl-multiview_webgl.compact.ron",
+      "sha256": "481afb1606a4ed888ce7219b950db1892b895779189690d5679d254f5a1cf368",
+      "gitBlob": "6039e08036fdad9249683e9a030dfe7a340b0379"
+    },
+    {
+      "path": "out/ir/wgsl-multiview_webgl.ron",
+      "sha256": "481afb1606a4ed888ce7219b950db1892b895779189690d5679d254f5a1cf368",
+      "gitBlob": "6039e08036fdad9249683e9a030dfe7a340b0379"
+    },
+    {
+      "path": "out/ir/wgsl-operators.compact.ron",
+      "sha256": "4ece0e59e077c0a8f6cd57d8d0db524870f33773ed6c7768bae845e18e60035f",
+      "gitBlob": "b678f55c8d3c363b7eefe941ae685bd4cf7d2f7b"
+    },
+    {
+      "path": "out/ir/wgsl-operators.ron",
+      "sha256": "4ece0e59e077c0a8f6cd57d8d0db524870f33773ed6c7768bae845e18e60035f",
+      "gitBlob": "b678f55c8d3c363b7eefe941ae685bd4cf7d2f7b"
+    },
+    {
+      "path": "out/ir/wgsl-padding.compact.ron",
+      "sha256": "b89513dbb48971814ef0ab7a000ea32da048598a9d4c58f6f46f2a4e837fdf1f",
+      "gitBlob": "1beeb37f620463feb36f6394b92a3c5682e2dde0"
+    },
+    {
+      "path": "out/ir/wgsl-padding.ron",
+      "sha256": "b89513dbb48971814ef0ab7a000ea32da048598a9d4c58f6f46f2a4e837fdf1f",
+      "gitBlob": "1beeb37f620463feb36f6394b92a3c5682e2dde0"
+    },
+    {
+      "path": "out/ir/wgsl-phony_assignment.compact.ron",
+      "sha256": "bead62314b29ce61c4971d5ff52c7f2a6fedc125a56b0fac46c3778b65e75f89",
+      "gitBlob": "afb63f6d4454a57e32e31873021840b1e8eab9d3"
+    },
+    {
+      "path": "out/ir/wgsl-phony_assignment.ron",
+      "sha256": "bead62314b29ce61c4971d5ff52c7f2a6fedc125a56b0fac46c3778b65e75f89",
+      "gitBlob": "afb63f6d4454a57e32e31873021840b1e8eab9d3"
+    },
+    {
+      "path": "out/ir/wgsl-pointer-function-arg-restrict.compact.ron",
+      "sha256": "4d2630f07519c974e2c0b04fd676da729f81567c91e9ca2aed9954973c72116f",
+      "gitBlob": "44e6a6341d6d26d974996430784277f0f2644ad4"
+    },
+    {
+      "path": "out/ir/wgsl-pointer-function-arg-restrict.ron",
+      "sha256": "4d2630f07519c974e2c0b04fd676da729f81567c91e9ca2aed9954973c72116f",
+      "gitBlob": "44e6a6341d6d26d974996430784277f0f2644ad4"
+    },
+    {
+      "path": "out/ir/wgsl-pointer-function-arg-rzsw.compact.ron",
+      "sha256": "4d2630f07519c974e2c0b04fd676da729f81567c91e9ca2aed9954973c72116f",
+      "gitBlob": "44e6a6341d6d26d974996430784277f0f2644ad4"
+    },
+    {
+      "path": "out/ir/wgsl-pointer-function-arg-rzsw.ron",
+      "sha256": "4d2630f07519c974e2c0b04fd676da729f81567c91e9ca2aed9954973c72116f",
+      "gitBlob": "44e6a6341d6d26d974996430784277f0f2644ad4"
+    },
+    {
+      "path": "out/ir/wgsl-pointer-function-arg.compact.ron",
+      "sha256": "4d2630f07519c974e2c0b04fd676da729f81567c91e9ca2aed9954973c72116f",
+      "gitBlob": "44e6a6341d6d26d974996430784277f0f2644ad4"
+    },
+    {
+      "path": "out/ir/wgsl-pointer-function-arg.ron",
+      "sha256": "4d2630f07519c974e2c0b04fd676da729f81567c91e9ca2aed9954973c72116f",
+      "gitBlob": "44e6a6341d6d26d974996430784277f0f2644ad4"
+    },
+    {
+      "path": "out/ir/wgsl-pointers.compact.ron",
+      "sha256": "646cd1254dba5d2d276dc44928e251f20352538600576c71f9ebd73d6c59a5f3",
+      "gitBlob": "d0500f540c39c204f2508970f8bc6d06c31f06ab"
+    },
+    {
+      "path": "out/ir/wgsl-pointers.ron",
+      "sha256": "646cd1254dba5d2d276dc44928e251f20352538600576c71f9ebd73d6c59a5f3",
+      "gitBlob": "d0500f540c39c204f2508970f8bc6d06c31f06ab"
+    },
+    {
+      "path": "out/ir/wgsl-policy-mix.compact.ron",
+      "sha256": "545ef4cbe9239fc4a23fdb949b3ed14db10c86072ac9f7c9c651f2734bdfe814",
+      "gitBlob": "8cc1a82aa9801c38f261289a68a88cd322d48d5f"
+    },
+    {
+      "path": "out/ir/wgsl-policy-mix.ron",
+      "sha256": "545ef4cbe9239fc4a23fdb949b3ed14db10c86072ac9f7c9c651f2734bdfe814",
+      "gitBlob": "8cc1a82aa9801c38f261289a68a88cd322d48d5f"
+    },
+    {
+      "path": "out/ir/wgsl-push-constants.compact.ron",
+      "sha256": "1cfb0be1226f74e5c4d297e567f9cbd0a5c70c0ad00c9b6d2422b16990065791",
+      "gitBlob": "4aaf492d074b588f2a479dc83f47a955b985c633"
+    },
+    {
+      "path": "out/ir/wgsl-push-constants.ron",
+      "sha256": "1cfb0be1226f74e5c4d297e567f9cbd0a5c70c0ad00c9b6d2422b16990065791",
+      "gitBlob": "4aaf492d074b588f2a479dc83f47a955b985c633"
+    },
+    {
+      "path": "out/ir/wgsl-quad.compact.ron",
+      "sha256": "869a81a9354071b38460a53e72f16d40aaac87aae4cbfc698fe13d57be3908af",
+      "gitBlob": "63ee9df116d43f5eff64b63b70e36a28dc22b899"
+    },
+    {
+      "path": "out/ir/wgsl-quad.ron",
+      "sha256": "869a81a9354071b38460a53e72f16d40aaac87aae4cbfc698fe13d57be3908af",
+      "gitBlob": "63ee9df116d43f5eff64b63b70e36a28dc22b899"
+    },
+    {
+      "path": "out/ir/wgsl-ray-query-no-init-tracking.compact.ron",
+      "sha256": "a2cbb01343424d09b1397a6e0cb60b7ecbe9959c2c52cab3f84471a532844e2f",
+      "gitBlob": "e97ee01d64f899d11c0583f92d7e701fd9296d9c"
+    },
+    {
+      "path": "out/ir/wgsl-ray-query-no-init-tracking.ron",
+      "sha256": "a2cbb01343424d09b1397a6e0cb60b7ecbe9959c2c52cab3f84471a532844e2f",
+      "gitBlob": "e97ee01d64f899d11c0583f92d7e701fd9296d9c"
+    },
+    {
+      "path": "out/ir/wgsl-ray-query.compact.ron",
+      "sha256": "a2cbb01343424d09b1397a6e0cb60b7ecbe9959c2c52cab3f84471a532844e2f",
+      "gitBlob": "e97ee01d64f899d11c0583f92d7e701fd9296d9c"
+    },
+    {
+      "path": "out/ir/wgsl-ray-query.ron",
+      "sha256": "a2cbb01343424d09b1397a6e0cb60b7ecbe9959c2c52cab3f84471a532844e2f",
+      "gitBlob": "e97ee01d64f899d11c0583f92d7e701fd9296d9c"
+    },
+    {
+      "path": "out/ir/wgsl-resource-binding-map.compact.ron",
+      "sha256": "f2c3dd6fd3596619feb64c8dc813b9a9e8ac3243b8c7659814e593077f6ad413",
+      "gitBlob": "0605076de3a21d100c338a2cc9f6b7b3de4ade99"
+    },
+    {
+      "path": "out/ir/wgsl-resource-binding-map.ron",
+      "sha256": "f2c3dd6fd3596619feb64c8dc813b9a9e8ac3243b8c7659814e593077f6ad413",
+      "gitBlob": "0605076de3a21d100c338a2cc9f6b7b3de4ade99"
+    },
+    {
+      "path": "out/ir/wgsl-sample-cube-array-depth-lod.compact.ron",
+      "sha256": "ccb067a80c5920174f9abac91e72b4e77febde6bc64b5719e27333192bf80d9e",
+      "gitBlob": "dc9123127603fca07339e26a7e14a34ea2a948da"
+    },
+    {
+      "path": "out/ir/wgsl-sample-cube-array-depth-lod.ron",
+      "sha256": "ccb067a80c5920174f9abac91e72b4e77febde6bc64b5719e27333192bf80d9e",
+      "gitBlob": "dc9123127603fca07339e26a7e14a34ea2a948da"
+    },
+    {
+      "path": "out/ir/wgsl-select.compact.ron",
+      "sha256": "01111e0163941fdd6a35cbb16e347bfcf0da91eff0342592ccce97c842a409e1",
+      "gitBlob": "930b6712935893655020cfa8d41e3e87c744fbae"
+    },
+    {
+      "path": "out/ir/wgsl-select.ron",
+      "sha256": "01111e0163941fdd6a35cbb16e347bfcf0da91eff0342592ccce97c842a409e1",
+      "gitBlob": "930b6712935893655020cfa8d41e3e87c744fbae"
+    },
+    {
+      "path": "out/ir/wgsl-separate-entry-points.compact.ron",
+      "sha256": "00678049e0ad44d18362de846f3fc98c8382c83d4398832c175f2ec5788f6f6f",
+      "gitBlob": "e3095f23ae6c6107c1aa30908a67384c7bad9621"
+    },
+    {
+      "path": "out/ir/wgsl-separate-entry-points.ron",
+      "sha256": "00678049e0ad44d18362de846f3fc98c8382c83d4398832c175f2ec5788f6f6f",
+      "gitBlob": "e3095f23ae6c6107c1aa30908a67384c7bad9621"
+    },
+    {
+      "path": "out/ir/wgsl-shadow.compact.ron",
+      "sha256": "0b00bf02062c00d98a35e047073d644e801e71bc0ee48693b0ad54a62d5156cf",
+      "gitBlob": "e96978f7d07f9094c2ae51039c226a1f05514596"
+    },
+    {
+      "path": "out/ir/wgsl-shadow.ron",
+      "sha256": "0b00bf02062c00d98a35e047073d644e801e71bc0ee48693b0ad54a62d5156cf",
+      "gitBlob": "e96978f7d07f9094c2ae51039c226a1f05514596"
+    },
+    {
+      "path": "out/ir/wgsl-skybox.compact.ron",
+      "sha256": "b566fec39d1c6cbceb84939e3ed3838ebf9a34d55b867142d1b3d10c11daa804",
+      "gitBlob": "b1f291d3313352cf0e25636f00e4c24481fe7231"
+    },
+    {
+      "path": "out/ir/wgsl-skybox.ron",
+      "sha256": "b566fec39d1c6cbceb84939e3ed3838ebf9a34d55b867142d1b3d10c11daa804",
+      "gitBlob": "b1f291d3313352cf0e25636f00e4c24481fe7231"
+    },
+    {
+      "path": "out/ir/wgsl-sprite.compact.ron",
+      "sha256": "8243ae3ba393e490eb24af8e9d579636217cf6de839a37eee95253475de7d17e",
+      "gitBlob": "7b3b6b1d9eaac3da93e504b92d0de6bfbab541bb"
+    },
+    {
+      "path": "out/ir/wgsl-sprite.ron",
+      "sha256": "8243ae3ba393e490eb24af8e9d579636217cf6de839a37eee95253475de7d17e",
+      "gitBlob": "7b3b6b1d9eaac3da93e504b92d0de6bfbab541bb"
+    },
+    {
+      "path": "out/ir/wgsl-standard.compact.ron",
+      "sha256": "3cc59f24bac5c30bf5a571307d5191cb1c46973f37a81370a36f22efc9033bb0",
+      "gitBlob": "e9713dee5a46856c5081aa84b207f66802e9b61f"
+    },
+    {
+      "path": "out/ir/wgsl-standard.ron",
+      "sha256": "3cc59f24bac5c30bf5a571307d5191cb1c46973f37a81370a36f22efc9033bb0",
+      "gitBlob": "e9713dee5a46856c5081aa84b207f66802e9b61f"
+    },
+    {
+      "path": "out/ir/wgsl-struct-layout.compact.ron",
+      "sha256": "8c9dd8af61118f937ba5aff3eecab14111c027ba38cefd0f6377fa3435f5b4d0",
+      "gitBlob": "b7b8f24c8e62a39fb676d37b208d32cbf7ef937b"
+    },
+    {
+      "path": "out/ir/wgsl-struct-layout.ron",
+      "sha256": "8c9dd8af61118f937ba5aff3eecab14111c027ba38cefd0f6377fa3435f5b4d0",
+      "gitBlob": "b7b8f24c8e62a39fb676d37b208d32cbf7ef937b"
+    },
+    {
+      "path": "out/ir/wgsl-subgroup-operations.compact.ron",
+      "sha256": "92f7a07ac6db114fc2decb17453d6632d0e751c90582c399fb3488dcd761a416",
+      "gitBlob": "53ed9034d02e4930e2741fa22a7038af1832a37f"
+    },
+    {
+      "path": "out/ir/wgsl-subgroup-operations.ron",
+      "sha256": "92f7a07ac6db114fc2decb17453d6632d0e751c90582c399fb3488dcd761a416",
+      "gitBlob": "53ed9034d02e4930e2741fa22a7038af1832a37f"
+    },
+    {
+      "path": "out/ir/wgsl-template-list-ge.compact.ron",
+      "sha256": "6942870bc0897fc82bd796a2b31a23a23a280bf1c1d2eed1d554c206b614ac3b",
+      "gitBlob": "055bda901c05a80a3f12ad5da6d471ba57620727"
+    },
+    {
+      "path": "out/ir/wgsl-template-list-ge.ron",
+      "sha256": "6942870bc0897fc82bd796a2b31a23a23a280bf1c1d2eed1d554c206b614ac3b",
+      "gitBlob": "055bda901c05a80a3f12ad5da6d471ba57620727"
+    },
+    {
+      "path": "out/ir/wgsl-texture-arg.compact.ron",
+      "sha256": "145471e4e2ea9010c93495b1eb8a8e150c29a80080d4ce4282339c53fa1a311e",
+      "gitBlob": "66e70643f3a01750a0d4b445b27b3137072258b4"
+    },
+    {
+      "path": "out/ir/wgsl-texture-arg.ron",
+      "sha256": "145471e4e2ea9010c93495b1eb8a8e150c29a80080d4ce4282339c53fa1a311e",
+      "gitBlob": "66e70643f3a01750a0d4b445b27b3137072258b4"
+    },
+    {
+      "path": "out/ir/wgsl-type-alias.compact.ron",
+      "sha256": "579cba7d71fd4dab46a81813b3d582f72266e64352b25b0dc5e48a2ae018d43f",
+      "gitBlob": "9d5a84fc87540dc907a1db2aef56fe0903446262"
+    },
+    {
+      "path": "out/ir/wgsl-type-alias.ron",
+      "sha256": "6028cf94a67d337d0becce80caec0548c22c022dd9d181b0d78ca1a5a6c09b3a",
+      "gitBlob": "1a46552cec6be0f815700c040213590b75f6da8e"
+    },
+    {
+      "path": "out/ir/wgsl-type-inference.compact.ron",
+      "sha256": "9af39e57fe364341f7740db9aef27c7980b8800dc44821780520c8ffed654aeb",
+      "gitBlob": "eace290cca349d095d4eaf5b5b3214be5432e191"
+    },
+    {
+      "path": "out/ir/wgsl-type-inference.ron",
+      "sha256": "9af39e57fe364341f7740db9aef27c7980b8800dc44821780520c8ffed654aeb",
+      "gitBlob": "eace290cca349d095d4eaf5b5b3214be5432e191"
+    },
+    {
+      "path": "out/ir/wgsl-types_with_comments.compact.ron",
+      "sha256": "31fc17b15e5cbf4530c63ccdaba92b83dc98ce39d16221e451c1303465c78df4",
+      "gitBlob": "87f21a4dc538d23d3713a7ef0cb61f9432516e69"
+    },
+    {
+      "path": "out/ir/wgsl-types_with_comments.ron",
+      "sha256": "08f3ad0961711e257388afdbc957539b2f1c50603364d8cf27d39e3301e898b8",
+      "gitBlob": "f3ed8e132a9f5d5fa9bbcd90e42dfe1b4fed1d66"
+    },
+    {
+      "path": "out/ir/wgsl-unconsumed_vertex_outputs_frag.compact.ron",
+      "sha256": "a5999d0aa577e74b643e41016b11565595980a3c0135d8c22bd2071f015ce263",
+      "gitBlob": "198c52183921f82316996b9c9bc6e5b921971718"
+    },
+    {
+      "path": "out/ir/wgsl-unconsumed_vertex_outputs_frag.ron",
+      "sha256": "a5999d0aa577e74b643e41016b11565595980a3c0135d8c22bd2071f015ce263",
+      "gitBlob": "198c52183921f82316996b9c9bc6e5b921971718"
+    },
+    {
+      "path": "out/ir/wgsl-unconsumed_vertex_outputs_vert.compact.ron",
+      "sha256": "2b6a234d79c566c7ac0e95230a7d2ed2a3c6a27d9d6b652d0f7e0521593079b7",
+      "gitBlob": "6b53fee302dbd7cfd8c6ff53f95cc139e5ad4f23"
+    },
+    {
+      "path": "out/ir/wgsl-unconsumed_vertex_outputs_vert.ron",
+      "sha256": "2b6a234d79c566c7ac0e95230a7d2ed2a3c6a27d9d6b652d0f7e0521593079b7",
+      "gitBlob": "6b53fee302dbd7cfd8c6ff53f95cc139e5ad4f23"
+    },
+    {
+      "path": "out/ir/wgsl-use-gl-ext-over-grad-workaround-if-instructed.compact.ron",
+      "sha256": "b6faefe8ae40f42fbbd6b0b38c4d31eb3e43bfbea924be8d30a52a31e7777a6e",
+      "gitBlob": "caa86a77bc3019c9255355ec173ea43e6aab0b1c"
+    },
+    {
+      "path": "out/ir/wgsl-use-gl-ext-over-grad-workaround-if-instructed.ron",
+      "sha256": "b6faefe8ae40f42fbbd6b0b38c4d31eb3e43bfbea924be8d30a52a31e7777a6e",
+      "gitBlob": "caa86a77bc3019c9255355ec173ea43e6aab0b1c"
+    },
+    {
+      "path": "out/ir/wgsl-workgroup-uniform-load.compact.ron",
+      "sha256": "d5534b7542a522d701b9eed301b922f818bee5fc342557be93a7922a942dad87",
+      "gitBlob": "73c3d6ba7b71b36e702ec1fe404e5dd28eee3a59"
+    },
+    {
+      "path": "out/ir/wgsl-workgroup-uniform-load.ron",
+      "sha256": "d5534b7542a522d701b9eed301b922f818bee5fc342557be93a7922a942dad87",
+      "gitBlob": "73c3d6ba7b71b36e702ec1fe404e5dd28eee3a59"
+    },
+    {
+      "path": "out/ir/wgsl-workgroup-var-init.compact.ron",
+      "sha256": "fe91cc575527dc7291166ebcfa8543d15ad832292889bd1892b8add2b3804cd1",
+      "gitBlob": "b4a4b78a51efaa045db13fa1d1bd408b60852d12"
+    },
+    {
+      "path": "out/ir/wgsl-workgroup-var-init.ron",
+      "sha256": "fe91cc575527dc7291166ebcfa8543d15ad832292889bd1892b8add2b3804cd1",
+      "gitBlob": "b4a4b78a51efaa045db13fa1d1bd408b60852d12"
+    },
+    {
+      "path": "out/msl/wgsl-ptr-deref-test.metal",
+      "sha256": "927d999f99afb86eb81fd141f7a9eac8a383d3e87909952b9c4b01a694c1d9f2",
+      "gitBlob": "47f13b3d10a34bf83c0663875b891fd93703f2b2"
+    },
+    {
+      "path": "out/spv/wgsl-ptr-deref-test.spvasm",
+      "sha256": "f4bbbea17c708a55e97e14a031b964f05cfc0e2b63f77f0e4f82184a015e55b8",
+      "gitBlob": "d88b35b0ba00c131d9d1c47e4fe8d37cc9e8fa96"
+    }
+  ]
+}

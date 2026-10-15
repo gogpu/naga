@@ -1,6 +1,0 @@
-targets = "GLSL"
-
-[glsl]
-version.Embedded = { is_webgl = true, version = 300 }
-writer_flags = ""
-zero_initialize_workgroup_memory = true

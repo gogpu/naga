@@ -13,7 +13,7 @@ import (
 	"github.com/gogpu/naga/wgsl"
 )
 
-// TestIRDump parses ALL WGSL shaders in testdata/in/ and dumps the resulting
+// TestIRDump parses every corpus shader (see corpus_test.go) and dumps the resulting
 // ir.Module to a human-readable text format suitable for diffing against Rust
 // naga's IR.
 //
@@ -25,15 +25,7 @@ import (
 // Each dump is saved to tmp/go_ir_<shader>.txt when the tmp/ directory exists.
 // A combined dump is saved to tmp/go_ir_all.txt.
 func TestIRDump(t *testing.T) {
-	entries, err := filepath.Glob(filepath.Join("testdata", "in", "*.wgsl"))
-	if err != nil {
-		t.Fatalf("glob wgsl files: %v", err)
-	}
-	if len(entries) == 0 {
-		t.Fatal("no .wgsl files found in testdata/in/")
-	}
-
-	sort.Strings(entries)
+	shaders := loadCorpus(t)
 
 	outDir := filepath.Join("..", "tmp")
 	hasOutDir := false
@@ -45,22 +37,15 @@ func TestIRDump(t *testing.T) {
 	var failedNames []string
 	var combined strings.Builder
 
-	for _, entry := range entries {
-		base := filepath.Base(entry)
-		name := strings.TrimSuffix(base, ".wgsl")
+	for _, shader := range shaders {
+		name := shader.name
 		t.Run(name, func(t *testing.T) {
 			dumpShaderIR(t, name)
 		})
 
 		// Also build a combined dump (best-effort, skip failures)
 		if hasOutDir {
-			src, readErr := os.ReadFile(entry)
-			if readErr != nil {
-				failed++
-				failedNames = append(failedNames, name+" (read)")
-				continue
-			}
-			module, compileErr := tryCompileToIR(string(src))
+			module, compileErr := tryCompileToIR(shader.source)
 			if compileErr != nil {
 				failed++
 				failedNames = append(failedNames, name+" ("+compileErr.Error()+")")
@@ -80,7 +65,7 @@ func TestIRDump(t *testing.T) {
 		if writeErr := os.WriteFile(combinedPath, []byte(combined.String()), 0o644); writeErr != nil {
 			t.Errorf("write combined dump: %v", writeErr)
 		}
-		t.Logf("IR dump combined: %d passed, %d failed out of %d total", passed, failed, len(entries))
+		t.Logf("IR dump combined: %d passed, %d failed out of %d total", passed, failed, len(shaders))
 		if len(failedNames) > 0 {
 			t.Logf("Failed shaders:\n  %s", strings.Join(failedNames, "\n  "))
 		}
@@ -115,7 +100,11 @@ func tryCompileToIR(source string) (*ir.Module, error) {
 func dumpShaderIR(t *testing.T, shaderName string) {
 	t.Helper()
 
-	src, err := os.ReadFile(filepath.Join("testdata", "in", shaderName+".wgsl"))
+	path, ok := shaderInputPath(shaderName)
+	if !ok {
+		t.Fatalf("no corpus shader %q", shaderName)
+	}
+	src, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read shader %q: %v", shaderName, err)
 	}

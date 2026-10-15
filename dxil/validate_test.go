@@ -47,7 +47,7 @@ func TestValidate_LdexpScalarStructural(t *testing.T) {
 
 // TestValidate_ChainedOverrideDefault is the regression gate for the
 // `override height = 2.0 * depth` class of bugs surfaced by
-// snapshot/testdata/in/overrides.wgsl. Before the fix,
+// snapshot/testdata/rust/in/wgsl/overrides.wgsl. Before the fix,
 // emitGlobalExpression handled only Literal / Compose / ZeroValue /
 // Splat / Constant / Override cases — a chained override whose init
 // is a binary expression fell through to the `default:` branch and
@@ -156,7 +156,7 @@ func buildChainedOverrideModule() *ir.Module {
 
 // buildLdexpRegressionModule builds a fragment shader that only calls
 // ldexp with a mixed f32 × i32 signature — the exact pattern from
-// snapshot/testdata/in/math-functions.wgsl that tripped
+// snapshot/testdata/rust/in/wgsl/math-functions.wgsl that tripped
 // BUG-DXIL-023 in production.
 //
 // Kept separate from dxil/internal/emit test helpers because this

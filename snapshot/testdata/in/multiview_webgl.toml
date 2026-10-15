@@ -1,7 +1,0 @@
-glsl_multiview = 2
-god_mode = true
-targets = "GLSL"
-
-[glsl]
-version.Embedded = { is_webgl = true, version = 300 }
-zero_initialize_workgroup_memory = true
