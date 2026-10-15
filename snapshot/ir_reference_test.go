@@ -56,6 +56,32 @@ func countOverrides(mod *ir.Module) int {
 
 // TestIRReference compares our IR Module structure against Rust RON snapshots.
 // This is the IR parity quality gate — must reach 18/18 before MSL/GLSL work.
+// knownGlobalExpressionDiff lists shaders whose GlobalExpressions arena still
+// differs from Rust naga's, with the exact number of differences. Each entry
+// must say why. More differences than recorded fail the test (a regression
+// hidden behind a known entry); fewer fail it too, so the count is lowered and
+// the list can only shrink.
+var knownGlobalExpressionDiff = map[string]struct {
+	reason string
+	diffs  int
+}{
+	// Order only: the components of vec2(42u, 43) are concretized in a different
+	// order, so the two literals swap arena slots; Compose still names them in
+	// (42, 43) order. Values are identical.
+	"abstract-types-var": {"literal arena order", 4},
+
+	// Already a knownOptimizationDiff: different const-folding granularity
+	// (217 vs 207 expressions).
+	"abstract-types-const": {"const folding granularity", 45},
+
+	// Two differences. (1) Order: `2 * depth` emits Override/Literal in the
+	// opposite order, with Binary operands swapped to match. (2) BUG: the
+	// default of `override auto_conversion: u32 = 0` is lowered as F32(0.0);
+	// Rust has U32(0). buildOverrideGlobalExpr always emits LiteralF32 for
+	// OverrideInitLiteral (BUG-GE-001). Lower the count once that is fixed.
+	"overrides": {"operand order + BUG u32 override default lowered as f32", 5},
+}
+
 func TestIRReference(t *testing.T) {
 	ronFiles, err := filepath.Glob("testdata/reference/ir/wgsl-*.ron")
 	if err != nil {
@@ -143,6 +169,27 @@ func TestIRReference(t *testing.T) {
 
 			// Structural counts (functions/ep count, global vars, etc.)
 			allDiffs = append(allDiffs, compareIRStructure(rustMod, ourMod)...)
+
+			// Module-scope initializers (GlobalExpressions): tags + fields,
+			// including Compose/ZeroValue type handles. Without this, a type
+			// compacted away from under an initializer went unnoticed.
+			geDiffs := deepCompareExpressions("global_expressions", rustMod.GlobalExpressions, ourMod.GlobalExpressions)
+			geDiffs = append(geDiffs, deepCompareExpressionFields("global_expressions", rustMod.GlobalExpressions, ourMod.GlobalExpressions)...)
+			if known, ok := knownGlobalExpressionDiff[shaderName]; ok {
+				switch n := len(geDiffs); {
+				case n > known.diffs:
+					t.Errorf("  global_expressions: %d differences, %d known (%s) — regression:", n, known.diffs, known.reason)
+					for _, d := range geDiffs {
+						t.Errorf("    %s", d)
+					}
+				case n < known.diffs:
+					t.Errorf("  global_expressions: %d differences, %d known (%s) — lower the count in knownGlobalExpressionDiff", n, known.diffs, known.reason)
+				default:
+					t.Logf("  [known global_expressions diff: %s] %d differences", known.reason, n)
+				}
+			} else {
+				allDiffs = append(allDiffs, geDiffs...)
+			}
 
 			if len(allDiffs) > 0 {
 				if knownOptimizationDiff[shaderName] {

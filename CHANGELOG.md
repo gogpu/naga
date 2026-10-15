@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Types referenced only by module-scope initializers were compacted away**
+  ([#92](https://github.com/gogpu/naga/pull/92)) — `ir.CompactTypes` now traces
+  the global expressions reachable from constant, override and global variable
+  initializers and keeps the types they carry (`Compose`, `ZeroValue`), matching
+  Rust naga's compact pass. Previously the column type of
+  `const M = mat2x2<f32>(vec2<f32>(..), vec2<f32>(..))` was removed and the column
+  `Compose` nodes were left with a dangling type handle.
+- **`var<private>` constructor initializers built after compaction** — the WGSL
+  lowerer now builds a global variable's constructor initializer at its
+  declaration, as Rust naga does, instead of after type compaction. Component
+  types (e.g. a matrix column vector) are registered in declaration order, and a
+  column type missing from the arena no longer silently falls back to type
+  handle 0 (the matrix itself).
+- **Module-scope initializer IR now matches Rust naga** for matrix and
+  zero-value constructors (16 forms pinned against Rust IR dumps):
+  - a zero-value constructor with an explicit type (`vec2<f32>()`,
+    `mat2x2<f32>()`) is `ZeroValue` for both `const` and `var<private>`; only a
+    partial constructor (`: vec2<f32> = vec2()`) expands to zero literals;
+  - a reference to an abstract constant (`const A = 1;` used in an `f32`
+    context) is converted to the expected type — it was emitted as an `i32`
+    literal inside an `f32` vector;
+  - a negated abstract literal in a `var<private>` initializer (`-1`) is folded
+    to one literal instead of a `Unary` expression;
+  - a matrix built from scalars orders its global expressions as Rust does.
+
+### Changed
+
+- **`TestIRReference` compares global expressions** — the Rust IR reference test
+  now deep-compares `GlobalExpressions` (expression kinds and fields, including
+  `Compose`/`ZeroValue` type handles), not just their count. Three pre-existing
+  differences are listed with their cause and exact count; a higher count fails
+  as a regression, a lower one must be recorded, so the list can only shrink.
+
 ## [0.19.0] - 2026-08-27
 
 ### Added

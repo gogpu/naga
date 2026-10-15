@@ -216,6 +216,10 @@ func CompactTypes(module *Module) {
 		referenced[g.Type] = true
 	}
 
+	// Module-scope initializers (GlobalExpressions reachable from constants,
+	// overrides and global variables).
+	markGlobalExpressionTypeRefs(module, referenced)
+
 	// Functions (regular)
 	for i := range module.Functions {
 		markFunctionTypeRefs(&module.Functions[i], referenced)
@@ -413,16 +417,78 @@ func markFunctionTypeRefs(f *Function, referenced []bool) {
 }
 
 // markExprTypeRefs marks type handles referenced by expression kinds.
+// Out-of-range handles (e.g. the removed-type sentinel) are ignored.
 func markExprTypeRefs(kind ExpressionKind, referenced []bool) {
+	mark := func(h TypeHandle) {
+		if int(h) < len(referenced) {
+			referenced[h] = true
+		}
+	}
 	switch k := kind.(type) {
 	case ExprZeroValue:
-		referenced[k.Type] = true
+		mark(k.Type)
 	case ExprCompose:
-		referenced[k.Type] = true
+		mark(k.Type)
 	case ExprSubgroupOperationResult:
-		referenced[k.Type] = true
+		mark(k.Type)
 	case ExprAtomicResult:
-		referenced[k.Ty] = true
+		mark(k.Ty)
+	}
+}
+
+// markGlobalExpressionTypeRefs marks the types carried by global expressions
+// that a module-scope initializer reaches: Constant.Init, Override.Init and
+// GlobalVariable.InitExpr are the roots, and Compose/Splat/... components are
+// followed from there.
+//
+// Matches Rust naga's compact (compact/mod.rs + compact/expressions.rs): only
+// used global expressions are traced, and Compose/ZeroValue mark their type.
+// Without this, a type referenced only by an initializer — the vec2<f32> column
+// type of `const M = mat2x2<f32>(vec2<f32>(..), vec2<f32>(..))` — was removed,
+// leaving the column Compose with a dangling handle.
+//
+// Children normally precede their parents in the arena (the invariant Rust's
+// single back-to-front pass relies on), so the loop below finishes in one
+// productive pass; it repeats until no new expression is reached so that an
+// arena violating the order is still traced completely.
+func markGlobalExpressionTypeRefs(module *Module, referenced []bool) {
+	n := len(module.GlobalExpressions)
+	if n == 0 {
+		return
+	}
+	used := make([]bool, n)
+	root := func(h ExpressionHandle) {
+		if int(h) < n {
+			used[h] = true
+		}
+	}
+	for i := range module.Constants {
+		root(module.Constants[i].Init)
+	}
+	for i := range module.Overrides {
+		if init := module.Overrides[i].Init; init != nil {
+			root(*init)
+		}
+	}
+	for i := range module.GlobalVariables {
+		if init := module.GlobalVariables[i].InitExpr; init != nil {
+			root(*init)
+		}
+	}
+
+	visited := make([]bool, n)
+	for progress := true; progress; {
+		progress = false
+		for h := n - 1; h >= 0; h-- {
+			if !used[h] || visited[h] {
+				continue
+			}
+			visited[h] = true
+			progress = true
+			kind := module.GlobalExpressions[h].Kind
+			markExprHandleRefs(kind, used)
+			markExprTypeRefs(kind, referenced)
+		}
 	}
 }
 

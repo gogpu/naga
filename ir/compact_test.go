@@ -394,6 +394,143 @@ func TestCompactTypes_NamedTypesKept(t *testing.T) {
 
 // --- CompactConstants tests ---
 
+// matrixInitGlobalExpressions builds the global expression arena Rust naga
+// produces for mat2x2<f32>(vec2<f32>(1.0, 2.0), vec2<f32>(3.0, 4.0)):
+//
+//	[0] Lit  [1] Lit  [2] Compose(vec2)  [3] Lit  [4] Lit  [5] Compose(vec2)  [6] Compose(mat2x2)
+//
+// followed by an unreachable [7] Lit, [8] Compose(vec3) that no root refers to.
+// Type handles: 0 = mat2x2<f32>, 1 = vec2<f32>, 2 = vec3<f32>.
+func matrixInitGlobalExpressions() []Expression {
+	lit := func(v float32) Expression { return Expression{Kind: Literal{Value: LiteralF32(v)}} }
+	return []Expression{
+		lit(1), lit(2),
+		{Kind: ExprCompose{Type: 1, Components: []ExpressionHandle{0, 1}}},
+		lit(3), lit(4),
+		{Kind: ExprCompose{Type: 1, Components: []ExpressionHandle{3, 4}}},
+		{Kind: ExprCompose{Type: 0, Components: []ExpressionHandle{2, 5}}},
+		lit(5),
+		{Kind: ExprCompose{Type: 2, Components: []ExpressionHandle{7, 7, 7}}},
+	}
+}
+
+func matrixInitTypes() []Type {
+	f32 := ScalarType{Kind: ScalarFloat, Width: 4}
+	return []Type{
+		{Inner: MatrixType{Columns: Vec2, Rows: Vec2, Scalar: f32}},
+		{Inner: VectorType{Size: Vec2, Scalar: f32}},
+		{Inner: VectorType{Size: Vec3, Scalar: f32}},
+	}
+}
+
+// TestCompactTypes_KeepsTypesReachableFromGlobalExpressions pins Rust naga's
+// compact behavior (compact/expressions.rs: Compose/ZeroValue mark their type):
+// a type referenced only by a module-scope initializer — here the vec2<f32>
+// column type of a matrix initializer — must survive compaction, and the
+// Compose handles must be remapped to it. Previously the type was removed and
+// the columns were left with a dangling handle.
+func TestCompactTypes_KeepsTypesReachableFromGlobalExpressions(t *testing.T) {
+	init := ExpressionHandle(6)
+	tests := []struct {
+		name   string
+		module func() *Module
+	}{
+		{"constant init", func() *Module {
+			return &Module{
+				Types:             matrixInitTypes(),
+				GlobalExpressions: matrixInitGlobalExpressions(),
+				Constants:         []Constant{{Name: "M", Type: 0, Init: init}},
+			}
+		}},
+		{"global variable init", func() *Module {
+			return &Module{
+				Types:             matrixInitTypes(),
+				GlobalExpressions: matrixInitGlobalExpressions(),
+				GlobalVariables:   []GlobalVariable{{Name: "P", Space: SpacePrivate, Type: 0, InitExpr: &init}},
+			}
+		}},
+		{"override init", func() *Module {
+			return &Module{
+				Types:             matrixInitTypes(),
+				GlobalExpressions: matrixInitGlobalExpressions(),
+				Overrides:         []Override{{Name: "O", Ty: 0, Init: &init}},
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			module := tt.module()
+			CompactTypes(module)
+
+			// vec2 (reachable) is kept; vec3 (only used by unreachable [8]) is removed,
+			// matching Rust, which traces only used global expressions.
+			if len(module.Types) != 2 {
+				t.Fatalf("expected 2 types (mat2x2, vec2), got %d: %+v", len(module.Types), module.Types)
+			}
+			if _, ok := module.Types[0].Inner.(MatrixType); !ok {
+				t.Errorf("type 0: expected MatrixType, got %T", module.Types[0].Inner)
+			}
+			if v, ok := module.Types[1].Inner.(VectorType); !ok || v.Size != Vec2 {
+				t.Errorf("type 1: expected vec2, got %+v", module.Types[1].Inner)
+			}
+			for _, h := range []int{2, 5} {
+				c := module.GlobalExpressions[h].Kind.(ExprCompose)
+				if c.Type != 1 {
+					t.Errorf("GE[%d] column Compose type = %d, want 1 (vec2)", h, c.Type)
+				}
+			}
+			if c := module.GlobalExpressions[6].Kind.(ExprCompose); c.Type != 0 {
+				t.Errorf("GE[6] matrix Compose type = %d, want 0", c.Type)
+			}
+		})
+	}
+}
+
+// TestCompactTypes_KeepsZeroValueTypeFromGlobalExpressions covers the other
+// type-carrying constant expression Rust traces: ZeroValue(ty).
+// IR for: const C: vec4<f32> = vec4<f32>(vec3<f32>(), 1.0);
+func TestCompactTypes_KeepsZeroValueTypeFromGlobalExpressions(t *testing.T) {
+	f32 := ScalarType{Kind: ScalarFloat, Width: 4}
+	module := &Module{
+		Types: []Type{
+			{Inner: VectorType{Size: Vec4, Scalar: f32}}, // constant's own type
+			{Inner: VectorType{Size: Vec3, Scalar: f32}}, // referenced only by ZeroValue
+		},
+		GlobalExpressions: []Expression{
+			{Kind: ExprZeroValue{Type: 1}},
+			{Kind: Literal{Value: LiteralF32(1)}},
+			{Kind: ExprCompose{Type: 0, Components: []ExpressionHandle{0, 1}}},
+		},
+		Constants: []Constant{{Name: "C", Type: 0, Init: 2}},
+	}
+
+	CompactTypes(module)
+
+	if len(module.Types) != 2 {
+		t.Fatalf("expected vec3 used by ZeroValue to be kept (2 types), got %d", len(module.Types))
+	}
+	z := module.GlobalExpressions[0].Kind.(ExprZeroValue)
+	if int(z.Type) >= len(module.Types) {
+		t.Fatalf("ZeroValue type handle %d dangling", z.Type)
+	}
+	if v, ok := module.Types[z.Type].Inner.(VectorType); !ok || v.Size != Vec3 {
+		t.Errorf("ZeroValue type = %+v, want vec3", module.Types[z.Type].Inner)
+	}
+}
+
+// TestCompactTypes_IgnoresOutOfRangeConstantInit guards modules whose constants
+// carry no global expression arena (hand-built IR, older producers).
+func TestCompactTypes_IgnoresOutOfRangeConstantInit(t *testing.T) {
+	module := &Module{
+		Types:     matrixInitTypes(),
+		Constants: []Constant{{Name: "M", Type: 0, Init: 42}},
+	}
+	CompactTypes(module) // must not panic
+	if len(module.Types) != 1 {
+		t.Fatalf("expected only the constant's own type to survive, got %d", len(module.Types))
+	}
+}
+
 func TestCompactConstants_EmptyModule(t *testing.T) {
 	module := &Module{}
 	CompactConstants(module) // should not panic

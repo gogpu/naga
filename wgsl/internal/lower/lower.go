@@ -98,12 +98,6 @@ type Lowerer struct {
 	// global expression entries (e.g., var<private> x = gain * 10.0).
 	globalVarInitExprs map[ir.GlobalVariableHandle]ir.OverrideInitExpr
 
-	// globalVarInitASTs stores AST init expressions for global variables
-	// whose initializers are constructor calls (structs, vectors, etc.).
-	// These are lowered directly into GlobalExpressions (not Constants)
-	// to match Rust naga's behavior where global var inits are expression trees.
-	globalVarInitASTs map[ir.GlobalVariableHandle]parser.Expr
-
 	// constsWithInlineInit tracks constants whose Init was set inline during lowering.
 	constsWithInlineInit map[ir.ConstantHandle]bool
 
@@ -989,15 +983,17 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 					}
 					l.globalVarInitExprs[gvHandle] = oe
 				} else {
-					// For constructor inits (struct, vector, etc.), store the AST
-					// for direct conversion to GlobalExpressions later.
+					// Constructor init (struct, vector, matrix, ...): lower it into
+					// GlobalExpressions now, at the declaration, as Rust naga does.
+					// Building it here (rather than after compaction) registers the
+					// component types — e.g. a matrix's column vector type — in
+					// declaration order, so they are traced by CompactTypes and
+					// ordered like Rust's type arena.
 					switch v.Init.(type) {
 					case *parser.CallExpr, *parser.ConstructExpr:
-						gvHandle := ir.GlobalVariableHandle(l.globalIdx)
-						if l.globalVarInitASTs == nil {
-							l.globalVarInitASTs = make(map[ir.GlobalVariableHandle]parser.Expr)
+						if h, ok := l.buildGlobalExprFromAST(v.Init, typeHandle, l.addGlobalExpr); ok {
+							initExpr = &h
 						}
-						l.globalVarInitASTs[gvHandle] = v.Init
 					}
 				}
 			}
@@ -1646,6 +1642,39 @@ func (l *Lowerer) initHasConcreteType(init parser.Expr) bool {
 	default:
 		return false
 	}
+}
+
+// isAbstractScalarExpr reports whether a module-scope initializer argument is an
+// abstract-typed scalar: an unsuffixed integer or float literal, its negation, or
+// a reference to an abstract module constant (`const A = 1;`). Suffix rules match
+// evalLiteral and parseIntLiteral.
+func (l *Lowerer) isAbstractScalarExpr(e parser.Expr) bool {
+	switch x := e.(type) {
+	case *parser.Literal:
+		switch x.Kind {
+		case parser.TokenIntLiteral:
+			_, suffix := parseIntLiteral(x.Value)
+			return suffix == ""
+		case parser.TokenFloatLiteral:
+			// f, h and lf suffixes; "lf" also ends in 'f'.
+			return !strings.HasSuffix(x.Value, "f") && !strings.HasSuffix(x.Value, "h")
+		}
+		return false
+	case *parser.UnaryExpr:
+		return x.Op == parser.TokenMinus && l.isAbstractScalarExpr(x.Operand)
+	case *parser.Ident:
+		_, ok := l.abstractConstants[x.Name]
+		return ok
+	}
+	return false
+}
+
+// isPartialConstructorType reports whether a constructor's type is a partial
+// constructor whose element type is inferred — vec2(...), mat3x3(...), array(...) —
+// rather than a concrete type such as vec2<f32>, vec2f or a type alias.
+func isPartialConstructorType(t parser.Type) bool {
+	nt, ok := t.(*parser.NamedType)
+	return ok && len(nt.TypeParams) == 0 && isPartialConstructorName(nt.Name)
 }
 
 // isPartialConstructorName checks if a name is a partial type constructor (no type suffix).
@@ -2433,17 +2462,10 @@ func (l *Lowerer) inferScalarWidth(lit *parser.Literal) uint8 {
 // Handles vectors, matrices, arrays, zero-value constructors, and nested constructors.
 func (l *Lowerer) lowerCompositeConstant(name string, declType parser.Type, construct *parser.ConstructExpr, isAbstract bool) error {
 	// Resolve the composite type.
-	// Track whether the type was resolved from the constructor's explicit type params
-	// (not from declType or type inference). This affects zero-value rendering.
-	// typeFromDeclType tracks whether the type came from the const's type annotation
-	// rather than from the constructor's own type params. This matters for zero-arg
-	// constructors: vec2<u32>() → ZeroValue, but `: vec2<i32> = vec2()` → Compose.
 	var typeHandle ir.TypeHandle
 	var err error
-	typeFromDeclType := false
 	if declType != nil {
 		typeHandle, err = l.resolveType(declType)
-		typeFromDeclType = true
 	} else if construct.Type != nil {
 		typeHandle, err = l.resolveType(construct.Type)
 		if err != nil {
@@ -2560,15 +2582,16 @@ func (l *Lowerer) lowerCompositeConstant(name string, declType parser.Type, cons
 	// For concrete constants: build GlobalExpressions matching Rust naga where
 	// scalar components are in global_expressions (not in constants).
 
-	// Zero-value composite constructor with no args.
-	// Two cases depending on whether the type came from the constructor or declaration:
-	// 1. Constructor has explicit type: vec2<u32>() → ZeroValue(typeHandle)
-	// 2. Type from annotation: `: vec2<i32> = vec2()` → Compose with explicit zeros
-	// Case 2 matches Rust naga where abstract vec2() is concretized by the type annotation,
-	// and concretization expands ZeroValue(abstract) → Compose(concrete, [0, 0, ...]).
+	// Zero-value composite constructor with no args. What decides the IR is the
+	// constructor itself, not whether the declaration is annotated:
+	// 1. Constructor names a concrete type — vec2<u32>(), vec2f(), mat2x2<f32>(),
+	//    an alias — → ZeroValue(typeHandle), even under `: vec2<u32> = ...`.
+	// 2. Partial constructor whose element type is inferred — `: vec2<i32> = vec2()` —
+	//    → Compose with explicit zeros: Rust naga concretizes the abstract
+	//    ZeroValue by expanding it to Compose(concrete, [0, 0, ...]).
+	// Verified against Rust naga IR dumps for const and var<private>, 2026-10-15.
 	if len(construct.Args) == 0 {
-		if typeFromDeclType {
-			// Type came from declaration annotation. Expand to Compose with explicit zeros.
+		if isPartialConstructorType(construct.Type) {
 			initHandle := l.buildZeroCompose(typeHandle)
 			constHandle := ir.ConstantHandle(len(l.module.Constants))
 			l.module.Constants = append(l.module.Constants, ir.Constant{
@@ -16533,12 +16556,8 @@ func (l *Lowerer) buildGlobalExpressions() {
 			// Override-dependent init expression (e.g., gain * 10.0).
 			h := l.buildOverrideGlobalExpr(initExpr, overrideToGlobalExpr, addExpr)
 			gv.InitExpr = &h
-		} else if astInit, ok := l.globalVarInitASTs[gvHandle]; ok {
-			// Constructor init (struct, vector, etc.) stored as AST.
-			if h, ok := l.buildGlobalExprFromAST(astInit, gv.Type, addExpr); ok {
-				gv.InitExpr = &h
-			}
 		}
+		// Constructor inits already set InitExpr in lowerGlobalVar.
 	}
 }
 
@@ -16552,22 +16571,11 @@ func (l *Lowerer) buildGlobalExprFromAST(
 ) (ir.ExpressionHandle, bool) {
 	switch e := expr.(type) {
 	case *parser.Literal:
-		// Literal value: convert to the expected type's scalar kind.
 		kind, bits, err := l.evalLiteral(e)
 		if err != nil {
 			return 0, false
 		}
-		// Coerce to the expected type if known.
-		kind, bits = l.coerceScalarToType(kind, bits, expectedType)
-		sv := ir.ScalarValue{Bits: bits, Kind: kind}
-		lit := l.scalarValueToLiteralWithType(sv, expectedType)
-		if lit == nil {
-			lit = scalarValueToLiteral(sv)
-		}
-		if lit == nil {
-			return 0, false
-		}
-		return addExpr(ir.Literal{Value: lit}), true
+		return l.addCoercedLiteralGE(kind, bits, expectedType, addExpr)
 
 	case *parser.CallExpr:
 		// Struct constructor: StructName(arg1, arg2, ...)
@@ -16598,10 +16606,21 @@ func (l *Lowerer) buildGlobalExprFromAST(
 
 	case *parser.ConstructExpr:
 		// Vector/matrix/array constructor: vec3<u32>(0, 0, 0), etc.
-		// Use expectedType (from the parent struct member) rather than resolving
-		// from AST, since this runs after CompactTypes and resolveType could
-		// re-register compacted types.
+		// The parent (declared variable type, struct member, matrix column)
+		// dictates the type, which also covers inferred constructors like vec2(..).
 		typeH := expectedType
+
+		// Zero-arg constructor, matching Rust naga (IR dumps, 2026-10-15):
+		// a concrete constructor — vec2<f32>(), mat2x2<f32>(), vec2f() — is
+		// ZeroValue(ty); a partial one whose element type comes from the
+		// declaration — `: vec2<f32> = vec2()` — expands to Compose of zero literals.
+		if len(e.Args) == 0 {
+			if isPartialConstructorType(e.Type) {
+				return l.expandZeroConstructGE(typeH, addExpr)
+			}
+			return addExpr(ir.ExprZeroValue{Type: typeH}), true
+		}
+
 		componentType := l.getConstructComponentType(typeH)
 
 		// For matrices with scalar args: group scalars into column vector Composes.
@@ -16611,21 +16630,18 @@ func (l *Lowerer) buildGlobalExprFromAST(
 				cols := int(mat.Columns)
 				rows := int(mat.Rows)
 				if len(e.Args) == cols*rows {
-					// All scalar args — group into column vectors
-					scalarType := l.findScalarType(mat.Scalar.Kind, mat.Scalar.Width)
+					if isPartialConstructorType(e.Type) && l.allAbstractScalarExprs(e.Args) {
+						return l.buildAbstractMatrixByColumns(e.Args, typeH, componentType, mat, addExpr)
+					}
+					scalars, ok := l.buildConcreteMatrixScalars(e.Args, mat.Scalar, addExpr)
+					if !ok {
+						return 0, false
+					}
 					colComponents := make([]ir.ExpressionHandle, cols)
-					for c := 0; c < cols; c++ {
-						rowHandles := make([]ir.ExpressionHandle, rows)
-						for r := 0; r < rows; r++ {
-							h, ok := l.buildGlobalExprFromAST(e.Args[c*rows+r], scalarType, addExpr)
-							if !ok {
-								return 0, false
-							}
-							rowHandles[r] = h
-						}
+					for c := range cols {
 						colComponents[c] = addExpr(ir.ExprCompose{
 							Type:       componentType,
-							Components: rowHandles,
+							Components: scalars[c*rows : (c+1)*rows],
 						})
 					}
 					return addExpr(ir.ExprCompose{
@@ -16635,13 +16651,6 @@ func (l *Lowerer) buildGlobalExprFromAST(
 				}
 				// Otherwise fall through to handle column-vector args
 			}
-		}
-
-		// Zero-arg constructor: expand to explicit zero Literals + Compose.
-		// Rust naga expands vec2() to Compose(vec2, [Literal(0), Literal(0)]) for
-		// global var inits, not ZeroValue. This matches the GE count exactly.
-		if len(e.Args) == 0 {
-			return l.expandZeroConstructGE(typeH, addExpr)
 		}
 
 		components := make([]ir.ExpressionHandle, len(e.Args))
@@ -16667,6 +16676,14 @@ func (l *Lowerer) buildGlobalExprFromAST(
 
 	case *parser.UnaryExpr:
 		if e.Op == parser.TokenMinus {
+			// Negated abstract literal: Rust's constant evaluator folds it to a
+			// single literal before conversion (`-1` → Literal(F32(-1.0)) in an
+			// f32 context), so no Unary reaches the global expression arena.
+			if lit, isLit := e.Operand.(*parser.Literal); isLit && l.isAbstractScalarExpr(lit) {
+				if kind, bits, err := l.evalConstUnaryExpr(e); err == nil {
+					return l.addCoercedLiteralGE(kind, bits, expectedType, addExpr)
+				}
+			}
 			h, ok := l.buildGlobalExprFromAST(e.Operand, expectedType, addExpr)
 			if !ok {
 				return 0, false
@@ -16679,12 +16696,10 @@ func (l *Lowerer) buildGlobalExprFromAST(
 		return 0, false
 
 	case *parser.Ident:
-		// Check abstract constants first.
+		// Abstract constant (`const A = 1;`): converted to the expected type like
+		// an abstract literal, so `mat2x2(A, ...)` in an f32 context yields F32(1.0).
 		if info, ok := l.abstractConstants[e.Name]; ok && info.scalarValue != nil {
-			lit := scalarValueToLiteral(*info.scalarValue)
-			if lit != nil {
-				return addExpr(ir.Literal{Value: lit}), true
-			}
+			return l.addCoercedLiteralGE(info.scalarValue.Kind, info.scalarValue.Bits, expectedType, addExpr)
 		}
 		// Reference to a module-scope constant.
 		if ch, ok := l.moduleConstants[e.Name]; ok {
@@ -16704,6 +16719,99 @@ func (l *Lowerer) buildGlobalExprFromAST(
 	default:
 		return 0, false
 	}
+}
+
+// addCoercedLiteralGE appends a scalar value as a Literal global expression,
+// converted to the expected scalar type when one is known (WGSL automatic
+// conversion of an abstract value).
+func (l *Lowerer) addCoercedLiteralGE(
+	kind ir.ScalarKind,
+	bits uint64,
+	expectedType ir.TypeHandle,
+	addExpr func(ir.ExpressionKind) ir.ExpressionHandle,
+) (ir.ExpressionHandle, bool) {
+	kind, bits = l.coerceScalarToType(kind, bits, expectedType)
+	sv := ir.ScalarValue{Bits: bits, Kind: kind}
+	lit := l.scalarValueToLiteralWithType(sv, expectedType)
+	if lit == nil {
+		lit = scalarValueToLiteral(sv)
+	}
+	if lit == nil {
+		return 0, false
+	}
+	return addExpr(ir.Literal{Value: lit}), true
+}
+
+// The two helpers below reproduce the global expression order Rust naga gives a
+// matrix built from scalars (front/wgsl/lower/construction.rs, "Matrix
+// constructor (by elements)"). Rust lowers every argument in order, then
+// converts the abstract ones (try_automatic_conversions_slice /
+// convert_slice_to_common_leaf_scalar), which appends a new concrete literal per
+// abstract argument; compaction later drops the abstract originals. Concrete
+// arguments therefore stay ahead of the converted ones.
+//
+// If the constructor is partial and every argument is abstract, the matrix
+// itself is abstract: Rust builds it whole and the declaration's type then
+// concretizes it recursively, one column at a time.
+
+// allAbstractScalarExprs reports whether every argument is an abstract scalar.
+func (l *Lowerer) allAbstractScalarExprs(args []parser.Expr) bool {
+	for _, arg := range args {
+		if !l.isAbstractScalarExpr(arg) {
+			return false
+		}
+	}
+	return true
+}
+
+// buildConcreteMatrixScalars lowers the scalar arguments of a concrete matrix:
+// concrete arguments first, then abstract ones, each group in argument order.
+// The returned handles are in argument order.
+func (l *Lowerer) buildConcreteMatrixScalars(
+	args []parser.Expr,
+	scalar ir.ScalarType,
+	addExpr func(ir.ExpressionKind) ir.ExpressionHandle,
+) ([]ir.ExpressionHandle, bool) {
+	scalarType := l.registerTypeSilent(scalar)
+	handles := make([]ir.ExpressionHandle, len(args))
+	for _, abstract := range []bool{false, true} {
+		for i, arg := range args {
+			if l.isAbstractScalarExpr(arg) != abstract {
+				continue
+			}
+			h, ok := l.buildGlobalExprFromAST(arg, scalarType, addExpr)
+			if !ok {
+				return nil, false
+			}
+			handles[i] = h
+		}
+	}
+	return handles, true
+}
+
+// buildAbstractMatrixByColumns lowers a fully abstract matrix the way Rust's
+// concretization emits it: each column's literals, then that column's Compose.
+func (l *Lowerer) buildAbstractMatrixByColumns(
+	args []parser.Expr,
+	typeH, columnType ir.TypeHandle,
+	mat ir.MatrixType,
+	addExpr func(ir.ExpressionKind) ir.ExpressionHandle,
+) (ir.ExpressionHandle, bool) {
+	cols, rows := int(mat.Columns), int(mat.Rows)
+	scalarType := l.registerTypeSilent(mat.Scalar)
+	columns := make([]ir.ExpressionHandle, cols)
+	for c := range cols {
+		rowHandles := make([]ir.ExpressionHandle, rows)
+		for r := range rows {
+			h, ok := l.buildGlobalExprFromAST(args[c*rows+r], scalarType, addExpr)
+			if !ok {
+				return 0, false
+			}
+			rowHandles[r] = h
+		}
+		columns[c] = addExpr(ir.ExprCompose{Type: columnType, Components: rowHandles})
+	}
+	return addExpr(ir.ExprCompose{Type: typeH, Components: columns}), true
 }
 
 // expandZeroConstructGE creates explicit zero Literal + Compose global expressions
@@ -16727,11 +16835,8 @@ func (l *Lowerer) expandZeroConstructGE(
 		return addExpr(ir.ExprCompose{Type: typeH, Components: components}), true
 	case ir.MatrixType:
 		// mat2x2() → Compose(mat, [Compose(col_vec, [0,0]), Compose(col_vec, [0,0])])
-		colTypeH := l.findVectorType(t.Rows, t.Scalar)
+		colTypeH := l.registerType("", ir.VectorType{Size: t.Rows, Scalar: t.Scalar})
 		zeroLit := l.zeroLiteralForScalar(t.Scalar)
-		if colTypeH == 0 {
-			return addExpr(ir.ExprZeroValue{Type: typeH}), true
-		}
 		cols := int(t.Columns)
 		rows := int(t.Rows)
 		colHandles := make([]ir.ExpressionHandle, cols)
@@ -16751,43 +16856,27 @@ func (l *Lowerer) expandZeroConstructGE(
 // getConstructComponentType returns the element/component type for a composite type.
 // For vectors, returns the scalar type. For arrays, returns the base type.
 // For matrices, returns the column vector type.
-// IMPORTANT: This must NOT register new types — it's called after CompactTypes.
+//
+// Called while lowering a global variable's declaration, so missing component
+// types are registered rather than looked up: the matrix column type is
+// registered in use order (it is referenced by handle from the column Compose
+// and must survive compaction, as in Rust naga), while the vector scalar type is
+// registered silently — it is only used to coerce literals, is embedded by value
+// in the vector type, and must not affect type ordering.
 func (l *Lowerer) getConstructComponentType(typeH ir.TypeHandle) ir.TypeHandle {
 	if int(typeH) >= len(l.module.Types) {
 		return 0
 	}
 	switch t := l.module.Types[typeH].Inner.(type) {
 	case ir.VectorType:
-		// Find the scalar type by searching existing types (don't register new ones).
-		return l.findScalarType(t.Scalar.Kind, t.Scalar.Width)
+		return l.registerTypeSilent(t.Scalar)
 	case ir.ArrayType:
 		return t.Base
 	case ir.MatrixType:
-		// Find the column vector type by searching existing types.
-		return l.findVectorType(t.Rows, t.Scalar)
+		return l.registerType("", ir.VectorType{Size: t.Rows, Scalar: t.Scalar})
 	default:
 		return 0
 	}
-}
-
-// findScalarType finds an existing scalar type handle without creating a new one.
-func (l *Lowerer) findScalarType(kind ir.ScalarKind, width uint8) ir.TypeHandle {
-	for i, t := range l.module.Types {
-		if st, ok := t.Inner.(ir.ScalarType); ok && st.Kind == kind && st.Width == width {
-			return ir.TypeHandle(i)
-		}
-	}
-	return 0
-}
-
-// findVectorType finds an existing vector type handle without creating a new one.
-func (l *Lowerer) findVectorType(size ir.VectorSize, scalar ir.ScalarType) ir.TypeHandle {
-	for i, t := range l.module.Types {
-		if vt, ok := t.Inner.(ir.VectorType); ok && vt.Size == size && vt.Scalar == scalar {
-			return ir.TypeHandle(i)
-		}
-	}
-	return 0
 }
 
 // buildOverrideGlobalExpr recursively builds global expressions from an
