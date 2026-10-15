@@ -9,15 +9,14 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/internal/testcorpus"
+	"github.com/gogpu/naga/internal/testtools"
 )
 
 // fakeUpstream builds a git repository shaped like gfx-rs/wgpu with the given
 // files (slash-separated path → content), commits them and returns its path.
 func fakeUpstream(t *testing.T, files map[string]string) string {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not found in PATH")
-	}
+	testtools.Look(t, "git", "install git")
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-q")
 	// Store content exactly as written, whatever the machine's settings.

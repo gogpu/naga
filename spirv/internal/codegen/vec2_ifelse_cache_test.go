@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+
+	"github.com/gogpu/naga/internal/testtools"
 )
 
 // TestVec2IfElseCacheBug reproduces the exact pattern from path_tiling.wgsl:
@@ -67,7 +69,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	}
 
 	// Try spirv-val (skip if not installed)
-	if _, lookErr := exec.LookPath("spirv-val"); lookErr == nil {
+	if _, ok := testtools.Optional(t, "spirv-val", testtools.InstallSPIRVTools); ok {
 		valCmd := exec.Command("spirv-val", spvFile)
 		valOut, valErr := valCmd.CombinedOutput()
 		if valErr != nil {
@@ -157,7 +159,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	}
 
 	// spirv-val (skip if not installed)
-	if _, lookErr := exec.LookPath("spirv-val"); lookErr == nil {
+	if _, ok := testtools.Optional(t, "spirv-val", testtools.InstallSPIRVTools); ok {
 		valCmd := exec.Command("spirv-val", spvFile)
 		valOut, valErr := valCmd.CombinedOutput()
 		if valErr != nil {
@@ -197,8 +199,7 @@ func TestPathTilingFullShader(t *testing.T) {
 	}
 
 	// spirv-val (skip if not installed)
-	if _, lookErr := exec.LookPath("spirv-val"); lookErr != nil {
-		t.Log("spirv-val not found, skipping validation")
+	if _, ok := testtools.Optional(t, "spirv-val", testtools.InstallSPIRVTools); !ok {
 		return
 	}
 	valCmd := exec.Command("spirv-val", spvFile)

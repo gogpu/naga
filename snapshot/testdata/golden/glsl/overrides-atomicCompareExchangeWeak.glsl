@@ -1,14 +1,24 @@
 #version 430 core
+#extension GL_ARB_compute_shader : require
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-const int o = 0;
+struct _atomic_compare_exchange_result_Uint_4_ {
+    uint old_value;
+    bool exchanged;
+};
+const int o = 2;
 
 shared uint a;
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 void main() {
-    uint _e2 = uint(o);
-    int _ae4 = atomicCompSwap(a, _e2, 1u);
-    uint _e4 = _ae4;
+    if (gl_LocalInvocationID == uvec3(0u)) {
+        a = 0u;
+    }
+    memoryBarrierShared();
+    barrier();
+    _atomic_compare_exchange_result_Uint_4_ _e5; _e5.old_value = atomicCompSwap(a, uint(o), 1u);
+    _e5.exchanged = (_e5.old_value == uint(o));
     return;
 }
+

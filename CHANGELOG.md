@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Rust reference comparison measures what it claims** — `TestRustReference`
+  now compares every output Rust naga's snapshot driver writes for the corpus:
+  expectations come from each shader's TOML `targets` (Rust's defaults when
+  absent) instead of whether a reference file happens to exist, per-entry-point
+  outputs are included, and pipeline constants are applied before every backend
+  as in Rust's driver. A compile error is a failure, not a skip. Known
+  differences are recorded per output file in `snapshot/rust_deviations_test.go`
+  (intentional / bug / unsupported, each with a reason and a fingerprint of the
+  difference) instead of a per-shader allow-list that silenced all backends.
+  This surfaced 9 never-compared per-entry-point SPIR-V references (the SPIR-V
+  backend cannot emit a single entry point yet), MSL differences that the old
+  allow-list hid under a SPIR-V reason, and differences between
+  `ir.ProcessOverrides` and Rust's `process_overrides`.
+- **Golden snapshots** apply the same preparation: shaders with overrides now
+  produce SPIR-V and GLSL goldens (previously skipped), override values from the
+  test parameters are applied (MSL goldens held zeros), and 9 golden files that
+  no test compared were removed. A compile error on a backend Rust targets for
+  the shader fails the test; `TestGoldenInventory` fails on golden files no test
+  compares.
+- **`TestRustReferenceInventory`** checks that the vendored references are
+  exactly the files Rust's driver writes for the corpus.
+- **External tools** (`spirv-val`, `spirv-dis`, `dxc`) follow one policy
+  (`internal/testtools`): a missing tool skips its checks with an explicit
+  reason, or fails when listed in `NAGA_REQUIRE_TOOLS`. Several SPIR-V
+  validations used to be skipped silently.
+- Removed `TestRustReferenceComparison`, which only logged SPIR-V differences.
+
 - **Test corpus reorganized with recorded provenance** — the Rust naga test
   inputs, parameters and reference outputs now live, verbatim and under their
   upstream names, in `snapshot/testdata/rust/` with the upstream license files;

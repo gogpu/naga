@@ -11,10 +11,11 @@ package snapshot_test
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -40,405 +41,6 @@ type shaderFile struct {
 	origin shaderOrigin // Rust corpus or our own
 }
 
-// TestSnapshots is the main golden snapshot test. It loads all WGSL inputs,
-// compiles each through all backends, and compares with golden files.
-// For shaders without Rust reference, falls back to self-generated golden.
-func TestSnapshots(t *testing.T) {
-	shaders := loadCorpus(t)
-
-	for i := range shaders {
-		shader := &shaders[i]
-		t.Run(shader.name, func(t *testing.T) {
-			module := compileToIR(t, shader.name, shader.source)
-			if module == nil {
-				t.Skipf("[%s] lower failed, skipping backend tests", shader.name)
-				return
-			}
-
-			t.Run("spv", func(t *testing.T) {
-				spvBytes := compileSPIRV(t, module)
-				disasm := disassembleSPIRV(spvBytes)
-				compareGolden(t, filepath.Join(goldenDir, "spv", shader.name+".spvasm"), disasm)
-			})
-
-			t.Run("glsl", func(t *testing.T) {
-				code := compileGLSL(t, module)
-				compareGolden(t, filepath.Join(goldenDir, "glsl", shader.name+".glsl"), code)
-			})
-
-			t.Run("hlsl", func(t *testing.T) {
-				hlslModule := module
-				hlslPipelineConstants := readSPVPipelineConstants(shader.name)
-				if len(hlslPipelineConstants) > 0 {
-					hlslModule = ir.CloneModuleForOverrides(module)
-					if err := ir.ProcessOverrides(hlslModule, hlslPipelineConstants); err != nil {
-						t.Errorf("ProcessOverrides failed: %v", err)
-						return
-					}
-				}
-				code := compileHLSL(t, hlslModule, shader.name)
-				compareGolden(t, filepath.Join(goldenDir, "hlsl", shader.name+".hlsl"), code)
-			})
-
-			t.Run("msl", func(t *testing.T) {
-				code, compileErr := compileMSL(t, module)
-				if compileErr != nil {
-					target, configErr := rustTargetForShader(shader.name, "METAL")
-					if configErr != nil {
-						t.Fatalf("read Rust target config: %v", configErr)
-					}
-					if target == rustTargetExcluded {
-						t.Skipf("Rust config explicitly excludes METAL: %v", compileErr)
-					}
-					t.Fatalf("MSL compile failed: %v", compileErr)
-				}
-				compareGolden(t, filepath.Join(goldenDir, "msl", shader.name+".msl"), code)
-			})
-		})
-	}
-}
-
-// referenceAllowList contains shaders with known intentional divergences from Rust naga.
-// These are logged but not counted as failures. Each entry maps shader name to a reason.
-// Applies to ALL backends (SPIR-V, MSL, HLSL, GLSL).
-//
-// Reasons:
-//   - "workgroup-layout-free": we generate layout-free types for Workgroup address space
-//     per VUID-StandaloneSpirv-None-10684, plus OpCopyLogical. Rust naga doesn't yet.
-//   - "missing-int8-capability": we don't emit Int8 capability / related types yet (SPV-009).
-//   - "extra-opdecorate": we emit an extra OpDecorate (e.g. NonWritable) that Rust omits.
-//   - "no-compact-pass": shader has no entry points — Rust compact pass removes all dead code,
-//     we emit full output. Rust reference is empty/minimal, comparison is meaningless.
-//   - "msl-threadgroup-function-scope": we declare workgroup variables at function-body
-//     scope inside the kernel ("threadgroup T name;") instead of as threadgroup
-//     entry-point parameters like Rust naga. Rust's approach requires the host to call
-//     setThreadgroupMemoryLength:atIndex: (Rust wgpu-hal does this in its Metal encoder);
-//     the pure-Go wgpu Metal HAL does not, so parameter-based threadgroup memory is
-//     unsized and reads/writes silently no-op. Function-scope declarations are legal MSL
-//     and need no host-side setup. Generated code is otherwise identical.
-var referenceAllowList = map[string]string{
-	"atomicOps":                 "workgroup-layout-free",
-	"atomicOps-int64":           "workgroup-layout-free",
-	"workgroup-var-init":        "workgroup-layout-free",
-	"6772-unpack-expr-accesses": "missing-int8-capability",
-	"bits":                      "missing-int8-capability",
-	"binding-buffer-arrays":     "extra-opdecorate",
-	"ptr-deref-test":            "no-compact-pass",
-
-	"abstract-types-operators":            "msl-threadgroup-function-scope",
-	"globals":                             "msl-threadgroup-function-scope",
-	"interface":                           "msl-threadgroup-function-scope",
-	"overrides-atomicCompareExchangeWeak": "msl-threadgroup-function-scope",
-	"policy-mix":                          "msl-threadgroup-function-scope",
-	"workgroup-uniform-load":              "msl-threadgroup-function-scope",
-}
-
-// TestRustReference compares our compiled output against Rust naga reference outputs.
-// This is the AUTHORITATIVE test — Rust naga output is the ground truth.
-// Our output for the same .wgsl input MUST match Rust's output (structurally).
-//
-// Rust reference files (see corpus_test.go): out/{spv,msl,hlsl}/wgsl-{name}.{spvasm,metal,hlsl}
-// GLSL has per-entry-point files: out/glsl/wgsl-{name}.{entry}.{Stage}.glsl
-func TestRustReference(t *testing.T) {
-	shaders := loadCorpus(t)
-
-	var spvPass, spvFail, spvSkip, spvAllow int
-	var mslPass, mslFail, mslSkip, mslAllow int
-	var hlslPass, hlslFail, hlslSkip, hlslAllow int
-	var glslPass, glslFail, glslSkip, glslAllow int
-	var lowerFail int
-
-	for i := range shaders {
-		shader := &shaders[i]
-		rustSPV, hasSPV := rustReferencePath(rustOutSPIRV, "wgsl-"+shader.name+".spvasm")
-		rustMSL, hasMSL := rustReferencePath(rustOutMSL, "wgsl-"+shader.name+".metal")
-		rustHLSL, hasHLSL := rustReferencePath(rustOutHLSL, "wgsl-"+shader.name+".hlsl")
-
-		t.Run(shader.name, func(t *testing.T) {
-			module := compileToIR(t, shader.name, shader.source)
-			if module == nil {
-				lowerFail++
-				return
-			}
-
-			// SPIR-V vs Rust reference (structural comparison via spirv-dis)
-			t.Run("spv_vs_rust", func(t *testing.T) {
-				if !hasSPV {
-					spvSkip++
-					t.Skipf("no Rust SPIR-V reference for %s", shader.name)
-				}
-				spirvDisPath, lookErr := exec.LookPath("spirv-dis")
-				if lookErr != nil {
-					spvSkip++
-					t.Skip("spirv-dis not found in PATH")
-				}
-				spvOpts := readRustSPVConfig(shader.name)
-				// Process pipeline overrides before SPIR-V compilation
-				// (Rust test driver calls process_overrides for all backends)
-				spvModule := module
-				spvPipelineConstants := readSPVPipelineConstants(shader.name)
-				if len(spvPipelineConstants) > 0 {
-					spvModule = ir.CloneModuleForOverrides(module)
-					if err := ir.ProcessOverrides(spvModule, spvPipelineConstants); err != nil {
-						spvFail++
-						t.Errorf("ProcessOverrides failed: %v", err)
-						return
-					}
-				}
-				spvBytes := compileSPIRVWithOpts(t, spvModule, spvOpts)
-
-				// Write binary to temp file and disassemble with spirv-dis
-				tmpFile, tmpErr := os.CreateTemp("", "spirv-cmp-*.spv")
-				if tmpErr != nil {
-					t.Fatalf("create temp: %v", tmpErr)
-				}
-				tmpPath := tmpFile.Name()
-				_, _ = tmpFile.Write(spvBytes)
-				tmpFile.Close()
-				defer os.Remove(tmpPath)
-
-				cmd := exec.Command(spirvDisPath, "--no-header", tmpPath)
-				ourDisasm, disErr := cmd.Output()
-				if disErr != nil {
-					spvFail++
-					t.Errorf("spirv-dis failed: %v", disErr)
-					return
-				}
-
-				rustExpected, err := os.ReadFile(rustSPV)
-				if err != nil {
-					t.Fatalf("read Rust reference: %v", err)
-				}
-
-				diffs := compareStructural(string(ourDisasm), string(rustExpected))
-				if len(diffs) > 0 {
-					if reason, ok := referenceAllowList[shader.name]; ok {
-						spvAllow++
-						t.Logf("SPIR-V allow-listed (%s): %s", reason, strings.Join(diffs, "; "))
-					} else {
-						spvFail++
-						t.Errorf("SPIR-V differs from Rust reference:\n%s", strings.Join(diffs, "\n"))
-					}
-				} else {
-					spvPass++
-				}
-			})
-
-			// MSL vs Rust reference
-			t.Run("msl_vs_rust", func(t *testing.T) {
-				if !hasMSL {
-					mslSkip++
-					t.Skipf("no Rust MSL reference for %s", shader.name)
-				}
-				mslOpts := readRustMSLConfig(shader.name)
-				code, compileErr := compileMSLWithOpts(t, module, mslOpts)
-				if compileErr != nil {
-					mslFail++
-					t.Errorf("%v", compileErr)
-					return
-				}
-				rustExpected, err := os.ReadFile(rustMSL)
-				if err != nil {
-					t.Fatalf("read Rust reference: %v", err)
-				}
-				expected := strings.ReplaceAll(string(rustExpected), "\r\n", "\n")
-				actual := strings.ReplaceAll(code, "\r\n", "\n")
-				if expected != actual {
-					if reason, ok := referenceAllowList[shader.name]; ok {
-						mslAllow++
-						diff := diffStrings(expected, actual)
-						t.Logf("MSL allow-listed (%s): %s", reason, diff)
-					} else {
-						mslFail++
-						diff := diffStrings(expected, actual)
-						t.Errorf("MSL differs from Rust reference %s:\n%s", rustMSL, diff)
-					}
-				} else {
-					mslPass++
-				}
-			})
-
-			// HLSL vs Rust reference
-			t.Run("hlsl_vs_rust", func(t *testing.T) {
-				if !hasHLSL {
-					hlslSkip++
-					t.Skipf("no Rust HLSL reference for %s", shader.name)
-				}
-				// Process pipeline overrides before HLSL compilation
-				// (Rust test driver calls process_overrides for all backends)
-				hlslModule := module
-				hlslPipelineConstants := readSPVPipelineConstants(shader.name)
-				if len(hlslPipelineConstants) > 0 {
-					hlslModule = ir.CloneModuleForOverrides(module)
-					if err := ir.ProcessOverrides(hlslModule, hlslPipelineConstants); err != nil {
-						hlslFail++
-						t.Errorf("ProcessOverrides failed: %v", err)
-						return
-					}
-				}
-				code := compileHLSL(t, hlslModule, shader.name)
-				rustExpected, err := os.ReadFile(rustHLSL)
-				if err != nil {
-					t.Fatalf("read Rust reference: %v", err)
-				}
-				expected := strings.ReplaceAll(string(rustExpected), "\r\n", "\n")
-				actual := strings.ReplaceAll(code, "\r\n", "\n")
-				if expected != actual {
-					if reason, ok := referenceAllowList[shader.name]; ok {
-						hlslAllow++
-						t.Logf("HLSL allow-listed (%s)", reason)
-					} else {
-						hlslFail++
-						t.Errorf("HLSL differs from Rust reference %s", rustHLSL)
-					}
-				} else {
-					hlslPass++
-				}
-			})
-
-			// GLSL vs Rust reference (per entry point)
-			t.Run("glsl_vs_rust", func(t *testing.T) {
-				glslCfg := readGLSLConfig(shader.name)
-				// Clone module for GLSL if pipeline constants are set,
-				// to avoid mutation from ProcessOverrides affecting other backends.
-				glslModule := module
-				if len(glslCfg.pipelineConstants) > 0 {
-					glslModule = ir.CloneModuleForOverrides(module)
-				}
-
-				// Find all reference files for this shader
-				prefix := "wgsl-" + shader.name + "."
-				refFiles := rustReferenceFiles(t, rustOutGLSL, func(name string) bool {
-					return strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".glsl")
-				})
-
-				if len(refFiles) == 0 {
-					glslSkip++
-					t.Skipf("no GLSL reference files for %s", shader.name)
-					return
-				}
-
-				// For each reference file, extract entry point name and stage,
-				// compile, and compare
-				allMatch := true
-				for _, refPath := range refFiles {
-					refName := filepath.Base(refPath)
-					// Parse: wgsl-{shader}.{entry}.{Stage}.glsl
-					withoutPrefix := strings.TrimPrefix(refName, prefix)
-					withoutSuffix := strings.TrimSuffix(withoutPrefix, ".glsl")
-					// Split into entry.Stage
-					lastDot := strings.LastIndex(withoutSuffix, ".")
-					if lastDot < 0 {
-						t.Errorf("unexpected GLSL ref filename: %s", refName)
-						allMatch = false
-						continue
-					}
-					epName := withoutSuffix[:lastDot]
-					stageStr := withoutSuffix[lastDot+1:]
-
-					// Check if this entry point is in the exclude list
-					if glslCfg.excludeList[epName] {
-						continue
-					}
-
-					rustExpected, readErr := os.ReadFile(refPath)
-					if readErr != nil {
-						t.Errorf("read GLSL ref %s: %v", refPath, readErr)
-						allMatch = false
-						continue
-					}
-
-					// Find matching entry point in module
-					epIdx := -1
-					for j := range module.EntryPoints {
-						ep := &module.EntryPoints[j]
-						if ep.Name == epName && glslStageName(ep.Stage) == stageStr {
-							epIdx = j
-							break
-						}
-					}
-					if epIdx < 0 {
-						t.Errorf("entry point %s (%s) not found in module for %s", epName, stageStr, refName)
-						allMatch = false
-						continue
-					}
-
-					// Compile GLSL for this entry point
-					opts := glslCfg.toOptions()
-					opts.EntryPoint = epName
-
-					code, _, compileErr := glsl.Compile(glslModule, opts)
-					if compileErr != nil {
-						t.Errorf("GLSL compile %s/%s: %v", shader.name, epName, compileErr)
-						allMatch = false
-						continue
-					}
-
-					expected := strings.ReplaceAll(string(rustExpected), "\r\n", "\n")
-					actual := strings.ReplaceAll(code, "\r\n", "\n")
-					if expected != actual {
-						diff := diffStrings(expected, actual)
-						if _, ok := referenceAllowList[shader.name]; ok {
-							t.Logf("GLSL allow-listed diff for %s:\n%s", refName, diff)
-						} else {
-							t.Errorf("GLSL differs for %s:\n%s", refName, diff)
-						}
-						allMatch = false
-					}
-				}
-
-				if allMatch {
-					glslPass++
-				} else if reason, ok := referenceAllowList[shader.name]; ok {
-					glslAllow++
-					t.Logf("GLSL allow-listed (%s)", reason)
-				} else {
-					glslFail++
-				}
-			})
-		})
-	}
-
-	t.Logf("=== Rust Reference Summary ===")
-	if lowerFail > 0 {
-		t.Logf("Lower:  %d shaders failed to compile (not tested in any backend)", lowerFail)
-	}
-	t.Logf("SPIR-V: %d pass, %d allow-listed, %d fail, %d skip", spvPass, spvAllow, spvFail, spvSkip)
-	t.Logf("MSL:    %d pass, %d allow-listed, %d fail, %d skip", mslPass, mslAllow, mslFail, mslSkip)
-	t.Logf("HLSL:   %d pass, %d allow-listed, %d fail, %d skip", hlslPass, hlslAllow, hlslFail, hlslSkip)
-	t.Logf("GLSL:   %d pass, %d allow-listed, %d fail, %d skip", glslPass, glslAllow, glslFail, glslSkip)
-}
-
-// compareStructural compares two SPIR-V disassembly outputs structurally.
-// Ignores ID numbers (e.g., %1, %_2) since they always differ between compilers.
-// Returns empty string if structurally equivalent, diff description otherwise.
-func compareRustStructural(actual, expected string) string {
-	// For now, normalize IDs and compare line-by-line.
-	// TODO: implement proper structural comparison ignoring ID numbering
-	actualNorm := strings.ReplaceAll(actual, "\r\n", "\n")
-	expectedNorm := strings.ReplaceAll(expected, "\r\n", "\n")
-
-	actualLines := strings.Split(strings.TrimSpace(actualNorm), "\n")
-	expectedLines := strings.Split(strings.TrimSpace(expectedNorm), "\n")
-
-	if len(actualLines) != len(expectedLines) {
-		return fmt.Sprintf("line count: ours=%d, rust=%d", len(actualLines), len(expectedLines))
-	}
-
-	var diffs []string
-	for i := range actualLines {
-		if actualLines[i] != expectedLines[i] {
-			if len(diffs) < 5 {
-				diffs = append(diffs, fmt.Sprintf("  line %d:\n    ours: %s\n    rust: %s", i+1, actualLines[i], expectedLines[i]))
-			}
-		}
-	}
-	if len(diffs) > 0 {
-		return strings.Join(diffs, "\n")
-	}
-	return ""
-}
-
 // ---------------------------------------------------------------------------
 // Compilation Helpers
 // ---------------------------------------------------------------------------
@@ -461,37 +63,10 @@ func compileToIR(t *testing.T, name, source string) *ir.Module {
 
 	module, err := wgsl.LowerWithSource(ast, source)
 	if err != nil {
-		t.Logf("[%s] lower failed: %v", name, err)
-		return nil
+		t.Fatalf("[%s] lower failed: %v", name, err)
 	}
 
 	return module
-}
-
-// compileSPIRV compiles the IR module to SPIR-V binary.
-func compileSPIRV(t *testing.T, module *ir.Module) []byte {
-	t.Helper()
-
-	backend := spirv.NewBackend(spirv.DefaultOptions())
-	spvBytes, err := backend.Compile(module)
-	if err != nil {
-		t.Skipf("SPIR-V compile failed (skipping): %v", err)
-	}
-
-	return spvBytes
-}
-
-// compileSPIRVWithOpts compiles the IR module to SPIR-V binary with specific options.
-func compileSPIRVWithOpts(t *testing.T, module *ir.Module, opts spirv.Options) []byte {
-	t.Helper()
-
-	backend := spirv.NewBackend(opts)
-	spvBytes, err := backend.Compile(module)
-	if err != nil {
-		t.Skipf("SPIR-V compile failed (skipping): %v", err)
-	}
-
-	return spvBytes
 }
 
 // readRustSPVConfig reads a Rust TOML config file and returns SPIR-V options.
@@ -702,80 +277,28 @@ func toSPVBoundsCheckPolicy(name string) spirv.BoundsCheckPolicy {
 	}
 }
 
-// compileGLSL compiles the IR module to GLSL source.
-// GLSL compiles one entry point at a time. For modules with multiple entry
-// points, the output is concatenated with separators.
-func compileGLSL(t *testing.T, module *ir.Module) string {
-	t.Helper()
-
-	if len(module.EntryPoints) == 0 {
-		t.Skip("no entry points for GLSL")
-	}
-
-	// For single entry point, compile directly
-	if len(module.EntryPoints) == 1 {
-		opts := glsl.DefaultOptions()
-		// Compute shaders require GLSL 430+
-		if module.EntryPoints[0].Stage == ir.StageCompute {
-			opts.LangVersion = glsl.Version430
-		}
-		code, _, err := glsl.Compile(module, opts)
-		if err != nil {
-			t.Skipf("GLSL compile failed (skipping): %v", err)
-		}
-		return code
-	}
-
-	// For multiple entry points, compile each separately and concatenate
-	var parts []string
-	for i := range module.EntryPoints {
-		ep := &module.EntryPoints[i]
-		opts := glsl.DefaultOptions()
-		opts.EntryPoint = ep.Name
-
-		// Compute shaders need GLSL 430+
-		if ep.Stage == ir.StageCompute {
-			opts.LangVersion = glsl.Version430
-		}
-
-		code, _, err := glsl.Compile(module, opts)
-		if err != nil {
-			t.Skipf("GLSL compile for entry point %q failed (skipping): %v", ep.Name, err)
-		}
-
-		header := fmt.Sprintf("// === Entry Point: %s (%s) ===\n", ep.Name, stageName(ep.Stage))
-		parts = append(parts, header+code)
-	}
-
-	return strings.Join(parts, "\n")
-}
-
-// compileHLSL compiles the IR module to HLSL source.
-func compileHLSL(t *testing.T, module *ir.Module, shaderName string) string {
-	t.Helper()
-
+// rustHLSLOptions returns the HLSL options Rust's driver uses for a shader:
+// default_for_testing() plus the shader's TOML settings.
+func rustHLSLOptions(shaderName string) (*hlsl.Options, error) {
 	opts := hlsl.DefaultOptions()
-	// Match Rust naga's default_for_testing() settings
 	opts.RestrictIndexing = true
 	opts.ForceLoopBounding = true
-
-	// Read HLSL-specific TOML settings
-	readHLSLConfig(opts, shaderName)
-
-	code, _, err := hlsl.Compile(module, opts)
-	if err != nil {
-		t.Skipf("HLSL compile failed (skipping): %v", err)
+	if err := readHLSLConfig(opts, shaderName); err != nil {
+		return nil, err
 	}
-
-	return code
+	return opts, nil
 }
 
 // readHLSLConfig reads HLSL options from a Rust naga test TOML config file.
-func readHLSLConfig(opts *hlsl.Options, shaderName string) {
+// A shader without a TOML file uses the defaults.
+func readHLSLConfig(opts *hlsl.Options, shaderName string) error {
 	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		return // No TOML file — use defaults
+		return err
 	}
 	content := string(data)
 
@@ -953,45 +476,47 @@ func readHLSLConfig(opts *hlsl.Options, shaderName string) {
 	}
 
 	// Parse fragment_module = { entry_point = "...", path = "..." }
-	// This provides a fragment entry point to filter vertex outputs.
+	// This provides a fragment entry point to filter vertex outputs. As in
+	// Rust's driver, every step must succeed: a fragment module that cannot
+	// be loaded would silently change the vertex shader's outputs.
 	if strings.Contains(content, "fragment_module") {
-		re := regexp.MustCompile(`fragment_module\s*=\s*\{\s*entry_point\s*=\s*"([^"]+)"\s*,\s*path\s*=\s*"([^"]+)"\s*\}`)
-		if m := re.FindStringSubmatch(content); m != nil {
-			epName := m[1]
-			fragPath := m[2]
-			// Load the fragment shader from the same directory as other test inputs
-			fragWGSL, err := os.ReadFile(filepath.Join(rustInputDir, fragPath))
-			if err != nil {
-				return
-			}
-			fragSource := string(fragWGSL)
-			fragLexer := wgsl.NewLexer(fragSource)
-			fragTokens, err := fragLexer.Tokenize()
-			if err != nil {
-				return
-			}
-			fragParser := wgsl.NewParser(fragTokens)
-			fragAST, err := fragParser.Parse()
-			if err != nil {
-				return
-			}
-			fragModule, err := wgsl.LowerWithSource(fragAST, fragSource)
-			if err != nil {
-				return
-			}
-			// Find the fragment entry point function
-			for i := range fragModule.EntryPoints {
-				ep := &fragModule.EntryPoints[i]
-				if ep.Name == epName && ep.Stage == ir.StageFragment {
-					opts.FragmentEntryPoint = &hlsl.FragmentEntryPoint{
-						Module:   fragModule,
-						Function: &ep.Function,
-					}
-					break
-				}
-			}
+		ep, err := loadHLSLFragmentEntryPoint(content)
+		if err != nil {
+			return fmt.Errorf("%s: fragment_module: %w", tomlPath, err)
+		}
+		opts.FragmentEntryPoint = ep
+	}
+	return nil
+}
+
+var fragmentModulePattern = regexp.MustCompile(`fragment_module\s*=\s*\{\s*entry_point\s*=\s*"([^"]+)"\s*,\s*path\s*=\s*"([^"]+)"\s*\}`)
+
+// loadHLSLFragmentEntryPoint loads the fragment entry point named by a
+// fragment_module parameter from the WGSL file next to the shader.
+func loadHLSLFragmentEntryPoint(content string) (*hlsl.FragmentEntryPoint, error) {
+	m := fragmentModulePattern.FindStringSubmatch(content)
+	if m == nil {
+		return nil, errors.New(`unrecognized form; want { entry_point = "...", path = "..." }`)
+	}
+	epName, fragPath := m[1], m[2]
+	if filepath.Ext(fragPath) != ".wgsl" {
+		return nil, fmt.Errorf("%s: fragment modules must be WGSL", fragPath)
+	}
+	fragWGSL, err := os.ReadFile(filepath.Join(rustInputDir, fragPath))
+	if err != nil {
+		return nil, err
+	}
+	fragModule, err := tryCompileToIR(string(fragWGSL))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", fragPath, err)
+	}
+	for i := range fragModule.EntryPoints {
+		ep := &fragModule.EntryPoints[i]
+		if ep.Name == epName && ep.Stage == ir.StageFragment {
+			return &hlsl.FragmentEntryPoint{Module: fragModule, Function: &ep.Function}, nil
 		}
 	}
+	return nil, fmt.Errorf("%s has no fragment entry point %q", fragPath, epName)
 }
 
 // extractHLSLSection extracts the [hlsl] section and [[hlsl.*]] entries from TOML content.
@@ -1268,27 +793,6 @@ func glslStageName(stage ir.ShaderStage) string {
 	}
 }
 
-// compileMSL compiles the IR module to MSL source.
-// Uses metal1.0 to match Rust naga default for snapshot tests.
-func compileMSL(t *testing.T, module *ir.Module) (string, error) {
-	return compileMSLWithVersion(t, module, msl.Version1_0)
-}
-
-// compileMSLWithVersion compiles the IR module to MSL source with a specific version.
-func compileMSLWithVersion(t *testing.T, module *ir.Module, version msl.Version) (string, error) {
-	t.Helper()
-
-	opts := msl.DefaultOptions()
-	opts.LangVersion = version
-	opts.FakeMissingBindings = true
-	code, _, err := msl.Compile(module, opts)
-	if err != nil {
-		return "", err
-	}
-
-	return code, nil
-}
-
 // compileMSLWithOpts compiles the IR module to MSL source with fully specified options.
 // Returns the MSL code and any error. Callers should handle compile errors
 // as test failures, not skips, so they are properly counted.
@@ -1301,132 +805,6 @@ func compileMSLWithOpts(t *testing.T, module *ir.Module, opts msl.Options) (stri
 	}
 
 	return code, nil
-}
-
-type rustTargetClassification uint8
-
-const (
-	rustTargetUndeclared rustTargetClassification = iota
-	rustTargetEnabled
-	rustTargetExcluded
-)
-
-var rustTargetsPattern = regexp.MustCompile(`(?m)^\s*targets\s*=\s*"([^"]*)"`)
-
-// classifyRustTarget reports whether a Rust naga TOML config explicitly
-// enables or excludes a backend target. Missing target declarations stay
-// undeclared so backend compile errors fail instead of being hidden.
-func classifyRustTarget(content, target string) rustTargetClassification {
-	match := rustTargetsPattern.FindStringSubmatch(content)
-	if len(match) != 2 {
-		return rustTargetUndeclared
-	}
-	for item := range strings.SplitSeq(match[1], "|") {
-		if strings.TrimSpace(item) == target {
-			return rustTargetEnabled
-		}
-	}
-	return rustTargetExcluded
-}
-
-func rustTargetForShader(shaderName, target string) (rustTargetClassification, error) {
-	tomlPath := rustParamsPath(shaderName)
-	data, err := os.ReadFile(tomlPath)
-	if os.IsNotExist(err) {
-		return rustTargetUndeclared, nil
-	}
-	if err != nil {
-		return rustTargetUndeclared, fmt.Errorf("read %s: %w", tomlPath, err)
-	}
-	return classifyRustTarget(string(data), target), nil
-}
-
-// readRustMSLConfig reads MSL options from a Rust naga test TOML config file.
-// Parses lang_version, fake_missing_bindings, bounds_check_policies,
-// and per_entry_point_map with resource bindings.
-// Returns default options if no TOML file exists.
-func readRustMSLConfig(shaderName string) msl.Options {
-	opts := msl.DefaultOptions()
-	opts.LangVersion = msl.Version1_0
-	opts.FakeMissingBindings = true // default for tests without explicit config
-	// Rust naga defaults to Unchecked for all bounds check policies.
-	// Override our Go defaults (ReadZeroSkipWrite) to match Rust behavior.
-	opts.BoundsCheckPolicies = msl.BoundsCheckPolicies{}
-
-	tomlPath := rustParamsPath(shaderName)
-	data, err := os.ReadFile(tomlPath)
-	if err != nil {
-		return opts
-	}
-
-	content := string(data)
-	lines := strings.Split(content, "\n")
-
-	// Parse [bounds_check_policies] section (top-level, not under [msl]).
-	opts.BoundsCheckPolicies = parseBoundsCheckPolicies(lines)
-
-	// Parse [msl] section top-level fields.
-	inMSLSection := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "[msl]" {
-			inMSLSection = true
-			continue
-		}
-		if strings.HasPrefix(trimmed, "[") && trimmed != "[msl]" {
-			inMSLSection = false
-			continue
-		}
-		if !inMSLSection {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "lang_version") {
-			opts.LangVersion = parseMSLVersion(trimmed)
-		}
-		if strings.HasPrefix(trimmed, "fake_missing_bindings") {
-			parts := strings.SplitN(trimmed, "=", 2)
-			if len(parts) == 2 {
-				opts.FakeMissingBindings = strings.TrimSpace(parts[1]) == "true"
-			}
-		}
-		if strings.HasPrefix(trimmed, "zero_initialize_workgroup_memory") {
-			parts := strings.SplitN(trimmed, "=", 2)
-			if len(parts) == 2 {
-				opts.ZeroInitializeWorkgroupMemory = strings.TrimSpace(parts[1]) == "true"
-			}
-		}
-		if strings.HasPrefix(trimmed, "force_loop_bounding") {
-			parts := strings.SplitN(trimmed, "=", 2)
-			if len(parts) == 2 {
-				opts.ForceLoopBounding = strings.TrimSpace(parts[1]) == "true"
-			}
-		}
-	}
-
-	// Parse [msl.per_entry_point_map.*] sections.
-	epMap := parsePerEntryPointMap(content)
-	if len(epMap) > 0 {
-		opts.PerEntryPointMap = epMap
-	}
-
-	// Parse [[msl.inline_samplers]] sections.
-	inlineSamplers := parseInlineSamplers(content)
-	if len(inlineSamplers) > 0 {
-		opts.InlineSamplers = inlineSamplers
-	}
-
-	// Parse pipeline_constants (top-level, not under [msl]).
-	pipelineConstants := parsePipelineConstants(content)
-	if len(pipelineConstants) > 0 {
-		opts.PipelineConstants = pipelineConstants
-	}
-
-	// Parse [msl_pipeline] section (top-level).
-	// Handles allow_and_force_point_size, vertex_pulling_transform,
-	// and [[msl_pipeline.vertex_buffer_mappings]] arrays.
-	parseMSLPipeline(content, &opts)
-
-	return opts
 }
 
 // parseMSLPipeline parses the [msl_pipeline] TOML section for VPT and point size options.
@@ -3124,4 +2502,92 @@ var spvExecutionModels = map[uint32]string{
 
 var spvDims = map[uint32]string{
 	0: "1D", 1: "2D", 2: "3D", 3: "Cube", 4: "Rect", 5: "Buffer", 6: "SubpassData",
+}
+
+// readRustMSLConfig reads MSL options from a Rust naga test TOML config file.
+// Parses lang_version, fake_missing_bindings, bounds_check_policies,
+// and per_entry_point_map with resource bindings.
+// Returns default options if no TOML file exists.
+func readRustMSLConfig(shaderName string) msl.Options {
+	opts := msl.DefaultOptions()
+	opts.LangVersion = msl.Version1_0
+	opts.FakeMissingBindings = true // default for tests without explicit config
+	// Rust naga defaults to Unchecked for all bounds check policies.
+	// Override our Go defaults (ReadZeroSkipWrite) to match Rust behavior.
+	opts.BoundsCheckPolicies = msl.BoundsCheckPolicies{}
+
+	tomlPath := rustParamsPath(shaderName)
+	data, err := os.ReadFile(tomlPath)
+	if err != nil {
+		return opts
+	}
+
+	content := string(data)
+	lines := strings.Split(content, "\n")
+
+	// Parse [bounds_check_policies] section (top-level, not under [msl]).
+	opts.BoundsCheckPolicies = parseBoundsCheckPolicies(lines)
+
+	// Parse [msl] section top-level fields.
+	inMSLSection := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "[msl]" {
+			inMSLSection = true
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[") && trimmed != "[msl]" {
+			inMSLSection = false
+			continue
+		}
+		if !inMSLSection {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "lang_version") {
+			opts.LangVersion = parseMSLVersion(trimmed)
+		}
+		if strings.HasPrefix(trimmed, "fake_missing_bindings") {
+			parts := strings.SplitN(trimmed, "=", 2)
+			if len(parts) == 2 {
+				opts.FakeMissingBindings = strings.TrimSpace(parts[1]) == "true"
+			}
+		}
+		if strings.HasPrefix(trimmed, "zero_initialize_workgroup_memory") {
+			parts := strings.SplitN(trimmed, "=", 2)
+			if len(parts) == 2 {
+				opts.ZeroInitializeWorkgroupMemory = strings.TrimSpace(parts[1]) == "true"
+			}
+		}
+		if strings.HasPrefix(trimmed, "force_loop_bounding") {
+			parts := strings.SplitN(trimmed, "=", 2)
+			if len(parts) == 2 {
+				opts.ForceLoopBounding = strings.TrimSpace(parts[1]) == "true"
+			}
+		}
+	}
+
+	// Parse [msl.per_entry_point_map.*] sections.
+	epMap := parsePerEntryPointMap(content)
+	if len(epMap) > 0 {
+		opts.PerEntryPointMap = epMap
+	}
+
+	// Parse [[msl.inline_samplers]] sections.
+	inlineSamplers := parseInlineSamplers(content)
+	if len(inlineSamplers) > 0 {
+		opts.InlineSamplers = inlineSamplers
+	}
+
+	// Parse pipeline_constants (top-level, not under [msl]).
+	pipelineConstants := parsePipelineConstants(content)
+	if len(pipelineConstants) > 0 {
+		opts.PipelineConstants = pipelineConstants
+	}
+
+	// Parse [msl_pipeline] section (top-level).
+	// Handles allow_and_force_point_size, vertex_pulling_transform,
+	// and [[msl_pipeline.vertex_buffer_mappings]] arrays.
+	parseMSLPipeline(content, &opts)
+
+	return opts
 }

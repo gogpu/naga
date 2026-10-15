@@ -3,22 +3,21 @@
 // TestSpirvValBinary compiles each WGSL shader through the naga pipeline to binary
 // SPIR-V and validates directly with spirv-val — no disassembler roundtrip.
 //
-// TestRustReferenceComparison compares structural elements of our SPIR-V output
-// against Rust naga reference disassembly.
+// The comparison of our SPIR-V with Rust naga's is part of TestRustReference.
 //
-// Requirements: spirv-val and spirv-dis from the Vulkan SDK must be in PATH.
+// Requirements: spirv-val from SPIRV-Tools (e.g. the Vulkan SDK) in PATH.
 package snapshot_test
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/internal/testtools"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -26,10 +25,7 @@ import (
 // Unlike TestSpirvVal which goes through the disassembler (text roundtrip), this test
 // validates the actual binary output directly — giving the true validation rate.
 func TestSpirvValBinary(t *testing.T) {
-	spirvValPath, err := exec.LookPath("spirv-val")
-	if err != nil {
-		t.Skip("spirv-val not found in PATH (install Vulkan SDK)")
-	}
+	spirvValPath := testtools.Look(t, "spirv-val", testtools.InstallSPIRVTools)
 
 	shaders := loadCorpus(t)
 
@@ -87,10 +83,7 @@ func TestSpirvValBinary(t *testing.T) {
 // TestSpirvValBinarySummary provides a non-failing summary of binary SPIR-V validation.
 // All results are logged but failures do not cause the test to fail.
 func TestSpirvValBinarySummary(t *testing.T) {
-	spirvValPath, err := exec.LookPath("spirv-val")
-	if err != nil {
-		t.Skip("spirv-val not found in PATH (install Vulkan SDK)")
-	}
+	spirvValPath := testtools.Look(t, "spirv-val", testtools.InstallSPIRVTools)
 
 	shaders := loadCorpus(t)
 
@@ -228,126 +221,6 @@ func TestSpirvValBinarySummary(t *testing.T) {
 			msg = msg[:117] + "..."
 		}
 		t.Logf("  [%s] %s: %s", r.category, r.name, msg)
-	}
-}
-
-// TestRustReferenceComparison compares structural elements of our SPIR-V output
-// against the Rust naga reference disassembly. This test does not fail on
-// differences — it only reports them for analysis.
-func TestRustReferenceComparison(t *testing.T) {
-	spirvDisPath, err := exec.LookPath("spirv-dis")
-	if err != nil {
-		t.Skip("spirv-dis not found in PATH (install Vulkan SDK)")
-	}
-
-	// Build map: shader name -> reference file path.
-	refFiles := map[string]string{}
-	for _, p := range rustReferenceFiles(t, rustOutSPIRV, func(name string) bool {
-		return strings.HasSuffix(name, ".spvasm")
-	}) {
-		// Reference files are named wgsl-{name}.spvasm.
-		name := strings.TrimSuffix(filepath.Base(p), ".spvasm")
-		name = strings.TrimPrefix(name, "wgsl-")
-		refFiles[name] = p
-	}
-
-	shaders := loadCorpus(t)
-
-	type diffResult struct {
-		name  string
-		diffs []string
-	}
-
-	var compared, matched, differed, skipped int
-	var allDiffs []diffResult
-
-	// Track aggregate difference categories.
-	diffCategories := map[string]int{}
-
-	for i := range shaders {
-		shader := &shaders[i]
-		refPath, hasRef := refFiles[shader.name]
-		if !hasRef {
-			skipped++
-			continue
-		}
-
-		t.Run(shader.name, func(t *testing.T) {
-			// Compile our WGSL to binary SPIR-V.
-			spirvBytes, compileErr := compileSpirvBinary(shader.name, shader.source)
-			if compileErr != nil {
-				skipped++
-				t.Skipf("compile failed: %v", compileErr)
-				return
-			}
-
-			// Disassemble our binary with spirv-dis for clean comparison.
-			tmpFile, tmpErr := os.CreateTemp("", "spirv-ref-cmp-*.spv")
-			if tmpErr != nil {
-				t.Fatalf("create temp file: %v", tmpErr)
-			}
-			tmpPath := tmpFile.Name()
-			_, _ = tmpFile.Write(spirvBytes)
-			tmpFile.Close()
-			defer os.Remove(tmpPath)
-
-			cmd := exec.Command(spirvDisPath, "--no-header", tmpPath)
-			ourDisasm, disErr := cmd.Output()
-			if disErr != nil {
-				skipped++
-				t.Skipf("spirv-dis failed: %v", disErr)
-				return
-			}
-
-			// Read Rust reference disassembly.
-			refData, readErr := os.ReadFile(refPath)
-			if readErr != nil {
-				t.Fatalf("read reference: %v", readErr)
-			}
-
-			// Compare structural elements.
-			compared++
-			ourText := string(ourDisasm)
-			refText := string(refData)
-
-			diffs := compareStructural(ourText, refText)
-			if len(diffs) == 0 {
-				matched++
-				return
-			}
-
-			differed++
-			allDiffs = append(allDiffs, diffResult{shader.name, diffs})
-			for _, d := range diffs {
-				t.Logf("DIFF: %s", d)
-				// Extract category from diff string.
-				if idx := strings.Index(d, ":"); idx > 0 {
-					cat := strings.TrimSpace(d[:idx])
-					diffCategories[cat]++
-				}
-			}
-		})
-	}
-
-	t.Logf("\n=== Rust Reference Comparison Summary ===")
-	t.Logf("Total shaders:      %d", len(shaders))
-	t.Logf("Have reference:     %d", len(refFiles))
-	t.Logf("Compared:           %d", compared)
-	t.Logf("Structurally match: %d", matched)
-	t.Logf("Have differences:   %d", differed)
-	t.Logf("Skipped (no ref/compile fail): %d", skipped)
-
-	if len(diffCategories) > 0 {
-		t.Logf("\n=== Difference Categories ===")
-		// Sort categories for deterministic output.
-		cats := make([]string, 0, len(diffCategories))
-		for cat := range diffCategories {
-			cats = append(cats, cat)
-		}
-		sort.Strings(cats)
-		for _, cat := range cats {
-			t.Logf("  %-35s %d", cat, diffCategories[cat])
-		}
 	}
 }
 

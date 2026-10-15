@@ -10,26 +10,33 @@ struct DefaultConstructible {
     }
 };
 
-constant bool has_point_light = true;
+constant bool has_point_light = false;
 constant float specular_param = 2.3;
-constant float gain = float {};
+constant float gain = 1.1;
 constant float width = 0.0;
-constant float depth = float {};
-constant float height = {};
+constant float depth = 2.3;
+constant float height = 4.6;
 constant float inferred_f32_ = 2.718;
 constant uint auto_conversion = 0u;
+constant bool has_point_light_1 = true;
+constant float specular_param_1 = 2.3;
+constant float gain_1 = float {};
+constant float width_1 = 0.0;
+constant float depth_1 = float {};
+constant float height_1 = {};
+constant float inferred_f32_1 = 2.718;
+constant uint auto_conversion_1 = 0u;
 
 kernel void main_(
 ) {
-    float gain_x_10_ = {};
+    float gain_x_10_ = 11.0;
     float store_override = {};
-    float t = height * 5.0;
+    float t = 23.0;
     bool x = {};
     float gain_x_100_ = {};
-    bool a = !(has_point_light);
-    x = a;
-    float _e7 = gain_x_10_;
-    gain_x_100_ = _e7 * 10.0;
+    x = true;
+    float _e9 = gain_x_10_;
+    gain_x_100_ = _e9 * 10.0;
     store_override = gain;
     return;
 }

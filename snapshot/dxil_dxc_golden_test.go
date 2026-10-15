@@ -31,6 +31,7 @@ import (
 
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/hlsl"
+	"github.com/gogpu/naga/internal/testtools"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -71,7 +72,7 @@ var dxilDxcSkipShaders = map[string]string{
 func TestDxilDxcGolden(t *testing.T) {
 	dxc := dxcPath()
 	if dxc == "" {
-		t.Skip("dxc.exe not found (install Windows SDK)")
+		testtools.Missing(t, "dxc", testtools.InstallDXC)
 	}
 	updateGolden := os.Getenv("UPDATE_DXC_GOLDEN") == "1"
 

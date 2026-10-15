@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/internal/testtools"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -2668,14 +2669,13 @@ func TestCompileMSAALineShader(t *testing.T) {
 }
 
 // validateWithVulkanSDK runs spirv-val and spirv-dis from Vulkan SDK on SPIR-V binary.
-// Skips if Vulkan SDK tools are not available.
+// Without spirv-val it fails if the tool is required (NAGA_REQUIRE_TOOLS), logs otherwise.
 func validateWithVulkanSDK(t *testing.T, spirvBytes []byte) {
 	t.Helper()
 
 	// Check spirv-val availability
-	spirvVal, err := exec.LookPath("spirv-val")
-	if err != nil {
-		t.Log("spirv-val not found, skipping Vulkan SDK validation")
+	spirvVal, ok := testtools.Optional(t, "spirv-val", testtools.InstallSPIRVTools)
+	if !ok {
 		return
 	}
 

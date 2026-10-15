@@ -137,7 +137,7 @@ func TestIRReference(t *testing.T) {
 			// 2. Compile our WGSL
 			wgslFile, ok := shaderInputPath(shaderName)
 			if !ok {
-				t.Skipf("no WGSL input for %s", shaderName)
+				t.Fatalf("IR reference without a corpus shader: %s (see TestRustReferenceInventory)", shaderName)
 			}
 			wgslData, err := os.ReadFile(wgslFile)
 			if err != nil {
@@ -252,7 +252,7 @@ func TestIRReferenceCompact(t *testing.T) {
 
 			wgslFile, ok := shaderInputPath(shaderName)
 			if !ok {
-				t.Skipf("no WGSL input for %s", shaderName)
+				t.Fatalf("IR reference without a corpus shader: %s (see TestRustReferenceInventory)", shaderName)
 			}
 			wgslData, err := os.ReadFile(wgslFile)
 			if err != nil {

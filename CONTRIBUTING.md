@@ -155,12 +155,37 @@ types_with_comments.msl      ← snake_case (Rust upstream name)
 1:1 mapping with Rust naga references. When adding new test shaders, use the
 same name as in the Rust naga test suite.
 
-### Reference allow-list
+### Rust reference comparison
 
-Some shaders produce intentionally different output from Rust naga. These are
-recorded in `referenceAllowList` in `snapshot/snapshot_test.go` with a reason
-string. When adding a new allow-list entry, document **why** the divergence
-exists and confirm it does not affect correctness.
+`TestRustReference` compares our output with every output Rust naga's own
+snapshot driver writes for the corpus: which backends a shader has comes from
+its `.toml` `targets` (Rust's defaults when absent), and pipeline constants are
+applied before each backend, as Rust does. Each output either matches Rust's,
+or is a recorded deviation, or the test fails — a compile error included.
+`TestRustReferenceInventory` checks that the vendored references are exactly
+the files Rust writes.
+
+Known differences live in `snapshot/rust_deviations_test.go`, one entry per
+output file:
+
+- `intentional` — we deliberately differ; the reason must say why;
+- `bug` — our output is wrong or worse; link the tracking task;
+- `unsupported` — we cannot produce the output yet; the expected compile error
+  is recorded.
+
+Entries for `intentional` and `bug` pin a fingerprint of the compared pair, so
+any change on either side fails the test until the entry is re-reviewed, and
+an entry that no longer describes a difference fails too: the list only
+shrinks. Before adding an entry, check that the whole diff is explained by its
+reason.
+
+### External tools
+
+Some tests need `spirv-val` / `spirv-dis` (SPIRV-Tools, e.g. from the Vulkan
+SDK) or `dxc`. Locally, a missing tool skips those checks with an explicit
+message. Set `NAGA_REQUIRE_TOOLS` (comma-separated tool names, or `all`) to
+turn a missing tool into a failure — CI does, so a runner without the tool
+cannot pass while checking nothing.
 
 ### Test corpus
 
