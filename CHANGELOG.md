@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-10-16
+
 ### Fixed
 
 - **Types referenced only by module-scope initializers were compacted away**
-  ([#92](https://github.com/gogpu/naga/pull/92)) — `ir.CompactTypes` now traces
+  ([#96](https://github.com/gogpu/naga/pull/96), found via
+  [#92](https://github.com/gogpu/naga/pull/92)) — `ir.CompactTypes` now traces
   the global expressions reachable from constant, override and global variable
   initializers and keeps the types they carry (`Compose`, `ZeroValue`), matching
   Rust naga's compact pass. Previously the column type of
@@ -46,7 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   needs a scalar `bool`). It is now `mix(reject, accept, condition)`, matching
   Rust naga; output verified with glslangValidator. As in Rust naga, non-float
   values need GLSL ES 3.10 / desktop 4.50 (or `GL_EXT_shader_integer_mix`).
-
 - **Override default values lost or mistyped** — `override c: f32 = 2.3f;` and
   `override k: f16 = 1.5h;` lost their default entirely (the suffix made the
   literal fail to parse, leaving no initializer). `override a: u32 = 0;` got an
@@ -2098,7 +2100,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.19.1...HEAD
+[0.19.1]: https://github.com/gogpu/naga/compare/v0.19.0...v0.19.1
 [0.15.0]: https://github.com/gogpu/naga/compare/v0.14.8...v0.15.0
 [0.14.8]: https://github.com/gogpu/naga/compare/v0.14.7...v0.14.8
 [0.14.7]: https://github.com/gogpu/naga/compare/v0.14.6...v0.14.7
