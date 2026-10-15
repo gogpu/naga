@@ -74,12 +74,11 @@ var knownGlobalExpressionDiff = map[string]struct {
 	// (217 vs 207 expressions).
 	"abstract-types-const": {"const folding granularity", 45},
 
-	// Two differences. (1) Order: `2 * depth` emits Override/Literal in the
-	// opposite order, with Binary operands swapped to match. (2) BUG: the
-	// default of `override auto_conversion: u32 = 0` is lowered as F32(0.0);
-	// Rust has U32(0). buildOverrideGlobalExpr always emits LiteralF32 for
-	// OverrideInitLiteral (BUG-GE-001). Lower the count once that is fixed.
-	"overrides": {"operand order + BUG u32 override default lowered as f32", 5},
+	// Order only: `2 * depth` emits Override/Literal in the opposite order,
+	// with Binary operands swapped to match. Override defaults are built after
+	// compaction in buildGlobalExpressions (TECH-GE-002 §3). The former
+	// u32-default-as-F32 difference was fixed (BUG-GE-001).
+	"overrides": {"override init operand order", 4},
 }
 
 func TestIRReference(t *testing.T) {

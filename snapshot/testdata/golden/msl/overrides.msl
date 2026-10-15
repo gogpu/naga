@@ -17,7 +17,7 @@ constant float width = 0.0;
 constant float depth = float {};
 constant float height = {};
 constant float inferred_f32_ = 2.718;
-constant uint auto_conversion = 0.0;
+constant uint auto_conversion = 0u;
 
 kernel void main_(
 ) {

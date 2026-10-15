@@ -47,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Rust naga; output verified with glslangValidator. As in Rust naga, non-float
   values need GLSL ES 3.10 / desktop 4.50 (or `GL_EXT_shader_integer_mix`).
 
+- **Override default values lost or mistyped** — `override c: f32 = 2.3f;` and
+  `override k: f16 = 1.5h;` lost their default entirely (the suffix made the
+  literal fail to parse, leaving no initializer). `override a: u32 = 0;` got an
+  `f32` default (MSL emitted `constant uint a = 0.0;`), and `override b: i32 = -1;`
+  was not folded. Defaults are now a single literal of the declared type, and
+  literal operands of override-dependent `var<private>` initializers take the
+  variable's type, matching Rust naga.
+
 ### Changed
 
 - **`TestIRReference` compares global expressions** — the Rust IR reference test

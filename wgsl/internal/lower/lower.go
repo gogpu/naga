@@ -1241,7 +1241,18 @@ func (l *Lowerer) buildOverrideInitExpr(expr parser.Expr) ir.OverrideInitExpr {
 				return ir.OverrideInitLiteral{Value: float64(ival)}
 			}
 		}
-		val, err := strconv.ParseFloat(e.Value, 64)
+		// Float literal: strip the type suffix (lf, h, f — same order as
+		// evalLiteral) before parsing; the value is converted to the
+		// override's declared type later. Previously `2.3f` / `1.5h` failed
+		// to parse and the default value was dropped (Override.Init nil).
+		text := e.Value
+		switch {
+		case strings.HasSuffix(text, "lf"):
+			text = strings.TrimSuffix(text, "lf")
+		case strings.HasSuffix(text, "h"), strings.HasSuffix(text, "f"):
+			text = text[:len(text)-1]
+		}
+		val, err := strconv.ParseFloat(text, 64)
 		if err != nil {
 			return nil
 		}
@@ -16527,7 +16538,7 @@ func (l *Lowerer) buildGlobalExpressions() {
 			continue
 		}
 
-		h := l.buildOverrideGlobalExpr(initExpr, overrideToGlobalExpr, addExpr)
+		h := l.buildOverrideGlobalExpr(initExpr, m.Overrides[oh].Ty, overrideToGlobalExpr, addExpr)
 		overrideToGlobalExpr[oh] = h
 		m.Overrides[oh].Init = &h
 	}
@@ -16554,7 +16565,7 @@ func (l *Lowerer) buildGlobalExpressions() {
 			}
 		} else if initExpr, ok := l.globalVarInitExprs[gvHandle]; ok {
 			// Override-dependent init expression (e.g., gain * 10.0).
-			h := l.buildOverrideGlobalExpr(initExpr, overrideToGlobalExpr, addExpr)
+			h := l.buildOverrideGlobalExpr(initExpr, gv.Type, overrideToGlobalExpr, addExpr)
 			gv.InitExpr = &h
 		}
 		// Constructor inits already set InitExpr in lowerGlobalVar.
@@ -16879,16 +16890,65 @@ func (l *Lowerer) getConstructComponentType(typeH ir.TypeHandle) ir.TypeHandle {
 	}
 }
 
+// unknownType marks an expected type that cannot be derived; literals built
+// for it keep the historical F32 fallback.
+const unknownType = ^ir.TypeHandle(0)
+
+// overrideLiteral converts an override init literal to the scalar type ty
+// (WGSL automatic conversion of an abstract literal). Mirrors the conversion
+// ir.ProcessOverrides applies to resolved override values (makeOverrideLiteral).
+func (l *Lowerer) overrideLiteral(v float64, ty ir.TypeHandle) ir.LiteralValue {
+	if int(ty) < len(l.module.Types) {
+		if s, ok := l.module.Types[ty].Inner.(ir.ScalarType); ok {
+			switch s.Kind {
+			case ir.ScalarSint:
+				return ir.LiteralI32(int32(v))
+			case ir.ScalarUint:
+				return ir.LiteralU32(uint32(v))
+			case ir.ScalarBool:
+				return ir.LiteralBool(v != 0)
+			case ir.ScalarFloat:
+				switch s.Width {
+				case 2:
+					return ir.LiteralF16(roundToF16(float32(v)))
+				case 8:
+					return ir.LiteralF64(v)
+				}
+			}
+		}
+	}
+	return ir.LiteralF32(float32(v))
+}
+
+// isComparisonOp reports whether op compares its operands (bool result whose
+// operand type is unrelated to the result type).
+func isComparisonOp(op ir.BinaryOperator) bool {
+	switch op {
+	case ir.BinaryEqual, ir.BinaryNotEqual, ir.BinaryLess, ir.BinaryLessEqual,
+		ir.BinaryGreater, ir.BinaryGreaterEqual:
+		return true
+	}
+	return false
+}
+
 // buildOverrideGlobalExpr recursively builds global expressions from an
 // OverrideInitExpr tree. This handles derived overrides like `height = 2.0 * depth`.
+//
+// ty is the type the expression must produce (the override's or global
+// variable's declared type). As in Rust naga, an abstract literal is converted
+// to it — `override a: u32 = 0` is Literal(U32(0)), not F32 — and a negated
+// literal is folded (`-1` → Literal(I32(-1))). Operands of arithmetic binary
+// operators share the result type; for comparisons the operand type does not
+// follow from ty, so literal operands keep the F32 fallback (unknownType).
 func (l *Lowerer) buildOverrideGlobalExpr(
 	expr ir.OverrideInitExpr,
+	ty ir.TypeHandle,
 	overrideToGlobalExpr map[ir.OverrideHandle]ir.ExpressionHandle,
 	addExpr func(ir.ExpressionKind) ir.ExpressionHandle,
 ) ir.ExpressionHandle {
 	switch e := expr.(type) {
 	case ir.OverrideInitLiteral:
-		return addExpr(ir.Literal{Value: ir.LiteralF32(float32(e.Value))})
+		return addExpr(ir.Literal{Value: l.overrideLiteral(e.Value, ty)})
 
 	case ir.OverrideInitBoolLiteral:
 		return addExpr(ir.Literal{Value: ir.LiteralBool(e.Value)})
@@ -16902,7 +16962,8 @@ func (l *Lowerer) buildOverrideGlobalExpr(
 		if _, ok := overrideToGlobalExpr[e.Handle]; !ok {
 			if int(e.Handle) < len(l.module.Overrides) {
 				if initExpr, hasInit := l.overrideInitExprs[e.Handle]; hasInit {
-					h := l.buildOverrideGlobalExpr(initExpr, overrideToGlobalExpr, addExpr)
+					refTy := l.module.Overrides[e.Handle].Ty
+					h := l.buildOverrideGlobalExpr(initExpr, refTy, overrideToGlobalExpr, addExpr)
 					overrideToGlobalExpr[e.Handle] = h
 					l.module.Overrides[e.Handle].Init = &h
 				}
@@ -16911,8 +16972,12 @@ func (l *Lowerer) buildOverrideGlobalExpr(
 		return addExpr(ir.ExprOverride{Override: e.Handle})
 
 	case ir.OverrideInitBinary:
-		left := l.buildOverrideGlobalExpr(e.Left, overrideToGlobalExpr, addExpr)
-		right := l.buildOverrideGlobalExpr(e.Right, overrideToGlobalExpr, addExpr)
+		operandTy := ty
+		if isComparisonOp(e.Op) {
+			operandTy = unknownType
+		}
+		left := l.buildOverrideGlobalExpr(e.Left, operandTy, overrideToGlobalExpr, addExpr)
+		right := l.buildOverrideGlobalExpr(e.Right, operandTy, overrideToGlobalExpr, addExpr)
 		return addExpr(ir.ExprBinary{
 			Op:    e.Op,
 			Left:  left,
@@ -16920,7 +16985,10 @@ func (l *Lowerer) buildOverrideGlobalExpr(
 		})
 
 	case ir.OverrideInitUnary:
-		inner := l.buildOverrideGlobalExpr(e.Expr, overrideToGlobalExpr, addExpr)
+		if lit, ok := e.Expr.(ir.OverrideInitLiteral); ok && e.Op == ir.UnaryNegate {
+			return addExpr(ir.Literal{Value: l.overrideLiteral(-lit.Value, ty)})
+		}
+		inner := l.buildOverrideGlobalExpr(e.Expr, ty, overrideToGlobalExpr, addExpr)
 		return addExpr(ir.ExprUnary{
 			Op:   e.Op,
 			Expr: inner,
