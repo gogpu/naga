@@ -4483,6 +4483,37 @@ func (e *ExpressionEmitter) isVariableReference(handle ir.ExpressionHandle) bool
 	}
 }
 
+// isPointerAccess reports whether handle is an Access or AccessIndex through a
+// pointer, which yields a pointer, not a value. Rust naga emits nothing for it
+// at Emit: the whole chain becomes one access chain where the pointer is used
+// (back/spv/block.rs cache_expression_value). Materializing it here as an
+// access chain plus a load left dead instructions, and on atomic data a
+// non-atomic read.
+func (e *ExpressionEmitter) isPointerAccess(handle ir.ExpressionHandle) bool {
+	var base ir.ExpressionHandle
+	switch k := e.function.Expressions[handle].Kind.(type) {
+	case ir.ExprAccess:
+		base = k.Base
+	case ir.ExprAccessIndex:
+		base = k.Base
+	default:
+		return false
+	}
+	res, err := ir.ResolveExpressionType(e.backend.module, e.function, base)
+	if err != nil {
+		return false
+	}
+	inner := res.Value
+	if res.Handle != nil {
+		inner = e.backend.module.Types[*res.Handle].Inner
+	}
+	switch inner.(type) {
+	case ir.PointerType, ir.ValuePointerType:
+		return true
+	}
+	return false
+}
+
 // isPointerExpression recursively checks if an expression returns a SPIR-V pointer.
 // This includes variable references and access chains on pointer bases.
 func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool {
@@ -4524,10 +4555,47 @@ func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool
 	return false
 }
 
-// emitPointerExpression emits an expression as a SPIR-V pointer without loading.
-// This is used for store destinations and other pointer contexts.
-// Returns error if the expression is not a pointer expression.
+// emitPointerExpression emits an expression as a SPIR-V pointer without loading,
+// for the instruction that dereferences it (load, store, atomic, call argument).
+//
+// When the chain indexes a binding array with a non-uniform index, the pointer
+// handed to that instruction is decorated NonUniform, as Rust naga's
+// write_access_chain does with the final pointer of the chain
+// (VUID-RuntimeSpirv-NonUniform-06274). Links inside the chain are built by
+// emitPointerChain and stay undecorated.
 func (e *ExpressionEmitter) emitPointerExpression(handle ir.ExpressionHandle) (uint32, error) {
+	id, err := e.emitPointerChain(handle)
+	if err != nil {
+		return 0, err
+	}
+	if e.chainHasNonUniformBindingArrayAccess(handle) {
+		e.backend.decorateNonUniformBindingArrayAccess(id)
+	}
+	return id, nil
+}
+
+// chainHasNonUniformBindingArrayAccess reports whether the pointer chain ending
+// at handle indexes a binding array with a non-uniform index.
+func (e *ExpressionEmitter) chainHasNonUniformBindingArrayAccess(handle ir.ExpressionHandle) bool {
+	for {
+		switch k := e.function.Expressions[handle].Kind.(type) {
+		case ir.ExprAccess:
+			if e.isNonUniformBindingArrayAccess(k.Base, k.Index) {
+				return true
+			}
+			handle = k.Base
+		case ir.ExprAccessIndex:
+			handle = k.Base
+		case ir.ExprLoad:
+			handle = k.Pointer
+		default:
+			return false
+		}
+	}
+}
+
+// emitPointerChain emits one link of a pointer chain; see emitPointerExpression.
+func (e *ExpressionEmitter) emitPointerChain(handle ir.ExpressionHandle) (uint32, error) {
 	expr := e.function.Expressions[handle]
 
 	switch k := expr.Kind.(type) {
@@ -4569,7 +4637,7 @@ func (e *ExpressionEmitter) emitPointerExpression(handle ir.ExpressionHandle) (u
 		// ExprLoad dereferences a pointer. For pointer chain contexts (store targets,
 		// access chains), skip the load and pass through to the underlying pointer.
 		// This allows (*p).x to emit OpAccessChain on p directly.
-		return e.emitPointerExpression(k.Pointer)
+		return e.emitPointerChain(k.Pointer)
 	default:
 		return 0, fmt.Errorf("expression %T is not a pointer expression", k)
 	}
@@ -4577,7 +4645,7 @@ func (e *ExpressionEmitter) emitPointerExpression(handle ir.ExpressionHandle) (u
 
 // emitAccessIndexAsPointer emits an access index as a SPIR-V pointer without loading.
 func (e *ExpressionEmitter) emitAccessIndexAsPointer(access ir.ExprAccessIndex) (uint32, error) {
-	baseID, err := e.emitPointerExpression(access.Base)
+	baseID, err := e.emitPointerChain(access.Base)
 	if err != nil {
 		return 0, err
 	}
@@ -4617,7 +4685,7 @@ func (e *ExpressionEmitter) emitAccessIndexAsPointer(access ir.ExprAccessIndex) 
 
 // emitAccessAsPointer emits a dynamic access as a SPIR-V pointer without loading.
 func (e *ExpressionEmitter) emitAccessAsPointer(access ir.ExprAccess) (uint32, error) {
-	baseID, err := e.emitPointerExpression(access.Base)
+	baseID, err := e.emitPointerChain(access.Base)
 	if err != nil {
 		return 0, err
 	}
@@ -5982,7 +6050,7 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		// they are pointer expressions in the WGSL Load Rule model and should
 		// not be auto-loaded here. The ExprLoad wrapping them handles the load.
 		for handle := kind.Range.Start; handle < kind.Range.End; handle++ {
-			if e.isVariableReference(handle) {
+			if e.isVariableReference(handle) || e.isPointerAccess(handle) {
 				continue
 			}
 			_, err := e.emitExpression(handle)

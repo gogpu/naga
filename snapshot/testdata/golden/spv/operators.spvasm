@@ -1,14 +1,14 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 731
+; Bound: 727
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_711 "main" %_21
-               OpExecutionMode %_711 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_707 "main" %_21
+               OpExecutionMode %_707 LocalSize 1 1 1
                OpDecorate %_21 BuiltIn WorkgroupId
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
@@ -111,7 +111,7 @@
          %_491 = OpConstantNull %_14
          %_620 = OpTypePointer Function %_15
          %_622 = OpConstantNull %_15
-         %_714 = OpTypePointer Input %_10
+         %_710 = OpTypePointer Input %_10
          %_21 = OpVariable %_20 Input
          %_22 = OpFunction %_6 None %_23
          %_24 = OpFunctionParameter %_6
@@ -755,90 +755,86 @@
                OpStore %_619 %_648
          %_649 = OpAccessChain %_299 %_621 %_39
          %_650 = OpLoad %_5 %_649
-         %_651 = OpAccessChain %_299 %_621 %_39
-         %_652 = OpLoad %_5 %_651
-         %_653 = OpIAdd %_5 %_652 %_39
-         %_654 = OpAccessChain %_299 %_621 %_39
-               OpStore %_654 %_653
-         %_655 = OpAccessChain %_299 %_621 %_39
-         %_656 = OpLoad %_5 %_655
-         %_657 = OpAccessChain %_299 %_621 %_39
-         %_658 = OpLoad %_5 %_657
-         %_659 = OpISub %_5 %_658 %_39
-         %_660 = OpAccessChain %_299 %_621 %_39
-               OpStore %_660 %_659
+         %_651 = OpIAdd %_5 %_650 %_39
+         %_652 = OpAccessChain %_299 %_621 %_39
+               OpStore %_652 %_651
+         %_653 = OpAccessChain %_299 %_621 %_39
+         %_654 = OpLoad %_5 %_653
+         %_655 = OpISub %_5 %_654 %_39
+         %_656 = OpAccessChain %_299 %_621 %_39
+               OpStore %_656 %_655
                OpReturn
                OpFunctionEnd
-         %_661 = OpFunction %_2 None %_243
-         %_662 = OpLabel
-         %_663 = OpSNegate %_5 %_39
+         %_657 = OpFunction %_2 None %_243
+         %_658 = OpLabel
+         %_659 = OpSNegate %_5 %_39
+         %_660 = OpSNegate %_5 %_39
+         %_661 = OpSNegate %_5 %_660
+         %_662 = OpSNegate %_5 %_39
+         %_663 = OpSNegate %_5 %_662
          %_664 = OpSNegate %_5 %_39
          %_665 = OpSNegate %_5 %_664
          %_666 = OpSNegate %_5 %_39
          %_667 = OpSNegate %_5 %_666
-         %_668 = OpSNegate %_5 %_39
-         %_669 = OpSNegate %_5 %_668
-         %_670 = OpSNegate %_5 %_39
+         %_668 = OpSNegate %_5 %_667
+         %_669 = OpSNegate %_5 %_39
+         %_670 = OpSNegate %_5 %_669
          %_671 = OpSNegate %_5 %_670
          %_672 = OpSNegate %_5 %_671
          %_673 = OpSNegate %_5 %_39
          %_674 = OpSNegate %_5 %_673
          %_675 = OpSNegate %_5 %_674
          %_676 = OpSNegate %_5 %_675
-         %_677 = OpSNegate %_5 %_39
-         %_678 = OpSNegate %_5 %_677
+         %_677 = OpSNegate %_5 %_676
+         %_678 = OpSNegate %_5 %_39
          %_679 = OpSNegate %_5 %_678
          %_680 = OpSNegate %_5 %_679
          %_681 = OpSNegate %_5 %_680
-         %_682 = OpSNegate %_5 %_39
-         %_683 = OpSNegate %_5 %_682
-         %_684 = OpSNegate %_5 %_683
-         %_685 = OpSNegate %_5 %_684
-         %_686 = OpSNegate %_5 %_685
-         %_687 = OpFNegate %_3 %_163
+         %_682 = OpSNegate %_5 %_681
+         %_683 = OpFNegate %_3 %_163
+         %_684 = OpFNegate %_3 %_163
+         %_685 = OpFNegate %_3 %_684
+         %_686 = OpFNegate %_3 %_163
+         %_687 = OpFNegate %_3 %_686
          %_688 = OpFNegate %_3 %_163
          %_689 = OpFNegate %_3 %_688
          %_690 = OpFNegate %_3 %_163
          %_691 = OpFNegate %_3 %_690
-         %_692 = OpFNegate %_3 %_163
-         %_693 = OpFNegate %_3 %_692
-         %_694 = OpFNegate %_3 %_163
+         %_692 = OpFNegate %_3 %_691
+         %_693 = OpFNegate %_3 %_163
+         %_694 = OpFNegate %_3 %_693
          %_695 = OpFNegate %_3 %_694
          %_696 = OpFNegate %_3 %_695
          %_697 = OpFNegate %_3 %_163
          %_698 = OpFNegate %_3 %_697
          %_699 = OpFNegate %_3 %_698
          %_700 = OpFNegate %_3 %_699
-         %_701 = OpFNegate %_3 %_163
-         %_702 = OpFNegate %_3 %_701
+         %_701 = OpFNegate %_3 %_700
+         %_702 = OpFNegate %_3 %_163
          %_703 = OpFNegate %_3 %_702
          %_704 = OpFNegate %_3 %_703
          %_705 = OpFNegate %_3 %_704
-         %_706 = OpFNegate %_3 %_163
-         %_707 = OpFNegate %_3 %_706
-         %_708 = OpFNegate %_3 %_707
-         %_709 = OpFNegate %_3 %_708
-         %_710 = OpFNegate %_3 %_709
+         %_706 = OpFNegate %_3 %_705
                OpReturn
                OpFunctionEnd
-         %_711 = OpFunction %_2 None %_243
-         %_712 = OpLabel
-         %_713 = OpFunctionCall %_4 %_157
-         %_715 = OpAccessChain %_714 %_21 %_60
-         %_716 = OpLoad %_10 %_715
-         %_717 = OpConvertUToF %_3 %_716
-         %_718 = OpAccessChain %_714 %_21 %_62
-         %_719 = OpLoad %_10 %_718
-         %_720 = OpBitcast %_5 %_719
-         %_721 = OpFunctionCall %_4 %_182 %_717 %_720
-         %_722 = OpFunctionCall %_8 %_204
-         %_723 = OpCompositeConstruct %_9 %_163 %_163 %_163
-         %_724 = OpFunctionCall %_9 %_221 %_723
-         %_725 = OpFunctionCall %_2 %_244
-         %_726 = OpFunctionCall %_2 %_297
-         %_727 = OpFunctionCall %_2 %_495
-         %_728 = OpFunctionCall %_2 %_543
-         %_729 = OpFunctionCall %_2 %_617
-         %_730 = OpFunctionCall %_2 %_661
+         %_707 = OpFunction %_2 None %_243
+         %_708 = OpLabel
+         %_709 = OpFunctionCall %_4 %_157
+         %_711 = OpAccessChain %_710 %_21 %_60
+         %_712 = OpLoad %_10 %_711
+         %_713 = OpConvertUToF %_3 %_712
+         %_714 = OpAccessChain %_710 %_21 %_62
+         %_715 = OpLoad %_10 %_714
+         %_716 = OpBitcast %_5 %_715
+         %_717 = OpFunctionCall %_4 %_182 %_713 %_716
+         %_718 = OpFunctionCall %_8 %_204
+         %_719 = OpCompositeConstruct %_9 %_163 %_163 %_163
+         %_720 = OpFunctionCall %_9 %_221 %_719
+         %_721 = OpFunctionCall %_2 %_244
+         %_722 = OpFunctionCall %_2 %_297
+         %_723 = OpFunctionCall %_2 %_495
+         %_724 = OpFunctionCall %_2 %_543
+         %_725 = OpFunctionCall %_2 %_617
+         %_726 = OpFunctionCall %_2 %_657
                OpReturn
                OpFunctionEnd

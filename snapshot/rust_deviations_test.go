@@ -60,9 +60,6 @@ const (
 	reasonSPVWorkgroupLayoutFree = "workgroup variables use layout-free types plus OpCopyLogical " +
 		"(VUID-StandaloneSpirv-None-10684); OpCopyLogical needs SPIR-V 1.4, so the module is 1.4 and its " +
 		"OpEntryPoint lists every global the entry point uses, where Rust emits 1.1 with Input/Output only"
-	reasonSPVDeadPointerLoads = "Emit materializes pointer-typed Access/AccessIndex expressions as an access " +
-		"chain plus a dead OpLoad (and OpCopyLogical for workgroup data) where Rust emits nothing until the " +
-		"pointer is used; on atomic data that dead load is a non-atomic read"
 	reasonSPVPerEntryPoint = "Rust writes one SPIR-V module per entry point ([spv] separate_entry_points, " +
 		"spv::PipelineOptions); the spirv package cannot restrict output to one entry point"
 	reasonProcessOverrides = "ir.ProcessOverrides does not match Rust's process_overrides: it skips the " +
@@ -108,20 +105,15 @@ var rustDeviations = []rustDeviation{
 		Card:   "NAGA-SPV-009", Fingerprint: "9dc54aeb5e94e96d4917abe62879474a5c177232a76fd59ba7e0603efb1440a5"},
 	{Shader: "binding-buffer-arrays", File: "wgsl-binding-buffer-arrays.spvasm", Kind: deviationBug,
 		Reason: "spirv.Options has no binding map, so [[spv.binding_map]] binding_array_size = 10 is ignored and " +
-			"the binding array keeps its declared length 1; no ReadZeroSkipWrite bounds check is emitted for the " +
-			"binding-array index (Rust: OpULessThan + OpSelect + OpBranchConditional, x2); 3 NonUniform " +
-			"decorations where Rust emits 2",
-		Card: "BUG-SPV-BINDING-ARRAY-001", Fingerprint: "b2c9f81bf6f648311c7331e16b15925a8e2351bcdb07e6b1009bc67530e10bbf"},
-	{Shader: "atomicOps", File: "wgsl-atomicOps.spvasm", Kind: deviationBug,
-		Reason: reasonSPVDeadPointerLoads + "; also " + reasonSPVWorkgroupLayoutFree,
-		Card:   "BUG-SPV-PTR-EMIT-001", Fingerprint: "6c0e37a05e339c480f185bb7ad231ae21c62671a63ff445c260c22bf43c2d74b"},
-	{Shader: "atomicOps-int64", File: "wgsl-atomicOps-int64.spvasm", Kind: deviationBug,
-		Reason: reasonSPVDeadPointerLoads + "; also " + reasonSPVWorkgroupLayoutFree,
-		Card:   "BUG-SPV-PTR-EMIT-001", Fingerprint: "d353f3fc9350e17fb03dd01d98f2523cd89a7c9be886500626afb5fe4ab16f26"},
+			"the binding array keeps its declared length 1 (Rust: array<Foo, 10> and a pointer to it); no " +
+			"ReadZeroSkipWrite bounds check is emitted for the binding-array index (Rust: OpTypeBool, OpULessThan + " +
+			"OpBranchConditional, x2); Rust also declares an unused pointer to the runtime array `far`, because " +
+			"its cache_expression_value resolves the type of every expression, pointers included, before " +
+			"skipping them",
+		Card: "BUG-SPV-BINDING-ARRAY-001", Fingerprint: "c9e85b747975c1d2388d54aaaadeb89e7f1d2e70c2979b61dbbff48c6a6f31db"},
 	{Shader: "workgroup-var-init", File: "wgsl-workgroup-var-init.spvasm", Kind: deviationBug,
-		Reason: reasonSPVWorkgroupLayoutFree + "; also w_mem.arr is loaded and copied twice (the first " +
-			"OpLoad + OpCopyLogical is dead), and Rust has one more, empty, entry block",
-		Card: "NAGA-SPV-009", Fingerprint: "a3576c00f2feeb05e4eabb9617c1d7b5c2d2eeb98e45c15a18f6e1a4e040a177"},
+		Reason: reasonSPVWorkgroupLayoutFree + "; also Rust has one more, empty, entry block",
+		Card:   "NAGA-SPV-009", Fingerprint: "a3576c00f2feeb05e4eabb9617c1d7b5c2d2eeb98e45c15a18f6e1a4e040a177"},
 
 	// MSL.
 	{Shader: "abstract-types-operators", File: "wgsl-abstract-types-operators.metal", Kind: deviationIntentional,

@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 32
+; Bound: 27
 ; Schema: 0
 
                OpCapability Shader
@@ -26,26 +26,21 @@
          %_13 = OpTypeFunction %_2
          %_16 = OpTypePointer Function %_8
          %_18 = OpTypePointer Function %_7
-         %_22 = OpConstant %_5 0
-         %_23 = OpTypePointer Function %_3
-         %_28 = OpConstant %_3 1056964608
+         %_20 = OpConstant %_5 0
+         %_21 = OpTypePointer Function %_3
+         %_23 = OpConstant %_3 1056964608
          %_10 = OpVariable %_9 Output
          %_12 = OpVariable %_11 Output
          %_14 = OpFunction %_2 None %_13
          %_15 = OpLabel
          %_17 = OpVariable %_16 Function
          %_19 = OpAccessChain %_18 %_17 %_6
-         %_20 = OpLoad %_7 %_19
-         %_21 = OpAccessChain %_18 %_17 %_6
-         %_24 = OpAccessChain %_23 %_21 %_22
-         %_25 = OpLoad %_3 %_24
-         %_26 = OpAccessChain %_18 %_17 %_6
-         %_27 = OpAccessChain %_23 %_26 %_22
-               OpStore %_27 %_28
-         %_29 = OpLoad %_8 %_17
-         %_30 = OpCompositeExtract %_4 %_29 0
-               OpStore %_10 %_30
-         %_31 = OpCompositeExtract %_7 %_29 1
-               OpStore %_12 %_31
+         %_22 = OpAccessChain %_21 %_19 %_20
+               OpStore %_22 %_23
+         %_24 = OpLoad %_8 %_17
+         %_25 = OpCompositeExtract %_4 %_24 0
+               OpStore %_10 %_25
+         %_26 = OpCompositeExtract %_7 %_24 1
+               OpStore %_12 %_26
                OpReturn
                OpFunctionEnd

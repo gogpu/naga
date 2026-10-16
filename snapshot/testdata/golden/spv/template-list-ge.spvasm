@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 65
+; Bound: 60
 ; Schema: 0
 
                OpCapability Shader
@@ -37,8 +37,8 @@
          %_31 = OpConstant %_4 4294967295
          %_32 = OpConstantComposite %_25 %_29 %_29
          %_33 = OpConstantComposite %_25 %_31 %_31
-         %_51 = OpTypePointer StorageBuffer %_6
-         %_53 = OpTypePointer StorageBuffer %_3
+         %_54 = OpTypePointer StorageBuffer %_6
+         %_56 = OpTypePointer StorageBuffer %_3
          %_9 = OpVariable %_8 StorageBuffer
          %_11 = OpFunction %_2 None %_10
          %_12 = OpLabel
@@ -77,22 +77,17 @@
                OpBranch %_24
          %_49 = OpLabel
          %_50 = OpLoad %_3 %_16
-         %_52 = OpAccessChain %_51 %_9 %_29
-         %_54 = OpAccessChain %_53 %_52 %_50
-         %_55 = OpLoad %_3 %_54
-         %_56 = OpLoad %_3 %_16
-         %_57 = OpAccessChain %_15 %_14 %_56
-         %_58 = OpLoad %_3 %_57
-         %_59 = OpAccessChain %_15 %_14 %_56
-         %_60 = OpLoad %_3 %_59
-         %_61 = OpAccessChain %_51 %_9 %_29
-         %_62 = OpAccessChain %_53 %_61 %_50
-               OpStore %_62 %_60
+         %_51 = OpLoad %_3 %_16
+         %_52 = OpAccessChain %_15 %_14 %_51
+         %_53 = OpLoad %_3 %_52
+         %_55 = OpAccessChain %_54 %_9 %_29
+         %_57 = OpAccessChain %_56 %_55 %_50
+               OpStore %_57 %_53
                OpBranch %_23
          %_23 = OpLabel
-         %_63 = OpLoad %_3 %_16
-         %_64 = OpIAdd %_3 %_63 %_17
-               OpStore %_16 %_64
+         %_58 = OpLoad %_3 %_16
+         %_59 = OpIAdd %_3 %_58 %_17
+               OpStore %_16 %_59
                OpBranch %_21
          %_24 = OpLabel
                OpReturn

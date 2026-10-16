@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 129
+; Bound: 127
 ; Schema: 0
 
                OpCapability Shader
@@ -11,7 +11,7 @@
                OpEntryPoint Vertex %_50 "vertex" %_18 %_19 %_20 %_22 %_24
                OpEntryPoint Fragment %_63 "fragment" %_26 %_28 %_30 %_31 %_34 %_35 %_38 %_39
                OpEntryPoint GLCompute %_84 "compute" %_41 %_42 %_43 %_44 %_45
-               OpEntryPoint Vertex %_114 "vertex_two_structs" %_46 %_47 %_48
+               OpEntryPoint Vertex %_112 "vertex_two_structs" %_46 %_47 %_48
                OpExecutionMode %_63 OriginUpperLeft
                OpExecutionMode %_63 DepthReplacing
                OpExecutionMode %_84 LocalSize 1 1 1
@@ -82,8 +82,8 @@
          %_93 = OpConstantNull %_14
          %_94 = OpConstant %_6 2
          %_95 = OpConstant %_6 264
-         %_97 = OpTypePointer Workgroup %_6
-         %_116 = OpTypePointer Function %_6
+         %_110 = OpTypePointer Workgroup %_6
+         %_114 = OpTypePointer Function %_6
          %_16 = OpVariable %_15 Workgroup
          %_18 = OpVariable %_17 Input
          %_19 = OpVariable %_17 Input
@@ -159,40 +159,38 @@
          OpControlBarrier %_94 %_94 %_95
                OpBranch %_96
          %_96 = OpLabel
-         %_98 = OpAccessChain %_97 %_16 %_70
-         %_99 = OpLoad %_6 %_98
-         %_100 = OpAccessChain %_17 %_41 %_70
-         %_101 = OpLoad %_6 %_100
-         %_102 = OpAccessChain %_17 %_42 %_70
-         %_103 = OpLoad %_6 %_102
-         %_104 = OpIAdd %_6 %_101 %_103
-         %_105 = OpLoad %_6 %_43
-         %_106 = OpIAdd %_6 %_104 %_105
-         %_107 = OpAccessChain %_17 %_44 %_70
+         %_97 = OpAccessChain %_17 %_41 %_70
+         %_98 = OpLoad %_6 %_97
+         %_99 = OpAccessChain %_17 %_42 %_70
+         %_100 = OpLoad %_6 %_99
+         %_101 = OpIAdd %_6 %_98 %_100
+         %_102 = OpLoad %_6 %_43
+         %_103 = OpIAdd %_6 %_101 %_102
+         %_104 = OpAccessChain %_17 %_44 %_70
+         %_105 = OpLoad %_6 %_104
+         %_106 = OpIAdd %_6 %_103 %_105
+         %_107 = OpAccessChain %_17 %_45 %_70
          %_108 = OpLoad %_6 %_107
          %_109 = OpIAdd %_6 %_106 %_108
-         %_110 = OpAccessChain %_17 %_45 %_70
-         %_111 = OpLoad %_6 %_110
-         %_112 = OpIAdd %_6 %_109 %_111
-         %_113 = OpAccessChain %_97 %_16 %_70
-               OpStore %_113 %_112
+         %_111 = OpAccessChain %_110 %_16 %_70
+               OpStore %_111 %_109
                OpReturn
                OpFunctionEnd
-         %_114 = OpFunction %_2 None %_49
-         %_115 = OpLabel
-         %_117 = OpVariable %_116 Function
-         %_118 = OpLoad %_6 %_46
-         %_119 = OpCompositeConstruct %_12 %_118
-         %_120 = OpLoad %_6 %_47
-         %_121 = OpCompositeConstruct %_13 %_120
-               OpStore %_117 %_94
+         %_112 = OpFunction %_2 None %_49
+         %_113 = OpLabel
+         %_115 = OpVariable %_114 Function
+         %_116 = OpLoad %_6 %_46
+         %_117 = OpCompositeConstruct %_12 %_116
+         %_118 = OpLoad %_6 %_47
+         %_119 = OpCompositeConstruct %_13 %_118
+               OpStore %_115 %_94
+         %_120 = OpCompositeExtract %_6 %_117 0
+         %_121 = OpConvertUToF %_3 %_120
          %_122 = OpCompositeExtract %_6 %_119 0
          %_123 = OpConvertUToF %_3 %_122
-         %_124 = OpCompositeExtract %_6 %_121 0
+         %_124 = OpLoad %_6 %_115
          %_125 = OpConvertUToF %_3 %_124
-         %_126 = OpLoad %_6 %_117
-         %_127 = OpConvertUToF %_3 %_126
-         %_128 = OpCompositeConstruct %_4 %_123 %_125 %_127 %_75
-               OpStore %_48 %_128
+         %_126 = OpCompositeConstruct %_4 %_121 %_123 %_125 %_75
+               OpStore %_48 %_126
                OpReturn
                OpFunctionEnd

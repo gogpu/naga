@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 49
+; Bound: 46
 ; Schema: 0
 
                OpCapability Shader
@@ -36,9 +36,9 @@
          %_25 = OpTypePointer PushConstant %_6
          %_26 = OpConstant %_3 0
          %_28 = OpTypePointer PushConstant %_3
-         %_34 = OpTypeBool
-         %_40 = OpTypeVector %_4 3
-         %_41 = OpConstant %_4 1065353216
+         %_31 = OpTypeBool
+         %_37 = OpTypeVector %_4 3
+         %_38 = OpConstant %_4 1065353216
          %_11 = OpVariable %_10 PushConstant
          %_13 = OpVariable %_12 Input
          %_15 = OpVariable %_14 Input
@@ -52,26 +52,23 @@
          %_27 = OpAccessChain %_25 %_11 %_26
          %_29 = OpAccessChain %_28 %_27 %_26
          %_30 = OpLoad %_3 %_29
-         %_31 = OpAccessChain %_25 %_11 %_26
-         %_32 = OpAccessChain %_28 %_31 %_26
-         %_33 = OpLoad %_3 %_32
-         %_35 = OpSignBitSet %_34 %_24 %_33
-               OpSelectionMerge %_38 0
-               OpBranchConditional %_35 %_36 %_37
-         %_36 = OpLabel
-         %_39 = OpCompositeExtract %_7 %_23 0
-               OpStore %_17 %_39
+         %_32 = OpSignBitSet %_31 %_24 %_30
+               OpSelectionMerge %_35 0
+               OpBranchConditional %_32 %_33 %_34
+         %_33 = OpLabel
+         %_36 = OpCompositeExtract %_7 %_23 0
+               OpStore %_17 %_36
                OpReturn
-         %_37 = OpLabel
-         %_42 = OpCompositeConstruct %_40 %_41 %_41 %_41
+         %_34 = OpLabel
+         %_39 = OpCompositeConstruct %_37 %_38 %_38 %_38
+         %_40 = OpCompositeExtract %_7 %_23 0
+         %_41 = OpVectorShuffle %_37 %_40 %_40 0 1 2
+         %_42 = OpFSub %_37 %_39 %_41
          %_43 = OpCompositeExtract %_7 %_23 0
-         %_44 = OpVectorShuffle %_40 %_43 %_43 0 1 2
-         %_45 = OpFSub %_40 %_42 %_44
-         %_46 = OpCompositeExtract %_7 %_23 0
-         %_47 = OpCompositeExtract %_4 %_46 3
-         %_48 = OpCompositeConstruct %_7 %_45 %_47
-               OpStore %_17 %_48
+         %_44 = OpCompositeExtract %_4 %_43 3
+         %_45 = OpCompositeConstruct %_7 %_42 %_44
+               OpStore %_17 %_45
                OpReturn
-         %_38 = OpLabel
+         %_35 = OpLabel
                OpUnreachable
                OpFunctionEnd

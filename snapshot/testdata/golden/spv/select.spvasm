@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 38
+; Bound: 34
 ; Schema: 0
 
                OpCapability Shader
@@ -24,9 +24,9 @@
          %_21 = OpTypeInt 32 0
          %_22 = OpConstant %_21 0
          %_23 = OpTypePointer Function %_3
-         %_28 = OpConstant %_21 1
-         %_33 = OpTypeBool
-         %_35 = OpTypeVector %_33 2
+         %_26 = OpConstant %_21 1
+         %_29 = OpTypeBool
+         %_31 = OpTypeVector %_29 2
          %_8 = OpFunction %_2 None %_7
          %_9 = OpLabel
          %_11 = OpVariable %_10 Function
@@ -37,15 +37,11 @@
          %_20 = OpCompositeConstruct %_6 %_18 %_17
          %_24 = OpAccessChain %_23 %_11 %_22
          %_25 = OpLoad %_3 %_24
-         %_26 = OpAccessChain %_23 %_11 %_22
-         %_27 = OpLoad %_3 %_26
-         %_29 = OpAccessChain %_23 %_11 %_28
-         %_30 = OpLoad %_3 %_29
-         %_31 = OpAccessChain %_23 %_11 %_28
-         %_32 = OpLoad %_3 %_31
-         %_34 = OpLogicalAnd %_33 %_27 %_32
-         %_36 = OpCompositeConstruct %_35 %_34 %_34
-         %_37 = OpIsNormal %_6 %_36 %_20 %_19
-               OpStore %_13 %_37
+         %_27 = OpAccessChain %_23 %_11 %_26
+         %_28 = OpLoad %_3 %_27
+         %_30 = OpLogicalAnd %_29 %_25 %_28
+         %_32 = OpCompositeConstruct %_31 %_30 %_30
+         %_33 = OpIsNormal %_6 %_32 %_20 %_19
+               OpStore %_13 %_33
                OpReturn
                OpFunctionEnd

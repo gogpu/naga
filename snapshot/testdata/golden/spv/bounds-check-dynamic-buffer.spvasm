@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 105
+; Bound: 65
 ; Schema: 0
 
                OpCapability Shader
@@ -58,14 +58,14 @@
          %_26 = OpTypeFunction %_2
          %_29 = OpTypePointer StorageBuffer %_3
          %_30 = OpConstant %_3 0
-         %_33 = OpTypePointer StorageBuffer %_4
-         %_37 = OpTypePointer Uniform %_7
-         %_39 = OpTypePointer Uniform %_5
-         %_44 = OpTypePointer Uniform %_3
-         %_56 = OpTypePointer StorageBuffer %_7
-         %_58 = OpTypePointer StorageBuffer %_5
-         %_72 = OpConstant %_3 2
-         %_89 = OpConstant %_3 3
+         %_33 = OpTypePointer Uniform %_7
+         %_35 = OpTypePointer Uniform %_5
+         %_37 = OpTypePointer Uniform %_3
+         %_40 = OpTypePointer StorageBuffer %_4
+         %_43 = OpTypePointer StorageBuffer %_7
+         %_45 = OpTypePointer StorageBuffer %_5
+         %_56 = OpConstant %_3 2
+         %_63 = OpConstant %_3 3
          %_10 = OpVariable %_9 StorageBuffer
          %_13 = OpVariable %_12 StorageBuffer
          %_16 = OpVariable %_15 Uniform
@@ -76,73 +76,33 @@
          %_28 = OpLabel
          %_31 = OpAccessChain %_29 %_10 %_30
          %_32 = OpLoad %_3 %_31
-         %_34 = OpAccessChain %_33 %_13 %_30
-         %_35 = OpAccessChain %_29 %_34 %_30
-         %_36 = OpLoad %_3 %_35
-         %_38 = OpAccessChain %_37 %_16 %_30
-         %_40 = OpAccessChain %_39 %_38 %_32
-         %_41 = OpLoad %_5 %_40
-         %_42 = OpAccessChain %_37 %_16 %_30
-         %_43 = OpAccessChain %_39 %_42 %_32
-         %_45 = OpAccessChain %_44 %_43 %_30
-         %_46 = OpLoad %_3 %_45
-         %_47 = OpAccessChain %_37 %_16 %_30
-         %_48 = OpAccessChain %_39 %_47 %_32
-         %_49 = OpAccessChain %_44 %_48 %_30
-         %_50 = OpLoad %_3 %_49
-         %_51 = OpAccessChain %_33 %_13 %_30
-         %_52 = OpAccessChain %_29 %_51 %_30
-               OpStore %_52 %_50
-         %_53 = OpAccessChain %_33 %_13 %_30
-         %_54 = OpAccessChain %_29 %_53 %_6
-         %_55 = OpLoad %_3 %_54
-         %_57 = OpAccessChain %_56 %_19 %_30
-         %_59 = OpAccessChain %_58 %_57 %_32
-         %_60 = OpLoad %_5 %_59
-         %_61 = OpAccessChain %_56 %_19 %_30
-         %_62 = OpAccessChain %_58 %_61 %_32
-         %_63 = OpAccessChain %_29 %_62 %_30
-         %_64 = OpLoad %_3 %_63
-         %_65 = OpAccessChain %_56 %_19 %_30
-         %_66 = OpAccessChain %_58 %_65 %_32
-         %_67 = OpAccessChain %_29 %_66 %_30
-         %_68 = OpLoad %_3 %_67
-         %_69 = OpAccessChain %_33 %_13 %_30
-         %_70 = OpAccessChain %_29 %_69 %_6
-               OpStore %_70 %_68
-         %_71 = OpAccessChain %_33 %_13 %_30
-         %_73 = OpAccessChain %_29 %_71 %_72
-         %_74 = OpLoad %_3 %_73
-         %_75 = OpAccessChain %_56 %_22 %_30
-         %_76 = OpAccessChain %_58 %_75 %_32
-         %_77 = OpLoad %_5 %_76
-         %_78 = OpAccessChain %_56 %_22 %_30
-         %_79 = OpAccessChain %_58 %_78 %_32
-         %_80 = OpAccessChain %_29 %_79 %_30
-         %_81 = OpLoad %_3 %_80
-         %_82 = OpAccessChain %_56 %_22 %_30
-         %_83 = OpAccessChain %_58 %_82 %_32
-         %_84 = OpAccessChain %_29 %_83 %_30
-         %_85 = OpLoad %_3 %_84
-         %_86 = OpAccessChain %_33 %_13 %_30
-         %_87 = OpAccessChain %_29 %_86 %_72
-               OpStore %_87 %_85
-         %_88 = OpAccessChain %_33 %_13 %_30
-         %_90 = OpAccessChain %_29 %_88 %_89
-         %_91 = OpLoad %_3 %_90
-         %_92 = OpAccessChain %_56 %_25 %_30
-         %_93 = OpAccessChain %_58 %_92 %_32
-         %_94 = OpLoad %_5 %_93
-         %_95 = OpAccessChain %_56 %_25 %_30
-         %_96 = OpAccessChain %_58 %_95 %_32
-         %_97 = OpAccessChain %_29 %_96 %_30
-         %_98 = OpLoad %_3 %_97
-         %_99 = OpAccessChain %_56 %_25 %_30
-         %_100 = OpAccessChain %_58 %_99 %_32
-         %_101 = OpAccessChain %_29 %_100 %_30
-         %_102 = OpLoad %_3 %_101
-         %_103 = OpAccessChain %_33 %_13 %_30
-         %_104 = OpAccessChain %_29 %_103 %_89
-               OpStore %_104 %_102
+         %_34 = OpAccessChain %_33 %_16 %_30
+         %_36 = OpAccessChain %_35 %_34 %_32
+         %_38 = OpAccessChain %_37 %_36 %_30
+         %_39 = OpLoad %_3 %_38
+         %_41 = OpAccessChain %_40 %_13 %_30
+         %_42 = OpAccessChain %_29 %_41 %_30
+               OpStore %_42 %_39
+         %_44 = OpAccessChain %_43 %_19 %_30
+         %_46 = OpAccessChain %_45 %_44 %_32
+         %_47 = OpAccessChain %_29 %_46 %_30
+         %_48 = OpLoad %_3 %_47
+         %_49 = OpAccessChain %_40 %_13 %_30
+         %_50 = OpAccessChain %_29 %_49 %_6
+               OpStore %_50 %_48
+         %_51 = OpAccessChain %_43 %_22 %_30
+         %_52 = OpAccessChain %_45 %_51 %_32
+         %_53 = OpAccessChain %_29 %_52 %_30
+         %_54 = OpLoad %_3 %_53
+         %_55 = OpAccessChain %_40 %_13 %_30
+         %_57 = OpAccessChain %_29 %_55 %_56
+               OpStore %_57 %_54
+         %_58 = OpAccessChain %_43 %_25 %_30
+         %_59 = OpAccessChain %_45 %_58 %_32
+         %_60 = OpAccessChain %_29 %_59 %_30
+         %_61 = OpLoad %_3 %_60
+         %_62 = OpAccessChain %_40 %_13 %_30
+         %_64 = OpAccessChain %_29 %_62 %_63
+               OpStore %_64 %_61
                OpReturn
                OpFunctionEnd

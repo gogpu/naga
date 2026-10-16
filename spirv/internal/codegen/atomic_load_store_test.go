@@ -39,6 +39,7 @@ const (
 // variable at the root of its pointer operand.
 type spvMemAccess struct {
 	kind spvAccessKind
+	ptr  uint32 // pointer operand of an OpLoad
 	op   OpCode
 	root string
 	// Scope and semantics operands; set for atomic instructions only.
@@ -210,7 +211,7 @@ func collectMemAccesses(t *testing.T, spv []byte) []spvMemAccess {
 			if dead(in.words[2]) {
 				kind = accessDeadLoad
 			}
-			out = append(out, spvMemAccess{kind: kind, op: in.opcode, root: rootName(in.words[3])})
+			out = append(out, spvMemAccess{kind: kind, op: in.opcode, ptr: in.words[3], root: rootName(in.words[3])})
 		case OpStore:
 			ptr, value := in.words[1], in.words[2]
 			kind := accessStore
@@ -292,12 +293,9 @@ func checkAtomicOperands(t *testing.T, accesses []spvMemAccess, root string, wan
 // atomicLoad / atomicStore (and workgroupUniformLoad of an atomic) becomes
 // OpAtomicLoad / OpAtomicStore with Rust's scope and semantics, for every
 // atomic scalar type and every shape of atomic data, while plain stores of
-// non-atomic data stay OpStore.
-//
-// Dead OpLoads (result unused) are not checked here: the backend still
-// materializes pointer-typed Access/AccessIndex expressions at Emit as an
-// access chain plus a load, where Rust emits nothing (back/spv/block.rs
-// cache_expression_value). That is BUG-SPV-PTR-EMIT-001, with its own test.
+// non-atomic data stay OpStore. No load of atomic data may be plain, not even
+// a dead one (BUG-SPV-PTR-EMIT-001): a dead non-atomic read still races with
+// the atomic writes.
 func TestAtomicLoadStoreEmitsAtomicInstructions(t *testing.T) {
 	type rootWant struct {
 		atomicLoads, atomicStores int
@@ -452,9 +450,9 @@ fn main() {
 					t.Errorf("%s: OpAtomicLoad=%d OpAtomicStore=%d, want %d and %d",
 						root, got[accessAtomicLoad], got[accessAtomicStore], want.atomicLoads, want.atomicStores)
 				}
-				if got[accessLoad] != 0 || got[accessStore] != 0 {
-					t.Errorf("%s: non-atomic access to atomic data: used OpLoad=%d OpStore=%d, want 0",
-						root, got[accessLoad], got[accessStore])
+				if got[accessLoad] != 0 || got[accessDeadLoad] != 0 || got[accessStore] != 0 {
+					t.Errorf("%s: non-atomic access to atomic data: OpLoad=%d (dead %d) OpStore=%d, want 0",
+						root, got[accessLoad], got[accessDeadLoad], got[accessStore])
 				}
 				if got[accessZeroInit] != want.zeroInit {
 					t.Errorf("%s: zero-init stores = %d, want %d", root, got[accessZeroInit], want.zeroInit)
@@ -465,6 +463,9 @@ fn main() {
 				got := counts[root]
 				if got[accessStore] != wantStores {
 					t.Errorf("%s: OpStore=%d, want %d", root, got[accessStore], wantStores)
+				}
+				if got[accessDeadLoad] != 0 {
+					t.Errorf("%s: %d dead OpLoad of a store target", root, got[accessDeadLoad])
 				}
 				if got[accessAtomicLoad] != 0 || got[accessAtomicStore] != 0 || got[accessAtomicRMW] != 0 {
 					t.Errorf("%s: atomic access to non-atomic data: %v", root, got)

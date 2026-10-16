@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 382
+; Bound: 379
 ; Schema: 0
 
                OpCapability Shader
@@ -37,50 +37,50 @@
                OpDecorate %_44 Location 0
                OpDecorate %_44 Flat
                OpDecorate %_46 Location 0
-               OpDecorate %_90 5300
-               OpDecorate %_91 5300
+               OpDecorate %_87 5300
+               OpDecorate %_88 5300
+               OpDecorate %_110 5300
+               OpDecorate %_111 5300
+               OpDecorate %_112 5300
                OpDecorate %_113 5300
-               OpDecorate %_114 5300
-               OpDecorate %_115 5300
-               OpDecorate %_116 5300
+               OpDecorate %_136 5300
+               OpDecorate %_137 5300
+               OpDecorate %_138 5300
                OpDecorate %_139 5300
-               OpDecorate %_140 5300
-               OpDecorate %_141 5300
-               OpDecorate %_142 5300
-               OpDecorate %_157 5300
-               OpDecorate %_158 5300
-               OpDecorate %_176 5300
-               OpDecorate %_177 5300
-               OpDecorate %_192 5300
-               OpDecorate %_193 5300
-               OpDecorate %_208 5300
-               OpDecorate %_209 5300
+               OpDecorate %_154 5300
+               OpDecorate %_155 5300
+               OpDecorate %_173 5300
+               OpDecorate %_174 5300
+               OpDecorate %_189 5300
+               OpDecorate %_190 5300
+               OpDecorate %_205 5300
+               OpDecorate %_206 5300
+               OpDecorate %_226 5300
+               OpDecorate %_227 5300
+               OpDecorate %_228 5300
                OpDecorate %_229 5300
-               OpDecorate %_230 5300
-               OpDecorate %_231 5300
-               OpDecorate %_232 5300
+               OpDecorate %_250 5300
+               OpDecorate %_251 5300
+               OpDecorate %_252 5300
                OpDecorate %_253 5300
-               OpDecorate %_254 5300
-               OpDecorate %_255 5300
-               OpDecorate %_256 5300
+               OpDecorate %_274 5300
+               OpDecorate %_275 5300
+               OpDecorate %_276 5300
                OpDecorate %_277 5300
-               OpDecorate %_278 5300
-               OpDecorate %_279 5300
-               OpDecorate %_280 5300
+               OpDecorate %_298 5300
+               OpDecorate %_299 5300
+               OpDecorate %_300 5300
                OpDecorate %_301 5300
-               OpDecorate %_302 5300
-               OpDecorate %_303 5300
-               OpDecorate %_304 5300
+               OpDecorate %_322 5300
+               OpDecorate %_323 5300
+               OpDecorate %_324 5300
                OpDecorate %_325 5300
-               OpDecorate %_326 5300
-               OpDecorate %_327 5300
-               OpDecorate %_328 5300
+               OpDecorate %_346 5300
+               OpDecorate %_347 5300
+               OpDecorate %_348 5300
                OpDecorate %_349 5300
-               OpDecorate %_350 5300
-               OpDecorate %_351 5300
-               OpDecorate %_352 5300
-               OpDecorate %_364 5300
-               OpDecorate %_365 5300
+               OpDecorate %_361 5300
+               OpDecorate %_362 5300
          %_2 = OpTypeVoid
          %_3 = OpTypeInt 32 0
          %_4 = OpTypeStruct %_3
@@ -124,19 +124,19 @@
          %_62 = OpConstant %_5 0
          %_64 = OpTypePointer Uniform %_4
          %_66 = OpTypePointer Uniform %_3
-         %_73 = OpTypeVector %_5 2
-         %_75 = OpTypeInt 32 1
-         %_76 = OpTypeVector %_75 2
-         %_77 = OpConstant %_75 0
-         %_79 = OpTypePointer UniformConstant %_6
-         %_97 = OpTypePointer UniformConstant %_18
-         %_101 = OpTypeSampledImage %_6
-         %_121 = OpTypePointer UniformConstant %_14
-         %_127 = OpTypeSampledImage %_14
-         %_162 = OpTypePointer UniformConstant %_10
-         %_165 = OpTypeVector %_3 3
-         %_197 = OpTypePointer UniformConstant %_12
-         %_357 = OpTypePointer UniformConstant %_16
+         %_70 = OpTypeVector %_5 2
+         %_72 = OpTypeInt 32 1
+         %_73 = OpTypeVector %_72 2
+         %_74 = OpConstant %_72 0
+         %_76 = OpTypePointer UniformConstant %_6
+         %_94 = OpTypePointer UniformConstant %_18
+         %_98 = OpTypeSampledImage %_6
+         %_118 = OpTypePointer UniformConstant %_14
+         %_124 = OpTypeSampledImage %_14
+         %_159 = OpTypePointer UniformConstant %_10
+         %_162 = OpTypeVector %_3 3
+         %_194 = OpTypePointer UniformConstant %_12
+         %_354 = OpTypePointer UniformConstant %_16
          %_25 = OpVariable %_24 UniformConstant
          %_27 = OpVariable %_26 UniformConstant
          %_29 = OpVariable %_28 UniformConstant
@@ -165,348 +165,345 @@
          %_65 = OpAccessChain %_64 %_42 %_60
          %_67 = OpAccessChain %_66 %_65 %_60
          %_68 = OpLoad %_3 %_67
-         %_69 = OpAccessChain %_64 %_42 %_60
-         %_70 = OpAccessChain %_66 %_69 %_60
-         %_71 = OpLoad %_3 %_70
-         %_72 = OpCompositeExtract %_3 %_59 0
-         %_74 = OpCompositeConstruct %_73 %_62 %_62
-         %_78 = OpCompositeConstruct %_76 %_77 %_77
-         %_80 = OpAccessChain %_79 %_25 %_60
-         %_81 = OpLoad %_6 %_80
-         %_82 = OpImageQuerySizeLod %_23 %_81 %_77
-         %_83 = OpLoad %_23 %_53
-         %_84 = OpIAdd %_23 %_83 %_82
-               OpStore %_53 %_84
-         %_85 = OpAccessChain %_79 %_25 %_71
-         %_86 = OpLoad %_6 %_85
-         %_87 = OpImageQuerySizeLod %_23 %_86 %_77
-         %_88 = OpLoad %_23 %_53
-         %_89 = OpIAdd %_23 %_88 %_87
-               OpStore %_53 %_89
-         %_90 = OpAccessChain %_79 %_25 %_72
-         %_91 = OpLoad %_6 %_90
-         %_92 = OpImageQuerySizeLod %_23 %_91 %_77
-         %_93 = OpLoad %_23 %_53
-         %_94 = OpIAdd %_23 %_93 %_92
-               OpStore %_53 %_94
-         %_95 = OpAccessChain %_79 %_27 %_60
-         %_96 = OpLoad %_6 %_95
-         %_98 = OpAccessChain %_97 %_37 %_60
-         %_99 = OpLoad %_18 %_98
-         %_102 = OpSampledImage %_101 %_96 %_99
-         %_100 = OpImageGather %_22 %_102 %_74 %_77
-         %_103 = OpLoad %_22 %_57
-         %_104 = OpFAdd %_22 %_103 %_100
-               OpStore %_57 %_104
-         %_105 = OpAccessChain %_79 %_27 %_71
-         %_106 = OpLoad %_6 %_105
-         %_107 = OpAccessChain %_97 %_37 %_71
-         %_108 = OpLoad %_18 %_107
-         %_110 = OpSampledImage %_101 %_106 %_108
-         %_109 = OpImageGather %_22 %_110 %_74 %_77
-         %_111 = OpLoad %_22 %_57
-         %_112 = OpFAdd %_22 %_111 %_109
-               OpStore %_57 %_112
-         %_113 = OpAccessChain %_79 %_27 %_72
-         %_114 = OpLoad %_6 %_113
-         %_115 = OpAccessChain %_97 %_37 %_72
-         %_116 = OpLoad %_18 %_115
-         %_118 = OpSampledImage %_101 %_114 %_116
-         %_117 = OpImageGather %_22 %_118 %_74 %_77
-         %_119 = OpLoad %_22 %_57
-         %_120 = OpFAdd %_22 %_119 %_117
-               OpStore %_57 %_120
-         %_122 = OpAccessChain %_121 %_33 %_60
-         %_123 = OpLoad %_14 %_122
-         %_124 = OpAccessChain %_97 %_39 %_60
-         %_125 = OpLoad %_18 %_124
-         %_128 = OpSampledImage %_127 %_123 %_125
-         %_126 = OpImageDrefGather %_22 %_128 %_74 %_62
-         %_129 = OpLoad %_22 %_57
-         %_130 = OpFAdd %_22 %_129 %_126
-               OpStore %_57 %_130
-         %_131 = OpAccessChain %_121 %_33 %_71
-         %_132 = OpLoad %_14 %_131
-         %_133 = OpAccessChain %_97 %_39 %_71
-         %_134 = OpLoad %_18 %_133
-         %_136 = OpSampledImage %_127 %_132 %_134
-         %_135 = OpImageDrefGather %_22 %_136 %_74 %_62
-         %_137 = OpLoad %_22 %_57
-         %_138 = OpFAdd %_22 %_137 %_135
-               OpStore %_57 %_138
-         %_139 = OpAccessChain %_121 %_33 %_72
-         %_140 = OpLoad %_14 %_139
-         %_141 = OpAccessChain %_97 %_39 %_72
-         %_142 = OpLoad %_18 %_141
-         %_144 = OpSampledImage %_127 %_140 %_142
-         %_143 = OpImageDrefGather %_22 %_144 %_74 %_62
-         %_145 = OpLoad %_22 %_57
-         %_146 = OpFAdd %_22 %_145 %_143
-               OpStore %_57 %_146
-         %_147 = OpAccessChain %_79 %_25 %_60
-         %_148 = OpLoad %_6 %_147
-         %_149 = OpImageFetch %_22 %_148 %_78 %_2 %_77
-         %_150 = OpLoad %_22 %_57
-         %_151 = OpFAdd %_22 %_150 %_149
-               OpStore %_57 %_151
-         %_152 = OpAccessChain %_79 %_25 %_71
-         %_153 = OpLoad %_6 %_152
-         %_154 = OpImageFetch %_22 %_153 %_78 %_2 %_77
-         %_155 = OpLoad %_22 %_57
-         %_156 = OpFAdd %_22 %_155 %_154
-               OpStore %_57 %_156
-         %_157 = OpAccessChain %_79 %_25 %_72
-         %_158 = OpLoad %_6 %_157
-         %_159 = OpImageFetch %_22 %_158 %_78 %_2 %_77
-         %_160 = OpLoad %_22 %_57
-         %_161 = OpFAdd %_22 %_160 %_159
-               OpStore %_57 %_161
-         %_163 = OpAccessChain %_162 %_29 %_60
-         %_164 = OpLoad %_10 %_163
-         %_166 = OpImageQuerySizeLod %_165 %_164 %_60
-         %_167 = OpCompositeExtract %_3 %_166 2
-         %_168 = OpLoad %_3 %_51
-         %_169 = OpIAdd %_3 %_168 %_167
-               OpStore %_51 %_169
-         %_170 = OpAccessChain %_162 %_29 %_71
-         %_171 = OpLoad %_10 %_170
-         %_172 = OpImageQuerySizeLod %_165 %_171 %_60
-         %_173 = OpCompositeExtract %_3 %_172 2
-         %_174 = OpLoad %_3 %_51
-         %_175 = OpIAdd %_3 %_174 %_173
-               OpStore %_51 %_175
-         %_176 = OpAccessChain %_162 %_29 %_72
-         %_177 = OpLoad %_10 %_176
-         %_178 = OpImageQuerySizeLod %_165 %_177 %_60
-         %_179 = OpCompositeExtract %_3 %_178 2
-         %_180 = OpLoad %_3 %_51
-         %_181 = OpIAdd %_3 %_180 %_179
-               OpStore %_51 %_181
-         %_182 = OpAccessChain %_79 %_27 %_60
-         %_183 = OpLoad %_6 %_182
-         %_184 = OpImageQueryLevels %_3 %_183
-         %_185 = OpLoad %_3 %_51
-         %_186 = OpIAdd %_3 %_185 %_184
-               OpStore %_51 %_186
-         %_187 = OpAccessChain %_79 %_27 %_71
-         %_188 = OpLoad %_6 %_187
-         %_189 = OpImageQueryLevels %_3 %_188
-         %_190 = OpLoad %_3 %_51
-         %_191 = OpIAdd %_3 %_190 %_189
-               OpStore %_51 %_191
-         %_192 = OpAccessChain %_79 %_27 %_72
-         %_193 = OpLoad %_6 %_192
-         %_194 = OpImageQueryLevels %_3 %_193
-         %_195 = OpLoad %_3 %_51
-         %_196 = OpIAdd %_3 %_195 %_194
-               OpStore %_51 %_196
-         %_198 = OpAccessChain %_197 %_31 %_60
-         %_199 = OpLoad %_12 %_198
-         %_200 = OpImageQuerySamples %_3 %_199
-         %_201 = OpLoad %_3 %_51
-         %_202 = OpIAdd %_3 %_201 %_200
-               OpStore %_51 %_202
-         %_203 = OpAccessChain %_197 %_31 %_71
-         %_204 = OpLoad %_12 %_203
-         %_205 = OpImageQuerySamples %_3 %_204
-         %_206 = OpLoad %_3 %_51
-         %_207 = OpIAdd %_3 %_206 %_205
-               OpStore %_51 %_207
-         %_208 = OpAccessChain %_197 %_31 %_72
-         %_209 = OpLoad %_12 %_208
-         %_210 = OpImageQuerySamples %_3 %_209
-         %_211 = OpLoad %_3 %_51
-         %_212 = OpIAdd %_3 %_211 %_210
-               OpStore %_51 %_212
-         %_213 = OpAccessChain %_79 %_27 %_60
-         %_214 = OpLoad %_6 %_213
-         %_215 = OpAccessChain %_97 %_37 %_60
-         %_216 = OpLoad %_18 %_215
-         %_218 = OpSampledImage %_101 %_214 %_216
-         %_217 = OpImageSampleImplicitLod %_22 %_218 %_74
-         %_219 = OpLoad %_22 %_57
-         %_220 = OpFAdd %_22 %_219 %_217
-               OpStore %_57 %_220
-         %_221 = OpAccessChain %_79 %_27 %_71
-         %_222 = OpLoad %_6 %_221
-         %_223 = OpAccessChain %_97 %_37 %_71
-         %_224 = OpLoad %_18 %_223
-         %_226 = OpSampledImage %_101 %_222 %_224
-         %_225 = OpImageSampleImplicitLod %_22 %_226 %_74
-         %_227 = OpLoad %_22 %_57
-         %_228 = OpFAdd %_22 %_227 %_225
-               OpStore %_57 %_228
-         %_229 = OpAccessChain %_79 %_27 %_72
-         %_230 = OpLoad %_6 %_229
-         %_231 = OpAccessChain %_97 %_37 %_72
-         %_232 = OpLoad %_18 %_231
-         %_234 = OpSampledImage %_101 %_230 %_232
-         %_233 = OpImageSampleImplicitLod %_22 %_234 %_74
-         %_235 = OpLoad %_22 %_57
-         %_236 = OpFAdd %_22 %_235 %_233
-               OpStore %_57 %_236
-         %_237 = OpAccessChain %_79 %_27 %_60
-         %_238 = OpLoad %_6 %_237
-         %_239 = OpAccessChain %_97 %_37 %_60
-         %_240 = OpLoad %_18 %_239
-         %_242 = OpSampledImage %_101 %_238 %_240
-         %_241 = OpImageSampleImplicitLod %_22 %_242 %_74 %_1 %_62
-         %_243 = OpLoad %_22 %_57
-         %_244 = OpFAdd %_22 %_243 %_241
-               OpStore %_57 %_244
-         %_245 = OpAccessChain %_79 %_27 %_71
-         %_246 = OpLoad %_6 %_245
-         %_247 = OpAccessChain %_97 %_37 %_71
-         %_248 = OpLoad %_18 %_247
-         %_250 = OpSampledImage %_101 %_246 %_248
-         %_249 = OpImageSampleImplicitLod %_22 %_250 %_74 %_1 %_62
-         %_251 = OpLoad %_22 %_57
-         %_252 = OpFAdd %_22 %_251 %_249
-               OpStore %_57 %_252
-         %_253 = OpAccessChain %_79 %_27 %_72
-         %_254 = OpLoad %_6 %_253
-         %_255 = OpAccessChain %_97 %_37 %_72
-         %_256 = OpLoad %_18 %_255
-         %_258 = OpSampledImage %_101 %_254 %_256
-         %_257 = OpImageSampleImplicitLod %_22 %_258 %_74 %_1 %_62
-         %_259 = OpLoad %_22 %_57
-         %_260 = OpFAdd %_22 %_259 %_257
-               OpStore %_57 %_260
-         %_261 = OpAccessChain %_121 %_33 %_60
-         %_262 = OpLoad %_14 %_261
-         %_263 = OpAccessChain %_97 %_39 %_60
-         %_264 = OpLoad %_18 %_263
-         %_266 = OpSampledImage %_127 %_262 %_264
-         %_265 = OpImageSampleDrefImplicitLod %_5 %_266 %_74 %_62
-         %_267 = OpLoad %_5 %_55
-         %_268 = OpFAdd %_5 %_267 %_265
-               OpStore %_55 %_268
-         %_269 = OpAccessChain %_121 %_33 %_71
-         %_270 = OpLoad %_14 %_269
-         %_271 = OpAccessChain %_97 %_39 %_71
-         %_272 = OpLoad %_18 %_271
-         %_274 = OpSampledImage %_127 %_270 %_272
-         %_273 = OpImageSampleDrefImplicitLod %_5 %_274 %_74 %_62
-         %_275 = OpLoad %_5 %_55
-         %_276 = OpFAdd %_5 %_275 %_273
-               OpStore %_55 %_276
-         %_277 = OpAccessChain %_121 %_33 %_72
-         %_278 = OpLoad %_14 %_277
-         %_279 = OpAccessChain %_97 %_39 %_72
-         %_280 = OpLoad %_18 %_279
-         %_282 = OpSampledImage %_127 %_278 %_280
-         %_281 = OpImageSampleDrefImplicitLod %_5 %_282 %_74 %_62
-         %_283 = OpLoad %_5 %_55
-         %_284 = OpFAdd %_5 %_283 %_281
-               OpStore %_55 %_284
-         %_285 = OpAccessChain %_121 %_33 %_60
-         %_286 = OpLoad %_14 %_285
-         %_287 = OpAccessChain %_97 %_39 %_60
-         %_288 = OpLoad %_18 %_287
-         %_290 = OpSampledImage %_127 %_286 %_288
-         %_289 = OpImageSampleDrefExplicitLod %_5 %_290 %_74 %_62 %_2 %_62
-         %_291 = OpLoad %_5 %_55
-         %_292 = OpFAdd %_5 %_291 %_289
-               OpStore %_55 %_292
-         %_293 = OpAccessChain %_121 %_33 %_71
-         %_294 = OpLoad %_14 %_293
-         %_295 = OpAccessChain %_97 %_39 %_71
-         %_296 = OpLoad %_18 %_295
-         %_298 = OpSampledImage %_127 %_294 %_296
-         %_297 = OpImageSampleDrefExplicitLod %_5 %_298 %_74 %_62 %_2 %_62
-         %_299 = OpLoad %_5 %_55
-         %_300 = OpFAdd %_5 %_299 %_297
-               OpStore %_55 %_300
-         %_301 = OpAccessChain %_121 %_33 %_72
-         %_302 = OpLoad %_14 %_301
-         %_303 = OpAccessChain %_97 %_39 %_72
-         %_304 = OpLoad %_18 %_303
-         %_306 = OpSampledImage %_127 %_302 %_304
-         %_305 = OpImageSampleDrefExplicitLod %_5 %_306 %_74 %_62 %_2 %_62
-         %_307 = OpLoad %_5 %_55
-         %_308 = OpFAdd %_5 %_307 %_305
-               OpStore %_55 %_308
-         %_309 = OpAccessChain %_79 %_27 %_60
-         %_310 = OpLoad %_6 %_309
-         %_311 = OpAccessChain %_97 %_37 %_60
-         %_312 = OpLoad %_18 %_311
-         %_314 = OpSampledImage %_101 %_310 %_312
-         %_313 = OpImageSampleExplicitLod %_22 %_314 %_74 %_4 %_74 %_74
-         %_315 = OpLoad %_22 %_57
-         %_316 = OpFAdd %_22 %_315 %_313
-               OpStore %_57 %_316
-         %_317 = OpAccessChain %_79 %_27 %_71
-         %_318 = OpLoad %_6 %_317
-         %_319 = OpAccessChain %_97 %_37 %_71
-         %_320 = OpLoad %_18 %_319
-         %_322 = OpSampledImage %_101 %_318 %_320
-         %_321 = OpImageSampleExplicitLod %_22 %_322 %_74 %_4 %_74 %_74
-         %_323 = OpLoad %_22 %_57
-         %_324 = OpFAdd %_22 %_323 %_321
-               OpStore %_57 %_324
-         %_325 = OpAccessChain %_79 %_27 %_72
-         %_326 = OpLoad %_6 %_325
-         %_327 = OpAccessChain %_97 %_37 %_72
-         %_328 = OpLoad %_18 %_327
-         %_330 = OpSampledImage %_101 %_326 %_328
-         %_329 = OpImageSampleExplicitLod %_22 %_330 %_74 %_4 %_74 %_74
-         %_331 = OpLoad %_22 %_57
-         %_332 = OpFAdd %_22 %_331 %_329
-               OpStore %_57 %_332
-         %_333 = OpAccessChain %_79 %_27 %_60
-         %_334 = OpLoad %_6 %_333
-         %_335 = OpAccessChain %_97 %_37 %_60
-         %_336 = OpLoad %_18 %_335
-         %_338 = OpSampledImage %_101 %_334 %_336
-         %_337 = OpImageSampleExplicitLod %_22 %_338 %_74 %_2 %_62
-         %_339 = OpLoad %_22 %_57
-         %_340 = OpFAdd %_22 %_339 %_337
-               OpStore %_57 %_340
-         %_341 = OpAccessChain %_79 %_27 %_71
-         %_342 = OpLoad %_6 %_341
-         %_343 = OpAccessChain %_97 %_37 %_71
-         %_344 = OpLoad %_18 %_343
-         %_346 = OpSampledImage %_101 %_342 %_344
-         %_345 = OpImageSampleExplicitLod %_22 %_346 %_74 %_2 %_62
-         %_347 = OpLoad %_22 %_57
-         %_348 = OpFAdd %_22 %_347 %_345
-               OpStore %_57 %_348
-         %_349 = OpAccessChain %_79 %_27 %_72
-         %_350 = OpLoad %_6 %_349
-         %_351 = OpAccessChain %_97 %_37 %_72
-         %_352 = OpLoad %_18 %_351
-         %_354 = OpSampledImage %_101 %_350 %_352
-         %_353 = OpImageSampleExplicitLod %_22 %_354 %_74 %_2 %_62
-         %_355 = OpLoad %_22 %_57
-         %_356 = OpFAdd %_22 %_355 %_353
-               OpStore %_57 %_356
-         %_358 = OpAccessChain %_357 %_35 %_60
+         %_69 = OpCompositeExtract %_3 %_59 0
+         %_71 = OpCompositeConstruct %_70 %_62 %_62
+         %_75 = OpCompositeConstruct %_73 %_74 %_74
+         %_77 = OpAccessChain %_76 %_25 %_60
+         %_78 = OpLoad %_6 %_77
+         %_79 = OpImageQuerySizeLod %_23 %_78 %_74
+         %_80 = OpLoad %_23 %_53
+         %_81 = OpIAdd %_23 %_80 %_79
+               OpStore %_53 %_81
+         %_82 = OpAccessChain %_76 %_25 %_68
+         %_83 = OpLoad %_6 %_82
+         %_84 = OpImageQuerySizeLod %_23 %_83 %_74
+         %_85 = OpLoad %_23 %_53
+         %_86 = OpIAdd %_23 %_85 %_84
+               OpStore %_53 %_86
+         %_87 = OpAccessChain %_76 %_25 %_69
+         %_88 = OpLoad %_6 %_87
+         %_89 = OpImageQuerySizeLod %_23 %_88 %_74
+         %_90 = OpLoad %_23 %_53
+         %_91 = OpIAdd %_23 %_90 %_89
+               OpStore %_53 %_91
+         %_92 = OpAccessChain %_76 %_27 %_60
+         %_93 = OpLoad %_6 %_92
+         %_95 = OpAccessChain %_94 %_37 %_60
+         %_96 = OpLoad %_18 %_95
+         %_99 = OpSampledImage %_98 %_93 %_96
+         %_97 = OpImageGather %_22 %_99 %_71 %_74
+         %_100 = OpLoad %_22 %_57
+         %_101 = OpFAdd %_22 %_100 %_97
+               OpStore %_57 %_101
+         %_102 = OpAccessChain %_76 %_27 %_68
+         %_103 = OpLoad %_6 %_102
+         %_104 = OpAccessChain %_94 %_37 %_68
+         %_105 = OpLoad %_18 %_104
+         %_107 = OpSampledImage %_98 %_103 %_105
+         %_106 = OpImageGather %_22 %_107 %_71 %_74
+         %_108 = OpLoad %_22 %_57
+         %_109 = OpFAdd %_22 %_108 %_106
+               OpStore %_57 %_109
+         %_110 = OpAccessChain %_76 %_27 %_69
+         %_111 = OpLoad %_6 %_110
+         %_112 = OpAccessChain %_94 %_37 %_69
+         %_113 = OpLoad %_18 %_112
+         %_115 = OpSampledImage %_98 %_111 %_113
+         %_114 = OpImageGather %_22 %_115 %_71 %_74
+         %_116 = OpLoad %_22 %_57
+         %_117 = OpFAdd %_22 %_116 %_114
+               OpStore %_57 %_117
+         %_119 = OpAccessChain %_118 %_33 %_60
+         %_120 = OpLoad %_14 %_119
+         %_121 = OpAccessChain %_94 %_39 %_60
+         %_122 = OpLoad %_18 %_121
+         %_125 = OpSampledImage %_124 %_120 %_122
+         %_123 = OpImageDrefGather %_22 %_125 %_71 %_62
+         %_126 = OpLoad %_22 %_57
+         %_127 = OpFAdd %_22 %_126 %_123
+               OpStore %_57 %_127
+         %_128 = OpAccessChain %_118 %_33 %_68
+         %_129 = OpLoad %_14 %_128
+         %_130 = OpAccessChain %_94 %_39 %_68
+         %_131 = OpLoad %_18 %_130
+         %_133 = OpSampledImage %_124 %_129 %_131
+         %_132 = OpImageDrefGather %_22 %_133 %_71 %_62
+         %_134 = OpLoad %_22 %_57
+         %_135 = OpFAdd %_22 %_134 %_132
+               OpStore %_57 %_135
+         %_136 = OpAccessChain %_118 %_33 %_69
+         %_137 = OpLoad %_14 %_136
+         %_138 = OpAccessChain %_94 %_39 %_69
+         %_139 = OpLoad %_18 %_138
+         %_141 = OpSampledImage %_124 %_137 %_139
+         %_140 = OpImageDrefGather %_22 %_141 %_71 %_62
+         %_142 = OpLoad %_22 %_57
+         %_143 = OpFAdd %_22 %_142 %_140
+               OpStore %_57 %_143
+         %_144 = OpAccessChain %_76 %_25 %_60
+         %_145 = OpLoad %_6 %_144
+         %_146 = OpImageFetch %_22 %_145 %_75 %_2 %_74
+         %_147 = OpLoad %_22 %_57
+         %_148 = OpFAdd %_22 %_147 %_146
+               OpStore %_57 %_148
+         %_149 = OpAccessChain %_76 %_25 %_68
+         %_150 = OpLoad %_6 %_149
+         %_151 = OpImageFetch %_22 %_150 %_75 %_2 %_74
+         %_152 = OpLoad %_22 %_57
+         %_153 = OpFAdd %_22 %_152 %_151
+               OpStore %_57 %_153
+         %_154 = OpAccessChain %_76 %_25 %_69
+         %_155 = OpLoad %_6 %_154
+         %_156 = OpImageFetch %_22 %_155 %_75 %_2 %_74
+         %_157 = OpLoad %_22 %_57
+         %_158 = OpFAdd %_22 %_157 %_156
+               OpStore %_57 %_158
+         %_160 = OpAccessChain %_159 %_29 %_60
+         %_161 = OpLoad %_10 %_160
+         %_163 = OpImageQuerySizeLod %_162 %_161 %_60
+         %_164 = OpCompositeExtract %_3 %_163 2
+         %_165 = OpLoad %_3 %_51
+         %_166 = OpIAdd %_3 %_165 %_164
+               OpStore %_51 %_166
+         %_167 = OpAccessChain %_159 %_29 %_68
+         %_168 = OpLoad %_10 %_167
+         %_169 = OpImageQuerySizeLod %_162 %_168 %_60
+         %_170 = OpCompositeExtract %_3 %_169 2
+         %_171 = OpLoad %_3 %_51
+         %_172 = OpIAdd %_3 %_171 %_170
+               OpStore %_51 %_172
+         %_173 = OpAccessChain %_159 %_29 %_69
+         %_174 = OpLoad %_10 %_173
+         %_175 = OpImageQuerySizeLod %_162 %_174 %_60
+         %_176 = OpCompositeExtract %_3 %_175 2
+         %_177 = OpLoad %_3 %_51
+         %_178 = OpIAdd %_3 %_177 %_176
+               OpStore %_51 %_178
+         %_179 = OpAccessChain %_76 %_27 %_60
+         %_180 = OpLoad %_6 %_179
+         %_181 = OpImageQueryLevels %_3 %_180
+         %_182 = OpLoad %_3 %_51
+         %_183 = OpIAdd %_3 %_182 %_181
+               OpStore %_51 %_183
+         %_184 = OpAccessChain %_76 %_27 %_68
+         %_185 = OpLoad %_6 %_184
+         %_186 = OpImageQueryLevels %_3 %_185
+         %_187 = OpLoad %_3 %_51
+         %_188 = OpIAdd %_3 %_187 %_186
+               OpStore %_51 %_188
+         %_189 = OpAccessChain %_76 %_27 %_69
+         %_190 = OpLoad %_6 %_189
+         %_191 = OpImageQueryLevels %_3 %_190
+         %_192 = OpLoad %_3 %_51
+         %_193 = OpIAdd %_3 %_192 %_191
+               OpStore %_51 %_193
+         %_195 = OpAccessChain %_194 %_31 %_60
+         %_196 = OpLoad %_12 %_195
+         %_197 = OpImageQuerySamples %_3 %_196
+         %_198 = OpLoad %_3 %_51
+         %_199 = OpIAdd %_3 %_198 %_197
+               OpStore %_51 %_199
+         %_200 = OpAccessChain %_194 %_31 %_68
+         %_201 = OpLoad %_12 %_200
+         %_202 = OpImageQuerySamples %_3 %_201
+         %_203 = OpLoad %_3 %_51
+         %_204 = OpIAdd %_3 %_203 %_202
+               OpStore %_51 %_204
+         %_205 = OpAccessChain %_194 %_31 %_69
+         %_206 = OpLoad %_12 %_205
+         %_207 = OpImageQuerySamples %_3 %_206
+         %_208 = OpLoad %_3 %_51
+         %_209 = OpIAdd %_3 %_208 %_207
+               OpStore %_51 %_209
+         %_210 = OpAccessChain %_76 %_27 %_60
+         %_211 = OpLoad %_6 %_210
+         %_212 = OpAccessChain %_94 %_37 %_60
+         %_213 = OpLoad %_18 %_212
+         %_215 = OpSampledImage %_98 %_211 %_213
+         %_214 = OpImageSampleImplicitLod %_22 %_215 %_71
+         %_216 = OpLoad %_22 %_57
+         %_217 = OpFAdd %_22 %_216 %_214
+               OpStore %_57 %_217
+         %_218 = OpAccessChain %_76 %_27 %_68
+         %_219 = OpLoad %_6 %_218
+         %_220 = OpAccessChain %_94 %_37 %_68
+         %_221 = OpLoad %_18 %_220
+         %_223 = OpSampledImage %_98 %_219 %_221
+         %_222 = OpImageSampleImplicitLod %_22 %_223 %_71
+         %_224 = OpLoad %_22 %_57
+         %_225 = OpFAdd %_22 %_224 %_222
+               OpStore %_57 %_225
+         %_226 = OpAccessChain %_76 %_27 %_69
+         %_227 = OpLoad %_6 %_226
+         %_228 = OpAccessChain %_94 %_37 %_69
+         %_229 = OpLoad %_18 %_228
+         %_231 = OpSampledImage %_98 %_227 %_229
+         %_230 = OpImageSampleImplicitLod %_22 %_231 %_71
+         %_232 = OpLoad %_22 %_57
+         %_233 = OpFAdd %_22 %_232 %_230
+               OpStore %_57 %_233
+         %_234 = OpAccessChain %_76 %_27 %_60
+         %_235 = OpLoad %_6 %_234
+         %_236 = OpAccessChain %_94 %_37 %_60
+         %_237 = OpLoad %_18 %_236
+         %_239 = OpSampledImage %_98 %_235 %_237
+         %_238 = OpImageSampleImplicitLod %_22 %_239 %_71 %_1 %_62
+         %_240 = OpLoad %_22 %_57
+         %_241 = OpFAdd %_22 %_240 %_238
+               OpStore %_57 %_241
+         %_242 = OpAccessChain %_76 %_27 %_68
+         %_243 = OpLoad %_6 %_242
+         %_244 = OpAccessChain %_94 %_37 %_68
+         %_245 = OpLoad %_18 %_244
+         %_247 = OpSampledImage %_98 %_243 %_245
+         %_246 = OpImageSampleImplicitLod %_22 %_247 %_71 %_1 %_62
+         %_248 = OpLoad %_22 %_57
+         %_249 = OpFAdd %_22 %_248 %_246
+               OpStore %_57 %_249
+         %_250 = OpAccessChain %_76 %_27 %_69
+         %_251 = OpLoad %_6 %_250
+         %_252 = OpAccessChain %_94 %_37 %_69
+         %_253 = OpLoad %_18 %_252
+         %_255 = OpSampledImage %_98 %_251 %_253
+         %_254 = OpImageSampleImplicitLod %_22 %_255 %_71 %_1 %_62
+         %_256 = OpLoad %_22 %_57
+         %_257 = OpFAdd %_22 %_256 %_254
+               OpStore %_57 %_257
+         %_258 = OpAccessChain %_118 %_33 %_60
+         %_259 = OpLoad %_14 %_258
+         %_260 = OpAccessChain %_94 %_39 %_60
+         %_261 = OpLoad %_18 %_260
+         %_263 = OpSampledImage %_124 %_259 %_261
+         %_262 = OpImageSampleDrefImplicitLod %_5 %_263 %_71 %_62
+         %_264 = OpLoad %_5 %_55
+         %_265 = OpFAdd %_5 %_264 %_262
+               OpStore %_55 %_265
+         %_266 = OpAccessChain %_118 %_33 %_68
+         %_267 = OpLoad %_14 %_266
+         %_268 = OpAccessChain %_94 %_39 %_68
+         %_269 = OpLoad %_18 %_268
+         %_271 = OpSampledImage %_124 %_267 %_269
+         %_270 = OpImageSampleDrefImplicitLod %_5 %_271 %_71 %_62
+         %_272 = OpLoad %_5 %_55
+         %_273 = OpFAdd %_5 %_272 %_270
+               OpStore %_55 %_273
+         %_274 = OpAccessChain %_118 %_33 %_69
+         %_275 = OpLoad %_14 %_274
+         %_276 = OpAccessChain %_94 %_39 %_69
+         %_277 = OpLoad %_18 %_276
+         %_279 = OpSampledImage %_124 %_275 %_277
+         %_278 = OpImageSampleDrefImplicitLod %_5 %_279 %_71 %_62
+         %_280 = OpLoad %_5 %_55
+         %_281 = OpFAdd %_5 %_280 %_278
+               OpStore %_55 %_281
+         %_282 = OpAccessChain %_118 %_33 %_60
+         %_283 = OpLoad %_14 %_282
+         %_284 = OpAccessChain %_94 %_39 %_60
+         %_285 = OpLoad %_18 %_284
+         %_287 = OpSampledImage %_124 %_283 %_285
+         %_286 = OpImageSampleDrefExplicitLod %_5 %_287 %_71 %_62 %_2 %_62
+         %_288 = OpLoad %_5 %_55
+         %_289 = OpFAdd %_5 %_288 %_286
+               OpStore %_55 %_289
+         %_290 = OpAccessChain %_118 %_33 %_68
+         %_291 = OpLoad %_14 %_290
+         %_292 = OpAccessChain %_94 %_39 %_68
+         %_293 = OpLoad %_18 %_292
+         %_295 = OpSampledImage %_124 %_291 %_293
+         %_294 = OpImageSampleDrefExplicitLod %_5 %_295 %_71 %_62 %_2 %_62
+         %_296 = OpLoad %_5 %_55
+         %_297 = OpFAdd %_5 %_296 %_294
+               OpStore %_55 %_297
+         %_298 = OpAccessChain %_118 %_33 %_69
+         %_299 = OpLoad %_14 %_298
+         %_300 = OpAccessChain %_94 %_39 %_69
+         %_301 = OpLoad %_18 %_300
+         %_303 = OpSampledImage %_124 %_299 %_301
+         %_302 = OpImageSampleDrefExplicitLod %_5 %_303 %_71 %_62 %_2 %_62
+         %_304 = OpLoad %_5 %_55
+         %_305 = OpFAdd %_5 %_304 %_302
+               OpStore %_55 %_305
+         %_306 = OpAccessChain %_76 %_27 %_60
+         %_307 = OpLoad %_6 %_306
+         %_308 = OpAccessChain %_94 %_37 %_60
+         %_309 = OpLoad %_18 %_308
+         %_311 = OpSampledImage %_98 %_307 %_309
+         %_310 = OpImageSampleExplicitLod %_22 %_311 %_71 %_4 %_71 %_71
+         %_312 = OpLoad %_22 %_57
+         %_313 = OpFAdd %_22 %_312 %_310
+               OpStore %_57 %_313
+         %_314 = OpAccessChain %_76 %_27 %_68
+         %_315 = OpLoad %_6 %_314
+         %_316 = OpAccessChain %_94 %_37 %_68
+         %_317 = OpLoad %_18 %_316
+         %_319 = OpSampledImage %_98 %_315 %_317
+         %_318 = OpImageSampleExplicitLod %_22 %_319 %_71 %_4 %_71 %_71
+         %_320 = OpLoad %_22 %_57
+         %_321 = OpFAdd %_22 %_320 %_318
+               OpStore %_57 %_321
+         %_322 = OpAccessChain %_76 %_27 %_69
+         %_323 = OpLoad %_6 %_322
+         %_324 = OpAccessChain %_94 %_37 %_69
+         %_325 = OpLoad %_18 %_324
+         %_327 = OpSampledImage %_98 %_323 %_325
+         %_326 = OpImageSampleExplicitLod %_22 %_327 %_71 %_4 %_71 %_71
+         %_328 = OpLoad %_22 %_57
+         %_329 = OpFAdd %_22 %_328 %_326
+               OpStore %_57 %_329
+         %_330 = OpAccessChain %_76 %_27 %_60
+         %_331 = OpLoad %_6 %_330
+         %_332 = OpAccessChain %_94 %_37 %_60
+         %_333 = OpLoad %_18 %_332
+         %_335 = OpSampledImage %_98 %_331 %_333
+         %_334 = OpImageSampleExplicitLod %_22 %_335 %_71 %_2 %_62
+         %_336 = OpLoad %_22 %_57
+         %_337 = OpFAdd %_22 %_336 %_334
+               OpStore %_57 %_337
+         %_338 = OpAccessChain %_76 %_27 %_68
+         %_339 = OpLoad %_6 %_338
+         %_340 = OpAccessChain %_94 %_37 %_68
+         %_341 = OpLoad %_18 %_340
+         %_343 = OpSampledImage %_98 %_339 %_341
+         %_342 = OpImageSampleExplicitLod %_22 %_343 %_71 %_2 %_62
+         %_344 = OpLoad %_22 %_57
+         %_345 = OpFAdd %_22 %_344 %_342
+               OpStore %_57 %_345
+         %_346 = OpAccessChain %_76 %_27 %_69
+         %_347 = OpLoad %_6 %_346
+         %_348 = OpAccessChain %_94 %_37 %_69
+         %_349 = OpLoad %_18 %_348
+         %_351 = OpSampledImage %_98 %_347 %_349
+         %_350 = OpImageSampleExplicitLod %_22 %_351 %_71 %_2 %_62
+         %_352 = OpLoad %_22 %_57
+         %_353 = OpFAdd %_22 %_352 %_350
+               OpStore %_57 %_353
+         %_355 = OpAccessChain %_354 %_35 %_60
+         %_356 = OpLoad %_16 %_355
+         %_357 = OpLoad %_22 %_57
+               OpImageWrite %_356 %_75 %_357
+         %_358 = OpAccessChain %_354 %_35 %_68
          %_359 = OpLoad %_16 %_358
          %_360 = OpLoad %_22 %_57
-               OpImageWrite %_359 %_78 %_360
-         %_361 = OpAccessChain %_357 %_35 %_71
+               OpImageWrite %_359 %_75 %_360
+         %_361 = OpAccessChain %_354 %_35 %_69
          %_362 = OpLoad %_16 %_361
          %_363 = OpLoad %_22 %_57
-               OpImageWrite %_362 %_78 %_363
-         %_364 = OpAccessChain %_357 %_35 %_72
-         %_365 = OpLoad %_16 %_364
-         %_366 = OpLoad %_22 %_57
-               OpImageWrite %_365 %_78 %_366
-         %_367 = OpLoad %_23 %_53
-         %_368 = OpLoad %_3 %_51
-         %_369 = OpCompositeConstruct %_23 %_368 %_368
-         %_370 = OpIAdd %_23 %_367 %_369
-         %_371 = OpConvertUToF %_73 %_370
-         %_372 = OpLoad %_22 %_57
-         %_373 = OpCompositeExtract %_5 %_371 0
-         %_374 = OpCompositeExtract %_5 %_371 1
-         %_375 = OpCompositeExtract %_5 %_371 0
-         %_376 = OpCompositeExtract %_5 %_371 1
-         %_377 = OpCompositeConstruct %_22 %_373 %_374 %_375 %_376
-         %_378 = OpFAdd %_22 %_372 %_377
-         %_379 = OpLoad %_5 %_55
-         %_380 = OpCompositeConstruct %_22 %_379 %_379 %_379 %_379
-         %_381 = OpFAdd %_22 %_378 %_380
-               OpStore %_46 %_381
+               OpImageWrite %_362 %_75 %_363
+         %_364 = OpLoad %_23 %_53
+         %_365 = OpLoad %_3 %_51
+         %_366 = OpCompositeConstruct %_23 %_365 %_365
+         %_367 = OpIAdd %_23 %_364 %_366
+         %_368 = OpConvertUToF %_70 %_367
+         %_369 = OpLoad %_22 %_57
+         %_370 = OpCompositeExtract %_5 %_368 0
+         %_371 = OpCompositeExtract %_5 %_368 1
+         %_372 = OpCompositeExtract %_5 %_368 0
+         %_373 = OpCompositeExtract %_5 %_368 1
+         %_374 = OpCompositeConstruct %_22 %_370 %_371 %_372 %_373
+         %_375 = OpFAdd %_22 %_369 %_374
+         %_376 = OpLoad %_5 %_55
+         %_377 = OpCompositeConstruct %_22 %_376 %_376 %_376 %_376
+         %_378 = OpFAdd %_22 %_375 %_377
+               OpStore %_46 %_378
                OpReturn
                OpFunctionEnd
