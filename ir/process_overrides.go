@@ -7,104 +7,6 @@ import (
 	"fmt"
 )
 
-// CloneModuleForOverrides creates a deep enough copy of a module for ProcessOverrides
-// to safely mutate. Clones: GlobalExpressions, Constants, Functions (expressions),
-// EntryPoints (expressions). Shared immutable data (Types, GlobalVariables) is not copied.
-func CloneModuleForOverrides(src *Module) *Module {
-	dst := *src // shallow copy
-
-	// Clone Overrides (ProcessOverrides reads Init pointers which are shared)
-	dst.Overrides = make([]Override, len(src.Overrides))
-	copy(dst.Overrides, src.Overrides)
-	for i := range dst.Overrides {
-		if dst.Overrides[i].Init != nil {
-			initCopy := *dst.Overrides[i].Init
-			dst.Overrides[i].Init = &initCopy
-		}
-		if dst.Overrides[i].ID != nil {
-			idCopy := *dst.Overrides[i].ID
-			dst.Overrides[i].ID = &idCopy
-		}
-	}
-
-	// Clone GlobalExpressions (we append to it)
-	dst.GlobalExpressions = make([]Expression, len(src.GlobalExpressions))
-	copy(dst.GlobalExpressions, src.GlobalExpressions)
-
-	// Clone Constants (we append to it)
-	dst.Constants = make([]Constant, len(src.Constants))
-	copy(dst.Constants, src.Constants)
-
-	// Clone Functions — we modify expressions, local vars, named expressions in place
-	dst.Functions = make([]Function, len(src.Functions))
-	for i := range src.Functions {
-		dst.Functions[i] = src.Functions[i]
-		dst.Functions[i].Expressions = make([]Expression, len(src.Functions[i].Expressions))
-		copy(dst.Functions[i].Expressions, src.Functions[i].Expressions)
-		if len(src.Functions[i].ExpressionTypes) > 0 {
-			dst.Functions[i].ExpressionTypes = make([]TypeResolution, len(src.Functions[i].ExpressionTypes))
-			copy(dst.Functions[i].ExpressionTypes, src.Functions[i].ExpressionTypes)
-		}
-		if len(src.Functions[i].LocalVars) > 0 {
-			dst.Functions[i].LocalVars = make([]LocalVariable, len(src.Functions[i].LocalVars))
-			copy(dst.Functions[i].LocalVars, src.Functions[i].LocalVars)
-			for j := range dst.Functions[i].LocalVars {
-				if dst.Functions[i].LocalVars[j].Init != nil {
-					cp := *dst.Functions[i].LocalVars[j].Init
-					dst.Functions[i].LocalVars[j].Init = &cp
-				}
-			}
-		}
-		if src.Functions[i].NamedExpressions != nil {
-			dst.Functions[i].NamedExpressions = make(map[ExpressionHandle]string, len(src.Functions[i].NamedExpressions))
-			for k, v := range src.Functions[i].NamedExpressions {
-				dst.Functions[i].NamedExpressions[k] = v
-			}
-		}
-		if len(src.Functions[i].Body) > 0 {
-			dst.Functions[i].Body = make(Block, len(src.Functions[i].Body))
-			copy(dst.Functions[i].Body, src.Functions[i].Body)
-		}
-	}
-
-	// Clone EntryPoints — we modify expressions, local vars, named expressions in place
-	dst.EntryPoints = make([]EntryPoint, len(src.EntryPoints))
-	for i := range src.EntryPoints {
-		dst.EntryPoints[i] = src.EntryPoints[i]
-		dst.EntryPoints[i].Function.Expressions = make([]Expression, len(src.EntryPoints[i].Function.Expressions))
-		copy(dst.EntryPoints[i].Function.Expressions, src.EntryPoints[i].Function.Expressions)
-		if len(src.EntryPoints[i].Function.ExpressionTypes) > 0 {
-			dst.EntryPoints[i].Function.ExpressionTypes = make([]TypeResolution, len(src.EntryPoints[i].Function.ExpressionTypes))
-			copy(dst.EntryPoints[i].Function.ExpressionTypes, src.EntryPoints[i].Function.ExpressionTypes)
-		}
-		// Deep copy LocalVars (Init pointers are shared)
-		if len(src.EntryPoints[i].Function.LocalVars) > 0 {
-			dst.EntryPoints[i].Function.LocalVars = make([]LocalVariable, len(src.EntryPoints[i].Function.LocalVars))
-			copy(dst.EntryPoints[i].Function.LocalVars, src.EntryPoints[i].Function.LocalVars)
-			for j := range dst.EntryPoints[i].Function.LocalVars {
-				if dst.EntryPoints[i].Function.LocalVars[j].Init != nil {
-					cp := *dst.EntryPoints[i].Function.LocalVars[j].Init
-					dst.EntryPoints[i].Function.LocalVars[j].Init = &cp
-				}
-			}
-		}
-		// Deep copy NamedExpressions map
-		if src.EntryPoints[i].Function.NamedExpressions != nil {
-			dst.EntryPoints[i].Function.NamedExpressions = make(map[ExpressionHandle]string, len(src.EntryPoints[i].Function.NamedExpressions))
-			for k, v := range src.EntryPoints[i].Function.NamedExpressions {
-				dst.EntryPoints[i].Function.NamedExpressions[k] = v
-			}
-		}
-		// Deep copy Body (statements contain expression handles that get remapped)
-		if len(src.EntryPoints[i].Function.Body) > 0 {
-			dst.EntryPoints[i].Function.Body = make(Block, len(src.EntryPoints[i].Function.Body))
-			copy(dst.EntryPoints[i].Function.Body, src.EntryPoints[i].Function.Body)
-		}
-	}
-
-	return &dst
-}
-
 // PipelineConstants maps override keys (ID as string or name) to float64 values.
 // NaN means "not set" (use default initializer).
 // Matches Rust naga's back::PipelineConstants = HashMap<String, f64>.
@@ -116,6 +18,8 @@ type PipelineConstants map[string]float64
 // - ExprOverride in global expressions become ExprConstant
 // - ExprOverride in function expressions become Literal with resolved values
 // - Global variable initializers using overrides are evaluated
+//
+// To keep the original module, call it on a [Module.Clone].
 //
 // Matches Rust naga's back::pipeline_constants::process_overrides.
 func ProcessOverrides(module *Module, constants PipelineConstants) error {

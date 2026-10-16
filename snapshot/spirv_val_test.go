@@ -294,7 +294,7 @@ func compileWGSLToSPIRVBytes(name, source string) ([]byte, error) {
 	// (Rust test driver calls process_overrides for all backends)
 	pipelineConstants := readSPVPipelineConstants(name)
 	if len(pipelineConstants) > 0 {
-		module = ir.CloneModuleForOverrides(module)
+		module = module.Clone()
 		if err := ir.ProcessOverrides(module, pipelineConstants); err != nil {
 			return nil, fmt.Errorf("ProcessOverrides failed: %w", err)
 		}

@@ -316,9 +316,9 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 
 	// Process overrides if pipeline constants are provided.
 	// This resolves all ExprOverride to concrete Literal/Constant values.
-	// Deep-clone mutable parts to avoid mutating shared state.
+	// It works on a clone so the caller's module is not changed.
 	if len(options.PipelineConstants) > 0 && len(module.Overrides) > 0 {
-		module = ir.CloneModuleForOverrides(module)
+		module = module.Clone()
 		if err := ir.ProcessOverrides(module, options.PipelineConstants); err != nil {
 			return "", TranslationInfo{}, fmt.Errorf("glsl: process overrides: %w", err)
 		}

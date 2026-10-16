@@ -11,7 +11,7 @@ import (
 // DXIL-internal IR expression kinds — currently ir.ExprAlias and
 // ir.ExprPhi — are NEVER produced by the WGSL parser alone. They must be
 // synthesized exclusively by the DXIL backend's mem2reg pass
-// (dxil/internal/passes/mem2reg) on a CloneModuleForOverrides clone, so
+// (dxil/internal/passes/mem2reg) on its own Module.Clone copy, so
 // other backends (MSL/GLSL/HLSL/SPIR-V) never observe them.
 //
 // If this test ever fails, the invariant is broken and the offending

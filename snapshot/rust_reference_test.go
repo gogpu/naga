@@ -199,10 +199,8 @@ func compareWithRust(t *testing.T, shader shaderFile, o rustOutput, refPath stri
 // (BUG-IR-COMPACT-001). Where the missing compaction changes an output,
 // rustDeviations records it.
 //
-// Each call lowers the source afresh: preparing one backend's module must not
-// affect another's, and ir.CloneModuleForOverrides does not isolate them
-// (it shares nested statement data that ir.ProcessOverrides rewrites in place,
-// BUG-IR-CLONE-001).
+// Each call lowers the source afresh, so preparing one backend's module cannot
+// affect another's.
 func prepareForBackend(source, shader string) (*ir.Module, error) {
 	prepared, err := tryCompileToIR(source)
 	if err != nil {

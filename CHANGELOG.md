@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`(*ir.Module).Clone`** — a deep copy of a module: nothing in the copy is
+  shared with the original, so either can change without affecting the other.
+  Like Rust naga's `#[derive(Clone)]` on `Module`, the copy follows the IR
+  types, so new fields and statement kinds are copied without code changes.
+
 ### Changed
 
 - **Rust reference comparison measures what it claims** — `TestRustReference`
@@ -51,6 +58,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`TestMSL_AbstractTypesVarFull` runs again** — it read its shader through a
   path that never existed and was always skipped; it now passes, and a missing
   shader fails the test instead of skipping it.
+
+### Removed
+
+- **`ir.CloneModuleForOverrides`** — replaced by `(*ir.Module).Clone`. It
+  copied only the top level of function bodies, so the copy shared nested
+  blocks and handle pointers with the original.
+
+### Fixed
+
+- **Compiling a module no longer changes it** — `glsl.Compile` with pipeline
+  constants and `dxil.Compile` rewrote the caller's module through data their
+  copy shared with it (nested blocks inside loops, ifs and switches, call
+  results and arguments, sample and atomic operands). A second compile of the
+  same module then produced wrong code: GLSL lost conditions and atomic operands,
+  and DXIL produced a different container. Both now work on a full
+  `Module.Clone`. A new test compiles every corpus module with every backend
+  and checks the module is unchanged afterwards.
 
 ## [0.19.1] - 2026-10-16
 

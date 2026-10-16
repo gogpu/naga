@@ -213,9 +213,9 @@ func autoUpgradeSMPre(irModule *ir.Module, ep *ir.EntryPoint, smMinor uint32) ui
 // standalone stay as separate LLVM functions.
 func prepareModule(irModule *ir.Module) (*ir.Module, error) {
 	if len(irModule.Functions) == 0 {
-		return ir.CloneModuleForOverrides(irModule), nil
+		return irModule.Clone(), nil
 	}
-	irModule = ir.CloneModuleForOverrides(irModule)
+	irModule = irModule.Clone()
 	shouldInline := func(callee *ir.Function) bool {
 		if helperNeedsInlining(irModule, callee) {
 			return true

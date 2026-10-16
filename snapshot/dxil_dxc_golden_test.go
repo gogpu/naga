@@ -109,7 +109,7 @@ func TestDxilDxcGolden(t *testing.T) {
 			continue
 		}
 		if len(module.Overrides) > 0 {
-			module = ir.CloneModuleForOverrides(module)
+			module = module.Clone()
 			if err := ir.ProcessOverrides(module, nil); err != nil {
 				skipCount++
 				continue

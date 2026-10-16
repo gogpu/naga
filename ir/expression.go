@@ -191,8 +191,8 @@ func (ExprLoad) expressionKind() {}
 // produced by parsing alone: the WGSL frontend never synthesizes it.
 // The only production site is the DXIL backend's mem2reg pass
 // (dxil/internal/passes/mem2reg). Other backends (MSL/GLSL/HLSL/SPIR-V)
-// process the original module (or their own CloneModuleForOverrides
-// clone) and never invoke mem2reg, so they never observe this kind.
+// process the original module (or their own Module.Clone copy) and
+// never invoke mem2reg, so they never observe this kind.
 // Their expression-kind type switches treat unknown kinds as errors
 // (e.g. msl/expressions.go writeExpressionInline default returns
 // "unsupported expression kind"), which gives a clear failure mode if
