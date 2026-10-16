@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 102
+; Bound: 116
 ; Schema: 0
 
                OpCapability Shader
@@ -57,22 +57,22 @@
          %_42 = OpConstantComposite %_8 %_40 %_41
          %_43 = OpConstant %_6 1065353216
          %_44 = OpConstant %_6 1073741824
-         %_45 = OpConstantComposite %_7 %_43 %_44
-         %_46 = OpConstant %_6 1077936128
-         %_47 = OpConstant %_6 1082130432
-         %_48 = OpConstantComposite %_7 %_46 %_47
-         %_49 = OpConstantComposite %_8 %_45 %_48
+         %_45 = OpConstant %_6 1077936128
+         %_46 = OpConstant %_6 1082130432
+         %_47 = OpConstantComposite %_7 %_43 %_44
+         %_48 = OpConstantComposite %_7 %_45 %_46
+         %_49 = OpConstantComposite %_8 %_47 %_48
          %_50 = OpConstantComposite %_7 %_43 %_44
-         %_51 = OpConstantComposite %_7 %_46 %_47
+         %_51 = OpConstantComposite %_7 %_45 %_46
          %_52 = OpConstantComposite %_8 %_50 %_51
          %_53 = OpConstantComposite %_7 %_43 %_44
-         %_54 = OpConstantComposite %_7 %_46 %_47
+         %_54 = OpConstantComposite %_7 %_45 %_46
          %_55 = OpConstantComposite %_8 %_53 %_54
          %_56 = OpConstantComposite %_7 %_43 %_44
-         %_57 = OpConstantComposite %_7 %_46 %_47
+         %_57 = OpConstantComposite %_7 %_45 %_46
          %_58 = OpConstantComposite %_8 %_56 %_57
          %_59 = OpConstantComposite %_7 %_43 %_44
-         %_60 = OpConstantComposite %_7 %_46 %_47
+         %_60 = OpConstantComposite %_7 %_45 %_46
          %_61 = OpConstantComposite %_8 %_59 %_60
          %_62 = OpConstant %_2 1
          %_63 = OpConstantComposite %_3 %_62 %_62
@@ -100,17 +100,31 @@
          %_85 = OpConstantComposite %_5 %_64 %_64
          %_86 = OpConstantComposite %_7 %_43 %_43
          %_87 = OpConstantComposite %_7 %_43 %_43
-         %_88 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_89 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_90 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_91 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_92 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_93 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_94 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_95 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_96 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_97 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_98 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_99 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_100 = OpConstantComposite %_14 %_43 %_44 %_46
-         %_101 = OpConstantComposite %_14 %_43 %_44 %_46
+         %_88 = OpConstantComposite %_7 %_43 %_44
+         %_89 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_90 = OpConstantComposite %_7 %_43 %_44
+         %_91 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_92 = OpConstantComposite %_7 %_43 %_44
+         %_93 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_94 = OpConstantComposite %_7 %_43 %_44
+         %_95 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_96 = OpConstantComposite %_7 %_44 %_45
+         %_97 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_98 = OpConstantComposite %_7 %_44 %_45
+         %_99 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_100 = OpConstantComposite %_7 %_44 %_45
+         %_101 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_102 = OpConstantComposite %_7 %_44 %_45
+         %_103 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_104 = OpConstantComposite %_7 %_43 %_44
+         %_105 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_106 = OpConstantComposite %_7 %_43 %_44
+         %_107 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_108 = OpConstantComposite %_7 %_43 %_44
+         %_109 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_110 = OpConstantComposite %_7 %_44 %_45
+         %_111 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_112 = OpConstantComposite %_7 %_44 %_45
+         %_113 = OpConstantComposite %_14 %_43 %_44 %_45
+         %_114 = OpConstantComposite %_7 %_44 %_45
+         %_115 = OpConstantComposite %_14 %_43 %_44 %_45

@@ -16,15 +16,15 @@
          %_6 = OpTypeVector %_5 4
          %_7 = OpTypeVector %_4 2
          %_8 = OpTypeMatrix %_7 2
-         %_9 = OpConstant %_3 1
-         %_10 = OpConstant %_4 1065353216
-         %_11 = OpConstantNull %_6
-         %_12 = OpConstant %_5 1
-         %_13 = OpConstantComposite %_6 %_12 %_12 %_12 %_12
-         %_14 = OpConstant %_4 0
-         %_15 = OpConstantComposite %_7 %_14 %_14
-         %_16 = OpConstantComposite %_7 %_14 %_14
-         %_17 = OpConstantComposite %_8 %_15 %_16
+         %_9 = OpConstantNull %_6
+         %_10 = OpConstant %_5 1
+         %_11 = OpConstantComposite %_6 %_10 %_10 %_10 %_10
+         %_12 = OpConstant %_4 0
+         %_13 = OpConstantComposite %_7 %_12 %_12
+         %_14 = OpConstantComposite %_7 %_12 %_12
+         %_15 = OpConstantComposite %_8 %_13 %_14
+         %_16 = OpConstant %_3 1
+         %_17 = OpConstant %_4 1065353216
          %_18 = OpTypeFunction %_2
          %_21 = OpTypePointer Function %_5
          %_23 = OpTypePointer Function %_4
@@ -60,53 +60,53 @@
          %_47 = OpVariable %_32 Function
          %_48 = OpVariable %_25 Function
          %_49 = OpVariable %_25 Function
-               OpStore %_22 %_12
-               OpStore %_24 %_10
-         %_50 = OpCompositeConstruct %_7 %_10 %_10
-         %_51 = OpCompositeConstruct %_7 %_10 %_10
+               OpStore %_22 %_10
+               OpStore %_24 %_17
+         %_50 = OpCompositeConstruct %_7 %_17 %_17
+         %_51 = OpCompositeConstruct %_7 %_17 %_17
          %_52 = OpCompositeConstruct %_8 %_50 %_51
                OpStore %_26 %_52
-               OpStore %_27 %_12
-               OpStore %_29 %_9
-               OpStore %_30 %_10
-               OpStore %_31 %_10
+               OpStore %_27 %_10
+               OpStore %_29 %_16
+               OpStore %_30 %_17
+               OpStore %_31 %_17
                OpStore %_33 %_53
-         %_54 = OpCompositeConstruct %_6 %_12 %_12 %_12 %_12
+         %_54 = OpCompositeConstruct %_6 %_10 %_10 %_10 %_10
                OpStore %_34 %_54
-         %_55 = OpCompositeConstruct %_7 %_14 %_14
-         %_56 = OpCompositeConstruct %_7 %_14 %_14
+         %_55 = OpCompositeConstruct %_7 %_12 %_12
+         %_56 = OpCompositeConstruct %_7 %_12 %_12
          %_57 = OpCompositeConstruct %_8 %_55 %_56
                OpStore %_35 %_57
-         %_58 = OpCompositeConstruct %_7 %_10 %_10
-         %_59 = OpCompositeConstruct %_7 %_10 %_10
+         %_58 = OpCompositeConstruct %_7 %_17 %_17
+         %_59 = OpCompositeConstruct %_7 %_17 %_17
          %_60 = OpCompositeConstruct %_8 %_58 %_59
                OpStore %_36 %_60
-               OpStore %_42 %_12
-               OpStore %_43 %_9
-               OpStore %_44 %_10
-               OpStore %_45 %_10
+               OpStore %_42 %_10
+               OpStore %_43 %_16
+               OpStore %_44 %_17
+               OpStore %_45 %_17
                OpStore %_46 %_61
-         %_62 = OpCompositeConstruct %_6 %_12 %_12 %_12 %_12
+         %_62 = OpCompositeConstruct %_6 %_10 %_10 %_10 %_10
                OpStore %_47 %_62
-         %_63 = OpCompositeConstruct %_7 %_14 %_14
-         %_64 = OpCompositeConstruct %_7 %_14 %_14
+         %_63 = OpCompositeConstruct %_7 %_12 %_12
+         %_64 = OpCompositeConstruct %_7 %_12 %_12
          %_65 = OpCompositeConstruct %_8 %_63 %_64
                OpStore %_48 %_65
-         %_66 = OpCompositeConstruct %_7 %_10 %_10
-         %_67 = OpCompositeConstruct %_7 %_10 %_10
+         %_66 = OpCompositeConstruct %_7 %_17 %_17
+         %_67 = OpCompositeConstruct %_7 %_17 %_17
          %_68 = OpCompositeConstruct %_8 %_66 %_67
                OpStore %_49 %_68
-         %_69 = OpCompositeConstruct %_6 %_12 %_12 %_12 %_12
-         %_70 = OpCompositeConstruct %_7 %_14 %_14
-         %_71 = OpCompositeConstruct %_7 %_14 %_14
+         %_69 = OpCompositeConstruct %_6 %_10 %_10 %_10 %_10
+         %_70 = OpCompositeConstruct %_7 %_12 %_12
+         %_71 = OpCompositeConstruct %_7 %_12 %_12
          %_72 = OpCompositeConstruct %_8 %_70 %_71
-         %_73 = OpCompositeConstruct %_7 %_10 %_10
-         %_74 = OpCompositeConstruct %_7 %_10 %_10
+         %_73 = OpCompositeConstruct %_7 %_17 %_17
+         %_74 = OpCompositeConstruct %_7 %_17 %_17
          %_75 = OpCompositeConstruct %_8 %_73 %_74
-               OpStore %_37 %_12
-               OpStore %_38 %_9
-               OpStore %_39 %_10
-               OpStore %_40 %_10
+               OpStore %_37 %_10
+               OpStore %_38 %_16
+               OpStore %_39 %_17
+               OpStore %_40 %_17
                OpStore %_41 %_76
                OpReturn
                OpFunctionEnd

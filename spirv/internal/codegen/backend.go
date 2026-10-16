@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -49,10 +50,9 @@ type Backend struct {
 	// Constant cache (IR ConstantHandle → SPIR-V ID)
 	constantIDs map[ir.ConstantHandle]uint32
 
-	// Module-scope init expression cache (Module.GlobalExpressions handle → SPIR-V ID).
-	// Constants and global variables share init expressions, so this keeps one
-	// OpConstant/OpConstantComposite per initializer.
-	globalExprIDs map[ir.ExpressionHandle]uint32
+	// Module-scope expressions (Module.GlobalExpressions handle → SPIR-V ID),
+	// written by emitGlobalExpressions.
+	globalExprs []globalExprConst
 
 	// Global variable cache
 	globalIDs map[ir.GlobalVariableHandle]uint32
@@ -175,7 +175,6 @@ func NewBackend(options Options) *Backend {
 		options:             options,
 		typeIDs:             make(map[ir.TypeHandle]uint32, 16),
 		constantIDs:         make(map[ir.ConstantHandle]uint32, 16),
-		globalExprIDs:       make(map[ir.ExpressionHandle]uint32, 16),
 		globalIDs:           make(map[ir.GlobalVariableHandle]uint32, 4),
 		functionIDs:         make(map[ir.FunctionHandle]uint32, 4),
 		entryInputVars:      make(map[int][]*entryPointInput, 2),
@@ -216,7 +215,6 @@ func (b *Backend) Reset() {
 	// Clear maps — Go 1.21+ clear() keeps capacity, removes all entries
 	clear(b.typeIDs)
 	clear(b.constantIDs)
-	clear(b.globalExprIDs)
 	clear(b.globalIDs)
 	clear(b.functionIDs)
 	clear(b.entryInputVars)
@@ -350,6 +348,7 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	if err := b.emitTypes(); err != nil {
 		return nil, err
 	}
+	b.emitGlobalExpressions()
 	if err := b.emitConstants(); err != nil {
 		return nil, err
 	}
@@ -1308,325 +1307,163 @@ func (b *Backend) emitLiteralConstant(value ir.LiteralValue) (uint32, error) {
 	}
 }
 
-// globalConstType is the declared type of a module-scope init expression: the
-// SPIR-V id needed to build a composite, plus the IR handle when one survives
-// compaction. A matrix column has no surviving handle, so the two are tracked
-// separately rather than re-deriving the id from a handle at each level.
-type globalConstType struct {
-	id         uint32
-	handle     ir.TypeHandle
-	haveHandle bool
+// errInitNotFolded marks a module-scope initializer the WGSL front-end left as
+// a Unary or Binary expression instead of folding it to a constant, such as the
+// negated suffixed literal in `var<private> v = vec2<f16>(-1.0h, 2.0h)`. The
+// shader is valid, so rejecting it would be wrong; until the front-end folds
+// these, a constant built from one is OpConstantNull and a variable starts
+// without an initializer, as before this backend read GlobalExpressions.
+var errInitNotFolded = errors.New("initializer is not folded to a constant")
+
+// errGlobalExprCycle is what an expression reports while it is being written,
+// so an expression that reaches itself through its operands fails instead of
+// recursing.
+var errGlobalExprCycle = errors.New("global expression refers to itself")
+
+// globalExprConst is the constant written for one module-scope expression.
+type globalExprConst struct {
+	id      uint32
+	err     error // why the expression is not a constant; id is 0 when set
+	written bool
 }
 
-// unknownGlobalConstType is used where the expected type cannot be derived; the
-// forms that need one (Splat, an untyped Compose) fall back to OpConstantNull.
-var unknownGlobalConstType = globalConstType{}
-
-// globalConstTypeOf resolves an IR type handle, tolerating the invalid handles
-// that compaction leaves behind in nested Compose expressions.
-func (b *Backend) globalConstTypeOf(handle ir.TypeHandle) (globalConstType, error) {
-	if int(handle) >= len(b.module.Types) {
-		return unknownGlobalConstType, nil
-	}
-	id, err := b.emitType(handle)
-	if err != nil {
-		return unknownGlobalConstType, err
-	}
-	return globalConstType{id: id, handle: handle, haveHandle: true}, nil
-}
-
-// componentTypeOf returns the type of the index-th component of a composite type.
-func (b *Backend) componentTypeOf(t globalConstType, index int) (globalConstType, error) {
-	if !t.haveHandle {
-		return unknownGlobalConstType, nil
-	}
-	switch inner := b.module.Types[t.handle].Inner.(type) {
-	case ir.VectorType:
-		id, err := b.emitScalarType(inner.Scalar)
-		if err != nil {
-			return unknownGlobalConstType, err
-		}
-		return globalConstType{id: id}, nil
-
-	case ir.MatrixType:
-		scalarID, err := b.emitScalarType(inner.Scalar)
-		if err != nil {
-			return unknownGlobalConstType, err
-		}
-		return globalConstType{id: b.emitVectorType(scalarID, uint32(inner.Rows))}, nil
-
-	case ir.ArrayType:
-		return b.globalConstTypeOf(inner.Base)
-
-	case ir.StructType:
-		if index >= len(inner.Members) {
-			return unknownGlobalConstType, nil
-		}
-		return b.globalConstTypeOf(inner.Members[index].Type)
-
-	default:
-		return unknownGlobalConstType, nil
-	}
-}
-
-// vectorShape reports the component count and component type of a vector type.
-func (b *Backend) vectorShape(t globalConstType) (int, globalConstType, bool, error) {
-	if !t.haveHandle {
-		return 0, unknownGlobalConstType, false, nil
-	}
-	vec, ok := b.module.Types[t.handle].Inner.(ir.VectorType)
-	if !ok {
-		return 0, unknownGlobalConstType, false, nil
-	}
-	scalarID, err := b.emitScalarType(vec.Scalar)
-	if err != nil {
-		return 0, unknownGlobalConstType, false, err
-	}
-	return int(vec.Size), globalConstType{id: scalarID}, true, nil
-}
-
-// scalarConstituents flattens init expressions into the scalar constants that a
-// vector's OpConstantComposite needs, expanding any nested vector argument.
-func (b *Backend) scalarConstituents(
-	components []ir.ExpressionHandle,
-	scalar globalConstType,
-	depth int,
-) ([]uint32, bool, error) {
-	if depth > maxGlobalConstExprDepth {
-		return nil, false, nil
-	}
-	var out []uint32
-	for _, component := range components {
-		ids, ok, err := b.scalarConstituentsOf(component, scalar, depth)
-		if err != nil || !ok {
-			return nil, false, err
-		}
-		out = append(out, ids...)
-	}
-	return out, true, nil
-}
-
-// scalarConstituentsOf flattens one init expression into scalar constants.
-func (b *Backend) scalarConstituentsOf(
-	handle ir.ExpressionHandle,
-	scalar globalConstType,
-	depth int,
-) ([]uint32, bool, error) {
-	if depth > maxGlobalConstExprDepth {
-		return nil, false, nil
-	}
-	if int(handle) >= len(b.module.GlobalExpressions) {
-		return nil, false, nil
-	}
-
-	switch kind := b.module.GlobalExpressions[handle].Kind.(type) {
-	case ir.ExprCompose:
-		return b.scalarConstituents(kind.Components, scalar, depth+1)
-
-	case ir.ExprSplat:
-		ids, ok, err := b.scalarConstituentsOf(kind.Value, scalar, depth+1)
-		if err != nil || !ok {
-			return nil, false, err
-		}
-		if len(ids) != 1 {
-			return nil, false, nil
-		}
-		out := make([]uint32, int(kind.Size))
-		for i := range out {
-			out[i] = ids[0]
-		}
-		return out, true, nil
-
-	case ir.ExprZeroValue:
-		count := 1
-		if int(kind.Type) < len(b.module.Types) {
-			if vec, ok := b.module.Types[kind.Type].Inner.(ir.VectorType); ok {
-				count = int(vec.Size)
-			}
-		}
-		nullID := b.builder.AddConstantNull(scalar.id)
-		out := make([]uint32, count)
-		for i := range out {
-			out[i] = nullID
-		}
-		return out, true, nil
-
-	case ir.ExprConstant:
-		// A vector-valued constant cannot be named as a single constituent of a
-		// vector, so expand the constant it points at rather than referencing it.
-		if int(kind.Constant) < len(b.module.Constants) {
-			c := &b.module.Constants[kind.Constant]
-			if int(c.Type) < len(b.module.Types) {
-				if _, isVector := b.module.Types[c.Type].Inner.(ir.VectorType); isVector {
-					return b.scalarConstituentsOf(c.Init, scalar, depth+1)
-				}
-			}
-		}
-		id, err := b.emitConstant(kind.Constant)
-		if err != nil {
-			return nil, false, err
-		}
-		return []uint32{id}, true, nil
-
-	default:
-		id, ok, err := b.emitGlobalConstExprTyped(handle, scalar, depth+1)
-		if err != nil || !ok {
-			return nil, false, err
-		}
-		return []uint32{id}, true, nil
-	}
-}
-
-// emitGlobalConstExpr materializes a module-scope init expression from
-// Module.GlobalExpressions as a SPIR-V constant, returning its ID.
+// emitGlobalExpressions writes every module-scope expression as a SPIR-V
+// constant, in arena order, into globalExprs.
 //
-// The WGSL front-end stores a concretely typed `const` or `var<private>`
-// initializer here rather than in Constant.Value, so this is the only path that
-// gives such a value its components. Reports false — leaving the caller to fall
-// back to OpConstantNull — for the override-dependent forms (Override, Binary,
-// Unary) that need pipeline constants this backend does not evaluate yet.
+// This is Rust naga's "write all const-expressions as constants" pass. Rust can
+// rely on the arena listing operands first; here ir.ProcessOverrides appends an
+// override's value to the end of the arena and points the earlier expression at
+// it, so an operand the pass has not reached yet is written on demand.
 //
-// wantType is the declared type of the entity being initialized, used by the
-// forms that do not carry a type of their own.
-func (b *Backend) emitGlobalConstExpr(handle ir.ExpressionHandle, wantType ir.TypeHandle) (uint32, bool, error) {
-	want, err := b.globalConstTypeOf(wantType)
-	if err != nil {
-		return 0, false, err
+// An expression that cannot be a constant is not an error here: its error is
+// kept and reported only if a constant or global variable takes the expression
+// as its initializer, so an override's default does not stop a module compiling.
+//
+// A constant that carries its value inline (Constant.Value) is written from that
+// value, so the pass skips its Init expression rather than write it a second
+// time; it is still written on demand if another expression uses it.
+func (b *Backend) emitGlobalExpressions() {
+	b.globalExprs = append(b.globalExprs[:0], make([]globalExprConst, len(b.module.GlobalExpressions))...)
+	inlineInit := make([]bool, len(b.module.GlobalExpressions))
+	for i := range b.module.Constants {
+		c := &b.module.Constants[i]
+		if c.Value != nil && int(c.Init) < len(inlineInit) {
+			inlineInit[c.Init] = true
+		}
 	}
-	return b.emitGlobalConstExprTyped(handle, want, 0)
+	for handle := range b.module.GlobalExpressions {
+		if !inlineInit[handle] {
+			_, _ = b.globalExpr(ir.ExpressionHandle(handle))
+		}
+	}
 }
 
-// maxGlobalConstExprDepth bounds recursion over GlobalExpressions. Module-scope
-// initializers nest shallowly (a matrix is two levels); anything deeper than this
-// is a malformed or cyclic arena, and bailing out keeps a bad module from
-// exhausting the stack.
-const maxGlobalConstExprDepth = 16
-
-func (b *Backend) emitGlobalConstExprTyped(
-	handle ir.ExpressionHandle,
-	want globalConstType,
-	depth int,
-) (uint32, bool, error) {
-	if depth > maxGlobalConstExprDepth {
-		return 0, false, nil
+// globalExpr returns the constant written for a module-scope expression,
+// writing it first if the pass has not reached it yet.
+func (b *Backend) globalExpr(handle ir.ExpressionHandle) (uint32, error) {
+	if int(handle) >= len(b.globalExprs) {
+		return 0, fmt.Errorf("global expression %d out of range (%d global expressions)", handle, len(b.globalExprs))
 	}
-	if int(handle) >= len(b.module.GlobalExpressions) {
-		return 0, false, nil
+	if !b.globalExprs[handle].written {
+		b.globalExprs[handle] = globalExprConst{err: errGlobalExprCycle, written: true}
+		id, err := b.emitGlobalExpression(handle)
+		b.globalExprs[handle] = globalExprConst{id: id, err: err, written: true}
 	}
-	if id, ok := b.globalExprIDs[handle]; ok {
-		return id, true, nil
-	}
+	return b.globalExprs[handle].id, b.globalExprs[handle].err
+}
 
-	var id uint32
-
+// emitGlobalExpression writes one module-scope expression as a SPIR-V constant.
+// It mirrors Rust naga's write_constant_expr.
+func (b *Backend) emitGlobalExpression(handle ir.ExpressionHandle) (uint32, error) {
 	switch kind := b.module.GlobalExpressions[handle].Kind.(type) {
 	case ir.Literal:
-		litID, err := b.emitLiteralConstant(kind.Value)
+		return b.emitLiteralConstant(kind.Value)
+
+	case ir.ExprConstant:
+		return b.emitConstant(kind.Constant)
+
+	case ir.ExprZeroValue:
+		typeID, err := b.emitType(kind.Type)
 		if err != nil {
-			return 0, false, err
+			return 0, err
 		}
-		id = litID
+		return b.builder.AddConstantNull(typeID), nil
 
 	case ir.ExprCompose:
-		// Compose usually carries its own type; nested columns left behind by
-		// compaction fall back to the type asked for by the parent.
-		composeType, err := b.globalConstTypeOf(kind.Type)
-		if err != nil {
-			return 0, false, err
-		}
-		if composeType.id == 0 {
-			composeType = want
-		}
-		if composeType.id == 0 {
-			return 0, false, nil
-		}
-
-		size, scalar, isVector, err := b.vectorShape(composeType)
-		if err != nil {
-			return 0, false, err
-		}
-		if isVector {
-			// vec3<f32>(vec2<f32>(1, 2), 3) is one Compose of two components in
-			// the IR, but SPIR-V wants a vector's OpConstantComposite to name
-			// exactly its component count in scalars — so nested vectors flatten.
-			componentIDs, ok, err := b.scalarConstituents(kind.Components, scalar, depth+1)
-			if err != nil {
-				return 0, false, err
-			}
-			if !ok || len(componentIDs) != size {
-				return 0, false, nil
-			}
-			id = b.builder.AddConstantComposite(composeType.id, componentIDs...)
-			break
-		}
-
-		componentIDs := make([]uint32, len(kind.Components))
-		for i, component := range kind.Components {
-			componentType, err := b.componentTypeOf(composeType, i)
-			if err != nil {
-				return 0, false, err
-			}
-			componentID, ok, err := b.emitGlobalConstExprTyped(component, componentType, depth+1)
-			if err != nil {
-				return 0, false, err
-			}
-			if !ok {
-				return 0, false, nil
-			}
-			componentIDs[i] = componentID
-		}
-		id = b.builder.AddConstantComposite(composeType.id, componentIDs...)
+		return b.emitGlobalCompose(kind)
 
 	case ir.ExprSplat:
-		// vec3<f32>(0.04) — one scalar broadcast across the declared vector type.
-		if want.id == 0 {
-			return 0, false, nil
-		}
-		componentType, err := b.componentTypeOf(want, 0)
+		valueID, err := b.globalExpr(kind.Value)
 		if err != nil {
-			return 0, false, err
+			return 0, err
 		}
-		valueID, ok, err := b.emitGlobalConstExprTyped(kind.Value, componentType, depth+1)
+		res, err := ir.ResolveExpressionType(b.module, &ir.Function{Expressions: b.module.GlobalExpressions}, handle)
 		if err != nil {
-			return 0, false, err
+			return 0, err
 		}
-		if !ok {
-			return 0, false, nil
+		typeID, err := b.resolveTypeResolution(res)
+		if err != nil {
+			return 0, err
 		}
-		componentIDs := make([]uint32, int(kind.Size))
+		componentIDs := make([]uint32, kind.Size)
 		for i := range componentIDs {
 			componentIDs[i] = valueID
 		}
-		id = b.builder.AddConstantComposite(want.id, componentIDs...)
+		return b.builder.AddConstantComposite(typeID, componentIDs...), nil
 
-	case ir.ExprZeroValue:
-		zeroType, err := b.globalConstTypeOf(kind.Type)
-		if err != nil {
-			return 0, false, err
-		}
-		if zeroType.id == 0 {
-			zeroType = want
-		}
-		if zeroType.id == 0 {
-			return 0, false, nil
-		}
-		id = b.builder.AddConstantNull(zeroType.id)
+	case ir.ExprOverride:
+		return 0, fmt.Errorf("override %d used as a constant initializer: pipeline overrides are not supported", kind.Override)
 
-	case ir.ExprConstant:
-		constID, err := b.emitConstant(kind.Constant)
-		if err != nil {
-			return 0, false, err
-		}
-		id = constID
+	case ir.ExprUnary, ir.ExprBinary:
+		return 0, errInitNotFolded
 
 	default:
-		// Override-dependent initializers and anything else this backend does not
-		// fold at module scope.
-		return 0, false, nil
+		return 0, fmt.Errorf("%T is not a constant expression", kind)
+	}
+}
+
+// emitGlobalCompose writes a module-scope Compose as OpConstantComposite.
+//
+// SPIR-V wants a vector's constituents to be exactly its scalars, but
+// vec3<f32>(vec2<f32>(1, 2), 3) is a Compose of two components, so a vector's
+// components are flattened first.
+func (b *Backend) emitGlobalCompose(compose ir.ExprCompose) (uint32, error) {
+	typeID, err := b.emitType(compose.Type)
+	if err != nil {
+		return 0, err
+	}
+	vector, isVector := b.module.Types[compose.Type].Inner.(ir.VectorType)
+
+	components := ir.FlattenCompose(b.module, compose.Type, compose.Components)
+	componentIDs := make([]uint32, 0, len(components))
+	for _, component := range components {
+		if isVector && int(component) < len(b.module.GlobalExpressions) {
+			// A vector ZeroValue has no scalar expressions to flatten into.
+			if zero, ok := b.module.GlobalExpressions[component].Kind.(ir.ExprZeroValue); ok {
+				if zeroVector, ok := b.module.Types[zero.Type].Inner.(ir.VectorType); ok {
+					scalarID, err := b.emitScalarType(zeroVector.Scalar)
+					if err != nil {
+						return 0, err
+					}
+					nullID := b.builder.AddConstantNull(scalarID)
+					for range zeroVector.Size {
+						componentIDs = append(componentIDs, nullID)
+					}
+					continue
+				}
+			}
+		}
+		id, err := b.globalExpr(component)
+		if err != nil {
+			return 0, err
+		}
+		componentIDs = append(componentIDs, id)
 	}
 
-	b.globalExprIDs[handle] = id
-	return id, true, nil
+	if isVector && len(componentIDs) != int(vector.Size) {
+		return 0, fmt.Errorf("vector constant has %d components, want %d", len(componentIDs), vector.Size)
+	}
+	return b.builder.AddConstantComposite(typeID, componentIDs...), nil
 }
 
 // globalVarInitID resolves a global variable's initializer to a SPIR-V constant ID.
@@ -1643,10 +1480,17 @@ func (b *Backend) globalVarInitID(global *ir.GlobalVariable) (uint32, bool, erro
 		}
 		return id, true, nil
 	}
-	if global.InitExpr != nil {
-		return b.emitGlobalConstExpr(*global.InitExpr, global.Type)
+	if global.InitExpr == nil {
+		return 0, false, nil
 	}
-	return 0, false, nil
+	id, err := b.globalExpr(*global.InitExpr)
+	if errors.Is(err, errInitNotFolded) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("global variable %q: %w", global.Name, err)
+	}
+	return id, true, nil
 }
 
 // emitConstants emits all IR constants to SPIR-V.
@@ -1707,14 +1551,14 @@ func (b *Backend) emitConstant(handle ir.ConstantHandle) (uint32, error) {
 		// normal shape for a concretely typed composite `const` — a vector or
 		// matrix literal never gets a CompositeValue. Falling back to
 		// OpConstantNull here silently zeroed every such value.
-		initID, ok, err := b.emitGlobalConstExpr(constant.Init, constant.Type)
-		if err != nil {
-			return 0, err
-		}
-		if ok {
-			id = initID
-		} else {
+		initID, err := b.globalExpr(constant.Init)
+		switch {
+		case errors.Is(err, errInitNotFolded):
 			id = b.builder.AddConstantNull(typeID)
+		case err != nil:
+			return 0, fmt.Errorf("constant %q: %w", constant.Name, err)
+		default:
+			id = initID
 		}
 
 	default:

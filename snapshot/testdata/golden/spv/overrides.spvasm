@@ -1,45 +1,47 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 30
+; Bound: 32
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_18 "main"
-               OpExecutionMode %_18 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_21 "main"
+               OpExecutionMode %_21 LocalSize 1 1 1
          %_2 = OpTypeVoid
          %_3 = OpTypeBool
          %_4 = OpTypeFloat 32
          %_5 = OpTypeInt 32 0
-         %_6 = OpConstantFalse %_3
+         %_6 = OpConstantTrue %_3
          %_7 = OpConstant %_4 1075000115
-         %_8 = OpConstant %_4 1066192077
-         %_9 = OpConstant %_4 0
-         %_10 = OpConstant %_4 1083388723
-         %_11 = OpConstant %_4 1076753334
-         %_12 = OpConstant %_5 0
-         %_13 = OpTypePointer Private %_4
+         %_8 = OpConstant %_4 0
+         %_9 = OpConstant %_4 1073741824
+         %_10 = OpConstant %_4 1076753334
+         %_11 = OpConstant %_5 0
+         %_12 = OpConstant %_4 1066192077
+         %_13 = OpConstant %_4 1092616192
          %_14 = OpConstant %_4 1093664768
-         %_17 = OpTypeFunction %_2
-         %_20 = OpTypePointer Function %_4
-         %_22 = OpTypePointer Function %_3
-         %_25 = OpConstant %_4 1102577664
-         %_26 = OpConstantTrue %_3
-         %_28 = OpConstant %_4 1092616192
-         %_15 = OpVariable %_13 Private %_14
-         %_16 = OpVariable %_13 Private
-         %_18 = OpFunction %_2 None %_17
-         %_19 = OpLabel
-         %_21 = OpVariable %_20 Function
-         %_23 = OpVariable %_22 Function
-         %_24 = OpVariable %_20 Function
-               OpStore %_21 %_25
-               OpStore %_23 %_26
-         %_27 = OpLoad %_4 %_15
-         %_29 = OpFMul %_4 %_27 %_28
-               OpStore %_24 %_29
-               OpStore %_16 %_8
+         %_15 = OpConstantFalse %_3
+         %_16 = OpConstant %_4 1083388723
+         %_17 = OpTypePointer Private %_4
+         %_20 = OpTypeFunction %_2
+         %_23 = OpTypePointer Function %_4
+         %_25 = OpTypePointer Function %_3
+         %_28 = OpConstant %_4 1102577664
+         %_29 = OpConstantTrue %_3
+         %_18 = OpVariable %_17 Private %_14
+         %_19 = OpVariable %_17 Private
+         %_21 = OpFunction %_2 None %_20
+         %_22 = OpLabel
+         %_24 = OpVariable %_23 Function
+         %_26 = OpVariable %_25 Function
+         %_27 = OpVariable %_23 Function
+               OpStore %_24 %_28
+               OpStore %_26 %_29
+         %_30 = OpLoad %_4 %_18
+         %_31 = OpFMul %_4 %_30 %_13
+               OpStore %_27 %_31
+               OpStore %_19 %_12
                OpReturn
                OpFunctionEnd

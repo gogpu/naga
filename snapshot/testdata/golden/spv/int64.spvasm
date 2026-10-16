@@ -66,9 +66,9 @@
          %_16 = OpTypeArray %_4 %_15
          %_17 = OpTypeArray %_3 %_15
          %_18 = OpTypeStruct %_16 %_17
-         %_19 = OpConstant %_4 20 0
-         %_20 = OpTypePointer Private %_3
-         %_21 = OpConstant %_3 1 0
+         %_19 = OpConstant %_3 1 0
+         %_20 = OpConstant %_4 20 0
+         %_21 = OpTypePointer Private %_3
          %_23 = OpTypeStruct %_14
          %_24 = OpTypePointer Uniform %_23
          %_26 = OpTypeStruct %_14
@@ -134,7 +134,7 @@
          %_397 = OpConstant %_4 67 0
          %_399 = OpConstant %_3 60 0
          %_404 = OpConstant %_5 11
-         %_22 = OpVariable %_20 Private %_21
+         %_22 = OpVariable %_21 Private %_19
          %_25 = OpVariable %_24 Uniform
          %_28 = OpVariable %_27 StorageBuffer
          %_31 = OpVariable %_30 StorageBuffer

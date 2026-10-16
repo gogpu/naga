@@ -102,9 +102,9 @@
          %_21 = OpTypeArray %_3 %_20
          %_22 = OpTypeStruct %_21
          %_23 = OpTypeStruct %_3 %_3 %_8 %_3 %_3 %_4
-         %_24 = OpConstant %_3 19354
-         %_25 = OpTypePointer Private %_3
-         %_26 = OpConstant %_3 15360
+         %_24 = OpConstant %_3 15360
+         %_25 = OpConstant %_3 19354
+         %_26 = OpTypePointer Private %_3
          %_28 = OpTypeStruct %_19
          %_29 = OpTypePointer Uniform %_28
          %_31 = OpTypeStruct %_19
@@ -189,7 +189,7 @@
          %_583 = OpTypeFunction %_2
          %_586 = OpConstant %_3 16384
          %_589 = OpConstant %_4 7
-         %_27 = OpVariable %_25 Private %_26
+         %_27 = OpVariable %_26 Private %_24
          %_30 = OpVariable %_29 Uniform
          %_33 = OpVariable %_32 StorageBuffer
          %_36 = OpVariable %_35 StorageBuffer
@@ -200,7 +200,7 @@
          %_46 = OpLabel
          %_48 = OpVariable %_47 Function
          %_50 = OpVariable %_49 Function
-               OpStore %_50 %_24
+               OpStore %_50 %_25
          %_51 = OpLoad %_3 %_27
          %_52 = OpLoad %_3 %_50
          %_54 = OpFAdd %_3 %_52 %_53
@@ -501,7 +501,7 @@
          %_375 = OpFAdd %_3 %_374 %_373
                OpStore %_50 %_375
          %_376 = OpLoad %_3 %_50
-         %_377 = OpFAdd %_3 %_376 %_26
+         %_377 = OpFAdd %_3 %_376 %_24
                OpStore %_50 %_377
          %_378 = OpAccessChain %_60 %_30 %_61
          %_379 = OpAccessChain %_115 %_378 %_114

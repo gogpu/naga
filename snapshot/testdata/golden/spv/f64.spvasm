@@ -12,9 +12,9 @@
                OpExecutionMode %_27 LocalSize 1 1 1
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 64
-         %_4 = OpConstant %_3 0 1073741824
-         %_5 = OpTypePointer Private %_3
-         %_6 = OpConstant %_3 0 1072693248
+         %_4 = OpConstant %_3 0 1072693248
+         %_5 = OpConstant %_3 0 1073741824
+         %_6 = OpTypePointer Private %_3
          %_8 = OpTypeFunction %_3 %_3
          %_12 = OpTypePointer Function %_3
          %_15 = OpConstant %_3 0 3220176896
@@ -24,7 +24,7 @@
          %_24 = OpConstant %_3 0 1075052544
          %_26 = OpTypeFunction %_2
          %_29 = OpConstant %_3 0 1075314688
-         %_7 = OpVariable %_5 Private %_6
+         %_7 = OpVariable %_6 Private %_4
          %_9 = OpFunction %_3 None %_8
          %_10 = OpFunctionParameter %_3
          %_11 = OpLabel
@@ -36,7 +36,7 @@
          %_21 = OpFAdd %_3 %_19 %_20
                OpStore %_13 %_21
          %_22 = OpFAdd %_3 %_10 %_19
-         %_23 = OpFAdd %_3 %_22 %_4
+         %_23 = OpFAdd %_3 %_22 %_5
          %_25 = OpFAdd %_3 %_23 %_24
                OpReturnValue %_25
                OpFunctionEnd

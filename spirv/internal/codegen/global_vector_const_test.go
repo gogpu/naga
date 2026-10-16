@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/ir"
 )
 
 // A module-scope vector value used as an *operand* used to reach the shader as
@@ -221,4 +223,270 @@ func floatList(values []float32) string {
 		parts[i] = fmt.Sprintf("%g", v)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// The WGSL front-end does not yet produce a Splat, a vector ZeroValue or a
+// vector Constant as a component of a module-scope vector, so these tests build
+// the IR by hand, in the shape Rust naga's front-end gives those initializers.
+
+// Type handles shared by the hand-built modules below.
+const (
+	tF32  ir.TypeHandle = 0
+	tVec2 ir.TypeHandle = 1
+	tVec3 ir.TypeHandle = 2
+	tVec4 ir.TypeHandle = 3
+)
+
+// globalInitModule wraps a global expression arena, its constants and its
+// private variables in an otherwise empty compute shader.
+func globalInitModule(exprs []ir.Expression, constants []ir.Constant, globals []ir.GlobalVariable) *ir.Module {
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	return &ir.Module{
+		Types: []ir.Type{
+			{Inner: f32},
+			{Inner: ir.VectorType{Size: ir.Vec2, Scalar: f32}},
+			{Inner: ir.VectorType{Size: ir.Vec3, Scalar: f32}},
+			{Inner: ir.VectorType{Size: ir.Vec4, Scalar: f32}},
+		},
+		Constants:         constants,
+		GlobalVariables:   globals,
+		GlobalExpressions: exprs,
+		EntryPoints: []ir.EntryPoint{{
+			Name:      "main",
+			Stage:     ir.StageCompute,
+			Workgroup: [3]uint32{1, 1, 1},
+		}},
+	}
+}
+
+func lit(v float32) ir.Expression {
+	return ir.Expression{Kind: ir.Literal{Value: ir.LiteralF32(v)}}
+}
+
+func compileGlobalInitModule(t *testing.T, mod *ir.Module) []byte {
+	t.Helper()
+	spirvBytes, err := NewBackend(DefaultOptions()).Compile(mod)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	validateWithVulkanSDK(t, spirvBytes)
+	return spirvBytes
+}
+
+// assertCompositeLanes checks that some OpConstantComposite has exactly the
+// given lanes, in order: a float, or "null" for an OpConstantNull.
+func assertCompositeLanes(t *testing.T, spirvBytes []byte, lanes ...any) uint32 {
+	t.Helper()
+	instrs := decodeSPIRVInstructions(spirvBytes)
+	laneOf := map[uint32]string{}
+	for _, in := range instrs {
+		switch {
+		case in.opcode == OpConstant && in.wordCount == 4:
+			laneOf[in.words[2]] = fmt.Sprint(math.Float32frombits(in.words[3]))
+		case in.opcode == OpConstantNull:
+			laneOf[in.words[2]] = "null"
+		}
+	}
+	want := make([]string, len(lanes))
+	for i, lane := range lanes {
+		want[i] = fmt.Sprint(lane)
+	}
+	for _, in := range instrs {
+		if in.opcode != OpConstantComposite || len(in.words)-3 != len(want) {
+			continue
+		}
+		match := true
+		for i, constituent := range in.words[3:] {
+			if laneOf[constituent] != want[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return in.words[2]
+		}
+	}
+	t.Fatalf("no OpConstantComposite with lanes %v\n%s", want, disassembleSPIRV(spirvBytes))
+	return 0
+}
+
+// TestGlobalVectorSplatComponent covers vec4(vec3(0.25), 0.75): a Splat is a
+// component of the vector, so it contributes one lane per component.
+func TestGlobalVectorSplatComponent(t *testing.T) {
+	mod := globalInitModule([]ir.Expression{
+		lit(0.25),
+		{Kind: ir.ExprSplat{Size: ir.Vec3, Value: 0}},
+		lit(0.75),
+		{Kind: ir.ExprCompose{Type: tVec4, Components: []ir.ExpressionHandle{1, 2}}},
+	}, []ir.Constant{{Name: "K", Type: tVec4, Init: 3}}, nil)
+
+	spirvBytes := compileGlobalInitModule(t, mod)
+	assertCompositeLanes(t, spirvBytes, 0.25, 0.25, 0.25, 0.75)
+}
+
+// TestGlobalVectorZeroValueComponent covers vec4(vec2<f32>(), 0.5, 0.75): a
+// vector ZeroValue has no scalar expressions, so its lanes are scalar nulls.
+func TestGlobalVectorZeroValueComponent(t *testing.T) {
+	mod := globalInitModule([]ir.Expression{
+		{Kind: ir.ExprZeroValue{Type: tVec2}},
+		lit(0.5),
+		lit(0.75),
+		{Kind: ir.ExprCompose{Type: tVec4, Components: []ir.ExpressionHandle{0, 1, 2}}},
+	}, []ir.Constant{{Name: "K", Type: tVec4, Init: 3}}, nil)
+
+	spirvBytes := compileGlobalInitModule(t, mod)
+	assertCompositeLanes(t, spirvBytes, "null", "null", 0.5, 0.75)
+}
+
+// TestGlobalVectorConstantComponent covers const A = vec2(0.125, 0.375);
+// const B = vec3(A, 0.625): a vector Constant expands into the lanes of its
+// initializer.
+func TestGlobalVectorConstantComponent(t *testing.T) {
+	mod := globalInitModule([]ir.Expression{
+		lit(0.125),
+		lit(0.375),
+		{Kind: ir.ExprCompose{Type: tVec2, Components: []ir.ExpressionHandle{0, 1}}},
+		{Kind: ir.ExprConstant{Constant: 0}},
+		lit(0.625),
+		{Kind: ir.ExprCompose{Type: tVec3, Components: []ir.ExpressionHandle{3, 4}}},
+	}, []ir.Constant{
+		{Name: "A", Type: tVec2, Init: 2},
+		{Name: "B", Type: tVec3, Init: 5},
+	}, nil)
+
+	spirvBytes := compileGlobalInitModule(t, mod)
+	assertCompositeLanes(t, spirvBytes, 0.125, 0.375)
+	assertCompositeLanes(t, spirvBytes, 0.125, 0.375, 0.625)
+}
+
+// TestGlobalVarComposedInitializer covers var<private> V = vec4(A, f32(), 0.875)
+// with A a vector constant, and checks the variable is initialized with it.
+func TestGlobalVarComposedInitializer(t *testing.T) {
+	init := ir.ExpressionHandle(6)
+	mod := globalInitModule([]ir.Expression{
+		lit(0.125),
+		lit(0.375),
+		{Kind: ir.ExprCompose{Type: tVec2, Components: []ir.ExpressionHandle{0, 1}}},
+		{Kind: ir.ExprConstant{Constant: 0}},
+		{Kind: ir.ExprZeroValue{Type: tF32}},
+		lit(0.875),
+		{Kind: ir.ExprCompose{Type: tVec4, Components: []ir.ExpressionHandle{3, 4, 5}}},
+	}, []ir.Constant{{Name: "A", Type: tVec2, Init: 2}}, []ir.GlobalVariable{
+		{Name: "V", Space: ir.SpacePrivate, Type: tVec4, InitExpr: &init},
+	})
+
+	spirvBytes := compileGlobalInitModule(t, mod)
+	compositeID := assertCompositeLanes(t, spirvBytes, 0.125, 0.375, "null", 0.875)
+
+	for _, in := range decodeSPIRVInstructions(spirvBytes) {
+		if in.opcode == OpVariable && StorageClass(in.words[3]) == StorageClassPrivate {
+			if in.wordCount != 5 || in.words[4] != compositeID {
+				t.Fatalf("private variable is not initialized with %%%d\n%s", compositeID, disassembleSPIRV(spirvBytes))
+			}
+			return
+		}
+	}
+	t.Fatalf("no private OpVariable\n%s", disassembleSPIRV(spirvBytes))
+}
+
+// TestGlobalInitOverrideIsAnError checks that an initializer depending on an
+// unprocessed override is reported instead of becoming a silent null.
+func TestGlobalInitOverrideIsAnError(t *testing.T) {
+	mod := globalInitModule([]ir.Expression{
+		{Kind: ir.ExprOverride{Override: 0}},
+		lit(0.5),
+		{Kind: ir.ExprCompose{Type: tVec2, Components: []ir.ExpressionHandle{0, 1}}},
+	}, []ir.Constant{{Name: "K", Type: tVec2, Init: 2}}, nil)
+	mod.Overrides = []ir.Override{{Name: "o", Ty: tF32}}
+
+	_, err := NewBackend(DefaultOptions()).Compile(mod)
+	if err == nil || !strings.Contains(err.Error(), "override") {
+		t.Fatalf("Compile error = %v, want an override error", err)
+	}
+}
+
+// TestGlobalInitOverrideDefaultIsNotAnError checks that an override's own
+// default expression, which no constant or variable uses, does not stop the
+// module from compiling.
+func TestGlobalInitOverrideDefaultIsNotAnError(t *testing.T) {
+	def := ir.ExpressionHandle(2)
+	mod := globalInitModule([]ir.Expression{
+		{Kind: ir.ExprOverride{Override: 0}},
+		lit(2),
+		{Kind: ir.ExprBinary{Op: ir.BinaryMultiply, Left: 0, Right: 1}},
+	}, nil, nil)
+	mod.Overrides = []ir.Override{{Name: "a", Ty: tF32}, {Name: "b", Ty: tF32, Init: &def}}
+
+	compileGlobalInitModule(t, mod)
+}
+
+// TestGlobalInitUnfoldedKeepsFallback pins the fallback kept for a Unary the
+// front-end has not folded yet, such as vec2<f16>(-1.0h, 2.0h): a constant
+// becomes OpConstantNull and a variable has no initializer, rather than the
+// valid shader being rejected.
+func TestGlobalInitUnfoldedKeepsFallback(t *testing.T) {
+	init := ir.ExpressionHandle(3)
+	mod := globalInitModule([]ir.Expression{
+		lit(1),
+		{Kind: ir.ExprUnary{Op: ir.UnaryNegate, Expr: 0}},
+		lit(2),
+		{Kind: ir.ExprCompose{Type: tVec2, Components: []ir.ExpressionHandle{1, 2}}},
+	}, []ir.Constant{{Name: "K", Type: tVec2, Init: 3}}, []ir.GlobalVariable{
+		{Name: "V", Space: ir.SpacePrivate, Type: tVec2, InitExpr: &init},
+	})
+
+	spirvBytes := compileGlobalInitModule(t, mod)
+	for _, in := range decodeSPIRVInstructions(spirvBytes) {
+		if in.opcode == OpVariable && StorageClass(in.words[3]) == StorageClassPrivate && in.wordCount != 4 {
+			t.Fatalf("private variable has an initializer\n%s", disassembleSPIRV(spirvBytes))
+		}
+	}
+}
+
+// TestGlobalInitMalformedVectorIsAnError checks that a vector whose components
+// do not add up to its size is reported, not emitted as invalid SPIR-V.
+func TestGlobalInitMalformedVectorIsAnError(t *testing.T) {
+	mod := globalInitModule([]ir.Expression{
+		lit(0.5),
+		{Kind: ir.ExprCompose{Type: tVec3, Components: []ir.ExpressionHandle{0}}},
+		lit(0.75),
+		{Kind: ir.ExprCompose{Type: tVec4, Components: []ir.ExpressionHandle{1, 2}}},
+	}, []ir.Constant{{Name: "K", Type: tVec4, Init: 3}}, nil)
+
+	_, err := NewBackend(DefaultOptions()).Compile(mod)
+	if err == nil || !strings.Contains(err.Error(), "has 2 components, want 4") {
+		t.Fatalf("Compile error = %v, want a component count error", err)
+	}
+}
+
+// TestGlobalInitForwardOperand covers the arena ir.ProcessOverrides leaves:
+// an override's value appended after the expression that now refers to it.
+func TestGlobalInitForwardOperand(t *testing.T) {
+	mod := globalInitModule([]ir.Expression{
+		{Kind: ir.ExprConstant{Constant: 0}},
+		lit(0.5),
+		{Kind: ir.ExprCompose{Type: tVec2, Components: []ir.ExpressionHandle{0, 1}}},
+		lit(0.25),
+	}, []ir.Constant{
+		{Name: "o", Type: tF32, Init: 3},
+		{Name: "K", Type: tVec2, Init: 2},
+	}, nil)
+
+	spirvBytes := compileGlobalInitModule(t, mod)
+	assertCompositeLanes(t, spirvBytes, 0.25, 0.5)
+}
+
+// TestGlobalInitCycleIsAnError checks that an arena whose expression reaches
+// itself is reported instead of recursing.
+func TestGlobalInitCycleIsAnError(t *testing.T) {
+	mod := globalInitModule([]ir.Expression{
+		{Kind: ir.ExprConstant{Constant: 0}},
+		lit(0.5),
+		{Kind: ir.ExprCompose{Type: tVec2, Components: []ir.ExpressionHandle{0, 1}}},
+	}, []ir.Constant{{Name: "K", Type: tVec2, Init: 2}}, nil)
+
+	_, err := NewBackend(DefaultOptions()).Compile(mod)
+	if err == nil || !strings.Contains(err.Error(), "refers to itself") {
+		t.Fatalf("Compile error = %v, want a cycle error", err)
+	}
 }
