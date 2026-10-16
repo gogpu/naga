@@ -119,8 +119,6 @@ func (e *Emitter) canInlineCallee(callee *ir.Function) bool {
 
 // inlineScanBlock walks a statement block to verify Phase 1 inline gating:
 // rejects nested calls, multiple returns at top level, and oversized bodies.
-//
-//nolint:gocognit // single recursive type-switch over IR statement kinds
 func inlineScanBlock(block ir.Block, count, limit int) (bool, int) {
 	for i := range block {
 		count++

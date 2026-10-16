@@ -66,12 +66,7 @@ func markAliveFromBlock(block ir.Block, fn *ir.Function, alive []bool) {
 func markAliveFromStmt(stmt *ir.Statement, fn *ir.Function, alive []bool) {
 	switch s := stmt.Kind.(type) {
 	case ir.StmtEmit:
-		// Emit makes a range of expressions alive.
-		for h := s.Range.Start; h < s.Range.End; h++ {
-			if int(h) < len(alive) {
-				alive[h] = true
-			}
-		}
+		markRangeAlive(s.Range, alive)
 	case ir.StmtBlock:
 		markAliveFromBlock(s.Block, fn, alive)
 	case ir.StmtIf:
@@ -109,9 +104,7 @@ func markAliveFromStmt(stmt *ir.Statement, fn *ir.Function, alive []bool) {
 		if s.Result != nil {
 			markExprAlive(*s.Result, alive)
 		}
-		if ex, ok := s.Fun.(ir.AtomicExchange); ok && ex.Compare != nil {
-			markExprAlive(*ex.Compare, alive)
-		}
+		markAtomicFunAlive(s.Fun, alive)
 	case ir.StmtImageAtomic:
 		markExprAlive(s.Image, alive)
 		markExprAlive(s.Coordinate, alive)
@@ -119,9 +112,7 @@ func markAliveFromStmt(stmt *ir.Statement, fn *ir.Function, alive []bool) {
 		if s.ArrayIndex != nil {
 			markExprAlive(*s.ArrayIndex, alive)
 		}
-		if ex, ok := s.Fun.(ir.AtomicExchange); ok && ex.Compare != nil {
-			markExprAlive(*ex.Compare, alive)
-		}
+		markAtomicFunAlive(s.Fun, alive)
 	case ir.StmtCall:
 		if s.Result != nil {
 			markExprAlive(*s.Result, alive)
@@ -171,6 +162,20 @@ func markRayQueryAlive(s ir.StmtRayQuery, alive []bool) {
 		// No expressions.
 	case ir.RayQueryConfirmIntersection:
 		// No expressions.
+	}
+}
+
+// markRangeAlive marks every expression of an Emit range as alive.
+func markRangeAlive(r ir.Range, alive []bool) {
+	for h := r.Start; h < r.End; h++ {
+		markExprAlive(h, alive)
+	}
+}
+
+// markAtomicFunAlive marks the comparand of a compare-exchange as alive.
+func markAtomicFunAlive(fun ir.AtomicFunction, alive []bool) {
+	if ex, ok := fun.(ir.AtomicExchange); ok && ex.Compare != nil {
+		markExprAlive(*ex.Compare, alive)
 	}
 }
 
