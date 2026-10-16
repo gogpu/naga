@@ -5207,6 +5207,13 @@ func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
 	if err != nil {
 		return 0, err
 	}
+	// atomicLoad is a Load through a pointer to atomic<T> (there is no atomic
+	// load statement in the IR) and must stay atomic.
+	if space, ok, err := e.atomicPointerSpace(load.Pointer); err != nil {
+		return 0, err
+	} else if ok {
+		return e.emitAtomicLoadInstruction(resultType, pointerID, space)
+	}
 	loadedID := e.backend.builder.AddLoad(resultType, pointerID)
 
 	// Single conversion point: immediately convert layout-free → decorated after
@@ -6111,6 +6118,13 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		valueID, err := e.emitExpression(kind.Value)
 		if err != nil {
 			return err
+		}
+
+		// atomicStore is a Store through a pointer to atomic<T>.
+		if space, ok, err := e.atomicPointerSpace(kind.Pointer); err != nil {
+			return err
+		} else if ok {
+			return e.emitAtomicStoreInstruction(pointerID, valueID, space)
 		}
 
 		// Check for Workgroup ↔ non-Workgroup type mismatch (VUID-StandaloneSpirv-None-10684).
@@ -8878,7 +8892,18 @@ func (e *ExpressionEmitter) emitWorkGroupUniformLoad(stmt ir.StmtWorkGroupUnifor
 	if err != nil {
 		return fmt.Errorf("workgroup uniform load: cannot emit pointer: %w", err)
 	}
-	loadID := e.backend.builder.AddLoad(resultTypeID, pointerID)
+	// workgroupUniformLoad of an atomic<T> is an atomic load (Rust routes this
+	// statement through write_checked_load).
+	var loadID uint32
+	if space, ok, err := e.atomicPointerSpace(stmt.Pointer); err != nil {
+		return err
+	} else if ok {
+		if loadID, err = e.emitAtomicLoadInstruction(resultTypeID, pointerID, space); err != nil {
+			return err
+		}
+	} else {
+		loadID = e.backend.builder.AddLoad(resultTypeID, pointerID)
+	}
 
 	// Cache the result
 	e.exprIDs[stmt.Result] = loadID
@@ -8886,6 +8911,85 @@ func (e *ExpressionEmitter) emitWorkGroupUniformLoad(stmt ir.StmtWorkGroupUnifor
 	// Emit workgroup barrier after load
 	_ = e.emitBarrier(ir.StmtBarrier{Flags: ir.BarrierWorkGroup})
 
+	return nil
+}
+
+// atomicPointerSpace reports whether pointer is a pointer to atomic<T>, and
+// its address space. Rust naga emits OpAtomicLoad / OpAtomicStore for
+// Expression::Load / Statement::Store exactly when the pointer's type is
+// Pointer { base: Atomic, space } (back/spv/block.rs write_checked_load and
+// Statement::Store).
+func (e *ExpressionEmitter) atomicPointerSpace(pointer ir.ExpressionHandle) (ir.AddressSpace, bool, error) {
+	res, err := ir.ResolveExpressionType(e.backend.module, e.function, pointer)
+	if err != nil {
+		return 0, false, fmt.Errorf("pointer type: %w", err)
+	}
+	inner := res.Value
+	if res.Handle != nil {
+		inner = e.backend.module.Types[*res.Handle].Inner
+	}
+	pt, ok := inner.(ir.PointerType)
+	if !ok || int(pt.Base) >= len(e.backend.module.Types) {
+		return 0, false, nil
+	}
+	if _, ok := e.backend.module.Types[pt.Base].Inner.(ir.AtomicType); !ok {
+		return 0, false, nil
+	}
+	return pt.Space, true, nil
+}
+
+// atomicScopeAndSemantics returns the Scope and Memory Semantics operands of an
+// atomic access in space, as Rust naga's AddressSpace::to_spirv_semantics_and_scope
+// (back/spv/helpers.rs): relaxed semantics (WGSL atomics are relaxed); Device
+// scope for storage/uniform/handle, Workgroup for workgroup, Invocation
+// otherwise. The scope is an i32 constant (Writer::get_scope_constant), the
+// semantics a u32 constant (get_index_constant).
+func (b *Backend) atomicScopeAndSemantics(space ir.AddressSpace) (scopeID, semanticsID uint32, err error) {
+	scope := ScopeInvocation
+	switch space {
+	case ir.SpaceStorage, ir.SpaceUniform, ir.SpaceHandle:
+		scope = ScopeDevice
+	case ir.SpaceWorkGroup:
+		scope = ScopeWorkgroup
+	}
+	if scopeID, err = b.emitI32Constant(int32(scope)); err != nil {
+		return 0, 0, err
+	}
+	if semanticsID, err = b.emitU32Constant(MemorySemanticsNone); err != nil {
+		return 0, 0, err
+	}
+	return scopeID, semanticsID, nil
+}
+
+// emitAtomicLoadInstruction emits OpAtomicLoad ResultType Result Pointer Scope Semantics.
+func (e *ExpressionEmitter) emitAtomicLoadInstruction(resultTypeID, pointerID uint32, space ir.AddressSpace) (uint32, error) {
+	scopeID, semanticsID, err := e.backend.atomicScopeAndSemantics(space)
+	if err != nil {
+		return 0, err
+	}
+	resultID := e.backend.builder.AllocID()
+	builder := e.newIB()
+	builder.AddWord(resultTypeID)
+	builder.AddWord(resultID)
+	builder.AddWord(pointerID)
+	builder.AddWord(scopeID)
+	builder.AddWord(semanticsID)
+	e.backend.builder.funcAppend(builder.Build(OpAtomicLoad))
+	return resultID, nil
+}
+
+// emitAtomicStoreInstruction emits OpAtomicStore Pointer Scope Semantics Value.
+func (e *ExpressionEmitter) emitAtomicStoreInstruction(pointerID, valueID uint32, space ir.AddressSpace) error {
+	scopeID, semanticsID, err := e.backend.atomicScopeAndSemantics(space)
+	if err != nil {
+		return err
+	}
+	builder := e.newIB()
+	builder.AddWord(pointerID)
+	builder.AddWord(scopeID)
+	builder.AddWord(semanticsID)
+	builder.AddWord(valueID)
+	e.backend.builder.funcAppend(builder.Build(OpAtomicStore))
 	return nil
 }
 

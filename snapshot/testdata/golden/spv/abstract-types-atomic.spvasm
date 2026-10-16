@@ -45,7 +45,7 @@
          %_15 = OpFunction %_2 None %_14
          %_16 = OpLabel
          %_19 = OpAccessChain %_17 %_10 %_18
-               OpStore %_19 %_20
+         OpAtomicStore %_19 %_20 %_18 %_20
          %_21 = OpAccessChain %_17 %_10 %_18
          OpAtomicCompareExchange %_3 %_24 %_21 %_22 %_23 %_25 %_20 %_20
          %_26 = OpSignBitSet %_5 %_24 %_20
@@ -75,7 +75,7 @@
          %_48 = OpFunction %_2 None %_14
          %_49 = OpLabel
          %_51 = OpAccessChain %_50 %_13 %_18
-               OpStore %_51 %_22
+         OpAtomicStore %_51 %_20 %_18 %_22
          %_52 = OpAccessChain %_50 %_13 %_18
          OpAtomicCompareExchange %_4 %_53 %_52 %_22 %_23 %_25 %_22 %_22
          %_54 = OpSignBitSet %_5 %_53 %_22

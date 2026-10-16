@@ -569,6 +569,8 @@ const (
 	ScopeDevice    uint32 = 1 // Visible to all invocations in the device
 	ScopeWorkgroup uint32 = 2 // Visible to all invocations in the workgroup
 	ScopeSubgroup  uint32 = 3 // Visible to all invocations in the subgroup
+	// ScopeInvocation is visible to the current invocation only.
+	ScopeInvocation uint32 = 4
 )
 
 // Memory semantics for atomic operations

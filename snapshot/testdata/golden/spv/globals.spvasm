@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 283
+; Bound: 284
 ; Schema: 0
 
                OpCapability Shader
@@ -140,6 +140,7 @@
          %_240 = OpConstant %_5 3
          %_241 = OpTypePointer Uniform %_4
          %_277 = OpConstant %_4 1082130432
+         %_283 = OpConstant %_23 2
          %_28 = OpVariable %_27 Workgroup
          %_30 = OpVariable %_29 Workgroup
          %_33 = OpVariable %_32 StorageBuffer
@@ -362,6 +363,6 @@
          %_281 = OpConvertUToF %_4 %_280
          %_282 = OpAccessChain %_160 %_28 %_218
                OpStore %_282 %_281
-               OpStore %_30 %_17
+         OpAtomicStore %_30 %_283 %_63 %_17
                OpReturn
                OpFunctionEnd

@@ -60,8 +60,12 @@ const (
 	reasonSPVWorkgroupLayoutFree = "workgroup variables use layout-free types plus OpCopyLogical " +
 		"(VUID-StandaloneSpirv-None-10684); OpCopyLogical needs SPIR-V 1.4, so the module is 1.4 and its " +
 		"OpEntryPoint lists every global the entry point uses, where Rust emits 1.1 with Input/Output only"
-	reasonSPVAtomicLoadStore = "atomicLoad/atomicStore are emitted as plain OpLoad/OpStore instead of " +
-		"OpAtomicLoad/OpAtomicStore (a data race on the GPU; spirv-val cannot see it)"
+	reasonSPVAtomicRMWOperands = "read-modify-write atomics use a u32 Scope constant, Device scope even for " +
+		"workgroup data and AcquireRelease|UniformMemory semantics, where Rust uses an i32 Scope by address " +
+		"space and relaxed semantics"
+	reasonSPVDeadPointerLoads = "Emit materializes pointer-typed Access/AccessIndex expressions as an access " +
+		"chain plus a dead OpLoad (and OpCopyLogical for workgroup data) where Rust emits nothing until the " +
+		"pointer is used; on atomic data that dead load is a non-atomic read"
 	reasonSPVPerEntryPoint = "Rust writes one SPIR-V module per entry point ([spv] separate_entry_points, " +
 		"spv::PipelineOptions); the spirv package cannot restrict output to one entry point"
 	reasonProcessOverrides = "ir.ProcessOverrides does not match Rust's process_overrides: it skips the " +
@@ -112,11 +116,12 @@ var rustDeviations = []rustDeviation{
 			"decorations where Rust emits 2",
 		Card: "BUG-SPV-BINDING-ARRAY-001", Fingerprint: "b2c9f81bf6f648311c7331e16b15925a8e2351bcdb07e6b1009bc67530e10bbf"},
 	{Shader: "atomicOps", File: "wgsl-atomicOps.spvasm", Kind: deviationBug,
-		Reason: reasonSPVAtomicLoadStore + "; also " + reasonSPVWorkgroupLayoutFree,
-		Card:   "BUG-SPV-ATOMIC-001", Fingerprint: "6c0e37a05e339c480f185bb7ad231ae21c62671a63ff445c260c22bf43c2d74b"},
+		Reason: reasonSPVAtomicRMWOperands + "; also " + reasonSPVDeadPointerLoads + "; and " +
+			reasonSPVWorkgroupLayoutFree,
+		Card: "BUG-SPV-ATOMIC-001", Fingerprint: "6c0e37a05e339c480f185bb7ad231ae21c62671a63ff445c260c22bf43c2d74b"},
 	{Shader: "atomicOps-int64", File: "wgsl-atomicOps-int64.spvasm", Kind: deviationBug,
-		Reason: reasonSPVAtomicLoadStore + "; also " + reasonSPVWorkgroupLayoutFree + "; and atomic Scope " +
-			"operands use u32 constants where Rust uses i32 (equivalent per spec)",
+		Reason: reasonSPVAtomicRMWOperands + "; also " + reasonSPVDeadPointerLoads + "; and " +
+			reasonSPVWorkgroupLayoutFree,
 		Card: "BUG-SPV-ATOMIC-001", Fingerprint: "d353f3fc9350e17fb03dd01d98f2523cd89a7c9be886500626afb5fe4ab16f26"},
 	{Shader: "workgroup-var-init", File: "wgsl-workgroup-var-init.spvasm", Kind: deviationBug,
 		Reason: reasonSPVWorkgroupLayoutFree + "; also w_mem.arr is loaded and copied twice (the first " +
