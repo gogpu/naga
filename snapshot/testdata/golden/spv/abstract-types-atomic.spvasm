@@ -1,15 +1,15 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 80
+; Bound: 78
 ; Schema: 0
 
                OpCapability Shader
          OpExtension %_1599492179 %_1599227979 %_1919906931 %_1600481121 %_1717990754 %_1935635045 %_1634889588 %_1667196263 %_1936941420 %_0
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_76 "main"
-               OpExecutionMode %_76 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_74 "main"
+               OpExecutionMode %_74 LocalSize 1 1 1
                OpMemberDecorate %_6 0 Offset 0
                OpMemberDecorate %_6 1 Offset 4
                OpMemberDecorate %_7 0 Offset 0
@@ -36,10 +36,8 @@
          %_17 = OpTypePointer StorageBuffer %_3
          %_18 = OpConstant %_4 0
          %_20 = OpConstant %_3 1
-         %_22 = OpConstant %_4 1
-         %_23 = OpConstant %_4 72
-         %_25 = OpConstant %_4 66
-         %_50 = OpTypePointer StorageBuffer %_4
+         %_47 = OpTypePointer StorageBuffer %_4
+         %_49 = OpConstant %_4 1
          %_10 = OpVariable %_9 StorageBuffer
          %_13 = OpVariable %_12 StorageBuffer
          %_15 = OpFunction %_2 None %_14
@@ -47,64 +45,64 @@
          %_19 = OpAccessChain %_17 %_10 %_18
          OpAtomicStore %_19 %_20 %_18 %_20
          %_21 = OpAccessChain %_17 %_10 %_18
-         OpAtomicCompareExchange %_3 %_24 %_21 %_22 %_23 %_25 %_20 %_20
-         %_26 = OpSignBitSet %_5 %_24 %_20
-         %_27 = OpCompositeConstruct %_6 %_24 %_26
-         %_28 = OpAccessChain %_17 %_10 %_18
-         OpAtomicCompareExchange %_3 %_29 %_28 %_22 %_23 %_25 %_20 %_20
-         %_30 = OpSignBitSet %_5 %_29 %_20
-         %_31 = OpCompositeConstruct %_6 %_29 %_30
-         %_32 = OpAccessChain %_17 %_10 %_18
-         OpAtomicIAdd %_3 %_33 %_32 %_22 %_23 %_20
-         %_34 = OpAccessChain %_17 %_10 %_18
-         OpAtomicISub %_3 %_35 %_34 %_22 %_23 %_20
-         %_36 = OpAccessChain %_17 %_10 %_18
-         OpAtomicAnd %_3 %_37 %_36 %_22 %_23 %_20
-         %_38 = OpAccessChain %_17 %_10 %_18
-         OpAtomicXor %_3 %_39 %_38 %_22 %_23 %_20
-         %_40 = OpAccessChain %_17 %_10 %_18
-         OpAtomicOr %_3 %_41 %_40 %_22 %_23 %_20
-         %_42 = OpAccessChain %_17 %_10 %_18
-         OpAtomicSMin %_3 %_43 %_42 %_22 %_23 %_20
-         %_44 = OpAccessChain %_17 %_10 %_18
-         OpAtomicSMax %_3 %_45 %_44 %_22 %_23 %_20
-         %_46 = OpAccessChain %_17 %_10 %_18
-         OpAtomicExchange %_3 %_47 %_46 %_22 %_23 %_20
+         OpAtomicCompareExchange %_3 %_22 %_21 %_20 %_18 %_18 %_20 %_20
+         %_23 = OpSignBitSet %_5 %_22 %_20
+         %_24 = OpCompositeConstruct %_6 %_22 %_23
+         %_25 = OpAccessChain %_17 %_10 %_18
+         OpAtomicCompareExchange %_3 %_26 %_25 %_20 %_18 %_18 %_20 %_20
+         %_27 = OpSignBitSet %_5 %_26 %_20
+         %_28 = OpCompositeConstruct %_6 %_26 %_27
+         %_29 = OpAccessChain %_17 %_10 %_18
+         OpAtomicIAdd %_3 %_30 %_29 %_20 %_18 %_20
+         %_31 = OpAccessChain %_17 %_10 %_18
+         OpAtomicISub %_3 %_32 %_31 %_20 %_18 %_20
+         %_33 = OpAccessChain %_17 %_10 %_18
+         OpAtomicAnd %_3 %_34 %_33 %_20 %_18 %_20
+         %_35 = OpAccessChain %_17 %_10 %_18
+         OpAtomicXor %_3 %_36 %_35 %_20 %_18 %_20
+         %_37 = OpAccessChain %_17 %_10 %_18
+         OpAtomicOr %_3 %_38 %_37 %_20 %_18 %_20
+         %_39 = OpAccessChain %_17 %_10 %_18
+         OpAtomicSMin %_3 %_40 %_39 %_20 %_18 %_20
+         %_41 = OpAccessChain %_17 %_10 %_18
+         OpAtomicSMax %_3 %_42 %_41 %_20 %_18 %_20
+         %_43 = OpAccessChain %_17 %_10 %_18
+         OpAtomicExchange %_3 %_44 %_43 %_20 %_18 %_20
                OpReturn
                OpFunctionEnd
-         %_48 = OpFunction %_2 None %_14
-         %_49 = OpLabel
-         %_51 = OpAccessChain %_50 %_13 %_18
-         OpAtomicStore %_51 %_20 %_18 %_22
-         %_52 = OpAccessChain %_50 %_13 %_18
-         OpAtomicCompareExchange %_4 %_53 %_52 %_22 %_23 %_25 %_22 %_22
-         %_54 = OpSignBitSet %_5 %_53 %_22
-         %_55 = OpCompositeConstruct %_7 %_53 %_54
-         %_56 = OpAccessChain %_50 %_13 %_18
-         OpAtomicCompareExchange %_4 %_57 %_56 %_22 %_23 %_25 %_22 %_22
-         %_58 = OpSignBitSet %_5 %_57 %_22
-         %_59 = OpCompositeConstruct %_7 %_57 %_58
-         %_60 = OpAccessChain %_50 %_13 %_18
-         OpAtomicIAdd %_4 %_61 %_60 %_22 %_23 %_22
-         %_62 = OpAccessChain %_50 %_13 %_18
-         OpAtomicISub %_4 %_63 %_62 %_22 %_23 %_22
-         %_64 = OpAccessChain %_50 %_13 %_18
-         OpAtomicAnd %_4 %_65 %_64 %_22 %_23 %_22
-         %_66 = OpAccessChain %_50 %_13 %_18
-         OpAtomicXor %_4 %_67 %_66 %_22 %_23 %_22
-         %_68 = OpAccessChain %_50 %_13 %_18
-         OpAtomicOr %_4 %_69 %_68 %_22 %_23 %_22
-         %_70 = OpAccessChain %_50 %_13 %_18
-         OpAtomicUMin %_4 %_71 %_70 %_22 %_23 %_22
-         %_72 = OpAccessChain %_50 %_13 %_18
-         OpAtomicUMax %_4 %_73 %_72 %_22 %_23 %_22
-         %_74 = OpAccessChain %_50 %_13 %_18
-         OpAtomicExchange %_4 %_75 %_74 %_22 %_23 %_22
+         %_45 = OpFunction %_2 None %_14
+         %_46 = OpLabel
+         %_48 = OpAccessChain %_47 %_13 %_18
+         OpAtomicStore %_48 %_20 %_18 %_49
+         %_50 = OpAccessChain %_47 %_13 %_18
+         OpAtomicCompareExchange %_4 %_51 %_50 %_20 %_18 %_18 %_49 %_49
+         %_52 = OpSignBitSet %_5 %_51 %_49
+         %_53 = OpCompositeConstruct %_7 %_51 %_52
+         %_54 = OpAccessChain %_47 %_13 %_18
+         OpAtomicCompareExchange %_4 %_55 %_54 %_20 %_18 %_18 %_49 %_49
+         %_56 = OpSignBitSet %_5 %_55 %_49
+         %_57 = OpCompositeConstruct %_7 %_55 %_56
+         %_58 = OpAccessChain %_47 %_13 %_18
+         OpAtomicIAdd %_4 %_59 %_58 %_20 %_18 %_49
+         %_60 = OpAccessChain %_47 %_13 %_18
+         OpAtomicISub %_4 %_61 %_60 %_20 %_18 %_49
+         %_62 = OpAccessChain %_47 %_13 %_18
+         OpAtomicAnd %_4 %_63 %_62 %_20 %_18 %_49
+         %_64 = OpAccessChain %_47 %_13 %_18
+         OpAtomicXor %_4 %_65 %_64 %_20 %_18 %_49
+         %_66 = OpAccessChain %_47 %_13 %_18
+         OpAtomicOr %_4 %_67 %_66 %_20 %_18 %_49
+         %_68 = OpAccessChain %_47 %_13 %_18
+         OpAtomicUMin %_4 %_69 %_68 %_20 %_18 %_49
+         %_70 = OpAccessChain %_47 %_13 %_18
+         OpAtomicUMax %_4 %_71 %_70 %_20 %_18 %_49
+         %_72 = OpAccessChain %_47 %_13 %_18
+         OpAtomicExchange %_4 %_73 %_72 %_20 %_18 %_49
                OpReturn
                OpFunctionEnd
-         %_76 = OpFunction %_2 None %_14
-         %_77 = OpLabel
-         %_78 = OpFunctionCall %_2 %_15
-         %_79 = OpFunctionCall %_2 %_48
+         %_74 = OpFunction %_2 None %_14
+         %_75 = OpLabel
+         %_76 = OpFunctionCall %_2 %_15
+         %_77 = OpFunctionCall %_2 %_45
                OpReturn
                OpFunctionEnd

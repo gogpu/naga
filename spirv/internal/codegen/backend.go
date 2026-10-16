@@ -9087,43 +9087,26 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		return err
 	}
 
-	// Scope and memory semantics constants
-	_atomicTypeID1, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	// Scope and semantics follow the pointer's address space, as for every
+	// atomic in Rust's Statement::Atomic.
+	space, isAtomic, err := e.atomicPointerSpace(stmt.Pointer)
 	if err != nil {
 		return err
 	}
-	scopeID := e.backend.builder.AddConstant(
-		_atomicTypeID1,
-		ScopeDevice,
-	)
-	_atomicTypeID2, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	if !isAtomic {
+		return fmt.Errorf("atomic statement: pointer expression %d is not a pointer to atomic<T>", stmt.Pointer)
+	}
+	scopeID, semanticsID, err := e.backend.atomicScopeAndSemantics(space)
 	if err != nil {
 		return err
 	}
-	semanticsID := e.backend.builder.AddConstant(
-		_atomicTypeID2,
-		MemorySemanticsAcquireRelease|MemorySemanticsUniformMemory,
-	)
 
-	// Handle AtomicLoad: OpAtomicLoad ResultType Result Pointer Scope Semantics (no value)
-	// SPIR-V requires Acquire semantics (not AcquireRelease) for loads.
+	// Legacy ir.AtomicLoad: encoded like a Load through an atomic pointer.
 	if _, ok := stmt.Fun.(ir.AtomicLoad); ok {
-		_atomicTypeID3, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+		resultID, err := e.emitAtomicLoadInstruction(resultTypeID, pointerID, space)
 		if err != nil {
 			return err
 		}
-		acquireSemID := e.backend.builder.AddConstant(
-			_atomicTypeID3,
-			MemorySemanticsAcquire|MemorySemanticsUniformMemory,
-		)
-		resultID := e.backend.builder.AllocID()
-		builder := e.newIB()
-		builder.AddWord(resultTypeID)
-		builder.AddWord(resultID)
-		builder.AddWord(pointerID)
-		builder.AddWord(scopeID)
-		builder.AddWord(acquireSemID)
-		e.backend.builder.funcAppend(builder.Build(OpAtomicLoad))
 		if stmt.Result != nil {
 			e.exprIDs[*stmt.Result] = resultID
 			if err := e.processDeferredStores(*stmt.Result, resultID); err != nil {
@@ -9144,24 +9127,9 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		return e.emitAtomicCompareExchange(stmt, pointerID, valueID, resultTypeID, scopeID, semanticsID, *exchange.Compare)
 	}
 
-	// Handle AtomicStore: OpAtomicStore Pointer Scope Semantics Value (no result)
-	// SPIR-V requires Release semantics (not AcquireRelease) for stores.
+	// Legacy ir.AtomicStore: encoded like a Store through an atomic pointer.
 	if _, ok := stmt.Fun.(ir.AtomicStore); ok {
-		_atomicTypeID4, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-		if err != nil {
-			return err
-		}
-		releaseSemID := e.backend.builder.AddConstant(
-			_atomicTypeID4,
-			MemorySemanticsRelease|MemorySemanticsUniformMemory,
-		)
-		builder := e.newIB()
-		builder.AddWord(pointerID)
-		builder.AddWord(scopeID)
-		builder.AddWord(releaseSemID)
-		builder.AddWord(valueID)
-		e.backend.builder.funcAppend(builder.Build(OpAtomicStore))
-		return nil
+		return e.emitAtomicStoreInstruction(pointerID, valueID, space)
 	}
 
 	opcode, ok := atomicOpcode(stmt.Fun, scalarKind)
@@ -9211,19 +9179,10 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	builder.AddWord(casResultID)
 	builder.AddWord(pointerID)
 	builder.AddWord(scopeID)
-	builder.AddWord(semanticsID) // MemSemEqual
-	// MemSemUnequal: SPIR-V spec (VUID-10875) forbids Release/AcquireRelease
-	// for the "unequal" operand. Use Acquire instead (satisfies VUID-10871 which
-	// requires non-relaxed order when storage class semantics bits are set).
-	_atomicTypeID5, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	if err != nil {
-		return err
-	}
-	unequalSemID := e.backend.builder.AddConstant(
-		_atomicTypeID5,
-		MemorySemanticsAcquire|MemorySemanticsUniformMemory,
-	)
-	builder.AddWord(unequalSemID) // MemSemUnequal (Acquire, not AcquireRelease)
+	// Relaxed for both outcomes, as in Rust: with no ordering bits set, the
+	// Release/AcquireRelease restriction on the unequal operand cannot apply.
+	builder.AddWord(semanticsID) // Equal
+	builder.AddWord(semanticsID) // Unequal
 	builder.AddWord(valueID)
 	builder.AddWord(compareID)
 	e.backend.builder.funcAppend(builder.Build(OpAtomicCompareExch))

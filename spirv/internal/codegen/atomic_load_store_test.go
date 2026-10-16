@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -468,6 +469,83 @@ fn main() {
 				if got[accessAtomicLoad] != 0 || got[accessAtomicStore] != 0 || got[accessAtomicRMW] != 0 {
 					t.Errorf("%s: atomic access to non-atomic data: %v", root, got)
 				}
+			}
+		})
+	}
+}
+
+// TestAtomicReadModifyWriteScopeAndSemantics pins the operands of every other
+// atomic instruction to Rust's Statement::Atomic (back/spv/block.rs): the
+// scope of the pointer's address space as an i32 constant (workgroup data is
+// Workgroup, not Device) and relaxed semantics — WGSL atomics are relaxed —
+// for both semantics operands of OpAtomicCompareExchange.
+func TestAtomicReadModifyWriteScopeAndSemantics(t *testing.T) {
+	const ops = `
+    atomicAdd(&P, V);
+    atomicSub(&P, V);
+    atomicMin(&P, V);
+    atomicMax(&P, V);
+    atomicAnd(&P, V);
+    atomicOr(&P, V);
+    atomicXor(&P, V);
+    atomicExchange(&P, V);
+    atomicCompareExchangeWeak(&P, V, V);
+`
+	expand := func(ptr, value string) string {
+		return strings.NewReplacer("P", ptr, "V", value).Replace(ops)
+	}
+	tests := []struct {
+		name   string
+		source string
+		roots  map[string]uint32 // root → wanted scope; each gets all 9 operations
+	}{
+		{
+			name: "storage_and_workgroup_32bit",
+			source: `
+struct S {
+    a: atomic<i32>,
+}
+@group(0) @binding(0) var<storage, read_write> s_u32: atomic<u32>;
+@group(0) @binding(1) var<storage, read_write> s_struct: S;
+var<workgroup> w_i32: atomic<i32>;
+var<workgroup> w_arr: array<atomic<u32>, 2>;
+
+@compute @workgroup_size(1)
+fn main() {` + expand("s_u32", "1u") + expand("s_struct.a", "1i") +
+				expand("w_i32", "1i") + expand("w_arr[1]", "1u") + `}
+`,
+			roots: map[string]uint32{
+				"binding0":   ScopeDevice,    // s_u32
+				"binding1":   ScopeDevice,    // s_struct
+				"workgroup0": ScopeWorkgroup, // w_i32
+				"workgroup1": ScopeWorkgroup, // w_arr
+			},
+		},
+		{
+			name: "storage_and_workgroup_64bit",
+			source: `
+@group(0) @binding(0) var<storage, read_write> s_u64: atomic<u64>;
+var<workgroup> w_i64: atomic<i64>;
+
+@compute @workgroup_size(1)
+fn main() {` + expand("s_u64", "1lu") + expand("w_i64", "1li") + `}
+`,
+			roots: map[string]uint32{
+				"binding0":   ScopeDevice,    // s_u64
+				"workgroup0": ScopeWorkgroup, // w_i64
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			accesses := collectMemAccesses(t, compileAtomicTestShader(t, tt.source))
+			counts := accessCounts(accesses)
+			for root, scope := range tt.roots {
+				if got := counts[root][accessAtomicRMW]; got != 9 {
+					t.Errorf("%s: %d read-modify-write atomics, want 9", root, got)
+				}
+				checkAtomicOperands(t, accesses, root, scope)
 			}
 		})
 	}

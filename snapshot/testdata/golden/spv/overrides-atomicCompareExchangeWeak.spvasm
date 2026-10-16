@@ -27,9 +27,9 @@
          %_23 = OpConstantNull %_4
          %_24 = OpConstant %_4 2
          %_25 = OpConstant %_4 264
-         %_28 = OpConstant %_4 1
-         %_29 = OpConstant %_4 72
-         %_31 = OpConstant %_4 66
+         %_28 = OpConstant %_3 2
+         %_29 = OpConstant %_4 0
+         %_30 = OpConstant %_4 1
          %_9 = OpVariable %_8 Workgroup
          %_15 = OpVariable %_14 Input
          %_11 = OpFunction %_2 None %_10
@@ -47,8 +47,8 @@
                OpBranch %_26
          %_26 = OpLabel
          %_27 = OpBitcast %_4 %_7
-         OpAtomicCompareExchange %_4 %_30 %_9 %_28 %_29 %_31 %_28 %_27
-         %_32 = OpSignBitSet %_5 %_30 %_27
-         %_33 = OpCompositeConstruct %_6 %_30 %_32
+         OpAtomicCompareExchange %_4 %_31 %_9 %_28 %_29 %_29 %_30 %_27
+         %_32 = OpSignBitSet %_5 %_31 %_27
+         %_33 = OpCompositeConstruct %_6 %_31 %_32
                OpReturn
                OpFunctionEnd
