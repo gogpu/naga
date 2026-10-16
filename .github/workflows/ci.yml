@@ -88,10 +88,12 @@ jobs:
           go-version: '1.25'
           cache: true
 
+      # Pinned: with "latest" a new release changes the result for an
+      # unchanged commit. Upgrade deliberately, together with its findings.
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.14.0
           args: --timeout=5m
 
   formatting:
