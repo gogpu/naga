@@ -1267,15 +1267,17 @@ func TestIndexByValueSpillsToFunction(t *testing.T) {
 				Function: ir.Function{
 					LocalVars: []ir.LocalVariable{
 						{Name: "arr", Type: arrHandle},
+						{Name: "i", Type: i32Handle},
 					},
 					Expressions: []ir.Expression{
-						{Kind: ir.ExprLocalVariable{Variable: 0}},   // [0] &arr (pointer)
-						{Kind: ir.ExprLoad{Pointer: 0}},             // [1] arr (value)
-						{Kind: ir.Literal{Value: ir.LiteralI32(2)}}, // [2] index 2
-						{Kind: ir.ExprAccess{Base: 1, Index: 2}},    // [3] arr[2] — by-value access
+						{Kind: ir.ExprLocalVariable{Variable: 0}}, // [0] &arr (pointer)
+						{Kind: ir.ExprLoad{Pointer: 0}},           // [1] arr (value)
+						{Kind: ir.ExprLocalVariable{Variable: 1}}, // [2] &i
+						{Kind: ir.ExprLoad{Pointer: 2}},           // [3] i (runtime index)
+						{Kind: ir.ExprAccess{Base: 1, Index: 3}},  // [4] arr[i] — by-value access
 					},
 					Body: []ir.Statement{
-						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
+						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
 					},
 				},
 				Workgroup: [3]uint32{1, 1, 1},
@@ -1292,6 +1294,46 @@ func TestIndexByValueSpillsToFunction(t *testing.T) {
 	// Should have OpAccessChain (spill to Function variable)
 	if !divmodHasOpcode(spvBytes, OpAccessChain) {
 		t.Error("by-value array indexing should spill to Function variable and use OpAccessChain")
+	}
+}
+
+// TestIndexByValueKnownIndexExtracts: an Access by value whose index is known
+// at translation time becomes OpCompositeExtract, without a spill, as in Rust
+// naga's cache_expression_value (GuardedIndex::Known).
+func TestIndexByValueKnownIndexExtracts(t *testing.T) {
+	i32Handle := ir.TypeHandle(0)
+	arrHandle := ir.TypeHandle(1)
+	arrSize := uint32(5)
+	module := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
+			{Inner: ir.ArrayType{Base: i32Handle, Size: ir.ArraySize{Constant: &arrSize}, Stride: 4}},
+		},
+		EntryPoints: []ir.EntryPoint{{
+			Name:  "main",
+			Stage: ir.StageCompute,
+			Function: ir.Function{
+				LocalVars: []ir.LocalVariable{{Name: "arr", Type: arrHandle}},
+				Expressions: []ir.Expression{
+					{Kind: ir.ExprLocalVariable{Variable: 0}},
+					{Kind: ir.ExprLoad{Pointer: 0}},
+					{Kind: ir.Literal{Value: ir.LiteralI32(2)}},
+					{Kind: ir.ExprAccess{Base: 1, Index: 2}},
+				},
+				Body: []ir.Statement{{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}}},
+			},
+			Workgroup: [3]uint32{1, 1, 1},
+		}},
+	}
+	spvBytes, err := NewBackend(DefaultOptions()).Compile(module)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if divmodHasOpcode(spvBytes, OpAccessChain) {
+		t.Error("a known index into an array value should not spill it")
+	}
+	if !divmodHasOpcode(spvBytes, OpCompositeExtract) {
+		t.Error("a known index into an array value should use OpCompositeExtract")
 	}
 }
 

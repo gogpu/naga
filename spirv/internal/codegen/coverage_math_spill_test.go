@@ -252,7 +252,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
 // ---------------------------------------------------------------------------
 // Spill-to-variable path — 0% for spillToInternalVariable,
-// maybeAccessSpilledComposite, writeSpilledAccessChain.
+// maybeAccessSpilledComposite.
 // Triggered when accessing fields of a struct returned by a function call
 // and the access chain requires a temporary variable.
 // ---------------------------------------------------------------------------

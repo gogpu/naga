@@ -70,26 +70,30 @@ type Options struct {
 	RayQueryInitTracking bool
 }
 
-// BoundsCheckPolicy controls how out-of-bounds resource accesses are handled.
+// BoundsCheckPolicy selects how generated code handles an out-of-bounds
+// index; see spirv.BoundsCheckPolicy.
 type BoundsCheckPolicy uint8
 
 const (
-	// BoundsCheckUnchecked performs no bounds checking (default).
+	// BoundsCheckUnchecked adds no checks (default).
 	BoundsCheckUnchecked BoundsCheckPolicy = iota
-	// BoundsCheckRestrict clamps coordinates/level/sample to valid range.
+	// BoundsCheckRestrict replaces an out-of-bounds index with an in-bounds one.
 	BoundsCheckRestrict
-	// BoundsCheckReadZeroSkipWrite returns zero for out-of-bounds reads, skips writes.
+	// BoundsCheckReadZeroSkipWrite reads zero and skips writes out of bounds.
 	BoundsCheckReadZeroSkipWrite
 )
 
-// BoundsCheckPolicies holds per-resource-type bounds check policies.
+// BoundsCheckPolicies selects a BoundsCheckPolicy per kind of access; see
+// spirv.BoundsCheckPolicies. Mirrors Rust naga's proc::BoundsCheckPolicies.
 type BoundsCheckPolicies struct {
-	// ImageLoad controls bounds checking for image load operations.
-	ImageLoad BoundsCheckPolicy
-	// ImageStore controls bounds checking for image store operations.
-	ImageStore BoundsCheckPolicy
-	// Index controls bounds checking for buffer index operations.
+	// Index: indices outside storage and uniform buffers.
 	Index BoundsCheckPolicy
+	// Buffer: indices into storage and uniform globals.
+	Buffer BoundsCheckPolicy
+	// ImageLoad: image load coordinates, array index, level and sample.
+	ImageLoad BoundsCheckPolicy
+	// BindingArray: indices into binding arrays.
+	BindingArray BoundsCheckPolicy
 }
 
 // DefaultOptions returns sensible default options.

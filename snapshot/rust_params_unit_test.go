@@ -71,6 +71,18 @@ func TestParseRustParams(t *testing.T) {
 			content: "label = \"a [ b { c\"\ntargets = \"HLSL\"\n",
 			want:    rustParams{targets: rustTargetHLSL},
 		},
+		{
+			name: "every bounds check policy field",
+			content: "targets = \"SPIRV\"\n[bounds_check_policies]\nindex = \"Restrict\"\n" +
+				"buffer = \"ReadZeroSkipWrite\"\nimage_load = \"Restrict\"\nbinding_array = \"Unchecked\"\n",
+			want: rustParams{targets: rustTargetSPIRV, boundsCheckPolicies: rustBoundsCheckPolicies{
+				index: rustRestrict, buffer: rustReadZeroSkipWrite, imageLoad: rustRestrict, bindingArray: rustUnchecked}},
+		},
+		{
+			name:    "absent bounds check policies are Unchecked",
+			content: "targets = \"SPIRV\"\n[bounds_check_policies]\nbuffer = \"ReadZeroSkipWrite\"\n",
+			want:    rustParams{targets: rustTargetSPIRV, boundsCheckPolicies: rustBoundsCheckPolicies{buffer: rustReadZeroSkipWrite}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -100,6 +112,9 @@ func TestParseRustParamsRejectsMalformedInput(t *testing.T) {
 		{"unterminated array", "glsl_exclude_list = [\"a\",\n", "unterminated"},
 		{"line without key", "targets\n", "key = value"},
 		{"unterminated section", "[spv\n", "section"},
+		{"unknown bounds check field", "[bounds_check_policies]\nimage_store = \"Restrict\"\n", "image_store"},
+		{"unknown bounds check policy", "[bounds_check_policies]\nindex = \"Clamp\"\n", "Clamp"},
+		{"bounds check policy not a string", "[bounds_check_policies]\nindex = 1\n", "index"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

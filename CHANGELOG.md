@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`naga.CompileOptions.BoundsCheckPolicies`** — passes SPIR-V bounds-check
+  policies through the one-call compile API.
+- **`ir.ConstIndexValue` and `ir.IndexableLengthOf`** — the index and length
+  rules of a bounds check (Rust naga's `GuardedIndex::from_expression` and
+  `TypeInner::indexable_length`), shared by the backends.
+
 - **`(*ir.Module).Clone`** — a deep copy of a module: nothing in the copy is
   shared with the original, so either can change without affecting the other.
   Like Rust naga's `#[derive(Clone)]` on `Module`, the copy follows the IR
@@ -72,6 +78,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference comparison run on Linux, Windows and macOS instead of being skipped.
   golangci-lint is pinned to v2.14.0.
 
+- **Snapshot tests read `[bounds_check_policies]` once and strictly** — one
+  parser mirrors Rust naga's `BoundsCheckPolicies` (`index`, `buffer`,
+  `image_load`, `binding_array`; an unknown field or policy is an error)
+  instead of three per-backend parsers. The SPIR-V options now receive the
+  `buffer` policy, which nine Rust corpus shaders set; the GLSL reader no
+  longer looks for an `image_store` field Rust does not have.
 - **SPIR-V: one `OpAccessChain` per dereference** — the pointer a load, store,
   atomic or call uses is built as one access chain from the root variable with
   every index, as in Rust naga's `write_access_chain`, instead of one access
@@ -89,6 +101,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SPIR-V: bounds-check policies were ignored for array, vector and matrix
+  indices** — `spirv.Options.BoundsCheckPolicies.Index` was never read, so no
+  index was ever checked: an out-of-bounds index was undefined behavior on
+  Vulkan whatever the options said. The policies now follow Rust naga
+  (`proc::index`, `back/spv/index.rs`): `Index` for function, private and
+  workgroup memory and values, `Buffer` (new) for storage and uniform
+  buffers, `BindingArray` (new) for binding arrays. `Restrict` clamps the
+  index with `UMin(index, length - 1)` (`OpArrayLength` for runtime-sized
+  arrays); `ReadZeroSkipWrite` compares it with `OpULessThan`, runs the access
+  only in bounds and reads zero otherwise. Beyond Rust: atomic loads and
+  stores stay atomic under `ReadZeroSkipWrite`, and read-modify-write atomics
+  are supported there (an out-of-bounds atomic does nothing and returns
+  zero). The checks in the Rust corpus shaders `bounds-check-restrict`,
+  `bounds-check-zero`, `binding-buffer-arrays` and `policy-mix` now match
+  Rust's opcode for opcode. A known index into a value is an
+  `OpCompositeExtract`, and a known access-chain index a `u32` constant, as
+  in Rust. `BoundsCheckPolicies.ImageStore`, which nothing read, is removed
+  (Rust has no such policy).
 - **SPIR-V: indexing a loaded value read memory again**
   ([#103](https://github.com/gogpu/naga/pull/103)) — an `Access` or
   `AccessIndex` on a `Load` became an access chain and a new load, so a `let`

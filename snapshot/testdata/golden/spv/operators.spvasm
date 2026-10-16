@@ -753,15 +753,15 @@
          %_647 = OpLoad %_5 %_619
          %_648 = OpISub %_5 %_647 %_39
                OpStore %_619 %_648
-         %_649 = OpAccessChain %_299 %_621 %_39
+         %_649 = OpAccessChain %_299 %_621 %_62
          %_650 = OpLoad %_5 %_649
          %_651 = OpIAdd %_5 %_650 %_39
-         %_652 = OpAccessChain %_299 %_621 %_39
+         %_652 = OpAccessChain %_299 %_621 %_62
                OpStore %_652 %_651
-         %_653 = OpAccessChain %_299 %_621 %_39
+         %_653 = OpAccessChain %_299 %_621 %_62
          %_654 = OpLoad %_5 %_653
          %_655 = OpISub %_5 %_654 %_39
-         %_656 = OpAccessChain %_299 %_621 %_39
+         %_656 = OpAccessChain %_299 %_621 %_62
                OpStore %_656 %_655
                OpReturn
                OpFunctionEnd

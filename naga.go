@@ -73,6 +73,13 @@ type CompileOptions struct {
 	// Use [CapFloat64], [CapShaderInt64], [CapShaderFloat16] to enable specific types,
 	// or [CapAll] to permit everything.
 	Capabilities ir.Capabilities
+
+	// BoundsCheckPolicies selects how the generated SPIR-V handles indices
+	// that are out of bounds. The zero value adds no checks. A WebGPU
+	// implementation needs at least Restrict for Index (and for Buffer and
+	// ImageLoad when the device has no robust buffer and image access), as
+	// Rust wgpu-hal's Vulkan backend configures naga.
+	BoundsCheckPolicies spirv.BoundsCheckPolicies
 }
 
 // DefaultOptions returns sensible default options.
@@ -125,8 +132,9 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 
 	// Generate SPIR-V
 	spirvOpts := spirv.Options{
-		Version: opts.SPIRVVersion,
-		Debug:   opts.Debug,
+		Version:             opts.SPIRVVersion,
+		Debug:               opts.Debug,
+		BoundsCheckPolicies: opts.BoundsCheckPolicies,
 	}
 	spirvBytes, err := GenerateSPIRV(module, spirvOpts)
 	if err != nil {

@@ -103,21 +103,6 @@ var rustDeviations = []rustDeviation{
 	{Shader: "bits", File: "wgsl-bits.spvasm", Kind: deviationBug,
 		Reason: "no Int8 capability or 8-bit types: pack4xI8/unpack4xI8 use the polyfill where Rust uses native Int8",
 		Card:   "NAGA-SPV-009", Fingerprint: "9dc54aeb5e94e96d4917abe62879474a5c177232a76fd59ba7e0603efb1440a5"},
-	{Shader: "bounds-check-zero", File: "wgsl-bounds-check-zero.spvasm", Kind: deviationBug,
-		Reason: "the SPIR-V backend ignores the index and buffer bounds-check policies: no ReadZeroSkipWrite " +
-			"checks are emitted (Rust: OpTypeBool, 17 OpULessThan, conditional loads and stores); Rust also " +
-			"declares pointers to the intermediate pointer expressions (array<f32, 10>, the runtime array, " +
-			"mat3x4<f32>), because its cache_expression_value resolves the type of every expression before " +
-			"skipping pointers",
-		Card: "BUG-SPV-INDEX-BOUNDS-001", Fingerprint: "82c654a83072967330ae435cd97e47d5b2984aeee5d2b704c407fceb263d88fb"},
-	{Shader: "binding-buffer-arrays", File: "wgsl-binding-buffer-arrays.spvasm", Kind: deviationBug,
-		Reason: "spirv.Options has no binding map, so [[spv.binding_map]] binding_array_size = 10 is ignored and " +
-			"the binding array keeps its declared length 1 (Rust: array<Foo, 10> and a pointer to it); no " +
-			"ReadZeroSkipWrite bounds check is emitted for the binding-array index (Rust: OpTypeBool, OpULessThan + " +
-			"OpBranchConditional, x2); Rust also declares an unused pointer to the runtime array `far`, because " +
-			"its cache_expression_value resolves the type of every expression, pointers included, before " +
-			"skipping them",
-		Card: "BUG-SPV-BINDING-ARRAY-001", Fingerprint: "c9e85b747975c1d2388d54aaaadeb89e7f1d2e70c2979b61dbbff48c6a6f31db"},
 	{Shader: "workgroup-var-init", File: "wgsl-workgroup-var-init.spvasm", Kind: deviationBug,
 		Reason: reasonSPVWorkgroupLayoutFree + "; also Rust has one more, empty, entry block",
 		Card:   "NAGA-SPV-009", Fingerprint: "a3576c00f2feeb05e4eabb9617c1d7b5c2d2eeb98e45c15a18f6e1a4e040a177"},

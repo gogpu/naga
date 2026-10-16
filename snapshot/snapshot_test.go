@@ -168,7 +168,7 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 	}
 
 	// Parse [bounds_check_policies] section (top-level, shared across backends)
-	opts.BoundsCheckPolicies = parseSPVBoundsCheckPolicies(content)
+	opts.BoundsCheckPolicies = spirvBoundsCheckPolicies(mustRustParams(content).boundsCheckPolicies)
 
 	return opts
 }
@@ -228,52 +228,23 @@ func spvCapabilityByName(name string) (spirv.Capability, bool) {
 	return cap, ok
 }
 
-// parseSPVBoundsCheckPolicies parses the [bounds_check_policies] TOML section for SPIR-V.
-func parseSPVBoundsCheckPolicies(content string) spirv.BoundsCheckPolicies {
-	policies := spirv.BoundsCheckPolicies{}
-	lines := strings.Split(content, "\n")
-	inSection := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "[bounds_check_policies]" {
-			inSection = true
-			continue
+// spirvBoundsCheckPolicies converts the shader's [bounds_check_policies] to
+// spirv options; the fields correspond one to one.
+func spirvBoundsCheckPolicies(p rustBoundsCheckPolicies) spirv.BoundsCheckPolicies {
+	conv := func(v rustBoundsCheckPolicy) spirv.BoundsCheckPolicy {
+		switch v {
+		case rustRestrict:
+			return spirv.BoundsCheckRestrict
+		case rustReadZeroSkipWrite:
+			return spirv.BoundsCheckReadZeroSkipWrite
 		}
-		if strings.HasPrefix(trimmed, "[") {
-			inSection = false
-			continue
-		}
-		if !inSection {
-			continue
-		}
-		parts := strings.SplitN(trimmed, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.Trim(strings.TrimSpace(parts[1]), "\"")
-		policy := toSPVBoundsCheckPolicy(val)
-		switch key {
-		case "image_load":
-			policies.ImageLoad = policy
-		case "image_store":
-			policies.ImageStore = policy
-		case "index":
-			policies.Index = policy
-		}
-	}
-	return policies
-}
-
-// toSPVBoundsCheckPolicy converts a Rust policy name to a Go BoundsCheckPolicy.
-func toSPVBoundsCheckPolicy(name string) spirv.BoundsCheckPolicy {
-	switch name {
-	case "ReadZeroSkipWrite":
-		return spirv.BoundsCheckReadZeroSkipWrite
-	case "Restrict":
-		return spirv.BoundsCheckRestrict
-	default:
 		return spirv.BoundsCheckUnchecked
+	}
+	return spirv.BoundsCheckPolicies{
+		Index:        conv(p.index),
+		Buffer:       conv(p.buffer),
+		ImageLoad:    conv(p.imageLoad),
+		BindingArray: conv(p.bindingArray),
 	}
 }
 
@@ -630,7 +601,7 @@ func readGLSLConfig(shaderName string) glslConfig {
 	cfg.pipelineConstants = ir.PipelineConstants(parsePipelineConstants(content))
 
 	// Parse [bounds_check_policies] section (top-level, shared across backends)
-	cfg.boundsCheckPolicies = parseGLSLBoundsCheckPolicies(content)
+	cfg.boundsCheckPolicies = glslBoundsCheckPolicies(mustRustParams(content).boundsCheckPolicies)
 
 	// Extract [glsl] section
 	glslSection := extractGLSLSection(content)
@@ -712,49 +683,17 @@ func parseGLSLBindingMap(glslSection string) map[glsl.BindingMapKey]uint8 {
 	return result
 }
 
-// parseGLSLBoundsCheckPolicies parses the [bounds_check_policies] TOML section for GLSL.
-func parseGLSLBoundsCheckPolicies(content string) glsl.BoundsCheckPolicies {
-	policies := glsl.BoundsCheckPolicies{}
-	lines := strings.Split(content, "\n")
-	inSection := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "[bounds_check_policies]" {
-			inSection = true
-			continue
-		}
-		if inSection && strings.HasPrefix(trimmed, "[") {
-			break
-		}
-		if !inSection {
-			continue
-		}
-		parts := strings.SplitN(trimmed, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.Trim(strings.TrimSpace(parts[1]), "\"")
-		policy := toGLSLBoundsCheckPolicy(val)
-		switch key {
-		case "image_load":
-			policies.ImageLoad = policy
-		case "image_store":
-			policies.ImageStore = policy
-		}
+// glslBoundsCheckPolicies converts the shader's [bounds_check_policies] to
+// glsl options. The GLSL backend has an image-load policy only (Rust's
+// [bounds_check_policies] has no image_store field).
+func glslBoundsCheckPolicies(p rustBoundsCheckPolicies) glsl.BoundsCheckPolicies {
+	switch p.imageLoad {
+	case rustRestrict:
+		return glsl.BoundsCheckPolicies{ImageLoad: glsl.BoundsCheckRestrict}
+	case rustReadZeroSkipWrite:
+		return glsl.BoundsCheckPolicies{ImageLoad: glsl.BoundsCheckReadZeroSkipWrite}
 	}
-	return policies
-}
-
-func toGLSLBoundsCheckPolicy(name string) glsl.BoundsCheckPolicy {
-	switch name {
-	case "ReadZeroSkipWrite":
-		return glsl.BoundsCheckReadZeroSkipWrite
-	case "Restrict":
-		return glsl.BoundsCheckRestrict
-	default:
-		return glsl.BoundsCheckUnchecked
-	}
+	return glsl.BoundsCheckPolicies{}
 }
 
 // extractGLSLSection extracts the [glsl] section from TOML content.
@@ -1181,55 +1120,23 @@ func parsePipelineConstants(content string) map[string]float64 {
 	return result
 }
 
-// parseBoundsCheckPolicies parses the [bounds_check_policies] TOML section.
-// Fields: index, buffer, image_load (maps to Image), binding_array.
-// Rust naga defaults to Unchecked for all policies when not specified.
-func parseBoundsCheckPolicies(lines []string) msl.BoundsCheckPolicies {
-	policies := msl.BoundsCheckPolicies{} // all Unchecked (zero value)
-	inSection := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "[bounds_check_policies]" {
-			inSection = true
-			continue
+// mslBoundsCheckPolicies converts the shader's [bounds_check_policies] to msl
+// options (image_load is msl's Image policy).
+func mslBoundsCheckPolicies(p rustBoundsCheckPolicies) msl.BoundsCheckPolicies {
+	conv := func(v rustBoundsCheckPolicy) msl.BoundsCheckPolicy {
+		switch v {
+		case rustRestrict:
+			return msl.BoundsCheckRestrict
+		case rustReadZeroSkipWrite:
+			return msl.BoundsCheckReadZeroSkipWrite
 		}
-		if strings.HasPrefix(trimmed, "[") {
-			inSection = false
-			continue
-		}
-		if !inSection {
-			continue
-		}
-		parts := strings.SplitN(trimmed, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.Trim(strings.TrimSpace(parts[1]), "\"")
-		policy := toBoundsCheckPolicy(val)
-		switch key {
-		case "index":
-			policies.Index = policy
-		case "buffer":
-			policies.Buffer = policy
-		case "image_load":
-			policies.Image = policy
-		case "binding_array":
-			policies.BindingArray = policy
-		}
-	}
-	return policies
-}
-
-// toBoundsCheckPolicy converts a Rust policy name to a Go BoundsCheckPolicy.
-func toBoundsCheckPolicy(name string) msl.BoundsCheckPolicy {
-	switch name {
-	case "ReadZeroSkipWrite":
-		return msl.BoundsCheckReadZeroSkipWrite
-	case "Restrict":
-		return msl.BoundsCheckRestrict
-	default:
 		return msl.BoundsCheckUnchecked
+	}
+	return msl.BoundsCheckPolicies{
+		Index:        conv(p.index),
+		Buffer:       conv(p.buffer),
+		Image:        conv(p.imageLoad),
+		BindingArray: conv(p.bindingArray),
 	}
 }
 
@@ -2484,7 +2391,7 @@ func readRustMSLConfig(shaderName string) msl.Options {
 	lines := strings.Split(content, "\n")
 
 	// Parse [bounds_check_policies] section (top-level, not under [msl]).
-	opts.BoundsCheckPolicies = parseBoundsCheckPolicies(lines)
+	opts.BoundsCheckPolicies = mslBoundsCheckPolicies(mustRustParams(content).boundsCheckPolicies)
 
 	// Parse [msl] section top-level fields.
 	inMSLSection := false

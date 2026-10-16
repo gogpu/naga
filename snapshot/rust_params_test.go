@@ -91,6 +91,80 @@ type rustParams struct {
 	targets             rustTargets
 	separateEntryPoints bool            // [spv] separate_entry_points
 	glslExcludeList     map[string]bool // entry points without GLSL output
+	boundsCheckPolicies rustBoundsCheckPolicies
+}
+
+// rustBoundsCheckPolicy is naga::proc::BoundsCheckPolicy, as the snapshot
+// TOML spells its variants.
+type rustBoundsCheckPolicy uint8
+
+const (
+	rustUnchecked rustBoundsCheckPolicy = iota
+	rustRestrict
+	rustReadZeroSkipWrite
+)
+
+// rustBoundsCheckPolicies is naga::proc::BoundsCheckPolicies, the
+// [bounds_check_policies] section. Like the serde(default) struct, a missing
+// field is Unchecked; an unknown field or variant is an error.
+type rustBoundsCheckPolicies struct {
+	index, buffer, imageLoad, bindingArray rustBoundsCheckPolicy
+}
+
+func parseRustBoundsCheckPolicy(value string) (rustBoundsCheckPolicy, error) {
+	s, ok := tomlString(value)
+	if !ok {
+		return 0, fmt.Errorf("bounds check policy must be a string, got %s", value)
+	}
+	switch s {
+	case "Unchecked":
+		return rustUnchecked, nil
+	case "Restrict":
+		return rustRestrict, nil
+	case "ReadZeroSkipWrite":
+		return rustReadZeroSkipWrite, nil
+	}
+	return 0, fmt.Errorf("unknown bounds check policy %q", s)
+}
+
+func (p *rustBoundsCheckPolicies) set(key, value string) error {
+	policy, err := parseRustBoundsCheckPolicy(value)
+	if err != nil {
+		return fmt.Errorf("[bounds_check_policies] %s: %w", key, err)
+	}
+	switch key {
+	case "index":
+		p.index = policy
+	case "buffer":
+		p.buffer = policy
+	case "image_load":
+		p.imageLoad = policy
+	case "binding_array":
+		p.bindingArray = policy
+	default:
+		if !rustIgnoredBoundsCheckFields[key] {
+			return fmt.Errorf("[bounds_check_policies]: unknown field %q", key)
+		}
+	}
+	return nil
+}
+
+// rustIgnoredBoundsCheckFields are keys in the Rust corpus that are not
+// fields of naga::proc::BoundsCheckPolicies. Rust's serde(default) structs
+// do not deny unknown fields, so these have no effect there and none here.
+// Any other unknown key is an error, to be reviewed when the corpus syncs.
+var rustIgnoredBoundsCheckFields = map[string]bool{
+	"image": true, // f16-native.toml, f16-polyfill.toml
+}
+
+// mustRustParams parses a shader's TOML for the option readers, which have
+// no error path; TestRustParamsOfEveryCorpusShader reports parse errors.
+func mustRustParams(content string) rustParams {
+	p, err := parseRustParams(content)
+	if err != nil {
+		panic(fmt.Sprintf("snapshot TOML: %v", err))
+	}
+	return p
 }
 
 // loadRustParams reads the parameters of a vendored shader. A shader without
@@ -147,6 +221,8 @@ func parseRustParams(content string) (rustParams, error) {
 				return fmt.Errorf("[spv] separate_entry_points must be a bool, got %s", value)
 			}
 			p.separateEntryPoints = b
+		case section == "bounds_check_policies":
+			return p.boundsCheckPolicies.set(key, value)
 		}
 		return nil
 	})

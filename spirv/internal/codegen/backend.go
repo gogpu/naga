@@ -4376,9 +4376,9 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 		// Matches Rust naga's is_nonuniform_binding_array_access + decorate pattern.
 		isNonUniformBA := e.isNonUniformBindingArrayAccess(access.Base, access.Index)
 
-		// One access chain for the whole chain ending here; emitPointerExpression
+		// One access chain for the whole chain ending here; writePointerAccess
 		// decorates it NonUniform when needed (VUID-RuntimeSpirv-NonUniform-06274).
-		ptrID, err := e.emitPointerExpression(exprHandle)
+		pointer, err := e.writePointerAccess(exprHandle)
 		if err != nil {
 			return 0, err
 		}
@@ -4393,14 +4393,10 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 			return 0, err
 		}
 
-		// SPIR-V forbids OpLoad on runtime-sized arrays and types containing them.
-		// Return the pointer directly; downstream Access/AccessIndex will use
-		// OpAccessChain to reach individual elements.
-		if elementType.Handle != nil && e.backend.typeContainsRuntimeArray(*elementType.Handle) {
-			return ptrID, nil
+		loadID, done, err := e.loadAccessedElement(pointer, elementType, accessElementTypeID)
+		if err != nil || done {
+			return loadID, err
 		}
-
-		loadID := e.backend.builder.AddLoad(accessElementTypeID, ptrID)
 
 		// For non-uniform binding array access, also decorate the load result.
 		// Subsequent image operations require the image/sampler to be decorated.
@@ -4430,14 +4426,18 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 
 	switch baseTypeInner.(type) {
 	case ir.VectorType:
-		// Vectors: use OpVectorExtractDynamic
-		baseID, err := e.emitExpression(access.Base)
-		if err != nil {
-			return 0, err
-		}
-		return e.backend.builder.AddVectorExtractDynamic(elementTypeID, baseID, indexID), nil
+		return e.writeVectorAccess(elementTypeID, access, indexID)
 
 	case ir.ArrayType, ir.MatrixType:
+		// A known index needs no check (validation rejects a constant
+		// out-of-bounds index), as in Rust naga.
+		if index := e.guardIndex(access.Index); index.known {
+			baseID, err := e.emitExpression(access.Base)
+			if err != nil {
+				return 0, err
+			}
+			return e.backend.builder.AddCompositeExtract(elementTypeID, baseID, index.value), nil
+		}
 		// Arrays/matrices with dynamic index: SPIR-V has no instructions for
 		// dynamic by-value indexing. Spill to a Function-space temporary variable,
 		// then use OpAccessChain + OpLoad.
@@ -4542,69 +4542,21 @@ func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool
 }
 
 // emitPointerExpression emits an expression as a SPIR-V pointer without loading,
-// for the instruction that dereferences it (load, store, atomic, call argument).
-//
-// The pointer is ONE OpAccessChain from the root variable or parameter with
-// every index of the Access/AccessIndex chain, as Rust naga's write_access_chain
-// builds it (back/spv/block.rs). When the chain indexes a binding array with a
-// non-uniform index, that pointer is decorated NonUniform
-// (VUID-RuntimeSpirv-NonUniform-06274).
+// for a use that needs the pointer itself (a call argument, a ray query); see
+// writePointerAccess. A pointer under a ReadZeroSkipWrite check cannot be
+// handed out: SPIR-V's logical addressing has no pointer-valued OpPhi or
+// OpSelect to substitute one, so such a use is an error. (Rust naga's WGSL
+// front end only passes whole variables as pointer arguments.)
 func (e *ExpressionEmitter) emitPointerExpression(handle ir.ExpressionHandle) (uint32, error) {
-	// Walk from the tip to the root, collecting the links.
-	var links []ir.ExpressionHandle
-	root := handle
-	for {
-		switch k := e.function.Expressions[root].Kind.(type) {
-		case ir.ExprAccess:
-			links = append(links, root)
-			root = k.Base
-			continue
-		case ir.ExprAccessIndex:
-			links = append(links, root)
-			root = k.Base
-			continue
-		}
-		break
-	}
-
-	rootID, err := e.emitPointerRoot(root)
+	p, err := e.writePointerAccess(handle)
 	if err != nil {
 		return 0, err
 	}
-	if len(links) == 0 {
-		return rootID, nil
+	if p.condition != 0 {
+		return 0, fmt.Errorf("a pointer into an array element cannot be passed on with the ReadZeroSkipWrite " +
+			"bounds-check policy; use Restrict or Unchecked")
 	}
-
-	// Indices in root-to-tip order.
-	indices := make([]uint32, 0, len(links))
-	nonUniform := false
-	for i := len(links) - 1; i >= 0; i-- {
-		switch k := e.function.Expressions[links[i]].Kind.(type) {
-		case ir.ExprAccess:
-			nonUniform = nonUniform || e.isNonUniformBindingArrayAccess(k.Base, k.Index)
-			indexID, err := e.emitExpression(k.Index)
-			if err != nil {
-				return 0, err
-			}
-			indices = append(indices, indexID)
-		case ir.ExprAccessIndex:
-			indexID, err := e.u32Constant(k.Index)
-			if err != nil {
-				return 0, err
-			}
-			indices = append(indices, indexID)
-		}
-	}
-
-	ptrType, err := e.accessChainResultType(handle)
-	if err != nil {
-		return 0, err
-	}
-	ptrID := e.backend.builder.AddAccessChain(ptrType, rootID, indices...)
-	if nonUniform {
-		e.backend.decorateNonUniformBindingArrayAccess(ptrID)
-	}
-	return ptrID, nil
+	return p.id, nil
 }
 
 // accessChainResultType returns the pointer type of the access chain whose
@@ -4719,7 +4671,7 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 	if isPointerBase {
 		// Base is a pointer: one access chain for the whole chain ending here,
 		// then auto-load to return a VALUE.
-		ptrID, err := e.emitPointerExpression(exprHandle)
+		pointer, err := e.writePointerAccess(exprHandle)
 		if err != nil {
 			return 0, err
 		}
@@ -4734,15 +4686,10 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 			return 0, err
 		}
 
-		// SPIR-V forbids OpLoad on runtime-sized arrays and types containing them.
-		// Return the pointer directly; downstream Access/AccessIndex will use
-		// OpAccessChain to reach individual elements.
-		if elementType.Handle != nil && e.backend.typeContainsRuntimeArray(*elementType.Handle) {
-			return ptrID, nil
+		loadID, done, err := e.loadAccessedElement(pointer, elementType, accessElementTypeID)
+		if err != nil || done {
+			return loadID, err
 		}
-
-		// Auto-load the value - emitExpression should return VALUES, not pointers
-		loadID := e.backend.builder.AddLoad(accessElementTypeID, ptrID)
 
 		// Convert layout-free → decorated after loading from Workgroup.
 		if storageClass == StorageClassWorkgroup && accessElementTypeID != elementTypeID {
@@ -4837,63 +4784,23 @@ func (e *ExpressionEmitter) maybeAccessSpilledComposite(
 		return 0, nil
 	}
 
-	// Tip of chain: build access chain and load the final value.
+	// Tip of chain: one access chain from the spill variable with every index,
+	// bounds-checked by the Index policy (the composite is a value), and the
+	// load of the final value (Rust write_checked_load on the spilled access).
 	ptrTypeID := e.backend.emitPointerType(StorageClassFunction, resultTypeID)
-	ptrID, err := e.writeSpilledAccessChain(access, ptrTypeID)
+	links, root := e.chainLinks(access, true)
+	spillVarID, ok := e.spilledComposites[root]
+	if !ok {
+		return 0, fmt.Errorf("spilled access %d does not start from a spilled composite", access)
+	}
+	indices, condition, err := e.chainIndices(links)
 	if err != nil {
 		return 0, err
 	}
-	return e.backend.builder.AddLoad(resultTypeID, ptrID), nil
-}
-
-// writeSpilledAccessChain walks the chain of Access/AccessIndex expressions
-// from the spilled composite root down to the given access expression,
-// building a single OpAccessChain instruction with all index operands.
-func (e *ExpressionEmitter) writeSpilledAccessChain(
-	access ir.ExpressionHandle,
-	resultPtrTypeID uint32,
-) (uint32, error) {
-	// Collect indices from access chain (in reverse order)
-	var indices []uint32
-	current := access
-	for {
-		expr := e.function.Expressions[current]
-		switch k := expr.Kind.(type) {
-		case ir.ExprAccess:
-			indexID, err := e.emitExpression(k.Index)
-			if err != nil {
-				return 0, err
-			}
-			indices = append(indices, indexID)
-			current = k.Base
-		case ir.ExprAccessIndex:
-			u32Type, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-			if err != nil {
-				return 0, err
-			}
-			indexID := e.backend.builder.AddConstant(u32Type, k.Index)
-			indices = append(indices, indexID)
-			current = k.Base
-		default:
-			// Reached the spilled composite root
-			goto done
-		}
-		// If we reached a spilled composite root, stop
-		if _, isRoot := e.spilledComposites[current]; isRoot {
-			goto done
-		}
-	}
-done:
-	// Reverse indices (we collected them from leaf to root)
-	for i, j := 0, len(indices)-1; i < j; i, j = i+1, j-1 {
-		indices[i], indices[j] = indices[j], indices[i]
-	}
-
-	// Get the spill variable
-	spillVarID := e.spilledComposites[current]
-
-	// Build OpAccessChain with all indices
-	return e.backend.builder.AddAccessChain(resultPtrTypeID, spillVarID, indices...), nil
+	pointer := e.buildAccessChain(ptrTypeID, spillVarID, indices, condition)
+	return e.withAccess(pointer, resultTypeID, func(ptr uint32) (uint32, error) {
+		return e.backend.builder.AddLoad(resultTypeID, ptr), nil
+	})
 }
 
 // emitSwizzle emits a vector swizzle operation (.xyz, .rgb, etc.).
@@ -5214,8 +5121,8 @@ func (e *ExpressionEmitter) emitConversionOp(op OpCode, resultType, operand uint
 // Since emitExpression now auto-loads variable references, ExprLoad is mainly
 // used for compound assignments or explicit dereferences.
 func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
-	// Use emitPointerExpression to get the SPIR-V pointer (without auto-loading)
-	pointerID, err := e.emitPointerExpression(load.Pointer)
+	// The pointer, bounds-checked (Rust write_checked_load).
+	pointer, err := e.writePointerAccess(load.Pointer)
 	if err != nil {
 		return 0, err
 	}
@@ -5239,13 +5146,21 @@ func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
 		return 0, err
 	}
 	// atomicLoad is a Load through a pointer to atomic<T> (there is no atomic
-	// load statement in the IR) and must stay atomic.
-	if space, ok, err := e.atomicPointerSpace(load.Pointer); err != nil {
+	// load statement in the IR) and must stay atomic, also under a
+	// ReadZeroSkipWrite check (Rust loads non-atomically there).
+	space, isAtomic, err := e.atomicPointerSpace(load.Pointer)
+	if err != nil {
 		return 0, err
-	} else if ok {
-		return e.emitAtomicLoadInstruction(resultType, pointerID, space)
 	}
-	loadedID := e.backend.builder.AddLoad(resultType, pointerID)
+	loadedID, err := e.withAccess(pointer, resultType, func(ptr uint32) (uint32, error) {
+		if isAtomic {
+			return e.emitAtomicLoadInstruction(resultType, ptr, space)
+		}
+		return e.backend.builder.AddLoad(resultType, ptr), nil
+	})
+	if err != nil || isAtomic {
+		return loadedID, err
+	}
 
 	// Single conversion point: immediately convert layout-free → decorated after
 	// loading from Workgroup. All downstream uses (OpFunctionCall, OpStore,
@@ -6140,8 +6055,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		return nil
 
 	case ir.StmtStore:
-		// Use emitPointerExpression for store destination - we need a pointer, not a loaded value
-		pointerID, err := e.emitPointerExpression(kind.Pointer)
+		// The destination pointer, bounds-checked: under ReadZeroSkipWrite an
+		// out-of-bounds store is skipped.
+		pointer, err := e.writePointerAccess(kind.Pointer)
 		if err != nil {
 			return err
 		}
@@ -6151,24 +6067,32 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 			return err
 		}
 
-		// atomicStore is a Store through a pointer to atomic<T>.
-		if space, ok, err := e.atomicPointerSpace(kind.Pointer); err != nil {
-			return err
-		} else if ok {
-			return e.emitAtomicStoreInstruction(pointerID, valueID, space)
-		}
-
-		// Check for Workgroup ↔ non-Workgroup type mismatch (VUID-StandaloneSpirv-None-10684).
-		// When storing a value loaded from Workgroup (layout-free types) into a non-Workgroup
-		// pointer (decorated types), or vice versa, the SPIR-V type IDs differ even though
-		// the types are logically equivalent. OpCopyLogical (SPIR-V 1.4+) bridges this gap.
-		valueID, err = e.maybeCopyLogicalForStore(kind.Pointer, kind.Value, valueID)
+		// atomicStore is a Store through a pointer to atomic<T>; it stays
+		// atomic also under a ReadZeroSkipWrite check (Rust stores
+		// non-atomically there).
+		space, isAtomic, err := e.atomicPointerSpace(kind.Pointer)
 		if err != nil {
 			return err
 		}
+		if !isAtomic {
+			// Check for Workgroup ↔ non-Workgroup type mismatch (VUID-StandaloneSpirv-None-10684).
+			// When storing a value loaded from Workgroup (layout-free types) into a non-Workgroup
+			// pointer (decorated types), or vice versa, the SPIR-V type IDs differ even though
+			// the types are logically equivalent. OpCopyLogical (SPIR-V 1.4+) bridges this gap.
+			valueID, err = e.maybeCopyLogicalForStore(kind.Pointer, kind.Value, valueID)
+			if err != nil {
+				return err
+			}
+		}
 
-		e.backend.builder.AddStore(pointerID, valueID)
-		return nil
+		_, err = e.withAccess(pointer, 0, func(ptr uint32) (uint32, error) {
+			if isAtomic {
+				return 0, e.emitAtomicStoreInstruction(ptr, valueID, space)
+			}
+			e.backend.builder.AddStore(ptr, valueID)
+			return 0, nil
+		})
+		return err
 
 	case ir.StmtAtomic:
 		return e.emitAtomic(kind)
@@ -8952,22 +8876,25 @@ func (e *ExpressionEmitter) emitWorkGroupUniformLoad(stmt ir.StmtWorkGroupUnifor
 		return err
 	}
 
-	// Load from the pointer (need raw pointer, not loaded value)
-	pointerID, err := e.emitPointerExpression(stmt.Pointer)
+	// Load from the pointer, bounds-checked (Rust routes this statement
+	// through write_checked_load); workgroupUniformLoad of an atomic<T> is an
+	// atomic load.
+	pointer, err := e.writePointerAccess(stmt.Pointer)
 	if err != nil {
 		return fmt.Errorf("workgroup uniform load: cannot emit pointer: %w", err)
 	}
-	// workgroupUniformLoad of an atomic<T> is an atomic load (Rust routes this
-	// statement through write_checked_load).
-	var loadID uint32
-	if space, ok, err := e.atomicPointerSpace(stmt.Pointer); err != nil {
+	space, isAtomic, err := e.atomicPointerSpace(stmt.Pointer)
+	if err != nil {
 		return err
-	} else if ok {
-		if loadID, err = e.emitAtomicLoadInstruction(resultTypeID, pointerID, space); err != nil {
-			return err
+	}
+	loadID, err := e.withAccess(pointer, resultTypeID, func(ptr uint32) (uint32, error) {
+		if isAtomic {
+			return e.emitAtomicLoadInstruction(resultTypeID, ptr, space)
 		}
-	} else {
-		loadID = e.backend.builder.AddLoad(resultTypeID, pointerID)
+		return e.backend.builder.AddLoad(resultTypeID, ptr), nil
+	})
+	if err != nil {
+		return err
 	}
 
 	// Cache the result
@@ -9138,8 +9065,9 @@ func atomicOpcode(fun ir.AtomicFunction, scalarKind ir.ScalarKind) (OpCode, bool
 
 // emitAtomic emits an atomic operation statement.
 func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
-	// Atomic ops need a POINTER, not a loaded value.
-	pointerID, err := e.emitPointerExpression(stmt.Pointer)
+	// Atomic ops need a POINTER, not a loaded value; bounds-checked like a
+	// load or store.
+	pointer, err := e.writePointerAccess(stmt.Pointer)
 	if err != nil {
 		return err
 	}
@@ -9166,54 +9094,72 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		return err
 	}
 
-	// Legacy ir.AtomicLoad: encoded like a Load through an atomic pointer.
-	if _, ok := stmt.Fun.(ir.AtomicLoad); ok {
-		resultID, err := e.emitAtomicLoadInstruction(resultTypeID, pointerID, space)
-		if err != nil {
+	_, isLoad := stmt.Fun.(ir.AtomicLoad)
+	_, isStore := stmt.Fun.(ir.AtomicStore)
+	exchange, isCompareExchange := stmt.Fun.(ir.AtomicExchange)
+	isCompareExchange = isCompareExchange && exchange.Compare != nil
+	var opcode OpCode
+	if !isLoad && !isStore && !isCompareExchange {
+		var ok bool
+		if opcode, ok = atomicOpcode(stmt.Fun, scalarKind); !ok {
+			return fmt.Errorf("unsupported atomic function: %T", stmt.Fun)
+		}
+	}
+
+	// The operands are computed before a ReadZeroSkipWrite selection, so
+	// that they dominate their other uses.
+	var valueID, compareID uint32
+	if !isLoad {
+		if valueID, err = e.emitExpression(stmt.Value); err != nil {
 			return err
 		}
-		if stmt.Result != nil {
-			e.exprIDs[*stmt.Result] = resultID
-			if err := e.processDeferredStores(*stmt.Result, resultID); err != nil {
+	}
+	if isCompareExchange {
+		if compareID, err = e.emitExpression(*exchange.Compare); err != nil {
+			return err
+		}
+	}
+
+	// Under ReadZeroSkipWrite an out-of-bounds atomic does nothing and its
+	// result is zero, like an out-of-bounds load (Rust naga reports
+	// "Atomics out-of-bounds handling" as not implemented).
+	var mergeType uint32
+	if stmt.Result != nil {
+		mergeType = resultTypeID
+		if isCompareExchange {
+			if mergeType, err = e.atomicResultType(*stmt.Result); err != nil {
 				return err
 			}
 		}
-		return nil
 	}
-
-	// All remaining atomic ops need a value operand
-	valueID, err := e.emitExpression(stmt.Value)
+	resultID, err := e.withAccess(pointer, mergeType, func(pointerID uint32) (uint32, error) {
+		switch {
+		case isLoad:
+			// Legacy ir.AtomicLoad: encoded like a Load through an atomic pointer.
+			return e.emitAtomicLoadInstruction(resultTypeID, pointerID, space)
+		case isStore:
+			// Legacy ir.AtomicStore: encoded like a Store through an atomic pointer.
+			return 0, e.emitAtomicStoreInstruction(pointerID, valueID, space)
+		case isCompareExchange:
+			return e.emitAtomicCompareExchange(stmt, pointerID, valueID, compareID, resultTypeID, scopeID, semanticsID)
+		}
+		// OpAtomic* ResultType Result Pointer Scope Semantics Value
+		id := e.backend.builder.AllocID()
+		builder := e.newIB()
+		builder.AddWord(resultTypeID)
+		builder.AddWord(id)
+		builder.AddWord(pointerID)
+		builder.AddWord(scopeID)
+		builder.AddWord(semanticsID)
+		builder.AddWord(valueID)
+		e.backend.builder.funcAppend(builder.Build(opcode))
+		return id, nil
+	})
 	if err != nil {
 		return err
 	}
 
-	// Handle compare-exchange separately
-	if exchange, ok := stmt.Fun.(ir.AtomicExchange); ok && exchange.Compare != nil {
-		return e.emitAtomicCompareExchange(stmt, pointerID, valueID, resultTypeID, scopeID, semanticsID, *exchange.Compare)
-	}
-
-	// Legacy ir.AtomicStore: encoded like a Store through an atomic pointer.
-	if _, ok := stmt.Fun.(ir.AtomicStore); ok {
-		return e.emitAtomicStoreInstruction(pointerID, valueID, space)
-	}
-
-	opcode, ok := atomicOpcode(stmt.Fun, scalarKind)
-	if !ok {
-		return fmt.Errorf("unsupported atomic function: %T", stmt.Fun)
-	}
-
-	// Emit the atomic operation: OpAtomic* ResultType Result Pointer Scope Semantics Value
-	resultID := e.backend.builder.AllocID()
-	builder := e.newIB()
-	builder.AddWord(resultTypeID)
-	builder.AddWord(resultID)
-	builder.AddWord(pointerID)
-	builder.AddWord(scopeID)
-	builder.AddWord(semanticsID)
-	builder.AddWord(valueID)
-	e.backend.builder.funcAppend(builder.Build(opcode))
-
-	if stmt.Result != nil {
+	if stmt.Result != nil && resultID != 0 {
 		e.exprIDs[*stmt.Result] = resultID
 		if err := e.processDeferredStores(*stmt.Result, resultID); err != nil {
 			return err
@@ -9222,21 +9168,26 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 	return nil
 }
 
-// emitAtomicCompareExchange emits an atomic compare-exchange operation.
-// SPIR-V OpAtomicCompareExchange returns a scalar (the old value), not a struct.
-// WGSL wraps the result in a struct {old_value: T, exchanged: bool}.
-// We emit: OpAtomicCompareExchange (scalar), OpIEqual (bool), OpCompositeConstruct (struct).
-// This matches Rust naga's approach in back/spv/block.rs.
+// atomicResultType returns the type of a compare-exchange result: the
+// {old_value, exchanged} struct.
+func (e *ExpressionEmitter) atomicResultType(result ir.ExpressionHandle) (uint32, error) {
+	atomicResult, ok := e.function.Expressions[result].Kind.(ir.ExprAtomicResult)
+	if !ok {
+		return 0, fmt.Errorf("atomic compare-exchange result expression is not ExprAtomicResult")
+	}
+	return e.backend.emitType(atomicResult.Ty)
+}
+
+// emitAtomicCompareExchange emits an atomic compare-exchange operation and
+// returns the {old_value, exchanged} result (0 when the statement has no
+// result). SPIR-V OpAtomicCompareExchange returns a scalar (the old value);
+// WGSL wraps it in a struct. We emit OpAtomicCompareExchange (scalar),
+// OpIEqual (bool) and OpCompositeConstruct (struct), as Rust naga's
+// back/spv/block.rs.
 func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	stmt ir.StmtAtomic,
-	pointerID, valueID, scalarTypeID, scopeID, semanticsID uint32,
-	compare ir.ExpressionHandle,
-) error {
-	compareID, err := e.emitExpression(compare)
-	if err != nil {
-		return err
-	}
-
+	pointerID, valueID, compareID, scalarTypeID, scopeID, semanticsID uint32,
+) (uint32, error) {
 	// 1. OpAtomicCompareExchange returns the OLD scalar value
 	casResultID := e.backend.builder.AllocID()
 	builder := e.newIB()
@@ -9255,7 +9206,7 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	// 2. OpIEqual: exchanged = (old_value == compare)
 	boolTypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	equalityResultID := e.backend.builder.AllocID()
 	eqBuilder := e.newIB()
@@ -9266,31 +9217,21 @@ func (e *ExpressionEmitter) emitAtomicCompareExchange(
 	e.backend.builder.funcAppend(eqBuilder.Build(OpIEqual))
 
 	// 3. OpCompositeConstruct: build the result struct {old_value, exchanged}
-	if stmt.Result != nil {
-		resultExpr := e.function.Expressions[*stmt.Result]
-		atomicResult, ok := resultExpr.Kind.(ir.ExprAtomicResult)
-		if !ok {
-			return fmt.Errorf("atomic compare-exchange result expression is not ExprAtomicResult")
-		}
-		structTypeID, err := e.backend.emitType(atomicResult.Ty)
-		if err != nil {
-			return fmt.Errorf("failed to emit atomic result struct type: %w", err)
-		}
-
-		compositeID := e.backend.builder.AllocID()
-		ccBuilder := e.newIB()
-		ccBuilder.AddWord(structTypeID)
-		ccBuilder.AddWord(compositeID)
-		ccBuilder.AddWord(casResultID)
-		ccBuilder.AddWord(equalityResultID)
-		e.backend.builder.funcAppend(ccBuilder.Build(OpCompositeConstruct))
-
-		e.exprIDs[*stmt.Result] = compositeID
-		if err := e.processDeferredStores(*stmt.Result, compositeID); err != nil {
-			return err
-		}
+	if stmt.Result == nil {
+		return 0, nil
 	}
-	return nil
+	structTypeID, err := e.atomicResultType(*stmt.Result)
+	if err != nil {
+		return 0, fmt.Errorf("failed to emit atomic result struct type: %w", err)
+	}
+	compositeID := e.backend.builder.AllocID()
+	ccBuilder := e.newIB()
+	ccBuilder.AddWord(structTypeID)
+	ccBuilder.AddWord(compositeID)
+	ccBuilder.AddWord(casResultID)
+	ccBuilder.AddWord(equalityResultID)
+	e.backend.builder.funcAppend(ccBuilder.Build(OpCompositeConstruct))
+	return compositeID, nil
 }
 
 // appendArrayIndex converts an integer array index to float and appends it to the coordinate vector.

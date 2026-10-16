@@ -598,3 +598,52 @@ fn main() {
 	}
 	t.Logf("Generated %d bytes of SPIR-V for compound swizzle assignment", len(spirvBytes))
 }
+
+// TestCompileWithOptionsAppliesBoundsCheckPolicies: CompileOptions carries
+// the SPIR-V bounds-check policies (the path wgpu uses): with Restrict a
+// dynamic index is clamped with GLSL.std.450 UMin, without it nothing is
+// added.
+func TestCompileWithOptionsAppliesBoundsCheckPolicies(t *testing.T) {
+	const source = `
+@group(0) @binding(0) var<storage, read_write> data: array<f32, 8>;
+@compute @workgroup_size(1)
+fn main(@builtin(local_invocation_index) i: u32) {
+    data[i] = 1.0;
+}`
+	const glslStd450UMin = 38
+	countUMin := func(spv []byte) int {
+		n := 0
+		for i := 5 * 4; i+4 <= len(spv); {
+			word := uint32(spv[i]) | uint32(spv[i+1])<<8 | uint32(spv[i+2])<<16 | uint32(spv[i+3])<<24
+			count, op := int(word>>16), word&0xffff
+			if count == 0 {
+				break
+			}
+			if op == 12 && i+5*4 <= len(spv) { // OpExtInst: type, id, set, instruction
+				inst := uint32(spv[i+16]) | uint32(spv[i+17])<<8 | uint32(spv[i+18])<<16 | uint32(spv[i+19])<<24
+				if inst == glslStd450UMin {
+					n++
+				}
+			}
+			i += count * 4
+		}
+		return n
+	}
+
+	opts := DefaultOptions()
+	unchecked, err := CompileWithOptions(source, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.BoundsCheckPolicies = spirv.BoundsCheckPolicies{Buffer: spirv.BoundsCheckRestrict}
+	restricted, err := CompileWithOptions(source, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countUMin(unchecked); n != 0 {
+		t.Errorf("default options: %d UMin, want 0", n)
+	}
+	if n := countUMin(restricted); n != 1 {
+		t.Errorf("Buffer=Restrict: %d UMin, want 1", n)
+	}
+}

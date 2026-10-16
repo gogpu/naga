@@ -29,7 +29,7 @@
          %_16 = OpBitFieldSExtract %_8 %_11 %_15 %_10
          %_18 = OpBitFieldSExtract %_8 %_11 %_17 %_10
          %_19 = OpCompositeConstruct %_9 %_13 %_14 %_16 %_18
-         %_21 = OpVectorExtractDynamic %_8 %_19 %_20
+         %_21 = OpCompositeExtract %_8 %_19 2
          %_23 = OpBitFieldUExtract %_6 %_7 %_12 %_10
          %_24 = OpBitFieldUExtract %_6 %_7 %_10 %_10
          %_25 = OpBitFieldUExtract %_6 %_7 %_15 %_10

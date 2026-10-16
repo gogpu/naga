@@ -28,27 +28,44 @@ var (
 	Version1_6 = Version{1, 6}
 )
 
-// BoundsCheckPolicy controls how out-of-bounds resource accesses are handled.
+// BoundsCheckPolicy selects how generated code handles an index that is out
+// of bounds. Mirrors Rust naga's proc::BoundsCheckPolicy.
 type BoundsCheckPolicy uint8
 
 // BoundsCheckPolicy values.
 const (
-	// BoundsCheckUnchecked performs no bounds checking (default).
+	// BoundsCheckUnchecked adds no checks (default). Out-of-bounds accesses
+	// are undefined behavior unless the driver or hardware checks them.
 	BoundsCheckUnchecked BoundsCheckPolicy = iota
-	// BoundsCheckRestrict clamps coordinates/level/sample to valid range.
+	// BoundsCheckRestrict replaces an out-of-bounds index with an in-bounds
+	// one: GLSL.std.450 UMin(index, length - 1). WebGPU requires this
+	// behavior for array, vector and matrix accesses.
 	BoundsCheckRestrict
-	// BoundsCheckReadZeroSkipWrite returns zero for out-of-bounds reads, skips writes.
+	// BoundsCheckReadZeroSkipWrite makes out-of-bounds reads return zero
+	// and out-of-bounds writes and atomics do nothing.
 	BoundsCheckReadZeroSkipWrite
 )
 
-// BoundsCheckPolicies holds per-resource-type bounds check policies.
+// BoundsCheckPolicies selects a BoundsCheckPolicy per kind of access.
+// Mirrors Rust naga's proc::BoundsCheckPolicies.
 type BoundsCheckPolicies struct {
-	// ImageLoad controls bounds checking for image load operations.
-	ImageLoad BoundsCheckPolicy
-	// ImageStore controls bounds checking for image store operations.
-	ImageStore BoundsCheckPolicy
-	// Index controls bounds checking for buffer index operations.
+	// Index applies to array, vector and matrix indices outside storage and
+	// uniform buffers: function, private and workgroup memory, and values.
 	Index BoundsCheckPolicy
+
+	// Buffer applies to indices into globals in the storage and uniform
+	// address spaces. A device with robust buffer access already confines
+	// these accesses to the buffer, so it can use BoundsCheckUnchecked.
+	Buffer BoundsCheckPolicy
+
+	// ImageLoad applies to the coordinates, array index, level and sample
+	// of image loads.
+	ImageLoad BoundsCheckPolicy
+
+	// BindingArray applies to indices into binding arrays. Out-of-bounds
+	// handling for binding arrays of textures and samplers is not supported
+	// with BoundsCheckReadZeroSkipWrite (as in Rust naga).
+	BindingArray BoundsCheckPolicy
 }
 
 // Capability represents a SPIR-V capability.
@@ -887,9 +904,10 @@ func toCodegenOptions(o Options) codegen.Options {
 		AdjustCoordinateSpace:   o.AdjustCoordinateSpace,
 		ForceLoopBounding:       o.ForceLoopBounding,
 		BoundsCheckPolicies: codegen.BoundsCheckPolicies{
-			ImageLoad:  codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageLoad),
-			ImageStore: codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageStore),
-			Index:      codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Index),
+			Index:        codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Index),
+			Buffer:       codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Buffer),
+			ImageLoad:    codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageLoad),
+			BindingArray: codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.BindingArray),
 		},
 		CapabilitiesAvailable: o.CapabilitiesAvailable,
 		RayQueryInitTracking:  o.RayQueryInitTracking,
