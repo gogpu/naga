@@ -89,7 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   v2026.1 sources (cached per OS) and runs with
   `NAGA_REQUIRE_TOOLS=spirv-val,spirv-dis`, so the SPIR-V validation and
   reference comparison run on Linux, Windows and macOS instead of being skipped.
-  golangci-lint is pinned to v2.14.0.
+  golangci-lint is pinned to an exact version (v2.15.0).
 
 - **Snapshot tests read `[bounds_check_policies]` once and strictly** — one
   parser mirrors Rust naga's `BoundsCheckPolicies` (`index`, `buffer`,
