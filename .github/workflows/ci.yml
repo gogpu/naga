@@ -32,12 +32,33 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      # spirv-val and spirv-dis validate and compare the SPIR-V output; without
+      # them those tests skip. Pinned to the development Vulkan SDK's version.
+      - name: Cache SPIRV-Tools
+        id: spirv-tools-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/spirv-tools
+          key: spirv-tools-v2026.1-${{ runner.os }}-${{ hashFiles('.github/scripts/install-spirv-tools.sh') }}
+
+      - name: Build SPIRV-Tools
+        if: steps.spirv-tools-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash .github/scripts/install-spirv-tools.sh "${{ runner.temp }}/spirv-tools"
+
+      - name: Add SPIRV-Tools to PATH
+        shell: bash
+        run: echo "${{ runner.temp }}/spirv-tools/bin" >> "$GITHUB_PATH"
+
       - name: Run go vet
         if: matrix.os == 'ubuntu-latest'
         run: go vet ./...
 
+      # A missing spirv-val or spirv-dis fails the tests instead of skipping them.
       - name: Run tests
         shell: bash
+        env:
+          NAGA_REQUIRE_TOOLS: spirv-val,spirv-dis
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Verify coverage file

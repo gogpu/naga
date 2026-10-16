@@ -2,3 +2,6 @@
 # (internal/testcorpus): never convert their line endings.
 snapshot/testdata/rust/** -text
 snapshot/testdata/rust-derived/** -text
+
+# Shell scripts run under bash on every CI runner, Windows included: keep LF.
+*.sh text eol=lf
