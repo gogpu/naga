@@ -58,6 +58,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`TestMSL_AbstractTypesVarFull` runs again** — it read its shader through a
   path that never existed and was always skipped; it now passes, and a missing
   shader fails the test instead of skipping it.
+- **SPIR-V golden snapshots show every operand**
+  ([#101](https://github.com/gogpu/naga/pull/101)) — the golden printer stopped
+  early on several instructions: `OpVariable` never showed its initializer (64
+  initialized variables looked uninitialized), `OpTypeImage` printed a fixed
+  `Unknown` format, `OpFunction` always printed `None`, and optional memory
+  operands, image operands, loop controls and branch weights were dropped. A
+  property test now checks every opcode the printer knows.
+- **CI validates SPIR-V** ([#104](https://github.com/gogpu/naga/pull/104)) —
+  the Test job builds `spirv-val` and `spirv-dis` from pinned SPIRV-Tools
+  v2026.1 sources (cached per OS) and runs with
+  `NAGA_REQUIRE_TOOLS=spirv-val,spirv-dis`, so the SPIR-V validation and
+  reference comparison run on Linux, Windows and macOS instead of being skipped.
+  golangci-lint is pinned to v2.14.0.
 
 ### Removed
 
@@ -67,7 +80,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Compiling a module no longer changes it** — `glsl.Compile` with pipeline
+- **SPIR-V: indexing a loaded value read memory again**
+  ([#103](https://github.com/gogpu/naga/pull/103)) — an `Access` or
+  `AccessIndex` on a `Load` became an access chain and a new load, so a `let`
+  snapshot changed when memory was written after it:
+  `let s = data; data[1] = 9u; out = s[1];` stored `9`. A loaded value is now
+  indexed with `OpCompositeExtract` (or a temporary for a dynamic index), as in
+  Rust naga.
+- **SPIR-V: `atomicLoad` and `atomicStore` were plain loads and stores**
+  ([#100](https://github.com/gogpu/naga/pull/100)) — they were emitted as
+  `OpLoad`/`OpStore`, a data race that `spirv-val` cannot detect. They are now
+  `OpAtomicLoad`/`OpAtomicStore`. Every atomic operation now takes its scope
+  from the address space (`Workgroup` for workgroup data, was `Device`) as an
+  `i32` constant, with relaxed memory semantics, as Rust naga does.
+- **SPIR-V: dead access chains and loads at `Emit`**
+  ([#102](https://github.com/gogpu/naga/pull/102)) — every pointer-typed
+  `Access`/`AccessIndex` produced an access chain and a load nobody used (3750
+  chains, 1597 loads and 23 `OpCopyLogical` across the snapshot corpus); on
+  atomic data each was a non-atomic read. The `NonUniform` decoration for
+  non-uniform binding-array indices was only on the dead chain; it is now on
+  the pointer the load or store uses.
+- **SPIR-V: `any`, `all`, `isnan` and `isinf` failed to compile**
+  ([#94](https://github.com/gogpu/naga/pull/94), by @dvoyni) — the backend had
+  no lowering for relational expressions and returned
+  `unsupported expression kind`. They now map to `OpAny`, `OpAll`, `OpIsNan`
+  and `OpIsInf`. `any` and `all` of a scalar `bool` are passed through in the
+  WGSL lowerer, as in Rust naga; GLSL used to write `any(bool)`, which glslang
+  rejects.
+- **Compiling a module no longer changes it**
+  ([#105](https://github.com/gogpu/naga/pull/105)) — `glsl.Compile` with pipeline
   constants and `dxil.Compile` rewrote the caller's module through data their
   copy shared with it (nested blocks inside loops, ifs and switches, call
   results and arguments, sample and atomic operands). A second compile of the
