@@ -28,8 +28,6 @@ func scalarToDXIL(mod *module.Module, s ir.ScalarType) *module.Type {
 // typeToDXIL maps a naga IR TypeInner to a DXIL type.
 // Vectors and matrices are scalarized — this returns the element type.
 // Callers must handle multi-component types by iterating over components.
-//
-//nolint:gocognit // dispatch over scalar/vec/mat/array/struct/atomic/pointer kinds
 func typeToDXIL(mod *module.Module, irMod *ir.Module, inner ir.TypeInner) (*module.Type, error) {
 	switch t := inner.(type) {
 	case ir.ScalarType:

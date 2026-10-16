@@ -282,18 +282,9 @@ func markStmtRoots(
 		}
 
 	case ir.StmtAtomic:
-		if _, isLocal := isLocalStore(fn, sk.Pointer, localPtrs); isLocal {
-			// Atomic on local — unusual, but should be safe to
-			// treat like a local store. However, be conservative:
-			// atomics on locals are not expected after mem2reg
-			// (classify.go disqualifies such vars). Mark as live.
-			mark(sk.Pointer)
-			mark(sk.Value)
-			if sk.Result != nil {
-				mark(*sk.Result)
-			}
-			return
-		}
+		// Always a root, even on a local: unlike a local store it is
+		// not left to the dead-local fixup. Atomics on locals are not
+		// expected after mem2reg (classify.go disqualifies such vars).
 		mark(sk.Pointer)
 		mark(sk.Value)
 		if sk.Result != nil {
