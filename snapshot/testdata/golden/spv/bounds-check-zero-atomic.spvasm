@@ -1,15 +1,15 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 74
+; Bound: 66
 ; Schema: 0
 
                OpCapability Shader
          OpExtension %_1599492179 %_1599227979 %_1919906931 %_1600481121 %_1717990754 %_1935635045 %_1634889588 %_1667196263 %_1936941420 %_0
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_64 "main"
-               OpExecutionMode %_64 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_56 "main"
+               OpExecutionMode %_56 LocalSize 1 1 1
                OpDecorate %_5 ArrayStride 4
                OpDecorate %_6 ArrayStride 4
                OpDecorate %_7 Block
@@ -32,11 +32,9 @@
          %_17 = OpConstant %_8 1
          %_18 = OpConstant %_3 1
          %_20 = OpTypeFunction %_3 %_8
-         %_24 = OpTypePointer StorageBuffer %_5
-         %_31 = OpConstant %_3 2
-         %_32 = OpTypePointer StorageBuffer %_6
-         %_55 = OpConstant %_3 1000
-         %_63 = OpTypeFunction %_2
+         %_29 = OpConstant %_3 2
+         %_48 = OpConstant %_3 1000
+         %_55 = OpTypeFunction %_2
          %_10 = OpVariable %_9 StorageBuffer
          %_12 = OpFunction %_3 None %_11
          %_13 = OpLabel
@@ -47,64 +45,58 @@
          %_21 = OpFunction %_3 None %_20
          %_22 = OpFunctionParameter %_8
          %_23 = OpLabel
-         %_25 = OpAccessChain %_24 %_10 %_18
-         %_26 = OpAccessChain %_15 %_25 %_22
-         OpAtomicIAdd %_3 %_27 %_26 %_17 %_14 %_18
-               OpReturnValue %_27
+         %_24 = OpAccessChain %_15 %_10 %_18 %_22
+         OpAtomicIAdd %_3 %_25 %_24 %_17 %_14 %_18
+               OpReturnValue %_25
                OpFunctionEnd
-         %_28 = OpFunction %_3 None %_20
-         %_29 = OpFunctionParameter %_8
-         %_30 = OpLabel
-         %_33 = OpAccessChain %_32 %_10 %_31
-         %_34 = OpAccessChain %_15 %_33 %_29
-         OpAtomicIAdd %_3 %_35 %_34 %_17 %_14 %_18
+         %_26 = OpFunction %_3 None %_20
+         %_27 = OpFunctionParameter %_8
+         %_28 = OpLabel
+         %_30 = OpAccessChain %_15 %_10 %_29 %_27
+         OpAtomicIAdd %_3 %_31 %_30 %_17 %_14 %_18
+               OpReturnValue %_31
+               OpFunctionEnd
+         %_32 = OpFunction %_3 None %_11
+         %_33 = OpLabel
+         %_34 = OpAccessChain %_15 %_10 %_14
+         OpAtomicExchange %_3 %_35 %_34 %_17 %_14 %_18
                OpReturnValue %_35
                OpFunctionEnd
-         %_36 = OpFunction %_3 None %_11
-         %_37 = OpLabel
-         %_38 = OpAccessChain %_15 %_10 %_14
-         OpAtomicExchange %_3 %_39 %_38 %_17 %_14 %_18
-               OpReturnValue %_39
+         %_36 = OpFunction %_3 None %_20
+         %_37 = OpFunctionParameter %_8
+         %_38 = OpLabel
+         %_39 = OpAccessChain %_15 %_10 %_18 %_37
+         OpAtomicExchange %_3 %_40 %_39 %_17 %_14 %_18
+               OpReturnValue %_40
                OpFunctionEnd
-         %_40 = OpFunction %_3 None %_20
-         %_41 = OpFunctionParameter %_8
-         %_42 = OpLabel
-         %_43 = OpAccessChain %_24 %_10 %_18
-         %_44 = OpAccessChain %_15 %_43 %_41
+         %_41 = OpFunction %_3 None %_20
+         %_42 = OpFunctionParameter %_8
+         %_43 = OpLabel
+         %_44 = OpAccessChain %_15 %_10 %_29 %_42
          OpAtomicExchange %_3 %_45 %_44 %_17 %_14 %_18
                OpReturnValue %_45
                OpFunctionEnd
-         %_46 = OpFunction %_3 None %_20
-         %_47 = OpFunctionParameter %_8
-         %_48 = OpLabel
-         %_49 = OpAccessChain %_32 %_10 %_31
-         %_50 = OpAccessChain %_15 %_49 %_47
-         OpAtomicExchange %_3 %_51 %_50 %_17 %_14 %_18
-               OpReturnValue %_51
+         %_46 = OpFunction %_3 None %_11
+         %_47 = OpLabel
+         %_49 = OpAccessChain %_15 %_10 %_29 %_48
+         OpAtomicIAdd %_3 %_50 %_49 %_17 %_14 %_18
+               OpReturnValue %_50
                OpFunctionEnd
-         %_52 = OpFunction %_3 None %_11
-         %_53 = OpLabel
-         %_54 = OpAccessChain %_32 %_10 %_31
-         %_56 = OpAccessChain %_15 %_54 %_55
-         OpAtomicIAdd %_3 %_57 %_56 %_17 %_14 %_18
-               OpReturnValue %_57
+         %_51 = OpFunction %_3 None %_11
+         %_52 = OpLabel
+         %_53 = OpAccessChain %_15 %_10 %_29 %_48
+         OpAtomicExchange %_3 %_54 %_53 %_17 %_14 %_18
+               OpReturnValue %_54
                OpFunctionEnd
-         %_58 = OpFunction %_3 None %_11
-         %_59 = OpLabel
-         %_60 = OpAccessChain %_32 %_10 %_31
-         %_61 = OpAccessChain %_15 %_60 %_55
-         OpAtomicExchange %_3 %_62 %_61 %_17 %_14 %_18
-               OpReturnValue %_62
-               OpFunctionEnd
-         %_64 = OpFunction %_2 None %_63
-         %_65 = OpLabel
-         %_66 = OpFunctionCall %_3 %_12
-         %_67 = OpFunctionCall %_3 %_21 %_17
-         %_68 = OpFunctionCall %_3 %_28 %_17
-         %_69 = OpFunctionCall %_3 %_36
-         %_70 = OpFunctionCall %_3 %_40 %_17
-         %_71 = OpFunctionCall %_3 %_46 %_17
-         %_72 = OpFunctionCall %_3 %_52
-         %_73 = OpFunctionCall %_3 %_58
+         %_56 = OpFunction %_2 None %_55
+         %_57 = OpLabel
+         %_58 = OpFunctionCall %_3 %_12
+         %_59 = OpFunctionCall %_3 %_21 %_17
+         %_60 = OpFunctionCall %_3 %_26 %_17
+         %_61 = OpFunctionCall %_3 %_32
+         %_62 = OpFunctionCall %_3 %_36 %_17
+         %_63 = OpFunctionCall %_3 %_41 %_17
+         %_64 = OpFunctionCall %_3 %_46
+         %_65 = OpFunctionCall %_3 %_51
                OpReturn
                OpFunctionEnd

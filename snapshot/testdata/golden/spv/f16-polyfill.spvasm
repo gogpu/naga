@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 320
+; Bound: 318
 ; Schema: 0
 
                OpCapability Shader
@@ -466,30 +466,28 @@
          %_302 = OpCompositeConstruct %_11 %_294 %_295 %_296 %_297 %_298 %_299 %_300 %_301
          %_303 = OpCompositeExtract %_5 %_302 2
          %_304 = OpCompositeExtract %_3 %_303 1
-         %_305 = OpAccessChain %_123 %_293 %_122
-         %_306 = OpAccessChain %_111 %_305 %_110
-               OpStore %_306 %_304
-         %_307 = OpCompositeExtract %_5 %_302 2
-         %_308 = OpCompositeExtract %_3 %_307 0
-         %_309 = OpAccessChain %_123 %_293 %_122
-         %_310 = OpAccessChain %_111 %_309 %_116
-               OpStore %_310 %_308
-         %_311 = OpLoad %_11 %_293
-         %_312 = OpCompositeExtract %_3 %_311 0
-               OpStore %_93 %_312
-         %_313 = OpCompositeExtract %_4 %_311 1
-               OpStore %_94 %_313
-         %_314 = OpCompositeExtract %_5 %_311 2
-               OpStore %_95 %_314
-         %_315 = OpCompositeExtract %_6 %_311 3
-               OpStore %_96 %_315
-         %_316 = OpCompositeExtract %_7 %_311 4
-               OpStore %_97 %_316
-         %_317 = OpCompositeExtract %_8 %_311 5
-               OpStore %_98 %_317
-         %_318 = OpCompositeExtract %_9 %_311 6
-               OpStore %_99 %_318
-         %_319 = OpCompositeExtract %_10 %_311 7
-               OpStore %_100 %_319
+         %_305 = OpAccessChain %_111 %_293 %_122 %_110
+               OpStore %_305 %_304
+         %_306 = OpCompositeExtract %_5 %_302 2
+         %_307 = OpCompositeExtract %_3 %_306 0
+         %_308 = OpAccessChain %_111 %_293 %_122 %_116
+               OpStore %_308 %_307
+         %_309 = OpLoad %_11 %_293
+         %_310 = OpCompositeExtract %_3 %_309 0
+               OpStore %_93 %_310
+         %_311 = OpCompositeExtract %_4 %_309 1
+               OpStore %_94 %_311
+         %_312 = OpCompositeExtract %_5 %_309 2
+               OpStore %_95 %_312
+         %_313 = OpCompositeExtract %_6 %_309 3
+               OpStore %_96 %_313
+         %_314 = OpCompositeExtract %_7 %_309 4
+               OpStore %_97 %_314
+         %_315 = OpCompositeExtract %_8 %_309 5
+               OpStore %_98 %_315
+         %_316 = OpCompositeExtract %_9 %_309 6
+               OpStore %_99 %_316
+         %_317 = OpCompositeExtract %_10 %_309 7
+               OpStore %_100 %_317
                OpReturn
                OpFunctionEnd

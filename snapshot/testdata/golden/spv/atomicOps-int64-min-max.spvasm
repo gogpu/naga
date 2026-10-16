@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 80
+; Bound: 78
 ; Schema: 0
 
                OpCapability Shader
@@ -60,9 +60,9 @@
          %_44 = OpTypePointer StorageBuffer %_7
          %_47 = OpConstant %_3 1 0
          %_49 = OpTypePointer Input %_4
-         %_57 = OpConstant %_4 264
-         %_64 = OpConstant %_3 1 0
-         %_71 = OpConstant %_3 1 0
+         %_56 = OpConstant %_4 264
+         %_63 = OpConstant %_3 1 0
+         %_70 = OpConstant %_3 1 0
          %_11 = OpVariable %_10 StorageBuffer
          %_14 = OpVariable %_13 StorageBuffer
          %_17 = OpVariable %_16 StorageBuffer
@@ -87,29 +87,27 @@
          %_51 = OpLoad %_4 %_50
          %_52 = OpUConvert %_3 %_51
          %_53 = OpAccessChain %_44 %_17 %_27
-         %_54 = OpAccessChain %_39 %_53 %_41
-         %_55 = OpAccessChain %_30 %_54 %_41
-         OpAtomicUMax %_3 %_56 %_55 %_33 %_27 %_52
-         OpControlBarrier %_5 %_5 %_57
-         %_58 = OpAccessChain %_26 %_20 %_27
-         %_59 = OpLoad %_3 %_58
-         %_60 = OpAccessChain %_30 %_11 %_27
-         OpAtomicUMin %_3 %_61 %_60 %_33 %_27 %_59
-         %_62 = OpAccessChain %_26 %_20 %_27
-         %_63 = OpLoad %_3 %_62
-         %_65 = OpIAdd %_3 %_64 %_63
-         %_66 = OpAccessChain %_39 %_14 %_27
-         %_67 = OpAccessChain %_30 %_66 %_41
-         OpAtomicUMin %_3 %_68 %_67 %_33 %_27 %_65
-         %_69 = OpAccessChain %_44 %_17 %_27
-         %_70 = OpAccessChain %_30 %_69 %_27
-         OpAtomicUMin %_3 %_72 %_70 %_33 %_27 %_71
-         %_73 = OpAccessChain %_49 %_22 %_27
-         %_74 = OpLoad %_4 %_73
-         %_75 = OpUConvert %_3 %_74
-         %_76 = OpAccessChain %_44 %_17 %_27
-         %_77 = OpAccessChain %_39 %_76 %_41
-         %_78 = OpAccessChain %_30 %_77 %_41
-         OpAtomicUMin %_3 %_79 %_78 %_33 %_27 %_75
+         %_54 = OpAccessChain %_30 %_53 %_41 %_41
+         OpAtomicUMax %_3 %_55 %_54 %_33 %_27 %_52
+         OpControlBarrier %_5 %_5 %_56
+         %_57 = OpAccessChain %_26 %_20 %_27
+         %_58 = OpLoad %_3 %_57
+         %_59 = OpAccessChain %_30 %_11 %_27
+         OpAtomicUMin %_3 %_60 %_59 %_33 %_27 %_58
+         %_61 = OpAccessChain %_26 %_20 %_27
+         %_62 = OpLoad %_3 %_61
+         %_64 = OpIAdd %_3 %_63 %_62
+         %_65 = OpAccessChain %_39 %_14 %_27
+         %_66 = OpAccessChain %_30 %_65 %_41
+         OpAtomicUMin %_3 %_67 %_66 %_33 %_27 %_64
+         %_68 = OpAccessChain %_44 %_17 %_27
+         %_69 = OpAccessChain %_30 %_68 %_27
+         OpAtomicUMin %_3 %_71 %_69 %_33 %_27 %_70
+         %_72 = OpAccessChain %_49 %_22 %_27
+         %_73 = OpLoad %_4 %_72
+         %_74 = OpUConvert %_3 %_73
+         %_75 = OpAccessChain %_44 %_17 %_27
+         %_76 = OpAccessChain %_30 %_75 %_41 %_41
+         OpAtomicUMin %_3 %_77 %_76 %_33 %_27 %_74
                OpReturn
                OpFunctionEnd

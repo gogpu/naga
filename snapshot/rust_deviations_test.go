@@ -103,6 +103,13 @@ var rustDeviations = []rustDeviation{
 	{Shader: "bits", File: "wgsl-bits.spvasm", Kind: deviationBug,
 		Reason: "no Int8 capability or 8-bit types: pack4xI8/unpack4xI8 use the polyfill where Rust uses native Int8",
 		Card:   "NAGA-SPV-009", Fingerprint: "9dc54aeb5e94e96d4917abe62879474a5c177232a76fd59ba7e0603efb1440a5"},
+	{Shader: "bounds-check-zero", File: "wgsl-bounds-check-zero.spvasm", Kind: deviationBug,
+		Reason: "the SPIR-V backend ignores the index and buffer bounds-check policies: no ReadZeroSkipWrite " +
+			"checks are emitted (Rust: OpTypeBool, 17 OpULessThan, conditional loads and stores); Rust also " +
+			"declares pointers to the intermediate pointer expressions (array<f32, 10>, the runtime array, " +
+			"mat3x4<f32>), because its cache_expression_value resolves the type of every expression before " +
+			"skipping pointers",
+		Card: "BUG-SPV-INDEX-BOUNDS-001", Fingerprint: "82c654a83072967330ae435cd97e47d5b2984aeee5d2b704c407fceb263d88fb"},
 	{Shader: "binding-buffer-arrays", File: "wgsl-binding-buffer-arrays.spvasm", Kind: deviationBug,
 		Reason: "spirv.Options has no binding map, so [[spv.binding_map]] binding_array_size = 10 is ignored and " +
 			"the binding array keeps its declared length 1 (Rust: array<Foo, 10> and a pointer to it); no " +
@@ -144,7 +151,7 @@ var rustDeviations = []rustDeviation{
 	// Own shader with Rust-derived references (not part of parity).
 	{Shader: "ptr-deref-test", File: "wgsl-ptr-deref-test.spvasm", Kind: deviationBug,
 		Reason: reasonCompactNoEntryPoints, Card: "BUG-IR-COMPACT-001",
-		Fingerprint: "59638ee72c61512f71d16de1c5a780fde41c12980e4af8ff9d54365f5e183ee3"},
+		Fingerprint: "3f5cef028aac29a741d56970e98587bc3a6ab8de98f93f4177f88949b2a98749"},
 	{Shader: "ptr-deref-test", File: "wgsl-ptr-deref-test.metal", Kind: deviationBug,
 		Reason: reasonCompactNoEntryPoints, Card: "BUG-IR-COMPACT-001",
 		Fingerprint: "bf25348238f50d14efd99b4b9fe83405cb2eb934988242266e63dd4954320e18"},

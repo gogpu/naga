@@ -4376,8 +4376,9 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 		// Matches Rust naga's is_nonuniform_binding_array_access + decorate pattern.
 		isNonUniformBA := e.isNonUniformBindingArrayAccess(access.Base, access.Index)
 
-		// Base is a pointer - use emitPointerExpression to get SPIR-V pointer, then OpAccessChain
-		baseID, err := e.emitPointerExpression(access.Base)
+		// One access chain for the whole chain ending here; emitPointerExpression
+		// decorates it NonUniform when needed (VUID-RuntimeSpirv-NonUniform-06274).
+		ptrID, err := e.emitPointerExpression(exprHandle)
 		if err != nil {
 			return 0, err
 		}
@@ -4390,18 +4391,6 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 		accessElementTypeID, err := e.backend.resolveTypeForStorageClass(elementType, storageClass)
 		if err != nil {
 			return 0, err
-		}
-
-		// Create pointer type for OpAccessChain result
-		ptrType := e.backend.emitPointerType(storageClass, accessElementTypeID)
-
-		// OpAccessChain returns a pointer, then we auto-load
-		ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
-
-		// For non-uniform binding array access, decorate the pointer (AccessChain result)
-		// with NonUniform. See VUID-RuntimeSpirv-NonUniform-06274.
-		if isNonUniformBA {
-			e.backend.decorateNonUniformBindingArrayAccess(ptrID)
 		}
 
 		// SPIR-V forbids OpLoad on runtime-sized arrays and types containing them.
@@ -4555,42 +4544,115 @@ func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool
 // emitPointerExpression emits an expression as a SPIR-V pointer without loading,
 // for the instruction that dereferences it (load, store, atomic, call argument).
 //
-// When the chain indexes a binding array with a non-uniform index, the pointer
-// handed to that instruction is decorated NonUniform, as Rust naga's
-// write_access_chain does with the final pointer of the chain
-// (VUID-RuntimeSpirv-NonUniform-06274). Links inside the chain are built by
-// emitPointerChain and stay undecorated.
+// The pointer is ONE OpAccessChain from the root variable or parameter with
+// every index of the Access/AccessIndex chain, as Rust naga's write_access_chain
+// builds it (back/spv/block.rs). When the chain indexes a binding array with a
+// non-uniform index, that pointer is decorated NonUniform
+// (VUID-RuntimeSpirv-NonUniform-06274).
 func (e *ExpressionEmitter) emitPointerExpression(handle ir.ExpressionHandle) (uint32, error) {
-	id, err := e.emitPointerChain(handle)
+	// Walk from the tip to the root, collecting the links.
+	var links []ir.ExpressionHandle
+	root := handle
+	for {
+		switch k := e.function.Expressions[root].Kind.(type) {
+		case ir.ExprAccess:
+			links = append(links, root)
+			root = k.Base
+			continue
+		case ir.ExprAccessIndex:
+			links = append(links, root)
+			root = k.Base
+			continue
+		}
+		break
+	}
+
+	rootID, err := e.emitPointerRoot(root)
 	if err != nil {
 		return 0, err
 	}
-	if e.chainHasNonUniformBindingArrayAccess(handle) {
-		e.backend.decorateNonUniformBindingArrayAccess(id)
+	if len(links) == 0 {
+		return rootID, nil
 	}
-	return id, nil
-}
 
-// chainHasNonUniformBindingArrayAccess reports whether the pointer chain ending
-// at handle indexes a binding array with a non-uniform index.
-func (e *ExpressionEmitter) chainHasNonUniformBindingArrayAccess(handle ir.ExpressionHandle) bool {
-	for {
-		switch k := e.function.Expressions[handle].Kind.(type) {
+	// Indices in root-to-tip order.
+	indices := make([]uint32, 0, len(links))
+	nonUniform := false
+	for i := len(links) - 1; i >= 0; i-- {
+		switch k := e.function.Expressions[links[i]].Kind.(type) {
 		case ir.ExprAccess:
-			if e.isNonUniformBindingArrayAccess(k.Base, k.Index) {
-				return true
+			nonUniform = nonUniform || e.isNonUniformBindingArrayAccess(k.Base, k.Index)
+			indexID, err := e.emitExpression(k.Index)
+			if err != nil {
+				return 0, err
 			}
-			handle = k.Base
+			indices = append(indices, indexID)
 		case ir.ExprAccessIndex:
-			handle = k.Base
-		default:
-			return false
+			indexID, err := e.u32Constant(k.Index)
+			if err != nil {
+				return 0, err
+			}
+			indices = append(indices, indexID)
 		}
 	}
+
+	ptrType, err := e.accessChainResultType(handle)
+	if err != nil {
+		return 0, err
+	}
+	ptrID := e.backend.builder.AddAccessChain(ptrType, rootID, indices...)
+	if nonUniform {
+		e.backend.decorateNonUniformBindingArrayAccess(ptrID)
+	}
+	return ptrID, nil
 }
 
-// emitPointerChain emits one link of a pointer chain; see emitPointerExpression.
-func (e *ExpressionEmitter) emitPointerChain(handle ir.ExpressionHandle) (uint32, error) {
+// accessChainResultType returns the pointer type of the access chain whose
+// tip is the Access or AccessIndex expression tip: a pointer, in the storage
+// class of the chain's root, to the element the tip selects (layout-free for
+// Workgroup, VUID-StandaloneSpirv-None-10684).
+func (e *ExpressionEmitter) accessChainResultType(tip ir.ExpressionHandle) (uint32, error) {
+	var base ir.ExpressionHandle
+	index := -1
+	switch k := e.function.Expressions[tip].Kind.(type) {
+	case ir.ExprAccess:
+		base = k.Base
+	case ir.ExprAccessIndex:
+		base, index = k.Base, int(k.Index)
+	default:
+		return 0, fmt.Errorf("access chain tip %T is not an access", k)
+	}
+	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, base)
+	if err != nil {
+		return 0, fmt.Errorf("access base type: %w", err)
+	}
+	elementType, err := e.resolveAccessElementType(baseType, index)
+	if err != nil {
+		return 0, fmt.Errorf("access element type: %w", err)
+	}
+	storageClass, err := e.getExpressionStorageClass(base)
+	if err != nil {
+		return 0, err
+	}
+	elementTypeID, err := e.backend.resolveTypeForStorageClass(elementType, storageClass)
+	if err != nil {
+		return 0, err
+	}
+	return e.backend.emitPointerType(storageClass, elementTypeID), nil
+}
+
+// u32Constant returns the id of a u32 constant, for access chain indices.
+func (e *ExpressionEmitter) u32Constant(value uint32) (uint32, error) {
+	u32Type, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
+	if err != nil {
+		return 0, err
+	}
+	return e.backend.builder.AddConstant(u32Type, value), nil
+}
+
+// emitPointerRoot emits the root of a pointer chain: a local or global
+// variable, or a function argument.
+func (e *ExpressionEmitter) emitPointerRoot(handle ir.ExpressionHandle) (uint32, error) {
 	expr := e.function.Expressions[handle]
 
 	switch k := expr.Kind.(type) {
@@ -4624,95 +4686,13 @@ func (e *ExpressionEmitter) emitPointerChain(handle ir.ExpressionHandle) (uint32
 		return varID, nil
 	case ir.ExprFunctionArgument:
 		return e.emitFunctionArgRef(k)
-	case ir.ExprAccessIndex:
-		return e.emitAccessIndexAsPointer(k)
-	case ir.ExprAccess:
-		return e.emitAccessAsPointer(k)
 	default:
 		return 0, fmt.Errorf("expression %T is not a pointer expression", k)
 	}
 }
 
-// emitAccessIndexAsPointer emits an access index as a SPIR-V pointer without loading.
-func (e *ExpressionEmitter) emitAccessIndexAsPointer(access ir.ExprAccessIndex) (uint32, error) {
-	baseID, err := e.emitPointerChain(access.Base)
-	if err != nil {
-		return 0, err
-	}
-
-	// Get result type from type inference
-	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
-	if err != nil {
-		return 0, fmt.Errorf("access index base type: %w", err)
-	}
-
-	// Determine the element type.
-	// Determine the element type, unwrapping pointer types
-	elementType, err := e.resolveAccessElementType(baseType, int(access.Index))
-	if err != nil {
-		return 0, fmt.Errorf("access index as pointer element type: %w", err)
-	}
-
-	storageClass, err := e.getExpressionStorageClass(access.Base)
-	if err != nil {
-		return 0, err
-	}
-	// Use layout-free element type for Workgroup (VUID-StandaloneSpirv-None-10684).
-	elementTypeID, err := e.backend.resolveTypeForStorageClass(elementType, storageClass)
-	if err != nil {
-		return 0, err
-	}
-
-	u32Type, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-	if err != nil {
-		return 0, err
-	}
-	indexID := e.backend.builder.AddConstant(u32Type, access.Index)
-
-	ptrType := e.backend.emitPointerType(storageClass, elementTypeID)
-	return e.backend.builder.AddAccessChain(ptrType, baseID, indexID), nil
-}
-
-// emitAccessAsPointer emits a dynamic access as a SPIR-V pointer without loading.
-func (e *ExpressionEmitter) emitAccessAsPointer(access ir.ExprAccess) (uint32, error) {
-	baseID, err := e.emitPointerChain(access.Base)
-	if err != nil {
-		return 0, err
-	}
-
-	indexID, err := e.emitExpression(access.Index)
-	if err != nil {
-		return 0, err
-	}
-
-	// Get result type from type inference
-	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
-	if err != nil {
-		return 0, fmt.Errorf("access base type: %w", err)
-	}
-
-	// Determine the element type, unwrapping pointer types
-	elementType, err := e.resolveAccessElementType(baseType, -1)
-	if err != nil {
-		return 0, fmt.Errorf("access as pointer element type: %w", err)
-	}
-
-	storageClass, err := e.getExpressionStorageClass(access.Base)
-	if err != nil {
-		return 0, err
-	}
-	// Use layout-free element type for Workgroup (VUID-StandaloneSpirv-None-10684).
-	elementTypeID, err := e.backend.resolveTypeForStorageClass(elementType, storageClass)
-	if err != nil {
-		return 0, err
-	}
-
-	ptrType := e.backend.emitPointerType(storageClass, elementTypeID)
-	return e.backend.builder.AddAccessChain(ptrType, baseID, indexID), nil
-}
-
 // emitAccessIndex emits a static index access operation.
-// Returns a VALUE (auto-loads from pointers). For pointer destinations, use emitAccessIndexAsPointer.
+// Returns a VALUE (auto-loads from pointers). For pointer destinations, use emitPointerExpression.
 func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, access ir.ExprAccessIndex) (uint32, error) {
 	// Get result type from type inference
 	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
@@ -4737,18 +4717,12 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 	}
 
 	if isPointerBase {
-		// Base is a pointer - use emitPointerExpression to get SPIR-V pointer,
-		// then OpAccessChain, then auto-load to return a VALUE.
-		baseID, err := e.emitPointerExpression(access.Base)
+		// Base is a pointer: one access chain for the whole chain ending here,
+		// then auto-load to return a VALUE.
+		ptrID, err := e.emitPointerExpression(exprHandle)
 		if err != nil {
 			return 0, err
 		}
-
-		u32Type, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-		if err != nil {
-			return 0, err
-		}
-		indexID := e.backend.builder.AddConstant(u32Type, access.Index)
 
 		storageClass, err := e.getExpressionStorageClass(access.Base)
 		if err != nil {
@@ -4759,9 +4733,6 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 		if err != nil {
 			return 0, err
 		}
-
-		ptrType := e.backend.emitPointerType(storageClass, accessElementTypeID)
-		ptrID := e.backend.builder.AddAccessChain(ptrType, baseID, indexID)
 
 		// SPIR-V forbids OpLoad on runtime-sized arrays and types containing them.
 		// Return the pointer directly; downstream Access/AccessIndex will use

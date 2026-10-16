@@ -72,6 +72,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference comparison run on Linux, Windows and macOS instead of being skipped.
   golangci-lint is pinned to v2.14.0.
 
+- **SPIR-V: one `OpAccessChain` per dereference** — the pointer a load, store,
+  atomic or call uses is built as one access chain from the root variable with
+  every index, as in Rust naga's `write_access_chain`, instead of one access
+  chain per `Access`/`AccessIndex` link on top of the previous one. Same memory
+  accesses (checked load by load over the snapshot corpus and the gg shaders),
+  fewer instructions and pointer types (snapshot goldens: 661 fewer
+  `OpAccessChain`, 32 fewer `OpTypePointer`). It also lets a bounds check put
+  the whole access inside its in-bounds branch.
+
 ### Removed
 
 - **`ir.CloneModuleForOverrides`** — replaced by `(*ir.Module).Clone`. It

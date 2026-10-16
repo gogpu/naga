@@ -1,15 +1,15 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 117
+; Bound: 114
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint Vertex %_50 "vs_main" %_22 %_24 %_26
-               OpEntryPoint Fragment %_106 "fs_main" %_28 %_30 %_31
-               OpExecutionMode %_106 OriginUpperLeft
+               OpEntryPoint Fragment %_103 "fs_main" %_28 %_30 %_31
+               OpExecutionMode %_103 OriginUpperLeft
                OpMemberDecorate %_6 0 Offset 0
                OpMemberDecorate %_6 1 Offset 16
                OpMemberDecorate %_8 0 Offset 0
@@ -68,10 +68,10 @@
          %_74 = OpTypePointer Uniform %_8
          %_75 = OpConstant %_9 0
          %_77 = OpConstant %_9 1
-         %_78 = OpTypePointer Uniform %_7
-         %_80 = OpTypePointer Uniform %_4
-         %_91 = OpConstant %_9 2
-         %_115 = OpTypeSampledImage %_12
+         %_78 = OpTypePointer Uniform %_4
+         %_87 = OpConstant %_9 2
+         %_94 = OpTypePointer Uniform %_7
+         %_112 = OpTypeSampledImage %_12
          %_16 = OpVariable %_15 Uniform
          %_18 = OpVariable %_17 UniformConstant
          %_20 = OpVariable %_19 UniformConstant
@@ -116,45 +116,42 @@
          %_71 = OpFSub %_3 %_70 %_66
          %_73 = OpCompositeConstruct %_4 %_67 %_71 %_72 %_66
          %_76 = OpAccessChain %_74 %_16 %_75
-         %_79 = OpAccessChain %_78 %_76 %_77
-         %_81 = OpAccessChain %_80 %_79 %_75
-         %_82 = OpLoad %_4 %_81
-         %_83 = OpVectorShuffle %_5 %_82 %_82 0 1 2
-         %_84 = OpAccessChain %_74 %_16 %_75
-         %_85 = OpAccessChain %_78 %_84 %_77
-         %_86 = OpAccessChain %_80 %_85 %_77
-         %_87 = OpLoad %_4 %_86
-         %_88 = OpVectorShuffle %_5 %_87 %_87 0 1 2
-         %_89 = OpAccessChain %_74 %_16 %_75
-         %_90 = OpAccessChain %_78 %_89 %_77
-         %_92 = OpAccessChain %_80 %_90 %_91
-         %_93 = OpLoad %_4 %_92
-         %_94 = OpVectorShuffle %_5 %_93 %_93 0 1 2
-         %_95 = OpCompositeConstruct %_11 %_83 %_88 %_94
-         %_96 = OpTranspose %_11 %_95
-         %_97 = OpAccessChain %_74 %_16 %_75
-         %_98 = OpAccessChain %_78 %_97 %_75
-         %_99 = OpLoad %_7 %_98
-         %_100 = OpMatrixTimesVector %_4 %_99 %_73
-         %_101 = OpVectorShuffle %_5 %_100 %_100 0 1 2
-         %_102 = OpMatrixTimesVector %_5 %_96 %_101
-         %_103 = OpCompositeConstruct %_6 %_73 %_102
-         %_104 = OpCompositeExtract %_4 %_103 0
-               OpStore %_24 %_104
-         %_105 = OpCompositeExtract %_5 %_103 1
-               OpStore %_26 %_105
+         %_79 = OpAccessChain %_78 %_76 %_77 %_75
+         %_80 = OpLoad %_4 %_79
+         %_81 = OpVectorShuffle %_5 %_80 %_80 0 1 2
+         %_82 = OpAccessChain %_74 %_16 %_75
+         %_83 = OpAccessChain %_78 %_82 %_77 %_77
+         %_84 = OpLoad %_4 %_83
+         %_85 = OpVectorShuffle %_5 %_84 %_84 0 1 2
+         %_86 = OpAccessChain %_74 %_16 %_75
+         %_88 = OpAccessChain %_78 %_86 %_77 %_87
+         %_89 = OpLoad %_4 %_88
+         %_90 = OpVectorShuffle %_5 %_89 %_89 0 1 2
+         %_91 = OpCompositeConstruct %_11 %_81 %_85 %_90
+         %_92 = OpTranspose %_11 %_91
+         %_93 = OpAccessChain %_74 %_16 %_75
+         %_95 = OpAccessChain %_94 %_93 %_75
+         %_96 = OpLoad %_7 %_95
+         %_97 = OpMatrixTimesVector %_4 %_96 %_73
+         %_98 = OpVectorShuffle %_5 %_97 %_97 0 1 2
+         %_99 = OpMatrixTimesVector %_5 %_92 %_98
+         %_100 = OpCompositeConstruct %_6 %_73 %_99
+         %_101 = OpCompositeExtract %_4 %_100 0
+               OpStore %_24 %_101
+         %_102 = OpCompositeExtract %_5 %_100 1
+               OpStore %_26 %_102
                OpReturn
                OpFunctionEnd
-         %_106 = OpFunction %_2 None %_49
-         %_107 = OpLabel
-         %_108 = OpLoad %_4 %_28
-         %_109 = OpLoad %_5 %_30
-         %_110 = OpCompositeConstruct %_6 %_108 %_109
-         %_111 = OpCompositeExtract %_5 %_110 1
-         %_112 = OpLoad %_12 %_18
-         %_113 = OpLoad %_13 %_20
-         %_116 = OpSampledImage %_115 %_112 %_113
-         %_114 = OpImageSampleImplicitLod %_4 %_116 %_111
-               OpStore %_31 %_114
+         %_103 = OpFunction %_2 None %_49
+         %_104 = OpLabel
+         %_105 = OpLoad %_4 %_28
+         %_106 = OpLoad %_5 %_30
+         %_107 = OpCompositeConstruct %_6 %_105 %_106
+         %_108 = OpCompositeExtract %_5 %_107 1
+         %_109 = OpLoad %_12 %_18
+         %_110 = OpLoad %_13 %_20
+         %_113 = OpSampledImage %_112 %_109 %_110
+         %_111 = OpImageSampleImplicitLod %_4 %_113 %_108
+               OpStore %_31 %_111
                OpReturn
                OpFunctionEnd

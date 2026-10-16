@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 373
+; Bound: 351
 ; Schema: 0
 
                OpCapability Shader
@@ -73,93 +73,93 @@
          %_58 = OpConstant %_4 1 0
          %_59 = OpTypePointer StorageBuffer %_8
          %_62 = OpConstant %_3 1 0
-         %_66 = OpConstant %_4 1 0
-         %_67 = OpConstant %_3 1 0
-         %_68 = OpConstant %_51 2
-         %_69 = OpTypePointer Workgroup %_4
-         %_71 = OpConstant %_4 1 0
-         %_73 = OpConstant %_3 1 0
-         %_76 = OpConstant %_4 1 0
-         %_98 = OpConstant %_3 1 0
-         %_102 = OpConstant %_4 1 0
-         %_106 = OpConstant %_3 1 0
+         %_65 = OpConstant %_4 1 0
+         %_66 = OpConstant %_3 1 0
+         %_67 = OpConstant %_51 2
+         %_68 = OpTypePointer Workgroup %_4
+         %_70 = OpConstant %_4 1 0
+         %_72 = OpConstant %_3 1 0
+         %_74 = OpConstant %_4 1 0
+         %_94 = OpConstant %_3 1 0
+         %_98 = OpConstant %_4 1 0
+         %_102 = OpConstant %_3 1 0
+         %_106 = OpConstant %_4 1 0
+         %_108 = OpConstant %_3 1 0
          %_111 = OpConstant %_4 1 0
-         %_113 = OpConstant %_3 1 0
-         %_116 = OpConstant %_4 1 0
-         %_119 = OpConstant %_3 1 0
-         %_123 = OpConstant %_4 1 0
-         %_126 = OpConstant %_3 1 0
-         %_130 = OpConstant %_4 1 0
+         %_114 = OpConstant %_3 1 0
+         %_117 = OpConstant %_4 1 0
+         %_120 = OpConstant %_3 1 0
+         %_124 = OpConstant %_4 1 0
+         %_128 = OpConstant %_3 1 0
+         %_132 = OpConstant %_4 1 0
          %_134 = OpConstant %_3 1 0
-         %_139 = OpConstant %_4 1 0
-         %_141 = OpConstant %_3 1 0
-         %_144 = OpConstant %_4 1 0
-         %_147 = OpConstant %_3 1 0
-         %_151 = OpConstant %_4 1 0
+         %_137 = OpConstant %_4 1 0
+         %_140 = OpConstant %_3 1 0
+         %_143 = OpConstant %_4 1 0
+         %_146 = OpConstant %_3 1 0
+         %_150 = OpConstant %_4 1 0
          %_154 = OpConstant %_3 1 0
          %_158 = OpConstant %_4 1 0
-         %_162 = OpConstant %_3 1 0
-         %_167 = OpConstant %_4 1 0
-         %_169 = OpConstant %_3 1 0
-         %_172 = OpConstant %_4 1 0
-         %_175 = OpConstant %_3 1 0
-         %_179 = OpConstant %_4 1 0
-         %_182 = OpConstant %_3 1 0
-         %_186 = OpConstant %_4 1 0
-         %_190 = OpConstant %_3 1 0
+         %_160 = OpConstant %_3 1 0
+         %_163 = OpConstant %_4 1 0
+         %_166 = OpConstant %_3 1 0
+         %_169 = OpConstant %_4 1 0
+         %_172 = OpConstant %_3 1 0
+         %_176 = OpConstant %_4 1 0
+         %_180 = OpConstant %_3 1 0
+         %_184 = OpConstant %_4 1 0
+         %_186 = OpConstant %_3 1 0
+         %_189 = OpConstant %_4 1 0
+         %_192 = OpConstant %_3 1 0
          %_195 = OpConstant %_4 1 0
-         %_197 = OpConstant %_3 1 0
-         %_200 = OpConstant %_4 1 0
-         %_203 = OpConstant %_3 1 0
-         %_207 = OpConstant %_4 1 0
-         %_210 = OpConstant %_3 1 0
-         %_214 = OpConstant %_4 1 0
+         %_198 = OpConstant %_3 1 0
+         %_202 = OpConstant %_4 1 0
+         %_206 = OpConstant %_3 1 0
+         %_210 = OpConstant %_4 1 0
+         %_212 = OpConstant %_3 1 0
+         %_215 = OpConstant %_4 1 0
          %_218 = OpConstant %_3 1 0
-         %_223 = OpConstant %_4 1 0
-         %_225 = OpConstant %_3 1 0
+         %_221 = OpConstant %_4 1 0
+         %_224 = OpConstant %_3 1 0
          %_228 = OpConstant %_4 1 0
-         %_231 = OpConstant %_3 1 0
-         %_235 = OpConstant %_4 1 0
+         %_232 = OpConstant %_3 1 0
+         %_236 = OpConstant %_4 1 0
          %_238 = OpConstant %_3 1 0
-         %_242 = OpConstant %_4 1 0
-         %_246 = OpConstant %_3 1 0
-         %_251 = OpConstant %_4 1 0
-         %_253 = OpConstant %_3 1 0
-         %_256 = OpConstant %_4 1 0
-         %_259 = OpConstant %_3 1 0
-         %_263 = OpConstant %_4 1 0
-         %_266 = OpConstant %_3 1 0
-         %_270 = OpConstant %_4 1 0
-         %_274 = OpConstant %_3 1 0
-         %_279 = OpConstant %_4 1 0
-         %_281 = OpConstant %_3 1 0
-         %_284 = OpConstant %_4 1 0
-         %_287 = OpConstant %_3 1 0
-         %_291 = OpConstant %_4 1 0
-         %_294 = OpConstant %_3 1 0
-         %_298 = OpConstant %_4 1 0
-         %_302 = OpConstant %_3 1 0
-         %_307 = OpConstant %_4 1 0
-         %_309 = OpConstant %_3 1 0
-         %_312 = OpConstant %_4 1 0
-         %_315 = OpConstant %_3 1 0
-         %_319 = OpConstant %_4 1 0
-         %_322 = OpConstant %_3 2 0
-         %_323 = OpConstant %_3 1 0
-         %_329 = OpConstant %_4 2 0
-         %_330 = OpConstant %_4 1 0
-         %_336 = OpConstant %_3 2 0
-         %_337 = OpConstant %_3 1 0
-         %_344 = OpConstant %_4 2 0
-         %_345 = OpConstant %_4 1 0
-         %_349 = OpConstant %_3 2 0
-         %_350 = OpConstant %_3 1 0
-         %_355 = OpConstant %_4 2 0
-         %_356 = OpConstant %_4 1 0
-         %_361 = OpConstant %_3 2 0
-         %_362 = OpConstant %_3 1 0
-         %_368 = OpConstant %_4 2 0
-         %_369 = OpConstant %_4 1 0
+         %_241 = OpConstant %_4 1 0
+         %_244 = OpConstant %_3 1 0
+         %_247 = OpConstant %_4 1 0
+         %_250 = OpConstant %_3 1 0
+         %_254 = OpConstant %_4 1 0
+         %_258 = OpConstant %_3 1 0
+         %_262 = OpConstant %_4 1 0
+         %_264 = OpConstant %_3 1 0
+         %_267 = OpConstant %_4 1 0
+         %_270 = OpConstant %_3 1 0
+         %_273 = OpConstant %_4 1 0
+         %_276 = OpConstant %_3 1 0
+         %_280 = OpConstant %_4 1 0
+         %_284 = OpConstant %_3 1 0
+         %_288 = OpConstant %_4 1 0
+         %_290 = OpConstant %_3 1 0
+         %_293 = OpConstant %_4 1 0
+         %_296 = OpConstant %_3 1 0
+         %_299 = OpConstant %_4 1 0
+         %_302 = OpConstant %_3 2 0
+         %_303 = OpConstant %_3 1 0
+         %_309 = OpConstant %_4 2 0
+         %_310 = OpConstant %_4 1 0
+         %_316 = OpConstant %_3 2 0
+         %_317 = OpConstant %_3 1 0
+         %_323 = OpConstant %_4 2 0
+         %_324 = OpConstant %_4 1 0
+         %_328 = OpConstant %_3 2 0
+         %_329 = OpConstant %_3 1 0
+         %_334 = OpConstant %_4 2 0
+         %_335 = OpConstant %_4 1 0
+         %_340 = OpConstant %_3 2 0
+         %_341 = OpConstant %_3 1 0
+         %_346 = OpConstant %_4 2 0
+         %_347 = OpConstant %_4 1 0
          %_15 = OpVariable %_14 StorageBuffer
          %_18 = OpVariable %_17 StorageBuffer
          %_21 = OpVariable %_20 StorageBuffer
@@ -192,240 +192,218 @@
          %_61 = OpAccessChain %_47 %_60 %_48
          OpAtomicStore %_61 %_52 %_48 %_62
          %_63 = OpAccessChain %_59 %_21 %_48
-         %_64 = OpAccessChain %_53 %_63 %_55
-         %_65 = OpAccessChain %_56 %_64 %_55
-         OpAtomicStore %_65 %_52 %_48 %_66
-         OpAtomicStore %_23 %_68 %_48 %_67
-         %_70 = OpAccessChain %_69 %_26 %_55
-         OpAtomicStore %_70 %_68 %_48 %_71
-         %_72 = OpAccessChain %_22 %_29 %_48
-         OpAtomicStore %_72 %_68 %_48 %_73
-         %_74 = OpAccessChain %_25 %_29 %_55
-         %_75 = OpAccessChain %_69 %_74 %_55
-         OpAtomicStore %_75 %_68 %_48 %_76
+         %_64 = OpAccessChain %_56 %_63 %_55 %_55
+         OpAtomicStore %_64 %_52 %_48 %_65
+         OpAtomicStore %_23 %_67 %_48 %_66
+         %_69 = OpAccessChain %_68 %_26 %_55
+         OpAtomicStore %_69 %_67 %_48 %_70
+         %_71 = OpAccessChain %_22 %_29 %_48
+         OpAtomicStore %_71 %_67 %_48 %_72
+         %_73 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicStore %_73 %_67 %_48 %_74
          OpControlBarrier %_6 %_6 %_45
-         %_77 = OpAccessChain %_47 %_15 %_48
-         OpAtomicLoad %_3 %_78 %_77 %_52 %_48
-         %_79 = OpAccessChain %_53 %_18 %_48
-         %_80 = OpAccessChain %_56 %_79 %_55
-         OpAtomicLoad %_4 %_81 %_80 %_52 %_48
-         %_82 = OpAccessChain %_59 %_21 %_48
-         %_83 = OpAccessChain %_47 %_82 %_48
-         OpAtomicLoad %_3 %_84 %_83 %_52 %_48
-         %_85 = OpAccessChain %_59 %_21 %_48
-         %_86 = OpAccessChain %_53 %_85 %_55
-         %_87 = OpAccessChain %_56 %_86 %_55
-         OpAtomicLoad %_4 %_88 %_87 %_52 %_48
-         OpAtomicLoad %_3 %_89 %_23 %_68 %_48
-         %_90 = OpAccessChain %_69 %_26 %_55
-         OpAtomicLoad %_4 %_91 %_90 %_68 %_48
-         %_92 = OpAccessChain %_22 %_29 %_48
-         OpAtomicLoad %_3 %_93 %_92 %_68 %_48
-         %_94 = OpAccessChain %_25 %_29 %_55
-         %_95 = OpAccessChain %_69 %_94 %_55
-         OpAtomicLoad %_4 %_96 %_95 %_68 %_48
+         %_75 = OpAccessChain %_47 %_15 %_48
+         OpAtomicLoad %_3 %_76 %_75 %_52 %_48
+         %_77 = OpAccessChain %_53 %_18 %_48
+         %_78 = OpAccessChain %_56 %_77 %_55
+         OpAtomicLoad %_4 %_79 %_78 %_52 %_48
+         %_80 = OpAccessChain %_59 %_21 %_48
+         %_81 = OpAccessChain %_47 %_80 %_48
+         OpAtomicLoad %_3 %_82 %_81 %_52 %_48
+         %_83 = OpAccessChain %_59 %_21 %_48
+         %_84 = OpAccessChain %_56 %_83 %_55 %_55
+         OpAtomicLoad %_4 %_85 %_84 %_52 %_48
+         OpAtomicLoad %_3 %_86 %_23 %_67 %_48
+         %_87 = OpAccessChain %_68 %_26 %_55
+         OpAtomicLoad %_4 %_88 %_87 %_67 %_48
+         %_89 = OpAccessChain %_22 %_29 %_48
+         OpAtomicLoad %_3 %_90 %_89 %_67 %_48
+         %_91 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicLoad %_4 %_92 %_91 %_67 %_48
          OpControlBarrier %_6 %_6 %_45
-         %_97 = OpAccessChain %_47 %_15 %_48
-         OpAtomicIAdd %_3 %_99 %_97 %_52 %_48 %_98
-         %_100 = OpAccessChain %_53 %_18 %_48
-         %_101 = OpAccessChain %_56 %_100 %_55
-         OpAtomicIAdd %_4 %_103 %_101 %_52 %_48 %_102
+         %_93 = OpAccessChain %_47 %_15 %_48
+         OpAtomicIAdd %_3 %_95 %_93 %_52 %_48 %_94
+         %_96 = OpAccessChain %_53 %_18 %_48
+         %_97 = OpAccessChain %_56 %_96 %_55
+         OpAtomicIAdd %_4 %_99 %_97 %_52 %_48 %_98
+         %_100 = OpAccessChain %_59 %_21 %_48
+         %_101 = OpAccessChain %_47 %_100 %_48
+         OpAtomicIAdd %_3 %_103 %_101 %_52 %_48 %_102
          %_104 = OpAccessChain %_59 %_21 %_48
-         %_105 = OpAccessChain %_47 %_104 %_48
-         OpAtomicIAdd %_3 %_107 %_105 %_52 %_48 %_106
-         %_108 = OpAccessChain %_59 %_21 %_48
-         %_109 = OpAccessChain %_53 %_108 %_55
-         %_110 = OpAccessChain %_56 %_109 %_55
-         OpAtomicIAdd %_4 %_112 %_110 %_52 %_48 %_111
-         OpAtomicIAdd %_3 %_114 %_23 %_68 %_48 %_113
-         %_115 = OpAccessChain %_69 %_26 %_55
-         OpAtomicIAdd %_4 %_117 %_115 %_68 %_48 %_116
-         %_118 = OpAccessChain %_22 %_29 %_48
-         OpAtomicIAdd %_3 %_120 %_118 %_68 %_48 %_119
-         %_121 = OpAccessChain %_25 %_29 %_55
-         %_122 = OpAccessChain %_69 %_121 %_55
-         OpAtomicIAdd %_4 %_124 %_122 %_68 %_48 %_123
+         %_105 = OpAccessChain %_56 %_104 %_55 %_55
+         OpAtomicIAdd %_4 %_107 %_105 %_52 %_48 %_106
+         OpAtomicIAdd %_3 %_109 %_23 %_67 %_48 %_108
+         %_110 = OpAccessChain %_68 %_26 %_55
+         OpAtomicIAdd %_4 %_112 %_110 %_67 %_48 %_111
+         %_113 = OpAccessChain %_22 %_29 %_48
+         OpAtomicIAdd %_3 %_115 %_113 %_67 %_48 %_114
+         %_116 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicIAdd %_4 %_118 %_116 %_67 %_48 %_117
          OpControlBarrier %_6 %_6 %_45
-         %_125 = OpAccessChain %_47 %_15 %_48
-         OpAtomicISub %_3 %_127 %_125 %_52 %_48 %_126
-         %_128 = OpAccessChain %_53 %_18 %_48
-         %_129 = OpAccessChain %_56 %_128 %_55
-         OpAtomicISub %_4 %_131 %_129 %_52 %_48 %_130
-         %_132 = OpAccessChain %_59 %_21 %_48
-         %_133 = OpAccessChain %_47 %_132 %_48
-         OpAtomicISub %_3 %_135 %_133 %_52 %_48 %_134
-         %_136 = OpAccessChain %_59 %_21 %_48
-         %_137 = OpAccessChain %_53 %_136 %_55
-         %_138 = OpAccessChain %_56 %_137 %_55
-         OpAtomicISub %_4 %_140 %_138 %_52 %_48 %_139
-         OpAtomicISub %_3 %_142 %_23 %_68 %_48 %_141
-         %_143 = OpAccessChain %_69 %_26 %_55
-         OpAtomicISub %_4 %_145 %_143 %_68 %_48 %_144
-         %_146 = OpAccessChain %_22 %_29 %_48
-         OpAtomicISub %_3 %_148 %_146 %_68 %_48 %_147
-         %_149 = OpAccessChain %_25 %_29 %_55
-         %_150 = OpAccessChain %_69 %_149 %_55
-         OpAtomicISub %_4 %_152 %_150 %_68 %_48 %_151
+         %_119 = OpAccessChain %_47 %_15 %_48
+         OpAtomicISub %_3 %_121 %_119 %_52 %_48 %_120
+         %_122 = OpAccessChain %_53 %_18 %_48
+         %_123 = OpAccessChain %_56 %_122 %_55
+         OpAtomicISub %_4 %_125 %_123 %_52 %_48 %_124
+         %_126 = OpAccessChain %_59 %_21 %_48
+         %_127 = OpAccessChain %_47 %_126 %_48
+         OpAtomicISub %_3 %_129 %_127 %_52 %_48 %_128
+         %_130 = OpAccessChain %_59 %_21 %_48
+         %_131 = OpAccessChain %_56 %_130 %_55 %_55
+         OpAtomicISub %_4 %_133 %_131 %_52 %_48 %_132
+         OpAtomicISub %_3 %_135 %_23 %_67 %_48 %_134
+         %_136 = OpAccessChain %_68 %_26 %_55
+         OpAtomicISub %_4 %_138 %_136 %_67 %_48 %_137
+         %_139 = OpAccessChain %_22 %_29 %_48
+         OpAtomicISub %_3 %_141 %_139 %_67 %_48 %_140
+         %_142 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicISub %_4 %_144 %_142 %_67 %_48 %_143
          OpControlBarrier %_6 %_6 %_45
-         %_153 = OpAccessChain %_47 %_15 %_48
+         %_145 = OpAccessChain %_47 %_15 %_48
+         OpAtomicUMax %_3 %_147 %_145 %_52 %_48 %_146
+         %_148 = OpAccessChain %_53 %_18 %_48
+         %_149 = OpAccessChain %_56 %_148 %_55
+         OpAtomicSMax %_4 %_151 %_149 %_52 %_48 %_150
+         %_152 = OpAccessChain %_59 %_21 %_48
+         %_153 = OpAccessChain %_47 %_152 %_48
          OpAtomicUMax %_3 %_155 %_153 %_52 %_48 %_154
-         %_156 = OpAccessChain %_53 %_18 %_48
-         %_157 = OpAccessChain %_56 %_156 %_55
+         %_156 = OpAccessChain %_59 %_21 %_48
+         %_157 = OpAccessChain %_56 %_156 %_55 %_55
          OpAtomicSMax %_4 %_159 %_157 %_52 %_48 %_158
-         %_160 = OpAccessChain %_59 %_21 %_48
-         %_161 = OpAccessChain %_47 %_160 %_48
-         OpAtomicUMax %_3 %_163 %_161 %_52 %_48 %_162
-         %_164 = OpAccessChain %_59 %_21 %_48
-         %_165 = OpAccessChain %_53 %_164 %_55
-         %_166 = OpAccessChain %_56 %_165 %_55
-         OpAtomicSMax %_4 %_168 %_166 %_52 %_48 %_167
-         OpAtomicUMax %_3 %_170 %_23 %_68 %_48 %_169
-         %_171 = OpAccessChain %_69 %_26 %_55
-         OpAtomicSMax %_4 %_173 %_171 %_68 %_48 %_172
-         %_174 = OpAccessChain %_22 %_29 %_48
-         OpAtomicUMax %_3 %_176 %_174 %_68 %_48 %_175
-         %_177 = OpAccessChain %_25 %_29 %_55
-         %_178 = OpAccessChain %_69 %_177 %_55
-         OpAtomicSMax %_4 %_180 %_178 %_68 %_48 %_179
+         OpAtomicUMax %_3 %_161 %_23 %_67 %_48 %_160
+         %_162 = OpAccessChain %_68 %_26 %_55
+         OpAtomicSMax %_4 %_164 %_162 %_67 %_48 %_163
+         %_165 = OpAccessChain %_22 %_29 %_48
+         OpAtomicUMax %_3 %_167 %_165 %_67 %_48 %_166
+         %_168 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicSMax %_4 %_170 %_168 %_67 %_48 %_169
          OpControlBarrier %_6 %_6 %_45
-         %_181 = OpAccessChain %_47 %_15 %_48
-         OpAtomicUMin %_3 %_183 %_181 %_52 %_48 %_182
-         %_184 = OpAccessChain %_53 %_18 %_48
-         %_185 = OpAccessChain %_56 %_184 %_55
-         OpAtomicSMin %_4 %_187 %_185 %_52 %_48 %_186
-         %_188 = OpAccessChain %_59 %_21 %_48
-         %_189 = OpAccessChain %_47 %_188 %_48
-         OpAtomicUMin %_3 %_191 %_189 %_52 %_48 %_190
-         %_192 = OpAccessChain %_59 %_21 %_48
-         %_193 = OpAccessChain %_53 %_192 %_55
-         %_194 = OpAccessChain %_56 %_193 %_55
-         OpAtomicSMin %_4 %_196 %_194 %_52 %_48 %_195
-         OpAtomicUMin %_3 %_198 %_23 %_68 %_48 %_197
-         %_199 = OpAccessChain %_69 %_26 %_55
-         OpAtomicSMin %_4 %_201 %_199 %_68 %_48 %_200
-         %_202 = OpAccessChain %_22 %_29 %_48
-         OpAtomicUMin %_3 %_204 %_202 %_68 %_48 %_203
-         %_205 = OpAccessChain %_25 %_29 %_55
-         %_206 = OpAccessChain %_69 %_205 %_55
-         OpAtomicSMin %_4 %_208 %_206 %_68 %_48 %_207
+         %_171 = OpAccessChain %_47 %_15 %_48
+         OpAtomicUMin %_3 %_173 %_171 %_52 %_48 %_172
+         %_174 = OpAccessChain %_53 %_18 %_48
+         %_175 = OpAccessChain %_56 %_174 %_55
+         OpAtomicSMin %_4 %_177 %_175 %_52 %_48 %_176
+         %_178 = OpAccessChain %_59 %_21 %_48
+         %_179 = OpAccessChain %_47 %_178 %_48
+         OpAtomicUMin %_3 %_181 %_179 %_52 %_48 %_180
+         %_182 = OpAccessChain %_59 %_21 %_48
+         %_183 = OpAccessChain %_56 %_182 %_55 %_55
+         OpAtomicSMin %_4 %_185 %_183 %_52 %_48 %_184
+         OpAtomicUMin %_3 %_187 %_23 %_67 %_48 %_186
+         %_188 = OpAccessChain %_68 %_26 %_55
+         OpAtomicSMin %_4 %_190 %_188 %_67 %_48 %_189
+         %_191 = OpAccessChain %_22 %_29 %_48
+         OpAtomicUMin %_3 %_193 %_191 %_67 %_48 %_192
+         %_194 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicSMin %_4 %_196 %_194 %_67 %_48 %_195
          OpControlBarrier %_6 %_6 %_45
-         %_209 = OpAccessChain %_47 %_15 %_48
-         OpAtomicAnd %_3 %_211 %_209 %_52 %_48 %_210
-         %_212 = OpAccessChain %_53 %_18 %_48
-         %_213 = OpAccessChain %_56 %_212 %_55
-         OpAtomicAnd %_4 %_215 %_213 %_52 %_48 %_214
-         %_216 = OpAccessChain %_59 %_21 %_48
-         %_217 = OpAccessChain %_47 %_216 %_48
-         OpAtomicAnd %_3 %_219 %_217 %_52 %_48 %_218
-         %_220 = OpAccessChain %_59 %_21 %_48
-         %_221 = OpAccessChain %_53 %_220 %_55
-         %_222 = OpAccessChain %_56 %_221 %_55
-         OpAtomicAnd %_4 %_224 %_222 %_52 %_48 %_223
-         OpAtomicAnd %_3 %_226 %_23 %_68 %_48 %_225
-         %_227 = OpAccessChain %_69 %_26 %_55
-         OpAtomicAnd %_4 %_229 %_227 %_68 %_48 %_228
-         %_230 = OpAccessChain %_22 %_29 %_48
-         OpAtomicAnd %_3 %_232 %_230 %_68 %_48 %_231
-         %_233 = OpAccessChain %_25 %_29 %_55
-         %_234 = OpAccessChain %_69 %_233 %_55
-         OpAtomicAnd %_4 %_236 %_234 %_68 %_48 %_235
+         %_197 = OpAccessChain %_47 %_15 %_48
+         OpAtomicAnd %_3 %_199 %_197 %_52 %_48 %_198
+         %_200 = OpAccessChain %_53 %_18 %_48
+         %_201 = OpAccessChain %_56 %_200 %_55
+         OpAtomicAnd %_4 %_203 %_201 %_52 %_48 %_202
+         %_204 = OpAccessChain %_59 %_21 %_48
+         %_205 = OpAccessChain %_47 %_204 %_48
+         OpAtomicAnd %_3 %_207 %_205 %_52 %_48 %_206
+         %_208 = OpAccessChain %_59 %_21 %_48
+         %_209 = OpAccessChain %_56 %_208 %_55 %_55
+         OpAtomicAnd %_4 %_211 %_209 %_52 %_48 %_210
+         OpAtomicAnd %_3 %_213 %_23 %_67 %_48 %_212
+         %_214 = OpAccessChain %_68 %_26 %_55
+         OpAtomicAnd %_4 %_216 %_214 %_67 %_48 %_215
+         %_217 = OpAccessChain %_22 %_29 %_48
+         OpAtomicAnd %_3 %_219 %_217 %_67 %_48 %_218
+         %_220 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicAnd %_4 %_222 %_220 %_67 %_48 %_221
          OpControlBarrier %_6 %_6 %_45
-         %_237 = OpAccessChain %_47 %_15 %_48
-         OpAtomicOr %_3 %_239 %_237 %_52 %_48 %_238
-         %_240 = OpAccessChain %_53 %_18 %_48
-         %_241 = OpAccessChain %_56 %_240 %_55
-         OpAtomicOr %_4 %_243 %_241 %_52 %_48 %_242
-         %_244 = OpAccessChain %_59 %_21 %_48
-         %_245 = OpAccessChain %_47 %_244 %_48
-         OpAtomicOr %_3 %_247 %_245 %_52 %_48 %_246
-         %_248 = OpAccessChain %_59 %_21 %_48
-         %_249 = OpAccessChain %_53 %_248 %_55
-         %_250 = OpAccessChain %_56 %_249 %_55
-         OpAtomicOr %_4 %_252 %_250 %_52 %_48 %_251
-         OpAtomicOr %_3 %_254 %_23 %_68 %_48 %_253
-         %_255 = OpAccessChain %_69 %_26 %_55
-         OpAtomicOr %_4 %_257 %_255 %_68 %_48 %_256
-         %_258 = OpAccessChain %_22 %_29 %_48
-         OpAtomicOr %_3 %_260 %_258 %_68 %_48 %_259
-         %_261 = OpAccessChain %_25 %_29 %_55
-         %_262 = OpAccessChain %_69 %_261 %_55
-         OpAtomicOr %_4 %_264 %_262 %_68 %_48 %_263
+         %_223 = OpAccessChain %_47 %_15 %_48
+         OpAtomicOr %_3 %_225 %_223 %_52 %_48 %_224
+         %_226 = OpAccessChain %_53 %_18 %_48
+         %_227 = OpAccessChain %_56 %_226 %_55
+         OpAtomicOr %_4 %_229 %_227 %_52 %_48 %_228
+         %_230 = OpAccessChain %_59 %_21 %_48
+         %_231 = OpAccessChain %_47 %_230 %_48
+         OpAtomicOr %_3 %_233 %_231 %_52 %_48 %_232
+         %_234 = OpAccessChain %_59 %_21 %_48
+         %_235 = OpAccessChain %_56 %_234 %_55 %_55
+         OpAtomicOr %_4 %_237 %_235 %_52 %_48 %_236
+         OpAtomicOr %_3 %_239 %_23 %_67 %_48 %_238
+         %_240 = OpAccessChain %_68 %_26 %_55
+         OpAtomicOr %_4 %_242 %_240 %_67 %_48 %_241
+         %_243 = OpAccessChain %_22 %_29 %_48
+         OpAtomicOr %_3 %_245 %_243 %_67 %_48 %_244
+         %_246 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicOr %_4 %_248 %_246 %_67 %_48 %_247
          OpControlBarrier %_6 %_6 %_45
-         %_265 = OpAccessChain %_47 %_15 %_48
-         OpAtomicXor %_3 %_267 %_265 %_52 %_48 %_266
-         %_268 = OpAccessChain %_53 %_18 %_48
-         %_269 = OpAccessChain %_56 %_268 %_55
-         OpAtomicXor %_4 %_271 %_269 %_52 %_48 %_270
-         %_272 = OpAccessChain %_59 %_21 %_48
-         %_273 = OpAccessChain %_47 %_272 %_48
-         OpAtomicXor %_3 %_275 %_273 %_52 %_48 %_274
-         %_276 = OpAccessChain %_59 %_21 %_48
-         %_277 = OpAccessChain %_53 %_276 %_55
-         %_278 = OpAccessChain %_56 %_277 %_55
-         OpAtomicXor %_4 %_280 %_278 %_52 %_48 %_279
-         OpAtomicXor %_3 %_282 %_23 %_68 %_48 %_281
-         %_283 = OpAccessChain %_69 %_26 %_55
-         OpAtomicXor %_4 %_285 %_283 %_68 %_48 %_284
-         %_286 = OpAccessChain %_22 %_29 %_48
-         OpAtomicXor %_3 %_288 %_286 %_68 %_48 %_287
-         %_289 = OpAccessChain %_25 %_29 %_55
-         %_290 = OpAccessChain %_69 %_289 %_55
-         OpAtomicXor %_4 %_292 %_290 %_68 %_48 %_291
-         %_293 = OpAccessChain %_47 %_15 %_48
-         OpAtomicExchange %_3 %_295 %_293 %_52 %_48 %_294
-         %_296 = OpAccessChain %_53 %_18 %_48
-         %_297 = OpAccessChain %_56 %_296 %_55
-         OpAtomicExchange %_4 %_299 %_297 %_52 %_48 %_298
-         %_300 = OpAccessChain %_59 %_21 %_48
-         %_301 = OpAccessChain %_47 %_300 %_48
-         OpAtomicExchange %_3 %_303 %_301 %_52 %_48 %_302
-         %_304 = OpAccessChain %_59 %_21 %_48
-         %_305 = OpAccessChain %_53 %_304 %_55
-         %_306 = OpAccessChain %_56 %_305 %_55
-         OpAtomicExchange %_4 %_308 %_306 %_52 %_48 %_307
-         OpAtomicExchange %_3 %_310 %_23 %_68 %_48 %_309
-         %_311 = OpAccessChain %_69 %_26 %_55
-         OpAtomicExchange %_4 %_313 %_311 %_68 %_48 %_312
-         %_314 = OpAccessChain %_22 %_29 %_48
-         OpAtomicExchange %_3 %_316 %_314 %_68 %_48 %_315
-         %_317 = OpAccessChain %_25 %_29 %_55
-         %_318 = OpAccessChain %_69 %_317 %_55
-         OpAtomicExchange %_4 %_320 %_318 %_68 %_48 %_319
-         %_321 = OpAccessChain %_47 %_15 %_48
-         OpAtomicCompareExchange %_3 %_324 %_321 %_52 %_48 %_48 %_322 %_323
-         %_325 = OpSignBitSet %_10 %_324 %_323
-         %_326 = OpCompositeConstruct %_11 %_324 %_325
-         %_327 = OpAccessChain %_53 %_18 %_48
-         %_328 = OpAccessChain %_56 %_327 %_55
-         OpAtomicCompareExchange %_4 %_331 %_328 %_52 %_48 %_48 %_329 %_330
-         %_332 = OpSignBitSet %_10 %_331 %_330
-         %_333 = OpCompositeConstruct %_12 %_331 %_332
-         %_334 = OpAccessChain %_59 %_21 %_48
-         %_335 = OpAccessChain %_47 %_334 %_48
-         OpAtomicCompareExchange %_3 %_338 %_335 %_52 %_48 %_48 %_336 %_337
-         %_339 = OpSignBitSet %_10 %_338 %_337
-         %_340 = OpCompositeConstruct %_11 %_338 %_339
-         %_341 = OpAccessChain %_59 %_21 %_48
-         %_342 = OpAccessChain %_53 %_341 %_55
-         %_343 = OpAccessChain %_56 %_342 %_55
-         OpAtomicCompareExchange %_4 %_346 %_343 %_52 %_48 %_48 %_344 %_345
-         %_347 = OpSignBitSet %_10 %_346 %_345
-         %_348 = OpCompositeConstruct %_12 %_346 %_347
-         OpAtomicCompareExchange %_3 %_351 %_23 %_68 %_48 %_48 %_349 %_350
-         %_352 = OpSignBitSet %_10 %_351 %_350
-         %_353 = OpCompositeConstruct %_11 %_351 %_352
-         %_354 = OpAccessChain %_69 %_26 %_55
-         OpAtomicCompareExchange %_4 %_357 %_354 %_68 %_48 %_48 %_355 %_356
-         %_358 = OpSignBitSet %_10 %_357 %_356
-         %_359 = OpCompositeConstruct %_12 %_357 %_358
-         %_360 = OpAccessChain %_22 %_29 %_48
-         OpAtomicCompareExchange %_3 %_363 %_360 %_68 %_48 %_48 %_361 %_362
-         %_364 = OpSignBitSet %_10 %_363 %_362
-         %_365 = OpCompositeConstruct %_11 %_363 %_364
-         %_366 = OpAccessChain %_25 %_29 %_55
-         %_367 = OpAccessChain %_69 %_366 %_55
-         OpAtomicCompareExchange %_4 %_370 %_367 %_68 %_48 %_48 %_368 %_369
-         %_371 = OpSignBitSet %_10 %_370 %_369
-         %_372 = OpCompositeConstruct %_12 %_370 %_371
+         %_249 = OpAccessChain %_47 %_15 %_48
+         OpAtomicXor %_3 %_251 %_249 %_52 %_48 %_250
+         %_252 = OpAccessChain %_53 %_18 %_48
+         %_253 = OpAccessChain %_56 %_252 %_55
+         OpAtomicXor %_4 %_255 %_253 %_52 %_48 %_254
+         %_256 = OpAccessChain %_59 %_21 %_48
+         %_257 = OpAccessChain %_47 %_256 %_48
+         OpAtomicXor %_3 %_259 %_257 %_52 %_48 %_258
+         %_260 = OpAccessChain %_59 %_21 %_48
+         %_261 = OpAccessChain %_56 %_260 %_55 %_55
+         OpAtomicXor %_4 %_263 %_261 %_52 %_48 %_262
+         OpAtomicXor %_3 %_265 %_23 %_67 %_48 %_264
+         %_266 = OpAccessChain %_68 %_26 %_55
+         OpAtomicXor %_4 %_268 %_266 %_67 %_48 %_267
+         %_269 = OpAccessChain %_22 %_29 %_48
+         OpAtomicXor %_3 %_271 %_269 %_67 %_48 %_270
+         %_272 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicXor %_4 %_274 %_272 %_67 %_48 %_273
+         %_275 = OpAccessChain %_47 %_15 %_48
+         OpAtomicExchange %_3 %_277 %_275 %_52 %_48 %_276
+         %_278 = OpAccessChain %_53 %_18 %_48
+         %_279 = OpAccessChain %_56 %_278 %_55
+         OpAtomicExchange %_4 %_281 %_279 %_52 %_48 %_280
+         %_282 = OpAccessChain %_59 %_21 %_48
+         %_283 = OpAccessChain %_47 %_282 %_48
+         OpAtomicExchange %_3 %_285 %_283 %_52 %_48 %_284
+         %_286 = OpAccessChain %_59 %_21 %_48
+         %_287 = OpAccessChain %_56 %_286 %_55 %_55
+         OpAtomicExchange %_4 %_289 %_287 %_52 %_48 %_288
+         OpAtomicExchange %_3 %_291 %_23 %_67 %_48 %_290
+         %_292 = OpAccessChain %_68 %_26 %_55
+         OpAtomicExchange %_4 %_294 %_292 %_67 %_48 %_293
+         %_295 = OpAccessChain %_22 %_29 %_48
+         OpAtomicExchange %_3 %_297 %_295 %_67 %_48 %_296
+         %_298 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicExchange %_4 %_300 %_298 %_67 %_48 %_299
+         %_301 = OpAccessChain %_47 %_15 %_48
+         OpAtomicCompareExchange %_3 %_304 %_301 %_52 %_48 %_48 %_302 %_303
+         %_305 = OpSignBitSet %_10 %_304 %_303
+         %_306 = OpCompositeConstruct %_11 %_304 %_305
+         %_307 = OpAccessChain %_53 %_18 %_48
+         %_308 = OpAccessChain %_56 %_307 %_55
+         OpAtomicCompareExchange %_4 %_311 %_308 %_52 %_48 %_48 %_309 %_310
+         %_312 = OpSignBitSet %_10 %_311 %_310
+         %_313 = OpCompositeConstruct %_12 %_311 %_312
+         %_314 = OpAccessChain %_59 %_21 %_48
+         %_315 = OpAccessChain %_47 %_314 %_48
+         OpAtomicCompareExchange %_3 %_318 %_315 %_52 %_48 %_48 %_316 %_317
+         %_319 = OpSignBitSet %_10 %_318 %_317
+         %_320 = OpCompositeConstruct %_11 %_318 %_319
+         %_321 = OpAccessChain %_59 %_21 %_48
+         %_322 = OpAccessChain %_56 %_321 %_55 %_55
+         OpAtomicCompareExchange %_4 %_325 %_322 %_52 %_48 %_48 %_323 %_324
+         %_326 = OpSignBitSet %_10 %_325 %_324
+         %_327 = OpCompositeConstruct %_12 %_325 %_326
+         OpAtomicCompareExchange %_3 %_330 %_23 %_67 %_48 %_48 %_328 %_329
+         %_331 = OpSignBitSet %_10 %_330 %_329
+         %_332 = OpCompositeConstruct %_11 %_330 %_331
+         %_333 = OpAccessChain %_68 %_26 %_55
+         OpAtomicCompareExchange %_4 %_336 %_333 %_67 %_48 %_48 %_334 %_335
+         %_337 = OpSignBitSet %_10 %_336 %_335
+         %_338 = OpCompositeConstruct %_12 %_336 %_337
+         %_339 = OpAccessChain %_22 %_29 %_48
+         OpAtomicCompareExchange %_3 %_342 %_339 %_67 %_48 %_48 %_340 %_341
+         %_343 = OpSignBitSet %_10 %_342 %_341
+         %_344 = OpCompositeConstruct %_11 %_342 %_343
+         %_345 = OpAccessChain %_68 %_29 %_55 %_55
+         OpAtomicCompareExchange %_4 %_348 %_345 %_67 %_48 %_48 %_346 %_347
+         %_349 = OpSignBitSet %_10 %_348 %_347
+         %_350 = OpCompositeConstruct %_12 %_348 %_349
                OpReturn
                OpFunctionEnd
