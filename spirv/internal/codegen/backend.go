@@ -4545,13 +4545,10 @@ func (e *ExpressionEmitter) isPointerExpression(handle ir.ExpressionHandle) bool
 		return e.isPointerExpression(k.Base)
 	case ir.ExprAccess:
 		return e.isPointerExpression(k.Base)
-	case ir.ExprLoad:
-		// ExprLoad dereferences a pointer. If the pointer source is a pointer expression
-		// (e.g., a function argument with pointer type), then the load result can be
-		// treated as a pointer for access chain purposes. In SPIR-V, we skip the load
-		// and use OpAccessChain directly on the underlying pointer.
-		return e.isPointerExpression(k.Pointer)
 	}
+	// A Load is a value, never a pointer: indexing it must read the loaded
+	// value, not the memory behind it, which may have changed since
+	// (BUG-SPV-LOAD-PASSTHROUGH-001).
 	return false
 }
 
@@ -4586,8 +4583,6 @@ func (e *ExpressionEmitter) chainHasNonUniformBindingArrayAccess(handle ir.Expre
 			handle = k.Base
 		case ir.ExprAccessIndex:
 			handle = k.Base
-		case ir.ExprLoad:
-			handle = k.Pointer
 		default:
 			return false
 		}
@@ -4633,11 +4628,6 @@ func (e *ExpressionEmitter) emitPointerChain(handle ir.ExpressionHandle) (uint32
 		return e.emitAccessIndexAsPointer(k)
 	case ir.ExprAccess:
 		return e.emitAccessAsPointer(k)
-	case ir.ExprLoad:
-		// ExprLoad dereferences a pointer. For pointer chain contexts (store targets,
-		// access chains), skip the load and pass through to the underlying pointer.
-		// This allows (*p).x to emit OpAccessChain on p directly.
-		return e.emitPointerChain(k.Pointer)
 	default:
 		return 0, fmt.Errorf("expression %T is not a pointer expression", k)
 	}

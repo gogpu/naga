@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 61
+; Bound: 56
 ; Schema: 0
 
                OpCapability Shader
@@ -51,8 +51,6 @@
          %_40 = OpTypePointer Uniform %_4
          %_42 = OpTypePointer Uniform %_3
          %_47 = OpConstant %_7 1
-         %_54 = OpConstant %_7 3
-         %_55 = OpTypePointer StorageBuffer %_3
          %_11 = OpVariable %_10 StorageBuffer
          %_14 = OpVariable %_13 StorageBuffer
          %_17 = OpVariable %_16 Uniform
@@ -83,13 +81,10 @@
          %_49 = OpLoad %_3 %_48
          %_50 = OpCompositeConstruct %_38 %_49 %_49 %_49
          %_51 = OpFAdd %_38 %_45 %_50
-         %_52 = OpAccessChain %_33 %_11 %_23
-         %_53 = OpAccessChain %_35 %_52 %_26
-         %_56 = OpAccessChain %_55 %_53 %_54
-         %_57 = OpLoad %_3 %_56
-         %_58 = OpCompositeConstruct %_5 %_51 %_57
-         %_59 = OpAccessChain %_33 %_14 %_23
-         %_60 = OpAccessChain %_35 %_59 %_26
-               OpStore %_60 %_58
+         %_52 = OpCompositeExtract %_3 %_37 3
+         %_53 = OpCompositeConstruct %_5 %_51 %_52
+         %_54 = OpAccessChain %_33 %_14 %_23
+         %_55 = OpAccessChain %_35 %_54 %_26
+               OpStore %_55 %_53
                OpReturn
                OpFunctionEnd
