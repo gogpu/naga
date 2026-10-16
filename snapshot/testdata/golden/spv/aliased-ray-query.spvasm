@@ -169,7 +169,7 @@
          %_124 = OpFunctionParameter %_18
          %_125 = OpFunctionParameter %_20
          %_126 = OpLabel
-         %_128 = OpVariable %_118 Function
+         %_128 = OpVariable %_118 Function %_127
          %_129 = OpLoad %_7 %_125
          %_130 = OpBitwiseAnd %_7 %_129 %_87
          %_131 = OpLessOrGreater %_10 %_130 %_23
@@ -310,8 +310,8 @@
          %_16 = OpFunction %_2 None %_15
          %_17 = OpLabel
          %_19 = OpVariable %_18 Function
-         %_22 = OpVariable %_20 Function
-         %_24 = OpVariable %_21 Function
+         %_22 = OpVariable %_20 Function %_23
+         %_24 = OpVariable %_21 Function %_25
          %_26 = OpCompositeConstruct %_6 %_25 %_25 %_25
          %_28 = OpCompositeConstruct %_6 %_25 %_27 %_25
          %_33 = OpCompositeConstruct %_8 %_29 %_30 %_31 %_32 %_26 %_28

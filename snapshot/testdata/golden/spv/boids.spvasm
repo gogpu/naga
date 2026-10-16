@@ -94,7 +94,7 @@
          %_33 = OpVariable %_24 Function
          %_34 = OpVariable %_24 Function
          %_36 = OpVariable %_35 Function
-         %_89 = OpVariable %_84 Function
+         %_89 = OpVariable %_84 Function %_88
          %_38 = OpCompositeConstruct %_5 %_37 %_37
                OpStore %_27 %_38
          %_39 = OpCompositeConstruct %_5 %_37 %_37

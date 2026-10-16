@@ -18,7 +18,7 @@
                OpDecorate %_12 BuiltIn LocalInvocationId
          %_2 = OpTypeVoid
          %_3 = OpTypeInt 64 0
-         %_4 = OpTypeImage %_3 2D 0 0 0 2 Unknown 40
+         %_4 = OpTypeImage %_3 2D 0 0 0 2 R64ui
          %_5 = OpTypeInt 32 0
          %_6 = OpTypeVector %_5 3
          %_7 = OpTypeInt 32 1

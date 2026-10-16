@@ -29,7 +29,7 @@
          %_5 = OpFunction %_2 None %_4
          %_6 = OpLabel
          %_8 = OpVariable %_7 Function
-         %_24 = OpVariable %_16 Function
+         %_24 = OpVariable %_16 Function %_23
                OpStore %_8 %_9
                OpBranch %_10
          %_10 = OpLabel

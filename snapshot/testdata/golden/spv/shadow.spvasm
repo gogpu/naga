@@ -258,7 +258,7 @@
          %_161 = OpLabel
          %_162 = OpVariable %_114 Function
          %_164 = OpVariable %_163 Function
-         %_181 = OpVariable %_176 Function
+         %_181 = OpVariable %_176 Function %_180
          %_165 = OpLoad %_4 %_48
          %_166 = OpLoad %_10 %_50
          %_167 = OpLoad %_4 %_51
@@ -366,7 +366,7 @@
          %_262 = OpLabel
          %_263 = OpVariable %_114 Function
          %_264 = OpVariable %_163 Function
-         %_277 = OpVariable %_176 Function
+         %_277 = OpVariable %_176 Function %_276
          %_265 = OpLoad %_4 %_53
          %_266 = OpLoad %_10 %_54
          %_267 = OpLoad %_4 %_55

@@ -32,9 +32,9 @@
                OpDecorate %_15 NonReadable
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
-         %_4 = OpTypeImage %_3 2D 0 0 0 2 Unknown 3
-         %_5 = OpTypeImage %_3 2D 0 0 0 2 Unknown 6
-         %_6 = OpTypeImage %_3 2D 0 0 0 2 Unknown 1
+         %_4 = OpTypeImage %_3 2D 0 0 0 2 R32f
+         %_5 = OpTypeImage %_3 2D 0 0 0 2 Rg32f
+         %_6 = OpTypeImage %_3 2D 0 0 0 2 Rgba32f
          %_7 = OpTypePointer UniformConstant %_4
          %_9 = OpTypePointer UniformConstant %_5
          %_11 = OpTypePointer UniformConstant %_6

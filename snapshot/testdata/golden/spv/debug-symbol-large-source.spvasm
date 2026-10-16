@@ -409,7 +409,7 @@
          %_253 = OpVariable %_155 Function
          %_254 = OpVariable %_155 Function
          %_256 = OpVariable %_255 Function
-         %_280 = OpVariable %_276 Function
+         %_280 = OpVariable %_276 Function %_279
                OpStore %_253 %_137
                OpStore %_254 %_193
                OpStore %_256 %_84

@@ -44,9 +44,9 @@
          %_17 = OpVariable %_16 Function
          %_18 = OpVariable %_14 Function
          %_19 = OpVariable %_16 Function
-         %_33 = OpVariable %_26 Function
+         %_33 = OpVariable %_26 Function %_32
          %_51 = OpVariable %_50 Function
-         %_62 = OpVariable %_26 Function
+         %_62 = OpVariable %_26 Function %_61
                OpStore %_15 %_20
                OpStore %_18 %_20
                OpBranch %_21

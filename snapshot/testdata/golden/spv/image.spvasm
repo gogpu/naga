@@ -86,9 +86,9 @@
          %_5 = OpTypeImage %_3 2D 0 0 1 1 Unknown
          %_6 = OpTypeFloat 32
          %_7 = OpTypeImage %_6 2D 1 0 1 1 Unknown
-         %_8 = OpTypeImage %_3 2D 0 0 0 2 Unknown 32
+         %_8 = OpTypeImage %_3 2D 0 0 0 2 Rgba8ui
          %_9 = OpTypeImage %_3 2D 0 1 0 1 Unknown
-         %_10 = OpTypeImage %_3 1D 0 0 0 2 Unknown 33
+         %_10 = OpTypeImage %_3 1D 0 0 0 2 R32ui
          %_11 = OpTypeImage %_3 1D 0 0 0 1 Unknown
          %_12 = OpTypeVector %_3 3
          %_13 = OpTypeInt 32 1

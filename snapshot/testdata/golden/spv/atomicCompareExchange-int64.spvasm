@@ -78,8 +78,8 @@
          %_22 = OpVariable %_21 Function
          %_24 = OpVariable %_23 Function
          %_26 = OpVariable %_25 Function
-         %_39 = OpVariable %_33 Function
-         %_73 = OpVariable %_33 Function
+         %_39 = OpVariable %_33 Function %_38
+         %_73 = OpVariable %_33 Function %_72
                OpStore %_22 %_27
                OpBranch %_28
          %_28 = OpLabel
@@ -181,8 +181,8 @@
          %_109 = OpVariable %_21 Function
          %_111 = OpVariable %_110 Function
          %_112 = OpVariable %_25 Function
-         %_119 = OpVariable %_33 Function
-         %_151 = OpVariable %_33 Function
+         %_119 = OpVariable %_33 Function %_118
+         %_151 = OpVariable %_33 Function %_150
                OpStore %_109 %_27
                OpBranch %_113
          %_113 = OpLabel

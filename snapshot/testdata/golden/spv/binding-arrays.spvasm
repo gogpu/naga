@@ -95,7 +95,7 @@
          %_13 = OpTypeArray %_12 %_8
          %_14 = OpTypeImage %_5 2D 1 0 0 1 Unknown
          %_15 = OpTypeArray %_14 %_8
-         %_16 = OpTypeImage %_5 2D 0 0 0 2 Unknown 1
+         %_16 = OpTypeImage %_5 2D 0 0 0 2 Rgba32f
          %_17 = OpTypeArray %_16 %_8
          %_18 = OpTypeSampler
          %_19 = OpTypeArray %_18 %_8

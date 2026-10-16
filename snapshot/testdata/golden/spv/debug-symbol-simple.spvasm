@@ -90,7 +90,7 @@
          %_48 = OpVariable %_30 Function
          %_50 = OpVariable %_49 Function
          %_52 = OpVariable %_51 Function
-         %_69 = OpVariable %_63 Function
+         %_69 = OpVariable %_63 Function %_68
          %_53 = OpLoad %_6 %_17
          %_54 = OpLoad %_4 %_18
          %_55 = OpCompositeConstruct %_7 %_53 %_54

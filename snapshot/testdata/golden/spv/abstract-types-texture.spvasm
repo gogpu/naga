@@ -27,7 +27,7 @@
          %_7 = OpTypeVector %_6 2
          %_8 = OpTypeVector %_3 2
          %_9 = OpTypeImage %_3 2D 1 0 0 1 Unknown
-         %_10 = OpTypeImage %_3 2D 0 0 0 2 Unknown 4
+         %_10 = OpTypeImage %_3 2D 0 0 0 2 Rgba8
          %_11 = OpTypeVector %_3 4
          %_12 = OpTypePointer UniformConstant %_4
          %_14 = OpTypePointer UniformConstant %_5

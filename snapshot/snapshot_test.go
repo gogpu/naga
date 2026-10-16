@@ -1917,334 +1917,257 @@ func disassembleSPIRV(data []byte) string {
 			name = fmt.Sprintf("Op%d", opcode)
 		}
 
-		disasmInstruction(&sb, name, opcode, ops, data, offset)
+		printed := disasmInstruction(&sb, name, opcode, ops, data, offset)
+		for _, w := range ops[printed:] {
+			fmt.Fprintf(&sb, " %d", w)
+		}
+		sb.WriteString("\n")
 		offset += wordCount * 4
 	}
 
 	return sb.String()
 }
 
-// disasmInstruction writes a single SPIR-V instruction to the builder.
-func disasmInstruction(sb *strings.Builder, name string, opcode uint16, ops []uint32, data []byte, offset int) {
+// disasmInstruction writes a single SPIR-V instruction to the builder and
+// reports how many operand words it printed. The caller prints any remaining
+// words, so an operand the special case does not know about still reaches the
+// golden text (BUG-TEST-SPVFMT-001: OpVariable initializers were dropped).
+func disasmInstruction(sb *strings.Builder, name string, opcode uint16, ops []uint32, data []byte, offset int) int {
 	switch opcode {
 	case 17: // OpCapability
-		fmt.Fprintf(sb, "               %s %s\n", name, spvLookup(spvCapabilities, ops[0]))
+		fmt.Fprintf(sb, "               %s %s", name, spvLookup(spvCapabilities, ops[0]))
+		return 1
 
 	case 11: // OpExtInstImport
 		str, _ := spvReadString(data, offset+8, len(ops)-1)
-		fmt.Fprintf(sb, "         %s = %s \"%s\"\n", spvID(ops[0]), name, str)
+		fmt.Fprintf(sb, "         %s = %s \"%s\"", spvID(ops[0]), name, str)
+		return len(ops)
 
 	case 14: // OpMemoryModel
 		addrModels := map[uint32]string{0: "Logical", 1: "Physical32", 2: "Physical64", 5348: "PhysicalStorageBuffer64"}
 		memModels := map[uint32]string{0: "Simple", 1: "GLSL450", 2: "OpenCL", 3: "Vulkan"}
-		fmt.Fprintf(sb, "               %s %s %s\n", name, spvLookup(addrModels, ops[0]), spvLookup(memModels, ops[1]))
+		fmt.Fprintf(sb, "               %s %s %s", name, spvLookup(addrModels, ops[0]), spvLookup(memModels, ops[1]))
+		return 2
 
 	case 15: // OpEntryPoint
 		model := spvLookup(spvExecutionModels, ops[0])
 		str, strWords := spvReadString(data, offset+12, len(ops)-2)
 		fmt.Fprintf(sb, "               %s %s %s \"%s\"", name, model, spvID(ops[1]), str)
-		ifaceStart := 2 + strWords
-		for i := ifaceStart; i < len(ops); i++ {
+		for i := 2 + strWords; i < len(ops); i++ {
 			fmt.Fprintf(sb, " %s", spvID(ops[i]))
 		}
-		sb.WriteString("\n")
+		return len(ops)
 
 	case 16: // OpExecutionMode
-		mode := spvLookup(spvExecutionModes, ops[1])
-		fmt.Fprintf(sb, "               %s %s %s", name, spvID(ops[0]), mode)
+		fmt.Fprintf(sb, "               %s %s %s", name, spvID(ops[0]), spvLookup(spvExecutionModes, ops[1]))
 		for i := 2; i < len(ops); i++ {
 			fmt.Fprintf(sb, " %d", ops[i])
 		}
-		sb.WriteString("\n")
+		return len(ops)
 
 	case 5: // OpName
 		str, _ := spvReadString(data, offset+8, len(ops)-1)
-		fmt.Fprintf(sb, "               %s %s \"%s\"\n", name, spvID(ops[0]), str)
+		fmt.Fprintf(sb, "               %s %s \"%s\"", name, spvID(ops[0]), str)
+		return len(ops)
 
 	case 6: // OpMemberName
 		str, _ := spvReadString(data, offset+12, len(ops)-2)
-		fmt.Fprintf(sb, "               %s %s %d \"%s\"\n", name, spvID(ops[0]), ops[1], str)
+		fmt.Fprintf(sb, "               %s %s %d \"%s\"", name, spvID(ops[0]), ops[1], str)
+		return len(ops)
 
 	case 71: // OpDecorate
-		dec := spvLookup(spvDecorations, ops[1])
-		fmt.Fprintf(sb, "               %s %s %s", name, spvID(ops[0]), dec)
+		fmt.Fprintf(sb, "               %s %s %s", name, spvID(ops[0]), spvLookup(spvDecorations, ops[1]))
 		if ops[1] == 11 && len(ops) > 2 { // BuiltIn
 			fmt.Fprintf(sb, " %s", spvLookup(spvBuiltins, ops[2]))
-		} else {
-			for i := 2; i < len(ops); i++ {
-				fmt.Fprintf(sb, " %d", ops[i])
-			}
+			return 3
 		}
-		sb.WriteString("\n")
+		for i := 2; i < len(ops); i++ {
+			fmt.Fprintf(sb, " %d", ops[i])
+		}
+		return len(ops)
 
 	case 72: // OpMemberDecorate
-		dec := spvLookup(spvDecorations, ops[2])
-		fmt.Fprintf(sb, "               %s %s %d %s", name, spvID(ops[0]), ops[1], dec)
+		fmt.Fprintf(sb, "               %s %s %d %s", name, spvID(ops[0]), ops[1], spvLookup(spvDecorations, ops[2]))
 		if ops[2] == 11 && len(ops) > 3 { // BuiltIn
 			fmt.Fprintf(sb, " %s", spvLookup(spvBuiltins, ops[3]))
-		} else {
-			for i := 3; i < len(ops); i++ {
-				fmt.Fprintf(sb, " %d", ops[i])
-			}
+			return 4
 		}
-		sb.WriteString("\n")
+		for i := 3; i < len(ops); i++ {
+			fmt.Fprintf(sb, " %d", ops[i])
+		}
+		return len(ops)
 
-	case 19: // OpTypeVoid
-		fmt.Fprintf(sb, "         %s = %s\n", spvID(ops[0]), name)
-
-	case 20: // OpTypeBool
-		fmt.Fprintf(sb, "         %s = %s\n", spvID(ops[0]), name)
+	case 19, 20, 26: // OpTypeVoid, OpTypeBool, OpTypeSampler
+		fmt.Fprintf(sb, "         %s = %s", spvID(ops[0]), name)
+		return 1
 
 	case 21: // OpTypeInt
-		sign := "0"
-		if ops[2] == 1 {
-			sign = "1"
-		}
-		fmt.Fprintf(sb, "         %s = %s %d %s\n", spvID(ops[0]), name, ops[1], sign)
+		fmt.Fprintf(sb, "         %s = %s %d %d", spvID(ops[0]), name, ops[1], ops[2])
+		return 3
 
 	case 22: // OpTypeFloat
-		fmt.Fprintf(sb, "         %s = %s %d\n", spvID(ops[0]), name, ops[1])
+		fmt.Fprintf(sb, "         %s = %s %d", spvID(ops[0]), name, ops[1])
+		return 2
 
-	case 23: // OpTypeVector
-		fmt.Fprintf(sb, "         %s = %s %s %d\n", spvID(ops[0]), name, spvID(ops[1]), ops[2])
+	case 23, 24: // OpTypeVector, OpTypeMatrix
+		fmt.Fprintf(sb, "         %s = %s %s %d", spvID(ops[0]), name, spvID(ops[1]), ops[2])
+		return 3
 
-	case 24: // OpTypeMatrix
-		fmt.Fprintf(sb, "         %s = %s %s %d\n", spvID(ops[0]), name, spvID(ops[1]), ops[2])
-
-	case 25: // OpTypeImage
-		dim := spvLookup(spvDims, ops[2])
-		fmt.Fprintf(sb, "         %s = %s %s %s %d %d %d %d Unknown", spvID(ops[0]), name, spvID(ops[1]), dim, ops[3], ops[4], ops[5], ops[6])
-		if ops[6] != 1 && len(ops) > 7 {
-			fmt.Fprintf(sb, " %d", ops[7])
+	case 25: // OpTypeImage: result, sampled type, dim, depth, arrayed, MS, sampled, format [, access]
+		fmt.Fprintf(sb, "         %s = %s %s %s %d %d %d %d %s", spvID(ops[0]), name, spvID(ops[1]),
+			spvLookup(spvDims, ops[2]), ops[3], ops[4], ops[5], ops[6], spvLookup(spvImageFormats, ops[7]))
+		if len(ops) > 8 {
+			fmt.Fprintf(sb, " %s", spvLookup(spvAccessQualifiers, ops[8]))
+			return 9
 		}
-		sb.WriteString("\n")
+		return 8
 
-	case 26: // OpTypeSampler
-		fmt.Fprintf(sb, "         %s = %s\n", spvID(ops[0]), name)
-
-	case 27: // OpTypeSampledImage
-		fmt.Fprintf(sb, "         %s = %s %s\n", spvID(ops[0]), name, spvID(ops[1]))
+	case 27, 29: // OpTypeSampledImage, OpTypeRuntimeArray
+		fmt.Fprintf(sb, "         %s = %s %s", spvID(ops[0]), name, spvID(ops[1]))
+		return 2
 
 	case 28: // OpTypeArray
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[0]), name, spvID(ops[1]), spvID(ops[2]))
+		fmt.Fprintf(sb, "         %s = %s %s %s", spvID(ops[0]), name, spvID(ops[1]), spvID(ops[2]))
+		return 3
 
-	case 29: // OpTypeRuntimeArray
-		fmt.Fprintf(sb, "         %s = %s %s\n", spvID(ops[0]), name, spvID(ops[1]))
-
-	case 30: // OpTypeStruct
+	case 30, 33: // OpTypeStruct, OpTypeFunction
 		fmt.Fprintf(sb, "         %s = %s", spvID(ops[0]), name)
 		for i := 1; i < len(ops); i++ {
 			fmt.Fprintf(sb, " %s", spvID(ops[i]))
 		}
-		sb.WriteString("\n")
+		return len(ops)
 
 	case 32: // OpTypePointer
-		sc := spvLookup(spvStorageClasses, ops[1])
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[0]), name, sc, spvID(ops[2]))
+		fmt.Fprintf(sb, "         %s = %s %s %s", spvID(ops[0]), name, spvLookup(spvStorageClasses, ops[1]), spvID(ops[2]))
+		return 3
 
-	case 33: // OpTypeFunction
-		fmt.Fprintf(sb, "         %s = %s %s", spvID(ops[0]), name, spvID(ops[1]))
-		for i := 2; i < len(ops); i++ {
-			fmt.Fprintf(sb, " %s", spvID(ops[i]))
-		}
-		sb.WriteString("\n")
-
-	case 41: // OpConstantTrue
-		fmt.Fprintf(sb, "         %s = %s %s\n", spvID(ops[1]), name, spvID(ops[0]))
-
-	case 42: // OpConstantFalse
-		fmt.Fprintf(sb, "         %s = %s %s\n", spvID(ops[1]), name, spvID(ops[0]))
+	case 41, 42, 46, 55: // OpConstantTrue, OpConstantFalse, OpConstantNull, OpFunctionParameter
+		fmt.Fprintf(sb, "         %s = %s %s", spvID(ops[1]), name, spvID(ops[0]))
+		return 2
 
 	case 43: // OpConstant
-		if len(ops) >= 3 {
-			fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvFormatConstant(ops[2:]))
+		if len(ops) < 3 {
+			break
 		}
+		fmt.Fprintf(sb, "         %s = %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvFormatConstant(ops[2:]))
+		return len(ops)
 
-	case 44: // OpConstantComposite
+	case 44, 80, 245: // OpConstantComposite, OpCompositeConstruct, OpPhi
 		fmt.Fprintf(sb, "         %s = %s %s", spvID(ops[1]), name, spvID(ops[0]))
 		for i := 2; i < len(ops); i++ {
 			fmt.Fprintf(sb, " %s", spvID(ops[i]))
 		}
-		sb.WriteString("\n")
-
-	case 46: // OpConstantNull
-		fmt.Fprintf(sb, "         %s = %s %s\n", spvID(ops[1]), name, spvID(ops[0]))
+		return len(ops)
 
 	case 54: // OpFunction
-		fmt.Fprintf(sb, "         %s = %s %s None %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[3]))
+		fmt.Fprintf(sb, "         %s = %s %s %s %s", spvID(ops[1]), name, spvID(ops[0]),
+			spvMaskNames(spvFunctionControls, ops[2]), spvID(ops[3]))
+		return 4
 
-	case 55: // OpFunctionParameter
-		fmt.Fprintf(sb, "         %s = %s %s\n", spvID(ops[1]), name, spvID(ops[0]))
+	case 56, 252, 253, 255: // OpFunctionEnd, OpKill, OpReturn, OpUnreachable
+		fmt.Fprintf(sb, "               %s", name)
+		return 0
 
-	case 56: // OpFunctionEnd
-		fmt.Fprintf(sb, "               %s\n", name)
-
-	case 57: // OpFunctionCall
+	case 57, 65, 87, 88, 89, 90, 95, 98: // OpFunctionCall, OpAccessChain, OpImageSample*, OpImageFetch, OpImageRead
 		fmt.Fprintf(sb, "         %s = %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
 		for i := 3; i < len(ops); i++ {
 			fmt.Fprintf(sb, " %s", spvID(ops[i]))
 		}
-		sb.WriteString("\n")
+		return len(ops)
 
-	case 59: // OpVariable
-		sc := spvLookup(spvStorageClasses, ops[2])
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), sc)
-
-	case 61: // OpLoad
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
-
-	case 62: // OpStore
-		fmt.Fprintf(sb, "               %s %s %s\n", name, spvID(ops[0]), spvID(ops[1]))
-
-	case 65: // OpAccessChain
-		fmt.Fprintf(sb, "         %s = %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
-		for i := 3; i < len(ops); i++ {
-			fmt.Fprintf(sb, " %s", spvID(ops[i]))
+	case 59: // OpVariable [initializer]
+		fmt.Fprintf(sb, "         %s = %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvLookup(spvStorageClasses, ops[2]))
+		if len(ops) > 3 {
+			fmt.Fprintf(sb, " %s", spvID(ops[3]))
+			return 4
 		}
-		sb.WriteString("\n")
+		return 3
+
+	case 61, 84, 100, 104, 106, 107, 109, 110, 111, 112, 113, 114, 115, 124:
+		// OpLoad, OpTranspose, OpImage, OpImageQuerySize/Levels/Samples, OpConvert*, OpBitcast.
+		// OpLoad's optional memory operands are left to the caller.
+		fmt.Fprintf(sb, "         %s = %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
+		return 3
+
+	case 62: // OpStore; optional memory operands are left to the caller
+		fmt.Fprintf(sb, "               %s %s %s", name, spvID(ops[0]), spvID(ops[1]))
+		return 2
 
 	case 68: // OpArrayLength
-		fmt.Fprintf(sb, "         %s = %s %s %s %d\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), ops[3])
+		fmt.Fprintf(sb, "         %s = %s %s %s %d", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), ops[3])
+		return 4
 
-	case 77: // OpVectorExtractDynamic
-		fmt.Fprintf(sb, "         %s = %s %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]))
+	case 77, 86, 103: // OpVectorExtractDynamic, OpSampledImage, OpImageQuerySizeLod
+		fmt.Fprintf(sb, "         %s = %s %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]))
+		return 4
 
-	case 79: // OpVectorShuffle
+	case 79, 82: // OpVectorShuffle, OpCompositeInsert
 		fmt.Fprintf(sb, "         %s = %s %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]))
 		for i := 4; i < len(ops); i++ {
 			fmt.Fprintf(sb, " %d", ops[i])
 		}
-		sb.WriteString("\n")
-
-	case 80: // OpCompositeConstruct
-		fmt.Fprintf(sb, "         %s = %s %s", spvID(ops[1]), name, spvID(ops[0]))
-		for i := 2; i < len(ops); i++ {
-			fmt.Fprintf(sb, " %s", spvID(ops[i]))
-		}
-		sb.WriteString("\n")
+		return len(ops)
 
 	case 81: // OpCompositeExtract
 		fmt.Fprintf(sb, "         %s = %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
 		for i := 3; i < len(ops); i++ {
 			fmt.Fprintf(sb, " %d", ops[i])
 		}
-		sb.WriteString("\n")
-
-	case 82: // OpCompositeInsert
-		fmt.Fprintf(sb, "         %s = %s %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]))
-		for i := 4; i < len(ops); i++ {
-			fmt.Fprintf(sb, " %d", ops[i])
-		}
-		sb.WriteString("\n")
-
-	case 84: // OpTranspose
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
-
-	case 86: // OpSampledImage
-		fmt.Fprintf(sb, "         %s = %s %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]))
-
-	case 87, 88, 89, 90: // OpImageSample*
-		fmt.Fprintf(sb, "         %s = %s %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]))
-		for i := 4; i < len(ops); i++ {
-			fmt.Fprintf(sb, " %s", spvID(ops[i]))
-		}
-		sb.WriteString("\n")
-
-	case 95: // OpImageFetch
-		fmt.Fprintf(sb, "         %s = %s %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]))
-		for i := 4; i < len(ops); i++ {
-			fmt.Fprintf(sb, " %s", spvID(ops[i]))
-		}
-		sb.WriteString("\n")
+		return len(ops)
 
 	case 96, 97: // OpImageGather, OpImageDrefGather
 		fmt.Fprintf(sb, "         %s = %s %s %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]), spvID(ops[4]))
 		for i := 5; i < len(ops); i++ {
 			fmt.Fprintf(sb, " %s", spvID(ops[i]))
 		}
-		sb.WriteString("\n")
+		return len(ops)
 
-	case 98: // OpImageRead
-		fmt.Fprintf(sb, "         %s = %s %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]))
-
-	case 99: // OpImageWrite
-		fmt.Fprintf(sb, "               %s %s %s %s\n", name, spvID(ops[0]), spvID(ops[1]), spvID(ops[2]))
-
-	case 100: // OpImage
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
-
-	case 103: // OpImageQuerySizeLod
-		fmt.Fprintf(sb, "         %s = %s %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]))
-
-	case 104: // OpImageQuerySize
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
-
-	case 106: // OpImageQueryLevels
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
-
-	case 107: // OpImageQuerySamples
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
-
-	case 109, 110, 111, 112, 113, 114, 115: // OpConvert*
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
-
-	case 124: // OpBitcast
-		fmt.Fprintf(sb, "         %s = %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]))
-
-	case 179: // OpSelect
-		if len(ops) >= 5 {
-			fmt.Fprintf(sb, "         %s = %s %s %s %s %s\n", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]), spvID(ops[4]))
-		} else {
-			disasmGenericInstruction(sb, name, opcode, ops)
-		}
-
-	case 245: // OpPhi
-		fmt.Fprintf(sb, "         %s = %s %s", spvID(ops[1]), name, spvID(ops[0]))
-		for i := 2; i < len(ops); i++ {
+	case 99: // OpImageWrite [image operands]
+		fmt.Fprintf(sb, "               %s %s %s %s", name, spvID(ops[0]), spvID(ops[1]), spvID(ops[2]))
+		for i := 3; i < len(ops); i++ {
 			fmt.Fprintf(sb, " %s", spvID(ops[i]))
 		}
-		sb.WriteString("\n")
+		return len(ops)
 
-	case 246: // OpLoopMerge
-		fmt.Fprintf(sb, "               %s %s %s %d\n", name, spvID(ops[0]), spvID(ops[1]), ops[2])
+	case 179: // OpSelect
+		if len(ops) < 5 {
+			break
+		}
+		fmt.Fprintf(sb, "         %s = %s %s %s %s %s", spvID(ops[1]), name, spvID(ops[0]), spvID(ops[2]), spvID(ops[3]), spvID(ops[4]))
+		return 5
+
+	case 246: // OpLoopMerge; optional loop-control parameters are left to the caller
+		fmt.Fprintf(sb, "               %s %s %s %d", name, spvID(ops[0]), spvID(ops[1]), ops[2])
+		return 3
 
 	case 247: // OpSelectionMerge
-		fmt.Fprintf(sb, "               %s %s %d\n", name, spvID(ops[0]), ops[1])
+		fmt.Fprintf(sb, "               %s %s %d", name, spvID(ops[0]), ops[1])
+		return 2
 
 	case 248: // OpLabel
-		fmt.Fprintf(sb, "         %s = %s\n", spvID(ops[0]), name)
+		fmt.Fprintf(sb, "         %s = %s", spvID(ops[0]), name)
+		return 1
 
-	case 249: // OpBranch
-		fmt.Fprintf(sb, "               %s %s\n", name, spvID(ops[0]))
+	case 249, 254: // OpBranch, OpReturnValue
+		fmt.Fprintf(sb, "               %s %s", name, spvID(ops[0]))
+		return 1
 
-	case 250: // OpBranchConditional
-		fmt.Fprintf(sb, "               %s %s %s %s\n", name, spvID(ops[0]), spvID(ops[1]), spvID(ops[2]))
+	case 250: // OpBranchConditional; optional branch weights are left to the caller
+		fmt.Fprintf(sb, "               %s %s %s %s", name, spvID(ops[0]), spvID(ops[1]), spvID(ops[2]))
+		return 3
 
-	case 251: // OpSwitch
+	case 251: // OpSwitch: selector, default, then (literal, label) pairs
 		fmt.Fprintf(sb, "               %s %s %s", name, spvID(ops[0]), spvID(ops[1]))
-		for i := 2; i < len(ops); i += 2 {
-			if i+1 < len(ops) {
-				fmt.Fprintf(sb, " %d %s", ops[i], spvID(ops[i+1]))
-			}
+		i := 2
+		for ; i+1 < len(ops); i += 2 {
+			fmt.Fprintf(sb, " %d %s", ops[i], spvID(ops[i+1]))
 		}
-		sb.WriteString("\n")
-
-	case 252: // OpKill
-		fmt.Fprintf(sb, "               %s\n", name)
-
-	case 253: // OpReturn
-		fmt.Fprintf(sb, "               %s\n", name)
-
-	case 254: // OpReturnValue
-		fmt.Fprintf(sb, "               %s %s\n", name, spvID(ops[0]))
-
-	case 255: // OpUnreachable
-		fmt.Fprintf(sb, "               %s\n", name)
-
-	default:
-		// Generic fallback: detect result-producing instructions
-		disasmGenericInstruction(sb, name, opcode, ops)
+		return i
 	}
+
+	// Generic fallback: detect result-producing instructions.
+	disasmGenericInstruction(sb, name, opcode, ops)
+	return len(ops)
 }
 
 // disasmGenericInstruction handles opcodes not explicitly covered.
@@ -2265,7 +2188,26 @@ func disasmGenericInstruction(sb *strings.Builder, name string, opcode uint16, o
 	default:
 		sb.WriteString(name)
 	}
-	sb.WriteString("\n")
+}
+
+// spvMaskNames formats a bitmask operand as its names joined by "|" (None
+// for 0). A mask with a bit the table does not name is printed as a number.
+func spvMaskNames(names map[uint32]string, mask uint32) string {
+	if mask == 0 {
+		return "None"
+	}
+	var parts []string
+	for bit := uint32(1); bit != 0; bit <<= 1 {
+		if mask&bit == 0 {
+			continue
+		}
+		n, ok := names[bit]
+		if !ok {
+			return fmt.Sprintf("%d", mask)
+		}
+		parts = append(parts, n)
+	}
+	return strings.Join(parts, "|")
 }
 
 // isArithmeticOpcode returns true for opcodes in the arithmetic/logic/conversion range.
@@ -2503,6 +2445,22 @@ var spvExecutionModels = map[uint32]string{
 var spvDims = map[uint32]string{
 	0: "1D", 1: "2D", 2: "3D", 3: "Cube", 4: "Rect", 5: "Buffer", 6: "SubpassData",
 }
+
+// spvImageFormats names OpTypeImage's Image Format operand (SPIR-V 3.11).
+var spvImageFormats = map[uint32]string{
+	0: "Unknown", 1: "Rgba32f", 2: "Rgba16f", 3: "R32f", 4: "Rgba8", 5: "Rgba8Snorm", 6: "Rg32f", 7: "Rg16f",
+	8: "R11fG11fB10f", 9: "R16f", 10: "Rgba16", 11: "Rgb10A2", 12: "Rg16", 13: "Rg8", 14: "R16", 15: "R8",
+	16: "Rgba16Snorm", 17: "Rg16Snorm", 18: "Rg8Snorm", 19: "R16Snorm", 20: "R8Snorm", 21: "Rgba32i",
+	22: "Rgba16i", 23: "Rgba8i", 24: "R32i", 25: "Rg32i", 26: "Rg16i", 27: "Rg8i", 28: "R16i", 29: "R8i",
+	30: "Rgba32ui", 31: "Rgba16ui", 32: "Rgba8ui", 33: "R32ui", 34: "Rgb10a2ui", 35: "Rg32ui", 36: "Rg16ui",
+	37: "Rg8ui", 38: "R16ui", 39: "R8ui", 40: "R64ui", 41: "R64i",
+}
+
+// spvAccessQualifiers names OpTypeImage's optional Access Qualifier (SPIR-V 3.12).
+var spvAccessQualifiers = map[uint32]string{0: "ReadOnly", 1: "WriteOnly", 2: "ReadWrite"}
+
+// spvFunctionControls names the bits of OpFunction's Function Control mask (SPIR-V 3.24).
+var spvFunctionControls = map[uint32]string{1: "Inline", 2: "DontInline", 4: "Pure", 8: "Const"}
 
 // readRustMSLConfig reads MSL options from a Rust naga test TOML config file.
 // Parses lang_version, fake_missing_bindings, bounds_check_policies,

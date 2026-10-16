@@ -44,7 +44,7 @@
          %_12 = OpLabel
          %_14 = OpVariable %_13 Function
          %_16 = OpVariable %_15 Function
-         %_34 = OpVariable %_26 Function
+         %_34 = OpVariable %_26 Function %_33
          %_19 = OpCompositeConstruct %_6 %_17 %_18
                OpStore %_14 %_19
                OpStore %_16 %_20

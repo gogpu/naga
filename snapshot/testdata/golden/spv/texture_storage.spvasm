@@ -16,7 +16,7 @@
                OpDecorate %_13 BuiltIn GlobalInvocationId
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
-         %_4 = OpTypeImage %_3 2D 0 0 0 2 Unknown 4
+         %_4 = OpTypeImage %_3 2D 0 0 0 2 Rgba8
          %_5 = OpTypeInt 32 0
          %_6 = OpTypeVector %_5 3
          %_7 = OpTypeBool

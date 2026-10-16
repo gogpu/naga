@@ -46,10 +46,10 @@
          %_11 = OpTypeImage %_3 3D 0 0 0 1 Unknown
          %_12 = OpTypeVector %_5 3
          %_13 = OpTypeImage %_3 2D 0 0 1 1 Unknown
-         %_14 = OpTypeImage %_3 1D 0 0 0 2 Unknown 4
-         %_15 = OpTypeImage %_3 2D 0 0 0 2 Unknown 4
-         %_16 = OpTypeImage %_3 2D 0 1 0 2 Unknown 4
-         %_17 = OpTypeImage %_3 3D 0 0 0 2 Unknown 4
+         %_14 = OpTypeImage %_3 1D 0 0 0 2 Rgba8
+         %_15 = OpTypeImage %_3 2D 0 0 0 2 Rgba8
+         %_16 = OpTypeImage %_3 2D 0 1 0 2 Rgba8
+         %_17 = OpTypeImage %_3 3D 0 0 0 2 Rgba8
          %_18 = OpTypePointer UniformConstant %_4
          %_20 = OpTypePointer UniformConstant %_7
          %_22 = OpTypePointer UniformConstant %_9

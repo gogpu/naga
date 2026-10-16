@@ -58,7 +58,7 @@
          %_16 = OpFunction %_2 None %_6
          %_17 = OpFunctionParameter %_3
          %_18 = OpLabel
-         %_32 = OpVariable %_25 Function
+         %_32 = OpVariable %_25 Function %_31
                OpBranch %_19
          %_19 = OpLabel
                OpLoopMerge %_22 %_21 0
@@ -88,7 +88,7 @@
          %_45 = OpFunctionParameter %_5
          %_46 = OpLabel
          %_48 = OpVariable %_47 Function
-         %_56 = OpVariable %_25 Function
+         %_56 = OpVariable %_25 Function %_55
                OpStore %_48 %_49
                OpBranch %_50
          %_50 = OpLabel
@@ -130,7 +130,7 @@
          %_76 = OpFunction %_2 None %_75
          %_77 = OpFunctionParameter %_4
          %_78 = OpLabel
-         %_85 = OpVariable %_25 Function
+         %_85 = OpVariable %_25 Function %_84
                OpBranch %_79
          %_79 = OpLabel
                OpLoopMerge %_82 %_81 0

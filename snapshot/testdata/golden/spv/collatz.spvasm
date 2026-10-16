@@ -66,7 +66,7 @@
          %_32 = OpLabel
          %_34 = OpVariable %_33 Function
          %_35 = OpVariable %_33 Function
-         %_46 = OpVariable %_41 Function
+         %_46 = OpVariable %_41 Function %_45
                OpStore %_35 %_17
                OpStore %_34 %_31
                OpBranch %_36

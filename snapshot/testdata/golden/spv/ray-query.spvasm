@@ -198,7 +198,7 @@
          %_146 = OpFunctionParameter %_26
          %_147 = OpFunctionParameter %_28
          %_148 = OpLabel
-         %_150 = OpVariable %_143 Function
+         %_150 = OpVariable %_143 Function %_149
          %_151 = OpLoad %_6 %_147
          %_154 = OpBitwiseAnd %_6 %_151 %_88
          %_155 = OpLessOrGreater %_8 %_154 %_31
@@ -219,7 +219,7 @@
          %_170 = OpFunctionParameter %_26
          %_171 = OpFunctionParameter %_28
          %_172 = OpLabel
-         %_174 = OpVariable %_165 Function
+         %_174 = OpVariable %_165 Function %_173
          %_175 = OpLoad %_6 %_171
          %_176 = OpBitwiseAnd %_6 %_175 %_91
          %_177 = OpLessOrGreater %_8 %_176 %_31
@@ -285,9 +285,9 @@
          %_24 = OpFunctionParameter %_5
          %_25 = OpLabel
          %_27 = OpVariable %_26 Function
-         %_30 = OpVariable %_28 Function
-         %_32 = OpVariable %_29 Function
-         %_132 = OpVariable %_127 Function
+         %_30 = OpVariable %_28 Function %_31
+         %_32 = OpVariable %_29 Function %_33
+         %_132 = OpVariable %_127 Function %_131
          %_38 = OpCompositeConstruct %_12 %_34 %_35 %_36 %_37 %_22 %_23
          %_121 = OpFunctionCall %_2 %_41 %_27 %_24 %_38 %_30 %_32
                OpBranch %_122
@@ -371,7 +371,7 @@
          %_274 = OpFunctionParameter %_26
          %_275 = OpFunctionParameter %_28
          %_276 = OpLabel
-         %_278 = OpVariable %_165 Function
+         %_278 = OpVariable %_165 Function %_277
          %_279 = OpLoad %_6 %_275
          %_280 = OpBitwiseAnd %_6 %_279 %_91
          %_281 = OpLessOrGreater %_8 %_280 %_31
@@ -512,8 +512,8 @@
          %_263 = OpFunction %_2 None %_237
          %_264 = OpLabel
          %_265 = OpVariable %_26 Function
-         %_266 = OpVariable %_28 Function
-         %_267 = OpVariable %_29 Function
+         %_266 = OpVariable %_28 Function %_31
+         %_267 = OpVariable %_29 Function %_33
          %_268 = OpCompositeConstruct %_4 %_33 %_33 %_33
          %_269 = OpCompositeConstruct %_4 %_33 %_225 %_33
          %_270 = OpCompositeConstruct %_12 %_34 %_35 %_36 %_37 %_268 %_269
