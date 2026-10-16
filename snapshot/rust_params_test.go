@@ -92,6 +92,64 @@ type rustParams struct {
 	separateEntryPoints bool            // [spv] separate_entry_points
 	glslExcludeList     map[string]bool // entry points without GLSL output
 	boundsCheckPolicies rustBoundsCheckPolicies
+	spvBindingMap       []rustSPVBinding // [[spv.binding_map]]
+}
+
+// rustSPVBinding is one [[spv.binding_map]] element: resource_binding =
+// { group, binding } and bind_target = { descriptor_set, binding,
+// binding_array_size? } (naga::back::spv::BindingInfo).
+type rustSPVBinding struct {
+	group, binding         uint32
+	descriptorSet, target  uint32
+	bindingArraySize       *uint32
+	hasResource, hasTarget bool
+}
+
+// set records one key of the element. A key that is already set means a new
+// element began before this one was complete, which is an error.
+func (b *rustSPVBinding) set(key, value string) error {
+	fields, ok := tomlInlineUints(value)
+	if !ok {
+		return fmt.Errorf("[[spv.binding_map]] %s must be an inline table of integers, got %s", key, value)
+	}
+	switch key {
+	case "resource_binding":
+		if b.hasResource {
+			return fmt.Errorf("[[spv.binding_map]]: resource_binding without bind_target")
+		}
+		for k, v := range fields {
+			switch k {
+			case "group":
+				b.group = v
+			case "binding":
+				b.binding = v
+			default:
+				return fmt.Errorf("[[spv.binding_map]] resource_binding: unknown field %q", k)
+			}
+		}
+		b.hasResource = true
+	case "bind_target":
+		if b.hasTarget {
+			return fmt.Errorf("[[spv.binding_map]]: bind_target without resource_binding")
+		}
+		for k, v := range fields {
+			switch k {
+			case "descriptor_set":
+				b.descriptorSet = v
+			case "binding":
+				b.target = v
+			case "binding_array_size":
+				size := v
+				b.bindingArraySize = &size
+			default:
+				return fmt.Errorf("[[spv.binding_map]] bind_target: unknown field %q", k)
+			}
+		}
+		b.hasTarget = true
+	default:
+		return fmt.Errorf("[[spv.binding_map]]: unknown key %q", key)
+	}
+	return nil
 }
 
 // rustBoundsCheckPolicy is naga::proc::BoundsCheckPolicy, as the snapshot
@@ -192,7 +250,18 @@ func loadRustParams(shaderName string) (rustParams, error) {
 func parseRustParams(content string) (rustParams, error) {
 	p := rustParams{}
 	targetsSet := false
+	var binding rustSPVBinding
 	err := scanTOML(content, func(section, key, value string) error {
+		if section == "spv.binding_map" {
+			if err := binding.set(key, value); err != nil {
+				return err
+			}
+			if binding.hasResource && binding.hasTarget {
+				p.spvBindingMap = append(p.spvBindingMap, binding)
+				binding = rustSPVBinding{}
+			}
+			return nil
+		}
 		switch {
 		case section == "" && key == "targets":
 			s, ok := tomlString(value)
@@ -228,6 +297,9 @@ func parseRustParams(content string) (rustParams, error) {
 	})
 	if err != nil {
 		return rustParams{}, err
+	}
+	if binding.hasResource || binding.hasTarget {
+		return rustParams{}, fmt.Errorf("[[spv.binding_map]]: incomplete element (needs resource_binding and bind_target)")
 	}
 	if !targetsSet {
 		p.targets = rustTargetsWGSLDefault
@@ -347,6 +419,35 @@ func tomlString(value string) (string, bool) {
 		return "", false
 	}
 	return s, true
+}
+
+// tomlInlineUints parses an inline table whose values are all unsigned
+// 32-bit integers: `{ a = 1, b = 2 }`.
+func tomlInlineUints(value string) (map[string]uint32, bool) {
+	if len(value) < 2 || value[0] != '{' || value[len(value)-1] != '}' {
+		return nil, false
+	}
+	out := map[string]uint32{}
+	for item := range strings.SplitSeq(value[1:len(value)-1], ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(item, "=")
+		if !ok {
+			return nil, false
+		}
+		k = strings.TrimSpace(k)
+		n, err := strconv.ParseUint(strings.TrimSpace(v), 10, 32)
+		if err != nil || k == "" {
+			return nil, false
+		}
+		if _, dup := out[k]; dup {
+			return nil, false
+		}
+		out[k] = uint32(n)
+	}
+	return out, true
 }
 
 // tomlStringArray parses an array of basic strings.

@@ -68,6 +68,27 @@ type Options struct {
 	// When false, validation checks are skipped and helper functions branch
 	// unconditionally. Matches Rust naga's ray_query_initialization_tracking.
 	RayQueryInitTracking bool
+
+	// BindingMap maps WGSL @group/@binding to the SPIR-V DescriptorSet and
+	// Binding, and optionally gives a binding array its size. Rust naga's
+	// Options::binding_map.
+	BindingMap map[ir.ResourceBinding]BindingInfo
+
+	// RequireBindings makes a resource without a BindingMap entry an error.
+	// When false it keeps its WGSL @group/@binding. The inverse of Rust
+	// naga's fake_missing_bindings (default true), so the zero value matches
+	// Rust's default.
+	RequireBindings bool
+}
+
+// BindingInfo is where a resource binding goes in SPIR-V; see
+// spirv.BindingInfo. Mirrors Rust naga's back::spv::BindingInfo.
+type BindingInfo struct {
+	DescriptorSet uint32
+	Binding       uint32
+	// BindingArraySize, when set, declares a binding array with this many
+	// elements instead of its WGSL size.
+	BindingArraySize *uint32
 }
 
 // BoundsCheckPolicy selects how generated code handles an out-of-bounds

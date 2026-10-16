@@ -84,8 +84,14 @@ func (e *ExpressionEmitter) sequenceLength(base ir.ExpressionHandle) (known, com
 		return length.Known, 0, nil
 	}
 	if isBindingArray(e.backend.module, inner) {
-		return 0, 0, fmt.Errorf("bounds check: the length of an unbounded binding array comes from a binding map, " +
-			"which spirv.Options does not have; use BoundsCheckUnchecked for binding arrays")
+		if size, ok := e.bindingArrayLayoutSize(base); ok {
+			if size == 0 {
+				return 0, 0, fmt.Errorf("bounds check: indexing a zero-length binding array")
+			}
+			return size, 0, nil
+		}
+		return 0, 0, fmt.Errorf("bounds check: the length of an unbounded binding array comes from " +
+			"Options.BindingMap (BindingArraySize), and this one has none; set it or use BoundsCheckUnchecked")
 	}
 	id, err := e.emitArrayLength(ir.ExprArrayLength{Array: base})
 	if err != nil {

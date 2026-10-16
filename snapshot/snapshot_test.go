@@ -168,7 +168,20 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 	}
 
 	// Parse [bounds_check_policies] section (top-level, shared across backends)
-	opts.BoundsCheckPolicies = spirvBoundsCheckPolicies(mustRustParams(content).boundsCheckPolicies)
+	params := mustRustParams(content)
+	opts.BoundsCheckPolicies = spirvBoundsCheckPolicies(params.boundsCheckPolicies)
+
+	// [[spv.binding_map]]: remapped bindings and binding array sizes.
+	if len(params.spvBindingMap) > 0 {
+		opts.BindingMap = make(map[spirv.ResourceBinding]spirv.BindingInfo, len(params.spvBindingMap))
+		for _, b := range params.spvBindingMap {
+			opts.BindingMap[spirv.ResourceBinding{Group: b.group, Binding: b.binding}] = spirv.BindingInfo{
+				DescriptorSet:    b.descriptorSet,
+				Binding:          b.target,
+				BindingArraySize: b.bindingArraySize,
+			}
+		}
+	}
 
 	return opts
 }

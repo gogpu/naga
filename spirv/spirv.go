@@ -149,7 +149,43 @@ type Options struct {
 
 	// RayQueryInitTracking enables initialization tracking for ray queries.
 	RayQueryInitTracking bool
+
+	// BindingMap maps WGSL @group/@binding to the SPIR-V DescriptorSet and
+	// Binding decorations, and can give a binding array its size. A resource
+	// without an entry keeps its WGSL @group/@binding unless RequireBindings
+	// is set. Mirrors Rust naga's spv::Options::binding_map.
+	BindingMap map[ResourceBinding]BindingInfo
+
+	// RequireBindings makes a resource without a BindingMap entry an error
+	// (ErrMissingBinding). The inverse of Rust naga's fake_missing_bindings,
+	// so the zero value behaves like Rust's default.
+	RequireBindings bool
 }
+
+// ResourceBinding is a resource's WGSL @group and @binding.
+type ResourceBinding struct {
+	// Group is the WGSL @group.
+	Group uint32
+	// Binding is the WGSL @binding.
+	Binding uint32
+}
+
+// BindingInfo is where a resource goes in SPIR-V. Mirrors Rust naga's
+// spv::BindingInfo.
+type BindingInfo struct {
+	// DescriptorSet is the SPIR-V DescriptorSet decoration.
+	DescriptorSet uint32
+	// Binding is the SPIR-V Binding decoration.
+	Binding uint32
+	// BindingArraySize, when set on a binding array, declares it with this
+	// many elements instead of its WGSL size. It is also the length bounds
+	// checks use for an unbounded binding array, which otherwise has none.
+	BindingArraySize *uint32
+}
+
+// ErrMissingBinding reports a resource with no BindingMap entry while
+// Options.RequireBindings is set.
+var ErrMissingBinding = codegen.ErrMissingBinding
 
 // DefaultOptions returns sensible default options.
 func DefaultOptions() Options {
@@ -911,5 +947,23 @@ func toCodegenOptions(o Options) codegen.Options {
 		},
 		CapabilitiesAvailable: o.CapabilitiesAvailable,
 		RayQueryInitTracking:  o.RayQueryInitTracking,
+		BindingMap:            toCodegenBindingMap(o.BindingMap),
+		RequireBindings:       o.RequireBindings,
 	}
+}
+
+func toCodegenBindingMap(m map[ResourceBinding]BindingInfo) map[ir.ResourceBinding]codegen.BindingInfo {
+	if m == nil {
+		return nil
+	}
+	out := make(map[ir.ResourceBinding]codegen.BindingInfo, len(m))
+	for k, v := range m {
+		info := codegen.BindingInfo{DescriptorSet: v.DescriptorSet, Binding: v.Binding}
+		if v.BindingArraySize != nil {
+			size := *v.BindingArraySize
+			info.BindingArraySize = &size
+		}
+		out[ir.ResourceBinding{Group: k.Group, Binding: k.Binding}] = info
+	}
+	return out
 }
