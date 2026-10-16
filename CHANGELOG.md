@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared with the original, so either can change without affecting the other.
   Like Rust naga's `#[derive(Clone)]` on `Module`, the copy follows the IR
   types, so new fields and statement kinds are copied without code changes.
+- **`spirv.Options.BindingMap` and `spirv.Options.RequireBindings`** — the
+  SPIR-V binding map of Rust naga (`spv::Options::binding_map`). An entry
+  (`spirv.ResourceBinding` → `spirv.BindingInfo`) sets the `DescriptorSet` and
+  `Binding` decorations of a resource, and `BindingArraySize` declares a
+  binding array with that many elements, sized or unbounded in WGSL alike. An
+  unbounded binding array can now be bounds-checked: the check uses
+  `BindingArraySize` as its length. A resource without an entry keeps its
+  WGSL `@group`/`@binding`; `RequireBindings` makes it an error
+  (`spirv.ErrMissingBinding`) instead. It is the inverse of Rust's
+  `fake_missing_bindings`, so the zero value behaves like Rust's default.
+  The snapshot tests now read `[[spv.binding_map]]` from the Rust test
+  parameters: `binding-arrays` and `binding-buffer-arrays` declare their
+  binding arrays with 10 elements, as Rust's reference output does.
 
 ### Changed
 
@@ -146,6 +159,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `OpIsInf`. `any` and `all` of a scalar `bool` are passed through in the
   WGSL lowerer, as in Rust naga; GLSL used to write `any(bool)`, which glslang
   rejects.
+- **SPIR-V: module-scope vectors used as operands lost their values**
+  ([#92](https://github.com/gogpu/naga/pull/92), by @dvoyni) — a `const` or
+  `var<private>` vector used in an expression (`mix`, `clamp`, arithmetic,
+  through a `let`) reached the shader as zero, with no error. Module-scope
+  initializers are now written in one pass over the module's constant
+  expressions, as in Rust naga.
 - **Compiling a module no longer changes it**
   ([#105](https://github.com/gogpu/naga/pull/105)) — `glsl.Compile` with pipeline
   constants and `dxil.Compile` rewrote the caller's module through data their
