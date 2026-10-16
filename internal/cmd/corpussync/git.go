@@ -112,6 +112,12 @@ func (g gitRepo) readBlobs(ids []string) (contents [][]byte, err error) {
 		}
 	}()
 
+	return catFileBatch(stdin, stdout, ids)
+}
+
+// catFileBatch requests ids on stdin and reads their contents from stdout of
+// a running `git cat-file --batch`.
+func catFileBatch(stdin io.WriteCloser, stdout io.Reader, ids []string) ([][]byte, error) {
 	// Write requests concurrently so a large batch cannot deadlock on full pipes.
 	writeErr := make(chan error, 1)
 	go func() {
@@ -125,13 +131,12 @@ func (g gitRepo) readBlobs(ids []string) (contents [][]byte, err error) {
 	}()
 
 	r := bufio.NewReader(stdout)
-	contents = make([][]byte, 0, len(ids))
+	contents := make([][]byte, 0, len(ids))
 	for _, id := range ids {
 		content, readErr := readBatchObject(r, id)
 		if readErr != nil {
 			_, _ = io.Copy(io.Discard, r)
-			<-writeErr
-			return nil, readErr
+			return nil, errors.Join(readErr, <-writeErr)
 		}
 		contents = append(contents, content)
 	}
