@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+func u32p(v uint32) *uint32 { return &v }
+
 func TestParseRustParams(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -83,6 +85,18 @@ func TestParseRustParams(t *testing.T) {
 			content: "targets = \"SPIRV\"\n[bounds_check_policies]\nbuffer = \"ReadZeroSkipWrite\"\n",
 			want:    rustParams{targets: rustTargetSPIRV, boundsCheckPolicies: rustBoundsCheckPolicies{buffer: rustReadZeroSkipWrite}},
 		},
+		{
+			name: "spv binding map, either key order",
+			content: "targets = \"SPIRV\"\n" +
+				"[[spv.binding_map]]\nbind_target = { descriptor_set = 2, binding = 3, binding_array_size = 10 }\n" +
+				"resource_binding = { group = 0, binding = 0 }\n" +
+				"[[spv.binding_map]]\nresource_binding = { group = 0, binding = 1 }\n" +
+				"bind_target = { descriptor_set = 0, binding = 1 }\n",
+			want: rustParams{targets: rustTargetSPIRV, spvBindingMap: []rustSPVBinding{
+				{group: 0, binding: 0, descriptorSet: 2, target: 3, bindingArraySize: u32p(10), hasResource: true, hasTarget: true},
+				{group: 0, binding: 1, descriptorSet: 0, target: 1, hasResource: true, hasTarget: true},
+			}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -115,6 +129,9 @@ func TestParseRustParamsRejectsMalformedInput(t *testing.T) {
 		{"unknown bounds check field", "[bounds_check_policies]\nimage_store = \"Restrict\"\n", "image_store"},
 		{"unknown bounds check policy", "[bounds_check_policies]\nindex = \"Clamp\"\n", "Clamp"},
 		{"bounds check policy not a string", "[bounds_check_policies]\nindex = 1\n", "index"},
+		{"spv binding map without bind_target", "[[spv.binding_map]]\nresource_binding = { group = 0, binding = 0 }\n", "incomplete"},
+		{"spv binding map unknown field", "[[spv.binding_map]]\nbind_target = { set = 0 }\n", "set"},
+		{"spv binding map not integers", "[[spv.binding_map]]\nbind_target = { binding = \"a\" }\n", "inline table"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -57,6 +57,9 @@ type Backend struct {
 	// Global variable cache
 	globalIDs map[ir.GlobalVariableHandle]uint32
 
+	// Binding array types sized by Options.BindingMap (remappedBindingArrayType)
+	bindingArrayTypes map[bindingArrayKey]uint32
+
 	// Function cache
 	functionIDs map[ir.FunctionHandle]uint32
 
@@ -216,6 +219,7 @@ func (b *Backend) Reset() {
 	clear(b.typeIDs)
 	clear(b.constantIDs)
 	clear(b.globalIDs)
+	clear(b.bindingArrayTypes)
 	clear(b.functionIDs)
 	clear(b.entryInputVars)
 	clear(b.entryOutputVars)
@@ -1719,6 +1723,22 @@ func (b *Backend) emitGlobals() error {
 			}
 		}
 
+		// Resolve the binding first: its BindingMap entry may resize a
+		// binding array (Rust naga write_global_variable).
+		var bindTarget BindingInfo
+		if global.Binding != nil {
+			var err error
+			bindTarget, err = b.resolveResourceBinding(*global.Binding)
+			if err != nil {
+				return err
+			}
+			if id, ok, err := b.remappedBindingArrayType(&global, bindTarget); err != nil {
+				return err
+			} else if ok {
+				varType = id
+			}
+		}
+
 		// Determine if this variable needs a wrapper struct (matching Rust naga's
 		// global_needs_wrapper logic). In SPIR-V, Uniform/Storage variables must be
 		// typed as OpTypeStruct with Block decoration.
@@ -1799,8 +1819,8 @@ func (b *Backend) emitGlobals() error {
 		// Add decorations for resource bindings (@group, @binding)
 		// Must be done here because we now have the varID
 		if global.Binding != nil {
-			b.builder.AddDecorate(varID, DecorationDescriptorSet, global.Binding.Group)
-			b.builder.AddDecorate(varID, DecorationBinding, global.Binding.Binding)
+			b.builder.AddDecorate(varID, DecorationDescriptorSet, bindTarget.DescriptorSet)
+			b.builder.AddDecorate(varID, DecorationBinding, bindTarget.Binding)
 		}
 
 		// Add NonReadable/NonWritable decorations for storage images and storage buffers.
