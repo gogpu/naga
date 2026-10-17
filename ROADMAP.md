@@ -2,7 +2,7 @@
 
 > **Pure Go Shader Compiler — WGSL to SPIR-V, MSL, GLSL, HLSL, and DXIL. Zero CGO.**
 >
-> Current: **v0.19.1** (October 2026) · Target: **v1.0.0** (December 2026)
+> Current: **v0.20.0** (October 2026) · Target: **v1.0.0** (December 2026)
 
 ---
 
@@ -43,7 +43,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | MSL | exact text | M3 Max Metal 3.1 verified | Production |
 | GLSL | exact text | Version-aware binding (GL 3.3–4.6, ES 3.0–3.2) | Production |
 | HLSL | exact text | SM 5.0 / SM 6.0 | Production |
-| DXIL | — (Rust naga has no DXIL backend) | 161/170 IDxcValidator (94.7%), 105/208 DXC golden (55.1%) | Experimental |
+| DXIL | — (Rust naga has no DXIL backend) | 172/237 IDxcValidator, 103/182 DXC golden (Rust naga corpus at gfx-rs/wgpu 14328f49) | Experimental |
 | IR | types, expressions, statements | — | Production |
 
 ---
@@ -79,8 +79,8 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Task | Priority | Status | Description |
 |------|----------|--------|-------------|
-| IDxcValidator 170/170 | P1 | 161/170 | Remaining 9: ray tracing, image atomics, subgroups (compile_fail) |
-| DXC golden parity 80%+ | P1 | 105/208 (55%) | Structural match with DXC roundtrip output |
+| IDxcValidator: whole corpus | P1 | 172/237 | 51 entry points invalid, 5 unsupported (ray tracing, image atomics, subgroups); the corpus grew with the Rust sync |
+| DXC golden parity 80%+ | P1 | 103/182 (57%) | Structural match with DXC roundtrip output |
 | DXIL optimization passes | P2 | Done (5 passes) | DCE, SROA, mem2reg, inlining, strength reduction |
 | Microsoft IDxcValidator AV issue | P2 | Draft ready | File upstream issue for validator crash on malformed input |
 | SM 7.0 SPIR-V readiness | P3 | Monitoring | Microsoft adopting SPIR-V for SM 7.0 — our SPIR-V backend is the long-term path |
@@ -104,7 +104,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 |-----------|--------|-------|
 | Complete Rust naga parity | In Progress | Corpus synced to gfx-rs/wgpu 14328f49; every difference recorded per output with a reason |
 | SPIR-V binary validation 100% | In Progress | spirv-val in CI; 8 corpus shaders do not compile to SPIR-V yet (recorded as unsupported) |
-| DXIL backend production-ready | In Progress | 94.7% IDxcValidator, target 100% |
+| DXIL backend production-ready | In Progress | 172/237 IDxcValidator, target: whole corpus |
 | API stability guarantee | Planned | Semantic versioning contract, Phase 1 |
 | Test coverage 80%+ | Planned | awesome-go requirement, Phase 2 |
 | Performance benchmarks published | ✅ Done | 68 benchmarks, −32% allocs, −34% bytes |
