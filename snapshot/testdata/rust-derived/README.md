@@ -22,6 +22,7 @@ under Apache-2.0 or MIT at your option — see `../rust/LICENSE.APACHE` and
 
 ## Provenance
 
-These files were generated before provenance was recorded; the manifest notes
-this. The IR dumps will be regenerated at the vendored upstream commit when the
-corpus is synced (TEST-CORPUS-001), and the generator will be recorded then.
+All files are generated at the upstream commit the vendored tree `../rust` is
+synced to; `MANIFEST.json` records the commit and the generator. When the
+corpus is synced to a new commit, regenerate every file here at that commit
+and rewrite the manifest.

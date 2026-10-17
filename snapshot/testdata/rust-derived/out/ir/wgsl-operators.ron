@@ -95,17 +95,6 @@
         ),
         (
             name: None,
-            inner: Matrix(
-                columns: Tri,
-                rows: Quad,
-                scalar: (
-                    kind: Float,
-                    width: 4,
-                ),
-            ),
-        ),
-        (
-            name: None,
             inner: Vector(
                 size: Tri,
                 scalar: (
@@ -143,6 +132,36 @@
             name: Some("v_i32_one"),
             ty: 3,
             init: 19,
+        ),
+        (
+            name: Some("b_false"),
+            ty: 4,
+            init: 20,
+        ),
+        (
+            name: Some("b_true"),
+            ty: 4,
+            init: 21,
+        ),
+        (
+            name: Some("short_circuit_1_invalid_rhs"),
+            ty: 4,
+            init: 22,
+        ),
+        (
+            name: Some("short_circuit_2_invalid_rhs"),
+            ty: 4,
+            init: 23,
+        ),
+        (
+            name: Some("short_circuit_3"),
+            ty: 4,
+            init: 24,
+        ),
+        (
+            name: Some("short_circuit_4"),
+            ty: 4,
+            init: 25,
         ),
     ],
     overrides: [],
@@ -200,6 +219,12 @@
                 18,
             ],
         ),
+        Literal(Bool(false)),
+        Literal(Bool(true)),
+        Literal(Bool(false)),
+        Literal(Bool(false)),
+        Literal(Bool(true)),
+        Literal(Bool(true)),
     ],
     functions: [
         (
@@ -570,43 +595,43 @@
                     value: 0,
                 ),
                 LocalVariable(0),
-                Literal(F32(1.0)),
                 Load(
                     pointer: 2,
                 ),
+                Literal(F32(1.0)),
                 Splat(
                     size: Bi,
-                    value: 3,
+                    value: 4,
                 ),
                 Binary(
                     op: Add,
-                    left: 4,
+                    left: 3,
                     right: 5,
                 ),
-                Literal(F32(3.0)),
                 Load(
                     pointer: 2,
                 ),
+                Literal(F32(3.0)),
                 Splat(
                     size: Bi,
-                    value: 7,
+                    value: 8,
                 ),
                 Binary(
                     op: Subtract,
-                    left: 8,
+                    left: 7,
                     right: 9,
                 ),
-                Literal(F32(4.0)),
                 Load(
                     pointer: 2,
                 ),
+                Literal(F32(4.0)),
                 Splat(
                     size: Bi,
-                    value: 11,
+                    value: 12,
                 ),
                 Binary(
                     op: Divide,
-                    left: 12,
+                    left: 11,
                     right: 13,
                 ),
                 Load(
@@ -620,7 +645,11 @@
                     end: 2,
                 )),
                 Emit((
-                    start: 4,
+                    start: 3,
+                    end: 4,
+                )),
+                Emit((
+                    start: 5,
                     end: 7,
                 )),
                 Store(
@@ -628,7 +657,11 @@
                     value: 6,
                 ),
                 Emit((
-                    start: 8,
+                    start: 7,
+                    end: 8,
+                )),
+                Emit((
+                    start: 9,
                     end: 11,
                 )),
                 Store(
@@ -636,7 +669,11 @@
                     value: 10,
                 ),
                 Emit((
-                    start: 12,
+                    start: 11,
+                    end: 12,
+                )),
+                Emit((
+                    start: 13,
                     end: 15,
                 )),
                 Store(
@@ -805,6 +842,16 @@
                     ty: 4,
                     init: None,
                 ),
+                (
+                    name: None,
+                    ty: 4,
+                    init: None,
+                ),
+                (
+                    name: None,
+                    ty: 4,
+                    init: None,
+                ),
             ],
             expressions: [
                 Literal(Bool(true)),
@@ -873,35 +920,58 @@
                     left: 19,
                     right: 20,
                 ),
+                Unary(
+                    op: LogicalNot,
+                    expr: 1,
+                ),
+                Literal(Bool(true)),
+                LocalVariable(2),
+                Literal(Bool(false)),
+                LocalVariable(2),
+                Load(
+                    pointer: 26,
+                ),
+                Unary(
+                    op: LogicalNot,
+                    expr: 27,
+                ),
                 CallResult(4),
                 Unary(
                     op: LogicalNot,
-                    expr: 22,
+                    expr: 29,
                 ),
                 Literal(Bool(true)),
-                LocalVariable(2),
+                LocalVariable(3),
                 CallResult(5),
-                LocalVariable(2),
+                LocalVariable(3),
                 Load(
-                    pointer: 27,
+                    pointer: 34,
                 ),
                 Literal(Bool(false)),
-                LocalVariable(3),
+                LocalVariable(4),
                 CallResult(6),
                 Unary(
                     op: LogicalNot,
-                    expr: 31,
+                    expr: 38,
                 ),
                 Literal(Bool(true)),
-                LocalVariable(4),
+                LocalVariable(5),
                 CallResult(7),
+                LocalVariable(5),
+                Load(
+                    pointer: 43,
+                ),
                 LocalVariable(4),
                 Load(
-                    pointer: 36,
+                    pointer: 45,
                 ),
-                LocalVariable(3),
+                Literal(Bool(false)),
+                Literal(Bool(true)),
+                LocalVariable(6),
+                CallResult(5),
+                LocalVariable(6),
                 Load(
-                    pointer: 38,
+                    pointer: 51,
                 ),
             ],
             named_expressions: {
@@ -915,7 +985,9 @@
                 17: "bitwise_or1",
                 18: "bitwise_and0",
                 21: "bitwise_and1",
-                39: "short_circuit",
+                28: "short_circuit_5",
+                46: "short_circuit_6",
+                52: "short_circuit_7",
             },
             body: [
                 Emit((
@@ -984,90 +1056,145 @@
                     start: 19,
                     end: 22,
                 )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 22,
+                    end: 23,
+                )),
+                If(
+                    condition: 22,
+                    accept: [
+                        Emit((
+                            start: 0,
+                            end: 0,
+                        )),
+                        Store(
+                            pointer: 24,
+                            value: 25,
+                        ),
+                    ],
+                    reject: [
+                        Store(
+                            pointer: 24,
+                            value: 23,
+                        ),
+                    ],
+                ),
+                Emit((
+                    start: 27,
+                    end: 29,
+                )),
                 Call(
                     function: 4,
                     arguments: [],
-                    result: Some(22),
+                    result: Some(29),
                 ),
                 Emit((
-                    start: 23,
-                    end: 24,
+                    start: 30,
+                    end: 31,
                 )),
                 If(
-                    condition: 23,
+                    condition: 30,
                     accept: [
                         Call(
                             function: 5,
                             arguments: [],
-                            result: Some(26),
+                            result: Some(33),
                         ),
                         Store(
-                            pointer: 25,
-                            value: 26,
+                            pointer: 32,
+                            value: 33,
                         ),
                     ],
                     reject: [
                         Store(
-                            pointer: 25,
-                            value: 24,
+                            pointer: 32,
+                            value: 31,
                         ),
                     ],
                 ),
                 Emit((
-                    start: 28,
-                    end: 29,
+                    start: 35,
+                    end: 36,
                 )),
                 If(
-                    condition: 28,
+                    condition: 35,
                     accept: [
                         Call(
                             function: 6,
                             arguments: [],
-                            result: Some(31),
+                            result: Some(38),
                         ),
                         Emit((
-                            start: 32,
-                            end: 33,
+                            start: 39,
+                            end: 40,
                         )),
                         If(
-                            condition: 32,
+                            condition: 39,
                             accept: [
                                 Call(
                                     function: 7,
                                     arguments: [],
-                                    result: Some(35),
+                                    result: Some(42),
                                 ),
                                 Store(
-                                    pointer: 34,
-                                    value: 35,
+                                    pointer: 41,
+                                    value: 42,
                                 ),
                             ],
                             reject: [
                                 Store(
-                                    pointer: 34,
-                                    value: 33,
+                                    pointer: 41,
+                                    value: 40,
                                 ),
                             ],
                         ),
                         Emit((
-                            start: 37,
-                            end: 38,
+                            start: 44,
+                            end: 45,
                         )),
                         Store(
-                            pointer: 30,
-                            value: 37,
+                            pointer: 37,
+                            value: 44,
                         ),
                     ],
                     reject: [
                         Store(
-                            pointer: 30,
-                            value: 29,
+                            pointer: 37,
+                            value: 36,
                         ),
                     ],
                 ),
                 Emit((
-                    start: 39,
-                    end: 40,
+                    start: 46,
+                    end: 47,
+                )),
+                If(
+                    condition: 47,
+                    accept: [
+                        Call(
+                            function: 5,
+                            arguments: [],
+                            result: Some(50),
+                        ),
+                        Store(
+                            pointer: 49,
+                            value: 50,
+                        ),
+                    ],
+                    reject: [
+                        Store(
+                            pointer: 49,
+                            value: 48,
+                        ),
+                    ],
+                ),
+                Emit((
+                    start: 52,
+                    end: 53,
                 )),
                 Return(
                     value: None,
@@ -1754,31 +1881,99 @@
                     left: 153,
                     right: 152,
                 ),
-                ZeroValue(8),
-                ZeroValue(8),
-                Binary(
-                    op: Add,
-                    left: 155,
-                    right: 156,
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 6,
+                    components: [
+                        155,
+                        156,
+                        157,
+                    ],
                 ),
-                ZeroValue(8),
-                ZeroValue(8),
-                Binary(
-                    op: Subtract,
-                    left: 158,
-                    right: 159,
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 6,
+                    components: [
+                        159,
+                        160,
+                        161,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 6,
+                    components: [
+                        163,
+                        164,
+                        165,
+                    ],
+                ),
+                Compose(
+                    ty: 8,
+                    components: [
+                        158,
+                        162,
+                        166,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 6,
+                    components: [
+                        168,
+                        169,
+                        170,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 6,
+                    components: [
+                        172,
+                        173,
+                        174,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 6,
+                    components: [
+                        176,
+                        177,
+                        178,
+                    ],
+                ),
+                Compose(
+                    ty: 8,
+                    components: [
+                        171,
+                        175,
+                        179,
+                    ],
                 ),
                 ZeroValue(8),
                 Binary(
                     op: Multiply,
-                    left: 161,
+                    left: 181,
                     right: 2,
                 ),
                 ZeroValue(8),
                 Binary(
                     op: Multiply,
                     left: 5,
-                    right: 163,
+                    right: 183,
                 ),
                 ZeroValue(9),
                 Splat(
@@ -1787,8 +1982,8 @@
                 ),
                 Binary(
                     op: Multiply,
-                    left: 165,
-                    right: 166,
+                    left: 185,
+                    right: 186,
                 ),
                 Splat(
                     size: Tri,
@@ -1797,25 +1992,59 @@
                 ZeroValue(9),
                 Binary(
                     op: Multiply,
-                    left: 168,
-                    right: 169,
+                    left: 188,
+                    right: 189,
                 ),
-                ZeroValue(9),
-                ZeroValue(10),
-                Binary(
-                    op: Multiply,
-                    left: 171,
-                    right: 172,
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 6,
+                    components: [
+                        191,
+                        192,
+                        193,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 6,
+                    components: [
+                        195,
+                        196,
+                        197,
+                    ],
+                ),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Literal(F32(0.0)),
+                Compose(
+                    ty: 6,
+                    components: [
+                        199,
+                        200,
+                        201,
+                    ],
+                ),
+                Compose(
+                    ty: 8,
+                    components: [
+                        194,
+                        198,
+                        202,
+                    ],
                 ),
                 LocalVariable(0),
                 Load(
-                    pointer: 174,
+                    pointer: 204,
                 ),
                 Literal(I32(-2147483648)),
                 Binary(
                     op: Add,
-                    left: 175,
-                    right: 176,
+                    left: 205,
+                    right: 206,
                 ),
                 LocalVariable(1),
             ],
@@ -1889,13 +2118,13 @@
                 148: "rem3",
                 151: "rem4",
                 154: "rem5",
-                157: "add",
-                160: "sub",
-                162: "mul_scalar0",
-                164: "mul_scalar1",
-                167: "mul_vector0",
-                170: "mul_vector1",
-                173: "mul",
+                167: "add",
+                180: "sub",
+                182: "mul_scalar0",
+                184: "mul_scalar1",
+                187: "mul_vector0",
+                190: "mul_vector1",
+                203: "mul",
             },
             body: [
                 Emit((
@@ -2157,56 +2386,92 @@
                     end: 0,
                 )),
                 Emit((
-                    start: 157,
-                    end: 158,
-                )),
-                Emit((
                     start: 0,
                     end: 0,
                 )),
                 Emit((
-                    start: 160,
-                    end: 161,
+                    start: 158,
+                    end: 159,
                 )),
                 Emit((
                     start: 162,
                     end: 163,
                 )),
                 Emit((
-                    start: 164,
-                    end: 165,
-                )),
-                Emit((
                     start: 166,
                     end: 168,
-                )),
-                Emit((
-                    start: 168,
-                    end: 169,
-                )),
-                Emit((
-                    start: 170,
-                    end: 171,
                 )),
                 Emit((
                     start: 0,
                     end: 0,
                 )),
                 Emit((
-                    start: 173,
-                    end: 174,
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 171,
+                    end: 172,
                 )),
                 Emit((
                     start: 175,
                     end: 176,
                 )),
                 Emit((
-                    start: 177,
-                    end: 178,
+                    start: 179,
+                    end: 181,
+                )),
+                Emit((
+                    start: 182,
+                    end: 183,
+                )),
+                Emit((
+                    start: 184,
+                    end: 185,
+                )),
+                Emit((
+                    start: 186,
+                    end: 188,
+                )),
+                Emit((
+                    start: 188,
+                    end: 189,
+                )),
+                Emit((
+                    start: 190,
+                    end: 191,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 0,
+                    end: 0,
+                )),
+                Emit((
+                    start: 194,
+                    end: 195,
+                )),
+                Emit((
+                    start: 198,
+                    end: 199,
+                )),
+                Emit((
+                    start: 202,
+                    end: 204,
+                )),
+                Emit((
+                    start: 205,
+                    end: 206,
+                )),
+                Emit((
+                    start: 207,
+                    end: 208,
                 )),
                 Store(
-                    pointer: 178,
-                    value: 177,
+                    pointer: 208,
+                    value: 207,
                 ),
                 Return(
                     value: None,
@@ -3106,7 +3371,7 @@
                 ),
                 (
                     name: Some("vec0"),
-                    ty: 11,
+                    ty: 10,
                     init: Some(33),
                 ),
             ],
@@ -3140,8 +3405,8 @@
                 ),
                 Binary(
                     op: Multiply,
-                    left: 10,
-                    right: 9,
+                    left: 9,
+                    right: 10,
                 ),
                 Load(
                     pointer: 4,
@@ -3151,8 +3416,8 @@
                 ),
                 Binary(
                     op: Divide,
-                    left: 13,
-                    right: 12,
+                    left: 12,
+                    right: 13,
                 ),
                 Load(
                     pointer: 4,
@@ -3220,7 +3485,7 @@
                     left: 31,
                     right: 30,
                 ),
-                ZeroValue(11),
+                ZeroValue(10),
                 LocalVariable(1),
                 Access(
                     base: 34,
@@ -3808,6 +4073,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

@@ -55,6 +55,14 @@ func TestParseRustParams(t *testing.T) {
 			},
 		},
 		{
+			// TOML multi-line basic string (upstream binding-buffer-arrays.toml
+			// writes capabilities this way since 14328f49).
+			name: "multi-line basic string",
+			content: "targets = \"\"\"\n  SPIRV\n  | METAL\n\"\"\"\n" +
+				"capabilities = \"\"\"\n  STORAGE_BUFFER_BINDING_ARRAY\n  | STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING\n\"\"\"\n",
+			want: rustParams{targets: rustTargetSPIRV | rustTargetMETAL},
+		},
+		{
 			// naga-test parses and validates such a shader but writes no output.
 			name:    "empty targets means no outputs",
 			content: `targets = ""`,

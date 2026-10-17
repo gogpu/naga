@@ -2,8 +2,22 @@
     types: [
         (
             name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
             inner: Atomic((
                 kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
                 width: 4,
             )),
         ),
@@ -17,7 +31,7 @@
         (
             name: None,
             inner: Array(
-                base: 1,
+                base: 3,
                 size: Constant(2),
                 stride: 4,
             ),
@@ -28,26 +42,19 @@
                 members: [
                     (
                         name: Some("atomic_scalar"),
-                        ty: 0,
+                        ty: 1,
                         binding: None,
                         offset: 0,
                     ),
                     (
                         name: Some("atomic_arr"),
-                        ty: 2,
+                        ty: 4,
                         binding: None,
                         offset: 4,
                     ),
                 ],
                 span: 12,
             ),
-        ),
-        (
-            name: None,
-            inner: Scalar((
-                kind: Uint,
-                width: 4,
-            )),
         ),
         (
             name: None,
@@ -62,13 +69,6 @@
         (
             name: None,
             inner: Scalar((
-                kind: Sint,
-                width: 4,
-            )),
-        ),
-        (
-            name: None,
-            inner: Scalar((
                 kind: Bool,
                 width: 1,
             )),
@@ -79,7 +79,7 @@
                 members: [
                     (
                         name: Some("old_value"),
-                        ty: 4,
+                        ty: 0,
                         binding: None,
                         offset: 0,
                     ),
@@ -99,7 +99,7 @@
                 members: [
                     (
                         name: Some("old_value"),
-                        ty: 6,
+                        ty: 2,
                         binding: None,
                         offset: 0,
                     ),
@@ -143,8 +143,9 @@
                 group: 0,
                 binding: 0,
             )),
-            ty: 0,
+            ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("storage_atomic_arr"),
@@ -155,8 +156,9 @@
                 group: 0,
                 binding: 1,
             )),
-            ty: 2,
+            ty: 4,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("storage_struct"),
@@ -167,29 +169,33 @@
                 group: 0,
                 binding: 2,
             )),
-            ty: 3,
+            ty: 5,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("workgroup_atomic_scalar"),
             space: WorkGroup,
             binding: None,
-            ty: 0,
+            ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("workgroup_atomic_arr"),
             space: WorkGroup,
             binding: None,
-            ty: 2,
+            ty: 4,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("workgroup_struct"),
             space: WorkGroup,
             binding: None,
-            ty: 3,
+            ty: 5,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -206,7 +212,7 @@
                 arguments: [
                     (
                         name: Some("id"),
-                        ty: 5,
+                        ty: 6,
                         binding: Some(BuiltIn(LocalInvocationId)),
                     ),
                 ],
@@ -329,7 +335,7 @@
                     GlobalVariable(0),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -339,7 +345,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -349,7 +355,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -363,13 +369,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(3),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(4),
@@ -379,7 +385,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -389,7 +395,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -403,13 +409,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(0),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -419,7 +425,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -429,7 +435,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -443,13 +449,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(3),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(4),
@@ -459,7 +465,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -469,7 +475,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -483,13 +489,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(0),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -499,7 +505,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -509,7 +515,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -523,13 +529,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(3),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(4),
@@ -539,7 +545,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -549,7 +555,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -563,13 +569,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(0),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -579,7 +585,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -589,7 +595,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -603,13 +609,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(3),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(4),
@@ -619,7 +625,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -629,7 +635,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -643,13 +649,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(0),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -659,7 +665,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -669,7 +675,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -683,13 +689,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(3),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(4),
@@ -699,7 +705,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -709,7 +715,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -723,13 +729,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(0),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -739,7 +745,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -749,7 +755,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -763,13 +769,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(3),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(4),
@@ -779,7 +785,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -789,7 +795,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -803,13 +809,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(0),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -819,7 +825,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -829,7 +835,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -843,13 +849,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(3),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(4),
@@ -859,7 +865,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -869,7 +875,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -883,13 +889,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(0),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -899,7 +905,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -909,7 +915,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -923,13 +929,13 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(3),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(4),
@@ -939,7 +945,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -949,7 +955,7 @@
                     ),
                     Literal(U32(1)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(5),
@@ -963,7 +969,7 @@
                     ),
                     Literal(I32(1)),
                     AtomicResult(
-                        ty: 6,
+                        ty: 2,
                         comparison: false,
                     ),
                     GlobalVariable(0),
@@ -1947,6 +1953,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

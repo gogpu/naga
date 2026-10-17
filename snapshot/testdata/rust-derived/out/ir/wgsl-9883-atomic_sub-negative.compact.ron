@@ -1,0 +1,84 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Atomic((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("a"),
+            space: WorkGroup,
+            binding: None,
+            ty: 1,
+            init: None,
+            memory_decorations: (""),
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    GlobalVariable(0),
+                    Literal(I32(-1)),
+                    AtomicResult(
+                        ty: 0,
+                        comparison: false,
+                    ),
+                ],
+                named_expressions: {
+                    2: "x",
+                },
+                body: [
+                    Atomic(
+                        pointer: 0,
+                        fun: Subtract,
+                        value: 1,
+                        result: Some(2),
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

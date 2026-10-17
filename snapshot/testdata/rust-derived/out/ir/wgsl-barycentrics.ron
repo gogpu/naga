@@ -47,7 +47,9 @@
                     (
                         name: Some("bary"),
                         ty: 0,
-                        binding: Some(BuiltIn(Barycentric)),
+                        binding: Some(BuiltIn(Barycentric(
+                            perspective: true,
+                        ))),
                     ),
                 ],
                 result: Some((
@@ -88,6 +90,64 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
+        ),
+        (
+            name: "fs_main_no_perspective",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("fs_main_no_perspective"),
+                arguments: [
+                    (
+                        name: Some("bary"),
+                        ty: 0,
+                        binding: Some(BuiltIn(Barycentric(
+                            perspective: false,
+                        ))),
+                    ),
+                ],
+                result: Some((
+                    ty: 1,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            0,
+                            1,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "bary",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Return(
+                        value: Some(2),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

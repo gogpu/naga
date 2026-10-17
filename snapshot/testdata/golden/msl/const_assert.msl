@@ -10,6 +10,7 @@ struct DefaultConstructible {
     }
 };
 
+constant bool g_false = false;
 
 kernel void foo(
 ) {

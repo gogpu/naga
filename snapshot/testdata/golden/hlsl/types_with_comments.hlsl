@@ -6,6 +6,17 @@ struct TestS {
     uint test_m;
 };
 
+struct TestT {
+    uint test_m;
+    uint test_m2_;
+};
+
+struct TestU {
+    uint test_m;
+    uint test_m2_;
+    uint test_m3_;
+};
+
 static const uint test_c = 1u;
 
 cbuffer mvp_matrix : register(b0) { row_major float4x4 mvp_matrix; }
@@ -24,6 +35,14 @@ void test_g()
 
 TestS ZeroValueTestS() {
     return (TestS)0;
+}
+
+TestT ZeroValueTestT() {
+    return (TestT)0;
+}
+
+TestU ZeroValueTestU() {
+    return (TestU)0;
 }
 
 [numthreads(1, 1, 1)]

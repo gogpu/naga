@@ -155,6 +155,7 @@
             binding: None,
             ty: 6,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -184,7 +185,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 10,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -251,6 +252,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "fragment",
@@ -352,6 +354,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "compute",
@@ -462,6 +465,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "vertex_two_structs",
@@ -559,6 +563,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

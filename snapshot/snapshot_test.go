@@ -596,7 +596,7 @@ func (c glslConfig) toOptions() glsl.Options {
 
 // readGLSLConfig reads GLSL options from a Rust naga test TOML config file.
 // Returns Rust defaults (ES 310, ADJUST_COORDINATE_SPACE) if no TOML file exists.
-func readGLSLConfig(shaderName string) glslConfig {
+func readGLSLConfig(shaderName string) (glslConfig, error) {
 	cfg := glslConfig{
 		version:     glsl.Version{Major: 3, Minor: 10, ES: true}, // Rust default: ES 310
 		writerFlags: glsl.WriterFlagAdjustCoordinateSpace,        // Rust default
@@ -605,8 +605,11 @@ func readGLSLConfig(shaderName string) glslConfig {
 
 	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return cfg, nil // no parameters: Rust's defaults
+	}
 	if err != nil {
-		return cfg
+		return cfg, err
 	}
 	content := string(data)
 
@@ -619,19 +622,14 @@ func readGLSLConfig(shaderName string) glslConfig {
 	// Extract [glsl] section
 	glslSection := extractGLSLSection(content)
 	if glslSection == "" {
-		return cfg
+		return cfg, nil
 	}
 
-	// Parse version.Desktop = NNN or version.Embedded = { is_webgl = BOOL, version = NNN }
-	reDesktop := regexp.MustCompile(`version\.Desktop\s*=\s*(\d+)`)
-	if m := reDesktop.FindStringSubmatch(glslSection); m != nil {
-		ver, _ := strconv.Atoi(m[1])
-		cfg.version = glsl.Version{Major: uint8(ver / 100), Minor: uint8(ver % 100), ES: false}
-	}
-	reEmbedded := regexp.MustCompile(`version\.Embedded\s*=\s*\{[^}]*version\s*=\s*(\d+)`)
-	if m := reEmbedded.FindStringSubmatch(glslSection); m != nil {
-		ver, _ := strconv.Atoi(m[1])
-		cfg.version = glsl.Version{Major: uint8(ver / 100), Minor: uint8(ver % 100), ES: true}
+	// [glsl] version. is_webgl has no counterpart in glsl.Version.
+	if version, _, ok, err := parseRustGLSLVersion(content); err != nil {
+		return cfg, fmt.Errorf("%s: %w", tomlPath, err)
+	} else if ok {
+		cfg.version = version
 	}
 
 	// Parse writer_flags
@@ -663,7 +661,61 @@ func readGLSLConfig(shaderName string) glslConfig {
 	// Parse binding_map from [glsl] section
 	cfg.bindingMap = parseGLSLBindingMap(glslSection)
 
-	return cfg
+	return cfg, nil
+}
+
+// parseRustGLSLVersion reads [glsl] version, naga's glsl::Version
+// (Desktop(u16) | Embedded { version: u16, is_webgl: bool }), in any of the
+// TOML spellings the corpus uses. ok is false when the key is absent.
+func parseRustGLSLVersion(content string) (version glsl.Version, isWebGL, ok bool, err error) {
+	fields := map[string]string{} // "Desktop", "Embedded.version", "Embedded.is_webgl"
+	err = scanTOML(content, func(section, key, value string) error {
+		if section != "glsl" || (key != "version" && !strings.HasPrefix(key, "version.")) {
+			return nil
+		}
+		path := strings.TrimPrefix(strings.TrimPrefix(key, "version"), ".")
+		if table, isTable := tomlInlineTable(value); isTable {
+			for k, v := range table {
+				fields[strings.TrimPrefix(path+"."+k, ".")] = v
+			}
+			return nil
+		}
+		fields[path] = value
+		return nil
+	})
+	if err != nil || len(fields) == 0 {
+		return version, false, false, err
+	}
+	number := func(name string) (uint16, error) {
+		n, err := strconv.ParseUint(fields[name], 10, 16)
+		if err != nil {
+			return 0, fmt.Errorf("[glsl] version.%s: expected an integer, got %q", name, fields[name])
+		}
+		return uint16(n), nil
+	}
+	var n uint16
+	switch {
+	case len(fields) == 1 && fields["Desktop"] != "":
+		n, err = number("Desktop")
+	case len(fields) == 2 && fields["Embedded.version"] != "" && fields["Embedded.is_webgl"] != "":
+		if n, err = number("Embedded.version"); err == nil {
+			version.ES = true
+			switch fields["Embedded.is_webgl"] {
+			case "true":
+				isWebGL = true
+			case "false":
+			default:
+				err = fmt.Errorf("[glsl] version.Embedded.is_webgl: expected a boolean, got %q", fields["Embedded.is_webgl"])
+			}
+		}
+	default:
+		err = fmt.Errorf("[glsl] version: unrecognized value %v", fields)
+	}
+	if err != nil {
+		return glsl.Version{}, false, false, err
+	}
+	version.Major, version.Minor = uint8(n/100), uint8(n%100)
+	return version, isWebGL, true, nil
 }
 
 // parseGLSLBindingMap parses the binding_map array from the GLSL TOML section.
@@ -762,7 +814,7 @@ func compileMSLWithOpts(t *testing.T, module *ir.Module, opts msl.Options) (stri
 // parseMSLPipeline parses the [msl_pipeline] TOML section for VPT and point size options.
 // Handles both section format ([msl_pipeline]\nkey = val) and inline table format
 // (msl_pipeline = { key = val, ... }).
-func parseMSLPipeline(content string, opts *msl.Options) {
+func parseMSLPipeline(content string, opts *msl.Options) error {
 	lines := strings.Split(content, "\n")
 
 	// Check for inline table format: msl_pipeline = { ... }
@@ -809,11 +861,16 @@ func parseMSLPipeline(content string, opts *msl.Options) {
 	}
 
 	// Parse [[msl_pipeline.vertex_buffer_mappings]] sections.
-	opts.VertexBufferMappings = parseVertexBufferMappings(content)
+	mappings, err := parseVertexBufferMappings(content)
+	if err != nil {
+		return err
+	}
+	opts.VertexBufferMappings = mappings
+	return nil
 }
 
 // parseVertexBufferMappings parses [[msl_pipeline.vertex_buffer_mappings]] TOML arrays.
-func parseVertexBufferMappings(content string) []msl.VertexBufferMapping {
+func parseVertexBufferMappings(content string) ([]msl.VertexBufferMapping, error) {
 	var mappings []msl.VertexBufferMapping
 
 	lines := strings.Split(content, "\n")
@@ -867,7 +924,11 @@ func parseVertexBufferMappings(content string) []msl.VertexBufferMapping {
 				// Might be closed (but need to check for nested { } ]
 				fullLine := attrLines.String()
 				if countChar(fullLine, '[') <= countChar(fullLine, ']') {
-					current.Attributes = parseAttributeArray(fullLine)
+					attrs, err := parseAttributeArray(fullLine)
+					if err != nil {
+						return nil, fmt.Errorf("[[msl_pipeline.vertex_buffer_mappings]] attributes: %w", err)
+					}
+					current.Attributes = attrs
 					inAttributes = false
 					attrLines.Reset()
 				}
@@ -879,7 +940,11 @@ func parseVertexBufferMappings(content string) []msl.VertexBufferMapping {
 			attrLines.WriteString(" " + trimmed)
 			fullLine := attrLines.String()
 			if countChar(fullLine, '[') <= countChar(fullLine, ']') {
-				current.Attributes = parseAttributeArray(fullLine)
+				attrs, err := parseAttributeArray(fullLine)
+				if err != nil {
+					return nil, fmt.Errorf("[[msl_pipeline.vertex_buffer_mappings]] attributes: %w", err)
+				}
+				current.Attributes = attrs
 				inAttributes = false
 				attrLines.Reset()
 			}
@@ -921,7 +986,7 @@ func parseVertexBufferMappings(content string) []msl.VertexBufferMapping {
 		}
 	}
 	flushCurrent()
-	return mappings
+	return mappings, nil
 }
 
 // countChar counts occurrences of a byte in a string.
@@ -937,7 +1002,7 @@ func countChar(s string, c byte) int {
 
 // parseAttributeArray parses the TOML attribute array:
 // [ { offset = 0, shader_location = 0, format = "Float32" }, ... ]
-func parseAttributeArray(s string) []msl.AttributeMapping {
+func parseAttributeArray(s string) ([]msl.AttributeMapping, error) {
 	var attrs []msl.AttributeMapping
 
 	// Find all { ... } blocks
@@ -977,101 +1042,56 @@ func parseAttributeArray(s string) []msl.AttributeMapping {
 					attr.ShaderLocation = uint32(n)
 				}
 			case "format":
-				attr.Format = parseVertexFormat(val)
+				format, err := parseVertexFormat(val)
+				if err != nil {
+					return nil, err
+				}
+				attr.Format = format
 			}
 		}
 		attrs = append(attrs, attr)
 	}
-	return attrs
+	return attrs, nil
 }
 
-// parseVertexFormat converts a TOML format string to msl.VertexFormat.
-func parseVertexFormat(s string) msl.VertexFormat {
-	switch s {
-	case "Uint8":
-		return msl.VertexFormatUint8
-	case "Uint8x2":
-		return msl.VertexFormatUint8x2
-	case "Uint8x4":
-		return msl.VertexFormatUint8x4
-	case "Sint8":
-		return msl.VertexFormatSint8
-	case "Sint8x2":
-		return msl.VertexFormatSint8x2
-	case "Sint8x4":
-		return msl.VertexFormatSint8x4
-	case "Unorm8":
-		return msl.VertexFormatUnorm8
-	case "Unorm8x2":
-		return msl.VertexFormatUnorm8x2
-	case "Unorm8x4":
-		return msl.VertexFormatUnorm8x4
-	case "Snorm8":
-		return msl.VertexFormatSnorm8
-	case "Snorm8x2":
-		return msl.VertexFormatSnorm8x2
-	case "Snorm8x4":
-		return msl.VertexFormatSnorm8x4
-	case "Uint16":
-		return msl.VertexFormatUint16
-	case "Uint16x2":
-		return msl.VertexFormatUint16x2
-	case "Uint16x4":
-		return msl.VertexFormatUint16x4
-	case "Sint16":
-		return msl.VertexFormatSint16
-	case "Sint16x2":
-		return msl.VertexFormatSint16x2
-	case "Sint16x4":
-		return msl.VertexFormatSint16x4
-	case "Unorm16":
-		return msl.VertexFormatUnorm16
-	case "Unorm16x2":
-		return msl.VertexFormatUnorm16x2
-	case "Unorm16x4":
-		return msl.VertexFormatUnorm16x4
-	case "Snorm16":
-		return msl.VertexFormatSnorm16
-	case "Snorm16x2":
-		return msl.VertexFormatSnorm16x2
-	case "Snorm16x4":
-		return msl.VertexFormatSnorm16x4
-	case "Float16":
-		return msl.VertexFormatFloat16
-	case "Float16x2":
-		return msl.VertexFormatFloat16x2
-	case "Float16x4":
-		return msl.VertexFormatFloat16x4
-	case "Float32":
-		return msl.VertexFormatFloat32
-	case "Float32x2":
-		return msl.VertexFormatFloat32x2
-	case "Float32x3":
-		return msl.VertexFormatFloat32x3
-	case "Float32x4":
-		return msl.VertexFormatFloat32x4
-	case "Uint32":
-		return msl.VertexFormatUint32
-	case "Uint32x2":
-		return msl.VertexFormatUint32x2
-	case "Uint32x3":
-		return msl.VertexFormatUint32x3
-	case "Uint32x4":
-		return msl.VertexFormatUint32x4
-	case "Sint32":
-		return msl.VertexFormatSint32
-	case "Sint32x2":
-		return msl.VertexFormatSint32x2
-	case "Sint32x3":
-		return msl.VertexFormatSint32x3
-	case "Sint32x4":
-		return msl.VertexFormatSint32x4
-	case "unorm10-10-10-2":
-		return msl.VertexFormatUnorm10_10_10_2
-	case "unorm8x4-bgra":
-		return msl.VertexFormatUnorm8x4Bgra
+// rustVertexFormats maps naga_types::VertexFormat's serialized names
+// (serde rename_all = "lowercase" plus explicit renames) to msl.VertexFormat.
+var rustVertexFormats = map[string]msl.VertexFormat{
+	"uint8": msl.VertexFormatUint8, "uint8x2": msl.VertexFormatUint8x2, "uint8x4": msl.VertexFormatUint8x4,
+	"sint8": msl.VertexFormatSint8, "sint8x2": msl.VertexFormatSint8x2, "sint8x4": msl.VertexFormatSint8x4,
+	"unorm8": msl.VertexFormatUnorm8, "unorm8x2": msl.VertexFormatUnorm8x2, "unorm8x4": msl.VertexFormatUnorm8x4,
+	"snorm8": msl.VertexFormatSnorm8, "snorm8x2": msl.VertexFormatSnorm8x2, "snorm8x4": msl.VertexFormatSnorm8x4,
+	"uint16": msl.VertexFormatUint16, "uint16x2": msl.VertexFormatUint16x2, "uint16x4": msl.VertexFormatUint16x4,
+	"sint16": msl.VertexFormatSint16, "sint16x2": msl.VertexFormatSint16x2, "sint16x4": msl.VertexFormatSint16x4,
+	"unorm16": msl.VertexFormatUnorm16, "unorm16x2": msl.VertexFormatUnorm16x2, "unorm16x4": msl.VertexFormatUnorm16x4,
+	"snorm16": msl.VertexFormatSnorm16, "snorm16x2": msl.VertexFormatSnorm16x2, "snorm16x4": msl.VertexFormatSnorm16x4,
+	"float16": msl.VertexFormatFloat16, "float16x2": msl.VertexFormatFloat16x2, "float16x4": msl.VertexFormatFloat16x4,
+	"float32": msl.VertexFormatFloat32, "float32x2": msl.VertexFormatFloat32x2,
+	"float32x3": msl.VertexFormatFloat32x3, "float32x4": msl.VertexFormatFloat32x4,
+	"uint32": msl.VertexFormatUint32, "uint32x2": msl.VertexFormatUint32x2,
+	"uint32x3": msl.VertexFormatUint32x3, "uint32x4": msl.VertexFormatUint32x4,
+	"sint32": msl.VertexFormatSint32, "sint32x2": msl.VertexFormatSint32x2,
+	"sint32x3": msl.VertexFormatSint32x3, "sint32x4": msl.VertexFormatSint32x4,
+	"unorm10-10-10-2": msl.VertexFormatUnorm10_10_10_2,
+	"unorm8x4-bgra":   msl.VertexFormatUnorm8x4Bgra,
+}
+
+// rustVertexFormatsUnsupported are Rust formats msl.VertexFormat lacks.
+var rustVertexFormatsUnsupported = map[string]bool{
+	"float64": true, "float64x2": true, "float64x3": true, "float64x4": true,
+	"snorm10-10-10-2": true,
+}
+
+// parseVertexFormat converts a TOML format name (Rust's serialized
+// naga_types::VertexFormat) to msl.VertexFormat.
+func parseVertexFormat(s string) (msl.VertexFormat, error) {
+	if f, ok := rustVertexFormats[s]; ok {
+		return f, nil
 	}
-	return msl.VertexFormatFloat32 // fallback
+	if rustVertexFormatsUnsupported[s] {
+		return 0, fmt.Errorf("vertex format %q is not supported by the msl package", s)
+	}
+	return 0, fmt.Errorf("unknown vertex format %q", s)
 }
 
 // parsePipelineConstants parses "pipeline_constants = { key = value, ... }" from TOML content.
@@ -2386,7 +2406,7 @@ var spvFunctionControls = map[uint32]string{1: "Inline", 2: "DontInline", 4: "Pu
 // Parses lang_version, fake_missing_bindings, bounds_check_policies,
 // and per_entry_point_map with resource bindings.
 // Returns default options if no TOML file exists.
-func readRustMSLConfig(shaderName string) msl.Options {
+func readRustMSLConfig(shaderName string) (msl.Options, error) {
 	opts := msl.DefaultOptions()
 	opts.LangVersion = msl.Version1_0
 	opts.FakeMissingBindings = true // default for tests without explicit config
@@ -2396,8 +2416,11 @@ func readRustMSLConfig(shaderName string) msl.Options {
 
 	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return opts, nil // no parameters: Rust's defaults
+	}
 	if err != nil {
-		return opts
+		return opts, err
 	}
 
 	content := string(data)
@@ -2465,7 +2488,9 @@ func readRustMSLConfig(shaderName string) msl.Options {
 	// Parse [msl_pipeline] section (top-level).
 	// Handles allow_and_force_point_size, vertex_pulling_transform,
 	// and [[msl_pipeline.vertex_buffer_mappings]] arrays.
-	parseMSLPipeline(content, &opts)
+	if err := parseMSLPipeline(content, &opts); err != nil {
+		return opts, fmt.Errorf("%s: %w", tomlPath, err)
+	}
 
-	return opts
+	return opts, nil
 }

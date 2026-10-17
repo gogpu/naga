@@ -1,0 +1,61 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 37
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_13 "compute1" %_9 %_11 %_18
+               OpExecutionMode %_13 LocalSize 1 1 1
+               OpMemberDecorate %_5 0 Offset 0
+               OpMemberDecorate %_5 1 Offset 12
+               OpDecorate %_9 BuiltIn LocalInvocationId
+               OpDecorate %_11 BuiltIn LocalInvocationIndex
+               OpDecorate %_18 BuiltIn LocalInvocationId
+         %_2 = OpTypeVoid
+         %_3 = OpTypeInt 32 0
+         %_4 = OpTypeVector %_3 3
+         %_5 = OpTypeStruct %_4 %_3
+         %_6 = OpTypePointer Workgroup %_3
+         %_8 = OpTypePointer Input %_4
+         %_10 = OpTypePointer Input %_3
+         %_12 = OpTypeFunction %_2
+         %_20 = OpTypeBool
+         %_21 = OpTypeVector %_20 3
+         %_22 = OpConstantNull %_4
+         %_27 = OpConstantNull %_3
+         %_28 = OpConstant %_3 2
+         %_29 = OpConstant %_3 264
+         %_7 = OpVariable %_6 Workgroup
+         %_9 = OpVariable %_8 Input
+         %_11 = OpVariable %_10 Input
+         %_18 = OpVariable %_8 Input
+         %_13 = OpFunction %_2 None %_12
+         %_14 = OpLabel
+         %_15 = OpLoad %_4 %_9
+         %_16 = OpLoad %_3 %_11
+         %_17 = OpCompositeConstruct %_5 %_15 %_16
+         %_19 = OpLoad %_4 %_18
+         %_23 = OpSignBitSet %_21 %_19 %_22
+         %_24 = Op155 %_20 %_23
+               OpSelectionMerge %_25 0
+               OpBranchConditional %_24 %_26 %_25
+         %_26 = OpLabel
+               OpStore %_7 %_27
+               OpBranch %_25
+         %_25 = OpLabel
+         OpControlBarrier %_28 %_28 %_29
+               OpBranch %_30
+         %_30 = OpLabel
+         %_31 = OpCompositeExtract %_3 %_17 1
+         %_32 = OpIMul %_3 %_31 %_28
+               OpStore %_7 %_32
+         %_33 = OpCompositeExtract %_4 %_17 0
+         %_34 = OpCompositeExtract %_3 %_33 0
+         %_35 = OpLoad %_3 %_7
+         %_36 = OpIAdd %_3 %_35 %_34
+               OpStore %_7 %_36
+               OpReturn
+               OpFunctionEnd

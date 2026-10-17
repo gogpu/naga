@@ -1,0 +1,285 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Matrix(
+                columns: Quad,
+                rows: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("Immediates"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("v"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("m"),
+                        ty: 2,
+                        binding: None,
+                        offset: 16,
+                    ),
+                ],
+                span: 80,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Dynamic,
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("im"),
+            space: Immediate,
+            binding: None,
+            ty: 3,
+            init: None,
+            memory_decorations: (""),
+        ),
+        (
+            name: Some("out"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 4,
+            init: None,
+            memory_decorations: (""),
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [
+                    (
+                        name: Some("idx"),
+                        ty: 5,
+                        binding: Some(BuiltIn(LocalInvocationIndex)),
+                    ),
+                ],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 2,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 3,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 5,
+                        index: 0,
+                    ),
+                    Access(
+                        base: 6,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 7,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 9,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 10,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 11,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 12,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 14,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 15,
+                        index: 0,
+                    ),
+                    Access(
+                        base: 16,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 17,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 19,
+                        index: 0,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 21,
+                        index: 1,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 23,
+                        index: 2,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 25,
+                        index: 3,
+                    ),
+                ],
+                named_expressions: {
+                    0: "idx",
+                    4: "v_c",
+                    8: "v_v",
+                    13: "m_cc",
+                    18: "m_cv",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 9,
+                    )),
+                    Emit((
+                        start: 10,
+                        end: 11,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Emit((
+                        start: 12,
+                        end: 14,
+                    )),
+                    Emit((
+                        start: 15,
+                        end: 16,
+                    )),
+                    Emit((
+                        start: 16,
+                        end: 19,
+                    )),
+                    Emit((
+                        start: 20,
+                        end: 21,
+                    )),
+                    Store(
+                        pointer: 20,
+                        value: 4,
+                    ),
+                    Emit((
+                        start: 22,
+                        end: 23,
+                    )),
+                    Store(
+                        pointer: 22,
+                        value: 8,
+                    ),
+                    Emit((
+                        start: 24,
+                        end: 25,
+                    )),
+                    Store(
+                        pointer: 24,
+                        value: 13,
+                    ),
+                    Emit((
+                        start: 26,
+                        end: 27,
+                    )),
+                    Store(
+                        pointer: 26,
+                        value: 18,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

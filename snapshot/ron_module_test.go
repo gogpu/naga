@@ -59,6 +59,9 @@ type ronGlobalVariable struct {
 	Binding *ronResourceBinding
 	Ty      uint32
 	Init    *uint32
+	// MemoryDecorations is Rust's bitflags text, e.g. "COHERENT | VOLATILE";
+	// empty means none. Our IR has no memory decorations.
+	MemoryDecorations string
 }
 
 type ronResourceBinding struct {
@@ -120,6 +123,9 @@ type ronEntryPoint struct {
 	Function               ronFunction
 	MeshInfo               *ronMeshInfo
 	TaskPayload            *uint32
+	// IncomingRayPayload is the ray-tracing pipeline payload global; our IR
+	// has no such field.
+	IncomingRayPayload *uint32
 }
 
 type ronMeshInfo struct {

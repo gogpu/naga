@@ -341,6 +341,24 @@ func scanTOML(content string, fn func(section, key, value string) error) error {
 		}
 		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
 		start := i
+		if rest, ok := strings.CutPrefix(value, `"""`); ok {
+			// Multi-line basic string: its lines up to the closing """, joined
+			// by spaces (the corpus only uses it for `A | B` flag lists).
+			parts := []string{}
+			for {
+				if body, _, closed := strings.Cut(rest, `"""`); closed {
+					parts = append(parts, strings.TrimSpace(body))
+					break
+				}
+				parts = append(parts, strings.TrimSpace(rest))
+				i++
+				if i >= len(lines) {
+					return fmt.Errorf("line %d: unterminated multi-line string for %s", start+1, key)
+				}
+				rest = lines[i]
+			}
+			value = `"` + strings.TrimSpace(strings.Join(parts, " ")) + `"`
+		}
 		for depth := bracketDepth(value); depth > 0; depth = bracketDepth(value) {
 			i++
 			if i >= len(lines) {
@@ -446,6 +464,32 @@ func tomlInlineUints(value string) (map[string]uint32, bool) {
 			return nil, false
 		}
 		out[k] = uint32(n)
+	}
+	return out, true
+}
+
+// tomlInlineTable splits a flat inline table, { a = 1, b = true }, into its
+// raw values. Nested tables are not supported (ok is false).
+func tomlInlineTable(value string) (map[string]string, bool) {
+	if len(value) < 2 || value[0] != '{' || value[len(value)-1] != '}' ||
+		strings.ContainsAny(value[1:len(value)-1], "{}") {
+		return nil, false
+	}
+	out := map[string]string{}
+	for item := range strings.SplitSeq(value[1:len(value)-1], ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(item, "=")
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if !ok || k == "" || v == "" {
+			return nil, false
+		}
+		if _, dup := out[k]; dup {
+			return nil, false
+		}
+		out[k] = v
 	}
 	return out, true
 }

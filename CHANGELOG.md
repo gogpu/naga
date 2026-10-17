@@ -74,6 +74,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`internal/cmd/corpussync`** — syncs the vendored corpus from a gfx-rs/wgpu
   checkout, reading files from git objects so they stay byte-exact, and writes
   the manifest.
+- **Rust corpus synced to gfx-rs/wgpu 14328f49 (2026-10-14)** — the vendored
+  tree now comes from one upstream commit (1007 files; 30 shaders added, 2
+  removed, 21 changed upstream), and the
+  derived IR snapshots and `ptr-deref-test` outputs are regenerated at the same
+  commit with the generator recorded in the manifest. Every output we no longer
+  match is recorded in `snapshot/rust_deviations_test.go`: where our output is
+  byte-identical to the previous reference, the reason names the upstream
+  commits we have not ported (`snapshot/rust_upstream_test.go`); every other
+  difference was reviewed against its full diff. Shaders we cannot lower yet
+  (cooperative matrices, `debugPrintf`, 16-bit integers, ray tracing pipelines,
+  short-circuit operators in module constants) are listed with their expected
+  error, and IR snapshot differences are pinned like output differences. The
+  review found silent miscompiles that are now tracked: unknown `@builtin`
+  names lowered as `position`, HLSL builtins without a semantic emitted as
+  `SV_Position`, loop-local variables not reset per iteration, 2-row matrices
+  in uniform buffers read with the WGSL layout, `@interpolate(per_vertex)`
+  dropped, HLSL `SampleLevel` offsets always `int2`, non-atomic `atomicStore`
+  in GLSL/HLSL, and invalid MSL/GLSL in several cases.
+- **README, ROADMAP, AGENTS.md and llms.txt no longer claim complete Rust
+  naga parity** — the per-backend match counts came from the older corpus and
+  a counts-only SPIR-V comparison; they now describe how the comparison works
+  and where the known differences are recorded.
+- **Snapshot test parameters read strictly** — MSL vertex formats use Rust's
+  serialized names and an unknown one is an error (it silently became
+  `float32`); the GLSL `version` is read in every TOML spelling (two spellings
+  silently fell back to ES 310); a failure to read a parameter file other than
+  "not found" is an error. The IR snapshot parser reads
+  `GlobalVariable.memory_decorations`, `EntryPoint.incoming_ray_payload` and
+  cooperative matrix types, and reports a set field our IR cannot represent.
 - **`TestMSL_AbstractTypesVarFull` runs again** — it read its shader through a
   path that never existed and was always skipped; it now passes, and a missing
   shader fails the test instead of skipping it.

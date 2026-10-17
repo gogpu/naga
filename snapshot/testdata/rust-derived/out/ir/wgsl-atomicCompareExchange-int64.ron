@@ -9,6 +9,13 @@
         ),
         (
             name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 8,
+            )),
+        ),
+        (
+            name: None,
             inner: Atomic((
                 kind: Sint,
                 width: 8,
@@ -17,10 +24,17 @@
         (
             name: None,
             inner: Array(
-                base: 1,
+                base: 2,
                 size: Constant(128),
                 stride: 8,
             ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 8,
+            )),
         ),
         (
             name: None,
@@ -32,17 +46,10 @@
         (
             name: None,
             inner: Array(
-                base: 3,
+                base: 5,
                 size: Constant(128),
                 stride: 8,
             ),
-        ),
-        (
-            name: None,
-            inner: Scalar((
-                kind: Sint,
-                width: 8,
-            )),
         ),
         (
             name: None,
@@ -57,13 +64,13 @@
                 members: [
                     (
                         name: Some("old_value"),
-                        ty: 5,
+                        ty: 1,
                         binding: None,
                         offset: 0,
                     ),
                     (
                         name: Some("exchanged"),
-                        ty: 6,
+                        ty: 7,
                         binding: None,
                         offset: 8,
                     ),
@@ -72,25 +79,18 @@
             ),
         ),
         (
-            name: None,
-            inner: Scalar((
-                kind: Uint,
-                width: 8,
-            )),
-        ),
-        (
             name: Some("__atomic_compare_exchange_result<Uint,8>"),
             inner: Struct(
                 members: [
                     (
                         name: Some("old_value"),
-                        ty: 8,
+                        ty: 4,
                         binding: None,
                         offset: 0,
                     ),
                     (
                         name: Some("exchanged"),
-                        ty: 6,
+                        ty: 7,
                         binding: None,
                         offset: 8,
                     ),
@@ -109,7 +109,7 @@
             AtomicCompareExchangeWeakResult((
                 kind: Sint,
                 width: 8,
-            )): 7,
+            )): 8,
             AtomicCompareExchangeWeakResult((
                 kind: Uint,
                 width: 8,
@@ -134,8 +134,9 @@
                 group: 0,
                 binding: 0,
             )),
-            ty: 2,
+            ty: 3,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("arr_u64"),
@@ -146,8 +147,9 @@
                 group: 0,
                 binding: 1,
             )),
-            ty: 4,
+            ty: 6,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [
@@ -173,12 +175,12 @@
                     ),
                     (
                         name: Some("old"),
-                        ty: 5,
+                        ty: 1,
                         init: None,
                     ),
                     (
                         name: Some("exchanged"),
-                        ty: 6,
+                        ty: 7,
                         init: None,
                     ),
                 ],
@@ -241,7 +243,7 @@
                         pointer: 9,
                     ),
                     AtomicResult(
-                        ty: 7,
+                        ty: 8,
                         comparison: true,
                     ),
                     AccessIndex(
@@ -374,6 +376,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "test_atomic_compare_exchange_u64",
@@ -393,12 +396,12 @@
                     ),
                     (
                         name: Some("old"),
-                        ty: 8,
+                        ty: 4,
                         init: None,
                     ),
                     (
                         name: Some("exchanged"),
-                        ty: 6,
+                        ty: 7,
                         init: None,
                     ),
                 ],
@@ -594,6 +597,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

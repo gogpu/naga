@@ -1,0 +1,26 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct Input {
+    uint draw_index;
+};
+
+struct vertex_Input {
+};
+struct vertex_Output {
+    metal::float4 member [[position]];
+};
+vertex vertex_Output vertex_(
+) {
+    const Input input = { draw_index };
+    return vertex_Output { metal::float4(static_cast<float>(input.draw_index), 1.0, 1.0, 1.0) };
+}

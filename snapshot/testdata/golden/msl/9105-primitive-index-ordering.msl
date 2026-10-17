@@ -1,0 +1,27 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+struct funcInput {
+    float input_location [[user(loc0), center_perspective]];
+};
+struct funcOutput {
+    metal::float4 member [[color(0)]];
+};
+fragment funcOutput func(
+  funcInput varyings [[stage_in]]
+, metal::float4 arbitrary_position [[position]]
+, uint index [[primitive_id]]
+) {
+    const auto input_location = varyings.input_location;
+    return funcOutput { metal::float4(arbitrary_position.xy, input_location, static_cast<float>(index)) };
+}

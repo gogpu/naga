@@ -1,7 +1,7 @@
 # naga — GoGPU Ecosystem
 
 > Pure Go shader compiler (~323K LOC). WGSL → SPIR-V, MSL, GLSL, HLSL, DXIL. Zero CGO.
-> 100% Rust naga parity. 172/172 SPIR-V validation. v1.0 target: December 2026.
+> Tested output by output against Rust naga's WGSL corpus; SPIR-V checked with spirv-val in CI. v1.0 target: December 2026.
 
 ## Docs
 

@@ -1,0 +1,107 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "func",
+            stage: Fragment,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("func"),
+                arguments: [
+                    (
+                        name: Some("index"),
+                        ty: 0,
+                        binding: Some(BuiltIn(PrimitiveIndex)),
+                    ),
+                ],
+                result: Some((
+                    ty: 1,
+                    binding: Some(Location(
+                        location: 0,
+                        interpolation: Some(Perspective),
+                        sampling: Some(Center),
+                        blend_src: None,
+                        per_primitive: false,
+                    )),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    As(
+                        expr: 0,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 1,
+                        components: [
+                            1,
+                            2,
+                            3,
+                            4,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "index",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 5,
+                        end: 6,
+                    )),
+                    Return(
+                        value: Some(5),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

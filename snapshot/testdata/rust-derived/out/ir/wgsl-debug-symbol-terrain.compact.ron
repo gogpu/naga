@@ -274,7 +274,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 0,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -286,7 +286,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 1,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -426,6 +426,7 @@
             )),
             ty: 8,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("vertices"),
@@ -438,6 +439,7 @@
             )),
             ty: 11,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("indices"),
@@ -450,6 +452,7 @@
             )),
             ty: 13,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("gen_data"),
@@ -460,6 +463,7 @@
             )),
             ty: 15,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("camera"),
@@ -470,6 +474,7 @@
             )),
             ty: 19,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("light"),
@@ -480,6 +485,7 @@
             )),
             ty: 20,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("t_diffuse"),
@@ -490,6 +496,7 @@
             )),
             ty: 22,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("s_diffuse"),
@@ -500,6 +507,7 @@
             )),
             ty: 23,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("t_normal"),
@@ -510,6 +518,7 @@
             )),
             ty: 22,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("s_normal"),
@@ -520,6 +529,7 @@
             )),
             ty: 23,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -2728,6 +2738,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "gen_terrain_vertex",
@@ -2983,6 +2994,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "gen_terrain_fragment",
@@ -3565,6 +3577,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "vs_main",
@@ -3660,6 +3673,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "fs_main",
@@ -4097,6 +4111,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

@@ -1,0 +1,57 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 32
+; Schema: 0
+
+               OpCapability Shader
+               OpCapability Geometry
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %_26 "fs_main" %_22 %_24
+               OpExecutionMode %_26 OriginUpperLeft
+               OpDecorate %_10 ArrayStride 16
+               OpDecorate %_12 ArrayStride 16
+               OpMemberDecorate %_5 0 Offset 0
+               OpMemberDecorate %_8 0 Offset 0
+               OpMemberDecorate %_8 1 Offset 12
+               OpMemberDecorate %_13 0 Offset 0
+               OpMemberDecorate %_13 1 Offset 48
+               OpMemberDecorate %_13 2 Offset 64
+               OpMemberDecorate %_13 3 Offset 68
+               OpDecorate %_22 BuiltIn InvocationId
+               OpDecorate %_22 Flat
+               OpDecorate %_24 Location 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeFloat 32
+         %_4 = OpTypeVector %_3 4
+         %_5 = OpTypeStruct %_4
+         %_6 = OpTypeInt 32 0
+         %_7 = OpTypeVector %_6 3
+         %_8 = OpTypeStruct %_7 %_6
+         %_9 = OpConstant %_6 3
+         %_10 = OpTypeArray %_5 %_9
+         %_11 = OpConstant %_6 1
+         %_12 = OpTypeArray %_8 %_11
+         %_13 = OpTypeStruct %_10 %_12 %_6 %_6
+         %_14 = OpTypeStruct %_4
+         %_15 = OpTypeArray %_14 %_9
+         %_16 = OpTypeStruct %_7 %_6
+         %_17 = OpTypeArray %_16 %_11
+         %_18 = OpTypeStruct %_15 %_17 %_6 %_6
+         %_19 = OpTypePointer Workgroup %_18
+         %_21 = OpTypePointer Input %_6
+         %_23 = OpTypePointer Output %_4
+         %_25 = OpTypeFunction %_2
+         %_30 = OpConstant %_3 1065353216
+         %_20 = OpVariable %_19 Workgroup
+         %_22 = OpVariable %_21 Input
+         %_24 = OpVariable %_23 Output
+         %_26 = OpFunction %_2 None %_25
+         %_27 = OpLabel
+         %_28 = OpLoad %_6 %_22
+         %_29 = OpConvertUToF %_3 %_28
+         %_31 = OpCompositeConstruct %_4 %_29 %_30 %_30 %_30
+               OpStore %_24 %_31
+               OpReturn
+               OpFunctionEnd

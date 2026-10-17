@@ -8,6 +8,15 @@ struct TestR {
 struct TestS {
     uint test_m;
 };
+struct TestT {
+    uint test_m;
+    uint test_m2_;
+};
+struct TestU {
+    uint test_m;
+    uint test_m2_;
+    uint test_m3_;
+};
 const uint test_c = 1u;
 
 shared mat2x2 w_mem2_;

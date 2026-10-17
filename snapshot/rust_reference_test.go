@@ -86,12 +86,8 @@ func TestRustReference(t *testing.T) {
 		}
 
 		t.Run(shader.name, func(t *testing.T) {
-			module, err := tryCompileToIR(shader.source)
-			if err != nil {
-				if shader.origin == originRust {
-					// Rust parses and validates every corpus shader.
-					t.Fatalf("lowering failed: %v", err)
-				}
+			module, ok := lowerCorpusShader(t, shader)
+			if !ok {
 				return
 			}
 			for _, o := range expectedRustOutputs(shader.name, params, module.EntryPoints) {
@@ -246,7 +242,10 @@ func ourSPIRVDisassembly(module *ir.Module, shader string, o rustOutput, disasse
 func ourTextOutput(module *ir.Module, shader string, o rustOutput) (string, error) {
 	switch o.kind {
 	case rustOutMSL:
-		opts := readRustMSLConfig(shader)
+		opts, err := readRustMSLConfig(shader)
+		if err != nil {
+			return "", err
+		}
 		opts.PipelineConstants = nil
 		code, _, err := msl.Compile(module, opts)
 		return code, err
@@ -258,7 +257,11 @@ func ourTextOutput(module *ir.Module, shader string, o rustOutput) (string, erro
 		code, _, err := hlsl.Compile(module, opts)
 		return code, err
 	case rustOutGLSL:
-		opts := readGLSLConfig(shader).toOptions()
+		cfg, err := readGLSLConfig(shader)
+		if err != nil {
+			return "", err
+		}
+		opts := cfg.toOptions()
 		opts.PipelineConstants = nil
 		opts.EntryPoint = o.entryPoint
 		code, _, err := glsl.Compile(module, opts)

@@ -59,10 +59,33 @@ func goldenOutput(params rustParams, shader shaderFile, module *ir.Module, b gol
 	case compileErr == nil:
 		return out, "", nil
 	case params.targets.has(b.target):
+		// The same error recorded as an unsupported Rust output (rustDeviations)
+		// means the backend legitimately has no output yet.
+		if dev := unsupportedDeviation(shader.name, b.dir, compileErr); dev != nil {
+			return "", fmt.Sprintf("unsupported (%s): %s", dev.Card, dev.Reason), nil
+		}
 		return "", "", fmt.Errorf("%s compile error on a backend this shader targets: %w", b.dir, compileErr)
 	default:
 		return "", fmt.Sprintf("not a Rust target for this shader (%s): %v", params.targets, compileErr), nil
 	}
+}
+
+// rustSingleOutputExt is the extension of the one output file Rust writes per
+// shader for the backends that write one (GLSL writes one per entry point).
+var rustSingleOutputExt = map[string]string{rustOutSPIRV: ".spvasm", rustOutMSL: ".metal", rustOutHLSL: ".hlsl"}
+
+// unsupportedDeviation returns the unsupported rustDeviations entry for the
+// shader's single output of one backend if err is the error it records.
+func unsupportedDeviation(shader, kind string, err error) *rustDeviation {
+	ext, ok := rustSingleOutputExt[kind]
+	if !ok {
+		return nil
+	}
+	dev := findDeviation(shader, "wgsl-"+shader+ext)
+	if dev == nil || dev.Kind != deviationUnsupported || !strings.Contains(err.Error(), dev.ErrorContains) {
+		return nil
+	}
+	return dev
 }
 
 // corpusParams returns the Rust test parameters of a corpus shader; our own
@@ -84,9 +107,9 @@ func TestSnapshots(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			module, err := tryCompileToIR(shader.source)
-			if err != nil {
-				t.Fatalf("lowering failed: %v", err)
+			module, ok := lowerCorpusShader(t, shader)
+			if !ok {
+				return
 			}
 			for _, b := range goldenBackends {
 				t.Run(b.dir, func(t *testing.T) {

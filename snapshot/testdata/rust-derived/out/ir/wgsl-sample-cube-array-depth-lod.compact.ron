@@ -44,6 +44,7 @@
             )),
             ty: 0,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("texture_sampler"),
@@ -54,6 +55,7 @@
             )),
             ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -123,6 +125,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

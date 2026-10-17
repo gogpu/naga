@@ -22,6 +22,20 @@
             ),
         ),
         (
+            name: Some("Inner"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("y"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+        (
             name: None,
             inner: Scalar((
                 kind: Sint,
@@ -31,7 +45,7 @@
         (
             name: None,
             inner: Array(
-                base: 2,
+                base: 3,
                 size: Dynamic,
                 stride: 4,
             ),
@@ -47,20 +61,48 @@
                         offset: 0,
                     ),
                     (
-                        name: Some("far"),
-                        ty: 3,
+                        name: Some("nested"),
+                        ty: 2,
                         binding: None,
                         offset: 4,
                     ),
+                    (
+                        name: Some("far"),
+                        ty: 4,
+                        binding: None,
+                        offset: 8,
+                    ),
                 ],
-                span: 8,
+                span: 12,
+            ),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Dynamic,
+                stride: 4,
+            ),
+        ),
+        (
+            name: Some("PlainData"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("values"),
+                        ty: 6,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
             ),
         ),
         (
             name: None,
             inner: BindingArray(
-                base: 4,
-                size: Constant(1),
+                base: 5,
+                size: Dynamic,
             ),
         ),
         (
@@ -104,8 +146,22 @@
                 group: 0,
                 binding: 0,
             )),
-            ty: 5,
+            ty: 8,
             init: None,
+            memory_decorations: (""),
+        ),
+        (
+            name: Some("plain_storage"),
+            space: Storage(
+                access: ("LOAD"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 7,
+            init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("uni"),
@@ -116,6 +172,7 @@
             )),
             ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -132,7 +189,7 @@
                 arguments: [
                     (
                         name: Some("fragment_in"),
-                        ty: 6,
+                        ty: 9,
                         binding: None,
                     ),
                 ],
@@ -140,7 +197,7 @@
                     ty: 0,
                     binding: Some(Location(
                         location: 0,
-                        interpolation: Some(Flat),
+                        interpolation: None,
                         sampling: None,
                         blend_src: None,
                         per_primitive: false,
@@ -155,7 +212,7 @@
                 ],
                 expressions: [
                     FunctionArgument(0),
-                    GlobalVariable(1),
+                    GlobalVariable(2),
                     AccessIndex(
                         base: 1,
                         index: 0,
@@ -169,119 +226,403 @@
                     ),
                     Literal(U32(0)),
                     LocalVariable(0),
-                    GlobalVariable(0),
-                    AccessIndex(
-                        base: 7,
-                        index: 0,
+                    Load(
+                        pointer: 6,
                     ),
+                    GlobalVariable(0),
                     AccessIndex(
                         base: 8,
                         index: 0,
                     ),
+                    AccessIndex(
+                        base: 9,
+                        index: 0,
+                    ),
                     Load(
-                        pointer: 9,
+                        pointer: 10,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 7,
+                        right: 11,
                     ),
                     Load(
                         pointer: 6,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 11,
-                        right: 10,
-                    ),
                     GlobalVariable(0),
                     Access(
-                        base: 13,
+                        base: 14,
                         index: 3,
                     ),
                     AccessIndex(
-                        base: 14,
+                        base: 15,
                         index: 0,
                     ),
                     Load(
-                        pointer: 15,
-                    ),
-                    Load(
-                        pointer: 6,
+                        pointer: 16,
                     ),
                     Binary(
                         op: Add,
-                        left: 17,
-                        right: 16,
+                        left: 13,
+                        right: 17,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(0),
                     Access(
-                        base: 19,
+                        base: 20,
                         index: 4,
                     ),
                     AccessIndex(
-                        base: 20,
+                        base: 21,
                         index: 0,
                     ),
                     Load(
-                        pointer: 21,
+                        pointer: 22,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 19,
+                        right: 23,
                     ),
                     Load(
                         pointer: 6,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 23,
-                        right: 22,
-                    ),
                     GlobalVariable(0),
-                    AccessIndex(
-                        base: 25,
-                        index: 0,
-                    ),
                     AccessIndex(
                         base: 26,
-                        index: 1,
+                        index: 7,
                     ),
-                    ArrayLength(27),
+                    AccessIndex(
+                        base: 27,
+                        index: 0,
+                    ),
                     Load(
-                        pointer: 6,
+                        pointer: 28,
                     ),
                     Binary(
                         op: Add,
-                        left: 29,
-                        right: 28,
+                        left: 25,
+                        right: 29,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 32,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 33,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 34,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 35,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 31,
+                        right: 36,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(0),
                     Access(
-                        base: 31,
+                        base: 39,
                         index: 3,
                     ),
                     AccessIndex(
-                        base: 32,
+                        base: 40,
                         index: 1,
                     ),
-                    ArrayLength(33),
+                    AccessIndex(
+                        base: 41,
+                        index: 0,
+                    ),
                     Load(
-                        pointer: 6,
+                        pointer: 42,
                     ),
                     Binary(
                         op: Add,
-                        left: 35,
-                        right: 34,
+                        left: 38,
+                        right: 43,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(0),
                     Access(
-                        base: 37,
+                        base: 46,
                         index: 4,
                     ),
                     AccessIndex(
-                        base: 38,
+                        base: 47,
                         index: 1,
                     ),
-                    ArrayLength(39),
+                    AccessIndex(
+                        base: 48,
+                        index: 0,
+                    ),
                     Load(
-                        pointer: 6,
+                        pointer: 49,
                     ),
                     Binary(
                         op: Add,
-                        left: 41,
-                        right: 40,
+                        left: 45,
+                        right: 50,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 53,
+                        index: 7,
+                    ),
+                    AccessIndex(
+                        base: 54,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 55,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 56,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 52,
+                        right: 57,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 60,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 61,
+                        index: 2,
+                    ),
+                    ArrayLength(62),
+                    Binary(
+                        op: Add,
+                        left: 59,
+                        right: 63,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    Access(
+                        base: 66,
+                        index: 3,
+                    ),
+                    AccessIndex(
+                        base: 67,
+                        index: 2,
+                    ),
+                    ArrayLength(68),
+                    Binary(
+                        op: Add,
+                        left: 65,
+                        right: 69,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    Access(
+                        base: 72,
+                        index: 4,
+                    ),
+                    AccessIndex(
+                        base: 73,
+                        index: 2,
+                    ),
+                    ArrayLength(74),
+                    Binary(
+                        op: Add,
+                        left: 71,
+                        right: 75,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 78,
+                        index: 7,
+                    ),
+                    AccessIndex(
+                        base: 79,
+                        index: 2,
+                    ),
+                    ArrayLength(80),
+                    Binary(
+                        op: Add,
+                        left: 77,
+                        right: 81,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 84,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 85,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 86,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 87,
+                    ),
+                    As(
+                        expr: 88,
+                        kind: Uint,
+                        convert: None,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 83,
+                        right: 89,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    Access(
+                        base: 92,
+                        index: 3,
+                    ),
+                    AccessIndex(
+                        base: 93,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 94,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 95,
+                    ),
+                    As(
+                        expr: 96,
+                        kind: Uint,
+                        convert: None,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 91,
+                        right: 97,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    Access(
+                        base: 100,
+                        index: 4,
+                    ),
+                    AccessIndex(
+                        base: 101,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 102,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 103,
+                    ),
+                    As(
+                        expr: 104,
+                        kind: Uint,
+                        convert: None,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 99,
+                        right: 105,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 108,
+                        index: 7,
+                    ),
+                    AccessIndex(
+                        base: 109,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 110,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 111,
+                    ),
+                    As(
+                        expr: 112,
+                        kind: Uint,
+                        convert: None,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 107,
+                        right: 113,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 116,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 117,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 118,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 115,
+                        right: 119,
+                    ),
+                    Load(
+                        pointer: 6,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 122,
+                        index: 0,
+                    ),
+                    ArrayLength(123),
+                    Binary(
+                        op: Add,
+                        left: 121,
+                        right: 124,
                     ),
                     Load(
                         pointer: 6,
@@ -302,7 +643,11 @@
                         end: 5,
                     )),
                     Emit((
-                        start: 8,
+                        start: 7,
+                        end: 8,
+                    )),
+                    Emit((
+                        start: 9,
                         end: 13,
                     )),
                     Store(
@@ -310,7 +655,11 @@
                         value: 12,
                     ),
                     Emit((
-                        start: 14,
+                        start: 13,
+                        end: 14,
+                    )),
+                    Emit((
+                        start: 15,
                         end: 19,
                     )),
                     Store(
@@ -318,7 +667,11 @@
                         value: 18,
                     ),
                     Emit((
-                        start: 20,
+                        start: 19,
+                        end: 20,
+                    )),
+                    Emit((
+                        start: 21,
                         end: 25,
                     )),
                     Store(
@@ -326,7 +679,11 @@
                         value: 24,
                     ),
                     Emit((
-                        start: 26,
+                        start: 25,
+                        end: 26,
+                    )),
+                    Emit((
+                        start: 27,
                         end: 31,
                     )),
                     Store(
@@ -334,33 +691,206 @@
                         value: 30,
                     ),
                     Emit((
-                        start: 32,
-                        end: 37,
+                        start: 31,
+                        end: 32,
+                    )),
+                    Emit((
+                        start: 33,
+                        end: 38,
                     )),
                     Store(
                         pointer: 6,
-                        value: 36,
+                        value: 37,
                     ),
                     Emit((
                         start: 38,
-                        end: 43,
+                        end: 39,
+                    )),
+                    Emit((
+                        start: 40,
+                        end: 45,
                     )),
                     Store(
                         pointer: 6,
-                        value: 42,
+                        value: 44,
                     ),
                     Emit((
-                        start: 43,
-                        end: 44,
+                        start: 45,
+                        end: 46,
+                    )),
+                    Emit((
+                        start: 47,
+                        end: 52,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 51,
+                    ),
+                    Emit((
+                        start: 52,
+                        end: 53,
+                    )),
+                    Emit((
+                        start: 54,
+                        end: 59,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 58,
+                    ),
+                    Emit((
+                        start: 59,
+                        end: 60,
+                    )),
+                    Emit((
+                        start: 61,
+                        end: 65,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 64,
+                    ),
+                    Emit((
+                        start: 65,
+                        end: 66,
+                    )),
+                    Emit((
+                        start: 67,
+                        end: 71,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 70,
+                    ),
+                    Emit((
+                        start: 71,
+                        end: 72,
+                    )),
+                    Emit((
+                        start: 73,
+                        end: 77,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 76,
+                    ),
+                    Emit((
+                        start: 77,
+                        end: 78,
+                    )),
+                    Emit((
+                        start: 79,
+                        end: 83,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 82,
+                    ),
+                    Emit((
+                        start: 83,
+                        end: 84,
+                    )),
+                    Emit((
+                        start: 85,
+                        end: 87,
+                    )),
+                    Emit((
+                        start: 87,
+                        end: 91,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 90,
+                    ),
+                    Emit((
+                        start: 91,
+                        end: 92,
+                    )),
+                    Emit((
+                        start: 93,
+                        end: 95,
+                    )),
+                    Emit((
+                        start: 95,
+                        end: 99,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 98,
+                    ),
+                    Emit((
+                        start: 99,
+                        end: 100,
+                    )),
+                    Emit((
+                        start: 101,
+                        end: 103,
+                    )),
+                    Emit((
+                        start: 103,
+                        end: 107,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 106,
+                    ),
+                    Emit((
+                        start: 107,
+                        end: 108,
+                    )),
+                    Emit((
+                        start: 109,
+                        end: 111,
+                    )),
+                    Emit((
+                        start: 111,
+                        end: 115,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 114,
+                    ),
+                    Emit((
+                        start: 115,
+                        end: 116,
+                    )),
+                    Emit((
+                        start: 117,
+                        end: 118,
+                    )),
+                    Emit((
+                        start: 118,
+                        end: 121,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 120,
+                    ),
+                    Emit((
+                        start: 121,
+                        end: 122,
+                    )),
+                    Emit((
+                        start: 123,
+                        end: 126,
+                    )),
+                    Store(
+                        pointer: 6,
+                        value: 125,
+                    ),
+                    Emit((
+                        start: 126,
+                        end: 127,
                     )),
                     Return(
-                        value: Some(43),
+                        value: Some(126),
                     ),
                 ],
                 diagnostic_filter_leaf: None,
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

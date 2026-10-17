@@ -164,6 +164,7 @@
             )),
             ty: 0,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("image_2d"),
@@ -174,6 +175,7 @@
             )),
             ty: 3,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("image_2d_array"),
@@ -184,6 +186,7 @@
             )),
             ty: 5,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("image_3d"),
@@ -194,6 +197,7 @@
             )),
             ty: 7,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("image_multisampled_2d"),
@@ -204,6 +208,7 @@
             )),
             ty: 9,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("image_storage_1d"),
@@ -214,6 +219,7 @@
             )),
             ty: 10,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("image_storage_2d"),
@@ -224,6 +230,7 @@
             )),
             ty: 11,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("image_storage_2d_array"),
@@ -234,6 +241,7 @@
             )),
             ty: 12,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("image_storage_3d"),
@@ -244,6 +252,7 @@
             )),
             ty: 13,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -917,6 +926,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

@@ -33,13 +33,6 @@
         ),
         (
             name: None,
-            inner: Scalar((
-                kind: Float,
-                width: 4,
-            )),
-        ),
-        (
-            name: None,
             inner: Vector(
                 size: Quad,
                 scalar: (
@@ -50,8 +43,15 @@
         ),
         (
             name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
             inner: Array(
-                base: 4,
+                base: 5,
                 size: Constant(2),
                 stride: 4,
             ),
@@ -161,17 +161,17 @@
         ),
         (
             name: Some("PI"),
-            ty: 4,
+            ty: 5,
             init: 10,
         ),
         (
             name: Some("phi_sun"),
-            ty: 4,
+            ty: 5,
             init: 11,
         ),
         (
             name: Some("DIV"),
-            ty: 5,
+            ty: 4,
             init: 16,
         ),
         (
@@ -205,7 +205,7 @@
         Literal(F32(0.0)),
         Literal(F32(0.0)),
         Compose(
-            ty: 5,
+            ty: 4,
             components: [
                 12,
                 13,
@@ -602,7 +602,7 @@
             local_variables: [
                 (
                     name: Some("x"),
-                    ty: 5,
+                    ty: 4,
                     init: Some(2),
                 ),
             ],
@@ -610,7 +610,7 @@
                 Literal(F32(1.0)),
                 Literal(F32(2.0)),
                 Compose(
-                    ty: 5,
+                    ty: 4,
                     components: [
                         1,
                         0,
@@ -942,7 +942,7 @@
             local_variables: [
                 (
                     name: Some("a"),
-                    ty: 4,
+                    ty: 5,
                     init: Some(1),
                 ),
                 (
@@ -1156,6 +1156,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

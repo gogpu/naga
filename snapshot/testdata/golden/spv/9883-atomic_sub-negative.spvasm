@@ -1,0 +1,47 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 29
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_7 "main" %_12
+               OpExecutionMode %_7 LocalSize 1 1 1
+               OpDecorate %_12 BuiltIn LocalInvocationId
+         %_2 = OpTypeVoid
+         %_3 = OpTypeInt 32 1
+         %_4 = OpTypePointer Workgroup %_3
+         %_6 = OpTypeFunction %_2
+         %_9 = OpTypeInt 32 0
+         %_10 = OpTypeVector %_9 3
+         %_11 = OpTypePointer Input %_10
+         %_14 = OpTypeBool
+         %_15 = OpTypeVector %_14 3
+         %_16 = OpConstantNull %_10
+         %_21 = OpConstantNull %_3
+         %_22 = OpConstant %_9 2
+         %_23 = OpConstant %_9 264
+         %_25 = OpConstant %_3 2
+         %_26 = OpConstant %_9 0
+         %_27 = OpConstant %_3 4294967295
+         %_5 = OpVariable %_4 Workgroup
+         %_12 = OpVariable %_11 Input
+         %_7 = OpFunction %_2 None %_6
+         %_8 = OpLabel
+         %_13 = OpLoad %_10 %_12
+         %_17 = OpSignBitSet %_15 %_13 %_16
+         %_18 = Op155 %_14 %_17
+               OpSelectionMerge %_19 0
+               OpBranchConditional %_18 %_20 %_19
+         %_20 = OpLabel
+               OpStore %_5 %_21
+               OpBranch %_19
+         %_19 = OpLabel
+         OpControlBarrier %_22 %_22 %_23
+               OpBranch %_24
+         %_24 = OpLabel
+         OpAtomicISub %_3 %_28 %_5 %_25 %_26 %_27
+               OpReturn
+               OpFunctionEnd

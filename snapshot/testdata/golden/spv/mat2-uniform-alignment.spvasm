@@ -1,0 +1,38 @@
+; SPIR-V
+; Version: 1.1
+; Generator: 0x00000000
+; Bound: 19
+; Schema: 0
+
+               OpCapability Shader
+         %_1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %_12 "main"
+               OpExecutionMode %_12 LocalSize 1 1 1
+               OpMemberDecorate %_7 0 Offset 0
+               OpMemberDecorate %_7 1 Offset 8
+               OpMemberDecorate %_7 1 ColMajor
+               OpMemberDecorate %_7 1 MatrixStride 8
+               OpDecorate %_8 Block
+               OpMemberDecorate %_8 0 Offset 0
+               OpDecorate %_10 DescriptorSet 0
+               OpDecorate %_10 Binding 0
+         %_2 = OpTypeVoid
+         %_3 = OpTypeInt 32 1
+         %_4 = OpTypeFloat 32
+         %_5 = OpTypeVector %_4 2
+         %_6 = OpTypeMatrix %_5 2
+         %_7 = OpTypeStruct %_3 %_6
+         %_8 = OpTypeStruct %_7
+         %_9 = OpTypePointer Uniform %_8
+         %_11 = OpTypeFunction %_2
+         %_14 = OpTypePointer Uniform %_7
+         %_15 = OpTypeInt 32 0
+         %_16 = OpConstant %_15 0
+         %_10 = OpVariable %_9 Uniform
+         %_12 = OpFunction %_2 None %_11
+         %_13 = OpLabel
+         %_17 = OpAccessChain %_14 %_10 %_16
+         %_18 = OpLoad %_7 %_17
+               OpReturn
+               OpFunctionEnd

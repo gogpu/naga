@@ -115,17 +115,8 @@ type inventoryGap struct {
 // substitute must exist — a resolved entry fails the test, so the list only
 // shrinks.
 var knownInventoryGaps = map[string]inventoryGap{
-	// types_with_comments targets IR upstream, but the legacy import did not
-	// vendor its snapshots; ours were generated from the older input. The
-	// sync to a single upstream commit (TEST-CORPUS-001 phase 4) resolves it.
-	"rust/out/ir/wgsl-types_with_comments.ron": {
-		substitute: "rust-derived/out/ir/wgsl-types_with_comments.ron",
-		reason:     "IR target snapshot not vendored by the legacy import",
-	},
-	"rust/out/ir/wgsl-types_with_comments.compact.ron": {
-		substitute: "rust-derived/out/ir/wgsl-types_with_comments.compact.ron",
-		reason:     "IR target snapshot not vendored by the legacy import",
-	},
+	// Empty since the sync to 14328f49 vendored types_with_comments' IR
+	// snapshots (the only gap of the legacy import).
 }
 
 // TestRustReferenceInventory checks that the reference trees hold exactly the
@@ -148,25 +139,30 @@ func TestRustReferenceInventory(t *testing.T) {
 		}
 	}
 
+	// Backend outputs of unsupported shaders: their names depend on entry
+	// points we cannot compute, so any vendored output of the shader is
+	// allowed (not required).
+	unsupportedPrefixes := map[string]bool{}
+
 	for _, shader := range loadCorpus(t) {
-		module, err := tryCompileToIR(shader.source)
-		if err != nil {
-			t.Errorf("%s: lowering failed: %v", shader.name, err)
-			continue
-		}
 		params := rustParams{targets: rustTargetsWGSLDefault}
 		if shader.origin == originRust {
+			var err error
 			if params, err = loadRustParams(shader.name); err != nil {
 				t.Errorf("%s: %v", shader.name, err)
 				continue
 			}
 		}
-		for _, o := range expectedRustOutputs(shader.name, params, module.EntryPoints) {
-			if shader.origin == originRust {
-				addExpected(location{rustCorpusDir, o.kind, o.file}, true)
-			} else {
-				addExpected(location{rustDerivedDir, o.kind, o.file}, false)
+		if module, ok := lowerCorpusShader(t, shader); ok {
+			for _, o := range expectedRustOutputs(shader.name, params, module.EntryPoints) {
+				if shader.origin == originRust {
+					addExpected(location{rustCorpusDir, o.kind, o.file}, true)
+				} else {
+					addExpected(location{rustDerivedDir, o.kind, o.file}, false)
+				}
 			}
+		} else {
+			unsupportedPrefixes["wgsl-"+shader.name+"."] = true
 		}
 		for _, file := range expectedRustIROutputs(shader.name) {
 			switch {
@@ -220,7 +216,8 @@ func TestRustReferenceInventory(t *testing.T) {
 	existing := map[string]bool{}
 	for loc := range present {
 		existing[pathOf(loc)] = true
-		if !allowed[pathOf(loc)] && !isRustAuxiliaryOutput(loc.kind, loc.file) {
+		if !allowed[pathOf(loc)] && !isRustAuxiliaryOutput(loc.kind, loc.file) &&
+			!(loc.tree == rustCorpusDir && loc.kind != rustOutIR && hasUnsupportedPrefix(unsupportedPrefixes, loc.file)) {
 			problems = append(problems, "unexpected "+pathOf(loc)+" (no test would compare it)")
 		}
 	}
@@ -238,4 +235,14 @@ func TestRustReferenceInventory(t *testing.T) {
 	for _, p := range problems {
 		t.Error(p)
 	}
+}
+
+// hasUnsupportedPrefix reports whether file belongs to an unsupported shader.
+func hasUnsupportedPrefix(prefixes map[string]bool, file string) bool {
+	for p := range prefixes {
+		if strings.HasPrefix(file, p) {
+			return true
+		}
+	}
+	return false
 }

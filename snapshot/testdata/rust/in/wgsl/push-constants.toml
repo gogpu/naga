@@ -1,5 +1,5 @@
-god_mode = true
-targets = "GLSL | HLSL"
+capabilities = "IMMEDIATES"
+targets = "GLSL | HLSL | ANALYSIS"
 
 [hlsl]
 fake_missing_bindings = true

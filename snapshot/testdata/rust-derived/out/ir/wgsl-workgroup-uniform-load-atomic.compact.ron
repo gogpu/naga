@@ -1,0 +1,471 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Atomic((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Atomic((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 3,
+                size: Constant(2),
+                stride: 4,
+            ),
+        ),
+        (
+            name: Some("AtomicStruct"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("atomic_scalar"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("atomic_arr"),
+                        ty: 4,
+                        binding: None,
+                        offset: 4,
+                    ),
+                ],
+                span: 12,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Bool,
+                width: 1,
+            )),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("wg_scalar"),
+            space: WorkGroup,
+            binding: None,
+            ty: 1,
+            init: None,
+            memory_decorations: (""),
+        ),
+        (
+            name: Some("wg_signed"),
+            space: WorkGroup,
+            binding: None,
+            ty: 3,
+            init: None,
+            memory_decorations: (""),
+        ),
+        (
+            name: Some("wg_struct"),
+            space: WorkGroup,
+            binding: None,
+            ty: 5,
+            init: None,
+            memory_decorations: (""),
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "test_atomic_workgroup_uniform_load",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (64, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("test_atomic_workgroup_uniform_load"),
+                arguments: [
+                    (
+                        name: Some("workgroup_id"),
+                        ty: 6,
+                        binding: Some(BuiltIn(WorkGroupId)),
+                    ),
+                    (
+                        name: Some("local_id"),
+                        ty: 6,
+                        binding: Some(BuiltIn(LocalInvocationId)),
+                    ),
+                ],
+                result: None,
+                local_variables: [
+                    (
+                        name: None,
+                        ty: 7,
+                        init: None,
+                    ),
+                    (
+                        name: None,
+                        ty: 7,
+                        init: None,
+                    ),
+                    (
+                        name: None,
+                        ty: 7,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    FunctionArgument(1),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Literal(U32(32768)),
+                    Binary(
+                        op: Multiply,
+                        left: 3,
+                        right: 4,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 2,
+                        right: 5,
+                    ),
+                    GlobalVariable(0),
+                    Literal(U32(64)),
+                    Binary(
+                        op: GreaterEqual,
+                        left: 6,
+                        right: 8,
+                    ),
+                    As(
+                        expr: 9,
+                        kind: Uint,
+                        convert: Some(4),
+                    ),
+                    AtomicResult(
+                        ty: 0,
+                        comparison: false,
+                    ),
+                    GlobalVariable(1),
+                    Literal(I32(1)),
+                    AtomicResult(
+                        ty: 2,
+                        comparison: false,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 15,
+                        index: 0,
+                    ),
+                    Literal(U32(1)),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 18,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 19,
+                        index: 0,
+                    ),
+                    Literal(I32(1)),
+                    AtomicResult(
+                        ty: 2,
+                        comparison: false,
+                    ),
+                    GlobalVariable(0),
+                    WorkGroupUniformLoadResult(
+                        ty: 0,
+                    ),
+                    GlobalVariable(1),
+                    WorkGroupUniformLoadResult(
+                        ty: 2,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 27,
+                        index: 0,
+                    ),
+                    WorkGroupUniformLoadResult(
+                        ty: 0,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 30,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 31,
+                        index: 0,
+                    ),
+                    WorkGroupUniformLoadResult(
+                        ty: 2,
+                    ),
+                    Literal(U32(0)),
+                    Binary(
+                        op: Equal,
+                        left: 24,
+                        right: 34,
+                    ),
+                    Literal(Bool(false)),
+                    LocalVariable(0),
+                    Literal(I32(0)),
+                    Binary(
+                        op: Greater,
+                        left: 26,
+                        right: 38,
+                    ),
+                    LocalVariable(0),
+                    Load(
+                        pointer: 40,
+                    ),
+                    Literal(Bool(false)),
+                    LocalVariable(1),
+                    Literal(U32(0)),
+                    Binary(
+                        op: Greater,
+                        left: 29,
+                        right: 44,
+                    ),
+                    LocalVariable(1),
+                    Load(
+                        pointer: 46,
+                    ),
+                    Literal(Bool(false)),
+                    LocalVariable(2),
+                    Literal(I32(0)),
+                    Binary(
+                        op: Greater,
+                        left: 33,
+                        right: 50,
+                    ),
+                    LocalVariable(2),
+                    Load(
+                        pointer: 52,
+                    ),
+                ],
+                named_expressions: {
+                    0: "workgroup_id",
+                    1: "local_id",
+                    6: "active_tile_index",
+                    24: "scalar_val",
+                    26: "signed_val",
+                    29: "struct_scalar",
+                    33: "struct_arr_val",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 4,
+                    )),
+                    Emit((
+                        start: 5,
+                        end: 7,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 11,
+                    )),
+                    Atomic(
+                        pointer: 7,
+                        fun: InclusiveOr,
+                        value: 10,
+                        result: Some(11),
+                    ),
+                    Atomic(
+                        pointer: 12,
+                        fun: Add,
+                        value: 13,
+                        result: Some(14),
+                    ),
+                    Emit((
+                        start: 16,
+                        end: 17,
+                    )),
+                    Store(
+                        pointer: 16,
+                        value: 17,
+                    ),
+                    Emit((
+                        start: 19,
+                        end: 20,
+                    )),
+                    Emit((
+                        start: 20,
+                        end: 21,
+                    )),
+                    Atomic(
+                        pointer: 20,
+                        fun: Add,
+                        value: 21,
+                        result: Some(22),
+                    ),
+                    ControlBarrier(("WORK_GROUP")),
+                    WorkGroupUniformLoad(
+                        pointer: 23,
+                        result: 24,
+                    ),
+                    WorkGroupUniformLoad(
+                        pointer: 25,
+                        result: 26,
+                    ),
+                    Emit((
+                        start: 28,
+                        end: 29,
+                    )),
+                    WorkGroupUniformLoad(
+                        pointer: 28,
+                        result: 29,
+                    ),
+                    Emit((
+                        start: 31,
+                        end: 32,
+                    )),
+                    Emit((
+                        start: 32,
+                        end: 33,
+                    )),
+                    WorkGroupUniformLoad(
+                        pointer: 32,
+                        result: 33,
+                    ),
+                    Emit((
+                        start: 35,
+                        end: 36,
+                    )),
+                    If(
+                        condition: 35,
+                        accept: [
+                            Emit((
+                                start: 39,
+                                end: 40,
+                            )),
+                            Store(
+                                pointer: 37,
+                                value: 39,
+                            ),
+                        ],
+                        reject: [
+                            Store(
+                                pointer: 37,
+                                value: 36,
+                            ),
+                        ],
+                    ),
+                    Emit((
+                        start: 41,
+                        end: 42,
+                    )),
+                    If(
+                        condition: 41,
+                        accept: [
+                            Emit((
+                                start: 45,
+                                end: 46,
+                            )),
+                            Store(
+                                pointer: 43,
+                                value: 45,
+                            ),
+                        ],
+                        reject: [
+                            Store(
+                                pointer: 43,
+                                value: 42,
+                            ),
+                        ],
+                    ),
+                    Emit((
+                        start: 47,
+                        end: 48,
+                    )),
+                    If(
+                        condition: 47,
+                        accept: [
+                            Emit((
+                                start: 51,
+                                end: 52,
+                            )),
+                            Store(
+                                pointer: 49,
+                                value: 51,
+                            ),
+                        ],
+                        reject: [
+                            Store(
+                                pointer: 49,
+                                value: 48,
+                            ),
+                        ],
+                    ),
+                    Emit((
+                        start: 53,
+                        end: 54,
+                    )),
+                    If(
+                        condition: 53,
+                        accept: [
+                            Return(
+                                value: None,
+                            ),
+                        ],
+                        reject: [
+                            Return(
+                                value: None,
+                            ),
+                        ],
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

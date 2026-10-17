@@ -9,6 +9,13 @@
         ),
         (
             name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
             inner: Atomic((
                 kind: Sint,
                 width: 4,
@@ -17,7 +24,7 @@
         (
             name: None,
             inner: Array(
-                base: 1,
+                base: 2,
                 size: Constant(128),
                 stride: 4,
             ),
@@ -32,17 +39,10 @@
         (
             name: None,
             inner: Array(
-                base: 3,
+                base: 4,
                 size: Constant(128),
                 stride: 4,
             ),
-        ),
-        (
-            name: None,
-            inner: Scalar((
-                kind: Sint,
-                width: 4,
-            )),
         ),
         (
             name: None,
@@ -57,7 +57,7 @@
                 members: [
                     (
                         name: Some("old_value"),
-                        ty: 5,
+                        ty: 1,
                         binding: None,
                         offset: 0,
                     ),
@@ -127,8 +127,9 @@
                 group: 0,
                 binding: 0,
             )),
-            ty: 2,
+            ty: 3,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("arr_u32"),
@@ -139,8 +140,9 @@
                 group: 0,
                 binding: 1,
             )),
-            ty: 4,
+            ty: 5,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [
@@ -166,7 +168,7 @@
                     ),
                     (
                         name: Some("old"),
-                        ty: 5,
+                        ty: 1,
                         init: None,
                     ),
                     (
@@ -372,6 +374,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "test_atomic_compare_exchange_u32",
@@ -597,6 +600,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

@@ -16,6 +16,15 @@ struct TestR {
 struct TestS {
     uint test_m;
 };
+struct TestT {
+    uint test_m;
+    uint test_m2_;
+};
+struct TestU {
+    uint test_m;
+    uint test_m2_;
+    uint test_m3_;
+};
 constant uint test_c = 1u;
 
 void test_f(

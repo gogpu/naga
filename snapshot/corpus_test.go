@@ -2,6 +2,7 @@ package snapshot_test
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -110,6 +111,23 @@ func shaderInputPath(name string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// corpusShader loads a corpus shader by name.
+func corpusShader(name string) (shaderFile, error) {
+	for _, d := range []struct {
+		dir    string
+		origin shaderOrigin
+	}{{rustInputDir, originRust}, {ownInputDir, originOwn}} {
+		src, err := os.ReadFile(filepath.Join(d.dir, name+".wgsl"))
+		if err == nil {
+			return shaderFile{name: name, source: string(src), origin: d.origin}, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return shaderFile{}, err
+		}
+	}
+	return shaderFile{}, fmt.Errorf("no corpus shader %q", name)
 }
 
 // rustParamsPath returns the path of a shader's Rust test parameters (TOML).

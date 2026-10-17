@@ -1,0 +1,93 @@
+(
+    types: [],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    Literal(I32(5)),
+                    Literal(I32(2)),
+                    Binary(
+                        op: Modulo,
+                        left: 0,
+                        right: 1,
+                    ),
+                    Splat(
+                        size: Bi,
+                        value: 0,
+                    ),
+                    Splat(
+                        size: Bi,
+                        value: 1,
+                    ),
+                    Binary(
+                        op: Modulo,
+                        left: 3,
+                        right: 4,
+                    ),
+                    Literal(U32(5)),
+                    Literal(U32(2)),
+                    Binary(
+                        op: Modulo,
+                        left: 6,
+                        right: 7,
+                    ),
+                ],
+                named_expressions: {
+                    0: "a",
+                    1: "b",
+                    2: "mod_s",
+                    5: "mod_s_vec",
+                    6: "c",
+                    7: "d",
+                    8: "mod_u",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 6,
+                    )),
+                    Emit((
+                        start: 8,
+                        end: 9,
+                    )),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

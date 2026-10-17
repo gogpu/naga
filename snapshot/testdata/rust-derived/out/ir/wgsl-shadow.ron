@@ -256,6 +256,7 @@
             )),
             ty: 4,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("u_entity"),
@@ -266,6 +267,7 @@
             )),
             ty: 6,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("s_lights"),
@@ -278,6 +280,7 @@
             )),
             ty: 12,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("u_lights"),
@@ -288,6 +291,7 @@
             )),
             ty: 13,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("t_shadow"),
@@ -298,6 +302,7 @@
             )),
             ty: 14,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("sampler_shadow"),
@@ -308,6 +313,7 @@
             )),
             ty: 15,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [
@@ -505,7 +511,7 @@
                         ty: 9,
                         binding: Some(Location(
                             location: 0,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -516,7 +522,7 @@
                         ty: 9,
                         binding: Some(Location(
                             location: 1,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -710,6 +716,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "fs_main",
@@ -866,6 +873,9 @@
                         arg2: None,
                         arg3: None,
                     ),
+                    Load(
+                        pointer: 4,
+                    ),
                     Binary(
                         op: Multiply,
                         left: 23,
@@ -877,21 +887,18 @@
                     ),
                     Swizzle(
                         size: Tri,
-                        vector: 34,
+                        vector: 35,
                         pattern: (X, Y, Z, X),
                     ),
                     Binary(
                         op: Multiply,
-                        left: 33,
-                        right: 35,
-                    ),
-                    Load(
-                        pointer: 4,
+                        left: 34,
+                        right: 36,
                     ),
                     Binary(
                         op: Add,
-                        left: 37,
-                        right: 36,
+                        left: 33,
+                        right: 37,
                     ),
                     Literal(U32(1)),
                     Load(
@@ -1032,6 +1039,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "fs_main_without_storage",
@@ -1188,6 +1196,9 @@
                         arg2: None,
                         arg3: None,
                     ),
+                    Load(
+                        pointer: 4,
+                    ),
                     Binary(
                         op: Multiply,
                         left: 23,
@@ -1199,21 +1210,18 @@
                     ),
                     Swizzle(
                         size: Tri,
-                        vector: 34,
+                        vector: 35,
                         pattern: (X, Y, Z, X),
                     ),
                     Binary(
                         op: Multiply,
-                        left: 33,
-                        right: 35,
-                    ),
-                    Load(
-                        pointer: 4,
+                        left: 34,
+                        right: 36,
                     ),
                     Binary(
                         op: Add,
-                        left: 37,
-                        right: 36,
+                        left: 33,
+                        right: 37,
                     ),
                     Literal(U32(1)),
                     Load(
@@ -1354,6 +1362,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

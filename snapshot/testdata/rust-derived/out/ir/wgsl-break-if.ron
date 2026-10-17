@@ -214,14 +214,14 @@
             expressions: [
                 Literal(U32(0)),
                 LocalVariable(0),
-                Literal(U32(1)),
                 Load(
                     pointer: 1,
                 ),
+                Literal(U32(1)),
                 Binary(
                     op: Add,
-                    left: 3,
-                    right: 2,
+                    left: 2,
+                    right: 3,
                 ),
                 Load(
                     pointer: 1,
@@ -238,7 +238,11 @@
                 Loop(
                     body: [
                         Emit((
-                            start: 3,
+                            start: 2,
+                            end: 3,
+                        )),
+                        Emit((
+                            start: 4,
                             end: 5,
                         )),
                         Store(
@@ -315,6 +319,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

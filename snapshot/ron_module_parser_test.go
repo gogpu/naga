@@ -186,6 +186,11 @@ func (p *ronParser) parseTypeInner() (ronTypeInner, error) {
 	case "BindingArray":
 		return p.parseStructFields(tag)
 
+	case "CooperativeMatrix":
+		// CooperativeMatrix(columns: Eight, rows: Eight, scalar: (..), role: A);
+		// our IR has no such type, so it can only be reported as a difference.
+		return p.parseStructFields(tag)
+
 	default:
 		return ti, fmt.Errorf("unknown type inner %q", tag)
 	}
@@ -583,6 +588,8 @@ func (p *ronParser) parseGlobalVariable() (ronGlobalVariable, error) {
 			g.Ty, err = p.parseUint()
 		case "init":
 			g.Init, err = p.parseSomeUint()
+		case "memory_decorations":
+			g.MemoryDecorations, err = p.parseBitflags()
 		default:
 			return g, fmt.Errorf("unknown global_variable field %q", key)
 		}
@@ -592,6 +599,22 @@ func (p *ronParser) parseGlobalVariable() (ronGlobalVariable, error) {
 		p.parseFieldSep()
 	}
 	return g, nil
+}
+
+// parseBitflags parses a serialized bitflags value, ("A | B"), returning its
+// text ("" when no flag is set).
+func (p *ronParser) parseBitflags() (string, error) {
+	if err := p.expect('('); err != nil {
+		return "", err
+	}
+	s, err := p.parseString()
+	if err != nil {
+		return "", err
+	}
+	if err := p.expect(')'); err != nil {
+		return "", err
+	}
+	return s, nil
 }
 
 func (p *ronParser) parseAddressSpace() (string, string, error) {
@@ -1121,6 +1144,8 @@ func (p *ronParser) parseEntryPoint() (ronEntryPoint, error) {
 			ep.MeshInfo, err = p.parseOptionalMeshInfo()
 		case "task_payload":
 			ep.TaskPayload, err = p.parseSomeUint()
+		case "incoming_ray_payload":
+			ep.IncomingRayPayload, err = p.parseSomeUint()
 		default:
 			return ep, fmt.Errorf("unknown entry_point field %q", key)
 		}

@@ -9,6 +9,12 @@ const vec4 v_f32_one = vec4(1.0, 1.0, 1.0, 1.0);
 const vec4 v_f32_zero = vec4(0.0, 0.0, 0.0, 0.0);
 const vec4 v_f32_half = vec4(0.5, 0.5, 0.5, 0.5);
 const ivec4 v_i32_one = ivec4(1, 1, 1, 1);
+const bool b_false = false;
+const bool b_true = true;
+const bool short_circuit_1_invalid_rhs = false;
+const bool short_circuit_2_invalid_rhs = false;
+const bool short_circuit_3_ = true;
+const bool short_circuit_4_ = true;
 
 
 vec4 builtins() {
@@ -25,18 +31,20 @@ vec4 builtins() {
 
 vec4 splat(float m, int n) {
     vec2 a_2 = (((vec2(2.0) + vec2(m)) - vec2(4.0)) / vec2(8.0));
-    ivec4 b = (ivec4(n) % ivec4(2));
+    ivec4 _e12 = ivec4(n);
+    ivec4 _e14 = ivec4(2);
+    ivec4 b = (_e12 - _e14 * (_e12 / _e14));
     return (a_2.xyxy + vec4(b));
 }
 
 vec2 splat_assignment() {
     vec2 a = vec2(2.0);
-    vec2 _e4 = a;
-    a = (_e4 + vec2(1.0));
-    vec2 _e8 = a;
-    a = (_e8 - vec2(3.0));
-    vec2 _e12 = a;
-    a = (_e12 / vec2(4.0));
+    vec2 _e3 = a;
+    a = (_e3 + vec2(1.0));
+    vec2 _e7 = a;
+    a = (_e7 - vec2(3.0));
+    vec2 _e11 = a;
+    a = (_e11 / vec2(4.0));
     vec2 _e15 = a;
     return _e15;
 }
@@ -68,6 +76,8 @@ void logical() {
     bool local_2 = false;
     bool local_3 = false;
     bool local_4 = false;
+    bool local_5 = false;
+    bool local_6 = false;
     bool neg0_ = !(true);
     bvec2 neg1_ = not(bvec2(true));
     if (!(true)) {
@@ -86,28 +96,42 @@ void logical() {
     bvec3 bitwise_or1_ = bvec3(bvec3(true).x || bvec3(false).x, bvec3(true).y || bvec3(false).y, bvec3(true).z || bvec3(false).z);
     bool bitwise_and0_ = (true && false);
     bvec4 bitwise_and1_ = bvec4(bvec4(true).x && bvec4(false).x, bvec4(true).y && bvec4(false).y, bvec4(true).z && bvec4(false).z, bvec4(true).w && bvec4(false).w);
-    bool _e22 = p();
-    if (!(_e22)) {
-        bool _e26 = q();
-        local_2 = _e26;
+    if (!(false)) {
+        local_2 = false;
     } else {
         local_2 = true;
     }
-    bool _e28 = local_2;
-    if (_e28) {
-        bool _e31 = r();
-        if (!(_e31)) {
-            bool _e35 = s();
-            local_4 = _e35;
-        } else {
-            local_4 = true;
-        }
-        bool _e37 = local_4;
-        local_3 = _e37;
+    bool _e27 = local_2;
+    bool short_circuit_5_ = !(_e27);
+    bool _e29 = p();
+    if (!(_e29)) {
+        bool _e33 = q();
+        local_3 = _e33;
     } else {
-        local_3 = false;
+        local_3 = true;
     }
-    bool short_circuit = local_3;
+    bool _e35 = local_3;
+    if (_e35) {
+        bool _e38 = r();
+        if (!(_e38)) {
+            bool _e42 = s();
+            local_5 = _e42;
+        } else {
+            local_5 = true;
+        }
+        bool _e44 = local_5;
+        local_4 = _e44;
+    } else {
+        local_4 = false;
+    }
+    bool short_circuit_6_ = local_4;
+    if (false) {
+        bool _e50 = q();
+        local_6 = _e50;
+    } else {
+        local_6 = true;
+    }
+    bool short_circuit_7_ = local_6;
     return;
 }
 
@@ -141,11 +165,15 @@ void arithmetic() {
     ivec2 div3_ = (ivec2(2) / ivec2(1));
     uvec3 div4_ = (uvec3(2u) / uvec3(1u));
     vec4 div5_ = (vec4(2.0) / vec4(1.0));
-    int rem0_ = (2 % 1);
-    uint rem1_ = (2u % 1u);
+    int rem0_ = (2 - 1 * (2 / 1));
+    uint rem1_ = (2u - 1u * (2u / 1u));
     float rem2_ = (2.0 - 1.0 * trunc(2.0 / 1.0));
-    ivec2 rem3_ = (ivec2(2) % ivec2(1));
-    uvec3 rem4_ = (uvec3(2u) % uvec3(1u));
+    ivec2 _e62 = ivec2(2);
+    ivec2 _e63 = ivec2(1);
+    ivec2 rem3_ = (_e62 - _e63 * (_e62 / _e63));
+    uvec3 _e65 = uvec3(2u);
+    uvec3 _e66 = uvec3(1u);
+    uvec3 rem4_ = (_e65 - _e66 * (_e65 / _e66));
     vec4 rem5_ = (vec4(2.0) - vec4(1.0) * trunc(vec4(2.0) / vec4(1.0)));
     {
         ivec2 add0_1 = (ivec2(2) + ivec2(1));
@@ -172,22 +200,30 @@ void arithmetic() {
         uvec2 div3_1 = (uvec2(2u) / uvec2(1u));
         vec2 div4_1 = (vec2(2.0) / vec2(1.0));
         vec2 div5_1 = (vec2(2.0) / vec2(1.0));
-        ivec2 rem0_1 = (ivec2(2) % ivec2(1));
-        ivec2 rem1_1 = (ivec2(2) % ivec2(1));
-        uvec2 rem2_1 = (uvec2(2u) % uvec2(1u));
-        uvec2 rem3_1 = (uvec2(2u) % uvec2(1u));
+        ivec2 _e137 = ivec2(2);
+        ivec2 _e138 = ivec2(1);
+        ivec2 rem0_1 = (_e137 - _e138 * (_e137 / _e138));
+        ivec2 _e140 = ivec2(1);
+        ivec2 _e141 = ivec2(2);
+        ivec2 rem1_1 = (_e141 - _e140 * (_e141 / _e140));
+        uvec2 _e143 = uvec2(2u);
+        uvec2 _e144 = uvec2(1u);
+        uvec2 rem2_1 = (_e143 - _e144 * (_e143 / _e144));
+        uvec2 _e146 = uvec2(1u);
+        uvec2 _e147 = uvec2(2u);
+        uvec2 rem3_1 = (_e147 - _e146 * (_e147 / _e146));
         vec2 rem4_1 = (vec2(2.0) - vec2(1.0) * trunc(vec2(2.0) / vec2(1.0)));
         vec2 rem5_1 = (vec2(2.0) - vec2(1.0) * trunc(vec2(2.0) / vec2(1.0)));
     }
-    mat3x3 add = (mat3x3(0.0) + mat3x3(0.0));
-    mat3x3 sub = (mat3x3(0.0) - mat3x3(0.0));
+    mat3x3 add = mat3x3(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
+    mat3x3 sub = mat3x3(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
     mat3x3 mul_scalar0_ = (mat3x3(0.0) * 1.0);
     mat3x3 mul_scalar1_ = (2.0 * mat3x3(0.0));
     vec3 mul_vector0_ = (mat4x3(0.0) * vec4(1.0));
     vec4 mul_vector1_ = (vec3(2.0) * mat4x3(0.0));
-    mat3x3 mul = (mat4x3(0.0) * mat3x4(0.0));
-    int _e175 = prevent_const_eval;
-    wgpu_7437_ = (_e175 + -2147483648);
+    mat3x3 mul = mat3x3(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
+    int _e205 = prevent_const_eval;
+    wgpu_7437_ = (_e205 + -2147483648);
     return;
 }
 
@@ -269,12 +305,12 @@ void assignment() {
     a_1 = (_e7 - 1);
     int _e9 = a_1;
     int _e10 = a_1;
-    a_1 = (_e10 * _e9);
+    a_1 = (_e9 * _e10);
     int _e12 = a_1;
     int _e13 = a_1;
-    a_1 = (_e13 / _e12);
+    a_1 = (_e12 / _e13);
     int _e15 = a_1;
-    a_1 = (_e15 % 1);
+    a_1 = (_e15 - 1 * (_e15 / 1));
     int _e17 = a_1;
     a_1 = (_e17 & 0);
     int _e19 = a_1;

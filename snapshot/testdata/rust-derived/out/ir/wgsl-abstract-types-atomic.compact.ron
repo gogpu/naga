@@ -2,8 +2,22 @@
     types: [
         (
             name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
             inner: Atomic((
                 kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
                 width: 4,
             )),
         ),
@@ -22,25 +36,18 @@
             )),
         ),
         (
-            name: None,
-            inner: Scalar((
-                kind: Sint,
-                width: 4,
-            )),
-        ),
-        (
             name: Some("__atomic_compare_exchange_result<Sint,4>"),
             inner: Struct(
                 members: [
                     (
                         name: Some("old_value"),
-                        ty: 3,
+                        ty: 0,
                         binding: None,
                         offset: 0,
                     ),
                     (
                         name: Some("exchanged"),
-                        ty: 2,
+                        ty: 4,
                         binding: None,
                         offset: 4,
                     ),
@@ -49,25 +56,18 @@
             ),
         ),
         (
-            name: None,
-            inner: Scalar((
-                kind: Uint,
-                width: 4,
-            )),
-        ),
-        (
             name: Some("__atomic_compare_exchange_result<Uint,4>"),
             inner: Struct(
                 members: [
                     (
                         name: Some("old_value"),
-                        ty: 5,
+                        ty: 2,
                         binding: None,
                         offset: 0,
                     ),
                     (
                         name: Some("exchanged"),
-                        ty: 2,
+                        ty: 4,
                         binding: None,
                         offset: 4,
                     ),
@@ -86,7 +86,7 @@
             AtomicCompareExchangeWeakResult((
                 kind: Sint,
                 width: 4,
-            )): 4,
+            )): 5,
             AtomicCompareExchangeWeakResult((
                 kind: Uint,
                 width: 4,
@@ -105,8 +105,9 @@
                 group: 0,
                 binding: 0,
             )),
-            ty: 0,
+            ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("atomic_u32"),
@@ -117,8 +118,9 @@
                 group: 0,
                 binding: 1,
             )),
-            ty: 1,
+            ty: 3,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -135,62 +137,62 @@
                 Literal(I32(1)),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 4,
+                    ty: 5,
                     comparison: true,
                 ),
                 GlobalVariable(0),
                 Literal(I32(1)),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 4,
+                    ty: 5,
                     comparison: true,
                 ),
                 GlobalVariable(0),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 3,
+                    ty: 0,
                     comparison: false,
                 ),
                 GlobalVariable(0),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 3,
+                    ty: 0,
                     comparison: false,
                 ),
                 GlobalVariable(0),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 3,
+                    ty: 0,
                     comparison: false,
                 ),
                 GlobalVariable(0),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 3,
+                    ty: 0,
                     comparison: false,
                 ),
                 GlobalVariable(0),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 3,
+                    ty: 0,
                     comparison: false,
                 ),
                 GlobalVariable(0),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 3,
+                    ty: 0,
                     comparison: false,
                 ),
                 GlobalVariable(0),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 3,
+                    ty: 0,
                     comparison: false,
                 ),
                 GlobalVariable(0),
                 Literal(I32(1)),
                 AtomicResult(
-                    ty: 3,
+                    ty: 0,
                     comparison: false,
                 ),
             ],
@@ -308,49 +310,49 @@
                 GlobalVariable(1),
                 Literal(U32(1)),
                 AtomicResult(
-                    ty: 5,
+                    ty: 2,
                     comparison: false,
                 ),
                 GlobalVariable(1),
                 Literal(U32(1)),
                 AtomicResult(
-                    ty: 5,
+                    ty: 2,
                     comparison: false,
                 ),
                 GlobalVariable(1),
                 Literal(U32(1)),
                 AtomicResult(
-                    ty: 5,
+                    ty: 2,
                     comparison: false,
                 ),
                 GlobalVariable(1),
                 Literal(U32(1)),
                 AtomicResult(
-                    ty: 5,
+                    ty: 2,
                     comparison: false,
                 ),
                 GlobalVariable(1),
                 Literal(U32(1)),
                 AtomicResult(
-                    ty: 5,
+                    ty: 2,
                     comparison: false,
                 ),
                 GlobalVariable(1),
                 Literal(U32(1)),
                 AtomicResult(
-                    ty: 5,
+                    ty: 2,
                     comparison: false,
                 ),
                 GlobalVariable(1),
                 Literal(U32(1)),
                 AtomicResult(
-                    ty: 5,
+                    ty: 2,
                     comparison: false,
                 ),
                 GlobalVariable(1),
                 Literal(U32(1)),
                 AtomicResult(
-                    ty: 5,
+                    ty: 2,
                     comparison: false,
                 ),
             ],
@@ -477,6 +479,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],
