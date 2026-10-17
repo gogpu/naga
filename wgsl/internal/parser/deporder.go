@@ -1,5 +1,7 @@
 package parser
 
+import "fmt"
+
 // DependencyOrder returns declarations sorted in dependency order using
 // DFS-based topological sort. This matches Rust naga's visit_ordered()
 // from front/wgsl/index.rs — declarations are ordered so that every
@@ -7,10 +9,14 @@ package parser
 //
 // When there are no dependencies between declarations, they appear
 // in source order (the outer DFS loop iterates in original order).
-func DependencyOrder(decls []Decl) []Decl {
+//
+// A declaration that refers to itself, or a cycle of declarations, is an
+// error (WGSL forbids recursion; Rust RecursiveDeclaration /
+// CyclicDeclaration).
+func DependencyOrder(decls []Decl) ([]Decl, error) {
 	n := len(decls)
 	if n == 0 {
-		return decls
+		return decls, nil
 	}
 
 	// Build name → index map for global declarations.
@@ -27,48 +33,59 @@ func DependencyOrder(decls []Decl) []Decl {
 	for i, d := range decls {
 		refs := collectDeclDependencies(d)
 		for _, ref := range refs {
-			if j, ok := nameToIdx[ref]; ok && j != i {
+			if j, ok := nameToIdx[ref]; ok {
 				deps[i] = append(deps[i], j)
 			}
 		}
 	}
 
-	// DFS topological sort (Tarjan-style post-order).
-	// Matches Rust naga's DependencySolver::dfs.
+	// DFS topological sort (post-order), Rust naga's DependencySolver::dfs.
 	visited := make([]bool, n)
 	onStack := make([]bool, n)
 	result := make([]Decl, 0, n)
 
-	var dfs func(i int)
-	dfs = func(i int) {
-		if visited[i] {
-			return
-		}
+	var dfs func(i int) error
+	dfs = func(i int) error {
 		onStack[i] = true
-
 		for _, j := range deps[i] {
-			if onStack[j] {
-				continue // cycle — skip (Rust reports error, we tolerate)
-			}
-			if !visited[j] {
-				dfs(j)
+			switch {
+			case j == i:
+				return fmt.Errorf("declaration of `%s` is recursive", declName(decls[i]))
+			case onStack[j]:
+				return fmt.Errorf("declaration of `%s` is cyclic", declName(decls[j]))
+			case !visited[j]:
+				if err := dfs(j); err != nil {
+					return err
+				}
 			}
 		}
-
 		onStack[i] = false
 		visited[i] = true
 		result = append(result, decls[i])
+		return nil
 	}
 
 	// Iterate in source order — preserves source order when no dependencies.
 	for i := range decls {
 		if !visited[i] {
-			dfs(i)
+			if err := dfs(i); err != nil {
+				return nil, &DeclarationError{Decl: decls[i], Err: err}
+			}
 		}
 	}
 
-	return result
+	return result, nil
 }
+
+// DeclarationError is an error in the declaration structure of a module;
+// Decl is the declaration whose ordering found it.
+type DeclarationError struct {
+	Decl Decl
+	Err  error
+}
+
+func (e *DeclarationError) Error() string { return e.Err.Error() }
+func (e *DeclarationError) Unwrap() error { return e.Err }
 
 // declName returns the name of a declaration, or "" if unnamed.
 func declName(d Decl) string {

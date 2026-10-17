@@ -639,11 +639,16 @@ fn test() -> f32 {
 }
 
 func TestLowerRecursiveFunction(t *testing.T) {
+	// WGSL forbids recursion; Rust v30: "declaration of `factorial` is recursive".
 	src := `fn factorial(n: i32) -> i32 {
     if n <= 1 { return 1; }
     return n * factorial(n - 1);
 }`
-	mustCompile(t, src)
+	_, err := compileWGSL(t, src)
+	const want = "declaration of `factorial` is recursive"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %v, want %q", err, want)
+	}
 }
 
 // -----------------------------------------------------------------------

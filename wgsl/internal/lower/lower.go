@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/bits"
@@ -216,7 +217,16 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	// Declarations are topologically sorted by their dependencies, then processed
 	// in a single pass. This ensures every declaration is lowered AFTER all
 	// declarations it references, producing identical type registration order.
-	sortedDecls := parser.DependencyOrder(ast.Declarations)
+	sortedDecls, err := parser.DependencyOrder(ast.Declarations)
+	if err != nil {
+		var de *parser.DeclarationError
+		span := parser.Span{}
+		if errors.As(err, &de) {
+			span = de.Decl.Pos()
+		}
+		l.addError(err.Error(), span)
+		return nil, &l.errors
+	}
 
 	// Pre-register function names to support forward references.
 	// Entry point functions are NOT added to Module.Functions[] — they are
