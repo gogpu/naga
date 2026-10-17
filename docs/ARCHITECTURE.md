@@ -65,7 +65,7 @@ naga/                              ~323K LOC total
 │   ├── wgsl.go                    # Public API: Parse, Lower (real types)
 │   └── internal/
 │       ├── parser/                # Lexer, token, parser, AST, errors
-│       └── lower/                 # AST → IR lowerer (~16K LOC)
+│       └── lower/                 # AST → IR lowerer (~10K LOC)
 │
 ├── ir/                            # Intermediate Representation (~6.5K LOC)
 │   ├── ir.go                      # Module, Type, Function, EntryPoint, handles
@@ -77,7 +77,8 @@ naga/                              ~323K LOC total
 ├── internal/                      # Shared internal packages
 │   ├── textutil/                  # IndentWriter (DRY for glsl/hlsl/msl)
 │   ├── backend/                   # Shared namer, sig packing, interface ordering
-│   └── registry/                  # Type deduplication registry (from ir/)
+│   ├── registry/                  # Type deduplication registry (from ir/)
+│   └── consteval/                 # Constant evaluator shared by the WGSL frontend (~3K LOC)
 │
 ├── spirv/                         # SPIR-V backend (~12.5K LOC)
 │   ├── spirv.go                   # Public API: Options, Backend (DXIL pattern)
@@ -146,14 +147,14 @@ Recursive descent parser that builds an AST. Key features:
 
 ### Stage 3: Lowerer
 
-**File:** `wgsl/lower.go` (~16000 LOC)
+**Files:** `wgsl/internal/lower/` (~10K LOC)
 
 Converts AST into typed IR. This is the largest and most complex frontend stage:
 - **Type resolution** via `TypeRegistry` (deduplication by structural equality)
 - **Symbol resolution** with two-level scoping (module + function)
 - **SSA expression building** with `ExpressionHandle` references
 - **Struct constructors** (`MyStruct(field1, field2)` → `ExprCompose`)
-- **Constant expression evaluator** for switch case selectors
+- **Constant evaluation** through `internal/consteval` (Rust naga's `try_eval_and_append`): every expression is appended through the evaluator — module `const`, `override` and `var<private>` initializers in a module const context, function bodies in runtime behavior — and WGSL automatic conversions follow Rust's `conversion.rs`
 - **Math function mapping** (100+ WGSL builtins → IR `MathFunction` enum)
 - **Texture operation lowering** (sample, load, store, gather, dimensions)
 - **Pointer dereference** on assignment LHS (`*ptr = value`)
