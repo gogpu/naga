@@ -236,3 +236,52 @@ func TestTryEvalNegateMatrix(t *testing.T) {
 		t.Errorf("-m = %v %v (ok %v)", mt, cols, ok)
 	}
 }
+
+// A malformed operand from the caller (a vector Compose whose components
+// have different scalar types) is an error, never a panic.
+func TestTryEvalMixedVectorIsAnError(t *testing.T) {
+	e, a, exprs := newEval(BehaviorRuntime)
+	vec2i := a.Type(ir.VectorType{Size: ir.Vec2, Scalar: tI32})
+	x, y := lit(t, e, ir.LiteralI32(1)), lit(t, e, ir.LiteralAbstractInt(2))
+	*exprs = append(*exprs, ir.Expression{Kind: ir.ExprCompose{Type: vec2i, Components: []ir.ExpressionHandle{x, y}}})
+	v := ir.ExpressionHandle(len(*exprs) - 1)
+	if _, err := e.TryEvalAndAppend(ir.ExprUnary{Op: ir.UnaryNegate, Expr: v}); !errors.Is(err, ErrInvalidOperand) {
+		t.Errorf("-vec2(1i, 2): err=%v, want invalid operand", err)
+	}
+}
+
+// Checking an operation that Rust keeps unevaluated reports only the
+// specification's value errors (overflow, domain, division, range). An
+// operand form the kernel does not evaluate keeps Rust's run-time expression:
+// the check never rejects a shader Rust accepts.
+func TestTryEvalRustShapedCheckReportsOnlyValueErrors(t *testing.T) {
+	e, _, exprs := newEval(BehaviorRuntime)
+	x := lit(t, e, ir.LiteralF32(1)) // pack2x16float takes a vec2<f32>
+	k := ir.ExprMath{Fun: ir.MathPack2x16float, Arg: x}
+	h, err := e.TryEvalAndAppend(k)
+	if err != nil || !reflect.DeepEqual((*exprs)[h].Kind, k) || e.IsConst(h) {
+		t.Errorf("runtime pack2x16float(1.0) = %#v err=%v, want the unevaluated Math", (*exprs)[h].Kind, err)
+	}
+}
+
+// Better than Rust: with abstract operands a built-in Rust does not
+// evaluate is evaluated. Rust v30 keeps mix(1.0, 3.0, 0.5) as a run-time
+// expression of abstract type and then rejects the shader ("failed to
+// convert expression to a concrete type"); the spec makes it a
+// const-expression. Rust's shape is kept only for concrete operands.
+func TestTryEvalRustShapedWithAbstractOperandsEvaluates(t *testing.T) {
+	e, _, exprs := newEval(BehaviorRuntime)
+	a, b, f := lit(t, e, afloat(1)), lit(t, e, afloat(3)), lit(t, e, afloat(0.5))
+	h, err := e.TryEvalAndAppend(ir.ExprMath{Fun: ir.MathMix, Arg: a, Arg1: &b, Arg2: &f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := (*exprs)[h].Kind; !reflect.DeepEqual(got, ir.Literal{Value: afloat(2)}) {
+		t.Errorf("runtime mix(1.0, 3.0, 0.5) = %#v, want the abstract literal 2.0", got)
+	}
+	ca, cb, cf := lit(t, e, ir.LiteralF32(1)), lit(t, e, ir.LiteralF32(3)), lit(t, e, ir.LiteralF32(0.5))
+	k := ir.ExprMath{Fun: ir.MathMix, Arg: ca, Arg1: &cb, Arg2: &cf}
+	if h, err = e.TryEvalAndAppend(k); err != nil || !reflect.DeepEqual((*exprs)[h].Kind, k) {
+		t.Errorf("runtime mix(1f, 3f, 0.5f) = %#v err=%v, want Rust's run-time Math", (*exprs)[h].Kind, err)
+	}
+}

@@ -53,8 +53,17 @@ func outOfDomain(name string) *Error {
 	return newError(ErrOutOfDomain, name+" built-in function argument is out of valid range")
 }
 
-// mathMix is e1 * (1 - e3) + e2 * e3, component-wise.
+// mathMix is e1 * (1 - e3) + e2 * e3, component-wise. A scalar e3 with
+// vector e1, e2 is the overload mix(vecN<T>, vecN<T>, T): it blends every
+// component.
 func mathMix(args []Value) (Value, error) {
+	if t := args[2]; t.IsScalar() && !args[0].IsScalar() && args[0].Len() == args[1].Len() {
+		comps := make([]ir.LiteralValue, args[0].Len())
+		for i := range comps {
+			comps[i] = t.comps[0]
+		}
+		args = []Value{args[0], args[1], Vector(comps...)}
+	}
 	f, a, err := floats(false, args...)
 	if err != nil {
 		return Value{}, err

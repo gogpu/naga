@@ -38,6 +38,9 @@ type Types interface {
 	// Type returns the handle of the anonymous type inner, adding it if
 	// the module has none.
 	Type(inner ir.TypeInner) ir.TypeHandle
+	// Array returns the handle of the array of base with the given size,
+	// with the stride of base's layout.
+	Array(base ir.TypeHandle, size ir.ArraySize) ir.TypeHandle
 }
 
 // Evaluator evaluates expressions over an arena, as Rust naga's
@@ -106,6 +109,20 @@ func (e *Evaluator) TryEvalAndAppend(kind ir.ExpressionKind) (ir.ExpressionHandl
 // const-expression (Rust force_non_const).
 func (e *Evaluator) ForceRuntime(h ir.ExpressionHandle) {
 	e.setStage(h, stageRuntime)
+}
+
+// Literal returns the value of the scalar const-expression h, looking
+// through constants and zero values (Rust get_const_val). ok is false when h
+// is not a const-expression or not a scalar.
+func (e *Evaluator) Literal(h ir.ExpressionHandle) (lit ir.LiteralValue, ok bool) {
+	if !e.IsConst(h) {
+		return nil, false
+	}
+	v, err := e.value(h)
+	if err != nil || !v.IsScalar() {
+		return nil, false
+	}
+	return v.Component(0), true
 }
 
 // IsConst reports whether h is a const-expression.
@@ -235,14 +252,31 @@ func (e *Evaluator) evaluate(kind ir.ExpressionKind) (ir.ExpressionHandle, error
 			return 0, err
 		}
 		return e.access(k.Base, idx)
+	case ir.ExprAs:
+		if k.Convert == nil {
+			return 0, newError(ErrNotImplemented, "bitcast built-in function")
+		}
+		return e.cast(k.Expr, ir.ScalarType{Kind: k.Kind, Width: *k.Convert})
 	}
+	return e.evaluateNumeric(kind)
+}
+
+// evaluateNumeric evaluates a numeric operation (unary, binary, select,
+// relational or math) and appends its value; in runtime behavior an
+// operation Rust naga keeps in the IR is only checked.
+func (e *Evaluator) evaluateNumeric(kind ir.ExpressionKind) (ir.ExpressionHandle, error) {
 	r, err := e.numeric(kind)
+	if e.Behavior == BehaviorRuntime && e.rustKeeps(kind) {
+		// Checked, but kept in Rust's IR shape. Only a value the
+		// specification makes a shader-creation error is reported; any other
+		// failure leaves the expression to validation, as Rust does.
+		if err != nil && isValueError(err) {
+			return 0, err
+		}
+		return 0, newError(ErrNotImplemented, "kept as a run-time expression, as Rust naga does")
+	}
 	if err != nil {
 		return 0, err
-	}
-	if e.Behavior == BehaviorRuntime && e.rustKeeps(kind) {
-		// Checked, but kept in Rust's IR shape.
-		return 0, newError(ErrNotImplemented, "kept as a run-time expression, as Rust naga does")
 	}
 	return e.appendResult(r), nil
 }
@@ -271,8 +305,6 @@ func (e *Evaluator) numeric(kind ir.ExpressionKind) (result, error) {
 			return result{}, newError(ErrNotImplemented, rustMathName(k.Fun)+" built-in function")
 		}
 		return e.scalarOp(func(v []Value) (Value, error) { return Math(k.Fun, v...) }, mathArgs(k)...)
-	case ir.ExprAs:
-		return e.as(k)
 	case ir.ExprRelational:
 		return e.scalarOp(func(v []Value) (Value, error) { return Relational(k.Fun, v[0]) }, k.Argument)
 	case ir.ExprSelect:
@@ -286,6 +318,15 @@ func (e *Evaluator) numeric(kind ir.ExpressionKind) (result, error) {
 // it does not implement, the relational functions other than all/any, and
 // arithmetic on concrete 64-bit operands (its binary_op has none).
 func (e *Evaluator) rustKeeps(kind ir.ExpressionKind) bool {
+	// With an abstract operand Rust's run-time expression is of abstract
+	// type, which Rust then fails to concretize: there is no Rust shape to
+	// keep, and the spec makes the call a const-expression.
+	ops, _ := operands(kind)
+	for _, op := range ops {
+		if s := e.operandScalar(op); s.Kind == ir.ScalarAbstractInt || s.Kind == ir.ScalarAbstractFloat {
+			return false
+		}
+	}
 	switch k := kind.(type) {
 	case ir.ExprMath:
 		return !RustEvaluates(k.Fun)
@@ -311,17 +352,6 @@ func (e *Evaluator) operandScalar(h ir.ExpressionHandle) ir.ScalarType {
 		return v.Scalar()
 	}
 	return ir.ScalarType{}
-}
-
-func (e *Evaluator) as(k ir.ExprAs) (result, error) {
-	if k.Convert == nil {
-		return result{}, newError(ErrNotImplemented, "bitcast built-in function")
-	}
-	to := ir.ScalarType{Kind: k.Kind, Width: *k.Convert}
-	if cols, mt, ok := e.matrix(k.Expr); ok {
-		return e.mapColumns(mt, cols, to, func(_ int, c Value) (Value, error) { return Cast(c, to) })
-	}
-	return e.scalarOp(func(v []Value) (Value, error) { return Cast(v[0], to) }, k.Expr)
 }
 
 // scalarOp reads the operands as scalar or vector values and applies f.

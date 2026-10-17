@@ -141,7 +141,7 @@ func (e *Evaluator) valueIn(global bool, h ir.ExpressionHandle) (Value, error) {
 			}
 			comps = append(comps, v.comps...)
 		}
-		return Vector(comps...), nil
+		return composeValue(comps)
 	}
 	return Value{}, newError(ErrInvalidOperand, "Cannot apply the operation to a non-numeric value")
 }
@@ -290,4 +290,20 @@ func (e *Evaluator) componentType(th ir.TypeHandle, index uint32) (ir.TypeHandle
 		}
 	}
 	return 0, false
+}
+
+// composeValue is the value of a vector constructor's flattened components,
+// which come from the caller's arena: a constructor with a wrong number of
+// components or components of different scalar types is an error.
+func composeValue(comps []ir.LiteralValue) (Value, error) {
+	if len(comps) < 2 || len(comps) > 4 {
+		return Value{}, newError(ErrInvalidOperand, "vector constructor has "+strconv.Itoa(len(comps))+" components")
+	}
+	s := ScalarOf(comps[0])
+	for _, c := range comps[1:] {
+		if ScalarOf(c) != s {
+			return Value{}, newError(ErrInvalidOperand, "vector constructor mixes component types")
+		}
+	}
+	return Vector(comps...), nil
 }
