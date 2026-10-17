@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1194,6 +1195,91 @@ fn main() {
 			}
 			if storeCount < tt.expectedStores {
 				t.Errorf("expected at least %d stores, got %d", tt.expectedStores, storeCount)
+			}
+		})
+	}
+}
+
+// The right side of a swizzle assignment converts to the vector's scalar
+// like any assignment (WGSL §9.2: the value is stored to the reference;
+// lowerAssignValue for a plain store): an abstract vec2(1, 2) stored to
+// w.xz of a vec3<f32> becomes vec2<f32>; a compound assignment splats a
+// scalar right side and a shift amount converts to u32. Rust naga has no
+// swizzle assignment; without the conversion the stored Compose mixed
+// abstract and concrete components (invalid SPIR-V).
+func TestSwizzleAssignment_RHSConvertsToVectorScalar(t *testing.T) {
+	tests := []struct{ name, body string }{
+		{"abstract vector to f32", "var w = vec3<f32>(); w.xz = vec2(1, 2);"},
+		{"abstract vector to i32 compound", "var v = vec2<i32>(); v.xy += vec2(1);"},
+		{"abstract scalar compound splat", "var v = vec3<f32>(); v.zx *= 2;"},
+		{"abstract shift amount", "var v = vec2<u32>(); v.yx <<= vec2(1, 2);"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := "enable swizzle_assignment;\n@compute @workgroup_size(1) fn main() { " + tt.body + " }\n"
+			m := helperCompileWGSL(t, src)
+			fn := &m.EntryPoints[0].Function
+			stores := 0
+			walk := func(b ir.Block) {
+				for _, s := range b {
+					st, ok := s.Kind.(ir.StmtStore)
+					if !ok {
+						continue
+					}
+					stores++
+					ptr, err := ir.ResolveExpressionType(m, fn, st.Pointer)
+					if err != nil {
+						t.Fatalf("resolve store pointer: %v", err)
+					}
+					val, err := ir.ResolveExpressionType(m, fn, st.Value)
+					if err != nil {
+						t.Fatalf("resolve store value: %v", err)
+					}
+					p, ok := ir.TypeResInner(m, ptr).(ir.PointerType)
+					if !ok {
+						t.Fatalf("store pointer type = %v, want a pointer", ir.TypeResInner(m, ptr))
+					}
+					if got, want := ir.TypeResInner(m, val), m.Types[p.Base].Inner; !reflect.DeepEqual(got, want) {
+						t.Errorf("stored value type = %v, want %v", got, want)
+					}
+				}
+			}
+			walk(fn.Body)
+			if stores == 0 {
+				t.Fatal("no Store in the entry point")
+			}
+			for h := range fn.Expressions {
+				res, err := ir.ResolveExpressionType(m, fn, ir.ExpressionHandle(h))
+				if err != nil {
+					t.Fatalf("resolve expression %d: %v", h, err)
+				}
+				if res.Handle != nil && int(*res.Handle) >= len(m.Types) {
+					t.Errorf("expression %d %#v has removed type [%d]", h, fn.Expressions[h].Kind, *res.Handle)
+					continue
+				}
+				if inner := ir.TypeResInner(m, res); ir.IsAbstractType(inner, m.Types) {
+					t.Errorf("expression %d %#v has abstract type %v", h, fn.Expressions[h].Kind, inner)
+				}
+				c, ok := fn.Expressions[h].Kind.(ir.ExprCompose)
+				if !ok {
+					continue
+				}
+				vec, ok := m.Types[c.Type].Inner.(ir.VectorType)
+				if !ok {
+					continue
+				}
+				for _, comp := range c.Components {
+					cres, err := ir.ResolveExpressionType(m, fn, comp)
+					if err != nil {
+						t.Fatalf("resolve component %d: %v", comp, err)
+					}
+					if got := ir.TypeResInner(m, cres); got != vec.Scalar {
+						t.Errorf("Compose %d component %d has type %v, want %v", h, comp, got, vec.Scalar)
+					}
+				}
+			}
+			if errs, err := ir.Validate(m); err != nil || len(errs) > 0 {
+				t.Errorf("validation: %v %v", err, errs)
 			}
 		})
 	}

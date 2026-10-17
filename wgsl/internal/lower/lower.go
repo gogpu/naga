@@ -3981,12 +3981,20 @@ func (l *Lowerer) lowerSwizzleAssign(
 	if err != nil {
 		return fmt.Errorf("swizzle assignment rhs: %w", err)
 	}
+	// The value converts to the vector's scalar, a shift amount to u32, as in
+	// lowerAssignValue.
+	goal := vec.Scalar
+	binOp := l.assignOpToBinary(op)
+	if op != parser.TokenEqual && (binOp == ir.BinaryShiftLeft || binOp == ir.BinaryShiftRight) {
+		goal = ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	}
+	if rhsValue, err = l.tryAutomaticConversionForLeafScalar(rhsValue, goal); err != nil {
+		return fmt.Errorf("swizzle assignment rhs: %w", err)
+	}
 
 	// For compound assignment, compute the binary op result first.
 	var sourceValue ir.ExpressionHandle
 	if op != parser.TokenEqual {
-		binOp := l.assignOpToBinary(op)
-
 		// Build a swizzle of the original vector to match the LHS swizzle pattern,
 		// so we can apply the binary op element-wise.
 		swizzleSize := sa.vecSize
@@ -3998,6 +4006,9 @@ func (l *Lowerer) lowerSwizzleAssign(
 			Kind: ir.ExprSwizzle{Size: swizzleSize, Vector: loadExpr, Pattern: pattern},
 		})
 		if err != nil {
+			return err
+		}
+		if origSwizzled, rhsValue, err = l.binaryOpSplat(binOp, origSwizzled, rhsValue); err != nil {
 			return err
 		}
 
