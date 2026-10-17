@@ -42,15 +42,15 @@ kernel void main_(
     }
     Particle _e8 = uint(i) < 1 + (_buffer_sizes.size0 - 0 - 16) / 16 ? pin[i] : DefaultConstructible();
     p = _e8;
-    metal::float2 _e12 = p.vel;
-    p.vel = _e12 * metal::float2(0.9995);
+    metal::float2 _e11 = p.vel;
+    p.vel = _e11 * 0.9995;
+    metal::float2 _e15 = p.pos;
     metal::float2 _e17 = p.vel;
     float _e20 = params.dt;
-    metal::float2 _e22 = p.pos;
-    p.pos = _e22 + (_e17 * _e20);
-    Particle _e26 = p;
+    p.pos = _e15 + (_e17 * _e20);
+    Particle _e25 = p;
     if (uint(i) < 1 + (_buffer_sizes.size1 - 0 - 16) / 16) {
-        pout[i] = _e26;
+        pout[i] = _e25;
     }
     return;
 }

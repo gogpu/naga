@@ -36,38 +36,38 @@ void main() {
     vec2 gravity = (((-(_e16) / vec2(((rSafe * rSafe) * rSafe))) * 0.15) * _e26);
     vec2 _e29 = p_1.vel;
     p_1.vel = (_e29 + gravity);
-    vec2 _e33 = p_1.vel;
-    p_1.vel = (_e33 * vec2(0.9995));
+    vec2 _e32 = p_1.vel;
+    p_1.vel = (_e32 * 0.9995);
+    vec2 _e36 = p_1.pos;
     vec2 _e38 = p_1.vel;
     float _e41 = _group_0_binding_2_cs.dt;
-    vec2 _e43 = p_1.pos;
-    p_1.pos = (_e43 + (_e38 * _e41));
-    float _e47 = p_1.pos.x;
-    if ((_e47 > 1.0)) {
+    p_1.pos = (_e36 + (_e38 * _e41));
+    float _e46 = p_1.pos.x;
+    if ((_e46 > 1.0)) {
         p_1.pos.x = 1.0;
-        float _e56 = p_1.vel.x;
-        p_1.vel.x = (_e56 * -0.8);
+        float _e54 = p_1.vel.x;
+        p_1.vel.x = (_e54 * -0.8);
     }
-    float _e60 = p_1.pos.x;
-    if ((_e60 < -1.0)) {
+    float _e59 = p_1.pos.x;
+    if ((_e59 < -1.0)) {
         p_1.pos.x = -1.0;
-        float _e69 = p_1.vel.x;
-        p_1.vel.x = (_e69 * -0.8);
+        float _e67 = p_1.vel.x;
+        p_1.vel.x = (_e67 * -0.8);
     }
-    float _e73 = p_1.pos.y;
-    if ((_e73 > 1.0)) {
+    float _e72 = p_1.pos.y;
+    if ((_e72 > 1.0)) {
         p_1.pos.y = 1.0;
-        float _e82 = p_1.vel.y;
-        p_1.vel.y = (_e82 * -0.8);
+        float _e80 = p_1.vel.y;
+        p_1.vel.y = (_e80 * -0.8);
     }
-    float _e86 = p_1.pos.y;
-    if ((_e86 < -1.0)) {
+    float _e85 = p_1.pos.y;
+    if ((_e85 < -1.0)) {
         p_1.pos.y = -1.0;
-        float _e95 = p_1.vel.y;
-        p_1.vel.y = (_e95 * -0.8);
+        float _e93 = p_1.vel.y;
+        p_1.vel.y = (_e93 * -0.8);
     }
-    Particle _e99 = p_1;
-    _group_0_binding_1_cs[i] = _e99;
+    Particle _e98 = p_1;
+    _group_0_binding_1_cs[i] = _e98;
     return;
 }
 

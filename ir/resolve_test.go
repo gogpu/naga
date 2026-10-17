@@ -36,12 +36,12 @@ func TestResolveLiteralType(t *testing.T) {
 		{
 			name:     "abstract int",
 			literal:  Literal{Value: LiteralAbstractInt(42)},
-			wantType: ScalarType{Kind: ScalarSint, Width: 4},
+			wantType: ScalarType{Kind: ScalarAbstractInt, Width: 8},
 		},
 		{
 			name:     "abstract float",
 			literal:  Literal{Value: LiteralAbstractFloat(3.14)},
-			wantType: ScalarType{Kind: ScalarFloat, Width: 4},
+			wantType: ScalarType{Kind: ScalarAbstractFloat, Width: 8},
 		},
 	}
 

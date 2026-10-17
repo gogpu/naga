@@ -39,7 +39,6 @@ var upstreamChanges = map[string]string{
 	"c97fe3e7": "[HLSL] Make ray queries safer (#8763)",
 	"cb02f74a": "fix(naga): avoid vector splat construction from invalid scalar type (#8829)",
 	"cdc9d0c4": "fix(glsl-out): avoid accidental predecrement in atomicSub negation (#9924)",
-	"ce631c13": "fix(naga): Evaluate compound assignment LHS before RHS (#9181)",
 	"de9f9f4d": "fix(naga msl-out): Support sampler lod_clamp & max_anisotropy (#9842)",
 	"f0201c9c": "Fix: Polyfill atomic load/store correctly in GLSL/HLSL (#9242) (#9387)",
 	"f6d9a1db": "[msl-out] Switch to intersection queries (#9304)",

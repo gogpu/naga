@@ -15,14 +15,14 @@ void main()
     float2 gravity = float2(0.1, 0.2);
     float2 _e13 = p.vel;
     p.vel = (_e13 + gravity);
-    float2 _e17 = p.vel;
-    p.vel = (_e17 * (0.9995).xx);
+    float2 _e16 = p.vel;
+    p.vel = (_e16 * 0.9995);
+    float2 _e20 = p.pos;
     float2 _e22 = p.vel;
-    float2 _e25 = p.pos;
-    p.pos = (_e25 + (_e22 * 0.016));
-    Particle _e29 = p;
+    p.pos = (_e20 + (_e22 * 0.016));
+    Particle _e28 = p;
     {
-        Particle _value2 = _e29;
+        Particle _value2 = _e28;
         out_.Store2(0+0, asuint(_value2.pos));
         out_.Store2(0+8, asuint(_value2.vel));
     }

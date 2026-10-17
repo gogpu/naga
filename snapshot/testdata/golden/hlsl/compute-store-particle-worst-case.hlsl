@@ -39,39 +39,39 @@ void main(uint3 id : SV_DispatchThreadID)
     float2 gravity = (((-(_e16) / (((rSafe * rSafe) * rSafe)).xx) * 0.15) * _e26);
     float2 _e29 = p.vel;
     p.vel = (_e29 + gravity);
-    float2 _e33 = p.vel;
-    p.vel = (_e33 * (0.9995).xx);
+    float2 _e32 = p.vel;
+    p.vel = (_e32 * 0.9995);
+    float2 _e36 = p.pos;
     float2 _e38 = p.vel;
     float _e41 = params.dt;
-    float2 _e43 = p.pos;
-    p.pos = (_e43 + (_e38 * _e41));
-    float _e47 = p.pos.x;
-    if ((_e47 > 1.0)) {
+    p.pos = (_e36 + (_e38 * _e41));
+    float _e46 = p.pos.x;
+    if ((_e46 > 1.0)) {
         p.pos.x = 1.0;
-        float _e56 = p.vel.x;
-        p.vel.x = (_e56 * -0.8);
+        float _e54 = p.vel.x;
+        p.vel.x = (_e54 * -0.8);
     }
-    float _e60 = p.pos.x;
-    if ((_e60 < -1.0)) {
+    float _e59 = p.pos.x;
+    if ((_e59 < -1.0)) {
         p.pos.x = -1.0;
-        float _e69 = p.vel.x;
-        p.vel.x = (_e69 * -0.8);
+        float _e67 = p.vel.x;
+        p.vel.x = (_e67 * -0.8);
     }
-    float _e73 = p.pos.y;
-    if ((_e73 > 1.0)) {
+    float _e72 = p.pos.y;
+    if ((_e72 > 1.0)) {
         p.pos.y = 1.0;
-        float _e82 = p.vel.y;
-        p.vel.y = (_e82 * -0.8);
+        float _e80 = p.vel.y;
+        p.vel.y = (_e80 * -0.8);
     }
-    float _e86 = p.pos.y;
-    if ((_e86 < -1.0)) {
+    float _e85 = p.pos.y;
+    if ((_e85 < -1.0)) {
         p.pos.y = -1.0;
-        float _e95 = p.vel.y;
-        p.vel.y = (_e95 * -0.8);
+        float _e93 = p.vel.y;
+        p.vel.y = (_e93 * -0.8);
     }
-    Particle _e99 = p;
+    Particle _e98 = p;
     {
-        Particle _value2 = _e99;
+        Particle _value2 = _e98;
         pout.Store2(i*16+0, asuint(_value2.pos));
         pout.Store2(i*16+8, asuint(_value2.vel));
     }

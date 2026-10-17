@@ -46,8 +46,8 @@ void main() {
     bool loop_init = true;
     while(true) {
         if (!loop_init) {
-            int _e24 = i;
-            i = (_e24 + 1);
+            int _e23 = i;
+            i = (_e23 + 1);
         }
         loop_init = false;
         int _e5 = i;
@@ -58,12 +58,12 @@ void main() {
         {
             int _e8 = i;
             ii = float(_e8);
-            float _e12 = ii;
-            float _e15 = color.x;
-            color.x = (_e15 + (_e12 * 0.001));
-            float _e18 = ii;
-            float _e21 = color.y;
-            color.y = (_e21 + (_e18 * 0.002));
+            float _e12 = color.x;
+            float _e13 = ii;
+            color.x = (_e12 + (_e13 * 0.001));
+            float _e18 = color.y;
+            float _e19 = ii;
+            color.y = (_e18 + (_e19 * 0.002));
         }
     }
     vec3 _e26 = color;

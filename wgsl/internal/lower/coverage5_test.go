@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -11,14 +12,23 @@ import (
 // -----------------------------------------------------------------------
 
 func TestLowerScalarKindConversions(t *testing.T) {
-	src := `fn test() {
+	// Abstract values convert to the declared type.
+	mustCompile(t, `fn test() {
     var fi: f32 = 42;
-    var fu: f32 = 42u;
-    var iu: i32 = 10u;
     var ui: u32 = 10;
-    _ = fi; _ = fu; _ = iu; _ = ui;
-}`
-	mustCompile(t, src)
+    _ = fi; _ = ui;
+}`)
+	// A concrete value never converts to another concrete type (WGSL spec;
+	// Rust naga reports the same messages). These used to convert silently.
+	for _, tt := range []struct{ decl, want string }{
+		{"var fu: f32 = 42u;", "the type of `fu` is expected to be `f32`, but got `u32`"},
+		{"var iu: i32 = 10u;", "the type of `iu` is expected to be `i32`, but got `u32`"},
+	} {
+		_, err := compileWGSL(t, "fn test() { "+tt.decl+" }")
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: err = %v, want %q", tt.decl, err, tt.want)
+		}
+	}
 }
 
 // -----------------------------------------------------------------------

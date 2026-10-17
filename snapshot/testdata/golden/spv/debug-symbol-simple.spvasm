@@ -51,8 +51,8 @@
          %_63 = OpConstantComposite %_58 %_36 %_36
          %_64 = OpConstantComposite %_58 %_62 %_62
          %_77 = OpConstant %_8 10
-         %_85 = OpConstant %_3 981668463
-         %_92 = OpConstant %_3 990057071
+         %_87 = OpConstant %_3 981668463
+         %_94 = OpConstant %_3 990057071
          %_99 = OpConstant %_8 1
          %_10 = OpVariable %_9 Input
          %_11 = OpVariable %_9 Input
@@ -124,18 +124,18 @@
          %_82 = OpLoad %_8 %_46
          %_83 = OpConvertSToF %_3 %_82
                OpStore %_48 %_83
-         %_84 = OpLoad %_3 %_48
-         %_86 = OpFMul %_3 %_84 %_85
-         %_87 = OpAccessChain %_47 %_44 %_36
-         %_88 = OpLoad %_3 %_87
-         %_89 = OpFAdd %_3 %_88 %_86
+         %_84 = OpAccessChain %_47 %_44 %_36
+         %_85 = OpLoad %_3 %_84
+         %_86 = OpLoad %_3 %_48
+         %_88 = OpFMul %_3 %_86 %_87
+         %_89 = OpFAdd %_3 %_85 %_88
          %_90 = OpAccessChain %_47 %_44 %_36
                OpStore %_90 %_89
-         %_91 = OpLoad %_3 %_48
-         %_93 = OpFMul %_3 %_91 %_92
-         %_94 = OpAccessChain %_47 %_44 %_30
-         %_95 = OpLoad %_3 %_94
-         %_96 = OpFAdd %_3 %_95 %_93
+         %_91 = OpAccessChain %_47 %_44 %_30
+         %_92 = OpLoad %_3 %_91
+         %_93 = OpLoad %_3 %_48
+         %_95 = OpFMul %_3 %_93 %_94
+         %_96 = OpFAdd %_3 %_92 %_95
          %_97 = OpAccessChain %_47 %_44 %_30
                OpStore %_97 %_96
                OpBranch %_56

@@ -565,13 +565,17 @@ func TestLowerConstFoldMixedIntFloat(t *testing.T) {
 }
 
 func TestLowerConstFoldIntegerDivByZero(t *testing.T) {
-	// Division by zero should produce 0, not crash
+	// A const-expression dividing by zero is a shader-creation error (WGSL
+	// spec; Rust naga: "Division by zero"). It used to compile to 0.
 	src := `fn test() {
     const A = vec2<i32>(10, 20) / vec2<i32>(0, 1);
     var x = A;
     _ = x;
 }`
-	mustCompile(t, src)
+	_, err := compileWGSL(t, src)
+	if err == nil || !strings.Contains(err.Error(), "Division by zero") {
+		t.Fatalf("err = %v, want Division by zero", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -614,15 +618,17 @@ func TestLowerCompoundAssignVectorSplat(t *testing.T) {
 	module := mustCompile(t, src)
 	fn := &module.Functions[0]
 
-	// Compound assignment on vector with scalar RHS should create Splat
+	// A scalar right side is splatted for += and -= (Rust binary_op_splat:
+	// Add, Subtract, Divide, Modulo); vector * scalar needs no splat. Rust
+	// v30 produces exactly 2 Splat expressions for this function.
 	splatCount := 0
 	for _, expr := range fn.Expressions {
 		if _, ok := expr.Kind.(ir.ExprSplat); ok {
 			splatCount++
 		}
 	}
-	if splatCount < 3 {
-		t.Errorf("expected at least 3 Splat expressions for vector compound assignment, got %d", splatCount)
+	if splatCount != 2 {
+		t.Errorf("got %d Splat expressions, want 2 (Rust)", splatCount)
 	}
 }
 
@@ -958,24 +964,18 @@ func TestLowerZeroArgMatConstructorExplicit(t *testing.T) {
 }
 
 func TestLowerZeroArgMatConstructorPartial(t *testing.T) {
-	// Partial: mat2x2() with target type → expandZeroValueToCompose
+	// mat2x2() has no arguments to infer the component type from: the WGSL
+	// spec has no such overload (only vec2() etc. default to AbstractInt), and
+	// Rust naga reports "type can't be inferred" (construction.rs). It used to
+	// compile through an in-place expansion.
 	src := `fn test() {
     let m: mat2x2<f32> = mat2x2();
     _ = m;
 }`
-	module := mustCompile(t, src)
-	fn := &module.Functions[0]
-	composeCount := 0
-	for _, expr := range fn.Expressions {
-		if _, ok := expr.Kind.(ir.ExprCompose); ok {
-			composeCount++
-		}
+	_, err := compileWGSL(t, src)
+	if err == nil || !strings.Contains(err.Error(), "type can't be inferred") {
+		t.Fatalf("err = %v, want type can't be inferred", err)
 	}
-	if composeCount == 0 {
-		// May produce ZeroValue depending on path
-		t.Log("partial zero-arg mat2x2() compiled successfully")
-	}
-	_ = fn
 }
 
 // ---------------------------------------------------------------------------
@@ -1451,10 +1451,15 @@ fn main() {
 // ---------------------------------------------------------------------------
 
 func TestLowerCoerceScalarToType(t *testing.T) {
-	// Coerce u32 to i32 via const
+	// WGSL has no automatic conversion between concrete types: u32 is not an
+	// i32 initializer (Rust v30 reports the same message).
 	src := `const X: i32 = 42u;
 fn test() -> i32 { return X; }`
-	mustCompile(t, src)
+	_, err := compileWGSL(t, src)
+	const want = "the type of `X` is expected to be `i32`, but got `u32`"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %v, want %q", err, want)
+	}
 }
 
 // ---------------------------------------------------------------------------

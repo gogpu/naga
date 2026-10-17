@@ -15,7 +15,7 @@ void main() {
     vec4 col0_ = identity[0];
     vec4 col1_ = identity[1];
     float element = identity[2].w;
-    mat2x2 scaled = (m2_ * 2.0LF);
+    mat2x2 scaled = (m2_ * 2.0);
     return;
 }
 

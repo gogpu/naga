@@ -421,7 +421,7 @@ func TestWGSLErrors_LowerErrors(t *testing.T) {
 		{
 			name:        "const_unsupported_binary_init",
 			source:      `const X = 10 / 0;`,
-			errContains: "division by zero",
+			errContains: "Division by zero", // Rust v30's text
 		},
 
 		// --- Texture function wrong arg count ---
@@ -543,7 +543,7 @@ fn foo() { var f: Foo; }`,
 		{
 			name:        "global_var_unsupported_call_type",
 			source:      `var<private> x = unknownFunc(1);`,
-			errContains: "unsupported call type: unknownFunc",
+			errContains: "unknown function: unknownFunc", // the initializer is lowered like any expression
 		},
 
 		// --- Module constant must have initializer ---

@@ -53,8 +53,8 @@ void main()
             break;
         }
         {
-            uint _e11 = i;
-            sq.TraceRayInline(acc, ConstructRayDesc_(1u, 255u, 0.001, 1000.0, (float(_e11)).xxx, float3(0.0, -1.0, 0.0)).flags, ConstructRayDesc_(1u, 255u, 0.001, 1000.0, (float(_e11)).xxx, float3(0.0, -1.0, 0.0)).cull_mask, RayDescFromRayDesc_(ConstructRayDesc_(1u, 255u, 0.001, 1000.0, (float(_e11)).xxx, float3(0.0, -1.0, 0.0))));
+            uint _e9 = i;
+            sq.TraceRayInline(acc, ConstructRayDesc_(1u, 255u, 0.001, 1000.0, (float(_e9)).xxx, float3(0.0, -1.0, 0.0)).flags, ConstructRayDesc_(1u, 255u, 0.001, 1000.0, (float(_e9)).xxx, float3(0.0, -1.0, 0.0)).cull_mask, RayDescFromRayDesc_(ConstructRayDesc_(1u, 255u, 0.001, 1000.0, (float(_e9)).xxx, float3(0.0, -1.0, 0.0))));
             const bool _e19 = sq.Proceed();
         }
     }

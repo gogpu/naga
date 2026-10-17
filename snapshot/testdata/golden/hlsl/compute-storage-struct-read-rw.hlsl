@@ -31,15 +31,15 @@ void main(uint3 id : SV_DispatchThreadID)
     }
     Particle _e8 = ConstructParticle(asfloat(pin.Load2(i*16+0)), asfloat(pin.Load2(i*16+8)));
     p = _e8;
-    float2 _e12 = p.vel;
-    p.vel = (_e12 * (0.9995).xx);
+    float2 _e11 = p.vel;
+    p.vel = (_e11 * 0.9995);
+    float2 _e15 = p.pos;
     float2 _e17 = p.vel;
     float _e20 = params.dt;
-    float2 _e22 = p.pos;
-    p.pos = (_e22 + (_e17 * _e20));
-    Particle _e26 = p;
+    p.pos = (_e15 + (_e17 * _e20));
+    Particle _e25 = p;
     {
-        Particle _value2 = _e26;
+        Particle _value2 = _e25;
         pout.Store2(i*16+0, asuint(_value2.pos));
         pout.Store2(i*16+8, asuint(_value2.vel));
     }

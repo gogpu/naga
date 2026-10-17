@@ -6,7 +6,7 @@ void main()
     float expr3_ = ((1.0 / 2.0) - (3.0 / 4.0));
     float expr4_ = (((1.0 + 2.0) + 3.0) * 4.0);
     float s1_ = (true ? 2.0 : 1.0);
-    float3 s2_ = (0.0).xxx;
+    float3 s2_ = float3(0.0, 0.0, 0.0);
     int s3_ = ((1.0 > 2.0) ? int(20) : int(10));
     float3 v1_ = float3(1.0, 2.0, 3.0);
     float3 v2_ = float3(4.0, 3.0, 2.0);

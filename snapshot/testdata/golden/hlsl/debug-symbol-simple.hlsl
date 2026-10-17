@@ -44,8 +44,8 @@ float4 fs_main(FragmentInput_fs_main fragmentinput_fs_main) : SV_Target0
         if (all(loop_bound == uint2(0u, 0u))) { break; }
         loop_bound -= uint2(loop_bound.y == 0u, 1u);
         if (!loop_init) {
-            int _e24 = i;
-            i = asint(asuint(_e24) + asuint(int(1)));
+            int _e23 = i;
+            i = asint(asuint(_e23) + asuint(int(1)));
         }
         loop_init = false;
         int _e5 = i;
@@ -56,12 +56,12 @@ float4 fs_main(FragmentInput_fs_main fragmentinput_fs_main) : SV_Target0
         {
             int _e8 = i;
             ii = float(_e8);
-            float _e12 = ii;
-            float _e15 = color.x;
-            color.x = (_e15 + (_e12 * 0.001));
-            float _e18 = ii;
-            float _e21 = color.y;
-            color.y = (_e21 + (_e18 * 0.002));
+            float _e12 = color.x;
+            float _e13 = ii;
+            color.x = (_e12 + (_e13 * 0.001));
+            float _e18 = color.y;
+            float _e19 = ii;
+            color.y = (_e18 + (_e19 * 0.002));
         }
     }
     float3 _e26 = color;

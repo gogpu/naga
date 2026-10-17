@@ -23,33 +23,33 @@
          %_15 = OpTypePointer Function %_9
          %_18 = OpConstant %_3 0
          %_20 = OpConstant %_9 0
-         %_22 = OpTypePointer Function %_7
-         %_24 = OpConstantNull %_7
-         %_25 = OpTypePointer Function %_3
-         %_26 = OpConstant %_5 1
-         %_33 = OpConstant %_5 0
+         %_21 = OpConstant %_5 0
+         %_22 = OpTypePointer Function %_3
+         %_26 = OpTypePointer Function %_7
+         %_28 = OpConstantNull %_7
+         %_29 = OpConstant %_5 1
          %_11 = OpFunction %_2 None %_10
          %_12 = OpLabel
          %_14 = OpVariable %_13 Function
          %_16 = OpVariable %_15 Function
          %_17 = OpVariable %_15 Function
-         %_23 = OpVariable %_22 Function
+         %_27 = OpVariable %_26 Function
          %_19 = OpCompositeConstruct %_8 %_18 %_18 %_18 %_18
                OpStore %_14 %_19
                OpStore %_16 %_20
                OpStore %_17 %_20
-         %_21 = OpLoad %_9 %_17
-               OpStore %_23 %_24
-         %_27 = OpAccessChain %_25 %_23 %_21 %_26
-         %_28 = OpLoad %_3 %_27
-         %_29 = OpLoad %_9 %_16
-         %_30 = OpAccessChain %_25 %_23 %_29 %_6
+         %_23 = OpAccessChain %_22 %_14 %_21
+         %_24 = OpLoad %_3 %_23
+         %_25 = OpLoad %_9 %_17
+               OpStore %_27 %_28
+         %_30 = OpAccessChain %_22 %_27 %_25 %_29
          %_31 = OpLoad %_3 %_30
-         %_32 = OpFMul %_3 %_28 %_31
-         %_34 = OpAccessChain %_25 %_14 %_33
-         %_35 = OpLoad %_3 %_34
-         %_36 = OpFAdd %_3 %_35 %_32
-         %_37 = OpAccessChain %_25 %_14 %_33
+         %_32 = OpLoad %_9 %_16
+         %_33 = OpAccessChain %_22 %_27 %_32 %_6
+         %_34 = OpLoad %_3 %_33
+         %_35 = OpFMul %_3 %_31 %_34
+         %_36 = OpFAdd %_3 %_24 %_35
+         %_37 = OpAccessChain %_22 %_14 %_21
                OpStore %_37 %_36
                OpReturn
                OpFunctionEnd

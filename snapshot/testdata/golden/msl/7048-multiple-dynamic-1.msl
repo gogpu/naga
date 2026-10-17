@@ -19,9 +19,9 @@ kernel void f(
     metal::float4 poly = metal::float4(0.0);
     int k = 0;
     int j = 0;
-    int _e9 = j;
-    int _e12 = k;
-    float _e16 = poly.x;
-    poly.x = _e16 + (uint(_e9) < 2 ? type_1 {}.inner[_e9].y : DefaultConstructible() * uint(_e12) < 2 ? type_1 {}.inner[_e12].z : DefaultConstructible());
+    float _e9 = poly.x;
+    int _e10 = j;
+    int _e13 = k;
+    poly.x = _e9 + (uint(_e10) < 2 ? type_1 {}.inner[_e10].y : DefaultConstructible() * uint(_e13) < 2 ? type_1 {}.inner[_e13].z : DefaultConstructible());
     return;
 }

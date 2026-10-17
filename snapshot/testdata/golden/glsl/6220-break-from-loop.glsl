@@ -8,8 +8,8 @@ void break_from_loop() {
     bool loop_init = true;
     while(true) {
         if (!loop_init) {
-            int _e6 = i;
-            i = (_e6 + 1);
+            int _e5 = i;
+            i = (_e5 + 1);
         }
         loop_init = false;
         int _e2 = i;

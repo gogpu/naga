@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 53
+; Bound: 52
 ; Schema: 0
 
                OpCapability Shader
@@ -37,9 +37,9 @@
          %_27 = OpConstant %_3 1036831949
          %_28 = OpConstant %_3 1045220557
          %_36 = OpConstant %_3 1065344827
-         %_42 = OpConstant %_3 1015222895
-         %_49 = OpTypePointer StorageBuffer %_6
-         %_51 = OpTypePointer StorageBuffer %_5
+         %_43 = OpConstant %_3 1015222895
+         %_48 = OpTypePointer StorageBuffer %_6
+         %_50 = OpTypePointer StorageBuffer %_5
          %_9 = OpVariable %_8 StorageBuffer
          %_11 = OpFunction %_2 None %_10
          %_12 = OpLabel
@@ -58,21 +58,20 @@
                OpStore %_33 %_32
          %_34 = OpAccessChain %_20 %_14 %_25
          %_35 = OpLoad %_4 %_34
-         %_37 = OpCompositeConstruct %_4 %_36 %_36
-         %_38 = OpFMul %_4 %_35 %_37
-         %_39 = OpAccessChain %_20 %_14 %_25
-               OpStore %_39 %_38
-         %_40 = OpAccessChain %_20 %_14 %_25
-         %_41 = OpLoad %_4 %_40
-         %_43 = OpVectorTimesScalar %_4 %_41 %_42
-         %_44 = OpAccessChain %_20 %_14 %_19
-         %_45 = OpLoad %_4 %_44
-         %_46 = OpFAdd %_4 %_45 %_43
-         %_47 = OpAccessChain %_20 %_14 %_19
-               OpStore %_47 %_46
-         %_48 = OpLoad %_5 %_14
-         %_50 = OpAccessChain %_49 %_9 %_19
-         %_52 = OpAccessChain %_51 %_50 %_19
-               OpStore %_52 %_48
+         %_37 = OpVectorTimesScalar %_4 %_35 %_36
+         %_38 = OpAccessChain %_20 %_14 %_25
+               OpStore %_38 %_37
+         %_39 = OpAccessChain %_20 %_14 %_19
+         %_40 = OpLoad %_4 %_39
+         %_41 = OpAccessChain %_20 %_14 %_25
+         %_42 = OpLoad %_4 %_41
+         %_44 = OpVectorTimesScalar %_4 %_42 %_43
+         %_45 = OpFAdd %_4 %_40 %_44
+         %_46 = OpAccessChain %_20 %_14 %_19
+               OpStore %_46 %_45
+         %_47 = OpLoad %_5 %_14
+         %_49 = OpAccessChain %_48 %_9 %_19
+         %_51 = OpAccessChain %_50 %_49 %_19
+               OpStore %_51 %_47
                OpReturn
                OpFunctionEnd

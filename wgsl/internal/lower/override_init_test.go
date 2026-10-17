@@ -101,3 +101,95 @@ func TestOverrideDefaultIsLiteralOfDeclaredType(t *testing.T) {
 		})
 	}
 }
+
+// && and || become If-blocks only in a function body (Rust
+// front/wgsl/lower/mod.rs, binary_logical: ctx.is_runtime()). In the override
+// and const contexts a left operand that is not a constant (an override) gives
+// a plain Binary that pipeline creation evaluates; a constant left operand
+// short-circuits. Expected IR: Rust naga v30.
+func TestLogicalOperatorsInOverrideContext(t *testing.T) {
+	src := `override o: bool = true;
+var<private> v: bool = o && false;
+override p = o || true;
+const Q = (1 < 2) && (2 < 3);
+fn f() -> bool { return v || p || Q; }
+@compute @workgroup_size(1) fn main() { _ = f(); }
+`
+	m := helperCompileWGSL(t, src)
+	ge := m.GlobalExpressions
+	wantBinary := func(what string, h ir.ExpressionHandle, op ir.BinaryOperator, right bool) {
+		t.Helper()
+		b, ok := ge[h].Kind.(ir.ExprBinary)
+		if !ok || b.Op != op {
+			t.Fatalf("%s = %#v, want Binary %v", what, ge[h].Kind, op)
+		}
+		if _, ok := ge[b.Left].Kind.(ir.ExprOverride); !ok {
+			t.Errorf("%s left = %#v, want Override", what, ge[b.Left].Kind)
+		}
+		if lit, ok := ge[b.Right].Kind.(ir.Literal); !ok || lit.Value != ir.LiteralBool(right) {
+			t.Errorf("%s right = %#v, want Literal(%v)", what, ge[b.Right].Kind, right)
+		}
+	}
+	for _, g := range m.GlobalVariables {
+		if g.Name == "v" {
+			if g.InitExpr == nil {
+				t.Fatal("v: no initializer")
+			}
+			wantBinary("v init", *g.InitExpr, ir.BinaryLogicalAnd, false)
+		}
+	}
+	for _, o := range m.Overrides {
+		if o.Name == "p" {
+			if o.Init == nil {
+				t.Fatal("p: no initializer")
+			}
+			wantBinary("p init", *o.Init, ir.BinaryLogicalOr, true)
+		}
+	}
+	q := constByName(t, m, "Q")
+	if lit, ok := ge[q.Init].Kind.(ir.Literal); !ok || lit.Value != ir.LiteralBool(true) {
+		t.Errorf("Q init = %#v, want Literal(true)", ge[q.Init].Kind)
+	}
+	if errs, err := ir.Validate(m); err != nil || len(errs) > 0 {
+		t.Errorf("validation: %v %v", err, errs)
+	}
+}
+
+// In a function body && and || always become an If-block, even with a
+// constant left operand (Rust front/wgsl/lower/mod.rs, binary_logical: the
+// ctx.is_runtime() branch does not look at the operand's value), so
+// `true || q()` keeps the call in an untaken branch and binds a local.
+func TestLogicalOperatorsInFunctionBodyAreIfBlocks(t *testing.T) {
+	src := `fn q() -> bool { return false; }
+@compute @workgroup_size(1) fn main() {
+    let a = true || q();
+    let b = false && q();
+    _ = a; _ = b;
+}
+`
+	m := helperCompileWGSL(t, src)
+	fn := &m.EntryPoints[0].Function
+	ifs := 0
+	for _, s := range fn.Body {
+		st, ok := s.Kind.(ir.StmtIf)
+		if !ok {
+			continue
+		}
+		ifs++
+		calls := 0
+		for _, a := range st.Accept {
+			if _, ok := a.Kind.(ir.StmtCall); ok {
+				calls++
+			}
+		}
+		if calls != 1 {
+			t.Errorf("If %d: accept block has %d calls of q, want 1", ifs, calls)
+		}
+	}
+	if ifs != 2 {
+		t.Errorf("entry point body has %d If statements, want 2", ifs)
+	}
+	if len(fn.LocalVars) != 2 {
+		t.Errorf("%d local variables, want 2 (one per operator)", len(fn.LocalVars))
+	}
+}

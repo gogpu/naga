@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/bits"
 	"strconv"
 	"strings"
 
+	"github.com/gogpu/naga/internal/consteval"
 	"github.com/gogpu/naga/internal/registry"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl/internal/parser"
@@ -61,11 +61,17 @@ type Lowerer struct {
 	isInsideLoop   bool // true when lowering statements inside a loop body
 	isStatement    bool // true when lowering an expression as a statement (ExprStmt)
 
-	// nonConstExprs tracks expression handles that are forced non-const.
-	// WGSL spec: "let" binding initializers are not const expressions.
-	// Matches Rust naga's force_non_const in the ExpressionKindTracker.
-	// Any expression referencing a non-const handle cannot be constant-folded.
-	nonConstExprs map[ir.ExpressionHandle]bool
+	// fnEval evaluates the current function's expressions with constant
+	// operands and tracks which expressions are const-expressions (Rust
+	// naga's ConstantEvaluator::for_wgsl_function + ExpressionKindTracker).
+	fnEval     *consteval.Evaluator
+	fnEvalFunc *ir.Function // the function fnEval belongs to
+
+	// moduleConstArena is the arena of the module const context (aliasing
+	// Module.GlobalExpressions, with their types) and moduleEval its
+	// evaluator; see const_context.go.
+	moduleConstArena *ir.Function
+	moduleEval       *consteval.Evaluator
 
 	// enableSwizzleAssignment is true when the shader includes
 	// "enable swizzle_assignment;", allowing multi-component swizzle on the LHS
@@ -88,16 +94,6 @@ type Lowerer struct {
 	// Without caching, we create a new expression each time a global is referenced,
 	// causing expression count divergence (e.g., 39 vs 37 expressions).
 	globalExprCache map[ir.GlobalVariableHandle]ir.ExpressionHandle
-
-	// overrideInitExprs stores the simplified init expression tree for each override.
-	// Used by buildGlobalExpressions to create the global expression for each override's init.
-	overrideInitExprs map[ir.OverrideHandle]ir.OverrideInitExpr
-
-	// globalVarInitExprs stores override-dependent init expressions for global
-	// variables whose initializers couldn't be lowered to simple constants.
-	// Keyed by GlobalVariableHandle. Used by buildGlobalExpressions to create
-	// global expression entries (e.g., var<private> x = gain * 10.0).
-	globalVarInitExprs map[ir.GlobalVariableHandle]ir.OverrideInitExpr
 
 	// constsWithInlineInit tracks constants whose Init was set inline during lowering.
 	constsWithInlineInit map[ir.ConstantHandle]bool
@@ -310,25 +306,23 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 		return nil, &l.errors
 	}
 
+	// Build the GlobalExpressions of overrides and override-dependent global
+	// variable initializers (constants already have theirs), so that the
+	// module is complete before it is compacted, as in Rust naga's lower().
+	l.buildGlobalExpressions()
+
 	// Copy deduplicated types from registry to module
 	l.module.Types = l.registry.GetTypes()
 
-	// NOTE: CompactUnused (remove unreachable globals/functions) is NOT called here.
-	// Rust naga's lower() calls compact(KeepUnused::Yes) which keeps unused globals/functions.
-	// The second compact(KeepUnused::No) is only for backend snapshot generation.
-	// CompactUnused should be called separately before backend compilation if needed.
-
-	// Compact constants: remove abstract-typed constants (matching Rust naga's
-	// compact which removes constants with is_abstract types).
-	// Must run BEFORE CompactTypes so that removed constants' types become unreferenced.
-	ir.CompactConstants(l.module)
-
-	// Compact expressions: remove unreferenced expressions from each function.
-	// This matches Rust naga's compact pass which removes dead expressions
-	// (e.g., original abstract literals replaced by concretized versions).
-	// Must run BEFORE CompactTypes so that types referenced only by dead
-	// expressions (e.g., Compose for local const vec3) become unreferenced.
+	// Rust naga's lower() ends with compact(KeepUnused::Yes): unused globals
+	// and functions stay (CompactUnused is the separate KeepUnused::No pass),
+	// dead expressions, abstract constants and what only they use go.
+	//
+	// Order matters: dead function expressions first, so that they do not
+	// keep a constant alive; then constants with the global expressions only
+	// they use; then the types nothing refers to any more.
 	ir.CompactExpressions(l.module)
+	ir.CompactConstants(l.module)
 
 	// Compact types: remove anonymous types not referenced by any handle.
 	// This matches Rust naga's compact::compact(module, KeepUnused::Yes)
@@ -345,11 +339,6 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	// when function call flushes interact with statement-level emit wrappers.
 	// Rust naga doesn't have this issue because its emitter uses a different restart mechanism.
 	ir.DeduplicateEmits(l.module)
-
-	// Build GlobalExpressions arena from Constants, Overrides, and GlobalVariable inits.
-	// This mirrors Rust naga's Module.global_expressions which stores init expressions
-	// for all module-scope entities.
-	l.buildGlobalExpressions()
 
 	return &LowerResult{
 		Module:   l.module,
@@ -878,21 +867,17 @@ func (l *Lowerer) typeAlignmentAndSize(handle ir.TypeHandle) (align, size uint32
 
 // lowerGlobalVar converts a global variable declaration to IR.
 func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
-	var typeHandle ir.TypeHandle
-	var err error
+	var explicit *ir.TypeHandle
 	if v.Type != nil {
-		typeHandle, err = l.resolveType(v.Type)
+		th, err := l.resolveType(v.Type)
 		if err != nil {
 			return fmt.Errorf("global var %s: %w", v.Name, err)
 		}
-	} else if v.Init != nil {
-		// Type inference from initializer (e.g., var<private> x = vec2(1))
-		typeHandle, err = l.inferGlobalVarType(v.Init)
-		if err != nil {
-			return fmt.Errorf("global var %s: %w", v.Name, err)
-		}
-	} else {
-		return fmt.Errorf("global var %s: type annotation required without initializer", v.Name)
+		explicit = &th
+	}
+	typeHandle, initExpr, err := l.lowerGlobalVarInit(v, explicit)
+	if err != nil {
+		return fmt.Errorf("global var %s: %w", v.Name, err)
 	}
 
 	space := l.addressSpace(v.AddressSpace)
@@ -958,58 +943,6 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 		}
 	}
 
-	// Evaluate global variable initializer.
-	// Rust naga stores global var init as a handle into GlobalExpressions (not Constants).
-	// For scalar literals, create a Literal in GlobalExpressions directly.
-	var init *ir.ConstantHandle
-	var initExpr *ir.ExpressionHandle
-	if v.Init != nil {
-		if lit, ok := v.Init.(*parser.Literal); ok {
-			// Scalar literal init → GlobalExpression directly (no intermediate Constant).
-			scalarKind, bits, litErr := l.evalLiteral(lit)
-			if litErr == nil {
-				scalarKind, bits = l.coerceScalarToType(scalarKind, bits, typeHandle)
-				sv := ir.ScalarValue{Bits: bits, Kind: scalarKind}
-				litVal := l.scalarValueToLiteralWithType(sv, typeHandle)
-				h := ir.ExpressionHandle(len(l.module.GlobalExpressions))
-				l.module.GlobalExpressions = append(l.module.GlobalExpressions, ir.Expression{
-					Kind: ir.Literal{Value: litVal},
-				})
-				initExpr = &h
-			}
-		}
-		if initExpr == nil {
-			// Fallback: try as constant (for non-literal inits)
-			constHandle, initErr := l.lowerGlobalVarInit(v.Name, typeHandle, v.Init)
-			if initErr == nil {
-				init = &constHandle
-			} else {
-				// If literal init failed, try to parse as an override-dependent expression.
-				// This handles cases like: var<private> gain_x_10 = gain * 10.0
-				if oe := l.buildOverrideInitExpr(v.Init); oe != nil {
-					gvHandle := ir.GlobalVariableHandle(l.globalIdx)
-					if l.globalVarInitExprs == nil {
-						l.globalVarInitExprs = make(map[ir.GlobalVariableHandle]ir.OverrideInitExpr)
-					}
-					l.globalVarInitExprs[gvHandle] = oe
-				} else {
-					// Constructor init (struct, vector, matrix, ...): lower it into
-					// GlobalExpressions now, at the declaration, as Rust naga does.
-					// Building it here (rather than after compaction) registers the
-					// component types — e.g. a matrix's column vector type — in
-					// declaration order, so they are traced by CompactTypes and
-					// ordered like Rust's type arena.
-					switch v.Init.(type) {
-					case *parser.CallExpr, *parser.ConstructExpr:
-						if h, ok := l.buildGlobalExprFromAST(v.Init, typeHandle, l.addGlobalExpr); ok {
-							initExpr = &h
-						}
-					}
-				}
-			}
-		}
-	}
-
 	handle := ir.GlobalVariableHandle(l.globalIdx)
 	l.globalIdx++
 	l.module.GlobalVariables = append(l.module.GlobalVariables, ir.GlobalVariable{
@@ -1017,95 +950,11 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 		Space:    space,
 		Binding:  binding,
 		Type:     typeHandle,
-		Init:     init,
 		InitExpr: initExpr,
 		Access:   accessMode,
 	})
 	l.globals[v.Name] = handle
 	return nil
-}
-
-// lowerGlobalVarInit evaluates a global variable initializer as a constant expression
-// and returns the constant handle. This handles simple literal initializers.
-// Matches Rust naga where global var inits are stored as global constant expressions.
-func (l *Lowerer) lowerGlobalVarInit(varName string, typeHandle ir.TypeHandle, init parser.Expr) (ir.ConstantHandle, error) {
-	lit, ok := init.(*parser.Literal)
-	if !ok {
-		return 0, fmt.Errorf("global var %s: non-literal initializers not yet supported", varName)
-	}
-
-	scalarKind, bits, err := l.evalLiteral(lit)
-	if err != nil {
-		return 0, fmt.Errorf("global var %s init: %w", varName, err)
-	}
-
-	// Coerce to the variable's declared type
-	scalarKind, bits = l.coerceScalarToType(scalarKind, bits, typeHandle)
-
-	constHandle := ir.ConstantHandle(len(l.module.Constants))
-	l.module.Constants = append(l.module.Constants, ir.Constant{
-		Name:  "", // unnamed: not emitted as a standalone constant
-		Type:  typeHandle,
-		Value: ir.ScalarValue{Bits: bits, Kind: scalarKind},
-	})
-	return constHandle, nil
-}
-
-// inferGlobalVarType infers the type of a global variable from its initializer expression.
-// Handles constructors (vec2(1), mat2x2(...), array(...)), literals, and scalar calls.
-func (l *Lowerer) inferGlobalVarType(init parser.Expr) (ir.TypeHandle, error) {
-	switch e := init.(type) {
-	case *parser.ConstructExpr:
-		// First try direct type resolution (e.g., vec2<i32>(...))
-		if e.Type != nil {
-			h, err := l.resolveType(e.Type)
-			if err == nil {
-				return h, nil
-			}
-			// If that fails, try inference from args (e.g., vec2(1))
-			return l.inferCompositeConstantType(e)
-		}
-		return 0, fmt.Errorf("unsupported type: %v", e.Type)
-	case *parser.CallExpr:
-		// Scalar constructor: i32(x), f32(x), bool(x), i64(x), u64(x), f64(x), f16(x)
-		switch e.Func.Name {
-		case "i32":
-			return l.registerType("i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}), nil
-		case "u32":
-			return l.registerType("u32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}), nil
-		case "f32":
-			return l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}), nil
-		case "f16":
-			return l.registerType("f16", ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}), nil
-		case "i64":
-			return l.registerType("i64", ir.ScalarType{Kind: ir.ScalarSint, Width: 8}), nil
-		case "u64":
-			return l.registerType("u64", ir.ScalarType{Kind: ir.ScalarUint, Width: 8}), nil
-		case "f64":
-			return l.registerType("f64", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}), nil
-		case "bool":
-			return l.registerType("bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1}), nil
-		default:
-			// Could be struct constructor
-			if h, ok := l.types[e.Func.Name]; ok {
-				return h, nil
-			}
-			return 0, fmt.Errorf("unsupported call type: %s", e.Func.Name)
-		}
-	case *parser.Literal:
-		kind, _, err := l.evalLiteral(e)
-		if err != nil {
-			return 0, err
-		}
-		return l.registerType("", ir.ScalarType{Kind: kind, Width: 4}), nil
-	case *parser.UnaryExpr:
-		if e.Op == parser.TokenMinus {
-			return l.inferGlobalVarType(e.Operand)
-		}
-		return 0, fmt.Errorf("unsupported unary op for type inference")
-	default:
-		return 0, fmt.Errorf("unsupported type: %v", init)
-	}
 }
 
 // lowerOverride converts an override declaration to an ir.Override.
@@ -1114,20 +963,20 @@ func (l *Lowerer) inferGlobalVarType(init parser.Expr) (ir.TypeHandle, error) {
 func (l *Lowerer) lowerOverride(o *parser.OverrideDecl) error {
 	overrideHandle := ir.OverrideHandle(len(l.module.Overrides))
 
-	// Resolve the type.
-	var typeHandle ir.TypeHandle
+	var explicit *ir.TypeHandle
 	if o.Type != nil {
-		var err error
-		typeHandle, err = l.resolveType(o.Type)
+		th, err := l.resolveType(o.Type)
 		if err != nil {
 			return fmt.Errorf("override %s: %w", o.Name, err)
 		}
-	} else if o.Init != nil {
-		// Infer type from init expression.
-		typeHandle = l.inferOverrideType(o.Init)
-	} else {
-		// No type, no init — this is an error in WGSL, but we default to f32.
-		typeHandle = l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+		explicit = &th
+	}
+	// The initializer goes to GlobalExpressions now, in declaration order,
+	// like a var<private> initializer (Rust: type_and_init with
+	// AbstractRule::Concretize in ctx.as_override()).
+	typeHandle, init, err := l.lowerOverrideContextInit(o.Name, o.Init, explicit)
+	if err != nil {
+		return fmt.Errorf("override %s: %w", o.Name, err)
 	}
 
 	// Parse @id attribute.
@@ -1143,164 +992,13 @@ func (l *Lowerer) lowerOverride(o *parser.OverrideDecl) error {
 		}
 	}
 
-	// Create the Override (init will be set later in buildGlobalExpressions).
-	override := ir.Override{
+	l.module.Overrides = append(l.module.Overrides, ir.Override{
 		Name: o.Name,
 		ID:   id,
 		Ty:   typeHandle,
-		Init: nil, // Set by buildGlobalExpressions
-	}
-
-	l.module.Overrides = append(l.module.Overrides, override)
+		Init: init,
+	})
 	l.moduleOverrides[o.Name] = overrideHandle
-
-	// Build and store the simplified init expression for later use
-	// in buildGlobalExpressions (to create the global expression for this override).
-	if o.Init != nil {
-		initExpr := l.buildOverrideInitExpr(o.Init)
-		if initExpr != nil {
-			if l.overrideInitExprs == nil {
-				l.overrideInitExprs = make(map[ir.OverrideHandle]ir.OverrideInitExpr)
-			}
-			l.overrideInitExprs[overrideHandle] = initExpr
-		}
-	}
-
-	return nil
-}
-
-// inferOverrideType infers the concrete type for an override from its init expression.
-// Overrides are always concrete (never abstract).
-func (l *Lowerer) inferOverrideType(init parser.Expr) ir.TypeHandle {
-	switch e := init.(type) {
-	case *parser.Literal:
-		switch e.Kind {
-		case parser.TokenFloatLiteral:
-			return l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-		case parser.TokenIntLiteral:
-			// Check for suffix
-			if len(e.Value) > 0 {
-				last := e.Value[len(e.Value)-1]
-				switch last {
-				case 'u':
-					return l.registerType("u32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-				case 'i':
-					return l.registerType("i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
-				}
-			}
-			// Unsuffixed integer literal in override context => i32
-			return l.registerType("i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
-		case parser.TokenTrue, parser.TokenFalse:
-			return l.registerType("bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
-		}
-	case *parser.Ident:
-		// Reference to another override — inherit its type.
-		if oh, ok := l.moduleOverrides[e.Name]; ok {
-			if int(oh) < len(l.module.Overrides) {
-				return l.module.Overrides[oh].Ty
-			}
-		}
-		// Reference to an abstract constant — infer concrete type.
-		if info, ok := l.abstractConstants[e.Name]; ok && info.scalarValue != nil {
-			switch info.scalarValue.Kind {
-			case ir.ScalarSint:
-				return l.registerType("", ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
-			case ir.ScalarUint:
-				return l.registerType("", ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-			case ir.ScalarFloat:
-				return l.registerType("", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-			}
-		}
-		// Reference to a constant — inherit its type.
-		if ch, ok := l.moduleConstants[e.Name]; ok {
-			if int(ch) < len(l.module.Constants) {
-				return l.module.Constants[ch].Type
-			}
-		}
-	}
-	// Default to f32 for override expressions.
-	return l.registerType("f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
-}
-
-// buildOverrideInitExpr builds a simplified AST for override init re-evaluation.
-// Returns nil if the expression can't be represented.
-func (l *Lowerer) buildOverrideInitExpr(expr parser.Expr) ir.OverrideInitExpr {
-	switch e := expr.(type) {
-	case *parser.Literal:
-		// Handle bool literals
-		if e.Kind == parser.TokenTrue || (e.Kind == parser.TokenBoolLiteral && e.Value == "true") {
-			return ir.OverrideInitBoolLiteral{Value: true}
-		}
-		if e.Kind == parser.TokenFalse || (e.Kind == parser.TokenBoolLiteral && e.Value == "false") {
-			return ir.OverrideInitBoolLiteral{Value: false}
-		}
-		// Handle integer literals (may have suffix)
-		if e.Kind == parser.TokenIntLiteral {
-			s := e.Value
-			isUnsigned := false
-			if len(s) > 0 && s[len(s)-1] == 'u' {
-				isUnsigned = true
-				s = s[:len(s)-1]
-			} else if len(s) > 0 && s[len(s)-1] == 'i' {
-				s = s[:len(s)-1]
-			}
-			if ival, err := strconv.ParseInt(s, 0, 64); err == nil {
-				if isUnsigned {
-					return ir.OverrideInitUintLiteral{Value: uint32(ival)}
-				}
-				return ir.OverrideInitLiteral{Value: float64(ival)}
-			}
-		}
-		// Float literal: strip the type suffix (lf, h, f — same order as
-		// evalLiteral) before parsing; the value is converted to the
-		// override's declared type later. Previously `2.3f` / `1.5h` failed
-		// to parse and the default value was dropped (Override.Init nil).
-		text := e.Value
-		switch {
-		case strings.HasSuffix(text, "lf"):
-			text = strings.TrimSuffix(text, "lf")
-		case strings.HasSuffix(text, "h"), strings.HasSuffix(text, "f"):
-			text = text[:len(text)-1]
-		}
-		val, err := strconv.ParseFloat(text, 64)
-		if err != nil {
-			return nil
-		}
-		return ir.OverrideInitLiteral{Value: val}
-	case *parser.Ident:
-		if handle, ok := l.moduleOverrides[e.Name]; ok {
-			return ir.OverrideInitRef{Handle: handle}
-		}
-		return nil
-	case *parser.BinaryExpr:
-		left := l.buildOverrideInitExpr(e.Left)
-		right := l.buildOverrideInitExpr(e.Right)
-		if left == nil || right == nil {
-			return nil
-		}
-		op, ok := binaryOpTable[e.Op]
-		if !ok {
-			return nil
-		}
-		return ir.OverrideInitBinary{Op: op, Left: left, Right: right}
-	case *parser.UnaryExpr:
-		inner := l.buildOverrideInitExpr(e.Operand)
-		if inner == nil {
-			return nil
-		}
-		var op ir.UnaryOperator
-		switch e.Op {
-		case parser.TokenMinus:
-			op = ir.UnaryNegate
-		case parser.TokenBang:
-			op = ir.UnaryLogicalNot
-		case parser.TokenTilde:
-			op = ir.UnaryBitwiseNot
-		default:
-			return nil
-		}
-		return ir.OverrideInitUnary{Op: op, Expr: inner}
-	}
 	return nil
 }
 
@@ -1415,120 +1113,6 @@ func convertScalarBits(srcKind ir.ScalarKind, bits uint64, target ir.ScalarType)
 		// Same kind family (sint<->uint): keep bits as-is
 		return bits
 	}
-}
-
-// lowerConstant converts a constant declaration to IR.
-func (l *Lowerer) lowerConstant(c *parser.ConstDecl) error {
-	if c.Init == nil {
-		return fmt.Errorf("module constant '%s' must have initializer", c.Name)
-	}
-
-	// Track whether this constant has abstract type in Rust naga.
-	// In Rust naga, constants whose type is abstract (e.g., `const ONE = 1;`)
-	// are NOT added to module.constants at all — they are inlined at use sites.
-	// We mirror this by storing abstract constants in a separate map to avoid
-	// registering abstract types in the type arena (which would pollute type order).
-	isAbstract := c.Type == nil && !l.initHasConcreteType(c.Init)
-
-	// For abstract constants: store in abstractConstants map WITHOUT registering
-	// types or adding to module.Constants. This matches Rust naga where abstract
-	// constants exist only in the frontend context and are never in the module.
-	if isAbstract {
-		return l.lowerAbstractConstant(c)
-	}
-
-	constsBefore := len(l.module.Constants)
-
-	var err error
-	switch init := c.Init.(type) {
-	case *parser.Literal:
-		err = l.lowerScalarConstant(c.Name, c.Type, init)
-	case *parser.ConstructExpr:
-		err = l.lowerCompositeConstant(c.Name, c.Type, init, false)
-	case *parser.CallExpr:
-		// Handle struct constructor: Foo(args...) or scalar constructor: i32(val)
-		err = l.lowerCallConstant(c.Name, c.Type, init)
-	case *parser.Ident:
-		// Alias to another constant: const FOUR_ALIAS = FOUR;
-		err = l.lowerConstantAlias(c.Name, c.Type, init)
-	case *parser.BinaryExpr:
-		// Constant binary expression: const X = A + B;
-		err = l.lowerConstantBinaryExpr(c.Name, c.Type, init)
-	case *parser.UnaryExpr:
-		err = l.lowerConstantUnaryExpr(c.Name, c.Type, init)
-	default:
-		return fmt.Errorf("module constant '%s': unsupported initializer %T", c.Name, c.Init)
-	}
-	if err != nil {
-		return err
-	}
-
-	// Build GlobalExpressions inline for concrete constants.
-	// Building inline ensures types are registered in source order (matching Rust naga).
-	for i := constsBefore; i < len(l.module.Constants); i++ {
-		if l.module.Constants[i].IsAbstract {
-			continue // Should not happen now, but keep as safety
-		}
-		if l.module.Constants[i].Name == "" {
-			continue // Unnamed sub-constant — GE created by parent
-		}
-		ch := ir.ConstantHandle(i)
-		if l.constsWithInlineInit[ch] {
-			continue
-		}
-		l.module.Constants[i].Init = l.buildConstGlobalExpr(&l.module.Constants[i])
-		l.markConstInlineInit(ch)
-	}
-	return nil
-}
-
-// lowerAbstractConstant stores an abstract constant in the abstractConstants map
-// without registering types or adding to module.Constants.
-// Abstract scalar constants are stored as ScalarValue for inlining as abstract literals.
-// Abstract composite constants store the original AST for re-lowering at use sites.
-func (l *Lowerer) lowerAbstractConstant(c *parser.ConstDecl) error {
-	switch init := c.Init.(type) {
-	case *parser.Literal:
-		scalarKind, bits, err := l.evalLiteral(init)
-		if err != nil {
-			return fmt.Errorf("abstract constant '%s': %w", c.Name, err)
-		}
-		sv := ir.ScalarValue{Bits: bits, Kind: scalarKind}
-		l.abstractConstants[c.Name] = &abstractConstInfo{scalarValue: &sv}
-	case *parser.ConstructExpr:
-		l.abstractConstants[c.Name] = &abstractConstInfo{compositeAST: init}
-	case *parser.BinaryExpr:
-		// Abstract binary constant: evaluate and store as scalar
-		scalarKind, bits, err := l.evalConstBinaryExpr(init)
-		if err != nil {
-			return fmt.Errorf("abstract constant '%s': %w", c.Name, err)
-		}
-		sv := ir.ScalarValue{Bits: bits, Kind: scalarKind}
-		l.abstractConstants[c.Name] = &abstractConstInfo{scalarValue: &sv}
-	case *parser.UnaryExpr:
-		// Abstract unary constant: evaluate and store as scalar
-		scalarKind, bits, err := l.evalConstUnaryExpr(init)
-		if err != nil {
-			return fmt.Errorf("abstract constant '%s': %w", c.Name, err)
-		}
-		sv := ir.ScalarValue{Bits: bits, Kind: scalarKind}
-		l.abstractConstants[c.Name] = &abstractConstInfo{scalarValue: &sv}
-	case *parser.Ident:
-		// Alias to another abstract constant
-		if info, ok := l.abstractConstants[init.Name]; ok {
-			l.abstractConstants[c.Name] = info
-		} else if ch, ok := l.moduleConstants[init.Name]; ok {
-			// Alias to a concrete constant — this shouldn't happen for abstract
-			// but handle gracefully by falling back to old path
-			_ = ch
-			return l.lowerConstantAlias(c.Name, c.Type, init)
-		} else {
-			return fmt.Errorf("abstract constant '%s': unknown reference '%s'", c.Name, init.Name)
-		}
-	default:
-		return fmt.Errorf("abstract constant '%s': unsupported initializer %T", c.Name, c.Init)
-	}
-	return nil
 }
 
 // evalConstBinaryExpr evaluates a constant binary expression to scalar kind and bits.
@@ -3686,6 +3270,10 @@ func (l *Lowerer) functionHasForwardRefs(f *parser.FunctionDecl, processedNames,
 
 // lowerFunction converts a function declaration to IR.
 func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
+	// Outside a function the lowerer is at module scope: const-expressions
+	// met there (constLiteral) go to Module.GlobalExpressions.
+	defer func() { l.currentFunc = nil }()
+
 	// Reset local context by clearing maps instead of reallocating.
 	for k := range l.locals {
 		delete(l.locals, k)
@@ -3744,14 +3332,6 @@ func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
 		NamedExpressions: make(map[ir.ExpressionHandle]string, nParams+4),
 	}
 	l.currentFunc = fn
-	// Reuse nonConstExprs map — clear instead of reallocating.
-	if l.nonConstExprs == nil {
-		l.nonConstExprs = make(map[ir.ExpressionHandle]bool, 8)
-	} else {
-		for k := range l.nonConstExprs {
-			delete(l.nonConstExprs, k)
-		}
-	}
 
 	// Lower parameters
 	for i, p := range f.Params {
@@ -3771,9 +3351,12 @@ func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
 		}
 
 		// Register parameter as local expression (FunctionArgument)
-		exprHandle := l.addExpression(ir.Expression{
+		exprHandle, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprFunctionArgument{Index: uint32(i)},
 		})
+		if err != nil {
+			return err
+		}
 		l.locals[p.Name] = exprHandle
 		// Rust naga adds function arguments to named_expressions
 		fn.NamedExpressions[exprHandle] = p.Name
@@ -4013,9 +3596,9 @@ func (l *Lowerer) lowerStatement(stmt parser.Stmt, target *[]ir.Statement) error
 	}
 }
 
-// lowerReturn converts a return statement to IR.
-// Concretizes abstract literals in the return value to match the function's return type.
-// E.g., `return 1;` in a function returning f32 → concretize AbstractInt(1) to LiteralF32(1.0).
+// lowerReturn converts a return statement to IR (Rust StatementKind::Return):
+// the value, abstract or not, converts to the function's result type with
+// automatic conversions (`return 1;` in an f32 function returns 1.0).
 func (l *Lowerer) lowerReturn(ret *parser.ReturnStmt, target *[]ir.Statement) error {
 	var valueHandle *ir.ExpressionHandle
 	if ret.Value != nil {
@@ -4024,13 +3607,13 @@ func (l *Lowerer) lowerReturn(ret *parser.ReturnStmt, target *[]ir.Statement) er
 		if err != nil {
 			return err
 		}
+		if l.currentFunc != nil && l.currentFunc.Result != nil {
+			if handle, err = l.tryAutomaticConversions(handle, l.module.Types[l.currentFunc.Result.Type].Inner); err != nil {
+				return err
+			}
+		}
 		l.emitFinish(emitStart, target)
 		valueHandle = &handle
-
-		// Concretize abstract literals to match the function's declared return type.
-		if l.currentFunc != nil && l.currentFunc.Result != nil {
-			l.concretizeExpressionToType(handle, l.currentFunc.Result.Type)
-		}
 	}
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtReturn{Value: valueHandle},
@@ -4068,25 +3651,20 @@ func (l *Lowerer) lowerLocalVar(v *parser.VarDecl, target *[]ir.Statement) error
 		initHandle = &init
 	}
 
-	// Infer type from initializer if no explicit type
-	if !hasExplicitType {
-		if initHandle != nil {
-			var err error
-			typeHandle, err = l.inferTypeFromExpression(*initHandle)
-			if err != nil {
-				return fmt.Errorf("local var %s type inference: %w", v.Name, err)
-			}
-		} else {
-			return fmt.Errorf("local var %s: type required without initializer", v.Name)
-		}
-	}
-
-	// Concretize abstract literals in the initializer to match the variable's type.
-	// For explicit type: var x: u32 = 42 → concretize AbstractInt(42) to LiteralU32(42).
-	// For inferred type: var idx = 1 → concretize AbstractInt(1) to LiteralI32(1).
-	// Rust naga always concretizes abstract literals at var declaration sites.
+	// Rust type_and_init: convert the initializer to the declared type, or
+	// concretize it and take its type.
 	if initHandle != nil {
-		l.concretizeExpressionToType(*initHandle, typeHandle)
+		var explicit *ir.TypeHandle
+		if hasExplicitType {
+			explicit = &typeHandle
+		}
+		ty, init, err := l.typeAndInit(v.Name, *initHandle, explicit, concretizeAbstract)
+		if err != nil {
+			return err
+		}
+		typeHandle, *initHandle = ty, init
+	} else if !hasExplicitType {
+		return fmt.Errorf("local var %s: type required without initializer", v.Name)
 	}
 
 	localIdx := uint32(len(l.currentFunc.LocalVars))
@@ -4119,9 +3697,12 @@ func (l *Lowerer) lowerLocalVar(v *parser.VarDecl, target *[]ir.Statement) error
 	// Matches Rust: interrupt_emitter(LocalVariable) flushes the current emit
 	// (covering init expressions), adds LocalVariable outside emit range,
 	// then block.extend(emitter.finish()) adds any remaining emit.
-	exprHandle := l.interruptEmitter(ir.Expression{
+	exprHandle, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprLocalVariable{Variable: localIdx},
 	})
+	if err != nil {
+		return err
+	}
 	// emitter.finish() — any expressions after LocalVariable (usually empty)
 	if v.Init != nil {
 		endEmit := l.currentExprIdx
@@ -4158,39 +3739,7 @@ func (l *Lowerer) isConstExpression(handle ir.ExpressionHandle) bool {
 	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.Expressions) {
 		return false
 	}
-	// Rust naga's ExpressionKindTracker: let-bound expressions are forced non-const.
-	// This matches force_non_const() in the WGSL lowerer.
-	if l.nonConstExprs != nil && l.nonConstExprs[handle] {
-		return false
-	}
-	expr := &l.currentFunc.Expressions[handle]
-	switch k := expr.Kind.(type) {
-	case ir.Literal:
-		return true
-	case ir.ExprConstant:
-		return true
-	case ir.ExprOverride:
-		return true
-	case ir.ExprZeroValue:
-		return true
-	case ir.ExprSplat:
-		return l.isConstExpression(k.Value)
-	case ir.ExprCompose:
-		for _, c := range k.Components {
-			if !l.isConstExpression(c) {
-				return false
-			}
-		}
-		return true
-	case ir.ExprAs:
-		return l.isConstExpression(k.Expr)
-	case ir.ExprUnary:
-		return l.isConstExpression(k.Expr)
-	case ir.ExprBinary:
-		return l.isConstExpression(k.Left) && l.isConstExpression(k.Right)
-	default:
-		return false
-	}
+	return l.eval().IsConstOrOverride(handle)
 }
 
 // constEvalExprToU32 tries to evaluate an expression as a compile-time constant u32.
@@ -4230,27 +3779,16 @@ func (l *Lowerer) lowerAssign(assign *parser.AssignStmt, target *[]ir.Statement)
 	// WGSL discard pattern: _ = expr; evaluates RHS for side effects, discards result.
 	// Matches Rust naga: preserve as named expression "phony" so backends emit it.
 	if ident, ok := assign.Left.(*parser.Ident); ok && ident.Name == "_" {
-		// Try const-evaluating the phony RHS. Rust naga's ConstantEvaluator
-		// evaluates pure constant expressions (like select(1, 2f, false)) at
-		// lowering time, producing a single ExprConstant in the function arena
-		// instead of separate literal + operation expressions. This keeps
-		// expression handle numbering aligned with Rust.
-		if handle, ok := l.tryConstEvalPhonyExpr(assign.Right); ok {
-			// Const-evaluated results (Literal/Constant) are non-emittable,
-			// so no Emit statement is needed.
-			l.addPhonyExpression(handle)
-			return nil
-		}
-
 		emitStart := l.emitStartWithTarget(target)
 		rhs, err := l.lowerExpression(assign.Right, target)
 		if err != nil {
 			return err
 		}
-		// Matches Rust naga: expression() concretizes abstract values.
-		// Phony assignments use the standard expression() path which
-		// calls concretize() after evaluation.
-		l.concretizeAbstractToDefault(rhs)
+		// Rust: a phony assignment lowers its value with expression(),
+		// which concretizes abstract values.
+		if rhs, err = l.concretize(rhs); err != nil {
+			return err
+		}
 		l.emitFinish(emitStart, target)
 		// Matches Rust naga: ALL phony assignments are added unconditionally.
 		l.addPhonyExpression(rhs)
@@ -4298,41 +3836,10 @@ func (l *Lowerer) lowerAssign(assign *parser.AssignStmt, target *[]ir.Statement)
 	if err != nil {
 		return err
 	}
-	value, err := l.lowerExpression(assign.Right, target)
+	value, err := l.lowerAssignValue(pointer, assign.Op, assign.Right, assign.Increment, target)
 	if err != nil {
 		return err
 	}
-
-	// Handle compound assignments (+=, -=, etc.)
-	// Matches Rust naga's increment/compound-assign order:
-	// 1. Concretize the RHS value (creates literal expression if needed)
-	// 2. Load the current LHS value from the pointer
-	// 3. Create the binary operation (left=Load, right=concretized value)
-	// This order matters for expression handle numbering to match Rust.
-	if assign.Op != parser.TokenEqual {
-		op := l.assignOpToBinary(assign.Op)
-		// Concretize abstract literals BEFORE loading the pointer value.
-		// This matches Rust naga where the literal is created first (via
-		// interrupt_emitter) and then the Load expression is appended.
-		l.concretizeCompoundAssignRHS(pointer, &value)
-		// Apply load rule to get the current value from the pointer.
-		// Must happen BEFORE Splat to match Rust expression ordering:
-		// concretize → Load → Splat → Binary
-		loaded := l.applyLoadRule(pointer)
-		// Splat scalar RHS to match vector LHS (e.g., a += 1.0 where a: vec2<f32>).
-		value = l.splatScalarToMatchPointer(pointer, value)
-		value = l.addExpression(ir.Expression{
-			Kind: ir.ExprBinary{
-				Op:    op,
-				Left:  loaded,
-				Right: value,
-			},
-		})
-	}
-	// Concretize abstract RHS to match the store target's type.
-	// E.g., c2[vi + 1u] = 42; where c2 is vec2<u32> → concretize AbstractInt(42) to U32(42).
-	l.concretizeStoreValue(pointer, value)
-
 	l.emitFinish(emitStart, target)
 
 	*target = append(*target, ir.Statement{
@@ -4462,9 +3969,12 @@ func (l *Lowerer) lowerSwizzleAssign(
 	fullSize := int(vec.Size)
 
 	// Step 2: Load original vector value.
-	loadExpr := l.addExpression(ir.Expression{
+	loadExpr, err := l.addExpression(ir.Expression{
 		Kind: ir.ExprLoad{Pointer: basePtr},
 	})
+	if err != nil {
+		return err
+	}
 
 	// Step 3: Lower RHS value.
 	rhsValue, err := l.lowerExpression(rhs, target)
@@ -4484,18 +3994,24 @@ func (l *Lowerer) lowerSwizzleAssign(
 		for i, idx := range sa.indices {
 			pattern[i] = ir.SwizzleComponent(idx)
 		}
-		origSwizzled := l.addExpression(ir.Expression{
+		origSwizzled, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprSwizzle{Size: swizzleSize, Vector: loadExpr, Pattern: pattern},
 		})
+		if err != nil {
+			return err
+		}
 
 		// Apply binary operation: origSwizzled op rhs.
-		sourceValue = l.addExpression(ir.Expression{
+		sourceValue, err = l.addExpression(ir.Expression{
 			Kind: ir.ExprBinary{
 				Op:    binOp,
 				Left:  origSwizzled,
 				Right: rhsValue,
 			},
 		})
+		if err != nil {
+			return err
+		}
 	} else {
 		sourceValue = rhsValue
 	}
@@ -4503,9 +4019,12 @@ func (l *Lowerer) lowerSwizzleAssign(
 	// Step 4: Extract source components via AccessIndex.
 	sourceComponents := make([]ir.ExpressionHandle, len(sa.indices))
 	for i := range sa.indices {
-		sourceComponents[i] = l.addExpression(ir.Expression{
+		sourceComponents[i], err = l.addExpression(ir.Expression{
 			Kind: ir.ExprAccessIndex{Base: sourceValue, Index: uint32(i)},
 		})
+		if err != nil {
+			return err
+		}
 	}
 
 	// Step 5: Extract unchanged components from the original vector.
@@ -4519,9 +4038,12 @@ func (l *Lowerer) lowerSwizzleAssign(
 	for i := 0; i < fullSize; i++ {
 		ci := uint32(i)
 		if _, isSwizzled := swizzleSet[ci]; !isSwizzled {
-			origComponents[ci] = l.addExpression(ir.Expression{
+			origComponents[ci], err = l.addExpression(ir.Expression{
 				Kind: ir.ExprAccessIndex{Base: loadExpr, Index: ci},
 			})
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -4538,15 +4060,18 @@ func (l *Lowerer) lowerSwizzleAssign(
 	}
 
 	// Get the full vector type handle for the Compose expression.
-	vecTypeHandle := l.registry.GetOrCreate("", ir.VectorType{
+	vecTypeHandle := l.registerTypeSilent(ir.VectorType{
 		Size:   vec.Size,
 		Scalar: vec.Scalar,
 	})
 	l.module.Types = l.registry.GetTypes()
 
-	newVec := l.addExpression(ir.Expression{
+	newVec, err := l.addExpression(ir.Expression{
 		Kind: ir.ExprCompose{Type: vecTypeHandle, Components: composeComponents},
 	})
+	if err != nil {
+		return err
+	}
 
 	l.emitFinish(emitStart, target)
 
@@ -4811,31 +4336,17 @@ func (l *Lowerer) lowerSingleComponentSwizzleAssign(
 	}
 
 	// Create AccessIndex to the resolved component.
-	componentPtr := l.addExpression(ir.Expression{
+	componentPtr, err := l.addExpression(ir.Expression{
 		Kind: ir.ExprAccessIndex{Base: basePtr, Index: csa.resolvedIndices[0]},
 	})
+	if err != nil {
+		return err
+	}
 
-	// Lower the RHS value.
-	value, err := l.lowerExpression(rhs, target)
+	value, err := l.lowerAssignValue(componentPtr, op, rhs, false, target)
 	if err != nil {
 		return fmt.Errorf("chained swizzle assignment rhs: %w", err)
 	}
-
-	// Handle compound assignment (+=, -=, etc.).
-	if op != parser.TokenEqual {
-		binOp := l.assignOpToBinary(op)
-		l.concretizeCompoundAssignRHS(componentPtr, &value)
-		loaded := l.applyLoadRule(componentPtr)
-		value = l.addExpression(ir.Expression{
-			Kind: ir.ExprBinary{
-				Op:    binOp,
-				Left:  loaded,
-				Right: value,
-			},
-		})
-	}
-	l.concretizeStoreValue(componentPtr, value)
-
 	l.emitFinish(emitStart, target)
 
 	*target = append(*target, ir.Statement{
@@ -4883,14 +4394,17 @@ func (l *Lowerer) lowerDynamicIndexedSwizzleAssign(
 	// Create u32 constants for each swizzle map entry.
 	mapConstants := make([]ir.ExpressionHandle, len(csa.swizzleMap))
 	for i, idx := range csa.swizzleMap {
-		mapConstants[i] = l.addExpression(ir.Expression{
+		mapConstants[i], err = l.addExpression(ir.Expression{
 			Kind: ir.Literal{Value: ir.LiteralU32(idx)},
 		})
+		if err != nil {
+			return err
+		}
 	}
 
 	// Create the array type: array<u32, N>
 	u32Scalar := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
-	u32TypeHandle := l.registry.GetOrCreate("", u32Scalar)
+	u32TypeHandle := l.registerTypeSilent(u32Scalar)
 	arrSize := ir.ArraySize{Constant: new(uint32)}
 	*arrSize.Constant = uint32(len(csa.swizzleMap))
 	arrType := ir.ArrayType{
@@ -4898,18 +4412,24 @@ func (l *Lowerer) lowerDynamicIndexedSwizzleAssign(
 		Size:   arrSize,
 		Stride: 4,
 	}
-	arrTypeHandle := l.registry.GetOrCreate("", arrType)
+	arrTypeHandle := l.registerTypeSilent(arrType)
 	l.module.Types = l.registry.GetTypes()
 
 	// Compose the constant array.
-	mapArray := l.addExpression(ir.Expression{
+	mapArray, err := l.addExpression(ir.Expression{
 		Kind: ir.ExprCompose{Type: arrTypeHandle, Components: mapConstants},
 	})
+	if err != nil {
+		return err
+	}
 
 	// Access the array at the dynamic index to get the original component index.
-	resolvedIdx := l.addExpression(ir.Expression{
+	resolvedIdx, err := l.addExpression(ir.Expression{
 		Kind: ir.ExprAccess{Base: mapArray, Index: dynIdx},
 	})
+	if err != nil {
+		return err
+	}
 
 	// Lower the RHS value.
 	value, err := l.lowerExpression(rhs, target)
@@ -4923,26 +4443,38 @@ func (l *Lowerer) lowerDynamicIndexedSwizzleAssign(
 
 		// Load the current value at the resolved component index.
 		// Use Access (dynamic index) on the loaded vector.
-		loadedVec := l.addExpression(ir.Expression{
+		loadedVec, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprLoad{Pointer: basePtr},
 		})
+		if err != nil {
+			return err
+		}
 
 		// Duplicate the array access for the load side (Dawn emits two accesses).
-		resolvedIdxForLoad := l.addExpression(ir.Expression{
+		resolvedIdxForLoad, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprAccess{Base: mapArray, Index: dynIdx},
 		})
+		if err != nil {
+			return err
+		}
 
-		currentVal := l.addExpression(ir.Expression{
+		currentVal, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprAccess{Base: loadedVec, Index: resolvedIdxForLoad},
 		})
+		if err != nil {
+			return err
+		}
 
-		value = l.addExpression(ir.Expression{
+		value, err = l.addExpression(ir.Expression{
 			Kind: ir.ExprBinary{
 				Op:    binOp,
 				Left:  currentVal,
 				Right: value,
 			},
 		})
+		if err != nil {
+			return err
+		}
 	}
 
 	l.emitFinish(emitStart, target)
@@ -4950,9 +4482,12 @@ func (l *Lowerer) lowerDynamicIndexedSwizzleAssign(
 	// Emit store_vector_element with dynamic resolved index.
 	// In naga IR, this maps to Access + Store on a pointer.
 	// Create Access on the pointer base with the resolved index.
-	componentPtr := l.addExpression(ir.Expression{
+	componentPtr, err := l.addExpression(ir.Expression{
 		Kind: ir.ExprAccess{Base: basePtr, Index: resolvedIdx},
 	})
+	if err != nil {
+		return err
+	}
 
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtStore{Pointer: componentPtr, Value: value},
@@ -5192,45 +4727,16 @@ func (l *Lowerer) lowerLoop(loopStmt *parser.LoopStmt, target *[]ir.Statement) e
 
 // lowerSwitch converts a switch statement to IR.
 func (l *Lowerer) lowerSwitch(switchStmt *parser.SwitchStmt, target *[]ir.Statement) error {
-	// Lower selector expression
+	// Rust naga: the selector and every case value are lowered (abstract
+	// kept) under one emitter, converted to their consensus scalar (i32 when
+	// all are abstract), and the case values read as constants.
 	emitStart := l.emitStartWithTarget(target)
-	selector, err := l.lowerExpression(switchStmt.Selector, target)
+	exprs, err := l.lowerSwitchExprs(switchStmt, target)
 	if err != nil {
-		return fmt.Errorf("switch selector: %w", err)
-	}
-	// Determine consensus type for selector + all case values.
-	// Matches Rust naga: automatic_conversion_consensus across selector and cases,
-	// defaulting to I32 if all are abstract.
-	consensusUnsigned := false
-	// Check if selector is already U32.
-	if inner := l.resolveExprTypeInner(selector); inner != nil {
-		if sc, ok := inner.(ir.ScalarType); ok && sc.Kind == ir.ScalarUint {
-			consensusUnsigned = true
-		}
-	}
-	// Check if any case value is U32 — this overrides consensus.
-	if !consensusUnsigned {
-		for _, clause := range switchStmt.Cases {
-			for _, sel := range clause.Selectors {
-				kind, _, err := l.evalConstantIntExpr(sel)
-				if err == nil && kind == ir.ScalarUint {
-					consensusUnsigned = true
-					break
-				}
-			}
-			if consensusUnsigned {
-				break
-			}
-		}
-	}
-
-	// Concretize abstract selector to consensus type.
-	if consensusUnsigned {
-		l.concretizeAbstractToUint(selector)
-	} else {
-		l.concretizeAbstractToDefault(selector)
+		return err
 	}
 	l.emitFinish(emitStart, target)
+	selector, caseExprs := exprs[0], exprs[1:]
 
 	var cases []ir.SwitchCase
 	for i, clause := range switchStmt.Cases {
@@ -5264,22 +4770,12 @@ func (l *Lowerer) lowerSwitch(switchStmt *parser.SwitchStmt, target *[]ir.Statem
 					FallThrough: true,
 				})
 			}
-			for j, sel := range clause.Selectors {
-				value, err := l.lowerSwitchCaseValue(sel)
+			for j := range clause.Selectors {
+				value, err := l.switchCaseValue(caseExprs[0])
 				if err != nil {
 					return fmt.Errorf("switch case %d selector: %w", i, err)
 				}
-				// Coerce case value to consensus type.
-				// Matches Rust naga: all case values match the consensus scalar type.
-				if consensusUnsigned {
-					if v, ok := value.(ir.SwitchValueI32); ok {
-						value = ir.SwitchValueU32(uint32(v))
-					}
-				} else {
-					if v, ok := value.(ir.SwitchValueU32); ok {
-						value = ir.SwitchValueI32(int32(v))
-					}
-				}
+				caseExprs = caseExprs[1:]
 				isLast := j == len(clause.Selectors)-1
 				if clause.IsDefault && !clause.DefaultFirst && isLast {
 					// Default appears after selectors: last selector is fallthrough,
@@ -5322,37 +4818,72 @@ func (l *Lowerer) lowerSwitch(switchStmt *parser.SwitchStmt, target *[]ir.Statem
 	return nil
 }
 
-// lowerSwitchCaseValue converts a switch case selector to IR.
-// Handles literal integers, named constants, constant binary expressions,
-// and type constructor zero values (e.g., i32()).
-func (l *Lowerer) lowerSwitchCaseValue(expr parser.Expr) (ir.SwitchValue, error) {
-	kind, val, err := l.evalConstantIntExpr(expr)
+// lowerSwitchExprs lowers the selector and the case values of a switch, in
+// source order, and converts them to their consensus scalar (Rust
+// StatementKind::Switch). The result is the selector followed by one
+// expression per case value.
+func (l *Lowerer) lowerSwitchExprs(sw *parser.SwitchStmt, target *[]ir.Statement) ([]ir.ExpressionHandle, error) {
+	isSwitchInt := func(h ir.ExpressionHandle) bool {
+		s, ok := l.exprInner(h).(ir.ScalarType)
+		return ok && (s == ir.ScalarType{Kind: ir.ScalarSint, Width: 4} ||
+			s == ir.ScalarType{Kind: ir.ScalarUint, Width: 4} || s.Kind == ir.ScalarAbstractInt)
+	}
+	selector, err := l.lowerExpression(sw.Selector, target)
 	if err != nil {
-		return nil, fmt.Errorf("switch case selector: %w", err)
+		return nil, fmt.Errorf("switch selector: %w", err)
 	}
-	switch kind {
-	case ir.ScalarUint:
-		return ir.SwitchValueU32(uint32(val)), nil
-	case ir.ScalarSint:
-		return ir.SwitchValueI32(int32(val)), nil
-	default:
-		return nil, fmt.Errorf("switch case selector must be integer, got %v", kind)
+	if !isSwitchInt(selector) {
+		return nil, fmt.Errorf("invalid `switch` selector: `switch` selector must be a scalar integer")
 	}
+	exprs := []ir.ExpressionHandle{selector}
+	for _, clause := range sw.Cases {
+		for _, sel := range clause.Selectors {
+			h, err := l.lowerExpression(sel, target)
+			if err != nil {
+				return nil, fmt.Errorf("switch case selector: %w", err)
+			}
+			if !isSwitchInt(h) {
+				return nil, fmt.Errorf("invalid `switch` case selector value: `switch` case selector must be a scalar integer const expression")
+			}
+			exprs = append(exprs, h)
+		}
+	}
+	consensus, _, ok := l.conversionConsensus(nil, exprs)
+	if !ok {
+		return nil, fmt.Errorf("invalid `switch` case selector value: `switch` case selector must have the same type as the `switch` selector expression")
+	}
+	if consensus.Kind == ir.ScalarAbstractInt {
+		consensus = ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
+	}
+	if err := l.convertSliceToCommonLeafScalar(exprs, consensus); err != nil {
+		return nil, err
+	}
+	return exprs, nil
 }
 
-// evalConstAssert evaluates a const_assert condition expression.
-// Returns an error if the condition evaluates to false.
-// If the expression cannot be evaluated (complex const functions, float comparisons),
-// it is silently accepted to avoid regressions on valid but complex shaders.
-// Matches Rust naga's ConstAssertFailed error for the evaluable case.
+// switchCaseValue reads a converted case value (Rust get_const_val).
+func (l *Lowerer) switchCaseValue(h ir.ExpressionHandle) (ir.SwitchValue, error) {
+	lit, _ := l.eval().Literal(h)
+	switch v := lit.(type) {
+	case ir.LiteralI32:
+		return ir.SwitchValueI32(v), nil
+	case ir.LiteralU32:
+		return ir.SwitchValueU32(v), nil
+	}
+	return nil, fmt.Errorf("invalid `switch` case selector value: `switch` case selector must be a scalar integer const expression")
+}
+
+// evalConstAssert evaluates a const_assert condition (Rust
+// GlobalDeclKind::ConstAssert / StatementKind::ConstAssert): a
+// const-expression of type bool that must be true.
 func (l *Lowerer) evalConstAssert(condition parser.Expr) error {
-	val, ok := l.tryEvalConstantBool(condition)
+	lit, err := l.constLiteral(condition)
+	if err != nil {
+		return fmt.Errorf("const_assert: %w", err)
+	}
+	val, ok := lit.(ir.LiteralBool)
 	if !ok {
-		// Cannot evaluate — silently accept. Full constant evaluator would
-		// handle select(), all(), float comparisons etc. For now we only
-		// enforce the evaluable subset (bool literals, int comparisons,
-		// logical operators, named int/bool constants).
-		return nil
+		return fmt.Errorf("const_assert: must be a const-expression that resolves to a `bool`")
 	}
 	if !val {
 		return fmt.Errorf("const_assert failed")
@@ -5785,44 +5316,34 @@ func (l *Lowerer) lowerLocalConst(decl *parser.ConstDecl, target *[]ir.Statement
 		hasExplicitType = true
 	}
 
-	// For abstract local const declarations (no explicit type, abstract init),
-	// store the init AST for deferred lowering at use site, matching Rust naga
-	// where abstract const expressions are created during declaration but removed
-	// by compact. The concrete expressions are created fresh when referenced.
-	if decl.IsConst && !hasExplicitType && !l.initHasConcreteType(decl.Init) {
-		l.scopeSet(decl.Name)
-		l.localAbstractASTs[decl.Name] = decl.Init
-		l.localConsts[decl.Name] = true
-
-		// Still create the abstract expression to match Rust naga's pattern:
-		// Rust creates the expression during const declaration but it becomes dead
-		// after concretization at the use site. CompactExpressions removes it.
+	// Rust: a const is lowered in the const context of the function (every
+	// expression must evaluate) and may stay abstract; a let is a run-time
+	// expression and is concretized (type_and_init with AbstractRule).
+	var explicit *ir.TypeHandle
+	if hasExplicitType {
+		explicit = &explicitType
+	}
+	lowerInit := func(rule abstractRule) (ir.ExpressionHandle, error) {
 		emitStart := l.emitStartWithTarget(target)
-		initHandle, err := l.lowerExpression(decl.Init, target)
+		h, err := l.lowerExpression(decl.Init, target)
 		if err != nil {
-			return fmt.Errorf("const '%s' initializer: %w", decl.Name, err)
+			return 0, fmt.Errorf("const '%s' initializer: %w", decl.Name, err)
+		}
+		if _, h, err = l.typeAndInit(decl.Name, h, explicit, rule); err != nil {
+			return 0, err
 		}
 		l.emitFinish(emitStart, target)
-		// Store the handle but DON'T concretize — it stays abstract.
-		// The handle is NOT used for var init; a fresh handle is created at use site.
-		l.locals[decl.Name] = initHandle
-		return nil
+		return h, nil
 	}
-
-	// Lower the initializer expression
-	emitStart := l.emitStartWithTarget(target)
-	initHandle, err := l.lowerExpression(decl.Init, target)
+	var initHandle ir.ExpressionHandle
+	var err error
+	if decl.IsConst {
+		initHandle, err = l.inConstContext(func() (ir.ExpressionHandle, error) { return lowerInit(allowAbstract) })
+	} else {
+		initHandle, err = lowerInit(concretizeAbstract)
+	}
 	if err != nil {
-		return fmt.Errorf("const '%s' initializer: %w", decl.Name, err)
-	}
-	l.emitFinish(emitStart, target)
-
-	// Concretize abstract literals to match explicit type annotation or default type.
-	if hasExplicitType {
-		l.concretizeExpressionToType(initHandle, explicitType)
-	} else if !decl.IsConst {
-		// No explicit type on let/var: concretize abstract to default.
-		l.concretizeAbstractToDefault(initHandle)
+		return err
 	}
 
 	// WGSL discard pattern: let _ = expr; evaluates expr, discards the result.
@@ -5847,10 +5368,9 @@ func (l *Lowerer) lowerLocalConst(decl *parser.ConstDecl, target *[]ir.Statement
 			l.currentFunc.NamedExpressions[initHandle] = decl.Name
 		}
 
-		// WGSL spec: let-bound expressions are NOT const expressions.
-		if l.nonConstExprs != nil {
-			l.nonConstExprs[initHandle] = true
-		}
+		// WGSL spec: let-bound expressions are NOT const expressions
+		// (Rust force_non_const).
+		l.eval().ForceRuntime(initHandle)
 	}
 
 	return nil
@@ -5871,7 +5391,7 @@ func (l *Lowerer) lowerExpression(expr parser.Expr, target *[]ir.Statement) (ir.
 		if l.localIsPtr[e.Name] {
 			return handle, nil
 		}
-		return l.applyLoadRule(handle), nil
+		return l.applyLoadRule(handle)
 	case *parser.BinaryExpr:
 		return l.lowerBinary(e, target)
 	case *parser.UnaryExpr:
@@ -5885,13 +5405,13 @@ func (l *Lowerer) lowerExpression(expr parser.Expr, target *[]ir.Statement) (ir.
 		if err != nil {
 			return 0, err
 		}
-		return l.applyLoadRule(handle), nil
+		return l.applyLoadRule(handle)
 	case *parser.IndexExpr:
 		handle, err := l.lowerIndex(e, target)
 		if err != nil {
 			return 0, err
 		}
-		return l.applyLoadRule(handle), nil
+		return l.applyLoadRule(handle)
 	case *parser.BitcastExpr:
 		return l.lowerBitcast(e, target)
 	default:
@@ -5976,19 +5496,11 @@ func (l *Lowerer) lowerLiteral(lit *parser.Literal) (ir.ExpressionHandle, error)
 
 	return l.interruptEmitter(ir.Expression{
 		Kind: ir.Literal{Value: value},
-	}), nil
+	})
 }
 
 // lowerBinary converts a binary expression to IR.
 func (l *Lowerer) lowerBinary(bin *parser.BinaryExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	// Fast path: if both operands are AST literals, try folding directly
-	// without creating intermediate expressions. This matches Rust naga's
-	// try_eval_and_append which evaluates const expressions before appending,
-	// avoiding extra expression arena entries.
-	if result, ok := l.tryFoldASTBinary(bin); ok {
-		return result, nil
-	}
-
 	op := l.tokenToBinaryOp(bin.Op)
 
 	// Short-circuit logical operators (&&, ||) in runtime context.
@@ -6008,47 +5520,40 @@ func (l *Lowerer) lowerBinary(bin *parser.BinaryExpr, target *[]ir.Statement) (i
 		return 0, err
 	}
 
-	// Concretize abstract literals based on the other operand's concrete type.
-	// In WGSL, an unsuffixed integer like `0` is an abstract integer that takes
-	// the type of the other operand (e.g., `id.x == 0` where id.x is u32
-	// should make 0 a u32 literal).
-	// Exception: for shift operations, the left and right operands have
-	// independent types, so don't concretize one based on the other.
+	// Convert `scalar op vector` to `vector op vector` (Rust binary_op_splat:
+	// + - / % only; backends handle vec * scalar).
+	left, right, err = l.binaryOpSplat(op, left, right)
+	if err != nil {
+		return 0, err
+	}
+
+	// Automatic conversions, as Rust naga's binary().
 	if op == ir.BinaryShiftLeft || op == ir.BinaryShiftRight {
-		// Rust naga: right operand must be u32 (try_automatic_conversion_for_leaf_scalar).
-		// If right is abstract int, convert to u32.
-		right = l.concretizeShiftRight(right)
-		// Rust naga: if right is NOT a const expression, concretize left.
-		// This creates a NEW expression (matching Rust's const evaluator behavior
-		// where concretize appends to the expression arena rather than modifying in place).
-		if !l.isConstExpression(right) {
-			left = l.concretizeShiftLeft(left)
+		// The right operand must be, or convert to, a u32 leaf scalar.
+		if right, err = l.tryAutomaticConversionForLeafScalar(right, scalarU32); err != nil {
+			return 0, err
 		}
-	} else {
-		left, right = l.concretizeBinaryOperands(left, right)
+		// WGSL overload resolution: an abstract left operand is concretized
+		// when the right operand is not a const-expression.
+		if !l.eval().IsConst(right) {
+			if left, err = l.concretize(left); err != nil {
+				return 0, err
+			}
+		}
+	} else if consensus, _, ok := l.conversionConsensus(nil, []ir.ExpressionHandle{left, right}); ok {
+		// Reconcile the leaf scalars; if that is impossible, validation
+		// reports the operand types.
+		if left, err = l.convertToLeafScalar(left, consensus); err != nil {
+			return 0, err
+		}
+		if right, err = l.convertToLeafScalar(right, consensus); err != nil {
+			return 0, err
+		}
 	}
-
-	// Constant fold: binary ops on scalar literals.
-	// Matches Rust naga constant evaluator binary_op folding.
-	if result, ok := l.tryFoldBinaryOp(op, left, right); ok {
-		return result, nil
-	}
-
-	// Constant fold: binary ops on vector of literals (Compose/Splat).
-	// Matches Rust naga constant evaluator which folds Compose op Compose,
-	// Compose op Literal (broadcast), and Literal op Compose (broadcast).
-	if result, ok := l.tryFoldVectorBinaryOp(op, left, right); ok {
-		return result, nil
-	}
-
-	// Insert Splat for non-multiply operations with mixed vector/scalar operands.
-	// Rust naga inserts Splat for Add, Subtract, Divide, and Modulo but NOT Multiply,
-	// because backends handle vec*scalar natively. See binary_op_splat in Rust source.
-	left, right = l.binaryOpSplat(op, left, right)
 
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprBinary{Op: op, Left: left, Right: right},
-	}), nil
+	})
 }
 
 // lowerLogicalShortCircuit generates short-circuit IR for && and ||.
@@ -6072,24 +5577,26 @@ func (l *Lowerer) lowerLogicalShortCircuit(op ir.BinaryOperator, leftAST, rightA
 		return 0, err
 	}
 
-	// Const short-circuit: if LHS is a const bool literal, we can short-circuit
-	// without creating If-blocks (matches Rust const context path).
-	if lit, ok := l.extractConstLiteral(left); ok {
-		if boolVal, isBool := lit.(ir.LiteralBool); isBool {
-			if (op == ir.BinaryLogicalAnd && !bool(boolVal)) ||
-				(op == ir.BinaryLogicalOr && bool(boolVal)) {
-				// Short-circuit: && with false, || with true → return LHS
+	// Outside a function body (Rust !ctx.is_runtime()) a constant left operand
+	// that decides the result short-circuits: the right operand is not
+	// lowered. Otherwise the left operand is a constant that does not decide,
+	// an override or not well-formed: build the Binary for the evaluator,
+	// pipeline creation or type checking to deal with. In a function body the
+	// If-block below is built whatever the left operand is, as in Rust.
+	if !l.inRuntimeContext() {
+		if lit, ok := l.eval().Literal(left); ok {
+			if b, isBool := lit.(ir.LiteralBool); isBool &&
+				(op == ir.BinaryLogicalAnd && !bool(b) || op == ir.BinaryLogicalOr && bool(b)) {
 				return left, nil
 			}
-			// Not short-circuited: evaluate RHS and create Binary
-			right, err := l.lowerExpression(rightAST, target)
-			if err != nil {
-				return 0, err
-			}
-			return l.addExpression(ir.Expression{
-				Kind: ir.ExprBinary{Op: op, Left: left, Right: right},
-			}), nil
 		}
+		right, err := l.lowerExpression(rightAST, target)
+		if err != nil {
+			return 0, err
+		}
+		return l.addExpression(ir.Expression{
+			Kind: ir.ExprBinary{Op: op, Left: left, Right: right},
+		})
 	}
 
 	// Runtime short-circuit: generate If-block pattern
@@ -6099,17 +5606,26 @@ func (l *Lowerer) lowerLogicalShortCircuit(op ir.BinaryOperator, leftAST, rightA
 	if op == ir.BinaryLogicalAnd {
 		// if (lhs) { result = rhs } else { result = false }
 		condition = left
-		elseVal = l.interruptEmitter(ir.Expression{
+		elseVal, err = l.interruptEmitter(ir.Expression{
 			Kind: ir.Literal{Value: ir.LiteralBool(false)},
 		})
+		if err != nil {
+			return 0, err
+		}
 	} else {
 		// if (!lhs) { result = rhs } else { result = true }
-		condition = l.addExpression(ir.Expression{
+		condition, err = l.addExpression(ir.Expression{
 			Kind: ir.ExprUnary{Op: ir.UnaryLogicalNot, Expr: left},
 		})
-		elseVal = l.interruptEmitter(ir.Expression{
+		if err != nil {
+			return 0, err
+		}
+		elseVal, err = l.interruptEmitter(ir.Expression{
 			Kind: ir.Literal{Value: ir.LiteralBool(true)},
 		})
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	// Create local variable for result
@@ -6120,9 +5636,12 @@ func (l *Lowerer) lowerLogicalShortCircuit(op ir.BinaryOperator, leftAST, rightA
 		Type: boolType,
 		Init: nil,
 	})
-	pointer := l.interruptEmitter(ir.Expression{
+	pointer, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprLocalVariable{Variable: uint32(localIdx)},
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	// Flush current emit before If statement
 	if l.emitStateStart != nil {
@@ -6168,54 +5687,15 @@ func (l *Lowerer) lowerLogicalShortCircuit(op ir.BinaryOperator, leftAST, rightA
 
 	// Result: create a NEW LocalVariable reference for the Load.
 	// Rust naga creates a separate expression for each reference to a local var.
-	loadPointer := l.interruptEmitter(ir.Expression{
+	loadPointer, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprLocalVariable{Variable: uint32(localIdx)},
 	})
+	if err != nil {
+		return 0, err
+	}
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprLoad{Pointer: loadPointer},
-	}), nil
-}
-
-// concretizeBinaryOperands resolves abstract integer/float literals in binary
-// expressions to match the concrete type of the other operand.
-// tryFoldASTBinary attempts to fold a binary expression directly from AST literals,
-// computing the result in Go values without creating intermediate expression handles.
-// Only the final result Literal is added to the expression arena.
-// This matches Rust naga's try_eval_and_append which evaluates const expressions
-// before appending, producing exactly 1 expression instead of 3.
-func (l *Lowerer) tryFoldASTBinary(bin *parser.BinaryExpr) (ir.ExpressionHandle, bool) {
-	leftLit, leftOK := bin.Left.(*parser.Literal)
-	rightLit, rightOK := bin.Right.(*parser.Literal)
-	if !leftOK || !rightOK {
-		return 0, false
-	}
-
-	leftVal, leftErr := l.astLiteralToIRValue(leftLit)
-	rightVal, rightErr := l.astLiteralToIRValue(rightLit)
-	if leftErr != nil || rightErr != nil {
-		return 0, false
-	}
-
-	// Concretize abstract types: match Rust's consensus rules.
-	// AbstractFloat + AbstractInt → AbstractFloat
-	// AbstractFloat + F32 → F32
-	// AbstractInt + I32 → I32
-	// etc.
-	leftVal, rightVal = concretizeLiteralPair(leftVal, rightVal)
-
-	// Skip 64-bit folding — Rust naga's constant evaluator doesn't implement
-	// I64/U64/F64 binary arithmetic, keeping them as separate expressions.
-	if is64BitLiteral(leftVal) || is64BitLiteral(rightVal) {
-		return 0, false
-	}
-
-	// Compute result purely in Go values
-	result, ok := foldBinaryLiterals(l.tokenToBinaryOp(bin.Op), leftVal, rightVal)
-	if !ok {
-		return 0, false
-	}
-
-	return l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: result}}), true
+	})
 }
 
 // concretizeLiteralPair applies WGSL type concretization rules to a pair of literals.
@@ -6543,7 +6023,8 @@ func (l *Lowerer) astLiteralToIRValue(lit *parser.Literal) (ir.LiteralValue, err
 	}
 }
 
-func (l *Lowerer) concretizeBinaryOperands(left, right ir.ExpressionHandle) (ir.ExpressionHandle, ir.ExpressionHandle) {
+func (l *Lowerer) concretizeBinaryOperands(left, right ir.ExpressionHandle) (ir.ExpressionHandle, ir.ExpressionHandle, error) {
+	var err error
 	leftIsAbstract, leftAbstractVal := l.isAbstractIntLiteral(left)
 	rightIsAbstract, rightAbstractVal := l.isAbstractIntLiteral(right)
 
@@ -6580,10 +6061,10 @@ func (l *Lowerer) concretizeBinaryOperands(left, right ir.ExpressionHandle) (ir.
 				}
 			}
 		}
-		return left, right
+		return left, right, nil
 	}
 	if leftAbstractAny == rightAbstractAny {
-		return left, right
+		return left, right, nil
 	}
 
 	// In Rust naga, concretization creates a NEW expression via try_eval_and_append
@@ -6593,15 +6074,21 @@ func (l *Lowerer) concretizeBinaryOperands(left, right ir.ExpressionHandle) (ir.
 	// creating a new literal expression via interruptEmitter instead of in-place update.
 	if leftAbstractAny {
 		if targetScalar, ok := l.resolveExprScalar(right); ok {
-			left = l.concretizeBinaryOperandNew(left, leftIsAbstract, leftAbstractVal, leftFloatVal, targetScalar)
+			left, err = l.concretizeBinaryOperandNew(left, leftIsAbstract, leftAbstractVal, leftFloatVal, targetScalar)
+			if err != nil {
+				return 0, 0, err
+			}
 		}
 	} else {
 		if targetScalar, ok := l.resolveExprScalar(left); ok {
-			right = l.concretizeBinaryOperandNew(right, rightIsAbstract, rightAbstractVal, rightFloatVal, targetScalar)
+			right, err = l.concretizeBinaryOperandNew(right, rightIsAbstract, rightAbstractVal, rightFloatVal, targetScalar)
+			if err != nil {
+				return 0, 0, err
+			}
 		}
 	}
 
-	return left, right
+	return left, right, nil
 }
 
 // exprHasAbstractType checks if an expression has an abstract type (AbstractFloat or
@@ -6632,13 +6119,13 @@ func (l *Lowerer) exprHasAbstractType(handle ir.ExpressionHandle) bool {
 
 // concretizeShiftRight converts the right operand of a shift to u32 if it's abstract.
 // Matches Rust naga's try_automatic_conversion_for_leaf_scalar(right, U32).
-func (l *Lowerer) concretizeShiftRight(handle ir.ExpressionHandle) ir.ExpressionHandle {
+func (l *Lowerer) concretizeShiftRight(handle ir.ExpressionHandle) (ir.ExpressionHandle, error) {
 	if isAbstract, val := l.isAbstractIntLiteral(handle); isAbstract {
 		return l.interruptEmitter(ir.Expression{
 			Kind: ir.Literal{Value: ir.LiteralU32(uint32(val))},
 		})
 	}
-	return handle
+	return handle, nil
 }
 
 // concretizeShiftLeft concretizes the left operand of a shift when the right
@@ -6646,14 +6133,14 @@ func (l *Lowerer) concretizeShiftRight(handle ir.ExpressionHandle) ir.Expression
 // concretize() calls the constant evaluator's cast(), which creates a NEW
 // expression in the function's arena (rather than modifying in place).
 // AbstractInt concretizes to I32, AbstractFloat concretizes to F32.
-func (l *Lowerer) concretizeShiftLeft(handle ir.ExpressionHandle) ir.ExpressionHandle {
+func (l *Lowerer) concretizeShiftLeft(handle ir.ExpressionHandle) (ir.ExpressionHandle, error) {
 	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.Expressions) {
-		return handle
+		return handle, nil
 	}
 	expr := l.currentFunc.Expressions[handle]
 	lit, ok := expr.Kind.(ir.Literal)
 	if !ok {
-		return handle
+		return handle, nil
 	}
 	switch v := lit.Value.(type) {
 	case ir.LiteralAbstractInt:
@@ -6665,14 +6152,15 @@ func (l *Lowerer) concretizeShiftLeft(handle ir.ExpressionHandle) ir.ExpressionH
 			Kind: ir.Literal{Value: ir.LiteralF32(float32(v))},
 		})
 	}
-	return handle
+	return handle, nil
 }
 
 // concretizeCompoundAssignRHS concretizes the RHS of a compound assignment (+=, -=, etc.)
 // to match the pointed-to type of the LHS pointer. This is called BEFORE the Load expression
 // is created, matching Rust naga's order where the concretized literal appears in the
 // expression arena before the Load.
-func (l *Lowerer) concretizeCompoundAssignRHS(pointer ir.ExpressionHandle, value *ir.ExpressionHandle) {
+func (l *Lowerer) concretizeCompoundAssignRHS(pointer ir.ExpressionHandle, value *ir.ExpressionHandle) error {
+	var err error
 	isAbstract, intVal := l.isAbstractIntLiteral(*value)
 	isAbstractFloat := false
 	var floatVal float64
@@ -6680,26 +6168,30 @@ func (l *Lowerer) concretizeCompoundAssignRHS(pointer ir.ExpressionHandle, value
 		isAbstractFloat, floatVal = l.isAbstractFloatLiteral(*value)
 	}
 	if !isAbstract && !isAbstractFloat {
-		return
+		return nil
 	}
 	// Resolve the pointed-to type's scalar
 	if targetScalar, ok := l.resolvePointerScalar(pointer); ok {
-		*value = l.concretizeBinaryOperandNew(*value, isAbstract, intVal, floatVal, targetScalar)
+		*value, err = l.concretizeBinaryOperandNew(*value, isAbstract, intVal, floatVal, targetScalar)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // splatScalarToMatchPointer wraps a scalar RHS in Splat if the LHS pointer points to a vector.
 // Matches Rust naga: compound assignments like `a += 1.0` where `a: vec2<f32>` create
 // Splat(Vec2, Literal(1.0)) for the RHS before the Binary operation.
-func (l *Lowerer) splatScalarToMatchPointer(pointer, value ir.ExpressionHandle) ir.ExpressionHandle {
+func (l *Lowerer) splatScalarToMatchPointer(pointer, value ir.ExpressionHandle) (ir.ExpressionHandle, error) {
 	if l.currentFunc == nil {
-		return value
+		return value, nil
 	}
 	// Check if value is a scalar (not already a vector)
 	if int(value) < len(l.currentFunc.ExpressionTypes) {
 		valInner := ir.TypeResInner(l.module, l.currentFunc.ExpressionTypes[value])
 		if _, isVec := valInner.(ir.VectorType); isVec {
-			return value // already vector
+			return value, nil // already vector
 		}
 	}
 	// Check if pointer points to a vector type
@@ -6721,7 +6213,7 @@ func (l *Lowerer) splatScalarToMatchPointer(pointer, value ir.ExpressionHandle) 
 			})
 		}
 	}
-	return value
+	return value, nil
 }
 
 // resolvePointerScalar resolves the scalar type of the value that a pointer points to.
@@ -6752,7 +6244,7 @@ func (l *Lowerer) resolvePointerScalar(pointer ir.ExpressionHandle) (ir.ScalarTy
 // operand, matching Rust naga's behavior where concretization via convert_to_leaf_scalar
 // creates a new expression handle (not in-place update). The original abstract literal
 // becomes orphaned and is removed by CompactExpressions.
-func (l *Lowerer) concretizeBinaryOperandNew(_ ir.ExpressionHandle, isInt bool, intVal int64, floatVal float64, target ir.ScalarType) ir.ExpressionHandle {
+func (l *Lowerer) concretizeBinaryOperandNew(_ ir.ExpressionHandle, isInt bool, intVal int64, floatVal float64, target ir.ScalarType) (ir.ExpressionHandle, error) {
 	concrete := l.computeConcreteLiteral(isInt, intVal, floatVal, target)
 	return l.interruptEmitter(ir.Expression{
 		Kind: ir.Literal{Value: concrete},
@@ -6815,31 +6307,38 @@ func (l *Lowerer) computeConcreteLiteral(isInt bool, intVal int64, floatVal floa
 // binaryOpSplat inserts Splat expressions for non-multiply binary operations with
 // mixed vector/scalar operands. This matches Rust naga's binary_op_splat behavior.
 // Multiply is excluded because backends handle vec*scalar natively.
-func (l *Lowerer) binaryOpSplat(op ir.BinaryOperator, left, right ir.ExpressionHandle) (ir.ExpressionHandle, ir.ExpressionHandle) {
+func (l *Lowerer) binaryOpSplat(op ir.BinaryOperator, left, right ir.ExpressionHandle) (ir.ExpressionHandle, ir.ExpressionHandle, error) {
+	var err error
 	switch op {
 	case ir.BinaryAdd, ir.BinarySubtract, ir.BinaryDivide, ir.BinaryModulo:
 		// Check if left is vector and right is scalar
 		leftInner, rightInner := l.resolveExprTypeInner(left), l.resolveExprTypeInner(right)
 		if leftInner == nil || rightInner == nil {
-			return left, right
+			return left, right, nil
 		}
 		if leftVec, ok := leftInner.(ir.VectorType); ok {
 			if _, ok := rightInner.(ir.ScalarType); ok {
 				// Wrap right scalar in Splat to match left vector
-				right = l.addExpression(ir.Expression{
+				right, err = l.addExpression(ir.Expression{
 					Kind: ir.ExprSplat{Size: leftVec.Size, Value: right},
 				})
+				if err != nil {
+					return 0, 0, err
+				}
 			}
 		} else if rightVec, ok := rightInner.(ir.VectorType); ok {
 			if _, ok := leftInner.(ir.ScalarType); ok {
 				// Wrap left scalar in Splat to match right vector
-				left = l.addExpression(ir.Expression{
+				left, err = l.addExpression(ir.Expression{
 					Kind: ir.ExprSplat{Size: rightVec.Size, Value: left},
 				})
+				if err != nil {
+					return 0, 0, err
+				}
 			}
 		}
 	}
-	return left, right
+	return left, right, nil
 }
 
 // resolveExprTypeInner resolves the TypeInner of an expression. Returns nil if unresolvable.
@@ -6933,64 +6432,6 @@ func (l *Lowerer) concretizeAbstractToDefault(handle ir.ExpressionHandle) {
 		}
 	case ir.ExprSplat:
 		l.concretizeAbstractToDefault(kind.Value)
-	}
-}
-
-// concretizeMathArgsWithHint concretizes abstract arguments in a math function call.
-// If floatOnly is true, AbstractInt arguments are concretized to F32 instead of I32
-// (for float-only math functions like pow, sqrt, trig, etc.).
-func (l *Lowerer) concretizeMathArgsWithHint(args []ir.ExpressionHandle, floatOnly bool) {
-	// Find a concrete argument's scalar type for consensus
-	var concreteScalar ir.ScalarType
-	foundConcrete := false
-	for _, arg := range args {
-		if scalar, ok := l.resolveExprScalar(arg); ok {
-			// Check if this is NOT an abstract type by looking at the expression
-			if int(arg) < len(l.currentFunc.Expressions) {
-				expr := l.currentFunc.Expressions[arg]
-				if lit, isLit := expr.Kind.(ir.Literal); isLit {
-					if _, isAI := lit.Value.(ir.LiteralAbstractInt); isAI {
-						continue
-					}
-					if _, isAF := lit.Value.(ir.LiteralAbstractFloat); isAF {
-						continue
-					}
-				}
-			}
-			concreteScalar = scalar
-			foundConcrete = true
-			break
-		}
-	}
-
-	if foundConcrete {
-		for _, arg := range args {
-			l.concretizeExpressionToScalar(arg, concreteScalar)
-		}
-	} else {
-		// No concrete argument found. Determine consensus among abstract types:
-		// If any arg is AbstractFloat, ALL should become F32 (float wins over int).
-		// This matches Rust naga's automatic_conversion_consensus.
-		hasAbstractFloat := false
-		for _, arg := range args {
-			if int(arg) < len(l.currentFunc.Expressions) {
-				if lit, isLit := l.currentFunc.Expressions[arg].Kind.(ir.Literal); isLit {
-					if _, isAF := lit.Value.(ir.LiteralAbstractFloat); isAF {
-						hasAbstractFloat = true
-						break
-					}
-				}
-			}
-		}
-		if hasAbstractFloat || floatOnly {
-			for _, arg := range args {
-				l.concretizeAbstractToDefaultFloat(arg)
-			}
-		} else {
-			for _, arg := range args {
-				l.concretizeAbstractToDefault(arg)
-			}
-		}
 	}
 }
 
@@ -7165,9 +6606,10 @@ func (l *Lowerer) concretizeExpressionToScalar(handle ir.ExpressionHandle, scala
 // go through abstract→concrete conversion which expands ZeroValue via the
 // constant evaluator's cast → eval_zero_value path.
 // Returns the expression handle and true if expansion was performed.
-func (l *Lowerer) expandZeroValueToCompose(typeHandle ir.TypeHandle) (ir.ExpressionHandle, bool) {
+func (l *Lowerer) expandZeroValueToCompose(typeHandle ir.TypeHandle) (ir.ExpressionHandle, bool, error) {
+	var err error
 	if int(typeHandle) >= len(l.module.Types) {
-		return 0, false
+		return 0, false, nil
 	}
 	inner := l.module.Types[typeHandle].Inner
 	switch t := inner.(type) {
@@ -7176,32 +6618,44 @@ func (l *Lowerer) expandZeroValueToCompose(typeHandle ir.TypeHandle) (ir.Express
 		zeroLit := l.zeroLiteralForScalar(t.Scalar)
 		comps := make([]ir.ExpressionHandle, int(t.Size))
 		for i := range comps {
-			comps[i] = l.addExpression(ir.Expression{
+			comps[i], err = l.addExpression(ir.Expression{
 				Kind: ir.Literal{Value: zeroLit},
 			})
+			if err != nil {
+				return 0, false, err
+			}
 		}
-		handle := l.addExpression(ir.Expression{
+		handle, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprCompose{Type: typeHandle, Components: comps},
 		})
-		return handle, true
+		if err != nil {
+			return 0, false, err
+		}
+		return handle, true, nil
 	case ir.MatrixType:
 		// Matrix: create column vectors, each expanded to Compose with zero literals
 		colScalar := t.Scalar
 		colType := l.registerType("", ir.VectorType{Size: t.Rows, Scalar: colScalar})
 		cols := make([]ir.ExpressionHandle, int(t.Columns))
 		for i := range cols {
-			colHandle, ok := l.expandZeroValueToCompose(colType)
+			colHandle, ok, err := l.expandZeroValueToCompose(colType)
+			if err != nil {
+				return 0, false, err
+			}
 			if !ok {
-				return 0, false
+				return 0, false, nil
 			}
 			cols[i] = colHandle
 		}
-		handle := l.addExpression(ir.Expression{
+		handle, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprCompose{Type: typeHandle, Components: cols},
 		})
-		return handle, true
+		if err != nil {
+			return 0, false, err
+		}
+		return handle, true, nil
 	default:
-		return 0, false
+		return 0, false, nil
 	}
 }
 
@@ -7265,12 +6719,13 @@ func (l *Lowerer) inferAbstractCompositeType(cv ir.CompositeValue) ir.TypeHandle
 	})
 }
 
-func (l *Lowerer) inlineCompositeConstant(cv ir.CompositeValue, typeHandle ir.TypeHandle) (ir.ExpressionHandle, bool) {
+func (l *Lowerer) inlineCompositeConstant(cv ir.CompositeValue, typeHandle ir.TypeHandle) (ir.ExpressionHandle, bool, error) {
+	var err error
 	// For abstract constants with sentinel type, concretize first.
 	if int(typeHandle) >= len(l.module.Types) {
 		typeHandle = l.inferAbstractCompositeType(cv)
 		if int(typeHandle) >= len(l.module.Types) {
-			return 0, false
+			return 0, false, nil
 		}
 	}
 
@@ -7278,26 +6733,32 @@ func (l *Lowerer) inlineCompositeConstant(cv ir.CompositeValue, typeHandle ir.Ty
 	comps := make([]ir.ExpressionHandle, len(cv.Components))
 	for i, compHandle := range cv.Components {
 		if int(compHandle) >= len(l.module.Constants) {
-			return 0, false
+			return 0, false, nil
 		}
 		comp := &l.module.Constants[compHandle]
 		switch cv := comp.Value.(type) {
 		case ir.ScalarValue:
 			lit := scalarValueToLiteral(cv)
 			if lit == nil {
-				return 0, false
+				return 0, false, nil
 			}
-			comps[i] = l.interruptEmitter(ir.Expression{
+			comps[i], err = l.interruptEmitter(ir.Expression{
 				Kind: ir.Literal{Value: lit},
 			})
+			if err != nil {
+				return 0, false, err
+			}
 		case ir.CompositeValue:
-			h, ok := l.inlineCompositeConstant(cv, comp.Type)
+			h, ok, err := l.inlineCompositeConstant(cv, comp.Type)
+			if err != nil {
+				return 0, false, err
+			}
 			if !ok {
-				return 0, false
+				return 0, false, nil
 			}
 			comps[i] = h
 		default:
-			return 0, false
+			return 0, false, nil
 		}
 	}
 
@@ -7309,18 +6770,18 @@ func (l *Lowerer) inlineCompositeConstant(cv ir.CompositeValue, typeHandle ir.Ty
 		if len(cv.Components) == 1 {
 			if int(cv.Components[0]) < len(l.module.Constants) {
 				if _, ok := l.module.Constants[cv.Components[0]].Value.(ir.ScalarValue); ok {
-					return l.addExpression(ir.Expression{
+					return found(l.addExpression(ir.Expression{
 						Kind: ir.ExprSplat{Size: vec.Size, Value: comps[0]},
-					}), true
+					}))
 				}
 			}
 		}
 	}
 
 	// General case: Compose expression
-	return l.addExpression(ir.Expression{
+	return found(l.addExpression(ir.Expression{
 		Kind: ir.ExprCompose{Type: typeHandle, Components: comps},
-	}), true
+	}))
 }
 
 // concretizeLiteralDirect converts a literal expression to a target scalar type.
@@ -7673,17 +7134,22 @@ func (l *Lowerer) concretizeComponentLiterals(components []ir.ExpressionHandle, 
 // automatic type conversion for constructor arguments.
 // Creates NEW expressions (via interruptEmitter) to match Rust naga's behavior
 // where concretization creates new expression handles, leaving originals orphaned.
-func (l *Lowerer) concretizeComponentsToScalar(components []ir.ExpressionHandle, target ir.ScalarType) {
+func (l *Lowerer) concretizeComponentsToScalar(components []ir.ExpressionHandle, target ir.ScalarType) error {
+	var err error
 	for i, comp := range components {
 		isAbstract, isFloat, intVal, floatVal := l.isAbstractLiteral(comp)
 		if !isAbstract {
 			continue
 		}
 		concrete := l.computeConcreteLiteral(!isFloat, intVal, floatVal, target)
-		components[i] = l.interruptEmitter(ir.Expression{
+		components[i], err = l.interruptEmitter(ir.Expression{
 			Kind: ir.Literal{Value: concrete},
 		})
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // getTypeScalar returns the element scalar type for a type (scalar, vector, matrix, or array).
@@ -7796,14 +7262,15 @@ func typeName(inner ir.TypeInner) string {
 	return "unknown"
 }
 
-func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetType ir.TypeHandle) {
+func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetType ir.TypeHandle) error {
+	var err error
 	targetScalar, ok := l.getTypeScalar(targetType)
 	if !ok {
-		return
+		return nil
 	}
 
 	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.Expressions) {
-		return
+		return nil
 	}
 
 	expr := l.currentFunc.Expressions[handle]
@@ -7822,13 +7289,13 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 				}
 			}
 		}
-		return
+		return nil
 	}
 
 	// Unary expression (e.g., Negate) → concretize the inner operand
 	if unary, ok := expr.Kind.(ir.ExprUnary); ok {
 		l.concretizeExpressionToScalar(unary.Expr, targetScalar)
-		return
+		return nil
 	}
 
 	// Splat expression → concretize the splatted value and update the Splat's type
@@ -7852,7 +7319,7 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 		}
 		// Update the Splat expression's type resolution to match the target type.
 		l.updateExpressionTypeHandle(handle, targetType)
-		return
+		return nil
 	}
 
 	// Compose expression → concretize components and update the Compose type
@@ -7877,7 +7344,9 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 			if targetMat, ok := targetInner.(ir.MatrixType); ok {
 				colTypeHandle := l.registerType("", ir.VectorType{Size: targetMat.Rows, Scalar: targetMat.Scalar})
 				for _, comp := range compose.Components {
-					l.concretizeExpressionToType(comp, colTypeHandle)
+					if err := l.concretizeExpressionToType(comp, colTypeHandle); err != nil {
+						return err
+					}
 				}
 			}
 			if compose.Type != targetType {
@@ -7890,11 +7359,15 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 			targetInner := l.module.Types[targetType].Inner
 			if targetArr, ok := targetInner.(ir.ArrayType); ok {
 				for _, comp := range compose.Components {
-					l.concretizeExpressionToType(comp, targetArr.Base)
+					if err := l.concretizeExpressionToType(comp, targetArr.Base); err != nil {
+						return err
+					}
 				}
 			} else {
 				for _, comp := range compose.Components {
-					l.concretizeExpressionToType(comp, ct.Base)
+					if err := l.concretizeExpressionToType(comp, ct.Base); err != nil {
+						return err
+					}
 				}
 			}
 			if compose.Type != targetType {
@@ -7903,7 +7376,7 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 				l.updateExpressionTypeHandle(handle, targetType)
 			}
 		}
-		return
+		return nil
 	}
 
 	// ZeroValue expression → expand to Compose+Literal for vector/matrix types
@@ -7914,7 +7387,7 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 	// to match Rust which also keeps ZeroValue for concrete zero-arg constructors.
 	if zv, ok := expr.Kind.(ir.ExprZeroValue); ok {
 		if zv.Type == targetType {
-			return // already correct type, keep as ZeroValue
+			return nil // already correct type, keep as ZeroValue
 		}
 		targetInner := l.module.Types[targetType].Inner
 		switch t := targetInner.(type) {
@@ -7923,9 +7396,12 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 			n := int(t.Size)
 			comps := make([]ir.ExpressionHandle, n)
 			for i := range comps {
-				comps[i] = l.addExpression(ir.Expression{
+				comps[i], err = l.addExpression(ir.Expression{
 					Kind: ir.Literal{Value: l.zeroLiteral(t.Scalar)},
 				})
+				if err != nil {
+					return err
+				}
 			}
 			l.currentFunc.Expressions[handle] = ir.Expression{
 				Kind: ir.ExprCompose{Type: targetType, Components: comps},
@@ -7940,13 +7416,19 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 			for c := 0; c < cols; c++ {
 				rowComps := make([]ir.ExpressionHandle, rows)
 				for r := range rowComps {
-					rowComps[r] = l.addExpression(ir.Expression{
+					rowComps[r], err = l.addExpression(ir.Expression{
 						Kind: ir.Literal{Value: l.zeroLiteral(t.Scalar)},
 					})
+					if err != nil {
+						return err
+					}
 				}
-				colComps[c] = l.addExpression(ir.Expression{
+				colComps[c], err = l.addExpression(ir.Expression{
 					Kind: ir.ExprCompose{Type: colTypeHandle, Components: rowComps},
 				})
+				if err != nil {
+					return err
+				}
 			}
 			l.currentFunc.Expressions[handle] = ir.Expression{
 				Kind: ir.ExprCompose{Type: targetType, Components: colComps},
@@ -7957,7 +7439,7 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 			l.currentFunc.Expressions[handle] = ir.Expression{Kind: ir.ExprZeroValue{Type: targetType}}
 			l.updateExpressionTypeHandle(handle, targetType)
 		}
-		return
+		return nil
 	}
 
 	// Splat expression → concretize the value
@@ -7971,6 +7453,7 @@ func (l *Lowerer) concretizeExpressionToType(handle ir.ExpressionHandle, targetT
 			}
 		}
 	}
+	return nil
 }
 
 // lowerUnary converts a unary expression to IR.
@@ -7989,7 +7472,7 @@ func (l *Lowerer) lowerUnary(un *parser.UnaryExpr, target *[]ir.Statement) (ir.E
 		}
 		return l.addExpression(ir.Expression{
 			Kind: ir.ExprLoad{Pointer: pointer},
-		}), nil
+		})
 	}
 
 	// Constant fold: negate of a literal directly, without creating the positive
@@ -8010,19 +7493,9 @@ func (l *Lowerer) lowerUnary(un *parser.UnaryExpr, target *[]ir.Statement) (ir.E
 
 	op := l.tokenToUnaryOp(un.Op)
 
-	// Try constant folding on scalar
-	if result, ok := l.tryFoldUnaryOp(op, operand); ok {
-		return result, nil
-	}
-
-	// Try constant folding on vector (Compose/Splat of literals)
-	if result, ok := l.tryFoldVectorUnaryOp(op, operand); ok {
-		return result, nil
-	}
-
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprUnary{Op: op, Expr: operand},
-	}), nil
+	})
 }
 
 // lowerNegatedLiteral directly creates a negative literal from a positive one,
@@ -8195,27 +7668,29 @@ func (l *Lowerer) lowerCall(call *parser.CallExpr, target *[]ir.Statement) (ir.E
 		return 0, fmt.Errorf("result of @must_use function '%s' must be used", funcName)
 	}
 
+	// Each argument is lowered and then converted to its parameter type
+	// before the next one is lowered, as in Rust naga's call() (the
+	// arguments map applies try_automatic_conversions per argument). The
+	// order matters: a converted abstract argument is appended to the arena
+	// before the expressions of the following arguments.
+	known := int(funcHandle) < len(l.module.Functions)
+	countMatches := known && len(call.Args) == len(l.module.Functions[funcHandle].Arguments)
 	args := make([]ir.ExpressionHandle, len(call.Args))
 	for i, arg := range call.Args {
 		handle, err := l.lowerExpression(arg, target)
 		if err != nil {
 			return 0, err
 		}
-		args[i] = handle
-	}
-
-	// Validate argument count and types, then concretize abstract literals.
-	if int(funcHandle) < len(l.module.Functions) {
-		fn := &l.module.Functions[funcHandle]
-		if len(args) != len(fn.Arguments) {
-			return 0, fmt.Errorf("function '%s' expects %d argument(s), got %d", funcName, len(fn.Arguments), len(args))
-		}
-		for i, argHandle := range args {
-			l.concretizeExpressionToType(argHandle, fn.Arguments[i].Type)
-			if err := l.checkArgumentType(argHandle, fn.Arguments[i].Type, funcName, i); err != nil {
+		if countMatches {
+			if handle, err = l.convertCallArgument(handle, funcHandle, funcName, i); err != nil {
 				return 0, err
 			}
 		}
+		args[i] = handle
+	}
+	if known && !countMatches {
+		return 0, fmt.Errorf("function '%s' expects %d argument(s), got %d",
+			funcName, len(l.module.Functions[funcHandle].Arguments), len(args))
 	}
 
 	// Check if the called function has a return type.
@@ -8243,9 +7718,13 @@ func (l *Lowerer) lowerCall(call *parser.CallExpr, target *[]ir.Statement) (ir.E
 	if hasResult {
 		// CallResult is non-emittable — use addExpression directly
 		// (not interruptEmitter, since we already flushed the emitter above).
-		resultHandle = l.addExpression(ir.Expression{
+		var err error
+		resultHandle, err = l.addExpression(ir.Expression{
 			Kind: ir.ExprCallResult{Function: funcHandle},
 		})
+		if err != nil {
+			return 0, err
+		}
 		resultPtr = &resultHandle
 	}
 
@@ -8268,286 +7747,19 @@ func (l *Lowerer) lowerCall(call *parser.CallExpr, target *[]ir.Statement) (ir.E
 	return resultHandle, nil
 }
 
-// lowerConstruct converts a type constructor to IR.
+// lowerConstruct converts a type constructor (`T(...)` with T written as a
+// type, possibly with template parameters) to IR.
 func (l *Lowerer) lowerConstruct(cons *parser.ConstructExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	// Check if this is an inferred matrix constructor with scalar args.
-	// For inferred types (no type params), Rust creates per-column Compose
-	// interleaved with scalar Literals. For explicit types, all scalars first.
-	typeExplicit := true
+	if nt, ok := cons.Type.(*parser.NamedType); ok && len(nt.TypeParams) == 0 {
+		if ctor, partial := partialConstructor(nt.Name); partial {
+			return l.construct(ctor, cons.Args, target)
+		}
+	}
 	typeHandle, err := l.resolveType(cons.Type)
 	if err != nil {
-		typeExplicit = false
+		return 0, err
 	}
-
-	// For inferred matrix scalar constructs, use per-column lowering
-	// to match Rust expression ordering. Explicit-type matrices (mat2x2<f32>)
-	// keep all-scalars-first ordering in function body.
-	if !typeExplicit && l.isMatrixScalarConstruct(cons) {
-		return l.lowerMatrixScalarConstruct(cons, target)
-	}
-
-	// Lower arguments first — we may need them for type inference.
-	components := make([]ir.ExpressionHandle, len(cons.Args))
-	for i, arg := range cons.Args {
-		handle, err := l.lowerExpression(arg, target)
-		if err != nil {
-			return 0, err
-		}
-		components[i] = handle
-	}
-
-	if err != nil {
-		// For inferred vector constructors (vec3(x, y, z) without type params)
-		// where ALL components are const: check if we can skip type registration
-		// by returning a flat scalar representation. This prevents registering
-		// intermediate vector types (e.g., Vec3 from vec3(vec2(6,7), 8) inside
-		// vec4(vec3(...), 9)) that would pollute the type arena ordering.
-		//
-		// The parent Compose (if any) will use constFoldCompose to flatten this,
-		// making the intermediate Compose dead. But if we register the type here,
-		// it stays in the arena even after compact (because another function may
-		// reuse it). By not registering, the type gets registered later when
-		// actually needed, in the correct position.
-		//
-		// We only skip for vectors with ALL const components that include nested
-		// Compose/Splat (indicating this is an intermediate in a nested constructor).
-		if nt, ok := cons.Type.(*parser.NamedType); ok && len(nt.TypeParams) == 0 &&
-			len(nt.Name) == 4 && nt.Name[:3] == "vec" && len(components) > 0 {
-			allConst := true
-			hasNestedCompose := false
-			for _, c := range components {
-				if !l.isConstExpression(c) {
-					allConst = false
-					break
-				}
-				if int(c) < len(l.currentFunc.Expressions) {
-					// Only count actual Compose as "nested" — not ZeroValue/Splat/Literal
-					if _, isCompose := l.currentFunc.Expressions[c].Kind.(ir.ExprCompose); isCompose {
-						hasNestedCompose = true
-					}
-				}
-			}
-			if allConst && hasNestedCompose {
-				// Flatten all components to scalars and create a flat Compose.
-				// Use a temporary type handle — constFoldCompose in addExpression
-				// will create the final flat Compose, making this one dead.
-				// The type gets registered here but only in the registry (via
-				// registerTypeSilent), not in TypeUseOrder.
-				size := nt.Name[3] - '0'
-				scalar, scErr := l.consensusScalarType(components)
-				if scErr == nil {
-					silentHandle := l.registerTypeSilent(ir.VectorType{
-						Size: ir.VectorSize(size), Scalar: scalar,
-					})
-					return l.addExpression(ir.Expression{
-						Kind: ir.ExprCompose{Type: silentHandle, Components: components},
-					}), nil
-				}
-			}
-		}
-
-		// Standard type inference path
-		inferredHandle, inferErr := l.inferConstructorType(cons.Type, components)
-		if inferErr != nil {
-			return 0, err // return original error
-		}
-		typeHandle = inferredHandle
-		typeExplicit = false
-	}
-
-	// Zero-arg constructor: emit ExprZeroValue for zero initialization.
-	// vec2<i32>() → ZeroValue(vec2<i32>)
-	// MSL: metal::int2 {} (brace-init)
-	//
-	// However, for partial constructors (typeExplicit == false), Rust naga
-	// creates ZeroValue(vec<AbstractInt>) then converts to the target type via
-	// the constant evaluator's cast path, which expands ZeroValue to
-	// Compose(Literal(0), Literal(0), ...). We match this by expanding
-	// partial zero-arg constructors to Compose with zero literals.
-	if len(components) == 0 {
-		if !typeExplicit {
-			// Partial constructor (e.g., vec2() with target type from let annotation):
-			// expand to Compose with zero-valued literals to match Rust's
-			// abstract→concrete conversion path.
-			if expanded, ok := l.expandZeroValueToCompose(typeHandle); ok {
-				return expanded, nil
-			}
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.ExprZeroValue{Type: typeHandle},
-		}), nil
-	}
-
-	// For scalar type constructors with a single argument (e.g., f32(x), u32(y)),
-	// generate ExprAs (type conversion) instead of ExprCompose.
-	if len(components) == 1 {
-		targetType := l.module.Types[typeHandle]
-		if scalar, ok := targetType.Inner.(ir.ScalarType); ok {
-			width := scalar.Width
-			// Try constant folding the cast
-			if result, ok := l.tryFoldAs(components[0], scalar.Kind, width, true); ok {
-				return result, nil
-			}
-			return l.addExpression(ir.Expression{
-				Kind: ir.ExprAs{
-					Expr:    components[0],
-					Kind:    scalar.Kind,
-					Convert: &width,
-				},
-			}), nil
-		}
-	}
-
-	// Matrix type with single matrix argument: type conversion or identity.
-	// Matches Rust naga construction.rs "Matrix conversion" case.
-	targetType := l.module.Types[typeHandle]
-	if mat, ok := targetType.Inner.(ir.MatrixType); ok && len(components) == 1 {
-		argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
-		if err == nil {
-			argInner := ir.TypeResInner(l.module, argType)
-			if argMat, ok := argInner.(ir.MatrixType); ok && argMat.Columns == mat.Columns && argMat.Rows == mat.Rows {
-				// Same dimensions: if scalar differs, produce As conversion (Rust naga behavior).
-				if argMat.Scalar != mat.Scalar {
-					width := mat.Scalar.Width
-					return l.addExpression(ir.Expression{
-						Kind: ir.ExprAs{
-							Expr:    components[0],
-							Kind:    mat.Scalar.Kind,
-							Convert: &width,
-						},
-					}), nil
-				}
-				// Same scalar: identity. For inferred type, return arg directly.
-				if !typeExplicit {
-					return components[0], nil
-				}
-				// Explicit type: expand ZeroValue to Compose with zero columns.
-				if _, isZero := l.currentFunc.Expressions[components[0]].Kind.(ir.ExprZeroValue); isZero {
-					expanded, ok := l.expandZeroValueToCompose(typeHandle)
-					if ok {
-						return expanded, nil
-					}
-				}
-				return components[0], nil
-			}
-		}
-	}
-
-	// WGSL vector type conversion: vec2<i32>(vec2<f32>) -> ExprAs conversion.
-	// When constructing a vector from a single vector argument of different element type,
-	// this is a type conversion, not a composition.
-	if vec, ok := targetType.Inner.(ir.VectorType); ok && len(components) == 1 {
-		argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
-		if err == nil {
-			argInner := ir.TypeResInner(l.module, argType)
-			if argVec, ok := argInner.(ir.VectorType); ok && argVec.Size == vec.Size {
-				// Identity conversion (same scalar) with inferred type: return arg directly.
-				// Explicit type constructors still create As (matches Rust: vec2<u32>(vec2<u32>()) keeps As).
-				if argVec.Scalar == vec.Scalar && !typeExplicit {
-					return components[0], nil
-				}
-				// Vector-to-vector conversion (e.g., vec2<i32>(vec2<f32>))
-				width := vec.Scalar.Width
-				return l.addExpression(ir.Expression{
-					Kind: ir.ExprAs{
-						Expr:    components[0],
-						Kind:    vec.Scalar.Kind,
-						Convert: &width,
-					},
-				}), nil
-			}
-		}
-
-		// WGSL splat constructor: vec3(scalar) → ExprSplat.
-		// Rust naga creates Splat { size, value } instead of Compose with repeated components.
-		// Only applies when the single argument is a scalar (not a vector).
-		argIsScalar := false
-		if argType, err2 := ir.ResolveExpressionType(l.module, l.currentFunc, components[0]); err2 == nil {
-			argInner2 := ir.TypeResInner(l.module, argType)
-			_, isVec := argInner2.(ir.VectorType)
-			_, isMat := argInner2.(ir.MatrixType)
-			argIsScalar = !isVec && !isMat
-		}
-		if argIsScalar {
-			// Concretize abstract literals to match the vector's element type.
-			if typeExplicit {
-				l.concretizeComponentsToScalar(components, vec.Scalar)
-			}
-			// Convert concrete scalars of different kind (e.g., u32→f32 for vec4f(u32_val)).
-			// Rust naga calls convert_slice_to_common_leaf_scalar which inserts As expressions.
-			if typeExplicit {
-				if argType2, err2 := ir.ResolveExpressionType(l.module, l.currentFunc, components[0]); err2 == nil {
-					argInner2 := ir.TypeResInner(l.module, argType2)
-					if argScalar, ok := argInner2.(ir.ScalarType); ok {
-						if argScalar.Kind != vec.Scalar.Kind || argScalar.Width != vec.Scalar.Width {
-							width := vec.Scalar.Width
-							components[0] = l.addExpression(ir.Expression{
-								Kind: ir.ExprAs{
-									Expr:    components[0],
-									Kind:    vec.Scalar.Kind,
-									Convert: &width,
-								},
-							})
-						}
-					}
-				}
-			}
-			l.registerTypeSilent(ir.VectorType{Size: vec.Size, Scalar: vec.Scalar})
-			return l.addExpression(ir.Expression{
-				Kind: ir.ExprSplat{Size: vec.Size, Value: components[0]},
-			}), nil
-		}
-		// Non-scalar single arg (e.g. vec truncation): fall through to Compose
-		needed := int(vec.Size)
-		splatted := make([]ir.ExpressionHandle, needed)
-		for i := 0; i < needed; i++ {
-			splatted[i] = components[0]
-		}
-		components = splatted
-	}
-
-	// Concretize abstract literal components to match the target type's scalar.
-	// For explicit type constructors (e.g., vec2<u32>(44, 45)), always concretize.
-	// For inferred constructors (e.g., array(1, 2.0)), concretize to the consensus type
-	// since inference has already determined the correct scalar type.
-	if scalar, ok := l.getTypeScalar(typeHandle); ok {
-		l.concretizeComponentsToScalar(components, scalar)
-		// For matrix constructors with vector column arguments (e.g., mat2x2(vec2(1.0, 1), vec2(1, 1))),
-		// also concretize vector components to the matrix's scalar type.
-		// concretizeComponentsToScalar only handles bare abstract literals, but matrix
-		// columns can be Compose/Splat/ZeroValue vector expressions that need type conversion.
-		if mat, ok := l.module.Types[typeHandle].Inner.(ir.MatrixType); ok {
-			colTypeHandle := l.registerType("", ir.VectorType{Size: mat.Rows, Scalar: mat.Scalar})
-			for _, comp := range components {
-				l.concretizeExpressionToType(comp, colTypeHandle)
-			}
-		}
-	}
-
-	// Matrix with scalar args: group into column vectors.
-	// mat2x2(1, 2, 3, 4) → Compose(mat2x2, [Compose(vec2, [1, 2]), Compose(vec2, [3, 4])])
-	// Matches Rust naga which always structures matrix Compose with column vector components.
-	// When grouping scalars into columns, Rust uses an anonymous matrix type for the
-	// final Compose (not the named alias type). This is because the column grouping creates
-	// new intermediate expressions, and the final Compose type should be anonymous.
-	origLen := len(components)
-	grouped := l.groupMatrixColumns(typeHandle, components)
-	composeType := typeHandle
-	if origLen > 0 && len(grouped) != origLen {
-		// Grouping happened — use anonymous type for the final Compose.
-		// Rust naga creates the matrix Compose with an anonymous type handle,
-		// not the named alias handle.
-		if int(typeHandle) < len(l.module.Types) {
-			if mat, ok := l.module.Types[typeHandle].Inner.(ir.MatrixType); ok {
-				composeType = l.registerType("", mat)
-			}
-		}
-	}
-	components = grouped
-
-	return l.addExpression(ir.Expression{
-		Kind: ir.ExprCompose{Type: composeType, Components: components},
-	}), nil
+	return l.construct(constructor{kind: ctorType, ty: typeHandle}, cons.Args, target)
 }
 
 // groupMatrixColumns groups scalar matrix components into column vectors.
@@ -8650,23 +7862,28 @@ func (l *Lowerer) lowerMatrixScalarConstruct(cons *parser.ConstructExpr, target 
 			l.concretizeExpressionToScalar(h, matScalar)
 			rowHandles[r] = h
 		}
-		colComponents[c] = l.addExpression(ir.Expression{
+		col, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprCompose{Type: colTypeHandle, Components: rowHandles},
 		})
+		if err != nil {
+			return 0, err
+		}
+		colComponents[c] = col
 	}
 
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprCompose{Type: typeHandle, Components: colComponents},
-	}), nil
+	})
 }
 
-func (l *Lowerer) groupMatrixColumns(typeHandle ir.TypeHandle, components []ir.ExpressionHandle) []ir.ExpressionHandle {
+func (l *Lowerer) groupMatrixColumns(typeHandle ir.TypeHandle, components []ir.ExpressionHandle) ([]ir.ExpressionHandle, error) {
+	var err error
 	if int(typeHandle) >= len(l.module.Types) {
-		return components
+		return components, nil
 	}
 	mat, ok := l.module.Types[typeHandle].Inner.(ir.MatrixType)
 	if !ok {
-		return components
+		return components, nil
 	}
 
 	cols := int(mat.Columns)
@@ -8674,7 +7891,7 @@ func (l *Lowerer) groupMatrixColumns(typeHandle ir.TypeHandle, components []ir.E
 
 	// Only group if we have exactly cols*rows scalar components
 	if len(components) != cols*rows {
-		return components
+		return components, nil
 	}
 
 	// Create column vector type
@@ -8684,11 +7901,14 @@ func (l *Lowerer) groupMatrixColumns(typeHandle ir.TypeHandle, components []ir.E
 	colComponents := make([]ir.ExpressionHandle, cols)
 	for c := 0; c < cols; c++ {
 		colArgs := components[c*rows : (c+1)*rows]
-		colComponents[c] = l.addExpression(ir.Expression{
+		colComponents[c], err = l.addExpression(ir.Expression{
 			Kind: ir.ExprCompose{Type: colTypeHandle, Components: colArgs},
 		})
+		if err != nil {
+			return nil, err
+		}
 	}
-	return colComponents
+	return colComponents, nil
 }
 
 // zeroLiteral returns the zero literal value for a scalar type.
@@ -8727,7 +7947,11 @@ func (l *Lowerer) lowerMember(mem *parser.MemberExpr, target *[]ir.Statement) (i
 	// Check for builtin result member access (e.g., modf(x).fract, frexp(x).exp).
 	// These builtins conceptually return structs but we decompose them into
 	// equivalent scalar math operations at lowering time.
-	if result, ok := l.tryLowerBuiltinResultMember(mem, target); ok {
+	result, ok, err := l.tryLowerBuiltinResultMember(mem, target)
+	if err != nil {
+		return 0, err
+	}
+	if ok {
 		return result, nil
 	}
 
@@ -8749,11 +7973,11 @@ func (l *Lowerer) lowerMember(mem *parser.MemberExpr, target *[]ir.Statement) (i
 			case "old_value":
 				return l.addExpression(ir.Expression{
 					Kind: ir.ExprAccessIndex{Base: base, Index: 0},
-				}), nil
+				})
 			case "exchanged":
 				return l.addExpression(ir.Expression{
 					Kind: ir.ExprAccessIndex{Base: base, Index: 1},
-				}), nil
+				})
 			}
 		}
 	}
@@ -8768,7 +7992,7 @@ func (l *Lowerer) lowerMember(mem *parser.MemberExpr, target *[]ir.Statement) (i
 	} else if ok {
 		return l.addExpression(ir.Expression{
 			Kind: ir.ExprAccessIndex{Base: base, Index: index},
-		}), nil
+		})
 	}
 
 	vec, ok, err := l.vectorType(baseType)
@@ -8787,12 +8011,15 @@ func (l *Lowerer) lowerMember(mem *parser.MemberExpr, target *[]ir.Statement) (i
 		}
 		return l.addExpression(ir.Expression{
 			Kind: ir.ExprAccessIndex{Base: base, Index: index},
-		}), nil
+		})
 	}
 
 	// Multi-component swizzle (.xy, .xyz, etc.) operates on a value, not a pointer.
 	// Apply the Load Rule to get the value before creating the Swizzle expression.
-	loadedBase := l.applyLoadRule(base)
+	loadedBase, err := l.applyLoadRule(base)
+	if err != nil {
+		return 0, err
+	}
 
 	size, pattern, err := l.swizzlePattern(mem.Member, vec.Size)
 	if err != nil {
@@ -8800,7 +8027,7 @@ func (l *Lowerer) lowerMember(mem *parser.MemberExpr, target *[]ir.Statement) (i
 	}
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprSwizzle{Size: size, Vector: loadedBase, Pattern: pattern},
-	}), nil
+	})
 }
 
 // tryLowerBuiltinResultMember checks if a member access is on a builtin that returns
@@ -8813,11 +8040,11 @@ func (l *Lowerer) lowerMember(mem *parser.MemberExpr, target *[]ir.Statement) (i
 // to extract members: index 0 = fract, index 1 = whole/exp.
 //
 // Returns (handle, true) if handled, or (0, false) if not a builtin result access.
-func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool) {
+func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool, error) {
 	// The base expression must be a call: modf(x) or frexp(x)
 	call, ok := mem.Expr.(*parser.CallExpr)
 	if !ok {
-		return 0, false
+		return 0, false, nil
 	}
 
 	funcName := call.Func.Name
@@ -8825,14 +8052,16 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 	switch funcName {
 	case "modf":
 		if len(call.Args) != 1 {
-			return 0, false
+			return 0, false, nil
 		}
 		arg, err := l.lowerExpression(call.Args[0], target)
 		if err != nil {
-			return 0, false
+			return 0, false, nil
 		}
 		// modf is float-only: concretize abstract args to F32
-		l.concretizeAbstractToDefaultFloat(arg)
+		if err := l.concretizeFloatInto(&arg); err != nil {
+			return 0, false, err
+		}
 
 		// Determine the argument's value type (scalar or vector of float)
 		argType := l.resolveExprValueType(arg)
@@ -8841,9 +8070,12 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 		modfStructType := l.getOrCreateModfResultType(argType)
 
 		// Create the Modf expression and override its type to the struct
-		modfExpr := l.addExpression(ir.Expression{
+		modfExpr, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprMath{Fun: ir.MathModf, Arg: arg},
 		})
+		if err != nil {
+			return 0, false, err
+		}
 		// Override type resolution: MathModf returns the struct, not the arg type
 		l.currentFunc.ExpressionTypes[modfExpr] = ir.TypeResolution{Handle: &modfStructType}
 
@@ -8855,25 +8087,30 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 		case "whole":
 			memberIndex = 1
 		default:
-			return 0, false
+			return 0, false, nil
 		}
-		result := l.addExpression(ir.Expression{
+		result, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprAccessIndex{Base: modfExpr, Index: memberIndex},
 		})
+		if err != nil {
+			return 0, false, err
+		}
 		// Override type: both fract and whole have the same type as the argument
 		l.overrideExprTypeFromValue(result, argType)
-		return result, true
+		return result, true, nil
 
 	case "frexp":
 		if len(call.Args) != 1 {
-			return 0, false
+			return 0, false, nil
 		}
 		arg, err := l.lowerExpression(call.Args[0], target)
 		if err != nil {
-			return 0, false
+			return 0, false, nil
 		}
 		// frexp is float-only: concretize abstract args to F32
-		l.concretizeAbstractToDefaultFloat(arg)
+		if err := l.concretizeFloatInto(&arg); err != nil {
+			return 0, false, err
+		}
 
 		// Determine the argument's value type
 		argType := l.resolveExprValueType(arg)
@@ -8882,33 +8119,42 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 		frexpStructType := l.getOrCreateFrexResultType(argType)
 
 		// Create the Frexp expression and override its type
-		frexpExpr := l.addExpression(ir.Expression{
+		frexpExpr, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprMath{Fun: ir.MathFrexp, Arg: arg},
 		})
+		if err != nil {
+			return 0, false, err
+		}
 		l.currentFunc.ExpressionTypes[frexpExpr] = ir.TypeResolution{Handle: &frexpStructType}
 
 		var memberIndex uint32
 		switch mem.Member {
 		case "fract":
 			memberIndex = 0
-			result := l.addExpression(ir.Expression{
+			result, err := l.addExpression(ir.Expression{
 				Kind: ir.ExprAccessIndex{Base: frexpExpr, Index: memberIndex},
 			})
+			if err != nil {
+				return 0, false, err
+			}
 			// fract has the same type as the argument
 			l.overrideExprTypeFromValue(result, argType)
-			return result, true
+			return result, true, nil
 		case "exp":
 			memberIndex = 1
-			result := l.addExpression(ir.Expression{
+			result, err := l.addExpression(ir.Expression{
 				Kind: ir.ExprAccessIndex{Base: frexpExpr, Index: memberIndex},
 			})
+			if err != nil {
+				return 0, false, err
+			}
 			// exp type is i32 (scalar) or vecN<i32> (vector)
 			l.overrideExprTypeToInt(result, argType)
-			return result, true
+			return result, true, nil
 		}
 	}
 
-	return 0, false
+	return 0, false, nil
 }
 
 // resolveExprValueType returns the inner TypeInner for an expression.
@@ -9078,6 +8324,10 @@ func (l *Lowerer) lowerBitcast(bc *parser.BitcastExpr, target *[]ir.Statement) (
 	if err != nil {
 		return 0, err
 	}
+	// Rust lowers the operand with expression(), which concretizes it.
+	if err := l.concretizeInto(&exprHandle); err != nil {
+		return 0, err
+	}
 
 	// Resolve the target type to determine the scalar kind
 	targetScalarKind, err := l.resolveTargetScalarKind(bc.Type)
@@ -9091,7 +8341,7 @@ func (l *Lowerer) lowerBitcast(bc *parser.BitcastExpr, target *[]ir.Statement) (
 			Kind:    targetScalarKind,
 			Convert: nil, // nil Convert = bitcast
 		},
-	}), nil
+	})
 }
 
 // resolveTargetScalarKind extracts the scalar kind from a type for bitcast.
@@ -9122,15 +8372,6 @@ func (l *Lowerer) resolveTargetScalarKind(t parser.Type) (ir.ScalarKind, error) 
 }
 
 func (l *Lowerer) lowerIndex(idx *parser.IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	// Try compile-time constant array element evaluation.
-	// When indexing an abstract composite constant with a literal index,
-	// evaluate at compile time and inline just the element. This matches
-	// Rust naga's constant evaluator which resolves positions[0] to the
-	// vec4 literal directly, without materializing the full array.
-	if h, ok := l.tryConstantArrayIndex(idx, target); ok {
-		return h, nil
-	}
-
 	// Use lowerExpressionForRef to keep the base as a reference/pointer when possible.
 	// This avoids loading the whole struct/array before indexing. Instead, AccessIndex
 	// operates on the pointer chain, and the caller's applyLoadRule adds Load on the
@@ -9151,26 +8392,26 @@ func (l *Lowerer) lowerIndex(idx *parser.IndexExpr, target *[]ir.Statement) (ir.
 // We resolve directly to Literal+Compose in 1 step — fewer arena allocations,
 // no compact cleanup needed. Both produce identical backend output because
 // Literal/Constant/GlobalVariable are needs_pre_emit (order-independent in IR).
-func (l *Lowerer) tryConstantArrayIndex(idx *parser.IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool) {
+func (l *Lowerer) tryConstantArrayIndex(idx *parser.IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, bool, error) {
 	// Check if base is an identifier referring to an abstract composite constant
 	ident, ok := idx.Expr.(*parser.Ident)
 	if !ok {
-		return 0, false
+		return 0, false, nil
 	}
 	constHandle, ok := l.moduleConstants[ident.Name]
 	if !ok {
-		return 0, false
+		return 0, false, nil
 	}
 	if int(constHandle) >= len(l.module.Constants) {
-		return 0, false
+		return 0, false, nil
 	}
 	c := &l.module.Constants[constHandle]
 	if !c.IsAbstract {
-		return 0, false
+		return 0, false, nil
 	}
 	cv, ok := c.Value.(ir.CompositeValue)
 	if !ok {
-		return 0, false
+		return 0, false, nil
 	}
 
 	// Check if index is a literal integer
@@ -9180,24 +8421,24 @@ func (l *Lowerer) tryConstantArrayIndex(idx *parser.IndexExpr, target *[]ir.Stat
 		if lit.Kind == parser.TokenIntLiteral {
 			n, err := strconv.Atoi(lit.Value)
 			if err != nil {
-				return 0, false
+				return 0, false, nil
 			}
 			indexVal = n
 		} else {
-			return 0, false
+			return 0, false, nil
 		}
 	default:
-		return 0, false
+		return 0, false, nil
 	}
 
 	if indexVal < 0 || indexVal >= len(cv.Components) {
-		return 0, false
+		return 0, false, nil
 	}
 
 	// Get the element constant
 	elemHandle := cv.Components[indexVal]
 	if int(elemHandle) >= len(l.module.Constants) {
-		return 0, false
+		return 0, false, nil
 	}
 	elem := &l.module.Constants[elemHandle]
 
@@ -9210,16 +8451,16 @@ func (l *Lowerer) tryConstantArrayIndex(idx *parser.IndexExpr, target *[]ir.Stat
 // into the current function. For scalar values, creates a Literal. For composite
 // values, creates Literal + Compose expressions. The type is concretized from
 // abstract to concrete (AbstractFloat -> f32).
-func (l *Lowerer) inlineConstantValue(c *ir.Constant, _ *[]ir.Statement) (ir.ExpressionHandle, bool) {
+func (l *Lowerer) inlineConstantValue(c *ir.Constant, _ *[]ir.Statement) (ir.ExpressionHandle, bool, error) {
 	switch cv := c.Value.(type) {
 	case ir.ScalarValue:
 		lit := scalarValueToLiteral(cv)
 		if lit == nil {
-			return 0, false
+			return 0, false, nil
 		}
-		return l.interruptEmitter(ir.Expression{
+		return found(l.interruptEmitter(ir.Expression{
 			Kind: ir.Literal{Value: lit},
-		}), true
+		}))
 	case ir.CompositeValue:
 		// Concretize the element type from abstract to concrete.
 		// Abstract constants use concrete types in our implementation,
@@ -9230,25 +8471,45 @@ func (l *Lowerer) inlineConstantValue(c *ir.Constant, _ *[]ir.Statement) (ir.Exp
 		comps := make([]ir.ExpressionHandle, len(cv.Components))
 		for i, compHandle := range cv.Components {
 			if int(compHandle) >= len(l.module.Constants) {
-				return 0, false
+				return 0, false, nil
 			}
 			comp := &l.module.Constants[compHandle]
-			h, ok := l.inlineConstantValue(comp, nil)
+			h, ok, err := l.inlineConstantValue(comp, nil)
+			if err != nil {
+				return 0, false, err
+			}
 			if !ok {
-				return 0, false
+				return 0, false, nil
 			}
 			comps[i] = h
 		}
 
-		return l.addExpression(ir.Expression{
+		return found(l.addExpression(ir.Expression{
 			Kind: ir.ExprCompose{Type: typeHandle, Components: comps},
-		}), true
+		}))
 	default:
-		return 0, false
+		return 0, false, nil
 	}
 }
 
 // Helper methods
+
+// convertCallArgument converts argument i of a call to funcHandle to the
+// parameter type (Rust: try_automatic_conversions) and checks the result.
+func (l *Lowerer) convertCallArgument(arg ir.ExpressionHandle, funcHandle ir.FunctionHandle, funcName string, i int) (ir.ExpressionHandle, error) {
+	paramTy := l.module.Functions[funcHandle].Arguments[i].Type
+	converted, convErr := l.tryAutomaticConversions(arg, l.module.Types[paramTy].Inner)
+	if convErr != nil {
+		if err := l.checkArgumentType(arg, paramTy, funcName, i); err != nil {
+			return 0, err
+		}
+		return 0, convErr
+	}
+	if err := l.checkArgumentType(converted, paramTy, funcName, i); err != nil {
+		return 0, err
+	}
+	return converted, nil
+}
 
 // isExprCallResult returns true if the expression kind is ExprCallResult.
 func isExprCallResult(kind ir.ExpressionKind) bool {
@@ -9256,21 +8517,66 @@ func isExprCallResult(kind ir.ExpressionKind) bool {
 	return ok
 }
 
-func (l *Lowerer) addExpression(expr ir.Expression) ir.ExpressionHandle {
-	// Try const-folding before adding the expression.
-	// This matches Rust naga's try_eval_and_append which evaluates const
-	// expressions at compile time. Dead intermediate expressions from
-	// const-folding are removed by CompactExpressions.
-	if folded, ok := l.tryConstFoldExpr(expr); ok {
-		return folded
-	}
+// addExpression appends expr to the current function, evaluated by the
+// constant evaluator when its operands are constant: Rust naga's
+// append_expression -> try_eval_and_append. The error is a shader-creation
+// error (a const-expression that overflows, leaves a function's domain,
+// divides by zero, ...).
+func (l *Lowerer) addExpression(expr ir.Expression) (ir.ExpressionHandle, error) {
+	return l.eval().TryEvalAndAppend(expr.Kind)
+}
 
-	// Rust naga's constant_evaluator::append_expr auto-interrupts the emitter
-	// for "needs_pre_emit" expressions (Literal, Constant, ZeroValue,
-	// GlobalVariable, FunctionArgument, LocalVariable, Override).
-	// These expressions are considered pre-emitted and must not be covered
-	// by Emit statements. When the emitter is running, we flush the current
-	// Emit range, add the expression outside, then restart the emitter.
+// fnArena is the current function's expression arena as the constant
+// evaluator sees it.
+type fnArena struct{ l *Lowerer }
+
+func (a fnArena) Expression(h ir.ExpressionHandle) ir.ExpressionKind {
+	return a.l.currentFunc.Expressions[h].Kind
+}
+
+func (a fnArena) Append(kind ir.ExpressionKind) ir.ExpressionHandle {
+	return a.l.appendFunctionExpr(ir.Expression{Kind: kind})
+}
+
+func (fnArena) IsGlobal() bool { return false }
+
+// Type registers an anonymous result type of the evaluator.
+func (a fnArena) Type(inner ir.TypeInner) ir.TypeHandle { return a.l.registerType("", inner) }
+
+// Array registers the array of base with the given size; the stride is
+// base's size rounded up to its alignment, as Rust's layouter computes it.
+func (a fnArena) Array(base ir.TypeHandle, size ir.ArraySize) ir.TypeHandle {
+	return a.l.registerArrayType(base, size)
+}
+
+func (l *Lowerer) registerArrayType(base ir.TypeHandle, size ir.ArraySize) ir.TypeHandle {
+	align, sz := l.typeAlignmentAndSize(base)
+	stride := (sz + align - 1) &^ (align - 1)
+	return l.registerType("", ir.ArrayType{Base: base, Size: size, Stride: stride})
+}
+
+// eval returns the constant evaluator of the current function. Each
+// function has its own (its stage tracking is per arena), created when the
+// function's first expression is appended.
+func (l *Lowerer) eval() *consteval.Evaluator {
+	if l.inModuleConstContext() {
+		return l.moduleEval
+	}
+	if l.fnEval == nil || l.fnEvalFunc != l.currentFunc {
+		arena := fnArena{l}
+		l.fnEval = &consteval.Evaluator{Module: l.module, Arena: arena, Types: arena, Behavior: consteval.BehaviorRuntime}
+		l.fnEvalFunc = l.currentFunc
+	}
+	return l.fnEval
+}
+
+// appendFunctionExpr appends expr to the current function. Like Rust naga's
+// constant_evaluator::append_expr it keeps the "needs_pre_emit" expressions
+// (Literal, Constant, ZeroValue, GlobalVariable, FunctionArgument,
+// LocalVariable, Override) out of Emit ranges: when the emitter is running,
+// the pending range is flushed, expr is added outside it and the emitter is
+// restarted.
+func (l *Lowerer) appendFunctionExpr(expr ir.Expression) ir.ExpressionHandle {
 	if l.emitStateStart != nil && l.currentEmitTarget != nil && needsPreEmit(expr) {
 		start := *l.emitStateStart
 		if l.currentExprIdx > start {
@@ -9283,7 +8589,6 @@ func (l *Lowerer) addExpression(expr ir.Expression) ir.ExpressionHandle {
 		l.emitStateStart = &newStart
 		return handle
 	}
-
 	return l.addExpressionRaw(expr)
 }
 
@@ -9300,209 +8605,11 @@ func needsPreEmit(expr ir.Expression) bool {
 	}
 }
 
-// tryConstFoldExpr attempts to evaluate a const expression at compile time.
-// Returns the handle to the folded result and true if successful.
-// This matches Rust naga's try_eval_and_append_impl for function body expressions.
-func (l *Lowerer) tryConstFoldExpr(expr ir.Expression) (ir.ExpressionHandle, bool) {
-	if l.currentFunc == nil {
-		return 0, false
-	}
-
-	switch k := expr.Kind.(type) {
-	case ir.ExprConstant:
-		// Deep-copy abstract constants into function arena.
-		// Rust naga's check_and_get copies ALL constants, but that requires
-		// full constant evaluator support (folding mix, bitcast, etc.) to avoid
-		// expression count explosion. We copy only abstract for now.
-		if int(k.Constant) < len(l.module.Constants) {
-			c := &l.module.Constants[k.Constant]
-			if c.IsAbstract || (int(c.Type) < len(l.module.Types) && ir.IsAbstractType(l.module.Types[c.Type].Inner, l.module.Types)) {
-				return l.deepCopyConstantValue(k.Constant)
-			}
-		}
-	case ir.ExprSelect:
-		return l.constFoldSelect(k)
-	case ir.ExprSwizzle:
-		return l.constFoldSwizzle(k)
-	case ir.ExprAccessIndex:
-		return l.constFoldAccessIndex(k)
-	case ir.ExprRelational:
-		return l.constFoldRelational(k)
-	case ir.ExprAs:
-		return l.constFoldAs(k)
-	case ir.ExprCompose:
-		// Rust naga's constant evaluator check_and_get() deep-copies constants
-		// when they appear as components of Compose. This replaces Constant
-		// references with the copied init value (Literal/Compose/ZeroValue).
-		// Do this BEFORE constFoldCompose to ensure the components are in the
-		// function arena, not referencing module-level constants.
-		if l.deepCopyComposeConstants(&k) {
-			// Re-wrap as expression to try further folding
-			return l.tryConstFoldExpr(ir.Expression{Kind: k})
-		}
-		return l.constFoldCompose(k)
-	case ir.ExprMath:
-		return l.constFoldMath(k)
-	}
-	return 0, false
-}
-
-// deepCopyComposeConstants checks if a Compose expression has any Constant
-// sub-expressions and deep-copies them into the function arena. This matches
-// Rust naga's check_and_get() which deep-copies constants when they appear
-// as components of Compose expressions. Returns true if any components were replaced.
-func (l *Lowerer) deepCopyComposeConstants(compose *ir.ExprCompose) bool {
-	if l.currentFunc == nil {
-		return false
-	}
-	changed := false
-	for i, comp := range compose.Components {
-		if int(comp) >= len(l.currentFunc.Expressions) {
-			continue
-		}
-		if constExpr, ok := l.currentFunc.Expressions[comp].Kind.(ir.ExprConstant); ok {
-			if copied, ok := l.deepCopyConstantValue(constExpr.Constant); ok {
-				compose.Components[i] = copied
-				changed = true
-			}
-		}
-	}
-	return changed
-}
-
-// constFoldSelect evaluates select(reject, accept, condition) with const operands.
-// For scalar: returns accept or reject based on bool condition.
-// For vector: per-component select, creates new Compose with selected components.
-func (l *Lowerer) constFoldSelect(sel ir.ExprSelect) (ir.ExpressionHandle, bool) {
-	if !l.isConstExpression(sel.Condition) || !l.isConstExpression(sel.Accept) || !l.isConstExpression(sel.Reject) {
-		return 0, false
-	}
-
-	// Scalar select: condition is a single bool
-	if condLit, ok := l.extractConstLiteral(sel.Condition); ok {
-		condBool, isBool := condLit.(ir.LiteralBool)
-		if !isBool {
-			return 0, false
-		}
-		if bool(condBool) {
-			return l.deepCopyConstExpr(sel.Accept)
-		}
-		return l.deepCopyConstExpr(sel.Reject)
-	}
-
-	// Vector select: condition is a vector of bools
-	condLits, ok := l.extractConstVectorLiterals(sel.Condition)
-	if !ok {
-		return 0, false
-	}
-	rejectHandle, ok := l.deepCopyConstExpr(sel.Reject)
-	if !ok {
-		return 0, false
-	}
-	acceptHandle, ok := l.deepCopyConstExpr(sel.Accept)
-	if !ok {
-		return 0, false
-	}
-
-	// Get components from deep-copied reject and accept
-	rejectExpr := l.currentFunc.Expressions[rejectHandle]
-	acceptExpr := l.currentFunc.Expressions[acceptHandle]
-
-	rejectCompose, okR := rejectExpr.Kind.(ir.ExprCompose)
-	acceptCompose, okA := acceptExpr.Kind.(ir.ExprCompose)
-	if !okR || !okA {
-		return 0, false
-	}
-
-	// Per-component select
-	components := make([]ir.ExpressionHandle, len(condLits))
-	for i, condVal := range condLits {
-		condBool, ok := condVal.(ir.LiteralBool)
-		if !ok {
-			return 0, false
-		}
-		if i >= len(rejectCompose.Components) || i >= len(acceptCompose.Components) {
-			return 0, false
-		}
-		if bool(condBool) {
-			components[i] = acceptCompose.Components[i]
-		} else {
-			components[i] = rejectCompose.Components[i]
-		}
-	}
-
-	// Create result Compose with reject's type (matches Rust)
-	return l.addExpressionRaw(ir.Expression{
-		Kind: ir.ExprCompose{
-			Type:       rejectCompose.Type,
-			Components: components,
-		},
-	}), true
-}
-
-// constFoldCompose flattens a Compose with nested vector components into a
-// flat Compose with scalar literals. This matches Rust naga's constant evaluator
-// which evaluates Compose expressions, making intermediate vector types dead
-// so CompactTypes can remove them.
-//
-// vec4(vec3(vec2(6, 7), 8), 9) → Compose(vec4<i32>, [I32(6), I32(7), I32(8), I32(9)])
-// The intermediate vec3<i32> and vec2<i32> Compose expressions become dead.
-// constFoldMath evaluates math functions with constant arguments.
-// Currently handles dot4I8Packed and dot4U8Packed matching Rust naga's
-// constant_evaluator::packed_dot_product.
-func (l *Lowerer) constFoldMath(m ir.ExprMath) (ir.ExpressionHandle, bool) {
-	switch m.Fun {
-	case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
-		return l.constFoldPackedDotProduct(m)
-	default:
-		return 0, false
-	}
-}
-
-// constFoldPackedDotProduct evaluates dot4I8Packed(a, b) and dot4U8Packed(a, b)
-// with constant U32 arguments. Matches Rust naga's packed_dot_product.
-func (l *Lowerer) constFoldPackedDotProduct(m ir.ExprMath) (ir.ExpressionHandle, bool) {
-	if m.Arg1 == nil {
-		return 0, false
-	}
-
-	// Extract U32 literal values from both arguments
-	aVal, aOk := l.extractConstU32(m.Arg)
-	bVal, bOk := l.extractConstU32(*m.Arg1)
-	if !aOk || !bOk {
-		return 0, false
-	}
-
-	if m.Fun == ir.MathDot4I8Packed {
-		// Signed: treat each byte as i8, multiply, sum → I32
-		result := int32(int8(aVal&0xFF))*int32(int8(bVal&0xFF)) +
-			int32(int8((aVal>>8)&0xFF))*int32(int8((bVal>>8)&0xFF)) +
-			int32(int8((aVal>>16)&0xFF))*int32(int8((bVal>>16)&0xFF)) +
-			int32(int8((aVal>>24)&0xFF))*int32(int8((bVal>>24)&0xFF))
-		return l.addExpressionRaw(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralI32(result)},
-		}), true
-	}
-
-	// Unsigned: treat each byte as u8, multiply, sum → U32
-	result := (aVal&0xFF)*(bVal&0xFF) +
-		((aVal>>8)&0xFF)*((bVal>>8)&0xFF) +
-		((aVal>>16)&0xFF)*((bVal>>16)&0xFF) +
-		((aVal>>24)&0xFF)*((bVal>>24)&0xFF)
-	return l.addExpressionRaw(ir.Expression{
-		Kind: ir.Literal{Value: ir.LiteralU32(result)},
-	}), true
-}
-
 // extractConstU32 extracts a constant U32 value from an expression handle.
-// Handles Literal(U32) and Constant references, but respects nonConstExprs
-// (let-bound expressions are NOT const per WGSL spec).
+// Handles Literal(U32) and Constant references; let-bound expressions are
+// not const (WGSL spec).
 func (l *Lowerer) extractConstU32(handle ir.ExpressionHandle) (uint32, bool) {
 	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.Expressions) {
-		return 0, false
-	}
-	// Let-bound expressions are forced non-const — don't fold them.
-	if l.nonConstExprs != nil && l.nonConstExprs[handle] {
 		return 0, false
 	}
 	if !l.isConstExpression(handle) {
@@ -9523,300 +8630,6 @@ func (l *Lowerer) extractConstU32(handle ir.ExpressionHandle) (uint32, bool) {
 		}
 	}
 	return 0, false
-}
-
-func (l *Lowerer) constFoldCompose(compose ir.ExprCompose) (ir.ExpressionHandle, bool) {
-	// Rust naga's constant evaluator does NOT flatten vector Compose expressions.
-	// It preserves the original structure (e.g., Compose(Splat, Literal) stays as-is).
-	// We match this behavior to produce identical IR.
-	if int(compose.Type) >= len(l.module.Types) {
-		return 0, false
-	}
-	inner := l.module.Types[compose.Type].Inner
-
-	switch inner.(type) {
-	case ir.MatrixType:
-		// For matrices, check if components contain nested Compose that can be folded
-		// Matrix components should be column vectors — only fold if columns have nested content
-		allConst := true
-		hasNested := false
-		for _, comp := range compose.Components {
-			if !l.isConstExpression(comp) {
-				allConst = false
-				break
-			}
-			if int(comp) < len(l.currentFunc.Expressions) {
-				if subCompose, ok := l.currentFunc.Expressions[comp].Kind.(ir.ExprCompose); ok {
-					for _, subComp := range subCompose.Components {
-						if !l.isConstExpression(subComp) {
-							allConst = false
-							break
-						}
-						if int(subComp) < len(l.currentFunc.Expressions) {
-							switch l.currentFunc.Expressions[subComp].Kind.(type) {
-							case ir.Literal:
-							default:
-								hasNested = true
-							}
-						}
-					}
-				}
-			}
-		}
-		if !allConst || !hasNested {
-			return 0, false
-		}
-
-		// Fold each column vector
-		newCols := make([]ir.ExpressionHandle, len(compose.Components))
-		for i, comp := range compose.Components {
-			if int(comp) < len(l.currentFunc.Expressions) {
-				if subCompose, ok := l.currentFunc.Expressions[comp].Kind.(ir.ExprCompose); ok {
-					var colScalars []ir.ExpressionHandle
-					for _, subComp := range subCompose.Components {
-						subFlat, fOk := l.flattenConstCompose(subComp)
-						if !fOk {
-							colScalars = append(colScalars, subComp)
-						} else {
-							colScalars = append(colScalars, subFlat...)
-						}
-					}
-					newCols[i] = l.addExpressionRaw(ir.Expression{
-						Kind: ir.ExprCompose{
-							Type:       subCompose.Type,
-							Components: colScalars,
-						},
-					})
-					continue
-				}
-			}
-			newCols[i] = comp
-		}
-
-		return l.addExpressionRaw(ir.Expression{
-			Kind: ir.ExprCompose{
-				Type:       compose.Type,
-				Components: newCols,
-			},
-		}), true
-	}
-
-	return 0, false
-}
-
-// constFoldSwizzle evaluates swizzle on a const Compose/Splat expression.
-// vec4(1,2,3,4).wzyx → vec4(4,3,2,1)
-// Handles nested Compose (e.g., vec4(vec2(1,2), vec2(3,4))) by flattening.
-// Creates NEW literal expressions in swizzled order matching Rust naga's
-// constant evaluator which creates fresh expressions via register_evaluated_expr.
-func (l *Lowerer) constFoldSwizzle(sw ir.ExprSwizzle) (ir.ExpressionHandle, bool) {
-	if !l.isConstExpression(sw.Vector) {
-		return 0, false
-	}
-
-	// Flatten nested Compose to get scalar component handles
-	flat, ok := l.flattenConstCompose(sw.Vector)
-	if !ok {
-		return 0, false
-	}
-
-	// Extract swizzled components. When the swizzle reorders AND all flattened
-	// handles are unique (from a non-Splat Compose), create fresh copies so that
-	// after compact the expression ordering matches Rust naga. When handles are
-	// shared (Splat-derived), reuse them to avoid duplication.
-	size := int(sw.Size)
-	uniqueHandles := make(map[ir.ExpressionHandle]bool, len(flat))
-	for _, h := range flat {
-		uniqueHandles[h] = true
-	}
-	allUnique := len(uniqueHandles) == len(flat)
-
-	isReorder := false
-	for i := 0; i < size; i++ {
-		if int(sw.Pattern[i]) != i {
-			isReorder = true
-			break
-		}
-	}
-
-	components := make([]ir.ExpressionHandle, size)
-	for i := 0; i < size; i++ {
-		idx := int(sw.Pattern[i])
-		if idx >= len(flat) {
-			return 0, false
-		}
-		if isReorder && allUnique {
-			// All source handles unique (nested Compose, not Splat): copy to new order
-			srcExpr := l.currentFunc.Expressions[flat[idx]]
-			components[i] = l.addExpressionRaw(srcExpr)
-		} else {
-			components[i] = flat[idx]
-		}
-	}
-
-	if sw.Size == 1 {
-		return components[0], true
-	}
-
-	// Determine result type from the vector expression
-	vecExpr := l.currentFunc.Expressions[sw.Vector]
-	var srcScalar ir.ScalarType
-	switch k := vecExpr.Kind.(type) {
-	case ir.ExprCompose:
-		if int(k.Type) < len(l.module.Types) {
-			if vt, ok := l.module.Types[k.Type].Inner.(ir.VectorType); ok {
-				srcScalar = vt.Scalar
-			}
-		}
-	case ir.ExprSplat:
-		if lit, ok := l.extractConstLiteral(k.Value); ok {
-			srcScalar = l.literalScalarType(lit)
-		}
-	case ir.ExprConstant:
-		if int(k.Constant) < len(l.module.Constants) {
-			c := &l.module.Constants[k.Constant]
-			if int(c.Type) < len(l.module.Types) {
-				if vt, ok := l.module.Types[c.Type].Inner.(ir.VectorType); ok {
-					srcScalar = vt.Scalar
-				}
-			}
-		}
-	}
-	if srcScalar == (ir.ScalarType{}) {
-		return 0, false
-	}
-
-	resultType := l.registerType("", ir.VectorType{Size: sw.Size, Scalar: srcScalar})
-	return l.addExpressionRaw(ir.Expression{
-		Kind: ir.ExprCompose{
-			Type:       resultType,
-			Components: components,
-		},
-	}), true
-}
-
-// constFoldAccessIndex evaluates access_index on a const Compose expression.
-// vec4(1,2,3,4)[2] → 3
-// Handles nested Compose by flattening (e.g., vec4(vec2(1,2), vec2(3,4))[2] → 3).
-func (l *Lowerer) constFoldAccessIndex(ai ir.ExprAccessIndex) (ir.ExpressionHandle, bool) {
-	if !l.isConstExpression(ai.Base) {
-		return 0, false
-	}
-
-	// Check if base is a vector Compose (for vector access index)
-	baseExpr := l.currentFunc.Expressions[ai.Base]
-	switch baseExpr.Kind.(type) {
-	case ir.ExprCompose, ir.ExprConstant, ir.ExprSplat, ir.ExprZeroValue:
-		// OK — these can be flattened
-	default:
-		return 0, false
-	}
-
-	// Flatten nested Compose to get scalar component handles
-	flat, ok := l.flattenConstCompose(ai.Base)
-	if !ok {
-		return 0, false
-	}
-
-	idx := int(ai.Index)
-	if idx >= len(flat) {
-		return 0, false
-	}
-
-	return flat[idx], true
-}
-
-// constFoldRelational evaluates any/all on a const bool vector.
-// any(vec4<bool>(false,false,false,false)) → false
-// all(vec4<bool>(true,true,true,true)) → true
-func (l *Lowerer) constFoldRelational(rel ir.ExprRelational) (ir.ExpressionHandle, bool) {
-	if rel.Fun != ir.RelationalAll && rel.Fun != ir.RelationalAny {
-		return 0, false
-	}
-	if !l.isConstExpression(rel.Argument) {
-		return 0, false
-	}
-
-	lits, ok := l.extractConstVectorLiterals(rel.Argument)
-	if !ok {
-		return 0, false
-	}
-
-	var result bool
-	if rel.Fun == ir.RelationalAll {
-		result = true
-		for _, lit := range lits {
-			b, ok := lit.(ir.LiteralBool)
-			if !ok {
-				return 0, false
-			}
-			if !bool(b) {
-				result = false
-				break
-			}
-		}
-	} else { // Any
-		result = false
-		for _, lit := range lits {
-			b, ok := lit.(ir.LiteralBool)
-			if !ok {
-				return 0, false
-			}
-			if bool(b) {
-				result = true
-				break
-			}
-		}
-	}
-
-	return l.addExpressionRaw(ir.Expression{
-		Kind: ir.Literal{Value: ir.LiteralBool(result)},
-	}), true
-}
-
-// constFoldAs evaluates As (type conversion) on const expressions.
-// Handles vector/scalar zero-value conversions: vec4<i32>(vec4<f32>(0,0,0,0)) → Compose(vec4<i32>, [I32(0)×4])
-func (l *Lowerer) constFoldAs(as ir.ExprAs) (ir.ExpressionHandle, bool) {
-	if as.Convert == nil {
-		return 0, false // bitcast — don't fold
-	}
-	if !l.isConstExpression(as.Expr) {
-		return 0, false
-	}
-
-	// Scalar const cast
-	if lit, ok := l.extractConstLiteral(as.Expr); ok {
-		converted := l.convertLiteral(lit, as.Kind, *as.Convert)
-		if converted == nil {
-			return 0, false
-		}
-		return l.addExpressionRaw(ir.Expression{
-			Kind: ir.Literal{Value: converted},
-		}), true
-	}
-
-	// Vector const cast: convert each component
-	lits, ok := l.extractConstVectorLiterals(as.Expr)
-	if !ok {
-		return 0, false
-	}
-	targetScalar := ir.ScalarType{Kind: as.Kind, Width: *as.Convert}
-	targetVecType := l.registerType("", ir.VectorType{Size: ir.VectorSize(len(lits)), Scalar: targetScalar})
-
-	comps := make([]ir.ExpressionHandle, len(lits))
-	for i, lit := range lits {
-		converted := l.convertLiteral(lit, as.Kind, *as.Convert)
-		if converted == nil {
-			return 0, false
-		}
-		comps[i] = l.addExpressionRaw(ir.Expression{
-			Kind: ir.Literal{Value: converted},
-		})
-	}
-
-	return l.addExpressionRaw(ir.Expression{
-		Kind: ir.ExprCompose{Type: targetVecType, Components: comps},
-	}), true
 }
 
 // convertLiteral converts a literal value to a different scalar type.
@@ -10097,6 +8910,10 @@ func (l *Lowerer) addExpressionRaw(expr ir.Expression) ir.ExpressionHandle {
 		exprType = ir.TypeResolution{}
 	}
 	l.currentFunc.ExpressionTypes = append(l.currentFunc.ExpressionTypes, exprType)
+	if l.inModuleConstContext() {
+		// The evaluator reads Module.GlobalExpressions directly.
+		l.module.GlobalExpressions = l.currentFunc.Expressions
+	}
 
 	return handle
 }
@@ -10106,12 +8923,12 @@ func (l *Lowerer) addExpressionRaw(expr ir.Expression) ir.ExpressionHandle {
 // with pointer type), wrap it with ExprLoad to produce a value.
 // This matches Rust naga's apply_load_rule which inserts explicit Load expressions
 // for variable references, ensuring expression handle numbering matches Rust.
-func (l *Lowerer) applyLoadRule(handle ir.ExpressionHandle) ir.ExpressionHandle {
+func (l *Lowerer) applyLoadRule(handle ir.ExpressionHandle) (ir.ExpressionHandle, error) {
 	if l.currentFunc == nil {
-		return handle
+		return handle, nil
 	}
 	if int(handle) >= len(l.currentFunc.Expressions) {
-		return handle
+		return handle, nil
 	}
 
 	expr := l.currentFunc.Expressions[handle]
@@ -10122,7 +8939,7 @@ func (l *Lowerer) applyLoadRule(handle ir.ExpressionHandle) ir.ExpressionHandle 
 		if int(kind.Variable) < len(l.module.GlobalVariables) {
 			gv := &l.module.GlobalVariables[kind.Variable]
 			if gv.Space == ir.SpaceHandle {
-				return handle
+				return handle, nil
 			}
 		}
 		return l.addExpression(ir.Expression{
@@ -10138,26 +8955,26 @@ func (l *Lowerer) applyLoadRule(handle ir.ExpressionHandle) ir.ExpressionHandle 
 		// (e.g., runtime-sized array) which cannot be loaded.
 		if l.isPointerExpressionInLowerer(kind.Base) {
 			if l.isUnsizedType(handle) {
-				return handle
+				return handle, nil
 			}
 			return l.addExpression(ir.Expression{
 				Kind: ir.ExprLoad{Pointer: handle},
 			})
 		}
-		return handle
+		return handle, nil
 	case ir.ExprAccess:
 		// Access on a pointer base (variable reference) is itself a reference.
 		if l.isPointerExpressionInLowerer(kind.Base) {
 			if l.isUnsizedType(handle) {
-				return handle
+				return handle, nil
 			}
 			return l.addExpression(ir.Expression{
 				Kind: ir.ExprLoad{Pointer: handle},
 			})
 		}
-		return handle
+		return handle, nil
 	default:
-		return handle
+		return handle, nil
 	}
 }
 
@@ -10263,7 +9080,7 @@ func (l *Lowerer) lowerMemberForRef(mem *parser.MemberExpr, target *[]ir.Stateme
 	} else if ok {
 		return l.addExpression(ir.Expression{
 			Kind: ir.ExprAccessIndex{Base: base, Index: index},
-		}), nil
+		})
 	}
 
 	// Single-component vector access (.x, .y, .z, .w) in reference context:
@@ -10281,7 +9098,7 @@ func (l *Lowerer) lowerMemberForRef(mem *parser.MemberExpr, target *[]ir.Stateme
 		}
 		return l.addExpression(ir.Expression{
 			Kind: ir.ExprAccessIndex{Base: base, Index: index},
-		}), nil
+		})
 	}
 
 	// For multi-component swizzle (.xy, .xyz, etc.), fall through to regular lowering.
@@ -10293,10 +9110,6 @@ func (l *Lowerer) lowerMemberForRef(mem *parser.MemberExpr, target *[]ir.Stateme
 // lowerIndexForRef lowers an index expression in reference context.
 // The base is kept as a reference (no load rule applied).
 func (l *Lowerer) lowerIndexForRef(idx *parser.IndexExpr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	// Try compile-time constant array element evaluation (same as lowerIndex).
-	if h, ok := l.tryConstantArrayIndex(idx, target); ok {
-		return h, nil
-	}
 	base, err := l.lowerExpressionForRef(idx.Expr, target)
 	if err != nil {
 		return 0, err
@@ -10318,6 +9131,10 @@ func (l *Lowerer) lowerIndexWithBase(idx *parser.IndexExpr, base ir.ExpressionHa
 	if err != nil {
 		return 0, err
 	}
+	// Rust lowers the index with expression(): concretized.
+	if index, err = l.concretize(index); err != nil {
+		return 0, err
+	}
 
 	// Try to evaluate the index as a compile-time constant u32.
 	// If successful, use AccessIndex (compile-time constant index).
@@ -10326,13 +9143,17 @@ func (l *Lowerer) lowerIndexWithBase(idx *parser.IndexExpr, base ir.ExpressionHa
 	if val, ok := l.constEvalExprToU32(index); ok {
 		return l.addExpression(ir.Expression{
 			Kind: ir.ExprAccessIndex{Base: base, Index: val},
-		}), nil
+		})
 	}
 
-	// Dynamic index: use Access with the lowered index expression.
+	// WGSL array-access-expr: an abstract array, vector or matrix indexed by
+	// an expression that is not a const-expression is concretized first.
+	if base, err = l.concretize(base); err != nil {
+		return 0, err
+	}
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprAccess{Base: base, Index: index},
-	}), nil
+	})
 }
 
 // emitStart records the current expression index as the start of an emit range.
@@ -10383,7 +9204,7 @@ func (l *Lowerer) emitFinish(start ir.ExpressionHandle, target *[]ir.Statement) 
 // is flushed (if any emittable expressions were added), then the expression
 // is appended, then the emitter is restarted after the new expression.
 // The result is that non-emittable expressions are never covered by Emit statements.
-func (l *Lowerer) interruptEmitter(expr ir.Expression) ir.ExpressionHandle {
+func (l *Lowerer) interruptEmitter(expr ir.Expression) (ir.ExpressionHandle, error) {
 	// Flush any pending emittable expressions in the current range.
 	if l.emitStateStart != nil && l.currentEmitTarget != nil {
 		start := *l.emitStateStart
@@ -10392,11 +9213,16 @@ func (l *Lowerer) interruptEmitter(expr ir.Expression) ir.ExpressionHandle {
 				Range: ir.Range{Start: start, End: l.currentExprIdx},
 			}})
 		}
+		flushed := l.currentExprIdx
+		l.emitStateStart = &flushed
 	}
 
-	// Add the expression (outside any emit range).
-	// Use addExpressionRaw to avoid double-flush since we already flushed above.
-	handle := l.addExpressionRaw(expr)
+	// Add the expression (outside any emit range), through the evaluator
+	// like every other expression (Rust interrupt_emitter -> append_expression).
+	handle, err := l.addExpression(expr)
+	if err != nil {
+		return 0, err
+	}
 
 	// Restart the emitter after this expression.
 	if l.emitStateStart != nil {
@@ -10404,7 +9230,7 @@ func (l *Lowerer) interruptEmitter(expr ir.Expression) ir.ExpressionHandle {
 		l.emitStateStart = &newStart
 	}
 
-	return handle
+	return handle, nil
 }
 
 // countStatementsDeep returns a rough count of statements in a block,
@@ -10472,53 +9298,6 @@ func ensureBlockReturns(block *[]ir.Statement) {
 		// Emit, Loop, Store, ImageStore, Call, RayQuery, Atomic, barriers, etc.
 		*block = append(*block, ir.Statement{Kind: ir.StmtReturn{}})
 	}
-}
-
-// tryConstEvalPhonyExpr attempts to const-evaluate a phony assignment RHS expression.
-// Rust naga's ConstantEvaluator evaluates pure constant expressions (like select(1, 2f, false))
-// at lowering time into a single expression, rather than creating separate literal + operation
-// expressions in the function arena. This method replicates that behavior for select() calls
-// with all-literal scalar arguments, producing a single Literal expression that matches
-// Rust's expression handle numbering.
-//
-// Returns the expression handle and true if const-evaluation succeeded, or (0, false) if the
-// expression is not const-evaluable and should be lowered normally.
-func (l *Lowerer) tryConstEvalPhonyExpr(expr parser.Expr) (ir.ExpressionHandle, bool) {
-	call, ok := expr.(*parser.CallExpr)
-	if !ok || call.Func.Name != "select" || len(call.Args) != 3 {
-		return 0, false
-	}
-
-	// All three arguments must be scalar literals.
-	falseVal, okFalse := l.extractLiteralValue(call.Args[0])
-	trueVal, okTrue := l.extractLiteralValue(call.Args[1])
-	condVal, okCond := l.extractLiteralValue(call.Args[2])
-	if !okFalse || !okTrue || !okCond {
-		return 0, false
-	}
-
-	// Condition must be a boolean literal.
-	condBool, isBool := condVal.(ir.LiteralBool)
-	if !isBool {
-		return 0, false
-	}
-
-	// Evaluate select: select(falseVal, trueVal, condition) = condition ? trueVal : falseVal
-	var result ir.LiteralValue
-	if bool(condBool) {
-		result = trueVal
-	} else {
-		result = falseVal
-	}
-
-	// Concretize abstract int if the other operand is concrete.
-	// In WGSL, select(1, 2f, false) = 1, but 1 is AbstractInt. Since the
-	// other arg is F32, the result concretizes to F32(1.0).
-	result = l.concretizeLiteralValue(result, falseVal, trueVal)
-
-	return l.interruptEmitter(ir.Expression{
-		Kind: ir.Literal{Value: result},
-	}), true
 }
 
 // extractLiteralValue extracts a LiteralValue from a literal AST expression.
@@ -10729,7 +9508,7 @@ func (l *Lowerer) resolveIdentifier(name string) (ir.ExpressionHandle, error) {
 	if lit, ok := l.inlineConstants[name]; ok {
 		return l.interruptEmitter(ir.Expression{
 			Kind: ir.Literal{Value: lit},
-		}), nil
+		})
 	}
 
 	// Check module-level overrides — interrupt emitter (non-emittable).
@@ -10737,63 +9516,29 @@ func (l *Lowerer) resolveIdentifier(name string) (ir.ExpressionHandle, error) {
 	if handle, ok := l.moduleOverrides[name]; ok {
 		return l.interruptEmitter(ir.Expression{
 			Kind: ir.ExprOverride{Override: handle},
-		}), nil
+		})
 	}
 
-	// Check abstract constants — inlined at use site, never in module.Constants.
-	// In Rust naga, abstract constants are not added to the module; their values
-	// are substituted directly at reference sites.
-	if info, ok := l.abstractConstants[name]; ok {
-		if info.scalarValue != nil {
-			lit := scalarValueToAbstractLiteral(*info.scalarValue)
-			if lit != nil {
-				return l.interruptEmitter(ir.Expression{
-					Kind: ir.Literal{Value: lit},
-				}), nil
-			}
-		}
-		if info.compositeAST != nil {
-			// Re-lower the composite AST at the use site.
-			// The type will be concretized based on the declaration context.
-			return l.lowerExpression(info.compositeAST, l.currentEmitTarget)
-		}
-	}
-
-	// Check module-level constants — interrupt emitter (non-emittable).
+	// Module constants, abstract or not, are Expression::Constant (Rust
+	// LoweredGlobalDecl::Const); the evaluator copies the value where it is
+	// needed (an operand, a conversion) and an abstract one is converted
+	// there.
 	if handle, ok := l.moduleConstants[name]; ok {
-		// Abstract constants (from untyped const declarations like "const one = 1;")
-		// that are still in module.Constants (legacy path) — inline them.
-		if int(handle) < len(l.module.Constants) {
-			c := &l.module.Constants[handle]
-			if c.IsAbstract {
-				if sv, ok := c.Value.(ir.ScalarValue); ok {
-					lit := scalarValueToAbstractLiteral(sv)
-					if lit != nil {
-						return l.interruptEmitter(ir.Expression{
-							Kind: ir.Literal{Value: lit},
-						}), nil
-					}
-				}
-				if cv, ok := c.Value.(ir.CompositeValue); ok {
-					concreteType := l.concretizeTypeHandle(c.Type)
-					if inlined, ok := l.inlineCompositeConstant(cv, concreteType); ok {
-						return inlined, nil
-					}
-				}
-			}
-		}
 		return l.interruptEmitter(ir.Expression{
 			Kind: ir.ExprConstant{Constant: handle},
-		}), nil
+		})
 	}
 
 	// Check globals — interrupt emitter (non-emittable).
 	// Rust naga creates separate GlobalVariable expressions for each reference,
 	// each via interrupt_emitter so they fall outside emit ranges.
 	if handle, ok := l.globals[name]; ok {
-		exprHandle := l.interruptEmitter(ir.Expression{
+		exprHandle, err := l.interruptEmitter(ir.Expression{
 			Kind: ir.ExprGlobalVariable{Variable: handle},
 		})
+		if err != nil {
+			return 0, err
+		}
 		return exprHandle, nil
 	}
 
@@ -10813,12 +9558,17 @@ func (l *Lowerer) resolveType(typ parser.Type) (ir.TypeHandle, error) {
 		// Parse size expression if present
 		var size ir.ArraySize
 		if t.Size != nil {
-			if n, ok := l.tryEvalConstantUint(t.Size); ok {
-				if n == 0 {
-					return 0, fmt.Errorf("array size must be greater than 0")
-				}
-				constSize := uint32(n)
-				size.Constant = &constSize
+			n, err := l.constU32(t.Size)
+			switch {
+			case errors.Is(err, consteval.ErrOverrideInConst):
+				// Override-sized arrays (Rust PendingArraySize) are not
+				// represented yet; the size stays open.
+			case err != nil:
+				return 0, fmt.Errorf("array size: %w", err)
+			case n == 0:
+				return 0, fmt.Errorf("array size must be greater than 0")
+			default:
+				size.Constant = &n
 			}
 		}
 		// Compute element stride for SPIR-V ArrayStride decoration.
@@ -11202,240 +9952,14 @@ func (l *Lowerer) isBuiltinConstructor(name string) bool {
 	return name == "array"
 }
 
+// lowerBuiltinConstructor lowers a partial constructor call (vecN(...),
+// matCxR(...), array(...)) whose component type is inferred.
 func (l *Lowerer) lowerBuiltinConstructor(name string, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	// Lower all arguments first
-	components := make([]ir.ExpressionHandle, len(args))
-	for i, arg := range args {
-		handle, err := l.lowerExpression(arg, target)
-		if err != nil {
-			return 0, err
-		}
-		components[i] = handle
+	ctor, ok := partialConstructor(name)
+	if !ok {
+		return 0, fmt.Errorf("unknown constructor %s", name)
 	}
-
-	// Infer type from constructor name
-	var typeHandle ir.TypeHandle
-
-	switch {
-	case len(name) == 4 && name[:3] == "vec":
-		// vec2, vec3, vec4 — infer scalar type from arguments using consensus
-		size := name[3] - '0'
-		scalar, sErr := l.consensusScalarType(components)
-		if sErr != nil {
-			scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-		}
-		typeHandle = l.registerType("", ir.VectorType{
-			Size:   ir.VectorSize(size),
-			Scalar: scalar,
-		})
-
-	case len(name) == 6 && name[:3] == "mat" && name[4] == 'x':
-		// mat2x2, mat3x3, mat4x4, etc. — infer scalar type from arguments
-		cols := name[3] - '0'
-		rows := name[5] - '0'
-		scalar, sErr := l.consensusScalarType(components)
-		if sErr != nil {
-			scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-		}
-		// Matrix with abstract int args defaults to f32 (WGSL spec)
-		if scalar.Kind == ir.ScalarSint {
-			allAbstract := true
-			for _, comp := range components {
-				isAbs, _, _, _ := l.isAbstractLiteral(comp)
-				if !isAbs {
-					allAbstract = false
-					break
-				}
-			}
-			if allAbstract {
-				scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-			}
-		}
-		typeHandle = l.registerType("", ir.MatrixType{
-			Columns: ir.VectorSize(cols),
-			Rows:    ir.VectorSize(rows),
-			Scalar:  scalar,
-		})
-
-	case name == "array":
-		// array(...) with inferred element type and size
-		if len(args) == 0 {
-			return 0, fmt.Errorf("array constructor requires at least one element")
-		}
-
-		// Infer element type from first argument
-		elemType, err := l.inferTypeFromExpression(components[0])
-		if err != nil {
-			return 0, fmt.Errorf("cannot infer array element type: %w", err)
-		}
-
-		// Create array type with fixed size
-		constSize := uint32(len(args))
-		arraySize := ir.ArraySize{
-			Constant: &constSize,
-		}
-		elemAlign, elemSize := l.typeAlignmentAndSize(elemType)
-		arrStride := (elemSize + elemAlign - 1) &^ (elemAlign - 1)
-		typeHandle = l.registerType("", ir.ArrayType{
-			Base:   elemType,
-			Size:   arraySize,
-			Stride: arrStride,
-		})
-	}
-
-	// Zero-arg constructor: emit ZeroValue (matches Rust naga).
-	if len(components) == 0 {
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.ExprZeroValue{Type: typeHandle},
-		}), nil
-	}
-
-	// Concretize abstract literal components to match the target type's scalar
-	if scalar, ok := l.getTypeScalar(typeHandle); ok {
-		l.concretizeComponentsToScalar(components, scalar)
-	}
-
-	// Single scalar arg to vector constructor: Splat (matches Rust naga).
-	if vec, ok := l.module.Types[typeHandle].Inner.(ir.VectorType); ok && len(components) == 1 {
-		argType, resolveErr := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
-		if resolveErr == nil {
-			argInner := ir.TypeResInner(l.module, argType)
-			if _, isScalar := argInner.(ir.ScalarType); isScalar {
-				return l.addExpression(ir.Expression{
-					Kind: ir.ExprSplat{Size: vec.Size, Value: components[0]},
-				}), nil
-			}
-		}
-	}
-
-	// Matrix with scalar args: group into column vectors (matches Rust naga).
-	components = l.groupMatrixColumns(typeHandle, components)
-
-	return l.addExpression(ir.Expression{
-		Kind: ir.ExprCompose{Type: typeHandle, Components: components},
-	}), nil
-}
-
-// lowerShortAliasConstructor handles constructor calls using short type aliases
-// (e.g., vec3f(1.0, 2.0, 3.0) which expands to vec3<f32>(1.0, 2.0, 3.0)).
-func (l *Lowerer) lowerShortAliasConstructor(alias shortTypeAlias, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	// Resolve the expanded type (e.g., vec3<f32>)
-	typeHandle, err := l.resolveNamedType(&parser.NamedType{
-		Name:       alias.baseName,
-		TypeParams: []parser.Type{&parser.NamedType{Name: alias.scalarName}},
-	})
-	if err != nil {
-		return 0, fmt.Errorf("short type alias %s<%s>: %w", alias.baseName, alias.scalarName, err)
-	}
-
-	// Zero-arg constructor: emit ZeroValue (matches Rust naga).
-	// E.g., vec2i() → ZeroValue(vec2<i32>)
-	if len(args) == 0 {
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.ExprZeroValue{Type: typeHandle},
-		}), nil
-	}
-
-	// Lower all arguments
-	components := make([]ir.ExpressionHandle, len(args))
-	for i, arg := range args {
-		handle, err := l.lowerExpression(arg, target)
-		if err != nil {
-			return 0, err
-		}
-		components[i] = handle
-	}
-
-	// For scalar constructors with a single argument, generate ExprAs (type conversion)
-	if len(components) == 1 {
-		targetType := l.module.Types[typeHandle]
-		if scalar, ok := targetType.Inner.(ir.ScalarType); ok {
-			width := scalar.Width
-			return l.addExpression(ir.Expression{
-				Kind: ir.ExprAs{
-					Expr:    components[0],
-					Kind:    scalar.Kind,
-					Convert: &width,
-				},
-			}), nil
-		}
-	}
-
-	// Handle vector with single argument: check if it's a vector-to-vector conversion
-	// (e.g., vec2f(half2_val)) or a splat (e.g., vec3f(1.0)).
-	targetType := l.module.Types[typeHandle]
-	if vec, ok := targetType.Inner.(ir.VectorType); ok && len(components) == 1 {
-		// Check if the single arg is a vector of same size (type conversion)
-		argType, resolveErr := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
-		if resolveErr == nil {
-			argInner := ir.TypeResInner(l.module, argType)
-			if argVec, ok := argInner.(ir.VectorType); ok && argVec.Size == vec.Size {
-				// Vector-to-vector conversion (e.g., vec2f(vec2h_val))
-				width := vec.Scalar.Width
-				return l.addExpression(ir.Expression{
-					Kind: ir.ExprAs{
-						Expr:    components[0],
-						Kind:    vec.Scalar.Kind,
-						Convert: &width,
-					},
-				}), nil
-			}
-		}
-		// Splat: vec3f(1.0) -> Splat(Tri, 1.0)
-		// Rust naga generates a Splat expression, not Compose with duplicated args.
-		l.concretizeComponentsToScalar(components, vec.Scalar)
-		// Convert concrete scalars of different kind (e.g., u32→f32 for vec4f(u32_val)).
-		if argType2, err2 := ir.ResolveExpressionType(l.module, l.currentFunc, components[0]); err2 == nil {
-			argInner2 := ir.TypeResInner(l.module, argType2)
-			if argScalar, ok := argInner2.(ir.ScalarType); ok {
-				if argScalar.Kind != vec.Scalar.Kind || argScalar.Width != vec.Scalar.Width {
-					width := vec.Scalar.Width
-					components[0] = l.addExpression(ir.Expression{
-						Kind: ir.ExprAs{
-							Expr:    components[0],
-							Kind:    vec.Scalar.Kind,
-							Convert: &width,
-						},
-					})
-				}
-			}
-		}
-		return l.addExpression(ir.Expression{
-			Kind: ir.ExprSplat{Size: vec.Size, Value: components[0]},
-		}), nil
-	}
-
-	// Handle matrix with single argument: check if it's a matrix-to-matrix conversion
-	// (e.g., mat2x2h(mat2x2f_val)). Matches Rust naga construction.rs "Matrix conversion" case.
-	if mat, ok := targetType.Inner.(ir.MatrixType); ok && len(components) == 1 {
-		argType, resolveErr := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
-		if resolveErr == nil {
-			argInner := ir.TypeResInner(l.module, argType)
-			if argMat, ok := argInner.(ir.MatrixType); ok && argMat.Columns == mat.Columns && argMat.Rows == mat.Rows {
-				// Matrix-to-matrix conversion (e.g., mat2x2h(mat2x2f_val))
-				width := mat.Scalar.Width
-				return l.addExpression(ir.Expression{
-					Kind: ir.ExprAs{
-						Expr:    components[0],
-						Kind:    mat.Scalar.Kind,
-						Convert: &width,
-					},
-				}), nil
-			}
-		}
-	}
-
-	// Concretize abstract literal components to match the target type's scalar
-	if scalar, ok := l.getTypeScalar(typeHandle); ok {
-		l.concretizeComponentsToScalar(components, scalar)
-	}
-
-	// Matrix with scalar args: group into column vectors (matches Rust naga).
-	components = l.groupMatrixColumns(typeHandle, components)
-
-	return l.addExpression(ir.Expression{
-		Kind: ir.ExprCompose{Type: typeHandle, Components: components},
-	}), nil
+	return l.construct(ctor, args, target)
 }
 
 // shortTypeAlias represents a WGSL predeclared short type alias.
@@ -11655,58 +10179,21 @@ func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []parser.Expr, ta
 		arg3 = &a
 	}
 
-	// Concretize abstract arguments. Find a concrete argument type for consensus,
-	// or default to I32/F32.
-	// Special case: ldexp(f32, i32) — the exponent argument must be i32, not f32.
-	if mathFunc == ir.MathLdexp && arg1 != nil {
-		// Concretize mantissa (arg0) as float
-		l.concretizeMathArgsWithHint([]ir.ExpressionHandle{arg0}, true)
-		// Concretize exponent (arg1) as integer (I32)
-		l.concretizeAbstractToDefault(*arg1)
-	} else {
-		allArgs := []ir.ExpressionHandle{arg0}
-		if arg1 != nil {
-			allArgs = append(allArgs, *arg1)
-		}
-		if arg2 != nil {
-			allArgs = append(allArgs, *arg2)
-		}
-		if arg3 != nil {
-			allArgs = append(allArgs, *arg3)
-		}
-		l.concretizeMathArgsWithHint(allArgs, isFloatOnlyMathFunc(mathFunc))
-	}
-
-	// Constant fold: cross(vec3_const, vec3_const) → vec3_result
-	if mathFunc == ir.MathCross && arg1 != nil {
-		if result, ok := l.tryFoldCross(arg0, *arg1); ok {
-			return result, nil
+	// WGSL automatic conversions for the call's overload.
+	allArgs := []ir.ExpressionHandle{arg0}
+	for _, a := range []*ir.ExpressionHandle{arg1, arg2, arg3} {
+		if a != nil {
+			allArgs = append(allArgs, *a)
 		}
 	}
-
-	// Constant fold: dot(vec_const, vec_const) → scalar_result
-	// Matches Rust naga constant evaluator which folds dot products when both
-	// arguments are compile-time constant vectors (Splat or Compose of literals).
-	if mathFunc == ir.MathDot && arg1 != nil {
-		if result, ok := l.tryFoldDot(arg0, *arg1); ok {
-			return result, nil
-		}
+	if err := l.convertMathArgs(mathFunc, allArgs); err != nil {
+		return 0, err
 	}
-
-	// Constant fold: scalar math on literal arguments.
-	// Exclude Mix: Rust naga returns NotImplemented for Mix const-eval.
-	if mathFunc != ir.MathMix {
-		if result, ok := l.tryFoldScalarMath(mathFunc, arg0, arg1, arg2); ok {
-			return result, nil
-		}
-	}
-
-	// Constant fold: vector math on Compose/Splat of literals (component-wise).
-	// Exclude Mix: Rust naga's constant evaluator returns NotImplemented for Mix,
-	// so it stays as a Math expression in the IR (not folded).
-	if mathFunc != ir.MathMix {
-		if result, ok := l.tryFoldVectorMath(mathFunc, arg0, arg1, arg2); ok {
-			return result, nil
+	arg0 = allArgs[0]
+	for i, a := range []**ir.ExpressionHandle{&arg1, &arg2, &arg3} {
+		if *a != nil {
+			v := allArgs[i+1]
+			*a = &v
 		}
 	}
 
@@ -11714,9 +10201,12 @@ func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []parser.Expr, ta
 	if mathFunc == ir.MathModf {
 		argType := l.resolveExprValueType(arg0)
 		structHandle := l.getOrCreateModfResultType(argType)
-		handle := l.addExpression(ir.Expression{
+		handle, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprMath{Fun: mathFunc, Arg: arg0},
 		})
+		if err != nil {
+			return 0, err
+		}
 		// Override the expression type to the struct
 		l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{Handle: &structHandle}
 		return handle, nil
@@ -11724,9 +10214,12 @@ func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []parser.Expr, ta
 	if mathFunc == ir.MathFrexp {
 		argType := l.resolveExprValueType(arg0)
 		structHandle := l.getOrCreateFrexResultType(argType)
-		handle := l.addExpression(ir.Expression{
+		handle, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprMath{Fun: mathFunc, Arg: arg0},
 		})
+		if err != nil {
+			return 0, err
+		}
 		l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{Handle: &structHandle}
 		return handle, nil
 	}
@@ -11739,7 +10232,7 @@ func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []parser.Expr, ta
 			Arg2: arg2,
 			Arg3: arg3,
 		},
-	}), nil
+	})
 }
 
 // extractVec3Floats extracts 3 float64 values from a Compose expression if all components are float literals.
@@ -11776,59 +10269,10 @@ func (l *Lowerer) extractVec3Floats(handle ir.ExpressionHandle) (vals [3]float64
 	return vals, compose.Type, literalKind, true
 }
 
-// tryFoldCross attempts to constant-fold cross(vec3, vec3) when both arguments are constant composites.
-func (l *Lowerer) tryFoldCross(a, b ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
-	aVals, composeType, aKind, aOk := l.extractVec3Floats(a)
-	if !aOk {
-		return 0, false
-	}
-	bVals, _, bKind, bOk := l.extractVec3Floats(b)
-	if !bOk {
-		return 0, false
-	}
-
-	// Both must use the same literal kind.
-	if aKind != bKind {
-		return 0, false
-	}
-
-	// Compute cross product.
-	r0 := aVals[1]*bVals[2] - aVals[2]*bVals[1]
-	r1 := aVals[2]*bVals[0] - aVals[0]*bVals[2]
-	r2 := aVals[0]*bVals[1] - aVals[1]*bVals[0]
-
-	// Create literal expressions for each result component.
-	makeLiteral := func(v float64) ir.LiteralValue {
-		switch aKind {
-		case "f32":
-			return ir.LiteralF32(float32(v))
-		case "f64":
-			return ir.LiteralF64(v)
-		default: // "abstract"
-			return ir.LiteralAbstractFloat(v)
-		}
-	}
-
-	c0 := l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: makeLiteral(r0)}})
-	c1 := l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: makeLiteral(r1)}})
-	c2 := l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: makeLiteral(r2)}})
-
-	result := l.addExpression(ir.Expression{
-		Kind: ir.ExprCompose{
-			Type:       composeType,
-			Components: []ir.ExpressionHandle{c0, c1, c2},
-		},
-	})
-	return result, true
-}
-
 // isConstHandle returns true if the expression handle is eligible for
 // constant evaluation (not forced non-const by a let binding).
 func (l *Lowerer) isConstHandle(handle ir.ExpressionHandle) bool {
-	if l.nonConstExprs != nil && l.nonConstExprs[handle] {
-		return false
-	}
-	return true
+	return l.eval().IsConst(handle)
 }
 
 // extractConstLiteral extracts the literal value from an expression handle.
@@ -12071,304 +10515,6 @@ func makeFloatLiteral(template ir.LiteralValue, val float64) ir.LiteralValue {
 	}
 }
 
-// tryFoldDot attempts to constant-fold dot(vec_a, vec_b) when both arguments
-// are compile-time constant vectors (Splat of literal, Compose of literals).
-// Matches Rust naga constant evaluator dot product folding.
-func (l *Lowerer) tryFoldDot(a, b ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
-	aVals, aOk := l.extractConstVectorLiterals(a)
-	if !aOk {
-		return 0, false
-	}
-	bVals, bOk := l.extractConstVectorLiterals(b)
-	if !bOk {
-		return 0, false
-	}
-	if len(aVals) != len(bVals) || len(aVals) == 0 {
-		return 0, false
-	}
-
-	// Integer dot product
-	if isIntegerLiteral(aVals[0]) && isIntegerLiteral(bVals[0]) {
-		var sum int64
-		for i := range aVals {
-			ai, _ := literalToI64(aVals[i])
-			bi, _ := literalToI64(bVals[i])
-			sum += ai * bi
-		}
-		result := l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeIntLiteral(aVals[0], sum)},
-		})
-		return result, true
-	}
-
-	// Float dot product
-	if isFloatLiteral(aVals[0]) && isFloatLiteral(bVals[0]) {
-		var sum float64
-		for i := range aVals {
-			af, _ := literalToF64(aVals[i])
-			bf, _ := literalToF64(bVals[i])
-			sum += af * bf
-		}
-		result := l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(aVals[0], sum)},
-		})
-		return result, true
-	}
-
-	return 0, false
-}
-
-// tryFoldScalarMath attempts to constant-fold scalar math functions
-// when all arguments are compile-time constant literals.
-// Matches Rust naga constant evaluator: abs, min, max, clamp, saturate,
-// pow, sqrt, inverseSqrt, exp, exp2, log, log2, sign, fma, step,
-// ceil, floor, round, fract, trunc, trig functions, radians, degrees,
-// countTrailingZeros, countLeadingZeros, countOneBits, reverseBits,
-// firstTrailingBit, firstLeadingBit.
-func (l *Lowerer) tryFoldScalarMath(
-	mathFunc ir.MathFunction,
-	arg0 ir.ExpressionHandle,
-	arg1 *ir.ExpressionHandle,
-	arg2 *ir.ExpressionHandle,
-) (ir.ExpressionHandle, bool) {
-	lit0, ok0 := l.extractConstLiteral(arg0)
-	if !ok0 {
-		return 0, false
-	}
-
-	switch mathFunc {
-	// --- Two-arg functions requiring arg1 ---
-	case ir.MathClamp:
-		if arg1 == nil || arg2 == nil {
-			return 0, false
-		}
-		lit1, ok1 := l.extractConstLiteral(*arg1)
-		lit2, ok2 := l.extractConstLiteral(*arg2)
-		if !ok1 || !ok2 {
-			return 0, false
-		}
-		return l.foldClamp(lit0, lit1, lit2)
-
-	case ir.MathMin:
-		if arg1 == nil {
-			return 0, false
-		}
-		lit1, ok1 := l.extractConstLiteral(*arg1)
-		if !ok1 {
-			return 0, false
-		}
-		return l.foldMin(lit0, lit1)
-
-	case ir.MathMax:
-		if arg1 == nil {
-			return 0, false
-		}
-		lit1, ok1 := l.extractConstLiteral(*arg1)
-		if !ok1 {
-			return 0, false
-		}
-		return l.foldMax(lit0, lit1)
-
-	// --- Single-arg float functions ---
-	case ir.MathAbs:
-		return l.foldAbs(lit0)
-	case ir.MathSign:
-		return l.foldSign(lit0)
-
-	// --- Float-only single-arg functions ---
-	case ir.MathSaturate:
-		return l.foldFloatUnary(lit0, func(v float64) float64 {
-			if v < 0 {
-				return 0
-			}
-			if v > 1 {
-				return 1
-			}
-			return v
-		})
-	case ir.MathCeil:
-		return l.foldFloatUnary(lit0, math.Ceil)
-	case ir.MathFloor:
-		return l.foldFloatUnary(lit0, math.Floor)
-	case ir.MathRound:
-		return l.foldFloatUnary(lit0, math.RoundToEven)
-	case ir.MathFract:
-		return l.foldFloatUnary(lit0, func(v float64) float64 { return v - math.Floor(v) })
-	case ir.MathTrunc:
-		return l.foldFloatUnary(lit0, math.Trunc)
-	case ir.MathSqrt:
-		return l.foldFloatUnary(lit0, math.Sqrt)
-	case ir.MathInverseSqrt:
-		return l.foldFloatUnary(lit0, func(v float64) float64 { return 1.0 / math.Sqrt(v) })
-	case ir.MathExp:
-		return l.foldFloatUnary(lit0, math.Exp)
-	case ir.MathExp2:
-		return l.foldFloatUnary(lit0, math.Exp2)
-	case ir.MathLog:
-		return l.foldFloatUnary(lit0, math.Log)
-	case ir.MathLog2:
-		return l.foldFloatUnary(lit0, math.Log2)
-	case ir.MathCos:
-		return l.foldFloatUnary(lit0, math.Cos)
-	case ir.MathCosh:
-		return l.foldFloatUnary(lit0, math.Cosh)
-	case ir.MathSin:
-		return l.foldFloatUnary(lit0, math.Sin)
-	case ir.MathSinh:
-		return l.foldFloatUnary(lit0, math.Sinh)
-	case ir.MathTan:
-		return l.foldFloatUnary(lit0, math.Tan)
-	case ir.MathTanh:
-		return l.foldFloatUnary(lit0, math.Tanh)
-	case ir.MathAcos:
-		return l.foldFloatUnary(lit0, math.Acos)
-	case ir.MathAsin:
-		return l.foldFloatUnary(lit0, math.Asin)
-	case ir.MathAtan:
-		return l.foldFloatUnary(lit0, math.Atan)
-	case ir.MathAsinh:
-		return l.foldFloatUnary(lit0, math.Asinh)
-	case ir.MathAcosh:
-		return l.foldFloatUnary(lit0, math.Acosh)
-	case ir.MathAtanh:
-		return l.foldFloatUnary(lit0, math.Atanh)
-	case ir.MathRadians:
-		return l.foldFloatUnary(lit0, func(v float64) float64 { return v * math.Pi / 180.0 })
-	case ir.MathDegrees:
-		return l.foldFloatUnary(lit0, func(v float64) float64 { return v * 180.0 / math.Pi })
-
-	// --- Float-only two-arg functions ---
-	case ir.MathPow:
-		if arg1 == nil {
-			return 0, false
-		}
-		lit1, ok1 := l.extractConstLiteral(*arg1)
-		if !ok1 {
-			return 0, false
-		}
-		return l.foldFloatBinary(lit0, lit1, math.Pow)
-	case ir.MathAtan2:
-		if arg1 == nil {
-			return 0, false
-		}
-		lit1, ok1 := l.extractConstLiteral(*arg1)
-		if !ok1 {
-			return 0, false
-		}
-		return l.foldFloatBinary(lit0, lit1, math.Atan2)
-	case ir.MathStep:
-		if arg1 == nil {
-			return 0, false
-		}
-		lit1, ok1 := l.extractConstLiteral(*arg1)
-		if !ok1 {
-			return 0, false
-		}
-		return l.foldFloatBinary(lit0, lit1, func(edge, x float64) float64 {
-			if edge <= x {
-				return 1.0
-			}
-			return 0.0
-		})
-
-	// --- Float-only three-arg functions ---
-	case ir.MathFma:
-		if arg1 == nil || arg2 == nil {
-			return 0, false
-		}
-		lit1, ok1 := l.extractConstLiteral(*arg1)
-		lit2, ok2 := l.extractConstLiteral(*arg2)
-		if !ok1 || !ok2 {
-			return 0, false
-		}
-		return l.foldFloatTernary(lit0, lit1, lit2, func(a, b, c float64) float64 { return a*b + c })
-	case ir.MathSmoothStep:
-		if arg1 == nil || arg2 == nil {
-			return 0, false
-		}
-		lit1, ok1 := l.extractConstLiteral(*arg1)
-		lit2, ok2 := l.extractConstLiteral(*arg2)
-		if !ok1 || !ok2 {
-			return 0, false
-		}
-		return l.foldFloatTernary(lit0, lit1, lit2, func(low, high, x float64) float64 {
-			t := (x - low) / (high - low)
-			if t < 0 {
-				t = 0
-			}
-			if t > 1 {
-				t = 1
-			}
-			return t * t * (3.0 - 2.0*t)
-		})
-	case ir.MathMix:
-		if arg1 == nil || arg2 == nil {
-			return 0, false
-		}
-		lit1, ok1 := l.extractConstLiteral(*arg1)
-		lit2, ok2 := l.extractConstLiteral(*arg2)
-		if !ok1 || !ok2 {
-			return 0, false
-		}
-		return l.foldFloatTernary(lit0, lit1, lit2, func(a, b, t float64) float64 { return a*(1-t) + b*t })
-
-	// --- Integer bit manipulation ---
-	case ir.MathCountTrailingZeros:
-		return l.foldIntBitOp(lit0, func(v uint32) uint32 { return uint32(bits.TrailingZeros32(v)) },
-			func(v uint64) uint64 { return uint64(bits.TrailingZeros64(v)) })
-	case ir.MathCountLeadingZeros:
-		return l.foldIntBitOp(lit0, func(v uint32) uint32 { return uint32(bits.LeadingZeros32(v)) },
-			func(v uint64) uint64 { return uint64(bits.LeadingZeros64(v)) })
-	case ir.MathCountOneBits:
-		return l.foldIntBitOp(lit0, func(v uint32) uint32 { return uint32(bits.OnesCount32(v)) },
-			func(v uint64) uint64 { return uint64(bits.OnesCount64(v)) })
-	case ir.MathReverseBits:
-		return l.foldIntBitOp(lit0, func(v uint32) uint32 { return bits.Reverse32(v) },
-			func(v uint64) uint64 { return bits.Reverse64(v) })
-	case ir.MathFirstTrailingBit:
-		return l.foldFirstTrailingBit(lit0)
-	case ir.MathFirstLeadingBit:
-		return l.foldFirstLeadingBit(lit0)
-
-	default:
-		return 0, false
-	}
-}
-
-func (l *Lowerer) foldClamp(val, lo, hi ir.LiteralValue) (ir.ExpressionHandle, bool) {
-	// Promote all to a common type: if any is float, all become float.
-	// This matches Rust naga's automatic_conversion_consensus for abstract types.
-	val, lo, hi = promoteToConsensus3(val, lo, hi)
-
-	if isIntegerLiteral(val) && isIntegerLiteral(lo) && isIntegerLiteral(hi) {
-		v, _ := literalToI64(val)
-		low, _ := literalToI64(lo)
-		high, _ := literalToI64(hi)
-		if v < low {
-			v = low
-		} else if v > high {
-			v = high
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeIntLiteral(val, v)},
-		}), true
-	}
-	if isFloatLiteral(val) && isFloatLiteral(lo) && isFloatLiteral(hi) {
-		v, _ := literalToF64(val)
-		low, _ := literalToF64(lo)
-		high, _ := literalToF64(hi)
-		if v < low {
-			v = low
-		} else if v > high {
-			v = high
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(val, v)},
-		}), true
-	}
-	return 0, false
-}
-
 // promoteToConsensus3 promotes three literals to a consensus type.
 // If any is AbstractFloat, all AbstractInt values are promoted to AbstractFloat.
 // If any is a concrete float (F16/F32/F64), abstract values are promoted to match.
@@ -12462,358 +10608,6 @@ func roundToF16(v float32) float32 {
 	return math.Float32frombits(result)
 }
 
-func (l *Lowerer) foldMin(a, b ir.LiteralValue) (ir.ExpressionHandle, bool) {
-	if isIntegerLiteral(a) && isIntegerLiteral(b) {
-		va, _ := literalToI64(a)
-		vb, _ := literalToI64(b)
-		if va > vb {
-			va = vb
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeIntLiteral(a, va)},
-		}), true
-	}
-	if isFloatLiteral(a) && isFloatLiteral(b) {
-		va, _ := literalToF64(a)
-		vb, _ := literalToF64(b)
-		if va > vb {
-			va = vb
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(a, va)},
-		}), true
-	}
-	return 0, false
-}
-
-func (l *Lowerer) foldMax(a, b ir.LiteralValue) (ir.ExpressionHandle, bool) {
-	if isIntegerLiteral(a) && isIntegerLiteral(b) {
-		va, _ := literalToI64(a)
-		vb, _ := literalToI64(b)
-		if va < vb {
-			va = vb
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeIntLiteral(a, va)},
-		}), true
-	}
-	if isFloatLiteral(a) && isFloatLiteral(b) {
-		va, _ := literalToF64(a)
-		vb, _ := literalToF64(b)
-		if va < vb {
-			va = vb
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(a, va)},
-		}), true
-	}
-	return 0, false
-}
-
-// foldAbs folds abs(literal). Works for both integer and float.
-func (l *Lowerer) foldAbs(lit ir.LiteralValue) (ir.ExpressionHandle, bool) {
-	if isIntegerLiteral(lit) {
-		v, _ := literalToI64(lit)
-		if v < 0 {
-			v = -v
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeIntLiteral(lit, v)},
-		}), true
-	}
-	if isFloatLiteral(lit) {
-		v, _ := literalToF64(lit)
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(lit, math.Abs(v))},
-		}), true
-	}
-	return 0, false
-}
-
-// foldSign folds sign(literal). Works for both integer and float.
-func (l *Lowerer) foldSign(lit ir.LiteralValue) (ir.ExpressionHandle, bool) {
-	if isIntegerLiteral(lit) {
-		v, _ := literalToI64(lit)
-		var s int64
-		if v > 0 {
-			s = 1
-		} else if v < 0 {
-			s = -1
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeIntLiteral(lit, s)},
-		}), true
-	}
-	if isFloatLiteral(lit) {
-		v, _ := literalToF64(lit)
-		var s float64
-		if v > 0 {
-			s = 1.0
-		} else if v < 0 {
-			s = -1.0
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(lit, s)},
-		}), true
-	}
-	return 0, false
-}
-
-// foldFloatUnary folds a single-argument float function on a float literal.
-func (l *Lowerer) foldFloatUnary(lit ir.LiteralValue, fn func(float64) float64) (ir.ExpressionHandle, bool) {
-	if isFloatLiteral(lit) {
-		v, _ := literalToF64(lit)
-		result := fn(v)
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(lit, result)},
-		}), true
-	}
-	return 0, false
-}
-
-// foldFloatBinary folds a two-argument float function on float literals.
-func (l *Lowerer) foldFloatBinary(a, b ir.LiteralValue, fn func(float64, float64) float64) (ir.ExpressionHandle, bool) {
-	if isFloatLiteral(a) && isFloatLiteral(b) {
-		va, _ := literalToF64(a)
-		vb, _ := literalToF64(b)
-		result := fn(va, vb)
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(a, result)},
-		}), true
-	}
-	return 0, false
-}
-
-// foldFloatTernary folds a three-argument float function on float literals.
-func (l *Lowerer) foldFloatTernary(a, b, c ir.LiteralValue, fn func(float64, float64, float64) float64) (ir.ExpressionHandle, bool) {
-	if isFloatLiteral(a) && isFloatLiteral(b) && isFloatLiteral(c) {
-		va, _ := literalToF64(a)
-		vb, _ := literalToF64(b)
-		vc, _ := literalToF64(c)
-		result := fn(va, vb, vc)
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(a, result)},
-		}), true
-	}
-	return 0, false
-}
-
-// foldIntBitOp folds a single-argument integer bit operation.
-func (l *Lowerer) foldIntBitOp(lit ir.LiteralValue, fn32 func(uint32) uint32, fn64 func(uint64) uint64) (ir.ExpressionHandle, bool) {
-	switch v := lit.(type) {
-	case ir.LiteralI32:
-		result := int32(fn32(uint32(v)))
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralI32(result)},
-		}), true
-	case ir.LiteralU32:
-		result := fn32(uint32(v))
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralU32(result)},
-		}), true
-	case ir.LiteralI64:
-		result := int64(fn64(uint64(v)))
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralI64(result)},
-		}), true
-	case ir.LiteralU64:
-		result := fn64(uint64(v))
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralU64(result)},
-		}), true
-	default:
-		return 0, false
-	}
-}
-
-// foldFirstTrailingBit folds firstTrailingBit(literal).
-// Returns (ctz + 1) % (bitwidth+1) - 1, matching WGSL spec: -1 if no bit set.
-func (l *Lowerer) foldFirstTrailingBit(lit ir.LiteralValue) (ir.ExpressionHandle, bool) {
-	switch v := lit.(type) {
-	case ir.LiteralI32:
-		u := uint32(v)
-		var result int32
-		if u == 0 {
-			result = -1
-		} else {
-			result = int32(bits.TrailingZeros32(u))
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralI32(result)},
-		}), true
-	case ir.LiteralU32:
-		var result uint32
-		if uint32(v) == 0 {
-			result = 0xFFFFFFFF
-		} else {
-			result = uint32(bits.TrailingZeros32(uint32(v)))
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralU32(result)},
-		}), true
-	case ir.LiteralI64:
-		u := uint64(v)
-		var result int64
-		if u == 0 {
-			result = -1
-		} else {
-			result = int64(bits.TrailingZeros64(u))
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralI64(result)},
-		}), true
-	case ir.LiteralU64:
-		var result uint64
-		if uint64(v) == 0 {
-			result = 0xFFFFFFFFFFFFFFFF
-		} else {
-			result = uint64(bits.TrailingZeros64(uint64(v)))
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralU64(result)},
-		}), true
-	default:
-		return 0, false
-	}
-}
-
-// foldFirstLeadingBit folds firstLeadingBit(literal).
-// For unsigned: returns 31 - clz, or -1 if zero.
-// For signed: operates on ~v if v < 0, then returns 31 - clz, or -1 if zero/all-ones.
-func (l *Lowerer) foldFirstLeadingBit(lit ir.LiteralValue) (ir.ExpressionHandle, bool) {
-	switch v := lit.(type) {
-	case ir.LiteralI32:
-		val := int32(v)
-		u := uint32(val)
-		if val < 0 {
-			u = ^u
-		}
-		var result int32
-		if u == 0 {
-			result = -1
-		} else {
-			result = int32(31 - bits.LeadingZeros32(u))
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralI32(result)},
-		}), true
-	case ir.LiteralU32:
-		u := uint32(v)
-		var result uint32
-		if u == 0 {
-			result = 0xFFFFFFFF
-		} else {
-			result = uint32(31 - bits.LeadingZeros32(u))
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralU32(result)},
-		}), true
-	case ir.LiteralI64:
-		val := int64(v)
-		u := uint64(val)
-		if val < 0 {
-			u = ^u
-		}
-		var result int64
-		if u == 0 {
-			result = -1
-		} else {
-			result = int64(63 - bits.LeadingZeros64(u))
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralI64(result)},
-		}), true
-	case ir.LiteralU64:
-		u := uint64(v)
-		var result uint64
-		if u == 0 {
-			result = 0xFFFFFFFFFFFFFFFF
-		} else {
-			result = uint64(63 - bits.LeadingZeros64(u))
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: ir.LiteralU64(result)},
-		}), true
-	default:
-		return 0, false
-	}
-}
-
-// tryFoldVectorMath attempts to constant-fold a math function applied to a vector
-// of constant literals (Compose or Splat). Applies the scalar fold component-wise
-// and returns a new Compose expression. Matches Rust naga constant evaluator
-// which folds vector math when all components are compile-time constants.
-func (l *Lowerer) tryFoldVectorMath(
-	mathFunc ir.MathFunction,
-	arg0 ir.ExpressionHandle,
-	arg1 *ir.ExpressionHandle,
-	arg2 *ir.ExpressionHandle,
-) (ir.ExpressionHandle, bool) {
-	// Extract vector literals for arg0
-	lits0, ok0 := l.extractConstVectorLiterals(arg0)
-	if !ok0 || len(lits0) == 0 {
-		return 0, false
-	}
-
-	// For two-arg functions, extract arg1 vector literals
-	var lits1 []ir.LiteralValue
-	if arg1 != nil {
-		lits1, ok0 = l.extractConstVectorLiterals(*arg1)
-		if !ok0 || len(lits1) != len(lits0) {
-			return 0, false
-		}
-	}
-
-	// For three-arg functions, extract arg2 vector literals
-	var lits2 []ir.LiteralValue
-	if arg2 != nil {
-		lits2, ok0 = l.extractConstVectorLiterals(*arg2)
-		if !ok0 || len(lits2) != len(lits0) {
-			return 0, false
-		}
-	}
-
-	// Fold each component
-	components := make([]ir.ExpressionHandle, len(lits0))
-	for i := range lits0 {
-		// Create temporary scalar literal expressions for the scalar fold
-		compArg0 := l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: lits0[i]}})
-		var compArg1 *ir.ExpressionHandle
-		if lits1 != nil {
-			h := l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: lits1[i]}})
-			compArg1 = &h
-		}
-		var compArg2 *ir.ExpressionHandle
-		if lits2 != nil {
-			h := l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: lits2[i]}})
-			compArg2 = &h
-		}
-
-		result, ok := l.tryFoldScalarMath(mathFunc, compArg0, compArg1, compArg2)
-		if !ok {
-			return 0, false
-		}
-		components[i] = result
-	}
-
-	// Determine the result vector type
-	resultType, err := l.resolveVectorTypeFromExpr(arg0, components)
-	if err != nil {
-		return 0, false
-	}
-
-	// Use addExpression (not interruptEmitter) for the Compose result.
-	// In Rust naga, Compose does NOT need pre-emit, so it stays in the
-	// current emit range. This ensures named expressions (let bindings)
-	// that point to this Compose are properly emitted as local variables.
-	return l.addExpression(ir.Expression{
-		Kind: ir.ExprCompose{
-			Type:       resultType,
-			Components: components,
-		},
-	}), true
-}
-
 // resolveVectorTypeFromExpr resolves the vector type for a folded result.
 // For math functions like sign() that change the scalar type (float->int),
 // it resolves the type from the result components.
@@ -12878,572 +10672,6 @@ func literalScalar(lit ir.LiteralValue) ir.ScalarType {
 	}
 }
 
-// tryFoldVectorBinaryOp attempts to constant-fold a binary operation when
-// operands are vectors (Compose/Splat) of literals. Handles:
-// - Compose op Compose (element-wise)
-// - Compose op Literal (broadcast scalar to each component)
-// - Literal op Compose (broadcast scalar to each component)
-func (l *Lowerer) tryFoldVectorBinaryOp(op ir.BinaryOperator, left, right ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
-	litsL, okL := l.extractConstVectorLiterals(left)
-	litsR, okR := l.extractConstVectorLiterals(right)
-	litScalarL, okScalarL := l.extractConstLiteral(left)
-	litScalarR, okScalarR := l.extractConstLiteral(right)
-
-	var lits []struct{ l, r ir.LiteralValue }
-	var vecSize int
-	var vecExpr ir.ExpressionHandle // for type resolution
-
-	switch {
-	case okL && okR && len(litsL) == len(litsR):
-		// Compose op Compose
-		vecSize = len(litsL)
-		vecExpr = left
-		lits = make([]struct{ l, r ir.LiteralValue }, vecSize)
-		for i := range litsL {
-			lits[i] = struct{ l, r ir.LiteralValue }{litsL[i], litsR[i]}
-		}
-	case okL && okScalarR:
-		// Compose op Scalar (broadcast)
-		vecSize = len(litsL)
-		vecExpr = left
-		lits = make([]struct{ l, r ir.LiteralValue }, vecSize)
-		for i := range litsL {
-			lits[i] = struct{ l, r ir.LiteralValue }{litsL[i], litScalarR}
-		}
-	case okScalarL && okR:
-		// Scalar op Compose (broadcast)
-		vecSize = len(litsR)
-		vecExpr = right
-		lits = make([]struct{ l, r ir.LiteralValue }, vecSize)
-		for i := range litsR {
-			lits[i] = struct{ l, r ir.LiteralValue }{litScalarL, litsR[i]}
-		}
-	default:
-		return 0, false
-	}
-
-	if vecSize == 0 {
-		return 0, false
-	}
-
-	// Fold each component
-	components := make([]ir.ExpressionHandle, vecSize)
-	for i := range lits {
-		compL := l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: lits[i].l}})
-		compR := l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: lits[i].r}})
-		result, ok := l.tryFoldBinaryOp(op, compL, compR)
-		if !ok {
-			return 0, false
-		}
-		components[i] = result
-	}
-
-	// Determine result vector type
-	resultType, err := l.resolveVectorTypeFromExpr(vecExpr, components)
-	if err != nil {
-		return 0, false
-	}
-
-	// Use addExpression for Compose (not interruptEmitter) — Compose doesn't need pre-emit
-	return l.addExpression(ir.Expression{
-		Kind: ir.ExprCompose{
-			Type:       resultType,
-			Components: components,
-		},
-	}), true
-}
-
-// tryFoldVectorUnaryOp attempts to constant-fold a unary operation on a vector
-// of constant literals (Compose/Splat). Applies the scalar fold component-wise.
-func (l *Lowerer) tryFoldVectorUnaryOp(op ir.UnaryOperator, expr ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
-	lits, ok := l.extractConstVectorLiterals(expr)
-	if !ok || len(lits) == 0 {
-		return 0, false
-	}
-
-	components := make([]ir.ExpressionHandle, len(lits))
-	for i, lit := range lits {
-		compExpr := l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: lit}})
-		result, ok := l.tryFoldUnaryOp(op, compExpr)
-		if !ok {
-			return 0, false
-		}
-		components[i] = result
-	}
-
-	resultType, err := l.resolveVectorTypeFromExpr(expr, components)
-	if err != nil {
-		return 0, false
-	}
-
-	return l.addExpression(ir.Expression{
-		Kind: ir.ExprCompose{
-			Type:       resultType,
-			Components: components,
-		},
-	}), true
-}
-
-// tryFoldUnaryOp attempts to constant-fold a unary operation on a literal.
-func (l *Lowerer) tryFoldUnaryOp(op ir.UnaryOperator, expr ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
-	lit, ok := l.extractConstLiteral(expr)
-	if !ok {
-		return 0, false
-	}
-	switch op {
-	case ir.UnaryNegate:
-		if isIntegerLiteral(lit) {
-			v, _ := literalToI64(lit)
-			return l.interruptEmitter(ir.Expression{
-				Kind: ir.Literal{Value: makeIntLiteral(lit, -v)},
-			}), true
-		}
-		if isFloatLiteral(lit) {
-			v, _ := literalToF64(lit)
-			return l.interruptEmitter(ir.Expression{
-				Kind: ir.Literal{Value: makeFloatLiteral(lit, -v)},
-			}), true
-		}
-	case ir.UnaryBitwiseNot:
-		if isIntegerLiteral(lit) {
-			v, _ := literalToI64(lit)
-			return l.interruptEmitter(ir.Expression{
-				Kind: ir.Literal{Value: makeIntLiteral(lit, ^v)},
-			}), true
-		}
-	case ir.UnaryLogicalNot:
-		if b, ok := lit.(ir.LiteralBool); ok {
-			return l.interruptEmitter(ir.Expression{
-				Kind: ir.Literal{Value: ir.LiteralBool(!bool(b))},
-			}), true
-		}
-	}
-	return 0, false
-}
-
-// tryFoldAs attempts to constant-fold a type cast (As expression) on a literal.
-func (l *Lowerer) tryFoldAs(expr ir.ExpressionHandle, kind ir.ScalarKind, width uint8, convert bool) (ir.ExpressionHandle, bool) {
-	lit, ok := l.extractConstLiteral(expr)
-	if !ok {
-		return 0, false
-	}
-	if !convert {
-		// Bitcast — don't fold (complex semantics)
-		return 0, false
-	}
-
-	// Source value as float64 and int64
-	var fval float64
-	var ival int64
-	isFloat := isFloatLiteral(lit)
-	isInt := isIntegerLiteral(lit)
-	// Determine if source is f64 (abstract float or explicit f64) vs f32.
-	srcIsF64 := false
-	if _, ok := lit.(ir.LiteralF64); ok {
-		srcIsF64 = true
-	}
-	if _, ok := lit.(ir.LiteralAbstractFloat); ok {
-		srcIsF64 = true
-	}
-	// Also check if extracted from a constant that was originally abstract float
-	// (the constant's stored LiteralF32 may have been extracted via scalarValueToLiteralWithType)
-	// TODO: This needs a deeper fix to preserve abstract float precision in constants
-	if isFloat {
-		fval, _ = literalToF64(lit)
-	} else if isInt {
-		ival, _ = literalToI64(lit)
-	} else if b, isBool := lit.(ir.LiteralBool); isBool {
-		if bool(b) {
-			ival = 1
-		}
-	} else {
-		return 0, false
-	}
-
-	switch kind {
-	case ir.ScalarFloat:
-		var result float64
-		if isFloat {
-			result = fval
-		} else {
-			result = float64(ival)
-		}
-		var litVal ir.LiteralValue
-		switch width {
-		case 4:
-			litVal = ir.LiteralF32(float32(result))
-		case 8:
-			litVal = ir.LiteralF64(result)
-		case 2:
-			litVal = ir.LiteralF16(roundToF16(float32(result)))
-		default:
-			return 0, false
-		}
-		return l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: litVal}}), true
-
-	case ir.ScalarSint:
-		var result int64
-		if isFloat {
-			// Clamp to valid int range, matching Rust naga's IntFloatLimits.
-			if width == 4 {
-				var minVal, maxVal float64
-				if srcIsF64 {
-					minVal, maxVal = -2147483648.0, 2147483647.0
-				} else {
-					minVal, maxVal = -2147483648.0, 2147483520.0
-				}
-				clamped := math.Max(minVal, math.Min(maxVal, fval))
-				result = int64(clamped)
-			} else if width == 8 {
-				var minVal, maxVal float64
-				if srcIsF64 {
-					minVal, maxVal = -9223372036854775808.0, 9223372036854774784.0
-				} else {
-					minVal, maxVal = -9223372036854775808.0, 9223371487098961920.0
-				}
-				clamped := math.Max(minVal, math.Min(maxVal, fval))
-				if clamped >= 0 {
-					result = int64(clamped)
-				} else if clamped <= -9223372036854775808.0 {
-					// Edge case: -2^63 as float cannot be negated and converted
-					// to int64 portably (float64(2^63) overflows int64).
-					// Assign math.MinInt64 directly.
-					result = math.MinInt64
-				} else {
-					result = -int64(-clamped)
-				}
-			} else {
-				result = int64(fval)
-			}
-		} else {
-			result = ival
-		}
-		var litVal ir.LiteralValue
-		switch width {
-		case 4:
-			litVal = ir.LiteralI32(int32(result))
-		case 8:
-			litVal = ir.LiteralI64(result)
-		default:
-			return 0, false
-		}
-		return l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: litVal}}), true
-
-	case ir.ScalarUint:
-		var result uint64
-		if isFloat {
-			// Clamp to valid uint range, matching Rust naga's IntFloatLimits.
-			if width == 4 {
-				var maxVal float64
-				if srcIsF64 {
-					maxVal = 4294967295.0
-				} else {
-					maxVal = 4294967040.0
-				}
-				if fval < 0 {
-					result = 0
-				} else if fval > maxVal {
-					result = uint64(maxVal)
-				} else {
-					result = uint64(fval)
-				}
-			} else if width == 8 {
-				var maxVal float64
-				if srcIsF64 {
-					maxVal = 18446744073709549568.0
-				} else {
-					maxVal = 18446742974197923840.0
-				}
-				if fval < 0 {
-					result = 0
-				} else if fval > maxVal {
-					// Use the exact max value
-					if srcIsF64 {
-						result = 18446744073709549568
-					} else {
-						result = 18446742974197923840
-					}
-				} else {
-					if fval > float64(math.MaxInt64) {
-						result = uint64(fval-float64(math.MaxInt64)) + uint64(math.MaxInt64)
-					} else {
-						result = uint64(fval)
-					}
-				}
-			} else {
-				if fval < 0 {
-					result = 0
-				} else {
-					result = uint64(fval)
-				}
-			}
-		} else {
-			result = uint64(ival)
-		}
-		var litVal ir.LiteralValue
-		switch width {
-		case 4:
-			litVal = ir.LiteralU32(uint32(result))
-		case 8:
-			litVal = ir.LiteralU64(result)
-		default:
-			return 0, false
-		}
-		return l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: litVal}}), true
-
-	case ir.ScalarBool:
-		var result bool
-		if isFloat {
-			result = fval != 0
-		} else {
-			result = ival != 0
-		}
-		return l.interruptEmitter(ir.Expression{Kind: ir.Literal{Value: ir.LiteralBool(result)}}), true
-	}
-
-	return 0, false
-}
-
-// tryFoldBinaryOp attempts to constant-fold a binary operation when both
-// operands are scalar literals. Matches Rust naga constant evaluator binary_op.
-func (l *Lowerer) tryFoldBinaryOp(op ir.BinaryOperator, left, right ir.ExpressionHandle) (ir.ExpressionHandle, bool) {
-	litL, okL := l.extractConstLiteral(left)
-	litR, okR := l.extractConstLiteral(right)
-	if !okL || !okR {
-		return 0, false
-	}
-
-	// Skip I64/U64 folding — Rust naga's constant evaluator doesn't implement
-	// I64/U64 binary arithmetic, so these remain as separate Binary expressions.
-	if is64BitLiteral(litL) || is64BitLiteral(litR) {
-		return 0, false
-	}
-
-	// Integer binary ops
-	if isIntegerLiteral(litL) && isIntegerLiteral(litR) {
-		vl, _ := literalToI64(litL)
-		vr, _ := literalToI64(litR)
-		var result int64
-		var boolResult bool
-		isBoolOp := false
-
-		switch op {
-		case ir.BinaryAdd:
-			result = vl + vr
-		case ir.BinarySubtract:
-			result = vl - vr
-		case ir.BinaryMultiply:
-			result = vl * vr
-		case ir.BinaryDivide:
-			if vr == 0 {
-				return 0, false
-			}
-			result = vl / vr
-		case ir.BinaryModulo:
-			if vr == 0 {
-				return 0, false
-			}
-			result = vl % vr
-		case ir.BinaryAnd:
-			result = vl & vr
-		case ir.BinaryInclusiveOr:
-			result = vl | vr
-		case ir.BinaryExclusiveOr:
-			result = vl ^ vr
-		case ir.BinaryShiftLeft:
-			result = vl << uint(vr)
-		case ir.BinaryShiftRight:
-			result = vl >> uint(vr)
-		case ir.BinaryEqual:
-			boolResult = vl == vr
-			isBoolOp = true
-		case ir.BinaryNotEqual:
-			boolResult = vl != vr
-			isBoolOp = true
-		case ir.BinaryLess:
-			boolResult = vl < vr
-			isBoolOp = true
-		case ir.BinaryLessEqual:
-			boolResult = vl <= vr
-			isBoolOp = true
-		case ir.BinaryGreater:
-			boolResult = vl > vr
-			isBoolOp = true
-		case ir.BinaryGreaterEqual:
-			boolResult = vl >= vr
-			isBoolOp = true
-		default:
-			return 0, false
-		}
-
-		if isBoolOp {
-			return l.interruptEmitter(ir.Expression{
-				Kind: ir.Literal{Value: ir.LiteralBool(boolResult)},
-			}), true
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeIntLiteral(litL, result)},
-		}), true
-	}
-
-	// Float binary ops
-	if isFloatLiteral(litL) && isFloatLiteral(litR) {
-		vl, _ := literalToF64(litL)
-		vr, _ := literalToF64(litR)
-		var result float64
-		var boolResult bool
-		isBoolOp := false
-
-		switch op {
-		case ir.BinaryAdd:
-			result = vl + vr
-		case ir.BinarySubtract:
-			result = vl - vr
-		case ir.BinaryMultiply:
-			result = vl * vr
-		case ir.BinaryDivide:
-			if vr == 0 {
-				return 0, false
-			}
-			result = vl / vr
-		case ir.BinaryModulo:
-			if vr == 0 {
-				return 0, false
-			}
-			result = vl - float64(int64(vl/vr))*vr
-		case ir.BinaryEqual:
-			boolResult = vl == vr
-			isBoolOp = true
-		case ir.BinaryNotEqual:
-			boolResult = vl != vr
-			isBoolOp = true
-		case ir.BinaryLess:
-			boolResult = vl < vr
-			isBoolOp = true
-		case ir.BinaryLessEqual:
-			boolResult = vl <= vr
-			isBoolOp = true
-		case ir.BinaryGreater:
-			boolResult = vl > vr
-			isBoolOp = true
-		case ir.BinaryGreaterEqual:
-			boolResult = vl >= vr
-			isBoolOp = true
-		default:
-			return 0, false
-		}
-
-		if isBoolOp {
-			return l.interruptEmitter(ir.Expression{
-				Kind: ir.Literal{Value: ir.LiteralBool(boolResult)},
-			}), true
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(litL, result)},
-		}), true
-	}
-
-	// Mixed int+float binary ops: promote integer to float, then do float arithmetic.
-	// This handles cases like AbstractInt + AbstractFloat (e.g., vec2(1, 1) + vec2(1.0, 1.0)).
-	if (isIntegerLiteral(litL) && isFloatLiteral(litR)) || (isFloatLiteral(litL) && isIntegerLiteral(litR)) {
-		var fL, fR float64
-		if isIntegerLiteral(litL) {
-			vl, _ := literalToI64(litL)
-			fL = float64(vl)
-		} else {
-			fL, _ = literalToF64(litL)
-		}
-		if isIntegerLiteral(litR) {
-			vr, _ := literalToI64(litR)
-			fR = float64(vr)
-		} else {
-			fR, _ = literalToF64(litR)
-		}
-
-		// Determine result float type (prefer the float operand's type)
-		floatTemplate := litR
-		if isFloatLiteral(litL) {
-			floatTemplate = litL
-		}
-
-		var result float64
-		var boolResult bool
-		isBoolOp := false
-
-		switch op {
-		case ir.BinaryAdd:
-			result = fL + fR
-		case ir.BinarySubtract:
-			result = fL - fR
-		case ir.BinaryMultiply:
-			result = fL * fR
-		case ir.BinaryDivide:
-			if fR == 0 {
-				return 0, false
-			}
-			result = fL / fR
-		case ir.BinaryModulo:
-			if fR == 0 {
-				return 0, false
-			}
-			result = fL - float64(int64(fL/fR))*fR
-		case ir.BinaryEqual:
-			boolResult = fL == fR
-			isBoolOp = true
-		case ir.BinaryNotEqual:
-			boolResult = fL != fR
-			isBoolOp = true
-		case ir.BinaryLess:
-			boolResult = fL < fR
-			isBoolOp = true
-		case ir.BinaryLessEqual:
-			boolResult = fL <= fR
-			isBoolOp = true
-		case ir.BinaryGreater:
-			boolResult = fL > fR
-			isBoolOp = true
-		case ir.BinaryGreaterEqual:
-			boolResult = fL >= fR
-			isBoolOp = true
-		default:
-			return 0, false
-		}
-
-		if isBoolOp {
-			return l.interruptEmitter(ir.Expression{
-				Kind: ir.Literal{Value: ir.LiteralBool(boolResult)},
-			}), true
-		}
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.Literal{Value: makeFloatLiteral(floatTemplate, result)},
-		}), true
-	}
-
-	// Bool binary ops
-	if boolL, okBL := litL.(ir.LiteralBool); okBL {
-		if boolR, okBR := litR.(ir.LiteralBool); okBR {
-			var result bool
-			switch op {
-			case ir.BinaryEqual:
-				result = bool(boolL) == bool(boolR)
-			case ir.BinaryNotEqual:
-				result = bool(boolL) != bool(boolR)
-			case ir.BinaryAnd, ir.BinaryLogicalAnd:
-				result = bool(boolL) && bool(boolR)
-			case ir.BinaryInclusiveOr, ir.BinaryLogicalOr:
-				result = bool(boolL) || bool(boolR)
-			default:
-				return 0, false
-			}
-			return l.interruptEmitter(ir.Expression{
-				Kind: ir.Literal{Value: ir.LiteralBool(result)},
-			}), true
-		}
-	}
-
-	return 0, false
-}
-
 // lowerSelectCall converts select(falseVal, trueVal, condition) to IR ExprSelect.
 // WGSL select() has signature: select(f, t, cond) -- returns t if cond is true, f otherwise.
 func (l *Lowerer) lowerSelectCall(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
@@ -13466,13 +10694,33 @@ func (l *Lowerer) lowerSelectCall(args []parser.Expr, target *[]ir.Statement) (i
 	if err != nil {
 		return 0, err
 	}
+	if condition, err = l.concretize(condition); err != nil {
+		return 0, err
+	}
 
-	// Concretize abstract literals in value arguments.
-	// Matches Rust naga: automatic_conversion_consensus for select args.
-	falseVal, trueVal = l.concretizeBinaryOperands(falseVal, trueVal)
-	// If both are still abstract, concretize to defaults (AbstractInt→I32, AbstractFloat→F32)
-	l.concretizeAbstractToDefault(falseVal)
-	l.concretizeAbstractToDefault(trueVal)
+	// Rust naga: the values convert to their consensus scalar, concretized
+	// unless the condition is a const-expression (then select is evaluated
+	// in the abstract type).
+	values := []ir.ExpressionHandle{falseVal, trueVal}
+	for i, v := range values {
+		switch l.exprInner(v).(type) {
+		case ir.ScalarType, ir.VectorType:
+		default:
+			return 0, fmt.Errorf("select() argument %d has type `%s`, which is not a scalar or vector", i+1, l.wgslType(l.exprInner(v)))
+		}
+	}
+	consensus, _, ok := l.conversionConsensus(nil, values)
+	if !ok {
+		return 0, fmt.Errorf("select() rejected and accepted values have no common type: `%s` and `%s`",
+			l.wgslType(l.exprInner(falseVal)), l.wgslType(l.exprInner(trueVal)))
+	}
+	if !l.eval().IsConst(condition) {
+		consensus = concretizeScalar(consensus)
+	}
+	if err := l.convertSliceToCommonLeafScalar(values, consensus); err != nil {
+		return 0, err
+	}
+	falseVal, trueVal = values[0], values[1]
 
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprSelect{
@@ -13480,7 +10728,7 @@ func (l *Lowerer) lowerSelectCall(args []parser.Expr, target *[]ir.Statement) (i
 			Accept:    trueVal,
 			Reject:    falseVal,
 		},
-	}), nil
+	})
 }
 
 // getDerivativeFunction maps WGSL derivative function names to IR derivative parameters.
@@ -13519,9 +10767,11 @@ func (l *Lowerer) lowerDerivativeCall(deriv ir.ExprDerivative, args []parser.Exp
 	}
 	// Matches Rust naga: expression() concretizes abstract values.
 	// Derivative functions accept float types, so concretize AbstractFloat → F32.
-	l.concretizeAbstractToDefault(expr)
+	if err := l.concretizeInto(&expr); err != nil {
+		return 0, err
+	}
 	deriv.Expr = expr
-	return l.addExpression(ir.Expression{Kind: deriv}), nil
+	return l.addExpression(ir.Expression{Kind: deriv})
 }
 
 // getRelationalFunction maps WGSL relational function names to IR.
@@ -13561,7 +10811,7 @@ func (l *Lowerer) lowerRelationalCall(fun ir.RelationalFunction, args []parser.E
 
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprRelational{Fun: fun, Argument: arg},
-	}), nil
+	})
 }
 
 func (l *Lowerer) lowerArrayLengthCall(args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
@@ -13574,7 +10824,7 @@ func (l *Lowerer) lowerArrayLengthCall(args []parser.Expr, target *[]ir.Statemen
 	}
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprArrayLength{Array: arg},
-	}), nil
+	})
 }
 
 // Attribute parsing
@@ -13841,7 +11091,10 @@ func (l *Lowerer) extractWorkgroupSize(attrs []parser.Attribute) [3]uint32 {
 			if i >= 3 {
 				break
 			}
-			if val, ok := l.evalConstU32Expr(arg); ok {
+			// Rust const_u32 in the module's context. An override size
+			// (Rust workgroup_size_overrides) is not represented yet and
+			// keeps the default of 1.
+			if val, err := l.moduleConstU32(arg); err == nil {
 				result[i] = val
 			}
 		}
@@ -14808,7 +12061,9 @@ func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []parser.Expr, 
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(coord)
+	if err := l.convertInto(&coord, scalarF32); err != nil {
+		return 0, err
+	}
 
 	var arrayIndex *ir.ExpressionHandle
 	var offset *ir.ExpressionHandle
@@ -14818,7 +12073,9 @@ func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []parser.Expr, 
 		if aiErr != nil {
 			return 0, aiErr
 		}
-		l.concretizeAbstractToDefault(ai)
+		if err := l.concretizeInto(&ai); err != nil {
+			return 0, err
+		}
 		arrayIndex = &ai
 		nextArg++
 	}
@@ -14832,12 +12089,20 @@ func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []parser.Expr, 
 	var level ir.SampleLevel
 	switch kind {
 	case "bias":
-		l.convertExpressionToFloat(levelHandle)
+		if err := l.convertInto(&levelHandle, scalarF32); err != nil {
+			return 0, err
+		}
 		level = ir.SampleLevelBias{Bias: levelHandle}
 	case "level":
-		l.convertExpressionToFloat(levelHandle)
+		if err := l.convertInto(&levelHandle, scalarF32); err != nil {
+			return 0, err
+		}
 		level = ir.SampleLevelExact{Level: levelHandle}
 	case "level_depth":
+		// A depth texture's level is an i32 or u32 (Rust: expression()).
+		if err := l.concretizeInto(&levelHandle); err != nil {
+			return 0, err
+		}
 		level = ir.SampleLevelExact{Level: levelHandle}
 	}
 
@@ -14847,7 +12112,9 @@ func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []parser.Expr, 
 		if offErr != nil {
 			return 0, offErr
 		}
-		l.concretizeExpressionToScalar(off, ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+		if err := l.convertInto(&off, scalarI32); err != nil {
+			return 0, err
+		}
 		offset = &off
 	}
 
@@ -14860,7 +12127,7 @@ func (l *Lowerer) lowerTextureSampleWithDeferredLevel(sampleArgs []parser.Expr, 
 			Offset:     offset,
 			Level:      level,
 		},
-	}), nil
+	})
 }
 
 // lowerTextureSampleWithDeferredGrad is like lowerTextureSampleWithDeferredLevel but for gradients.
@@ -14877,7 +12144,9 @@ func (l *Lowerer) lowerTextureSampleWithDeferredGrad(sampleArgs []parser.Expr, d
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(coord)
+	if err := l.convertInto(&coord, scalarF32); err != nil {
+		return 0, err
+	}
 
 	var arrayIndex *ir.ExpressionHandle
 	var offset *ir.ExpressionHandle
@@ -14887,7 +12156,9 @@ func (l *Lowerer) lowerTextureSampleWithDeferredGrad(sampleArgs []parser.Expr, d
 		if aiErr != nil {
 			return 0, aiErr
 		}
-		l.concretizeAbstractToDefault(ai)
+		if err := l.concretizeInto(&ai); err != nil {
+			return 0, err
+		}
 		arrayIndex = &ai
 		nextArg++
 	}
@@ -14897,19 +12168,25 @@ func (l *Lowerer) lowerTextureSampleWithDeferredGrad(sampleArgs []parser.Expr, d
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(ddx)
+	if err := l.convertInto(&ddx, scalarF32); err != nil {
+		return 0, err
+	}
 	ddy, err := l.lowerExpression(ddyArg, target)
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(ddy)
+	if err := l.convertInto(&ddy, scalarF32); err != nil {
+		return 0, err
+	}
 
 	if nextArg < len(sampleArgs) {
 		off, offErr := l.lowerExpression(sampleArgs[nextArg], target)
 		if offErr != nil {
 			return 0, offErr
 		}
-		l.concretizeExpressionToScalar(off, ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+		if err := l.convertInto(&off, scalarI32); err != nil {
+			return 0, err
+		}
 		offset = &off
 	}
 
@@ -14922,7 +12199,7 @@ func (l *Lowerer) lowerTextureSampleWithDeferredGrad(sampleArgs []parser.Expr, d
 			Offset:     offset,
 			Level:      ir.SampleLevelGradient{X: ddx, Y: ddy},
 		},
-	}), nil
+	})
 }
 
 func (l *Lowerer) lowerTextureSample(args []parser.Expr, target *[]ir.Statement, level ir.SampleLevel) (ir.ExpressionHandle, error) {
@@ -14944,7 +12221,9 @@ func (l *Lowerer) lowerTextureSample(args []parser.Expr, target *[]ir.Statement,
 
 	// Texture sample coordinates must be float. Convert abstract/concrete int to float.
 	// Matches Rust naga's automatic_conversion for texture coordinate arguments.
-	l.convertExpressionToFloat(coord)
+	if err := l.convertInto(&coord, scalarF32); err != nil {
+		return 0, err
+	}
 
 	// Check if texture is arrayed to determine how to interpret extra arguments
 	var arrayIndex *ir.ExpressionHandle
@@ -14955,7 +12234,9 @@ func (l *Lowerer) lowerTextureSample(args []parser.Expr, target *[]ir.Statement,
 		if aiErr != nil {
 			return 0, aiErr
 		}
-		l.concretizeAbstractToDefault(ai)
+		if err := l.concretizeInto(&ai); err != nil {
+			return 0, err
+		}
 		arrayIndex = &ai
 		nextArg++
 	}
@@ -14967,7 +12248,9 @@ func (l *Lowerer) lowerTextureSample(args []parser.Expr, target *[]ir.Statement,
 			return 0, offErr
 		}
 		// Concretize offset to i32 (texture offsets are always signed integer)
-		l.concretizeExpressionToScalar(off, ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
+		if err := l.convertInto(&off, scalarI32); err != nil {
+			return 0, err
+		}
 		offset = &off
 	}
 
@@ -14980,7 +12263,7 @@ func (l *Lowerer) lowerTextureSample(args []parser.Expr, target *[]ir.Statement,
 			Offset:     offset,
 			Level:      level,
 		},
-	}), nil
+	})
 }
 
 // lowerTextureSampleCompare converts a depth texture comparison sampling call to IR.
@@ -15004,7 +12287,9 @@ func (l *Lowerer) lowerTextureSampleCompare(args []parser.Expr, target *[]ir.Sta
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(coord) // coordinates must be float
+	if err := l.convertInto(&coord, scalarF32); err != nil {
+		return 0, err
+	}
 
 	var arrayIndex *ir.ExpressionHandle
 	depthRefIdx := 3
@@ -15014,7 +12299,9 @@ func (l *Lowerer) lowerTextureSampleCompare(args []parser.Expr, target *[]ir.Sta
 		if aiErr != nil {
 			return 0, aiErr
 		}
-		l.concretizeAbstractToDefault(ai)
+		if err := l.concretizeInto(&ai); err != nil {
+			return 0, err
+		}
 		arrayIndex = &ai
 		depthRefIdx = 4
 	}
@@ -15023,7 +12310,9 @@ func (l *Lowerer) lowerTextureSampleCompare(args []parser.Expr, target *[]ir.Sta
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(depthRef) // depth_ref must be float
+	if err := l.convertInto(&depthRef, scalarF32); err != nil {
+		return 0, err
+	}
 
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprImageSample{
@@ -15034,7 +12323,7 @@ func (l *Lowerer) lowerTextureSampleCompare(args []parser.Expr, target *[]ir.Sta
 			Level:      level,
 			DepthRef:   &depthRef,
 		},
-	}), nil
+	})
 }
 
 // lowerTextureSampleClampToEdge converts textureSampleBaseClampToEdge(t, s, coord) to IR.
@@ -15058,7 +12347,9 @@ func (l *Lowerer) lowerTextureSampleClampToEdge(args []parser.Expr, target *[]ir
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(coord) // coordinates must be float
+	if err := l.convertInto(&coord, scalarF32); err != nil {
+		return 0, err
+	}
 
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprImageSample{
@@ -15068,7 +12359,7 @@ func (l *Lowerer) lowerTextureSampleClampToEdge(args []parser.Expr, target *[]ir
 			Level:       ir.SampleLevelZero{},
 			ClampToEdge: true,
 		},
-	}), nil
+	})
 }
 
 // lowerTextureGather converts textureGather to IR.
@@ -15118,7 +12409,9 @@ func (l *Lowerer) lowerTextureGather(args []parser.Expr, target *[]ir.Statement)
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(coord) // coordinates must be float
+	if err := l.convertInto(&coord, scalarF32); err != nil {
+		return 0, err
+	}
 
 	// Check for array index and optional offset
 	var arrayIndex *ir.ExpressionHandle
@@ -15130,7 +12423,9 @@ func (l *Lowerer) lowerTextureGather(args []parser.Expr, target *[]ir.Statement)
 		if aiErr != nil {
 			return 0, aiErr
 		}
-		l.concretizeAbstractToDefault(ai)
+		if err := l.concretizeInto(&ai); err != nil {
+			return 0, err
+		}
 		arrayIndex = &ai
 		nextArg++
 	}
@@ -15153,7 +12448,7 @@ func (l *Lowerer) lowerTextureGather(args []parser.Expr, target *[]ir.Statement)
 			Level:      ir.SampleLevelZero{},
 			Gather:     &component,
 		},
-	}), nil
+	})
 }
 
 // lowerTextureGatherCompare converts textureGatherCompare(t, s, coord, depth_ref [, offset]) to IR.
@@ -15177,7 +12472,9 @@ func (l *Lowerer) lowerTextureGatherCompare(args []parser.Expr, target *[]ir.Sta
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(coord) // coordinates must be float
+	if err := l.convertInto(&coord, scalarF32); err != nil {
+		return 0, err
+	}
 
 	var arrayIndex *ir.ExpressionHandle
 	depthRefIdx := 3
@@ -15187,7 +12484,9 @@ func (l *Lowerer) lowerTextureGatherCompare(args []parser.Expr, target *[]ir.Sta
 		if aiErr != nil {
 			return 0, aiErr
 		}
-		l.concretizeAbstractToDefault(ai)
+		if err := l.concretizeInto(&ai); err != nil {
+			return 0, err
+		}
 		arrayIndex = &ai
 		depthRefIdx = 4
 	}
@@ -15196,7 +12495,9 @@ func (l *Lowerer) lowerTextureGatherCompare(args []parser.Expr, target *[]ir.Sta
 	if err != nil {
 		return 0, err
 	}
-	l.convertExpressionToFloat(depthRef) // depth_ref must be float
+	if err := l.convertInto(&depthRef, scalarF32); err != nil {
+		return 0, err
+	}
 
 	// Check for optional offset after depth_ref
 	var offset *ir.ExpressionHandle
@@ -15222,17 +12523,17 @@ func (l *Lowerer) lowerTextureGatherCompare(args []parser.Expr, target *[]ir.Sta
 			DepthRef:   &depthRef,
 			Gather:     &gatherComp,
 		},
-	}), nil
+	})
 }
 
 // evalGatherComponent evaluates the component argument of textureGather.
 // The component must be a constant integer expression in range [0, 3].
 func (l *Lowerer) evalGatherComponent(expr parser.Expr) (ir.SwizzleComponent, error) {
-	_, val, err := l.evalConstantIntExpr(expr)
+	val, err := l.constU32(expr)
 	if err != nil {
 		return 0, fmt.Errorf("component must be a constant expression: %w", err)
 	}
-	if val < 0 || val > 3 {
+	if val > 3 {
 		return 0, fmt.Errorf("component index %d out of range [0, 3]", val)
 	}
 	return ir.SwizzleComponent(val), nil
@@ -15330,6 +12631,10 @@ func (l *Lowerer) lowerTextureLoad(args []parser.Expr, target *[]ir.Statement) (
 	if err != nil {
 		return 0, err
 	}
+	// Rust: the coordinate is lowered with expression() (concretized).
+	if err := l.concretizeInto(&coord); err != nil {
+		return 0, err
+	}
 
 	var arrayIndex *ir.ExpressionHandle
 	var sample *ir.ExpressionHandle
@@ -15345,7 +12650,9 @@ func (l *Lowerer) lowerTextureLoad(args []parser.Expr, target *[]ir.Statement) (
 		if aiErr != nil {
 			return 0, aiErr
 		}
-		l.concretizeAbstractToDefault(ai)
+		if err := l.concretizeInto(&ai); err != nil {
+			return 0, err
+		}
 		arrayIndex = &ai
 		nextArg++
 	}
@@ -15355,7 +12662,9 @@ func (l *Lowerer) lowerTextureLoad(args []parser.Expr, target *[]ir.Statement) (
 		if siErr != nil {
 			return 0, siErr
 		}
-		l.concretizeAbstractToDefault(si)
+		if err := l.concretizeInto(&si); err != nil {
+			return 0, err
+		}
 		sample = &si
 		nextArg++
 	}
@@ -15365,7 +12674,9 @@ func (l *Lowerer) lowerTextureLoad(args []parser.Expr, target *[]ir.Statement) (
 		if lvErr != nil {
 			return 0, lvErr
 		}
-		l.concretizeAbstractToDefault(lv)
+		if err := l.concretizeInto(&lv); err != nil {
+			return 0, err
+		}
 		level = &lv
 	}
 
@@ -15377,7 +12688,7 @@ func (l *Lowerer) lowerTextureLoad(args []parser.Expr, target *[]ir.Statement) (
 			Sample:     sample,
 			Level:      level,
 		},
-	}), nil
+	})
 }
 
 // lowerTextureStore converts a texture store call to IR.
@@ -15398,6 +12709,10 @@ func (l *Lowerer) lowerTextureStore(args []parser.Expr, target *[]ir.Statement) 
 	if err != nil {
 		return 0, err
 	}
+	// Rust: the coordinate is lowered with expression() (concretized).
+	if err := l.concretizeInto(&coord); err != nil {
+		return 0, err
+	}
 
 	var arrayIndex *ir.ExpressionHandle
 	nextArg := 2
@@ -15407,7 +12722,9 @@ func (l *Lowerer) lowerTextureStore(args []parser.Expr, target *[]ir.Statement) 
 		if aiErr != nil {
 			return 0, aiErr
 		}
-		l.concretizeAbstractToDefault(ai)
+		if err := l.concretizeInto(&ai); err != nil {
+			return 0, err
+		}
 		arrayIndex = &ai
 		nextArg++
 	}
@@ -15417,16 +12734,11 @@ func (l *Lowerer) lowerTextureStore(args []parser.Expr, target *[]ir.Statement) 
 		return 0, err
 	}
 
-	// Concretize the value argument based on the storage texture's format scalar kind.
-	// This matches Rust naga's expression_with_leaf_scalar for textureStore.
+	// The value converts to the scalar of the storage format (Rust
+	// expression_with_leaf_scalar for textureStore).
 	if imgType, ok := l.getTextureImageType(args[0]); ok && imgType.Class == ir.ImageClassStorage {
-		scalarKind := imgType.StorageFormat.ScalarKind()
-		switch scalarKind {
-		case ir.ScalarFloat:
-			l.convertExpressionToFloat(value)
-		default:
-			scalar := ir.ScalarType{Kind: scalarKind, Width: 4}
-			l.concretizeExpressionToScalar(value, scalar)
+		if err := l.convertInto(&value, imgType.StorageFormat.Scalar()); err != nil {
+			return 0, err
 		}
 	}
 
@@ -15453,7 +12765,7 @@ func (l *Lowerer) lowerTextureStore(args []parser.Expr, target *[]ir.Statement) 
 	// Return a zero value expression since textureStore doesn't return anything useful
 	return l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprZeroValue{Type: 0}, // void
-	}), nil
+	})
 }
 
 // lowerTextureAtomic converts a textureAtomic* call to IR.
@@ -15471,6 +12783,10 @@ func (l *Lowerer) lowerTextureAtomic(name string, args []parser.Expr, target *[]
 	if err != nil {
 		return 0, err
 	}
+	// Rust: the coordinate is lowered with expression() (concretized).
+	if err := l.concretizeInto(&coord); err != nil {
+		return 0, err
+	}
 
 	var arrayIndex *ir.ExpressionHandle
 	nextArg := 2
@@ -15480,7 +12796,9 @@ func (l *Lowerer) lowerTextureAtomic(name string, args []parser.Expr, target *[]
 		if aiErr != nil {
 			return 0, aiErr
 		}
-		l.concretizeAbstractToDefault(ai)
+		if err := l.concretizeInto(&ai); err != nil {
+			return 0, err
+		}
 		arrayIndex = &ai
 		nextArg++
 	}
@@ -15553,7 +12871,7 @@ func (l *Lowerer) lowerTextureQuery(args []parser.Expr, target *[]ir.Statement, 
 			Image: image,
 			Query: query,
 		},
-	}), nil
+	})
 }
 
 // getBarrierFlags returns barrier flags for a given function name, or 0 if not a barrier.
@@ -15614,7 +12932,9 @@ func (l *Lowerer) lowerAtomicCall(atomicFunc ir.AtomicFunction, args []parser.Ex
 	}
 
 	// Concretize abstract value to match the atomic's element type.
-	l.concretizeStoreValue(pointer, value)
+	if err := l.convertAtomicValue(pointer, &value); err != nil {
+		return 0, err
+	}
 
 	// For 64-bit atomic min/max called as a statement (result discarded),
 	// set Result to nil. MSL backend then uses non-fetch versions
@@ -15668,9 +12988,12 @@ func (l *Lowerer) lowerAtomicCall(atomicFunc ir.AtomicFunction, args []parser.Ex
 	// Create atomic result expression with the scalar type.
 	// Use interruptEmitter: AtomicResult is not a computed expression,
 	// it's produced by the Atomic statement (matches Rust naga).
-	resultHandle := l.interruptEmitter(ir.Expression{
+	resultHandle, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprAtomicResult{Ty: scalarTypeHandle, Comparison: false},
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtAtomic{
@@ -15702,7 +13025,9 @@ func (l *Lowerer) lowerAtomicStore(args []parser.Expr, target *[]ir.Statement) (
 	}
 
 	// Concretize abstract value to match the atomic's element type.
-	l.concretizeStoreValue(pointer, value)
+	if err := l.convertAtomicValue(pointer, &value); err != nil {
+		return 0, err
+	}
 
 	// Rust naga emits a plain Store for atomicStore, not an Atomic statement.
 	// See naga/src/front/wgsl/lower/mod.rs around line 2895.
@@ -15732,134 +13057,7 @@ func (l *Lowerer) lowerAtomicLoad(args []parser.Expr, target *[]ir.Statement) (i
 	// Rust naga emits Expression::Load { pointer } for atomicLoad.
 	return l.addExpression(ir.Expression{
 		Kind: ir.ExprLoad{Pointer: pointer},
-	}), nil
-}
-
-// lowerTypeConstructorCall handles a constructor call for a named type (struct, vector, matrix,
-// scalar, or type alias). E.g., VertexOutput(pos, uv), FVec3(0.0), Mat(1.0, 2.0, 3.0, 4.0).
-func (l *Lowerer) lowerTypeConstructorCall(typeHandle ir.TypeHandle, args []parser.Expr, target *[]ir.Statement) (ir.ExpressionHandle, error) {
-	// Zero-arg constructor: emit ZeroValue (matches Rust naga).
-	// E.g., MyStruct() → ZeroValue(MyStruct)
-	if len(args) == 0 {
-		return l.interruptEmitter(ir.Expression{
-			Kind: ir.ExprZeroValue{Type: typeHandle},
-		}), nil
-	}
-
-	components := make([]ir.ExpressionHandle, len(args))
-	for i, arg := range args {
-		handle, err := l.lowerExpression(arg, target)
-		if err != nil {
-			return 0, err
-		}
-		components[i] = handle
-	}
-
-	inner := l.module.Types[typeHandle].Inner
-
-	// For scalar type constructors with a single argument, generate ExprAs (type conversion)
-	if len(components) == 1 {
-		if scalar, ok := inner.(ir.ScalarType); ok {
-			width := scalar.Width
-			return l.addExpression(ir.Expression{
-				Kind: ir.ExprAs{
-					Expr:    components[0],
-					Kind:    scalar.Kind,
-					Convert: &width,
-				},
-			}), nil
-		}
-	}
-
-	// Matrix type with single matrix argument: expand ZeroValue to Compose
-	if _, ok := inner.(ir.MatrixType); ok && len(components) == 1 {
-		argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
-		if err == nil {
-			argInner := ir.TypeResInner(l.module, argType)
-			if _, ok := argInner.(ir.MatrixType); ok {
-				if _, isZero := l.currentFunc.Expressions[components[0]].Kind.(ir.ExprZeroValue); isZero {
-					if expanded, ok := l.expandZeroValueToCompose(typeHandle); ok {
-						return expanded, nil
-					}
-				}
-				return components[0], nil
-			}
-		}
-	}
-
-	// Vector type with single argument: splat or conversion
-	if vec, ok := inner.(ir.VectorType); ok && len(components) == 1 {
-		// Check if the single arg is a vector of same size (type conversion)
-		argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, components[0])
-		if err == nil {
-			argInner := ir.TypeResInner(l.module, argType)
-			if argVec, ok := argInner.(ir.VectorType); ok && argVec.Size == vec.Size {
-				width := vec.Scalar.Width
-				return l.addExpression(ir.Expression{
-					Kind: ir.ExprAs{
-						Expr:    components[0],
-						Kind:    vec.Scalar.Kind,
-						Convert: &width,
-					},
-				}), nil
-			}
-		}
-		// Splat: single scalar -> vector via Splat expression.
-		// Matches Rust naga which generates Splat for single-scalar vector constructors.
-		// Concretize abstract literals first.
-		l.concretizeComponentsToScalar(components, vec.Scalar)
-		// Convert concrete scalars of different kind (e.g., u32→f32 for vec4f(u32_val)).
-		if argType2, err2 := ir.ResolveExpressionType(l.module, l.currentFunc, components[0]); err2 == nil {
-			argInner2 := ir.TypeResInner(l.module, argType2)
-			if argScalar, ok := argInner2.(ir.ScalarType); ok {
-				if argScalar.Kind != vec.Scalar.Kind || argScalar.Width != vec.Scalar.Width {
-					width := vec.Scalar.Width
-					components[0] = l.addExpression(ir.Expression{
-						Kind: ir.ExprAs{
-							Expr:    components[0],
-							Kind:    vec.Scalar.Kind,
-							Convert: &width,
-						},
-					})
-				}
-			}
-		}
-		// Create Splat expression instead of replicated Compose.
-		return l.addExpression(ir.Expression{
-			Kind: ir.ExprSplat{Size: vec.Size, Value: components[0]},
-		}), nil
-	}
-
-	// Concretize abstract literal components to match the target type's scalar.
-	// For structs, concretize each component based on the member type.
-	if structType, ok := inner.(ir.StructType); ok {
-		for i, comp := range components {
-			if i < len(structType.Members) {
-				l.concretizeExpressionToType(comp, structType.Members[i].Type)
-			}
-		}
-	} else if scalar, ok := l.getTypeScalar(typeHandle); ok {
-		l.concretizeComponentsToScalar(components, scalar)
-	}
-
-	// Matrix with scalar args: group into column vectors (matches Rust naga).
-	// When grouping scalars into columns, Rust uses an anonymous matrix type for the
-	// final Compose (not the named alias type).
-	{
-		origLen := len(components)
-		components = l.groupMatrixColumns(typeHandle, components)
-		composeType := typeHandle
-		if origLen > 0 && len(components) != origLen {
-			if int(typeHandle) < len(l.module.Types) {
-				if mat, ok := l.module.Types[typeHandle].Inner.(ir.MatrixType); ok {
-					composeType = l.registerType("", mat)
-				}
-			}
-		}
-		return l.addExpression(ir.Expression{
-			Kind: ir.ExprCompose{Type: composeType, Components: components},
-		}), nil
-	}
+	})
 }
 
 // lowerWorkgroupUniformLoad converts workgroupUniformLoad(ptr) to IR.
@@ -15880,9 +13078,12 @@ func (l *Lowerer) lowerWorkgroupUniformLoad(args []parser.Expr, target *[]ir.Sta
 	// Use interruptEmitter to ensure WorkGroupUniformLoadResult falls outside
 	// emit ranges (it's a pre-emit expression, like AtomicResult and CallResult).
 	// Matches Rust naga's interrupt_emitter call for this expression.
-	resultHandle := l.interruptEmitter(ir.Expression{
+	resultHandle, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprWorkGroupUniformLoadResult{},
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	// Fix up the expression type: interruptEmitter -> addExpression can't resolve
 	// WorkGroupUniformLoadResult because the statement hasn't been added yet.
@@ -15893,6 +13094,10 @@ func (l *Lowerer) lowerWorkgroupUniformLoad(args []parser.Expr, target *[]ir.Sta
 			ptrInner := ir.TypeResInner(l.module, ptrType)
 			if pt, ok := ptrInner.(ir.PointerType); ok {
 				h := pt.Base
+				// Like Load, a pointer to atomic<T> yields a T (Rust).
+				if a, isAtomic := l.module.Types[h].Inner.(ir.AtomicType); isAtomic {
+					h = l.registerType("", a.Scalar)
+				}
 				l.currentFunc.ExpressionTypes[resultHandle] = ir.TypeResolution{Handle: &h}
 			}
 		}
@@ -15964,9 +13169,12 @@ func (l *Lowerer) lowerSubgroupBallot(args []parser.Expr, target *[]ir.Statement
 	}
 
 	// SubgroupBallotResult uses interrupt_emitter in Rust naga — must be outside Emit range.
-	resultHandle := l.interruptEmitter(ir.Expression{
+	resultHandle, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprSubgroupBallotResult{},
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtSubgroupBallot{
@@ -15998,9 +13206,12 @@ func (l *Lowerer) lowerSubgroupCollectiveOperation(op ir.SubgroupOperation, cop 
 	typeHandle := l.ensureTypeHandle(argType)
 
 	// SubgroupOperationResult uses interrupt_emitter in Rust naga — must be outside Emit range.
-	resultHandle := l.interruptEmitter(ir.Expression{
+	resultHandle, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprSubgroupOperationResult{Type: typeHandle},
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtSubgroupCollectiveOperation{
@@ -16096,9 +13307,12 @@ func (l *Lowerer) lowerSubgroupGather(gatherKind string, args []parser.Expr, tar
 	typeHandle := l.ensureTypeHandle(argType)
 
 	// SubgroupOperationResult uses interrupt_emitter in Rust naga — must be outside Emit range.
-	resultHandle := l.interruptEmitter(ir.Expression{
+	resultHandle, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprSubgroupOperationResult{Type: typeHandle},
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtSubgroupGather{
@@ -16141,9 +13355,12 @@ func (l *Lowerer) lowerQuadSwap(funcName string, args []parser.Expr, target *[]i
 	typeHandle := l.ensureTypeHandle(argType)
 
 	// SubgroupOperationResult uses interrupt_emitter in Rust naga — must be outside Emit range.
-	resultHandle := l.interruptEmitter(ir.Expression{
+	resultHandle, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprSubgroupOperationResult{Type: typeHandle},
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtSubgroupGather{
@@ -16164,7 +13381,7 @@ func (l *Lowerer) ensureTypeHandle(res ir.TypeResolution) ir.TypeHandle {
 		return *res.Handle
 	}
 	// Register via the type registry (same as registerType but without name mapping)
-	return l.registry.GetOrCreate("", res.Value)
+	return l.registerTypeSilent(res.Value)
 }
 
 // lowerAtomicCompareExchange converts atomicCompareExchangeWeak to IR.
@@ -16194,8 +13411,12 @@ func (l *Lowerer) lowerAtomicCompareExchange(args []parser.Expr, target *[]ir.St
 	}
 
 	// Concretize abstract arguments to match the atomic's element type.
-	l.concretizeStoreValue(pointer, compare)
-	l.concretizeStoreValue(pointer, value)
+	if err := l.convertAtomicValue(pointer, &compare); err != nil {
+		return 0, err
+	}
+	if err := l.convertAtomicValue(pointer, &value); err != nil {
+		return 0, err
+	}
 
 	// Resolve the atomic element scalar type from the pointer.
 	atomicScalar := l.resolveAtomicScalarFromPointer(pointer)
@@ -16206,9 +13427,12 @@ func (l *Lowerer) lowerAtomicCompareExchange(args []parser.Expr, target *[]ir.St
 
 	// Create atomic result expression with the struct type.
 	// Use interruptEmitter: AtomicResult is produced by the Atomic statement.
-	resultHandle := l.interruptEmitter(ir.Expression{
+	resultHandle, err := l.interruptEmitter(ir.Expression{
 		Kind: ir.ExprAtomicResult{Ty: resultStructType, Comparison: true},
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	*target = append(*target, ir.Statement{
 		Kind: ir.StmtAtomic{
@@ -16360,9 +13584,12 @@ func (l *Lowerer) lowerRayQueryCall(name string, args []parser.Expr, target *[]i
 		// Rust naga uses interrupt_emitter for RayQueryProceedResult,
 		// which flushes the current emit range before the expression.
 		// This produces: Emit → RayQueryProceedResult → StmtRayQuery.
-		resultHandle := l.interruptEmitter(ir.Expression{
+		resultHandle, err := l.interruptEmitter(ir.Expression{
 			Kind: ir.ExprRayQueryProceedResult{},
 		})
+		if err != nil {
+			return 0, err
+		}
 		*target = append(*target, ir.Statement{
 			Kind: ir.StmtRayQuery{
 				Query: query,
@@ -16383,7 +13610,7 @@ func (l *Lowerer) lowerRayQueryCall(name string, args []parser.Expr, target *[]i
 		}
 		return l.addExpression(ir.Expression{
 			Kind: ir.ExprRayQueryGetIntersection{Query: query, Committed: true},
-		}), nil
+		})
 
 	case "rayQueryGetCandidateIntersection":
 		// rayQueryGetCandidateIntersection(&rq) -> RayIntersection
@@ -16397,7 +13624,7 @@ func (l *Lowerer) lowerRayQueryCall(name string, args []parser.Expr, target *[]i
 		}
 		return l.addExpression(ir.Expression{
 			Kind: ir.ExprRayQueryGetIntersection{Query: query, Committed: false},
-		}), nil
+		})
 
 	case "rayQueryGenerateIntersection":
 		// rayQueryGenerateIntersection(&rq, hit_t)
@@ -16413,7 +13640,9 @@ func (l *Lowerer) lowerRayQueryCall(name string, args []parser.Expr, target *[]i
 			return 0, fmt.Errorf("rayQueryGenerateIntersection hit_t: %w", err)
 		}
 		// hit_t is always f32 — concretize abstract literals
-		l.concretizeAbstractToDefaultFloat(hitT)
+		if err := l.concretizeFloatInto(&hitT); err != nil {
+			return 0, err
+		}
 		*target = append(*target, ir.Statement{
 			Kind: ir.StmtRayQuery{
 				Query: query,
@@ -16489,9 +13718,6 @@ func (l *Lowerer) buildGlobalExpressions() {
 	// Map from ConstantHandle to ExpressionHandle in GlobalExpressions.
 	constToGlobalExpr := make(map[ir.ConstantHandle]ir.ExpressionHandle, len(m.Constants))
 
-	// Map from OverrideHandle to ExpressionHandle in GlobalExpressions.
-	overrideToGlobalExpr := make(map[ir.OverrideHandle]ir.ExpressionHandle, len(m.Overrides))
-
 	// Helper to add an expression to GlobalExpressions.
 	addExpr := func(kind ir.ExpressionKind) ir.ExpressionHandle {
 		h := ir.ExpressionHandle(len(m.GlobalExpressions))
@@ -16538,20 +13764,8 @@ func (l *Lowerer) buildGlobalExpressions() {
 		return h
 	}
 
-	// Phase 1: Process overrides.
-	// Each override with an init expression gets a global expression.
-	// Overrides without init (no default) get Init: nil — matching Rust naga.
-	for oh := ir.OverrideHandle(0); int(oh) < len(m.Overrides); oh++ {
-		initExpr, hasInit := l.overrideInitExprs[oh]
-		if !hasInit {
-			// No init expression — Override.Init stays nil.
-			continue
-		}
-
-		h := l.buildOverrideGlobalExpr(initExpr, m.Overrides[oh].Ty, overrideToGlobalExpr, addExpr)
-		overrideToGlobalExpr[oh] = h
-		m.Overrides[oh].Init = &h
-	}
+	// Override initializers are already in GlobalExpressions: lowerOverride
+	// appends them when the declaration is lowered.
 
 	// Phase 2: Constants — populate constToGlobalExpr from inline-built Init handles.
 	// Constants already have Init set from lowerConstant → buildConstGlobalExpr.
@@ -16566,19 +13780,13 @@ func (l *Lowerer) buildGlobalExpressions() {
 	// Phase 3: Set GlobalVariable.InitExpr to point into GlobalExpressions.
 	for i := range m.GlobalVariables {
 		gv := &m.GlobalVariables[i]
-		gvHandle := ir.GlobalVariableHandle(i)
-
 		if gv.Init != nil {
 			// Global var init references a constant -> use that constant's global expression.
 			if h, ok := constToGlobalExpr[*gv.Init]; ok {
 				gv.InitExpr = &h
 			}
-		} else if initExpr, ok := l.globalVarInitExprs[gvHandle]; ok {
-			// Override-dependent init expression (e.g., gain * 10.0).
-			h := l.buildOverrideGlobalExpr(initExpr, gv.Type, overrideToGlobalExpr, addExpr)
-			gv.InitExpr = &h
 		}
-		// Constructor inits already set InitExpr in lowerGlobalVar.
+		// Other initializers already set InitExpr in lowerGlobalVar.
 	}
 }
 
@@ -16941,70 +14149,8 @@ func isComparisonOp(op ir.BinaryOperator) bool {
 	return false
 }
 
-// buildOverrideGlobalExpr recursively builds global expressions from an
-// OverrideInitExpr tree. This handles derived overrides like `height = 2.0 * depth`.
-//
-// ty is the type the expression must produce (the override's or global
-// variable's declared type). As in Rust naga, an abstract literal is converted
-// to it — `override a: u32 = 0` is Literal(U32(0)), not F32 — and a negated
-// literal is folded (`-1` → Literal(I32(-1))). Operands of arithmetic binary
-// operators share the result type; for comparisons the operand type does not
-// follow from ty, so literal operands keep the F32 fallback (unknownType).
-func (l *Lowerer) buildOverrideGlobalExpr(
-	expr ir.OverrideInitExpr,
-	ty ir.TypeHandle,
-	overrideToGlobalExpr map[ir.OverrideHandle]ir.ExpressionHandle,
-	addExpr func(ir.ExpressionKind) ir.ExpressionHandle,
-) ir.ExpressionHandle {
-	switch e := expr.(type) {
-	case ir.OverrideInitLiteral:
-		return addExpr(ir.Literal{Value: l.overrideLiteral(e.Value, ty)})
-
-	case ir.OverrideInitBoolLiteral:
-		return addExpr(ir.Literal{Value: ir.LiteralBool(e.Value)})
-
-	case ir.OverrideInitUintLiteral:
-		return addExpr(ir.Literal{Value: ir.LiteralU32(e.Value)})
-
-	case ir.OverrideInitRef:
-		// Reference to another override -> Override expression.
-		// First ensure the referenced override has a global expression.
-		if _, ok := overrideToGlobalExpr[e.Handle]; !ok {
-			if int(e.Handle) < len(l.module.Overrides) {
-				if initExpr, hasInit := l.overrideInitExprs[e.Handle]; hasInit {
-					refTy := l.module.Overrides[e.Handle].Ty
-					h := l.buildOverrideGlobalExpr(initExpr, refTy, overrideToGlobalExpr, addExpr)
-					overrideToGlobalExpr[e.Handle] = h
-					l.module.Overrides[e.Handle].Init = &h
-				}
-			}
-		}
-		return addExpr(ir.ExprOverride{Override: e.Handle})
-
-	case ir.OverrideInitBinary:
-		operandTy := ty
-		if isComparisonOp(e.Op) {
-			operandTy = unknownType
-		}
-		left := l.buildOverrideGlobalExpr(e.Left, operandTy, overrideToGlobalExpr, addExpr)
-		right := l.buildOverrideGlobalExpr(e.Right, operandTy, overrideToGlobalExpr, addExpr)
-		return addExpr(ir.ExprBinary{
-			Op:    e.Op,
-			Left:  left,
-			Right: right,
-		})
-
-	case ir.OverrideInitUnary:
-		if lit, ok := e.Expr.(ir.OverrideInitLiteral); ok && e.Op == ir.UnaryNegate {
-			return addExpr(ir.Literal{Value: l.overrideLiteral(-lit.Value, ty)})
-		}
-		inner := l.buildOverrideGlobalExpr(e.Expr, ty, overrideToGlobalExpr, addExpr)
-		return addExpr(ir.ExprUnary{
-			Op:   e.Op,
-			Expr: inner,
-		})
-
-	default:
-		return addExpr(ir.ExprZeroValue{Type: 0})
-	}
+// found adapts an append result to the (handle, ok, error) form of the
+// try* helpers: an appended expression is found unless appending failed.
+func found(h ir.ExpressionHandle, err error) (ir.ExpressionHandle, bool, error) {
+	return h, err == nil, err
 }

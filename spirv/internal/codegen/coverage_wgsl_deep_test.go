@@ -529,12 +529,20 @@ func TestStorageTextureMultipleFormats(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// The texel has the format's channel type.
+			texel := "vec4<f32>(1.0, 0.0, 0.0, 1.0)"
+			switch tt.format {
+			case "r32uint":
+				texel = "vec4<u32>(1u, 0u, 0u, 1u)"
+			case "r32sint":
+				texel = "vec4<i32>(1, 0, 0, 1)"
+			}
 			source := `
 @group(0) @binding(0) var output: texture_storage_2d<` + tt.format + `, write>;
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    textureStore(output, vec2<i32>(vec2<u32>(id.x, id.y)), vec4<f32>(1.0, 0.0, 0.0, 1.0));
+    textureStore(output, vec2<i32>(vec2<u32>(id.x, id.y)), ` + texel + `);
 }
 `
 			spv := compileWGSL(t, source)
