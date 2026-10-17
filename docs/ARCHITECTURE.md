@@ -447,8 +447,8 @@ and eliminates redundant type definitions across all backends.
 
 ### Rust Naga Reference Shaders
 
-**All 144 WGSL reference shaders** from the [Rust naga](https://github.com/gfx-rs/naga) test
-suite are included as snapshot tests. Coverage includes:
+**The 172 WGSL shaders** of the [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) test
+suite (vendored from gfx-rs/wgpu 14328f49, see UPSTREAM) are included as snapshot tests. Coverage includes:
 
 | Category | Shaders |
 |----------|---------|

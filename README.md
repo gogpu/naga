@@ -367,7 +367,7 @@ All backends follow the DXIL internal package pattern — implementation in `int
 
 - [WGSL Specification](https://www.w3.org/TR/WGSL/)
 - [SPIR-V Specification](https://registry.khronos.org/SPIR-V/)
-- [naga (Rust)](https://github.com/gfx-rs/naga) — Original implementation
+- [naga (Rust)](https://github.com/gfx-rs/wgpu/tree/trunk/naga) — the Rust implementation this project was ported from (see [UPSTREAM](UPSTREAM))
 
 ### Rust Naga Compatibility
 

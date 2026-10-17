@@ -26,6 +26,6 @@
 // # References
 //
 // This IR design is inspired by:
-//   - naga (Rust): https://github.com/gfx-rs/naga
+//   - naga (Rust): https://github.com/gfx-rs/wgpu/tree/trunk/naga
 //   - SPIR-V specification: https://www.khronos.org/registry/SPIR-V/
 package ir
