@@ -22,7 +22,7 @@ func (a *testArena) Append(k ir.ExpressionKind) ir.ExpressionHandle {
 	*a.exprs = append(*a.exprs, ir.Expression{Kind: k})
 	return ir.ExpressionHandle(len(*a.exprs) - 1)
 }
-func (a *testArena) IsGlobal() bool                     { return a.global }
+func (a *testArena) IsGlobal() bool { return a.global }
 func (a *testArena) Type(inner ir.TypeInner) ir.TypeHandle {
 	for i, t := range a.mod.Types {
 		if reflect.DeepEqual(t.Inner, inner) {
@@ -222,6 +222,32 @@ func TestEvalConstantOperand(t *testing.T) {
 	}
 }
 
+// Literal reads a scalar const-expression (Rust get_const_val): through a
+// constant reference and a zero value; not a run-time expression, not a
+// vector.
+func TestEvalLiteral(t *testing.T) {
+	f, a, fexprs := newEval(BehaviorRuntime)
+	f.Module.GlobalExpressions = []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralU32(8)}}}
+	f.Module.Constants = []ir.Constant{{Name: "K", Init: 0}}
+	k := mustEval(t, f, ir.ExprConstant{Constant: 0})
+	if got, ok := f.Literal(k); !ok || got != ir.LiteralU32(8) {
+		t.Errorf("Literal(K) = %v, %v, want 8u", got, ok)
+	}
+	zero := mustEval(t, f, ir.ExprZeroValue{Type: a.Type(ir.ScalarType{Kind: ir.ScalarSint, Width: 4})})
+	if got, ok := f.Literal(zero); !ok || got != ir.LiteralI32(0) {
+		t.Errorf("Literal(i32()) = %v, %v, want 0i", got, ok)
+	}
+	*fexprs = append(*fexprs, ir.Expression{Kind: ir.ExprFunctionArgument{Index: 0}})
+	if _, ok := f.Literal(ir.ExpressionHandle(len(*fexprs) - 1)); ok {
+		t.Error("Literal of a function argument: ok, want not a const-expression")
+	}
+	one := lit(t, f, ir.LiteralF32(1))
+	vec := mustEval(t, f, ir.ExprSplat{Size: ir.Vec2, Value: one})
+	if _, ok := f.Literal(vec); ok {
+		t.Error("Literal of a vector: ok, want only scalars")
+	}
+}
+
 func posInf() float64 { return math.Inf(1) }
 
 func mat2(t *testing.T, e *Evaluator, a *testArena, c0, c1 [2]float32) ir.ExpressionHandle {
@@ -292,4 +318,9 @@ func TestEvalZeroValueAccess(t *testing.T) {
 	if _, err := e.TryEvalAndAppend(ir.ExprAccessIndex{Base: z, Index: 2}); err == nil {
 		t.Error("zero struct .2 evaluated")
 	}
+}
+
+// Array registers an array type; the test stride is the element size.
+func (a *testArena) Array(base ir.TypeHandle, size ir.ArraySize) ir.TypeHandle {
+	return a.Type(ir.ArrayType{Base: base, Size: size, Stride: ir.TypeSize(a.mod, base)})
 }

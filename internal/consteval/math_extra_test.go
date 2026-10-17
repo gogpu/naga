@@ -3,6 +3,7 @@ package consteval
 import (
 	"errors"
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -122,5 +123,17 @@ func TestRustEvaluates(t *testing.T) {
 		if got := RustEvaluates(fun); got == notInRust[fun] {
 			t.Errorf("RustEvaluates(%s) = %v", rustMathName(fun), got)
 		}
+	}
+}
+
+// mix has a second overload, mix(vecN<T>, vecN<T>, T): the scalar blend
+// factor applies to every component (WGSL spec, mix built-in).
+func TestMixVectorScalarFactor(t *testing.T) {
+	got, err := Math(ir.MathMix, f32v(0, 10), f32v(10, 20), Scalar(ir.LiteralF32(0.25)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := f32v(2.5, 12.5); !reflect.DeepEqual(got, want) {
+		t.Errorf("mix(vec2(0, 10), vec2(10, 20), 0.25) = %v, want %v", got.Components(), want.Components())
 	}
 }

@@ -67,3 +67,16 @@ func newError(class error, msg string) *Error {
 func FallsBack(err error) bool {
 	return errors.Is(err, ErrNotImplemented) || errors.Is(err, ErrInvalidBinaryArgs)
 }
+
+// isValueError reports an error about the value of a const-expression (it
+// overflows, leaves a function's domain, divides by zero, or a range or
+// conversion fails), as opposed to an operand the operation does not accept.
+func isValueError(err error) bool {
+	for _, class := range []error{ErrOverflow, ErrOutOfDomain, ErrDivisionByZero, ErrRemainderByZero,
+		ErrInvalidClamp, ErrBitRange, ErrShiftOverflow, ErrNotRepresentable} {
+		if errors.Is(err, class) {
+			return true
+		}
+	}
+	return false
+}
