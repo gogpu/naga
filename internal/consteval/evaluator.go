@@ -14,25 +14,23 @@ const (
 	BehaviorConst Behavior = iota + 1
 	// BehaviorRuntime: a function body. Expressions with constant operands
 	// are evaluated; the rest, and operations Rust naga does not evaluate,
-	// are left to the caller as run-time expressions.
+	// are appended as run-time expressions.
 	BehaviorRuntime
 	// BehaviorOverride: an override initializer. Constant operands are
-	// evaluated; override-expressions are left to the caller.
+	// evaluated; override-expressions are appended as they are.
 	BehaviorOverride
 )
 
 // Arena is the expression arena the evaluator reads operands from and
-// appends results to: a function's expressions or Module.GlobalExpressions.
+// appends to: a function's expressions or Module.GlobalExpressions.
 type Arena interface {
 	Expression(h ir.ExpressionHandle) ir.ExpressionKind
-	// Append adds an evaluated expression (Literal, Compose, Splat,
-	// ZeroValue) and returns its handle.
+	// Append adds an expression and returns its handle. In a function
+	// arena it keeps expressions that need no Emit (Literal, Constant,
+	// ZeroValue, ...) out of the pending Emit range, as Rust's append_expr.
 	Append(kind ir.ExpressionKind) ir.ExpressionHandle
 	// IsGlobal reports whether the arena is Module.GlobalExpressions.
 	IsGlobal() bool
-	// IsRuntime reports an expression that is not a const-expression even
-	// though its operands are constant, such as a let-bound value.
-	IsRuntime(h ir.ExpressionHandle) bool
 }
 
 // Types registers result types.
@@ -43,69 +41,100 @@ type Types interface {
 }
 
 // Evaluator evaluates expressions over an arena, as Rust naga's
-// ConstantEvaluator::try_eval_and_append does.
+// ConstantEvaluator::try_eval_and_append does, and tracks the evaluation
+// stage of every expression in the arena (Rust's ExpressionKindTracker).
+// One Evaluator serves one arena for its whole lifetime.
 type Evaluator struct {
 	Module   *ir.Module
 	Arena    Arena
 	Types    Types
 	Behavior Behavior
 
-	stages map[ir.ExpressionHandle]stage
+	// stages[h] is the stage of expression h plus one; 0 means not yet
+	// known (appended by the caller), computed from the expression's kind.
+	stages []stage
 }
 
 // stage is the evaluation stage of an expression, Rust's ExpressionKind.
-type stage int
+type stage uint8
 
 const (
-	stageConst stage = iota
+	stageConst stage = iota + 1
 	stageOverride
 	stageRuntime
 )
 
-// Eval tries to evaluate kind.
+// TryEvalAndAppend appends kind to the arena, evaluated if it can be, and
+// returns the handle of the result.
 //
-//   - Evaluated: the result is appended to the arena (or, for a constant in
-//     the module arena, is the constant's initializer) and ok is true.
-//   - Left to the caller (ok false, err nil): an operand is an override or
-//     run-time expression and the behavior allows that, or a function body
-//     keeps an operation Rust naga does not evaluate. The caller appends
-//     kind itself.
-//   - Otherwise err says why the expression is not a valid const-expression.
-func (e *Evaluator) Eval(kind ir.ExpressionKind) (h ir.ExpressionHandle, ok bool, err error) {
+//   - Every operand a const-expression: kind is evaluated and its value
+//     (Literal, Compose, Splat, ZeroValue, or for a constant in the module
+//     arena the constant's initializer) is the result.
+//   - An operand an override or run-time expression: kind is appended
+//     unchanged when the behavior allows that, else it is an error.
+//   - In a function body an operation Rust naga does not evaluate is
+//     appended unchanged as a run-time expression (Rust's IR shape), after
+//     it is checked: a value the specification makes a shader-creation
+//     error is reported, which Rust does not do.
+//
+// The error says why kind is not a valid expression here.
+func (e *Evaluator) TryEvalAndAppend(kind ir.ExpressionKind) (ir.ExpressionHandle, error) {
 	switch e.stageOfKind(kind) {
-	case stageRuntime:
-		if e.Behavior == BehaviorConst {
-			return 0, false, newError(ErrNotConst, "Unexpected runtime-expression")
-		}
-		return 0, false, nil
 	case stageOverride:
 		if e.Behavior == BehaviorConst {
-			return 0, false, newError(ErrOverrideInConst, "Unexpected override-expression")
+			return 0, newError(ErrOverrideInConst, "Unexpected override-expression")
 		}
-		return 0, false, nil
+		return e.append(kind, stageOverride), nil
+	case stageRuntime:
+		if e.Behavior != BehaviorRuntime {
+			return 0, newError(ErrNotConst, "Unexpected runtime-expression")
+		}
+		return e.append(kind, stageRuntime), nil
 	}
-	h, err = e.evaluate(kind)
+	h, err := e.evaluate(kind)
 	if err != nil {
-		if e.Behavior != BehaviorConst && FallsBack(err) {
-			return 0, false, nil
+		if e.Behavior == BehaviorRuntime && FallsBack(err) {
+			return e.append(kind, stageRuntime), nil
 		}
-		return 0, false, err
+		return 0, err
 	}
-	return h, true, nil
+	return h, nil
+}
+
+// ForceRuntime marks h as a run-time expression although its operands are
+// constant: WGSL says an expression referring to a let-bound value is not a
+// const-expression (Rust force_non_const).
+func (e *Evaluator) ForceRuntime(h ir.ExpressionHandle) {
+	e.setStage(h, stageRuntime)
+}
+
+// IsConst reports whether h is a const-expression.
+func (e *Evaluator) IsConst(h ir.ExpressionHandle) bool { return e.stageOf(h) == stageConst }
+
+// IsConstOrOverride reports whether h is a const- or override-expression.
+func (e *Evaluator) IsConstOrOverride(h ir.ExpressionHandle) bool {
+	return e.stageOf(h) != stageRuntime
+}
+
+func (e *Evaluator) append(kind ir.ExpressionKind, s stage) ir.ExpressionHandle {
+	h := e.Arena.Append(kind)
+	e.setStage(h, s)
+	return h
+}
+
+func (e *Evaluator) setStage(h ir.ExpressionHandle, s stage) {
+	if int(h) >= len(e.stages) {
+		e.stages = append(e.stages, make([]stage, int(h)+1-len(e.stages))...)
+	}
+	e.stages[h] = s
 }
 
 func (e *Evaluator) stageOf(h ir.ExpressionHandle) stage {
-	if e.Arena.IsRuntime(h) {
-		return stageRuntime
-	}
-	if s, ok := e.stages[h]; ok {
-		return s
+	if int(h) < len(e.stages) && e.stages[h] != 0 {
+		return e.stages[h]
 	}
 	s := e.stageOfKind(e.Arena.Expression(h))
-	if e.stages == nil {
-		e.stages = map[ir.ExpressionHandle]stage{}
-	}
-	e.stages[h] = s
+	e.setStage(h, s)
 	return s
 }
 
@@ -168,17 +197,26 @@ func mathArgs(m ir.ExprMath) []ir.ExpressionHandle {
 	return args
 }
 
+// evaluate evaluates kind, whose operands are all const-expressions, and
+// appends the value.
 func (e *Evaluator) evaluate(kind ir.ExpressionKind) (ir.ExpressionHandle, error) {
 	switch k := kind.(type) {
 	case ir.Literal:
 		if !isFiniteLiteral(k.Value) {
 			return 0, nonFiniteLiteral(k.Value)
 		}
-		return e.Arena.Append(k), nil
+		return e.append(k, stageConst), nil
 	case ir.ExprZeroValue:
-		return e.Arena.Append(k), nil
+		return e.append(k, stageConst), nil
 	case ir.ExprConstant:
-		return e.constant(k.Constant)
+		if int(k.Constant) >= len(e.Module.Constants) {
+			return 0, newError(ErrInvalidOperand, "Unknown constant")
+		}
+		if e.Arena.IsGlobal() {
+			// "See through" the constant (Rust try_eval_and_append_impl).
+			return e.Module.Constants[k.Constant].Init, nil
+		}
+		return e.append(k, stageConst), nil
 	case ir.ExprCompose:
 		return e.compose(k)
 	case ir.ExprSplat:
@@ -186,7 +224,7 @@ func (e *Evaluator) evaluate(kind ir.ExpressionKind) (ir.ExpressionHandle, error
 		if err != nil {
 			return 0, err
 		}
-		return e.Arena.Append(ir.ExprSplat{Size: k.Size, Value: v}), nil
+		return e.append(ir.ExprSplat{Size: k.Size, Value: v}, stageConst), nil
 	case ir.ExprSwizzle:
 		return e.swizzle(k)
 	case ir.ExprAccessIndex:
@@ -197,82 +235,146 @@ func (e *Evaluator) evaluate(kind ir.ExpressionKind) (ir.ExpressionHandle, error
 			return 0, err
 		}
 		return e.access(k.Base, idx)
+	}
+	r, err := e.numeric(kind)
+	if err != nil {
+		return 0, err
+	}
+	if e.Behavior == BehaviorRuntime && e.rustKeeps(kind) {
+		// Checked, but kept in Rust's IR shape.
+		return 0, newError(ErrNotImplemented, "kept as a run-time expression, as Rust naga does")
+	}
+	return e.appendResult(r), nil
+}
+
+// result is the value of a numeric operation: a scalar or vector, or the
+// columns of a matrix.
+type result struct {
+	v      Value
+	cols   []Value
+	matrix ir.MatrixType
+	isMat  bool
+}
+
+// numeric computes a numeric operation without appending anything.
+func (e *Evaluator) numeric(kind ir.ExpressionKind) (result, error) {
+	switch k := kind.(type) {
 	case ir.ExprUnary:
-		return e.applyValue(func(v []Value) (Value, error) { return Unary(k.Op, v[0]) }, k.Expr)
+		if cols, mt, ok := e.matrix(k.Expr); ok {
+			return e.mapColumns(mt, cols, mt.Scalar, func(_ int, c Value) (Value, error) { return Unary(k.Op, c) })
+		}
+		return e.scalarOp(func(v []Value) (Value, error) { return Unary(k.Op, v[0]) }, k.Expr)
 	case ir.ExprBinary:
 		return e.binary(k)
 	case ir.ExprMath:
-		return e.math(k)
+		if kernelNotImplemented(k.Fun) {
+			return result{}, newError(ErrNotImplemented, rustMathName(k.Fun)+" built-in function")
+		}
+		return e.scalarOp(func(v []Value) (Value, error) { return Math(k.Fun, v...) }, mathArgs(k)...)
 	case ir.ExprAs:
 		return e.as(k)
 	case ir.ExprRelational:
-		if e.Behavior == BehaviorRuntime && !RustEvaluatesRelational(k.Fun) {
-			return 0, newError(ErrNotImplemented, "relational function")
-		}
-		return e.applyValue(func(v []Value) (Value, error) { return Relational(k.Fun, v[0]) }, k.Argument)
+		return e.scalarOp(func(v []Value) (Value, error) { return Relational(k.Fun, v[0]) }, k.Argument)
 	case ir.ExprSelect:
-		return e.applyValue(func(v []Value) (Value, error) { return Select(v[0], v[1], v[2]) }, k.Reject, k.Accept, k.Condition)
+		return e.scalarOp(func(v []Value) (Value, error) { return Select(v[0], v[1], v[2]) }, k.Reject, k.Accept, k.Condition)
 	}
-	return 0, newError(ErrNotConst, "Unexpected runtime-expression")
+	return result{}, newError(ErrNotConst, "Unexpected runtime-expression")
 }
 
-func (e *Evaluator) math(m ir.ExprMath) (ir.ExpressionHandle, error) {
-	if e.Behavior == BehaviorRuntime && !RustEvaluates(m.Fun) {
-		return 0, newError(ErrNotImplemented, rustMathName(m.Fun)+" built-in function")
+// rustKeeps reports an operation that Rust naga leaves unevaluated in a
+// function body although its operands are constant: the @const built-ins
+// it does not implement, the relational functions other than all/any, and
+// arithmetic on concrete 64-bit operands (its binary_op has none).
+func (e *Evaluator) rustKeeps(kind ir.ExpressionKind) bool {
+	switch k := kind.(type) {
+	case ir.ExprMath:
+		return !RustEvaluates(k.Fun)
+	case ir.ExprRelational:
+		return !RustEvaluatesRelational(k.Fun)
+	case ir.ExprBinary:
+		return !isComparison(k.Op) && isConcrete64(e.operandScalar(k.Left))
 	}
-	return e.applyValue(func(v []Value) (Value, error) { return Math(m.Fun, v...) }, mathArgs(m)...)
+	return false
 }
 
-func (e *Evaluator) as(k ir.ExprAs) (ir.ExpressionHandle, error) {
+func isConcrete64(s ir.ScalarType) bool {
+	return s.Width == 8 && (s.Kind == ir.ScalarSint || s.Kind == ir.ScalarUint || s.Kind == ir.ScalarFloat)
+}
+
+// operandScalar is the scalar type of a constant scalar, vector or matrix
+// operand; the zero ScalarType for anything else.
+func (e *Evaluator) operandScalar(h ir.ExpressionHandle) ir.ScalarType {
+	if _, mt, ok := e.matrix(h); ok {
+		return mt.Scalar
+	}
+	if v, err := e.value(h); err == nil {
+		return v.Scalar()
+	}
+	return ir.ScalarType{}
+}
+
+func (e *Evaluator) as(k ir.ExprAs) (result, error) {
 	if k.Convert == nil {
-		return 0, newError(ErrNotImplemented, "bitcast built-in function")
+		return result{}, newError(ErrNotImplemented, "bitcast built-in function")
 	}
 	to := ir.ScalarType{Kind: k.Kind, Width: *k.Convert}
 	if cols, mt, ok := e.matrix(k.Expr); ok {
-		out := make([]Value, len(cols))
-		for i, c := range cols {
-			r, err := Cast(c, to)
-			if err != nil {
-				return 0, err
-			}
-			out[i] = r
-		}
-		mt.Scalar = to
-		return e.appendMatrix(mt, out), nil
+		return e.mapColumns(mt, cols, to, func(_ int, c Value) (Value, error) { return Cast(c, to) })
 	}
-	return e.applyValue(func(v []Value) (Value, error) { return Cast(v[0], to) }, k.Expr)
+	return e.scalarOp(func(v []Value) (Value, error) { return Cast(v[0], to) }, k.Expr)
 }
 
-// applyValue reads the operands as scalar or vector values, applies f and
-// appends the result.
-func (e *Evaluator) applyValue(f func([]Value) (Value, error), ops ...ir.ExpressionHandle) (ir.ExpressionHandle, error) {
+// scalarOp reads the operands as scalar or vector values and applies f.
+func (e *Evaluator) scalarOp(f func([]Value) (Value, error), ops ...ir.ExpressionHandle) (result, error) {
 	vals := make([]Value, len(ops))
 	for i, op := range ops {
 		v, err := e.value(op)
 		if err != nil {
-			return 0, err
+			return result{}, err
 		}
 		vals[i] = v
 	}
 	r, err := f(vals)
 	if err != nil {
-		return 0, err
+		return result{}, err
 	}
-	return e.appendValue(r), nil
+	return result{v: r}, nil
+}
+
+// mapColumns applies f to each column of a matrix; the result is a matrix
+// of the same shape with scalar type to.
+func (e *Evaluator) mapColumns(mt ir.MatrixType, cols []Value, to ir.ScalarType, f func(i int, c Value) (Value, error)) (result, error) {
+	out := make([]Value, len(cols))
+	for i, c := range cols {
+		r, err := f(i, c)
+		if err != nil {
+			return result{}, err
+		}
+		out[i] = r
+	}
+	mt.Scalar = to
+	return result{cols: out, matrix: mt, isMat: true}, nil
+}
+
+func (e *Evaluator) appendResult(r result) ir.ExpressionHandle {
+	if r.isMat {
+		return e.appendMatrix(r.matrix, r.cols)
+	}
+	return e.appendValue(r.v)
 }
 
 // appendValue appends a scalar as a Literal and a vector as a Compose of new
 // Literals, as Rust's register_as_evaluated_expr does.
 func (e *Evaluator) appendValue(v Value) ir.ExpressionHandle {
 	if v.IsScalar() {
-		return e.Arena.Append(ir.Literal{Value: v.comps[0]})
+		return e.append(ir.Literal{Value: v.comps[0]}, stageConst)
 	}
 	comps := make([]ir.ExpressionHandle, v.Len())
 	for i, c := range v.comps {
-		comps[i] = e.Arena.Append(ir.Literal{Value: c})
+		comps[i] = e.append(ir.Literal{Value: c}, stageConst)
 	}
 	ty := e.Types.Type(ir.VectorType{Size: v.Size(), Scalar: v.Scalar()})
-	return e.Arena.Append(ir.ExprCompose{Type: ty, Components: comps})
+	return e.append(ir.ExprCompose{Type: ty, Components: comps}, stageConst)
 }
 
 func isFiniteLiteral(v ir.LiteralValue) bool {
@@ -289,4 +391,8 @@ func nonFiniteLiteral(v ir.LiteralValue) *Error {
 		return newError(ErrOverflow, "Float literal is NaN")
 	}
 	return newError(ErrOverflow, "Float literal is infinite")
+}
+
+func (e *Evaluator) appendConst(kind ir.ExpressionKind) ir.ExpressionHandle {
+	return e.append(kind, stageConst)
 }

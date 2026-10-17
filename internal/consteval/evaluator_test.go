@@ -23,7 +23,6 @@ func (a *testArena) Append(k ir.ExpressionKind) ir.ExpressionHandle {
 	return ir.ExpressionHandle(len(*a.exprs) - 1)
 }
 func (a *testArena) IsGlobal() bool                     { return a.global }
-func (a *testArena) IsRuntime(ir.ExpressionHandle) bool { return false }
 func (a *testArena) Type(inner ir.TypeInner) ir.TypeHandle {
 	for i, t := range a.mod.Types {
 		if reflect.DeepEqual(t.Inner, inner) {
@@ -43,9 +42,9 @@ func newEval(behavior Behavior) (*Evaluator, *testArena, *[]ir.Expression) {
 
 func mustEval(t *testing.T, e *Evaluator, k ir.ExpressionKind) ir.ExpressionHandle {
 	t.Helper()
-	h, ok, err := e.Eval(k)
-	if err != nil || !ok {
-		t.Fatalf("Eval(%T): ok=%v err=%v", k, ok, err)
+	h, err := e.TryEvalAndAppend(k)
+	if err != nil || !e.IsConst(h) {
+		t.Fatalf("TryEvalAndAppend(%T): err=%v, want an evaluated expression", k, err)
 	}
 	return h
 }
@@ -118,7 +117,7 @@ func TestEvalSwizzleAndAccess(t *testing.T) {
 	if c := (*exprs)[v].Kind.(ir.ExprCompose); ai != c.Components[1] {
 		t.Errorf("v[1] = handle %d, want the component handle %d", ai, c.Components[1])
 	}
-	if _, _, err := e.Eval(ir.ExprAccessIndex{Base: v, Index: 3}); err == nil {
+	if _, err := e.TryEvalAndAppend(ir.ExprAccessIndex{Base: v, Index: 3}); err == nil {
 		t.Error("v[3] of a vec3 evaluated")
 	}
 }
@@ -127,11 +126,11 @@ func TestEvalErrorsAndFallback(t *testing.T) {
 	// Const: a domain error and a not-implemented function are errors.
 	e, _, _ := newEval(BehaviorConst)
 	neg := lit(t, e, afloat(-1))
-	if _, _, err := e.Eval(ir.ExprMath{Fun: ir.MathSqrt, Arg: neg}); !errors.Is(err, ErrOutOfDomain) {
+	if _, err := e.TryEvalAndAppend(ir.ExprMath{Fun: ir.MathSqrt, Arg: neg}); !errors.Is(err, ErrOutOfDomain) {
 		t.Errorf("const sqrt(-1): %v", err)
 	}
 	m := lit(t, e, ir.LiteralF32(1))
-	if _, _, err := e.Eval(ir.ExprMath{Fun: ir.MathTranspose, Arg: m}); !errors.Is(err, ErrNotImplemented) {
+	if _, err := e.TryEvalAndAppend(ir.ExprMath{Fun: ir.MathTranspose, Arg: m}); !errors.Is(err, ErrNotImplemented) {
 		t.Errorf("const transpose: %v", err)
 	}
 
@@ -139,23 +138,25 @@ func TestEvalErrorsAndFallback(t *testing.T) {
 	// binary arguments leave the expression to the caller.
 	r, _, _ := newEval(BehaviorRuntime)
 	neg = lit(t, r, afloat(-1))
-	if _, _, err := r.Eval(ir.ExprMath{Fun: ir.MathSqrt, Arg: neg}); !errors.Is(err, ErrOutOfDomain) {
+	if _, err := r.TryEvalAndAppend(ir.ExprMath{Fun: ir.MathSqrt, Arg: neg}); !errors.Is(err, ErrOutOfDomain) {
 		t.Errorf("runtime sqrt(-1): %v", err)
 	}
 	m = lit(t, r, ir.LiteralF32(1))
-	if _, ok, err := r.Eval(ir.ExprMath{Fun: ir.MathTranspose, Arg: m}); ok || err != nil {
-		t.Errorf("runtime transpose: ok=%v err=%v, want left to the caller", ok, err)
+	if h, err := r.TryEvalAndAppend(ir.ExprMath{Fun: ir.MathTranspose, Arg: m}); err != nil || r.IsConst(h) {
+		t.Errorf("runtime transpose: err=%v, want a run-time expression", err)
 	}
-	// A function body keeps the functions Rust does not evaluate.
+	// A function body keeps the functions Rust does not evaluate, after
+	// checking them: smoothstep with low == high is a shader-creation error
+	// (Rust keeps it as a run-time expression).
 	x := lit(t, r, afloat(0.5))
-	if _, ok, err := r.Eval(ir.ExprMath{Fun: ir.MathSmoothStep, Arg: x, Arg1: &x, Arg2: &x}); ok || err != nil {
-		t.Errorf("runtime smoothstep: ok=%v err=%v, want left to the caller", ok, err)
+	if _, err := r.TryEvalAndAppend(ir.ExprMath{Fun: ir.MathSmoothStep, Arg: x, Arg1: &x, Arg2: &x}); !errors.Is(err, ErrOutOfDomain) {
+		t.Errorf("runtime smoothstep(0.5, 0.5, 0.5): err=%v, want out of domain", err)
 	}
 	// ... which a const-expression evaluates.
 	c, _, _ := newEval(BehaviorConst)
 	lo, hi, mid := lit(t, c, afloat(0)), lit(t, c, afloat(1)), lit(t, c, afloat(0.5))
-	if _, ok, err := c.Eval(ir.ExprMath{Fun: ir.MathSmoothStep, Arg: lo, Arg1: &hi, Arg2: &mid}); !ok || err != nil {
-		t.Errorf("const smoothstep: ok=%v err=%v", ok, err)
+	if h, err := c.TryEvalAndAppend(ir.ExprMath{Fun: ir.MathSmoothStep, Arg: lo, Arg1: &hi, Arg2: &mid}); err != nil || !c.IsConst(h) {
+		t.Errorf("const smoothstep: err=%v", err)
 	}
 }
 
@@ -164,31 +165,31 @@ func TestEvalNonConstOperands(t *testing.T) {
 	*exprs = append(*exprs, ir.Expression{Kind: ir.ExprFunctionArgument{Index: 0}})
 	arg := ir.ExpressionHandle(0)
 	one := lit(t, e, afloat(1))
-	if _, ok, err := e.Eval(ir.ExprBinary{Op: ir.BinaryAdd, Left: arg, Right: one}); ok || err != nil {
-		t.Errorf("runtime arg + 1: ok=%v err=%v, want left to the caller", ok, err)
+	if h, err := e.TryEvalAndAppend(ir.ExprBinary{Op: ir.BinaryAdd, Left: arg, Right: one}); err != nil || e.IsConst(h) {
+		t.Errorf("runtime arg + 1: err=%v, want a run-time expression", err)
 	}
 	c, _, cexprs := newEval(BehaviorConst)
 	*cexprs = append(*cexprs, ir.Expression{Kind: ir.ExprFunctionArgument{Index: 0}})
 	one = lit(t, c, afloat(1))
-	if _, _, err := c.Eval(ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: one}); !errors.Is(err, ErrNotConst) {
+	if _, err := c.TryEvalAndAppend(ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: one}); !errors.Is(err, ErrNotConst) {
 		t.Errorf("const arg + 1: %v", err)
 	}
 	*cexprs = append(*cexprs, ir.Expression{Kind: ir.ExprOverride{Override: 0}})
 	ov := ir.ExpressionHandle(len(*cexprs) - 1)
-	if _, _, err := c.Eval(ir.ExprBinary{Op: ir.BinaryAdd, Left: ov, Right: one}); !errors.Is(err, ErrOverrideInConst) {
+	if _, err := c.TryEvalAndAppend(ir.ExprBinary{Op: ir.BinaryAdd, Left: ov, Right: one}); !errors.Is(err, ErrOverrideInConst) {
 		t.Errorf("const override + 1: %v", err)
 	}
 	o, _, oexprs := newEval(BehaviorOverride)
 	*oexprs = append(*oexprs, ir.Expression{Kind: ir.ExprOverride{Override: 0}})
 	one = lit(t, o, afloat(1))
-	if _, ok, err := o.Eval(ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: one}); ok || err != nil {
-		t.Errorf("override + 1 in an override initializer: ok=%v err=%v", ok, err)
+	if h, err := o.TryEvalAndAppend(ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: one}); err != nil || o.IsConst(h) {
+		t.Errorf("override + 1 in an override initializer: err=%v", err)
 	}
 }
 
 func TestEvalLiteralMustBeFinite(t *testing.T) {
 	e, _, _ := newEval(BehaviorConst)
-	if _, _, err := e.Eval(ir.Literal{Value: ir.LiteralF32(float32(posInf()))}); !errors.Is(err, ErrOverflow) {
+	if _, err := e.TryEvalAndAppend(ir.Literal{Value: ir.LiteralF32(float32(posInf()))}); !errors.Is(err, ErrOverflow) {
 		t.Errorf("infinite literal: %v", err)
 	}
 }
@@ -266,7 +267,7 @@ func TestEvalMatrixProducts(t *testing.T) {
 	if cols, _, _ := e.matrix(scaled); !reflect.DeepEqual(cols[0].Components(), f32v(2, 4).Components()) {
 		t.Errorf("(2 * m)[0] = %v", cols[0].Components())
 	}
-	if _, _, err := e.Eval(ir.ExprBinary{Op: ir.BinaryDivide, Left: m, Right: two}); !errors.Is(err, ErrInvalidBinaryArgs) {
+	if _, err := e.TryEvalAndAppend(ir.ExprBinary{Op: ir.BinaryDivide, Left: m, Right: two}); !errors.Is(err, ErrInvalidBinaryArgs) {
 		t.Errorf("m / 2: %v", err)
 	}
 	w := uint8(4)
@@ -288,7 +289,7 @@ func TestEvalZeroValueAccess(t *testing.T) {
 	if zv, ok := (*exprs)[m].Kind.(ir.ExprZeroValue); !ok || zv.Type != vec3u {
 		t.Errorf("zero struct .1 = %v, want ZeroValue(vec3<u32>)", (*exprs)[m].Kind)
 	}
-	if _, _, err := e.Eval(ir.ExprAccessIndex{Base: z, Index: 2}); err == nil {
+	if _, err := e.TryEvalAndAppend(ir.ExprAccessIndex{Base: z, Index: 2}); err == nil {
 		t.Error("zero struct .2 evaluated")
 	}
 }
