@@ -7,7 +7,7 @@ import (
 )
 
 var allClasses = []error{
-	ErrNotImplemented, ErrInvalidArgs, ErrNotConst, ErrOverrideInConst, ErrOverflow,
+	ErrNotImplemented, ErrInvalidBinaryArgs, ErrInvalidOperand, ErrNotConst, ErrOverrideInConst, ErrOverflow,
 	ErrOutOfDomain, ErrDivisionByZero, ErrRemainderByZero, ErrInvalidClamp, ErrBitRange,
 	ErrShiftOverflow, ErrNotRepresentable,
 }
@@ -17,7 +17,7 @@ var allClasses = []error{
 // evaluation error is a shader-creation error in every context.
 func TestFallsBack(t *testing.T) {
 	for _, class := range allClasses {
-		want := errors.Is(class, ErrNotImplemented) || errors.Is(class, ErrInvalidArgs)
+		want := errors.Is(class, ErrNotImplemented) || errors.Is(class, ErrInvalidBinaryArgs)
 		err := error(newError(class, "msg"))
 		if got := FallsBack(err); got != want {
 			t.Errorf("FallsBack(%v) = %v, want %v", class, got, want)

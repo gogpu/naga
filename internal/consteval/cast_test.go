@@ -165,8 +165,8 @@ func TestCastRejectsAbstractTargetsFromConcrete(t *testing.T) {
 		{ir.LiteralI32(1), tAInt},
 		{afloat(1), tAInt},
 	} {
-		if _, err := Cast(Scalar(tt.in), tt.to); !errors.Is(err, ErrInvalidArgs) {
-			t.Errorf("Cast(%T -> %+v): %v, want InvalidArgs", tt.in, tt.to, err)
+		if _, err := Cast(Scalar(tt.in), tt.to); !errors.Is(err, ErrInvalidOperand) {
+			t.Errorf("Cast(%T -> %+v): %v, want InvalidOperand", tt.in, tt.to, err)
 		}
 	}
 }

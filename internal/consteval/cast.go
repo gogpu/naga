@@ -24,7 +24,7 @@ import (
 // conversion whose float result would be infinite is the same error for every
 // source type (the specification forbids a non-finite const-expression; Rust
 // naga v30 instead yields an f16 infinity from integer and f32 sources).
-// Concrete values never convert to abstract types (InvalidArgs).
+// Concrete values never convert to abstract types (ErrInvalidOperand).
 func Cast(v Value, to ir.ScalarType) (Value, error) {
 	out := make([]ir.LiteralValue, v.Len())
 	for i, c := range v.comps {
@@ -54,7 +54,7 @@ func castScalar(lit ir.LiteralValue, to ir.ScalarType) (ir.LiteralValue, error) 
 			return ir.LiteralAbstractFloat(float64(v)), nil
 		}
 	}
-	return nil, newError(ErrInvalidArgs, "cannot convert "+typeName(from)+" to "+typeName(to))
+	return nil, newError(ErrInvalidOperand, "cannot convert "+typeName(from)+" to "+typeName(to))
 }
 
 func isZero(lit ir.LiteralValue) bool {
@@ -87,7 +87,7 @@ func castToInt(lit ir.LiteralValue, from, to ir.ScalarType) (ir.LiteralValue, er
 	if from.Kind == ir.ScalarFloat || from.Kind == ir.ScalarAbstractFloat {
 		return makeIntFromFloat(floatOf(lit), from, to), nil
 	}
-	return nil, newError(ErrInvalidArgs, "cannot convert "+typeName(from)+" to "+typeName(to))
+	return nil, newError(ErrInvalidOperand, "cannot convert "+typeName(from)+" to "+typeName(to))
 }
 
 // makeIntFromFloat implements the specification's float to integer
