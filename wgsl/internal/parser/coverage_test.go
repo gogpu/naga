@@ -352,7 +352,7 @@ func TestDependencyOrderSimple(t *testing.T) {
 		&ConstDecl{Name: "B", Init: &Ident{Name: "A"}},
 		&ConstDecl{Name: "A", Init: &Literal{Kind: TokenIntLiteral, Value: "1"}},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	if len(ordered) != 2 {
 		t.Fatalf("expected 2 decls, got %d", len(ordered))
 	}
@@ -366,20 +366,48 @@ func TestDependencyOrderSimple(t *testing.T) {
 	}
 }
 
-func TestDependencyOrderCycle(t *testing.T) {
-	// Cycles should not cause infinite loops
-	decls := []Decl{
-		&ConstDecl{Name: "A", Init: &Ident{Name: "B"}},
-		&ConstDecl{Name: "B", Init: &Ident{Name: "A"}},
+func mustOrder(t *testing.T, decls []Decl) []Decl {
+	t.Helper()
+	ordered, err := DependencyOrder(decls)
+	if err != nil {
+		t.Fatalf("DependencyOrder: %v", err)
 	}
-	ordered := DependencyOrder(decls)
-	if len(ordered) != 2 {
-		t.Fatalf("expected 2 decls, got %d", len(ordered))
+	return ordered
+}
+
+// WGSL forbids recursion and cyclic declarations; Rust naga's index reports
+// them as RecursiveDeclaration / CyclicDeclaration with these messages.
+func TestDependencyOrderCycle(t *testing.T) {
+	tests := []struct {
+		name  string
+		decls []Decl
+		want  string
+	}{
+		{"cycle", []Decl{
+			&ConstDecl{Name: "A", Init: &Ident{Name: "B"}},
+			&ConstDecl{Name: "B", Init: &Ident{Name: "A"}},
+		}, "declaration of `A` is cyclic"},
+		{"recursive function", []Decl{
+			&FunctionDecl{Name: "f", Body: &BlockStmt{Statements: []Stmt{
+				&ExprStmt{Expr: &CallExpr{Func: &Ident{Name: "f"}}},
+			}}},
+		}, "declaration of `f` is recursive"},
+		{"recursive const", []Decl{
+			&ConstDecl{Name: "A", Init: &BinaryExpr{Op: TokenPlus, Left: &Ident{Name: "A"}, Right: &Literal{Value: "1"}}},
+		}, "declaration of `A` is recursive"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := DependencyOrder(tt.decls)
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 
 func TestDependencyOrderEmpty(t *testing.T) {
-	ordered := DependencyOrder(nil)
+	ordered := mustOrder(t, nil)
 	if len(ordered) != 0 {
 		t.Errorf("expected 0 decls, got %d", len(ordered))
 	}
@@ -392,7 +420,7 @@ func TestDependencyOrderNoDeps(t *testing.T) {
 		&ConstDecl{Name: "Y", Init: &Literal{Kind: TokenIntLiteral, Value: "2"}},
 		&ConstDecl{Name: "Z", Init: &Literal{Kind: TokenIntLiteral, Value: "3"}},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	if len(ordered) != 3 {
 		t.Fatalf("expected 3, got %d", len(ordered))
 	}
@@ -420,7 +448,7 @@ func TestDependencyOrderStructDeps(t *testing.T) {
 			Members: []*StructMember{{Name: "x", Type: &NamedType{Name: "f32"}}},
 		},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	// A should come first
 	first := ordered[0].(*StructDecl)
 	if first.Name != "A" {
@@ -447,7 +475,7 @@ func TestDependencyOrderFunctionDeps(t *testing.T) {
 			},
 		},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	first := ordered[0].(*FunctionDecl)
 	if first.Name != "foo" {
 		t.Errorf("expected foo first, got %s", first.Name)
@@ -459,7 +487,7 @@ func TestDependencyOrderAlias(t *testing.T) {
 		&AliasDecl{Name: "MyVec", Type: &NamedType{Name: "MyStruct"}},
 		&StructDecl{Name: "MyStruct", Members: []*StructMember{{Name: "x", Type: &NamedType{Name: "f32"}}}},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	first := ordered[0].(*StructDecl)
 	if first.Name != "MyStruct" {
 		t.Errorf("expected MyStruct first, got %s", first.Name)
@@ -471,7 +499,7 @@ func TestDependencyOrderOverrideDeps(t *testing.T) {
 		&OverrideDecl{Name: "B", Init: &Ident{Name: "A"}},
 		&OverrideDecl{Name: "A", Init: &Literal{Kind: TokenIntLiteral, Value: "1"}},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	first := ordered[0].(*OverrideDecl)
 	if first.Name != "A" {
 		t.Errorf("expected A first, got %s", first.Name)
@@ -483,7 +511,7 @@ func TestDependencyOrderVarDeps(t *testing.T) {
 		&VarDecl{Name: "v", Type: &NamedType{Name: "MyStruct"}},
 		&StructDecl{Name: "MyStruct", Members: []*StructMember{{Name: "x", Type: &NamedType{Name: "f32"}}}},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	first := ordered[0].(*StructDecl)
 	if first.Name != "MyStruct" {
 		t.Errorf("expected MyStruct first, got %s", first.Name)
@@ -530,7 +558,7 @@ func TestDependencyOrderStmtDeps(t *testing.T) {
 		},
 		&ConstDecl{Name: "START", Init: &Literal{Kind: TokenIntLiteral, Value: "0"}},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	if len(ordered) != 2 {
 		t.Fatalf("expected 2, got %d", len(ordered))
 	}
@@ -568,7 +596,7 @@ func TestDependencyOrderExprBranches(t *testing.T) {
 			},
 		},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	if len(ordered) != 1 {
 		t.Fatalf("expected 1, got %d", len(ordered))
 	}
@@ -596,7 +624,7 @@ func TestDependencyOrderArrayAndPtrTypeDeps(t *testing.T) {
 		},
 		&StructDecl{Name: "MyStruct", Members: []*StructMember{{Name: "x", Type: &NamedType{Name: "f32"}}}},
 	}
-	ordered := DependencyOrder(decls)
+	ordered := mustOrder(t, decls)
 	// MyStruct should come before a and p
 	first := ordered[0].(*StructDecl)
 	if first.Name != "MyStruct" {
