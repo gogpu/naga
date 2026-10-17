@@ -35,7 +35,7 @@
 | Category | Capabilities |
 |----------|--------------|
 | **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors |
-| **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 94.7% IDxcValidator (experimental) |
+| **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 172/237 IDxcValidator on the Rust naga corpus (experimental) |
 | **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
 | **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |
 | **Compatibility** | Tested against Rust naga's WGSL snapshot corpus (172 shaders, gfx-rs/wgpu 14328f49): every output is compared, and each known difference is recorded with its reason — see [Rust Naga Compatibility](#rust-naga-compatibility) |
@@ -62,7 +62,7 @@
 - **MSL Backend** — Metal Shading Language output for macOS/iOS, vertex pulling transform, external textures, override pipeline constants, function-scope workgroup declarations (no host `setThreadgroupMemoryLength` needed)
 - **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+, dead code elimination, ProcessOverrides, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12
-- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**161/170 IDxcValidator validation, 94.7%**; **105/208 DXC golden parity, diff=0**; **gg production: 61/61 entry points VALID (100%)**; visual: renders circles + text on D3D12). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (mark-and-sweep), SROA (struct decomposition), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~50K LOC, 330+ unit tests. World's first Pure Go DXIL generator.
+- **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**172 of 237 entry points of the Rust naga test corpus pass IDxcValidator**; **103 of 182 DXC roundtrip comparisons match exactly**; gg production shaders: 45 of 50 entry points valid; visual: renders circles + text on D3D12). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (mark-and-sweep), SROA (struct decomposition), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~50K LOC, 330+ unit tests. World's first Pure Go DXIL generator.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
 - **Warnings** — Unused variable detection with `_` prefix exception
@@ -248,7 +248,7 @@ naga/                              ~323K LOC total
 │   ├── storage.go     # Buffer/atomic operations
 │   ├── functions.go   # Entry points with semantics
 │   └── keywords.go    # HLSL reserved words
-├── dxil/              # DXIL backend (~50K LOC, 161/170 IDxcValidator)
+├── dxil/              # DXIL backend (~50K LOC, 172/237 IDxcValidator)
 │   ├── dxil.go        # Public API: Compile(), DefaultOptions()
 │   └── internal/      # All implementation internal
 │       ├── bitcode/   # LLVM 3.7 bit-level writer
@@ -337,7 +337,7 @@ naga/                              ~323K LOC total
 | MSL | ✅ Stable | Metal (macOS/iOS) |
 | GLSL | ✅ Stable, version-aware binding | OpenGL 3.3+, ES 3.0+ |
 | HLSL | ✅ Stable | DirectX 11/12 |
-| DXIL | **161/170 IDxcValidator (94.7%)**, 105 DXC golden | DirectX 12 (SM 6.0-6.5, experimental) |
+| DXIL | **172/237 IDxcValidator** (Rust naga corpus), 103/182 DXC golden | DirectX 12 (SM 6.0-6.5, experimental) |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
 

@@ -96,7 +96,7 @@ naga/                              ~323K LOC total
 │   ├── hlsl.go                    # Public API: Compile, Options (real types)
 │   └── internal/codegen/          # ALL implementation (DXIL pattern)
 │
-├── dxil/                          # DXIL backend (~50K LOC, 161/170 IDxcValidator, experimental)
+├── dxil/                          # DXIL backend (~50K LOC, 172/237 IDxcValidator, experimental)
 │   ├── dxil.go                    # Public API: Compile, DefaultOptions, Options, ShaderModel
 │   ├── sig_usage.go               # Input signature Used mask analysis
 │   ├── validate.go                # IDxcValidator integration
@@ -182,7 +182,7 @@ Five backends share the same IR but produce different outputs:
 | **MSL** | Text (C++ dialect) | Metal | Bounds check policies |
 | **GLSL** | Text | OpenGL 3.3+, ES 3.0+ | Version targeting, UBO blocks |
 | **HLSL** | Text | DirectX 11/12 | Shader model selection, semantics |
-| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0-6.5) | 161/170 IDxcValidator (94.7%), 72/208 DXC golden parity. DCE, SROA, mem2reg optimization passes. Experimental. |
+| **DXIL** | Binary (LLVM 3.7 bitcode) | DirectX 12 (SM 6.0-6.5) | 172/237 IDxcValidator (Rust naga corpus), 103/182 DXC golden parity. DCE, SROA, mem2reg optimization passes. Experimental. |
 
 ## Intermediate Representation
 

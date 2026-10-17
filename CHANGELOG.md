@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-18
+
 ### Added
 
 - **`naga.CompileOptions.BoundsCheckPolicies`** — passes SPIR-V bounds-check
@@ -142,6 +144,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recursion. A function calling itself compiled, and a cycle of constants was
   tolerated; they now report Rust's "declaration of `f` is recursive" /
   "declaration of `A` is cyclic".
+- **DXIL figures re-measured on the synced Rust corpus** — README, AGENTS.md,
+  ROADMAP.md and docs/ARCHITECTURE.md now state 172 of 237 corpus entry points
+  passing IDxcValidator and 103 of 182 DXC roundtrip comparisons matching
+  exactly; gg production shaders: 45 of 50 entry points valid (the earlier
+  "161/170" and "61/61" figures predate the corpus sync and current gg).
 
 ### Removed
 
@@ -2344,7 +2351,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.19.1...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/gogpu/naga/compare/v0.19.1...v0.20.0
 [0.19.1]: https://github.com/gogpu/naga/compare/v0.19.0...v0.19.1
 [0.15.0]: https://github.com/gogpu/naga/compare/v0.14.8...v0.15.0
 [0.14.8]: https://github.com/gogpu/naga/compare/v0.14.7...v0.14.8
