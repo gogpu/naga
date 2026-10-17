@@ -134,6 +134,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fewer instructions and pointer types (snapshot goldens: 661 fewer
   `OpAccessChain`, 32 fewer `OpTypePointer`). It also lets a bounds check put
   the whole access inside its in-bounds branch.
+- **GLSL: an `f16` literal is an error** — GLSL has no 16-bit float type, and
+  the writer silently wrote such a literal as `0`. It now returns Rust naga's
+  error "GLSL has no 16-bit float type". None of the corpus shaders that use
+  `f16` targets GLSL in Rust.
+- **WGSL: recursive and cyclic declarations are errors** — WGSL forbids
+  recursion. A function calling itself compiled, and a cycle of constants was
+  tolerated; they now report Rust's "declaration of `f` is recursive" /
+  "declaration of `A` is cyclic".
 
 ### Removed
 
@@ -143,6 +151,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WGSL: module-scope constants rejected every built-in call**
+  ([#93](https://github.com/gogpu/naga/issues/93)) —
+  `const A: bool = any(vec2<bool>(true, false));` failed with
+  `unsupported call expression 'any'`, and `const E: f32 = 1.0 / sqrt(2.0);`
+  with a misleading literal error. Every expression is now lowered through one
+  constant evaluator (`internal/consteval`, Rust naga's `try_eval_and_append`):
+  module `const`, `override` and `var<private>` initializers in a module const
+  context, function bodies in runtime behavior. The `@const` built-ins Rust
+  evaluates are evaluated, and so are the ones Rust leaves unevaluated but the
+  specification marks `@const` (`mix`, `smoothstep`, `ldexp`, pack/unpack, …).
+  A value the specification makes a shader-creation error is reported (integer
+  overflow, division by zero, a function outside its domain), also where Rust
+  lets it through.
+- **WGSL: automatic conversions mutated values in place** — a nested
+  constructor `vec4(vec3(vec2(6, 7), 8), 9)` stored to a `vec4<f32>` kept
+  integer inner vectors (MSL `float4(int3(int2(6, 7), 8), 9.0)`), and an
+  abstract-float constant was stored as `f32` at declaration
+  (`const A = 1.79e308; const X: f32 = A / 1.0e300;` gave `INFINITY` instead
+  of `1.79e8`). Conversions
+  now follow Rust naga's `conversion.rs`: a conversion is an `As` evaluated by
+  the evaluator, abstract floats keep `f64` precision, and abstract constants
+  are real constants that compaction removes.
+- **WGSL: `x++` / `x--` accepted any reference** — an `f32` increment
+  compiled; it now reports Rust's error (only `i32` and `u32` references).
+- **WGSL: `&&` / `||` in `override` and `var<private>` initializers were
+  rejected** — `override o: bool; var<private> v = o && false;` failed with
+  "Unexpected runtime-expression". Outside a function body they are a plain
+  binary expression (a deciding constant left operand short-circuits); in a
+  function body they always become an `if`, as in Rust, so `true || q()` keeps
+  `q()` in an untaken branch.
+- **WGSL: the right side of a swizzle assignment was not converted** —
+  `w.xz = vec2(1, 2)` on a `vec3<f32>` stored `i32` components into a float
+  vector (invalid SPIR-V). It now converts like any assignment.
+- **IR: result types of `length`, `distance`, `determinant`, `transpose`,
+  `outer`, sampled-image loads and `workgroupUniformLoad` of an atomic** —
+  the resolver returned `f32` for any `length`/`distance`, left `transpose` and
+  `outer` unresolved, treated an `Sint` sampled image as float, and typed
+  `workgroupUniformLoad(&atomic)` as the atomic. `workgroup-uniform-load-atomic`
+  now compiles to SPIR-V.
 - **SPIR-V: bounds-check policies were ignored for array, vector and matrix
   indices** — `spirv.Options.BoundsCheckPolicies.Index` was never read, so no
   index was ever checked: an out-of-bounds index was undefined behavior on
