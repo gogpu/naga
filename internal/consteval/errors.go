@@ -10,9 +10,15 @@ var (
 	// ErrNotImplemented: the operation is legal but cannot be evaluated
 	// here. A function body keeps it as a run-time expression.
 	ErrNotImplemented = errors.New("not implemented")
-	// ErrInvalidArgs: operand types the operation does not accept. A
-	// function body keeps the expression and leaves it to validation.
-	ErrInvalidArgs = errors.New("invalid arguments")
+	// ErrInvalidBinaryArgs: operand types a binary operator does not accept
+	// here. A function body keeps the expression and leaves it to
+	// validation (Rust InvalidBinaryOpArgs).
+	ErrInvalidBinaryArgs = errors.New("invalid binary operator arguments")
+	// ErrInvalidOperand: an operand a math, conversion, unary or relational
+	// operation does not accept (Rust InvalidMathArg, InvalidCastArg,
+	// InvalidUnaryOpArg, InvalidRelationalArg). Unlike invalid binary
+	// arguments it is an error in every context.
+	ErrInvalidOperand = errors.New("invalid operand")
 	// ErrNotConst: an operand is not a const-expression.
 	ErrNotConst = errors.New("not a const-expression")
 	// ErrOverrideInConst: an override-expression where a const-expression
@@ -59,5 +65,5 @@ func newError(class error, msg string) *Error {
 // overflow, domain, division and range errors are errors wherever the
 // operands are constant.
 func FallsBack(err error) bool {
-	return errors.Is(err, ErrNotImplemented) || errors.Is(err, ErrInvalidArgs)
+	return errors.Is(err, ErrNotImplemented) || errors.Is(err, ErrInvalidBinaryArgs)
 }
