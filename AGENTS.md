@@ -4,7 +4,7 @@
 
 ## What is naga
 
-naga is a shader compiler that translates WGSL (WebGPU Shading Language) to all major GPU shader formats. Inspired by [Rust naga](https://github.com/gfx-rs/naga) — tested output by output against Rust naga's 172-shader WGSL corpus, with every known difference recorded (`snapshot/rust_deviations_test.go`); SPIR-V checked with spirv-val in CI. Experimental DXIL backend (172 of 237 entry points of the Rust naga corpus pass IDxcValidator).
+naga is a shader compiler that translates WGSL (WebGPU Shading Language) to all major GPU shader formats. Inspired by [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) — tested output by output against Rust naga's 172-shader WGSL corpus, with every known difference recorded (`snapshot/rust_deviations_test.go`); SPIR-V checked with spirv-val in CI. Experimental DXIL backend (172 of 237 entry points of the Rust naga corpus pass IDxcValidator).
 
 Part of the [GoGPU ecosystem](https://github.com/gogpu) — Pure Go GPU computing. v1.0 target: December 2026.
 

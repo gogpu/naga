@@ -18,7 +18,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 2. **Six Backends** — SPIR-V (Vulkan), MSL (Metal), GLSL (OpenGL), HLSL (DirectX 11/12), DXIL (DirectX 12 SM 6.x)
 3. **Spec Compliant** — W3C WGSL, Khronos SPIR-V, Metal Shading Language, HLSL, DXIL specifications
 4. **Production-Ready** — Tested on real hardware (Intel, AMD, Apple Silicon), verified by external contributors
-5. **Rust Naga Parity** — Structural golden-file parity with [Rust naga](https://github.com/gfx-rs/naga) across all text backends
+5. **Rust Naga Parity** — Structural golden-file parity with [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga) across all text backends
 
 ### Who Uses naga
 

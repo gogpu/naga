@@ -203,7 +203,7 @@ The next phase of implementation will add:
 
 - [SPIR-V Specification](https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html)
 - [SPIR-V Headers](https://github.com/KhronosGroup/SPIRV-Headers)
-- [Rust naga SPIR-V backend](https://github.com/gfx-rs/naga/tree/main/src/back/spv)
+- [Rust naga SPIR-V backend](https://github.com/gfx-rs/wgpu/tree/trunk/naga/src/back/spv)
 
 ## License
 
