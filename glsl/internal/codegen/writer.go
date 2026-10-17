@@ -4,6 +4,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -739,7 +740,10 @@ func (w *Writer) writeConstants() error {
 		name := w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}]
 		baseType := w.getBaseTypeName(constant.Type)
 		arraySuffix := w.getArraySuffix(constant.Type)
-		value := w.writeConstantValue(constant)
+		value, err := w.writeConstantValue(constant)
+		if err != nil {
+			return err
+		}
 		w.WriteLine("const %s %s%s = %s;", baseType, name, arraySuffix, value)
 		wrote = true
 	}
@@ -749,8 +753,13 @@ func (w *Writer) writeConstants() error {
 	return nil
 }
 
+// errNoFloat16 is Rust naga's GLSL writer error for an f16 literal
+// (back/glsl/writer.rs, write_possibly_const_expr): GLSL has no f16 type,
+// so the value cannot be written.
+var errNoFloat16 = errors.New("GLSL has no 16-bit float type")
+
 // writeConstantValue returns the GLSL representation of a constant value.
-func (w *Writer) writeConstantValue(constant ir.Constant) string {
+func (w *Writer) writeConstantValue(constant ir.Constant) (string, error) {
 	// First try the direct Value
 	switch v := constant.Value.(type) {
 	case ir.ScalarValue:
@@ -760,47 +769,57 @@ func (w *Writer) writeConstantValue(constant ir.Constant) string {
 	case ir.ZeroConstantValue:
 		zv := w.zeroInitValue(constant.Type)
 		if zv != "" {
-			return zv
+			return zv, nil
 		}
 	}
 
 	// If no direct value, try writing from GlobalExpressions init
 	if int(constant.Init) < len(w.module.GlobalExpressions) {
-		result := w.writeConstExpr(constant.Init)
+		result, err := w.writeConstExpr(constant.Init)
+		if err != nil {
+			return "", err
+		}
 		if result != "0" || constant.Value == nil {
-			return result
+			return result, nil
 		}
 	}
 
-	return "0" // Fallback
+	return "0", nil // Fallback
 }
 
 // writeConstExpr writes a constant expression from GlobalExpressions.
 // This handles Compose, ZeroValue, Literal, and Constant references.
-func (w *Writer) writeConstExpr(handle ir.ExpressionHandle) string {
+func (w *Writer) writeConstExpr(handle ir.ExpressionHandle) (string, error) {
 	if int(handle) >= len(w.module.GlobalExpressions) {
-		return "0"
+		return "0", nil
 	}
 	expr := &w.module.GlobalExpressions[handle]
 	switch k := expr.Kind.(type) {
 	case ir.Literal:
 		return w.formatLiteral(k)
 	case ir.ExprZeroValue:
-		return w.zeroInitValue(k.Type)
+		return w.zeroInitValue(k.Type), nil
 	case ir.ExprConstant:
 		if int(k.Constant) < len(w.module.Constants) {
 			return w.writeConstantValue(w.module.Constants[k.Constant])
 		}
-		return "0"
+		return "0", nil
 	case ir.ExprCompose:
 		typeName := w.getTypeName(k.Type)
 		parts := make([]string, len(k.Components))
 		for i, comp := range k.Components {
-			parts[i] = w.writeConstExpr(comp)
+			part, err := w.writeConstExpr(comp)
+			if err != nil {
+				return "", err
+			}
+			parts[i] = part
 		}
-		return fmt.Sprintf("%s(%s)", typeName, strings.Join(parts, ", "))
+		return fmt.Sprintf("%s(%s)", typeName, strings.Join(parts, ", ")), nil
 	case ir.ExprSplat:
-		value := w.writeConstExpr(k.Value)
+		value, err := w.writeConstExpr(k.Value)
+		if err != nil {
+			return "", err
+		}
 		// Determine vector type from splat size + value scalar type
 		prefix := ""
 		if int(k.Value) < len(w.module.GlobalExpressions) {
@@ -816,49 +835,51 @@ func (w *Writer) writeConstExpr(handle ir.ExpressionHandle) string {
 				}
 			}
 		}
-		return fmt.Sprintf("%svec%d(%s)", prefix, k.Size, value)
+		return fmt.Sprintf("%svec%d(%s)", prefix, k.Size, value), nil
 	default:
-		return "0"
+		return "0", nil
 	}
 }
 
 // formatLiteral formats an IR literal as a GLSL literal string.
-func (w *Writer) formatLiteral(lit ir.Literal) string {
+func (w *Writer) formatLiteral(lit ir.Literal) (string, error) {
 	switch v := lit.Value.(type) {
 	case ir.LiteralBool:
 		if bool(v) {
-			return "true"
+			return "true", nil
 		}
-		return "false"
+		return "false", nil
 	case ir.LiteralI32:
-		return fmt.Sprintf("%d", int32(v))
+		return fmt.Sprintf("%d", int32(v)), nil
 	case ir.LiteralU32:
-		return fmt.Sprintf("%du", uint32(v))
+		return fmt.Sprintf("%du", uint32(v)), nil
+	case ir.LiteralF16:
+		return "", errNoFloat16
 	case ir.LiteralF32:
-		return formatFloat(float32(v))
+		return formatFloat(float32(v)), nil
 	case ir.LiteralF64:
-		return formatFloat64(float64(v)) // formatFloat64 already adds LF suffix
+		return formatFloat64(float64(v)), nil // formatFloat64 already adds LF suffix
 	case ir.LiteralI64:
-		return fmt.Sprintf("%dl", int64(v))
+		return fmt.Sprintf("%dl", int64(v)), nil
 	case ir.LiteralU64:
-		return fmt.Sprintf("%dul", uint64(v))
+		return fmt.Sprintf("%dul", uint64(v)), nil
 	default:
-		return "0"
+		return "0", nil
 	}
 }
 
 // writeScalarValue returns the GLSL representation of a scalar value.
-func (w *Writer) writeScalarValue(v ir.ScalarValue, typeHandle ir.TypeHandle) string {
+func (w *Writer) writeScalarValue(v ir.ScalarValue, typeHandle ir.TypeHandle) (string, error) {
 	switch v.Kind {
 	case ir.ScalarBool:
 		if v.Bits != 0 {
-			return "true"
+			return "true", nil
 		}
-		return "false"
+		return "false", nil
 	case ir.ScalarSint:
-		return fmt.Sprintf("%d", int32(v.Bits))
+		return fmt.Sprintf("%d", int32(v.Bits)), nil
 	case ir.ScalarUint:
-		return fmt.Sprintf("%du", uint32(v.Bits))
+		return fmt.Sprintf("%du", uint32(v.Bits)), nil
 	case ir.ScalarFloat:
 		// Get width from type
 		width := uint8(4) // Default to 32-bit
@@ -867,31 +888,35 @@ func (w *Writer) writeScalarValue(v ir.ScalarValue, typeHandle ir.TypeHandle) st
 				width = scalar.Width
 			}
 		}
-		if width == 4 {
-			floatVal := math.Float32frombits(uint32(v.Bits))
-			return formatFloat(floatVal)
+		switch width {
+		case 2:
+			return "", errNoFloat16
+		case 4:
+			return formatFloat(math.Float32frombits(uint32(v.Bits))), nil
+		default: // 64-bit float
+			return formatFloat64(math.Float64frombits(v.Bits)), nil
 		}
-		// 64-bit float
-		floatVal := math.Float64frombits(v.Bits)
-		return formatFloat64(floatVal)
 	default:
-		return "0"
+		return "0", nil
 	}
 }
 
 // writeCompositeValue returns the GLSL representation of a composite value.
-func (w *Writer) writeCompositeValue(v ir.CompositeValue, typeHandle ir.TypeHandle) string {
+func (w *Writer) writeCompositeValue(v ir.CompositeValue, typeHandle ir.TypeHandle) (string, error) {
 	typeName := w.getTypeName(typeHandle)
 	var components []string
 	for _, compHandle := range v.Components {
 		if int(compHandle) < len(w.module.Constants) {
-			constant := w.module.Constants[compHandle]
-			components = append(components, w.writeConstantValue(constant))
+			component, err := w.writeConstantValue(w.module.Constants[compHandle])
+			if err != nil {
+				return "", err
+			}
+			components = append(components, component)
 		} else {
 			components = append(components, "0")
 		}
 	}
-	return fmt.Sprintf("%s(%s)", typeName, strings.Join(components, ", "))
+	return fmt.Sprintf("%s(%s)", typeName, strings.Join(components, ", ")), nil
 }
 
 // writeGlobalVariables writes uniform, input, and output declarations.
@@ -949,7 +974,10 @@ func (w *Writer) writeGlobalVariables() error {
 			// Add initializer from GlobalExpressions if available
 			initStr := ""
 			if global.InitExpr != nil {
-				initStr = w.writeConstExpr(*global.InitExpr)
+				var err error
+				if initStr, err = w.writeConstExpr(*global.InitExpr); err != nil {
+					return err
+				}
 			}
 			if initStr != "" && initStr != "0" {
 				w.WriteLine("%s %s%s = %s;", baseType, name, arraySuffix, initStr)

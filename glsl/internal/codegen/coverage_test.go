@@ -346,13 +346,19 @@ func TestCoverage_WriteCompositeValue(t *testing.T) {
 		},
 	}
 
-	result := w.writeCompositeValue(ir.CompositeValue{Components: []ir.ConstantHandle{0, 1, 2}}, 0)
+	result, err := w.writeCompositeValue(ir.CompositeValue{Components: []ir.ConstantHandle{0, 1, 2}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(result, "vec3") {
 		t.Errorf("writeCompositeValue = %q, want contains 'vec3'", result)
 	}
 
 	// Test with out-of-range component
-	result = w.writeCompositeValue(ir.CompositeValue{Components: []ir.ConstantHandle{99}}, 0)
+	result, err = w.writeCompositeValue(ir.CompositeValue{Components: []ir.ConstantHandle{99}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(result, "0") {
 		t.Errorf("writeCompositeValue with OOB component = %q, want contains '0'", result)
 	}
@@ -1686,19 +1692,28 @@ func TestCoverage_ScalarValueTypes(t *testing.T) {
 	}
 
 	// ScalarValue with i32 type
-	got := w.writeScalarValue(ir.ScalarValue{Bits: 42, Kind: ir.ScalarSint}, 0)
+	got, err := w.writeScalarValue(ir.ScalarValue{Bits: 42, Kind: ir.ScalarSint}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(got, "42") {
 		t.Errorf("writeScalarValue(sint) = %q, want contains '42'", got)
 	}
 
 	// ScalarValue with u32 type
-	got = w.writeScalarValue(ir.ScalarValue{Bits: 7, Kind: ir.ScalarUint}, 1)
+	got, err = w.writeScalarValue(ir.ScalarValue{Bits: 7, Kind: ir.ScalarUint}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(got, "7") {
 		t.Errorf("writeScalarValue(uint) = %q, want contains '7'", got)
 	}
 
 	// ScalarValue with bool type
-	got = w.writeScalarValue(ir.ScalarValue{Bits: 1, Kind: ir.ScalarBool}, 2)
+	got, err = w.writeScalarValue(ir.ScalarValue{Bits: 1, Kind: ir.ScalarBool}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != "true" {
 		t.Errorf("writeScalarValue(bool) = %q, want 'true'", got)
 	}
@@ -1752,7 +1767,10 @@ func TestCoverage_FormatLiteralTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := w.formatLiteral(tt.lit)
+			got, err := w.formatLiteral(tt.lit)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if got != tt.want {
 				t.Errorf("formatLiteral(%s) = %q, want %q", tt.name, got, tt.want)
 			}

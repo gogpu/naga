@@ -1339,7 +1339,10 @@ func TestScalarVecPrefix(t *testing.T) {
 func TestFormatLiteral_F64NoDoubleSuffix(t *testing.T) {
 	w := newWriter(&ir.Module{}, &Options{LangVersion: Version330})
 	// F64 literal should have exactly one LF suffix, not LFLF
-	got := w.formatLiteral(ir.Literal{Value: ir.LiteralF64(1.0)})
+	got, err := w.formatLiteral(ir.Literal{Value: ir.LiteralF64(1.0)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.HasSuffix(got, "LF") {
 		t.Errorf("f64 literal should end with LF, got %q", got)
 	}
@@ -1399,7 +1402,10 @@ func TestWriteConstExpr_Splat(t *testing.T) {
 		},
 	}
 	w := newWriter(module, &Options{LangVersion: Version330})
-	got := w.writeConstExpr(ir.ExpressionHandle(1))
+	got, err := w.writeConstExpr(ir.ExpressionHandle(1))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != "vec3(0.0)" {
 		t.Errorf("writeConstExpr(Splat) = %q, want %q", got, "vec3(0.0)")
 	}
@@ -1418,7 +1424,10 @@ func TestWriteConstExpr_Compose(t *testing.T) {
 		},
 	}
 	w := newWriter(module, &Options{LangVersion: Version330})
-	got := w.writeConstExpr(ir.ExpressionHandle(2))
+	got, err := w.writeConstExpr(ir.ExpressionHandle(2))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != "vec2(1.0, 2.0)" {
 		t.Errorf("writeConstExpr(Compose) = %q, want %q", got, "vec2(1.0, 2.0)")
 	}

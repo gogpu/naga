@@ -437,7 +437,10 @@ func TestFormatLiteral_AllTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := w.formatLiteral(tt.literal)
+			got, err := w.formatLiteral(tt.literal)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if !strings.Contains(got, tt.contains) {
 				t.Errorf("formatLiteral(%v) = %q, should contain %q", tt.literal.Value, got, tt.contains)
 			}
@@ -507,12 +510,18 @@ func TestWriteConstExpr_ZeroValue(t *testing.T) {
 	}
 	w := newWriter(module, &Options{LangVersion: Version330})
 
-	got := w.writeConstExpr(ir.ExpressionHandle(0))
+	got, err := w.writeConstExpr(ir.ExpressionHandle(0))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got != "0.0" {
 		t.Errorf("writeConstExpr(ZeroValue f32) = %q, want %q", got, "0.0")
 	}
 
-	got2 := w.writeConstExpr(ir.ExpressionHandle(1))
+	got2, err := w.writeConstExpr(ir.ExpressionHandle(1))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got2 != "vec4(0.0)" {
 		t.Errorf("writeConstExpr(ZeroValue vec4) = %q, want %q", got2, "vec4(0.0)")
 	}
@@ -547,7 +556,10 @@ func TestWriteScalarValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := w.writeScalarValue(tt.value, tt.typeHandle)
+			got, err := w.writeScalarValue(tt.value, tt.typeHandle)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if !strings.Contains(got, tt.contains) {
 				t.Errorf("writeScalarValue() = %q, should contain %q", got, tt.contains)
 			}
