@@ -28,6 +28,9 @@ func Math(fun ir.MathFunction, args ...Value) (Value, error) {
 	if f, ok := bitFuncs[fun]; ok {
 		return f(args)
 	}
+	if f, ok := geometricFuncs[fun]; ok {
+		return f(args)
+	}
 	switch fun {
 	case ir.MathAbs:
 		return componentWise(args, absLane)
