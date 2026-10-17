@@ -1,0 +1,176 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Sint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("VertexInput"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("chunk"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 0,
+                            interpolation: None,
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("texture_index"),
+                        ty: 1,
+                        binding: Some(Location(
+                            location: 1,
+                            interpolation: None,
+                            sampling: None,
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 12,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("VertexOutput"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("clip_position"),
+                        ty: 3,
+                        binding: Some(BuiltIn(Position(
+                            invariant: false,
+                        ))),
+                        offset: 0,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "vs_main",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("vs_main"),
+                arguments: [
+                    (
+                        name: Some("in"),
+                        ty: 2,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 4,
+                    binding: None,
+                )),
+                local_variables: [
+                    (
+                        name: Some("out"),
+                        ty: 4,
+                        init: None,
+                    ),
+                ],
+                expressions: [
+                    FunctionArgument(0),
+                    LocalVariable(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    Literal(I32(5)),
+                    Splat(
+                        size: Tri,
+                        value: 3,
+                    ),
+                    Binary(
+                        op: Subtract,
+                        left: 2,
+                        right: 4,
+                    ),
+                    As(
+                        expr: 5,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Load(
+                        pointer: 1,
+                    ),
+                ],
+                named_expressions: {
+                    0: "in",
+                    6: "position",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 7,
+                    )),
+                    Emit((
+                        start: 7,
+                        end: 8,
+                    )),
+                    Return(
+                        value: Some(7),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

@@ -1,0 +1,150 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("Input"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("local_invocation_id"),
+                        ty: 1,
+                        binding: Some(BuiltIn(LocalInvocationId)),
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("local_invocation_index"),
+                        ty: 0,
+                        binding: Some(BuiltIn(LocalInvocationIndex)),
+                        offset: 12,
+                    ),
+                ],
+                span: 16,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("wg_var"),
+            space: WorkGroup,
+            binding: None,
+            ty: 0,
+            init: None,
+            memory_decorations: (""),
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "compute1",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("compute1"),
+                arguments: [
+                    (
+                        name: Some("input"),
+                        ty: 2,
+                        binding: None,
+                    ),
+                ],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    Literal(U32(2)),
+                    Binary(
+                        op: Multiply,
+                        left: 2,
+                        right: 3,
+                    ),
+                    GlobalVariable(0),
+                    Load(
+                        pointer: 5,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 7,
+                        index: 0,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 6,
+                        right: 8,
+                    ),
+                ],
+                named_expressions: {
+                    0: "input",
+                },
+                body: [
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Store(
+                        pointer: 1,
+                        value: 4,
+                    ),
+                    Emit((
+                        start: 6,
+                        end: 10,
+                    )),
+                    Store(
+                        pointer: 5,
+                        value: 9,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

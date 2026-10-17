@@ -1,0 +1,24 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+
+kernel void main_(
+  metal::uint3 __local_invocation_id [[thread_position_in_threadgroup]]
+) {
+    threadgroup metal::atomic_int a;
+    if (metal::all(__local_invocation_id == metal::uint3(0u))) {
+        metal::atomic_store_explicit(&a, 0, metal::memory_order_relaxed);
+    }
+    metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
+    int _e2 = metal::atomic_fetch_sub_explicit(&a, -1, metal::memory_order_relaxed);
+    return;
+}

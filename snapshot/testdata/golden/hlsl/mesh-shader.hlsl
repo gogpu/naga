@@ -38,33 +38,95 @@ struct FragmentInput_fs_main {
     float4 position : SV_Position;
 };
 
+bool helper_reader()
+{
+    bool _e2 = taskPayload.visible;
+    return _e2;
+}
+
+void helper_writer(bool value)
+{
+    taskPayload.visible = value;
+    return;
+}
+
 uint3 ts_main() : SV_Position
 {
     workgroupData = 1.0;
     taskPayload.colorMask = float4(1.0, 1.0, 0.0, 1.0);
-    taskPayload.visible = true;
+    helper_writer(true);
+    const bool _e12 = helper_reader();
+    taskPayload.visible = _e12;
     return uint3(1u, 1u, 1u);
 }
 
-void ms_main(uint index : SV_GroupIndex, uint3 id : SV_DispatchThreadID)
+uint3 ts_divergent(uint3 thread_id : SV_GroupThreadID) : SV_Position
+{
+    if ((thread_id.x == 0u)) {
+        taskPayload.colorMask = float4(1.0, 1.0, 0.0, 1.0);
+        taskPayload.visible = true;
+        return uint3(1u, 1u, 1u);
+    }
+    return uint3(2u, 2u, 2u);
+}
+
+void ms_main()
 {
     mesh_output.vertex_count = 3u;
     mesh_output.primitive_count = 1u;
     workgroupData = 2.0;
     mesh_output.vertices_[0].position = 0.0;
-    float4 _e22 = taskPayload.colorMask;
-    mesh_output.vertices_[0].color = (0.0 * _e22);
+    float4 _e20 = taskPayload.colorMask;
+    mesh_output.vertices_[0].color = (0.0 * _e20);
     mesh_output.vertices_[1].position = 1.0;
-    float4 _e36 = taskPayload.colorMask;
-    mesh_output.vertices_[1].color = (1.0 * _e36);
+    float4 _e34 = taskPayload.colorMask;
+    mesh_output.vertices_[1].color = (1.0 * _e34);
     mesh_output.vertices_[2].position = 0.0;
-    float4 _e50 = taskPayload.colorMask;
-    mesh_output.vertices_[2].color = (0.0 * _e50);
+    float4 _e48 = taskPayload.colorMask;
+    mesh_output.vertices_[2].color = (0.0 * _e48);
     mesh_output.primitives_[0].indices_ = uint3(0u, 1u, 2u);
-    bool _e66 = taskPayload.visible;
-    mesh_output.primitives_[0].cull = !(_e66);
+    const bool _e62 = helper_reader();
+    mesh_output.primitives_[0].cull = !(_e62);
     mesh_output.primitives_[0].colorMask = float4(1.0, 0.0, 1.0, 1.0);
     return;
+}
+
+void ms_no_ts()
+{
+    mesh_output.vertex_count = 3u;
+    mesh_output.primitive_count = 1u;
+    workgroupData = 2.0;
+    mesh_output.vertices_[0].position = 0.0;
+    mesh_output.vertices_[0].color = 0.0;
+    mesh_output.vertices_[1].position = 1.0;
+    mesh_output.vertices_[1].color = 1.0;
+    mesh_output.vertices_[2].position = 0.0;
+    mesh_output.vertices_[2].color = 0.0;
+    mesh_output.primitives_[0].indices_ = uint3(0u, 1u, 2u);
+    mesh_output.primitives_[0].cull = false;
+    mesh_output.primitives_[0].colorMask = float4(1.0, 0.0, 1.0, 1.0);
+    return;
+}
+
+void ms_divergent(uint3 thread_id_1 : SV_GroupThreadID)
+{
+    if ((thread_id_1.x == 0u)) {
+        mesh_output.vertex_count = 3u;
+        mesh_output.primitive_count = 1u;
+        workgroupData = 2.0;
+        mesh_output.vertices_[0].position = 0.0;
+        mesh_output.vertices_[0].color = 0.0;
+        mesh_output.vertices_[1].position = 1.0;
+        mesh_output.vertices_[1].color = 1.0;
+        mesh_output.vertices_[2].position = 0.0;
+        mesh_output.vertices_[2].color = 0.0;
+        mesh_output.primitives_[0].indices_ = uint3(0u, 1u, 2u);
+        mesh_output.primitives_[0].cull = false;
+        mesh_output.primitives_[0].colorMask = float4(1.0, 0.0, 1.0, 1.0);
+        return;
+    } else {
+        return;
+    }
 }
 
 float4 fs_main(FragmentInput_fs_main fragmentinput_fs_main) : SV_Target0

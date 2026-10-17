@@ -35,10 +35,10 @@
 | Category | Capabilities |
 |----------|--------------|
 | **Input** | Full WGSL parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`...), abstract constructors |
-| **Outputs** | SPIR-V, MSL, GLSL, HLSL — 100% validation; DXIL — 94.7% IDxcValidator (experimental) |
+| **Outputs** | SPIR-V (checked with spirv-val in CI), MSL, GLSL, HLSL; DXIL — 94.7% IDxcValidator (experimental) |
 | **Compute** | Storage buffers, workgroups, atomics, barriers, subgroup operations |
 | **Ray Tracing** | Ray query types, acceleration structures, 7 ray query builtins |
-| **Compatibility** | **144/144 (100%)** reference shaders compile. Five-layer exact match: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 72/72** — complete Rust naga parity on all backends |
+| **Compatibility** | Tested against Rust naga's WGSL snapshot corpus (172 shaders, gfx-rs/wgpu 14328f49): every output is compared, and each known difference is recorded with its reason — see [Rust Naga Compatibility](#rust-naga-compatibility) |
 | **Build** | Zero CGO, single binary |
 
 ---
@@ -47,7 +47,7 @@
 
 - **Pure Go** — No CGO, no external dependencies
 - **WGSL Frontend** — Full lexer and parser (120+ tokens), 48 short type aliases (`vec3f`, `mat4x4f`, etc.), abstract constructors (`vec3(1,2,3)`)
-- **Rust Naga Compatibility** — **144/144 (100%)** reference shaders compile. Five-layer exact match: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 72/72** — complete Rust naga parity on all backends. 164 snapshot tests with 994 golden outputs
+- **Rust Naga Compatibility** — every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its 172-shader WGSL corpus; known differences are recorded per output with a reason. 28 own test shaders; 936 golden outputs
 - **IR** — Complete intermediate representation (expressions, statements, types)
 - **Compute Shaders** — Storage buffers, workgroup memory, `@workgroup_size`
 - **Atomic Operations** — atomicAdd, atomicSub, atomicMin, atomicMax, atomicCompareExchangeWeak
@@ -58,10 +58,10 @@
 - **Texture Sampling** — textureSample, textureLoad, textureStore, textureDimensions, textureGather, textureSampleCompare
 - **Swizzle Operations** — Full vector swizzle support (`.xyz`, `.rgba`, `.xxyy`, etc.)
 - **Function Calls** — `OpFunctionCall` support for modular WGSL shaders with helper functions
-- **SPIR-V Backend** — Vulkan-compatible bytecode generation (**87/87 exact Rust naga parity**): integer div/mod safety wrappers, image bounds checking (Restrict/ReadZeroSkipWrite), ray query helpers, force loop bounding, workgroup zero-init polyfill, NonUniform decorations, capability-aware instruction emission
-- **MSL Backend** — Metal Shading Language output for macOS/iOS (**91/91 exact Rust naga parity**), vertex pulling transform, external textures, override pipeline constants, function-scope workgroup declarations (no host `setThreadgroupMemoryLength` needed)
-- **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+ (**68/68 exact Rust naga parity**), dead code elimination, ProcessOverrides, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
-- **HLSL Backend** — High-Level Shading Language for DirectX 11/12 (**72/72 exact Rust naga parity**)
+- **SPIR-V Backend** — Vulkan-compatible bytecode generation: integer div/mod safety wrappers, image bounds checking (Restrict/ReadZeroSkipWrite), ray query helpers, force loop bounding, workgroup zero-init polyfill, NonUniform decorations, capability-aware instruction emission
+- **MSL Backend** — Metal Shading Language output for macOS/iOS, vertex pulling transform, external textures, override pipeline constants, function-scope workgroup declarations (no host `setThreadgroupMemoryLength` needed)
+- **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+, dead code elimination, ProcessOverrides, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
+- **HLSL Backend** — High-Level Shading Language for DirectX 11/12
 - **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**161/170 IDxcValidator validation, 94.7%**; **105/208 DXC golden parity, diff=0**; **gg production: 61/61 entry points VALID (100%)**; visual: renders circles + text on D3D12). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (mark-and-sweep), SROA (struct decomposition), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~50K LOC, 330+ unit tests. World's first Pure Go DXIL generator.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
 - **Bitcast** — `bitcast<T>(expr)` for reinterpreting bit patterns between types
@@ -333,10 +333,10 @@ naga/                              ~323K LOC total
 
 | Backend | Status | Target Platform |
 |---------|--------|-----------------|
-| SPIR-V | ✅ **87/87 Rust parity**, 172/172 spirv-val | Vulkan |
-| MSL | ✅ **91/91 Rust parity** | Metal (macOS/iOS) |
-| GLSL | ✅ **68/68 Rust parity**, version-aware binding | OpenGL 3.3+, ES 3.0+ |
-| HLSL | ✅ **72/72 Rust parity** | DirectX 11/12 |
+| SPIR-V | ✅ Stable, spirv-val in CI | Vulkan |
+| MSL | ✅ Stable | Metal (macOS/iOS) |
+| GLSL | ✅ Stable, version-aware binding | OpenGL 3.3+, ES 3.0+ |
+| HLSL | ✅ Stable | DirectX 11/12 |
 | DXIL | **161/170 IDxcValidator (94.7%)**, 105 DXC golden | DirectX 12 (SM 6.0-6.5, experimental) |
 
 See [ROADMAP.md](ROADMAP.md) for detailed development plans.
@@ -371,7 +371,15 @@ All backends follow the DXIL internal package pattern — implementation in `int
 
 ### Rust Naga Compatibility
 
-naga is tested against **all 144 reference WGSL shaders** from the [Rust naga](https://github.com/gfx-rs/naga) test suite — **100% compatibility** across all five layers: **IR 144/144**, **SPIR-V 87/87**, **MSL 91/91**, **GLSL 68/68**, **HLSL 72/72** exact output match. Total: 164 test shaders with 994 golden outputs.
+naga is tested against the WGSL snapshot corpus of [Rust naga](https://github.com/gfx-rs/wgpu/tree/trunk/naga):
+172 shaders with their test parameters and reference outputs, vendored from gfx-rs/wgpu at commit 14328f49
+(`snapshot/testdata/rust/`, with a manifest of every file). Every output Rust's snapshot driver writes — IR,
+SPIR-V, MSL, GLSL, HLSL — is compared with ours. An output that does not match is a test failure unless it is
+recorded in `snapshot/rust_deviations_test.go` with its reason and a fingerprint of the difference; most records
+name the upstream commits not ported yet, and some are bugs being fixed. SPIR-V is still compared by
+instruction counts rather than exactly. Shaders using features we do not support yet (cooperative matrices,
+`debugPrintf`, 16-bit integers, ray tracing pipelines) are listed with their expected error. In addition, 28 own
+test shaders and 936 golden outputs guard against unintended changes.
 
 ---
 

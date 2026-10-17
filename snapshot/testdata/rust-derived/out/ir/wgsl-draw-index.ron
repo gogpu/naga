@@ -1,0 +1,121 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("Input"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("draw_index"),
+                        ty: 0,
+                        binding: Some(BuiltIn(DrawIndex)),
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Quad,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "vertex",
+            stage: Vertex,
+            early_depth_test: None,
+            workgroup_size: (0, 0, 0),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("vertex"),
+                arguments: [
+                    (
+                        name: Some("input"),
+                        ty: 1,
+                        binding: None,
+                    ),
+                ],
+                result: Some((
+                    ty: 2,
+                    binding: Some(BuiltIn(Position(
+                        invariant: false,
+                    ))),
+                )),
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    As(
+                        expr: 1,
+                        kind: Float,
+                        convert: Some(4),
+                    ),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Literal(F32(1.0)),
+                    Compose(
+                        ty: 2,
+                        components: [
+                            2,
+                            3,
+                            4,
+                            5,
+                        ],
+                    ),
+                ],
+                named_expressions: {
+                    0: "input",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 6,
+                        end: 7,
+                    )),
+                    Return(
+                        value: Some(6),
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

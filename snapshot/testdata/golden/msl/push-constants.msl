@@ -10,8 +10,15 @@ struct DefaultConstructible {
     }
 };
 
-struct ImmediateData {
+struct ImmediateDataVert {
+    float position_clip;
+    char _pad1[12];
+    metal::float3x3 matrix_;
+};
+struct ImmediateDataFrag {
     float multiplier;
+    char _pad1[12];
+    metal::float4 tint;
 };
 struct FragmentIn {
     metal::float4 color;
@@ -27,11 +34,11 @@ vertex vert_mainOutput vert_main(
   vert_mainInput varyings [[stage_in]]
 , uint ii [[instance_id]]
 , uint vi [[vertex_id]]
-, constant ImmediateData& im [[user(fake0)]]
+, constant ImmediateDataVert& im_vert [[user(fake0)]]
 ) {
     const auto pos = varyings.pos;
-    float _e8 = im.multiplier;
-    return vert_mainOutput { metal::float4(((static_cast<float>(ii) * static_cast<float>(vi)) * _e8) * pos, 0.0, 1.0) };
+    float _e9 = im_vert.position_clip;
+    return vert_mainOutput { metal::float4((static_cast<float>(ii) * static_cast<float>(vi)) * pos, 0.0, _e9) };
 }
 
 
@@ -43,9 +50,9 @@ struct main_Output {
 };
 fragment main_Output main_(
   main_Input varyings_1 [[stage_in]]
-, constant ImmediateData& im [[user(fake0)]]
+, constant ImmediateDataFrag& im_frag [[user(fake0)]]
 ) {
     const FragmentIn in = { varyings_1.color };
-    float _e4 = im.multiplier;
+    metal::float4 _e4 = im_frag.tint;
     return main_Output { in.color * _e4 };
 }

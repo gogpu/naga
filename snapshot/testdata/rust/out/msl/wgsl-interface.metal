@@ -62,14 +62,14 @@ fragment fragment_Output fragment_(
     const VertexOutput in = { position, varyings_1._varying };
     uint mask = sample_mask & (1u << sample_index);
     float color_1 = front_facing ? 1.0 : 0.0;
-    const auto _tmp = FragmentOutput {in._varying, mask, color_1};
-    return fragment_Output { _tmp.depth, _tmp.sample_mask, _tmp.color };
+    const auto _tmp_1 = FragmentOutput {in._varying, mask, color_1};
+    return fragment_Output { _tmp_1.depth, _tmp_1.sample_mask, _tmp_1.color };
 }
 
 
 struct computeInput {
 };
-kernel void compute(
+[[max_total_threads_per_threadgroup(1)]] kernel void compute(
   metal::uint3 global_id [[thread_position_in_grid]]
 , metal::uint3 local_id [[thread_position_in_threadgroup]]
 , uint local_index [[thread_index_in_threadgroup]]
@@ -77,7 +77,7 @@ kernel void compute(
 , metal::uint3 num_wgs [[threadgroups_per_grid]]
 , threadgroup type_4& output
 ) {
-    if (metal::all(local_id == metal::uint3(0u))) {
+    if (local_index == 0u) {
         output = {};
     }
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);

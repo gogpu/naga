@@ -853,12 +853,16 @@
                     end: 0,
                 )),
                 Emit((
-                    start: 38,
-                    end: 39,
+                    start: 0,
+                    end: 0,
                 )),
                 Emit((
                     start: 0,
                     end: 0,
+                )),
+                Emit((
+                    start: 38,
+                    end: 39,
                 )),
                 Emit((
                     start: 41,
@@ -1739,6 +1743,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

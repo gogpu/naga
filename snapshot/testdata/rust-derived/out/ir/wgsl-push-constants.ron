@@ -8,17 +8,34 @@
             )),
         ),
         (
-            name: Some("ImmediateData"),
+            name: None,
+            inner: Matrix(
+                columns: Tri,
+                rows: Tri,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: Some("ImmediateDataVert"),
             inner: Struct(
                 members: [
                     (
-                        name: Some("multiplier"),
+                        name: Some("position_clip"),
                         ty: 0,
                         binding: None,
                         offset: 0,
                     ),
+                    (
+                        name: Some("matrix"),
+                        ty: 1,
+                        binding: None,
+                        offset: 16,
+                    ),
                 ],
-                span: 4,
+                span: 64,
             ),
         ),
         (
@@ -32,12 +49,32 @@
             ),
         ),
         (
+            name: Some("ImmediateDataFrag"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("multiplier"),
+                        ty: 0,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("tint"),
+                        ty: 3,
+                        binding: None,
+                        offset: 16,
+                    ),
+                ],
+                span: 32,
+            ),
+        ),
+        (
             name: Some("FragmentIn"),
             inner: Struct(
                 members: [
                     (
                         name: Some("color"),
-                        ty: 2,
+                        ty: 3,
                         binding: Some(Location(
                             location: 0,
                             interpolation: Some(Perspective),
@@ -81,11 +118,20 @@
     overrides: [],
     global_variables: [
         (
-            name: Some("im"),
+            name: Some("im_vert"),
             space: Immediate,
             binding: None,
-            ty: 1,
+            ty: 2,
             init: None,
+            memory_decorations: (""),
+        ),
+        (
+            name: Some("im_frag"),
+            space: Immediate,
+            binding: None,
+            ty: 4,
+            init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -102,7 +148,7 @@
                 arguments: [
                     (
                         name: Some("pos"),
-                        ty: 4,
+                        ty: 6,
                         binding: Some(Location(
                             location: 0,
                             interpolation: Some(Perspective),
@@ -113,17 +159,17 @@
                     ),
                     (
                         name: Some("ii"),
-                        ty: 5,
+                        ty: 7,
                         binding: Some(BuiltIn(InstanceIndex)),
                     ),
                     (
                         name: Some("vi"),
-                        ty: 5,
+                        ty: 7,
                         binding: Some(BuiltIn(VertexIndex)),
                     ),
                 ],
                 result: Some((
-                    ty: 2,
+                    ty: 3,
                     binding: Some(BuiltIn(Position(
                         invariant: false,
                     ))),
@@ -148,32 +194,26 @@
                         left: 3,
                         right: 4,
                     ),
-                    GlobalVariable(0),
-                    AccessIndex(
-                        base: 6,
-                        index: 0,
-                    ),
-                    Load(
-                        pointer: 7,
-                    ),
                     Binary(
                         op: Multiply,
                         left: 5,
-                        right: 8,
-                    ),
-                    Binary(
-                        op: Multiply,
-                        left: 9,
                         right: 0,
                     ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 7,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 8,
+                    ),
                     Literal(F32(0.0)),
-                    Literal(F32(1.0)),
                     Compose(
-                        ty: 2,
+                        ty: 3,
                         components: [
+                            6,
                             10,
-                            11,
-                            12,
+                            9,
                         ],
                     ),
                 ],
@@ -185,24 +225,25 @@
                 body: [
                     Emit((
                         start: 3,
-                        end: 6,
+                        end: 7,
                     )),
                     Emit((
-                        start: 7,
-                        end: 11,
+                        start: 8,
+                        end: 10,
                     )),
                     Emit((
-                        start: 13,
-                        end: 14,
+                        start: 11,
+                        end: 12,
                     )),
                     Return(
-                        value: Some(13),
+                        value: Some(11),
                     ),
                 ],
                 diagnostic_filter_leaf: None,
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "main",
@@ -215,12 +256,12 @@
                 arguments: [
                     (
                         name: Some("in"),
-                        ty: 3,
+                        ty: 5,
                         binding: None,
                     ),
                 ],
                 result: Some((
-                    ty: 2,
+                    ty: 3,
                     binding: Some(Location(
                         location: 0,
                         interpolation: Some(Perspective),
@@ -236,10 +277,10 @@
                         base: 0,
                         index: 0,
                     ),
-                    GlobalVariable(0),
+                    GlobalVariable(1),
                     AccessIndex(
                         base: 2,
-                        index: 0,
+                        index: 1,
                     ),
                     Load(
                         pointer: 3,
@@ -270,6 +311,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

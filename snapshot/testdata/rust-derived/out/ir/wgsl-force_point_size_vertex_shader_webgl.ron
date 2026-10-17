@@ -150,6 +150,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "fs_main",
@@ -200,6 +201,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

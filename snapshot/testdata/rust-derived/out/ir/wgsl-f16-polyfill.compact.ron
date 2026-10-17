@@ -551,6 +551,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "test_struct",
@@ -845,6 +846,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "test_copy_input",
@@ -1173,6 +1175,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "test_return_partial",
@@ -1250,6 +1253,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "test_component_access",
@@ -1348,6 +1352,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

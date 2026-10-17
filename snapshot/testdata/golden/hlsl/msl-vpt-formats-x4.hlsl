@@ -44,6 +44,10 @@ struct VertexInput {
     nointerpolation int4 v_sint32x4_ : LOC38;
     float4 v_unorm10_10_10_2_ : LOC39;
     float4 v_unorm8x4_bgra : LOC40;
+    half4 v_float16_as_f16_ : LOC41;
+    half4 v_float16x2_as_f16_ : LOC42;
+    half4 v_float16x4_as_f16_ : LOC43;
+    float4 v_snorm10_10_10_2_ : LOC44;
 };
 
 struct VertexOutput_render_vertex {
@@ -58,7 +62,7 @@ VertexOutput ConstructVertexOutput(float4 arg0) {
 
 VertexOutput_render_vertex render_vertex(VertexInput v_in)
 {
-    const VertexOutput vertexoutput = ConstructVertexOutput((float(v_in.v_uint8_.x)).xxxx);
+    const VertexOutput vertexoutput = ConstructVertexOutput((v_in.v_float32_.x).xxxx);
     const VertexOutput_render_vertex vertexoutput_1 = { vertexoutput.position };
     return vertexoutput_1;
 }

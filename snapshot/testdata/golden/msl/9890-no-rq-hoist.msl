@@ -1,0 +1,64 @@
+// language: metal2.4
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _RayQuery {
+    metal::raytracing::intersector<metal::raytracing::instancing, metal::raytracing::triangle_data, metal::raytracing::world_space_data> intersector;
+    metal::raytracing::intersector<metal::raytracing::instancing, metal::raytracing::triangle_data, metal::raytracing::world_space_data>::result_type intersection;
+    bool ready = false;
+};
+constexpr metal::uint _map_intersection_type(const metal::raytracing::intersection_type ty) {
+    return ty==metal::raytracing::intersection_type::triangle ? 1 : 
+        ty==metal::raytracing::intersection_type::bounding_box ? 4 : 0;
+}
+
+struct RayDesc {
+    uint flags;
+    uint cull_mask;
+    float tmin;
+    float tmax;
+    metal::float3 origin;
+    metal::float3 dir;
+};
+
+kernel void main_(
+  metal::raytracing::instance_acceleration_structure acc [[user(fake0)]]
+) {
+    uint i = 0u;
+    _RayQuery sq = {};
+    uint2 loop_bound = uint2(4294967295u);
+    bool loop_init = true;
+    while(true) {
+        if (metal::all(loop_bound == uint2(0u))) { break; }
+        loop_bound -= uint2(loop_bound.y == 0u, 1u);
+        if (!loop_init) {
+            uint _e21 = i;
+            i = _e21 + 1u;
+        }
+        loop_init = false;
+        uint _e2 = i;
+        if (_e2 < 4u) {
+        } else {
+            break;
+        }
+        {
+            uint _e11 = i;
+            RayDesc _e18 = RayDesc {1u, 255u, 0.001, 1000.0, metal::float3(static_cast<float>(_e11)), metal::float3(0.0, -1.0, 0.0)};
+            sq.intersector.assume_geometry_type(metal::raytracing::geometry_type::triangle);
+            sq.intersector.set_opacity_cull_mode((_e18.flags & 64) != 0 ? metal::raytracing::opacity_cull_mode::opaque : (_e18.flags & 128) != 0 ? metal::raytracing::opacity_cull_mode::non_opaque : metal::raytracing::opacity_cull_mode::none);
+            sq.intersector.force_opacity((_e18.flags & 1) != 0 ? metal::raytracing::forced_opacity::opaque : (_e18.flags & 2) != 0 ? metal::raytracing::forced_opacity::non_opaque : metal::raytracing::forced_opacity::none);
+            sq.intersector.accept_any_intersection((_e18.flags & 4) != 0);
+            sq.intersection = sq.intersector.intersect(metal::raytracing::ray(_e18.origin, _e18.dir, _e18.tmin, _e18.tmax), acc, _e18.cull_mask);    sq.ready = true;
+            bool _e19 = sq.ready;
+        }
+    }
+    return;
+}

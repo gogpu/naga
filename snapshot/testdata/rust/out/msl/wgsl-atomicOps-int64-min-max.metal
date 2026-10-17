@@ -4,20 +4,20 @@
 
 using metal::uint;
 
-struct type_1 {
+struct type_2 {
     metal::atomic_ulong inner[2];
 };
 struct Struct {
     metal::atomic_ulong atomic_scalar;
-    type_1 atomic_arr;
+    type_2 atomic_arr;
 };
 
 struct cs_mainInput {
 };
-kernel void cs_main(
+[[max_total_threads_per_threadgroup(2)]] kernel void cs_main(
   metal::uint3 id [[thread_position_in_threadgroup]]
 , device metal::atomic_ulong& storage_atomic_scalar [[user(fake0)]]
-, device type_1& storage_atomic_arr [[user(fake0)]]
+, device type_2& storage_atomic_arr [[user(fake0)]]
 , device Struct& storage_struct [[user(fake0)]]
 , constant ulong& input [[user(fake0)]]
 ) {

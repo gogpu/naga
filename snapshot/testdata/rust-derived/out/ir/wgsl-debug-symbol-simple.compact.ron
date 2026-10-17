@@ -202,6 +202,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "fs_main",
@@ -277,25 +278,28 @@
                         index: 0,
                     ),
                     Load(
+                        pointer: 11,
+                    ),
+                    Load(
                         pointer: 10,
                     ),
                     Literal(F32(0.001)),
                     Binary(
                         op: Multiply,
-                        left: 12,
-                        right: 13,
-                    ),
-                    Load(
-                        pointer: 11,
+                        left: 13,
+                        right: 14,
                     ),
                     Binary(
                         op: Add,
-                        left: 15,
-                        right: 14,
+                        left: 12,
+                        right: 15,
                     ),
                     AccessIndex(
                         base: 2,
                         index: 1,
+                    ),
+                    Load(
+                        pointer: 17,
                     ),
                     Load(
                         pointer: 10,
@@ -303,25 +307,22 @@
                     Literal(F32(0.002)),
                     Binary(
                         op: Multiply,
-                        left: 18,
-                        right: 19,
-                    ),
-                    Load(
-                        pointer: 17,
+                        left: 19,
+                        right: 20,
                     ),
                     Binary(
                         op: Add,
-                        left: 21,
-                        right: 20,
+                        left: 18,
+                        right: 21,
                     ),
-                    Literal(I32(1)),
                     Load(
                         pointer: 4,
                     ),
+                    Literal(I32(1)),
                     Binary(
                         op: Add,
-                        left: 24,
-                        right: 23,
+                        left: 23,
+                        right: 24,
                     ),
                     Load(
                         pointer: 2,
@@ -375,10 +376,10 @@
                                 ),
                                 Emit((
                                     start: 11,
-                                    end: 13,
+                                    end: 14,
                                 )),
                                 Emit((
-                                    start: 14,
+                                    start: 15,
                                     end: 17,
                                 )),
                                 Store(
@@ -387,10 +388,10 @@
                                 ),
                                 Emit((
                                     start: 17,
-                                    end: 19,
+                                    end: 20,
                                 )),
                                 Emit((
-                                    start: 20,
+                                    start: 21,
                                     end: 23,
                                 )),
                                 Store(
@@ -401,7 +402,11 @@
                         ],
                         continuing: [
                             Emit((
-                                start: 24,
+                                start: 23,
+                                end: 24,
+                            )),
+                            Emit((
+                                start: 25,
                                 end: 26,
                             )),
                             Store(
@@ -427,6 +432,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

@@ -34,16 +34,17 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 ## Where We Are (v0.18.0)
 
-**~323K LOC, 6 backends, 100% Rust parity on all text backends, 172/172 SPIR-V validation.**
+**~323K LOC, 6 backends. Every IR, SPIR-V, MSL, GLSL and HLSL output is compared with Rust naga's on its
+172-shader WGSL corpus (gfx-rs/wgpu 14328f49); differences are recorded per output with a reason.**
 
-| Backend | Parity | Validation | Status |
-|---------|--------|------------|--------|
-| SPIR-V | 87/87 golden | 172/172 spirv-val | Production |
-| MSL | 91/91 golden | M3 Max Metal 3.1 verified | Production |
-| GLSL | 68/68 golden | Version-aware binding (GL 3.3–4.6, ES 3.0–3.2) | Production |
-| HLSL | 72/72 golden | SM 5.0 / SM 6.0 | Production |
-| DXIL | 161/170 IDxcValidator (94.7%) | 105/208 DXC golden (55.1%) | Experimental |
-| IR | 144/144 golden | — | Production |
+| Backend | Rust comparison | Validation | Status |
+|---------|-----------------|------------|--------|
+| SPIR-V | instruction counts (exact comparison planned) | spirv-val in CI | Production |
+| MSL | exact text | M3 Max Metal 3.1 verified | Production |
+| GLSL | exact text | Version-aware binding (GL 3.3–4.6, ES 3.0–3.2) | Production |
+| HLSL | exact text | SM 5.0 / SM 6.0 | Production |
+| DXIL | — (Rust naga has no DXIL backend) | 161/170 IDxcValidator (94.7%), 105/208 DXC golden (55.1%) | Experimental |
+| IR | types, expressions, statements | — | Production |
 
 ---
 
@@ -82,7 +83,7 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 | DXC golden parity 80%+ | P1 | 105/208 (55%) | Structural match with DXC roundtrip output |
 | DXIL optimization passes | P2 | Done (5 passes) | DCE, SROA, mem2reg, inlining, strength reduction |
 | Microsoft IDxcValidator AV issue | P2 | Draft ready | File upstream issue for validator crash on malformed input |
-| SM 7.0 SPIR-V readiness | P3 | Monitoring | Microsoft adopting SPIR-V for SM 7.0 — our SPIR-V backend (172/172) is the long-term path |
+| SM 7.0 SPIR-V readiness | P3 | Monitoring | Microsoft adopting SPIR-V for SM 7.0 — our SPIR-V backend is the long-term path |
 
 ### Phase 4: Hardening & Polish (November 2026)
 
@@ -101,8 +102,8 @@ Our goal: **the most complete, most tested, most portable shader compiler availa
 
 | Milestone | Status | Notes |
 |-----------|--------|-------|
-| Complete Rust naga parity | ✅ Done | All 5 text backends at 100% |
-| SPIR-V binary validation 100% | ✅ Done | 172/172 pass spirv-val |
+| Complete Rust naga parity | In Progress | Corpus synced to gfx-rs/wgpu 14328f49; every difference recorded per output with a reason |
+| SPIR-V binary validation 100% | In Progress | spirv-val in CI; 8 corpus shaders do not compile to SPIR-V yet (recorded as unsupported) |
 | DXIL backend production-ready | In Progress | 94.7% IDxcValidator, target 100% |
 | API stability guarantee | Planned | Semantic versioning contract, Phase 1 |
 | Test coverage 80%+ | Planned | awesome-go requirement, Phase 2 |

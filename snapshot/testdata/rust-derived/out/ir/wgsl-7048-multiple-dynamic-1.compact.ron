@@ -94,14 +94,17 @@
                         index: 0,
                     ),
                     Load(
+                        pointer: 8,
+                    ),
+                    Load(
                         pointer: 7,
                     ),
                     Access(
                         base: 0,
-                        index: 9,
+                        index: 10,
                     ),
                     AccessIndex(
-                        base: 10,
+                        base: 11,
                         index: 1,
                     ),
                     Load(
@@ -109,24 +112,21 @@
                     ),
                     Access(
                         base: 0,
-                        index: 12,
+                        index: 13,
                     ),
                     AccessIndex(
-                        base: 13,
+                        base: 14,
                         index: 2,
                     ),
                     Binary(
                         op: Multiply,
-                        left: 11,
-                        right: 14,
-                    ),
-                    Load(
-                        pointer: 8,
+                        left: 12,
+                        right: 15,
                     ),
                     Binary(
                         op: Add,
-                        left: 16,
-                        right: 15,
+                        left: 9,
+                        right: 16,
                     ),
                 ],
                 named_expressions: {
@@ -153,6 +153,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

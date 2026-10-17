@@ -1,0 +1,48 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct _mslBufferSizes {
+    uint size1;
+};
+
+struct Immediates {
+    metal::float4 v;
+    metal::float4x4 m;
+};
+typedef float type_3[1];
+
+struct main_Input {
+};
+kernel void main_(
+  uint idx [[thread_index_in_threadgroup]]
+, constant Immediates& im [[user(fake0)]]
+, device type_3& out [[user(fake0)]]
+, constant _mslBufferSizes& _buffer_sizes [[user(fake0)]]
+) {
+    float v_c = im.v.x;
+    float v_v = uint(idx) < 4 ? im.v[idx] : DefaultConstructible();
+    float m_cc = im.m[0].x;
+    float m_cv = uint(idx) < 4 ? im.m[0][idx] : DefaultConstructible();
+    if (uint(0) < 1 + (_buffer_sizes.size1 - 0 - 4) / 4) {
+        out[0] = v_c;
+    }
+    if (uint(1) < 1 + (_buffer_sizes.size1 - 0 - 4) / 4) {
+        out[1] = v_v;
+    }
+    if (uint(2) < 1 + (_buffer_sizes.size1 - 0 - 4) / 4) {
+        out[2] = m_cc;
+    }
+    if (uint(3) < 1 + (_buffer_sizes.size1 - 0 - 4) / 4) {
+        out[3] = m_cv;
+    }
+    return;
+}

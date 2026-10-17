@@ -140,6 +140,7 @@
             binding: None,
             ty: 1,
             init: Some(2),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvupaiai"),
@@ -147,6 +148,7 @@
             binding: None,
             ty: 3,
             init: Some(5),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvfpaiai"),
@@ -154,6 +156,7 @@
             binding: None,
             ty: 5,
             init: Some(8),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvfpafaf"),
@@ -161,6 +164,7 @@
             binding: None,
             ty: 5,
             init: Some(11),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvfpaiaf"),
@@ -168,6 +172,7 @@
             binding: None,
             ty: 5,
             init: Some(14),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvupuai"),
@@ -175,6 +180,7 @@
             binding: None,
             ty: 3,
             init: Some(17),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvupaiu"),
@@ -182,6 +188,7 @@
             binding: None,
             ty: 3,
             init: Some(20),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvuuai"),
@@ -189,6 +196,7 @@
             binding: None,
             ty: 3,
             init: Some(23),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvuaiu"),
@@ -196,6 +204,7 @@
             binding: None,
             ty: 3,
             init: Some(26),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvip____"),
@@ -203,6 +212,7 @@
             binding: None,
             ty: 1,
             init: Some(29),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvup____"),
@@ -210,6 +220,7 @@
             binding: None,
             ty: 3,
             init: Some(32),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvfp____"),
@@ -217,6 +228,7 @@
             binding: None,
             ty: 5,
             init: Some(35),
+            memory_decorations: (""),
         ),
         (
             name: Some("xmfp____"),
@@ -224,6 +236,7 @@
             binding: None,
             ty: 6,
             init: Some(42),
+            memory_decorations: (""),
         ),
         (
             name: Some("xmfpaiaiaiai"),
@@ -231,6 +244,7 @@
             binding: None,
             ty: 6,
             init: Some(49),
+            memory_decorations: (""),
         ),
         (
             name: Some("xmfpafaiaiai"),
@@ -238,6 +252,7 @@
             binding: None,
             ty: 6,
             init: Some(56),
+            memory_decorations: (""),
         ),
         (
             name: Some("xmfpaiafaiai"),
@@ -245,6 +260,7 @@
             binding: None,
             ty: 6,
             init: Some(63),
+            memory_decorations: (""),
         ),
         (
             name: Some("xmfpaiaiafai"),
@@ -252,6 +268,7 @@
             binding: None,
             ty: 6,
             init: Some(70),
+            memory_decorations: (""),
         ),
         (
             name: Some("xmfpaiaiaiaf"),
@@ -259,6 +276,7 @@
             binding: None,
             ty: 6,
             init: Some(77),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvispai"),
@@ -266,6 +284,7 @@
             binding: None,
             ty: 1,
             init: Some(79),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvfspaf"),
@@ -273,6 +292,7 @@
             binding: None,
             ty: 5,
             init: Some(81),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvis_ai"),
@@ -280,6 +300,7 @@
             binding: None,
             ty: 1,
             init: Some(83),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvus_ai"),
@@ -287,6 +308,7 @@
             binding: None,
             ty: 3,
             init: Some(85),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvfs_ai"),
@@ -294,6 +316,7 @@
             binding: None,
             ty: 5,
             init: Some(87),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvfs_af"),
@@ -301,6 +324,7 @@
             binding: None,
             ty: 5,
             init: Some(89),
+            memory_decorations: (""),
         ),
         (
             name: Some("xafafaf"),
@@ -308,6 +332,7 @@
             binding: None,
             ty: 7,
             init: Some(92),
+            memory_decorations: (""),
         ),
         (
             name: Some("xafaiai"),
@@ -315,6 +340,7 @@
             binding: None,
             ty: 7,
             init: Some(95),
+            memory_decorations: (""),
         ),
         (
             name: Some("xaipaiai"),
@@ -322,6 +348,7 @@
             binding: None,
             ty: 8,
             init: Some(98),
+            memory_decorations: (""),
         ),
         (
             name: Some("xaupaiai"),
@@ -329,6 +356,7 @@
             binding: None,
             ty: 9,
             init: Some(101),
+            memory_decorations: (""),
         ),
         (
             name: Some("xafpaiaf"),
@@ -336,6 +364,7 @@
             binding: None,
             ty: 7,
             init: Some(104),
+            memory_decorations: (""),
         ),
         (
             name: Some("xafpafai"),
@@ -343,6 +372,7 @@
             binding: None,
             ty: 7,
             init: Some(107),
+            memory_decorations: (""),
         ),
         (
             name: Some("xafpafaf"),
@@ -350,6 +380,7 @@
             binding: None,
             ty: 7,
             init: Some(110),
+            memory_decorations: (""),
         ),
         (
             name: Some("xavipai"),
@@ -357,6 +388,7 @@
             binding: None,
             ty: 11,
             init: Some(113),
+            memory_decorations: (""),
         ),
         (
             name: Some("xavfpai"),
@@ -364,6 +396,7 @@
             binding: None,
             ty: 13,
             init: Some(116),
+            memory_decorations: (""),
         ),
         (
             name: Some("xavfpaf"),
@@ -371,6 +404,7 @@
             binding: None,
             ty: 13,
             init: Some(119),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvisai"),
@@ -378,6 +412,7 @@
             binding: None,
             ty: 1,
             init: Some(121),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvusai"),
@@ -385,6 +420,7 @@
             binding: None,
             ty: 3,
             init: Some(123),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvfsai"),
@@ -392,6 +428,7 @@
             binding: None,
             ty: 5,
             init: Some(125),
+            memory_decorations: (""),
         ),
         (
             name: Some("xvfsaf"),
@@ -399,6 +436,7 @@
             binding: None,
             ty: 5,
             init: Some(127),
+            memory_decorations: (""),
         ),
         (
             name: Some("ivispai"),
@@ -406,6 +444,7 @@
             binding: None,
             ty: 1,
             init: Some(129),
+            memory_decorations: (""),
         ),
         (
             name: Some("ivfspaf"),
@@ -413,6 +452,7 @@
             binding: None,
             ty: 5,
             init: Some(131),
+            memory_decorations: (""),
         ),
         (
             name: Some("ivis_ai"),
@@ -420,6 +460,7 @@
             binding: None,
             ty: 1,
             init: Some(133),
+            memory_decorations: (""),
         ),
         (
             name: Some("ivus_ai"),
@@ -427,6 +468,7 @@
             binding: None,
             ty: 3,
             init: Some(135),
+            memory_decorations: (""),
         ),
         (
             name: Some("ivfs_ai"),
@@ -434,6 +476,7 @@
             binding: None,
             ty: 5,
             init: Some(137),
+            memory_decorations: (""),
         ),
         (
             name: Some("ivfs_af"),
@@ -441,6 +484,7 @@
             binding: None,
             ty: 5,
             init: Some(139),
+            memory_decorations: (""),
         ),
         (
             name: Some("iafafaf"),
@@ -448,6 +492,7 @@
             binding: None,
             ty: 7,
             init: Some(142),
+            memory_decorations: (""),
         ),
         (
             name: Some("iafaiai"),
@@ -455,6 +500,7 @@
             binding: None,
             ty: 7,
             init: Some(145),
+            memory_decorations: (""),
         ),
         (
             name: Some("iaipaiai"),
@@ -462,6 +508,7 @@
             binding: None,
             ty: 8,
             init: Some(148),
+            memory_decorations: (""),
         ),
         (
             name: Some("iafpafaf"),
@@ -469,6 +516,7 @@
             binding: None,
             ty: 7,
             init: Some(151),
+            memory_decorations: (""),
         ),
         (
             name: Some("iafpaiaf"),
@@ -476,6 +524,7 @@
             binding: None,
             ty: 7,
             init: Some(154),
+            memory_decorations: (""),
         ),
         (
             name: Some("iafpafai"),
@@ -483,6 +532,7 @@
             binding: None,
             ty: 7,
             init: Some(157),
+            memory_decorations: (""),
         ),
         (
             name: Some("iavipai"),
@@ -490,6 +540,7 @@
             binding: None,
             ty: 11,
             init: Some(160),
+            memory_decorations: (""),
         ),
         (
             name: Some("iavfpai"),
@@ -497,6 +548,7 @@
             binding: None,
             ty: 11,
             init: Some(163),
+            memory_decorations: (""),
         ),
         (
             name: Some("iavfpaf"),
@@ -504,6 +556,7 @@
             binding: None,
             ty: 13,
             init: Some(166),
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [
@@ -3074,12 +3127,16 @@
                     end: 0,
                 )),
                 Emit((
-                    start: 50,
-                    end: 51,
+                    start: 0,
+                    end: 0,
                 )),
                 Emit((
                     start: 0,
                     end: 0,
+                )),
+                Emit((
+                    start: 50,
+                    end: 51,
                 )),
                 Emit((
                     start: 53,
@@ -3482,12 +3539,16 @@
                     end: 0,
                 )),
                 Emit((
-                    start: 268,
-                    end: 269,
+                    start: 0,
+                    end: 0,
                 )),
                 Emit((
                     start: 0,
                     end: 0,
+                )),
+                Emit((
+                    start: 268,
+                    end: 269,
                 )),
                 Emit((
                     start: 271,
@@ -5318,6 +5379,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

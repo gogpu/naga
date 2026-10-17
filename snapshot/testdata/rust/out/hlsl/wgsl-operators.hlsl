@@ -2,6 +2,12 @@ static const float4 v_f32_one = float4(1.0, 1.0, 1.0, 1.0);
 static const float4 v_f32_zero = float4(0.0, 0.0, 0.0, 0.0);
 static const float4 v_f32_half = float4(0.5, 0.5, 0.5, 0.5);
 static const int4 v_i32_one = int4(int(1), int(1), int(1), int(1));
+static const bool b_false = false;
+static const bool b_true = true;
+static const bool short_circuit_1_invalid_rhs = false;
+static const bool short_circuit_2_invalid_rhs = false;
+static const bool short_circuit_3_ = true;
+static const bool short_circuit_4_ = true;
 
 float4 builtins()
 {
@@ -32,12 +38,12 @@ float2 splat_assignment()
 {
     float2 a = (2.0).xx;
 
-    float2 _e4 = a;
-    a = (_e4 + (1.0).xx);
-    float2 _e8 = a;
-    a = (_e8 - (3.0).xx);
-    float2 _e12 = a;
-    a = (_e12 / (4.0).xx);
+    float2 _e3 = a;
+    a = (_e3 + (1.0).xx);
+    float2 _e7 = a;
+    a = (_e7 - (3.0).xx);
+    float2 _e11 = a;
+    a = (_e11 / (4.0).xx);
     float2 _e15 = a;
     return _e15;
 }
@@ -75,6 +81,8 @@ void logical()
     bool local_2 = (bool)0;
     bool local_3 = (bool)0;
     bool local_4 = (bool)0;
+    bool local_5 = (bool)0;
+    bool local_6 = (bool)0;
 
     bool neg0_ = !(true);
     bool2 neg1_ = !((true).xx);
@@ -94,28 +102,42 @@ void logical()
     bool3 bitwise_or1_ = ((true).xxx | (false).xxx);
     bool bitwise_and0_ = (true & false);
     bool4 bitwise_and1_ = ((true).xxxx & (false).xxxx);
-    const bool _e22 = p();
-    if (!(_e22)) {
-        const bool _e26 = q();
-        local_2 = _e26;
+    if (!(false)) {
+        local_2 = false;
     } else {
         local_2 = true;
     }
-    bool _e28 = local_2;
-    if (_e28) {
-        const bool _e31 = r();
-        if (!(_e31)) {
-            const bool _e35 = s();
-            local_4 = _e35;
-        } else {
-            local_4 = true;
-        }
-        bool _e37 = local_4;
-        local_3 = _e37;
+    bool _e27 = local_2;
+    bool short_circuit_5_ = !(_e27);
+    const bool _e29 = p();
+    if (!(_e29)) {
+        const bool _e33 = q();
+        local_3 = _e33;
     } else {
-        local_3 = false;
+        local_3 = true;
     }
-    bool short_circuit = local_3;
+    bool _e35 = local_3;
+    if (_e35) {
+        const bool _e38 = r();
+        if (!(_e38)) {
+            const bool _e42 = s();
+            local_5 = _e42;
+        } else {
+            local_5 = true;
+        }
+        bool _e44 = local_5;
+        local_4 = _e44;
+    } else {
+        local_4 = false;
+    }
+    bool short_circuit_6_ = local_4;
+    if (false) {
+        const bool _e50 = q();
+        local_6 = _e50;
+    } else {
+        local_6 = true;
+    }
+    bool short_circuit_7_ = local_6;
     return;
 }
 
@@ -183,10 +205,6 @@ float3x3 ZeroValuefloat3x3() {
 
 float4x3 ZeroValuefloat4x3() {
     return (float4x3)0;
-}
-
-float3x4 ZeroValuefloat3x4() {
-    return (float3x4)0;
 }
 
 void arithmetic()
@@ -259,15 +277,15 @@ void arithmetic()
         float2 rem4_1 = naga_mod((2.0).xx, (1.0).xx);
         float2 rem5_1 = naga_mod((2.0).xx, (1.0).xx);
     }
-    float3x3 add = (ZeroValuefloat3x3() + ZeroValuefloat3x3());
-    float3x3 sub = (ZeroValuefloat3x3() - ZeroValuefloat3x3());
+    float3x3 add = float3x3(float3(0.0, 0.0, 0.0), float3(0.0, 0.0, 0.0), float3(0.0, 0.0, 0.0));
+    float3x3 sub = float3x3(float3(0.0, 0.0, 0.0), float3(0.0, 0.0, 0.0), float3(0.0, 0.0, 0.0));
     float3x3 mul_scalar0_ = mul(1.0, ZeroValuefloat3x3());
     float3x3 mul_scalar1_ = mul(ZeroValuefloat3x3(), 2.0);
     float3 mul_vector0_ = mul((1.0).xxxx, ZeroValuefloat4x3());
     float4 mul_vector1_ = mul(ZeroValuefloat4x3(), (2.0).xxx);
-    float3x3 mul_ = mul(ZeroValuefloat3x4(), ZeroValuefloat4x3());
-    int _e175 = prevent_const_eval;
-    wgpu_7437_ = asint(asuint(_e175) + asuint(int(-2147483647 - 1)));
+    float3x3 mul_ = float3x3(float3(0.0, 0.0, 0.0), float3(0.0, 0.0, 0.0), float3(0.0, 0.0, 0.0));
+    int _e205 = prevent_const_eval;
+    wgpu_7437_ = asint(asuint(_e205) + asuint(int(-2147483647 - 1)));
     return;
 }
 
@@ -357,10 +375,10 @@ void assignment()
     a_1 = asint(asuint(_e7) - asuint(int(1)));
     int _e9 = a_1;
     int _e10 = a_1;
-    a_1 = asint(asuint(_e10) * asuint(_e9));
+    a_1 = asint(asuint(_e9) * asuint(_e10));
     int _e12 = a_1;
     int _e13 = a_1;
-    a_1 = naga_div(_e13, _e12);
+    a_1 = naga_div(_e12, _e13);
     int _e15 = a_1;
     a_1 = naga_mod(_e15, int(1));
     int _e17 = a_1;

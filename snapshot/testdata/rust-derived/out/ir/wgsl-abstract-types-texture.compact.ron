@@ -95,6 +95,7 @@
             )),
             ty: 0,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("s"),
@@ -105,6 +106,7 @@
             )),
             ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("d"),
@@ -115,6 +117,7 @@
             )),
             ty: 4,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("c"),
@@ -125,6 +128,7 @@
             )),
             ty: 5,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("st"),
@@ -135,6 +139,7 @@
             )),
             ty: 6,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -633,6 +638,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

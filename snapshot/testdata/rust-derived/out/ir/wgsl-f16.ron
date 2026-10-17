@@ -357,6 +357,7 @@
             binding: None,
             ty: 0,
             init: Some(0),
+            memory_decorations: (""),
         ),
         (
             name: Some("input_uniform"),
@@ -367,6 +368,7 @@
             )),
             ty: 16,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("input_storage"),
@@ -379,6 +381,7 @@
             )),
             ty: 16,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("input_arrays"),
@@ -391,6 +394,7 @@
             )),
             ty: 18,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("output"),
@@ -403,6 +407,7 @@
             )),
             ty: 16,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("output_arrays"),
@@ -415,6 +420,7 @@
             )),
             ty: 18,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [
@@ -455,14 +461,17 @@
                 ),
                 Literal(F16((19354))),
                 LocalVariable(1),
-                Literal(F16((63506))),
                 Load(
                     pointer: 4,
                 ),
+                Literal(F16((63506))),
                 Binary(
                     op: Add,
-                    left: 6,
-                    right: 5,
+                    left: 5,
+                    right: 6,
+                ),
+                Load(
+                    pointer: 4,
                 ),
                 Load(
                     pointer: 4,
@@ -470,74 +479,71 @@
                 Literal(F16((17664))),
                 Binary(
                     op: Add,
+                    left: 9,
+                    right: 10,
+                ),
+                Binary(
+                    op: Add,
                     left: 8,
-                    right: 9,
+                    right: 11,
                 ),
                 Load(
                     pointer: 4,
                 ),
-                Binary(
-                    op: Add,
-                    left: 11,
-                    right: 10,
-                ),
                 GlobalVariable(1),
                 AccessIndex(
-                    base: 13,
+                    base: 14,
                     index: 2,
                 ),
                 Load(
-                    pointer: 14,
+                    pointer: 15,
                 ),
                 Load(
                     pointer: 4,
                 ),
                 As(
-                    expr: 16,
+                    expr: 17,
                     kind: Float,
                     convert: Some(4),
                 ),
                 Binary(
                     op: Add,
-                    left: 15,
-                    right: 17,
+                    left: 16,
+                    right: 18,
                 ),
                 As(
-                    expr: 18,
+                    expr: 19,
                     kind: Float,
                     convert: Some(2),
                 ),
-                Load(
-                    pointer: 4,
-                ),
                 Binary(
                     op: Add,
-                    left: 20,
-                    right: 19,
+                    left: 13,
+                    right: 20,
+                ),
+                Load(
+                    pointer: 4,
                 ),
                 GlobalVariable(1),
                 AccessIndex(
-                    base: 22,
+                    base: 23,
                     index: 3,
                 ),
                 Load(
-                    pointer: 23,
+                    pointer: 24,
                 ),
                 Splat(
                     size: Tri,
-                    value: 24,
+                    value: 25,
                 ),
                 AccessIndex(
-                    base: 25,
+                    base: 26,
                     index: 2,
-                ),
-                Load(
-                    pointer: 4,
                 ),
                 Binary(
                     op: Add,
-                    left: 27,
-                    right: 26,
+                    left: 22,
+                    right: 27,
                 ),
                 GlobalVariable(4),
                 AccessIndex(
@@ -929,20 +935,23 @@
                 Load(
                     pointer: 4,
                 ),
+                Load(
+                    pointer: 4,
+                ),
                 Math(
                     fun: Abs,
-                    arg: 169,
+                    arg: 170,
                     arg1: None,
                     arg2: None,
                     arg3: None,
                 ),
-                Load(
-                    pointer: 4,
-                ),
                 Binary(
                     op: Add,
-                    left: 171,
-                    right: 170,
+                    left: 169,
+                    right: 171,
+                ),
+                Load(
+                    pointer: 4,
                 ),
                 Load(
                     pointer: 4,
@@ -955,47 +964,47 @@
                 ),
                 Math(
                     fun: Clamp,
-                    arg: 173,
-                    arg1: Some(174),
-                    arg2: Some(175),
+                    arg: 174,
+                    arg1: Some(175),
+                    arg2: Some(176),
                     arg3: None,
-                ),
-                Load(
-                    pointer: 4,
                 ),
                 Binary(
                     op: Add,
-                    left: 177,
-                    right: 176,
+                    left: 173,
+                    right: 177,
+                ),
+                Load(
+                    pointer: 4,
                 ),
                 Load(
                     pointer: 4,
                 ),
                 Splat(
                     size: Bi,
-                    value: 179,
+                    value: 180,
                 ),
                 Load(
                     pointer: 4,
                 ),
                 Splat(
                     size: Bi,
-                    value: 181,
+                    value: 182,
                 ),
                 Math(
                     fun: Dot,
-                    arg: 180,
-                    arg1: Some(182),
+                    arg: 181,
+                    arg1: Some(183),
                     arg2: None,
                     arg3: None,
                 ),
-                Load(
-                    pointer: 4,
-                ),
                 Binary(
                     op: Add,
-                    left: 184,
-                    right: 183,
+                    left: 179,
+                    right: 184,
+                ),
+                Load(
+                    pointer: 4,
                 ),
                 Load(
                     pointer: 4,
@@ -1005,18 +1014,18 @@
                 ),
                 Math(
                     fun: Max,
-                    arg: 186,
-                    arg1: Some(187),
+                    arg: 187,
+                    arg1: Some(188),
                     arg2: None,
                     arg3: None,
                 ),
-                Load(
-                    pointer: 4,
-                ),
                 Binary(
                     op: Add,
-                    left: 189,
-                    right: 188,
+                    left: 186,
+                    right: 189,
+                ),
+                Load(
+                    pointer: 4,
                 ),
                 Load(
                     pointer: 4,
@@ -1026,45 +1035,42 @@
                 ),
                 Math(
                     fun: Min,
-                    arg: 191,
-                    arg1: Some(192),
+                    arg: 192,
+                    arg1: Some(193),
                     arg2: None,
                     arg3: None,
                 ),
-                Load(
-                    pointer: 4,
-                ),
                 Binary(
                     op: Add,
-                    left: 194,
-                    right: 193,
+                    left: 191,
+                    right: 194,
+                ),
+                Load(
+                    pointer: 4,
                 ),
                 Load(
                     pointer: 4,
                 ),
                 Math(
                     fun: Sign,
-                    arg: 196,
+                    arg: 197,
                     arg1: None,
                     arg2: None,
                     arg3: None,
                 ),
-                Load(
-                    pointer: 4,
-                ),
                 Binary(
                     op: Add,
-                    left: 198,
-                    right: 197,
+                    left: 196,
+                    right: 198,
+                ),
+                Load(
+                    pointer: 4,
                 ),
                 Literal(F16((15360))),
-                Load(
-                    pointer: 4,
-                ),
                 Binary(
                     op: Add,
-                    left: 201,
-                    right: 200,
+                    left: 200,
+                    right: 201,
                 ),
                 GlobalVariable(1),
                 AccessIndex(
@@ -1359,7 +1365,11 @@
                     end: 3,
                 )),
                 Emit((
-                    start: 6,
+                    start: 5,
+                    end: 6,
+                )),
+                Emit((
+                    start: 7,
                     end: 8,
                 )),
                 Store(
@@ -1368,10 +1378,10 @@
                 ),
                 Emit((
                     start: 8,
-                    end: 9,
+                    end: 10,
                 )),
                 Emit((
-                    start: 10,
+                    start: 11,
                     end: 13,
                 )),
                 Store(
@@ -1379,7 +1389,11 @@
                     value: 12,
                 ),
                 Emit((
-                    start: 14,
+                    start: 13,
+                    end: 14,
+                )),
+                Emit((
+                    start: 15,
                     end: 22,
                 )),
                 Store(
@@ -1387,7 +1401,11 @@
                     value: 21,
                 ),
                 Emit((
-                    start: 23,
+                    start: 22,
+                    end: 23,
+                )),
+                Emit((
+                    start: 24,
                     end: 29,
                 )),
                 Store(
@@ -1711,7 +1729,11 @@
                     value: 199,
                 ),
                 Emit((
-                    start: 201,
+                    start: 200,
+                    end: 201,
+                )),
+                Emit((
+                    start: 202,
                     end: 203,
                 )),
                 Store(
@@ -1919,6 +1941,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

@@ -48,6 +48,13 @@
             )),
         ),
         (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 2,
+            )),
+        ),
+        (
             name: Some("VertexInput"),
             inner: Struct(
                 members: [
@@ -56,7 +63,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 0,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -68,7 +75,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 1,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -80,7 +87,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 2,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -92,7 +99,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 3,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -104,7 +111,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 4,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -116,7 +123,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 5,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -200,7 +207,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 12,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -212,7 +219,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 13,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -224,7 +231,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 14,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -236,7 +243,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 15,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -248,7 +255,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 16,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -260,7 +267,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 17,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -428,7 +435,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 31,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -440,7 +447,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 32,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -452,7 +459,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 33,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -464,7 +471,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 34,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -476,7 +483,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 35,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -488,7 +495,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 36,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -500,7 +507,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 37,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -512,7 +519,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 38,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -543,8 +550,56 @@
                         )),
                         offset: 160,
                     ),
+                    (
+                        name: Some("v_float16_as_f16"),
+                        ty: 5,
+                        binding: Some(Location(
+                            location: 41,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 164,
+                    ),
+                    (
+                        name: Some("v_float16x2_as_f16"),
+                        ty: 5,
+                        binding: Some(Location(
+                            location: 42,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 166,
+                    ),
+                    (
+                        name: Some("v_float16x4_as_f16"),
+                        ty: 5,
+                        binding: Some(Location(
+                            location: 43,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 168,
+                    ),
+                    (
+                        name: Some("v_snorm10_10_10_2"),
+                        ty: 0,
+                        binding: Some(Location(
+                            location: 44,
+                            interpolation: Some(Perspective),
+                            sampling: Some(Center),
+                            blend_src: None,
+                            per_primitive: false,
+                        )),
+                        offset: 172,
+                    ),
                 ],
-                span: 164,
+                span: 176,
             ),
         ),
     ],
@@ -573,7 +628,7 @@
                 arguments: [
                     (
                         name: Some("v_in"),
-                        ty: 5,
+                        ty: 6,
                         binding: None,
                     ),
                 ],
@@ -586,21 +641,16 @@
                     FunctionArgument(0),
                     AccessIndex(
                         base: 0,
-                        index: 0,
-                    ),
-                    As(
-                        expr: 1,
-                        kind: Float,
-                        convert: Some(4),
+                        index: 27,
                     ),
                     Splat(
                         size: Quad,
-                        value: 2,
+                        value: 1,
                     ),
                     Compose(
                         ty: 2,
                         components: [
-                            3,
+                            2,
                         ],
                     ),
                 ],
@@ -610,16 +660,17 @@
                 body: [
                     Emit((
                         start: 1,
-                        end: 5,
+                        end: 4,
                     )),
                     Return(
-                        value: Some(4),
+                        value: Some(3),
                     ),
                 ],
                 diagnostic_filter_leaf: None,
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

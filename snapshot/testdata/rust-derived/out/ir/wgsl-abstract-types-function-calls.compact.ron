@@ -775,6 +775,14 @@
                         end: 0,
                     )),
                     Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
+                        start: 0,
+                        end: 0,
+                    )),
+                    Emit((
                         start: 30,
                         end: 31,
                     )),
@@ -972,6 +980,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

@@ -1,0 +1,90 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Vector(
+                size: Tri,
+                scalar: (
+                    kind: Uint,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [
+                    (
+                        name: Some("id"),
+                        ty: 0,
+                        binding: Some(BuiltIn(GlobalInvocationId)),
+                    ),
+                ],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    FunctionArgument(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 1,
+                    ),
+                    AccessIndex(
+                        base: 0,
+                        index: 2,
+                    ),
+                ],
+                named_expressions: {
+                    0: "id",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 4,
+                    )),
+                    DebugPrintf(
+                        format: "debug id: %u %u %u",
+                        arguments: [
+                            1,
+                            2,
+                            3,
+                        ],
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

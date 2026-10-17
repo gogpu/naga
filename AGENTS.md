@@ -4,7 +4,7 @@
 
 ## What is naga
 
-naga is a shader compiler that translates WGSL (WebGPU Shading Language) to all major GPU shader formats. Inspired by [Rust naga](https://github.com/gfx-rs/naga) — **100% golden-file parity** across all text backends (MSL 91/91, GLSL 68/68, HLSL 72/72, SPIR-V 87/87). 172/172 SPIR-V binary validation. Experimental DXIL backend (161/170 IDxcValidator, 94.7%).
+naga is a shader compiler that translates WGSL (WebGPU Shading Language) to all major GPU shader formats. Inspired by [Rust naga](https://github.com/gfx-rs/naga) — tested output by output against Rust naga's 172-shader WGSL corpus, with every known difference recorded (`snapshot/rust_deviations_test.go`); SPIR-V checked with spirv-val in CI. Experimental DXIL backend (161/170 IDxcValidator, 94.7%).
 
 Part of the [GoGPU ecosystem](https://github.com/gogpu) — Pure Go GPU computing. v1.0 target: December 2026.
 
@@ -22,10 +22,10 @@ Part of the [GoGPU ecosystem](https://github.com/gogpu) — Pure Go GPU computin
 
 | Backend | Format | GPU API | Status |
 |---------|--------|---------|--------|
-| SPIR-V | Binary | Vulkan | Production (172/172 spirv-val) |
-| MSL | Text | Metal (macOS/iOS) | Production (91/91 Rust parity) |
-| GLSL | Text | OpenGL 3.3+, ES 3.0+ | Production (68/68 Rust parity) |
-| HLSL | Text | DirectX 11/12 | Production (72/72 Rust parity) |
+| SPIR-V | Binary | Vulkan | Production (spirv-val in CI) |
+| MSL | Text | Metal (macOS/iOS) | Production |
+| GLSL | Text | OpenGL 3.3+, ES 3.0+ | Production |
+| HLSL | Text | DirectX 11/12 | Production |
 | DXIL | Binary | DirectX 12 (SM 6.0–6.5) | Experimental (94.7% IDxcValidator) |
 
 ## Quick Start

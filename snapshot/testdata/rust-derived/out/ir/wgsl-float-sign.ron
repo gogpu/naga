@@ -1,0 +1,257 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Constant(4),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Sint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 2,
+                size: Constant(4),
+                stride: 4,
+            ),
+        ),
+        (
+            name: None,
+            inner: Vector(
+                size: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("floats"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 1,
+            init: None,
+            memory_decorations: (""),
+        ),
+        (
+            name: Some("ints"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 3,
+            init: None,
+            memory_decorations: (""),
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 2,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 3,
+                    ),
+                    Math(
+                        fun: Sign,
+                        arg: 4,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 6,
+                        index: 2,
+                    ),
+                    Load(
+                        pointer: 7,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 9,
+                        index: 3,
+                    ),
+                    Load(
+                        pointer: 10,
+                    ),
+                    Compose(
+                        ty: 4,
+                        components: [
+                            8,
+                            11,
+                        ],
+                    ),
+                    Math(
+                        fun: Sign,
+                        arg: 12,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 14,
+                        index: 2,
+                    ),
+                    AccessIndex(
+                        base: 13,
+                        index: 0,
+                    ),
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 17,
+                        index: 3,
+                    ),
+                    AccessIndex(
+                        base: 13,
+                        index: 1,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 20,
+                        index: 0,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 22,
+                        index: 1,
+                    ),
+                    Load(
+                        pointer: 23,
+                    ),
+                    Math(
+                        fun: Sign,
+                        arg: 24,
+                        arg1: None,
+                        arg2: None,
+                        arg3: None,
+                    ),
+                ],
+                named_expressions: {
+                    12: "v",
+                    13: "signs",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 3,
+                        end: 6,
+                    )),
+                    Store(
+                        pointer: 1,
+                        value: 5,
+                    ),
+                    Emit((
+                        start: 7,
+                        end: 9,
+                    )),
+                    Emit((
+                        start: 10,
+                        end: 13,
+                    )),
+                    Emit((
+                        start: 13,
+                        end: 14,
+                    )),
+                    Emit((
+                        start: 15,
+                        end: 17,
+                    )),
+                    Store(
+                        pointer: 15,
+                        value: 16,
+                    ),
+                    Emit((
+                        start: 18,
+                        end: 20,
+                    )),
+                    Store(
+                        pointer: 18,
+                        value: 19,
+                    ),
+                    Emit((
+                        start: 21,
+                        end: 22,
+                    )),
+                    Emit((
+                        start: 23,
+                        end: 26,
+                    )),
+                    Store(
+                        pointer: 21,
+                        value: 25,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

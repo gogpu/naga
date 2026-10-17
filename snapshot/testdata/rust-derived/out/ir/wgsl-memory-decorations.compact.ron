@@ -1,0 +1,211 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
+            inner: Array(
+                base: 0,
+                size: Dynamic,
+                stride: 4,
+            ),
+        ),
+        (
+            name: Some("Data"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("values"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("coherent_buf"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 0,
+            )),
+            ty: 2,
+            init: None,
+            memory_decorations: ("COHERENT"),
+        ),
+        (
+            name: Some("volatile_buf"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 1,
+            )),
+            ty: 2,
+            init: None,
+            memory_decorations: ("VOLATILE"),
+        ),
+        (
+            name: Some("both_buf"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 2,
+            )),
+            ty: 2,
+            init: None,
+            memory_decorations: ("COHERENT | VOLATILE"),
+        ),
+        (
+            name: Some("plain_buf"),
+            space: Storage(
+                access: ("LOAD | STORE"),
+            ),
+            binding: Some((
+                group: 0,
+                binding: 3,
+            )),
+            ty: 2,
+            init: None,
+            memory_decorations: (""),
+        ),
+    ],
+    global_expressions: [],
+    functions: [],
+    entry_points: [
+        (
+            name: "main",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("main"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    GlobalVariable(0),
+                    AccessIndex(
+                        base: 0,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 1,
+                        index: 0,
+                    ),
+                    GlobalVariable(1),
+                    AccessIndex(
+                        base: 3,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 4,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 5,
+                    ),
+                    GlobalVariable(2),
+                    AccessIndex(
+                        base: 7,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 8,
+                        index: 0,
+                    ),
+                    GlobalVariable(3),
+                    AccessIndex(
+                        base: 10,
+                        index: 0,
+                    ),
+                    AccessIndex(
+                        base: 11,
+                        index: 0,
+                    ),
+                    Load(
+                        pointer: 12,
+                    ),
+                ],
+                named_expressions: {},
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Emit((
+                        start: 2,
+                        end: 3,
+                    )),
+                    Emit((
+                        start: 4,
+                        end: 5,
+                    )),
+                    Emit((
+                        start: 5,
+                        end: 7,
+                    )),
+                    Store(
+                        pointer: 2,
+                        value: 6,
+                    ),
+                    Emit((
+                        start: 8,
+                        end: 9,
+                    )),
+                    Emit((
+                        start: 9,
+                        end: 10,
+                    )),
+                    Emit((
+                        start: 11,
+                        end: 12,
+                    )),
+                    Emit((
+                        start: 12,
+                        end: 14,
+                    )),
+                    Store(
+                        pointer: 9,
+                        value: 13,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: None,
+)

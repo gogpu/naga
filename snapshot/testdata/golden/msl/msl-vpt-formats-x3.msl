@@ -55,6 +55,11 @@ struct VertexInput {
     metal::int3 v_sint32x4_;
     metal::float3 v_unorm10_10_10_2_;
     metal::float3 v_unorm8x4_bgra;
+    metal::half3 v_float16_as_f16_;
+    metal::half3 v_float16x2_as_f16_;
+    metal::half3 v_float16x4_as_f16_;
+    char _pad44[8];
+    metal::float3 v_snorm10_10_10_2_;
 };
 
 struct render_vertexInput {
@@ -99,6 +104,10 @@ struct render_vertexInput {
     metal::int3 v_sint32x4_ [[attribute(38)]];
     metal::float3 v_unorm10_10_10_2_ [[attribute(39)]];
     metal::float3 v_unorm8x4_bgra [[attribute(40)]];
+    metal::half3 v_float16_as_f16_ [[attribute(41)]];
+    metal::half3 v_float16x2_as_f16_ [[attribute(42)]];
+    metal::half3 v_float16x4_as_f16_ [[attribute(43)]];
+    metal::float3 v_snorm10_10_10_2_ [[attribute(44)]];
 };
 struct render_vertexOutput {
     metal::float4 position [[position]];
@@ -106,7 +115,7 @@ struct render_vertexOutput {
 vertex render_vertexOutput render_vertex(
   render_vertexInput varyings [[stage_in]]
 ) {
-    const VertexInput v_in = { varyings.v_uint8_, varyings.v_uint8x2_, varyings.v_uint8x4_, varyings.v_sint8_, varyings.v_sint8x2_, varyings.v_sint8x4_, varyings.v_unorm8_, varyings.v_unorm8x2_, varyings.v_unorm8x4_, varyings.v_snorm8_, varyings.v_snorm8x2_, varyings.v_snorm8x4_, varyings.v_uint16_, varyings.v_uint16x2_, varyings.v_uint16x4_, varyings.v_sint16_, varyings.v_sint16x2_, varyings.v_sint16x4_, varyings.v_unorm16_, varyings.v_unorm16x2_, varyings.v_unorm16x4_, varyings.v_snorm16_, varyings.v_snorm16x2_, varyings.v_snorm16x4_, varyings.v_float16_, varyings.v_float16x2_, varyings.v_float16x4_, varyings.v_float32_, varyings.v_float32x2_, varyings.v_float32x3_, varyings.v_float32x4_, varyings.v_uint32_, varyings.v_uint32x2_, varyings.v_uint32x3_, varyings.v_uint32x4_, varyings.v_sint32_, varyings.v_sint32x2_, varyings.v_sint32x3_, varyings.v_sint32x4_, varyings.v_unorm10_10_10_2_, varyings.v_unorm8x4_bgra };
-    const auto _tmp = VertexOutput {metal::float4(static_cast<float>(v_in.v_uint8_.x))};
+    const VertexInput v_in = { varyings.v_uint8_, varyings.v_uint8x2_, varyings.v_uint8x4_, varyings.v_sint8_, varyings.v_sint8x2_, varyings.v_sint8x4_, varyings.v_unorm8_, varyings.v_unorm8x2_, varyings.v_unorm8x4_, varyings.v_snorm8_, varyings.v_snorm8x2_, varyings.v_snorm8x4_, varyings.v_uint16_, varyings.v_uint16x2_, varyings.v_uint16x4_, varyings.v_sint16_, varyings.v_sint16x2_, varyings.v_sint16x4_, varyings.v_unorm16_, varyings.v_unorm16x2_, varyings.v_unorm16x4_, varyings.v_snorm16_, varyings.v_snorm16x2_, varyings.v_snorm16x4_, varyings.v_float16_, varyings.v_float16x2_, varyings.v_float16x4_, varyings.v_float32_, varyings.v_float32x2_, varyings.v_float32x3_, varyings.v_float32x4_, varyings.v_uint32_, varyings.v_uint32x2_, varyings.v_uint32x3_, varyings.v_uint32x4_, varyings.v_sint32_, varyings.v_sint32x2_, varyings.v_sint32x3_, varyings.v_sint32x4_, varyings.v_unorm10_10_10_2_, varyings.v_unorm8x4_bgra, varyings.v_float16_as_f16_, varyings.v_float16x2_as_f16_, varyings.v_float16x4_as_f16_, {}, varyings.v_snorm10_10_10_2_ };
+    const auto _tmp = VertexOutput {metal::float4(v_in.v_float32_.x)};
     return render_vertexOutput { _tmp.position };
 }

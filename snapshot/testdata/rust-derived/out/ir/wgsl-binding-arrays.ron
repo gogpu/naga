@@ -23,6 +23,13 @@
         ),
         (
             name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
             inner: Image(
                 dim: D2,
                 arrayed: false,
@@ -35,14 +42,14 @@
         (
             name: None,
             inner: BindingArray(
-                base: 2,
+                base: 3,
                 size: Dynamic,
             ),
         ),
         (
             name: None,
             inner: BindingArray(
-                base: 2,
+                base: 3,
                 size: Constant(5),
             ),
         ),
@@ -60,7 +67,7 @@
         (
             name: None,
             inner: BindingArray(
-                base: 5,
+                base: 6,
                 size: Constant(5),
             ),
         ),
@@ -78,7 +85,7 @@
         (
             name: None,
             inner: BindingArray(
-                base: 7,
+                base: 8,
                 size: Constant(5),
             ),
         ),
@@ -95,7 +102,7 @@
         (
             name: None,
             inner: BindingArray(
-                base: 9,
+                base: 10,
                 size: Constant(5),
             ),
         ),
@@ -113,7 +120,7 @@
         (
             name: None,
             inner: BindingArray(
-                base: 11,
+                base: 12,
                 size: Constant(5),
             ),
         ),
@@ -126,7 +133,7 @@
         (
             name: None,
             inner: BindingArray(
-                base: 13,
+                base: 14,
                 size: Constant(5),
             ),
         ),
@@ -139,7 +146,7 @@
         (
             name: None,
             inner: BindingArray(
-                base: 15,
+                base: 16,
                 size: Constant(5),
             ),
         ),
@@ -162,13 +169,6 @@
                 ],
                 span: 4,
             ),
-        ),
-        (
-            name: None,
-            inner: Scalar((
-                kind: Float,
-                width: 4,
-            )),
         ),
         (
             name: None,
@@ -209,8 +209,9 @@
                 group: 0,
                 binding: 0,
             )),
-            ty: 3,
+            ty: 4,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("texture_array_bounded"),
@@ -219,8 +220,9 @@
                 group: 0,
                 binding: 1,
             )),
-            ty: 4,
+            ty: 5,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("texture_array_2darray"),
@@ -229,8 +231,9 @@
                 group: 0,
                 binding: 2,
             )),
-            ty: 6,
+            ty: 7,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("texture_array_multisampled"),
@@ -239,8 +242,9 @@
                 group: 0,
                 binding: 3,
             )),
-            ty: 8,
+            ty: 9,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("texture_array_depth"),
@@ -249,8 +253,9 @@
                 group: 0,
                 binding: 4,
             )),
-            ty: 10,
+            ty: 11,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("texture_array_storage"),
@@ -259,8 +264,9 @@
                 group: 0,
                 binding: 5,
             )),
-            ty: 12,
+            ty: 13,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("samp"),
@@ -269,8 +275,9 @@
                 group: 0,
                 binding: 6,
             )),
-            ty: 14,
+            ty: 15,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("samp_comp"),
@@ -279,8 +286,9 @@
                 group: 0,
                 binding: 7,
             )),
-            ty: 16,
+            ty: 17,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("uni"),
@@ -291,6 +299,7 @@
             )),
             ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -307,7 +316,7 @@
                 arguments: [
                     (
                         name: Some("fragment_in"),
-                        ty: 17,
+                        ty: 18,
                         binding: None,
                     ),
                 ],
@@ -334,7 +343,7 @@
                     ),
                     (
                         name: Some("v1"),
-                        ty: 18,
+                        ty: 2,
                         init: Some(10),
                     ),
                     (
@@ -383,76 +392,79 @@
                         size: Bi,
                         value: 17,
                     ),
+                    Load(
+                        pointer: 9,
+                    ),
                     GlobalVariable(0),
                     AccessIndex(
-                        base: 19,
+                        base: 20,
                         index: 0,
                     ),
                     ImageQuery(
-                        image: 20,
+                        image: 21,
                         query: Size(
                             level: None,
                         ),
                     ),
+                    Binary(
+                        op: Add,
+                        left: 19,
+                        right: 22,
+                    ),
                     Load(
                         pointer: 9,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 22,
-                        right: 21,
-                    ),
                     GlobalVariable(0),
                     Access(
-                        base: 24,
+                        base: 25,
                         index: 3,
                     ),
                     ImageQuery(
-                        image: 25,
+                        image: 26,
                         query: Size(
                             level: None,
                         ),
                     ),
+                    Binary(
+                        op: Add,
+                        left: 24,
+                        right: 27,
+                    ),
                     Load(
                         pointer: 9,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 27,
-                        right: 26,
-                    ),
                     GlobalVariable(0),
                     Access(
-                        base: 29,
+                        base: 30,
                         index: 4,
                     ),
                     ImageQuery(
-                        image: 30,
+                        image: 31,
                         query: Size(
                             level: None,
                         ),
                     ),
-                    Load(
-                        pointer: 9,
-                    ),
                     Binary(
                         op: Add,
-                        left: 32,
-                        right: 31,
+                        left: 29,
+                        right: 32,
+                    ),
+                    Load(
+                        pointer: 14,
                     ),
                     GlobalVariable(1),
                     AccessIndex(
-                        base: 34,
+                        base: 35,
                         index: 0,
                     ),
                     GlobalVariable(6),
                     AccessIndex(
-                        base: 36,
+                        base: 37,
                         index: 0,
                     ),
                     ImageSample(
-                        image: 35,
-                        sampler: 37,
+                        image: 36,
+                        sampler: 38,
                         gather: Some(X),
                         coordinate: 16,
                         array_index: None,
@@ -461,27 +473,27 @@
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
+                    Binary(
+                        op: Add,
+                        left: 34,
+                        right: 39,
+                    ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 39,
-                        right: 38,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 41,
+                        base: 42,
                         index: 3,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 43,
+                        base: 44,
                         index: 3,
                     ),
                     ImageSample(
-                        image: 42,
-                        sampler: 44,
+                        image: 43,
+                        sampler: 45,
                         gather: Some(X),
                         coordinate: 16,
                         array_index: None,
@@ -490,27 +502,27 @@
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
+                    Binary(
+                        op: Add,
+                        left: 41,
+                        right: 46,
+                    ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 46,
-                        right: 45,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 48,
+                        base: 49,
                         index: 4,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 50,
+                        base: 51,
                         index: 4,
                     ),
                     ImageSample(
-                        image: 49,
-                        sampler: 51,
+                        image: 50,
+                        sampler: 52,
                         gather: Some(X),
                         coordinate: 16,
                         array_index: None,
@@ -519,333 +531,333 @@
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
+                    Binary(
+                        op: Add,
+                        left: 48,
+                        right: 53,
+                    ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 53,
-                        right: 52,
-                    ),
                     GlobalVariable(4),
                     AccessIndex(
-                        base: 55,
+                        base: 56,
                         index: 0,
                     ),
                     GlobalVariable(7),
                     AccessIndex(
-                        base: 57,
+                        base: 58,
                         index: 0,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 56,
-                        sampler: 58,
+                        image: 57,
+                        sampler: 59,
                         gather: Some(X),
                         coordinate: 16,
                         array_index: None,
                         offset: None,
                         level: Zero,
-                        depth_ref: Some(59),
+                        depth_ref: Some(60),
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 55,
+                        right: 61,
                     ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 61,
-                        right: 60,
-                    ),
                     GlobalVariable(4),
                     Access(
-                        base: 63,
+                        base: 64,
                         index: 3,
                     ),
                     GlobalVariable(7),
                     Access(
-                        base: 65,
+                        base: 66,
                         index: 3,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 64,
-                        sampler: 66,
+                        image: 65,
+                        sampler: 67,
                         gather: Some(X),
                         coordinate: 16,
                         array_index: None,
                         offset: None,
                         level: Zero,
-                        depth_ref: Some(67),
+                        depth_ref: Some(68),
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 63,
+                        right: 69,
                     ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 69,
-                        right: 68,
-                    ),
                     GlobalVariable(4),
                     Access(
-                        base: 71,
+                        base: 72,
                         index: 4,
                     ),
                     GlobalVariable(7),
                     Access(
-                        base: 73,
+                        base: 74,
                         index: 4,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 72,
-                        sampler: 74,
+                        image: 73,
+                        sampler: 75,
                         gather: Some(X),
                         coordinate: 16,
                         array_index: None,
                         offset: None,
                         level: Zero,
-                        depth_ref: Some(75),
+                        depth_ref: Some(76),
                         clamp_to_edge: false,
-                    ),
-                    Load(
-                        pointer: 14,
                     ),
                     Binary(
                         op: Add,
-                        left: 77,
-                        right: 76,
+                        left: 71,
+                        right: 77,
+                    ),
+                    Load(
+                        pointer: 14,
                     ),
                     GlobalVariable(0),
                     AccessIndex(
-                        base: 79,
+                        base: 80,
                         index: 0,
                     ),
                     Literal(I32(0)),
                     ImageLoad(
-                        image: 80,
+                        image: 81,
                         coordinate: 18,
                         array_index: None,
                         sample: None,
-                        level: Some(81),
+                        level: Some(82),
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 79,
+                        right: 83,
                     ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 83,
-                        right: 82,
-                    ),
                     GlobalVariable(0),
                     Access(
-                        base: 85,
+                        base: 86,
                         index: 3,
                     ),
                     Literal(I32(0)),
                     ImageLoad(
-                        image: 86,
+                        image: 87,
                         coordinate: 18,
                         array_index: None,
                         sample: None,
-                        level: Some(87),
+                        level: Some(88),
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 85,
+                        right: 89,
                     ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 89,
-                        right: 88,
-                    ),
                     GlobalVariable(0),
                     Access(
-                        base: 91,
+                        base: 92,
                         index: 4,
                     ),
                     Literal(I32(0)),
                     ImageLoad(
-                        image: 92,
+                        image: 93,
                         coordinate: 18,
                         array_index: None,
                         sample: None,
-                        level: Some(93),
-                    ),
-                    Load(
-                        pointer: 14,
+                        level: Some(94),
                     ),
                     Binary(
                         op: Add,
-                        left: 95,
-                        right: 94,
+                        left: 91,
+                        right: 95,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(2),
                     AccessIndex(
-                        base: 97,
+                        base: 98,
                         index: 0,
                     ),
                     ImageQuery(
-                        image: 98,
+                        image: 99,
                         query: NumLayers,
-                    ),
-                    Load(
-                        pointer: 6,
                     ),
                     Binary(
                         op: Add,
-                        left: 100,
-                        right: 99,
+                        left: 97,
+                        right: 100,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(2),
                     Access(
-                        base: 102,
+                        base: 103,
                         index: 3,
                     ),
                     ImageQuery(
-                        image: 103,
+                        image: 104,
                         query: NumLayers,
-                    ),
-                    Load(
-                        pointer: 6,
                     ),
                     Binary(
                         op: Add,
-                        left: 105,
-                        right: 104,
+                        left: 102,
+                        right: 105,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(2),
                     Access(
-                        base: 107,
+                        base: 108,
                         index: 4,
                     ),
                     ImageQuery(
-                        image: 108,
+                        image: 109,
                         query: NumLayers,
                     ),
-                    Load(
-                        pointer: 6,
-                    ),
                     Binary(
                         op: Add,
-                        left: 110,
-                        right: 109,
+                        left: 107,
+                        right: 110,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(1),
                     AccessIndex(
-                        base: 112,
+                        base: 113,
                         index: 0,
                     ),
                     ImageQuery(
-                        image: 113,
+                        image: 114,
                         query: NumLevels,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 112,
+                        right: 115,
                     ),
                     Load(
                         pointer: 6,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 115,
-                        right: 114,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 117,
+                        base: 118,
                         index: 3,
                     ),
                     ImageQuery(
-                        image: 118,
+                        image: 119,
                         query: NumLevels,
-                    ),
-                    Load(
-                        pointer: 6,
                     ),
                     Binary(
                         op: Add,
-                        left: 120,
-                        right: 119,
+                        left: 117,
+                        right: 120,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(1),
                     Access(
-                        base: 122,
+                        base: 123,
                         index: 4,
                     ),
                     ImageQuery(
-                        image: 123,
+                        image: 124,
                         query: NumLevels,
-                    ),
-                    Load(
-                        pointer: 6,
                     ),
                     Binary(
                         op: Add,
-                        left: 125,
-                        right: 124,
+                        left: 122,
+                        right: 125,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(3),
                     AccessIndex(
-                        base: 127,
+                        base: 128,
                         index: 0,
                     ),
                     ImageQuery(
-                        image: 128,
+                        image: 129,
                         query: NumSamples,
-                    ),
-                    Load(
-                        pointer: 6,
                     ),
                     Binary(
                         op: Add,
-                        left: 130,
-                        right: 129,
+                        left: 127,
+                        right: 130,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(3),
                     Access(
-                        base: 132,
+                        base: 133,
                         index: 3,
                     ),
                     ImageQuery(
-                        image: 133,
+                        image: 134,
                         query: NumSamples,
-                    ),
-                    Load(
-                        pointer: 6,
                     ),
                     Binary(
                         op: Add,
-                        left: 135,
-                        right: 134,
+                        left: 132,
+                        right: 135,
+                    ),
+                    Load(
+                        pointer: 6,
                     ),
                     GlobalVariable(3),
                     Access(
-                        base: 137,
+                        base: 138,
                         index: 4,
                     ),
                     ImageQuery(
-                        image: 138,
+                        image: 139,
                         query: NumSamples,
                     ),
-                    Load(
-                        pointer: 6,
-                    ),
                     Binary(
                         op: Add,
-                        left: 140,
-                        right: 139,
+                        left: 137,
+                        right: 140,
+                    ),
+                    Load(
+                        pointer: 14,
                     ),
                     GlobalVariable(1),
                     AccessIndex(
-                        base: 142,
+                        base: 143,
                         index: 0,
                     ),
                     GlobalVariable(6),
                     AccessIndex(
-                        base: 144,
+                        base: 145,
                         index: 0,
                     ),
                     ImageSample(
-                        image: 143,
-                        sampler: 145,
+                        image: 144,
+                        sampler: 146,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
@@ -854,27 +866,27 @@
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
+                    Binary(
+                        op: Add,
+                        left: 142,
+                        right: 147,
+                    ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 147,
-                        right: 146,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 149,
+                        base: 150,
                         index: 3,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 151,
+                        base: 152,
                         index: 3,
                     ),
                     ImageSample(
-                        image: 150,
-                        sampler: 152,
+                        image: 151,
+                        sampler: 153,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
@@ -883,27 +895,27 @@
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
+                    Binary(
+                        op: Add,
+                        left: 149,
+                        right: 154,
+                    ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 154,
-                        right: 153,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 156,
+                        base: 157,
                         index: 4,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 158,
+                        base: 159,
                         index: 4,
                     ),
                     ImageSample(
-                        image: 157,
-                        sampler: 159,
+                        image: 158,
+                        sampler: 160,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
@@ -912,297 +924,297 @@
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
+                    Binary(
+                        op: Add,
+                        left: 156,
+                        right: 161,
+                    ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 161,
-                        right: 160,
-                    ),
                     GlobalVariable(1),
                     AccessIndex(
-                        base: 163,
+                        base: 164,
                         index: 0,
                     ),
                     GlobalVariable(6),
                     AccessIndex(
-                        base: 165,
+                        base: 166,
                         index: 0,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 164,
-                        sampler: 166,
+                        image: 165,
+                        sampler: 167,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
-                        level: Bias(167),
+                        level: Bias(168),
                         depth_ref: None,
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 163,
+                        right: 169,
                     ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 169,
-                        right: 168,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 171,
+                        base: 172,
                         index: 3,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 173,
+                        base: 174,
                         index: 3,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 172,
-                        sampler: 174,
+                        image: 173,
+                        sampler: 175,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
-                        level: Bias(175),
+                        level: Bias(176),
                         depth_ref: None,
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 171,
+                        right: 177,
                     ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 177,
-                        right: 176,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 179,
+                        base: 180,
                         index: 4,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 181,
+                        base: 182,
                         index: 4,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 180,
-                        sampler: 182,
+                        image: 181,
+                        sampler: 183,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
-                        level: Bias(183),
+                        level: Bias(184),
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
-                    Load(
-                        pointer: 14,
-                    ),
                     Binary(
                         op: Add,
-                        left: 185,
-                        right: 184,
-                    ),
-                    GlobalVariable(4),
-                    AccessIndex(
-                        base: 187,
-                        index: 0,
-                    ),
-                    GlobalVariable(7),
-                    AccessIndex(
-                        base: 189,
-                        index: 0,
-                    ),
-                    Literal(F32(0.0)),
-                    ImageSample(
-                        image: 188,
-                        sampler: 190,
-                        gather: None,
-                        coordinate: 16,
-                        array_index: None,
-                        offset: None,
-                        level: Auto,
-                        depth_ref: Some(191),
-                        clamp_to_edge: false,
+                        left: 179,
+                        right: 185,
                     ),
                     Load(
                         pointer: 11,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 193,
-                        right: 192,
-                    ),
                     GlobalVariable(4),
-                    Access(
-                        base: 195,
-                        index: 3,
+                    AccessIndex(
+                        base: 188,
+                        index: 0,
                     ),
                     GlobalVariable(7),
-                    Access(
-                        base: 197,
-                        index: 3,
+                    AccessIndex(
+                        base: 190,
+                        index: 0,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 196,
-                        sampler: 198,
+                        image: 189,
+                        sampler: 191,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
                         level: Auto,
-                        depth_ref: Some(199),
+                        depth_ref: Some(192),
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 187,
+                        right: 193,
                     ),
                     Load(
                         pointer: 11,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 201,
-                        right: 200,
-                    ),
                     GlobalVariable(4),
                     Access(
-                        base: 203,
-                        index: 4,
+                        base: 196,
+                        index: 3,
                     ),
                     GlobalVariable(7),
                     Access(
-                        base: 205,
-                        index: 4,
+                        base: 198,
+                        index: 3,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 204,
-                        sampler: 206,
+                        image: 197,
+                        sampler: 199,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
                         level: Auto,
-                        depth_ref: Some(207),
+                        depth_ref: Some(200),
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 195,
+                        right: 201,
                     ),
                     Load(
                         pointer: 11,
                     ),
+                    GlobalVariable(4),
+                    Access(
+                        base: 204,
+                        index: 4,
+                    ),
+                    GlobalVariable(7),
+                    Access(
+                        base: 206,
+                        index: 4,
+                    ),
+                    Literal(F32(0.0)),
+                    ImageSample(
+                        image: 205,
+                        sampler: 207,
+                        gather: None,
+                        coordinate: 16,
+                        array_index: None,
+                        offset: None,
+                        level: Auto,
+                        depth_ref: Some(208),
+                        clamp_to_edge: false,
+                    ),
                     Binary(
                         op: Add,
-                        left: 209,
-                        right: 208,
+                        left: 203,
+                        right: 209,
+                    ),
+                    Load(
+                        pointer: 11,
                     ),
                     GlobalVariable(4),
                     AccessIndex(
-                        base: 211,
+                        base: 212,
                         index: 0,
                     ),
                     GlobalVariable(7),
                     AccessIndex(
-                        base: 213,
+                        base: 214,
                         index: 0,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 212,
-                        sampler: 214,
+                        image: 213,
+                        sampler: 215,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
                         level: Zero,
-                        depth_ref: Some(215),
+                        depth_ref: Some(216),
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 211,
+                        right: 217,
                     ),
                     Load(
                         pointer: 11,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 217,
-                        right: 216,
-                    ),
                     GlobalVariable(4),
                     Access(
-                        base: 219,
+                        base: 220,
                         index: 3,
                     ),
                     GlobalVariable(7),
                     Access(
-                        base: 221,
+                        base: 222,
                         index: 3,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 220,
-                        sampler: 222,
+                        image: 221,
+                        sampler: 223,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
                         level: Zero,
-                        depth_ref: Some(223),
+                        depth_ref: Some(224),
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 219,
+                        right: 225,
                     ),
                     Load(
                         pointer: 11,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 225,
-                        right: 224,
-                    ),
                     GlobalVariable(4),
                     Access(
-                        base: 227,
+                        base: 228,
                         index: 4,
                     ),
                     GlobalVariable(7),
                     Access(
-                        base: 229,
+                        base: 230,
                         index: 4,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 228,
-                        sampler: 230,
+                        image: 229,
+                        sampler: 231,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
                         level: Zero,
-                        depth_ref: Some(231),
+                        depth_ref: Some(232),
                         clamp_to_edge: false,
-                    ),
-                    Load(
-                        pointer: 11,
                     ),
                     Binary(
                         op: Add,
-                        left: 233,
-                        right: 232,
+                        left: 227,
+                        right: 233,
+                    ),
+                    Load(
+                        pointer: 14,
                     ),
                     GlobalVariable(1),
                     AccessIndex(
-                        base: 235,
+                        base: 236,
                         index: 0,
                     ),
                     GlobalVariable(6),
                     AccessIndex(
-                        base: 237,
+                        base: 238,
                         index: 0,
                     ),
                     ImageSample(
-                        image: 236,
-                        sampler: 238,
+                        image: 237,
+                        sampler: 239,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
@@ -1214,27 +1226,27 @@
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
+                    Binary(
+                        op: Add,
+                        left: 235,
+                        right: 240,
+                    ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 240,
-                        right: 239,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 242,
+                        base: 243,
                         index: 3,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 244,
+                        base: 245,
                         index: 3,
                     ),
                     ImageSample(
-                        image: 243,
-                        sampler: 245,
+                        image: 244,
+                        sampler: 246,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
@@ -1246,27 +1258,27 @@
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
+                    Binary(
+                        op: Add,
+                        left: 242,
+                        right: 247,
+                    ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 247,
-                        right: 246,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 249,
+                        base: 250,
                         index: 4,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 251,
+                        base: 252,
                         index: 4,
                     ),
                     ImageSample(
-                        image: 250,
-                        sampler: 252,
+                        image: 251,
+                        sampler: 253,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
@@ -1278,103 +1290,100 @@
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
+                    Binary(
+                        op: Add,
+                        left: 249,
+                        right: 254,
+                    ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 254,
-                        right: 253,
-                    ),
                     GlobalVariable(1),
                     AccessIndex(
-                        base: 256,
+                        base: 257,
                         index: 0,
                     ),
                     GlobalVariable(6),
                     AccessIndex(
-                        base: 258,
+                        base: 259,
                         index: 0,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 257,
-                        sampler: 259,
+                        image: 258,
+                        sampler: 260,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
-                        level: Exact(260),
+                        level: Exact(261),
                         depth_ref: None,
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 256,
+                        right: 262,
                     ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 262,
-                        right: 261,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 264,
+                        base: 265,
                         index: 3,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 266,
+                        base: 267,
                         index: 3,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 265,
-                        sampler: 267,
+                        image: 266,
+                        sampler: 268,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
-                        level: Exact(268),
+                        level: Exact(269),
                         depth_ref: None,
                         clamp_to_edge: false,
+                    ),
+                    Binary(
+                        op: Add,
+                        left: 264,
+                        right: 270,
                     ),
                     Load(
                         pointer: 14,
                     ),
-                    Binary(
-                        op: Add,
-                        left: 270,
-                        right: 269,
-                    ),
                     GlobalVariable(1),
                     Access(
-                        base: 272,
+                        base: 273,
                         index: 4,
                     ),
                     GlobalVariable(6),
                     Access(
-                        base: 274,
+                        base: 275,
                         index: 4,
                     ),
                     Literal(F32(0.0)),
                     ImageSample(
-                        image: 273,
-                        sampler: 275,
+                        image: 274,
+                        sampler: 276,
                         gather: None,
                         coordinate: 16,
                         array_index: None,
                         offset: None,
-                        level: Exact(276),
+                        level: Exact(277),
                         depth_ref: None,
                         clamp_to_edge: false,
                     ),
-                    Load(
-                        pointer: 14,
-                    ),
                     Binary(
                         op: Add,
-                        left: 278,
-                        right: 277,
+                        left: 272,
+                        right: 278,
                     ),
                     GlobalVariable(5),
                     AccessIndex(
@@ -1500,7 +1509,11 @@
                         end: 19,
                     )),
                     Emit((
-                        start: 20,
+                        start: 19,
+                        end: 20,
+                    )),
+                    Emit((
+                        start: 21,
                         end: 24,
                     )),
                     Store(
@@ -1508,7 +1521,11 @@
                         value: 23,
                     ),
                     Emit((
-                        start: 25,
+                        start: 24,
+                        end: 25,
+                    )),
+                    Emit((
+                        start: 26,
                         end: 29,
                     )),
                     Store(
@@ -1516,7 +1533,11 @@
                         value: 28,
                     ),
                     Emit((
-                        start: 30,
+                        start: 29,
+                        end: 30,
+                    )),
+                    Emit((
+                        start: 31,
                         end: 34,
                     )),
                     Store(
@@ -1524,11 +1545,15 @@
                         value: 33,
                     ),
                     Emit((
-                        start: 35,
-                        end: 36,
+                        start: 34,
+                        end: 35,
                     )),
                     Emit((
-                        start: 37,
+                        start: 36,
+                        end: 37,
+                    )),
+                    Emit((
+                        start: 38,
                         end: 41,
                     )),
                     Store(
@@ -1536,11 +1561,15 @@
                         value: 40,
                     ),
                     Emit((
-                        start: 42,
-                        end: 43,
+                        start: 41,
+                        end: 42,
                     )),
                     Emit((
-                        start: 44,
+                        start: 43,
+                        end: 44,
+                    )),
+                    Emit((
+                        start: 45,
                         end: 48,
                     )),
                     Store(
@@ -1548,11 +1577,15 @@
                         value: 47,
                     ),
                     Emit((
-                        start: 49,
-                        end: 50,
+                        start: 48,
+                        end: 49,
                     )),
                     Emit((
-                        start: 51,
+                        start: 50,
+                        end: 51,
+                    )),
+                    Emit((
+                        start: 52,
                         end: 55,
                     )),
                     Store(
@@ -1560,15 +1593,19 @@
                         value: 54,
                     ),
                     Emit((
-                        start: 56,
-                        end: 57,
+                        start: 55,
+                        end: 56,
                     )),
                     Emit((
-                        start: 58,
-                        end: 59,
+                        start: 57,
+                        end: 58,
                     )),
                     Emit((
-                        start: 60,
+                        start: 59,
+                        end: 60,
+                    )),
+                    Emit((
+                        start: 61,
                         end: 63,
                     )),
                     Store(
@@ -1576,15 +1613,19 @@
                         value: 62,
                     ),
                     Emit((
-                        start: 64,
-                        end: 65,
+                        start: 63,
+                        end: 64,
                     )),
                     Emit((
-                        start: 66,
-                        end: 67,
+                        start: 65,
+                        end: 66,
                     )),
                     Emit((
-                        start: 68,
+                        start: 67,
+                        end: 68,
+                    )),
+                    Emit((
+                        start: 69,
                         end: 71,
                     )),
                     Store(
@@ -1592,15 +1633,19 @@
                         value: 70,
                     ),
                     Emit((
-                        start: 72,
-                        end: 73,
+                        start: 71,
+                        end: 72,
                     )),
                     Emit((
-                        start: 74,
-                        end: 75,
+                        start: 73,
+                        end: 74,
                     )),
                     Emit((
-                        start: 76,
+                        start: 75,
+                        end: 76,
+                    )),
+                    Emit((
+                        start: 77,
                         end: 79,
                     )),
                     Store(
@@ -1608,11 +1653,15 @@
                         value: 78,
                     ),
                     Emit((
-                        start: 80,
-                        end: 81,
+                        start: 79,
+                        end: 80,
                     )),
                     Emit((
-                        start: 82,
+                        start: 81,
+                        end: 82,
+                    )),
+                    Emit((
+                        start: 83,
                         end: 85,
                     )),
                     Store(
@@ -1620,11 +1669,15 @@
                         value: 84,
                     ),
                     Emit((
-                        start: 86,
-                        end: 87,
+                        start: 85,
+                        end: 86,
                     )),
                     Emit((
-                        start: 88,
+                        start: 87,
+                        end: 88,
+                    )),
+                    Emit((
+                        start: 89,
                         end: 91,
                     )),
                     Store(
@@ -1632,11 +1685,15 @@
                         value: 90,
                     ),
                     Emit((
-                        start: 92,
-                        end: 93,
+                        start: 91,
+                        end: 92,
                     )),
                     Emit((
-                        start: 94,
+                        start: 93,
+                        end: 94,
+                    )),
+                    Emit((
+                        start: 95,
                         end: 97,
                     )),
                     Store(
@@ -1644,7 +1701,11 @@
                         value: 96,
                     ),
                     Emit((
-                        start: 98,
+                        start: 97,
+                        end: 98,
+                    )),
+                    Emit((
+                        start: 99,
                         end: 102,
                     )),
                     Store(
@@ -1652,7 +1713,11 @@
                         value: 101,
                     ),
                     Emit((
-                        start: 103,
+                        start: 102,
+                        end: 103,
+                    )),
+                    Emit((
+                        start: 104,
                         end: 107,
                     )),
                     Store(
@@ -1660,7 +1725,11 @@
                         value: 106,
                     ),
                     Emit((
-                        start: 108,
+                        start: 107,
+                        end: 108,
+                    )),
+                    Emit((
+                        start: 109,
                         end: 112,
                     )),
                     Store(
@@ -1668,7 +1737,11 @@
                         value: 111,
                     ),
                     Emit((
-                        start: 113,
+                        start: 112,
+                        end: 113,
+                    )),
+                    Emit((
+                        start: 114,
                         end: 117,
                     )),
                     Store(
@@ -1676,7 +1749,11 @@
                         value: 116,
                     ),
                     Emit((
-                        start: 118,
+                        start: 117,
+                        end: 118,
+                    )),
+                    Emit((
+                        start: 119,
                         end: 122,
                     )),
                     Store(
@@ -1684,7 +1761,11 @@
                         value: 121,
                     ),
                     Emit((
-                        start: 123,
+                        start: 122,
+                        end: 123,
+                    )),
+                    Emit((
+                        start: 124,
                         end: 127,
                     )),
                     Store(
@@ -1692,7 +1773,11 @@
                         value: 126,
                     ),
                     Emit((
-                        start: 128,
+                        start: 127,
+                        end: 128,
+                    )),
+                    Emit((
+                        start: 129,
                         end: 132,
                     )),
                     Store(
@@ -1700,7 +1785,11 @@
                         value: 131,
                     ),
                     Emit((
-                        start: 133,
+                        start: 132,
+                        end: 133,
+                    )),
+                    Emit((
+                        start: 134,
                         end: 137,
                     )),
                     Store(
@@ -1708,7 +1797,11 @@
                         value: 136,
                     ),
                     Emit((
-                        start: 138,
+                        start: 137,
+                        end: 138,
+                    )),
+                    Emit((
+                        start: 139,
                         end: 142,
                     )),
                     Store(
@@ -1716,11 +1809,15 @@
                         value: 141,
                     ),
                     Emit((
-                        start: 143,
-                        end: 144,
+                        start: 142,
+                        end: 143,
                     )),
                     Emit((
-                        start: 145,
+                        start: 144,
+                        end: 145,
+                    )),
+                    Emit((
+                        start: 146,
                         end: 149,
                     )),
                     Store(
@@ -1728,11 +1825,15 @@
                         value: 148,
                     ),
                     Emit((
-                        start: 150,
-                        end: 151,
+                        start: 149,
+                        end: 150,
                     )),
                     Emit((
-                        start: 152,
+                        start: 151,
+                        end: 152,
+                    )),
+                    Emit((
+                        start: 153,
                         end: 156,
                     )),
                     Store(
@@ -1740,11 +1841,15 @@
                         value: 155,
                     ),
                     Emit((
-                        start: 157,
-                        end: 158,
+                        start: 156,
+                        end: 157,
                     )),
                     Emit((
-                        start: 159,
+                        start: 158,
+                        end: 159,
+                    )),
+                    Emit((
+                        start: 160,
                         end: 163,
                     )),
                     Store(
@@ -1752,15 +1857,19 @@
                         value: 162,
                     ),
                     Emit((
-                        start: 164,
-                        end: 165,
+                        start: 163,
+                        end: 164,
                     )),
                     Emit((
-                        start: 166,
-                        end: 167,
+                        start: 165,
+                        end: 166,
                     )),
                     Emit((
-                        start: 168,
+                        start: 167,
+                        end: 168,
+                    )),
+                    Emit((
+                        start: 169,
                         end: 171,
                     )),
                     Store(
@@ -1768,15 +1877,19 @@
                         value: 170,
                     ),
                     Emit((
-                        start: 172,
-                        end: 173,
+                        start: 171,
+                        end: 172,
                     )),
                     Emit((
-                        start: 174,
-                        end: 175,
+                        start: 173,
+                        end: 174,
                     )),
                     Emit((
-                        start: 176,
+                        start: 175,
+                        end: 176,
+                    )),
+                    Emit((
+                        start: 177,
                         end: 179,
                     )),
                     Store(
@@ -1784,15 +1897,19 @@
                         value: 178,
                     ),
                     Emit((
-                        start: 180,
-                        end: 181,
+                        start: 179,
+                        end: 180,
                     )),
                     Emit((
-                        start: 182,
-                        end: 183,
+                        start: 181,
+                        end: 182,
                     )),
                     Emit((
-                        start: 184,
+                        start: 183,
+                        end: 184,
+                    )),
+                    Emit((
+                        start: 185,
                         end: 187,
                     )),
                     Store(
@@ -1800,15 +1917,19 @@
                         value: 186,
                     ),
                     Emit((
-                        start: 188,
-                        end: 189,
+                        start: 187,
+                        end: 188,
                     )),
                     Emit((
-                        start: 190,
-                        end: 191,
+                        start: 189,
+                        end: 190,
                     )),
                     Emit((
-                        start: 192,
+                        start: 191,
+                        end: 192,
+                    )),
+                    Emit((
+                        start: 193,
                         end: 195,
                     )),
                     Store(
@@ -1816,15 +1937,19 @@
                         value: 194,
                     ),
                     Emit((
-                        start: 196,
-                        end: 197,
+                        start: 195,
+                        end: 196,
                     )),
                     Emit((
-                        start: 198,
-                        end: 199,
+                        start: 197,
+                        end: 198,
                     )),
                     Emit((
-                        start: 200,
+                        start: 199,
+                        end: 200,
+                    )),
+                    Emit((
+                        start: 201,
                         end: 203,
                     )),
                     Store(
@@ -1832,15 +1957,19 @@
                         value: 202,
                     ),
                     Emit((
-                        start: 204,
-                        end: 205,
+                        start: 203,
+                        end: 204,
                     )),
                     Emit((
-                        start: 206,
-                        end: 207,
+                        start: 205,
+                        end: 206,
                     )),
                     Emit((
-                        start: 208,
+                        start: 207,
+                        end: 208,
+                    )),
+                    Emit((
+                        start: 209,
                         end: 211,
                     )),
                     Store(
@@ -1848,15 +1977,19 @@
                         value: 210,
                     ),
                     Emit((
-                        start: 212,
-                        end: 213,
+                        start: 211,
+                        end: 212,
                     )),
                     Emit((
-                        start: 214,
-                        end: 215,
+                        start: 213,
+                        end: 214,
                     )),
                     Emit((
-                        start: 216,
+                        start: 215,
+                        end: 216,
+                    )),
+                    Emit((
+                        start: 217,
                         end: 219,
                     )),
                     Store(
@@ -1864,15 +1997,19 @@
                         value: 218,
                     ),
                     Emit((
-                        start: 220,
-                        end: 221,
+                        start: 219,
+                        end: 220,
                     )),
                     Emit((
-                        start: 222,
-                        end: 223,
+                        start: 221,
+                        end: 222,
                     )),
                     Emit((
-                        start: 224,
+                        start: 223,
+                        end: 224,
+                    )),
+                    Emit((
+                        start: 225,
                         end: 227,
                     )),
                     Store(
@@ -1880,15 +2017,19 @@
                         value: 226,
                     ),
                     Emit((
-                        start: 228,
-                        end: 229,
+                        start: 227,
+                        end: 228,
                     )),
                     Emit((
-                        start: 230,
-                        end: 231,
+                        start: 229,
+                        end: 230,
                     )),
                     Emit((
-                        start: 232,
+                        start: 231,
+                        end: 232,
+                    )),
+                    Emit((
+                        start: 233,
                         end: 235,
                     )),
                     Store(
@@ -1896,11 +2037,15 @@
                         value: 234,
                     ),
                     Emit((
-                        start: 236,
-                        end: 237,
+                        start: 235,
+                        end: 236,
                     )),
                     Emit((
-                        start: 238,
+                        start: 237,
+                        end: 238,
+                    )),
+                    Emit((
+                        start: 239,
                         end: 242,
                     )),
                     Store(
@@ -1908,11 +2053,15 @@
                         value: 241,
                     ),
                     Emit((
-                        start: 243,
-                        end: 244,
+                        start: 242,
+                        end: 243,
                     )),
                     Emit((
-                        start: 245,
+                        start: 244,
+                        end: 245,
+                    )),
+                    Emit((
+                        start: 246,
                         end: 249,
                     )),
                     Store(
@@ -1920,11 +2069,15 @@
                         value: 248,
                     ),
                     Emit((
-                        start: 250,
-                        end: 251,
+                        start: 249,
+                        end: 250,
                     )),
                     Emit((
-                        start: 252,
+                        start: 251,
+                        end: 252,
+                    )),
+                    Emit((
+                        start: 253,
                         end: 256,
                     )),
                     Store(
@@ -1932,15 +2085,19 @@
                         value: 255,
                     ),
                     Emit((
-                        start: 257,
-                        end: 258,
+                        start: 256,
+                        end: 257,
                     )),
                     Emit((
-                        start: 259,
-                        end: 260,
+                        start: 258,
+                        end: 259,
                     )),
                     Emit((
-                        start: 261,
+                        start: 260,
+                        end: 261,
+                    )),
+                    Emit((
+                        start: 262,
                         end: 264,
                     )),
                     Store(
@@ -1948,15 +2105,19 @@
                         value: 263,
                     ),
                     Emit((
-                        start: 265,
-                        end: 266,
+                        start: 264,
+                        end: 265,
                     )),
                     Emit((
-                        start: 267,
-                        end: 268,
+                        start: 266,
+                        end: 267,
                     )),
                     Emit((
-                        start: 269,
+                        start: 268,
+                        end: 269,
+                    )),
+                    Emit((
+                        start: 270,
                         end: 272,
                     )),
                     Store(
@@ -1964,15 +2125,19 @@
                         value: 271,
                     ),
                     Emit((
-                        start: 273,
-                        end: 274,
+                        start: 272,
+                        end: 273,
                     )),
                     Emit((
-                        start: 275,
-                        end: 276,
+                        start: 274,
+                        end: 275,
                     )),
                     Emit((
-                        start: 277,
+                        start: 276,
+                        end: 277,
+                    )),
+                    Emit((
+                        start: 278,
                         end: 280,
                     )),
                     Store(
@@ -2025,6 +2190,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

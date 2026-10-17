@@ -1,0 +1,228 @@
+(
+    types: [
+        (
+            name: None,
+            inner: Matrix(
+                columns: Bi,
+                rows: Bi,
+                scalar: (
+                    kind: Float,
+                    width: 4,
+                ),
+            ),
+        ),
+        (
+            name: None,
+            inner: Scalar((
+                kind: Uint,
+                width: 4,
+            )),
+        ),
+        (
+            name: Some("TestS"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("test_m"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                ],
+                span: 4,
+            ),
+        ),
+        (
+            name: Some("TestT"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("test_m"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("test_m2"),
+                        ty: 1,
+                        binding: None,
+                        offset: 4,
+                    ),
+                ],
+                span: 8,
+            ),
+        ),
+        (
+            name: Some("TestU"),
+            inner: Struct(
+                members: [
+                    (
+                        name: Some("test_m"),
+                        ty: 1,
+                        binding: None,
+                        offset: 0,
+                    ),
+                    (
+                        name: Some("test_m2"),
+                        ty: 1,
+                        binding: None,
+                        offset: 4,
+                    ),
+                    (
+                        name: Some("test_m3"),
+                        ty: 1,
+                        binding: None,
+                        offset: 8,
+                    ),
+                ],
+                span: 12,
+            ),
+        ),
+    ],
+    special_types: (
+        ray_desc: None,
+        ray_intersection: None,
+        ray_vertex_return: None,
+        external_texture_params: None,
+        external_texture_transfer_function: None,
+        predeclared_types: {},
+    ),
+    constants: [
+        (
+            name: Some("test_c"),
+            ty: 1,
+            init: 0,
+        ),
+    ],
+    overrides: [],
+    global_variables: [
+        (
+            name: Some("w_mem2"),
+            space: WorkGroup,
+            binding: None,
+            ty: 0,
+            init: None,
+            memory_decorations: (""),
+        ),
+    ],
+    global_expressions: [
+        Literal(U32(1)),
+    ],
+    functions: [
+        (
+            name: Some("test_g"),
+            arguments: [],
+            result: None,
+            local_variables: [],
+            expressions: [],
+            named_expressions: {},
+            body: [
+                Return(
+                    value: None,
+                ),
+            ],
+            diagnostic_filter_leaf: None,
+        ),
+    ],
+    entry_points: [
+        (
+            name: "test_ep",
+            stage: Compute,
+            early_depth_test: None,
+            workgroup_size: (1, 1, 1),
+            workgroup_size_overrides: None,
+            function: (
+                name: Some("test_ep"),
+                arguments: [],
+                result: None,
+                local_variables: [],
+                expressions: [
+                    GlobalVariable(0),
+                    Load(
+                        pointer: 0,
+                    ),
+                    ZeroValue(2),
+                    ZeroValue(3),
+                    ZeroValue(4),
+                ],
+                named_expressions: {
+                    1: "phony",
+                    2: "phony",
+                    3: "phony",
+                    4: "phony",
+                },
+                body: [
+                    Emit((
+                        start: 1,
+                        end: 2,
+                    )),
+                    Call(
+                        function: 0,
+                        arguments: [],
+                        result: None,
+                    ),
+                    Return(
+                        value: None,
+                    ),
+                ],
+                diagnostic_filter_leaf: None,
+            ),
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
+        ),
+    ],
+    diagnostic_filters: [],
+    diagnostic_filter_leaf: None,
+    doc_comments: Some((
+        types: {
+            2: [
+                "/// struct S doc comment",
+            ],
+            3: [
+                "/// struct with undocumented member before documented member",
+            ],
+            4: [
+                "/// struct with undocumented member between documented members",
+            ],
+        },
+        struct_members: {
+            (2, 0): [
+                "/// member doc comment",
+            ],
+            (3, 1): [
+                "/// 2nd member doc comment",
+            ],
+            (4, 0): [
+                "/// 1st member doc comment",
+            ],
+            (4, 2): [
+                "/// 3rd member doc comment",
+            ],
+        },
+        entry_points: {
+            0: [
+                "/// entry point doc comment",
+            ],
+        },
+        functions: {
+            0: [
+                "/// function g doc comment",
+            ],
+        },
+        constants: {
+            0: [
+                "/// constant doc comment",
+            ],
+        },
+        global_variables: {
+            0: [
+                "/// workgroup var 2 doc comment",
+            ],
+        },
+        module: [
+            "//! Module doc comment.",
+            "//! 2nd line of module doc comment.",
+        ],
+    )),
+)

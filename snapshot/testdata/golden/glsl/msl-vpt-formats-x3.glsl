@@ -44,6 +44,10 @@ struct VertexInput {
     ivec3 v_sint32x4_;
     vec3 v_unorm10_10_10_2_;
     vec3 v_unorm8x4_bgra;
+    vec3 v_float16_as_f16_;
+    vec3 v_float16x2_as_f16_;
+    vec3 v_float16x4_as_f16_;
+    vec3 v_snorm10_10_10_2_;
 };
 layout(location = 0) in uvec3 _p2vs_location0;
 layout(location = 1) in uvec3 _p2vs_location1;
@@ -86,10 +90,14 @@ layout(location = 37) in ivec3 _p2vs_location37;
 layout(location = 38) in ivec3 _p2vs_location38;
 layout(location = 39) in vec3 _p2vs_location39;
 layout(location = 40) in vec3 _p2vs_location40;
+layout(location = 41) in vec3 _p2vs_location41;
+layout(location = 42) in vec3 _p2vs_location42;
+layout(location = 43) in vec3 _p2vs_location43;
+layout(location = 44) in vec3 _p2vs_location44;
 
 void main() {
-    VertexInput v_in = VertexInput(_p2vs_location0, _p2vs_location1, _p2vs_location2, _p2vs_location3, _p2vs_location4, _p2vs_location5, _p2vs_location6, _p2vs_location7, _p2vs_location8, _p2vs_location9, _p2vs_location10, _p2vs_location11, _p2vs_location12, _p2vs_location13, _p2vs_location14, _p2vs_location15, _p2vs_location16, _p2vs_location17, _p2vs_location18, _p2vs_location19, _p2vs_location20, _p2vs_location21, _p2vs_location22, _p2vs_location23, _p2vs_location24, _p2vs_location25, _p2vs_location26, _p2vs_location27, _p2vs_location28, _p2vs_location29, _p2vs_location30, _p2vs_location31, _p2vs_location32, _p2vs_location33, _p2vs_location34, _p2vs_location35, _p2vs_location36, _p2vs_location37, _p2vs_location38, _p2vs_location39, _p2vs_location40);
-    VertexOutput _tmp_return = VertexOutput(vec4(float(v_in.v_uint8_.x)));
+    VertexInput v_in = VertexInput(_p2vs_location0, _p2vs_location1, _p2vs_location2, _p2vs_location3, _p2vs_location4, _p2vs_location5, _p2vs_location6, _p2vs_location7, _p2vs_location8, _p2vs_location9, _p2vs_location10, _p2vs_location11, _p2vs_location12, _p2vs_location13, _p2vs_location14, _p2vs_location15, _p2vs_location16, _p2vs_location17, _p2vs_location18, _p2vs_location19, _p2vs_location20, _p2vs_location21, _p2vs_location22, _p2vs_location23, _p2vs_location24, _p2vs_location25, _p2vs_location26, _p2vs_location27, _p2vs_location28, _p2vs_location29, _p2vs_location30, _p2vs_location31, _p2vs_location32, _p2vs_location33, _p2vs_location34, _p2vs_location35, _p2vs_location36, _p2vs_location37, _p2vs_location38, _p2vs_location39, _p2vs_location40, _p2vs_location41, _p2vs_location42, _p2vs_location43, _p2vs_location44);
+    VertexOutput _tmp_return = VertexOutput(vec4(v_in.v_float32_.x));
     gl_Position = _tmp_return.position;
     return;
 }

@@ -58,6 +58,7 @@
             )),
             ty: 0,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("t2"),
@@ -68,6 +69,7 @@
             )),
             ty: 0,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("s1"),
@@ -78,6 +80,7 @@
             )),
             ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("s2"),
@@ -88,6 +91,7 @@
             )),
             ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("uniformOne"),
@@ -98,6 +102,7 @@
             )),
             ty: 2,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("uniformTwo"),
@@ -108,6 +113,7 @@
             )),
             ty: 2,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -178,6 +184,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "entry_point_two",
@@ -232,6 +239,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "entry_point_three",
@@ -325,6 +333,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

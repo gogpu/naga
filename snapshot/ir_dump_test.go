@@ -40,7 +40,7 @@ func TestIRDump(t *testing.T) {
 	for _, shader := range shaders {
 		name := shader.name
 		t.Run(name, func(t *testing.T) {
-			dumpShaderIR(t, name)
+			dumpShaderIR(t, shader)
 		})
 
 		// Also build a combined dump (best-effort, skip failures)
@@ -97,19 +97,14 @@ func tryCompileToIR(source string) (*ir.Module, error) {
 
 // dumpShaderIR is the reusable core: parse a single WGSL shader by name and
 // dump the full ir.Module in a diffable text format.
-func dumpShaderIR(t *testing.T, shaderName string) {
+func dumpShaderIR(t *testing.T, shader shaderFile) {
 	t.Helper()
+	shaderName := shader.name
 
-	path, ok := shaderInputPath(shaderName)
+	module, ok := lowerCorpusShader(t, shader)
 	if !ok {
-		t.Fatalf("no corpus shader %q", shaderName)
+		return
 	}
-	src, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read shader %q: %v", shaderName, err)
-	}
-
-	module := compileToIR(t, shaderName, string(src))
 
 	var sb strings.Builder
 	dumpModule(&sb, module)

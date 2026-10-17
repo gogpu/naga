@@ -102,7 +102,7 @@
                         ty: 3,
                         binding: Some(Location(
                             location: 1,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -114,7 +114,7 @@
                         ty: 5,
                         binding: Some(Location(
                             location: 2,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -138,7 +138,7 @@
                         ty: 7,
                         binding: Some(Location(
                             location: 4,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -150,7 +150,7 @@
                         ty: 8,
                         binding: Some(Location(
                             location: 5,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -212,7 +212,7 @@
                         ty: 11,
                         binding: Some(Location(
                             location: 1,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -224,7 +224,7 @@
                         ty: 12,
                         binding: Some(Location(
                             location: 2,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -248,7 +248,7 @@
                         ty: 2,
                         binding: Some(Location(
                             location: 4,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -260,7 +260,7 @@
                         ty: 4,
                         binding: Some(Location(
                             location: 5,
-                            interpolation: Some(Flat),
+                            interpolation: None,
                             sampling: None,
                             blend_src: None,
                             per_primitive: false,
@@ -452,6 +452,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "main_vec2scalar",
@@ -595,6 +596,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

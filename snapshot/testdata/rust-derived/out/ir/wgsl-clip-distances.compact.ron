@@ -40,7 +40,7 @@
                     (
                         name: Some("clip_distances"),
                         ty: 2,
-                        binding: Some(BuiltIn(ClipDistance)),
+                        binding: Some(BuiltIn(ClipDistances)),
                         offset: 16,
                     ),
                 ],
@@ -123,6 +123,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

@@ -142,6 +142,7 @@
             )),
             ty: 4,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("r_texture"),
@@ -152,6 +153,7 @@
             )),
             ty: 8,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("r_sampler"),
@@ -162,6 +164,7 @@
             )),
             ty: 9,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -467,6 +470,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
         (
             name: "fs_main",
@@ -530,6 +534,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

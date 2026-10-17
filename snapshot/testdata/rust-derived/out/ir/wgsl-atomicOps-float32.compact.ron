@@ -2,6 +2,13 @@
     types: [
         (
             name: None,
+            inner: Scalar((
+                kind: Float,
+                width: 4,
+            )),
+        ),
+        (
+            name: None,
             inner: Atomic((
                 kind: Float,
                 width: 4,
@@ -10,7 +17,7 @@
         (
             name: None,
             inner: Array(
-                base: 0,
+                base: 1,
                 size: Constant(2),
                 stride: 4,
             ),
@@ -21,13 +28,13 @@
                 members: [
                     (
                         name: Some("atomic_scalar"),
-                        ty: 0,
+                        ty: 1,
                         binding: None,
                         offset: 0,
                     ),
                     (
                         name: Some("atomic_arr"),
-                        ty: 1,
+                        ty: 2,
                         binding: None,
                         offset: 4,
                     ),
@@ -44,13 +51,6 @@
                     width: 4,
                 ),
             ),
-        ),
-        (
-            name: None,
-            inner: Scalar((
-                kind: Float,
-                width: 4,
-            )),
         ),
     ],
     special_types: (
@@ -73,8 +73,9 @@
                 group: 0,
                 binding: 0,
             )),
-            ty: 0,
+            ty: 1,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("storage_atomic_arr"),
@@ -85,8 +86,9 @@
                 group: 0,
                 binding: 1,
             )),
-            ty: 1,
+            ty: 2,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("storage_struct"),
@@ -97,8 +99,9 @@
                 group: 0,
                 binding: 2,
             )),
-            ty: 2,
+            ty: 3,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [],
@@ -115,7 +118,7 @@
                 arguments: [
                     (
                         name: Some("id"),
-                        ty: 3,
+                        ty: 4,
                         binding: Some(BuiltIn(LocalInvocationId)),
                     ),
                 ],
@@ -182,7 +185,7 @@
                     GlobalVariable(0),
                     Literal(F32(1.5)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -192,7 +195,7 @@
                     ),
                     Literal(F32(1.5)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -202,7 +205,7 @@
                     ),
                     Literal(F32(1.5)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -216,13 +219,13 @@
                     ),
                     Literal(F32(1.5)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(0),
                     Literal(F32(1.5)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(1),
@@ -232,7 +235,7 @@
                     ),
                     Literal(F32(1.5)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -242,7 +245,7 @@
                     ),
                     Literal(F32(1.5)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                     GlobalVariable(2),
@@ -256,7 +259,7 @@
                     ),
                     Literal(F32(1.5)),
                     AtomicResult(
-                        ty: 4,
+                        ty: 0,
                         comparison: false,
                     ),
                 ],
@@ -419,6 +422,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],

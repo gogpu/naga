@@ -202,6 +202,7 @@
             binding: None,
             ty: 2,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("at"),
@@ -209,6 +210,7 @@
             binding: None,
             ty: 3,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("alignment"),
@@ -221,6 +223,7 @@
             )),
             ty: 5,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("dummy"),
@@ -233,6 +236,7 @@
             )),
             ty: 7,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("float_vecs"),
@@ -243,6 +247,7 @@
             )),
             ty: 9,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("global_vec"),
@@ -253,6 +258,7 @@
             )),
             ty: 4,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("global_mat"),
@@ -263,6 +269,7 @@
             )),
             ty: 10,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("global_nested_arrays_of_matrices_2x4"),
@@ -273,6 +280,7 @@
             )),
             ty: 13,
             init: None,
+            memory_decorations: (""),
         ),
         (
             name: Some("global_nested_arrays_of_matrices_4x2"),
@@ -283,6 +291,7 @@
             )),
             ty: 16,
             init: None,
+            memory_decorations: (""),
         ),
     ],
     global_expressions: [
@@ -846,6 +855,7 @@
             ),
             mesh_info: None,
             task_payload: None,
+            incoming_ray_payload: None,
         ),
     ],
     diagnostic_filters: [],
