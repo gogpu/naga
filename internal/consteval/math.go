@@ -25,6 +25,9 @@ func Math(fun ir.MathFunction, args ...Value) (Value, error) {
 	if f, ok := floatFuncs[fun]; ok {
 		return componentWise(args, f.apply)
 	}
+	if f, ok := bitFuncs[fun]; ok {
+		return f(args)
+	}
 	switch fun {
 	case ir.MathAbs:
 		return componentWise(args, absLane)

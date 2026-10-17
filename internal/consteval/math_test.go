@@ -20,9 +20,9 @@ func f32v(xs ...float32) Value {
 	return Vector(out...)
 }
 
-func af(x float64) Value { return Scalar(afloat(x)) }
+func af(x float64) Value   { return Scalar(afloat(x)) }
 func f32s(x float32) Value { return Scalar(ir.LiteralF32(x)) }
-func i32s(x int32) Value  { return Scalar(ir.LiteralI32(x)) }
+func i32s(x int32) Value   { return Scalar(ir.LiteralI32(x)) }
 
 type mathCase struct {
 	name string
