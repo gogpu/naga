@@ -6,27 +6,36 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-// constant evaluates a reference to a module constant. In the module arena
-// the constant's initializer is the value (Rust "sees through" it); a
-// function arena gets a copy of the initializer.
-func (e *Evaluator) constant(c ir.ConstantHandle) (ir.ExpressionHandle, error) {
-	if int(c) >= len(e.Module.Constants) {
+// checkAndGet returns an operand handle to place inside a new expression
+// (Rust check_and_get): a reference to a module constant is its initializer
+// in the module arena ("see through") and a copy of the initializer in a
+// function arena; anything else is used as is.
+func (e *Evaluator) checkAndGet(h ir.ExpressionHandle) (ir.ExpressionHandle, error) {
+	c, ok := e.Arena.Expression(h).(ir.ExprConstant)
+	if !ok {
+		return h, nil
+	}
+	if int(c.Constant) >= len(e.Module.Constants) {
 		return 0, newError(ErrInvalidOperand, "Unknown constant")
 	}
-	init := e.Module.Constants[c].Init
+	init := e.Module.Constants[c.Constant].Init
 	if e.Arena.IsGlobal() {
 		return init, nil
 	}
 	return e.copyFromGlobal(init), nil
 }
 
-// checkAndGet returns an operand handle to place inside a new expression:
-// constants are resolved as in constant, anything else is used as is.
-func (e *Evaluator) checkAndGet(h ir.ExpressionHandle) (ir.ExpressionHandle, error) {
-	if c, ok := e.Arena.Expression(h).(ir.ExprConstant); ok {
-		return e.constant(c.Constant)
+// source follows a constant reference without copying: it returns where the
+// value of h lives, the module arena (global) or the evaluator's arena.
+func (e *Evaluator) source(h ir.ExpressionHandle) (global bool, src ir.ExpressionHandle) {
+	global = e.Arena.IsGlobal()
+	for {
+		c, ok := e.read(global, h).(ir.ExprConstant)
+		if !ok || int(c.Constant) >= len(e.Module.Constants) {
+			return global, h
+		}
+		global, h = true, e.Module.Constants[c.Constant].Init
 	}
-	return h, nil
 }
 
 // copyFromGlobal deep-copies a module-scope constant value into the arena.
@@ -37,13 +46,13 @@ func (e *Evaluator) copyFromGlobal(h ir.ExpressionHandle) ir.ExpressionHandle {
 		for i, c := range k.Components {
 			comps[i] = e.copyFromGlobal(c)
 		}
-		return e.Arena.Append(ir.ExprCompose{Type: k.Type, Components: comps})
+		return e.appendConst(ir.ExprCompose{Type: k.Type, Components: comps})
 	case ir.ExprSplat:
-		return e.Arena.Append(ir.ExprSplat{Size: k.Size, Value: e.copyFromGlobal(k.Value)})
+		return e.appendConst(ir.ExprSplat{Size: k.Size, Value: e.copyFromGlobal(k.Value)})
 	case ir.ExprConstant:
 		return e.copyFromGlobal(e.Module.Constants[k.Constant].Init)
 	default:
-		return e.Arena.Append(k)
+		return e.appendConst(k)
 	}
 }
 
@@ -65,7 +74,7 @@ func (e *Evaluator) compose(k ir.ExprCompose) (ir.ExpressionHandle, error) {
 			return 0, newError(ErrInvalidOperand, "Constructor expects "+strconv.Itoa(int(vt.Size))+" components, found "+strconv.Itoa(n))
 		}
 	}
-	return e.Arena.Append(ir.ExprCompose{Type: k.Type, Components: comps}), nil
+	return e.appendConst(ir.ExprCompose{Type: k.Type, Components: comps}), nil
 }
 
 // lanes is the number of scalar components an operand of a vector
@@ -156,10 +165,10 @@ func (e *Evaluator) swizzle(k ir.ExprSwizzle) (ir.ExpressionHandle, error) {
 	switch s := e.read(global, src).(type) {
 	case ir.ExprZeroValue:
 		if vt, ok := e.Module.Types[s.Type].Inner.(ir.VectorType); ok {
-			return e.Arena.Append(ir.ExprZeroValue{Type: e.Types.Type(ir.VectorType{Size: k.Size, Scalar: vt.Scalar})}), nil
+			return e.appendConst(ir.ExprZeroValue{Type: e.Types.Type(ir.VectorType{Size: k.Size, Scalar: vt.Scalar})}), nil
 		}
 	case ir.ExprSplat:
-		return e.Arena.Append(ir.ExprSplat{Size: k.Size, Value: s.Value}), nil
+		return e.appendConst(ir.ExprSplat{Size: k.Size, Value: s.Value}), nil
 	case ir.ExprCompose:
 		vt, ok := e.Module.Types[s.Type].Inner.(ir.VectorType)
 		if !ok {
@@ -174,7 +183,7 @@ func (e *Evaluator) swizzle(k ir.ExprSwizzle) (ir.ExpressionHandle, error) {
 			}
 			comps[i] = lanes[idx]
 		}
-		return e.Arena.Append(ir.ExprCompose{Type: e.Types.Type(ir.VectorType{Size: k.Size, Scalar: vt.Scalar}), Components: comps}), nil
+		return e.appendConst(ir.ExprCompose{Type: e.Types.Type(ir.VectorType{Size: k.Size, Scalar: vt.Scalar}), Components: comps}), nil
 	}
 	return 0, newError(ErrInvalidOperand, "Can only swizzle vector constants")
 }
@@ -243,7 +252,7 @@ func (e *Evaluator) access(base ir.ExpressionHandle, index uint32) (ir.Expressio
 		if !ok {
 			return 0, invalidBase
 		}
-		return e.Arena.Append(ir.ExprZeroValue{Type: ty}), nil
+		return e.appendConst(ir.ExprZeroValue{Type: ty}), nil
 	case ir.ExprSplat:
 		if index >= uint32(s.Size) {
 			return 0, invalidBase
