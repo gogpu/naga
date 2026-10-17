@@ -7,7 +7,7 @@ import (
 )
 
 // -----------------------------------------------------------------------
-// Const binary/unary with vectors (exercises tryFoldVectorBinaryOp etc.)
+// Const binary/unary with vectors
 // -----------------------------------------------------------------------
 
 func TestLowerConstFoldVecBinOpI32(t *testing.T) {
@@ -42,7 +42,7 @@ func TestLowerConstFoldVecUnaryNeg(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// Vector from scalar splat (exercises concretizeLiteralToScalar paths)
+// Vector from scalar splat
 // -----------------------------------------------------------------------
 
 func TestLowerSplatAbstractConcretization(t *testing.T) {
@@ -69,7 +69,7 @@ func TestLowerAbstractIntFloatPromotion(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// Construct with partial types (exercises inferConstructorType)
+// Construct with partial types
 // -----------------------------------------------------------------------
 
 func TestLowerPartialConstruct(t *testing.T) {

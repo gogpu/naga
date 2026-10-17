@@ -7,7 +7,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// evalCallAsConstantInt — i32()/u32() in const integer context (workgroup_size)
+// i32()/u32() in const integer context (workgroup_size)
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalCallAsConstantIntZeroArg(t *testing.T) {
@@ -35,7 +35,7 @@ func TestLowerEvalCallAsConstantIntConversion(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// evalMemberAsConstantInt — vec.component in workgroup_size
+// vec.component in const integer context
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalMemberAsConstantIntSplat(t *testing.T) {
@@ -75,7 +75,7 @@ func TestLowerEvalMemberComponentNames(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// functionHasForwardRefs — forward reference detection in mixed declarations
+// Forward reference detection in mixed declarations
 // ---------------------------------------------------------------------------
 
 func TestLowerFunctionForwardRefGlobals(t *testing.T) {
@@ -111,7 +111,7 @@ fn a() -> i32 { return 42; }`
 }
 
 // ---------------------------------------------------------------------------
-// concretizeShiftLeft — abstract int/float shift left operand
+// Abstract int/float shift left operand
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeShiftLeftAbstractInt(t *testing.T) {
@@ -136,7 +136,7 @@ func TestLowerConcretizeShiftLeftAbstractInt(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// tryConstEvalPhonyExpr — select() with all-literal args in phony assignment
+// select() with all-literal args in phony assignment
 // ---------------------------------------------------------------------------
 
 func TestLowerPhonySelectConstEval(t *testing.T) {
@@ -149,7 +149,7 @@ func TestLowerPhonySelectConstEval(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// constFoldSelect — scalar and vector select
+// Scalar and vector select
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldSelectScalar(t *testing.T) {
@@ -173,7 +173,7 @@ func TestLowerConstFoldSelectVector(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// constFoldAs — const type conversion
+// Const type conversion
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldAsScalar(t *testing.T) {
@@ -200,7 +200,7 @@ func TestLowerConstFoldAsVector(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// convertLiteral — all type conversion paths
+// All type conversion paths
 // ---------------------------------------------------------------------------
 
 func TestLowerConvertLiteralAllPaths(t *testing.T) {
@@ -216,11 +216,11 @@ func TestLowerConvertLiteralAllPaths(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// deepCopyConstExpr — deep copy of const expressions
+// Const expressions copied through select
 // ---------------------------------------------------------------------------
 
 func TestLowerDeepCopyConstExprCompose(t *testing.T) {
-	// select() with vector operands triggers deepCopyConstExpr
+	// select() with vector operands
 	src := `fn test() {
     const V = vec3<f32>(1.0, 2.0, 3.0);
     const W = vec3<f32>(4.0, 5.0, 6.0);
@@ -268,7 +268,7 @@ func TestLowerMemberForRefVectorComponent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// tryConstantArrayIndex — compile-time array indexing
+// Compile-time array indexing
 // ---------------------------------------------------------------------------
 
 func TestLowerConstantArrayIndex(t *testing.T) {
@@ -280,7 +280,7 @@ fn test() -> i32 {
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantArgsAsGlobalExprs — global expression creation for const args
+// Global expression creation for const args
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantArgsAsGlobalExprs(t *testing.T) {
@@ -292,7 +292,7 @@ fn test() -> f32 { return cfg.a; }`
 }
 
 // ---------------------------------------------------------------------------
-// buildGlobalExprFromAST — struct constructor as global init
+// Struct constructor as global init
 // ---------------------------------------------------------------------------
 
 func TestLowerBuildGlobalExprFromASTStruct(t *testing.T) {
@@ -310,7 +310,7 @@ fn test() -> f32 { return identity[0].x; }`
 }
 
 // ---------------------------------------------------------------------------
-// expandZeroConstructGE — zero-arg constructor in global expression
+// Zero-arg constructor in global expression
 // ---------------------------------------------------------------------------
 
 func TestLowerExpandZeroConstructGEVec(t *testing.T) {
@@ -326,7 +326,7 @@ fn test() { _ = m; }`
 }
 
 // ---------------------------------------------------------------------------
-// concretizeConstantScalar — scalar concretization in composite context
+// Scalar concretization in composite context
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeConstantScalarInComposite(t *testing.T) {
@@ -337,7 +337,7 @@ fn test() -> i32 { return V.x; }`
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantArgExpr — binary expression as constant arg
+// Binary expression as constant arg
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantArgExpr(t *testing.T) {
@@ -348,7 +348,7 @@ fn test() -> i32 { return V.x; }`
 }
 
 // ---------------------------------------------------------------------------
-// createZeroComponents — zero-value components for vector/matrix
+// Zero-value components for vector/matrix
 // ---------------------------------------------------------------------------
 
 func TestLowerCreateZeroComponentsVector(t *testing.T) {
@@ -364,7 +364,7 @@ fn test() { _ = Z; }`
 }
 
 // ---------------------------------------------------------------------------
-// inferCompositeConstantType — type inference for composites
+// Type inference for composites
 // ---------------------------------------------------------------------------
 
 func TestLowerInferCompositeConstTypeVec(t *testing.T) {
@@ -383,7 +383,7 @@ fn test() { _ = N; }`
 }
 
 // ---------------------------------------------------------------------------
-// innerScalar — scalar extraction from nested types
+// Scalar extraction from nested types
 // ---------------------------------------------------------------------------
 
 func TestLowerInnerScalarFromArray(t *testing.T) {
@@ -406,7 +406,7 @@ func TestLowerInnerScalarFromVec(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// inlineCompositeConstant / inlineConstantValue — inlining at use sites
+// Inlining at use sites
 // ---------------------------------------------------------------------------
 
 func TestLowerInlineCompositeConstantAtUse(t *testing.T) {
@@ -432,7 +432,7 @@ fn test() -> f32 {
 }
 
 // ---------------------------------------------------------------------------
-// abstractScalarKind — suffix detection
+// Suffix detection
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractScalarKindSuffixed(t *testing.T) {
@@ -473,7 +473,7 @@ fn test() {
 }
 
 // ---------------------------------------------------------------------------
-// Struct member access in const context via evalConstantArgs
+// Struct member access in const context
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantArgsWithStruct(t *testing.T) {
@@ -493,7 +493,7 @@ fn test() -> i32 { return P.a + P.b; }`
 }
 
 // ---------------------------------------------------------------------------
-// Global var init with various expression types (exercises buildGlobalExprFromAST)
+// Global var init with various expression types
 // ---------------------------------------------------------------------------
 
 func TestLowerGlobalVarInitVectorConstructor(t *testing.T) {
@@ -533,7 +533,7 @@ fn test() -> f32 { return val; }`
 }
 
 // ---------------------------------------------------------------------------
-// inferGlobalVarType — various types
+// Global var type inference for various types
 // ---------------------------------------------------------------------------
 
 func TestLowerInferGlobalVarTypeBool(t *testing.T) {
@@ -573,7 +573,7 @@ func TestLowerResolveScalarFromAllNames(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// extractVec3Floats / tryFoldCross / tryFoldDot
+// Dot and cross products of const vectors
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldDotProduct(t *testing.T) {
@@ -731,7 +731,7 @@ fn main(@location(0) alpha: f32) -> @location(0) vec4<f32> {
 }
 
 // ---------------------------------------------------------------------------
-// phony assignment (exercises tryConstEvalPhonyExpr)
+// Phony assignment
 // ---------------------------------------------------------------------------
 
 func TestLowerPhonyAssignments(t *testing.T) {
@@ -745,7 +745,7 @@ func TestLowerPhonyAssignments(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeLiteralValue — abstract→concrete in select result
+// Abstract to concrete in select result
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeLiteralValueInSelect(t *testing.T) {
@@ -757,7 +757,7 @@ func TestLowerConcretizeLiteralValueInSelect(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// literalScalarType — scalar type from literal
+// Scalar type from literal
 // ---------------------------------------------------------------------------
 
 func TestLowerLiteralBoolTypes(t *testing.T) {
@@ -771,7 +771,7 @@ func TestLowerLiteralBoolTypes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// evalConstU32Expr — constant u32 expression evaluation (used for array sizes)
+// Constant u32 expression evaluation (used for array sizes)
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstU32ExprForArraySize(t *testing.T) {
@@ -829,7 +829,7 @@ func TestLowerRuntimeSelect(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeAbstractToDefaultFloat — abstract float default
+// Abstract float default
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractFloatDefaultInMath(t *testing.T) {
@@ -852,7 +852,7 @@ func TestLowerComplexExpressionChain(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Global var with struct init (exercises buildGlobalExprFromAST deeply)
+// Global var with struct init
 // ---------------------------------------------------------------------------
 
 func TestLowerGlobalVarStructInit(t *testing.T) {

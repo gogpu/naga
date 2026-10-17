@@ -118,33 +118,8 @@ func (l *Lowerer) isAbstractInner(inner ir.TypeInner) bool {
 // constructors must match and the leaf scalar of from must convert to the
 // leaf scalar of goal. It returns the two leaf scalars.
 func (l *Lowerer) innerConvertsTo(from, goal ir.TypeInner) (ir.ScalarType, ir.ScalarType, bool) {
-	var fs, gs ir.ScalarType
-	switch f := from.(type) {
-	case ir.ScalarType:
-		g, ok := goal.(ir.ScalarType)
-		if !ok {
-			return fs, gs, false
-		}
-		fs, gs = f, g
-	case ir.VectorType:
-		g, ok := goal.(ir.VectorType)
-		if !ok || g.Size != f.Size {
-			return fs, gs, false
-		}
-		fs, gs = f.Scalar, g.Scalar
-	case ir.MatrixType:
-		g, ok := goal.(ir.MatrixType)
-		if !ok || g.Columns != f.Columns || g.Rows != f.Rows {
-			return fs, gs, false
-		}
-		fs, gs = f.Scalar, g.Scalar
-	case ir.ArrayType:
-		g, ok := goal.(ir.ArrayType)
-		if !ok || !reflect.DeepEqual(f.Size, g.Size) || int(f.Base) >= len(l.module.Types) || int(g.Base) >= len(l.module.Types) {
-			return fs, gs, false
-		}
-		return l.innerConvertsTo(l.module.Types[f.Base].Inner, l.module.Types[g.Base].Inner)
-	default:
+	fs, gs, ok := l.matchingLeafScalars(from, goal)
+	if !ok {
 		return fs, gs, false
 	}
 	switch {
@@ -152,6 +127,31 @@ func (l *Lowerer) innerConvertsTo(from, goal ir.TypeInner) (ir.ScalarType, ir.Sc
 		fs.Kind == ir.ScalarAbstractInt && (gs.Kind == ir.ScalarSint || gs.Kind == ir.ScalarUint ||
 			gs.Kind == ir.ScalarAbstractFloat || gs.Kind == ir.ScalarFloat):
 		return fs, gs, true
+	}
+	return fs, gs, false
+}
+
+// matchingLeafScalars returns the leaf scalars of from and goal when both
+// are built by the same type constructor (scalar, vector or matrix of the
+// same shape, or arrays of the same size whose elements match); ok is false
+// otherwise.
+func (l *Lowerer) matchingLeafScalars(from, goal ir.TypeInner) (fs, gs ir.ScalarType, ok bool) {
+	switch f := from.(type) {
+	case ir.ScalarType:
+		g, ok := goal.(ir.ScalarType)
+		return f, g, ok
+	case ir.VectorType:
+		g, ok := goal.(ir.VectorType)
+		return f.Scalar, g.Scalar, ok && g.Size == f.Size
+	case ir.MatrixType:
+		g, ok := goal.(ir.MatrixType)
+		return f.Scalar, g.Scalar, ok && g.Columns == f.Columns && g.Rows == f.Rows
+	case ir.ArrayType:
+		g, ok := goal.(ir.ArrayType)
+		if !ok || !reflect.DeepEqual(f.Size, g.Size) || int(f.Base) >= len(l.module.Types) || int(g.Base) >= len(l.module.Types) {
+			return fs, gs, false
+		}
+		return l.matchingLeafScalars(l.module.Types[f.Base].Inner, l.module.Types[g.Base].Inner)
 	}
 	return fs, gs, false
 }
@@ -338,7 +338,7 @@ func (l *Lowerer) concretize(h ir.ExpressionHandle) (ir.ExpressionHandle, error)
 func wgslScalar(s ir.ScalarType) string {
 	switch s.Kind {
 	case ir.ScalarBool:
-		return "bool"
+		return boolTypeName
 	case ir.ScalarAbstractInt:
 		return "{AbstractInt}"
 	case ir.ScalarAbstractFloat:
@@ -624,14 +624,15 @@ type conversionError struct {
 }
 
 func (e *conversionError) Error() string {
+	// Rust's messages quote the types in backticks.
 	if e.mismatch {
-		return fmt.Sprintf("expected `%s`, found `%s`", e.dest, e.source)
+		return "expected `" + e.dest + "`, found `" + e.source + "`"
 	}
-	return fmt.Sprintf("automatic conversions cannot convert `%s` to `%s`", e.source, e.dest)
+	return "automatic conversions cannot convert `" + e.source + "` to `" + e.dest + "`"
 }
 
 // inConstContext runs f with the current function's evaluator in const
-// behaviour: every expression f lowers must be a const-expression (Rust
+// behavior: every expression f lowers must be a const-expression (Rust
 // ExpressionContext::as_const for a function-local const).
 func (l *Lowerer) inConstContext(f func() (ir.ExpressionHandle, error)) (ir.ExpressionHandle, error) {
 	ev := l.eval()
@@ -657,85 +658,118 @@ func (l *Lowerer) inConstContext(f func() (ir.ExpressionHandle, error)) (ir.Expr
 // Abstract values stay abstract where an overload accepts them, so a call
 // of constant arguments is evaluated in the abstract type as the spec says.
 func (l *Lowerer) convertMathArgs(fun ir.MathFunction, args []ir.ExpressionHandle) error {
-	to := func(i int, s ir.ScalarType) error {
-		c, err := l.tryAutomaticConversionForLeafScalar(args[i], s)
-		if err != nil {
-			return err
-		}
-		args[i] = c
-		return nil
-	}
-	concreteInt := func(i int) error {
-		if s, ok := l.leafScalarOfExpr(args[i]); ok && s.Kind == ir.ScalarAbstractInt {
-			return to(i, scalarI32)
-		}
-		return nil
-	}
+	m := mathArgConverter{l: l, args: args}
 	switch fun {
 	case ir.MathPack4x8snorm, ir.MathPack4x8unorm, ir.MathPack2x16snorm, ir.MathPack2x16unorm,
 		ir.MathPack2x16float, ir.MathQuantizeF16:
-		return to(0, scalarF32)
+		return m.to(0, scalarF32)
 	case ir.MathPack4xI8, ir.MathPack4xI8Clamp:
-		return to(0, scalarI32)
+		return m.to(0, scalarI32)
 	case ir.MathPack4xU8, ir.MathPack4xU8Clamp,
 		ir.MathUnpack4x8snorm, ir.MathUnpack4x8unorm, ir.MathUnpack2x16snorm, ir.MathUnpack2x16unorm,
 		ir.MathUnpack2x16float, ir.MathUnpack4xI8, ir.MathUnpack4xU8:
-		return to(0, scalarU32)
+		return m.to(0, scalarU32)
 	case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
-		for i := range args {
-			if err := to(i, scalarU32); err != nil {
-				return err
-			}
-		}
-		return nil
+		return m.restTo(0, scalarU32)
 	case ir.MathCountOneBits, ir.MathCountLeadingZeros, ir.MathCountTrailingZeros,
 		ir.MathReverseBits, ir.MathFirstLeadingBit, ir.MathFirstTrailingBit:
-		return concreteInt(0)
-	case ir.MathExtractBits, ir.MathInsertBits:
-		n := 1
-		if fun == ir.MathInsertBits {
-			n = 2
-		}
-		if c, _, ok := l.conversionConsensus(nil, args[:n]); ok {
-			if c.Kind == ir.ScalarAbstractInt {
-				c = scalarI32
-			}
-			if err := l.convertSliceToCommonLeafScalar(args[:n], c); err != nil {
-				return err
-			}
-		}
-		for i := n; i < len(args); i++ {
-			if err := to(i, scalarU32); err != nil {
-				return err
-			}
-		}
-		return nil
+		return m.concreteInt(0)
+	case ir.MathExtractBits:
+		return m.bitField(1)
+	case ir.MathInsertBits:
+		return m.bitField(2)
 	case ir.MathLdexp:
-		// Rust has no abstract ldexp overload: an abstract mantissa becomes
-		// f32 and the exponent i32 (Rust compiles ldexp(1.0, 3) to
-		// ldexp(1f, 3i)).
-		if s, ok := l.leafScalarOfExpr(args[0]); ok && isAbstractScalar(s) {
-			if err := to(0, scalarF32); err != nil {
-				return err
-			}
-		}
-		if s, ok := l.leafScalarOfExpr(args[0]); ok && s.Kind == ir.ScalarFloat && len(args) > 1 {
-			return to(1, scalarI32)
-		}
-		return nil
+		return m.ldexp()
 	case ir.MathModf, ir.MathFrexp:
-		// Their result types are predeclared structs of the concrete
-		// argument type.
-		if s, ok := l.leafScalarOfExpr(args[0]); ok && s.Kind == ir.ScalarAbstractInt {
-			if err := to(0, scalarAbstractFloat); err != nil {
-				return err
-			}
-		}
-		c, err := l.concretize(args[0])
-		args[0] = c
+		return m.modfFrexp()
+	}
+	return m.reconcile(fun)
+}
+
+// mathArgConverter applies the automatic conversions of one math built-in
+// call to its lowered arguments in place.
+type mathArgConverter struct {
+	l    *Lowerer
+	args []ir.ExpressionHandle
+}
+
+// to converts argument i to the leaf scalar s.
+func (m mathArgConverter) to(i int, s ir.ScalarType) error {
+	c, err := m.l.tryAutomaticConversionForLeafScalar(m.args[i], s)
+	if err != nil {
 		return err
 	}
-	consensus, _, ok := l.conversionConsensus(nil, args)
+	m.args[i] = c
+	return nil
+}
+
+// restTo converts the arguments from index i on to the leaf scalar s.
+func (m mathArgConverter) restTo(i int, s ir.ScalarType) error {
+	for ; i < len(m.args); i++ {
+		if err := m.to(i, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// concreteInt concretizes an AbstractInt argument i to i32.
+func (m mathArgConverter) concreteInt(i int) error {
+	if s, ok := m.l.leafScalarOfExpr(m.args[i]); ok && s.Kind == ir.ScalarAbstractInt {
+		return m.to(i, scalarI32)
+	}
+	return nil
+}
+
+// bitField converts the arguments of extractBits (n = 1) and insertBits
+// (n = 2): the first n are reconciled, AbstractInt becoming i32; the u32
+// offset and count follow.
+func (m mathArgConverter) bitField(n int) error {
+	if c, _, ok := m.l.conversionConsensus(nil, m.args[:n]); ok {
+		if c.Kind == ir.ScalarAbstractInt {
+			c = scalarI32
+		}
+		if err := m.l.convertSliceToCommonLeafScalar(m.args[:n], c); err != nil {
+			return err
+		}
+	}
+	return m.restTo(n, scalarU32)
+}
+
+// ldexp converts ldexp's arguments. Rust has no abstract ldexp overload: an
+// abstract mantissa becomes f32 and the exponent i32 (Rust compiles
+// ldexp(1.0, 3) to ldexp(1f, 3i)).
+func (m mathArgConverter) ldexp() error {
+	if s, ok := m.l.leafScalarOfExpr(m.args[0]); ok && isAbstractScalar(s) {
+		if err := m.to(0, scalarF32); err != nil {
+			return err
+		}
+	}
+	if s, ok := m.l.leafScalarOfExpr(m.args[0]); ok && s.Kind == ir.ScalarFloat && len(m.args) > 1 {
+		return m.to(1, scalarI32)
+	}
+	return nil
+}
+
+// modfFrexp concretizes the argument of modf and frexp: their result types
+// are predeclared structs of the concrete argument type.
+func (m mathArgConverter) modfFrexp() error {
+	if s, ok := m.l.leafScalarOfExpr(m.args[0]); ok && s.Kind == ir.ScalarAbstractInt {
+		if err := m.to(0, scalarAbstractFloat); err != nil {
+			return err
+		}
+	}
+	c, err := m.l.concretize(m.args[0])
+	m.args[0] = c
+	return err
+}
+
+// reconcile converts every argument to the arguments' common leaf scalar,
+// AbstractInt becoming AbstractFloat for the float-only built-ins, and an
+// abstract consensus concrete for the built-ins Rust has no abstract
+// overload of.
+func (m mathArgConverter) reconcile(fun ir.MathFunction) error {
+	consensus, _, ok := m.l.conversionConsensus(nil, m.args)
 	if !ok {
 		return nil // validation reports the argument types
 	}
@@ -748,7 +782,7 @@ func (l *Lowerer) convertMathArgs(fun ir.MathFunction, args []ir.ExpressionHandl
 			consensus = scalarF32
 		}
 	}
-	return l.convertSliceToCommonLeafScalar(args, consensus)
+	return m.l.convertSliceToCommonLeafScalar(m.args, consensus)
 }
 
 // rustNoAbstractOverload lists the float built-ins whose Rust naga overloads

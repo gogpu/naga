@@ -7,7 +7,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// inferGlobalVarType — more types to boost from 29.6%
+// Global var type inference for more types
 // ---------------------------------------------------------------------------
 
 func TestLowerInferGlobalVarTypeI32(t *testing.T) {
@@ -81,7 +81,7 @@ fn test() -> f32 { return obj.z; }`
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantIntExpr — all expression types to boost from 27.8%
+// Constant integer evaluation for all expression types
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstIntExprBinaryOps(t *testing.T) {
@@ -109,7 +109,7 @@ fn test() -> i32 { return NEG; }`
 }
 
 // ---------------------------------------------------------------------------
-// astLiteralToIRValue — all literal types to boost from 40.4%
+// All literal types
 // ---------------------------------------------------------------------------
 
 func TestLowerASTLiteralToIRAllTypes(t *testing.T) {
@@ -129,7 +129,7 @@ func TestLowerASTLiteralToIRAllTypes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// inferOverrideType — more override types to boost from 40.9%
+// Override type inference for more override types
 // ---------------------------------------------------------------------------
 
 func TestLowerInferOverrideTypeAllScalars(t *testing.T) {
@@ -159,7 +159,7 @@ fn main() { _ = a; _ = b; _ = c; }`
 }
 
 // ---------------------------------------------------------------------------
-// tryFoldBinaryOp — more binary op paths to boost from 43.8%
+// More binary op paths on const vectors
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldVecBinaryF32Division(t *testing.T) {
@@ -184,7 +184,7 @@ func TestLowerConstFoldVecBinaryBool(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeExpressionToScalar — more paths to boost from 43.6%
+// Expression concretization for more types
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeExprToScalarAllTypes(t *testing.T) {
@@ -198,7 +198,7 @@ func TestLowerConcretizeExprToScalarAllTypes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// resolveExprScalar — through various expression kinds to boost from 45%
+// Scalar resolution through various expression kinds
 // ---------------------------------------------------------------------------
 
 func TestLowerResolveExprScalarFromVar(t *testing.T) {
@@ -217,7 +217,7 @@ func TestLowerResolveExprScalarFromVar(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// widenScalar — type widening in binary expressions to boost from 46.2%
+// Type widening in binary expressions
 // ---------------------------------------------------------------------------
 
 func TestLowerWidenScalarInBinaryOps(t *testing.T) {
@@ -262,7 +262,7 @@ func TestLowerZeroLiteralAllTypes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// convertLiteral — more conversion paths to boost from 23.8%
+// More conversion paths
 // ---------------------------------------------------------------------------
 
 func TestLowerConvertLiteralAllPathsBool(t *testing.T) {
@@ -281,7 +281,7 @@ func TestLowerConvertLiteralAllPathsBool(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// tryConstantArrayIndex — compile-time array index evaluation to boost from 33.3%
+// Compile-time array index evaluation
 // ---------------------------------------------------------------------------
 
 func TestLowerTryConstantArrayIndexConst(t *testing.T) {
@@ -320,7 +320,7 @@ func TestLowerResolveScalarFromNameVecMatTypes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// negateScalarBits — negate for all scalar kinds to boost from 44.4%
+// Negation for all scalar kinds
 // ---------------------------------------------------------------------------
 
 func TestLowerNegateVecU32(t *testing.T) {
@@ -335,7 +335,7 @@ func TestLowerNegateVecU32(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// constFoldCompose — compose folding paths to boost from 44.4%
+// Compose and swizzle of const vectors
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldComposeSwizzle(t *testing.T) {
@@ -351,7 +351,7 @@ func TestLowerConstFoldComposeSwizzle(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantArgs — all arg types to boost from 45.6%
+// Constant args of all scalar types
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantArgsAllScalars(t *testing.T) {
@@ -397,7 +397,7 @@ func TestLowerTypeConstructorMatFromMat(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// buildConstGlobalExpr composite path — to boost from 15.4%
+// Composite constant global expressions
 // ---------------------------------------------------------------------------
 
 func TestLowerBuildConstGlobalExprVec(t *testing.T) {
@@ -421,7 +421,7 @@ fn test() -> f32 { return ARR[0]; }`
 }
 
 // ---------------------------------------------------------------------------
-// inferCompositeConstantType — more paths to boost from 24.4%
+// Composite constant type inference with binary-expression args
 // ---------------------------------------------------------------------------
 
 func TestLowerInferCompositeConstTypeWithBinaryArgs(t *testing.T) {
@@ -438,7 +438,7 @@ fn test() { _ = V; }`
 }
 
 // ---------------------------------------------------------------------------
-// deepCopyConstantValue — through select on composite to boost from 25%
+// Select on composite constants
 // ---------------------------------------------------------------------------
 
 func TestLowerDeepCopyConstValueVecSelect(t *testing.T) {
@@ -453,7 +453,7 @@ func TestLowerDeepCopyConstValueVecSelect(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// evalConstU32Expr — constant u32 expression to boost from 38.1%
+// Constant u32 expression
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstU32ExprComplex(t *testing.T) {
@@ -517,7 +517,7 @@ func TestLowerComparisonOpsRuntime(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// constFoldAs — const type conversion for vector to boost from 19%
+// Const type conversion for vectors
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldAsVecFullCoverage(t *testing.T) {
@@ -551,7 +551,7 @@ func TestLowerResolveTargetScalarInCompound(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// extractVec3Floats / tryFoldCross / tryFoldDot with i32 vectors
+// Dot product of i32 const vectors
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldDotI32(t *testing.T) {

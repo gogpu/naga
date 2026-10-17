@@ -63,7 +63,7 @@ fn test() -> mat2x2<f32> { return M; }`
 }
 
 // -----------------------------------------------------------------------
-// Override with type inference (exercises inferOverrideType)
+// Override with type inference
 // -----------------------------------------------------------------------
 
 func TestLowerOverrideInferredTypes(t *testing.T) {
@@ -85,7 +85,7 @@ fn main() {
 }
 
 // -----------------------------------------------------------------------
-// Global var with inferred type (exercises inferGlobalVarType)
+// Global var with inferred type
 // -----------------------------------------------------------------------
 
 func TestLowerGlobalVarInferredTypeVec(t *testing.T) {
@@ -169,7 +169,7 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 }
 
 // -----------------------------------------------------------------------
-// Abstract constants with array access (exercises lowerAbstractConstant)
+// Abstract constants with array access
 // -----------------------------------------------------------------------
 
 func TestLowerAbstractConstantArrayAccess(t *testing.T) {

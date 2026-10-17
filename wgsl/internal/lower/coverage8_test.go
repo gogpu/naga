@@ -70,7 +70,7 @@ func TestLowerConstFoldQuantizeToF16(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// constFoldCompose — compose const folding
+// Const vector composition
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldComposeVec(t *testing.T) {
@@ -100,7 +100,7 @@ func TestLowerResolveTargetScalarInBinary(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeConstantScalar — type coercion in composite constants
+// Type coercion in composite constants
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeConstScalarVec(t *testing.T) {
@@ -111,7 +111,7 @@ fn test() -> f32 { return V.x; }`
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantArgExpr — binary expr as const arg
+// Binary expr as const arg
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantArgExprFloat(t *testing.T) {
@@ -129,7 +129,7 @@ fn test() -> i32 { return V.x; }`
 }
 
 // ---------------------------------------------------------------------------
-// createZeroComponents — explicit exercise with typed zero-value constructors
+// Typed zero-value constructors
 // ---------------------------------------------------------------------------
 
 func TestLowerCreateZeroComponentsAllTypes(t *testing.T) {
@@ -142,7 +142,7 @@ fn test() { _ = ZV2; _ = ZV3; _ = ZV4; _ = ZM; }`
 }
 
 // ---------------------------------------------------------------------------
-// abstractScalarKind — all literal kinds including suffixed
+// All literal kinds including suffixed
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractScalarKindAllSuffixes(t *testing.T) {
@@ -155,7 +155,7 @@ fn test() { _ = A; _ = B; _ = C; }`
 }
 
 // ---------------------------------------------------------------------------
-// groupMatrixConstantColumns — matrix constant column grouping
+// Matrix constant column grouping
 // ---------------------------------------------------------------------------
 
 func TestLowerGroupMatrixConstColumns3x3(t *testing.T) {
@@ -178,7 +178,7 @@ fn test() { _ = M; }`
 }
 
 // ---------------------------------------------------------------------------
-// inferCompositeConstantType — with array and matrix constructors
+// Array and matrix constructors with inferred type
 // ---------------------------------------------------------------------------
 
 func TestLowerInferCompositeConstTypeArray(t *testing.T) {
@@ -188,7 +188,7 @@ fn test() -> f32 { return ARR[0]; }`
 }
 
 // ---------------------------------------------------------------------------
-// literalScalar / literalScalarType — through const fold paths
+// Literal scalar types in const expressions
 // ---------------------------------------------------------------------------
 
 func TestLowerLiteralScalarTypesAllKinds(t *testing.T) {
@@ -206,7 +206,7 @@ func TestLowerLiteralScalarTypesAllKinds(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// scalarValueToAbstractLiteral — through abstract constant usage
+// Abstract constant usage
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractConstantUsageMultipleContexts(t *testing.T) {
@@ -222,7 +222,7 @@ fn test() {
 }
 
 // ---------------------------------------------------------------------------
-// extractConstVectorLiterals — vector literal extraction
+// Vector component extraction
 // ---------------------------------------------------------------------------
 
 func TestLowerExtractConstVecLiteralsAllSwizzles(t *testing.T) {
@@ -243,7 +243,7 @@ func TestLowerExtractConstVecLiteralsAllSwizzles(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// buildConstGlobalExpr — CompositeValue with named sub-constants
+// Composite constant built from named sub-constants
 // ---------------------------------------------------------------------------
 
 func TestLowerBuildConstGlobalExprComposite(t *testing.T) {
@@ -257,7 +257,7 @@ fn test() -> vec4<f32> { return V; }`
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantIdent with abstract and concrete references
+// Abstract and concrete constant references
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantIdentAbstract(t *testing.T) {
@@ -280,7 +280,7 @@ func TestLowerEvalConstantIdentConcrete(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// evalExpressionAsConstantInt — complex const int expressions
+// Complex const int expressions
 // ---------------------------------------------------------------------------
 
 func TestLowerConstIntExprNested(t *testing.T) {
@@ -477,7 +477,7 @@ func TestLowerArrayIndexRuntimeAndConst(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// buildOverrideInitExpr — override with complex init expressions
+// Override with complex init expressions
 // ---------------------------------------------------------------------------
 
 func TestLowerOverrideInitComplexExpr(t *testing.T) {
@@ -546,7 +546,7 @@ func TestLowerBitwiseOpsRuntime(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Const fold binary comparison operators (exercises foldBinaryLiterals comparison path)
+// Const binary comparison operators
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldComparisonOps(t *testing.T) {
@@ -610,7 +610,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) f32 {
 }
 
 // ---------------------------------------------------------------------------
-// Abstract constant binary op — exercises evalConstBinaryExpr
+// Abstract constant binary op
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractConstBinaryAllOps(t *testing.T) {
@@ -633,7 +633,7 @@ fn test() {
 }
 
 // ---------------------------------------------------------------------------
-// Abstract constant unary — exercises evalConstUnaryExpr
+// Abstract constant unary
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractConstUnaryNegLiteral(t *testing.T) {
@@ -660,7 +660,7 @@ fn test() {
 }
 
 // ---------------------------------------------------------------------------
-// negateScalarBits — through vector negation
+// Vector negation
 // ---------------------------------------------------------------------------
 
 func TestLowerNegateScalarBitsU32(t *testing.T) {
