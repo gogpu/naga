@@ -517,14 +517,9 @@ func resolveImageResultType(module *Module, fn *Function, imageHandle Expression
 			width = 8
 		}
 	case ImageClassSampled:
-		// Only use SampledKind if explicitly set (non-zero and non-Sint default).
-		// Many image types share the same type handle and don't have SampledKind set correctly.
-		if img.SampledKind == ScalarUint {
-			scalarKind = ScalarUint
-		} else if img.SampledKind == ScalarFloat {
-			scalarKind = ScalarFloat
-		}
-		// Default to Float for ScalarSint (which is the zero value / default)
+		// The texel kind of a sampled image is its SampledKind (Rust
+		// ImageClass::Sampled { kind }); Sint is a kind, not "unset".
+		scalarKind = img.SampledKind
 	}
 
 	return TypeResolution{Value: VectorType{
@@ -822,11 +817,39 @@ func resolveMathType(module *Module, fn *Function, expr ExprMath) (TypeResolutio
 		return argType, nil
 
 	case MathLength, MathDistance:
-		// Length and distance return f32
-		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}, nil
+		// A scalar of the argument's component type.
+		switch t := resolveInner(module, argType).(type) {
+		case VectorType:
+			return TypeResolution{Value: t.Scalar}, nil
+		case ScalarType:
+			return TypeResolution{Value: t}, nil
+		}
+		return argType, nil
+
+	case MathDeterminant:
+		if mt, ok := resolveInner(module, argType).(MatrixType); ok {
+			return TypeResolution{Value: mt.Scalar}, nil
+		}
+		return argType, nil
+
+	case MathTranspose:
+		if mt, ok := resolveInner(module, argType).(MatrixType); ok {
+			return TypeResolution{Value: MatrixType{Columns: mt.Rows, Rows: mt.Columns, Scalar: mt.Scalar}}, nil
+		}
+		return argType, nil
 
 	case MathOuter:
-		// Outer product returns matrix - complex, skip for now
+		// outer(a: vecR, b: vecC) is matCxR.
+		a, aok := resolveInner(module, argType).(VectorType)
+		if aok && expr.Arg1 != nil {
+			bType, err := ResolveExpressionType(module, fn, *expr.Arg1)
+			if err != nil {
+				return TypeResolution{}, fmt.Errorf("math argument 1: %w", err)
+			}
+			if b, ok := resolveInner(module, bType).(VectorType); ok {
+				return TypeResolution{Value: MatrixType{Columns: b.Size, Rows: a.Size, Scalar: a.Scalar}}, nil
+			}
+		}
 		return argType, nil
 
 	case MathUnpack4xI8:
@@ -1078,10 +1101,10 @@ func findWorkGroupUniformLoadType(module *Module, fn *Function, stmts []Statemen
 			if pt, ok := inner.(PointerType); ok {
 				// Return the base type of the pointer.
 				if int(pt.Base) < len(module.Types) {
-					baseInner := module.Types[pt.Base].Inner
-					if arrayType, ok := baseInner.(ArrayType); ok {
-						// For array pointers, the load returns the element type.
-						_ = arrayType
+					// Like Load, a pointer to atomic<T> yields a T (Rust
+					// WorkGroupUniformLoadResult).
+					if a, ok := module.Types[pt.Base].Inner.(AtomicType); ok {
+						return &TypeResolution{Value: a.Scalar}
 					}
 					h := pt.Base
 					return &TypeResolution{Handle: &h}
