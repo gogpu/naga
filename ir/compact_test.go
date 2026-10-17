@@ -652,6 +652,114 @@ func TestCompactConstants_AllKept(t *testing.T) {
 	}
 }
 
+// Rust compact traces Module.global_expressions from the kept constants,
+// overrides and global variable initializers; the initializer of a removed
+// abstract constant goes with it and the surviving handles are renumbered.
+func TestCompactConstants_RemovesGlobalExpressionsOfRemovedConstants(t *testing.T) {
+	module := &Module{
+		Types: []Type{
+			{Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
+			{Inner: ScalarType{Kind: ScalarAbstractFloat, Width: 8}},
+		},
+		GlobalExpressions: []Expression{
+			{Kind: Literal{Value: LiteralAbstractFloat(1.5)}}, // 0: A's init
+			{Kind: Literal{Value: LiteralF32(2)}},             // 1: X's init
+		},
+		Constants: []Constant{
+			{Name: "A", Type: 1, Init: 0},
+			{Name: "X", Type: 0, Init: 1},
+		},
+	}
+
+	CompactConstants(module)
+
+	if len(module.Constants) != 1 || module.Constants[0].Name != "X" {
+		t.Fatalf("constants = %+v, want only X", module.Constants)
+	}
+	if len(module.GlobalExpressions) != 1 {
+		t.Fatalf("%d global expressions, want 1 (A's init removed)", len(module.GlobalExpressions))
+	}
+	if module.Constants[0].Init != 0 {
+		t.Errorf("X.Init = %d, want 0 after renumbering", module.Constants[0].Init)
+	}
+	if lit, ok := module.GlobalExpressions[0].Kind.(Literal); !ok || lit.Value != LiteralF32(2) {
+		t.Errorf("global expression 0 = %#v, want Literal(F32(2))", module.GlobalExpressions[0].Kind)
+	}
+}
+
+func TestCompactConstants_RemapsGlobalExpressionHandles(t *testing.T) {
+	ovInit := ExpressionHandle(4)
+	gvInit := ExpressionHandle(5)
+	module := &Module{
+		Types: []Type{
+			{Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
+			{Inner: VectorType{Size: Vec2, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}},
+			{Inner: ScalarType{Kind: ScalarAbstractInt, Width: 8}},
+		},
+		GlobalExpressions: []Expression{
+			{Kind: Literal{Value: LiteralAbstractInt(7)}},                      // 0: dead (abstract A)
+			{Kind: Literal{Value: LiteralF32(1)}},                              // 1
+			{Kind: Literal{Value: LiteralF32(2)}},                              // 2
+			{Kind: ExprCompose{Type: 1, Components: []ExpressionHandle{1, 2}}}, // 3: V's init
+			{Kind: Literal{Value: LiteralF32(3)}},                              // 4: override init
+			{Kind: ExprSplat{Size: Vec2, Value: 4}},                            // 5: global init
+		},
+		Constants: []Constant{
+			{Name: "A", Type: 2, Init: 0},
+			{Name: "V", Type: 1, Init: 3},
+		},
+		Overrides:       []Override{{Name: "O", Ty: 0, Init: &ovInit}},
+		GlobalVariables: []GlobalVariable{{Name: "g", Space: SpacePrivate, Type: 1, InitExpr: &gvInit}},
+	}
+
+	CompactConstants(module)
+
+	if len(module.GlobalExpressions) != 5 {
+		t.Fatalf("%d global expressions, want 5", len(module.GlobalExpressions))
+	}
+	if got := module.Constants[0].Init; got != 2 {
+		t.Errorf("V.Init = %d, want 2", got)
+	}
+	comp, ok := module.GlobalExpressions[2].Kind.(ExprCompose)
+	if !ok || len(comp.Components) != 2 || comp.Components[0] != 0 || comp.Components[1] != 1 {
+		t.Errorf("V's compose = %#v, want components [0 1]", module.GlobalExpressions[2].Kind)
+	}
+	if got := *module.Overrides[0].Init; got != 3 {
+		t.Errorf("O.Init = %d, want 3", got)
+	}
+	if got := *module.GlobalVariables[0].InitExpr; got != 4 {
+		t.Errorf("g.InitExpr = %d, want 4", got)
+	}
+	if sp, ok := module.GlobalExpressions[4].Kind.(ExprSplat); !ok || sp.Value != 3 {
+		t.Errorf("g's splat = %#v, want value 3", module.GlobalExpressions[4].Kind)
+	}
+}
+
+// A constant referenced from a live global expression is kept, with its
+// initializer, even when it is unnamed.
+func TestCompactConstants_KeepsConstantReferencedFromGlobalExpression(t *testing.T) {
+	gvInit := ExpressionHandle(1)
+	module := &Module{
+		Types: []Type{{Inner: ScalarType{Kind: ScalarUint, Width: 4}}},
+		GlobalExpressions: []Expression{
+			{Kind: Literal{Value: LiteralU32(9)}},  // 0: unnamed constant's init
+			{Kind: ExprConstant{Constant: 0}},      // 1: global init refers to it
+			{Kind: Literal{Value: LiteralU32(10)}}, // 2: dead
+		},
+		Constants:       []Constant{{Name: "", Type: 0, Init: 0}},
+		GlobalVariables: []GlobalVariable{{Name: "g", Space: SpacePrivate, Type: 0, InitExpr: &gvInit}},
+	}
+
+	CompactConstants(module)
+
+	if len(module.Constants) != 1 {
+		t.Fatalf("%d constants, want the referenced unnamed one", len(module.Constants))
+	}
+	if len(module.GlobalExpressions) != 2 {
+		t.Errorf("%d global expressions, want 2", len(module.GlobalExpressions))
+	}
+}
+
 // --- CompactExpressions tests ---
 
 func TestCompactExpressions_RemovesUnusedExpressions(t *testing.T) {
