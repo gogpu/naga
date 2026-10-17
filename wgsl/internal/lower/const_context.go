@@ -105,7 +105,7 @@ func (l *Lowerer) enterModuleConstContext() functionState {
 	// expressions added since the last visit.
 	a.Expressions = l.module.GlobalExpressions
 	for h := len(a.ExpressionTypes); h < len(a.Expressions); h++ {
-		ty, err := ir.ResolveExpressionType(l.module, a, ir.ExpressionHandle(h))
+		ty, err := ir.ResolveExpressionType(l.module, a, index32[ir.ExpressionHandle](h))
 		if err != nil {
 			ty = ir.TypeResolution{}
 		}
@@ -113,7 +113,7 @@ func (l *Lowerer) enterModuleConstContext() functionState {
 	}
 
 	l.currentFunc = a
-	l.currentExprIdx = ir.ExpressionHandle(len(a.Expressions))
+	l.currentExprIdx = index32[ir.ExpressionHandle](len(a.Expressions))
 	l.locals = map[string]ir.ExpressionHandle{}
 	l.localDecls = map[string]parser.Span{}
 	l.usedLocals = map[string]bool{}
@@ -173,7 +173,7 @@ func (l *Lowerer) lowerConstant(c *parser.ConstDecl) error {
 		return fmt.Errorf("module constant '%s': %w", c.Name, err)
 	}
 
-	ch := ir.ConstantHandle(len(l.module.Constants))
+	ch := index32[ir.ConstantHandle](len(l.module.Constants))
 	l.module.Constants = append(l.module.Constants, ir.Constant{
 		Name:  c.Name,
 		Type:  ty,
@@ -236,7 +236,7 @@ func (l *Lowerer) lowerOverrideContextInitExpr(name string, init parser.Expr, ex
 // constLiteral lowers e as a const-expression where the lowerer is and
 // returns its scalar value, concretized (Rust as_const + expression +
 // get_const_val): in a function body the expression goes to the function's
-// arena, evaluated in const behaviour; anywhere else to
+// arena, evaluated in const behavior; anywhere else to
 // Module.GlobalExpressions. Only the value is used; compaction removes the
 // expression.
 func (l *Lowerer) constLiteral(e parser.Expr) (ir.LiteralValue, error) {
@@ -343,9 +343,9 @@ func constantScalarValue(init ir.ExpressionKind) ir.ConstantValue {
 		}
 		return ir.ScalarValue{Bits: 0, Kind: ir.ScalarBool}
 	case ir.LiteralI32:
-		return ir.ScalarValue{Bits: uint64(int64(v)), Kind: ir.ScalarSint}
+		return ir.ScalarValue{Bits: sintBits(int64(v)), Kind: ir.ScalarSint}
 	case ir.LiteralI64:
-		return ir.ScalarValue{Bits: uint64(int64(v)), Kind: ir.ScalarSint}
+		return ir.ScalarValue{Bits: sintBits(int64(v)), Kind: ir.ScalarSint}
 	case ir.LiteralU32:
 		return ir.ScalarValue{Bits: uint64(v), Kind: ir.ScalarUint}
 	case ir.LiteralU64:
@@ -356,4 +356,17 @@ func constantScalarValue(init ir.ExpressionKind) ir.ConstantValue {
 		return ir.ScalarValue{Bits: math.Float64bits(float64(v)), Kind: ir.ScalarFloat}
 	}
 	return nil
+}
+
+// index32 converts an arena length or index to a 32-bit IR handle or count.
+// The IR addresses every arena with uint32 handles, so a valid index always
+// fits.
+func index32[T ~uint32](n int) T {
+	return T(n)
+}
+
+// sintBits is the two's-complement bit pattern of a signed integer, the
+// representation ScalarValue stores for ScalarSint.
+func sintBits(v int64) uint64 {
+	return uint64(v) //nolint:gosec // two's-complement reinterpretation is the stored representation
 }

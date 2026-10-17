@@ -35,13 +35,20 @@ type constructor struct {
 	columns, rows ir.VectorSize // ctorPartialMatrix
 }
 
+// WGSL type names used by the constructor and diagnostic code.
+const (
+	vecTypePrefix = "vec"  // vecN
+	matTypePrefix = "mat"  // matCxR
+	boolTypeName  = "bool" // the boolean scalar
+)
+
 // partialConstructor classifies a constructor name without template
 // parameters: vecN, matCxR and array are partial; anything else is not.
 func partialConstructor(name string) (constructor, bool) {
 	switch {
-	case len(name) == 4 && name[:3] == "vec" && name[3] >= '2' && name[3] <= '4':
+	case len(name) == 4 && name[:3] == vecTypePrefix && name[3] >= '2' && name[3] <= '4':
 		return constructor{kind: ctorPartialVector, size: ir.VectorSize(name[3] - '0')}, true
-	case len(name) == 6 && name[:3] == "mat" && name[4] == 'x' &&
+	case len(name) == 6 && name[:3] == matTypePrefix && name[4] == 'x' &&
 		name[3] >= '2' && name[3] <= '4' && name[5] >= '2' && name[5] <= '4':
 		return constructor{kind: ctorPartialMatrix, columns: ir.VectorSize(name[3] - '0'), rows: ir.VectorSize(name[5] - '0')}, true
 	case name == "array":
@@ -150,109 +157,144 @@ func (l *Lowerer) constructOne(ctor constructor, target ir.TypeInner, c ir.Expre
 	return nil, false, nil
 }
 
+// constructMany handles every form not handled by constructZero or
+// constructOne, one helper per constructor kind (the match arms of Rust
+// Lowerer::construct).
 func (l *Lowerer) constructMany(ctor constructor, target ir.TypeInner, comps []ir.ExpressionHandle) (any, error) {
 	switch ctor.kind {
 	case ctorPartialVector:
-		consensus, bad, ok := l.conversionConsensus(nil, comps)
-		if !ok {
-			return nil, fmt.Errorf("invalid type for constructor component at index [%d]", bad)
+		return l.constructPartialVector(ctor, comps)
+	case ctorPartialMatrix:
+		if k, ok, err := l.constructPartialMatrix(ctor, comps); ok || err != nil {
+			return k, err
 		}
+	case ctorPartialArray:
+		return l.constructPartialArray(comps)
+	case ctorType:
+		return l.constructTyped(ctor, target, comps)
+	}
+	return nil, fmt.Errorf("type can't be inferred")
+}
+
+// constructPartialVector builds vecN(...) of the arguments' common scalar.
+func (l *Lowerer) constructPartialVector(ctor constructor, comps []ir.ExpressionHandle) (any, error) {
+	consensus, bad, ok := l.conversionConsensus(nil, comps)
+	if !ok {
+		return nil, fmt.Errorf("invalid type for constructor component at index [%d]", bad)
+	}
+	if err := l.convertSliceToCommonLeafScalar(comps, consensus); err != nil {
+		return nil, err
+	}
+	ty := l.registerType("", ir.VectorType{Size: ctor.size, Scalar: consensus})
+	return ir.ExprCompose{Type: ty, Components: comps}, nil
+}
+
+// constructPartialMatrix builds matCxR(...) by elements or by columns; ok
+// is false for any other argument count.
+func (l *Lowerer) constructPartialMatrix(ctor constructor, comps []ir.ExpressionHandle) (any, bool, error) {
+	consensus, bad, ok := l.conversionConsensus(&scalarAbstractFloat, comps)
+	if !ok {
+		return nil, true, fmt.Errorf("invalid type for constructor component at index [%d]", bad)
+	}
+	switch len(comps) {
+	case int(ctor.columns) * int(ctor.rows): // by elements
+		if err := l.convertSliceToCommonLeafScalar(comps, consensus); err != nil {
+			return nil, true, err
+		}
+		k, err := l.matrixFromElements(ir.MatrixType{Columns: ctor.columns, Rows: ctor.rows, Scalar: consensus}, comps)
+		return k, true, err
+	case int(ctor.columns): // by columns
+		if err := l.tryAutomaticConversionsSlice(comps, ir.VectorType{Size: ctor.rows, Scalar: consensus}); err != nil {
+			return nil, true, err
+		}
+		ty := l.registerType("", ir.MatrixType{Columns: ctor.columns, Rows: ctor.rows, Scalar: consensus})
+		return ir.ExprCompose{Type: ty, Components: comps}, true, nil
+	}
+	return nil, false, nil
+}
+
+// constructPartialArray builds array(...): the element type is the first
+// argument's type after the leaf scalars are reconciled.
+func (l *Lowerer) constructPartialArray(comps []ir.ExpressionHandle) (any, error) {
+	if consensus, _, ok := l.conversionConsensus(nil, comps); ok {
+		// Reconciling the leaf scalars is right whenever the array can
+		// be well-typed at all; otherwise validation reports it.
 		if err := l.convertSliceToCommonLeafScalar(comps, consensus); err != nil {
 			return nil, err
 		}
-		ty := l.registerType("", ir.VectorType{Size: ctor.size, Scalar: consensus})
-		return ir.ExprCompose{Type: ty, Components: comps}, nil
+	}
+	base, err := l.inferTypeFromExpression(comps[0])
+	if err != nil {
+		return nil, err
+	}
+	n := index32[uint32](len(comps))
+	return ir.ExprCompose{Type: l.registerArrayType(base, ir.ArraySize{Constant: &n}), Components: comps}, nil
+}
 
-	case ctorPartialMatrix:
-		consensus, bad, ok := l.conversionConsensus(&scalarAbstractFloat, comps)
-		if !ok {
-			return nil, fmt.Errorf("invalid type for constructor component at index [%d]", bad)
+// constructTyped builds a constructor of a known type from its arguments.
+func (l *Lowerer) constructTyped(ctor constructor, target ir.TypeInner, comps []ir.ExpressionHandle) (any, error) {
+	if len(comps) == 1 {
+		switch target.(type) {
+		case ir.ScalarType, ir.VectorType, ir.MatrixType:
+			// One argument that no conversion arm accepted.
+			return nil, fmt.Errorf("cannot cast a %s to a %s", l.wgslType(l.exprInner(comps[0])), l.wgslTypeHandle(ctor.ty))
 		}
-		switch len(comps) {
-		case int(ctor.columns) * int(ctor.rows): // by elements
-			if err := l.convertSliceToCommonLeafScalar(comps, consensus); err != nil {
-				return nil, err
-			}
-			return l.matrixFromElements(ir.MatrixType{Columns: ctor.columns, Rows: ctor.rows, Scalar: consensus}, comps)
-		case int(ctor.columns): // by columns
-			if err := l.tryAutomaticConversionsSlice(comps, ir.VectorType{Size: ctor.rows, Scalar: consensus}); err != nil {
-				return nil, err
-			}
-			ty := l.registerType("", ir.MatrixType{Columns: ctor.columns, Rows: ctor.rows, Scalar: consensus})
-			return ir.ExprCompose{Type: ty, Components: comps}, nil
-		}
-
-	case ctorPartialArray:
-		if consensus, _, ok := l.conversionConsensus(nil, comps); ok {
-			// Reconciling the leaf scalars is right whenever the array can
-			// be well-typed at all; otherwise validation reports it.
-			if err := l.convertSliceToCommonLeafScalar(comps, consensus); err != nil {
-				return nil, err
-			}
-		}
-		base, err := l.inferTypeFromExpression(comps[0])
-		if err != nil {
+	}
+	switch t := target.(type) {
+	case ir.VectorType:
+		if err := l.tryAutomaticConversionsForVector(comps, t.Scalar); err != nil {
 			return nil, err
 		}
-		n := uint32(len(comps))
-		return ir.ExprCompose{Type: l.registerArrayType(base, ir.ArraySize{Constant: &n}), Components: comps}, nil
-
-	case ctorType:
-		if len(comps) == 1 {
-			switch target.(type) {
-			case ir.ScalarType, ir.VectorType, ir.MatrixType:
-				// One argument that no conversion arm accepted.
-				return nil, fmt.Errorf("cannot cast a %s to a %s", l.wgslType(l.exprInner(comps[0])), l.wgslTypeHandle(ctor.ty))
+		return ir.ExprCompose{Type: ctor.ty, Components: comps}, nil
+	case ir.MatrixType:
+		switch len(comps) {
+		case int(t.Columns) * int(t.Rows):
+			if err := l.tryAutomaticConversionsSlice(comps, t.Scalar); err != nil {
+				return nil, err
 			}
-		}
-		switch t := target.(type) {
-		case ir.VectorType:
-			if err := l.tryAutomaticConversionsForVector(comps, t.Scalar); err != nil {
+			return l.matrixFromElements(t, comps)
+		case int(t.Columns):
+			if err := l.tryAutomaticConversionsSlice(comps, ir.VectorType{Size: t.Rows, Scalar: t.Scalar}); err != nil {
 				return nil, err
 			}
 			return ir.ExprCompose{Type: ctor.ty, Components: comps}, nil
-		case ir.MatrixType:
-			switch len(comps) {
-			case int(t.Columns) * int(t.Rows):
-				if err := l.tryAutomaticConversionsSlice(comps, t.Scalar); err != nil {
-					return nil, err
-				}
-				return l.matrixFromElements(t, comps)
-			case int(t.Columns):
-				if err := l.tryAutomaticConversionsSlice(comps, ir.VectorType{Size: t.Rows, Scalar: t.Scalar}); err != nil {
-					return nil, err
-				}
-				return ir.ExprCompose{Type: ctor.ty, Components: comps}, nil
-			}
-		case ir.ArrayType:
-			if !l.isConstructible(t) {
-				break
-			}
-			if err := l.tryAutomaticConversionsSlice(comps, l.module.Types[t.Base].Inner); err != nil {
-				return nil, err
-			}
-			return ir.ExprCompose{Type: ctor.ty, Components: comps}, nil
-		case ir.StructType:
-			if !l.isConstructible(t) {
-				break
-			}
-			for i := range comps {
-				if i >= len(t.Members) {
-					break
-				}
-				c, err := l.tryAutomaticConversions(comps[i], l.module.Types[t.Members[i].Type].Inner)
-				if err != nil {
-					return nil, err
-				}
-				comps[i] = c
-			}
-			return ir.ExprCompose{Type: ctor.ty, Components: comps}, nil
-		case ir.ScalarType:
-			return nil, fmt.Errorf("unexpected components")
 		}
-		return nil, l.notConstructible(ctor.ty)
+	case ir.ArrayType:
+		if !l.isConstructible(t) {
+			break
+		}
+		if err := l.tryAutomaticConversionsSlice(comps, l.module.Types[t.Base].Inner); err != nil {
+			return nil, err
+		}
+		return ir.ExprCompose{Type: ctor.ty, Components: comps}, nil
+	case ir.StructType:
+		if !l.isConstructible(t) {
+			break
+		}
+		if err := l.convertStructMembers(t, comps); err != nil {
+			return nil, err
+		}
+		return ir.ExprCompose{Type: ctor.ty, Components: comps}, nil
+	case ir.ScalarType:
+		return nil, fmt.Errorf("unexpected components")
 	}
-	return nil, fmt.Errorf("type can't be inferred")
+	return nil, l.notConstructible(ctor.ty)
+}
+
+// convertStructMembers converts each argument of a struct constructor to
+// the type of its member; extra arguments are left to validation.
+func (l *Lowerer) convertStructMembers(t ir.StructType, comps []ir.ExpressionHandle) error {
+	for i := range comps {
+		if i >= len(t.Members) {
+			break
+		}
+		c, err := l.tryAutomaticConversions(comps[i], l.module.Types[t.Members[i].Type].Inner)
+		if err != nil {
+			return err
+		}
+		comps[i] = c
+	}
+	return nil
 }
 
 // matrixFromElements groups the column-major scalar elements of a matrix

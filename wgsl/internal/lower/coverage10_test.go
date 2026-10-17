@@ -78,7 +78,7 @@ func TestLowerTypeShapeMatchesVecConvert(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// tryFoldAs — type conversion folding (56.7%)
+// Type conversions of constant operands.
 // ---------------------------------------------------------------------------
 
 func TestLowerTryFoldAsI32ToF32(t *testing.T) {
@@ -126,7 +126,7 @@ fn main() {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeAbstractFloat — abstract float concretization (52.6%)
+// Abstract float literals meeting concrete operands.
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeAbstractFloatBinaryOps(t *testing.T) {
@@ -141,7 +141,7 @@ func TestLowerConcretizeAbstractFloatBinaryOps(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// deepCopyConstExpr — deep copy paths (52.6%)
+// Constants built from select() are usable as values.
 // ---------------------------------------------------------------------------
 
 func TestLowerDeepCopyConstExprLiteral(t *testing.T) {
@@ -157,7 +157,7 @@ func TestLowerDeepCopyConstExprLiteral(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeComponentLiterals — component literal concretization (57.1%)
+// Abstract component literals in typed vector constructors.
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeComponentLiterals(t *testing.T) {
@@ -257,7 +257,7 @@ fn test() { _ = A; _ = B; _ = C; _ = D; }`
 }
 
 // ---------------------------------------------------------------------------
-// concretizeTypeHandle — type handle concretization (55.6%)
+// Abstract vector constants used in concrete typed contexts.
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeTypeHandleAbstractVec(t *testing.T) {
@@ -373,7 +373,7 @@ fn main(@builtin(local_invocation_index) lid: u32) {
 }
 
 // ---------------------------------------------------------------------------
-// buildOverrideGlobalExpr — override global expression building (52.9%)
+// Override declarations with initializer expressions.
 // ---------------------------------------------------------------------------
 
 func TestLowerBuildOverrideGlobalExprVarious(t *testing.T) {

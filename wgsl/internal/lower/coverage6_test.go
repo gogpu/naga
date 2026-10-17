@@ -9,43 +9,8 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// float32ToHalf / halfToFloat32 — IEEE 754 half-precision round-trip
+// halfToFloat32 / roundToF16 — IEEE 754 half-precision decoding and rounding
 // ---------------------------------------------------------------------------
-
-func TestFloat32ToHalf(t *testing.T) {
-	tests := []struct {
-		name string
-		f32  float32
-		want uint16
-	}{
-		{"positive zero", 0.0, 0x0000},
-		{"negative zero", float32(math.Copysign(0, -1)), 0x8000},
-		{"one", 1.0, 0x3c00},
-		{"negative one", -1.0, 0xbc00},
-		{"half", 0.5, 0x3800},
-		{"positive inf", float32(math.Inf(1)), 0x7c00},
-		{"negative inf", float32(math.Inf(-1)), 0xfc00},
-		{"NaN", float32(math.NaN()), 0x7e00},
-		{"overflow to inf", 65536.0, 0x7c00},
-		{"smallest subnormal", math.Float32frombits(0x33800000), 0x0001}, // ~5.96e-8
-		{"too small to represent", 1e-10, 0x0000},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := float32ToHalf(tt.f32)
-			if math.IsNaN(float64(tt.f32)) {
-				// NaN: just check inf bits are set and fraction is non-zero
-				if got&0x7c00 != 0x7c00 || got&0x03ff == 0 {
-					t.Errorf("float32ToHalf(NaN) = 0x%04x, want NaN pattern", got)
-				}
-				return
-			}
-			if got != tt.want {
-				t.Errorf("float32ToHalf(%v) = 0x%04x, want 0x%04x", tt.f32, got, tt.want)
-			}
-		})
-	}
-}
 
 func TestHalfToFloat32(t *testing.T) {
 	tests := []struct {
@@ -85,149 +50,13 @@ func TestHalfToFloat32(t *testing.T) {
 }
 
 func TestFloat32HalfRoundTrip(t *testing.T) {
-	// Values that survive round-trip exactly
+	// Values exactly representable in f16 survive the f16 quantization
+	// (roundToF16) unchanged.
 	values := []float32{0.0, 1.0, -1.0, 0.5, -0.5, 2.0, 0.25, 100.0}
 	for _, v := range values {
-		half := float32ToHalf(v)
-		back := halfToFloat32(half)
-		if back != v {
-			t.Errorf("round-trip(%v): half=0x%04x, back=%v", v, half, back)
+		if back := roundToF16(v); back != v {
+			t.Errorf("roundToF16(%v) = %v, want %v", v, back, v)
 		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// scalarZeroLiteral — zero value for each scalar kind
-// ---------------------------------------------------------------------------
-
-func TestScalarZeroLiteral(t *testing.T) {
-	tests := []struct {
-		name   string
-		scalar ir.ScalarType
-		want   ir.LiteralValue
-	}{
-		{"bool", ir.ScalarType{Kind: ir.ScalarBool, Width: 1}, ir.LiteralBool(false)},
-		{"i32", ir.ScalarType{Kind: ir.ScalarSint, Width: 4}, ir.LiteralI32(0)},
-		{"u32", ir.ScalarType{Kind: ir.ScalarUint, Width: 4}, ir.LiteralU32(0)},
-		{"f32", ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, ir.LiteralF32(0.0)},
-		{"f64", ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}, ir.LiteralF64(0.0)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := scalarZeroLiteral(tt.scalar)
-			if got != tt.want {
-				t.Errorf("scalarZeroLiteral(%v) = %v, want %v", tt.scalar, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// scalarKindCompatible — type compatibility rules
-// ---------------------------------------------------------------------------
-
-func TestScalarKindCompatible(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b ir.ScalarKind
-		want bool
-	}{
-		{"same kind", ir.ScalarSint, ir.ScalarSint, true},
-		{"sint-uint", ir.ScalarSint, ir.ScalarUint, true},
-		{"uint-sint", ir.ScalarUint, ir.ScalarSint, true},
-		{"sint-abstractint", ir.ScalarSint, ir.ScalarAbstractInt, true},
-		{"float-abstractfloat", ir.ScalarFloat, ir.ScalarAbstractFloat, true},
-		{"sint-float incompatible", ir.ScalarSint, ir.ScalarFloat, false},
-		{"uint-float incompatible", ir.ScalarUint, ir.ScalarFloat, false},
-		{"bool-sint incompatible", ir.ScalarBool, ir.ScalarSint, false},
-		{"abstractint-abstractfloat incompatible", ir.ScalarAbstractInt, ir.ScalarAbstractFloat, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := scalarKindCompatible(tt.a, tt.b)
-			if got != tt.want {
-				t.Errorf("scalarKindCompatible(%v, %v) = %v, want %v", tt.a, tt.b, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// convertScalarBits — cross-kind bit conversion
-// ---------------------------------------------------------------------------
-
-func TestConvertScalarBits(t *testing.T) {
-	tests := []struct {
-		name    string
-		srcKind ir.ScalarKind
-		bits    uint64
-		target  ir.ScalarType
-		want    uint64
-	}{
-		{
-			"sint to f32",
-			ir.ScalarSint, 42,
-			ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
-			uint64(math.Float32bits(42.0)),
-		},
-		{
-			"sint to f64",
-			ir.ScalarSint, 42,
-			ir.ScalarType{Kind: ir.ScalarFloat, Width: 8},
-			math.Float64bits(42.0),
-		},
-		{
-			"f32 to sint",
-			ir.ScalarFloat, uint64(math.Float32bits(3.14)),
-			ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
-			uint64(int64(3)), // truncated
-		},
-		{
-			"sint to uint same family",
-			ir.ScalarSint, 100,
-			ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
-			100, // bits kept as-is
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := convertScalarBits(tt.srcKind, tt.bits, tt.target)
-			if got != tt.want {
-				t.Errorf("convertScalarBits(%v, %d, %v) = %d, want %d",
-					tt.srcKind, tt.bits, tt.target, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// concretizeLiteralTo — abstract → concrete literal conversion
-// ---------------------------------------------------------------------------
-
-func TestConcretizeLiteralTo(t *testing.T) {
-	tests := []struct {
-		name     string
-		abstract ir.LiteralValue
-		concrete ir.LiteralValue
-		want     ir.LiteralValue
-	}{
-		{"abstractint to f32", ir.LiteralAbstractInt(42), ir.LiteralF32(0), ir.LiteralF32(42.0)},
-		{"abstractint to i32", ir.LiteralAbstractInt(10), ir.LiteralI32(0), ir.LiteralI32(10)},
-		{"abstractint to u32", ir.LiteralAbstractInt(5), ir.LiteralU32(0), ir.LiteralU32(5)},
-		{"abstractfloat to f32", ir.LiteralAbstractFloat(3.14), ir.LiteralF32(0), ir.LiteralF32(3.14)},
-		{"abstractfloat to f64", ir.LiteralAbstractFloat(2.71), ir.LiteralF64(0), ir.LiteralF64(2.71)},
-		{"abstractint to i64", ir.LiteralAbstractInt(99), ir.LiteralI64(0), ir.LiteralI64(99)},
-		{"abstractint to u64", ir.LiteralAbstractInt(7), ir.LiteralU64(0), ir.LiteralU64(7)},
-		{"concrete unchanged", ir.LiteralI32(42), ir.LiteralF32(0), ir.LiteralI32(42)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := concretizeLiteralTo(tt.abstract, tt.concrete)
-			if got != tt.want {
-				t.Errorf("concretizeLiteralTo(%v, %v) = %v, want %v",
-					tt.abstract, tt.concrete, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -389,8 +218,24 @@ func TestLowerFrexpVectorResultMember(t *testing.T) {
 	}
 }
 
+// TestLowerBuiltinResultMemberArgError checks that an error lowering the
+// argument of modf/frexp in a member access is reported as is.
+func TestLowerBuiltinResultMemberArgError(t *testing.T) {
+	tests := []struct{ name, src string }{
+		{"modf fract", "fn f() { let a = modf(nope).fract; }"},
+		{"frexp exp", "fn f() { let a = frexp(nope).exp; }"},
+		{"frexp vector", "fn f() { let a = frexp(vec2(1.0, nope)).fract; }"},
+		{"module const", "const c = modf(nope).fract;"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expectError(t, tt.src, "unresolved identifier: nope")
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
-// const_assert — tryEvalConstantBool
+// const_assert with boolean literals
 // ---------------------------------------------------------------------------
 
 func TestLowerConstAssertBoolLiterals(t *testing.T) {
@@ -449,7 +294,7 @@ fn test() {}`
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantIntExpr — constant integer evaluation
+// Constant integer evaluation
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantIntExprBinary(t *testing.T) {
@@ -474,7 +319,7 @@ fn test() -> i32 { return B; }`
 }
 
 // ---------------------------------------------------------------------------
-// evalCallAsConstantInt / evalMemberAsConstantInt
+// Constructor calls and component access in const integer context
 // ---------------------------------------------------------------------------
 
 func TestLowerConstExprWithCallConstructor(t *testing.T) {
@@ -502,7 +347,7 @@ fn main() {}`
 }
 
 // ---------------------------------------------------------------------------
-// evalTypeConstructorAsInt — type constructor in workgroup_size
+// Type constructors in workgroup_size
 // ---------------------------------------------------------------------------
 
 func TestLowerWorkgroupSizeWithTypeConstructors(t *testing.T) {
@@ -532,7 +377,7 @@ func TestLowerWorkgroupSizeWithTypeConstructors(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// evalScalarComparison — float and integer comparisons
+// Float and integer comparisons
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldComparisons(t *testing.T) {
@@ -551,7 +396,7 @@ func TestLowerConstFoldComparisons(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// evalScalarArithmetic — mixed int/float and integer arithmetic
+// Mixed int/float and integer arithmetic
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldMixedIntFloat(t *testing.T) {
@@ -579,7 +424,7 @@ func TestLowerConstFoldIntegerDivByZero(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Shift operations — concretizeShiftRight / concretizeShiftLeft
+// Shift operations with abstract operands
 // ---------------------------------------------------------------------------
 
 func TestLowerShiftOps(t *testing.T) {
@@ -633,7 +478,7 @@ func TestLowerCompoundAssignVectorSplat(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// lowerCallConstant — struct and scalar zero constructors
+// Struct and scalar zero constructors
 // ---------------------------------------------------------------------------
 
 func TestLowerCallConstantScalarConstructors(t *testing.T) {
@@ -659,7 +504,7 @@ fn test() -> f32 { return P.x; }`
 }
 
 // ---------------------------------------------------------------------------
-// lowerConstantAlias — const aliasing
+// Const aliasing
 // ---------------------------------------------------------------------------
 
 func TestLowerConstantAliasAbstractScalar(t *testing.T) {
@@ -680,7 +525,7 @@ fn test() -> i32 {
 }
 
 func TestLowerConstantAliasConcrete(t *testing.T) {
-	// Alias of a concrete (typed) constant exercises lowerConstantAlias
+	// Alias of a concrete (typed) constant
 	src := `const SRC: i32 = 42;
 const DST = SRC;
 fn test() -> i32 { return DST; }`
@@ -725,7 +570,7 @@ fn test() -> f32 { return DST; }`
 }
 
 // ---------------------------------------------------------------------------
-// lowerConstantUnaryExpr — negation, bitwise NOT, logical NOT at module scope
+// Negation, bitwise NOT, logical NOT at module scope
 // ---------------------------------------------------------------------------
 
 func TestLowerConstantUnaryBitwiseNot(t *testing.T) {
@@ -754,7 +599,7 @@ fn test() { _ = NEG_PI; _ = NEG_N; }`
 }
 
 // ---------------------------------------------------------------------------
-// evalConstBinaryExpr / evalConstUnaryExpr — raw binary/unary at const scope
+// Raw binary/unary expressions at const scope
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractConstBinaryOps(t *testing.T) {
@@ -881,7 +726,7 @@ fn test() {
 }
 
 // ---------------------------------------------------------------------------
-// buildZeroCompose — partial constructors with zero args
+// Partial constructors with zero args
 // ---------------------------------------------------------------------------
 
 func TestLowerZeroArgVecConstructorInConst(t *testing.T) {
@@ -901,7 +746,7 @@ fn test() -> mat2x2<f32> { return ZERO_MAT; }`
 }
 
 // ---------------------------------------------------------------------------
-// expandZeroValueToCompose — runtime zero-value expansion
+// Runtime zero-value constructors
 // ---------------------------------------------------------------------------
 
 func TestLowerZeroArgVecConstructorRuntimeExplicit(t *testing.T) {
@@ -924,7 +769,7 @@ func TestLowerZeroArgVecConstructorRuntimeExplicit(t *testing.T) {
 }
 
 func TestLowerZeroArgVecConstructorPartial(t *testing.T) {
-	// Partial constructor: vec3() with target type annotation → expandZeroValueToCompose
+	// Partial constructor: vec3() with target type annotation
 	src := `fn test() {
     let v: vec3<f32> = vec3();
     _ = v;
@@ -979,7 +824,7 @@ func TestLowerZeroArgMatConstructorPartial(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// groupMatrixConstantColumns — scalar to column vector grouping
+// Scalar to column vector grouping in matrix constants
 // ---------------------------------------------------------------------------
 
 func TestLowerMatrixConstantWithScalars(t *testing.T) {
@@ -1002,7 +847,7 @@ fn test() -> mat2x2<f32> { return M; }`
 }
 
 // ---------------------------------------------------------------------------
-// createZeroComponents — zero-filled composite
+// Zero-filled composite
 // ---------------------------------------------------------------------------
 
 func TestLowerZeroArgVecComposite(t *testing.T) {
@@ -1016,7 +861,7 @@ fn test() -> vec4<f32> { return V; }`
 }
 
 // ---------------------------------------------------------------------------
-// inferAbstractCompositeType — abstract array type inference
+// Abstract array type inference
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractArrayTypeInference(t *testing.T) {
@@ -1040,56 +885,7 @@ fn test() {
 }
 
 // ---------------------------------------------------------------------------
-// foldBinaryLiterals — IR-level binary op folding
-// ---------------------------------------------------------------------------
-
-func TestFoldBinaryLiterals(t *testing.T) {
-	tests := []struct {
-		name  string
-		op    ir.BinaryOperator
-		left  ir.LiteralValue
-		right ir.LiteralValue
-		want  ir.LiteralValue
-		ok    bool
-	}{
-		{"i32 add", ir.BinaryAdd, ir.LiteralI32(3), ir.LiteralI32(4), ir.LiteralI32(7), true},
-		{"i32 sub", ir.BinarySubtract, ir.LiteralI32(10), ir.LiteralI32(3), ir.LiteralI32(7), true},
-		{"i32 mul", ir.BinaryMultiply, ir.LiteralI32(3), ir.LiteralI32(4), ir.LiteralI32(12), true},
-		{"i32 div", ir.BinaryDivide, ir.LiteralI32(12), ir.LiteralI32(4), ir.LiteralI32(3), true},
-		{"i32 mod", ir.BinaryModulo, ir.LiteralI32(10), ir.LiteralI32(3), ir.LiteralI32(1), true},
-		{"i32 bitand", ir.BinaryAnd, ir.LiteralI32(0xFF), ir.LiteralI32(0x0F), ir.LiteralI32(0x0F), true},
-		{"i32 bitor", ir.BinaryInclusiveOr, ir.LiteralI32(0xF0), ir.LiteralI32(0x0F), ir.LiteralI32(0xFF), true},
-		{"i32 bitxor", ir.BinaryExclusiveOr, ir.LiteralI32(0xFF), ir.LiteralI32(0xAA), ir.LiteralI32(0x55), true},
-		{"i32 shl", ir.BinaryShiftLeft, ir.LiteralI32(1), ir.LiteralI32(4), ir.LiteralI32(16), true},
-		{"i32 shr", ir.BinaryShiftRight, ir.LiteralI32(16), ir.LiteralI32(2), ir.LiteralI32(4), true},
-		{"f32 add", ir.BinaryAdd, ir.LiteralF32(1.0), ir.LiteralF32(2.0), ir.LiteralF32(3.0), true},
-		{"f32 sub", ir.BinarySubtract, ir.LiteralF32(5.0), ir.LiteralF32(3.0), ir.LiteralF32(2.0), true},
-		{"f32 mul", ir.BinaryMultiply, ir.LiteralF32(2.0), ir.LiteralF32(3.0), ir.LiteralF32(6.0), true},
-		{"f32 div", ir.BinaryDivide, ir.LiteralF32(6.0), ir.LiteralF32(2.0), ir.LiteralF32(3.0), true},
-		{"i32 eq true", ir.BinaryEqual, ir.LiteralI32(5), ir.LiteralI32(5), ir.LiteralBool(true), true},
-		{"i32 eq false", ir.BinaryEqual, ir.LiteralI32(5), ir.LiteralI32(3), ir.LiteralBool(false), true},
-		{"i32 neq", ir.BinaryNotEqual, ir.LiteralI32(5), ir.LiteralI32(3), ir.LiteralBool(true), true},
-		{"i32 lt", ir.BinaryLess, ir.LiteralI32(3), ir.LiteralI32(5), ir.LiteralBool(true), true},
-		{"i32 lte", ir.BinaryLessEqual, ir.LiteralI32(5), ir.LiteralI32(5), ir.LiteralBool(true), true},
-		{"i32 gt", ir.BinaryGreater, ir.LiteralI32(5), ir.LiteralI32(3), ir.LiteralBool(true), true},
-		{"i32 gte", ir.BinaryGreaterEqual, ir.LiteralI32(5), ir.LiteralI32(5), ir.LiteralBool(true), true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := foldBinaryLiterals(tt.op, tt.left, tt.right)
-			if ok != tt.ok {
-				t.Fatalf("foldBinaryLiterals: ok=%v, want %v", ok, tt.ok)
-			}
-			if ok && got != tt.want {
-				t.Errorf("foldBinaryLiterals(%v, %v, %v) = %v, want %v",
-					tt.op, tt.left, tt.right, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// functionHasForwardRefs — forward reference detection
+// Function forward references
 // ---------------------------------------------------------------------------
 
 func TestLowerFunctionForwardReferences(t *testing.T) {
@@ -1230,7 +1026,7 @@ func TestLowerAbstractIntPromotionNested(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// buildConstGlobalExpr — complex constant values
+// Complex constant values
 // ---------------------------------------------------------------------------
 
 func TestLowerBuildConstGlobalExprScalar(t *testing.T) {
@@ -1263,7 +1059,7 @@ func TestLowerConstFoldRoundingNegative(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// inferCompositeConstantType with nested composites
+// Nested composite constants
 // ---------------------------------------------------------------------------
 
 func TestLowerInferCompositeConstantTypeNested(t *testing.T) {
@@ -1281,7 +1077,7 @@ fn test() -> vec2<f32> { return DATA[0]; }`
 }
 
 // ---------------------------------------------------------------------------
-// negateScalarBits — bitwise negation on all scalar kinds
+// Negation on all scalar kinds
 // ---------------------------------------------------------------------------
 
 func TestLowerConstFoldNegateAll(t *testing.T) {
@@ -1295,7 +1091,7 @@ func TestLowerConstFoldNegateAll(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// widenScalar — abstract int widening to match operand
+// Abstract int widening to match operand
 // ---------------------------------------------------------------------------
 
 func TestLowerWidenScalar(t *testing.T) {
@@ -1308,7 +1104,7 @@ func TestLowerWidenScalar(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// resolveExprScalar and innerScalar through arrays and atomics
+// Scalar resolution through arrays and atomics
 // ---------------------------------------------------------------------------
 
 func TestLowerAtomicOpsAddLoadStore(t *testing.T) {
@@ -1324,7 +1120,7 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeAbstractToDefaultFloat — abstract to f32 default
+// Abstract float defaulting to f32
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeAbstractToFloat(t *testing.T) {
@@ -1354,7 +1150,7 @@ func TestLowerBinaryOpSplatScalarVec(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeExpressionToScalar — expression-level concretization
+// Expression-level concretization
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeExprToScalar(t *testing.T) {
@@ -1365,7 +1161,7 @@ func TestLowerConcretizeExprToScalar(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// convertExpressionToFloat — integer expression to float
+// Integer expression to float
 // ---------------------------------------------------------------------------
 
 func TestLowerConvertExprToFloat(t *testing.T) {
@@ -1376,7 +1172,7 @@ func TestLowerConvertExprToFloat(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// computeConcreteLiteral — compute concrete value from abstract literal
+// Concrete value computed from abstract literal
 // ---------------------------------------------------------------------------
 
 func TestLowerComputeConcreteLiteral(t *testing.T) {
@@ -1389,7 +1185,7 @@ func TestLowerComputeConcreteLiteral(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// resolvePointerScalar — pointer target scalar resolution
+// Pointer target scalar resolution
 // ---------------------------------------------------------------------------
 
 func TestLowerResolvePointerScalar(t *testing.T) {
@@ -1402,7 +1198,7 @@ func TestLowerResolvePointerScalar(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeAbstractToUint — abstract int to u32
+// Abstract int to u32
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeAbstractToUint(t *testing.T) {
@@ -1414,7 +1210,7 @@ func TestLowerConcretizeAbstractToUint(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// inferOverrideType — override type inference with expressions
+// Override type inference with expressions
 // ---------------------------------------------------------------------------
 
 func TestLowerOverrideTypeInferenceExpr(t *testing.T) {
@@ -1429,7 +1225,7 @@ fn main() { _ = A; _ = B; }`
 }
 
 // ---------------------------------------------------------------------------
-// buildOverrideInitExpr — override init with binary expression
+// Override init with binary expression
 // ---------------------------------------------------------------------------
 
 func TestLowerOverrideInitBinaryExpr(t *testing.T) {
@@ -1447,7 +1243,7 @@ fn main() {
 }
 
 // ---------------------------------------------------------------------------
-// coerceScalarToType — scalar coercion edge cases
+// Scalar coercion edge cases
 // ---------------------------------------------------------------------------
 
 func TestLowerCoerceScalarToType(t *testing.T) {
@@ -1463,7 +1259,7 @@ fn test() -> i32 { return X; }`
 }
 
 // ---------------------------------------------------------------------------
-// astLiteralToIRValue — all literal suffixes
+// All literal suffixes
 // ---------------------------------------------------------------------------
 
 func TestLowerLiteralSuffixes(t *testing.T) {
@@ -1486,7 +1282,7 @@ func TestLowerLiteralHexAndBinary(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// abstractScalarKind — suffix detection for abstract types
+// Suffix detection for abstract types
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractScalarKindDetection(t *testing.T) {
@@ -1512,7 +1308,7 @@ fn test() -> f32 { return data[0]; }`
 }
 
 // ---------------------------------------------------------------------------
-// lowerCompositeConstant with struct type
+// Composite constant with struct type
 // ---------------------------------------------------------------------------
 
 func TestLowerCompositeConstantStruct(t *testing.T) {
@@ -1536,7 +1332,7 @@ fn test() -> f32 { return CFG.width; }`
 }
 
 // ---------------------------------------------------------------------------
-// concretizeTypeHandle — abstract type to concrete
+// Abstract type to concrete
 // ---------------------------------------------------------------------------
 
 func TestLowerConcretizeAbstractArrayType(t *testing.T) {
@@ -1550,7 +1346,7 @@ fn test() {
 }
 
 // ---------------------------------------------------------------------------
-// initHasConcreteType — check if init has concrete type
+// Whether an initializer has a concrete type
 // ---------------------------------------------------------------------------
 
 func TestLowerInitHasConcreteType(t *testing.T) {
@@ -1577,7 +1373,7 @@ fn test() { _ = A; _ = B; _ = C; }`
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantArgs with struct member types
+// Const struct constructor with member types
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantArgsStruct(t *testing.T) {
@@ -1602,7 +1398,7 @@ fn test() -> f32 { return P.x + P.y; }`
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantFloatExpr — float-specific const evaluation
+// Float-specific const evaluation
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantFloatExpr(t *testing.T) {
@@ -1617,7 +1413,7 @@ fn test() -> f32 { return TAU + HALF_PI; }`
 }
 
 // ---------------------------------------------------------------------------
-// evalConstantIdent — constant identifier resolution
+// Constant identifier resolution
 // ---------------------------------------------------------------------------
 
 func TestLowerEvalConstantIdentChain(t *testing.T) {
@@ -1736,7 +1532,7 @@ fn test() -> f32 { return value + OFFSET; }`
 }
 
 // ---------------------------------------------------------------------------
-// inferGlobalVarType with array
+// Global var type inference with array
 // ---------------------------------------------------------------------------
 
 func TestLowerInferGlobalVarTypeArray(t *testing.T) {
@@ -1768,7 +1564,7 @@ fn main() -> @location(0) vec4<f32> {
 }
 
 // ---------------------------------------------------------------------------
-// inferScalarWidth — width inference from type context
+// Width inference from type context
 // ---------------------------------------------------------------------------
 
 func TestLowerInferScalarWidthF16(t *testing.T) {
@@ -1798,7 +1594,7 @@ func TestLowerConstFoldVecSplat(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// concretizeAbstractInt through concretizeAbstractToDefaultFloat
+// Abstract int defaulting to float
 // ---------------------------------------------------------------------------
 
 func TestLowerAbstractIntToFloat(t *testing.T) {

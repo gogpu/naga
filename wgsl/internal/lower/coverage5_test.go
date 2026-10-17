@@ -8,7 +8,7 @@ import (
 )
 
 // -----------------------------------------------------------------------
-// Exercises scalarKindForType, coerceScalarToType, scalarKindCompatible
+// Abstract and concrete scalar kind conversions.
 // -----------------------------------------------------------------------
 
 func TestLowerScalarKindConversions(t *testing.T) {
@@ -32,7 +32,7 @@ func TestLowerScalarKindConversions(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// Exercises inferGlobalVarType with all scalar types
+// Global vars with inferred types for all scalar types.
 // -----------------------------------------------------------------------
 
 func TestLowerInferGlobalVarTypes(t *testing.T) {
@@ -92,7 +92,7 @@ fn test() {
 }
 
 // -----------------------------------------------------------------------
-// Abstract constant with complex types (exercises lowerAbstractConstant)
+// Abstract constant with complex types
 // -----------------------------------------------------------------------
 
 func TestLowerAbstractConstantComplex(t *testing.T) {
@@ -154,7 +154,7 @@ fn test() -> i32 { return A + D; }`
 }
 
 // -----------------------------------------------------------------------
-// Exercises tryFoldDot, tryFoldCross with runtime vectors
+// Dot and cross products with runtime vectors.
 // -----------------------------------------------------------------------
 
 func TestLowerDotCrossRuntime(t *testing.T) {
@@ -168,7 +168,7 @@ func TestLowerDotCrossRuntime(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// Exercises tryFoldBinaryOp with const vectors
+// Binary operations on const vectors.
 // -----------------------------------------------------------------------
 
 func TestLowerConstFoldVecBinaryI32Full(t *testing.T) {
@@ -198,7 +198,7 @@ func TestLowerConstFoldVecBitOps(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// Exercises extractConstVectorLiterals path with F32
+// Const vector component extraction with F32.
 // -----------------------------------------------------------------------
 
 func TestLowerExtractConstVecLiteralsF32(t *testing.T) {
@@ -214,7 +214,7 @@ func TestLowerExtractConstVecLiteralsF32(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// Exercises inferConstructorTypeFromScalar
+// Constructor type inferred from scalar arguments.
 // -----------------------------------------------------------------------
 
 func TestLowerInferConstructorTypeFromScalar(t *testing.T) {
@@ -244,7 +244,7 @@ func TestLowerResolveScalarNames(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// Const fold tryFoldAs (type conversion in const context)
+// Const type conversions.
 // -----------------------------------------------------------------------
 
 func TestLowerConstFoldAsConversions(t *testing.T) {
@@ -276,7 +276,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 
 // -----------------------------------------------------------------------
-// Exercises buildOverrideInitExpr fully
+// Override initializer expressions.
 // -----------------------------------------------------------------------
 
 func TestLowerOverrideInitExprs(t *testing.T) {
@@ -424,7 +424,7 @@ fn main(@location(0) dir: vec3<f32>) -> @location(0) vec4<f32> {
 }
 
 // -----------------------------------------------------------------------
-// Exercising concretizeTypeHandle
+// Abstract types made concrete by declared type.
 // -----------------------------------------------------------------------
 
 func TestLowerConcretizeTypeHandle(t *testing.T) {
@@ -437,7 +437,7 @@ func TestLowerConcretizeTypeHandle(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// Exercising concretizeLiteralValue
+// Abstract literals made concrete by declared type.
 // -----------------------------------------------------------------------
 
 func TestLowerConcretizeLiteralValue(t *testing.T) {
@@ -477,7 +477,7 @@ func TestLowerShortCircuitVerify(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
-// convertScalarBits
+// Scalar conversions between i32, u32 and f32.
 // -----------------------------------------------------------------------
 
 func TestLowerConvertScalarBits(t *testing.T) {
@@ -536,7 +536,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 
 // -----------------------------------------------------------------------
-// Exercises evalConstU32Expr path
+// Const u32 expressions used as array sizes.
 // -----------------------------------------------------------------------
 
 func TestLowerConstU32Expr(t *testing.T) {
