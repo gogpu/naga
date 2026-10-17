@@ -50,8 +50,8 @@ kernel void main_(
             break;
         }
         {
-            uint _e11 = i;
-            RayDesc _e18 = RayDesc {1u, 255u, 0.001, 1000.0, metal::float3(static_cast<float>(_e11)), metal::float3(0.0, -1.0, 0.0)};
+            uint _e9 = i;
+            RayDesc _e18 = RayDesc {1u, 255u, 0.001, 1000.0, metal::float3(static_cast<float>(_e9)), metal::float3(0.0, -1.0, 0.0)};
             sq.intersector.assume_geometry_type(metal::raytracing::geometry_type::triangle);
             sq.intersector.set_opacity_cull_mode((_e18.flags & 64) != 0 ? metal::raytracing::opacity_cull_mode::opaque : (_e18.flags & 128) != 0 ? metal::raytracing::opacity_cull_mode::non_opaque : metal::raytracing::opacity_cull_mode::none);
             sq.intersector.force_opacity((_e18.flags & 1) != 0 ? metal::raytracing::forced_opacity::opaque : (_e18.flags & 2) != 0 ? metal::raytracing::forced_opacity::non_opaque : metal::raytracing::forced_opacity::none);

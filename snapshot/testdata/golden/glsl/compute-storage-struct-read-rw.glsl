@@ -28,14 +28,14 @@ void main() {
     }
     Particle _e8 = _group_0_binding_0_cs[i];
     p_1 = _e8;
-    vec2 _e12 = p_1.vel;
-    p_1.vel = (_e12 * vec2(0.9995));
+    vec2 _e11 = p_1.vel;
+    p_1.vel = (_e11 * 0.9995);
+    vec2 _e15 = p_1.pos;
     vec2 _e17 = p_1.vel;
     float _e20 = _group_0_binding_2_cs.dt;
-    vec2 _e22 = p_1.pos;
-    p_1.pos = (_e22 + (_e17 * _e20));
-    Particle _e26 = p_1;
-    _group_0_binding_1_cs[i] = _e26;
+    p_1.pos = (_e15 + (_e17 * _e20));
+    Particle _e25 = p_1;
+    _group_0_binding_1_cs[i] = _e25;
     return;
 }
 

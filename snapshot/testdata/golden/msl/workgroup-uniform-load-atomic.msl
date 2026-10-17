@@ -46,16 +46,16 @@ kernel void test_atomic_workgroup_uniform_load(
     int _e22 = metal::atomic_fetch_add_explicit(&wg_struct.atomic_arr.inner[0], 1, metal::memory_order_relaxed);
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-    metal::atomic_uint unnamed = wg_scalar;
+    uint unnamed = wg_scalar;
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-    metal::atomic_int unnamed_1 = wg_signed;
+    int unnamed_1 = wg_signed;
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-    metal::atomic_uint unnamed_2 = wg_struct.atomic_scalar;
+    uint unnamed_2 = wg_struct.atomic_scalar;
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
-    metal::atomic_int unnamed_3 = wg_struct.atomic_arr.inner[0];
+    int unnamed_3 = wg_struct.atomic_arr.inner[0];
     metal::threadgroup_barrier(metal::mem_flags::mem_threadgroup);
     if (unnamed == 0u) {
         local = unnamed_1 > 0;

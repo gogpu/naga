@@ -154,11 +154,11 @@ func resolveLiteralType(lit Literal) (TypeResolution, error) {
 	case LiteralBool:
 		return TypeResolution{Value: ScalarType{Kind: ScalarBool, Width: 1}}, nil
 	case LiteralAbstractInt:
-		// Abstract int defaults to i32
-		return TypeResolution{Value: ScalarType{Kind: ScalarSint, Width: 4}}, nil
+		// Abstract types keep their kind, as in Rust naga's typifier; the
+		// WGSL frontend concretizes them before they reach a backend.
+		return TypeResolution{Value: ScalarType{Kind: ScalarAbstractInt, Width: 8}}, nil
 	case LiteralAbstractFloat:
-		// Abstract float defaults to f32
-		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 4}}, nil
+		return TypeResolution{Value: ScalarType{Kind: ScalarAbstractFloat, Width: 8}}, nil
 	default:
 		return TypeResolution{}, fmt.Errorf("unknown literal type: %T", v)
 	}

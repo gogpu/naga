@@ -52,10 +52,10 @@
          %_31 = OpCompositeExtract %_3 %_17 1
          %_32 = OpIMul %_3 %_31 %_28
                OpStore %_7 %_32
-         %_33 = OpCompositeExtract %_4 %_17 0
-         %_34 = OpCompositeExtract %_3 %_33 0
-         %_35 = OpLoad %_3 %_7
-         %_36 = OpIAdd %_3 %_35 %_34
+         %_33 = OpLoad %_3 %_7
+         %_34 = OpCompositeExtract %_4 %_17 0
+         %_35 = OpCompositeExtract %_3 %_34 0
+         %_36 = OpIAdd %_3 %_33 %_35
                OpStore %_7 %_36
                OpReturn
                OpFunctionEnd

@@ -30,14 +30,14 @@ kernel void main_(
     metal::float2 gravity = metal::float2(0.1, 0.2);
     metal::float2 _e13 = p.vel;
     p.vel = _e13 + gravity;
-    metal::float2 _e17 = p.vel;
-    p.vel = _e17 * metal::float2(0.9995);
+    metal::float2 _e16 = p.vel;
+    p.vel = _e16 * 0.9995;
+    metal::float2 _e20 = p.pos;
     metal::float2 _e22 = p.vel;
-    metal::float2 _e25 = p.pos;
-    p.pos = _e25 + (_e22 * 0.016);
-    Particle _e29 = p;
+    p.pos = _e20 + (_e22 * 0.016);
+    Particle _e28 = p;
     if (uint(0) < 1 + (_buffer_sizes.size0 - 0 - 16) / 16) {
-        out[0] = _e29;
+        out[0] = _e28;
     }
     return;
 }

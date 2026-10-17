@@ -65,22 +65,7 @@ func countOverrides(mod *ir.Module) int {
 var knownGlobalExpressionDiff = map[string]struct {
 	reason string
 	diffs  int
-}{
-	// Order only: the components of vec2(42u, 43) are concretized in a different
-	// order, so the two literals swap arena slots; Compose still names them in
-	// (42, 43) order. Values are identical.
-	"abstract-types-var": {"literal arena order", 4},
-
-	// Already a knownOptimizationDiff: different const-folding granularity
-	// (217 vs 207 expressions).
-	"abstract-types-const": {"const folding granularity", 45},
-
-	// Order only: `2 * depth` emits Override/Literal in the opposite order,
-	// with Binary operands swapped to match. Override defaults are built after
-	// compaction in buildGlobalExpressions (TECH-GE-002 §3). The former
-	// u32-default-as-F32 difference was fixed (BUG-GE-001).
-	"overrides": {"override init operand order", 4},
-}
+}{}
 
 func TestIRReference(t *testing.T) {
 	ronFiles := rustReferenceFiles(t, rustOutIR, func(name string) bool {
@@ -99,27 +84,9 @@ func TestIRReference(t *testing.T) {
 
 		shaderName := strings.TrimPrefix(strings.TrimSuffix(name, ".ron"), "wgsl-")
 
-		// Known optimization differences (documented, not bugs):
-		// mesh-shader: our const array inlining resolves positions[0] directly
-		// to Literal+Compose in one step, while Rust creates Constant→AccessIndex→
-		// ConstantEvaluator→compact chain. Both produce identical backend output.
-		// Expression arena ordering differs because needs_pre_emit expressions
-		// (Literal, Constant, GlobalVariable) are order-independent in IR semantics.
-		knownOptimizationDiff := map[string]bool{
-			"mesh-shader": true, // Our const array inlining is 1-step vs Rust's 3-step
-
-			// Type ordering differences: types registered in different order due to
-			// constructor/concretization timing. Rust evaluates abstract constructors
-			// and concretizes inline, while we register the inferred type first.
-			// All produce identical backend output.
-			"abstract-types-texture": true, // vec2<i32> vs vec2<f32> registration order
-			"select":                 true, // const_assert evaluation registers types differently
-
-			// Statement count/ordering differences: our emitter produces more Emit
-			// statements due to different emit range splitting. Backend output identical.
-			"math-functions": true, // Type ordering + extra emit statements + i32/vec2<i32> order
-			"shadow":         true, // Constant inlining vs reference — expression position swapped
-		}
+		// Known optimization differences (documented, not bugs). None are left
+		// for the uncompacted IR; TestIRReferenceCompact still has some.
+		knownOptimizationDiff := map[string]bool{}
 
 		t.Run(shaderName, func(t *testing.T) {
 			// 1. Parse Rust RON reference
@@ -214,9 +181,6 @@ type irDeviation struct {
 
 // Reasons shared by several IR deviations.
 const (
-	reasonIRCompoundAssign = "first difference: Rust loads the left-hand side of a compound assignment before " +
-		"lowering the right-hand side (upstream ce631c13, #9181); the later differences are the resulting " +
-		"expression handle shifts and were not reviewed one by one"
 	reasonIRTypeOrder = "type arena order: Rust registers a component type (the scalar of atomic<T> / vecN<T>, " +
 		"the image of binding_array<texture>) before the type containing it, we register the containing type " +
 		"first; the type handles that follow shift"
@@ -229,18 +193,6 @@ const (
 // irReferenceDeviations is keyed by "<shader>" (TestIRReference) and
 // "<shader>.compact" (TestIRReferenceCompact).
 var irReferenceDeviations = map[string]irDeviation{
-	"6220-break-from-loop": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "b61d5fa0fa09411028ac1ab6069124d45e2a279d83e80f5b3082c620db6bde1d"}, // 4 differences
-	"6220-break-from-loop.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "b61d5fa0fa09411028ac1ab6069124d45e2a279d83e80f5b3082c620db6bde1d"}, // 4 differences
-	"7048-multiple-dynamic-1": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "6103fd7fe9e5ae8b5175dffa42c0d8b60520ffc0373abbd22074f7f35bafc721"}, // 10 differences
-	"7048-multiple-dynamic-1.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "6103fd7fe9e5ae8b5175dffa42c0d8b60520ffc0373abbd22074f7f35bafc721"}, // 10 differences
-	"8820-multiple-local-invocation-index-id": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "34c608ccb19b8afa093126fff186316436633b3e5825fe314858ad4125227069"}, // 5 differences
-	"8820-multiple-local-invocation-index-id.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "34c608ccb19b8afa093126fff186316436633b3e5825fe314858ad4125227069"}, // 5 differences
 	"9489-loop-local-var-init": {Card: "BUG-LOOP-VAR-REINIT-001", Reason: reasonIRLoopVarReinit,
 		Fingerprint: "e931190827947d68f77fe43b7f5f4bbae8c40814491736133ed87bf27cb939a5"}, // 43 differences
 	"9489-loop-local-var-init.compact": {Card: "BUG-LOOP-VAR-REINIT-001", Reason: reasonIRLoopVarReinit,
@@ -249,10 +201,6 @@ var irReferenceDeviations = map[string]irDeviation{
 		Fingerprint: "471e199c4c239f12a8f92b68aa618fc21683abcf6e4096aedc29cc8ec65ae174"}, // 4 differences
 	"9883-atomic_sub-negative.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "471e199c4c239f12a8f92b68aa618fc21683abcf6e4096aedc29cc8ec65ae174"}, // 4 differences
-	"9890-no-rq-hoist": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "04d23dfbb1c3ddd9b5fddd04a176e3885ca8aaad8bade6076b3e4ef16508cdfd"}, // 5 differences
-	"9890-no-rq-hoist.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "04d23dfbb1c3ddd9b5fddd04a176e3885ca8aaad8bade6076b3e4ef16508cdfd"}, // 5 differences
 	"abstract-types-atomic": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "4c181102c038746fcad8e30499e534acfbb3b7e248cf424e1c6abdf829969a89"}, // 17 differences
 	"abstract-types-atomic.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
@@ -281,42 +229,18 @@ var irReferenceDeviations = map[string]irDeviation{
 		Fingerprint: "07bc36f337dda054eb5efaabb0b05579a628c07f855d4b6f2fad7c37133e38b1"}, // 19 differences
 	"atomicOps.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "381acd1507804d54b1226df6f152bfd86c3e77b920beb921b0ba35d59f105db0"}, // 19 differences
-	"binding-arrays": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder + "; also " + reasonIRCompoundAssign,
-		Fingerprint: "3600b43f9b365357e9d7a1a2ecf74462a19fddc22c09c33428f5fb0e18d02930"}, // 381 differences
-	"binding-arrays.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder + "; also " + reasonIRCompoundAssign,
-		Fingerprint: "3600b43f9b365357e9d7a1a2ecf74462a19fddc22c09c33428f5fb0e18d02930"}, // 381 differences
-	"binding-buffer-arrays": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "431c52fd786076ab71c7f279fe3983d9560571055fda0c8cb60ba6d6e4c4c9dc"}, // 153 differences
-	"binding-buffer-arrays.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "431c52fd786076ab71c7f279fe3983d9560571055fda0c8cb60ba6d6e4c4c9dc"}, // 153 differences
+	"binding-arrays": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
+		Fingerprint: "743570ea9418f6ddabc1721083d5c8716d45267bcb6a861e0d0580f8bf00f76e"}, // 37 differences
+	"binding-arrays.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
+		Fingerprint: "743570ea9418f6ddabc1721083d5c8716d45267bcb6a861e0d0580f8bf00f76e"}, // 37 differences
 	"bounds-check-zero-atomic": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "6a1c8b11efb265bcabf205cd1c59f53bcd4253e58fe68fdf3f16007328e9ce7a"}, // 14 differences
 	"bounds-check-zero-atomic.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "6a1c8b11efb265bcabf205cd1c59f53bcd4253e58fe68fdf3f16007328e9ce7a"}, // 14 differences
-	"break-if": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "017eeb136c839239a05771716039b4d6e158b702b19233d06d9068b4c5948fd1"}, // 4 differences
-	"break-if.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "017eeb136c839239a05771716039b4d6e158b702b19233d06d9068b4c5948fd1"}, // 4 differences
 	"const-exprs": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "48e4b2d2ba92d2220fbd81115a1a60114cbab28568ab0643578922acf5e3656d"}, // 7 differences
 	"const-exprs.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "ecd6356542af727dca3ff90215aac0eb12473f5ce76e54d5e14a3d74bf17323e"}, // 6 differences
-	"debug-symbol-simple": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "db1375098bb0280e2d1709cc95f9780e3a2465cf67dd5aae42238a79398c3952"}, // 16 differences
-	"debug-symbol-simple.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "db1375098bb0280e2d1709cc95f9780e3a2465cf67dd5aae42238a79398c3952"}, // 16 differences
-	"f16": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "06ca4565e7e082066bb9e49e41a5661ad0fc5a75b0a19e2f5dc07ecce063ba6c"}, // 142 differences
-	"f16.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "06ca4565e7e082066bb9e49e41a5661ad0fc5a75b0a19e2f5dc07ecce063ba6c"}, // 142 differences
-	"image": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "c65a10ecde3d7b7118d423a4c3a615e4d9ea9edb1775b6132d7d9754ec230616"}, // 253 differences
-	"image.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "c65a10ecde3d7b7118d423a4c3a615e4d9ea9edb1775b6132d7d9754ec230616"}, // 253 differences
-	"int64": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "6743166c56e24e3af6fb228c0d5f8ae7f3234eda4b88a64d0409dfcdda4e1aaf"}, // 277 differences
-	"int64.compact": {Card: "FEAT-WGSL-093", Reason: reasonIRCompoundAssign,
-		Fingerprint: "6743166c56e24e3af6fb228c0d5f8ae7f3234eda4b88a64d0409dfcdda4e1aaf"}, // 277 differences
 	"memory-decorations": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRMemoryDecorations,
 		Fingerprint: "e30a7b4a1de2f36d09933d384cbfa2d119410c7a3f42220c6580fb1df5d445f3"}, // 3 differences
 	"memory-decorations-coherent": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRMemoryDecorations,
@@ -401,16 +325,9 @@ func TestIRReferenceCompact(t *testing.T) {
 
 		// Known diffs in compact comparison (same as non-compact + compact-specific)
 		knownOptimizationDiff := map[string]bool{
-			"mesh-shader":         true, // Const array inlining optimization
 			"types_with_comments": true, // CompactTypes keeps named types; Rust KeepUnused::No removes them
 			"module-scope":        true, // CompactTypes does not yet remove unused types (Vec2)
 			"type-alias":          true, // CompactTypes does not yet remove unused types
-
-			// Same type ordering / emit / const eval diffs as non-compact
-			"abstract-types-texture": true,
-			"select":                 true,
-			"math-functions":         true,
-			"shadow":                 true,
 		}
 
 		t.Run(shaderName, func(t *testing.T) {

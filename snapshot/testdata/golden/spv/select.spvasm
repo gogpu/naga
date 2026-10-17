@@ -10,20 +10,20 @@
                OpEntryPoint GLCompute %_8 "main"
                OpExecutionMode %_8 LocalSize 1 1 1
          %_2 = OpTypeVoid
-         %_3 = OpTypeInt 32 1
+         %_3 = OpTypeFloat 32
          %_4 = OpTypeVector %_3 2
-         %_5 = OpTypeFloat 32
+         %_5 = OpTypeInt 32 1
          %_6 = OpTypeVector %_5 2
          %_7 = OpTypeFunction %_2
-         %_10 = OpTypePointer Function %_4
-         %_12 = OpTypePointer Function %_6
-         %_14 = OpConstant %_3 1
-         %_15 = OpConstant %_3 2
-         %_17 = OpConstant %_5 1065353216
-         %_18 = OpConstant %_5 0
+         %_10 = OpTypePointer Function %_6
+         %_12 = OpTypePointer Function %_4
+         %_14 = OpConstant %_5 1
+         %_15 = OpConstant %_5 2
+         %_17 = OpConstant %_3 1065353216
+         %_18 = OpConstant %_3 0
          %_21 = OpTypeInt 32 0
          %_22 = OpConstant %_21 0
-         %_23 = OpTypePointer Function %_3
+         %_23 = OpTypePointer Function %_5
          %_26 = OpConstant %_21 1
          %_29 = OpTypeBool
          %_31 = OpTypeVector %_29 2
@@ -31,17 +31,17 @@
          %_9 = OpLabel
          %_11 = OpVariable %_10 Function
          %_13 = OpVariable %_12 Function
-         %_16 = OpCompositeConstruct %_4 %_14 %_15
+         %_16 = OpCompositeConstruct %_6 %_14 %_15
                OpStore %_11 %_16
-         %_19 = OpCompositeConstruct %_6 %_17 %_18
-         %_20 = OpCompositeConstruct %_6 %_18 %_17
+         %_19 = OpCompositeConstruct %_4 %_17 %_18
+         %_20 = OpCompositeConstruct %_4 %_18 %_17
          %_24 = OpAccessChain %_23 %_11 %_22
-         %_25 = OpLoad %_3 %_24
+         %_25 = OpLoad %_5 %_24
          %_27 = OpAccessChain %_23 %_11 %_26
-         %_28 = OpLoad %_3 %_27
+         %_28 = OpLoad %_5 %_27
          %_30 = OpLogicalAnd %_29 %_25 %_28
          %_32 = OpCompositeConstruct %_31 %_30 %_30
-         %_33 = OpIsNormal %_6 %_32 %_20 %_19
+         %_33 = OpIsNormal %_4 %_32 %_20 %_19
                OpStore %_13 %_33
                OpReturn
                OpFunctionEnd

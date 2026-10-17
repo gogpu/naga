@@ -1322,6 +1322,7 @@ func (p *Parser) exprOrAssignStmt() (Stmt, *ParseError) {
 			Span: Span{
 				Start: Position{Line: start.Line, Column: start.Column},
 			},
+			Increment: true,
 		}, nil
 	}
 

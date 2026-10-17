@@ -17,13 +17,13 @@ void main() {
     vec2 gravity = vec2(0.1, 0.2);
     vec2 _e13 = p_1.vel;
     p_1.vel = (_e13 + gravity);
-    vec2 _e17 = p_1.vel;
-    p_1.vel = (_e17 * vec2(0.9995));
+    vec2 _e16 = p_1.vel;
+    p_1.vel = (_e16 * 0.9995);
+    vec2 _e20 = p_1.pos;
     vec2 _e22 = p_1.vel;
-    vec2 _e25 = p_1.pos;
-    p_1.pos = (_e25 + (_e22 * 0.016));
-    Particle _e29 = p_1;
-    _group_0_binding_0_cs[0] = _e29;
+    p_1.pos = (_e20 + (_e22 * 0.016));
+    Particle _e28 = p_1;
+    _group_0_binding_0_cs[0] = _e28;
     return;
 }
 

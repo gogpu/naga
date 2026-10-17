@@ -10,9 +10,9 @@ void f()
     int k = int(0);
     int j = int(0);
 
-    int _e9 = j;
-    int _e12 = k;
-    float _e16 = poly.x;
-    poly.x = (_e16 + (ZeroValuearray2_float3_()[min(uint(_e9), 1u)].y * ZeroValuearray2_float3_()[min(uint(_e12), 1u)].z));
+    float _e9 = poly.x;
+    int _e10 = j;
+    int _e13 = k;
+    poly.x = (_e9 + (ZeroValuearray2_float3_()[min(uint(_e10), 1u)].y * ZeroValuearray2_float3_()[min(uint(_e13), 1u)].z));
     return;
 }

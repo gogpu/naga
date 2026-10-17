@@ -8,8 +8,8 @@ void break_from_loop()
         if (all(loop_bound == uint2(0u, 0u))) { break; }
         loop_bound -= uint2(loop_bound.y == 0u, 1u);
         if (!loop_init) {
-            int _e6 = i;
-            i = asint(asuint(_e6) + asuint(int(1)));
+            int _e5 = i;
+            i = asint(asuint(_e5) + asuint(int(1)));
         }
         loop_init = false;
         int _e2 = i;

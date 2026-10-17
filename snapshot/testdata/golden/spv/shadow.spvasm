@@ -290,12 +290,12 @@
          %_194 = OpExtInst %_10 %_1 %_69 %_193
          %_195 = OpDot %_3 %_146 %_194
          %_196 = OpExtInst %_3 %_1 %_40 %_64 %_195
-         %_197 = OpFMul %_3 %_188 %_196
-         %_198 = OpCompositeExtract %_4 %_183 2
-         %_199 = OpVectorShuffle %_10 %_198 %_198 0 1 2
-         %_200 = OpVectorTimesScalar %_10 %_199 %_197
-         %_201 = OpLoad %_10 %_138
-         %_202 = OpFAdd %_10 %_201 %_200
+         %_197 = OpLoad %_10 %_138
+         %_198 = OpFMul %_3 %_188 %_196
+         %_199 = OpCompositeExtract %_4 %_183 2
+         %_200 = OpVectorShuffle %_10 %_199 %_199 0 1 2
+         %_201 = OpVectorTimesScalar %_10 %_200 %_198
+         %_202 = OpFAdd %_10 %_197 %_201
                OpStore %_138 %_202
                OpBranch %_149
          %_149 = OpLabel
@@ -375,12 +375,12 @@
          %_264 = OpExtInst %_10 %_1 %_69 %_263
          %_265 = OpDot %_3 %_221 %_264
          %_266 = OpExtInst %_3 %_1 %_40 %_64 %_265
-         %_267 = OpFMul %_3 %_258 %_266
-         %_268 = OpCompositeExtract %_4 %_253 2
-         %_269 = OpVectorShuffle %_10 %_268 %_268 0 1 2
-         %_270 = OpVectorTimesScalar %_10 %_269 %_267
-         %_271 = OpLoad %_10 %_214
-         %_272 = OpFAdd %_10 %_271 %_270
+         %_267 = OpLoad %_10 %_214
+         %_268 = OpFMul %_3 %_258 %_266
+         %_269 = OpCompositeExtract %_4 %_253 2
+         %_270 = OpVectorShuffle %_10 %_269 %_269 0 1 2
+         %_271 = OpVectorTimesScalar %_10 %_270 %_268
+         %_272 = OpFAdd %_10 %_267 %_271
                OpStore %_214 %_272
                OpBranch %_224
          %_224 = OpLabel

@@ -1017,7 +1017,10 @@ fn abstract_access(i: u32) {
 // Regression test for: lowerCall left emitter stopped for void calls,
 // causing ExprStmt's emitFinish to re-emit pre-call expressions.
 func TestLowerVoidCallEmitterRestart(t *testing.T) {
-	src := `fn takes_ptr(p: ptr<function, array<i32, 4>>) {}
+	// &b[i] and &a[i] are ptr<function, i32>: the parameter must be too (a
+	// ptr<function, array<i32, 4>> parameter is a type error; Rust v30 rejects
+	// it with "expected `ptr<function, array<i32, 4>>`, found `ptr<function, i32>`").
+	src := `fn takes_ptr(p: ptr<function, i32>) {}
 fn local_var_from_arg(a: array<i32, 4>, i: u32) {
     var b = a;
     takes_ptr(&b[i]);
@@ -1529,7 +1532,9 @@ fn main() {
 fn main() {
     takes_vec(1.0);
 }`,
-			wantErr: "type mismatch (expected vec2<f32>, got f32)",
+			// The abstract argument is converted to the parameter type (Rust
+			// try_automatic_conversions); Rust v30 reports exactly this.
+			wantErr: "automatic conversions cannot convert `{AbstractFloat}` to `vec2<f32>`",
 		},
 		{
 			name: "vec3 passed as vec4",

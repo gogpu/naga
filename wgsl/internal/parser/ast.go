@@ -313,6 +313,10 @@ type AssignStmt struct {
 	Op    TokenKind // =, +=, -=, etc.
 	Right Expr
 	Span  Span
+	// Increment marks `x++` / `x--` (Op += or -=, Right the literal 1),
+	// which WGSL defines separately from compound assignment: the operand is
+	// an i32 or u32 reference and the 1 has its type.
+	Increment bool
 }
 
 func (a *AssignStmt) Pos() Span { return a.Span }

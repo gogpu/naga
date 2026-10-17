@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -858,14 +859,35 @@ func TestLowerStorageFormats(t *testing.T) {
 		{"rgba32sint", "rgba32sint"},
 		{"rgba32float", "rgba32float"},
 	}
+	// The texel value has the format's channel type: vec4<u32> for *uint,
+	// vec4<i32> for *sint, vec4<f32> otherwise. Any other value type is an
+	// error (Rust v30: "automatic conversions cannot convert elements of
+	// `vec4<f32>` to `u32`").
+	texel := func(format string) (good, bad, badScalar string) {
+		switch {
+		case strings.HasSuffix(format, "uint"):
+			return "vec4<u32>(1u)", "vec4<f32>(1.0)", "u32"
+		case strings.HasSuffix(format, "sint"):
+			return "vec4<i32>(1i)", "vec4<f32>(1.0)", "i32"
+		}
+		return "vec4<f32>(1.0)", "vec4<u32>(1u)", "f32"
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			src := `@group(0) @binding(0) var t: texture_storage_2d<` + tt.format + `, write>;
+			good, bad, badScalar := texel(tt.format)
+			shader := func(value string) string {
+				return `@group(0) @binding(0) var t: texture_storage_2d<` + tt.format + `, write>;
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    textureStore(t, vec2<i32>(0, 0), vec4<f32>(1.0));
+    textureStore(t, vec2<i32>(0, 0), ` + value + `);
 }`
-			mustCompile(t, src)
+			}
+			mustCompile(t, shader(good))
+			_, err := compileWGSL(t, shader(bad))
+			want := "to `" + badScalar + "`"
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("textureStore of %s into %s: error = %v, want a conversion error %q", bad, tt.format, err, want)
+			}
 		})
 	}
 }

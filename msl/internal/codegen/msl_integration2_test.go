@@ -473,10 +473,11 @@ func TestIntegration_StorageFormats(t *testing.T) {
 			src := `
 @group(0) @binding(0) var img: texture_storage_2d<` + tt.format + `, write>;
 @compute @workgroup_size(1) fn main() {
-    textureStore(img, vec2(0i, 0i), vec4(0i));
+    textureStore(img, vec2(0i, 0i), vec4(0.0f));
 }
 `
-			// Adjust for int/uint types.
+			// The texel has the format's channel type (a float format takes
+			// vec4<f32>; Rust rejects vec4<i32> there).
 			if strings.Contains(tt.format, "uint") {
 				src = `
 @group(0) @binding(0) var img: texture_storage_2d<` + tt.format + `, write>;

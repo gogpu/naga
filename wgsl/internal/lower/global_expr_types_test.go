@@ -154,13 +154,7 @@ fn fs() -> @location(0) vec4<f32> {
 		},
 
 		// Scalar arguments, fully abstract partial matrix: column by column.
-		{
-			"const partial, abstract args", `const X: mat2x2<f32> = mat2x2(1, 2, 3, 4);`, withColumns, byColumn,
-			// The const path (lowerCompositeConstant → evalConstantArgsAsGlobalExprs)
-			// emits the four scalars first. Arena order only — same values and
-			// types. Tracked in TECH-GE-002 (unify const and var initializer lowering).
-			"const path emits scalars first",
-		},
+		{"const partial, abstract args", `const X: mat2x2<f32> = mat2x2(1, 2, 3, 4);`, withColumns, byColumn, ""},
 		{"var partial, abstract args", `var<private> X: mat2x2<f32> = mat2x2(1, 2, 3, 4);`, withColumns, byColumn, ""},
 		{
 			"var partial, negated abstract arg", `var<private> X: mat2x2<f32> = mat2x2(-1, 2, 3, 4);`, withColumns,
