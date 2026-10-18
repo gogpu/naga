@@ -34,9 +34,10 @@ type OverrideOptions struct {
 }
 
 // ProcessOverrides returns module with every override expression replaced by
-// a constant holding its pipeline value or default, and every expression that
-// becomes constant evaluated — Rust naga's
-// back::pipeline_constants::process_overrides. Call it before a backend.
+// a constant holding its pipeline value or default, every expression that
+// becomes constant evaluated, and workgroup sizes given by overrides resolved
+// — Rust naga's back::pipeline_constants::process_overrides. Call it before
+// a backend; naga.Compile calls it with the defaults.
 //
 // module is never modified, and ProcessOverrides may be called concurrently
 // on the same module. The result may be module itself when there is nothing
@@ -54,7 +55,7 @@ type OverrideOptions struct {
 // Errors: a *PipelineConstantError for a constant (errors.Is with
 // ErrOverrideNotFound, ErrOverrideMissingValue, ErrOverrideValueNotFinite,
 // ErrOverrideValueOutOfRange); ErrEntryPointNotFound;
-// ErrNegativeMeshOutputMax; an evaluation error of
+// ErrNegativeWorkgroupSize; ErrNegativeMeshOutputMax; an evaluation error of
 // an expression that becomes constant (for example a division by zero after
 // substitution); or an invalid processed module. Keys are checked in sorted
 // order, so the same input reports the same key.

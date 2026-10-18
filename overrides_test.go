@@ -258,3 +258,76 @@ override h: f16 = 1.0h;
 		t.Errorf("h = 70000: err = %v, want ErrOverrideValueOutOfRange", err)
 	}
 }
+
+const workgroupShader = `
+override wg: u32 = 4u;
+@group(0) @binding(0) var<storage, read_write> o: array<u32>;
+@compute @workgroup_size(wg, 2) fn main() { o[0] = 1u; }
+`
+
+// TestProcessOverridesWorkgroupSize: an override workgroup size is resolved
+// (Rust process_workgroup_size_override); 0 is ErrNegativeWorkgroupSize.
+func TestProcessOverridesWorkgroupSize(t *testing.T) {
+	m := lowerSource(t, workgroupShader)
+	out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"wg": 8}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep := out.EntryPoints[0]
+	if ep.Workgroup != [3]uint32{8, 2, 1} {
+		t.Errorf("Workgroup = %v, want [8 2 1]", ep.Workgroup)
+	}
+	if ep.WorkgroupSizeOverrides != [3]*ir.ExpressionHandle{} {
+		t.Errorf("WorkgroupSizeOverrides = %v, want all nil after processing", ep.WorkgroupSizeOverrides)
+	}
+	_, err = naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"wg": 0}})
+	if !errors.Is(err, naga.ErrNegativeWorkgroupSize) || err.Error() != "workgroup_size override isn't strictly positive" {
+		t.Errorf("wg = 0: err = %v, want ErrNegativeWorkgroupSize with Rust's message", err)
+	}
+}
+
+// localSize returns the LocalSize execution mode of a SPIR-V module
+// (OpExecutionMode = 16, LocalSize = 17).
+func localSize(t *testing.T, spv []byte) [3]uint32 {
+	t.Helper()
+	words := make([]uint32, len(spv)/4)
+	for i := range words {
+		words[i] = uint32(spv[4*i]) | uint32(spv[4*i+1])<<8 | uint32(spv[4*i+2])<<16 | uint32(spv[4*i+3])<<24
+	}
+	for i := 5; i < len(words); {
+		n, op := words[i]>>16, words[i]&0xffff
+		if n == 0 {
+			break
+		}
+		if op == 16 && n >= 6 && words[i+2] == 17 {
+			return [3]uint32{words[i+3], words[i+4], words[i+5]}
+		}
+		i += int(n)
+	}
+	t.Fatal("no LocalSize execution mode")
+	return [3]uint32{}
+}
+
+// TestCompileResolvesOverrideDefaults: naga.Compile processes overrides with
+// their defaults before writing SPIR-V, as Rust's CLI does. The workgroup size
+// given by an override was 1 2 1 (wgpu BUG-OVERRIDE-WORKGROUP-001: wgpu's
+// Vulkan backend compiles through naga.Compile); Rust writes 4 2 1.
+func TestCompileResolvesOverrideDefaults(t *testing.T) {
+	spv, err := naga.Compile(workgroupShader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := localSize(t, spv); got != [3]uint32{4, 2, 1} {
+		t.Errorf("LocalSize = %v, want [4 2 1]", got)
+	}
+	// An override used by an expression compiles too (it was "unsupported
+	// expression kind: ir.ExprOverride").
+	if _, err := naga.Compile(twoEntryPoints[:strings.Index(twoEntryPoints, "override onlyB")] +
+		"@group(0) @binding(0) var<storage, read_write> o: array<u32>;\n@compute @workgroup_size(1) fn a() { o[0] = n % 4u; }\n"); err != nil {
+		t.Errorf("override in an expression: %v", err)
+	}
+	// No default and no value: WebGPU requires a value.
+	if _, err := naga.Compile("override m: u32;\n@group(0) @binding(0) var<storage, read_write> o: array<u32>;\n@compute @workgroup_size(1) fn main() { o[0] = m; }\n"); !errors.Is(err, naga.ErrOverrideMissingValue) {
+		t.Errorf("override without default: err = %v, want ErrOverrideMissingValue", err)
+	}
+}

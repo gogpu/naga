@@ -129,3 +129,29 @@ func TestCompactConstants_MeshOverrideKeepsOverride(t *testing.T) {
 		t.Errorf("got %d overrides, %d global expressions; want 1, 1", len(m.Overrides), len(m.GlobalExpressions))
 	}
 }
+
+// TestCompactConstants_WorkgroupSizeOverrideKept: a workgroup size given by an
+// override-expression keeps its expression and the override (Rust compact
+// traces workgroup_size_overrides), and its handle is renumbered.
+func TestCompactConstants_WorkgroupSizeOverrideKept(t *testing.T) {
+	size := ExpressionHandle(1)
+	m := &Module{
+		Types: []Type{{Inner: ScalarType{Kind: ScalarUint, Width: 4}}},
+		GlobalExpressions: []Expression{
+			{Kind: Literal{Value: LiteralU32(9)}}, // dead
+			{Kind: ExprOverride{Override: 0}},
+		},
+		Overrides: []Override{{Name: "wg", Ty: 0}},
+		EntryPoints: []EntryPoint{{
+			Name: "main", Stage: StageCompute, Workgroup: [3]uint32{1, 1, 1},
+			WorkgroupSizeOverrides: [3]*ExpressionHandle{&size, nil, nil},
+		}},
+	}
+	CompactConstants(m, KeepUnusedNo)
+	if len(m.Overrides) != 1 || len(m.GlobalExpressions) != 1 {
+		t.Fatalf("got %d overrides, %d global expressions; want 1, 1", len(m.Overrides), len(m.GlobalExpressions))
+	}
+	if h := m.EntryPoints[0].WorkgroupSizeOverrides[0]; h == nil || *h != 0 {
+		t.Errorf("workgroup size x: got %v, want 0", h)
+	}
+}

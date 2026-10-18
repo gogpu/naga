@@ -1094,7 +1094,11 @@ func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
 			if !hasWGSize {
 				return fmt.Errorf("@compute entry point '%s' is missing @workgroup_size attribute", f.Name)
 			}
-			ep.Workgroup = l.extractWorkgroupSize(f.Attributes)
+			wg, wgOverrides, err := l.extractWorkgroupSize(f.Attributes)
+			if err != nil {
+				return err
+			}
+			ep.Workgroup, ep.WorkgroupSizeOverrides = wg, wgOverrides
 		}
 		// Extract early_depth_test for fragment shaders
 		if *stage == ir.StageFragment {
@@ -5522,8 +5526,14 @@ func (l *Lowerer) extractEarlyDepthTest(attrs []parser.Attribute) *ir.EarlyDepth
 	return nil
 }
 
-func (l *Lowerer) extractWorkgroupSize(attrs []parser.Attribute) [3]uint32 {
+// extractWorkgroupSize returns the workgroup size of an entry point, as
+// Rust's lowerer: each size is const_u32 in the module's context; a size that
+// is an override-expression is lowered in the override context and kept for
+// pipeline creation (workgroup_size_overrides), its literal size staying 1.
+// Any other error is reported.
+func (l *Lowerer) extractWorkgroupSize(attrs []parser.Attribute) ([3]uint32, [3]*ir.ExpressionHandle, error) {
 	result := [3]uint32{1, 1, 1}
+	var overrides [3]*ir.ExpressionHandle
 	for _, attr := range attrs {
 		if attr.Name != "workgroup_size" {
 			continue
@@ -5532,16 +5542,46 @@ func (l *Lowerer) extractWorkgroupSize(attrs []parser.Attribute) [3]uint32 {
 			if i >= 3 {
 				break
 			}
-			// Rust const_u32 in the module's context. An override size
-			// (Rust workgroup_size_overrides) is not represented yet and
-			// keeps the default of 1.
-			if val, err := l.moduleConstU32(arg); err == nil {
+			val, err := l.moduleConstU32(arg)
+			switch {
+			case err == nil:
 				result[i] = val
+			case errors.Is(err, consteval.ErrOverrideInConst):
+				h, err := l.workgroupSizeOverride(arg)
+				if err != nil {
+					return result, overrides, err
+				}
+				overrides[i] = &h
+			default:
+				return result, overrides, err
 			}
 		}
 		break
 	}
-	return result
+	return result, overrides, nil
+}
+
+// workgroupSizeOverride lowers an override-expression workgroup size in the
+// override context; it must be a concrete integer (Rust
+// workgroup_size_override).
+func (l *Lowerer) workgroupSizeOverride(e parser.Expr) (ir.ExpressionHandle, error) {
+	saved := l.enterModuleConstContext()
+	l.moduleEval.Behavior = consteval.BehaviorOverride
+	defer func() {
+		l.moduleEval.Behavior = consteval.BehaviorConst
+		l.leaveModuleConstContext(saved)
+	}()
+	h, err := l.lowerConstExpr(e, nil)
+	if err != nil {
+		return 0, err
+	}
+	if h, err = l.concretize(h); err != nil {
+		return 0, err
+	}
+	if s, ok := l.exprInner(h).(ir.ScalarType); !ok || (s.Kind != ir.ScalarSint && s.Kind != ir.ScalarUint) {
+		return 0, errors.New("must be a const-expression that resolves to a concrete integer scalar (`u32` or `i32`)")
+	}
+	return h, nil
 }
 
 // extractTaskPayload extracts the task payload global variable from @payload(varName) attribute.
