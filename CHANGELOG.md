@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Pipeline-overridable constants now go through one pass, a port of Rust naga's
+`back::pipeline_constants::process_overrides` on the shared constant evaluator
+of v0.20.0 (#93). Callers run it before a backend, as wgpu-hal does in Rust.
+
+### Migration
+
+- Replace `glsl.Options.PipelineConstants` / `msl.Options.PipelineConstants`
+  (and `ir.ProcessOverrides`) with
+  `naga.ProcessOverrides(module, naga.OverrideOptions{Constants: ..., EntryPoint: ...})`
+  before the backend. Every backend now returns an error wrapping
+  `ir.ErrUnresolvedOverride` for a module that still uses overrides (DXIL
+  emitted the defaults, MSL resolved them itself).
+- `naga.Compile` / `CompileWithOptions` apply the defaults themselves.
+- Test for a runtime-sized array with `ArraySize.IsRuntimeSized()` instead of
+  `Size.Constant == nil`: an array sized by an override has a pending size.
+- `ir.CompactConstants(m)` is `ir.CompactConstants(m, ir.KeepUnusedYes)`.
+
+### Added
+
+- **`naga.ProcessOverrides`** with `OverrideOptions{Constants, EntryPoint}`,
+  `PipelineConstants`, `EntryPointSelector` and `*PipelineConstantError` with
+  the sentinels `ErrOverrideNotFound`, `ErrOverrideMissingValue`,
+  `ErrOverrideValueNotFinite`, `ErrOverrideValueOutOfRange`,
+  `ErrNegativeWorkgroupSize`, `ErrNegativeMeshOutputMax` and
+  `ErrEntryPointNotFound`. Messages are Rust's. The input is never modified;
+  the result keeps the selected entry point as `EntryPoints[0]`. Where the
+  WebGPU spec decides, it is stricter than Rust: keys are compared exactly
+  (Rust also takes `"013"` for `@id(13)`), checked in sorted order (Rust
+  iterates a hash map), a selector that matches nothing is an error, and an
+  override created for a compound array size is handled (Rust panics).
+- **`ir.EntryPoint.WorkgroupSizeOverrides`** and **`ir.ArraySize.Pending`**
+  (Rust `workgroup_size_overrides`, `ArraySize::Pending`), with
+  `ArraySize.IsRuntimeSized`, `ArraySize.Resolve` and
+  `ir.ResolvePendingArraySizes`.
+- **`ir.ErrUnresolvedOverride`**, `ir.CheckWorkgroupSizesResolved`,
+  `ir.KeepUnused`, `ir.RemapExpressionHandles`,
+  `ir.RemapStatementExpressionHandles`, `ir.NeedsPreEmit`, `ir.TypeAlignment`.
+
+### Fixed
+
+- **Pipeline constants: every operator but `+ - * /` became 0** —
+  `ir.ProcessOverrides` (the GLSL backend's pipeline constants) folded with
+  `float64` and wrote 0 for any other operator: with `override n: u32 = 7u;`,
+  `n % 4u` and `n << 1u` were `0u`, `select(0u, 1u, n > 3u)` was
+  `(0u ? 1u : 0u)` (invalid GLSL), `var<private> v = o || false` was `false`.
+  Every expression that uses an override is now evaluated with WGSL
+  semantics; the GLSL output of a 33-operation test shader is byte-identical
+  to Rust's.
+- **A workgroup size given by an override was 1** — in every backend:
+  `naga.Compile` (used by wgpu's Vulkan and software backends) wrote
+  `LocalSize 1 2 1` for `@workgroup_size(wg, 2)` with `wg = 4u` (Rust:
+  `4 2 1`). A negative or non-integer size is now reported instead of
+  becoming 1.
+- **An array sized by an override was runtime-sized** — HLSL
+  `a = (uint[])0;` (invalid), MSL a bounds check against buffer sizes for a
+  workgroup variable. It is now sized with the override's value.
+- **GLSL and DXIL folded constants with `float64` at write time** —
+  `const d: f64 = 5.0lf; d % 3.0lf` was written as `0.0` in GLSL (Rust:
+  `(d - 3.0LF * trunc(d / 3.0LF))`); DXIL folded override defaults the same
+  way.
+- **Pipeline-constant values** — a bool is true unless the value is 0 or NaN
+  (WebIDL; it was `value == 1.0`); unknown keys, NaN or infinite numbers and
+  values out of the type's range are errors (they were ignored, accepted or
+  truncated); an override no entry point uses needs no value.
+- **`naga.Compile` of a shader using an override failed** with "unsupported
+  expression kind: ir.ExprOverride"; overrides take their defaults.
+- **MSL printed every override twice** — as `<name>` and `<name>_1`, several
+  `_1` copies with zero values.
+
+### Removed
+
+- `ir.ProcessOverrides`, `ir.PipelineConstants`, `ir.EvalBinaryFloat`,
+  `ir.EvalUnaryFloat`, `ir.LiteralToFloat`, the unused `ir.OverrideInitExpr`
+  types, `glsl.Options.PipelineConstants`, `msl.Options.PipelineConstants`.
+
 ## [0.20.0] - 2026-10-18
 
 ### Added
@@ -183,8 +258,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WGSL: `x++` / `x--` accepted any reference** — an `f32` increment
   compiled; it now reports Rust's error (only `i32` and `u32` references).
 - **WGSL: `&&` / `||` in `override` and `var<private>` initializers were
-  rejected** — `override o: bool; var<private> v = o && false;` failed with
-  "Unexpected runtime-expression". Outside a function body they are a plain
+  lost** — in v0.19.1 `override o: bool; var<private> v = o && false;`
+  compiled, but the initializer was silently dropped (SPIR-V: a `Private`
+  variable without an initializer, whose value is undefined). Outside a
+  function body they are a plain
   binary expression (a deciding constant left operand short-circuits); in a
   function body they always become an `if`, as in Rust, so `true || q()` keeps
   `q()` in an untaken branch.

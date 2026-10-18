@@ -59,8 +59,8 @@
 - **Swizzle Operations** — Full vector swizzle support (`.xyz`, `.rgba`, `.xxyy`, etc.)
 - **Function Calls** — `OpFunctionCall` support for modular WGSL shaders with helper functions
 - **SPIR-V Backend** — Vulkan-compatible bytecode generation: integer div/mod safety wrappers, image bounds checking (Restrict/ReadZeroSkipWrite), ray query helpers, force loop bounding, workgroup zero-init polyfill, NonUniform decorations, capability-aware instruction emission
-- **MSL Backend** — Metal Shading Language output for macOS/iOS, vertex pulling transform, external textures, override pipeline constants, function-scope workgroup declarations (no host `setThreadgroupMemoryLength` needed)
-- **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+, dead code elimination, ProcessOverrides, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
+- **MSL Backend** — Metal Shading Language output for macOS/iOS, vertex pulling transform, external textures, function-scope workgroup declarations (no host `setThreadgroupMemoryLength` needed)
+- **GLSL Backend** — OpenGL Shading Language for OpenGL 3.3+, ES 3.0+, dead code elimination, image bounds checking, version-aware `layout(binding=N)` emission (`SupportsExplicitLocations` for GL 4.2+/ES 3.1+), `UniformInfo` reflection for runtime binding fallback on older GL drivers
 - **HLSL Backend** — High-Level Shading Language for DirectX 11/12
 - **DXIL Backend** (experimental) — Direct DXIL generation from naga IR (**172 of 237 entry points of the Rust naga test corpus pass IDxcValidator**; **103 of 182 DXC roundtrip comparisons match exactly**; gg production shaders: 45 of 50 entry points valid; visual: renders circles + text on D3D12). LLVM 3.7 bitcode with dx.op intrinsics, DXBC container. Vertex, fragment, compute, and mesh shaders (SM 6.0-6.5). CBV/SRV/UAV (read-only storage as SRV, read-write as UAV), atomics (i32/i64/f32 + image), barriers, ray query (35 intrinsics), wave/subgroup ops (13 intrinsics), texture sampling (8 variants), matrix scalarization, pack/unpack, helper functions. Optimization passes: DCE (mark-and-sweep), SROA (struct decomposition), mem2reg (SSA promotion), single-store local promotion, loadInput DCE (per-member backwards reachability), workgroup struct decomposition, function inlining (early-return wrapping), strength reduction (mul→shl, urem→and, sub→add), constant folding. `Options.BindingMap` for WGSL→DXIL `(space, register)` remap (wgpu root signature compatibility). Eliminates FXC/DXC dependency. `dxil.Compile()` API. ~50K LOC, 330+ unit tests. World's first Pure Go DXIL generator.
 - **Type Conversions** — Scalar constructors `f32(x)`, `u32(y)`, `i32(z)` with correct SPIR-V opcodes
@@ -198,6 +198,26 @@ errors, err := naga.Validate(module)
 spirvOpts := spirv.Options{Version: spirv.Version1_3, Debug: true}
 spirvBytes, err := naga.GenerateSPIRV(module, spirvOpts)
 ```
+
+### Pipeline Constants
+
+`override` declarations get their values per pipeline. Lower once, then
+process the module for each pipeline before any backend (as wgpu does):
+
+```go
+module, err := naga.Lower(ast)
+
+pipelineModule, err := naga.ProcessOverrides(module, naga.OverrideOptions{
+    Constants:  naga.PipelineConstants{"gain": 1.5, "13": 64}, // name, or @id
+    EntryPoint: &naga.EntryPointSelector{Stage: ir.StageCompute, Name: "main"},
+})
+// errors.Is(err, naga.ErrOverrideMissingValue), *naga.PipelineConstantError, ...
+
+code, _, err := msl.Compile(pipelineModule, msl.DefaultOptions())
+```
+
+`naga.Compile` applies the defaults. A backend given a module that still uses
+overrides returns an error wrapping `ir.ErrUnresolvedOverride`.
 
 ---
 
