@@ -399,7 +399,7 @@ type Backend struct {
 - **Version-aware `layout(binding=N)` emission**: `SupportsExplicitLocations()` gates binding qualifiers on GLSL ≥ 420 (desktop) or ≥ 310 (ES), matching Rust naga `mod.rs:213`. On older GL, bindings are omitted and must be assigned at runtime by the HAL
 - **UniformInfo reflection**: writer collects `UniformInfo` structs (block name, binding, storage flag) during code generation, exposed via `TranslationInfo.Uniforms` for post-link `glGetUniformBlockIndex`/`glUniformBlockBinding` fallback
 - Dead code elimination via `dominates_global_use` reachability
-- ProcessOverrides for pipeline constants
+- Overrides arrive resolved by `naga.ProcessOverrides` (the backend rejects a module that still uses them)
 - Image bounds checking
 
 ### HLSL (DirectX) — 72/72 Rust parity
