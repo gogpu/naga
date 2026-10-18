@@ -122,7 +122,9 @@ func TestTryEvalConstantReferenceInFunction(t *testing.T) {
 	if !e.IsConst(c) {
 		t.Error("a constant reference is not const")
 	}
-	// Numeric operations read the value without copying it.
+	// Numeric operations copy each constant operand into the function first,
+	// as Rust's check_and_get does: V twice (two lane literals and a Compose
+	// each), then the result (two lanes and a Compose).
 	before := len(*exprs)
 	h, err := e.TryEvalAndAppend(ir.ExprBinary{Op: ir.BinaryMultiply, Left: c, Right: c})
 	if err != nil {
@@ -131,8 +133,8 @@ func TestTryEvalConstantReferenceInFunction(t *testing.T) {
 	if got := valueAt(t, e, h); !reflect.DeepEqual(got, f32v(1, 4).Components()) {
 		t.Errorf("V * V = %v", got)
 	}
-	if n := len(*exprs) - before; n != 3 {
-		t.Errorf("V * V appended %d expressions, want 3 (two lane literals and their Compose)", n)
+	if n := len(*exprs) - before; n != 9 {
+		t.Errorf("V * V appended %d expressions, want 9 (two operand copies and the result, 3 each)", n)
 	}
 	// A swizzle embeds the components: they are copied into the function.
 	sw, err := e.TryEvalAndAppend(ir.ExprSwizzle{Size: ir.Vec2, Vector: c, Pattern: [4]ir.SwizzleComponent{1, 0}})

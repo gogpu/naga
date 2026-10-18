@@ -36,6 +36,21 @@ func NewTypeRegistryWithCap(initialCap int) *TypeRegistry {
 	}
 }
 
+// NewTypeRegistryFrom creates a registry holding a copy of types, in order,
+// so that GetOrCreate finds a module's existing types. Where types holds
+// structurally equal entries the first one is found.
+func NewTypeRegistryFrom(types []ir.Type) *TypeRegistry {
+	r := NewTypeRegistryWithCap(len(types) + 8)
+	for i, t := range types {
+		r.types = append(r.types, t)
+		r.buildKey(t.Name, t.Inner)
+		if _, exists := r.typeMap[string(r.keyBuf)]; !exists {
+			r.typeMap[string(r.keyBuf)] = ir.TypeHandle(i)
+		}
+	}
+	return r
+}
+
 // GetOrCreate returns an existing handle for the type if it exists,
 // or creates a new one if it's unique.
 // Named struct types are never deduplicated with each other (different names

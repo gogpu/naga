@@ -1564,8 +1564,13 @@ func remapStmtExprHandles(stmts []Statement, remap []ExpressionHandle) {
 			s.Result = rm(s.Result)
 			stmts[i].Kind = s
 		case StmtEmit:
-			s.Range.Start = rm(s.Range.Start)
-			s.Range.End = rm(s.Range.End)
+			// The range is adjusted by its first and last expression, as
+			// Rust's adjust_stmt does: End is exclusive and may be the end of
+			// the arena, which remap has no entry for.
+			if s.Range.End > s.Range.Start {
+				first, last := rm(s.Range.Start), rm(s.Range.End-1)
+				s.Range = Range{Start: first, End: last + 1}
+			}
 			stmts[i].Kind = s
 		case StmtImageAtomic:
 			s.Image = rm(s.Image)

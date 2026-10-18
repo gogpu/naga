@@ -265,7 +265,11 @@ func (e *Evaluator) evaluate(kind ir.ExpressionKind) (ir.ExpressionHandle, error
 // relational or math) and appends its value; in runtime behavior an
 // operation Rust naga keeps in the IR is only checked.
 func (e *Evaluator) evaluateNumeric(kind ir.ExpressionKind) (ir.ExpressionHandle, error) {
-	r, err := e.numeric(kind)
+	operandsCopied, err := e.copyConstantOperands(kind)
+	if err != nil {
+		return 0, err
+	}
+	r, err := e.numeric(operandsCopied)
 	if e.Behavior == BehaviorRuntime && e.rustKeeps(kind) {
 		// Checked, but kept in Rust's IR shape. Only a value the
 		// specification makes a shader-creation error is reported; any other
@@ -279,6 +283,59 @@ func (e *Evaluator) evaluateNumeric(kind ir.ExpressionKind) (ir.ExpressionHandle
 		return 0, err
 	}
 	return e.appendResult(r), nil
+}
+
+// copyConstantOperands returns kind with each constant operand replaced by a
+// copy of its value in a function arena, in Rust's order (check_and_get in
+// try_eval_and_append_impl: unary expr; binary left, right; math arg..arg3;
+// select reject, accept, condition; relational argument). The copies stay in
+// the arena even when the operation is then kept as a run-time expression,
+// as in Rust; they only matter where nothing compacts afterwards
+// (pipeline-constant processing). In the module arena it changes nothing.
+func (e *Evaluator) copyConstantOperands(kind ir.ExpressionKind) (ir.ExpressionKind, error) {
+	if e.Arena.IsGlobal() {
+		return kind, nil
+	}
+	var err error
+	get := func(h ir.ExpressionHandle) ir.ExpressionHandle {
+		if err != nil {
+			return h
+		}
+		var r ir.ExpressionHandle
+		r, err = e.checkAndGet(h)
+		return r
+	}
+	getOpt := func(h *ir.ExpressionHandle) *ir.ExpressionHandle {
+		if h == nil {
+			return nil
+		}
+		r := get(*h)
+		return &r
+	}
+	switch k := kind.(type) {
+	case ir.ExprUnary:
+		k.Expr = get(k.Expr)
+		kind = k
+	case ir.ExprBinary:
+		k.Left = get(k.Left)
+		k.Right = get(k.Right)
+		kind = k
+	case ir.ExprMath:
+		k.Arg = get(k.Arg)
+		k.Arg1 = getOpt(k.Arg1)
+		k.Arg2 = getOpt(k.Arg2)
+		k.Arg3 = getOpt(k.Arg3)
+		kind = k
+	case ir.ExprSelect:
+		k.Reject = get(k.Reject)
+		k.Accept = get(k.Accept)
+		k.Condition = get(k.Condition)
+		kind = k
+	case ir.ExprRelational:
+		k.Argument = get(k.Argument)
+		kind = k
+	}
+	return kind, err
 }
 
 // result is the value of a numeric operation: a scalar or vector, or the

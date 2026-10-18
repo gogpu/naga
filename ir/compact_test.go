@@ -2343,9 +2343,22 @@ func TestRemapStmtExprHandles(t *testing.T) {
 		}
 		remapStmtExprHandles(stmts, remap)
 		s := stmts[0].Kind.(StmtEmit)
-		// remap[1]=20, remap[3]=40
-		if s.Range.Start != 20 || s.Range.End != 40 {
-			t.Errorf("range = [%d,%d), want [20,40)", s.Range.Start, s.Range.End)
+		// Rust adjust_stmt: by the first and last expression,
+		// remap[1]=20, remap[2]=30 → [20, 31).
+		if s.Range.Start != 20 || s.Range.End != 31 {
+			t.Errorf("range = [%d,%d), want [20,31)", s.Range.Start, s.Range.End)
+		}
+	})
+
+	t.Run("Emit ending at the arena end", func(t *testing.T) {
+		// End is exclusive and equals len(remap): there is no remap entry
+		// for it, the last expression decides.
+		stmts := []Statement{{Kind: StmtEmit{Range: Range{Start: 3, End: ExpressionHandle(len(remap))}}}}
+		remapStmtExprHandles(stmts, remap)
+		s := stmts[0].Kind.(StmtEmit)
+		want := Range{Start: remap[3], End: remap[len(remap)-1] + 1}
+		if s.Range != want {
+			t.Errorf("range = %+v, want %+v", s.Range, want)
 		}
 	})
 
