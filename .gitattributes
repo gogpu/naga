@@ -2,6 +2,8 @@
 # (internal/testcorpus): never convert their line endings.
 snapshot/testdata/rust/** -text
 snapshot/testdata/rust-derived/** -text
+# Rust naga outputs compared byte for byte (glsl TestOverrideOutputMatchesRust).
+glsl/testdata/overrides/** -text
 
 # Shell scripts run under bash on every CI runner, Windows included: keep LF.
 *.sh text eol=lf
