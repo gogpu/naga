@@ -473,3 +473,44 @@ var<workgroup> a: array<u32, SIZE>;
 		t.Errorf("n = 0: err = %v, want an array size error", err)
 	}
 }
+
+// TestOverrideSizedArrayRules: WGSL allows an array sized by an override only
+// as the store type of a workgroup variable, and arrayLength only on a
+// runtime-sized array. Rust naga v30 rejects both in validation ("Global
+// variable [0] 'a' is invalid", "Array length of [4] can't be done"); ours
+// accepted them and compiled a sized private array, or failed inside the
+// SPIR-V backend.
+func TestOverrideSizedArrayRules(t *testing.T) {
+	tests := []struct{ name, src, want string }{
+		{"private", "override n: u32 = 4;\nvar<private> a: array<u32, n>;\n@compute @workgroup_size(1) fn main() { a[0] = 1u; }\n",
+			"Global variable [0] 'a' is invalid"},
+		{"function", "override n: u32 = 4;\n@compute @workgroup_size(1) fn main() { var a: array<u32, n>; a[0] = 1u; }\n",
+			"Local variable [0] 'a' is invalid"},
+		{"arrayLength", "override n: u32 = 4;\nvar<workgroup> a: array<u32, n>;\n@compute @workgroup_size(1) fn main() { let l = arrayLength(&a); }\n",
+			"can't be done"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := lowerSource(t, tc.src)
+			errs, err := naga.Validate(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, e := range errs {
+				found = found || strings.Contains(e.Message, tc.want)
+			}
+			if !found {
+				t.Errorf("validation errors %v, want one containing %q", errs, tc.want)
+			}
+			if _, err := naga.ProcessOverrides(m, naga.OverrideOptions{}); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("ProcessOverrides: err = %v, want one containing %q", err, tc.want)
+			}
+		})
+	}
+	// The allowed form is valid.
+	ok := lowerSource(t, "override n: u32 = 4;\nvar<workgroup> a: array<u32, n>;\n@compute @workgroup_size(1) fn main() { a[0] = 1u; let v = a[0]; }\n")
+	if errs, _ := naga.Validate(ok); len(errs) != 0 {
+		t.Errorf("workgroup array sized by an override: %v", errs)
+	}
+}

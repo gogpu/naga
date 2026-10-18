@@ -242,6 +242,10 @@ func (v *Validator) validateGlobalVariables() {
 
 		if !v.isValidTypeHandle(gv.Type) {
 			v.addError(fmt.Sprintf("global variable %d (%s): type %d does not exist", i, gv.Name, gv.Type))
+		} else if gv.Space != SpaceWorkGroup && v.containsPendingArray(gv.Type, 0) {
+			// Rust: the type lacks CREATION_RESOLVED, which every address
+			// space but workgroup requires.
+			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: an array sized by an override is allowed only in the workgroup address space", i, gv.Name))
 		}
 
 		if gv.Binding != nil {
@@ -306,6 +310,9 @@ func (v *Validator) validateFunction(fn *Function) {
 	for i, lv := range fn.LocalVars {
 		if !v.isValidTypeHandle(lv.Type) {
 			v.addErrorInFunction(fmt.Sprintf("local variable %d (%s): type %d does not exist", i, lv.Name, lv.Type))
+		} else if v.containsPendingArray(lv.Type, 0) {
+			// Rust: the type is not CONSTRUCTIBLE.
+			v.addErrorInFunction(fmt.Sprintf("Local variable [%d] '%s' is invalid: an array sized by an override is not constructible", i, lv.Name))
 		}
 		if lv.Init != nil {
 			if !v.isValidExpressionHandle(*lv.Init) {
@@ -517,6 +524,9 @@ func (v *Validator) validateExpression(handle ExpressionHandle, expr *Expression
 	case ExprArrayLength:
 		if !v.isValidExpressionHandle(kind.Array) {
 			v.addErrorInExpression(handle, fmt.Sprintf("array expression %d does not exist", kind.Array))
+		} else if v.isSizedArrayPointer(kind.Array) {
+			// Rust: arrayLength needs a runtime-sized array.
+			v.addErrorInExpression(handle, fmt.Sprintf("Array length of [%d] can't be done", kind.Array))
 		}
 
 	case ExprRayQueryProceedResult:
@@ -748,6 +758,15 @@ func (v *Validator) validateEntryPoints() {
 				v.addError(fmt.Sprintf("entry point %q (@compute): workgroup size must be non-zero", ep.Name))
 			}
 		}
+
+		// The body is validated like any function's (Rust validates entry
+		// point functions with the module's functions).
+		v.context = validationContext{
+			function:       fn,
+			functionName:   ep.Name,
+			expressionUsed: make(map[ExpressionHandle]bool),
+		}
+		v.validateFunction(fn)
 	}
 }
 
@@ -843,4 +862,38 @@ func (v *Validator) addErrorInStatement(index int, msg string) {
 		Function:  v.context.functionName,
 		Statement: index,
 	})
+}
+
+// containsPendingArray reports a type that is, or holds, an array sized by
+// an override.
+func (v *Validator) containsPendingArray(h TypeHandle, depth int) bool {
+	if depth > 32 || !v.isValidTypeHandle(h) {
+		return false
+	}
+	switch t := v.module.Types[h].Inner.(type) {
+	case ArrayType:
+		return t.Size.Pending != nil || v.containsPendingArray(t.Base, depth+1)
+	case StructType:
+		for _, m := range t.Members {
+			if v.containsPendingArray(m.Type, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isSizedArrayPointer reports a pointer, in the function being validated,
+// to an array that is not runtime-sized.
+func (v *Validator) isSizedArrayPointer(h ExpressionHandle) bool {
+	fn := v.context.function
+	if fn == nil || int(h) >= len(fn.ExpressionTypes) {
+		return false
+	}
+	ptr, ok := TypeResInner(v.module, fn.ExpressionTypes[h]).(PointerType)
+	if !ok || !v.isValidTypeHandle(ptr.Base) {
+		return false
+	}
+	at, ok := v.module.Types[ptr.Base].Inner.(ArrayType)
+	return ok && !at.Size.IsRuntimeSized()
 }
