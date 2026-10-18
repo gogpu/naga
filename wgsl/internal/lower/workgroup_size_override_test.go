@@ -84,3 +84,9 @@ var<workgroup> b: array<u32, n * 2u>;
 		t.Error("a pending size is not runtime-sized")
 	}
 }
+
+// TestPendingArrayTypeName: diagnostics name an array sized by an override
+// with its override (Rust writes array<n>, without the element type).
+func TestPendingArrayTypeName(t *testing.T) {
+	expectError(t, "override n: u32 = 4u;\nvar<workgroup> a: array<u32, n>;\n@compute @workgroup_size(1) fn main() { let x: f32 = a; }\n", "array<u32, n>")
+}

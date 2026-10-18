@@ -367,8 +367,12 @@ func (l *Lowerer) wgslType(inner ir.TypeInner) string {
 		return "atomic<" + wgslScalar(t.Scalar) + ">"
 	case ir.ArrayType:
 		base := l.wgslTypeHandle(t.Base)
-		if t.Size.Constant != nil {
+		switch {
+		case t.Size.Constant != nil:
 			return fmt.Sprintf("array<%s, %d>", base, *t.Size.Constant)
+		case t.Size.Pending != nil:
+			// Rust writes array<n>, without the element type.
+			return fmt.Sprintf("array<%s, %s>", base, l.overrideName(*t.Size.Pending))
 		}
 		return "array<" + base + ">"
 	case ir.PointerType:
@@ -796,4 +800,13 @@ func rustNoAbstractOverload(fun ir.MathFunction) bool {
 		return true
 	}
 	return false
+}
+
+// overrideName is how diagnostics name override o: its name, or "override"
+// for one the frontend made for an array size.
+func (l *Lowerer) overrideName(o ir.OverrideHandle) string {
+	if int(o) < len(l.module.Overrides) && l.module.Overrides[o].Name != "" {
+		return l.module.Overrides[o].Name
+	}
+	return "override"
 }

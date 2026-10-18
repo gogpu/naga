@@ -4119,7 +4119,10 @@ func (l *Lowerer) isUnsizedType(handle ir.ExpressionHandle) bool {
 		return false
 	}
 	if arr, ok := inner.(ir.ArrayType); ok {
-		return arr.Size.Constant == nil // runtime-sized array
+		// A runtime-sized array, or one sized by an override: neither is
+		// constructible, so neither is loaded (Rust: "type is not
+		// constructible").
+		return arr.Size.Constant == nil
 	}
 	return false
 }

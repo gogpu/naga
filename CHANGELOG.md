@@ -63,6 +63,11 @@ of v0.20.0 (#93). Callers run it before a backend, as wgpu-hal does in Rust.
 - **An array sized by an override was runtime-sized** — HLSL
   `a = (uint[])0;` (invalid), MSL a bounds check against buffer sizes for a
   workgroup variable. It is now sized with the override's value.
+- **The validator accepted override-sized arrays where WGSL forbids them** —
+  `var<private> a: array<u32, n>` and `arrayLength(&a)` on an array that is
+  not runtime-sized passed validation and failed later in a backend; they are
+  now rejected with Rust's messages. Entry point bodies are validated like
+  other functions (only their stage requirements were checked).
 - **GLSL and DXIL folded constants with `float64` at write time** —
   `const d: f64 = 5.0lf; d % 3.0lf` was written as `0.0` in GLSL (Rust:
   `(d - 3.0LF * trunc(d / 3.0LF))`); DXIL folded override defaults the same
