@@ -12,8 +12,12 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/dxil"
+	"github.com/gogpu/naga/glsl"
+	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
+	"github.com/gogpu/naga/spirv"
 )
 
 func lowerSource(t *testing.T, src string) *ir.Module {
@@ -329,5 +333,76 @@ func TestCompileResolvesOverrideDefaults(t *testing.T) {
 	// No default and no value: WebGPU requires a value.
 	if _, err := naga.Compile("override m: u32;\n@group(0) @binding(0) var<storage, read_write> o: array<u32>;\n@compute @workgroup_size(1) fn main() { o[0] = m; }\n"); !errors.Is(err, naga.ErrOverrideMissingValue) {
 		t.Errorf("override without default: err = %v, want ErrOverrideMissingValue", err)
+	}
+}
+
+// TestProcessOverridesDerivedDefault: an override's default may use another
+// override; it is evaluated with that override's value (Rust naga v30 MSL).
+func TestProcessOverridesDerivedDefault(t *testing.T) {
+	m := lowerSource(t, `
+override n: u32 = 7u;
+override m: u32 = n * 2u;
+@group(0) @binding(0) var<storage, read_write> o: array<u32>;
+@compute @workgroup_size(1) fn main() { o[0] = m; o[1] = m + n; }
+`)
+	for _, tc := range []struct {
+		constants naga.PipelineConstants
+		want      []string
+	}{
+		{nil, []string{"constant uint n = 7u;", "constant uint m = 14u;", "o[0] = m;", "o[1] = 21u;"}},
+		{naga.PipelineConstants{"n": 3}, []string{"constant uint n = 3u;", "constant uint m = 6u;", "o[1] = 9u;"}},
+		{naga.PipelineConstants{"m": 5}, []string{"constant uint n = 7u;", "constant uint m = 5u;", "o[1] = 12u;"}},
+		{naga.PipelineConstants{"n": 3, "m": 5}, []string{"constant uint n = 3u;", "constant uint m = 5u;", "o[1] = 8u;"}},
+	} {
+		out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: tc.constants})
+		if err != nil {
+			t.Fatalf("%v: %v", tc.constants, err)
+		}
+		code := mslOf(t, out)
+		for _, w := range tc.want {
+			if !strings.Contains(code, w) {
+				t.Errorf("%v: missing %q\n%s", tc.constants, w, code)
+			}
+		}
+	}
+}
+
+// TestBackendsRejectUnresolvedOverrides: every backend reports a module that
+// still uses overrides with ir.ErrUnresolvedOverride (Rust Error::Override),
+// for an override expression and for a workgroup size given by an override
+// (which would otherwise be written as the placeholder 1). DXIL emitted the
+// default value instead.
+func TestBackendsRejectUnresolvedOverrides(t *testing.T) {
+	shaders := map[string]string{
+		"expression": `
+override n: u32 = 7u;
+@group(0) @binding(0) var<storage, read_write> o: array<u32>;
+@compute @workgroup_size(1) fn main() { o[0] = n % 4u; }
+`,
+		"workgroup size": workgroupShader,
+	}
+	for name, src := range shaders {
+		backends := map[string]func(*ir.Module) error{
+			"spirv": func(m *ir.Module) error { _, err := spirv.NewBackend(spirv.DefaultOptions()).Compile(m); return err },
+			"msl":   func(m *ir.Module) error { _, _, err := msl.Compile(m, msl.DefaultOptions()); return err },
+			"hlsl":  func(m *ir.Module) error { _, _, err := hlsl.Compile(m, hlsl.DefaultOptions()); return err },
+			"glsl": func(m *ir.Module) error {
+				_, _, err := glsl.Compile(m, glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: "main"})
+				return err
+			},
+			"dxil": func(m *ir.Module) error { _, err := dxil.Compile(m, dxil.DefaultOptions()); return err },
+		}
+		for backend, compile := range backends {
+			if err := compile(lowerSource(t, src)); !errors.Is(err, ir.ErrUnresolvedOverride) {
+				t.Errorf("%s, %s: err = %v, want ir.ErrUnresolvedOverride", name, backend, err)
+			}
+			processed, err := naga.ProcessOverrides(lowerSource(t, src), naga.OverrideOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := compile(processed); err != nil {
+				t.Errorf("%s, %s after ProcessOverrides: %v", name, backend, err)
+			}
+		}
 	}
 }

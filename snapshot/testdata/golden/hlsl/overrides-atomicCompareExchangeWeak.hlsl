@@ -14,8 +14,7 @@ void f(uint3 __local_invocation_id : SV_GroupThreadID)
         a = (uint)0;
     }
     GroupMemoryBarrierWithGroupSync();
-    uint _e3 = uint(o);
-    _atomic_compare_exchange_result_Uint_4_ _e5; InterlockedCompareExchange(a, _e3, 1u, _e5.old_value);
-    _e5.exchanged = (_e5.old_value == _e3);
+    _atomic_compare_exchange_result_Uint_4_ _e5; InterlockedCompareExchange(a, 2u, 1u, _e5.old_value);
+    _e5.exchanged = (_e5.old_value == 2u);
     return;
 }

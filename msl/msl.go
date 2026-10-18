@@ -220,9 +220,6 @@ type Options struct {
 	// that are referenced but not in the PerEntryPointMap.
 	FakeMissingBindings bool
 
-	// PipelineConstants specifies values for pipeline-overridable constants.
-	PipelineConstants map[string]float64
-
 	// AllowAndForcePointSize forces point size output for vertex shaders.
 	AllowAndForcePointSize bool
 
@@ -422,7 +419,6 @@ func toCodegenOptions(o Options) codegen.Options {
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 		ForceLoopBounding:             o.ForceLoopBounding,
 		FakeMissingBindings:           o.FakeMissingBindings,
-		PipelineConstants:             o.PipelineConstants,
 		AllowAndForcePointSize:        o.AllowAndForcePointSize,
 		VertexPullingTransform:        o.VertexPullingTransform,
 		VertexBufferMappings:          vbMappings,

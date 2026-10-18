@@ -153,8 +153,7 @@ fn main(@builtin(local_invocation_index) lid: u32) {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"WG_SIZE": 128}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"WG_SIZE": 128})
 	mustContainMSL(t, code, "kernel")
 }
 
@@ -616,7 +615,7 @@ struct Out { v: f32 };
 	module, _ := wgsl.Lower(ast)
 
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"BRIGHTNESS": 2.5}
+	module = processOverridesForTest(t, module, map[string]float64{"BRIGHTNESS": 2.5})
 	pipeline := PipelineOptions{}
 
 	code, _, err := CompileWithPipeline(module, opts, pipeline)

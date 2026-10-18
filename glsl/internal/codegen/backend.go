@@ -201,12 +201,6 @@ type Options struct {
 	// Matches Rust naga's back::glsl::BindingMap.
 	// When set, layout(binding = N) qualifiers are emitted.
 	BindingMap map[BindingMapKey]uint8
-
-	// PipelineConstants provides values for pipeline-overridable constants.
-	// Keys are either "@id(N)" numeric IDs as strings or override names.
-	// Values are float64 (NaN means "not set, use default").
-	// If provided, overrides are resolved before compilation.
-	PipelineConstants ir.PipelineConstants
 }
 
 // BindingMapKey identifies a resource binding for the BindingMap.
@@ -312,16 +306,6 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	// Apply defaults for zero values
 	if options.LangVersion.Major == 0 {
 		options.LangVersion = Version330
-	}
-
-	// Process overrides if pipeline constants are provided.
-	// This resolves all ExprOverride to concrete Literal/Constant values.
-	// It works on a clone so the caller's module is not changed.
-	if len(options.PipelineConstants) > 0 && len(module.Overrides) > 0 {
-		module = module.Clone()
-		if err := ir.ProcessOverrides(module, options.PipelineConstants); err != nil {
-			return "", TranslationInfo{}, fmt.Errorf("glsl: process overrides: %w", err)
-		}
 	}
 
 	// Create writer

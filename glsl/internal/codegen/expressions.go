@@ -160,6 +160,9 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		return "/* ray query proceed result */", nil
 	case ir.ExprRayQueryGetIntersection:
 		return "/* ray query get intersection */", nil
+	case ir.ExprOverride:
+		// Rust Error::Override: naga.ProcessOverrides replaces them first.
+		return "", fmt.Errorf("glsl: %w", ir.ErrUnresolvedOverride)
 	default:
 		return "", fmt.Errorf("unsupported expression kind: %T", kind)
 	}
@@ -516,11 +519,6 @@ func (w *Writer) writeLoad(l ir.ExprLoad) (string, error) {
 
 // writeUnary writes a unary expression.
 func (w *Writer) writeUnary(u ir.ExprUnary) (string, error) {
-	// Try const-evaluation for LogicalNot on constant booleans
-	if result, ok := w.tryConstEvalUnary(u); ok {
-		return result, nil
-	}
-
 	operand, err := w.writeExpression(u.Expr)
 	if err != nil {
 		return "", err
@@ -553,13 +551,6 @@ func (w *Writer) writeUnary(u ir.ExprUnary) (string, error) {
 
 // writeBinary writes a binary expression.
 func (w *Writer) writeBinary(b ir.ExprBinary) (string, error) {
-	// Try const-evaluation: if both operands resolve to constant values,
-	// write the evaluated result directly. Matches Rust naga GLSL writer
-	// which evaluates constant Binary expressions at write time.
-	if result, ok := w.tryConstEvalBinary(b); ok {
-		return result, nil
-	}
-
 	left, err := w.writeExpression(b.Left)
 	if err != nil {
 		return "", err
@@ -1987,128 +1978,4 @@ func (w *Writer) getExpressionTypeHandle(kind ir.ExpressionKind) *ir.TypeHandle 
 		return &k.Type
 	}
 	return nil
-}
-
-// tryConstEvalBinary tries to const-evaluate a binary expression at write time.
-// If both operands are constant/literal, computes the result and formats as GLSL literal.
-// Matches Rust naga GLSL writer behavior for constant expressions.
-func (w *Writer) tryConstEvalBinary(b ir.ExprBinary) (string, bool) {
-	if w.currentFunction == nil {
-		return "", false
-	}
-	// Only const-eval when at least one operand involves a named constant (ExprConstant).
-	// Plain Literal+Literal should NOT be folded — that's not what Rust does.
-	if !w.involvesExprConstant(b.Left) && !w.involvesExprConstant(b.Right) {
-		return "", false
-	}
-	leftVal, leftOk := w.exprConstValue(b.Left)
-	rightVal, rightOk := w.exprConstValue(b.Right)
-	if !leftOk || !rightOk {
-		return "", false
-	}
-	result := ir.EvalBinaryFloat(b.Op, leftVal, rightVal)
-	return w.formatConstResult(b.Left, result), true
-}
-
-// tryConstEvalUnary tries to const-evaluate a unary expression at write time.
-func (w *Writer) tryConstEvalUnary(u ir.ExprUnary) (string, bool) {
-	if w.currentFunction == nil {
-		return "", false
-	}
-	if !w.involvesExprConstant(u.Expr) {
-		return "", false
-	}
-	val, ok := w.exprConstValue(u.Expr)
-	if !ok {
-		return "", false
-	}
-	switch u.Op {
-	case ir.UnaryLogicalNot:
-		if val == 1.0 {
-			return "false", true
-		}
-		return "true", true
-	case ir.UnaryNegate:
-		return w.formatConstResult(u.Expr, -val), true
-	}
-	return "", false
-}
-
-// involvesExprConstant checks if an expression references an ExprConstant (named constant).
-func (w *Writer) involvesExprConstant(handle ir.ExpressionHandle) bool {
-	if int(handle) >= len(w.currentFunction.Expressions) {
-		return false
-	}
-	expr := &w.currentFunction.Expressions[handle]
-	switch k := expr.Kind.(type) {
-	case ir.ExprConstant:
-		return true
-	case ir.ExprBinary:
-		return w.involvesExprConstant(k.Left) || w.involvesExprConstant(k.Right)
-	case ir.ExprUnary:
-		return w.involvesExprConstant(k.Expr)
-	}
-	return false
-}
-
-// exprConstValue tries to evaluate a function expression to a float64 constant.
-// Handles Literal, ExprConstant (via global expression init), and recursively Binary/Unary.
-func (w *Writer) exprConstValue(handle ir.ExpressionHandle) (float64, bool) {
-	if int(handle) >= len(w.currentFunction.Expressions) {
-		return 0, false
-	}
-	expr := &w.currentFunction.Expressions[handle]
-	switch k := expr.Kind.(type) {
-	case ir.Literal:
-		return ir.LiteralToFloat(k.Value), true
-	case ir.ExprConstant:
-		if int(k.Constant) < len(w.module.Constants) {
-			c := &w.module.Constants[k.Constant]
-			if int(c.Init) < len(w.module.GlobalExpressions) {
-				ge := &w.module.GlobalExpressions[c.Init]
-				if lit, ok := ge.Kind.(ir.Literal); ok {
-					return ir.LiteralToFloat(lit.Value), true
-				}
-			}
-		}
-	case ir.ExprBinary:
-		left, leftOk := w.exprConstValue(k.Left)
-		right, rightOk := w.exprConstValue(k.Right)
-		if leftOk && rightOk {
-			return ir.EvalBinaryFloat(k.Op, left, right), true
-		}
-	case ir.ExprUnary:
-		val, ok := w.exprConstValue(k.Expr)
-		if ok {
-			return ir.EvalUnaryFloat(k.Op, val), true
-		}
-	}
-	return 0, false
-}
-
-// formatConstResult formats a const-evaluated float64 as the correct GLSL literal type.
-func (w *Writer) formatConstResult(protoExpr ir.ExpressionHandle, val float64) string {
-	if int(protoExpr) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[protoExpr]
-		var inner ir.TypeInner
-		if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
-			inner = w.module.Types[*res.Handle].Inner
-		} else {
-			inner = res.Value
-		}
-		if s, ok := inner.(ir.ScalarType); ok {
-			switch s.Kind {
-			case ir.ScalarBool:
-				if val == 1.0 {
-					return "true"
-				}
-				return "false"
-			case ir.ScalarSint:
-				return fmt.Sprintf("%d", int32(val))
-			case ir.ScalarUint:
-				return fmt.Sprintf("%du", uint32(val))
-			}
-		}
-	}
-	return formatFloat(float32(val))
 }

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/ir"
@@ -188,13 +189,13 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 
 // readSPVPipelineConstants reads pipeline_constants from a Rust TOML config.
 // Used to process overrides before SPIR-V compilation (same as Rust test driver).
-func readSPVPipelineConstants(shaderName string) ir.PipelineConstants {
+func readSPVPipelineConstants(shaderName string) naga.PipelineConstants {
 	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
 	if err != nil {
 		return nil
 	}
-	return ir.PipelineConstants(parsePipelineConstants(string(data)))
+	return naga.PipelineConstants(parsePipelineConstants(string(data)))
 }
 
 // spvCapabilityByName maps SPIR-V capability names (as used in Rust TOML configs)
@@ -579,7 +580,6 @@ type glslConfig struct {
 	excludeList         map[string]bool // entry points to skip
 	boundsCheckPolicies glsl.BoundsCheckPolicies
 	bindingMap          map[glsl.BindingMapKey]uint8
-	pipelineConstants   ir.PipelineConstants
 }
 
 // toOptions converts the parsed config to glsl.Options.
@@ -590,7 +590,6 @@ func (c glslConfig) toOptions() glsl.Options {
 		ForceHighPrecision:  true,
 		BoundsCheckPolicies: c.boundsCheckPolicies,
 		BindingMap:          c.bindingMap,
-		PipelineConstants:   c.pipelineConstants,
 	}
 }
 
@@ -612,9 +611,6 @@ func readGLSLConfig(shaderName string) (glslConfig, error) {
 		return cfg, err
 	}
 	content := string(data)
-
-	// Parse pipeline_constants (top-level, shared across backends) — BEFORE [glsl] check
-	cfg.pipelineConstants = ir.PipelineConstants(parsePipelineConstants(content))
 
 	// Parse [bounds_check_policies] section (top-level, shared across backends)
 	cfg.boundsCheckPolicies = glslBoundsCheckPolicies(mustRustParams(content).boundsCheckPolicies)
@@ -2477,12 +2473,6 @@ func readRustMSLConfig(shaderName string) (msl.Options, error) {
 	inlineSamplers := parseInlineSamplers(content)
 	if len(inlineSamplers) > 0 {
 		opts.InlineSamplers = inlineSamplers
-	}
-
-	// Parse pipeline_constants (top-level, not under [msl]).
-	pipelineConstants := parsePipelineConstants(content)
-	if len(pipelineConstants) > 0 {
-		opts.PipelineConstants = pipelineConstants
 	}
 
 	// Parse [msl_pipeline] section (top-level).

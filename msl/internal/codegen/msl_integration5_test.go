@@ -372,8 +372,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"A": 3.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 3.0})
 	// -A with A=3.0 should produce -3.0
 	mustContainMSL(t, code, "-3.0")
 }
@@ -390,8 +389,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"W": 16, "H": 16}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"W": 16, "H": 16})
 	// W*H with W=16, H=16 should produce 256u
 	mustContainMSL(t, code, "256u")
 }
@@ -415,8 +413,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"OFFSET": 42.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"OFFSET": 42.0})
 	mustContainMSL(t, code, "42")
 }
 
@@ -958,8 +955,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"A": 10.0, "B": 20.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 10.0, "B": 20.0})
 	mustContainMSL(t, code, "10.0")
 	mustContainMSL(t, code, "20.0")
 }
@@ -1004,284 +1000,6 @@ func TestHalfToFloat32_NaN(t *testing.T) {
 	got := halfToFloat32(0x7E00) // quiet NaN
 	if !math.IsNaN(float64(got)) {
 		t.Errorf("halfToFloat32(0x7E00) = %v, want NaN", got)
-	}
-}
-
-// =============================================================================
-// Test: Pipeline constants — evalUnaryOp (covers pipeline_constants.go)
-// =============================================================================
-
-func TestEvalUnaryOp(t *testing.T) {
-	tests := []struct {
-		name     string
-		op       ir.UnaryOperator
-		operand  ir.LiteralValue
-		wantNil  bool
-		wantBool *bool
-		wantI32  *int32
-		wantF32  *float32
-	}{
-		{
-			name:     "logical_not_true",
-			op:       ir.UnaryLogicalNot,
-			operand:  ir.LiteralBool(true),
-			wantBool: boolPtr(false),
-		},
-		{
-			name:     "logical_not_false",
-			op:       ir.UnaryLogicalNot,
-			operand:  ir.LiteralBool(false),
-			wantBool: boolPtr(true),
-		},
-		{
-			name:    "negate_f32",
-			op:      ir.UnaryNegate,
-			operand: ir.LiteralF32(3.14),
-			wantF32: f32Ptr(-3.14),
-		},
-		{
-			name:    "negate_i32",
-			op:      ir.UnaryNegate,
-			operand: ir.LiteralI32(42),
-			wantI32: i32Ptr(-42),
-		},
-		{
-			name:    "negate_f64",
-			op:      ir.UnaryNegate,
-			operand: ir.LiteralF64(2.71),
-			wantNil: false,
-		},
-		{
-			name:    "logical_not_on_i32_returns_nil",
-			op:      ir.UnaryLogicalNot,
-			operand: ir.LiteralI32(1),
-			wantNil: true,
-		},
-		{
-			name:    "negate_u32_returns_nil",
-			op:      ir.UnaryNegate,
-			operand: ir.LiteralU32(5),
-			wantNil: true,
-		},
-		{
-			name:    "unsupported_op_returns_nil",
-			op:      ir.UnaryBitwiseNot,
-			operand: ir.LiteralI32(1),
-			wantNil: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := evalUnaryOp(tt.op, tt.operand)
-			if tt.wantNil {
-				if got != nil {
-					t.Errorf("expected nil, got %v", got)
-				}
-				return
-			}
-			if got == nil {
-				if !tt.wantNil {
-					t.Errorf("expected non-nil result")
-				}
-				return
-			}
-			if tt.wantBool != nil {
-				b, ok := got.(ir.LiteralBool)
-				if !ok {
-					t.Errorf("expected LiteralBool, got %T", got)
-				} else if bool(b) != *tt.wantBool {
-					t.Errorf("got %v, want %v", b, *tt.wantBool)
-				}
-			}
-			if tt.wantI32 != nil {
-				v, ok := got.(ir.LiteralI32)
-				if !ok {
-					t.Errorf("expected LiteralI32, got %T", got)
-				} else if int32(v) != *tt.wantI32 {
-					t.Errorf("got %v, want %v", v, *tt.wantI32)
-				}
-			}
-			if tt.wantF32 != nil {
-				v, ok := got.(ir.LiteralF32)
-				if !ok {
-					t.Errorf("expected LiteralF32, got %T", got)
-				} else if float32(v) != *tt.wantF32 {
-					t.Errorf("got %v, want %v", v, *tt.wantF32)
-				}
-			}
-		})
-	}
-}
-
-// =============================================================================
-// Test: evalGlobalExpression (covers pipeline_constants.go)
-// =============================================================================
-
-func TestEvalGlobalExpression(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
-	initExpr := ir.ExpressionHandle(0)
-
-	// Module with: globalExpr[0]=Literal(1.0), globalExpr[1]=Override(0),
-	// globalExpr[2]=Binary(Add, [1], [0])
-	m := &ir.Module{
-		Types: []ir.Type{
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-		},
-		Constants: []ir.Constant{
-			{Name: "C", Type: tF32, Init: initExpr, Value: ir.ScalarValue{Bits: 0x3F800000, Kind: ir.ScalarFloat}},
-		},
-		Overrides: []ir.Override{
-			{Name: "A", Ty: tF32},
-		},
-		GlobalExpressions: []ir.Expression{
-			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},              // [0]
-			{Kind: ir.ExprOverride{Override: 0}},                       // [1]
-			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 1, Right: 0}}, // [2]
-			{Kind: ir.ExprConstant{Constant: 0}},                       // [3] references constant 0
-		},
-	}
-
-	overrideValues := map[ir.OverrideHandle]ir.LiteralValue{
-		0: ir.LiteralF32(5.0),
-	}
-
-	t.Run("literal", func(t *testing.T) {
-		got := evalGlobalExpression(m, 0, overrideValues)
-		if v, ok := got.(ir.LiteralF32); !ok || float32(v) != 1.0 {
-			t.Errorf("expected LiteralF32(1.0), got %v", got)
-		}
-	})
-
-	t.Run("override", func(t *testing.T) {
-		got := evalGlobalExpression(m, 1, overrideValues)
-		if v, ok := got.(ir.LiteralF32); !ok || float32(v) != 5.0 {
-			t.Errorf("expected LiteralF32(5.0), got %v", got)
-		}
-	})
-
-	t.Run("binary_add", func(t *testing.T) {
-		got := evalGlobalExpression(m, 2, overrideValues)
-		if v, ok := got.(ir.LiteralF32); !ok || float32(v) != 6.0 {
-			t.Errorf("expected LiteralF32(6.0), got %v (override=5.0 + literal=1.0)", got)
-		}
-	})
-
-	t.Run("constant_ref", func(t *testing.T) {
-		got := evalGlobalExpression(m, 3, overrideValues)
-		if v, ok := got.(ir.LiteralF32); !ok || float32(v) != 1.0 {
-			t.Errorf("expected LiteralF32(1.0) via constant, got %v", got)
-		}
-	})
-
-	t.Run("out_of_bounds", func(t *testing.T) {
-		got := evalGlobalExpression(m, 99, overrideValues)
-		if got != nil {
-			t.Errorf("expected nil for out-of-bounds, got %v", got)
-		}
-	})
-}
-
-// =============================================================================
-// Test: convertLiteralToType (covers pipeline_constants.go)
-// =============================================================================
-
-func TestConvertLiteralToType(t *testing.T) {
-	tests := []struct {
-		name   string
-		lit    ir.LiteralValue
-		scalar ir.ScalarType
-		check  func(ir.LiteralValue) bool
-	}{
-		{
-			name:   "f32_to_i32",
-			lit:    ir.LiteralF32(42.7),
-			scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
-			check:  func(v ir.LiteralValue) bool { i, ok := v.(ir.LiteralI32); return ok && int32(i) == 42 },
-		},
-		{
-			name:   "f32_to_u32",
-			lit:    ir.LiteralF32(100.0),
-			scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4},
-			check:  func(v ir.LiteralValue) bool { u, ok := v.(ir.LiteralU32); return ok && uint32(u) == 100 },
-		},
-		{
-			name:   "i32_to_f32",
-			lit:    ir.LiteralI32(7),
-			scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
-			check:  func(v ir.LiteralValue) bool { f, ok := v.(ir.LiteralF32); return ok && float32(f) == 7.0 },
-		},
-		{
-			name:   "f32_to_bool_nonzero",
-			lit:    ir.LiteralF32(1.0),
-			scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
-			check:  func(v ir.LiteralValue) bool { b, ok := v.(ir.LiteralBool); return ok && bool(b) },
-		},
-		{
-			name:   "f32_to_bool_zero",
-			lit:    ir.LiteralF32(0.0),
-			scalar: ir.ScalarType{Kind: ir.ScalarBool, Width: 1},
-			check:  func(v ir.LiteralValue) bool { b, ok := v.(ir.LiteralBool); return ok && !bool(b) },
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := convertLiteralToType(tt.lit, tt.scalar)
-			if got == nil {
-				t.Fatal("expected non-nil result")
-			}
-			if !tt.check(got) {
-				t.Errorf("unexpected result: %v (%T)", got, got)
-			}
-		})
-	}
-}
-
-// =============================================================================
-// Test: literalToScalarValue (covers pipeline_constants.go)
-// =============================================================================
-
-func TestLiteralToScalarValue(t *testing.T) {
-	tests := []struct {
-		name string
-		lit  ir.LiteralValue
-		kind ir.ScalarKind
-		bits uint64
-	}{
-		{"f32", ir.LiteralF32(1.0), ir.ScalarFloat, uint64(math.Float32bits(1.0))},
-		{"f64", ir.LiteralF64(2.0), ir.ScalarFloat, math.Float64bits(2.0)},
-		{"i32", ir.LiteralI32(-1), ir.ScalarSint, 0xFFFFFFFFFFFFFFFF},
-		{"u32", ir.LiteralU32(42), ir.ScalarUint, 42},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := literalToScalarValue(tt.lit)
-			if got == nil {
-				t.Fatal("expected non-nil ScalarValue")
-			}
-			if got.Kind != tt.kind {
-				t.Errorf("kind = %v, want %v", got.Kind, tt.kind)
-			}
-			if got.Bits != tt.bits {
-				t.Errorf("bits = %v, want %v", got.Bits, tt.bits)
-			}
-		})
-	}
-}
-
-func TestLiteralToScalarValue_Bool(t *testing.T) {
-	got := literalToScalarValue(ir.LiteralBool(true))
-	if got == nil {
-		t.Fatal("expected non-nil for bool true")
-	}
-	if got.Bits != 1 || got.Kind != ir.ScalarBool {
-		t.Errorf("got bits=%d kind=%v, want bits=1 kind=ScalarBool", got.Bits, got.Kind)
-	}
-	gotF := literalToScalarValue(ir.LiteralBool(false))
-	if gotF == nil {
-		t.Fatal("expected non-nil for bool false")
-	}
-	if gotF.Bits != 0 || gotF.Kind != ir.ScalarBool {
-		t.Errorf("got bits=%d kind=%v, want bits=0 kind=ScalarBool", gotF.Bits, gotF.Kind)
 	}
 }
 
@@ -1757,8 +1475,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"A": 42}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 42})
 	// Cast of constant i32(42) to u32 should fold to 42u
 	mustContainMSL(t, code, "42u")
 }
@@ -1985,8 +1702,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"A": 42}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 42})
 	// A=42 as i32 cast to u32 should fold to 42u
 	mustContainMSL(t, code, "42u")
 }

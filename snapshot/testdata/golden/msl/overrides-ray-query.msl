@@ -29,7 +29,6 @@ struct RayDesc {
     metal::float3 dir;
 };
 constant float o = 2.0;
-constant float o_1 = float {};
 
 kernel void main_(
   metal::raytracing::instance_acceleration_structure acc_struct [[user(fake0)]]

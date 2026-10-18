@@ -174,7 +174,8 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		valueID, err = e.emitArrayLength(fn, ek)
 
 	case ir.ExprOverride:
-		valueID, err = e.emitOverride(ek)
+		// Rust Error::Override: naga.ProcessOverrides replaces them first.
+		err = fmt.Errorf("dxil: %w", ir.ErrUnresolvedOverride)
 
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", expr.Kind)
@@ -5986,28 +5987,6 @@ func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) {
 	}
 }
 
-// emitOverride emits a pipeline-overridable constant's default value.
-// DXIL has no direct equivalent to WGSL overrides; we emit them as their
-// default init values (matching ProcessOverrides with empty constants map).
-func (e *Emitter) emitOverride(eo ir.ExprOverride) (int, error) {
-	if int(eo.Override) >= len(e.ir.Overrides) {
-		return 0, fmt.Errorf("override %d out of range", eo.Override)
-	}
-	ov := &e.ir.Overrides[eo.Override]
-
-	// Use the override's init expression if available.
-	if ov.Init != nil {
-		return e.emitGlobalExpression(*ov.Init)
-	}
-
-	// No default value — emit zero for the override's type.
-	inner := e.ir.Types[ov.Ty].Inner
-	if s, ok := scalarOfType(inner); ok && s.Kind == ir.ScalarFloat {
-		return e.getFloatConstID(0.0), nil
-	}
-	return e.getIntConstID(0), nil
-}
-
 // emitConstant emits a reference to a module-scope constant.
 func (e *Emitter) emitConstant(ec ir.ExprConstant) (int, error) {
 	c := &e.ir.Constants[ec.Constant]
@@ -6072,25 +6051,11 @@ func (e *Emitter) emitGlobalExpression(handle ir.ExpressionHandle) (int, error) 
 		// Nested constant reference.
 		return e.emitConstant(gk)
 
-	case ir.ExprOverride:
-		return e.emitOverride(gk)
-
-	case ir.ExprBinary:
-		// Chained-override default folding: e.g.
-		//   override depth: f32;
-		//   override height = 2.0 * depth;
-		// evaluates `height` at emit time as `2.0 * depth_default_value`
-		// where depth_default_value is 0.0 per the "no pipeline
-		// constants" convention (see emitOverride). Without this case,
-		// we fell through to the default branch and returned an i32
-		// zero where the downstream use expected an f32, producing a
-		// type mismatch in the CALL/STORE record and rejection with
-		// HRESULT 0x80aa0009 'Invalid record'. Reference: WGSL spec
-		// §12.5 (override declarations; constant expressions).
-		return e.foldGlobalBinary(gk)
-
-	case ir.ExprUnary:
-		return e.foldGlobalUnary(gk)
+	case ir.ExprOverride, ir.ExprBinary, ir.ExprUnary:
+		// Only an override-expression is left unevaluated in the module
+		// arena; naga.ProcessOverrides evaluates it first (Rust
+		// Error::Override).
+		return 0, fmt.Errorf("dxil: global expression %T: %w", gk, ir.ErrUnresolvedOverride)
 
 	default:
 		// Unsupported global expression kind — fall back to zero of
@@ -6099,134 +6064,6 @@ func (e *Emitter) emitGlobalExpression(handle ir.ExpressionHandle) (int, error) 
 		// integer for unknown global expression types.
 		return e.getIntConstID(0), nil
 	}
-}
-
-// evalGlobalExpressionFloat constant-folds a scalar numeric global
-// expression (Literal / Override default / Binary / Unary) down to a
-// concrete float64 value. Returns (value, true) when the fold succeeds,
-// or (0, false) when the expression contains shapes we can't evaluate
-// at emit time (compose, constant reference to non-scalar, etc.).
-//
-// The float64 intermediate representation is sufficient for WGSL's
-// scalar numeric overrides (f32/i32/u32/bool) because all operations
-// are exact within the mantissa range shaders normally use. Caller is
-// responsible for narrowing the result to the target type via
-// getFloatConstID or getIntConstID.
-//
-//nolint:gocyclo,cyclop // dispatch table over literal / override / binary / unary kinds
-func (e *Emitter) evalGlobalExpressionFloat(handle ir.ExpressionHandle) (float64, bool) {
-	if int(handle) >= len(e.ir.GlobalExpressions) {
-		return 0, false
-	}
-	expr := e.ir.GlobalExpressions[handle]
-	switch k := expr.Kind.(type) {
-	case ir.Literal:
-		switch lv := k.Value.(type) {
-		case ir.LiteralF32:
-			return float64(lv), true
-		case ir.LiteralF64:
-			return float64(lv), true
-		case ir.LiteralI32:
-			return float64(lv), true
-		case ir.LiteralU32:
-			return float64(lv), true
-		case ir.LiteralBool:
-			if bool(lv) {
-				return 1, true
-			}
-			return 0, true
-		}
-		return 0, false
-
-	case ir.ExprOverride:
-		if int(k.Override) >= len(e.ir.Overrides) {
-			return 0, false
-		}
-		ov := &e.ir.Overrides[k.Override]
-		// Override with an explicit default: fold it recursively.
-		if ov.Init != nil {
-			return e.evalGlobalExpressionFloat(*ov.Init)
-		}
-		// No pipeline constant + no default → fall back to 0, matching
-		// emitOverride's zero-fallback convention.
-		return 0, true
-
-	case ir.ExprConstant:
-		if int(k.Constant) >= len(e.ir.Constants) {
-			return 0, false
-		}
-		return e.evalGlobalExpressionFloat(e.ir.Constants[k.Constant].Init)
-
-	case ir.ExprBinary:
-		lv, lok := e.evalGlobalExpressionFloat(k.Left)
-		rv, rok := e.evalGlobalExpressionFloat(k.Right)
-		if !lok || !rok {
-			return 0, false
-		}
-		switch k.Op {
-		case ir.BinaryAdd:
-			return lv + rv, true
-		case ir.BinarySubtract:
-			return lv - rv, true
-		case ir.BinaryMultiply:
-			return lv * rv, true
-		case ir.BinaryDivide:
-			if rv == 0 {
-				return 0, true
-			}
-			return lv / rv, true
-		}
-		return 0, false
-
-	case ir.ExprUnary:
-		v, ok := e.evalGlobalExpressionFloat(k.Expr)
-		if !ok {
-			return 0, false
-		}
-		switch k.Op {
-		case ir.UnaryNegate:
-			return -v, true
-		case ir.UnaryLogicalNot:
-			if v == 0 {
-				return 1, true
-			}
-			return 0, true
-		}
-		return 0, false
-	}
-	return 0, false
-}
-
-// foldGlobalBinary evaluates a binary global expression at emit time
-// and returns the constant value ID. Falls back to integer zero when
-// the fold fails.
-func (e *Emitter) foldGlobalBinary(k ir.ExprBinary) (int, error) {
-	if v, ok := e.evalGlobalExpressionFloat(e.globalHandleFor(k)); ok {
-		return e.getFloatConstID(v), nil
-	}
-	return e.getIntConstID(0), nil
-}
-
-// foldGlobalUnary is the unary counterpart to foldGlobalBinary.
-func (e *Emitter) foldGlobalUnary(k ir.ExprUnary) (int, error) {
-	if v, ok := e.evalGlobalExpressionFloat(e.globalHandleFor(k)); ok {
-		return e.getFloatConstID(v), nil
-	}
-	return e.getIntConstID(0), nil
-}
-
-// globalHandleFor finds the ExpressionHandle of a given global
-// expression kind instance. This is a linear scan; it is only used on
-// the const-fold hot path which runs once per override-chain use, so
-// the cost is negligible. A map-based index would complicate all
-// GlobalExpressions mutations; we keep the scan for simplicity.
-func (e *Emitter) globalHandleFor(target interface{}) ir.ExpressionHandle {
-	for i := range e.ir.GlobalExpressions {
-		if e.ir.GlobalExpressions[i].Kind == target {
-			return ir.ExpressionHandle(i)
-		}
-	}
-	return 0
 }
 
 // emitAs emits a type cast expression using LLVM cast instructions.

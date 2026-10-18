@@ -29,6 +29,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/internal/testtools"
@@ -108,13 +109,12 @@ func TestDxilDxcGolden(t *testing.T) {
 			skipCount++
 			continue
 		}
-		if len(module.Overrides) > 0 {
-			module = module.Clone()
-			if err := ir.ProcessOverrides(module, nil); err != nil {
-				skipCount++
-				continue
-			}
+		processed, err := naga.ProcessOverrides(module, naga.OverrideOptions{})
+		if err != nil {
+			skipCount++
+			continue
 		}
+		module = processed
 
 		for j := range module.EntryPoints {
 			ep := module.EntryPoints[j]

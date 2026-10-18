@@ -714,8 +714,7 @@ fn main(@builtin(local_invocation_index) lid: u32) {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"X": 8, "Y": 8}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"X": 8, "Y": 8})
 	mustContainMSL(t, code, "kernel")
 }
 

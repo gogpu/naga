@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -17,8 +19,38 @@ func compileWGSL(t *testing.T, src string) string {
 	return compileWGSLWithOpts(t, src, DefaultOptions())
 }
 
-// compileWGSLWithOpts compiles WGSL source to MSL with custom options.
+// compileWGSLWithOpts compiles WGSL source to MSL with custom options; the
+// overrides take their defaults.
 func compileWGSLWithOpts(t *testing.T, src string, opts Options) string {
+	t.Helper()
+	return compileWGSLWithConstants(t, src, opts, nil)
+}
+
+// compileWGSLWithConstants compiles WGSL source to MSL after replacing its
+// overrides with naga.ProcessOverrides, as Rust's test driver and wgpu-hal do
+// before every backend.
+func compileWGSLWithConstants(t *testing.T, src string, opts Options, constants map[string]float64) string {
+	t.Helper()
+	module := processOverridesForTest(t, lowerWGSLForTest(t, src), constants)
+	code, _, compileErr := Compile(module, opts)
+	if compileErr != nil {
+		t.Fatalf("MSL compile error: %v", compileErr)
+	}
+	return code
+}
+
+// processOverridesForTest replaces the overrides of module by their values.
+func processOverridesForTest(t *testing.T, module *ir.Module, constants map[string]float64) *ir.Module {
+	t.Helper()
+	processed, err := naga.ProcessOverrides(module, naga.OverrideOptions{Constants: constants})
+	if err != nil {
+		t.Fatalf("ProcessOverrides: %v", err)
+	}
+	return processed
+}
+
+// lowerWGSLForTest parses and lowers WGSL source.
+func lowerWGSLForTest(t *testing.T, src string) *ir.Module {
 	t.Helper()
 	lexer := wgsl.NewLexer(src)
 	tokens, lexErr := lexer.Tokenize()
@@ -34,11 +66,7 @@ func compileWGSLWithOpts(t *testing.T, src string, opts Options) string {
 	if err != nil {
 		t.Fatalf("Lower error: %v", err)
 	}
-	code, _, compileErr := Compile(module, opts)
-	if compileErr != nil {
-		t.Fatalf("MSL compile error: %v", compileErr)
-	}
-	return code
+	return module
 }
 
 // computeWrap wraps a WGSL expression in a compute shader with storage output
@@ -1537,8 +1565,7 @@ struct Out { v: f32 };
 @compute @workgroup_size(1) fn main() { out.v = inp.v * SCALE; }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"SCALE": 3.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"SCALE": 3.0})
 	// Override replaced: SCALE becomes 3.0 constant.
 	mustContainMSL(t, code, "3.0")
 }

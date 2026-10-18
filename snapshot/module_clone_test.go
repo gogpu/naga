@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
@@ -101,8 +102,10 @@ func sharedMemory(a, b reflect.Value, path string) (string, bool) {
 // TestBackendsDoNotMutateModule: every backend's Compile treats its module as
 // read-only (BUG-IR-CLONE-001), so one lowered module can be compiled for
 // several backends and pipelines. Each corpus module is compiled by every
-// backend, with the shader's pipeline constants where it has them, and must
-// still equal an independent lowering of the same source afterwards. Compile
+// backend after naga.ProcessOverrides with the shader's pipeline constants,
+// as in use, and must still equal an independent processing of the same
+// source afterwards; ProcessOverrides itself must leave the lowered module as
+// it was. Compile
 // errors are ignored here: they are covered by the backend tests, and a
 // failing Compile must not change its input either.
 func TestBackendsDoNotMutateModule(t *testing.T) {
@@ -115,33 +118,44 @@ func TestBackendsDoNotMutateModule(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: second lowering failed: %v", sh.name, err)
 		}
-		constants := readSPVPipelineConstants(sh.name)
+		opts := naga.OverrideOptions{Constants: readSPVPipelineConstants(sh.name)}
+		if _, err := naga.ProcessOverrides(module, opts); err != nil {
+			continue
+		}
+		if !reflect.DeepEqual(module, want) {
+			t.Errorf("%s: ProcessOverrides changed its input module", sh.name)
+			continue
+		}
+		prepare := func(m *ir.Module) *ir.Module {
+			p, err := naga.ProcessOverrides(m, opts)
+			if err != nil {
+				t.Fatalf("%s: %v", sh.name, err)
+			}
+			return p
+		}
+		module, want = prepare(module), prepare(want)
 
 		backends := []struct {
 			name    string
 			compile func()
 		}{
 			{"spirv", func() { _, _ = spirv.NewBackend(spirv.DefaultOptions()).Compile(module) }},
-			{"msl", func() {
-				opts := msl.DefaultOptions()
-				opts.PipelineConstants = constants
-				_, _, _ = msl.Compile(module, opts)
-			}},
+			{"msl", func() { _, _, _ = msl.Compile(module, msl.DefaultOptions()) }},
 			{"hlsl", func() { _, _, _ = hlsl.Compile(module, hlsl.DefaultOptions()) }},
 			{"glsl", func() {
 				for _, ep := range module.EntryPoints {
-					opts := glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: ep.Name, PipelineConstants: constants}
+					opts := glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: ep.Name}
 					_, _, _ = glsl.Compile(module, opts)
 				}
 			}},
 			{"dxil", func() { _, _ = dxil.Compile(module, dxil.DefaultOptions()) }},
-			{"clone+ProcessOverrides", func() { _ = ir.ProcessOverrides(module.Clone(), constants) }},
 		}
 		for _, b := range backends {
 			b.compile()
 			if !reflect.DeepEqual(module, want) {
 				t.Errorf("%s: %s changed its input module", sh.name, b.name)
-				module, _ = tryCompileToIR(sh.source) // keep checking the other backends
+				fresh, _ := tryCompileToIR(sh.source) // keep checking the other backends
+				module = prepare(fresh)
 			}
 		}
 	}

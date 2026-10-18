@@ -11,7 +11,7 @@ import (
 	"github.com/gogpu/naga/wgsl"
 )
 
-// cloneIsolationShader puts override uses where ProcessOverrides rewrites
+// cloneIsolationShader puts override uses where a pass rewrites
 // handles through nested data: blocks inside loops and ifs, the Compare
 // operand of a compare-exchange, a call result and its arguments, the array
 // index of a sample and a return value.
@@ -64,11 +64,12 @@ func lowerWGSL(t *testing.T, source string) *ir.Module {
 	return module
 }
 
-// TestCloneThenProcessOverridesLeavesSourceUnchanged is the contract the
-// backends rely on (BUG-IR-CLONE-001): ProcessOverrides on a clone must not
-// change the module it was cloned from. Lowering is deterministic, so a
-// second lowering of the same source is an independent copy to compare with.
-func TestCloneThenProcessOverridesLeavesSourceUnchanged(t *testing.T) {
+// TestCloneThenMutateLeavesSourceUnchanged is the contract the passes rely
+// on (BUG-IR-CLONE-001; naga.ProcessOverrides rebuilds the arenas of a
+// clone): changing a clone in depth must not change the module it was cloned
+// from. Lowering is deterministic, so a second lowering of the same source is
+// an independent copy to compare with.
+func TestCloneThenMutateLeavesSourceUnchanged(t *testing.T) {
 	source := lowerWGSL(t, cloneIsolationShader)
 	want := lowerWGSL(t, cloneIsolationShader)
 	if !reflect.DeepEqual(source, want) {
@@ -76,12 +77,10 @@ func TestCloneThenProcessOverridesLeavesSourceUnchanged(t *testing.T) {
 	}
 
 	clone := source.Clone()
-	if err := ir.ProcessOverrides(clone, ir.PipelineConstants{"o": 3}); err != nil {
-		t.Fatalf("ProcessOverrides: %v", err)
-	}
+	mutateInDepth(clone)
 
 	if reflect.DeepEqual(clone, want) {
-		t.Fatal("ProcessOverrides changed nothing; the shader does not exercise it")
+		t.Fatal("the mutation changed nothing; the shader does not exercise it")
 	}
 	if !reflect.DeepEqual(source, want) {
 		for i := range want.EntryPoints {
@@ -94,7 +93,7 @@ func TestCloneThenProcessOverridesLeavesSourceUnchanged(t *testing.T) {
 				t.Errorf("function %q changed in the source module", want.Functions[i].Name)
 			}
 		}
-		t.Error("source module changed after ProcessOverrides on its clone")
+		t.Error("source module changed after a mutation of its clone")
 	}
 }
 
@@ -121,5 +120,45 @@ func BenchmarkModuleClone(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = module.Clone()
+	}
+}
+
+// mutateInDepth changes every part of m a pass may rebuild: global and
+// function arenas, statement handles in nested blocks, named expressions,
+// local initializers, overrides, constants and types.
+func mutateInDepth(m *ir.Module) {
+	ir.CompactConstants(m, ir.KeepUnusedNo)
+	m.Types = append(m.Types, ir.Type{Name: "added"})
+	for i := range m.GlobalExpressions {
+		m.GlobalExpressions[i].Kind = ir.Literal{Value: ir.LiteralU32(uint32(i))}
+	}
+	for i := range m.Overrides {
+		m.Overrides[i].Name += "_changed"
+	}
+	fns := make([]*ir.Function, 0, len(m.Functions)+len(m.EntryPoints))
+	for i := range m.Functions {
+		fns = append(fns, &m.Functions[i])
+	}
+	for i := range m.EntryPoints {
+		m.EntryPoints[i].Workgroup[0]++
+		fns = append(fns, &m.EntryPoints[i].Function)
+	}
+	for _, fn := range fns {
+		shift := make([]ir.ExpressionHandle, len(fn.Expressions))
+		for i := range shift {
+			shift[i] = ir.ExpressionHandle(i + 1)
+		}
+		ir.RemapStatementExpressionHandles(fn.Body, shift)
+		for i := range fn.Expressions {
+			fn.Expressions[i].Kind = ir.RemapExpressionHandles(fn.Expressions[i].Kind, shift)
+		}
+		for h := range fn.NamedExpressions {
+			fn.NamedExpressions[h] += "_changed"
+		}
+		for i := range fn.LocalVars {
+			if fn.LocalVars[i].Init != nil {
+				*fn.LocalVars[i].Init++
+			}
+		}
 	}
 }

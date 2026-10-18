@@ -137,7 +137,6 @@ const (
 	nameKeyExternalTexturePlane1
 	nameKeyExternalTexturePlane2
 	nameKeyExternalTextureParams
-	nameKeyOverride
 )
 
 // epFuncHandle returns a synthetic FunctionHandle for entry point index epIdx.
@@ -1740,17 +1739,6 @@ func (w *Writer) registerNames() error {
 		}
 		name := w.namer.call(baseName)
 		w.names[nameKey{kind: nameKeyConstant, handle1: uint32(handle)}] = name
-	}
-
-	// 6. Register override names.
-	// Overrides are written as MSL constants after process_overrides.
-	for handle, ov := range w.module.Overrides {
-		baseName := ov.Name
-		if baseName == "" {
-			baseName = fmt.Sprintf("override_%d", handle)
-		}
-		name := w.namer.call(baseName)
-		w.names[nameKey{kind: nameKeyOverride, handle1: uint32(handle)}] = name
 	}
 
 	return nil

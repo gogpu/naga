@@ -1529,26 +1529,6 @@ fn fs_main() -> @location(0) vec4<f32> {
 }
 
 // =============================================================================
-// Pipeline Constants Tests
-// =============================================================================
-
-func TestCompileWGSL_PipelineOverrides(t *testing.T) {
-	source := `
-override width: f32 = 640.0;
-
-@fragment
-fn fs_main(@location(0) x: f32) -> @location(0) vec4<f32> {
-    return vec4<f32>(x / width, 0.0, 0.0, 1.0);
-}
-`
-	output := wgslToGLSL(t, source, Options{
-		LangVersion:       Version330,
-		PipelineConstants: map[string]float64{"width": 1920.0},
-	})
-	glslMustContain(t, output, "void main()")
-}
-
-// =============================================================================
 // Nested If Tests
 // =============================================================================
 

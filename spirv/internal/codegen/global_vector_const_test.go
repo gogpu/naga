@@ -459,8 +459,8 @@ func TestGlobalInitMalformedVectorIsAnError(t *testing.T) {
 	}
 }
 
-// TestGlobalInitForwardOperand covers the arena ir.ProcessOverrides leaves:
-// an override's value appended after the expression that now refers to it.
+// TestGlobalInitForwardOperand covers an arena not in operand order (the old
+// ir.ProcessOverrides appended an override's value after its use).
 func TestGlobalInitForwardOperand(t *testing.T) {
 	mod := globalInitModule([]ir.Expression{
 		{Kind: ir.ExprConstant{Constant: 0}},

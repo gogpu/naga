@@ -24,8 +24,7 @@ struct Out { v: f32 };
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"A": 5.0, "B": 10.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 5.0, "B": 10.0})
 	// A=5.0, B=10.0 should appear as constants.
 	mustContainMSL(t, code, "5.0")
 	mustContainMSL(t, code, "10.0")
@@ -43,8 +42,7 @@ struct Out { v: i32 };
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"COUNT": 8}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"COUNT": 8})
 	mustContainMSL(t, code, "8")
 }
 
@@ -60,8 +58,7 @@ struct Out { v: u32 };
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"SIZE": 32}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"SIZE": 32})
 	mustContainMSL(t, code, "32u")
 }
 
@@ -75,8 +72,7 @@ struct Out { v: u32 };
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"ENABLED": 0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"ENABLED": 0})
 	// ENABLED=0 means false.
 	mustContainMSL(t, code, "false")
 }
@@ -174,8 +170,7 @@ struct Out { x: u32, y: u32 };
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"WIDTH": 16, "HEIGHT": 16}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"WIDTH": 16, "HEIGHT": 16})
 	mustContainMSL(t, code, "16u")
 }
 

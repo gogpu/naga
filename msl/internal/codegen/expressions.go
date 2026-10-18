@@ -171,12 +171,8 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		return nil
 
 	case ir.ExprOverride:
-		// Overrides are written as constants in MSL output.
-		// In Rust naga, process_overrides resolves these before the writer runs.
-		// We handle them directly by referencing the override's assigned name.
-		name := w.getName(nameKey{kind: nameKeyOverride, handle1: uint32(k.Override)})
-		w.write("%s", name)
-		return nil
+		// Rust Error::Override: naga.ProcessOverrides replaces them first.
+		return fmt.Errorf("msl: %w", ir.ErrUnresolvedOverride)
 
 	case ir.ExprZeroValue:
 		return w.writeZeroValue(k.Type)

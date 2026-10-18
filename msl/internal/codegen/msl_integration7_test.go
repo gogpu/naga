@@ -1,10 +1,7 @@
 package codegen
 
 import (
-	"math"
 	"testing"
-
-	"github.com/gogpu/naga/ir"
 )
 
 // =============================================================================
@@ -22,8 +19,7 @@ override LOD_BIAS: f32 = 0.0;
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"LOD_BIAS": 2.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"LOD_BIAS": 2.0})
 	mustContainMSL(t, code, ".sample(")
 	mustContainMSL(t, code, "level(")
 }
@@ -41,8 +37,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"X_COORD": 10, "Y_COORD": 20}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"X_COORD": 10, "Y_COORD": 20})
 	mustContainMSL(t, code, ".read(")
 }
 
@@ -64,8 +59,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"USE_RED": 0.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"USE_RED": 0.0})
 	mustContainMSL(t, code, "kernel")
 }
 
@@ -84,8 +78,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"SCALE": 2.5, "OFFSET": 0.1}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"SCALE": 2.5, "OFFSET": 0.1})
 	mustContainMSL(t, code, "2.5")
 	mustContainMSL(t, code, "0.1")
 	mustContainMSL(t, code, "clamp")
@@ -107,8 +100,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"FILL": 0.75}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"FILL": 0.75})
 	mustContainMSL(t, code, "0.75")
 }
 
@@ -125,8 +117,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"R": 0.2, "G": 0.4, "B": 0.6}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"R": 0.2, "G": 0.4, "B": 0.6})
 	mustContainMSL(t, code, "0.2")
 	mustContainMSL(t, code, "0.4")
 	mustContainMSL(t, code, "0.6")
@@ -148,8 +139,7 @@ override SCALE: f32 = 1.0;
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"SCALE": 2.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"SCALE": 2.0})
 	mustContainMSL(t, code, "dfdx")
 	mustContainMSL(t, code, "dfdy")
 }
@@ -172,8 +162,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"IDX": 3}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"IDX": 3})
 	mustContainMSL(t, code, "3u")
 }
 
@@ -195,8 +184,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"THRESHOLD": 0.8}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"THRESHOLD": 0.8})
 	mustContainMSL(t, code, "any")
 	mustContainMSL(t, code, "0.8")
 }
@@ -220,8 +208,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"MULTIPLIER": 3.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"MULTIPLIER": 3.0})
 	mustContainMSL(t, code, "3.0")
 }
 
@@ -532,170 +519,4 @@ struct FragInput {
 `
 	code := compileWGSL(t, src)
 	mustContainMSL(t, code, "stage_in")
-}
-
-// =============================================================================
-// Test: Pipeline constants evalBinaryOp coverage for div/sub/mul
-// =============================================================================
-
-func TestEvalBinaryOp(t *testing.T) {
-	tests := []struct {
-		name   string
-		op     ir.BinaryOperator
-		left   ir.LiteralValue
-		right  ir.LiteralValue
-		expect float64
-		isNil  bool
-	}{
-		{"add_f32", ir.BinaryAdd, ir.LiteralF32(1.0), ir.LiteralF32(2.0), 3.0, false},
-		{"sub_f32", ir.BinarySubtract, ir.LiteralF32(5.0), ir.LiteralF32(3.0), 2.0, false},
-		{"mul_f32", ir.BinaryMultiply, ir.LiteralF32(3.0), ir.LiteralF32(4.0), 12.0, false},
-		{"div_f32", ir.BinaryDivide, ir.LiteralF32(10.0), ir.LiteralF32(2.0), 5.0, false},
-		{"div_by_zero", ir.BinaryDivide, ir.LiteralF32(1.0), ir.LiteralF32(0.0), 0, true},
-		{"add_i32", ir.BinaryAdd, ir.LiteralI32(3), ir.LiteralI32(4), 7, false},
-		{"mul_u32", ir.BinaryMultiply, ir.LiteralU32(5), ir.LiteralU32(6), 30, false},
-		{"unsupported_op", ir.BinaryModulo, ir.LiteralF32(1.0), ir.LiteralF32(2.0), 0, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := evalBinaryOp(tt.op, tt.left, tt.right)
-			if tt.isNil {
-				if got != nil {
-					t.Errorf("expected nil, got %v", got)
-				}
-				return
-			}
-			if got == nil {
-				t.Fatal("expected non-nil")
-			}
-			// Verify approximate value
-			f, ok := literalToFloat64(got)
-			if !ok {
-				t.Fatalf("result not convertible to float64: %v", got)
-			}
-			if f != tt.expect {
-				t.Errorf("got %v, want %v", f, tt.expect)
-			}
-		})
-	}
-}
-
-// =============================================================================
-// Test: evalTypeConversion edge cases
-// =============================================================================
-
-func TestEvalTypeConversion(t *testing.T) {
-	tests := []struct {
-		name   string
-		lit    ir.LiteralValue
-		kind   ir.ScalarKind
-		width  uint8
-		isNil  bool
-		verify func(ir.LiteralValue) bool
-	}{
-		{"f32_to_u32", ir.LiteralF32(42.9), ir.ScalarUint, 4, false,
-			func(v ir.LiteralValue) bool { u, ok := v.(ir.LiteralU32); return ok && uint32(u) == 42 }},
-		{"bool_true_to_f32", ir.LiteralBool(true), ir.ScalarFloat, 4, false,
-			func(v ir.LiteralValue) bool { f, ok := v.(ir.LiteralF32); return ok && float32(f) == 1.0 }},
-		{"bool_false_to_i32", ir.LiteralBool(false), ir.ScalarSint, 4, false,
-			func(v ir.LiteralValue) bool { i, ok := v.(ir.LiteralI32); return ok && int32(i) == 0 }},
-		{"f64_to_i32", ir.LiteralF64(99.9), ir.ScalarSint, 4, false,
-			func(v ir.LiteralValue) bool { i, ok := v.(ir.LiteralI32); return ok && int32(i) == 99 }},
-		{"u32_to_f64", ir.LiteralU32(100), ir.ScalarFloat, 8, false,
-			func(v ir.LiteralValue) bool { f, ok := v.(ir.LiteralF64); return ok && float64(f) == 100.0 }},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := evalTypeConversion(tt.lit, tt.kind, tt.width)
-			if tt.isNil {
-				if got != nil {
-					t.Errorf("expected nil, got %v", got)
-				}
-				return
-			}
-			if got == nil {
-				t.Fatal("expected non-nil")
-			}
-			if !tt.verify(got) {
-				t.Errorf("unexpected result: %v (%T)", got, got)
-			}
-		})
-	}
-}
-
-// =============================================================================
-// Test: literalToFloat64 edge cases
-// =============================================================================
-
-func TestLiteralToFloat64(t *testing.T) {
-	tests := []struct {
-		name  string
-		lit   ir.LiteralValue
-		value float64
-		ok    bool
-	}{
-		{"f32", ir.LiteralF32(3.14), 3.14, true},
-		{"f64", ir.LiteralF64(2.71), 2.71, true},
-		{"i32", ir.LiteralI32(-5), -5, true},
-		{"i64", ir.LiteralI64(123456789), 123456789, true},
-		{"u32", ir.LiteralU32(42), 42, true},
-		{"u64", ir.LiteralU64(999), 999, true},
-		{"bool", ir.LiteralBool(true), 0, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := literalToFloat64(tt.lit)
-			if ok != tt.ok {
-				t.Errorf("ok = %v, want %v", ok, tt.ok)
-			}
-			if ok && tt.name == "f32" {
-				// float32 conversion loses precision
-				if float32(got) != float32(tt.value) {
-					t.Errorf("value = %v, want %v", got, tt.value)
-				}
-			} else if ok && got != tt.value {
-				t.Errorf("value = %v, want %v", got, tt.value)
-			}
-		})
-	}
-}
-
-// =============================================================================
-// Test: scalarValueToLiteral edge cases (NaN, Inf)
-// =============================================================================
-
-func TestScalarValueToLiteral_EdgeCases(t *testing.T) {
-	t.Run("nan_to_bool_false", func(t *testing.T) {
-		// NaN should convert to false for bool
-		got := scalarValueToLiteral(nan64(), ir.ScalarType{Kind: ir.ScalarBool, Width: 1})
-		if b, ok := got.(ir.LiteralBool); !ok || bool(b) {
-			t.Errorf("NaN -> bool should be false, got %v", got)
-		}
-	})
-	t.Run("inf_to_i32_nil", func(t *testing.T) {
-		got := scalarValueToLiteral(inf64(), ir.ScalarType{Kind: ir.ScalarSint, Width: 4})
-		if got != nil {
-			t.Errorf("Inf -> i32 should be nil, got %v", got)
-		}
-	})
-	t.Run("inf_to_u32_nil", func(t *testing.T) {
-		got := scalarValueToLiteral(inf64(), ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-		if got != nil {
-			t.Errorf("Inf -> u32 should be nil, got %v", got)
-		}
-	})
-	t.Run("negative_to_u32_nil", func(t *testing.T) {
-		got := scalarValueToLiteral(-1.0, ir.ScalarType{Kind: ir.ScalarUint, Width: 4})
-		if got != nil {
-			t.Errorf("-1.0 -> u32 should be nil, got %v", got)
-		}
-	})
-}
-
-func nan64() float64 {
-	return math.NaN()
-}
-
-func inf64() float64 {
-	return math.Inf(1)
 }

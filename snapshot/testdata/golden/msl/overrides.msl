@@ -18,14 +18,6 @@ constant float depth = 2.3;
 constant float height = 4.6;
 constant float inferred_f32_ = 2.718;
 constant uint auto_conversion = 0u;
-constant bool has_point_light_1 = true;
-constant float specular_param_1 = 2.3;
-constant float gain_1 = float {};
-constant float width_1 = 0.0;
-constant float depth_1 = float {};
-constant float height_1 = {};
-constant float inferred_f32_1 = 2.718;
-constant uint auto_conversion_1 = 0u;
 
 kernel void main_(
 ) {

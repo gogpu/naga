@@ -12,7 +12,7 @@ import (
 // =============================================================================
 
 func TestIntegration8_PipelineConstantsWithStore(t *testing.T) {
-	// Exercises adjustBlockHandles for StmtStore and ExprLoad
+	// Exercises the handle adjustment of naga.ProcessOverrides for StmtStore and ExprLoad
 	src := `
 override INIT: f32 = 0.0;
 struct Out { v: f32 };
@@ -25,13 +25,12 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"INIT": 100.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"INIT": 100.0})
 	mustContainMSL(t, code, "100.0")
 }
 
 func TestIntegration8_PipelineConstantsWithIf(t *testing.T) {
-	// Exercises adjustBlockHandles for StmtIf
+	// Exercises the handle adjustment of naga.ProcessOverrides for StmtIf
 	src := `
 override MODE: i32 = 0;
 struct Out { v: f32 };
@@ -46,13 +45,12 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"MODE": 1}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"MODE": 1})
 	mustContainMSL(t, code, "if (")
 }
 
 func TestIntegration8_PipelineConstantsWithLoop(t *testing.T) {
-	// Exercises adjustBlockHandles for StmtLoop
+	// Exercises the handle adjustment of naga.ProcessOverrides for StmtLoop
 	src := `
 override COUNT: u32 = 10u;
 struct Out { v: f32 };
@@ -70,13 +68,12 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"COUNT": 5}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"COUNT": 5})
 	mustContainMSL(t, code, "5u")
 }
 
 func TestIntegration8_PipelineConstantsWithSwitch(t *testing.T) {
-	// Exercises adjustBlockHandles for StmtSwitch
+	// Exercises the handle adjustment of naga.ProcessOverrides for StmtSwitch
 	src := `
 override SEL: i32 = 0;
 struct Out { v: f32 };
@@ -91,8 +88,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"SEL": 1}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"SEL": 1})
 	mustContainMSL(t, code, "switch")
 }
 
@@ -113,8 +109,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"A": 10, "B": 20, "C": 30, "D": 40}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 10, "B": 20, "C": 30, "D": 40})
 	mustContainMSL(t, code, "10.0")
 	mustContainMSL(t, code, "20.0")
 	mustContainMSL(t, code, "30.0")
@@ -133,8 +128,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"A": 7}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"A": 7})
 	mustContainMSL(t, code, "7.0")
 }
 
@@ -161,8 +155,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"FACTOR": 5.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"FACTOR": 5.0})
 	mustContainMSL(t, code, "apply_factor")
 	mustContainMSL(t, code, "5.0")
 }
@@ -182,8 +175,7 @@ override BIAS: f32 = 0.0;
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"BIAS": 1.5}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"BIAS": 1.5})
 	mustContainMSL(t, code, "bias(")
 	mustContainMSL(t, code, "1.5")
 }
@@ -204,8 +196,7 @@ override SCALE_Y: f32 = 1.0;
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"SCALE_X": 2.0, "SCALE_Y": 3.0}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"SCALE_X": 2.0, "SCALE_Y": 3.0})
 	mustContainMSL(t, code, "gradient2d")
 }
 
@@ -228,8 +219,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"INIT_VAL": 42}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"INIT_VAL": 42})
 	mustContainMSL(t, code, "atomic_fetch_add_explicit")
 	mustContainMSL(t, code, "42u")
 }
@@ -249,8 +239,7 @@ fn main() {
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"R": 0.5}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"R": 0.5})
 	mustContainMSL(t, code, ".write(")
 	mustContainMSL(t, code, "0.5")
 }
@@ -268,8 +257,7 @@ override RESULT: f32 = 0.0;
 }
 `
 	opts := DefaultOptions()
-	opts.PipelineConstants = map[string]float64{"RESULT": 0.99}
-	code := compileWGSLWithOpts(t, src, opts)
+	code := compileWGSLWithConstants(t, src, opts, map[string]float64{"RESULT": 0.99})
 	mustContainMSL(t, code, "0.99")
 }
 

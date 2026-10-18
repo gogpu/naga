@@ -17,8 +17,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/internal/testtools"
-	"github.com/gogpu/naga/ir"
 )
 
 // TestSpirvValBinary validates binary SPIR-V output from our naga compiler using spirv-val.
@@ -292,12 +292,9 @@ func compileWGSLToSPIRVBytes(name, source string) ([]byte, error) {
 
 	// Process pipeline overrides before SPIR-V compilation
 	// (Rust test driver calls process_overrides for all backends)
-	pipelineConstants := readSPVPipelineConstants(name)
-	if len(pipelineConstants) > 0 {
-		module = module.Clone()
-		if err := ir.ProcessOverrides(module, pipelineConstants); err != nil {
-			return nil, fmt.Errorf("ProcessOverrides failed: %w", err)
-		}
+	module, err = naga.ProcessOverrides(module, naga.OverrideOptions{Constants: readSPVPipelineConstants(name)})
+	if err != nil {
+		return nil, fmt.Errorf("ProcessOverrides failed: %w", err)
 	}
 
 	return generateSPIRVBinary(module)

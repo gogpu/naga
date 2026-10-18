@@ -83,57 +83,6 @@ type Override struct {
 	Init *ExpressionHandle
 }
 
-// OverrideInitExpr represents a simplified expression for override init re-evaluation.
-// Used during pipeline constant processing to re-evaluate derived overrides.
-type OverrideInitExpr interface {
-	overrideInitExpr()
-}
-
-// OverrideInitLiteral represents a literal float value.
-type OverrideInitLiteral struct {
-	Value float64
-}
-
-func (OverrideInitLiteral) overrideInitExpr() {}
-
-// OverrideInitRef represents a reference to another override.
-type OverrideInitRef struct {
-	Handle OverrideHandle
-}
-
-func (OverrideInitRef) overrideInitExpr() {}
-
-// OverrideInitBinary represents a binary operation on two override init expressions.
-type OverrideInitBinary struct {
-	Op    BinaryOperator
-	Left  OverrideInitExpr
-	Right OverrideInitExpr
-}
-
-func (OverrideInitBinary) overrideInitExpr() {}
-
-// OverrideInitUnary represents a unary operation on an override init expression.
-type OverrideInitUnary struct {
-	Op   UnaryOperator
-	Expr OverrideInitExpr
-}
-
-func (OverrideInitUnary) overrideInitExpr() {}
-
-// OverrideInitBoolLiteral represents a literal bool value for override init.
-type OverrideInitBoolLiteral struct {
-	Value bool
-}
-
-func (OverrideInitBoolLiteral) overrideInitExpr() {}
-
-// OverrideInitUintLiteral represents a literal uint value for override init.
-type OverrideInitUintLiteral struct {
-	Value uint32
-}
-
-func (OverrideInitUintLiteral) overrideInitExpr() {}
-
 // EntryPoint represents a shader entry point.
 // The Function is stored inline (not via FunctionHandle) because Rust naga
 // keeps entry-point functions separate from Module.functions[].
