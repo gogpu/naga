@@ -311,7 +311,7 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	// keep a constant alive; then constants with the global expressions only
 	// they use; then the types nothing refers to any more.
 	ir.CompactExpressions(l.module)
-	ir.CompactConstants(l.module)
+	ir.CompactConstants(l.module, ir.KeepUnusedYes)
 
 	// Compact types: remove anonymous types not referenced by any handle.
 	// This matches Rust naga's compact::compact(module, KeepUnused::Yes)

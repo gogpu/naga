@@ -533,7 +533,7 @@ func TestCompactTypes_IgnoresOutOfRangeConstantInit(t *testing.T) {
 
 func TestCompactConstants_EmptyModule(t *testing.T) {
 	module := &Module{}
-	CompactConstants(module) // should not panic
+	CompactConstants(module, KeepUnusedYes) // should not panic
 }
 
 func TestCompactConstants_RemovesAbstractConstants(t *testing.T) {
@@ -559,7 +559,7 @@ func TestCompactConstants_RemovesAbstractConstants(t *testing.T) {
 		},
 	}
 
-	CompactConstants(module)
+	CompactConstants(module, KeepUnusedYes)
 
 	// Only NAMED_CONCRETE should survive (named + not abstract + referenced)
 	if len(module.Constants) != 1 {
@@ -585,7 +585,7 @@ func TestCompactConstants_KeepsReferencedByGlobalVarInit(t *testing.T) {
 		},
 	}
 
-	CompactConstants(module)
+	CompactConstants(module, KeepUnusedYes)
 
 	if len(module.Constants) != 1 {
 		t.Fatalf("expected 1 constant (ref'd by global init), got %d", len(module.Constants))
@@ -614,7 +614,7 @@ func TestCompactConstants_TransitiveKeepComposite(t *testing.T) {
 		},
 	}
 
-	CompactConstants(module)
+	CompactConstants(module, KeepUnusedYes)
 
 	// Both should be kept: 1 is named+referenced, 0 is transitively needed by composite
 	if len(module.Constants) != 2 {
@@ -645,7 +645,7 @@ func TestCompactConstants_AllKept(t *testing.T) {
 		},
 	}
 
-	CompactConstants(module)
+	CompactConstants(module, KeepUnusedYes)
 
 	if len(module.Constants) != 2 {
 		t.Errorf("expected 2 constants (all kept), got %d", len(module.Constants))
@@ -671,7 +671,7 @@ func TestCompactConstants_RemovesGlobalExpressionsOfRemovedConstants(t *testing.
 		},
 	}
 
-	CompactConstants(module)
+	CompactConstants(module, KeepUnusedYes)
 
 	if len(module.Constants) != 1 || module.Constants[0].Name != "X" {
 		t.Fatalf("constants = %+v, want only X", module.Constants)
@@ -712,7 +712,7 @@ func TestCompactConstants_RemapsGlobalExpressionHandles(t *testing.T) {
 		GlobalVariables: []GlobalVariable{{Name: "g", Space: SpacePrivate, Type: 1, InitExpr: &gvInit}},
 	}
 
-	CompactConstants(module)
+	CompactConstants(module, KeepUnusedYes)
 
 	if len(module.GlobalExpressions) != 5 {
 		t.Fatalf("%d global expressions, want 5", len(module.GlobalExpressions))
@@ -750,7 +750,7 @@ func TestCompactConstants_KeepsConstantReferencedFromGlobalExpression(t *testing
 		GlobalVariables: []GlobalVariable{{Name: "g", Space: SpacePrivate, Type: 0, InitExpr: &gvInit}},
 	}
 
-	CompactConstants(module)
+	CompactConstants(module, KeepUnusedYes)
 
 	if len(module.Constants) != 1 {
 		t.Fatalf("%d constants, want the referenced unnamed one", len(module.Constants))
