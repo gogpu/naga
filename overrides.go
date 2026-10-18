@@ -45,12 +45,14 @@ type OverrideOptions struct {
 // as read-only. Handles in the result are not stable relative to module.
 //
 // A module produced by the WGSL frontend with no overrides (len(Overrides) ==
-// 0) never needs processing.
+// 0) has no override expressions, override workgroup sizes or
+// override-sized arrays and never needs processing.
 //
-// The result keeps the overrides arena, with each initializer evaluated, as
-// in Rust. With EntryPoint the selected entry point is EntryPoints[0]. Processing
-// a processed module again with other constants is not supported: process the
-// module from the frontend for every pipeline.
+// The result keeps the overrides arena, with each initializer evaluated, and
+// override-sized arrays stay pending (ir.ArraySize.Resolve sizes them;
+// backends do), as in Rust. With EntryPoint the selected entry point is
+// EntryPoints[0]. Processing a processed module again with other constants is
+// not supported: process the module from the frontend for every pipeline.
 //
 // Errors: a *PipelineConstantError for a constant (errors.Is with
 // ErrOverrideNotFound, ErrOverrideMissingValue, ErrOverrideValueNotFinite,

@@ -564,8 +564,16 @@ func checkNoOverrideExpressions(m *ir.Module) error {
 }
 
 // revalidate validates the processed module (Rust revalidate with all
-// capabilities).
+// capabilities): with overrides resolved, an array sized by an override must
+// have a positive size.
 func revalidate(m *ir.Module) error {
+	for i := range m.Types {
+		if at, ok := m.Types[i].Inner.(ir.ArrayType); ok && at.Size.Pending != nil {
+			if _, err := at.Size.Resolve(m); err != nil {
+				return fmt.Errorf("Override-sized array type [%d] does not have a positive size: %w", i, err)
+			}
+		}
+	}
 	errs, err := ir.Validate(m)
 	if err != nil {
 		return fmt.Errorf("pipeline constants: validating the processed module: %w", err)

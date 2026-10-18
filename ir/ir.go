@@ -229,9 +229,12 @@ type ArrayType struct {
 
 func (ArrayType) typeInner() {}
 
-// ArraySize represents array size.
+// ArraySize represents array size: a constant count, a count given by an
+// override (Rust ArraySize::Pending; only a workgroup array may have one), or
+// neither for a runtime-sized array.
 type ArraySize struct {
-	Constant *uint32 // nil for runtime-sized arrays
+	Constant *uint32         // element count
+	Pending  *OverrideHandle // count given by this override's value
 }
 
 // StructType represents struct types.

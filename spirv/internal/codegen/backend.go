@@ -310,6 +310,10 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
 		return nil, fmt.Errorf("spirv: %w", err)
 	}
+	module, err := ir.ResolvePendingArraySizes(module)
+	if err != nil {
+		return nil, fmt.Errorf("spirv: %w", err)
+	}
 	// Reset all per-compilation state (maps cleared, slices truncated).
 	b.Reset()
 	b.module = module

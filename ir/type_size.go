@@ -2,7 +2,9 @@ package ir
 
 // TypeSize returns the byte size of a type following WGSL/WebGPU alignment rules.
 // Matches Rust naga's TypeInner::try_size(gctx).
-// Returns 0 for opaque types (samplers, images, pointers) and runtime-sized arrays.
+// Returns 0 for opaque types (samplers, images, pointers) and for an array
+// whose size is given by an override not yet evaluated; a runtime-sized array
+// counts one element.
 func TypeSize(module *Module, handle TypeHandle) uint32 {
 	if int(handle) >= len(module.Types) {
 		return 0
@@ -25,13 +27,16 @@ func typeInnerSize(module *Module, inner TypeInner) uint32 {
 		colStride := colAlign * uint32(t.Scalar.Width)
 		return colStride * uint32(t.Columns)
 	case ArrayType:
-		var count uint32
-		if t.Size.Constant != nil {
-			count = *t.Size.Constant
-		} else {
-			count = 1 // dynamic arrays have at least 1 element
+		// Rust try_size: a runtime-sized array counts one element; a pending
+		// size counts its override's value, or 0 while it is not evaluated.
+		l, err := t.Size.Resolve(module)
+		switch {
+		case err != nil:
+			return 0
+		case l.Dynamic:
+			return t.Stride
 		}
-		return count * t.Stride
+		return l.Known * t.Stride
 	case StructType:
 		return t.Span
 	case PointerType, ValuePointerType:

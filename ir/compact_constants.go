@@ -126,6 +126,14 @@ func (t *constantTracer) markUsedByDefinition(keep KeepUnused) {
 		}
 		t.exprPtr(gv.InitExpr)
 	}
+	// An array sized by an override uses it. Every type counts here; Rust
+	// traces types and expressions in tandem, so an override an unused type
+	// keeps alive may stay where Rust removes it.
+	for i := range m.Types {
+		if at, ok := m.Types[i].Inner.(ArrayType); ok && at.Size.Pending != nil {
+			t.override(*at.Size.Pending)
+		}
+	}
 	if keep == KeepUnusedYes {
 		for i := range m.Overrides {
 			if m.Overrides[i].Name != "" {
@@ -295,6 +303,13 @@ func (t *constantTracer) apply() {
 			gv.Init = &r
 		}
 		gv.InitExpr = remapEPtr(gv.InitExpr)
+	}
+	for i := range m.Types {
+		if at, ok := m.Types[i].Inner.(ArrayType); ok && at.Size.Pending != nil {
+			o := remapO(*at.Size.Pending)
+			at.Size.Pending = &o
+			m.Types[i].Inner = at
+		}
 	}
 	newOverrides := make([]Override, 0, keptOverrides)
 	for i, o := range m.Overrides {

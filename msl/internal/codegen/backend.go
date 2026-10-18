@@ -373,6 +373,10 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("msl: %w", err)
 	}
+	module, err := ir.ResolvePendingArraySizes(module)
+	if err != nil {
+		return "", TranslationInfo{}, fmt.Errorf("msl: %w", err)
+	}
 
 	// Create writer
 	w := newWriter(module, &options, &pipeline)

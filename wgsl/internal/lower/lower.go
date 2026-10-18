@@ -4542,8 +4542,13 @@ func (l *Lowerer) resolveType(typ parser.Type) (ir.TypeHandle, error) {
 			n, err := l.constU32(t.Size)
 			switch {
 			case errors.Is(err, consteval.ErrOverrideInConst):
-				// Override-sized arrays (Rust PendingArraySize) are not
-				// represented yet; the size stays open.
+				// Rust ArraySize::Pending: the count is the override's
+				// value, known once pipeline constants are applied.
+				o, err := l.arraySizeOverride(t.Size)
+				if err != nil {
+					return 0, fmt.Errorf("array size: %w", err)
+				}
+				size.Pending = &o
 			case err != nil:
 				return 0, fmt.Errorf("array size: %w", err)
 			case n == 0:
@@ -5565,6 +5570,30 @@ func (l *Lowerer) extractWorkgroupSize(attrs []parser.Attribute) ([3]uint32, [3]
 // override context; it must be a concrete integer (Rust
 // workgroup_size_override).
 func (l *Lowerer) workgroupSizeOverride(e parser.Expr) (ir.ExpressionHandle, error) {
+	h, _, err := l.lowerOverrideInteger(e)
+	return h, err
+}
+
+// arraySizeOverride is the override that gives an override-expression array
+// size (Rust array_size_override): the override itself for a bare override,
+// otherwise a new override without name or id initialized with the
+// expression.
+func (l *Lowerer) arraySizeOverride(e parser.Expr) (ir.OverrideHandle, error) {
+	h, s, err := l.lowerOverrideInteger(e)
+	if err != nil {
+		return 0, err
+	}
+	if eo, ok := l.module.GlobalExpressions[h].Kind.(ir.ExprOverride); ok {
+		return eo.Override, nil
+	}
+	o := ir.OverrideHandle(len(l.module.Overrides))
+	l.module.Overrides = append(l.module.Overrides, ir.Override{Ty: l.registerType("", s), Init: &h})
+	return o, nil
+}
+
+// lowerOverrideInteger lowers e in the module's override context and
+// concretizes it; it must be a concrete integer scalar.
+func (l *Lowerer) lowerOverrideInteger(e parser.Expr) (ir.ExpressionHandle, ir.ScalarType, error) {
 	saved := l.enterModuleConstContext()
 	l.moduleEval.Behavior = consteval.BehaviorOverride
 	defer func() {
@@ -5573,15 +5602,16 @@ func (l *Lowerer) workgroupSizeOverride(e parser.Expr) (ir.ExpressionHandle, err
 	}()
 	h, err := l.lowerConstExpr(e, nil)
 	if err != nil {
-		return 0, err
+		return 0, ir.ScalarType{}, err
 	}
 	if h, err = l.concretize(h); err != nil {
-		return 0, err
+		return 0, ir.ScalarType{}, err
 	}
-	if s, ok := l.exprInner(h).(ir.ScalarType); !ok || (s.Kind != ir.ScalarSint && s.Kind != ir.ScalarUint) {
-		return 0, errors.New("must be a const-expression that resolves to a concrete integer scalar (`u32` or `i32`)")
+	s, ok := l.exprInner(h).(ir.ScalarType)
+	if !ok || (s.Kind != ir.ScalarSint && s.Kind != ir.ScalarUint) {
+		return 0, ir.ScalarType{}, errors.New("must be a const-expression that resolves to a concrete integer scalar (`u32` or `i32`)")
 	}
-	return h, nil
+	return h, s, nil
 }
 
 // extractTaskPayload extracts the task payload global variable from @payload(varName) attribute.
