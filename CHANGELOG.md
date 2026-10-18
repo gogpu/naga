@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **DXIL: a local `var` with an initializer that changes in a loop started
+  from uninitialized memory** — the emitter allocated the variable but never
+  stored its initializer. A loop counter `for (var j = 0u; j < 4u; j++)` read
+  garbage, so on the GPU the loop body did not run and its writes were lost;
+  the same applied to vectors, arrays and structs initialized and then
+  changed in a loop (for example the light loop of the `shadow` shader).
+  IDxcValidator accepted these modules. The initializer is now stored right
+  after the variable's `alloca`, as DXC does (Mesa lowers such initializers
+  to stores at the top of the function). Found by a GPU readback test on
+  Intel and NVIDIA through the D3D12 DXIL path.
+
 ## [0.20.2] - 2026-10-18
 
 ### Fixed

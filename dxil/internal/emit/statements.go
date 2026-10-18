@@ -97,6 +97,46 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 			return fmt.Errorf("local var %d (%s): %w", i, fn.LocalVars[i].Name, err)
 		}
 	}
+	return e.storeLocalInitializers(fn)
+}
+
+// storeLocalInitializers stores the initializer of every local that got an
+// alloca, in the entry block after the allocas, so that the first read sees
+// it. Without it a local whose value changes in a loop (mem2reg leaves its
+// alloca) started from uninitialized memory: a `for (var j = 0u; ...)` loop
+// counter read garbage and the loop body did not run on the GPU, while
+// IDxcValidator accepted the module. Mesa lowers function temporaries'
+// initializers to stores at the top of the function
+// (nir_lower_variable_initializers); DXC stores them after the alloca.
+func (e *Emitter) storeLocalInitializers(fn *ir.Function) error {
+	lvHandle := make(map[uint32]ir.ExpressionHandle, len(fn.LocalVars))
+	for h := range fn.Expressions {
+		if lv, ok := fn.Expressions[h].Kind.(ir.ExprLocalVariable); ok {
+			if _, seen := lvHandle[lv.Variable]; !seen {
+				lvHandle[lv.Variable] = ir.ExpressionHandle(h)
+			}
+		}
+	}
+	for i := range fn.LocalVars {
+		v := uint32(i)
+		init := fn.LocalVars[i].Init
+		if init == nil {
+			continue
+		}
+		if _, hasAlloca := e.localVarPtrs[v]; !hasAlloca {
+			continue // resolved without memory (init-only, single-store, ...)
+		}
+		if _, isTable := e.localConstVecArrays[v]; isTable {
+			continue
+		}
+		ptr, ok := lvHandle[v]
+		if !ok {
+			continue
+		}
+		if err := e.emitStmtStore(fn, ir.StmtStore{Pointer: ptr, Value: *init}); err != nil {
+			return fmt.Errorf("local var %d (%s) initializer: %w", i, fn.LocalVars[i].Name, err)
+		}
+	}
 	return nil
 }
 
