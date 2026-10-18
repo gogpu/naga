@@ -199,7 +199,11 @@ type Options struct {
 	LangVersion Version
 
 	// PerEntryPointMap maps entry point names to their resource bindings.
-	// If nil, bindings are auto-generated.
+	// If nil, bindings are auto-generated: the module's resource globals,
+	// sorted by (group, binding), get consecutive buffer, texture and sampler
+	// slots. These slots depend on which globals the module has, so
+	// naga.ProcessOverrides with an EntryPoint, which removes unused globals,
+	// can move them. Pass a map for stable slots (Rust naga requires one).
 	PerEntryPointMap map[string]EntryPointResources
 
 	// InlineSamplers defines constexpr samplers to be inlined into the code.
