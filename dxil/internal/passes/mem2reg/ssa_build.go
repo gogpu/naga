@@ -97,7 +97,36 @@ func selectStructuredCandidates(ctx *promotionContext) map[uint32]struct{} {
 		}
 		out[uint32(v)] = struct{}{}
 	}
+	// A variable stored inside a loop keeps its alloca (no loop-header
+	// phis yet, see handleLoop). Decide that before the walk: the walk
+	// drops each candidate's stores as it goes, so a store before the
+	// loop (`var j = i;` lowers to one) was already gone when the loop
+	// disqualified the variable, and the loop then read an
+	// uninitialized alloca.
+	dropLoopStoredCandidates(&ctx.localPtrs, out, ctx.fn.Body)
 	return out
+}
+
+// dropLoopStoredCandidates removes from candidates every variable stored
+// inside any loop of block, at any depth.
+func dropLoopStoredCandidates(ptrs *localPtr, candidates map[uint32]struct{}, block []ir.Statement) {
+	for i := range block {
+		switch sk := block[i].Kind.(type) {
+		case ir.StmtLoop:
+			for v := range collectLoopStores(ptrs, candidates, sk) {
+				delete(candidates, v)
+			}
+		case ir.StmtBlock:
+			dropLoopStoredCandidates(ptrs, candidates, sk.Block)
+		case ir.StmtIf:
+			dropLoopStoredCandidates(ptrs, candidates, sk.Accept)
+			dropLoopStoredCandidates(ptrs, candidates, sk.Reject)
+		case ir.StmtSwitch:
+			for ci := range sk.Cases {
+				dropLoopStoredCandidates(ptrs, candidates, sk.Cases[ci].Body)
+			}
+		}
+	}
 }
 
 // isBoolLocal reports whether the local variable's declared type is a

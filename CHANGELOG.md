@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after the variable's `alloca`, as DXC does (Mesa lowers such initializers
   to stores at the top of the function). Found by a GPU readback test on
   Intel and NVIDIA through the D3D12 DXIL path.
+- **DXIL: a loop variable initialized from a run-time value lost its
+  initial value** — `for (var j = i; j < n; j++)` (the lowerer stores `i`
+  before the loop): the DXIL mem2reg pass removed that store, only then
+  found the variable stored inside the loop and left it in memory, so the
+  loop read an uninitialized counter (also the corpus `collatz` shader).
+  Variables stored inside a loop are now excluded before the pass starts
+  rewriting.
 
 ## [0.20.2] - 2026-10-18
 
