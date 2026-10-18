@@ -1,39 +1,64 @@
 package ir
 
-// CompactConstants removes the constants and global expressions nothing uses
-// and renumbers the handles of what is left, as Rust naga's
-// compact(KeepUnused::Yes) does for Module.constants and
+// KeepUnused selects whether compaction keeps named overrides nothing uses,
+// as Rust naga's compact::KeepUnused.
+type KeepUnused bool
+
+const (
+	// KeepUnusedNo removes every override nothing uses (Rust KeepUnused::No),
+	// as pipeline-constant processing needs: an override no entry point uses
+	// needs no value.
+	KeepUnusedNo KeepUnused = false
+	// KeepUnusedYes keeps every named override (Rust KeepUnused::Yes), as
+	// after lowering.
+	KeepUnusedYes KeepUnused = true
+)
+
+// CompactConstants removes the constants, overrides and global expressions
+// nothing uses and renumbers the handles of what is left, as Rust naga's
+// compact does for Module.constants, Module.overrides and
 // Module.global_expressions.
 //
 // Used by definition: every named constant whose type is not abstract (Rust
-// keeps abstract-typed constants away from the validator), the initializers
-// of overrides and global variables, and the mesh-shader override
-// expressions. Used through them: constants referred to by function
-// expressions, by global variable initializers or by used global
-// expressions, the initializers of used constants, and the operands of used
-// global expressions.
+// keeps abstract-typed constants away from the validator), every named
+// override when keep is KeepUnusedYes, the initializers of global variables,
+// and the mesh-shader override expressions. Used through them: constants and
+// overrides referred to by function expressions, by global variable
+// initializers or by used global expressions, the initializers of used
+// constants and overrides, and the operands of used global expressions. An
+// override without a name is never used by definition.
 //
 // Run it after CompactExpressions, so that a dead function expression does
-// not keep a constant alive.
-func CompactConstants(module *Module) {
-	nc, ng := len(module.Constants), len(module.GlobalExpressions)
-	if nc == 0 && ng == 0 {
+// not keep a constant or an override alive.
+func CompactConstants(module *Module, keep KeepUnused) {
+	nc, ng, no := len(module.Constants), len(module.GlobalExpressions), len(module.Overrides)
+	if nc == 0 && ng == 0 && no == 0 {
 		return
 	}
 	t := constantTracer{
-		module: module,
-		consts: make([]bool, nc),
-		exprs:  make([]bool, ng),
+		module:    module,
+		consts:    make([]bool, nc),
+		exprs:     make([]bool, ng),
+		overrides: make([]bool, no),
 	}
-	t.markUsedByDefinition()
+	t.markUsedByDefinition(keep)
 	t.traceToFixpoint()
 	t.apply()
 }
 
 type constantTracer struct {
-	module *Module
-	consts []bool // constants used
-	exprs  []bool // global expressions used
+	module    *Module
+	consts    []bool // constants used
+	exprs     []bool // global expressions used
+	overrides []bool // overrides used
+}
+
+func (t *constantTracer) override(o OverrideHandle) {
+	if int(o) >= len(t.overrides) || t.overrides[o] {
+		return
+	}
+	t.overrides[o] = true
+	t.exprPtr(t.module.Overrides[o].Init)
 }
 
 func (t *constantTracer) constant(c ConstantHandle) {
@@ -57,7 +82,7 @@ func (t *constantTracer) exprPtr(h *ExpressionHandle) {
 	}
 }
 
-func (t *constantTracer) markUsedByDefinition() {
+func (t *constantTracer) markUsedByDefinition(keep KeepUnused) {
 	m := t.module
 	for i := range m.Constants {
 		c := &m.Constants[i]
@@ -71,8 +96,11 @@ func (t *constantTracer) markUsedByDefinition() {
 	}
 	functionRefs := func(f *Function) {
 		for _, e := range f.Expressions {
-			if ec, ok := e.Kind.(ExprConstant); ok {
-				t.constant(ec.Constant)
+			switch k := e.Kind.(type) {
+			case ExprConstant:
+				t.constant(k.Constant)
+			case ExprOverride:
+				t.override(k.Override)
 			}
 		}
 	}
@@ -94,8 +122,12 @@ func (t *constantTracer) markUsedByDefinition() {
 		}
 		t.exprPtr(gv.InitExpr)
 	}
-	for i := range m.Overrides {
-		t.exprPtr(m.Overrides[i].Init)
+	if keep == KeepUnusedYes {
+		for i := range m.Overrides {
+			if m.Overrides[i].Name != "" {
+				t.override(OverrideHandle(i))
+			}
+		}
 	}
 }
 
@@ -111,12 +143,14 @@ func (t *constantTracer) traceToFixpoint() {
 			if !t.exprs[i] {
 				continue
 			}
-			kind := m.GlobalExpressions[i].Kind
-			if ec, ok := kind.(ExprConstant); ok {
-				t.constant(ec.Constant)
-				continue
+			switch k := m.GlobalExpressions[i].Kind.(type) {
+			case ExprConstant:
+				t.constant(k.Constant)
+			case ExprOverride:
+				t.override(k.Override)
+			default:
+				markExprHandleRefs(k, t.exprs)
 			}
-			markExprHandleRefs(kind, t.exprs)
 		}
 		for i := range m.Constants {
 			if !t.consts[i] {
@@ -146,6 +180,11 @@ func (t *constantTracer) count() int {
 			n++
 		}
 	}
+	for _, u := range t.overrides {
+		if u {
+			n++
+		}
+	}
 	return n
 }
 
@@ -153,8 +192,15 @@ func (t *constantTracer) apply() {
 	m := t.module
 	constRemap, keptConsts := buildRemap(t.consts)
 	exprRemap, keptExprs := buildRemap(t.exprs)
-	if keptConsts == len(t.consts) && keptExprs == len(t.exprs) {
+	overrideRemap, keptOverrides := buildRemap(t.overrides)
+	if keptConsts == len(t.consts) && keptExprs == len(t.exprs) && keptOverrides == len(t.overrides) {
 		return
+	}
+	remapO := func(o OverrideHandle) OverrideHandle {
+		if int(o) < len(overrideRemap) {
+			return OverrideHandle(overrideRemap[o])
+		}
+		return o
 	}
 	remapC := func(c ConstantHandle) ConstantHandle {
 		if int(c) < len(constRemap) {
@@ -185,9 +231,12 @@ func (t *constantTracer) apply() {
 		if !t.exprs[i] {
 			continue
 		}
-		if ec, ok := e.Kind.(ExprConstant); ok {
-			e.Kind = ExprConstant{Constant: remapC(ec.Constant)}
-		} else {
+		switch k := e.Kind.(type) {
+		case ExprConstant:
+			e.Kind = ExprConstant{Constant: remapC(k.Constant)}
+		case ExprOverride:
+			e.Kind = ExprOverride{Override: remapO(k.Override)}
+		default:
 			e.Kind = remapExprHandles(e.Kind, exprTable)
 		}
 		newExprs = append(newExprs, e)
@@ -213,8 +262,11 @@ func (t *constantTracer) apply() {
 
 	functionRefs := func(f *Function) {
 		for i := range f.Expressions {
-			if ec, ok := f.Expressions[i].Kind.(ExprConstant); ok {
-				f.Expressions[i].Kind = ExprConstant{Constant: remapC(ec.Constant)}
+			switch k := f.Expressions[i].Kind.(type) {
+			case ExprConstant:
+				f.Expressions[i].Kind = ExprConstant{Constant: remapC(k.Constant)}
+			case ExprOverride:
+				f.Expressions[i].Kind = ExprOverride{Override: remapO(k.Override)}
 			}
 		}
 	}
@@ -237,9 +289,15 @@ func (t *constantTracer) apply() {
 		}
 		gv.InitExpr = remapEPtr(gv.InitExpr)
 	}
-	for i := range m.Overrides {
-		m.Overrides[i].Init = remapEPtr(m.Overrides[i].Init)
+	newOverrides := make([]Override, 0, keptOverrides)
+	for i, o := range m.Overrides {
+		if !t.overrides[i] {
+			continue
+		}
+		o.Init = remapEPtr(o.Init)
+		newOverrides = append(newOverrides, o)
 	}
+	m.Overrides = newOverrides
 }
 
 // buildRemap maps each kept index to its new index; removed indices map to
