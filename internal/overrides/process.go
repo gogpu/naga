@@ -399,6 +399,12 @@ func (p *processor) newConstant(o int, name string, init ir.ExpressionHandle) ir
 // function rebuilds fn's expression arena, replacing override expressions by
 // their constants and evaluating every expression whose operands became
 // constant (Rust process_function 420-484).
+//
+// A let binding stays a run-time expression, as the front end marks it (WGSL:
+// an expression that refers to a let is not a const- or override-expression).
+// Rust starts from a fresh ExpressionKindTracker here and loses that mark, so
+// it evaluates, for example, sqrt of a negative let and rejects a valid shader
+// (gfx-rs/wgpu#10646, #9002).
 func (p *processor) function(fn *ir.Function) error {
 	old := fn.Expressions
 	fn.Expressions = make([]ir.Expression, 0, len(old))
@@ -419,6 +425,11 @@ func (p *processor) function(fn *ir.Function) error {
 			return fmt.Errorf("function %q, expression %d: %w", fn.Name, i, err)
 		}
 		adjusted[i] = h
+		if _, named := fn.NamedExpressions[ir.ExpressionHandle(i)]; named {
+			// let bindings (and arguments and phony assignments, which
+			// are run-time anyway): the front end's force_non_const.
+			ev.ForceRuntime(h)
+		}
 	}
 
 	ir.RemapStatementExpressionHandles(fn.Body, adjusted)
