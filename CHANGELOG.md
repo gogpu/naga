@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loop read an uninitialized counter (also the corpus `collatz` shader).
   Variables stored inside a loop are now excluded before the pass starts
   rewriting.
+- **DXIL: `v[i]` on a local vector with a run-time index used component 0**
+  — a local vector is held as one variable per component, and a dynamic
+  index fell back to the first one: `v[i] = v[i] + 1u` in a loop over `i`
+  read and wrote `v.x` only. Loads now select over the components and
+  stores update each component with a select on the index, as Mesa lowers
+  indirect accesses.
 
 ## [0.20.2] - 2026-10-18
 

@@ -25,6 +25,15 @@ func TestLocalInitializerStoredBeforeUse(t *testing.T) {
     for (var j = 0u; j < 4u; j++) {
         result[j] = j + 1u;
     }`,
+		// The counter is initialized from a run-time value, so the
+		// lowerer emits a store before the loop instead of an Init.
+		// mem2reg's structured pass dropped that store and only then
+		// found the counter stored in the loop and gave up on it.
+		"run-time initializer": `
+    let i = result[7];
+    for (var j = i; j < 4u; j++) {
+        result[j] = j + 1u;
+    }`,
 		"vector": `
     var v = vec2<u32>(3u, 4u);
     for (var i = 0u; i < 2u; i++) {
@@ -129,4 +138,58 @@ func firstAccessToAllocas(fn *module.Function) map[int]module.InstrKind {
 		}
 	}
 	return first
+}
+
+// TestLocalVectorDynamicIndex: a local vector is lowered to one alloca per
+// component, so `v[i]` with a run-time i must reach every component. emitAccess
+// fell back to the first component's alloca: `v[i] = v[i] + 1u` in a loop over
+// i read and wrote v.x only (on the GPU v = (12, 20) instead of (11, 21)).
+// Mesa lowers such indirect accesses to a select over the components
+// (nir_lower_indirect_derefs).
+func TestLocalVectorDynamicIndex(t *testing.T) {
+	fn := emitMain(t, `
+@group(0) @binding(0) var<storage, read_write> result: array<u32>;
+@compute @workgroup_size(1)
+fn main() {
+    var v = vec3<u32>(10u, 20u, 30u);
+    for (var i = 0u; i < 3u; i++) {
+        v[i] = v[i] + 1u;
+    }
+    result[0] = v.x;
+    result[1] = v.y;
+    result[2] = v.z;
+}
+`)
+	allocas := map[int]bool{}
+	storedInLoop := map[int]bool{}
+	loadedInLoop := map[int]bool{}
+	for bi, bb := range fn.BasicBlocks {
+		for _, in := range bb.Instructions {
+			switch in.Kind {
+			case module.InstrAlloca:
+				allocas[in.ValueID] = true
+			case module.InstrStore:
+				if bi > 0 && allocas[in.Operands[0]] {
+					storedInLoop[in.Operands[0]] = true
+				}
+			case module.InstrLoad:
+				if bi > 0 && allocas[in.Operands[0]] {
+					loadedInLoop[in.Operands[0]] = true
+				}
+			}
+		}
+	}
+	// Four allocas: v.x, v.y, v.z and the counter i. Every one of them is
+	// read and written after the entry block.
+	if len(allocas) != 4 {
+		t.Fatalf("allocas = %d, want 4 (3 vector components + counter)", len(allocas))
+	}
+	for a := range allocas {
+		if !storedInLoop[a] {
+			t.Errorf("alloca %%%d is never stored after the entry block; v[i] must reach every component", a)
+		}
+		if !loadedInLoop[a] {
+			t.Errorf("alloca %%%d is never loaded after the entry block", a)
+		}
+	}
 }

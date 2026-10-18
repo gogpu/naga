@@ -1968,6 +1968,10 @@ func (e *Emitter) tryStructMemberComponentStore(fn *ir.Function, store ir.StmtSt
 // since DXIL forbids aggregate store instructions (validator 0x80aa0009).
 // Mesa's NIR pre-pass does the equivalent flattening.
 func (e *Emitter) tryEmitLocalVariableStore(fn *ir.Function, store ir.StmtStore) (bool, error) {
+	// v[i] = value on a local vector held as per-component allocas.
+	if handled, err := e.tryStoreLocalVectorDynamic(fn, store); handled || err != nil {
+		return handled, err
+	}
 	lv, ok := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable)
 	if !ok {
 		return false, nil
