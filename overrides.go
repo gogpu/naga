@@ -46,7 +46,13 @@ type OverrideOptions struct {
 //
 // A module produced by the WGSL frontend with no overrides (len(Overrides) ==
 // 0) has no override expressions, override workgroup sizes or
-// override-sized arrays and never needs processing.
+// override-sized arrays and needs no processing, but call ProcessOverrides
+// anyway when Constants is not empty: a key that names no override is an
+// error (ErrOverrideNotFound).
+//
+// With EntryPoint, globals the entry point does not use are removed. A
+// backend that numbers resources by their position in the module (MSL
+// without msl.Options.PerEntryPointMap) can then give them other slots.
 //
 // The result keeps the overrides arena, with each initializer evaluated, and
 // override-sized arrays stay pending (ir.ArraySize.Resolve sizes them;
