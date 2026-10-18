@@ -297,10 +297,10 @@ StmtCall             — Function call as statement (no return value used)
 
 ## SPIR-V Backend
 
-**Files:** `spirv/backend.go`, `spirv/writer.go`, `spirv/block.go`, `spirv/ray_query.go`
+**Files:** `spirv/internal/codegen/backend.go`, `spirv/internal/codegen/writer.go`, `spirv/internal/codegen/block.go`, `spirv/internal/codegen/ray_query.go`
 
-The SPIR-V backend produces binary bytecode for Vulkan (**87/87 exact Rust naga parity,
-164/164 pass spirv-val binary validation**). It uses a **Block Ownership Model** (matching
+The SPIR-V backend produces binary bytecode for Vulkan (194 of 200 snapshot shaders
+pass spirv-val; see Testing Strategy). It uses a **Block Ownership Model** (matching
 Rust naga) where each basic block is a first-class `Block` struct consumed by
 `FunctionBuilder`. This prevents instruction interleaving bugs and provides structural
 guarantees for control flow correctness.
@@ -353,7 +353,7 @@ Sections (strict ordering per spec):
 - **Matrix Add/Sub:** Column-wise decomposition (SPIR-V FAdd/FSub don't support matrix types)
 - **Integer Vec×Scalar:** Scalar splatting before OpIMul (SPIR-V requires matching types)
 - **Mesh Shaders:** MeshEXT/TaskEXT execution models with SPV_EXT_mesh_shader extension
-- **Pipeline Overrides:** OpSpecConstant/OpSpecConstantComposite with SpecId decoration
+- **Pipeline Overrides:** resolved before the backend by `naga.ProcessOverrides`, as in Rust naga; a module that still uses overrides is rejected with `ir.ErrUnresolvedOverride`
 - **Image Atomics:** OpImageTexelPointer + standard atomic ops on texel pointers
 - **Pack/Unpack 4×8-bit:** Shift+mask polyfill for pack4xI8/U8 and unpack4xI8/U8
 
@@ -376,7 +376,7 @@ type Backend struct {
 // 5. writeEntryPoints()— Entry point wrappers with I/O structs
 ```
 
-### MSL (Metal) — 91/91 Rust parity
+### MSL (Metal)
 
 - Entry point qualifiers: `vertex`, `fragment`, `kernel`
 - Buffer bindings: `[[buffer(N)]]`, `[[texture(N)]]`, `[[sampler(N)]]`
@@ -384,9 +384,9 @@ type Backend struct {
 - Bounds check policies: Unchecked, ReadZeroSkipWrite, Restrict
 - Vertex pulling transform with buffer size structs
 - External texture support (multi-plane YUV sampling)
-- Override pipeline constants (`[[function_constant(N)]]`)
+- Overrides arrive resolved by `naga.ProcessOverrides` (the backend rejects a module that still uses them)
 
-### GLSL (OpenGL) — 68/68 Rust parity
+### GLSL (OpenGL)
 
 - Version targeting: `#version 330`, `#version 430`, `#version 300 es` (any GL 3.3–4.6, ES 3.0–3.2)
 - Attribute binding: `layout(location=N) in/out`
@@ -402,7 +402,7 @@ type Backend struct {
 - Overrides arrive resolved by `naga.ProcessOverrides` (the backend rejects a module that still uses them)
 - Image bounds checking
 
-### HLSL (DirectX) — 72/72 Rust parity
+### HLSL (DirectX)
 
 - Shader model: SM 5.0 (DX11), SM 6.0+ (DX12)
 - Semantics: `SV_Position`, `SV_DispatchThreadID`, `SV_Target0`
@@ -436,9 +436,8 @@ and eliminates redundant type definitions across all backends.
 
 | Category | Count | Approach |
 |----------|-------|----------|
-| **Snapshot Tests** | 164 | WGSL → 4 backends, 994+ golden output files |
-| **SPIR-V Validation** | 164/164 | All shaders pass spirv-val binary validation (100%) |
-| **Rust Reference** | 5-layer 100% | IR 144/144, SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 72/72 |
+| **SPIR-V Validation** | 194/200 | spirv-val on every snapshot shader; the 6 others do not compile yet (cooperative matrix, debugPrintf, i16, a mesh shader, ray-tracing pipelines) |
+| **Rust Reference** | 0 unexplained diffs | Exact output match with Rust naga: SPIR-V 89, MSL 51, GLSL 89, HLSL 52 shaders; every other difference is recorded with its reason |
 | **SPIR-V Unit Tests** | 200+ | Shader, loop, if/else, vello, block model, ray query |
 | **Backend Tests** | 50+ | GLSL, HLSL, MSL per-feature golden tests |
 | **Reachability Tests** | 11 | GLSL dead code elimination |
@@ -459,8 +458,10 @@ suite (vendored from gfx-rs/wgpu 14328f49, see UPSTREAM) are included as snapsho
 | Ray tracing | ray-query (4 variants), acceleration structures |
 | Advanced | overrides, binding-arrays, bounds-check (7 variants), mesh-shader (4 variants) |
 
-All 164 shaders compile to SPIR-V and pass spirv-val binary validation (100%).
-Golden output parity with Rust naga: SPIR-V 87/87, MSL 91/91, GLSL 68/68, HLSL 72/72.
+`TestRustReference` compares our output with Rust's reference output for each
+shader and backend: SPIR-V 89 exact matches and 37 recorded deviations, MSL 51
+and 59, GLSL 89 and 14, HLSL 52 and 36. A difference that is not recorded fails
+the test.
 
 ## Key Design Decisions
 

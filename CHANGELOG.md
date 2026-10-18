@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-10-18
+
 Pipeline-overridable constants now go through one pass, a port of Rust naga's
 `back::pipeline_constants::process_overrides` on the shared constant evaluator
 of v0.20.0 (#93). Callers run it before a backend, as wgpu-hal does in Rust.
+This completes v0.20.0, which moved constant evaluation to the shared
+evaluator but left pipeline constants on the old float64 folding. The fix
+replaces the old override API; see Migration.
 
 ### Migration
 
@@ -80,6 +85,10 @@ of v0.20.0 (#93). Callers run it before a backend, as wgpu-hal does in Rust.
   expression kind: ir.ExprOverride"; overrides take their defaults.
 - **MSL printed every override twice** — as `<name>` and `<name>_1`, several
   `_1` copies with zero values.
+- **docs/ARCHITECTURE.md** no longer claims that the SPIR-V and MSL backends
+  emit overrides as specialization or function constants (they never did),
+  and states the measured Rust reference and spirv-val figures instead of the
+  old "100% parity" ones; SPIR-V file paths updated.
 
 ### Removed
 
@@ -2433,7 +2442,8 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.20.1...HEAD
+[0.20.1]: https://github.com/gogpu/naga/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/gogpu/naga/compare/v0.19.1...v0.20.0
 [0.19.1]: https://github.com/gogpu/naga/compare/v0.19.0...v0.19.1
 [0.15.0]: https://github.com/gogpu/naga/compare/v0.14.8...v0.15.0
