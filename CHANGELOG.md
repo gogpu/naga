@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`naga.ProcessOverrides` rejected valid shaders that pass an override
+  through a `let`** — with `override k: f32 = -1.0;`,
+  `let a = min(k, 0.0); o[0] = sqrt(a);` failed with "sqrt built-in function
+  argument is out of valid range" (also `log`, and integer division by a
+  `let` that is 0). An expression that refers to a `let` is a run-time
+  expression in WGSL, so it is no longer evaluated after the override is
+  substituted: `sqrt(-1.0)` is written for the GPU, which yields NaN, as
+  without the override. Errors in override-expressions themselves
+  (`sqrt(min(k, 0.0))` without a `let`) are still reported. Rust naga 30
+  rejects these shaders (gfx-rs/wgpu#10646, #9002).
+
 ## [0.20.1] - 2026-10-18
 
 Pipeline-overridable constants now go through one pass, a port of Rust naga's
