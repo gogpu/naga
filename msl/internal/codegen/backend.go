@@ -230,13 +230,6 @@ type Options struct {
 	// that are referenced but not in the PerEntryPointMap.
 	FakeMissingBindings bool
 
-	// PipelineConstants specifies values for pipeline-overridable constants.
-	// Keys are either the numeric @id as a decimal string (e.g., "0", "1300")
-	// or the override's identifier name (e.g., "depth", "width").
-	// Values are f64 representations that get converted to the override's type.
-	// Matches Rust naga's PipelineConstants type.
-	PipelineConstants map[string]float64
-
 	// AllowAndForcePointSize forces point size output for vertex shaders.
 	// When true, vertex output structs get an extra _point_size [[point_size]]
 	// member, and the entry point return initializer includes 1.0.
@@ -376,9 +369,9 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 		options.LangVersion = Version2_1
 	}
 
-	// Apply pipeline constants to override values if any are specified.
-	if len(options.PipelineConstants) > 0 && len(module.Overrides) > 0 {
-		module = applyPipelineConstants(module, options.PipelineConstants)
+	// Overrides must have been replaced by naga.ProcessOverrides.
+	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
+		return "", TranslationInfo{}, fmt.Errorf("msl: %w", err)
 	}
 
 	// Create writer

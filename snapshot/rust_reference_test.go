@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
 	"github.com/gogpu/naga/internal/testtools"
@@ -186,8 +187,7 @@ func compareWithRust(t *testing.T, shader shaderFile, o rustOutput, refPath stri
 
 // prepareForBackend mirrors Rust's driver (naga/tests/naga/snapshots.rs),
 // where every backend first runs process_overrides with the shader's
-// pipeline_constants. Our counterpart is ir.ProcessOverrides; where it still
-// differs from Rust, rustDeviations records the effect (BUG-IR-OVERRIDES-001).
+// pipeline_constants and no entry point. Our counterpart is naga.ProcessOverrides.
 //
 // Rust's driver also compacts the module with KeepUnused::No before the
 // backends. We do not: our compiler has no such step, so users get the
@@ -202,10 +202,11 @@ func prepareForBackend(source, shader string) (*ir.Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ir.ProcessOverrides(prepared, readSPVPipelineConstants(shader)); err != nil {
+	processed, err := naga.ProcessOverrides(prepared, naga.OverrideOptions{Constants: readSPVPipelineConstants(shader)})
+	if err != nil {
 		return nil, fmt.Errorf("process overrides: %w", err)
 	}
-	return prepared, nil
+	return processed, nil
 }
 
 // ourSPIRVDisassembly compiles SPIR-V with the shader's Rust options and
@@ -246,7 +247,6 @@ func ourTextOutput(module *ir.Module, shader string, o rustOutput) (string, erro
 		if err != nil {
 			return "", err
 		}
-		opts.PipelineConstants = nil
 		code, _, err := msl.Compile(module, opts)
 		return code, err
 	case rustOutHLSL:
@@ -262,7 +262,6 @@ func ourTextOutput(module *ir.Module, shader string, o rustOutput) (string, erro
 			return "", err
 		}
 		opts := cfg.toOptions()
-		opts.PipelineConstants = nil
 		opts.EntryPoint = o.entryPoint
 		code, _, err := glsl.Compile(module, opts)
 		return code, err

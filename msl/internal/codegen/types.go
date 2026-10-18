@@ -648,35 +648,6 @@ func (w *Writer) writeConstants() error {
 		}
 	}
 
-	// Write overrides as constant declarations.
-	// In Rust naga, process_overrides converts Override expressions to Constants
-	// before the MSL writer runs. We emit them directly as constants here.
-	for handle := range w.module.Overrides {
-		ov := &w.module.Overrides[handle]
-		if err := w.writeOverrideAsConstant(ir.OverrideHandle(handle), ov); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// writeOverrideAsConstant writes an override as a MSL constant declaration.
-// This matches Rust naga's process_overrides which converts overrides to constants.
-func (w *Writer) writeOverrideAsConstant(handle ir.OverrideHandle, ov *ir.Override) error {
-	name := w.getName(nameKey{kind: nameKeyOverride, handle1: uint32(handle)})
-	typeName := w.writeTypeName(ov.Ty, StorageAccess(0))
-
-	w.write("constant %s %s = ", typeName, name)
-	if ov.Init != nil {
-		if err := w.writeGlobalExpression(*ov.Init); err != nil {
-			return err
-		}
-	} else {
-		// No default value — write zero-initialized value.
-		w.write("%s {}", typeName)
-	}
-	w.WriteLine(";")
 	return nil
 }
 

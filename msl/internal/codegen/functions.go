@@ -1350,9 +1350,8 @@ func (w *Writer) writeGlobalExpression(handle ir.ExpressionHandle) error {
 			}
 		}
 	case ir.ExprOverride:
-		// Override reference in global expression: write the override's name.
-		name := w.getName(nameKey{kind: nameKeyOverride, handle1: uint32(k.Override)})
-		w.write("%s", name)
+		// Rust Error::Override: naga.ProcessOverrides replaces them first.
+		return fmt.Errorf("msl: %w", ir.ErrUnresolvedOverride)
 	case ir.ExprSplat:
 		// Splat in global expression: write as type(value)
 		typeName := fmt.Sprintf("%s%s%d", Namespace, "float", k.Size)

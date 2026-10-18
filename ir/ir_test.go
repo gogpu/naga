@@ -301,28 +301,6 @@ func TestLiteralValueInterfaceImplementation(t *testing.T) {
 	}
 }
 
-// --- OverrideInitExpr interface tests ---
-
-func TestOverrideInitExprInterface(t *testing.T) {
-	tests := []struct {
-		name string
-		expr OverrideInitExpr
-	}{
-		{"Literal", OverrideInitLiteral{Value: 1.0}},
-		{"Ref", OverrideInitRef{Handle: 0}},
-		{"Binary", OverrideInitBinary{Op: BinaryAdd, Left: OverrideInitLiteral{Value: 1.0}, Right: OverrideInitLiteral{Value: 2.0}}},
-		{"Unary", OverrideInitUnary{Op: UnaryNegate, Expr: OverrideInitLiteral{Value: 1.0}}},
-		{"BoolLiteral", OverrideInitBoolLiteral{Value: true}},
-		{"UintLiteral", OverrideInitUintLiteral{Value: 42}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.expr.overrideInitExpr()
-		})
-	}
-}
-
 // --- Binding interface tests ---
 
 func TestBindingInterface(t *testing.T) {

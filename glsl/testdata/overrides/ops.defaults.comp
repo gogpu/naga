@@ -1,0 +1,78 @@
+#version 310 es
+
+precision highp float;
+precision highp int;
+
+layout(local_size_x = 4, local_size_y = 1, local_size_z = 1) in;
+
+const uint n = 7u;
+const int s = -7;
+const float f = 2.5;
+const bool b = true;
+const uint wg = 4u;
+
+bool pv = true;
+
+uint pu = 3u;
+
+layout(std430) buffer type_4_block_0Compute { uint _group_0_binding_0_cs[]; };
+
+layout(std430) buffer type_5_block_1Compute { int _group_0_binding_1_cs[]; };
+
+layout(std430) buffer type_6_block_2Compute { float _group_0_binding_2_cs[]; };
+
+
+void main() {
+    bool local = false;
+    bool local_1 = false;
+    _group_0_binding_0_cs[0] = 3u;
+    _group_0_binding_0_cs[1] = 14u;
+    _group_0_binding_0_cs[2] = 3u;
+    _group_0_binding_0_cs[3] = 3u;
+    _group_0_binding_0_cs[4] = 15u;
+    _group_0_binding_0_cs[5] = 5u;
+    _group_0_binding_0_cs[6] = 3u;
+    _group_0_binding_0_cs[7] = 4294967295u;
+    _group_0_binding_0_cs[8] = 1u;
+    _group_0_binding_0_cs[9] = 0u;
+    _group_0_binding_0_cs[10] = 0u;
+    _group_0_binding_0_cs[11] = 1u;
+    _group_0_binding_0_cs[12] = 1u;
+    _group_0_binding_0_cs[13] = 0u;
+    if (b) {
+        local = false;
+    } else {
+        local = false;
+    }
+    bool _e111 = local;
+    _group_0_binding_0_cs[14] = (_e111 ? 1u : 0u);
+    if (false) {
+        local_1 = false;
+    } else {
+        local_1 = true;
+    }
+    bool _e124 = local_1;
+    _group_0_binding_0_cs[15] = (_e124 ? 1u : 0u);
+    _group_0_binding_0_cs[16] = 0u;
+    _group_0_binding_0_cs[17] = 9u;
+    _group_0_binding_0_cs[18] = 2u;
+    _group_0_binding_0_cs[19] = 2u;
+    _group_0_binding_0_cs[20] = 4294967288u;
+    bool _e162 = pv;
+    _group_0_binding_0_cs[21] = (_e162 ? 1u : 0u);
+    uint _e167 = pu;
+    _group_0_binding_0_cs[22] = _e167;
+    _group_0_binding_1_cs[0] = -3;
+    _group_0_binding_1_cs[1] = -3;
+    _group_0_binding_1_cs[2] = -4;
+    _group_0_binding_1_cs[3] = 7;
+    _group_0_binding_1_cs[4] = 6;
+    _group_0_binding_1_cs[5] = 7;
+    _group_0_binding_2_cs[0] = 0.5;
+    _group_0_binding_2_cs[1] = -2.5;
+    _group_0_binding_2_cs[2] = 5.0;
+    _group_0_binding_2_cs[3] = 7.0;
+    _group_0_binding_2_cs[4] = 2.0;
+    return;
+}
+

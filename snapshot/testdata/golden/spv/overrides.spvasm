@@ -16,21 +16,21 @@
          %_6 = OpConstantTrue %_3
          %_7 = OpConstant %_4 1075000115
          %_8 = OpConstant %_4 0
-         %_9 = OpConstant %_4 1073741824
-         %_10 = OpConstant %_4 1076753334
-         %_11 = OpConstant %_5 0
-         %_12 = OpConstant %_4 1066192077
-         %_13 = OpConstant %_4 1092616192
-         %_14 = OpConstant %_4 1093664768
-         %_15 = OpConstantFalse %_3
-         %_16 = OpConstant %_4 1083388723
+         %_9 = OpConstantFalse %_3
+         %_10 = OpConstant %_4 1066192077
+         %_11 = OpConstant %_4 1073741824
+         %_12 = OpConstant %_4 1083388723
+         %_13 = OpConstant %_4 1076753334
+         %_14 = OpConstant %_5 0
+         %_15 = OpConstant %_4 1092616192
+         %_16 = OpConstant %_4 1093664768
          %_17 = OpTypePointer Private %_4
          %_20 = OpTypeFunction %_2
          %_23 = OpTypePointer Function %_4
          %_25 = OpTypePointer Function %_3
          %_28 = OpConstant %_4 1102577664
          %_29 = OpConstantTrue %_3
-         %_18 = OpVariable %_17 Private %_14
+         %_18 = OpVariable %_17 Private %_16
          %_19 = OpVariable %_17 Private
          %_21 = OpFunction %_2 None %_20
          %_22 = OpLabel
@@ -40,8 +40,8 @@
                OpStore %_24 %_28
                OpStore %_26 %_29
          %_30 = OpLoad %_4 %_18
-         %_31 = OpFMul %_4 %_30 %_13
+         %_31 = OpFMul %_4 %_30 %_15
                OpStore %_27 %_31
-               OpStore %_19 %_12
+               OpStore %_19 %_10
                OpReturn
                OpFunctionEnd

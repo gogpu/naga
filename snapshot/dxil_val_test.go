@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/internal/testtools"
 	"github.com/gogpu/naga/ir"
@@ -81,15 +82,13 @@ func TestDxilValSummary(t *testing.T) {
 		}
 
 		// Process pipeline overrides (replaces ExprOverride → ExprConstant/Literal).
-		pipelineConstants := readSPVPipelineConstants(shader.name)
-		if len(pipelineConstants) > 0 || len(module.Overrides) > 0 {
-			module = module.Clone()
-			if err := ir.ProcessOverrides(module, pipelineConstants); err != nil {
-				compileFailCount++
-				results = append(results, result{shader.name, "compile_fail", err.Error()})
-				continue
-			}
+		processed, err := naga.ProcessOverrides(module, naga.OverrideOptions{Constants: readSPVPipelineConstants(shader.name)})
+		if err != nil {
+			compileFailCount++
+			results = append(results, result{shader.name, "compile_fail", err.Error()})
+			continue
 		}
+		module = processed
 
 		if len(module.EntryPoints) == 0 {
 			if reason, ok := dxilExpectedCompileFail[shader.name]; ok {

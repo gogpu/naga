@@ -65,10 +65,6 @@ const (
 		"OpEntryPoint lists every global the entry point uses, where Rust emits 1.1 with Input/Output only"
 	reasonSPVPerEntryPoint = "Rust writes one SPIR-V module per entry point ([spv] separate_entry_points, " +
 		"spv::PipelineOptions); the spirv package cannot restrict output to one entry point"
-	reasonProcessOverrides = "ir.ProcessOverrides does not match Rust's process_overrides: it skips the " +
-		"compact(KeepUnused::No) step, leaving every override duplicated as a `<name>_1` constant (several " +
-		"with zero values instead of the resolved ones), and does not constant-fold function expressions " +
-		"that use overrides"
 	reasonCompactNoEntryPoints = "the module has no entry points; Rust's compact(KeepUnused::No) removes " +
 		"everything, ir.CompactUnused returns early and every type and function is emitted"
 )
@@ -106,11 +102,6 @@ var rustDeviations = []rustDeviation{
 	{Shader: "bits", File: "wgsl-bits.spvasm", Kind: deviationBug,
 		Reason: "no Int8 capability or 8-bit types: pack4xI8/unpack4xI8 use the polyfill where Rust uses native Int8",
 		Card:   "NAGA-SPV-009", Fingerprint: "9dc54aeb5e94e96d4917abe62879474a5c177232a76fd59ba7e0603efb1440a5"},
-
-	// MSL. (Entries that also carry upstream changes are in the sync section below.)
-	{Shader: "overrides", File: "wgsl-overrides.metal", Kind: deviationBug,
-		Reason: reasonProcessOverrides, Card: "BUG-IR-OVERRIDES-001",
-		Fingerprint: "c433993184a6c7edc90da009849b0540418fc1edbc8c36819076fea71aec41bb"},
 
 	// Own shader with Rust-derived references (not part of parity).
 	{Shader: "ptr-deref-test", File: "wgsl-ptr-deref-test.spvasm", Kind: deviationBug,
@@ -270,12 +261,12 @@ var rustDeviations = []rustDeviation{
 	{Shader: "interface", File: "wgsl-interface.hlsl", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
 		Reason:      notPorted("96b7872f", "a53ffffe"),
 		Fingerprint: "2e5af9196b9127bb1483338536bd38f47d27f5c5ba988b3236f18b36889b0dc3"},
-	{Shader: "overrides-atomicCompareExchangeWeak", File: "wgsl-overrides-atomicCompareExchangeWeak.metal", Kind: deviationBug, Card: "BUG-IR-OVERRIDES-001",
-		Reason:      reasonProcessOverrides + "; also " + reasonMSLThreadgroup + "; " + notPorted("b5bd5aed"),
-		Fingerprint: "6f98d800b62617b2dead6d26a1b41620ba1c075004ddc10464693f6e7091e06a"},
-	{Shader: "overrides-ray-query", File: "wgsl-overrides-ray-query.metal", Kind: deviationBug, Card: "BUG-IR-OVERRIDES-001",
-		Reason:      reasonProcessOverrides + "; " + notPorted("74827c41", "f6d9a1db", "a03be8d2"),
-		Fingerprint: "037196467748ef7428cc9b8da6990bddca37a5b228ae834b7b5fd3f14ee15528"},
+	{Shader: "overrides-atomicCompareExchangeWeak", File: "wgsl-overrides-atomicCompareExchangeWeak.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
+		Reason:      reasonMSLThreadgroup + "; " + notPorted("b5bd5aed"),
+		Fingerprint: "f483af7caf2f9f3c2df44d835e3d6cb29ef25f58beac51d988bc26cd301e389c"},
+	{Shader: "overrides-ray-query", File: "wgsl-overrides-ray-query.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
+		Reason:      notPorted("74827c41", "f6d9a1db", "a03be8d2"),
+		Fingerprint: "f84957f44d488704e8b02190d14399e66e70d1882ae334cdc87cd3918355b1dd"},
 	{Shader: "pointer-function-arg", File: "wgsl-pointer-function-arg.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("b9c09622"),
 		Fingerprint: "c8e0982568ef817bc02f785b091c26e8cb030f548e5840e0a99976c997fefcf3"},

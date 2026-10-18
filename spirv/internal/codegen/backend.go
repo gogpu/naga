@@ -307,6 +307,9 @@ func (b *Backend) newIB() *InstructionBuilder {
 // The Backend is automatically reset before each compilation, so
 // a single Backend instance can be reused across multiple Compile calls.
 func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
+	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
+		return nil, fmt.Errorf("spirv: %w", err)
+	}
 	// Reset all per-compilation state (maps cleared, slices truncated).
 	b.Reset()
 	b.module = module
@@ -1334,14 +1337,14 @@ type globalExprConst struct {
 // emitGlobalExpressions writes every module-scope expression as a SPIR-V
 // constant, in arena order, into globalExprs.
 //
-// This is Rust naga's "write all const-expressions as constants" pass. Rust can
-// rely on the arena listing operands first; here ir.ProcessOverrides appends an
-// override's value to the end of the arena and points the earlier expression at
-// it, so an operand the pass has not reached yet is written on demand.
+// This is Rust naga's "write all const-expressions as constants" pass. The arena
+// lists operands first (naga.ProcessOverrides rebuilds it in order, as Rust
+// does); an operand the pass has not reached yet is still written on demand, so
+// an arena in another order also works.
 //
 // An expression that cannot be a constant is not an error here: its error is
 // kept and reported only if a constant or global variable takes the expression
-// as its initializer, so an override's default does not stop a module compiling.
+// as its initializer.
 //
 // A constant that carries its value inline (Constant.Value) is written from that
 // value, so the pass skips its Init expression rather than write it a second
@@ -1416,7 +1419,7 @@ func (b *Backend) emitGlobalExpression(handle ir.ExpressionHandle) (uint32, erro
 		return b.builder.AddConstantComposite(typeID, componentIDs...), nil
 
 	case ir.ExprOverride:
-		return 0, fmt.Errorf("override %d used as a constant initializer: pipeline overrides are not supported", kind.Override)
+		return 0, fmt.Errorf("override %d used as a constant initializer: %w", kind.Override, ir.ErrUnresolvedOverride)
 
 	case ir.ExprUnary, ir.ExprBinary:
 		return 0, errInitNotFolded
@@ -3991,6 +3994,9 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 			return cached, nil
 		}
 		return 0, fmt.Errorf("WorkGroupUniformLoadResult not yet cached for handle %d", handle)
+	case ir.ExprOverride:
+		// Rust Error::Override: naga.ProcessOverrides replaces them first.
+		return 0, fmt.Errorf("spirv: %w", ir.ErrUnresolvedOverride)
 	default:
 		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
 	}

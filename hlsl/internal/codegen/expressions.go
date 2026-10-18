@@ -174,6 +174,9 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind) error {
 		return nil
 	case ir.ExprRayQueryGetIntersection:
 		return w.writeRayQueryGetIntersection(e)
+	case ir.ExprOverride:
+		// Rust Error::Override: naga.ProcessOverrides replaces them first.
+		return fmt.Errorf("hlsl: %w", ir.ErrUnresolvedOverride)
 	default:
 		return fmt.Errorf("unsupported expression type: %T", kind)
 	}

@@ -549,6 +549,9 @@ const (
 // Compile generates HLSL source code from an IR module.
 // Returns the HLSL source, translation info, or an error.
 func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, error) {
+	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
+		return "", nil, fmt.Errorf("hlsl: %w", err)
+	}
 	copts := toCodegenOptions(options)
 	src, cinfo, err := codegen.Compile(module, copts)
 	if err != nil {

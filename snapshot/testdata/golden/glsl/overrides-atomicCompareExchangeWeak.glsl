@@ -17,8 +17,8 @@ void main() {
     }
     memoryBarrierShared();
     barrier();
-    _atomic_compare_exchange_result_Uint_4_ _e5; _e5.old_value = atomicCompSwap(a, uint(o), 1u);
-    _e5.exchanged = (_e5.old_value == uint(o));
+    _atomic_compare_exchange_result_Uint_4_ _e5; _e5.old_value = atomicCompSwap(a, 2u, 1u);
+    _e5.exchanged = (_e5.old_value == 2u);
     return;
 }
 

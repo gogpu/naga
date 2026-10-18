@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
@@ -54,19 +55,23 @@ func lowerWGSL(t *testing.T, source string) *ir.Module {
 }
 
 // TestCompileWithPipelineConstantsDoesNotMutateModule: one lowered module is
-// compiled for several pipelines (BUG-IR-CLONE-001). Each Compile must see
-// the module as lowered, so the same options give the same GLSL every time
-// and the caller's module is left as it was.
+// processed and compiled for several pipelines (BUG-IR-CLONE-001). Neither
+// ProcessOverrides nor Compile may change it, so the same constants give the
+// same GLSL every time and the caller's module is left as it was.
 func TestCompileWithPipelineConstantsDoesNotMutateModule(t *testing.T) {
 	module := lowerWGSL(t, overridesInNestedBlocksShader)
 	want := lowerWGSL(t, overridesInNestedBlocksShader)
 
-	opts := glsl.Options{
-		LangVersion:       glsl.VersionES310,
-		EntryPoint:        "cs",
-		PipelineConstants: ir.PipelineConstants{"o": 3},
+	opts := glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: "cs"}
+	compile := func() (string, error) {
+		processed, err := naga.ProcessOverrides(module, naga.OverrideOptions{Constants: naga.PipelineConstants{"o": 3}})
+		if err != nil {
+			return "", err
+		}
+		code, _, err := glsl.Compile(processed, opts)
+		return code, err
 	}
-	first, _, err := glsl.Compile(module, opts)
+	first, err := compile()
 	if err != nil {
 		t.Fatalf("first Compile: %v", err)
 	}
@@ -74,7 +79,7 @@ func TestCompileWithPipelineConstantsDoesNotMutateModule(t *testing.T) {
 		t.Error("Compile changed the caller's module")
 	}
 
-	second, _, err := glsl.Compile(module, opts)
+	second, err := compile()
 	if err != nil {
 		t.Fatalf("second Compile: %v", err)
 	}
