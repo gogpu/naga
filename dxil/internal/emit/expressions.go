@@ -4517,8 +4517,104 @@ func (e *Emitter) tryLoadFromConstVecArray(fn *ir.Function, load ir.ExprLoad) (i
 	return comps[0], true, nil
 }
 
+// localVectorDynamicAccess resolves ptr = Access(LocalVariable, index) whose
+// local vector is lowered to one alloca per component. It returns the
+// component allocas and the emitted index value.
+func (e *Emitter) localVectorDynamicAccess(fn *ir.Function, ptr ir.ExpressionHandle) ([]int, int, bool, error) {
+	acc, ok := fn.Expressions[ptr].Kind.(ir.ExprAccess)
+	if !ok {
+		return nil, 0, false, nil
+	}
+	lv, ok := fn.Expressions[acc.Base].Kind.(ir.ExprLocalVariable)
+	if !ok {
+		return nil, 0, false, nil
+	}
+	if _, err := e.emitExpression(fn, acc.Base); err != nil { // creates the allocas
+		return nil, 0, true, err
+	}
+	compPtrs, ok := e.localVarComponentPtrs[lv.Variable]
+	if !ok {
+		return nil, 0, false, nil
+	}
+	idxID, err := e.emitExpression(fn, acc.Index)
+	if err != nil {
+		return nil, 0, true, err
+	}
+	return compPtrs, idxID, true, nil
+}
+
+// tryLoadLocalVectorDynamic loads v[i] from a local vector held as one alloca
+// per component: every component is loaded and a select over the run-time
+// index picks one, as Mesa's nir_lower_indirect_derefs does.
+func (e *Emitter) tryLoadLocalVectorDynamic(fn *ir.Function, load ir.ExprLoad) (int, bool, error) {
+	compPtrs, idxID, ok, err := e.localVectorDynamicAccess(fn, load.Pointer)
+	if !ok || err != nil {
+		return 0, ok, err
+	}
+	scalarTy, err := e.resolveLoadType(fn, load.Pointer)
+	if err != nil {
+		return 0, true, fmt.Errorf("vector element load type: %w", err)
+	}
+	align := e.alignForType(scalarTy)
+	comps := make([]int, len(compPtrs))
+	for k, p := range compPtrs {
+		comps[k] = e.addLoadInstr(scalarTy, p, align)
+	}
+	cur := comps[len(comps)-1]
+	for k := len(comps) - 2; k >= 0; k-- {
+		cmp := e.addCmpInstr(ICmpEQ, idxID, e.getIntConstID(int64(k)))
+		cur = e.emitSelect3(scalarTy, cmp, comps[k], cur)
+	}
+	return cur, true, nil
+}
+
+// tryStoreLocalVectorDynamic stores v[i] = value into a local vector held as
+// one alloca per component: each component gets select(i == k, value, old).
+func (e *Emitter) tryStoreLocalVectorDynamic(fn *ir.Function, store ir.StmtStore) (bool, error) {
+	compPtrs, idxID, ok, err := e.localVectorDynamicAccess(fn, store.Pointer)
+	if !ok || err != nil {
+		return ok, err
+	}
+	value, err := e.emitExpression(fn, store.Value)
+	if err != nil {
+		return true, fmt.Errorf("store value: %w", err)
+	}
+	scalarTy, err := e.resolveLoadType(fn, store.Pointer)
+	if err != nil {
+		return true, fmt.Errorf("vector element store type: %w", err)
+	}
+	align := e.alignForType(scalarTy)
+	for k, p := range compPtrs {
+		old := e.addLoadInstr(scalarTy, p, align)
+		cmp := e.addCmpInstr(ICmpEQ, idxID, e.getIntConstID(int64(k)))
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind:        module.InstrStore,
+			HasValue:    false,
+			Operands:    []int{p, e.emitSelect3(scalarTy, cmp, value, old), align, 0},
+			ReturnValue: -1,
+		})
+	}
+	return true, nil
+}
+
+// addLoadInstr loads a ty value from ptr.
+func (e *Emitter) addLoadInstr(ty *module.Type, ptr, align int) int {
+	valueID := e.allocValue()
+	e.currentBB.AddInstruction(&module.Instruction{
+		Kind:       module.InstrLoad,
+		HasValue:   true,
+		ResultType: ty,
+		Operands:   []int{ptr, ty.ID, align, 0},
+		ValueID:    valueID,
+	})
+	return valueID
+}
+
 // emitLoad emits a load through a pointer.
 func (e *Emitter) emitLoad(fn *ir.Function, load ir.ExprLoad) (int, error) {
+	if id, handled, err := e.tryLoadLocalVectorDynamic(fn, load); handled {
+		return id, err
+	}
 	// Const vector-array fast path (BUG-DXIL-025). Load from
 	// `Access(LocalVariable, idx)` where the local is a constant-init
 	// vector array. Emit a per-lane select chain indexed by the
