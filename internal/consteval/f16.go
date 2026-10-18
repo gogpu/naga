@@ -2,6 +2,10 @@ package consteval
 
 import "math"
 
+// RoundF16 rounds x to the nearest binary16 value as roundF16 does; ok is
+// false for NaN, infinities and values beyond the finite binary16 range.
+func RoundF16(x float64) (float32, bool) { return roundF16(x) }
+
 // maxF16 is the largest finite binary16 value.
 const maxF16 = 65504
 
