@@ -632,6 +632,20 @@ func dumpEntryPoints(sb *strings.Builder, m *ir.Module) {
 		if ep.Stage == ir.StageCompute {
 			fmt.Fprintf(sb, " workgroup_size=(%d,%d,%d)", ep.Workgroup[0], ep.Workgroup[1], ep.Workgroup[2])
 		}
+		if ep.WorkgroupSizeOverrides != [3]*ir.ExpressionHandle{} {
+			sb.WriteString(" workgroup_size_overrides=(")
+			for d, h := range ep.WorkgroupSizeOverrides {
+				if d > 0 {
+					sb.WriteByte(',')
+				}
+				if h == nil {
+					sb.WriteString("None")
+				} else {
+					fmt.Fprintf(sb, "[%d]", *h)
+				}
+			}
+			sb.WriteByte(')')
+		}
 		sb.WriteByte('\n')
 	}
 }

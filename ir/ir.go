@@ -138,13 +138,18 @@ func (OverrideInitUintLiteral) overrideInitExpr() {}
 // The Function is stored inline (not via FunctionHandle) because Rust naga
 // keeps entry-point functions separate from Module.functions[].
 type EntryPoint struct {
-	Name           string
-	Stage          ShaderStage
-	Function       Function              // Inline function (NOT in Module.Functions[])
-	Workgroup      [3]uint32             // For compute/mesh/task shaders
-	EarlyDepthTest *EarlyDepthTest       // For fragment shaders with early depth testing
-	MeshInfo       *MeshStageInfo        // For mesh shaders
-	TaskPayload    *GlobalVariableHandle // For mesh/task shaders referencing task payload variable
+	Name      string
+	Stage     ShaderStage
+	Function  Function  // Inline function (NOT in Module.Functions[])
+	Workgroup [3]uint32 // For compute/mesh/task shaders
+	// WorkgroupSizeOverrides holds, per dimension, the global expression of a
+	// workgroup size given by an override-expression (Rust
+	// workgroup_size_overrides); nil means the size is Workgroup's. Backends
+	// need a module processed by naga.ProcessOverrides, where all are nil.
+	WorkgroupSizeOverrides [3]*ExpressionHandle
+	EarlyDepthTest         *EarlyDepthTest       // For fragment shaders with early depth testing
+	MeshInfo               *MeshStageInfo        // For mesh shaders
+	TaskPayload            *GlobalVariableHandle // For mesh/task shaders referencing task payload variable
 }
 
 // MeshOutputTopology specifies the primitive topology for mesh shader output.

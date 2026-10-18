@@ -177,11 +177,32 @@ func (p *processor) run() error {
 		if err := p.function(&ep.Function); err != nil {
 			return err
 		}
+		if err := p.workgroupSize(ep); err != nil {
+			return err
+		}
 		if err := p.meshOutputs(ep); err != nil {
 			return err
 		}
 	}
 	return checkNoOverrideExpressions(m)
+}
+
+// workgroupSize resolves the workgroup sizes given by overrides (Rust
+// process_workgroup_size_override): each must be a positive integer. The
+// override handles are cleared, as Rust sets workgroup_size_overrides to None.
+func (p *processor) workgroupSize(ep *ir.EntryPoint) error {
+	for d, h := range ep.WorkgroupSizeOverrides {
+		if h == nil {
+			continue
+		}
+		n, ok := p.u32(*h)
+		if !ok || n == 0 {
+			return ErrNegativeWorkgroupSize
+		}
+		ep.Workgroup[d] = n
+	}
+	ep.WorkgroupSizeOverrides = [3]*ir.ExpressionHandle{}
+	return nil
 }
 
 // globalExpressions rebuilds Module.GlobalExpressions with every expression
@@ -228,25 +249,35 @@ func (p *processor) globalExpressions() error {
 		}
 		p.nextOverride++
 	}
+	return p.adjustGlobalReferences()
+}
+
+// adjustGlobalReferences points everything outside the arena that refers to
+// a global expression at the rebuilt arena: constant and global-variable
+// initializers, override workgroup sizes and mesh output limits.
+func (p *processor) adjustGlobalReferences() error {
+	m := p.m
 	for c := range p.initAdjusted {
 		if err := p.adjustConstantInit(ir.ConstantHandle(c)); err != nil {
 			return err
 		}
 	}
+	refs := make([]**ir.ExpressionHandle, 0, len(m.GlobalVariables)+5*len(m.EntryPoints))
 	for i := range m.GlobalVariables {
-		gv := &m.GlobalVariables[i]
-		if err := p.adjustGlobalPtr(&gv.InitExpr); err != nil {
-			return err
-		}
+		refs = append(refs, &m.GlobalVariables[i].InitExpr)
 	}
 	for i := range m.EntryPoints {
-		if mi := m.EntryPoints[i].MeshInfo; mi != nil {
-			if err := p.adjustGlobalPtr(&mi.MaxVerticesOverride); err != nil {
-				return err
-			}
-			if err := p.adjustGlobalPtr(&mi.MaxPrimitivesOverride); err != nil {
-				return err
-			}
+		ep := &m.EntryPoints[i]
+		for d := range ep.WorkgroupSizeOverrides {
+			refs = append(refs, &ep.WorkgroupSizeOverrides[d])
+		}
+		if mi := ep.MeshInfo; mi != nil {
+			refs = append(refs, &mi.MaxVerticesOverride, &mi.MaxPrimitivesOverride)
+		}
+	}
+	for _, r := range refs {
+		if err := p.adjustGlobalPtr(r); err != nil {
+			return err
 		}
 	}
 	return nil

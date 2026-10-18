@@ -105,7 +105,11 @@ func Compile(source string) ([]byte, error) {
 //  1. Parse WGSL source to AST
 //  2. Lower AST to IR (intermediate representation)
 //  3. Validate IR (if enabled)
-//  4. Generate SPIR-V binary
+//  4. Replace overrides by their defaults (ProcessOverrides with no pipeline
+//     constants), as Rust naga's CLI does; an override without a default is
+//     an error. For pipeline constants use Parse, Lower, ProcessOverrides
+//     and a backend.
+//  5. Generate SPIR-V binary
 func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 	// Parse WGSL to AST
 	ast, err := Parse(source)
@@ -128,6 +132,11 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 		if len(validationErrors) > 0 {
 			return nil, fmt.Errorf("validation failed: %w", &validationErrors[0])
 		}
+	}
+
+	module, err = ProcessOverrides(module, OverrideOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("pipeline constants: %w", err)
 	}
 
 	// Generate SPIR-V

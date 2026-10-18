@@ -22,6 +22,7 @@ const (
 // Used by definition: every named constant whose type is not abstract (Rust
 // keeps abstract-typed constants away from the validator), every named
 // override when keep is KeepUnusedYes, the initializers of global variables,
+// the workgroup sizes given by override-expressions,
 // and the mesh-shader override expressions. Used through them: constants and
 // overrides referred to by function expressions, by global variable
 // initializers or by used global expressions, the initializers of used
@@ -110,6 +111,9 @@ func (t *constantTracer) markUsedByDefinition(keep KeepUnused) {
 	for i := range m.EntryPoints {
 		ep := &m.EntryPoints[i]
 		functionRefs(&ep.Function)
+		for _, size := range ep.WorkgroupSizeOverrides {
+			t.exprPtr(size)
+		}
 		if ep.MeshInfo != nil {
 			t.exprPtr(ep.MeshInfo.MaxVerticesOverride)
 			t.exprPtr(ep.MeshInfo.MaxPrimitivesOverride)
@@ -276,6 +280,9 @@ func (t *constantTracer) apply() {
 	for i := range m.EntryPoints {
 		ep := &m.EntryPoints[i]
 		functionRefs(&ep.Function)
+		for d, size := range ep.WorkgroupSizeOverrides {
+			ep.WorkgroupSizeOverrides[d] = remapEPtr(size)
+		}
 		if ep.MeshInfo != nil {
 			ep.MeshInfo.MaxVerticesOverride = remapEPtr(ep.MeshInfo.MaxVerticesOverride)
 			ep.MeshInfo.MaxPrimitivesOverride = remapEPtr(ep.MeshInfo.MaxPrimitivesOverride)
