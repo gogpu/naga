@@ -162,9 +162,14 @@ func (r *TypeRegistry) appendTypeKey(inner ir.TypeInner) {
 		r.keyBuf = append(r.keyBuf, "array:"...)
 		r.keyBuf = strconv.AppendInt(r.keyBuf, int64(t.Base), 10)
 		r.keyBuf = append(r.keyBuf, ':')
-		if t.Size.Constant != nil {
+		switch {
+		case t.Size.Constant != nil:
 			r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(*t.Size.Constant), 10)
-		} else {
+		case t.Size.Pending != nil:
+			// Rust ArraySize::Pending(handle): one type per override.
+			r.keyBuf = append(r.keyBuf, "override"...)
+			r.keyBuf = strconv.AppendUint(r.keyBuf, uint64(*t.Size.Pending), 10)
+		default:
 			r.keyBuf = append(r.keyBuf, "runtime"...)
 		}
 		r.keyBuf = append(r.keyBuf, ':')

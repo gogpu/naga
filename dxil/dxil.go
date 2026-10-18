@@ -263,6 +263,10 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	if err := ir.CheckWorkgroupSizesResolved(irModule); err != nil {
 		return nil, fmt.Errorf("dxil: %w", err)
 	}
+	irModule, err := ir.ResolvePendingArraySizes(irModule)
+	if err != nil {
+		return nil, fmt.Errorf("dxil: %w", err)
+	}
 
 	ep := &irModule.EntryPoints[0]
 	smMinor := autoUpgradeSMPre(irModule, ep, opts.ShaderModel.Minor)

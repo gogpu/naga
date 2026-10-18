@@ -552,6 +552,10 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
 		return "", nil, fmt.Errorf("hlsl: %w", err)
 	}
+	module, err := ir.ResolvePendingArraySizes(module)
+	if err != nil {
+		return "", nil, fmt.Errorf("hlsl: %w", err)
+	}
 	copts := toCodegenOptions(options)
 	src, cinfo, err := codegen.Compile(module, copts)
 	if err != nil {

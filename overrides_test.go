@@ -406,3 +406,70 @@ override n: u32 = 7u;
 		}
 	}
 }
+
+// TestOverrideSizedArrays: an array sized by an override is sized with the
+// override's value in every backend (Rust naga v30: HLSL groupshared uint
+// a[4], GLSL shared uint a[4], MSL uint inner[4], SPIR-V OpTypeArray of 4; 8
+// with n = 8). It was lowered as a runtime-sized array: HLSL a = (uint[])0.
+// A compound size makes the frontend add an override without name or id;
+// Rust panics on it in process_overrides (unreachable!), the spec sizes it.
+func TestOverrideSizedArrays(t *testing.T) {
+	const src = `
+override n: u32 = 4u;
+var<workgroup> a: array<u32, SIZE>;
+@group(0) @binding(0) var<storage, read_write> o: array<u32>;
+@compute @workgroup_size(1) fn main() { a[0] = 1u; o[0] = a[0]; }
+`
+	for _, tc := range []struct {
+		name      string
+		size      string
+		constants naga.PipelineConstants
+		want      int
+	}{
+		{"default", "n", nil, 4},
+		{"given", "n", naga.PipelineConstants{"n": 8}, 8},
+		{"compound", "n * 2u", nil, 8},
+		{"compound given", "n * 2u", naga.PipelineConstants{"n": 3}, 6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := naga.ProcessOverrides(lowerSource(t, strings.Replace(src, "SIZE", tc.size, 1)), naga.OverrideOptions{Constants: tc.constants})
+			if err != nil {
+				t.Fatal(err)
+			}
+			n := fmt.Sprint(tc.want)
+			hlslCode, _, err := hlsl.Compile(m, hlsl.DefaultOptions())
+			if err != nil || !strings.Contains(hlslCode, "groupshared uint a["+n+"];") {
+				t.Errorf("hlsl: err %v, want groupshared uint a[%s];\n%s", err, n, hlslCode)
+			}
+			glslCode, _, err := glsl.Compile(m, glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: "main"})
+			if err != nil || !strings.Contains(glslCode, "shared uint a["+n+"];") {
+				t.Errorf("glsl: err %v, want shared uint a[%s];\n%s", err, n, glslCode)
+			}
+			mslCode, _, err := msl.Compile(m, msl.DefaultOptions())
+			if err != nil || !strings.Contains(mslCode, "uint inner["+n+"];") {
+				t.Errorf("msl: err %v, want uint inner[%s];\n%s", err, n, mslCode)
+			}
+			if _, err := spirv.NewBackend(spirv.DefaultOptions()).Compile(m); err != nil {
+				t.Errorf("spirv: %v", err)
+			}
+			if _, err := dxil.Compile(m, dxil.DefaultOptions()); err != nil {
+				t.Errorf("dxil: %v", err)
+			}
+			// The result keeps the pending size; Resolve sizes it.
+			for _, ty := range m.Types {
+				if at, ok := ty.Inner.(ir.ArrayType); ok && at.Size.Pending != nil {
+					l, err := at.Size.Resolve(m)
+					if err != nil || l.Dynamic || l.Known != uint32(tc.want) {
+						t.Errorf("Resolve = %+v, %v; want %d", l, err, tc.want)
+					}
+				}
+			}
+		})
+	}
+	// Rust revalidates: "Override-sized array type [1] does not have a
+	// positive size".
+	_, err := naga.ProcessOverrides(lowerSource(t, strings.Replace(src, "SIZE", "n", 1)), naga.OverrideOptions{Constants: naga.PipelineConstants{"n": 0}})
+	if err == nil || !strings.Contains(err.Error(), "does not have a positive size") {
+		t.Errorf("n = 0: err = %v, want an array size error", err)
+	}
+}

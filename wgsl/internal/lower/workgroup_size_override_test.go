@@ -48,3 +48,39 @@ func TestWorkgroupSizeErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestArraySizeOverride: an array sized by an override-expression has a
+// pending size (Rust ArraySize::Pending): the override itself for a bare
+// override, a new override without name or id initialized with the
+// expression otherwise (Rust array_size_override).
+func TestArraySizeOverride(t *testing.T) {
+	m := mustCompile(t, `
+override n: u32 = 4u;
+var<workgroup> a: array<u32, n>;
+var<workgroup> b: array<u32, n * 2u>;
+@compute @workgroup_size(1) fn main() { a[0] = 1u; b[0] = a[0]; }
+`)
+	sizes := map[string]ir.ArraySize{}
+	for _, gv := range m.GlobalVariables {
+		if at, ok := m.Types[gv.Type].Inner.(ir.ArrayType); ok {
+			sizes[gv.Name] = at.Size
+		}
+	}
+	a, b := sizes["a"], sizes["b"]
+	if a.Constant != nil || a.Pending == nil || m.Overrides[*a.Pending].Name != "n" {
+		t.Fatalf("a: size %+v, want pending on override n", a)
+	}
+	if b.Constant != nil || b.Pending == nil {
+		t.Fatalf("b: size %+v, want pending", b)
+	}
+	ob := m.Overrides[*b.Pending]
+	if ob.Name != "" || ob.ID != nil || ob.Init == nil {
+		t.Fatalf("b's override = %+v, want no name or id and an initializer", ob)
+	}
+	if bin, ok := m.GlobalExpressions[*ob.Init].Kind.(ir.ExprBinary); !ok || bin.Op != ir.BinaryMultiply {
+		t.Errorf("b's override initializer = %#v, want n * 2u", m.GlobalExpressions[*ob.Init].Kind)
+	}
+	if a.IsRuntimeSized() || b.IsRuntimeSized() {
+		t.Error("a pending size is not runtime-sized")
+	}
+}

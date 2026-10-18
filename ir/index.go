@@ -26,10 +26,7 @@ func IndexableLengthOf(module *Module, inner TypeInner) (IndexableLength, error)
 	case MatrixType:
 		return IndexableLength{Known: uint32(t.Columns)}, nil
 	case ArrayType:
-		if t.Size.Constant == nil {
-			return IndexableLength{Dynamic: true}, nil
-		}
-		return IndexableLength{Known: *t.Size.Constant}, nil
+		return t.Size.Resolve(module)
 	case BindingArrayType:
 		if t.Size == nil {
 			return IndexableLength{Dynamic: true}, nil

@@ -155,3 +155,30 @@ func TestCompactConstants_WorkgroupSizeOverrideKept(t *testing.T) {
 		t.Errorf("workgroup size x: got %v, want 0", h)
 	}
 }
+
+// TestCompactConstants_PendingArraySizeKeepsOverride: an array type sized by
+// an override keeps it, also one without a name, and the type's handle to it
+// is renumbered.
+func TestCompactConstants_PendingArraySizeKeepsOverride(t *testing.T) {
+	o := OverrideHandle(1)
+	four := ExpressionHandle(0)
+	m := &Module{
+		Types: []Type{
+			{Inner: ScalarType{Kind: ScalarUint, Width: 4}},
+			{Inner: ArrayType{Base: 0, Size: ArraySize{Pending: &o}, Stride: 4}},
+		},
+		GlobalExpressions: []Expression{{Kind: Literal{Value: LiteralU32(4)}}},
+		Overrides:         []Override{{Name: "unused", Ty: 0}, {Ty: 0, Init: &four}},
+	}
+	CompactConstants(m, KeepUnusedNo)
+	if len(m.Overrides) != 1 || m.Overrides[0].Init == nil {
+		t.Fatalf("overrides = %+v, want only the array size's", m.Overrides)
+	}
+	at := m.Types[1].Inner.(ArrayType)
+	if at.Size.Pending == nil || *at.Size.Pending != 0 {
+		t.Errorf("array size = %+v, want pending on override 0", at.Size)
+	}
+	if l, err := at.Size.Resolve(m); err != nil || l.Known != 4 {
+		t.Errorf("Resolve = %+v, %v; want 4", l, err)
+	}
+}
