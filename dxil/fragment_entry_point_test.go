@@ -54,6 +54,17 @@ struct VertexOut {
 	}
 }
 
+// A fragment output at location 1 that isn't in a struct is SV_Target1 in
+// row 1: an SV_Target has to be in the row of its index, which the
+// validator checks and D3D12 writes the render target of. It was in row 0.
+func TestFragmentResultInTheRowOfItsLocation(t *testing.T) {
+	m := lowerForTest(t, `@fragment fn fs_main() -> @location(1) vec4<f32> { return vec4(0.0, 1.0, 0.0, 1.0); }`)
+	_, outputs := buildSignatures(m, &m.EntryPoints[0], true)
+	if len(outputs) != 1 || outputs[0].SemanticIndex != 1 || outputs[0].Register != 1 {
+		t.Errorf("output signature %+v, want SV_Target1 in row 1", outputs)
+	}
+}
+
 func lowerForTest(t *testing.T, src string) *ir.Module {
 	t.Helper()
 	tokens, err := wgsl.NewLexer(src).Tokenize()

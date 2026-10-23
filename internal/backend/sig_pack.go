@@ -139,6 +139,17 @@ func PackSignatureElements(elems []SigElementInfo, isInput bool) []PackedElement
 	return out
 }
 
+// ResultElement is the packed element of an entry point result that is
+// not a struct: row 0, or for a fragment output the row of its location,
+// which an SV_Target has to be in.
+func ResultElement(binding ir.Binding, stage ir.ShaderStage) PackedElement {
+	pe := PackedElement{ColCount: 4, Rows: 1}
+	if lb, ok := binding.(ir.LocationBinding); ok && stage == ir.StageFragment {
+		pe.Register = lb.Location
+	}
+	return pe
+}
+
 // sigPacker holds register allocation state for PackSignatureElements.
 // DXC PackPrefixStable keeps ALL partially-filled rows available for
 // future elements of the same interpolation group. When an element

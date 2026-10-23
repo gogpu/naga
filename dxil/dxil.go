@@ -582,8 +582,8 @@ func buildOutputSigElements(
 		if res.Binding == nil {
 			return nil
 		}
-		// Scalar/vector result with binding — single element on row 0.
-		return bindingToSignatureElements(irMod, *res.Binding, res.Type, 0, 0, true, isFragment)
+		pe := backend.ResultElement(*res.Binding, stage)
+		return bindingToSignatureElements(irMod, *res.Binding, res.Type, pe.Register, 0, true, isFragment)
 	}
 	// Walk members in graphics output order — locations first, then builtins
 	// (SV_Position last). Same convention naga's HLSL backend applies via
@@ -1259,8 +1259,7 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 	if ep.Function.Result != nil {
 		res := ep.Function.Result
 		if res.Binding != nil {
-			pe := backend.PackedElement{Register: 0, StartCol: 0, ColCount: 4, Rows: 1}
-			elem, ok := addElement(*res.Binding, res.Type, true, pe, &outputRow)
+			elem, ok := addElement(*res.Binding, res.Type, true, backend.ResultElement(*res.Binding, stage), &outputRow)
 			if ok {
 				psvOutputs = append(psvOutputs, elem)
 			}
