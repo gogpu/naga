@@ -566,6 +566,10 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	}
 	returnType, returnAttr := resolveReturnSignature()
 
+	if ep.Stage == ir.StageCompute && !w.options.LangVersion.Less(Version2_1) {
+		w.write("[[max_total_threads_per_threadgroup(%d)]] ", ep.Workgroup[0]*ep.Workgroup[1]*ep.Workgroup[2])
+	}
+
 	// Function signature — Rust naga format:
 	// First param: "\n  param", subsequent: "\n, param"
 	w.write("%s %s %s(", stageKeyword, returnType, epName)
