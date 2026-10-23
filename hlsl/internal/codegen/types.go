@@ -909,8 +909,9 @@ func (w *Writer) writeGlobalVariable(name string, global *ir.GlobalVariable) err
 
 	case ir.SpacePrivate:
 		// Module-scope private variable (Rust naga always initializes)
+		baseTypeName, arraySuffix := w.getTypeNameWithArraySuffix(typeHandle)
 		w.WriteIndent()
-		fmt.Fprintf(&w.Out, "static %s %s = ", typeName, name)
+		fmt.Fprintf(&w.Out, "static %s %s%s = ", baseTypeName, name, arraySuffix)
 		if global.InitExpr != nil {
 			if err := w.writeGlobalConstExpression(*global.InitExpr); err != nil {
 				return err
