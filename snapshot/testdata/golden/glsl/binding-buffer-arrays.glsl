@@ -1,4 +1,4 @@
-#version 330 core
+#version 430 core
 #extension GL_ARB_shader_storage_buffer_object : require
 struct UniformIndex {
     uint index;
@@ -9,13 +9,15 @@ struct Inner {
 struct FragmentIn {
     uint index;
 };
-layout(std140) uniform type_4_block_0Fragment { unknown_type _group_0_binding_0_fs; };
+layout(std430) readonly buffer type_4_block_0Fragment { unknown_type _group_0_binding_0_fs; };
 
-layout(std140) uniform PlainData_block_1Fragment { PlainData _group_0_binding_1_fs; };
+layout(std430) readonly buffer PlainData_block_1Fragment {
+    uint values[];
+} _group_0_binding_1_fs;
 
 layout(std140) uniform UniformIndex_block_2Fragment { UniformIndex _group_0_binding_10_fs; };
 
-flat in uint _vs2fs_location0;
+layout(location = 0) flat in uint _vs2fs_location0;
 layout(location = 0) out uint _fs2p_location0;
 
 void main() {

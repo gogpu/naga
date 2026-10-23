@@ -60,7 +60,7 @@ void main() {
     uvec3 local_id_1 = gl_LocalInvocationID;
     uvec2 dim = uvec2(imageSize(_group_0_binding_1_cs).xy);
     ivec2 itc = (ivec2((dim * local_id_1.xy)) % ivec2(10, 20));
-    float val = texelFetch(_group_0_binding_4_cs, itc, int(local_id_1.z));
+    float val = texelFetch(_group_0_binding_4_cs, itc, int(local_id_1.z)).x;
     imageStore(_group_0_binding_2_cs, itc.x, uvec4(uint(val)));
     return;
 }
@@ -306,15 +306,15 @@ void main() {
 // === Entry Point: depth_no_comparison (fragment) ===
 #version 330 core
 #extension GL_ARB_texture_cube_map_array : require
-uniform sampler2DShadow _group_1_binding_2_fs;
+uniform sampler2D _group_1_binding_2_fs;
 
 layout(location = 0) out vec4 _fs2p_location0;
 
 void main() {
     vec2 tc = vec2(0.5);
-    float s2d = texture(_group_1_binding_2_fs, vec2(tc));
+    float s2d = texture(_group_1_binding_2_fs, vec2(tc)).x;
     vec4 s2d_gather = textureGather(_group_1_binding_2_fs, vec2(tc), 0);
-    float s2d_level = textureLod(_group_1_binding_2_fs, vec2(tc), 1);
+    float s2d_level = textureLod(_group_1_binding_2_fs, vec2(tc), float(1)).x;
     _fs2p_location0 = ((vec4(s2d) + s2d_gather) + vec4(s2d_level));
     return;
 }

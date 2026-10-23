@@ -10,6 +10,15 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
+// isIntegerExpr reports whether the expression is an integer scalar.
+func (w *Writer) isIntegerExpr(handle ir.ExpressionHandle) bool {
+	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.ExpressionTypes) {
+		return false
+	}
+	t, ok := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[handle], handle).(ir.ScalarType)
+	return ok && (t.Kind == ir.ScalarSint || t.Kind == ir.ScalarUint || t.Kind == ir.ScalarAbstractInt)
+}
+
 // isUnsigned checks if an expression resolves to an unsigned integer type.
 // Returns (vecSize, true) where vecSize is 0 for scalar, 2/3/4 for vectors.
 // Returns (0, false) if not unsigned.
@@ -242,7 +251,48 @@ func (w *Writer) writeAccess(a ir.ExprAccess) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	k, isConst := ir.ConstIndexValue(w.module, w.currentFunction, a.Index)
+	index = w.restrictIndex(a.Base, base, index, k, isConst)
 	return fmt.Sprintf("%s[%s]", base, index), nil
+}
+
+// restrictIndex clamps index, which is k when isConst, to the last element
+// of base when the Restrict policy applies to base and the index may be out
+// of bounds.
+func (w *Writer) restrictIndex(base ir.ExpressionHandle, baseCode, index string, k uint32, isConst bool) string {
+	if int(base) >= len(w.currentFunction.ExpressionTypes) {
+		return index
+	}
+	inner := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[base], base)
+	policy := w.options.BoundsCheckPolicies.Index
+	switch t := inner.(type) {
+	case ir.BindingArrayType:
+		return index
+	case ir.PointerType:
+		if _, ok := w.module.Types[t.Base].Inner.(ir.BindingArrayType); ok {
+			return index
+		}
+		if t.Space == ir.SpaceUniform || t.Space == ir.SpaceStorage {
+			policy = w.options.BoundsCheckPolicies.Buffer
+		}
+	case ir.ValuePointerType:
+		if t.Space == ir.SpaceUniform || t.Space == ir.SpaceStorage {
+			policy = w.options.BoundsCheckPolicies.Buffer
+		}
+	}
+	if policy != BoundsCheckRestrict {
+		return index
+	}
+	length, err := ir.IndexableLengthOf(w.module, inner)
+	switch {
+	case err != nil:
+		return index
+	case length.Dynamic:
+		return fmt.Sprintf("min(uint(%s), uint(%s.length()) - 1u)", index, baseCode)
+	case isConst && k < length.Known:
+		return index
+	}
+	return fmt.Sprintf("min(uint(%s), %du)", index, length.Known-1)
 }
 
 // writeAccessIndex writes a constant-index access expression.
@@ -270,7 +320,8 @@ func (w *Writer) writeAccessIndex(a ir.ExprAccessIndex) (string, error) {
 	}
 
 	// For matrices, use column index notation.
-	return fmt.Sprintf("%s[%d]", base, a.Index), nil
+	index := w.restrictIndex(a.Base, base, fmt.Sprint(a.Index), a.Index, true)
+	return fmt.Sprintf("%s[%s]", base, index), nil
 }
 
 // isVectorBase returns true if the expression resolves to a Vector type (direct or through Pointer).
@@ -1198,6 +1249,9 @@ func (w *Writer) writeImageSample(s ir.ExprImageSample) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if w.isIntegerExpr(level.Level) {
+			levelExpr = "float(" + levelExpr + ")"
+		}
 		fmt.Fprintf(&b, ", %s", levelExpr)
 	case ir.SampleLevelBias:
 		// Bias goes AFTER offset (written below)
@@ -1247,6 +1301,9 @@ func (w *Writer) writeImageSample(s ir.ExprImageSample) (string, error) {
 	}
 
 	b.WriteString(")")
+	if w.isPlainDepth(s.Image) {
+		b.WriteString(".x")
+	}
 	return b.String(), nil
 }
 
@@ -1269,10 +1326,16 @@ func (w *Writer) getExprVectorSize(handle ir.ExpressionHandle) (int, bool) {
 	return 0, false
 }
 
-// resolveImageType resolves the image type from an expression handle.
+// resolveImageType resolves the image type from an expression handle: a
+// texture global, or a texture argument of the function.
 func (w *Writer) resolveImageType(exprHandle ir.ExpressionHandle) *ir.ImageType {
 	if w.currentFunction == nil {
 		return nil
+	}
+	if int(exprHandle) < len(w.currentFunction.ExpressionTypes) {
+		if t, ok := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[exprHandle], exprHandle).(ir.ImageType); ok {
+			return &t
+		}
 	}
 	gvHandle := w.resolveGlobalVarHandle(w.currentFunction, exprHandle)
 	if gvHandle == nil {
@@ -1362,14 +1425,19 @@ func (w *Writer) writeImageLoad(l ir.ExprImageLoad, handle ir.ExpressionHandle) 
 	// Determine coordinate vector size for ivecN constructors
 	coordVecSize := w.getCoordVectorSize(imgType, l.ArrayIndex != nil)
 
+	var load string
 	switch policy {
 	case BoundsCheckRestrict:
-		return w.writeImageLoadRestrict(l, handle, image, coordStr, coordVecSize, imgType)
+		load, err = w.writeImageLoadRestrict(l, handle, image, coordStr, coordVecSize, imgType)
 	case BoundsCheckReadZeroSkipWrite:
-		return w.writeImageLoadReadZero(l, image, coordStr, coordVecSize, imgType)
+		load, err = w.writeImageLoadReadZero(l, image, coordStr, coordVecSize, imgType)
 	default:
-		return w.writeImageLoadUnchecked(l, image, coordStr)
+		load, err = w.writeImageLoadUnchecked(l, image, coordStr)
 	}
+	if err == nil && w.isDepthImage(l.Image) {
+		load += ".x"
+	}
+	return load, err
 }
 
 // writeImageLoadUnchecked writes texelFetch without bounds checking.
