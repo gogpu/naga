@@ -116,6 +116,7 @@ func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module,
 		BindingMap:       convertBindingMap(opts.BindingMap),
 		ReachableGlobals: reachableGlobalsForEntry(irMod, &irMod.EntryPoints[0]),
 	}
+	emitOpts.DynamicOffsets = usedDynamicOffsets(irMod, emitOpts.ReachableGlobals, opts)
 	if t := opts.SpecialConstantsBinding; t != nil && entryUsesSpecialConstants(irMod, &irMod.EntryPoints[0]) {
 		emitOpts.SpecialConstants = &emit.BindTarget{Space: t.Space, Register: t.Register}
 	}
