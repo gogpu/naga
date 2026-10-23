@@ -209,10 +209,12 @@ func TestWrappedDivI32(t *testing.T) {
 }
 
 // =============================================================================
-// Test: i32 modulo generates wrapper with OpSRem (not OpSMod)
+// Test: i32 modulo generates a wrapper computing lhs - (lhs / rhs) * rhs
 // =============================================================================
 
-func TestWrappedModI32UsesOpSRem(t *testing.T) {
+// OpSRem is undefined for negative operands in the Vulkan environment without
+// VK_KHR_maintenance8, so the wrapper avoids it (Rust naga, gfx-rs/wgpu#8191).
+func TestWrappedModI32AvoidsOpSRem(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
@@ -240,9 +242,13 @@ func TestWrappedModI32UsesOpSRem(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	// Should have OpSRem (Rust uses SRem for signed modulo, not SMod)
-	if !divmodHasOpcode(spvBytes, OpSRem) {
-		t.Error("signed modulo wrapper should use OpSRem, not OpSMod")
+	if divmodHasOpcode(spvBytes, OpSRem) || divmodHasOpcode(spvBytes, OpSMod) {
+		t.Error("signed modulo wrapper must not use OpSRem or OpSMod")
+	}
+	for name, op := range map[string]OpCode{"OpSDiv": OpSDiv, "OpIMul": OpIMul, "OpISub": OpISub} {
+		if !divmodHasOpcode(spvBytes, op) {
+			t.Errorf("signed modulo wrapper has no %s (lhs - (lhs / rhs) * rhs)", name)
+		}
 	}
 }
 
