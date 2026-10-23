@@ -165,6 +165,15 @@ func convertBindingMap(m BindingMap) emit.BindingMap {
 	return out
 }
 
+// convertBindTarget converts the space and register of a public BindTarget
+// to the internal emit mirror. Returns nil when t is nil.
+func convertBindTarget(t *BindTarget) *emit.BindTarget {
+	if t == nil {
+		return nil
+	}
+	return &emit.BindTarget{Space: t.Space, Register: t.Register}
+}
+
 // convertSamplerHeapTargets converts the public SamplerHeapBindTargets to
 // the internal emit mirror. Returns nil when the input is nil, preserving
 // the backward-compatible default behavior downstream.
@@ -310,9 +319,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		return nil, inlineErr
 	}
 	ep = &irModule.EntryPoints[0]
-	if opts.FragmentEntryPoint != nil && ep.Stage == ir.StageVertex {
-		unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
-	}
+	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
 	// Run mem2reg + DCE, mirroring the DXC pipeline order
 	// (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE).
 	if err := runOptPasses(irModule); err != nil {
@@ -358,10 +365,8 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		}
 	}
 
-	var special *BindTarget
-	if opts.SpecialConstantsBinding != nil && entryUsesSpecialConstants(irModule, ep) {
-		special = opts.SpecialConstantsBinding
-	}
+	special := specialConstantsTarget(irModule, ep, opts)
+	dynamicOffsets := usedDynamicOffsets(irModule, reachableGlobals, opts)
 
 	// Step 1: Emit naga IR -> DXIL module.
 	emitOpts := emit.EmitOptions{
@@ -372,12 +377,9 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		SamplerBufferBindingMap: convertSamplerBufferBindingMap(opts.SamplerBufferBindingMap),
 		ReachableGlobals:        reachableGlobals,
 		InputUsedMasks:          inputUsedMasks,
+		SpecialConstants:        convertBindTarget(special),
+		DynamicOffsets:          dynamicOffsets,
 	}
-	if special != nil {
-		emitOpts.SpecialConstants = &emit.BindTarget{Space: special.Space, Register: special.Register}
-	}
-	dynamicOffsets := usedDynamicOffsets(irModule, reachableGlobals, opts)
-	emitOpts.DynamicOffsets = dynamicOffsets
 	mod, bitcodeShaderFlags, err := emit.EmitWithFlags(irModule, emitOpts)
 	if err != nil {
 		return nil, fmt.Errorf("dxil: emit: %w", err)
@@ -458,12 +460,13 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	return containerData, nil
 }
 
-// unbindUnreadOutputs takes the bindings off the members of the vertex
-// stage's result at locations frag doesn't read, in the module's own copy, so
-// they are neither written nor part of the output signature: the HLSL writer
+// unbindUnreadOutputs takes the bindings off the members of a vertex stage's
+// result at locations frag doesn't read, in the module's own copy, so they
+// are neither written nor part of the output signature: the HLSL writer
 // leaves them out of its output struct (Rust naga's write_ep_output_struct).
+// Without frag, or for another stage, it changes nothing.
 func unbindUnreadOutputs(irModule *ir.Module, ep *ir.EntryPoint, frag *FragmentEntryPoint) {
-	if ep.Function.Result == nil {
+	if frag == nil || ep.Stage != ir.StageVertex || ep.Function.Result == nil {
 		return
 	}
 	st, ok := irModule.Types[ep.Function.Result.Type].Inner.(ir.StructType)
@@ -2040,6 +2043,15 @@ func insertAfterCBVs(bindings []container.PSVResourceBinding, b container.PSVRes
 		i++
 	}
 	return slices.Insert(bindings, i, b)
+}
+
+// specialConstantsTarget is the binding of the special constants the entry
+// point reads, or nil when it reads none or opts gives no binding.
+func specialConstantsTarget(irMod *ir.Module, ep *ir.EntryPoint, opts Options) *BindTarget {
+	if opts.SpecialConstantsBinding != nil && entryUsesSpecialConstants(irMod, ep) {
+		return opts.SpecialConstantsBinding
+	}
+	return nil
 }
 
 // entryUsesSpecialConstants reports whether the entry point has an input the

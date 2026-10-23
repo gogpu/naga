@@ -38,6 +38,10 @@ var dxcClassPriority = [4]int{
 // dx.op function name for resource handle creation.
 const dxOpCreateHandleName = "dx.op.createHandle"
 
+// noIRHandle is the type and global variable handle of a synthetic resource:
+// past every arena, also as an int on 32-bit targets.
+const noIRHandle = math.MaxInt32
+
 // DXIL resource classes (matches DXIL spec D3D12_SHADER_INPUT_BIND_DESC).
 const (
 	resourceClassSRV     uint8 = 0
@@ -180,35 +184,6 @@ func (e *Emitter) analyzeResources() {
 			}
 		}
 
-		// Apply caller-supplied binding remap, if any. Bindings not
-		// present in the map keep their raw WGSL numbers. See
-		// EmitOptions.BindingMap (and dxil.Options.BindingMap) for
-		// rationale — wgpu/hal/dx12 uses monotonic per-class register
-		// counters that do not match raw @group/@binding numbers.
-		//
-		// When the map supplies BindingArraySize for an IR-unbounded
-		// binding_array, use it as the concrete range size. DXIL PSV0
-		// and bitcode resource metadata MUST agree on the size or the
-		// validator trips 'ResourceBindInfo mismatch'; unbounded stays
-		// as the fallback when no override is present.
-		grp := gv.Binding.Group
-		bnd := gv.Binding.Binding
-		var restrictIndexing bool
-		var dynamicOffset *dynamicOffsetRef
-		if e.opts.BindingMap != nil {
-			if tgt, ok := e.opts.BindingMap[BindingLocation{Group: grp, Binding: bnd}]; ok {
-				if tgt.DynamicStorageBufferOffsetsIndex != nil && gv.Space == ir.SpaceStorage {
-					dynamicOffset = &dynamicOffsetRef{group: grp, index: *tgt.DynamicStorageBufferOffsetsIndex}
-				}
-				grp = tgt.Space
-				bnd = tgt.Register
-				restrictIndexing = tgt.RestrictIndexing
-				if isBA && baSize == 0 && tgt.BindingArraySize != nil {
-					baSize = *tgt.BindingArraySize
-				}
-			}
-		}
-
 		// Apply the HLSL namer suffix convention: names that end
 		// with a digit or match an HLSL keyword get a trailing
 		// underscore. DXC reads the resource name from dx.resources
@@ -225,16 +200,14 @@ func (e *Emitter) analyzeResources() {
 			name:           resName,
 			class:          class,
 			rangeID:        rangeID,
-			group:          grp,
-			binding:        bnd,
+			group:          gv.Binding.Group,
+			binding:        gv.Binding.Binding,
 			typeHandle:     gv.Type,
 			handleID:       -1,
 			isBindingArray: isBA,
 			arraySize:      baSize,
-
-			restrictIndexing: restrictIndexing,
-			dynamicOffset:    dynamicOffset,
 		}
+		e.applyBindingMap(&info, gv.Space)
 
 		e.resourceHandles[info.varHandle] = len(e.resources)
 		e.resources = append(e.resources, info)
@@ -243,7 +216,39 @@ func (e *Emitter) analyzeResources() {
 	// After the main loop: synthesize the sampler array heap entries.
 	// Index buffer SRVs were already prepended above.
 	e.appendSamplerHeapSamplers(&rangeCounters)
+	e.appendRootConstantBuffers(&rangeCounters)
+}
 
+// applyBindingMap moves info from its WGSL group and binding to the register
+// the caller's binding map gives them, if any, with the map's indexing and
+// dynamic offset options. See EmitOptions.BindingMap (and
+// dxil.Options.BindingMap) for rationale — wgpu/hal/dx12 uses monotonic
+// per-class register counters that do not match raw @group/@binding numbers.
+//
+// When the map supplies BindingArraySize for an IR-unbounded binding_array,
+// it is the concrete range size. DXIL PSV0 and bitcode resource metadata MUST
+// agree on the size or the validator trips 'ResourceBindInfo mismatch';
+// unbounded stays as the fallback when no override is present.
+func (e *Emitter) applyBindingMap(info *resourceInfo, space ir.AddressSpace) {
+	tgt, ok := e.opts.BindingMap[BindingLocation{Group: info.group, Binding: info.binding}]
+	if !ok {
+		return
+	}
+	if tgt.DynamicStorageBufferOffsetsIndex != nil && space == ir.SpaceStorage {
+		info.dynamicOffset = &dynamicOffsetRef{group: info.group, index: *tgt.DynamicStorageBufferOffsetsIndex}
+	}
+	info.group = tgt.Space
+	info.binding = tgt.Register
+	info.restrictIndexing = tgt.RestrictIndexing
+	if info.isBindingArray && info.arraySize == 0 && tgt.BindingArraySize != nil {
+		info.arraySize = *tgt.BindingArraySize
+	}
+}
+
+// appendRootConstantBuffers declares the constant buffers of root constants
+// that have no IR global behind them, after the shader's own: the dynamic
+// offsets of each bind group's storage buffers, then the special constants.
+func (e *Emitter) appendRootConstantBuffers(rangeCounters *[4]int) {
 	for _, b := range e.opts.DynamicOffsets {
 		e.resources = append(e.resources, resourceInfo{
 			name:       fmt.Sprintf("__dynamic_buffer_offsets%d", b.Group),
@@ -251,7 +256,7 @@ func (e *Emitter) analyzeResources() {
 			rangeID:    rangeCounters[resourceClassCBV],
 			group:      b.Space,
 			binding:    b.Register,
-			typeHandle: ir.TypeHandle(len(e.ir.Types)),
+			typeHandle: ir.TypeHandle(noIRHandle),
 			handleID:   -1,
 			words:      b.Size,
 		})
@@ -264,7 +269,7 @@ func (e *Emitter) analyzeResources() {
 			rangeID:          rangeCounters[resourceClassCBV],
 			group:            t.Space,
 			binding:          t.Register,
-			typeHandle:       ir.TypeHandle(len(e.ir.Types)),
+			typeHandle:       ir.TypeHandle(noIRHandle),
 			handleID:         -1,
 			specialConstants: true,
 			words:            3,
@@ -2514,83 +2519,99 @@ type cbvDynamicIndex struct {
 // Reference: Mesa nir_to_dxil.c emit_load_ubo_vec4() — offset is passed as
 // register index (byte_offset / 16).
 func (e *Emitter) resolveCBVPointerChain(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*cbvPointerChain, bool) {
-	type step struct {
-		index   uint32
-		dynamic bool
-		expr    ir.ExpressionHandle
-	}
-	var steps []step // tip first
-	handle := ptrHandle
-	for {
-		if int(handle) >= len(fn.Expressions) {
-			return nil, false
-		}
-		switch ek := fn.Expressions[handle].Kind.(type) {
-		case ir.ExprAccessIndex:
-			steps = append(steps, step{index: ek.Index})
-			handle = ek.Base
-			continue
-		case ir.ExprAccess:
-			steps = append(steps, step{dynamic: true, expr: ek.Index})
-			handle = ek.Base
-			continue
-		case ir.ExprGlobalVariable:
-			idx, found := e.resourceHandles[ek.Variable]
-			if !found || e.resources[idx].class != resourceClassCBV || int(ek.Variable) >= len(e.ir.GlobalVariables) {
-				return nil, false
-			}
-			chain := &cbvPointerChain{varHandle: ek.Variable}
-			current := e.ir.Types[e.ir.GlobalVariables[ek.Variable].Type].Inner
-			for i := len(steps) - 1; i >= 0; i-- {
-				st := steps[i]
-				switch ct := current.(type) {
-				case ir.StructType:
-					if st.dynamic || int(st.index) >= len(ct.Members) {
-						return nil, false
-					}
-					chain.byteOffset += ct.Members[st.index].Offset
-					current = e.ir.Types[ct.Members[st.index].Type].Inner
-				case ir.ArrayType:
-					if st.dynamic {
-						var length uint32
-						if ct.Size.Constant != nil {
-							length = *ct.Size.Constant
-						}
-						chain.dynamic = append(chain.dynamic, cbvDynamicIndex{expr: st.expr, stride: ct.Stride, length: length})
-					} else {
-						chain.byteOffset += st.index * ct.Stride
-					}
-					current = e.ir.Types[ct.Base].Inner
-				case ir.VectorType:
-					if st.dynamic {
-						return nil, false
-					}
-					chain.byteOffset += st.index * uint32(ct.Scalar.Width)
-					current = ct.Scalar
-				case ir.MatrixType:
-					// One 16-byte register per column, as emitCBVMatrixLoad reads them.
-					colStride := (uint32(ct.Rows)*uint32(ct.Scalar.Width) + 15) &^ 15
-					if st.dynamic {
-						chain.dynamic = append(chain.dynamic, cbvDynamicIndex{expr: st.expr, stride: colStride, length: uint32(ct.Columns)})
-					} else {
-						chain.byteOffset += st.index * colStride
-					}
-					current = ir.VectorType{Size: ct.Rows, Scalar: ct.Scalar}
-				default:
-					return nil, false
-				}
-			}
-			chain.fieldType = current
-			scalar, ok := scalarOfType(current)
-			if !ok {
-				// Default to f32 for struct types that we'll flatten.
-				scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-			}
-			chain.scalar = scalar
-			return chain, true
-		}
+	global, steps, ok := cbvChainSteps(fn, ptrHandle)
+	if !ok {
 		return nil, false
 	}
+	idx, found := e.resourceHandles[global]
+	if !found || e.resources[idx].class != resourceClassCBV || int(global) >= len(e.ir.GlobalVariables) {
+		return nil, false
+	}
+	chain := &cbvPointerChain{varHandle: global}
+	current := e.ir.Types[e.ir.GlobalVariables[global].Type].Inner
+	for i := len(steps) - 1; i >= 0; i-- {
+		if current, ok = e.applyCBVStep(chain, current, steps[i]); !ok {
+			return nil, false
+		}
+	}
+	chain.fieldType = current
+	scalar, ok := scalarOfType(current)
+	if !ok {
+		// Default to f32 for struct types that we'll flatten.
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	chain.scalar = scalar
+	return chain, true
+}
+
+// cbvStep is one index of a pointer chain: a constant index, or the
+// expression of a run-time one.
+type cbvStep struct {
+	index   uint32
+	dynamic bool
+	expr    ir.ExpressionHandle
+}
+
+// cbvChainSteps follows Access and AccessIndex expressions from handle down
+// to a global variable and returns it with the indices, tip first.
+func cbvChainSteps(fn *ir.Function, handle ir.ExpressionHandle) (ir.GlobalVariableHandle, []cbvStep, bool) {
+	var steps []cbvStep
+	for int(handle) < len(fn.Expressions) {
+		switch ek := fn.Expressions[handle].Kind.(type) {
+		case ir.ExprAccessIndex:
+			steps = append(steps, cbvStep{index: ek.Index})
+			handle = ek.Base
+		case ir.ExprAccess:
+			steps = append(steps, cbvStep{dynamic: true, expr: ek.Index})
+			handle = ek.Base
+		case ir.ExprGlobalVariable:
+			return ek.Variable, steps, true
+		default:
+			return 0, nil, false
+		}
+	}
+	return 0, nil, false
+}
+
+// applyCBVStep adds the offset of one index into current to chain, or the
+// index itself when it is a run-time one, and returns the type it selects;
+// false when the index can't be resolved.
+func (e *Emitter) applyCBVStep(chain *cbvPointerChain, current ir.TypeInner, st cbvStep) (ir.TypeInner, bool) {
+	switch ct := current.(type) {
+	case ir.StructType:
+		if st.dynamic || int(st.index) >= len(ct.Members) {
+			return nil, false
+		}
+		chain.byteOffset += ct.Members[st.index].Offset
+		return e.ir.Types[ct.Members[st.index].Type].Inner, true
+	case ir.ArrayType:
+		if st.dynamic {
+			var length uint32
+			if ct.Size.Constant != nil {
+				length = *ct.Size.Constant
+			}
+			chain.dynamic = append(chain.dynamic, cbvDynamicIndex{expr: st.expr, stride: ct.Stride, length: length})
+		} else {
+			chain.byteOffset += st.index * ct.Stride
+		}
+		return e.ir.Types[ct.Base].Inner, true
+	case ir.VectorType:
+		if st.dynamic {
+			return nil, false
+		}
+		chain.byteOffset += st.index * uint32(ct.Scalar.Width)
+		return ct.Scalar, true
+	case ir.MatrixType:
+		// One 16-byte register per column, as emitCBVMatrixLoad reads them.
+		colStride := (uint32(ct.Rows)*uint32(ct.Scalar.Width) + 15) &^ 15
+		if st.dynamic {
+			chain.dynamic = append(chain.dynamic, cbvDynamicIndex{expr: st.expr, stride: colStride, length: uint32(ct.Columns)})
+		} else {
+			chain.byteOffset += st.index * colStride
+		}
+		return ir.VectorType{Size: ct.Rows, Scalar: ct.Scalar}, true
+	}
+	return nil, false
 }
 
 // cbvRegister returns the register a CBV chain's field starts in, offset by
