@@ -229,6 +229,7 @@ var reservedWords = map[string]struct{}{
 	"_naga_int_dot":         {},
 	"_mslBufferSizes":       {},
 	"_buffer_sizes":         {},
+	"_frag_depth_range":     {},
 
 	// Metal Shading Language Specification: 1.4.4 Restrictions
 	"main": {},
