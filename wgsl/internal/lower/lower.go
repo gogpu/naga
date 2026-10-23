@@ -7008,66 +7008,33 @@ func (l *Lowerer) evalGatherComponent(expr parser.Expr) (ir.SwizzleComponent, er
 
 // isTextureArrayed checks if a texture expression refers to an arrayed image type.
 func (l *Lowerer) isTextureArrayed(expr parser.Expr) bool {
-	ident, ok := expr.(*parser.Ident)
-	if !ok {
-		return false
-	}
-	for _, gv := range l.module.GlobalVariables {
-		if gv.Name == ident.Name {
-			if int(gv.Type) < len(l.module.Types) {
-				if img, ok := l.module.Types[gv.Type].Inner.(ir.ImageType); ok {
-					return img.Arrayed
-				}
-			}
-			return false
-		}
-	}
-	return false
+	img, ok := l.getTextureImageType(expr)
+	return ok && img.Arrayed
 }
 
 // isTextureDepth checks if a texture expression refers to a depth image type.
 func (l *Lowerer) isTextureDepth(expr parser.Expr) bool {
-	ident, ok := expr.(*parser.Ident)
-	if !ok {
-		return false
-	}
-	for _, gv := range l.module.GlobalVariables {
-		if gv.Name == ident.Name {
-			if int(gv.Type) < len(l.module.Types) {
-				if img, ok := l.module.Types[gv.Type].Inner.(ir.ImageType); ok {
-					return img.Class == ir.ImageClassDepth
-				}
-			}
-			return false
-		}
-	}
-	return false
+	img, ok := l.getTextureImageType(expr)
+	return ok && img.Class == ir.ImageClassDepth
 }
 
 // isTextureMultisampled checks if a texture expression refers to a multisampled image type.
 func (l *Lowerer) isTextureMultisampled(expr parser.Expr) bool {
-	ident, ok := expr.(*parser.Ident)
-	if !ok {
-		return false
-	}
-	for _, gv := range l.module.GlobalVariables {
-		if gv.Name == ident.Name {
-			if int(gv.Type) < len(l.module.Types) {
-				if img, ok := l.module.Types[gv.Type].Inner.(ir.ImageType); ok {
-					return img.Multisampled
-				}
-			}
-			return false
-		}
-	}
-	return false
+	img, ok := l.getTextureImageType(expr)
+	return ok && img.Multisampled
 }
 
-// getTextureImageType retrieves the ImageType for a texture expression, if available.
+// getTextureImageType retrieves the ImageType of the texture an identifier
+// names: an argument or another local of the function, which shadows a
+// global of the same name, or a global.
 func (l *Lowerer) getTextureImageType(expr parser.Expr) (ir.ImageType, bool) {
 	ident, ok := expr.(*parser.Ident)
 	if !ok {
 		return ir.ImageType{}, false
+	}
+	if handle, ok := l.locals[ident.Name]; ok {
+		img, ok := l.resolveExprTypeInner(handle).(ir.ImageType)
+		return img, ok
 	}
 	for _, gv := range l.module.GlobalVariables {
 		if gv.Name == ident.Name {
