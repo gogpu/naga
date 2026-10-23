@@ -57,8 +57,9 @@ func Run(mod *ir.Module, fn *ir.Function) {
 	// live. The initial mark pass skips local stores because they're
 	// not roots. But if the local itself is live (has a live load),
 	// the stored value must also be live so its emit range is preserved.
-	markLiveLocalStoreValues(fn, live, deadLocals)
-
+	// A value stored into one local can load another, which is live
+	// then too, so this runs until no more locals come alive.
+	//
 	// Phase 2b-fixup: after local-store propagation, some ExprCallResult
 	// handles may have become live through local store chains. Retroactively
 	// mark the arguments of those calls so the sweep keeps them.
@@ -70,7 +71,15 @@ func Run(mod *ir.Module, fn *ir.Function) {
 		live[h] = true
 		visitExprHandles(fn.Expressions[h].Kind, mark)
 	}
-	propagateCallResultLiveness(fn.Body, live, mark)
+	for {
+		markLiveLocalStoreValues(fn, live, deadLocals)
+		propagateCallResultLiveness(fn.Body, live, mark)
+		next := findDeadLocals(fn, live)
+		if len(next) == len(deadLocals) {
+			break
+		}
+		deadLocals = next
+	}
 
 	// Phase 2c: unmark control-flow conditions whose sub-blocks
 	// contain no live content. After phases 1-2b, the live array
