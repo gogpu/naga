@@ -1070,12 +1070,12 @@ var rustVertexFormats = map[string]msl.VertexFormat{
 	"sint32x3": msl.VertexFormatSint32x3, "sint32x4": msl.VertexFormatSint32x4,
 	"unorm10-10-10-2": msl.VertexFormatUnorm10_10_10_2,
 	"unorm8x4-bgra":   msl.VertexFormatUnorm8x4Bgra,
+	"snorm10-10-10-2": msl.VertexFormatSnorm10_10_10_2,
 }
 
 // rustVertexFormatsUnsupported are Rust formats msl.VertexFormat lacks.
 var rustVertexFormatsUnsupported = map[string]bool{
 	"float64": true, "float64x2": true, "float64x3": true, "float64x4": true,
-	"snorm10-10-10-2": true,
 }
 
 // parseVertexFormat converts a TOML format name (Rust's serialized

@@ -279,6 +279,7 @@ const (
 	VertexFormatSint32x4        VertexFormat = 38
 	VertexFormatUnorm10_10_10_2 VertexFormat = 43
 	VertexFormatUnorm8x4Bgra    VertexFormat = 44
+	VertexFormatSnorm10_10_10_2 VertexFormat = 45
 )
 
 // VertexBufferStepMode defines how to advance the data in vertex buffers.
