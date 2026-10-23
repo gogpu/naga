@@ -379,7 +379,11 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 	// pointer that is actually i32*), and the validator would reject the
 	// chain with "Explicit gep type does not match pointee type".
 	if id, handled := e.tryFlatGEPLocalVarNested(fn, ai.Base, e.getIntConstID(int64(ai.Index))); handled {
-		e.exprValues[ai.Base] = id // pre-populate so any later ai.Base read returns this
+		// An intermediate access reads as the element so nothing emits it;
+		// the variable itself stays the alloca its other accesses index.
+		if _, isVar := fn.Expressions[ai.Base].Kind.(ir.ExprLocalVariable); !isVar {
+			e.exprValues[ai.Base] = id
+		}
 		return id, nil
 	}
 
