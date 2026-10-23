@@ -67,6 +67,20 @@ var glslKeywords = map[string]struct{}{
 	"uimageCubeArray": {},
 	"uimageBuffer":    {}, "uimage2DMS": {}, "uimage2DMSArray": {},
 
+	// Texture and subpass input types of GLSL for Vulkan
+	"texture1D": {}, "texture1DArray": {}, "texture2D": {}, "texture2DArray": {},
+	"texture2DMS": {}, "texture2DMSArray": {}, "texture2DRect": {}, "texture3D": {},
+	"textureBuffer": {}, "textureCube": {}, "textureCubeArray": {},
+	"itexture1D": {}, "itexture1DArray": {}, "itexture2D": {}, "itexture2DArray": {},
+	"itexture2DMS": {}, "itexture2DMSArray": {}, "itexture2DRect": {}, "itexture3D": {},
+	"itextureBuffer": {}, "itextureCube": {}, "itextureCubeArray": {},
+	"utexture1D": {}, "utexture1DArray": {}, "utexture2D": {}, "utexture2DArray": {},
+	"utexture2DMS": {}, "utexture2DMSArray": {}, "utexture2DRect": {}, "utexture3D": {},
+	"utextureBuffer": {}, "utextureCube": {}, "utextureCubeArray": {},
+	"samplerShadow": {},
+	"subpassInput":  {}, "subpassInputMS": {}, "isubpassInput": {}, "isubpassInputMS": {},
+	"usubpassInput": {}, "usubpassInputMS": {},
+
 	// Atomic counter types
 	"atomic_uint": {},
 
@@ -97,43 +111,11 @@ var glslKeywords = map[string]struct{}{
 	"input": {}, "output": {},
 	"hvec2": {}, "hvec3": {}, "hvec4": {}, "fvec2": {}, "fvec3": {}, "fvec4": {},
 	"sampler3DRect": {},
-	"filter":        {},
-	"sizeof":        {}, "cast": {},
+	"image1DShadow": {}, "image2DShadow": {}, "image1DArrayShadow": {}, "image2DArrayShadow": {},
+	"packed": {}, "row_major": {},
+	"filter": {},
+	"sizeof": {}, "cast": {},
 	"namespace": {}, "using": {},
-
-	// Built-in variables (vertex)
-	"gl_VertexID": {}, "gl_InstanceID": {},
-	"gl_Position": {}, "gl_PointSize": {}, "gl_ClipDistance": {}, "gl_CullDistance": {},
-	"gl_PerVertex": {},
-
-	// Built-in variables (fragment)
-	"gl_FragCoord": {}, "gl_FrontFacing": {}, "gl_PointCoord": {},
-	"gl_SampleID": {}, "gl_SamplePosition": {}, "gl_SampleMaskIn": {},
-	"gl_FragDepth": {}, "gl_SampleMask": {},
-	"gl_Layer": {}, "gl_ViewportIndex": {},
-	"gl_HelperInvocation": {},
-
-	// Built-in variables (compute)
-	"gl_NumWorkGroups": {}, "gl_WorkGroupSize": {}, "gl_WorkGroupID": {},
-	"gl_LocalInvocationID": {}, "gl_GlobalInvocationID": {}, "gl_LocalInvocationIndex": {},
-
-	// Built-in variables (tessellation)
-	"gl_PatchVerticesIn": {}, "gl_PrimitiveID": {}, "gl_InvocationID": {},
-	"gl_TessLevelOuter": {}, "gl_TessLevelInner": {}, "gl_TessCoord": {},
-
-	// Built-in variables (geometry)
-	"gl_PrimitiveIDIn": {},
-
-	// Built-in constants
-	"gl_MaxVertexAttribs": {}, "gl_MaxVertexUniformVectors": {},
-	"gl_MaxVaryingVectors": {}, "gl_MaxVertexTextureImageUnits": {},
-	"gl_MaxCombinedTextureImageUnits": {}, "gl_MaxTextureImageUnits": {},
-	"gl_MaxFragmentUniformVectors": {}, "gl_MaxDrawBuffers": {},
-	"gl_MaxClipDistances": {}, "gl_MaxCullDistances": {},
-	"gl_MaxComputeWorkGroupCount": {}, "gl_MaxComputeWorkGroupSize": {},
-	"gl_MaxComputeUniformComponents": {}, "gl_MaxComputeTextureImageUnits": {},
-	"gl_MaxComputeImageUniforms": {}, "gl_MaxComputeAtomicCounters": {},
-	"gl_MaxComputeAtomicCounterBuffers": {},
 
 	// Built-in functions (commonly used as identifiers)
 	"main":    {},
@@ -179,7 +161,20 @@ var glslKeywords = map[string]struct{}{
 	"atomicCounterCompSwap": {},
 	"atomicAdd":             {}, "atomicMin": {}, "atomicMax": {}, "atomicAnd": {}, "atomicOr": {}, "atomicXor": {},
 	"atomicExchange": {}, "atomicCompSwap": {},
-	"subpassLoad": {},
+	"subpassLoad":   {},
+	"anyInvocation": {}, "allInvocations": {}, "allInvocationsEqual": {},
+
+	// Built-in functions of the compatibility profile
+	"ftransform":   {},
+	"texture1DLod": {}, "texture1DProj": {}, "texture1DProjLod": {},
+	"texture2DLod": {}, "texture2DProj": {}, "texture2DProjLod": {},
+	"texture3DLod": {}, "texture3DProj": {}, "texture3DProjLod": {},
+	"textureCubeLod": {},
+	"shadow1D":       {}, "shadow1DLod": {}, "shadow1DProj": {}, "shadow1DProjLod": {},
+	"shadow2D": {}, "shadow2DLod": {}, "shadow2DProj": {}, "shadow2DProjLod": {},
+
+	// Functions and uniforms the writer declares.
+	"naga_modf": {}, "naga_frexp": {}, "naga_vs_first_instance": {},
 }
 
 // isKeyword checks if a name is a GLSL keyword or reserved word.
