@@ -582,7 +582,7 @@ func (w *Writer) writeDirectReturn(ret ir.StmtReturn) error {
 	switch b := (*w.entryPointResult.Binding).(type) {
 	case ir.BuiltinBinding:
 		outputName := glslBuiltIn(b.Builtin, true)
-		w.WriteLine("%s = %s;", outputName, value)
+		w.WriteLine("%s = %s;", outputName, w.outputValue(w.entryPointResult.Binding, value))
 		// For vertex position output, add coordinate space adjustment and point size
 		if b.Builtin == ir.BuiltinPosition {
 			if w.options.WriterFlags&WriterFlagAdjustCoordinateSpace != 0 {
@@ -631,7 +631,7 @@ func (w *Writer) writeStructReturn(ret ir.StmtReturn, info *epStructInfo) error 
 							break
 						}
 						memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(info.structType), handle2: uint32(memberIdx)}]
-						w.WriteLine("%s = %s.%s;", memberInfo.glslName, tmpName, memberName)
+						w.WriteLine("%s = %s;", memberInfo.glslName, w.outputValue(st.Members[memberIdx].Binding, tmpName+"."+memberName))
 					}
 				}
 			}
@@ -654,7 +654,7 @@ func (w *Writer) writeStructReturn(ret ir.StmtReturn, info *epStructInfo) error 
 					break
 				}
 				memberName := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(info.structType), handle2: uint32(memberIdx)}]
-				w.WriteLine("%s = %s.%s;", memberInfo.glslName, value, memberName)
+				w.WriteLine("%s = %s;", memberInfo.glslName, w.outputValue(st.Members[memberIdx].Binding, value+"."+memberName))
 			}
 			w.writeCoordinateAdjustIfNeeded(info)
 			w.WriteLine("return;")

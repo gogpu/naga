@@ -72,6 +72,9 @@ type Writer struct {
 	// Entry point context
 	inEntryPoint     bool
 	entryPointResult *ir.FunctionResult
+	// clampFragDepth is set when the entry point clamps the frag_depth it
+	// returns (Options.ClampFragDepth).
+	clampFragDepth bool
 
 	// Entry point struct IO flattening.
 	// Maps argument index to the flattened struct member info.
@@ -316,6 +319,7 @@ func (w *Writer) writeModule() error {
 
 	// 2b2. Write first instance uniform for vertex shaders using InstanceIndex
 	w.writeFirstInstanceBinding()
+	w.writeFragDepthRangeUniform()
 
 	// 2c. Write early depth test layout (fragment shaders)
 	w.writeEarlyDepthTest()
