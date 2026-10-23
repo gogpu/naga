@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -71,5 +72,53 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 		if tm.SamplerBinding == nil || *tm.SamplerBinding != sampler {
 			t.Errorf("%s: sampler binding %v, want %v", name, tm.SamplerBinding, sampler)
 		}
+	}
+}
+
+// A GL texture unit holds one sampler object, so a texture sampled with two
+// samplers, directly or through a helper, is an error, as in Rust naga. It
+// was declared a second time as a combined uniform named texture_sampler,
+// without a binding, and the GL backend kept whichever sampler it mapped
+// last for the texture's unit.
+func TestTextureWithTwoSamplersIsAnError(t *testing.T) {
+	for name, body := range map[string]string{
+		"direct": `return textureSample(t, clamp, uv) + textureSample(t, repeat, uv);`,
+		"helper": `return fetch(t, clamp, uv) + textureSample(t, repeat, uv);`,
+	} {
+		module := lowerWGSL(t, `
+@group(0) @binding(0) var t: texture_2d<f32>;
+@group(0) @binding(1) var clamp: sampler;
+@group(0) @binding(2) var repeat: sampler;
+
+fn fetch(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(tex, smp, uv);
+}
+
+@fragment
+fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    `+body+`
+}
+`)
+		_, _, err := Compile(module, Options{LangVersion: Version330})
+		if err == nil || !strings.Contains(err.Error(), "two samplers") {
+			t.Errorf("%s: err = %v, want the two samplers error", name, err)
+		}
+	}
+
+	module := lowerWGSL(t, `
+@group(0) @binding(0) var t: texture_2d<f32>;
+@group(0) @binding(1) var s: sampler;
+
+fn fetch(tex: texture_2d<f32>, smp: sampler, uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(tex, smp, uv);
+}
+
+@fragment
+fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    return fetch(t, s, uv) + textureSample(t, s, uv * 2.0);
+}
+`)
+	if _, _, err := Compile(module, Options{LangVersion: Version330}); err != nil {
+		t.Errorf("one texture with one sampler in two places: %v", err)
 	}
 }
