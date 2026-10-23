@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/internal/consteval"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -1281,13 +1282,13 @@ func (e *Emitter) emitZeroValueElement(zv ir.ExprZeroValue, _ ir.ExprAccess) (in
 	switch t := elemInner.(type) {
 	case ir.ScalarType:
 		if t.Kind == ir.ScalarFloat {
-			return e.getFloatConstID(0.0), nil
+			return e.floatConstFor(t, 0.0), nil
 		}
 		return e.getIntConstID(0), nil
 	case ir.VectorType:
 		var zeroID int
 		if t.Scalar.Kind == ir.ScalarFloat {
-			zeroID = e.getFloatConstID(0.0)
+			zeroID = e.floatConstFor(t.Scalar, 0.0)
 		} else {
 			zeroID = e.getIntConstID(0)
 		}
@@ -1799,9 +1800,9 @@ func (e *Emitter) tryFoldNumericCast(c *module.Constant, src, dst ir.ScalarType)
 	if isIntegerKind(src.Kind) && dst.Kind == ir.ScalarFloat {
 		// int -> float: evaluate the cast
 		if src.Kind == ir.ScalarSint {
-			return e.getFloatConstID(float64(c.IntValue)), true
+			return e.floatConstFor(dst, float64(c.IntValue)), true
 		}
-		return e.getFloatConstID(float64(uint64(c.IntValue))), true //nolint:gosec // unsigned conversion
+		return e.floatConstFor(dst, float64(uint64(c.IntValue))), true //nolint:gosec // unsigned conversion
 	}
 	if src.Kind == ir.ScalarFloat && isIntegerKind(dst.Kind) {
 		// float -> int: evaluate the cast (truncation toward zero)
@@ -1836,6 +1837,9 @@ func (e *Emitter) tryFoldFloatBinOp(op ir.BinaryOperator, lhs, rhs int) (int, bo
 	if !rok || rc.IsUndef || rc.ConstType == nil || rc.ConstType.Kind != module.TypeFloat {
 		return 0, false
 	}
+	if lc.ConstType.FloatBits != rc.ConstType.FloatBits {
+		return 0, false
+	}
 	lv := lc.FloatValue
 	rv := rc.FloatValue
 	var result float64
@@ -1853,6 +1857,18 @@ func (e *Emitter) tryFoldFloatBinOp(op ir.BinaryOperator, lhs, rhs int) (int, bo
 		result = lv / rv
 	default:
 		return 0, false
+	}
+	// The result has the operands' type, rounded as the operation rounds;
+	// one beyond the f16 range is left to the operation.
+	switch lc.ConstType.FloatBits {
+	case 16:
+		r, ok := consteval.RoundF16(result)
+		if !ok {
+			return 0, false
+		}
+		return e.addFloatConstID(lc.ConstType, float64(r)), true
+	case 64:
+		return e.addFloatConstID(lc.ConstType, result), true
 	}
 	return e.getFloatConstID(result), true
 }
@@ -2759,7 +2775,8 @@ func (e *Emitter) emitUnary(fn *ir.Function, un ir.ExprUnary) (int, error) {
 	case ir.UnaryNegate:
 		if isFloat {
 			// fneg = fsub -0.0, operand
-			zeroID := e.getFloatConstID(0.0)
+			scalar, _ := scalarOfType(exprType)
+			zeroID := e.floatConstFor(scalar, 0.0)
 			return e.addBinOpInstr(resultTy, BinOpFSub, zeroID, operand), nil
 		}
 		// neg = sub 0, operand
@@ -3138,8 +3155,8 @@ func (e *Emitter) emitMathStep(fn *ir.Function, mathExpr ir.ExprMath) (int, erro
 	cmp := e.addCmpInstr(FCmpOGE, x, edge)
 
 	// select(cmp, 1.0, 0.0)
-	oneID := e.getFloatConstID(1.0)
-	zeroID := e.getFloatConstID(0.0)
+	oneID := e.floatConstFor(scalar, 1.0)
+	zeroID := e.floatConstFor(scalar, 0.0)
 
 	valueID := e.allocValue()
 	instr := &module.Instruction{
@@ -3186,8 +3203,8 @@ func (e *Emitter) emitMathSmoothStep(fn *ir.Function, mathExpr ir.ExprMath) (int
 	ratio := e.addBinOpInstr(resultTy, BinOpFDiv, xMinusE0, e1MinusE0)
 
 	// clamp(ratio, 0.0, 1.0)
-	zeroID := e.getFloatConstID(0.0)
-	oneID := e.getFloatConstID(1.0)
+	zeroID := e.floatConstFor(scalar, 0.0)
+	oneID := e.floatConstFor(scalar, 1.0)
 	t, err := e.emitClamp(ol, true, false, ratio, zeroID, oneID)
 	if err != nil {
 		return 0, err
@@ -3196,10 +3213,10 @@ func (e *Emitter) emitMathSmoothStep(fn *ir.Function, mathExpr ir.ExprMath) (int
 	// t * t
 	tSquared := e.addBinOpInstr(resultTy, BinOpFMul, t, t)
 	// 2.0 * t
-	twoID := e.getFloatConstID(2.0)
+	twoID := e.floatConstFor(scalar, 2.0)
 	twoT := e.addBinOpInstr(resultTy, BinOpFMul, twoID, t)
 	// 3.0 - 2.0 * t
-	threeID := e.getFloatConstID(3.0)
+	threeID := e.floatConstFor(scalar, 3.0)
 	threeMinusTwoT := e.addBinOpInstr(resultTy, BinOpFSub, threeID, twoT)
 	// t * t * (3.0 - 2.0 * t)
 	return e.addBinOpInstr(resultTy, BinOpFMul, tSquared, threeMinusTwoT), nil
@@ -3585,9 +3602,7 @@ func (e *Emitter) emitMathDegrees(fn *ir.Function, mathExpr ir.ExprMath) (int, e
 	if err != nil {
 		return 0, err
 	}
-	f32Ty := e.mod.GetFloatType(32)
-	factor := e.getFloatConstID(180.0 / math.Pi)
-	return e.addBinOpInstr(f32Ty, BinOpFMul, arg, factor), nil
+	return e.mulByFloatConst(fn, mathExpr.Arg, arg, 180.0/math.Pi), nil
 }
 
 // emitMathRadians computes radians = degrees * (pi / 180.0).
@@ -3596,9 +3611,18 @@ func (e *Emitter) emitMathRadians(fn *ir.Function, mathExpr ir.ExprMath) (int, e
 	if err != nil {
 		return 0, err
 	}
-	f32Ty := e.mod.GetFloatType(32)
-	factor := e.getFloatConstID(math.Pi / 180.0)
-	return e.addBinOpInstr(f32Ty, BinOpFMul, arg, factor), nil
+	return e.mulByFloatConst(fn, mathExpr.Arg, arg, math.Pi/180.0), nil
+}
+
+// mulByFloatConst multiplies arg, the value of float expression h, by the
+// constant c of its float type.
+func (e *Emitter) mulByFloatConst(fn *ir.Function, h ir.ExpressionHandle, arg int, c float64) int {
+	scalar, ok := scalarOfType(e.resolveExprType(fn, h))
+	if !ok {
+		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	}
+	ty := e.overloadReturnType(overloadForScalar(scalar))
+	return e.addBinOpInstr(ty, BinOpFMul, arg, e.floatConstFor(scalar, c))
 }
 
 // emitMathSign returns -1, 0, or 1 based on the sign of the argument.
@@ -3616,14 +3640,14 @@ func (e *Emitter) emitMathSign(fn *ir.Function, mathExpr ir.ExprMath) (int, erro
 	}
 
 	if scalar.Kind == ir.ScalarFloat {
-		f32Ty := e.mod.GetFloatType(32)
-		zero := e.getFloatConstID(0.0)
-		posOne := e.getFloatConstID(1.0)
-		negOne := e.getFloatConstID(-1.0)
+		ty := e.overloadReturnType(overloadForScalar(scalar))
+		zero := e.floatConstFor(scalar, 0.0)
+		posOne := e.floatConstFor(scalar, 1.0)
+		negOne := e.floatConstFor(scalar, -1.0)
 		cmpGT := e.addCmpInstr(FCmpOGT, arg, zero)
 		cmpLT := e.addCmpInstr(FCmpOLT, arg, zero)
-		selNeg := e.emitSelect3(f32Ty, cmpLT, negOne, zero)
-		return e.emitSelect3(f32Ty, cmpGT, posOne, selNeg), nil
+		selNeg := e.emitSelect3(ty, cmpLT, negOne, zero)
+		return e.emitSelect3(ty, cmpGT, posOne, selNeg), nil
 	}
 	// Integer sign.
 	i32Ty := e.mod.GetIntType(32)
@@ -3831,8 +3855,8 @@ func (e *Emitter) emitMathRefract(fn *ir.Function, mathExpr ir.ExprMath) (int, e
 	ol := overloadForScalar(scalar)
 	f32Ty := e.overloadReturnType(ol)
 
-	oneID := e.getFloatConstID(1.0)
-	zeroID := e.getFloatConstID(0.0)
+	oneID := e.floatConstFor(scalar, 1.0)
+	zeroID := e.floatConstFor(scalar, 0.0)
 
 	// dot(N, I)
 	dotNI, dotErr := e.emitDotTwoVectors(mathExpr.Arg, *mathExpr.Arg1, size, ol)
@@ -3994,8 +4018,8 @@ func (e *Emitter) emitMathFrexp(fn *ir.Function, mathExpr ir.ExprMath) (int, err
 	floorOp := e.getIntConstID(int64(OpRoundNI))
 	exp2Fn := e.getDxOpUnaryFunc(dxOpClassUnary, ol)
 	exp2Op := e.getIntConstID(int64(OpExp))
-	oneID := e.getFloatConstID(1.0)
-	zeroF := e.getFloatConstID(0.0)
+	oneID := e.floatConstFor(scalar, 1.0)
+	zeroF := e.floatConstFor(scalar, 0.0)
 	zeroI := e.getIntConstID(0)
 
 	comps := make([]int, 2*size)
@@ -6103,13 +6127,13 @@ func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) {
 	switch t := inner.(type) {
 	case ir.ScalarType:
 		if t.Kind == ir.ScalarFloat {
-			return e.getFloatConstID(0.0), nil
+			return e.floatConstFor(t, 0.0), nil
 		}
 		return e.getIntConstID(0), nil
 	case ir.VectorType:
 		var zeroID int
 		if t.Scalar.Kind == ir.ScalarFloat {
-			zeroID = e.getFloatConstID(0.0)
+			zeroID = e.floatConstFor(t.Scalar, 0.0)
 		} else {
 			zeroID = e.getIntConstID(0)
 		}
@@ -6345,7 +6369,7 @@ func (e *Emitter) emitNumericToBoolDXIL(src int, srcScalar ir.ScalarType) (int, 
 		zero := e.getIntConstID(0)
 		return e.addCmpInstr(ICmpNE, src, zero), nil
 	case ir.ScalarFloat:
-		zero := e.getFloatConstID(0.0)
+		zero := e.floatConstFor(srcScalar, 0.0)
 		return e.addCmpInstr(FCmpONE, src, zero), nil
 	default:
 		return 0, fmt.Errorf("%v to bool: unsupported", srcScalar.Kind)

@@ -8,6 +8,7 @@ import (
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/dxil/internal/viewid"
 	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/consteval"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -3356,6 +3357,22 @@ func (e *Emitter) getFloatConstID(v float64) int {
 	e.floatConsts[bits] = id
 	e.constMap[id] = c
 	return id
+}
+
+// floatConstFor is a constant v of the float type of s: an f16 rounded to
+// half precision (one beyond its range is written as an infinity), an f64,
+// or an f32 for any other width.
+func (e *Emitter) floatConstFor(s ir.ScalarType, v float64) int {
+	switch s.Width {
+	case 2:
+		if r, ok := consteval.RoundF16(v); ok {
+			v = float64(r)
+		}
+		return e.addFloatConstID(e.mod.GetFloatType(16), v)
+	case 8:
+		return e.addFloatConstID(e.mod.GetFloatType(64), v)
+	}
+	return e.getFloatConstID(v)
 }
 
 // isConstValueID returns true if the given emitter value ID refers to a
