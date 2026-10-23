@@ -86,3 +86,40 @@ func intConstants(mod *module.Module, ids []int) []int64 {
 	}
 	return out
 }
+
+// A sampler's handle is at its heap's first register plus its index in the
+// heap, as for any other array of resources: with the comparison samplers
+// at register 2048, as wgpu-hal puts them, a comparison sampler's index
+// read from the index buffer gets 2048 added. It got 0 added, the register
+// of a sampler in the other heap.
+func TestSamplerHandleAtItsHeapRegister(t *testing.T) {
+	opts := DefaultOptions()
+	opts.BindingMap = BindingMap{
+		{Group: 0, Binding: 0}: {Register: 0},
+		{Group: 0, Binding: 1}: {Space: 255, Register: 0},
+		{Group: 0, Binding: 2}: {Space: 255, Register: 1},
+	}
+	opts.SamplerHeapTargets = &SamplerHeapBindTargets{
+		StandardSamplers:   BindTarget{Register: 0},
+		ComparisonSamplers: BindTarget{Register: 2048},
+	}
+	mod, fn := emitMainModuleOpts(t, `
+@group(0) @binding(0) var t: texture_depth_2d;
+@group(0) @binding(1) var s: sampler;
+@group(0) @binding(2) var sc: sampler_comparison;
+@fragment fn main() -> @location(0) vec4<f32> {
+	return vec4(textureSample(t, s, vec2(0.5)), textureSampleCompare(t, sc, vec2(0.5), 0.5), 0.0, 1.0);
+}
+`, opts)
+	var bases []int64
+	for _, bb := range fn.BasicBlocks {
+		for _, in := range bb.Instructions {
+			if in.Kind == module.InstrBinOp && in.Operands[2] == 0 {
+				bases = append(bases, intConstants(mod, in.Operands[1:2])...)
+			}
+		}
+	}
+	if !slices.Equal(bases, []int64{0, 2048}) {
+		t.Errorf("sampler indices offset by %v, want [0 2048]", bases)
+	}
+}

@@ -111,10 +111,11 @@ func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module,
 		t.Fatalf("passes: %v", err)
 	}
 	emitOpts := emit.EmitOptions{
-		ShaderModelMajor: 6,
-		ShaderModelMinor: 0,
-		BindingMap:       convertBindingMap(opts.BindingMap),
-		ReachableGlobals: reachableGlobalsForEntry(irMod, &irMod.EntryPoints[0]),
+		ShaderModelMajor:   6,
+		ShaderModelMinor:   0,
+		BindingMap:         convertBindingMap(opts.BindingMap),
+		SamplerHeapTargets: convertSamplerHeapTargets(opts.SamplerHeapTargets),
+		ReachableGlobals:   reachableGlobalsForEntry(irMod, &irMod.EntryPoints[0]),
 	}
 	emitOpts.DynamicOffsets = usedDynamicOffsets(irMod, emitOpts.ReachableGlobals, opts)
 	if t := opts.SpecialConstantsBinding; t != nil && entryUsesSpecialConstants(irMod, &irMod.EntryPoints[0]) {
