@@ -3509,35 +3509,31 @@ func (e *Emitter) addCallInstr(fn *module.Function, resultTy *module.Type, opera
 	return valueID
 }
 
-// addBinOpInstr adds a binary operation instruction.
 // emitFRemLowered implements float remainder without using the LLVM FRem instruction.
 // DXIL does not support FRem natively (DXC rejects it with "Invalid record").
-// Lower to: a - b * floor(a / b), matching Mesa nir_to_dxil.c (lower_fmod = true).
+// WGSL defines e1 % e2 as e1 - e2 * trunc(e1 / e2), so it is lowered to
+// exactly that, with dx.op.round_z as the trunc.
 func (e *Emitter) emitFRemLowered(resultTy *module.Type, lhs, rhs int) int {
-	// floor function: dx.op.round_ni (opcode 27)
-	floorFn := e.getDxOpUnaryFunc("dx.op.unary", overloadF32)
-	floorOp := e.getIntConstID(int64(OpRoundNI))
+	truncFn := e.getDxOpUnaryFunc("dx.op.unary", overloadF32)
+	truncOp := e.getIntConstID(int64(OpRoundZ))
 
 	// Adjust overload for f16/f64 if needed.
 	if resultTy.Kind == module.TypeFloat {
 		switch resultTy.FloatBits {
 		case 16:
-			floorFn = e.getDxOpUnaryFunc("dx.op.unary", overloadF16)
+			truncFn = e.getDxOpUnaryFunc("dx.op.unary", overloadF16)
 		case 64:
-			floorFn = e.getDxOpUnaryFunc("dx.op.unary", overloadF64)
+			truncFn = e.getDxOpUnaryFunc("dx.op.unary", overloadF64)
 		}
 	}
 
-	// Step 1: div = a / b
 	div := e.addBinOpInstr(resultTy, BinOpFDiv, lhs, rhs)
-	// Step 2: floorDiv = floor(div)
-	floorDiv := e.addCallInstr(floorFn, resultTy, []int{floorOp, div})
-	// Step 3: prod = b * floorDiv
-	prod := e.addBinOpInstr(resultTy, BinOpFMul, rhs, floorDiv)
-	// Step 4: result = a - prod
+	truncDiv := e.addCallInstr(truncFn, resultTy, []int{truncOp, div})
+	prod := e.addBinOpInstr(resultTy, BinOpFMul, rhs, truncDiv)
 	return e.addBinOpInstr(resultTy, BinOpFSub, lhs, prod)
 }
 
+// addBinOpInstr adds a binary operation instruction.
 func (e *Emitter) addBinOpInstr(resultTy *module.Type, op BinOpKind, lhs, rhs int) int {
 	valueID := e.allocValue()
 	var flags uint32

@@ -5839,7 +5839,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		}
 	case ir.BinaryModulo:
 		if scalarKind == ir.ScalarFloat {
-			opcode = OpFMod
+			opcode = OpFRem
 			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
 			if rErr == nil {
 				var promErr error

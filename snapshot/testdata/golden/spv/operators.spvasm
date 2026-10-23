@@ -482,7 +482,7 @@
          %_378 = OpFDiv %_4 %_376 %_377
          %_379 = OpFunctionCall %_5 %_102 %_204 %_21
          %_380 = OpFunctionCall %_10 %_113 %_331 %_70
-         %_381 = OpFMod %_3 %_194 %_15
+         %_381 = OpFRem %_3 %_194 %_15
          %_382 = OpCompositeConstruct %_73 %_204 %_204
          %_383 = OpCompositeConstruct %_73 %_21 %_21
          %_384 = OpFunctionCall %_73 %_120 %_382 %_383
@@ -491,7 +491,7 @@
          %_387 = OpFunctionCall %_11 %_135 %_385 %_386
          %_388 = OpCompositeConstruct %_4 %_194 %_194 %_194 %_194
          %_389 = OpCompositeConstruct %_4 %_15 %_15 %_15 %_15
-         %_390 = OpFMod %_4 %_388 %_389
+         %_390 = OpFRem %_4 %_388 %_389
          %_391 = OpCompositeConstruct %_73 %_204 %_204
          %_392 = OpCompositeConstruct %_73 %_21 %_21
          %_393 = OpIAdd %_73 %_391 %_392
@@ -576,10 +576,10 @@
          %_472 = OpFunctionCall %_144 %_155 %_471 %_470
          %_473 = OpCompositeConstruct %_8 %_194 %_194
          %_474 = OpCompositeConstruct %_8 %_15 %_15
-         %_475 = OpFMod %_8 %_473 %_474
+         %_475 = OpFRem %_8 %_473 %_474
          %_476 = OpCompositeConstruct %_8 %_15 %_15
          %_477 = OpCompositeConstruct %_8 %_194 %_194
-         %_478 = OpFMod %_8 %_477 %_476
+         %_478 = OpFRem %_8 %_477 %_476
          %_479 = OpCompositeConstruct %_9 %_17 %_17 %_17
          %_480 = OpCompositeConstruct %_9 %_17 %_17 %_17
          %_481 = OpCompositeConstruct %_9 %_17 %_17 %_17

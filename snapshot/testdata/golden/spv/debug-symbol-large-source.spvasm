@@ -263,7 +263,7 @@
          %_104 = OpFAdd %_4 %_101 %_103
          %_105 = OpFMul %_4 %_104 %_98
          %_107 = OpCompositeConstruct %_4 %_106 %_106 %_106
-         %_108 = OpFMod %_4 %_105 %_107
+         %_108 = OpFRem %_4 %_105 %_107
                OpReturnValue %_108
                OpFunctionEnd
          %_110 = OpFunction %_3 None %_109
@@ -304,7 +304,7 @@
                OpStore %_117 %_151
          %_152 = OpLoad %_5 %_114
          %_153 = OpCompositeConstruct %_5 %_106 %_106
-         %_154 = OpFMod %_5 %_152 %_153
+         %_154 = OpFRem %_5 %_152 %_153
                OpStore %_114 %_154
          %_156 = OpAccessChain %_155 %_114 %_86
          %_157 = OpLoad %_3 %_156
@@ -520,7 +520,7 @@
          %_354 = OpCompositeExtract %_7 %_350 0
          %_355 = OpIAdd %_7 %_354 %_86
          %_356 = OpConvertUToF %_3 %_355
-         %_357 = OpFMod %_3 %_353 %_356
+         %_357 = OpFRem %_3 %_353 %_356
          %_358 = OpCompositeExtract %_7 %_350 0
          %_359 = OpIAdd %_7 %_358 %_86
          %_360 = OpFunctionCall %_7 %_78 %_349 %_359
