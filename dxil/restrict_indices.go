@@ -20,7 +20,7 @@ func restrictIndices(m *ir.Module) {
 // emits with an Emit of the clamps after it, and the others, which the
 // emitter emits where they are used, with clamps it emits there too.
 func restrictFunctionIndices(m *ir.Module, fn *ir.Function) {
-	n := ir.ExpressionHandle(len(fn.Expressions))
+	n := ir.ExpressionHandle(len(fn.Expressions)) //nolint:gosec // expression count fits uint32 by IR design
 	fn.Body = restrictBlock(m, fn, fn.Body)
 	for h := ir.ExpressionHandle(0); h < n; h++ {
 		restrictAccess(m, fn, h)
@@ -35,11 +35,11 @@ func restrictBlock(m *ir.Module, fn *ir.Function, block ir.Block) ir.Block {
 		switch k := st.Kind.(type) {
 		case ir.StmtEmit:
 			out = append(out, st)
-			start := ir.ExpressionHandle(len(fn.Expressions))
+			start := ir.ExpressionHandle(len(fn.Expressions)) //nolint:gosec // expression count fits uint32 by IR design
 			for h := k.Range.Start; h < k.Range.End; h++ {
 				restrictAccess(m, fn, h)
 			}
-			if end := ir.ExpressionHandle(len(fn.Expressions)); end > start {
+			if end := ir.ExpressionHandle(len(fn.Expressions)); end > start { //nolint:gosec // as above
 				out = append(out, ir.Statement{Kind: ir.StmtEmit{Range: ir.Range{Start: start, End: end}}})
 			}
 			continue
@@ -88,7 +88,7 @@ func restrictAccess(m *ir.Module, fn *ir.Function, h ir.ExpressionHandle) {
 		}
 		fn.Expressions = append(fn.Expressions, ir.Expression{Kind: kind})
 		fn.ExpressionTypes = append(fn.ExpressionTypes, ir.TypeResolution{Value: u32})
-		return ir.ExpressionHandle(len(fn.Expressions) - 1)
+		return ir.ExpressionHandle(len(fn.Expressions) - 1) //nolint:gosec // expression count fits uint32 by IR design
 	}
 	index := add(ir.ExprAs{Expr: acc.Index, Kind: ir.ScalarUint})
 	last := add(ir.Literal{Value: ir.LiteralU32(count - 1)})
@@ -142,9 +142,9 @@ func constIndex(fn *ir.Function, h ir.ExpressionHandle) (uint64, bool) {
 			case ir.LiteralU32:
 				return uint64(v), true
 			case ir.LiteralI32:
-				return uint64(v), v >= 0
+				return uint64(v), v >= 0 //nolint:gosec // a negative value is reported as not a constant index
 			case ir.LiteralAbstractInt:
-				return uint64(v), v >= 0
+				return uint64(v), v >= 0 //nolint:gosec // as above
 			}
 			return 0, false
 		default:

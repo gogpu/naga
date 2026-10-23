@@ -328,13 +328,8 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	}
 	ep = &irModule.EntryPoints[0]
 	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
-	// Run mem2reg + DCE, mirroring the DXC pipeline order
-	// (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE).
-	if err := runOptPasses(irModule); err != nil {
+	if err := lowerForEmit(irModule, opts); err != nil {
 		return nil, err
-	}
-	if opts.RestrictIndexing {
-		restrictIndices(irModule)
 	}
 
 	// BUG-DXIL-016: compute the set of GlobalVariables transitively
@@ -3284,6 +3279,19 @@ func moduleUsesInt64Atomics(m *ir.Module) bool {
 		}
 	}
 	return false
+}
+
+// lowerForEmit runs the optimization passes, mem2reg and DCE in the DXC
+// pipeline order (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE), and
+// then clamps run-time indices when opts restrict indexing.
+func lowerForEmit(irModule *ir.Module, opts Options) error {
+	if err := runOptPasses(irModule); err != nil {
+		return err
+	}
+	if opts.RestrictIndexing {
+		restrictIndices(irModule)
+	}
+	return nil
 }
 
 // runOptPasses runs the optimization pass pipeline on all functions
