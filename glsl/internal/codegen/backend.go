@@ -215,7 +215,15 @@ type Options struct {
 
 	// SkipWorkgroupMemoryZeroInit leaves workgroup variables as they are.
 	SkipWorkgroupMemoryZeroInit bool
+
+	// ClampFragDepth clamps the depth a fragment entry point writes to the
+	// range in the uniform FragDepthRangeUniform (see the glsl package).
+	ClampFragDepth bool
 }
+
+// FragDepthRangeUniform is the vec2 uniform, min then max, that holds the
+// range of the frag_depth clamp.
+const FragDepthRangeUniform = "naga_frag_depth_range"
 
 // BindingMapKey identifies a resource binding for the BindingMap.
 type BindingMapKey struct {
