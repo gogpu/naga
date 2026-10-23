@@ -72,17 +72,7 @@ func (w *Writer) writeExpression(handle ir.ExpressionHandle) (string, error) {
 	if name, ok := w.namedExpressions[handle]; ok {
 		return name, nil
 	}
-
-	if w.currentFunction == nil {
-		return "", fmt.Errorf("no current function context")
-	}
-
-	if int(handle) >= len(w.currentFunction.Expressions) {
-		return "", fmt.Errorf("invalid expression handle: %d", handle)
-	}
-
-	expr := &w.currentFunction.Expressions[handle]
-	return w.writeExpressionKind(expr.Kind, handle)
+	return w.writeExpressionInline(handle)
 }
 
 // writeExpressionInline writes an expression bypassing baked names.
@@ -94,6 +84,11 @@ func (w *Writer) writeExpressionInline(handle ir.ExpressionHandle) (string, erro
 	}
 	if int(handle) >= len(w.currentFunction.Expressions) {
 		return "", fmt.Errorf("invalid expression handle: %d", handle)
+	}
+	if int(handle) < len(w.currentFunction.ExpressionTypes) {
+		if res := w.currentFunction.ExpressionTypes[handle]; isFloat16(ir.TypeResInner(w.module, res)) {
+			return "", errNoFloat16
+		}
 	}
 	expr := &w.currentFunction.Expressions[handle]
 	return w.writeExpressionKind(expr.Kind, handle)

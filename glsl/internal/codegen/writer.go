@@ -71,6 +71,9 @@ type Writer struct {
 	// Entry point context
 	inEntryPoint     bool
 	entryPointResult *ir.FunctionResult
+	// float16 is set when the writer names an f16 type, which GLSL doesn't
+	// have: Compile then fails with errNoFloat16.
+	float16 bool
 
 	// Entry point struct IO flattening.
 	// Maps argument index to the flattened struct member info.
@@ -849,10 +852,24 @@ func (w *Writer) writeConstants() error {
 	return nil
 }
 
-// errNoFloat16 is Rust naga's GLSL writer error for an f16 literal
-// (back/glsl/writer.rs, write_possibly_const_expr): GLSL has no f16 type,
-// so the value cannot be written.
+// errNoFloat16 is the error for an f16 type, value or literal, as Rust
+// naga's GLSL writer refuses them (UnsupportedScalar): GLSL has no f16
+// type, so they cannot be written.
 var errNoFloat16 = errors.New("GLSL has no 16-bit float type")
+
+// isFloat16 reports whether inner is an f16 scalar, or a vector or matrix
+// of them.
+func isFloat16(inner ir.TypeInner) bool {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return t.Kind == ir.ScalarFloat && t.Width == 2
+	case ir.VectorType:
+		return isFloat16(t.Scalar)
+	case ir.MatrixType:
+		return isFloat16(t.Scalar)
+	}
+	return false
+}
 
 // writeConstantValue returns the GLSL representation of a constant value.
 func (w *Writer) writeConstantValue(constant ir.Constant) (string, error) {

@@ -20,6 +20,9 @@ func (w *Writer) typeToGLSL(typ ir.Type) string {
 
 // typeInnerToGLSL returns the GLSL name for a TypeInner.
 func (w *Writer) typeInnerToGLSL(inner ir.TypeInner) string {
+	if isFloat16(inner) {
+		w.float16 = true
+	}
 	switch t := inner.(type) {
 	case ir.ScalarType:
 		return scalarToGLSL(t)
