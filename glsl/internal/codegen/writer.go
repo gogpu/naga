@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 
 	"github.com/gogpu/naga/internal/textutil"
@@ -121,6 +120,11 @@ type Writer struct {
 	// Used to build TranslationInfo.Uniforms for the runtime binding fallback
 	// on GL < 4.2. Matches Rust naga's reflection_names_globals.
 	uniformInfos []UniformInfo
+
+	// std140-compatible declarations of the types uniform buffers hold that
+	// contain two-row matrices (std140.go), in declaration order.
+	std140Types map[ir.TypeHandle]*std140Type
+	std140Order []ir.TypeHandle
 
 	// Reachability set for dead code elimination.
 	// When set, only reachable types, constants, globals, and functions
@@ -326,12 +330,17 @@ func (w *Writer) writeModule() error {
 	}
 
 	// 3b. Scan for texture-sampler pairs (WGSL separate → GLSL combined)
-	w.scanTextureSamplerPairs()
+	if err := w.scanTextureSamplerPairs(); err != nil {
+		return err
+	}
 
-	// 4. Write type definitions (structs)
+	// 4. Write type definitions (structs), then the std140-compatible
+	// declarations of the uniform types with two-row matrices.
 	if err := w.writeTypes(); err != nil {
 		return err
 	}
+	w.collectStd140Types()
+	w.writeStd140Types()
 
 	// 4b. Write predeclared helper functions (naga_modf, naga_frexp)
 	// Rust naga emits these right after type definitions, before constants.
@@ -579,61 +588,148 @@ func (w *Writer) registerNames() error {
 	return nil
 }
 
-// scanTextureSamplerPairs scans reachable functions and entry points for ExprImageSample
-// expressions to discover which texture globals are paired with which sampler globals.
-// GLSL has no separate texture/sampler types, so each pair must be emitted as a
-// single "uniform sampler2D" declaration.
-func (w *Writer) scanTextureSamplerPairs() {
-	// Scan regular functions (skip unreachable ones).
-	for i := range w.module.Functions {
-		if w.reachable != nil && !w.reachable.hasFunction(ir.FunctionHandle(i)) {
+// scanTextureSamplerPairs finds which texture globals the selected entry point
+// samples with which sampler globals. GLSL has no separate texture/sampler
+// types, so each pair must be emitted as a single "uniform sampler2D"
+// declaration. A sample in a helper function whose texture or sampler is an
+// argument pairs the globals its call sites pass, as Rust naga's validator
+// tracks sampling through calls (valid/analyzer.rs, process_call).
+//
+// A GL texture unit holds one sampler object, and the combined uniform is
+// the texture's, so a texture sampled with two samplers is an error, as in
+// Rust naga (Error::ImageMultipleSamplers).
+func (w *Writer) scanTextureSamplerPairs() error {
+	ep := w.getSelectedEntryPoint()
+	if ep == nil {
+		return nil
+	}
+	samplerOf := make(map[ir.GlobalVariableHandle]ir.GlobalVariableHandle)
+	for _, s := range w.functionSamplings(&ep.Function, map[ir.FunctionHandle][]sampling{}) {
+		if s.image.argument || s.sampler.argument {
 			continue
 		}
-		fn := &w.module.Functions[i]
-		w.scanFunctionForPairs(fn)
-	}
-	// Scan entry point functions (stored inline, not in Functions[]).
-	for i := range w.module.EntryPoints {
-		ep := &w.module.EntryPoints[i]
-		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
-			continue
+		image, sampler := ir.GlobalVariableHandle(s.image.index), ir.GlobalVariableHandle(s.sampler.index)
+		if other, ok := samplerOf[image]; ok && other != sampler {
+			return fmt.Errorf("texture %q is sampled with two samplers, %q and %q, and a GL texture unit holds one",
+				w.module.GlobalVariables[image].Name, w.module.GlobalVariables[other].Name, w.module.GlobalVariables[sampler].Name)
 		}
-		w.scanFunctionForPairs(&ep.Function)
+		samplerOf[image] = sampler
+		w.registerTextureSamplerPair(image, sampler)
 	}
+	return nil
 }
 
-// scanFunctionForPairs scans a single function's expressions for ExprImageSample.
-func (w *Writer) scanFunctionForPairs(fn *ir.Function) {
+// samplingOperand is the texture or the sampler of a sample: a global
+// variable, or an argument of the function that samples.
+type samplingOperand struct {
+	argument bool
+	index    uint32 // GlobalVariableHandle, or the argument index
+}
+
+// sampling is a texture sampled with a sampler.
+type sampling struct {
+	image, sampler samplingOperand
+}
+
+// functionSamplings returns the samplings of fn and of the functions it
+// calls, with the operands of a callee's samplings mapped through the call's
+// arguments. memo holds the samplings of the functions already done.
+func (w *Writer) functionSamplings(fn *ir.Function, memo map[ir.FunctionHandle][]sampling) []sampling {
+	var out []sampling
 	for _, expr := range fn.Expressions {
 		sample, ok := expr.Kind.(ir.ExprImageSample)
 		if !ok {
 			continue
 		}
-		w.registerTextureSamplerPair(fn, sample)
+		image, imageOK := samplingOperandOf(fn, sample.Image)
+		smp, samplerOK := samplingOperandOf(fn, sample.Sampler)
+		if imageOK && samplerOK {
+			out = append(out, sampling{image: image, sampler: smp})
+		}
+	}
+	forEachCall(fn.Body, func(call ir.StmtCall) {
+		if int(call.Function) >= len(w.module.Functions) {
+			return
+		}
+		callee, done := memo[call.Function]
+		if !done {
+			callee = w.functionSamplings(&w.module.Functions[call.Function], memo)
+			memo[call.Function] = callee
+		}
+		through := func(op samplingOperand) (samplingOperand, bool) {
+			if !op.argument {
+				return op, true
+			}
+			if int(op.index) >= len(call.Arguments) {
+				return samplingOperand{}, false
+			}
+			return samplingOperandOf(fn, call.Arguments[op.index])
+		}
+		for _, s := range callee {
+			image, imageOK := through(s.image)
+			smp, samplerOK := through(s.sampler)
+			if imageOK && samplerOK {
+				out = append(out, sampling{image: image, sampler: smp})
+			}
+		}
+	})
+	return out
+}
+
+// samplingOperandOf resolves a texture or sampler expression of fn to the
+// global variable or argument it is, following loads.
+func samplingOperandOf(fn *ir.Function, h ir.ExpressionHandle) (samplingOperand, bool) {
+	if int(h) >= len(fn.Expressions) {
+		return samplingOperand{}, false
+	}
+	switch k := fn.Expressions[h].Kind.(type) {
+	case ir.ExprGlobalVariable:
+		return samplingOperand{index: uint32(k.Variable)}, true
+	case ir.ExprFunctionArgument:
+		return samplingOperand{argument: true, index: k.Index}, true
+	case ir.ExprLoad:
+		return samplingOperandOf(fn, k.Pointer)
+	}
+	return samplingOperand{}, false
+}
+
+// forEachCall calls f for every call statement in block, at any depth.
+func forEachCall(block ir.Block, f func(ir.StmtCall)) {
+	for _, st := range block {
+		switch s := st.Kind.(type) {
+		case ir.StmtCall:
+			f(s)
+		case ir.StmtBlock:
+			forEachCall(s.Block, f)
+		case ir.StmtIf:
+			forEachCall(s.Accept, f)
+			forEachCall(s.Reject, f)
+		case ir.StmtLoop:
+			forEachCall(s.Body, f)
+			forEachCall(s.Continuing, f)
+		case ir.StmtSwitch:
+			for _, c := range s.Cases {
+				forEachCall(c.Body, f)
+			}
+		}
 	}
 }
 
-// registerTextureSamplerPair resolves the texture and sampler expression handles
-// back to their GlobalVariableHandles and creates a combined sampler entry.
-func (w *Writer) registerTextureSamplerPair(fn *ir.Function, sample ir.ExprImageSample) {
-	imageHandle := w.resolveGlobalVarHandle(fn, sample.Image)
-	samplerHandle := w.resolveGlobalVarHandle(fn, sample.Sampler)
-	if imageHandle == nil || samplerHandle == nil {
-		return
-	}
-
-	pairKey := combinedPairKey(*imageHandle, *samplerHandle)
+// registerTextureSamplerPair creates the combined sampler entry of a texture
+// global sampled with a sampler global.
+func (w *Writer) registerTextureSamplerPair(image, sampler ir.GlobalVariableHandle) {
+	pairKey := combinedPairKey(image, sampler)
 	if _, exists := w.combinedSamplers[pairKey]; exists {
 		return // Already registered
 	}
 
-	texName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(*imageHandle)}]
-	samplerName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(*samplerHandle)}]
+	texName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(image)}]
+	samplerName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(sampler)}]
 	combinedName := texName + "_" + samplerName
 
 	// Determine the GLSL combined sampler type from the texture's ImageType.
 	glslType := "sampler2D" // default
-	texGlobal := &w.module.GlobalVariables[*imageHandle]
+	texGlobal := &w.module.GlobalVariables[image]
 	if int(texGlobal.Type) < len(w.module.Types) {
 		if imgType, ok := w.module.Types[texGlobal.Type].Inner.(ir.ImageType); ok {
 			glslType = w.imageToGLSL(imgType)
@@ -642,8 +738,8 @@ func (w *Writer) registerTextureSamplerPair(fn *ir.Function, sample ir.ExprImage
 
 	info := &combinedSamplerInfo{
 		glslName:      combinedName,
-		textureHandle: *imageHandle,
-		samplerHandle: *samplerHandle,
+		textureHandle: image,
+		samplerHandle: sampler,
 		glslTypeName:  glslType,
 		binding:       texGlobal.Binding,
 	}
@@ -651,7 +747,7 @@ func (w *Writer) registerTextureSamplerPair(fn *ir.Function, sample ir.ExprImage
 	w.combinedSamplers[pairKey] = info
 	// Only mark the sampler as combined (skipped in writeGlobalVariables).
 	// The texture global stays visible so the combined declaration is emitted in-place.
-	w.globalIsCombined[*samplerHandle] = true
+	w.globalIsCombined[sampler] = true
 }
 
 // resolveGlobalVarHandle traces an expression handle back to its GlobalVariableHandle.
@@ -926,27 +1022,10 @@ func (w *Writer) writeGlobalVariables() error {
 	// Reset block ID counter — Rust generates IDs at write time, not registration
 	w.blockIDCounter = 0
 
-	// Build a map from texture handle to all combined sampler infos for that texture.
-	// A depth texture may be paired with both a regular sampler and a comparison sampler,
-	// producing two separate combined sampler entries for the same texture global.
-	textureToCombined := make(map[ir.GlobalVariableHandle][]*combinedSamplerInfo)
+	// The combined sampler of each texture; scanTextureSamplerPairs allows one.
+	textureToCombined := make(map[ir.GlobalVariableHandle]*combinedSamplerInfo)
 	for _, info := range w.combinedSamplers {
-		textureToCombined[info.textureHandle] = append(textureToCombined[info.textureHandle], info)
-	}
-	// Sort each texture's pairs so that the non-comparison sampler pair comes first.
-	// The first pair gets the in-place declaration (texture-only name); additional pairs
-	// are emitted as separate declarations with combined (texture__sampler) names.
-	for _, infos := range textureToCombined {
-		if len(infos) > 1 {
-			sort.Slice(infos, func(i, j int) bool {
-				iComp := w.isSamplerComparison(infos[i].samplerHandle)
-				jComp := w.isSamplerComparison(infos[j].samplerHandle)
-				if iComp != jComp {
-					return !iComp // non-comparison first
-				}
-				return infos[i].samplerHandle < infos[j].samplerHandle
-			})
-		}
+		textureToCombined[info.textureHandle] = info
 	}
 
 	for handle, global := range w.module.GlobalVariables {
@@ -967,7 +1046,9 @@ func (w *Writer) writeGlobalVariables() error {
 		case ir.SpaceUniform:
 			w.writeUniformVariable(name, typeName, global)
 		case ir.SpaceStorage:
-			w.writeStorageVariable(name, typeName, global)
+			if err := w.writeStorageVariable(name, typeName, global); err != nil {
+				return err
+			}
 		case ir.SpacePrivate:
 			baseType := w.getBaseTypeName(global.Type)
 			arraySuffix := w.getArraySuffix(global.Type)
@@ -1011,15 +1092,9 @@ func (w *Writer) writeGlobalVariables() error {
 				case ir.SamplerType:
 					continue // GLSL has no standalone samplers
 				case ir.ImageType:
-					// Check if this texture has combined sampler pair(s) — if so, emit declarations.
-					if infos, hasCombined := textureToCombined[ir.GlobalVariableHandle(handle)]; hasCombined {
-						// First pair gets the in-place declaration (texture-only name).
-						w.writeCombinedSamplerDecl(infos[0])
-						// Additional pairs get separate declarations with combined names.
-						for _, extra := range infos[1:] {
-							w.WriteLine("")
-							w.writeExtraCombinedSamplerDecl(extra)
-						}
+					// A texture with a combined sampler is declared under its own name.
+					if info, hasCombined := textureToCombined[ir.GlobalVariableHandle(handle)]; hasCombined {
+						w.writeCombinedSamplerDecl(info)
 					} else {
 						w.writeImageGlobalDecl(global, name, typeName)
 					}
@@ -1097,34 +1172,6 @@ func (w *Writer) writeCombinedSamplerDecl(info *combinedSamplerInfo) {
 	w.textureSamplerPairs = append(w.textureSamplerPairs, varName)
 }
 
-// writeExtraCombinedSamplerDecl emits an additional combined sampler declaration
-// for a texture-sampler pair that is NOT the primary (in-place) pair for its texture.
-// The combined name (texture__sampler) is kept as-is.
-func (w *Writer) writeExtraCombinedSamplerDecl(info *combinedSamplerInfo) {
-	highp := ""
-	if w.options.LangVersion.ES {
-		highp = "highp "
-	}
-	w.WriteLine("uniform %s%s %s;", highp, info.glslTypeName, info.glslName)
-	w.textureSamplerPairs = append(w.textureSamplerPairs, info.glslName)
-}
-
-// isSamplerComparison checks whether the global variable at the given handle
-// is a comparison sampler (sampler_comparison in WGSL).
-func (w *Writer) isSamplerComparison(handle ir.GlobalVariableHandle) bool {
-	if int(handle) >= len(w.module.GlobalVariables) {
-		return false
-	}
-	global := &w.module.GlobalVariables[handle]
-	if int(global.Type) >= len(w.module.Types) {
-		return false
-	}
-	if st, ok := w.module.Types[global.Type].Inner.(ir.SamplerType); ok {
-		return st.Comparison
-	}
-	return false
-}
-
 // writeCombinedSamplerDeclarations emits "uniform sampler2D name;" declarations
 // for each discovered texture-sampler pair.
 // NOTE: This is only used as a fallback; normally combined samplers are emitted
@@ -1196,6 +1243,9 @@ func (w *Writer) writeUniformVariable(name, typeName string, global ir.GlobalVar
 		blockName, instanceName := w.getBlockNames(global)
 		baseType := w.getBaseTypeName(global.Type)
 		arraySuffix := w.getArraySuffix(global.Type)
+		if global.Space == ir.SpaceUniform {
+			baseType, arraySuffix = w.std140TypeName(global.Type)
+		}
 		if binding, ok := w.lookupBinding(global); ok {
 			w.WriteLine("layout(std140, binding = %d) uniform %s { %s %s%s; };", binding, blockName, baseType, instanceName, arraySuffix)
 		} else {
@@ -1216,6 +1266,9 @@ func (w *Writer) writeUniformVariable(name, typeName string, global ir.GlobalVar
 // Matches Rust naga naming: TypeName_block_{binding}{Stage} { TypeName _group_G_binding_B_{stage}; }
 func (w *Writer) writeUniformBlock(name, typeName string, global ir.GlobalVariable, st ir.StructType) {
 	blockName, instanceName := w.getBlockNames(global)
+	if global.Space == ir.SpaceUniform {
+		typeName, _ = w.std140TypeName(global.Type)
+	}
 
 	if global.Binding != nil {
 		if binding, ok := w.lookupBinding(global); ok {
@@ -1352,10 +1405,12 @@ func (w *Writer) storageLayoutPrefix(global ir.GlobalVariable) string {
 	return "layout(std430) "
 }
 
-func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVariable) {
-	if !w.options.LangVersion.SupportsStorageBuffers() {
-		w.writeUniformVariable(name, typeName, global)
-		return
+func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVariable) error {
+	// A storage buffer written as a uniform block would be read from the
+	// uniform binding point numbered like its storage slot, with std140
+	// strides, so it is an error, as in Rust naga.
+	if !w.options.LangVersion.supportsStd430Layout() {
+		return fmt.Errorf("storage address space requires std430 layout support (GLSL 400 or ES 310), have %s", w.options.LangVersion)
 	}
 
 	blockName, instanceName := w.getBlockNames(global)
@@ -1395,7 +1450,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 					IsStorage: true,
 				})
 			}
-			return
+			return nil
 		}
 	}
 
@@ -1411,6 +1466,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 			IsStorage: true,
 		})
 	}
+	return nil
 }
 
 // writeVaryingDeclarations writes entry point in/out declarations at module level.

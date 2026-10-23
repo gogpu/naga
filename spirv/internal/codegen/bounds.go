@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/gogpu/naga/ir"
 )
@@ -280,9 +281,12 @@ func (e *ExpressionEmitter) chainIndices(links []ir.ExpressionHandle) ([]uint32,
 		}
 	}
 
-	indices := make([]uint32, len(links))
-	var condition uint32
-	for i, link := range links {
+	// Tip first: a column of a std140Matrix member of a uniform struct is
+	// a member of the struct's std140-compatible type, so its index goes
+	// into the struct member's.
+	indices := make([]uint32, 0, len(links))
+	var condition, column uint32
+	for _, link := range links {
 		var base ir.ExpressionHandle
 		var index guardedIndex
 		switch k := e.function.Expressions[link].Kind.(type) {
@@ -291,11 +295,19 @@ func (e *ExpressionEmitter) chainIndices(links []ir.ExpressionHandle) ([]uint32,
 		case ir.ExprAccessIndex:
 			base, index = k.Base, guardedIndex{known: true, value: k.Index}
 			if e.isStructBase(base) {
-				id, err := e.u32Constant(k.Index)
+				member := k.Index
+				if info := e.std140Struct(base); info != nil {
+					member, column = info.memberIndices[k.Index]+column, 0
+				}
+				id, err := e.u32Constant(member)
 				if err != nil {
 					return nil, 0, err
 				}
-				indices[len(links)-1-i] = id
+				indices = append(indices, id)
+				continue
+			}
+			if isUniformMatCx2Member(e.backend.module, e.function, base) {
+				column = k.Index
 				continue
 			}
 		}
@@ -320,8 +332,9 @@ func (e *ExpressionEmitter) chainIndices(links []ir.ExpressionHandle) ([]uint32,
 				condition = e.backend.builder.AddBinaryOp(OpLogicalAnd, boolType, condition, check.condition)
 			}
 		}
-		indices[len(links)-1-i] = id
+		indices = append(indices, id)
 	}
+	slices.Reverse(indices)
 	return indices, condition, nil
 }
 
@@ -432,7 +445,13 @@ func (e *ExpressionEmitter) writeVectorAccess(resultType uint32, access ir.ExprA
 	if err != nil {
 		return 0, err
 	}
-	check, err := e.writeBoundsCheck(access.Base, e.guardIndex(access.Index), indexID)
+	return e.vectorElement(resultType, baseID, access.Base, e.guardIndex(access.Index), indexID)
+}
+
+// vectorElement is writeVectorAccess for the vector baseID, the value of
+// base, which decides the bounds check policy.
+func (e *ExpressionEmitter) vectorElement(resultType, baseID uint32, base ir.ExpressionHandle, index guardedIndex, indexID uint32) (uint32, error) {
+	check, err := e.writeBoundsCheck(base, index, indexID)
 	if err != nil {
 		return 0, err
 	}

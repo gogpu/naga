@@ -174,13 +174,15 @@ func goldenSPIRV(module *ir.Module, _ string) (string, error) {
 	return disassembleSPIRV(binary), nil
 }
 
-// goldenGLSL compiles every entry point (GLSL 430 for compute) and joins them
-// with a header per entry point when there are several.
+// goldenGLSL compiles every entry point and joins them with a header per entry
+// point when there are several. GLSL 330, the default, has neither compute
+// shaders nor storage buffers, so compute entry points and those that use a
+// storage buffer are written for GLSL 430.
 func goldenGLSL(module *ir.Module, _ string) (string, error) {
 	optionsFor := func(ep *ir.EntryPoint) glsl.Options {
 		opts := glsl.DefaultOptions()
 		opts.EntryPoint = ep.Name
-		if ep.Stage == ir.StageCompute {
+		if ep.Stage == ir.StageCompute || usesStorageBuffer(module, &ep.Function) {
 			opts.LangVersion = glsl.Version430
 		}
 		return opts
@@ -201,6 +203,47 @@ func goldenGLSL(module *ir.Module, _ string) (string, error) {
 		parts = append(parts, fmt.Sprintf("// === Entry Point: %s (%s) ===\n", ep.Name, stageName(ep.Stage))+code)
 	}
 	return strings.Join(parts, "\n"), nil
+}
+
+// usesStorageBuffer reports whether fn, or a function it calls, refers to a
+// global in the storage address space.
+func usesStorageBuffer(module *ir.Module, fn *ir.Function) bool {
+	for _, e := range fn.Expressions {
+		if gv, ok := e.Kind.(ir.ExprGlobalVariable); ok && module.GlobalVariables[gv.Variable].Space == ir.SpaceStorage {
+			return true
+		}
+	}
+	var calls func(ir.Block) bool
+	calls = func(b ir.Block) bool {
+		for _, st := range b {
+			switch s := st.Kind.(type) {
+			case ir.StmtCall:
+				if usesStorageBuffer(module, &module.Functions[s.Function]) {
+					return true
+				}
+			case ir.StmtBlock:
+				if calls(s.Block) {
+					return true
+				}
+			case ir.StmtIf:
+				if calls(s.Accept) || calls(s.Reject) {
+					return true
+				}
+			case ir.StmtLoop:
+				if calls(s.Body) || calls(s.Continuing) {
+					return true
+				}
+			case ir.StmtSwitch:
+				for _, c := range s.Cases {
+					if calls(c.Body) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	return calls(fn.Body)
 }
 
 func goldenHLSL(module *ir.Module, shader string) (string, error) {

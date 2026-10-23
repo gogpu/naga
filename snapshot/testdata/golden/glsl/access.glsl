@@ -1,5 +1,5 @@
 // === Entry Point: foo_vert (vertex) ===
-#version 330 core
+#version 430 core
 #extension GL_ARB_shader_storage_buffer_object : require
 struct GlobalConst {
     uint a;
@@ -28,15 +28,56 @@ struct Outer {
     Inner om_nom_nom;
     uint thing;
 };
+struct Baz_std140_ {
+    vec2 m_0;
+    vec2 m_1;
+    vec2 m_2;
+};
+struct mat4x2_std140_ {
+    vec2 col0;
+    vec2 col1;
+    vec2 col2;
+    vec2 col3;
+};
+struct MatCx2InArray_std140_ {
+    mat4x2_std140_ am[2];
+};
+Baz Baz_from_std140_(Baz_std140_ v) {
+    return Baz(mat3x2(v.m_0, v.m_1, v.m_2));
+}
+
+mat4x2 mat4x2_from_std140_(mat4x2_std140_ v) {
+    return mat4x2(v.col0, v.col1, v.col2, v.col3);
+}
+
+mat4x2[2] array_from_std140_(mat4x2_std140_ v[2]) {
+    mat4x2 r[2];
+    for (int i = 0; i < 2; i++) {
+        r[i] = mat4x2_from_std140_(v[i]);
+    }
+    return r;
+}
+
+MatCx2InArray MatCx2InArray_from_std140_(MatCx2InArray_std140_ v) {
+    return MatCx2InArray(array_from_std140_(v.am));
+}
+
 GlobalConst msl_padding_global_const = GlobalConst(0u, uvec3(0u, 0u, 0u), 0);
 
-layout(std140) uniform Bar_block_0Vertex { Bar _group_0_binding_0_vs; };
+layout(std430) buffer Bar_block_0Vertex {
+    mat4x3 _matrix;
+    mat2x2 matrix_array[2];
+    int atom;
+    int atom_arr[10];
+    uvec2 arr[2];
+    AlignedWrapper data[];
+} _group_0_binding_0_vs;
 
-layout(std140) uniform Baz_block_1Vertex { Baz _group_0_binding_1_vs; };
+layout(std140) uniform Baz_block_1Vertex { Baz_std140_ _group_0_binding_1_vs; };
 
-layout(std140) uniform type_13_block_2Vertex { ivec2 _group_0_binding_2_vs; };
+layout(std430) buffer type_13_block_2Vertex { ivec2 _group_0_binding_2_vs; };
 
-layout(std140) uniform MatCx2InArray_block_3Vertex { MatCx2InArray _group_0_binding_3_vs; };
+layout(std140) uniform MatCx2InArray_block_3Vertex { MatCx2InArray_std140_ _group_0_binding_3_vs; };
 
 
 void test_matrix_within_struct_accesses() {
@@ -44,18 +85,18 @@ void test_matrix_within_struct_accesses() {
     Baz t = Baz(mat3x2(vec2(1.0), vec2(2.0), vec2(3.0)));
     int _e3 = idx;
     idx = (_e3 - 1);
-    mat3x2 l0_ = _group_0_binding_1_vs.m;
-    vec2 l1_ = _group_0_binding_1_vs.m[0];
+    mat3x2 l0_ = mat3x2(_group_0_binding_1_vs.m_0, _group_0_binding_1_vs.m_1, _group_0_binding_1_vs.m_2);
+    vec2 l1_ = mat3x2(_group_0_binding_1_vs.m_0, _group_0_binding_1_vs.m_1, _group_0_binding_1_vs.m_2)[0];
     int _e14 = idx;
-    vec2 l2_ = _group_0_binding_1_vs.m[_e14];
-    float l3_ = _group_0_binding_1_vs.m[0][1];
+    vec2 l2_ = mat3x2(_group_0_binding_1_vs.m_0, _group_0_binding_1_vs.m_1, _group_0_binding_1_vs.m_2)[_e14];
+    float l3_ = mat3x2(_group_0_binding_1_vs.m_0, _group_0_binding_1_vs.m_1, _group_0_binding_1_vs.m_2)[0][1];
     int _e25 = idx;
-    float l4_ = _group_0_binding_1_vs.m[0][_e25];
+    float l4_ = mat3x2(_group_0_binding_1_vs.m_0, _group_0_binding_1_vs.m_1, _group_0_binding_1_vs.m_2)[0][_e25];
     int _e30 = idx;
-    float l5_ = _group_0_binding_1_vs.m[_e30][1];
+    float l5_ = mat3x2(_group_0_binding_1_vs.m_0, _group_0_binding_1_vs.m_1, _group_0_binding_1_vs.m_2)[_e30][1];
     int _e36 = idx;
     int _e38 = idx;
-    float l6_ = _group_0_binding_1_vs.m[_e36][_e38];
+    float l6_ = mat3x2(_group_0_binding_1_vs.m_0, _group_0_binding_1_vs.m_1, _group_0_binding_1_vs.m_2)[_e36][_e38];
     int _e51 = idx;
     idx = (_e51 + 1);
     t.m = mat3x2(vec2(6.0), vec2(5.0), vec2(4.0));
@@ -78,19 +119,19 @@ void test_matrix_within_array_within_struct_accesses() {
     MatCx2InArray t_1 = MatCx2InArray(mat4x2[2](mat4x2(0.0), mat4x2(0.0)));
     int _e3 = idx_1;
     idx_1 = (_e3 - 1);
-    mat4x2 l0_1[2] = _group_0_binding_3_vs.am;
-    mat4x2 l1_1 = _group_0_binding_3_vs.am[0];
-    vec2 l2_1 = _group_0_binding_3_vs.am[0][0];
+    mat4x2 l0_1[2] = array_from_std140_(_group_0_binding_3_vs.am);
+    mat4x2 l1_1 = mat4x2_from_std140_(_group_0_binding_3_vs.am[0]);
+    vec2 l2_1 = mat4x2_from_std140_(_group_0_binding_3_vs.am[0])[0];
     int _e20 = idx_1;
-    vec2 l3_1 = _group_0_binding_3_vs.am[0][_e20];
-    float l4_1 = _group_0_binding_3_vs.am[0][0][1];
+    vec2 l3_1 = mat4x2_from_std140_(_group_0_binding_3_vs.am[0])[_e20];
+    float l4_1 = mat4x2_from_std140_(_group_0_binding_3_vs.am[0])[0][1];
     int _e33 = idx_1;
-    float l5_1 = _group_0_binding_3_vs.am[0][0][_e33];
+    float l5_1 = mat4x2_from_std140_(_group_0_binding_3_vs.am[0])[0][_e33];
     int _e39 = idx_1;
-    float l6_1 = _group_0_binding_3_vs.am[0][_e39][1];
+    float l6_1 = mat4x2_from_std140_(_group_0_binding_3_vs.am[0])[_e39][1];
     int _e46 = idx_1;
     int _e48 = idx_1;
-    float l7_ = _group_0_binding_3_vs.am[0][_e46][_e48];
+    float l7_ = mat4x2_from_std140_(_group_0_binding_3_vs.am[0])[_e46][_e48];
     int _e55 = idx_1;
     idx_1 = (_e55 + 1);
     t_1.am = mat4x2[2](mat4x2(0.0), mat4x2(0.0));
@@ -228,7 +269,7 @@ void main() {
 
 
 // === Entry Point: foo_frag (fragment) ===
-#version 330 core
+#version 430 core
 #extension GL_ARB_shader_storage_buffer_object : require
 struct GlobalConst {
     uint a;
@@ -257,9 +298,16 @@ struct Outer {
     Inner om_nom_nom;
     uint thing;
 };
-layout(std140) uniform Bar_block_0Fragment { Bar _group_0_binding_0_fs; };
+layout(std430) buffer Bar_block_0Fragment {
+    mat4x3 _matrix;
+    mat2x2 matrix_array[2];
+    int atom;
+    int atom_arr[10];
+    uvec2 arr[2];
+    AlignedWrapper data[];
+} _group_0_binding_0_fs;
 
-layout(std140) uniform type_13_block_1Fragment { ivec2 _group_0_binding_2_fs; };
+layout(std430) buffer type_13_block_1Fragment { ivec2 _group_0_binding_2_fs; };
 
 layout(location = 0) out vec4 _fs2p_location0;
 

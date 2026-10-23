@@ -1,14 +1,14 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 185
+; Bound: 190
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_166 "main"
-               OpExecutionMode %_166 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_167 "main"
+               OpExecutionMode %_167 LocalSize 1 1 1
                OpDecorate %_7 ArrayStride 4
                OpDecorate %_15 ArrayStride 8
                OpDecorate %_17 ArrayStride 16
@@ -50,10 +50,15 @@
          %_92 = OpConstant %_5 0
          %_108 = OpTypeFunction %_2 %_22 %_5 %_5
          %_140 = OpTypeFunction %_2 %_7 %_5
-         %_165 = OpTypeFunction %_2
-         %_173 = OpConstant %_5 1
-         %_177 = OpConstant %_5 2
-         %_182 = OpConstant %_5 5
+         %_146 = OpConstantNull %_7
+         %_166 = OpTypeFunction %_2
+         %_170 = OpConstantNull %_15
+         %_172 = OpConstantNull %_17
+         %_175 = OpConstantNull %_19
+         %_177 = OpConstantNull %_21
+         %_178 = OpConstant %_5 1
+         %_182 = OpConstant %_5 2
+         %_187 = OpConstant %_5 5
          %_24 = OpFunction %_2 None %_23
          %_25 = OpFunctionParameter %_4
          %_26 = OpLabel
@@ -206,52 +211,52 @@
          %_142 = OpFunctionParameter %_7
          %_143 = OpFunctionParameter %_5
          %_144 = OpLabel
-         %_145 = OpVariable %_8 Function
-         %_147 = OpVariable %_4 Function
+         %_145 = OpVariable %_8 Function %_146
+         %_148 = OpVariable %_4 Function
                OpStore %_145 %_142
-         %_146 = OpAccessChain %_4 %_145 %_143
-         %_148 = OpLoad %_3 %_146
-               OpStore %_147 %_148
-         %_149 = OpFunctionCall %_2 %_24 %_147
-         %_150 = OpLoad %_3 %_147
-               OpStore %_146 %_150
+         %_147 = OpAccessChain %_4 %_145 %_143
+         %_149 = OpLoad %_3 %_147
+               OpStore %_148 %_149
+         %_150 = OpFunctionCall %_2 %_24 %_148
+         %_151 = OpLoad %_3 %_148
+               OpStore %_147 %_151
                OpReturn
                OpFunctionEnd
-         %_151 = OpFunction %_2 None %_71
-         %_152 = OpFunctionParameter %_8
-         %_153 = OpFunctionParameter %_5
-         %_154 = OpLabel
-         %_156 = OpVariable %_4 Function
-         %_161 = OpVariable %_4 Function
-         %_155 = OpAccessChain %_4 %_152 %_153
-         %_157 = OpLoad %_3 %_155
-               OpStore %_156 %_157
-         %_158 = OpFunctionCall %_2 %_24 %_156
-         %_159 = OpLoad %_3 %_156
-               OpStore %_155 %_159
-         %_160 = OpAccessChain %_4 %_152 %_92
-         %_162 = OpLoad %_3 %_160
-               OpStore %_161 %_162
-         %_163 = OpFunctionCall %_2 %_24 %_161
-         %_164 = OpLoad %_3 %_161
-               OpStore %_160 %_164
+         %_152 = OpFunction %_2 None %_71
+         %_153 = OpFunctionParameter %_8
+         %_154 = OpFunctionParameter %_5
+         %_155 = OpLabel
+         %_157 = OpVariable %_4 Function
+         %_162 = OpVariable %_4 Function
+         %_156 = OpAccessChain %_4 %_153 %_154
+         %_158 = OpLoad %_3 %_156
+               OpStore %_157 %_158
+         %_159 = OpFunctionCall %_2 %_24 %_157
+         %_160 = OpLoad %_3 %_157
+               OpStore %_156 %_160
+         %_161 = OpAccessChain %_4 %_153 %_92
+         %_163 = OpLoad %_3 %_161
+               OpStore %_162 %_163
+         %_164 = OpFunctionCall %_2 %_24 %_162
+         %_165 = OpLoad %_3 %_162
+               OpStore %_161 %_165
                OpReturn
                OpFunctionEnd
-         %_166 = OpFunction %_2 None %_165
-         %_167 = OpLabel
-         %_168 = OpVariable %_16 Function
-         %_169 = OpVariable %_18 Function
-         %_170 = OpVariable %_8 Function
-         %_171 = OpVariable %_20 Function
-         %_172 = OpVariable %_22 Function
-         %_174 = OpFunctionCall %_2 %_40 %_173
-         %_175 = OpFunctionCall %_2 %_56 %_168 %_169 %_173
-         %_176 = OpFunctionCall %_2 %_72 %_170 %_173
-         %_178 = OpFunctionCall %_2 %_82 %_171 %_173 %_177
-         %_179 = OpFunctionCall %_2 %_109 %_172 %_173 %_177
-         %_180 = OpFunctionCall %_2 %_129 %_170 %_173
-         %_181 = OpCompositeConstruct %_7 %_44 %_45 %_46 %_47
-         %_183 = OpFunctionCall %_2 %_141 %_181 %_182
-         %_184 = OpFunctionCall %_2 %_151 %_170 %_173
+         %_167 = OpFunction %_2 None %_166
+         %_168 = OpLabel
+         %_169 = OpVariable %_16 Function %_170
+         %_171 = OpVariable %_18 Function %_172
+         %_173 = OpVariable %_8 Function %_146
+         %_174 = OpVariable %_20 Function %_175
+         %_176 = OpVariable %_22 Function %_177
+         %_179 = OpFunctionCall %_2 %_40 %_178
+         %_180 = OpFunctionCall %_2 %_56 %_169 %_171 %_178
+         %_181 = OpFunctionCall %_2 %_72 %_173 %_178
+         %_183 = OpFunctionCall %_2 %_82 %_174 %_178 %_182
+         %_184 = OpFunctionCall %_2 %_109 %_176 %_178 %_182
+         %_185 = OpFunctionCall %_2 %_129 %_173 %_178
+         %_186 = OpCompositeConstruct %_7 %_44 %_45 %_46 %_47
+         %_188 = OpFunctionCall %_2 %_141 %_186 %_187
+         %_189 = OpFunctionCall %_2 %_152 %_173 %_178
                OpReturn
                OpFunctionEnd

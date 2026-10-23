@@ -2295,40 +2295,6 @@ func TestCoverage_ContinueEncountered(t *testing.T) {
 }
 
 // =============================================================================
-// Depth texture + sampler — isSamplerComparison path
-// =============================================================================
-
-func TestCoverage_IsSamplerComparison(t *testing.T) {
-	w := &Writer{
-		module: &ir.Module{
-			Types: []ir.Type{
-				{Inner: ir.SamplerType{Comparison: true}},
-				{Inner: ir.SamplerType{Comparison: false}},
-				{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-			},
-			GlobalVariables: []ir.GlobalVariable{
-				{Type: 0, Name: "comp_sampler"},
-				{Type: 1, Name: "reg_sampler"},
-				{Type: 2, Name: "not_sampler"},
-			},
-		},
-	}
-
-	if !w.isSamplerComparison(0) {
-		t.Error("isSamplerComparison(0) should be true for comparison sampler")
-	}
-	if w.isSamplerComparison(1) {
-		t.Error("isSamplerComparison(1) should be false for regular sampler")
-	}
-	if w.isSamplerComparison(2) {
-		t.Error("isSamplerComparison(2) should be false for non-sampler type")
-	}
-	if w.isSamplerComparison(99) {
-		t.Error("isSamplerComparison(99) should be false for out-of-range handle")
-	}
-}
-
-// =============================================================================
 // writeHelperFunctions — coverage: 12.5% — direct unit test
 // =============================================================================
 

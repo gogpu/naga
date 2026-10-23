@@ -108,6 +108,9 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 // IDxcValidator accepted the module. Mesa lowers function temporaries'
 // initializers to stores at the top of the function
 // (nir_lower_variable_initializers); DXC stores them after the alloca.
+//
+// A local declared without an initializer starts as the zero value of its
+// type (WGSL), so it gets a zero store (zeroValueFor).
 func (e *Emitter) storeLocalInitializers(fn *ir.Function) error {
 	lvHandle := make(map[uint32]ir.ExpressionHandle, len(fn.LocalVars))
 	for h := range fn.Expressions {
@@ -119,10 +122,6 @@ func (e *Emitter) storeLocalInitializers(fn *ir.Function) error {
 	}
 	for i := range fn.LocalVars {
 		v := uint32(i)
-		init := fn.LocalVars[i].Init
-		if init == nil {
-			continue
-		}
 		if _, hasAlloca := e.localVarPtrs[v]; !hasAlloca {
 			continue // resolved without memory (init-only, single-store, ...)
 		}
@@ -133,11 +132,182 @@ func (e *Emitter) storeLocalInitializers(fn *ir.Function) error {
 		if !ok {
 			continue
 		}
+		init := fn.LocalVars[i].Init
+		if init == nil {
+			zero, ok := e.zeroValueFor(fn, fn.LocalVars[i].Type)
+			if !ok {
+				continue
+			}
+			init = &zero
+		}
 		if err := e.emitStmtStore(fn, ir.StmtStore{Pointer: ptr, Value: *init}); err != nil {
 			return fmt.Errorf("local var %d (%s) initializer: %w", i, fn.LocalVars[i].Name, err)
 		}
 	}
 	return nil
+}
+
+// zeroValueFor appends to fn an expression holding the zero value of ty, its
+// components the zero constants of ty's scalars, for a variable declared
+// without an initializer: WGSL starts it at zero. It reports false for a
+// type whose whole-variable store the emitter cannot write yet (matrices,
+// arrays of anything but scalars, structs with members other than scalars
+// and vectors); such a variable starts uninitialized, as before.
+func (e *Emitter) zeroValueFor(fn *ir.Function, ty ir.TypeHandle) (ir.ExpressionHandle, bool) {
+	if !e.storableWhole(ty) {
+		return 0, false
+	}
+	var comps []int
+	e.appendZeroScalars(e.ir.Types[ty].Inner, &comps)
+	h := appendZeroValue(fn, ty)
+	e.exprValues[h] = comps[0]
+	if len(comps) > 1 {
+		e.exprComponents[h] = comps
+	}
+	return h, true
+}
+
+// storableWhole reports whether the emitter stores a whole value of ty into a
+// variable correctly: scalars, vectors, arrays of scalars and structs of
+// scalars and vectors.
+func (e *Emitter) storableWhole(ty ir.TypeHandle) bool {
+	switch t := e.ir.Types[ty].Inner.(type) {
+	case ir.ScalarType, ir.VectorType:
+		return true
+	case ir.ArrayType:
+		_, scalar := e.ir.Types[t.Base].Inner.(ir.ScalarType)
+		return scalar && t.Size.Constant != nil && *t.Size.Constant > 0
+	case ir.StructType:
+		for _, m := range t.Members {
+			switch e.ir.Types[m.Type].Inner.(type) {
+			case ir.ScalarType, ir.VectorType:
+			default:
+				return false
+			}
+		}
+		return len(t.Members) > 0
+	}
+	return false
+}
+
+// appendZeroScalars appends the zero constant of every scalar of inner to
+// out, each of its scalar's own type: vectors component by component, arrays
+// element by element, structs member by member.
+func (e *Emitter) appendZeroScalars(inner ir.TypeInner, out *[]int) {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		*out = append(*out, e.zeroScalarID(t))
+	case ir.VectorType:
+		for i := 0; i < int(t.Size); i++ {
+			*out = append(*out, e.zeroScalarID(t.Scalar))
+		}
+	case ir.ArrayType:
+		for i := uint32(0); t.Size.Constant != nil && i < *t.Size.Constant; i++ {
+			e.appendZeroScalars(e.ir.Types[t.Base].Inner, out)
+		}
+	case ir.StructType:
+		for _, m := range t.Members {
+			e.appendZeroScalars(e.ir.Types[m.Type].Inner, out)
+		}
+	}
+}
+
+// zeroScalarID returns the zero constant of a scalar type.
+func (e *Emitter) zeroScalarID(s ir.ScalarType) int {
+	var v ir.LiteralValue = ir.LiteralI32(0)
+	switch {
+	case s.Kind == ir.ScalarBool:
+		v = ir.LiteralBool(false)
+	case s.Kind == ir.ScalarFloat && s.Width == 2:
+		v = ir.LiteralF16(0)
+	case s.Kind == ir.ScalarFloat && s.Width == 8:
+		v = ir.LiteralF64(0)
+	case s.Kind == ir.ScalarFloat:
+		v = ir.LiteralF32(0)
+	case s.Width == 8 && s.Kind == ir.ScalarSint:
+		v = ir.LiteralI64(0)
+	case s.Width == 8 && s.Kind == ir.ScalarUint:
+		v = ir.LiteralU64(0)
+	}
+	id, _ := e.emitLiteral(ir.Literal{Value: v})
+	return id
+}
+
+// initPrivateGlobal stores the initializer of the private global behind ptr,
+// or its zero value without one, at the top of the entry block, right after
+// emitGlobalVarAlloca made the global's alloca: WGSL starts a private
+// variable that way in every invocation, and an alloca starts undefined.
+// The first access to the global may be in any block, so the stores are
+// emitted into a scratch block and moved to the entry block; they only use
+// the alloca and constants. An initializer the emitter cannot write, or a
+// type storableWhole rejects, leaves the global uninitialized, as before.
+func (e *Emitter) initPrivateGlobal(fn *ir.Function, ptr ir.ExpressionHandle, global *ir.GlobalVariable) error {
+	if !e.storableWhole(global.Type) {
+		return nil
+	}
+	savedPending := e.pendingComponents
+	defer func() { e.pendingComponents = savedPending }()
+	e.pendingComponents = nil
+
+	var value ir.ExpressionHandle
+	initExpr := global.InitExpr
+	if initExpr != nil {
+		if _, isZero := e.ir.GlobalExpressions[*initExpr].Kind.(ir.ExprZeroValue); isZero {
+			initExpr = nil
+		}
+	}
+	switch {
+	case global.Init != nil || initExpr != nil:
+		var id int
+		var err error
+		if global.Init != nil {
+			id, err = e.emitConstant(ir.ExprConstant{Constant: *global.Init})
+		} else {
+			id, err = e.emitGlobalExpression(*initExpr)
+		}
+		if err != nil {
+			return nil
+		}
+		value = appendZeroValue(fn, global.Type)
+		e.exprValues[value] = id
+		if e.pendingComponents != nil {
+			e.exprComponents[value] = e.pendingComponents
+			e.pendingComponents = nil
+		}
+	default:
+		value, _ = e.zeroValueFor(fn, global.Type)
+	}
+
+	entry := e.currentBB
+	if e.mainFn != nil && len(e.mainFn.BasicBlocks) > 0 {
+		entry = e.mainFn.BasicBlocks[0]
+	}
+	savedBB := e.currentBB
+	scratch := &module.BasicBlock{}
+	e.currentBB = scratch
+	err := e.emitStmtStore(fn, ir.StmtStore{Pointer: ptr, Value: value})
+	e.currentBB = savedBB
+	if err != nil {
+		return fmt.Errorf("private global %q initializer: %w", global.Name, err)
+	}
+	at := 0
+	for at < len(entry.Instructions) && entry.Instructions[at].Kind == module.InstrAlloca {
+		at++
+	}
+	rest := append([]*module.Instruction(nil), entry.Instructions[at:]...)
+	entry.Instructions = append(append(entry.Instructions[:at], scratch.Instructions...), rest...)
+	return nil
+}
+
+// appendZeroValue appends a ZeroValue of ty to fn's expressions and returns
+// its handle. Like the one mem2reg appends, it is outside every Emit range.
+func appendZeroValue(fn *ir.Function, ty ir.TypeHandle) ir.ExpressionHandle {
+	h := ir.ExpressionHandle(len(fn.Expressions)) //nolint:gosec // expression count fits uint32 by IR design
+	fn.Expressions = append(fn.Expressions, ir.Expression{Kind: ir.ExprZeroValue{Type: ty}})
+	if len(fn.ExpressionTypes) == int(h) {
+		fn.ExpressionTypes = append(fn.ExpressionTypes, ir.TypeResolution{Handle: &ty})
+	}
+	return h
 }
 
 // localsStoredTo returns the set of local variable indices that have at
