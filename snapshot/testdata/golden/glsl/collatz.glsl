@@ -20,7 +20,7 @@ uint collatz_iterations(uint n_base) {
         }
         {
             uint _e7 = n;
-            if (((_e7 % 2u) == 0u)) {
+            if (((_e7 - 2u * (_e7 / 2u)) == 0u)) {
                 uint _e12 = n;
                 n = (_e12 / 2u);
             } else {

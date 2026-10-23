@@ -1,14 +1,14 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 61
+; Bound: 63
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_51 "main"
-               OpExecutionMode %_51 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_53 "main"
+               OpExecutionMode %_53 LocalSize 1 1 1
          %_2 = OpTypeVoid
          %_3 = OpTypeInt 32 1
          %_5 = OpTypeFunction %_3 %_3 %_3
@@ -17,15 +17,15 @@
          %_12 = OpConstant %_3 2147483648
          %_13 = OpConstant %_3 4294967295
          %_18 = OpConstant %_3 1
-         %_32 = OpTypeInt 32 0
-         %_34 = OpTypeFunction %_32 %_32 %_32
-         %_38 = OpConstant %_32 0
-         %_40 = OpConstant %_32 1
-         %_50 = OpTypeFunction %_2
-         %_53 = OpConstant %_3 5
-         %_54 = OpConstant %_3 2
-         %_57 = OpConstant %_32 5
-         %_58 = OpConstant %_32 2
+         %_34 = OpTypeInt 32 0
+         %_36 = OpTypeFunction %_34 %_34 %_34
+         %_40 = OpConstant %_34 0
+         %_42 = OpConstant %_34 1
+         %_52 = OpTypeFunction %_2
+         %_55 = OpConstant %_3 5
+         %_56 = OpConstant %_3 2
+         %_59 = OpConstant %_34 5
+         %_60 = OpConstant %_34 2
          %_4 = OpFunction %_3 None %_5
          %_6 = OpFunctionParameter %_3
          %_7 = OpFunctionParameter %_3
@@ -49,32 +49,34 @@
          %_28 = OpIsInf %_9 %_26 %_27
          %_29 = OpIsNan %_9 %_25 %_28
          %_30 = OpIsNormal %_3 %_29 %_18 %_23
-         %_31 = OpSRem %_3 %_22 %_30
-               OpReturnValue %_31
+         %_31 = OpSDiv %_3 %_22 %_30
+         %_32 = OpIMul %_3 %_31 %_30
+         %_33 = OpISub %_3 %_22 %_32
+               OpReturnValue %_33
                OpFunctionEnd
-         %_33 = OpFunction %_32 None %_34
-         %_35 = OpFunctionParameter %_32
-         %_36 = OpFunctionParameter %_32
-         %_37 = OpLabel
-         %_39 = OpSignBitSet %_9 %_36 %_38
-         %_41 = OpIsNormal %_32 %_39 %_40 %_36
-         %_42 = OpUDiv %_32 %_35 %_41
-               OpReturnValue %_42
+         %_35 = OpFunction %_34 None %_36
+         %_37 = OpFunctionParameter %_34
+         %_38 = OpFunctionParameter %_34
+         %_39 = OpLabel
+         %_41 = OpSignBitSet %_9 %_38 %_40
+         %_43 = OpIsNormal %_34 %_41 %_42 %_38
+         %_44 = OpUDiv %_34 %_37 %_43
+               OpReturnValue %_44
                OpFunctionEnd
-         %_43 = OpFunction %_32 None %_34
-         %_44 = OpFunctionParameter %_32
-         %_45 = OpFunctionParameter %_32
-         %_46 = OpLabel
-         %_47 = OpSignBitSet %_9 %_45 %_38
-         %_48 = OpIsNormal %_32 %_47 %_40 %_45
-         %_49 = OpUMod %_32 %_44 %_48
-               OpReturnValue %_49
+         %_45 = OpFunction %_34 None %_36
+         %_46 = OpFunctionParameter %_34
+         %_47 = OpFunctionParameter %_34
+         %_48 = OpLabel
+         %_49 = OpSignBitSet %_9 %_47 %_40
+         %_50 = OpIsNormal %_34 %_49 %_42 %_47
+         %_51 = OpUMod %_34 %_46 %_50
+               OpReturnValue %_51
                OpFunctionEnd
-         %_51 = OpFunction %_2 None %_50
-         %_52 = OpLabel
-         %_55 = OpFunctionCall %_3 %_4 %_53 %_54
-         %_56 = OpFunctionCall %_3 %_21 %_53 %_54
-         %_59 = OpFunctionCall %_32 %_33 %_57 %_58
-         %_60 = OpFunctionCall %_32 %_43 %_57 %_58
+         %_53 = OpFunction %_2 None %_52
+         %_54 = OpLabel
+         %_57 = OpFunctionCall %_3 %_4 %_55 %_56
+         %_58 = OpFunctionCall %_3 %_21 %_55 %_56
+         %_61 = OpFunctionCall %_34 %_35 %_59 %_60
+         %_62 = OpFunctionCall %_34 %_45 %_59 %_60
                OpReturn
                OpFunctionEnd

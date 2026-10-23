@@ -368,8 +368,10 @@ vec3 color23_(vec2 p_3) {
 
 void main() {
     uint vindex = uint(gl_VertexID);
-    float u = float((((vindex + 2u) / 3u) % 2u));
-    float v_2 = float((((vindex + 1u) / 3u) % 2u));
+    uint _e4 = ((vindex + 2u) / 3u);
+    float u = float((_e4 - 2u * (_e4 / 2u)));
+    uint _e11 = ((vindex + 1u) / 3u);
+    float v_2 = float((_e11 - 2u * (_e11 / 2u)));
     vec2 uv = vec2(u, v_2);
     vec4 position = vec4((vec2(-1.0) + (uv * 2.0)), 0.0, 1.0);
     uint _e27 = _group_0_binding_0_vs.texture_size;
@@ -560,7 +562,7 @@ void main() {
     uint _e23 = _group_0_binding_0_fs.start_index;
     uint i_2 = (uint(((in_.uv.x * float(_e5)) + (in_.uv.y * float((_e12 * _e15))))) + _e23);
     uint vert_index_1 = uint(floor((float(i_2) / 6.0)));
-    uint comp_index = (i_2 % 6u);
+    uint comp_index = (i_2 - 6u * (i_2 / 6u));
     uvec2 _e34 = _group_0_binding_0_fs.chunk_size;
     ivec2 _e37 = _group_0_binding_0_fs.chunk_corner;
     vec2 _e38 = index_to_p(vert_index_1, _e34, _e37);

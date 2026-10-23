@@ -209,10 +209,12 @@ func TestWrappedDivI32(t *testing.T) {
 }
 
 // =============================================================================
-// Test: i32 modulo generates wrapper with OpSRem (not OpSMod)
+// Test: i32 modulo generates a wrapper computing lhs - (lhs / rhs) * rhs
 // =============================================================================
 
-func TestWrappedModI32UsesOpSRem(t *testing.T) {
+// OpSRem is undefined for negative operands in the Vulkan environment without
+// VK_KHR_maintenance8, so the wrapper avoids it (Rust naga, gfx-rs/wgpu#8191).
+func TestWrappedModI32AvoidsOpSRem(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
@@ -240,9 +242,13 @@ func TestWrappedModI32UsesOpSRem(t *testing.T) {
 
 	spvBytes := compileModule(t, module)
 
-	// Should have OpSRem (Rust uses SRem for signed modulo, not SMod)
-	if !divmodHasOpcode(spvBytes, OpSRem) {
-		t.Error("signed modulo wrapper should use OpSRem, not OpSMod")
+	if divmodHasOpcode(spvBytes, OpSRem) || divmodHasOpcode(spvBytes, OpSMod) {
+		t.Error("signed modulo wrapper must not use OpSRem or OpSMod")
+	}
+	for name, op := range map[string]OpCode{"OpSDiv": OpSDiv, "OpIMul": OpIMul, "OpISub": OpISub} {
+		if !divmodHasOpcode(spvBytes, op) {
+			t.Errorf("signed modulo wrapper has no %s (lhs - (lhs / rhs) * rhs)", name)
+		}
 	}
 }
 
@@ -445,5 +451,31 @@ func TestWrappedModU32(t *testing.T) {
 	// Should use OpUMod in the wrapper
 	if !divmodHasOpcode(spvBytes, OpUMod) {
 		t.Error("u32 modulo wrapper should use OpUMod")
+	}
+}
+
+// =============================================================================
+// Test: f32 modulo is OpFRem (truncated), not OpFMod (floored)
+// =============================================================================
+
+// WGSL defines e1 % e2 on floats as e1 - e2 * trunc(e1 / e2), whose sign
+// follows e1 (OpFRem). OpFMod follows e2: -1.5 % 1.0 gave 0.5, not -0.5.
+func TestFloatModUsesOpFRem(t *testing.T) {
+	spvBytes := compileWGSL(t, `
+@group(0) @binding(0) var<storage, read_write> d: array<f32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let v = vec2(d[0], d[1]);
+    d[2] = d[0] % d[1];
+    d[3] = (v % v.yx).x;
+    d[4] = (v % d[1]).y;
+}
+`)
+	if n := divmodCountOpcode(spvBytes, OpFRem); n != 3 {
+		t.Errorf("OpFRem count = %d, want 3 (scalar, vector, vector by scalar)", n)
+	}
+	if divmodHasOpcode(spvBytes, OpFMod) {
+		t.Error("float modulo must not use OpFMod")
 	}
 }

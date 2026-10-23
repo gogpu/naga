@@ -9,7 +9,8 @@ smooth out vec2 _vs2fs_location0;
 void main() {
     uint vi = uint(gl_VertexID);
     float x = ((float((int(vi) / 2)) * 4.0) - 1.0);
-    float y = ((float((int(vi) % 2)) * 4.0) - 1.0);
+    int _e9 = int(vi);
+    float y = ((float((_e9 - 2 * (_e9 / 2))) * 4.0) - 1.0);
     vec2 pos = vec2(x, y);
     vec2 uv_1 = ((pos + vec2(1.0)) * 0.5);
     VertexOutput _tmp_return = VertexOutput(vec4(pos, 0.0, 1.0), uv_1);

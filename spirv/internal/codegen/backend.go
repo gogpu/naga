@@ -3037,23 +3037,35 @@ func (b *Backend) emitWrappedBinaryOp(op ir.BinaryOperator, returnTypeInner ir.T
 	})
 
 	// Perform the actual operation with safe divisor
-	var divOpcode OpCode
-	switch {
-	case op == ir.BinaryDivide && scalar.Kind == ir.ScalarSint:
-		divOpcode = OpSDiv
-	case op == ir.BinaryDivide && scalar.Kind == ir.ScalarUint:
-		divOpcode = OpUDiv
-	case op == ir.BinaryModulo && scalar.Kind == ir.ScalarSint:
-		divOpcode = OpSRem // Rust uses OpSRem, not OpSMod
-	case op == ir.BinaryModulo && scalar.Kind == ir.ScalarUint:
-		divOpcode = OpUMod
+	var returnID uint32
+	if op == ir.BinaryModulo && scalar.Kind == ir.ScalarSint {
+		// OpSRem is undefined for negative operands in the Vulkan environment
+		// without VK_KHR_maintenance8, so the remainder is lhs - (lhs / d) * d,
+		// as Rust naga writes it.
+		quotientID := b.builder.AllocID()
+		productID := b.builder.AllocID()
+		returnID = b.builder.AllocID()
+		block.Body = append(block.Body,
+			Instruction{Opcode: OpSDiv, Words: []uint32{returnTypeID, quotientID, lhsID, divisorID}},
+			Instruction{Opcode: OpIMul, Words: []uint32{returnTypeID, productID, quotientID, divisorID}},
+			Instruction{Opcode: OpISub, Words: []uint32{returnTypeID, returnID, lhsID, productID}},
+		)
+	} else {
+		var divOpcode OpCode
+		switch {
+		case op == ir.BinaryDivide && scalar.Kind == ir.ScalarSint:
+			divOpcode = OpSDiv
+		case op == ir.BinaryDivide && scalar.Kind == ir.ScalarUint:
+			divOpcode = OpUDiv
+		case op == ir.BinaryModulo && scalar.Kind == ir.ScalarUint:
+			divOpcode = OpUMod
+		}
+		returnID = b.builder.AllocID()
+		block.Body = append(block.Body, Instruction{
+			Opcode: divOpcode,
+			Words:  []uint32{returnTypeID, returnID, lhsID, divisorID},
+		})
 	}
-
-	returnID := b.builder.AllocID()
-	block.Body = append(block.Body, Instruction{
-		Opcode: divOpcode,
-		Words:  []uint32{returnTypeID, returnID, lhsID, divisorID},
-	})
 
 	// Terminate with OpReturnValue
 	fb.Consume(block, Instruction{
@@ -5839,7 +5851,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		}
 	case ir.BinaryModulo:
 		if scalarKind == ir.ScalarFloat {
-			opcode = OpFMod
+			opcode = OpFRem
 			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
 			if rErr == nil {
 				var promErr error
@@ -5865,7 +5877,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			}
 			// Fallback (shouldn't happen if scanning was correct)
 			if scalarKind == ir.ScalarSint {
-				opcode = OpSRem // Match Rust: Modulo on Sint uses OpSRem
+				opcode = OpSRem
 			} else {
 				opcode = OpUMod
 			}

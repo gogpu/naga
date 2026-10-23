@@ -26,7 +26,6 @@ var upstreamChanges = map[string]string{
 	"7721a3e0": "[spv-out] handle rayQueryTerminate correctly (#8581)",
 	"786b8b11": "[hlsl] handle matCx2<f16> in the uniform address space properly",
 	"948b1a6c": "Remove unnecessary object data threadgroup barriers in MSL writer (#9396)",
-	"953fbd74": "Fix signed % wrong for negative operands in GLSL (#9687)",
 	"96b7872f": "Fix local_invocation_id and local_invocation_index handling (#9099)",
 	"a03be8d2": "[msl] Make ray queries safer (#9442)",
 	"a071a4d5": "firstLeadingBit returns signed semantics result (#9299)",
