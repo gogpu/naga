@@ -128,6 +128,7 @@ func convertBindingMap(m BindingMap) emit.BindingMap {
 			Space:            v.Space,
 			Register:         v.Register,
 			BindingArraySize: v.BindingArraySize,
+			RestrictIndexing: v.RestrictIndexing,
 		}
 	}
 	return out

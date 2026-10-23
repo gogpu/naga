@@ -97,6 +97,12 @@ func lowerSource(t *testing.T, src string) *ir.Module {
 // emitMainModule is emitMain returning the module too.
 func emitMainModule(t *testing.T, src string) (*module.Module, *module.Function) {
 	t.Helper()
+	return emitMainModuleOpts(t, src, DefaultOptions())
+}
+
+// emitMainModuleOpts is emitMainModule with the binding options of opts.
+func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module, *module.Function) {
+	t.Helper()
 	irMod, err := prepareModule(lowerSource(t, src))
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -107,6 +113,7 @@ func emitMainModule(t *testing.T, src string) (*module.Module, *module.Function)
 	mod, _, err := emit.EmitWithFlags(irMod, emit.EmitOptions{
 		ShaderModelMajor: 6,
 		ShaderModelMinor: 0,
+		BindingMap:       convertBindingMap(opts.BindingMap),
 		ReachableGlobals: reachableGlobalsForEntry(irMod, &irMod.EntryPoints[0]),
 	})
 	if err != nil {
