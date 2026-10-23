@@ -1181,7 +1181,7 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 				}
 				return handleID, nil
 			}
-			if res.class == resourceClassUAV || res.class == resourceClassSRV {
+			if res.class == resourceClassUAV || res.class == resourceClassSRV || res.class == resourceClassCBV {
 				return baseID, nil
 			}
 		}

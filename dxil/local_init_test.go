@@ -78,6 +78,12 @@ func emitMain(t *testing.T, src string) *module.Function {
 // emitMainModule is emitMain returning the module too.
 func emitMainModule(t *testing.T, src string) (*module.Module, *module.Function) {
 	t.Helper()
+	return emitMainModuleOpts(t, src, DefaultOptions())
+}
+
+// emitMainModuleOpts is emitMainModule with the binding options of opts.
+func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module, *module.Function) {
+	t.Helper()
 	tokens, err := wgsl.NewLexer(src).Tokenize()
 	if err != nil {
 		t.Fatalf("tokenize: %v", err)
@@ -100,6 +106,7 @@ func emitMainModule(t *testing.T, src string) (*module.Module, *module.Function)
 	mod, _, err := emit.EmitWithFlags(irMod, emit.EmitOptions{
 		ShaderModelMajor: 6,
 		ShaderModelMinor: 0,
+		BindingMap:       convertBindingMap(opts.BindingMap),
 		ReachableGlobals: reachableGlobalsForEntry(irMod, &irMod.EntryPoints[0]),
 	})
 	if err != nil {

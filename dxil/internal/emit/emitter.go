@@ -449,6 +449,7 @@ type BindTarget struct {
 	Space            uint32
 	Register         uint32
 	BindingArraySize *uint32
+	RestrictIndexing bool
 }
 
 // BindingMap maps source-shader binding locations to DXIL register
