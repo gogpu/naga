@@ -216,6 +216,11 @@ type Emitter struct {
 	// emitCompose call. Used by emitExpression to store in exprComponents.
 	pendingComponents []int
 
+	// doubleExtensions is set by the double operations DXC sets
+	// EnableDoubleExtensions for: fdiv, conversions between doubles and
+	// integers, and dx.op.fma.
+	doubleExtensions bool
+
 	// Resource bindings: analyzed from GlobalVariables.
 	resources        []resourceInfo
 	resourceHandles  map[ir.GlobalVariableHandle]int  // global var handle -> index in resources
@@ -1697,13 +1702,15 @@ func (e *Emitter) computeBitcodeShaderFlags() uint64 {
 		flags |= 0x100000 // Int64Ops
 	}
 	if e.moduleUsesDouble() {
-		// DXC's CollectShaderFlagsForModule sets both bits together
-		// whenever any f64 type appears (DxilShaderFlags.cpp). Bit 2 is
-		// the historical D3D11 "doubles enabled" flag; bit 6 was added
-		// for the double-extensions instructions (FMA on doubles, etc.)
-		// and DXC always pairs them.
-		flags |= 0x4  // EnableDoublePrecision (bit 2)
-		flags |= 0x40 // EnableDoubleExtensions (bit 6)
+		// DXC's CollectShaderFlagsForModule sets bit 2, the historical
+		// D3D11 "doubles enabled" flag, whenever an f64 materializes, and
+		// bit 6 only for the double-extension instructions: fdiv,
+		// conversions between doubles and integers, and fma
+		// (DxilShaderFlags.cpp).
+		flags |= 0x4 // EnableDoublePrecision (bit 2)
+		if e.doubleExtensions {
+			flags |= 0x40 // EnableDoubleExtensions (bit 6)
+		}
 	}
 	// Note: NativeLowPrecision (UseNativeLowPrecision bit 23 + LowPrecisionPresent
 	// bit 5) is intentionally NOT set. Our DXC golden pipeline uses naga HLSL
@@ -3569,6 +3576,9 @@ func (e *Emitter) emitFRemLowered(resultTy *module.Type, lhs, rhs int) int {
 
 // addBinOpInstr adds a binary operation instruction.
 func (e *Emitter) addBinOpInstr(resultTy *module.Type, op BinOpKind, lhs, rhs int) int {
+	if op == BinOpFDiv && isDoubleType(resultTy) {
+		e.doubleExtensions = true
+	}
 	valueID := e.allocValue()
 	var flags uint32
 	// DXC always sets the UnsafeAlgebra fast-math flag (bit 0) for
