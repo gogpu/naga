@@ -1,11 +1,52 @@
 package dxil
 
 import (
+	"encoding/binary"
 	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/dxil/internal/module"
 )
+
+// An f16 is a native 16-bit value, as DXC writes one with
+// -enable-16bit-types: shader model 6.2, NativeLowPrecision, and storage
+// loads and stores of half with dx.op.rawBufferLoad/Store at an alignment
+// of 2. The module was shader model 6.0 without the flag, which the
+// validator refuses ("Flags must match usage"), and loaded an f16 as the
+// bits of a 32-bit word.
+func TestFloat16IsNative16Bit(t *testing.T) {
+	const src = `
+enable f16;
+struct S { a: f16, b: vec2<f16>, c: f32 }
+@group(0) @binding(0) var<storage, read_write> s: array<S>;
+@compute @workgroup_size(1) fn main() {
+	s[1] = s[0];
+	s[1].b = s[0].b * 2.0h;
+}
+`
+	blob, err := Compile(lowerForTest(t, src), DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := dxbcParts(t, blob)
+	if minor := binary.LittleEndian.Uint32(parts["DXIL"][0:4]) & 0xf; minor != 2 {
+		t.Errorf("shader model 6.%d, want 6.2", minor)
+	}
+	if features := binary.LittleEndian.Uint64(parts["SFI0"]); features&0x40000 == 0 {
+		t.Errorf("features %#x without NativeLowPrecision (0x40000)", features)
+	}
+	mod, fn := emitMainModule(t, src)
+	loads := intConstants(mod, callOperands(fn, "dx.op.rawBufferLoad.f16", 5))
+	stores := intConstants(mod, callOperands(fn, "dx.op.rawBufferStore.f16", 9))
+	if len(loads) == 0 || len(stores) == 0 {
+		t.Fatalf("%d half raw loads and %d stores, want some of each", len(loads), len(stores))
+	}
+	for _, align := range append(loads, stores...) {
+		if align != 2 {
+			t.Errorf("half load or store at alignment %d, want 2", align)
+		}
+	}
+}
 
 // A conversion of a matrix converts every component. It converted the
 // first and gave the others the values after it.
