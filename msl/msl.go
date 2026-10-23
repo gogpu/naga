@@ -236,6 +236,20 @@ type Options struct {
 
 	// VertexBufferMappings describes the vertex buffer layout for vertex pulling.
 	VertexBufferMappings []VertexBufferMapping
+
+	// ClampFragDepth, when set, clamps the depth a fragment entry point
+	// writes to the range in a float2, min then max, which the entry point
+	// takes as a constant buffer at buffer slot ClampFragDepth.Buffer.
+	// WebGPU clamps frag_depth to the viewport's depth range; the caller
+	// binds the viewport's minDepth and maxDepth there, as Dawn does on
+	// Metal for its ClampFragDepth transform. Rust naga has no such option.
+	ClampFragDepth *ClampFragDepth
+}
+
+// ClampFragDepth is where the range of the frag_depth clamp is.
+type ClampFragDepth struct {
+	// Buffer is the buffer slot of the range.
+	Buffer uint8
 }
 
 // VertexFormat describes the format of a vertex attribute.
@@ -431,6 +445,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		AllowAndForcePointSize:        o.AllowAndForcePointSize,
 		VertexPullingTransform:        o.VertexPullingTransform,
 		VertexBufferMappings:          vbMappings,
+		ClampFragDepth:                (*codegen.ClampFragDepth)(o.ClampFragDepth),
 	}
 }
 

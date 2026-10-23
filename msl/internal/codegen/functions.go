@@ -494,6 +494,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		w.entryPointInputStructArg = -1
 		w.flattenedMemberNames = nil
 		w.hasVaryings = false
+		w.clampFragDepth = false
 	}()
 
 	// Determine if this entry point should do vertex pulling.
@@ -770,6 +771,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		w.writeEntryPointParam(paramCount, fmt.Sprintf("constant _mslBufferSizes& _buffer_sizes %s", bufferSizeAttr))
 		paramCount++
 	}
+	w.writeFragDepthRangeParam(ep, &paramCount)
 
 	if returnAttr != "" {
 		w.write("\n) %s {\n", returnAttr)
