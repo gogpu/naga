@@ -84,6 +84,7 @@ func (w *Writer) registerStd140(ty ir.TypeHandle) {
 	var base string
 	switch t := w.module.Types[ty].Inner.(type) {
 	case ir.MatrixType:
+		w.float16 = w.float16 || isFloat16(t)
 		base = matrixToGLSL(t)
 	case ir.ArrayType:
 		w.registerStd140(t.Base)
