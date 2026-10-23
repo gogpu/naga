@@ -123,3 +123,17 @@ func TestSamplerHandleAtItsHeapRegister(t *testing.T) {
 		t.Errorf("sampler indices offset by %v, want [0 2048]", bases)
 	}
 }
+
+// A texture_external is refused: the DXIL writer has none of its planes
+// and conversion, and wrote it as a texture of the wrong type.
+func TestExternalTexturesAreRefused(t *testing.T) {
+	_, err := Compile(lowerForTest(t, `
+@group(0) @binding(0) var tex: texture_external;
+@fragment fn main() -> @location(0) vec4<f32> {
+	return textureLoad(tex, vec2<u32>(0u));
+}
+`), DefaultOptions())
+	if err == nil || !strings.Contains(err.Error(), "external textures") {
+		t.Errorf("err = %v, want the external textures error", err)
+	}
+}
