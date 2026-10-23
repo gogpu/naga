@@ -30,8 +30,8 @@ const (
 //     @binding number.
 //   * At each sample site, the sampler handle is created by:
 //     1. dx.op.bufferLoad on the index buffer at offset M
-//     2. extractvalue + add (the dxc HLSL→DXIL lowering inserts add 0; we
-//        match for byte-cmp parity though the add is a no-op semantically)
+//     2. extractvalue + add of the heap's first register, which DXC's
+//        HLSL→DXIL lowering adds too (0 for the default heaps)
 //     3. dx.op.createHandle with class=Sampler(3), rangeID = the heap's
 //        rangeID, index = the loaded value
 //
@@ -319,7 +319,7 @@ func (e *Emitter) appendSamplerHeapSamplers(rangeCounters *[4]int) {
 //	%idx_load = call %dx.types.ResRet.i32 @dx.op.bufferLoad.i32(
 //	    i32 68, %dx.types.Handle %indexBufHandle, i32 <wgslBinding>, i32 0)
 //	%idx_raw  = extractvalue %dx.types.ResRet.i32 %idx_load, 0
-//	%idx      = add i32 %idx_raw, 0
+//	%idx      = add i32 %idx_raw, <heap's first register>
 //	%handle   = call %dx.types.Handle @dx.op.createHandle(
 //	    i32 57, i8 3, i32 <heapRangeID>, i32 %idx, i1 false)
 //
@@ -366,15 +366,16 @@ func (e *Emitter) emitSamplerHeapHandles() {
 		}
 		heapRes := &e.resources[heapResIdx]
 
-		samplerHandleID := e.emitSamplerHeapHandle(indexBufHandleID, heapRes.rangeID, bind.binding)
+		samplerHandleID := e.emitSamplerHeapHandle(indexBufHandleID, heapRes, bind.binding)
 		e.resourceHandles[gvHandle] = e.allocSamplerHandleResIdx(gvHandle, samplerHandleID, heapResIdx, bind)
 	}
 }
 
 // emitSamplerHeapHandle emits the bufferLoad + extractvalue + add +
 // createHandle sequence and returns the value ID of the created sampler
-// handle.
-func (e *Emitter) emitSamplerHeapHandle(indexBufHandleID int, heapRangeID int, wgslBinding uint32) int {
+// handle. The add is of the heap's first register, as createHandle takes
+// the register of the sampler, not its index in the heap.
+func (e *Emitter) emitSamplerHeapHandle(indexBufHandleID int, heap *resourceInfo, wgslBinding uint32) int {
 	resRetTy := e.getDxResRetType(overloadI32)
 	bufLoadFn := e.getDxOpBufferLoadFunc(overloadI32)
 	loadOpcodeVal := e.getIntConstID(int64(OpBufferLoad))
@@ -396,16 +397,14 @@ func (e *Emitter) emitSamplerHeapHandle(indexBufHandleID int, heapRangeID int, w
 	}
 	e.currentBB.AddInstruction(extractInstr)
 
-	// add %idx_raw, 0 — DXC emits this no-op add as part of the heap
-	// indirection lowering. Match for byte-cmp parity with goldens.
-	addedID := e.addBinOpInstr(i32Ty, BinOpAdd, extractID, zeroI32)
+	addedID := e.addBinOpInstr(i32Ty, BinOpAdd, extractID, e.getIntConstID(int64(heap.binding)))
 
 	// createHandle(57, sampler=3, rangeID=heapRangeID, index=addedID, false)
 	handleTy := e.getDxHandleType()
 	createFn := e.getDxOpCreateHandleFunc()
 	createOpcodeVal := e.getIntConstID(int64(OpCreateHandle))
 	classVal := e.getI8ConstID(int64(resourceClassSampler))
-	rangeIDVal := e.getIntConstID(int64(heapRangeID))
+	rangeIDVal := e.getIntConstID(int64(heap.rangeID))
 	nonUniformVal := e.getI1ConstID(0)
 	return e.addCallInstr(createFn, handleTy,
 		[]int{createOpcodeVal, classVal, rangeIDVal, addedID, nonUniformVal})
