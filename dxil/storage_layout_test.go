@@ -165,6 +165,31 @@ func constValue(mod *module.Module, fn *module.Function, id int) (int64, bool) {
 	return 0, false
 }
 
+// A 64-bit field of a struct of mixed types is loaded and stored with
+// dx.op.rawBufferLoad/Store of its own type, as DXC does for shader model
+// 6.3. It was loaded with dx.op.bufferLoad.i64 and .f64, which have no
+// such overloads, and dx.op.bufferStore.i64 and .f64 were declared
+// without a call, which the validator refuses too.
+func TestStorageBuffer64BitFieldsInMixedStructs(t *testing.T) {
+	mod, fn := emitMainModule(t, `
+struct T { a: f32, b: u32, c: u64, d: f64 }
+@group(0) @binding(0) var<storage, read_write> s: array<T>;
+@compute @workgroup_size(1) fn main() {
+	s[1] = s[0];
+}
+`)
+	for _, f := range mod.Functions {
+		if slices.Contains([]string{"dx.op.bufferLoad.i64", "dx.op.bufferLoad.f64", "dx.op.bufferStore.i64", "dx.op.bufferStore.f64"}, f.Name) {
+			t.Errorf("%s is declared", f.Name)
+		}
+	}
+	for _, name := range []string{"dx.op.rawBufferLoad.i64", "dx.op.rawBufferLoad.f64", "dx.op.rawBufferStore.i64", "dx.op.rawBufferStore.f64"} {
+		if n := len(callOperands(fn, name, 0)); n != 1 {
+			t.Errorf("%d calls of %s, want 1", n, name)
+		}
+	}
+}
+
 // EnableDoubleExtensions is set for the double operations DXC sets it for,
 // a division here, and not for others, a multiplication: the validator
 // refused the flag on a shader that only multiplies doubles ("Flags must
