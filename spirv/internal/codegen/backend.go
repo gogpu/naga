@@ -159,9 +159,13 @@ type Backend struct {
 	// Cached OpTypeSampler ID (only one sampler type allowed in SPIR-V).
 	samplerTypeID uint32
 
-	// Set of struct type handles whose global variables use Uniform address space.
-	// Used to apply std140 MatrixStride rules (column stride >= 16 for f32).
-	uniformStructTypes map[ir.TypeHandle]bool
+	// std140Types holds the std140-compatible type of each type uniform
+	// buffers hold that needs one, std140ConvertIDs the functions converting
+	// them to the regular types, and matCx2ColumnIDs the functions returning
+	// a column of a two-row matrix by a dynamic index (std140.go).
+	std140Types      map[ir.TypeHandle]*std140Type
+	std140ConvertIDs map[ir.TypeHandle]uint32
+	matCx2ColumnIDs  map[ir.TypeHandle]uint32
 
 	// OpConstantNull per SPIR-V type ID, the zero initializer of function
 	// and private variables (constantNull).
@@ -205,7 +209,9 @@ func NewBackend(options Options) *Backend {
 		f16PolyfillVars:     make(map[uint32]uint32, 4),
 		sampleMaskVars:      make(map[uint32]bool, 2),
 		rayQueryFuncIDs:     make(map[rayQueryFuncKind]uint32, 6),
-		uniformStructTypes:  make(map[ir.TypeHandle]bool, 4),
+		std140Types:         make(map[ir.TypeHandle]*std140Type),
+		std140ConvertIDs:    make(map[ir.TypeHandle]uint32),
+		matCx2ColumnIDs:     make(map[ir.TypeHandle]uint32),
 		nullConstantIDs:     make(map[uint32]uint32, 4),
 	}
 }
@@ -247,7 +253,9 @@ func (b *Backend) Reset() {
 	clear(b.f16PolyfillVars)
 	clear(b.sampleMaskVars)
 	clear(b.rayQueryFuncIDs)
-	clear(b.uniformStructTypes)
+	clear(b.std140Types)
+	clear(b.std140ConvertIDs)
+	clear(b.matCx2ColumnIDs)
 	clear(b.nullConstantIDs)
 
 	// Reset scalar IDs
@@ -363,6 +371,9 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	// 8. Types and constants
 	// Must be emitted before decorations because decorations need type IDs.
 	if err := b.emitTypes(); err != nil {
+		return nil, err
+	}
+	if err := b.declareStd140Types(); err != nil {
 		return nil, err
 	}
 	b.emitGlobalExpressions()
@@ -547,38 +558,35 @@ func (b *Backend) emitStructMemberDecorations() {
 		}
 
 		for memberIndex, member := range structType.Members {
-			b.builder.AddMemberDecorate(structID, uint32(memberIndex), DecorationOffset, member.Offset)
-
-			// Matrices and (potentially nested) arrays of matrices both require decorations,
-			// so "see through" any arrays to determine if they're needed.
-			// Matches Rust naga's decorate_struct_member (writer.rs ~line 2479-2505).
-			memberInner := b.module.Types[member.Type].Inner
-			for {
-				if arr, ok := memberInner.(ir.ArrayType); ok {
-					memberInner = b.module.Types[arr.Base].Inner
-				} else {
-					break
-				}
-			}
-			if mat, ok := memberInner.(ir.MatrixType); ok {
-				b.builder.AddMemberDecorate(structID, uint32(memberIndex), DecorationColMajor)
-				// Column stride: vec2=2*width, vec3/vec4=4*width (WGSL alignment rules).
-				var rowMul uint32
-				switch mat.Rows {
-				case ir.Vec2:
-					rowMul = 2
-				default:
-					rowMul = 4
-				}
-				stride := rowMul * uint32(mat.Scalar.Width)
-				b.builder.AddMemberDecorate(structID, uint32(memberIndex), DecorationMatrixStride, stride)
-			}
-
-			// Add member names if debug enabled
-			if b.options.Debug && member.Name != "" {
-				b.builder.AddMemberName(structID, uint32(memberIndex), member.Name)
-			}
+			b.decorateStructMember(structID, uint32(memberIndex), member)
 		}
+	}
+}
+
+// decorateStructMember writes the offset of member index of a struct, the
+// layout of a matrix member or (nested) array of matrices, and the member's
+// name (Rust naga's decorate_struct_member).
+func (b *Backend) decorateStructMember(structID, index uint32, member ir.StructMember) {
+	b.builder.AddMemberDecorate(structID, index, DecorationOffset, member.Offset)
+	memberInner := b.module.Types[member.Type].Inner
+	for {
+		arr, ok := memberInner.(ir.ArrayType)
+		if !ok {
+			break
+		}
+		memberInner = b.module.Types[arr.Base].Inner
+	}
+	if mat, ok := memberInner.(ir.MatrixType); ok {
+		b.builder.AddMemberDecorate(structID, index, DecorationColMajor)
+		// Column stride: vec2=2*width, vec3/vec4=4*width (WGSL alignment rules).
+		rowMul := uint32(4)
+		if mat.Rows == ir.Vec2 {
+			rowMul = 2
+		}
+		b.builder.AddMemberDecorate(structID, index, DecorationMatrixStride, rowMul*uint32(mat.Scalar.Width))
+	}
+	if b.options.Debug && member.Name != "" {
+		b.builder.AddMemberName(structID, index, member.Name)
 	}
 }
 
@@ -1770,11 +1778,17 @@ func (b *Backend) emitGlobals() error {
 		// typed as OpTypeStruct with Block decoration.
 		needsWrap := b.globalNeedsWrapper(global)
 		if needsWrap {
+			std140, isStd140 := b.std140Types[global.Type]
+			isStd140 = isStd140 && global.Space == ir.SpaceUniform
+			if isStd140 {
+				varType = std140.id
+			}
 			wrapperStruct := b.builder.AddTypeStruct(varType)
 			b.builder.AddDecorate(wrapperStruct, DecorationBlock)
 			b.builder.AddMemberDecorate(wrapperStruct, 0, DecorationOffset, 0)
-			// Add matrix layout decorations if member is a matrix type
-			b.addMatrixLayoutIfNeeded(wrapperStruct, 0, global.Type)
+			if !isStd140 {
+				b.addMatrixLayoutIfNeeded(wrapperStruct, 0, global.Type)
+			}
 			varType = wrapperStruct
 			b.wrappedStorageVars[ir.GlobalVariableHandle(handle)] = true
 		} else if b.needsBlockDecoration(global.Space, global.Type) && !b.blockDecoratedTypes[varType] {
@@ -2830,6 +2844,9 @@ func (b *Backend) emitWorkgroupInitPolyfill(epIdx int, fn *ir.Function, emitter 
 // Matches Rust naga's write_wrapped_functions behavior.
 func (b *Backend) emitWrappedFunctions(fn *ir.Function) error {
 	for _, expr := range fn.Expressions {
+		if err := b.emitStd140Wrappers(fn, expr.Kind); err != nil {
+			return err
+		}
 		binary, ok := expr.Kind.(ir.ExprBinary)
 		if !ok {
 			continue
@@ -3870,6 +3887,11 @@ func (b *Backend) resolveTypeForStorageClass(res ir.TypeResolution, storageClass
 	if storageClass == StorageClassWorkgroup && res.Handle != nil {
 		return b.emitTypeWithoutLayout(*res.Handle)
 	}
+	if storageClass == StorageClassUniform && res.Handle != nil {
+		if info := b.std140Types[*res.Handle]; info != nil {
+			return info.id, nil
+		}
+	}
 	return b.resolveTypeResolution(res)
 }
 
@@ -4224,7 +4246,7 @@ func (e *ExpressionEmitter) emitGlobalVarValue(kind ir.ExprGlobalVariable) (uint
 	}
 	if e.backend.wrappedStorageVars[kind.Variable] {
 		// Wrapped variable: emit AccessChain to member 0 to get past wrapper struct
-		innerTypeID, err := e.backend.emitType(gv.Type)
+		innerTypeID, err := e.backend.std140DataTypeID(&gv)
 		if err != nil {
 			return 0, err
 		}
@@ -4262,6 +4284,13 @@ func (e *ExpressionEmitter) emitGlobalVarValue(kind ir.ExprGlobalVariable) (uint
 		return e.backend.builder.AddCopyLogical(typeID, loadedID), nil
 	}
 
+	if info := e.backend.std140Types[gv.Type]; info != nil && gv.Space == ir.SpaceUniform {
+		convert, err := e.backend.std140Convert(gv.Type)
+		if err != nil {
+			return 0, err
+		}
+		return e.emitFunctionCall(typeID, convert, e.backend.builder.AddLoad(info.id, ptrID)), nil
+	}
 	return e.backend.builder.AddLoad(typeID, ptrID), nil
 }
 
@@ -4636,6 +4665,9 @@ func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir
 	}
 
 	if isPointerBase {
+		if id, ok, err := e.loadUniform(exprHandle); ok || err != nil {
+			return id, err
+		}
 		// Check if this is a non-uniform binding array access before emitting.
 		// Matches Rust naga's is_nonuniform_binding_array_access + decorate pattern.
 		isNonUniformBA := e.isNonUniformBindingArrayAccess(access.Base, access.Index)
@@ -4883,7 +4915,7 @@ func (e *ExpressionEmitter) emitPointerRoot(handle ir.ExpressionHandle) (uint32,
 		// emit AccessChain to member 0 to get the actual data pointer.
 		if e.backend.wrappedStorageVars[k.Variable] {
 			gv := e.backend.module.GlobalVariables[k.Variable]
-			innerTypeID, err := e.backend.emitType(gv.Type)
+			innerTypeID, err := e.backend.std140DataTypeID(&gv)
 			if err != nil {
 				return 0, err
 			}
@@ -4933,6 +4965,9 @@ func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, acce
 	}
 
 	if isPointerBase {
+		if id, ok, err := e.loadUniform(exprHandle); ok || err != nil {
+			return id, err
+		}
 		// Base is a pointer: one access chain for the whole chain ending here,
 		// then auto-load to return a VALUE.
 		pointer, err := e.writePointerAccess(exprHandle)
@@ -5385,6 +5420,9 @@ func (e *ExpressionEmitter) emitConversionOp(op OpCode, resultType, operand uint
 // Since emitExpression now auto-loads variable references, ExprLoad is mainly
 // used for compound assignments or explicit dereferences.
 func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
+	if id, ok, err := e.loadUniform(load.Pointer); ok || err != nil {
+		return id, err
+	}
 	// The pointer, bounds-checked (Rust write_checked_load).
 	pointer, err := e.writePointerAccess(load.Pointer)
 	if err != nil {

@@ -1,20 +1,23 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 45
+; Bound: 46
 ; Schema: 0
 
                OpCapability Shader
                OpCapability Linkage
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
+               OpMemberDecorate %_9 0 Offset 0
+               OpMemberDecorate %_9 1 Offset 8
+               OpMemberDecorate %_9 2 Offset 16
                OpMemberDecorate %_6 0 Offset 0
                OpMemberDecorate %_6 0 ColMajor
                OpMemberDecorate %_6 0 MatrixStride 8
-               OpDecorate %_9 Block
-               OpMemberDecorate %_9 0 Offset 0
-               OpDecorate %_11 DescriptorSet 0
-               OpDecorate %_11 Binding 1
+               OpDecorate %_10 Block
+               OpMemberDecorate %_10 0 Offset 0
+               OpDecorate %_12 DescriptorSet 0
+               OpDecorate %_12 Binding 1
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32
          %_4 = OpTypeVector %_3 2
@@ -22,48 +25,49 @@
          %_6 = OpTypeStruct %_5
          %_7 = OpTypeInt 32 1
          %_8 = OpTypeVector %_7 4
-         %_9 = OpTypeStruct %_6
-         %_10 = OpTypePointer Uniform %_9
-         %_12 = OpTypeFunction %_2
-         %_15 = OpTypePointer Function %_8
-         %_17 = OpConstant %_7 1
-         %_18 = OpConstant %_7 2
-         %_19 = OpConstant %_7 3
-         %_20 = OpConstant %_7 4
-         %_22 = OpTypeInt 32 0
-         %_23 = OpConstant %_22 0
-         %_24 = OpTypePointer Function %_7
-         %_27 = OpConstant %_22 1
-         %_32 = OpTypePointer Uniform %_6
-         %_34 = OpTypePointer Uniform %_3
-         %_11 = OpVariable %_10 Uniform
-         %_13 = OpFunction %_2 None %_12
-         %_14 = OpLabel
-         %_16 = OpVariable %_15 Function
-         %_21 = OpCompositeConstruct %_8 %_17 %_18 %_19 %_20
-               OpStore %_16 %_21
-         %_25 = OpAccessChain %_24 %_16 %_23
-         %_26 = OpLoad %_7 %_25
-         %_28 = OpAccessChain %_24 %_16 %_27
-         %_29 = OpLoad %_7 %_28
+         %_9 = OpTypeStruct %_4 %_4 %_4
+         %_10 = OpTypeStruct %_9
+         %_11 = OpTypePointer Uniform %_10
+         %_13 = OpTypeFunction %_2
+         %_16 = OpTypePointer Function %_8
+         %_18 = OpConstant %_7 1
+         %_19 = OpConstant %_7 2
+         %_20 = OpConstant %_7 3
+         %_21 = OpConstant %_7 4
+         %_23 = OpTypeInt 32 0
+         %_24 = OpConstant %_23 0
+         %_25 = OpTypePointer Function %_7
+         %_28 = OpConstant %_23 1
+         %_33 = OpTypePointer Uniform %_9
+         %_35 = OpTypePointer Uniform %_3
+         %_12 = OpVariable %_11 Uniform
+         %_14 = OpFunction %_2 None %_13
+         %_15 = OpLabel
+         %_17 = OpVariable %_16 Function
+         %_22 = OpCompositeConstruct %_8 %_18 %_19 %_20 %_21
+               OpStore %_17 %_22
+         %_26 = OpAccessChain %_25 %_17 %_24
+         %_27 = OpLoad %_7 %_26
+         %_29 = OpAccessChain %_25 %_17 %_28
+         %_30 = OpLoad %_7 %_29
                OpReturn
                OpFunctionEnd
-         %_30 = OpFunction %_2 None %_12
-         %_31 = OpLabel
-         %_33 = OpAccessChain %_32 %_11 %_23
-         %_35 = OpAccessChain %_34 %_33 %_23 %_23 %_27
-         %_36 = OpLoad %_3 %_35
+         %_31 = OpFunction %_2 None %_13
+         %_32 = OpLabel
+         %_34 = OpAccessChain %_33 %_12 %_24
+         %_36 = OpAccessChain %_35 %_34 %_24 %_28
+         %_37 = OpLoad %_3 %_36
                OpReturn
                OpFunctionEnd
-         %_37 = OpFunction %_2 None %_12
-         %_38 = OpLabel
-         %_39 = OpVariable %_15 Function
-         %_40 = OpCompositeConstruct %_8 %_17 %_18 %_19 %_20
-               OpStore %_39 %_40
-         %_41 = OpAccessChain %_24 %_39 %_27
-         %_42 = OpLoad %_7 %_41
-         %_43 = OpIAdd %_7 %_42 %_17
-         %_44 = OpAccessChain %_24 %_39 %_27
-               OpStore %_44 %_43
+         %_38 = OpFunction %_2 None %_13
+         %_39 = OpLabel
+         %_40 = OpVariable %_16 Function
+         %_41 = OpCompositeConstruct %_8 %_18 %_19 %_20 %_21
+               OpStore %_40 %_41
+         %_42 = OpAccessChain %_25 %_40 %_28
+         %_43 = OpLoad %_7 %_42
+         %_44 = OpIAdd %_7 %_43 %_18
+         %_45 = OpAccessChain %_25 %_40 %_28
+               OpStore %_45 %_44
                OpReturn
                OpFunctionEnd
