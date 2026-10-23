@@ -103,12 +103,16 @@ func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module,
 	if err := runOptPasses(irMod); err != nil {
 		t.Fatalf("passes: %v", err)
 	}
-	mod, _, err := emit.EmitWithFlags(irMod, emit.EmitOptions{
+	emitOpts := emit.EmitOptions{
 		ShaderModelMajor: 6,
 		ShaderModelMinor: 0,
 		BindingMap:       convertBindingMap(opts.BindingMap),
 		ReachableGlobals: reachableGlobalsForEntry(irMod, &irMod.EntryPoints[0]),
-	})
+	}
+	if t := opts.SpecialConstantsBinding; t != nil && entryUsesSpecialConstants(irMod, &irMod.EntryPoints[0]) {
+		emitOpts.SpecialConstants = &emit.BindTarget{Space: t.Space, Register: t.Register}
+	}
+	mod, _, err := emit.EmitWithFlags(irMod, emitOpts)
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}

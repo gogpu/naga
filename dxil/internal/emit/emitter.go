@@ -490,6 +490,11 @@ type EmitOptions struct {
 	// "include every global" (single-EP modules / tests). BUG-DXIL-016.
 	ReachableGlobals map[ir.GlobalVariableHandle]bool
 
+	// SpecialConstants is the constant buffer of first_vertex,
+	// first_instance and a third value (dxil.Options.SpecialConstantsBinding),
+	// given when the entry point reads one of them.
+	SpecialConstants *BindTarget
+
 	// InputUsedMasks holds per-input-argument component usage masks
 	// computed from IR body analysis. Used by the metadata builder to
 	// emit null extended-properties for unused inputs (matching DXC's
