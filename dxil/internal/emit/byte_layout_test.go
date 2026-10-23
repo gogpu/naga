@@ -6,7 +6,7 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-// Unit tests for byte-layout helpers (elemByteSize, matrixColumnByteStride).
+// Unit tests for the byte-layout helper elemByteSize.
 // These pin down the pure-function contracts that drive UAV coord0 byte-offset
 // computation per DXIL.rst:1789 (RWRawBuffer expects coord0 in bytes).
 //
@@ -66,23 +66,19 @@ func TestElemByteSize_Vector(t *testing.T) {
 func TestElemByteSize_Matrix(t *testing.T) {
 	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	cases := []struct {
-		name           string
-		cols, rows     ir.VectorSize
-		expectedBytes  uint32
-		columnStrideBy uint32 // matrixColumnByteStride
+		name          string
+		cols, rows    ir.VectorSize
+		expectedBytes uint32
 	}{
-		// 2-row matrices: column stride = 2 * 4 = 8
-		{"mat2x2<f32>", 2, 2, 16, 8},
-		{"mat3x2<f32>", 3, 2, 24, 8},
-		{"mat4x2<f32>", 4, 2, 32, 8},
-		// 3-row matrices: WGSL aligns column stride to 16 (matches HLSL float3)
-		{"mat2x3<f32>", 2, 3, 32, 16},
-		{"mat3x3<f32>", 3, 3, 48, 16},
-		{"mat4x3<f32>", 4, 3, 64, 16},
-		// 4-row matrices: column stride = 4 * 4 = 16
-		{"mat2x4<f32>", 2, 4, 32, 16},
-		{"mat3x4<f32>", 3, 4, 48, 16},
-		{"mat4x4<f32>", 4, 4, 64, 16},
+		{"mat2x2<f32>", 2, 2, 16},
+		{"mat3x2<f32>", 3, 2, 24},
+		{"mat4x2<f32>", 4, 2, 32},
+		{"mat2x3<f32>", 2, 3, 32},
+		{"mat3x3<f32>", 3, 3, 48},
+		{"mat4x3<f32>", 4, 3, 64},
+		{"mat2x4<f32>", 2, 4, 32},
+		{"mat3x4<f32>", 3, 4, 48},
+		{"mat4x4<f32>", 4, 4, 64},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,10 +86,6 @@ func TestElemByteSize_Matrix(t *testing.T) {
 			got := elemByteSize(&ir.Module{}, mt)
 			if got != tc.expectedBytes {
 				t.Errorf("%s: want elem size %d got %d", tc.name, tc.expectedBytes, got)
-			}
-			gotStride := matrixColumnByteStride(mt)
-			if gotStride != tc.columnStrideBy {
-				t.Errorf("%s: want column stride %d got %d", tc.name, tc.columnStrideBy, gotStride)
 			}
 		})
 	}
@@ -169,29 +161,5 @@ func TestElemByteSize_F16Vector(t *testing.T) {
 	got := elemByteSize(&ir.Module{}, ty)
 	if got != 8 {
 		t.Errorf("vec4<f16>: want 8 got %d", got)
-	}
-}
-
-// TestMatrixColumnByteStride_F16 locks the f16 matrix column stride: rows=3
-// with f16 scalars yields 6-byte natural columns, but WGSL only special-cases
-// 3-row f32 matrices (R=3 + W=4 → 16). f16 mat3x3 stays at 6 bytes/column.
-func TestMatrixColumnByteStride_F16(t *testing.T) {
-	f16 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}
-	cases := []struct {
-		name string
-		mt   ir.MatrixType
-		want uint32
-	}{
-		{"mat2x2<f16>", ir.MatrixType{Columns: 2, Rows: 2, Scalar: f16}, 4},
-		{"mat3x3<f16>", ir.MatrixType{Columns: 3, Rows: 3, Scalar: f16}, 6}, // not padded to 16, only f32 R=3 is
-		{"mat4x4<f16>", ir.MatrixType{Columns: 4, Rows: 4, Scalar: f16}, 8},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := matrixColumnByteStride(tc.mt)
-			if got != tc.want {
-				t.Errorf("%s: want %d got %d", tc.name, tc.want, got)
-			}
-		})
 	}
 }
