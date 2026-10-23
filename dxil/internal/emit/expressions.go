@@ -2762,20 +2762,33 @@ func selectBinaryOpcode(op ir.BinaryOperator, leftType ir.TypeInner) (BinOpKind,
 
 // emitUnary emits a unary operation.
 func (e *Emitter) emitUnary(fn *ir.Function, un ir.ExprUnary) (int, error) {
-	operand, err := e.emitExpression(fn, un.Expr)
-	if err != nil {
+	if _, err := e.emitExpression(fn, un.Expr); err != nil {
 		return 0, err
 	}
-
 	exprType := e.resolveExprType(fn, un.Expr)
-	isFloat := isFloatType(exprType)
-	resultTy, _ := typeToDXIL(e.mod, e.ir, exprType)
+	scalar, _ := scalarOfType(exprType)
+	n := componentCount(exprType)
+	comps := make([]int, n)
+	for i := range comps {
+		v, err := e.emitScalarUnary(un.Op, scalar, e.getComponentID(un.Expr, i))
+		if err != nil {
+			return 0, err
+		}
+		comps[i] = v
+	}
+	if n > 1 {
+		e.pendingComponents = comps
+	}
+	return comps[0], nil
+}
 
-	switch un.Op {
+// emitScalarUnary emits a unary operation on one component of type scalar.
+func (e *Emitter) emitScalarUnary(op ir.UnaryOperator, scalar ir.ScalarType, operand int) (int, error) {
+	resultTy := scalarToDXIL(e.mod, scalar)
+	switch op {
 	case ir.UnaryNegate:
-		if isFloat {
+		if scalar.Kind == ir.ScalarFloat {
 			// fneg = fsub -0.0, operand
-			scalar, _ := scalarOfType(exprType)
 			zeroID := e.floatConstFor(scalar, 0.0)
 			return e.addBinOpInstr(resultTy, BinOpFSub, zeroID, operand), nil
 		}
@@ -2796,7 +2809,7 @@ func (e *Emitter) emitUnary(fn *ir.Function, un ir.ExprUnary) (int, error) {
 		return e.addBinOpInstr(e.mod.GetIntType(1), BinOpXor, operand, trueID), nil
 
 	default:
-		return 0, fmt.Errorf("unsupported unary operator: %d", un.Op)
+		return 0, fmt.Errorf("unsupported unary operator: %d", op)
 	}
 }
 
@@ -3625,12 +3638,12 @@ func (e *Emitter) mulByFloatConst(fn *ir.Function, h ir.ExpressionHandle, arg in
 	return e.addBinOpInstr(ty, BinOpFMul, arg, e.floatConstFor(scalar, c))
 }
 
-// emitMathSign returns -1, 0, or 1 based on the sign of the argument.
+// emitMathSign returns -1, 0, or 1 based on the sign of the argument, for
+// each component of a vector.
 // For float: select(x > 0, 1.0, select(x < 0, -1.0, 0.0))
 // For int: select(x > 0, 1, select(x < 0, -1, 0))
 func (e *Emitter) emitMathSign(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
-	arg, err := e.emitExpression(fn, mathExpr.Arg)
-	if err != nil {
+	if _, err := e.emitExpression(fn, mathExpr.Arg); err != nil {
 		return 0, err
 	}
 	argType := e.resolveExprType(fn, mathExpr.Arg)
@@ -3638,7 +3651,19 @@ func (e *Emitter) emitMathSign(fn *ir.Function, mathExpr ir.ExprMath) (int, erro
 	if !ok {
 		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	}
+	n := componentCount(argType)
+	comps := make([]int, n)
+	for i := range comps {
+		comps[i] = e.emitScalarSign(e.getComponentID(mathExpr.Arg, i), scalar)
+	}
+	if n > 1 {
+		e.pendingComponents = comps
+	}
+	return comps[0], nil
+}
 
+// emitScalarSign returns -1, 0, or 1 of the scalar arg of type scalar.
+func (e *Emitter) emitScalarSign(arg int, scalar ir.ScalarType) int {
 	if scalar.Kind == ir.ScalarFloat {
 		ty := e.overloadReturnType(overloadForScalar(scalar))
 		zero := e.floatConstFor(scalar, 0.0)
@@ -3647,7 +3672,7 @@ func (e *Emitter) emitMathSign(fn *ir.Function, mathExpr ir.ExprMath) (int, erro
 		cmpGT := e.addCmpInstr(FCmpOGT, arg, zero)
 		cmpLT := e.addCmpInstr(FCmpOLT, arg, zero)
 		selNeg := e.emitSelect3(ty, cmpLT, negOne, zero)
-		return e.emitSelect3(ty, cmpGT, posOne, selNeg), nil
+		return e.emitSelect3(ty, cmpGT, posOne, selNeg)
 	}
 	// Integer sign.
 	i32Ty := e.mod.GetIntType(32)
@@ -3661,7 +3686,7 @@ func (e *Emitter) emitMathSign(fn *ir.Function, mathExpr ir.ExprMath) (int, erro
 	cmpGT := e.addCmpInstr(pred, arg, zero)
 	cmpLT := e.addCmpInstr(ICmpSLT, arg, zero)
 	selNeg := e.emitSelect3(i32Ty, cmpLT, negOne, zero)
-	return e.emitSelect3(i32Ty, cmpGT, posOne, selNeg), nil
+	return e.emitSelect3(i32Ty, cmpGT, posOne, selNeg)
 }
 
 // emitSelect3 emits a select instruction: result = cond ? trueVal : falseVal.
