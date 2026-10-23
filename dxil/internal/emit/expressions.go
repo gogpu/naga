@@ -6287,9 +6287,9 @@ func (e *Emitter) emitAs(fn *ir.Function, as ir.ExprAs) (int, error) {
 		return src, nil
 	}
 
-	// Check for vector type — need per-component cast.
-	if vec, ok := srcInner.(ir.VectorType); ok {
-		return e.emitVectorCast(fn, as.Expr, vec, srcScalar, dstScalar, as.Convert == nil)
+	// A vector or matrix is cast a component at a time.
+	if n := componentCount(srcInner); n > 1 {
+		return e.emitComponentCast(as.Expr, n, srcScalar, dstScalar, as.Convert == nil)
 	}
 
 	// Scalar cast.
@@ -6348,16 +6348,16 @@ func (e *Emitter) emitScalarCast(src int, srcScalar, dstScalar ir.ScalarType, is
 	return e.addCastInstr(destTy, op, src), nil
 }
 
-// emitVectorCast emits per-component casts for a vector expression.
-func (e *Emitter) emitVectorCast(_ *ir.Function, handle ir.ExpressionHandle, vec ir.VectorType, srcScalar, dstScalar ir.ScalarType, isBitcast bool) (int, error) {
-	size := int(vec.Size)
-	componentIDs := make([]int, size)
+// emitComponentCast casts each of the n components of a vector or matrix
+// expression.
+func (e *Emitter) emitComponentCast(handle ir.ExpressionHandle, n int, srcScalar, dstScalar ir.ScalarType, isBitcast bool) (int, error) {
+	componentIDs := make([]int, n)
 
-	for i := range size {
+	for i := range n {
 		compSrc := e.getComponentID(handle, i)
 		compDst, err := e.emitScalarCast(compSrc, srcScalar, dstScalar, isBitcast)
 		if err != nil {
-			return 0, fmt.Errorf("vector component %d: %w", i, err)
+			return 0, fmt.Errorf("component %d: %w", i, err)
 		}
 		componentIDs[i] = compDst
 	}

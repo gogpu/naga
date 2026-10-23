@@ -7,6 +7,30 @@ import (
 	"github.com/gogpu/naga/dxil/internal/module"
 )
 
+// A conversion of a matrix converts every component. It converted the
+// first and gave the others the values after it.
+func TestMatrixConversionCastsEveryComponent(t *testing.T) {
+	_, fn := emitMainModule(t, `
+enable f16;
+@group(0) @binding(0) var<storage, read_write> a: mat2x2<f16>;
+@group(0) @binding(1) var<storage, read_write> b: mat2x2<f32>;
+@compute @workgroup_size(1) fn main() {
+	b = mat2x2f(a);
+}
+`)
+	exts := 0
+	for _, bb := range fn.BasicBlocks {
+		for _, in := range bb.Instructions {
+			if in.Kind == module.InstrCast && len(in.Operands) == 2 && in.Operands[1] == 8 { // fpext
+				exts++
+			}
+		}
+	}
+	if exts != 4 {
+		t.Errorf("%d fpext, want 4", exts)
+	}
+}
+
 // Every float constant an f16 or f64 operation takes is of its type: the
 // constants of sign, negation, step, smoothstep, degrees, refract and
 // frexp, a zero value and constants folded from ones of the type. They
