@@ -1172,9 +1172,9 @@ func (w *Writer) maybeEmitClampedLod(handle ir.ExpressionHandle) error {
 	if !ok || imgLoad.Level == nil {
 		return nil
 	}
-	// Only for sampled (texelFetch) images, not storage
+	// Only for sampled and depth (texelFetch) images, not storage
 	imgType := w.resolveImageType(imgLoad.Image)
-	if imgType == nil || imgType.Class != ir.ImageClassSampled {
+	if imgType == nil || imgType.Class == ir.ImageClassStorage {
 		return nil
 	}
 	// Multisampled images don't have LOD
