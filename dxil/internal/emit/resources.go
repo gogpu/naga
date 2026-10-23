@@ -3155,11 +3155,13 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		return 0, err
 	}
 
-	// Mixed-scalar struct/array element types must be decomposed into per-field
-	// bufferLoads. Otherwise a single bufferLoad.i32 returns 4 i32s and the
-	// integer field would need different handling than float fields. DXC uses
-	// separate bufferLoad per field with i32 overload + bitcast for float fields.
-	if hasMixedScalarTypes(e.ir, chain.elemType) {
+	// A value whose scalars aren't one after the other in memory, or not of
+	// one DXIL type, is loaded a scalar at a time from where WGSL lays each
+	// out. Otherwise a single bufferLoad.i32 returns 4 i32s and the integer
+	// field would need different handling than float fields, or the loads
+	// read the padding. DXC uses separate bufferLoad per field with i32
+	// overload + bitcast for float fields.
+	if hasMixedScalarTypes(e.ir, chain.elemType) || !contiguousScalars(e.ir, chain.elemType) {
 		return e.emitUAVLoadDecomposed(chain, handleID, indexID)
 	}
 
@@ -3349,16 +3351,16 @@ func flattenScalarFields(irMod *ir.Module, inner ir.TypeInner, baseByte uint32) 
 		}
 		return out
 	case ir.MatrixType:
-		// Matrix layout in storage: column-major, each column padded to vec4
-		// alignment when the row count is < 4. We walk columns then rows so
-		// the flat order matches our compose/extract conventions elsewhere.
+		// Column-major, the columns as far apart as WGSL aligns a vector of
+		// their size: two rows 2 scalars, three or four 4. We walk columns
+		// then rows so the flat order matches our compose/extract
+		// conventions elsewhere.
 		w := uint32(t.Scalar.Width)
 		cols := uint32(t.Columns)
 		rows := uint32(t.Rows)
-		colBytes := rows * w
-		colStride := (colBytes + 15) &^ 15
-		if rows == 4 {
-			colStride = colBytes
+		colStride := rows * w
+		if rows == 3 {
+			colStride = 4 * w
 		}
 		out := make([]flatScalarField, 0, cols*rows)
 		for c := uint32(0); c < cols; c++ {
@@ -3395,6 +3397,19 @@ func flattenScalarFields(irMod *ir.Module, inner ir.TypeInner, baseByte uint32) 
 		return out
 	}
 	return nil
+}
+
+// contiguousScalars reports whether the scalars of inner are one after the
+// other in memory, with no padding between them, which a load or store of
+// consecutive components reads or writes.
+func contiguousScalars(irMod *ir.Module, inner ir.TypeInner) bool {
+	fields := flattenScalarFields(irMod, inner, 0)
+	for i := 1; i < len(fields); i++ {
+		if fields[i].byteOffset != fields[i-1].byteOffset+uint32(fields[i-1].scalar.Width) {
+			return false
+		}
+	}
+	return true
 }
 
 // hasMixedScalarTypes returns true when an aggregate element type contains
@@ -3551,6 +3566,10 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 	if err != nil {
 		return fmt.Errorf("UAV store value: %w", err)
 	}
+	if hasMixedScalarTypes(e.ir, chain.elemType) || !contiguousScalars(e.ir, chain.elemType) {
+		e.emitUAVStoreDecomposed(chain, valueHandle, handleID, indexID)
+		return nil
+	}
 
 	ol := overloadForScalar(chain.scalar)
 	// dx.op.bufferStore overload mask 0x63 covers f16/f32/i16/i32 only;
@@ -3605,15 +3624,8 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 			} else {
 				vals[i] = e.getComponentID(valueHandle, i)
 			}
-			// Bitcast float values to i32 for raw buffer stores.
-			// Fold constant floats to their IEEE 754 i32 representation.
 			if needsBitcast {
-				if c, ok := e.constMap[vals[i]]; ok && !c.IsUndef && c.ConstType != nil && c.ConstType.Kind == module.TypeFloat {
-					bits := math.Float32bits(float32(c.FloatValue))
-					vals[i] = e.getIntConstID(int64(bits))
-				} else {
-					vals[i] = e.addCastInstr(e.mod.GetIntType(32), CastBitcast, vals[i])
-				}
+				vals[i] = e.floatBitsI32(vals[i])
 			}
 		}
 		writeMask := (1 << numComps) - 1
@@ -3674,12 +3686,7 @@ func (e *Emitter) emitUAVStoreBatched(
 		for i := 0; i < count; i++ {
 			vals[i] = e.getComponentID(valueHandle, compIdx+i)
 			if needsBitcast {
-				if c, ok := e.constMap[vals[i]]; ok && !c.IsUndef && c.ConstType != nil && c.ConstType.Kind == module.TypeFloat {
-					bits := math.Float32bits(float32(c.FloatValue))
-					vals[i] = e.getIntConstID(int64(bits))
-				} else {
-					vals[i] = e.addCastInstr(i32Ty, CastBitcast, vals[i])
-				}
+				vals[i] = e.floatBitsI32(vals[i])
 			}
 		}
 		writeMask := (1 << count) - 1
@@ -3693,6 +3700,45 @@ func (e *Emitter) emitUAVStoreBatched(
 		batchIdx++
 	}
 	return nil
+}
+
+// emitUAVStoreDecomposed stores each scalar of a value whose scalars aren't
+// one after the other in memory, or not of one DXIL type, with a store of
+// its own at its WGSL offset, as emitUAVLoadDecomposed loads them: a float
+// as its bits in an i32, a 64-bit scalar with a rawBufferStore.
+func (e *Emitter) emitUAVStoreDecomposed(chain *uavPointerChain, valueHandle ir.ExpressionHandle, handleID, indexID int) {
+	i32Ty := e.mod.GetIntType(32)
+	undefI32 := e.getUndefConstID()
+	for i, f := range flattenScalarFields(e.ir, chain.elemType, 0) {
+		v := e.getComponentID(valueHandle, i)
+		ol := overloadForScalar(f.scalar)
+		if f.scalar.Kind == ir.ScalarFloat && f.scalar.Width == 4 {
+			ol, v = overloadI32, e.floatBitsI32(v)
+		}
+		coord := indexID
+		if f.byteOffset > 0 {
+			coord = e.addBinOpInstr(i32Ty, BinOpAdd, indexID, e.getIntConstID(int64(f.byteOffset)))
+		}
+		valUndef := e.getTypedUndefConstID(e.overloadReturnType(ol))
+		fn, opcode := e.getDxOpBufferStoreFunc(ol), OpBufferStore
+		if f.scalar.Width == 8 {
+			fn, opcode = e.getDxOpRawBufferStoreFunc(ol), OpRawBufferStore
+		}
+		args := []int{e.getIntConstID(int64(opcode)), handleID, coord, undefI32, v, valUndef, valUndef, valUndef, e.getI8ConstID(1)}
+		if f.scalar.Width == 8 {
+			args = append(args, e.getIntConstID(8))
+		}
+		e.addCallInstr(fn, e.mod.GetVoidType(), args)
+	}
+}
+
+// floatBitsI32 is a 32-bit float value as an i32 of its bits, as raw buffer
+// stores take it: a constant folded, any other value bitcast.
+func (e *Emitter) floatBitsI32(v int) int {
+	if c, ok := e.constMap[v]; ok && !c.IsUndef && c.ConstType != nil && c.ConstType.Kind == module.TypeFloat {
+		return e.getIntConstID(int64(math.Float32bits(float32(c.FloatValue))))
+	}
+	return e.addCastInstr(e.mod.GetIntType(32), CastBitcast, v)
 }
 
 // getDxOpBufferLoadFunc creates the dx.op.bufferLoad.XX function declaration.
