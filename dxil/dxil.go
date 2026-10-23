@@ -21,6 +21,7 @@ package dxil
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/container"
@@ -111,6 +112,15 @@ type Options struct {
 	// fragment stage reads, as with hlsl.Options.FragmentEntryPoint, since
 	// D3D12 matches the two signatures register for register.
 	FragmentEntryPoint *FragmentEntryPoint
+
+	// SpecialConstantsBinding is a constant buffer of three 32-bit root
+	// constants, first_vertex, first_instance and a third value, as with
+	// hlsl.Options.SpecialConstantsBinding: a vertex stage adds the first
+	// two to vertex_index and instance_index, which SV_VertexID and
+	// SV_InstanceID count from zero, and a compute stage reads
+	// num_workgroups from all three. Without it, num_workgroups comes from a
+	// constant buffer at b0 in space 0.
+	SpecialConstantsBinding *BindTarget
 }
 
 // FragmentEntryPoint is a fragment entry point and its module.
@@ -339,6 +349,11 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		}
 	}
 
+	var special *BindTarget
+	if opts.SpecialConstantsBinding != nil && entryUsesSpecialConstants(irModule, ep) {
+		special = opts.SpecialConstantsBinding
+	}
+
 	// Step 1: Emit naga IR -> DXIL module.
 	emitOpts := emit.EmitOptions{
 		ShaderModelMajor:        opts.ShaderModel.Major,
@@ -348,6 +363,9 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		SamplerBufferBindingMap: convertSamplerBufferBindingMap(opts.SamplerBufferBindingMap),
 		ReachableGlobals:        reachableGlobals,
 		InputUsedMasks:          inputUsedMasks,
+	}
+	if special != nil {
+		emitOpts.SpecialConstants = &emit.BindTarget{Space: special.Space, Register: special.Register}
 	}
 	mod, bitcodeShaderFlags, err := emit.EmitWithFlags(irModule, emitOpts)
 	if err != nil {
@@ -384,7 +402,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		c.AddPrimitiveSignature(primSig)
 	}
 
-	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), reachableGlobals, opts.BindingMap, opts.SamplerHeapTargets, opts.SamplerBufferBindingMap))
+	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), reachableGlobals, opts.BindingMap, opts.SamplerHeapTargets, opts.SamplerBufferBindingMap, special))
 
 	// STAT (Shader Statistics) is required by the D3D12 runtime format
 	// validator for graphics pipelines (BUG-DXIL-011). IDxcValidator
@@ -945,7 +963,7 @@ func sigCompTypeForScalarKind(kind ir.ScalarKind) container.ProgSigCompType {
 // shaders with only `@builtin(position)` output now produce a self-consistent
 // PSV0 part with one PSVSignatureElement entry, achieving the first-ever
 // `S_OK` from the real validator.
-func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget) container.PSVInfo {
+func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, special *BindTarget) container.PSVInfo {
 	_ = isFragment // kept for caller compatibility; stage comes from ep.Stage
 	info := container.PSVInfo{
 		ShaderStage:       stageToPSVKind(ep.Stage),
@@ -995,14 +1013,22 @@ func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, 
 	// declare the same binding or the validator reports 'ResourceCount
 	// mismatch'. Inject the synthetic binding when the entry point reads
 	// the num_workgroups builtin.
-	if entryUsesNumWorkGroups(ep) {
-		info.ResourceBindings = append([]container.PSVResourceBinding{{
+	// The special constants take its place when they are given. The
+	// emitter declares either after the shader's own constant buffers.
+	switch {
+	case special != nil:
+		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
 			ResType:    container.PSVResTypeCBV,
 			ResKind:    container.PSVResKindCBuffer,
-			Space:      0,
-			LowerBound: 0,
-			UpperBound: 0,
-		}}, info.ResourceBindings...)
+			Space:      special.Space,
+			LowerBound: special.Register,
+			UpperBound: special.Register,
+		})
+	case entryUsesNumWorkGroups(ep):
+		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
+			ResType: container.PSVResTypeCBV,
+			ResKind: container.PSVResKindCBuffer,
+		})
 	}
 
 	// BUG-DXIL-019: build PSVSignatureElement entries from the same data
@@ -1729,9 +1755,9 @@ func componentMask(n int) uint8 {
 }
 
 // buildPSVEx creates PSV info for an entry point, including mesh shader support.
-func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget) container.PSVInfo {
+func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, special *BindTarget) container.PSVInfo {
 	if !isMesh {
-		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, reachable, bindingMap, samplerHeap, samplerBufMap)
+		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, reachable, bindingMap, samplerHeap, samplerBufMap, special)
 	}
 
 	info := container.PSVInfo{
@@ -1956,6 +1982,52 @@ func entryWritesDepthInModule(irMod *ir.Module, ep *ir.EntryPoint) bool {
 			continue
 		}
 		if bb, isBB := (*m.Binding).(ir.BuiltinBinding); isBB && bb.Builtin == ir.BuiltinFragDepth {
+			return true
+		}
+	}
+	return false
+}
+
+// insertAfterCBVs inserts b into bindings after the constant buffers, which
+// come first.
+func insertAfterCBVs(bindings []container.PSVResourceBinding, b container.PSVResourceBinding) []container.PSVResourceBinding {
+	i := 0
+	for i < len(bindings) && bindings[i].ResType == container.PSVResTypeCBV {
+		i++
+	}
+	return slices.Insert(bindings, i, b)
+}
+
+// entryUsesSpecialConstants reports whether the entry point has an input the
+// special constants give: vertex_index or instance_index in a vertex stage,
+// num_workgroups in a compute stage.
+func entryUsesSpecialConstants(irMod *ir.Module, ep *ir.EntryPoint) bool {
+	uses := func(b *ir.Binding) bool {
+		if b == nil {
+			return false
+		}
+		bb, ok := (*b).(ir.BuiltinBinding)
+		if !ok {
+			return false
+		}
+		switch bb.Builtin {
+		case ir.BuiltinVertexIndex, ir.BuiltinInstanceIndex:
+			return ep.Stage == ir.StageVertex
+		case ir.BuiltinNumWorkGroups:
+			return ep.Stage == ir.StageCompute
+		}
+		return false
+	}
+	for _, arg := range ep.Function.Arguments {
+		if st, ok := irMod.Types[arg.Type].Inner.(ir.StructType); ok && arg.Binding == nil {
+			for _, m := range st.Members {
+				if uses(m.Binding) {
+					return true
+				}
+			}
+			continue
+		}
+		if uses(arg.Binding) {
 			return true
 		}
 	}

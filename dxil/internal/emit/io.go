@@ -346,6 +346,7 @@ func (e *Emitter) emitSingleInputLoad(fn *ir.Function, argIdx int, arg *ir.Funct
 			continue
 		}
 		valueID := e.emitLoadInputCall(loadFn, inputRow, comp, isBoolInput)
+		valueID = e.withFirstVertexOrInstance(arg.Binding, valueID)
 		e.registerInputComponent(exprHandle, comp, numComps, valueID)
 	}
 
@@ -540,6 +541,9 @@ func (e *Emitter) getOrCreateNumWorkGroupsCBV() int {
 	if e.numWGHandleID >= 0 {
 		return e.numWGHandleID
 	}
+	if id, ok := e.specialConstantsHandle(); ok {
+		return id
+	}
 
 	// Create a synthetic resource entry for the NumWorkGroups CBV.
 	// Use a high register space (0xFFFFFFFF) to avoid colliding with user resources.
@@ -547,10 +551,15 @@ func (e *Emitter) getOrCreateNumWorkGroupsCBV() int {
 	res := resourceInfo{
 		name:     "$Globals",
 		class:    resourceClassCBV,
-		rangeID:  len(e.resources), // next available rangeID
 		group:    0,
 		binding:  0, // b0 in space 0 (synthetic)
 		handleID: -1,
+	}
+	// Range IDs count the resources of a class from zero.
+	for _, r := range e.resources {
+		if r.class == resourceClassCBV && !r.virtual {
+			res.rangeID++
+		}
 	}
 
 	// Check for collision with existing CBVs at b0/space0 — shift if needed.
@@ -577,6 +586,55 @@ func (e *Emitter) getOrCreateNumWorkGroupsCBV() int {
 
 	e.numWGHandleID = handleID
 	return handleID
+}
+
+// specialConstantsHandle returns the handle of the special constants CBV,
+// when the entry point has one.
+func (e *Emitter) specialConstantsHandle() (int, bool) {
+	for i := range e.resources {
+		if e.resources[i].specialConstants {
+			return e.resources[i].handleID, true
+		}
+	}
+	return 0, false
+}
+
+// withFirstVertexOrInstance returns valueID, a loaded vertex_index or
+// instance_index, plus first_vertex or first_instance of the special
+// constants, which SV_VertexID and SV_InstanceID leave out, as the HLSL
+// writer adds _NagaConstants.first_vertex. Any other input stays valueID.
+func (e *Emitter) withFirstVertexOrInstance(binding *ir.Binding, valueID int) int {
+	if binding == nil {
+		return valueID
+	}
+	bb, ok := (*binding).(ir.BuiltinBinding)
+	if !ok {
+		return valueID
+	}
+	comp := 0
+	switch bb.Builtin {
+	case ir.BuiltinVertexIndex:
+	case ir.BuiltinInstanceIndex:
+		comp = 1
+	default:
+		return valueID
+	}
+	handleID, ok := e.specialConstantsHandle()
+	if !ok {
+		return valueID
+	}
+	i32Ty := e.mod.GetIntType(32)
+	ret := e.addCallInstr(e.getDxOpCBufLoadFunc(overloadI32), e.getDxCBufRetType(overloadI32),
+		[]int{e.getIntConstID(int64(OpCBufferLoadLegacy)), handleID, e.getIntConstID(0)})
+	first := e.allocValue()
+	e.currentBB.AddInstruction(&module.Instruction{
+		Kind:       module.InstrExtractVal,
+		HasValue:   true,
+		ResultType: i32Ty,
+		Operands:   []int{ret, comp},
+		ValueID:    first,
+	})
+	return e.addBinOpInstr(i32Ty, BinOpAdd, first, valueID)
 }
 
 // getDxOpComputeBuiltinFunc creates a dx.op function declaration for compute
@@ -714,6 +772,7 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 
 			valueID := e.addCallInstr(loadFn, loadFn.FuncType.RetType,
 				[]int{opcodeVal, inputIDVal, rowVal, colVal, vertexIDVal})
+			valueID = e.withFirstVertexOrInstance(member.Binding, valueID)
 			info.comps[comp] = valueID
 			if comp == 0 {
 				info.firstID = valueID
