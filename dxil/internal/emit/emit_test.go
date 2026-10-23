@@ -2916,10 +2916,11 @@ func TestEmitLocalVariable(t *testing.T) {
 		t.Errorf("expected 1 alloca instruction, got %d", allocaCount)
 	}
 
-	// Verify store instructions were emitted (2 stores: x = 1.0 and x = 2.0).
+	// Verify store instructions were emitted: x has no initializer, so it
+	// starts at zero, then x = 1.0 and x = 2.0.
 	storeCount := countInstrKind(mod, module.InstrStore)
-	if storeCount != 2 {
-		t.Errorf("expected 2 store instructions, got %d", storeCount)
+	if storeCount != 3 {
+		t.Errorf("expected 3 store instructions, got %d", storeCount)
 	}
 
 	// Verify load instruction was emitted.

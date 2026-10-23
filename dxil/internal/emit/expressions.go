@@ -110,7 +110,12 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		} else {
 			// Non-resource global variable (workgroup, private, push-constant).
 			// Emit an alloca to create a proper pointer for load/store.
+			_, existed := e.globalVarAllocas[ek.Variable]
 			valueID, err = e.emitGlobalVarAlloca(ek.Variable)
+			if global := &e.ir.GlobalVariables[ek.Variable]; err == nil && !existed && global.Space == ir.SpacePrivate {
+				e.exprValues[handle] = valueID
+				err = e.initPrivateGlobal(fn, handle, global)
+			}
 		}
 
 	case ir.ExprImageSample:
