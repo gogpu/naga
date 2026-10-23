@@ -9,21 +9,60 @@ struct StructWithMat {
 struct StructWithArrayOfStructOfMat {
     StructWithMat a[4];
 };
+struct mat2x2_std140_ {
+    vec2 col0;
+    vec2 col1;
+};
+struct StructWithMat_std140_ {
+    vec2 m_0;
+    vec2 m_1;
+};
+struct StructWithArrayOfStructOfMat_std140_ {
+    StructWithMat_std140_ a[4];
+};
+mat2x2 mat2x2_from_std140_(mat2x2_std140_ v) {
+    return mat2x2(v.col0, v.col1);
+}
+
+StructWithMat StructWithMat_from_std140_(StructWithMat_std140_ v) {
+    return StructWithMat(mat2x2(v.m_0, v.m_1));
+}
+
+mat2x2[4] array_from_std140_(mat2x2_std140_ v[4]) {
+    mat2x2 r[4];
+    for (int i = 0; i < 4; i++) {
+        r[i] = mat2x2_from_std140_(v[i]);
+    }
+    return r;
+}
+
+StructWithMat[4] array_from_std140_1(StructWithMat_std140_ v[4]) {
+    StructWithMat r[4];
+    for (int i = 0; i < 4; i++) {
+        r[i] = StructWithMat_from_std140_(v[i]);
+    }
+    return r;
+}
+
+StructWithArrayOfStructOfMat StructWithArrayOfStructOfMat_from_std140_(StructWithArrayOfStructOfMat_std140_ v) {
+    return StructWithArrayOfStructOfMat(array_from_std140_1(v.a));
+}
+
 layout(std430) buffer Mat_block_0Compute { mat2x2 _group_0_binding_0_cs; };
 
-layout(std140) uniform Mat_block_1Compute { mat2x2 _group_0_binding_1_cs; };
+layout(std140) uniform Mat_block_1Compute { mat2x2_std140_ _group_0_binding_1_cs; };
 
 layout(std430) buffer StructWithMat_block_2Compute { StructWithMat _group_1_binding_0_cs; };
 
-layout(std140) uniform StructWithMat_block_3Compute { StructWithMat _group_1_binding_1_cs; };
+layout(std140) uniform StructWithMat_block_3Compute { StructWithMat_std140_ _group_1_binding_1_cs; };
 
 layout(std430) buffer type_1_block_4Compute { mat2x2 _group_2_binding_0_cs[4]; };
 
-layout(std140) uniform type_1_block_5Compute { mat2x2 _group_2_binding_1_cs[4]; };
+layout(std140) uniform type_1_block_5Compute { mat2x2_std140_ _group_2_binding_1_cs[4]; };
 
 layout(std430) buffer StructWithArrayOfStructOfMat_block_6Compute { StructWithArrayOfStructOfMat _group_3_binding_0_cs; };
 
-layout(std140) uniform StructWithArrayOfStructOfMat_block_7Compute { StructWithArrayOfStructOfMat _group_3_binding_1_cs; };
+layout(std140) uniform StructWithArrayOfStructOfMat_block_7Compute { StructWithArrayOfStructOfMat_std140_ _group_3_binding_1_cs; };
 
 
 void access_m() {
@@ -42,18 +81,18 @@ void access_m() {
     int _e29 = idx;
     int _e31 = idx;
     float l_s_e_vv = _group_0_binding_0_cs[_e29][_e31];
-    mat2x2 l_u_m = _group_0_binding_1_cs;
-    vec2 l_u_c_c = _group_0_binding_1_cs[0];
+    mat2x2 l_u_m = mat2x2_from_std140_(_group_0_binding_1_cs);
+    vec2 l_u_c_c = mat2x2_from_std140_(_group_0_binding_1_cs)[0];
     int _e40 = idx;
-    vec2 l_u_c_v = _group_0_binding_1_cs[_e40];
-    float l_u_e_cc = _group_0_binding_1_cs[0][0];
+    vec2 l_u_c_v = mat2x2_from_std140_(_group_0_binding_1_cs)[_e40];
+    float l_u_e_cc = mat2x2_from_std140_(_group_0_binding_1_cs)[0][0];
     int _e49 = idx;
-    float l_u_e_cv = _group_0_binding_1_cs[0][_e49];
+    float l_u_e_cv = mat2x2_from_std140_(_group_0_binding_1_cs)[0][_e49];
     int _e53 = idx;
-    float l_u_e_vc = _group_0_binding_1_cs[_e53][0];
+    float l_u_e_vc = mat2x2_from_std140_(_group_0_binding_1_cs)[_e53][0];
     int _e58 = idx;
     int _e60 = idx;
-    float l_u_e_vv = _group_0_binding_1_cs[_e58][_e60];
+    float l_u_e_vv = mat2x2_from_std140_(_group_0_binding_1_cs)[_e58][_e60];
     _group_0_binding_0_cs = l_u_m;
     _group_0_binding_0_cs[0] = l_u_c_c;
     int _e67 = idx;
@@ -86,19 +125,19 @@ void access_sm() {
     int _e38 = idx_1;
     int _e40 = idx_1;
     float l_s_e_vv_1 = _group_1_binding_0_cs.m[_e38][_e40];
-    StructWithMat l_u_s = _group_1_binding_1_cs;
-    mat2x2 l_u_m_1 = _group_1_binding_1_cs.m;
-    vec2 l_u_c_c_1 = _group_1_binding_1_cs.m[0];
+    StructWithMat l_u_s = StructWithMat_from_std140_(_group_1_binding_1_cs);
+    mat2x2 l_u_m_1 = mat2x2(_group_1_binding_1_cs.m_0, _group_1_binding_1_cs.m_1);
+    vec2 l_u_c_c_1 = mat2x2(_group_1_binding_1_cs.m_0, _group_1_binding_1_cs.m_1)[0];
     int _e54 = idx_1;
-    vec2 l_u_c_v_1 = _group_1_binding_1_cs.m[_e54];
-    float l_u_e_cc_1 = _group_1_binding_1_cs.m[0][0];
+    vec2 l_u_c_v_1 = mat2x2(_group_1_binding_1_cs.m_0, _group_1_binding_1_cs.m_1)[_e54];
+    float l_u_e_cc_1 = mat2x2(_group_1_binding_1_cs.m_0, _group_1_binding_1_cs.m_1)[0][0];
     int _e65 = idx_1;
-    float l_u_e_cv_1 = _group_1_binding_1_cs.m[0][_e65];
+    float l_u_e_cv_1 = mat2x2(_group_1_binding_1_cs.m_0, _group_1_binding_1_cs.m_1)[0][_e65];
     int _e70 = idx_1;
-    float l_u_e_vc_1 = _group_1_binding_1_cs.m[_e70][0];
+    float l_u_e_vc_1 = mat2x2(_group_1_binding_1_cs.m_0, _group_1_binding_1_cs.m_1)[_e70][0];
     int _e76 = idx_1;
     int _e78 = idx_1;
-    float l_u_e_vv_1 = _group_1_binding_1_cs.m[_e76][_e78];
+    float l_u_e_vv_1 = mat2x2(_group_1_binding_1_cs.m_0, _group_1_binding_1_cs.m_1)[_e76][_e78];
     _group_1_binding_0_cs = l_u_s;
     _group_1_binding_0_cs.m = l_u_m_1;
     _group_1_binding_0_cs.m[0] = l_u_c_c_1;
@@ -151,38 +190,38 @@ void access_am() {
     int _e81 = idx_2;
     int _e83 = idx_2;
     float l_s_e_vvv = _group_2_binding_0_cs[_e79][_e81][_e83];
-    mat2x2 l_u_a[4] = _group_2_binding_1_cs;
-    mat2x2 l_u_m_c = _group_2_binding_1_cs[0];
+    mat2x2 l_u_a[4] = array_from_std140_(_group_2_binding_1_cs);
+    mat2x2 l_u_m_c = mat2x2_from_std140_(_group_2_binding_1_cs[0]);
     int _e92 = idx_2;
-    mat2x2 l_u_m_v = _group_2_binding_1_cs[_e92];
-    vec2 l_u_c_cc = _group_2_binding_1_cs[0][0];
+    mat2x2 l_u_m_v = mat2x2_from_std140_(_group_2_binding_1_cs[_e92]);
+    vec2 l_u_c_cc = mat2x2_from_std140_(_group_2_binding_1_cs[0])[0];
     int _e101 = idx_2;
-    vec2 l_u_c_cv = _group_2_binding_1_cs[0][_e101];
+    vec2 l_u_c_cv = mat2x2_from_std140_(_group_2_binding_1_cs[0])[_e101];
     int _e105 = idx_2;
-    vec2 l_u_c_vc = _group_2_binding_1_cs[_e105][0];
+    vec2 l_u_c_vc = mat2x2_from_std140_(_group_2_binding_1_cs[_e105])[0];
     int _e110 = idx_2;
     int _e112 = idx_2;
-    vec2 l_u_c_vv = _group_2_binding_1_cs[_e110][_e112];
-    float l_u_e_ccc = _group_2_binding_1_cs[0][0][0];
+    vec2 l_u_c_vv = mat2x2_from_std140_(_group_2_binding_1_cs[_e110])[_e112];
+    float l_u_e_ccc = mat2x2_from_std140_(_group_2_binding_1_cs[0])[0][0];
     int _e123 = idx_2;
-    float l_u_e_ccv = _group_2_binding_1_cs[0][0][_e123];
+    float l_u_e_ccv = mat2x2_from_std140_(_group_2_binding_1_cs[0])[0][_e123];
     int _e128 = idx_2;
-    float l_u_e_cvc = _group_2_binding_1_cs[0][_e128][0];
+    float l_u_e_cvc = mat2x2_from_std140_(_group_2_binding_1_cs[0])[_e128][0];
     int _e134 = idx_2;
     int _e136 = idx_2;
-    float l_u_e_cvv = _group_2_binding_1_cs[0][_e134][_e136];
+    float l_u_e_cvv = mat2x2_from_std140_(_group_2_binding_1_cs[0])[_e134][_e136];
     int _e140 = idx_2;
-    float l_u_e_vcc = _group_2_binding_1_cs[_e140][0][0];
+    float l_u_e_vcc = mat2x2_from_std140_(_group_2_binding_1_cs[_e140])[0][0];
     int _e146 = idx_2;
     int _e149 = idx_2;
-    float l_u_e_vcv = _group_2_binding_1_cs[_e146][0][_e149];
+    float l_u_e_vcv = mat2x2_from_std140_(_group_2_binding_1_cs[_e146])[0][_e149];
     int _e153 = idx_2;
     int _e155 = idx_2;
-    float l_u_e_vvc = _group_2_binding_1_cs[_e153][_e155][0];
+    float l_u_e_vvc = mat2x2_from_std140_(_group_2_binding_1_cs[_e153])[_e155][0];
     int _e160 = idx_2;
     int _e162 = idx_2;
     int _e164 = idx_2;
-    float l_u_e_vvv = _group_2_binding_1_cs[_e160][_e162][_e164];
+    float l_u_e_vvv = mat2x2_from_std140_(_group_2_binding_1_cs[_e160])[_e162][_e164];
     _group_2_binding_0_cs = l_u_a;
     _group_2_binding_0_cs[0] = l_u_m_c;
     int _e171 = idx_2;
@@ -255,39 +294,39 @@ void access_sasm() {
     int _e112 = idx_3;
     int _e114 = idx_3;
     float l_s_e_vvv_1 = _group_3_binding_0_cs.a[_e109].m[_e112][_e114];
-    StructWithArrayOfStructOfMat l_u_s_1 = _group_3_binding_1_cs;
-    StructWithMat l_u_a_1[4] = _group_3_binding_1_cs.a;
-    mat2x2 l_u_m_c_1 = _group_3_binding_1_cs.a[0].m;
+    StructWithArrayOfStructOfMat l_u_s_1 = StructWithArrayOfStructOfMat_from_std140_(_group_3_binding_1_cs);
+    StructWithMat l_u_a_1[4] = array_from_std140_1(_group_3_binding_1_cs.a);
+    mat2x2 l_u_m_c_1 = mat2x2(_group_3_binding_1_cs.a[0].m_0, _group_3_binding_1_cs.a[0].m_1);
     int _e129 = idx_3;
-    mat2x2 l_u_m_v_1 = _group_3_binding_1_cs.a[_e129].m;
-    vec2 l_u_c_cc_1 = _group_3_binding_1_cs.a[0].m[0];
+    mat2x2 l_u_m_v_1 = mat2x2(_group_3_binding_1_cs.a[_e129].m_0, _group_3_binding_1_cs.a[_e129].m_1);
+    vec2 l_u_c_cc_1 = mat2x2(_group_3_binding_1_cs.a[0].m_0, _group_3_binding_1_cs.a[0].m_1)[0];
     int _e143 = idx_3;
-    vec2 l_u_c_cv_1 = _group_3_binding_1_cs.a[0].m[_e143];
+    vec2 l_u_c_cv_1 = mat2x2(_group_3_binding_1_cs.a[0].m_0, _group_3_binding_1_cs.a[0].m_1)[_e143];
     int _e148 = idx_3;
-    vec2 l_u_c_vc_1 = _group_3_binding_1_cs.a[_e148].m[0];
+    vec2 l_u_c_vc_1 = mat2x2(_group_3_binding_1_cs.a[_e148].m_0, _group_3_binding_1_cs.a[_e148].m_1)[0];
     int _e155 = idx_3;
     int _e158 = idx_3;
-    vec2 l_u_c_vv_1 = _group_3_binding_1_cs.a[_e155].m[_e158];
-    float l_u_e_ccc_1 = _group_3_binding_1_cs.a[0].m[0][0];
+    vec2 l_u_c_vv_1 = mat2x2(_group_3_binding_1_cs.a[_e155].m_0, _group_3_binding_1_cs.a[_e155].m_1)[_e158];
+    float l_u_e_ccc_1 = mat2x2(_group_3_binding_1_cs.a[0].m_0, _group_3_binding_1_cs.a[0].m_1)[0][0];
     int _e173 = idx_3;
-    float l_u_e_ccv_1 = _group_3_binding_1_cs.a[0].m[0][_e173];
+    float l_u_e_ccv_1 = mat2x2(_group_3_binding_1_cs.a[0].m_0, _group_3_binding_1_cs.a[0].m_1)[0][_e173];
     int _e180 = idx_3;
-    float l_u_e_cvc_1 = _group_3_binding_1_cs.a[0].m[_e180][0];
+    float l_u_e_cvc_1 = mat2x2(_group_3_binding_1_cs.a[0].m_0, _group_3_binding_1_cs.a[0].m_1)[_e180][0];
     int _e188 = idx_3;
     int _e190 = idx_3;
-    float l_u_e_cvv_1 = _group_3_binding_1_cs.a[0].m[_e188][_e190];
+    float l_u_e_cvv_1 = mat2x2(_group_3_binding_1_cs.a[0].m_0, _group_3_binding_1_cs.a[0].m_1)[_e188][_e190];
     int _e195 = idx_3;
-    float l_u_e_vcc_1 = _group_3_binding_1_cs.a[_e195].m[0][0];
+    float l_u_e_vcc_1 = mat2x2(_group_3_binding_1_cs.a[_e195].m_0, _group_3_binding_1_cs.a[_e195].m_1)[0][0];
     int _e203 = idx_3;
     int _e207 = idx_3;
-    float l_u_e_vcv_1 = _group_3_binding_1_cs.a[_e203].m[0][_e207];
+    float l_u_e_vcv_1 = mat2x2(_group_3_binding_1_cs.a[_e203].m_0, _group_3_binding_1_cs.a[_e203].m_1)[0][_e207];
     int _e212 = idx_3;
     int _e215 = idx_3;
-    float l_u_e_vvc_1 = _group_3_binding_1_cs.a[_e212].m[_e215][0];
+    float l_u_e_vvc_1 = mat2x2(_group_3_binding_1_cs.a[_e212].m_0, _group_3_binding_1_cs.a[_e212].m_1)[_e215][0];
     int _e221 = idx_3;
     int _e224 = idx_3;
     int _e226 = idx_3;
-    float l_u_e_vvv_1 = _group_3_binding_1_cs.a[_e221].m[_e224][_e226];
+    float l_u_e_vvv_1 = mat2x2(_group_3_binding_1_cs.a[_e221].m_0, _group_3_binding_1_cs.a[_e221].m_1)[_e224][_e226];
     _group_3_binding_0_cs = l_u_s_1;
     _group_3_binding_0_cs.a = l_u_a_1;
     _group_3_binding_0_cs.a[0].m = l_u_m_c_1;

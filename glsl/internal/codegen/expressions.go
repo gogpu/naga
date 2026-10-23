@@ -244,7 +244,7 @@ func (w *Writer) writeAccess(a ir.ExprAccess) (string, error) {
 	}
 	k, isConst := ir.ConstIndexValue(w.module, w.currentFunction, a.Index)
 	index = w.restrictIndex(a.Base, base, index, k, isConst)
-	return fmt.Sprintf("%s[%s]", base, index), nil
+	return w.std140Element(a.Base, fmt.Sprintf("%s[%s]", base, index)), nil
 }
 
 // restrictIndex clamps index, which is k when isConst, to the last element
@@ -286,6 +286,22 @@ func (w *Writer) restrictIndex(base ir.ExpressionHandle, baseCode, index string,
 	return fmt.Sprintf("min(uint(%s), %du)", index, length.Known-1)
 }
 
+// std140Element is elem, an element of the array base points to, written as
+// the matrix rebuilt from its columns when base points into a uniform buffer
+// and the elements are two-row matrices.
+func (w *Writer) std140Element(base ir.ExpressionHandle, elem string) string {
+	pointee, ok := w.uniformPointee(base)
+	if !ok {
+		return elem
+	}
+	if arr, isArray := w.module.Types[pointee].Inner.(ir.ArrayType); isArray {
+		if _, isMatrix := isStd140Matrix(w.module.Types[arr.Base].Inner); isMatrix {
+			return w.std140Load(arr.Base, elem)
+		}
+	}
+	return elem
+}
+
 // writeAccessIndex writes a constant-index access expression.
 func (w *Writer) writeAccessIndex(a ir.ExprAccessIndex) (string, error) {
 	// Check if this accesses a flattened entry point struct argument.
@@ -296,6 +312,18 @@ func (w *Writer) writeAccessIndex(a ir.ExprAccessIndex) (string, error) {
 	base, err := w.writeExpression(a.Base)
 	if err != nil {
 		return "", err
+	}
+
+	// A two-row matrix member of a struct in a uniform buffer is declared as
+	// its columns; the pointer to it is written as the matrix they rebuild.
+	if pointee, ok := w.uniformPointee(a.Base); ok {
+		if _, compat := w.std140Types[pointee]; compat {
+			if st, isStruct := w.module.Types[pointee].Inner.(ir.StructType); isStruct && int(a.Index) < len(st.Members) {
+				if _, isMatrix := isStd140Matrix(w.module.Types[st.Members[a.Index].Type].Inner); isMatrix {
+					return w.std140Member(pointee, a.Index, base), nil
+				}
+			}
+		}
 	}
 
 	// Check if this is a struct member access via type resolution.
@@ -312,7 +340,7 @@ func (w *Writer) writeAccessIndex(a ir.ExprAccessIndex) (string, error) {
 
 	// For matrices, use column index notation.
 	index := w.restrictIndex(a.Base, base, fmt.Sprint(a.Index), a.Index, true)
-	return fmt.Sprintf("%s[%s]", base, index), nil
+	return w.std140Element(a.Base, fmt.Sprintf("%s[%s]", base, index)), nil
 }
 
 // isVectorBase returns true if the expression resolves to a Vector type (direct or through Pointer).
@@ -528,6 +556,16 @@ func (w *Writer) writeFunctionArgument(a ir.ExprFunctionArgument) (string, error
 // For globals that are part of a combined texture-sampler pair, this returns
 // the combined sampler name so that texture() calls use the correct uniform.
 func (w *Writer) writeGlobalVariable(g ir.ExprGlobalVariable) (string, error) {
+	// A two-row matrix in a uniform buffer is declared as a struct of its
+	// columns; the pointer to it is written as the matrix they rebuild.
+	if int(g.Variable) < len(w.module.GlobalVariables) {
+		if global := &w.module.GlobalVariables[g.Variable]; global.Space == ir.SpaceUniform {
+			if _, isMatrix := isStd140Matrix(w.module.Types[global.Type].Inner); isMatrix {
+				return w.std140Load(global.Type, w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(g.Variable)}]), nil
+			}
+		}
+	}
+
 	// If this global is part of a combined pair, we need to find which pair
 	// uses it. For texture globals, the combined name is used directly in
 	// writeImageSample via resolveCombinedSamplerName, but if someone
@@ -556,7 +594,19 @@ func (w *Writer) writeLocalVariable(l ir.ExprLocalVariable) (string, error) {
 // writeLoad writes a load expression (dereference).
 func (w *Writer) writeLoad(l ir.ExprLoad) (string, error) {
 	// In GLSL, loading is implicit
-	return w.writeExpression(l.Pointer)
+	value, err := w.writeExpression(l.Pointer)
+	if err != nil {
+		return "", err
+	}
+	// A struct or array in a uniform buffer with two-row matrices in it is
+	// declared std140-compatible; loading it converts it. (A pointer to such
+	// a matrix is written as the rebuilt matrix already.)
+	if pointee, ok := w.uniformPointee(l.Pointer); ok {
+		if _, isMatrix := isStd140Matrix(w.module.Types[pointee].Inner); !isMatrix {
+			return w.std140Load(pointee, value), nil
+		}
+	}
+	return value, nil
 }
 
 // writeUnary writes a unary expression.

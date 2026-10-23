@@ -8,7 +8,33 @@ struct U {
     mat2x2 m;
     mat2x2 ms[3];
 };
-layout(std140) uniform U_block_0Compute { U _group_0_binding_0_cs; };
+struct mat2x2_std140_ {
+    vec2 col0;
+    vec2 col1;
+};
+struct U_std140_ {
+    vec4 a[4];
+    vec2 m_0;
+    vec2 m_1;
+    mat2x2_std140_ ms[3];
+};
+mat2x2 mat2x2_from_std140_(mat2x2_std140_ v) {
+    return mat2x2(v.col0, v.col1);
+}
+
+mat2x2[3] array_from_std140_(mat2x2_std140_ v[3]) {
+    mat2x2 r[3];
+    for (int i = 0; i < 3; i++) {
+        r[i] = mat2x2_from_std140_(v[i]);
+    }
+    return r;
+}
+
+U U_from_std140_(U_std140_ v) {
+    return U(v.a, mat2x2(v.m_0, v.m_1), array_from_std140_(v.ms));
+}
+
+layout(std140) uniform U_block_0Compute { U_std140_ _group_0_binding_0_cs; };
 
 layout(std430) buffer type_6_block_1Compute { uint _group_0_binding_1_cs[]; };
 
@@ -37,8 +63,8 @@ void main() {
     int _e17 = l[min(uint((i + 1)), 2u)];
     p[min(uint(li), 4u)] = float(_e17);
     float _e25 = _group_0_binding_0_cs.a[min(uint(i), 3u)].x;
-    float _e30 = _group_0_binding_0_cs.m[min(uint(i), 1u)][1];
-    float _e37 = _group_0_binding_0_cs.ms[min(uint(i), 2u)][min(uint(li), 1u)][0];
+    float _e30 = mat2x2(_group_0_binding_0_cs.m_0, _group_0_binding_0_cs.m_1)[min(uint(i), 1u)][1];
+    float _e37 = mat2x2_from_std140_(_group_0_binding_0_cs.ms[min(uint(i), 2u)])[min(uint(li), 1u)][0];
     wf[min(uint(li), 7u)] = ((_e25 + _e30) + _e37);
     uint _e42 = atomicAdd(wg[min(uint(li), 7u)], 1u);
     uint _e46 = atomicAdd(_group_0_binding_2_cs[min(uint(i), uint(_group_0_binding_2_cs.length()) - 1u)], 1u);
