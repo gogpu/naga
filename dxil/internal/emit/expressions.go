@@ -7067,54 +7067,92 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccessIndex(fn *ir.Function, ai ir.Expr
 	}
 
 	zeroID := e.getIntConstID(0)
-	fieldID := e.getIntConstID(int64(ai.Index))
 
-	switch localTy.(type) {
+	switch lt := localTy.(type) {
 	case ir.ArrayType:
 		arrayTy, hasArr := e.localVarArrayTypes[lv.Variable]
 		if !hasArr {
 			return 0, false, fmt.Errorf("inline-loadindex: array type cache missing for var %d", lv.Variable)
 		}
-		elemTy := arrayTy.ElemType
-		if elemTy == nil {
-			return 0, false, fmt.Errorf("inline-loadindex: arrayTy missing ElemType")
+		k, ok := flatScalarCount(e.ir, e.ir.Types[lt.Base].Inner)
+		if !ok || arrayTy.ElemType == nil {
+			return 0, false, fmt.Errorf("inline-loadindex: element of local array %d is not a run of scalars", lv.Variable)
 		}
-		ptrTy := e.mod.GetPointerType(elemTy)
-		gepID := e.addGEPInstr(arrayTy, ptrTy, allocaID, []int{zeroID, fieldID})
-		valID := e.allocValue()
-		align := e.alignForType(elemTy)
-		e.currentBB.AddInstruction(&module.Instruction{
-			Kind:       module.InstrLoad,
-			HasValue:   true,
-			ResultType: elemTy,
-			Operands:   []int{gepID, elemTy.ID, align, 0},
-			ValueID:    valID,
-		})
-		return valID, true, nil
+		return e.loadFlatElement(allocaID, arrayTy, k, func(j int) int {
+			return e.getIntConstID(int64(int(ai.Index)*k + j))
+		}), true, nil
 
 	case ir.StructType:
 		structTy, hasSt := e.localVarStructTypes[lv.Variable]
 		if !hasSt {
 			return 0, false, nil // struct alloca shape not cached — fall through to default path
 		}
-		if int(ai.Index) >= len(structTy.StructElems) {
-			return 0, false, fmt.Errorf("inline-loadindex: struct field index %d out of range (have %d)", ai.Index, len(structTy.StructElems))
+		if int(ai.Index) >= len(lt.Members) {
+			return 0, false, fmt.Errorf("inline-loadindex: struct field index %d out of range (have %d)", ai.Index, len(lt.Members))
 		}
-		elemTy := structTy.StructElems[ai.Index]
-		ptrTy := e.mod.GetPointerType(elemTy)
-		gepID := e.addGEPInstr(structTy, ptrTy, allocaID, []int{zeroID, fieldID})
-		valID := e.allocValue()
-		align := e.alignForType(elemTy)
-		e.currentBB.AddInstruction(&module.Instruction{
-			Kind:       module.InstrLoad,
-			HasValue:   true,
-			ResultType: elemTy,
-			Operands:   []int{gepID, elemTy.ID, align, 0},
-			ValueID:    valID,
-		})
-		return valID, true, nil
+		// The alloca's elements are the members' scalars, an array member
+		// one array element.
+		flat := 0
+		for _, m := range lt.Members[:ai.Index] {
+			flat += totalScalarCount(e.ir, e.ir.Types[m.Type].Inner)
+		}
+		member := e.ir.Types[lt.Members[ai.Index].Type].Inner
+		if _, isArray := member.(ir.ArrayType); isArray {
+			return 0, false, fmt.Errorf("inline-loadindex: array member %d of local struct %d", ai.Index, lv.Variable)
+		}
+		k := totalScalarCount(e.ir, member)
+		comps := make([]int, k)
+		for j := range comps {
+			elemTy := structTy.StructElems[flat+j]
+			gepID := e.addGEPInstr(structTy, e.mod.GetPointerType(elemTy), allocaID, []int{zeroID, e.getIntConstID(int64(flat + j))})
+			comps[j] = e.addLoadInstr(elemTy, gepID, e.alignForType(elemTy))
+		}
+		if k > 1 {
+			e.pendingComponents = comps
+		}
+		return comps[0], true, nil
 	}
 	return 0, false, nil
+}
+
+// flatScalarCount is the number of scalars a value of type inner takes in
+// a local array flattened to scalars, or false for a type the flattening
+// doesn't make a run of scalars of, a struct.
+func flatScalarCount(irMod *ir.Module, inner ir.TypeInner) (int, bool) {
+	switch t := inner.(type) {
+	case ir.ScalarType, ir.AtomicType:
+		return 1, true
+	case ir.VectorType:
+		return int(t.Size), true
+	case ir.MatrixType:
+		return int(t.Columns) * int(t.Rows), true
+	case ir.ArrayType:
+		if t.Size.Constant == nil {
+			return 0, false
+		}
+		k, ok := flatScalarCount(irMod, irMod.Types[t.Base].Inner)
+		return int(*t.Size.Constant) * k, ok
+	}
+	return 0, false
+}
+
+// loadFlatElement loads the k scalars of an element of a local array
+// flattened to arrayTy, at the flat indices flatIndex gives, as the
+// element's components.
+func (e *Emitter) loadFlatElement(allocaID int, arrayTy *module.Type, k int, flatIndex func(j int) int) int {
+	elemTy := arrayTy.ElemType
+	ptrTy := e.mod.GetPointerType(elemTy)
+	align := e.alignForType(elemTy)
+	zeroID := e.getIntConstID(0)
+	comps := make([]int, k)
+	for j := range comps {
+		gepID := e.addGEPInstr(arrayTy, ptrTy, allocaID, []int{zeroID, flatIndex(j)})
+		comps[j] = e.addLoadInstr(elemTy, gepID, align)
+	}
+	if k > 1 {
+		e.pendingComponents = comps
+	}
+	return comps[0]
 }
 
 // tryInlineLoadOfLocalVarAccess handles the dynamic-index counterpart to
@@ -7154,24 +7192,21 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccess(fn *ir.Function, acc ir.ExprAcce
 	if !hasArr {
 		return 0, false, fmt.Errorf("inline-load-of-localvar: array type cache missing for var %d", lv.Variable)
 	}
-	gepID, err := e.emitArrayGEP(allocaID, arrayTy, indexID)
-	if err != nil {
-		return 0, false, err
+	k, ok := flatScalarCount(e.ir, e.ir.Types[localTy.(ir.ArrayType).Base].Inner)
+	if !ok || arrayTy.ElemType == nil {
+		return 0, false, fmt.Errorf("inline-load-of-localvar: element of local array %d is not a run of scalars", lv.Variable)
 	}
-	elemTy := arrayTy.ElemType
-	if elemTy == nil {
-		return 0, false, fmt.Errorf("inline-load-of-localvar: arrayTy missing ElemType")
+	i32Ty := e.mod.GetIntType(32)
+	base := indexID
+	if k > 1 {
+		base = e.addMulOrShlInstr(i32Ty, indexID, e.getIntConstID(int64(k)))
 	}
-	valID := e.allocValue()
-	align := e.alignForType(elemTy)
-	e.currentBB.AddInstruction(&module.Instruction{
-		Kind:       module.InstrLoad,
-		HasValue:   true,
-		ResultType: elemTy,
-		Operands:   []int{gepID, elemTy.ID, align, 0},
-		ValueID:    valID,
-	})
-	return valID, true, nil
+	return e.loadFlatElement(allocaID, arrayTy, k, func(j int) int {
+		if j == 0 {
+			return base
+		}
+		return e.addBinOpInstr(i32Ty, BinOpAdd, base, e.getIntConstID(int64(j)))
+	}), true, nil
 }
 
 // hlslMangledGroupsharedName produces the MSVC-decorated name for a
