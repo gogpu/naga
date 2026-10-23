@@ -5,6 +5,7 @@ package codegen
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gogpu/naga/ir"
 )
@@ -126,9 +127,12 @@ func (w *Writer) arraySize(arr ir.ArrayType) uint32 {
 }
 
 // std140MemberName returns the name of column col of the matrix member of a
-// std140-compatible struct.
+// std140-compatible struct. A member name ending in a digit has an
+// underscore after it, which isn't doubled: GLSL reserves names with two
+// underscores in a row, and NVIDIA refuses them.
 func (w *Writer) std140MemberName(structType ir.TypeHandle, member uint32, col int) string {
-	return fmt.Sprintf("%s_%d", w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(structType), handle2: member}], col)
+	name := w.names[nameKey{kind: nameKeyStructMember, handle1: uint32(structType), handle2: member}]
+	return fmt.Sprintf("%s_%d", strings.TrimSuffix(name, "_"), col)
 }
 
 // writeStd140Types writes the std140-compatible structs and the functions

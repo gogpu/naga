@@ -47,3 +47,30 @@ fn fs_main() -> @location(0) vec4<f32> {
 		}
 	}
 }
+
+// A member whose name ends in a digit is named with an underscore after it,
+// m2_; its columns are m2_0 and m2_1, as GLSL reserves m2__0.
+func TestStd140ColumnNamesHaveNoDoubleUnderscore(t *testing.T) {
+	module := lowerWGSL(t, `
+struct U {
+    m2: mat2x2<f32>,
+    v: vec2<f32>,
+}
+@group(0) @binding(0) var<uniform> u: U;
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(u.m2 * u.v, 0.0, 1.0);
+}
+`)
+	out, _, err := Compile(module, Options{LangVersion: Version430})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "struct U_std140_ {\n    vec2 m2_0;\n    vec2 m2_1;\n    vec2 v;\n};"; !strings.Contains(out, want) {
+		t.Errorf("output lacks %q:\n%s", want, out)
+	}
+	if strings.Contains(out, "__") {
+		t.Errorf("output has a name with two underscores in a row:\n%s", out)
+	}
+}
