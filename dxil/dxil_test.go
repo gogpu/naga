@@ -515,7 +515,7 @@ func TestPSVResourceCountForSimpleCBV(t *testing.T) {
 	}
 	// buildPSV is pure: we exercise it directly to verify the helper
 	// wired through collectPSVResources produces one binding entry.
-	info := buildPSV(mod, &mod.EntryPoints[0], false, 0, 0, nil, nil, nil, nil, nil)
+	info := buildPSV(mod, &mod.EntryPoints[0], false, 0, 0, nil, nil, nil, nil, nil, nil)
 	if got := len(info.ResourceBindings); got != 1 {
 		t.Fatalf("ResourceBindings count = %d, want 1", got)
 	}
@@ -634,7 +634,7 @@ func TestBuildPSVStageDispatch(t *testing.T) {
 			}
 			isFragment := tc.stage == ir.StageFragment
 			isMesh := tc.stage == ir.StageMesh
-			info := buildPSVEx(irMod, ep, isFragment, isMesh, 0, 0, 0, nil, nil, nil, nil, nil)
+			info := buildPSVEx(irMod, ep, isFragment, isMesh, 0, 0, 0, nil, nil, nil, nil, nil, nil)
 			if info.ShaderStage != tc.wantKind {
 				t.Errorf("ShaderStage = %d, want %d", info.ShaderStage, tc.wantKind)
 			}
@@ -833,7 +833,7 @@ func TestBuildPSVSampleFrequency(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			info := buildPSV(irMod, tc.ep, true, 1, 1, nil, nil, nil, nil, nil)
+			info := buildPSV(irMod, tc.ep, true, 1, 1, nil, nil, nil, nil, nil, nil)
 			if info.SampleFrequency != tc.want {
 				t.Errorf("SampleFrequency = %v, want %v", info.SampleFrequency, tc.want)
 			}

@@ -446,10 +446,17 @@ type BindingLocation struct {
 // BindTarget specifies the DXIL register binding for a resource.
 // Mirror of dxil.BindTarget.
 type BindTarget struct {
-	Space            uint32
-	Register         uint32
-	BindingArraySize *uint32
-	RestrictIndexing bool
+	Space                            uint32
+	Register                         uint32
+	BindingArraySize                 *uint32
+	RestrictIndexing                 bool
+	DynamicStorageBufferOffsetsIndex *uint32
+}
+
+// DynamicOffsetsBuffer is the constant buffer of the dynamic offsets of the
+// storage buffers of bind group Group: Size 32-bit values.
+type DynamicOffsetsBuffer struct {
+	Group, Space, Register, Size uint32
 }
 
 // BindingMap maps source-shader binding locations to DXIL register
@@ -489,6 +496,11 @@ type EmitOptions struct {
 	// unrelated bindings into the per-EP DXIL container. nil means
 	// "include every global" (single-EP modules / tests). BUG-DXIL-016.
 	ReachableGlobals map[ir.GlobalVariableHandle]bool
+
+	// DynamicOffsets are the constant buffers of the dynamic offsets of the
+	// storage buffers the entry point uses, by bind group in ascending order
+	// (dxil.Options.DynamicStorageBufferOffsetsTargets).
+	DynamicOffsets []DynamicOffsetsBuffer
 
 	// SpecialConstants is the constant buffer of first_vertex,
 	// first_instance and a third value (dxil.Options.SpecialConstantsBinding),

@@ -76,9 +76,21 @@ type resourceInfo struct {
 	// restrictIndexing clamps the run-time indices of a CBV's loads to
 	// their arrays (BindTarget.RestrictIndexing).
 	restrictIndexing bool
-	// specialConstants marks the CBV of EmitOptions.SpecialConstants, three
-	// 32-bit values.
+	// specialConstants marks the CBV of EmitOptions.SpecialConstants.
 	specialConstants bool
+	// words, when not 0, is the number of 32-bit values a synthetic CBV
+	// holds.
+	words uint32
+	// dynamicOffset, for a storage buffer with a dynamic offset, is where
+	// the offset is (BindTarget.DynamicStorageBufferOffsetsIndex).
+	dynamicOffset *dynamicOffsetRef
+}
+
+// dynamicOffsetRef is the dynamic offset of a storage buffer: value index of
+// the offsets CBV of bind group group.
+type dynamicOffsetRef struct {
+	group uint32
+	index uint32
 }
 
 // analyzeResources scans the module's global variables and classifies them
@@ -182,8 +194,12 @@ func (e *Emitter) analyzeResources() {
 		grp := gv.Binding.Group
 		bnd := gv.Binding.Binding
 		var restrictIndexing bool
+		var dynamicOffset *dynamicOffsetRef
 		if e.opts.BindingMap != nil {
 			if tgt, ok := e.opts.BindingMap[BindingLocation{Group: grp, Binding: bnd}]; ok {
+				if tgt.DynamicStorageBufferOffsetsIndex != nil && gv.Space == ir.SpaceStorage {
+					dynamicOffset = &dynamicOffsetRef{group: grp, index: *tgt.DynamicStorageBufferOffsetsIndex}
+				}
 				grp = tgt.Space
 				bnd = tgt.Register
 				restrictIndexing = tgt.RestrictIndexing
@@ -217,6 +233,7 @@ func (e *Emitter) analyzeResources() {
 			arraySize:      baSize,
 
 			restrictIndexing: restrictIndexing,
+			dynamicOffset:    dynamicOffset,
 		}
 
 		e.resourceHandles[info.varHandle] = len(e.resources)
@@ -227,6 +244,19 @@ func (e *Emitter) analyzeResources() {
 	// Index buffer SRVs were already prepended above.
 	e.appendSamplerHeapSamplers(&rangeCounters)
 
+	for _, b := range e.opts.DynamicOffsets {
+		e.resources = append(e.resources, resourceInfo{
+			name:       fmt.Sprintf("__dynamic_buffer_offsets%d", b.Group),
+			class:      resourceClassCBV,
+			rangeID:    rangeCounters[resourceClassCBV],
+			group:      b.Space,
+			binding:    b.Register,
+			typeHandle: ir.TypeHandle(len(e.ir.Types)),
+			handleID:   -1,
+			words:      b.Size,
+		})
+		rangeCounters[resourceClassCBV]++
+	}
 	if t := e.opts.SpecialConstants; t != nil {
 		e.resources = append(e.resources, resourceInfo{
 			name:             "_NagaConstants",
@@ -237,6 +267,7 @@ func (e *Emitter) analyzeResources() {
 			typeHandle:       ir.TypeHandle(len(e.ir.Types)),
 			handleID:         -1,
 			specialConstants: true,
+			words:            3,
 		})
 		rangeCounters[resourceClassCBV]++
 	}
@@ -1650,9 +1681,12 @@ func (e *Emitter) getCBVStructType(res *resourceInfo) *module.Type {
 // For bare (non-struct) CBV types (e.g., var<uniform> m: mat4x4<f32>), the
 // result is a single-element slice with that type's LLVM representation.
 func (e *Emitter) buildCBVMemberTypes(res *resourceInfo) []*module.Type {
-	if res.specialConstants {
-		i32Ty := e.mod.GetIntType(32)
-		return []*module.Type{i32Ty, i32Ty, i32Ty}
+	if res.words > 0 {
+		members := make([]*module.Type, res.words)
+		for i := range members {
+			members[i] = e.mod.GetIntType(32)
+		}
+		return members
 	}
 	if int(res.typeHandle) >= len(e.ir.Types) {
 		// Fallback: single vec4 register as flat float array.
@@ -2293,8 +2327,8 @@ func (e *Emitter) addMetadataI1(value bool) *module.MetadataNode {
 // rounding to vec4 boundary. DXC uses this value directly in the resource
 // metadata field[6]. For a struct with a single f32, this returns 4.
 func (e *Emitter) computeCBVSizeBytes(res *resourceInfo) int {
-	if res.specialConstants {
-		return 12
+	if res.words > 0 {
+		return int(4 * res.words)
 	}
 	if int(res.typeHandle) >= len(e.ir.Types) {
 		return 16 // default: 1 vec4 register
@@ -3140,6 +3174,50 @@ func deepScalarOfType(irMod *ir.Module, inner ir.TypeInner) (ir.ScalarType, bool
 // Reference: DXC HLOperationLower.cpp:4651 — `Coord0 (Index)` already byte-scaled
 // from HLSL frontend; same expectation here.
 func (e *Emitter) resolveUAVIndex(fn *ir.Function, chain *uavPointerChain) (int, error) {
+	index, err := e.uavByteIndex(fn, chain)
+	if err != nil {
+		return 0, err
+	}
+	idx, ok := e.resourceHandles[chain.varHandle]
+	if !ok || e.resources[idx].dynamicOffset == nil {
+		return index, nil
+	}
+	offset, err := e.loadDynamicOffset(*e.resources[idx].dynamicOffset)
+	if err != nil {
+		return 0, err
+	}
+	return e.addBinOpInstr(e.mod.GetIntType(32), BinOpAdd, index, offset), nil
+}
+
+// loadDynamicOffset loads the dynamic offset of a storage buffer, in bytes,
+// from the offsets CBV of its bind group, as the HLSL writer adds
+// __dynamic_buffer_offsets<group>._<index> to its addresses.
+func (e *Emitter) loadDynamicOffset(ref dynamicOffsetRef) (int, error) {
+	name := fmt.Sprintf("__dynamic_buffer_offsets%d", ref.group)
+	for i := range e.resources {
+		res := &e.resources[i]
+		if res.words == 0 || res.name != name {
+			continue
+		}
+		i32Ty := e.mod.GetIntType(32)
+		ret := e.addCallInstr(e.getDxOpCBufLoadFunc(overloadI32), e.getDxCBufRetType(overloadI32),
+			[]int{e.getIntConstID(int64(OpCBufferLoadLegacy)), res.handleID, e.getIntConstID(int64(ref.index / 4))})
+		offset := e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{ret, int(ref.index % 4)},
+			ValueID:    offset,
+		})
+		return offset, nil
+	}
+	return 0, fmt.Errorf("no dynamic offsets constant buffer for bind group %d", ref.group)
+}
+
+// uavByteIndex is the byte address of a storage buffer chain, its dynamic
+// offset left out.
+func (e *Emitter) uavByteIndex(fn *ir.Function, chain *uavPointerChain) (int, error) {
 	if chain.isConstIdx {
 		var bytes uint32
 		if chain.stride == 0 {
