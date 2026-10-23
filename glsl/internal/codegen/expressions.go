@@ -242,7 +242,48 @@ func (w *Writer) writeAccess(a ir.ExprAccess) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	k, isConst := ir.ConstIndexValue(w.module, w.currentFunction, a.Index)
+	index = w.restrictIndex(a.Base, base, index, k, isConst)
 	return fmt.Sprintf("%s[%s]", base, index), nil
+}
+
+// restrictIndex clamps index, which is k when isConst, to the last element
+// of base when the Restrict policy applies to base and the index may be out
+// of bounds.
+func (w *Writer) restrictIndex(base ir.ExpressionHandle, baseCode, index string, k uint32, isConst bool) string {
+	if int(base) >= len(w.currentFunction.ExpressionTypes) {
+		return index
+	}
+	inner := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[base], base)
+	policy := w.options.BoundsCheckPolicies.Index
+	switch t := inner.(type) {
+	case ir.BindingArrayType:
+		return index
+	case ir.PointerType:
+		if _, ok := w.module.Types[t.Base].Inner.(ir.BindingArrayType); ok {
+			return index
+		}
+		if t.Space == ir.SpaceUniform || t.Space == ir.SpaceStorage {
+			policy = w.options.BoundsCheckPolicies.Buffer
+		}
+	case ir.ValuePointerType:
+		if t.Space == ir.SpaceUniform || t.Space == ir.SpaceStorage {
+			policy = w.options.BoundsCheckPolicies.Buffer
+		}
+	}
+	if policy != BoundsCheckRestrict {
+		return index
+	}
+	length, err := ir.IndexableLengthOf(w.module, inner)
+	switch {
+	case err != nil:
+		return index
+	case length.Dynamic:
+		return fmt.Sprintf("min(uint(%s), uint(%s.length()) - 1u)", index, baseCode)
+	case isConst && k < length.Known:
+		return index
+	}
+	return fmt.Sprintf("min(uint(%s), %du)", index, length.Known-1)
 }
 
 // writeAccessIndex writes a constant-index access expression.
@@ -270,7 +311,8 @@ func (w *Writer) writeAccessIndex(a ir.ExprAccessIndex) (string, error) {
 	}
 
 	// For matrices, use column index notation.
-	return fmt.Sprintf("%s[%d]", base, a.Index), nil
+	index := w.restrictIndex(a.Base, base, fmt.Sprint(a.Index), a.Index, true)
+	return fmt.Sprintf("%s[%s]", base, index), nil
 }
 
 // isVectorBase returns true if the expression resolves to a Vector type (direct or through Pointer).
