@@ -246,13 +246,13 @@ func (e *Emitter) insertSamplerIndexBufferSRV(group uint32, rangeCounters *[4]in
 	st.resIdxIndexBuffer[group] = idx
 	idxSpace, idxRegister := e.samplerIndexBufferTarget(group)
 	info := resourceInfo{
-		varHandle:    ir.GlobalVariableHandle(0xffffffff),
+		varHandle:    ir.GlobalVariableHandle(noIRHandle),
 		name:         fmt.Sprintf("nagaGroup%dSamplerIndexArray", group),
 		class:        resourceClassSRV,
 		rangeID:      rangeCounters[resourceClassSRV],
 		group:        idxSpace,
 		binding:      idxRegister,
-		typeHandle:   ir.TypeHandle(0xffffffff),
+		typeHandle:   ir.TypeHandle(noIRHandle),
 		handleID:     -1,
 		kindOverride: 12, // StructuredBuffer
 	}
@@ -273,13 +273,13 @@ func (e *Emitter) appendSamplerHeapSamplers(rangeCounters *[4]int) {
 	if st.hasStandard {
 		st.resIdxStandardHeap = len(e.resources)
 		info := resourceInfo{
-			varHandle:      ir.GlobalVariableHandle(0xffffffff), // synthetic — no IR backing
+			varHandle:      ir.GlobalVariableHandle(noIRHandle), // synthetic — no IR backing
 			name:           samplerHeapName,
 			class:          resourceClassSampler,
 			rangeID:        rangeCounters[resourceClassSampler],
 			group:          e.samplerHeapSpace(),
 			binding:        e.samplerHeapRegister(),
-			typeHandle:     ir.TypeHandle(0xffffffff),
+			typeHandle:     ir.TypeHandle(noIRHandle),
 			handleID:       -1,
 			isBindingArray: true, // 2048-slot array — drives metadata struct wrapping
 			arraySize:      2048,
@@ -290,13 +290,13 @@ func (e *Emitter) appendSamplerHeapSamplers(rangeCounters *[4]int) {
 	if st.hasComparison {
 		st.resIdxComparisonHeap = len(e.resources)
 		info := resourceInfo{
-			varHandle:         ir.GlobalVariableHandle(0xffffffff),
+			varHandle:         ir.GlobalVariableHandle(noIRHandle),
 			name:              comparisonSamplerHeapName,
 			class:             resourceClassSampler,
 			rangeID:           rangeCounters[resourceClassSampler],
 			group:             e.comparisonSamplerHeapSpace(),
 			binding:           e.comparisonSamplerHeapRegister(),
-			typeHandle:        ir.TypeHandle(0xffffffff),
+			typeHandle:        ir.TypeHandle(noIRHandle),
 			handleID:          -1,
 			isBindingArray:    true,
 			arraySize:         2048,
@@ -420,13 +420,13 @@ func (e *Emitter) allocSamplerHandleResIdx(_ ir.GlobalVariableHandle, handleID, 
 	idx := len(e.resources)
 	heapRes := &e.resources[heapResIdx]
 	e.resources = append(e.resources, resourceInfo{
-		varHandle:         ir.GlobalVariableHandle(0xfffffffe), // virtual — must not collide with synthesized heap
-		name:              "",                                  // intentionally empty so it cannot leak into metadata if walked
+		varHandle:         ir.GlobalVariableHandle(noIRHandle - 1), // virtual — must not collide with synthesized heap
+		name:              "",                                      // intentionally empty so it cannot leak into metadata if walked
 		class:             resourceClassSampler,
 		rangeID:           heapRes.rangeID,
 		group:             bind.group,
 		binding:           bind.binding,
-		typeHandle:        ir.TypeHandle(0xffffffff),
+		typeHandle:        ir.TypeHandle(noIRHandle),
 		handleID:          handleID,
 		virtual:           true, // exclude from dx.resources metadata + PSV0
 		comparisonSampler: bind.comparison,
