@@ -2500,7 +2500,7 @@ type cbvPointerChain struct {
 	// loaded, root first: the first run-time index into a vector, or into
 	// an array or matrix whose elements aren't a whole number of registers
 	// apart, and those after it.
-	rest []cbvStep
+	rest []pointerStep
 }
 
 // cbvDynamicIndex is a run-time index into an array, or the columns of a
@@ -2520,7 +2520,7 @@ type cbvDynamicIndex struct {
 // Reference: Mesa nir_to_dxil.c emit_load_ubo_vec4() — offset is passed as
 // register index (byte_offset / 16).
 func (e *Emitter) resolveCBVPointerChain(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*cbvPointerChain, bool) {
-	global, steps, ok := cbvChainSteps(fn, ptrHandle)
+	global, steps, ok := pointerSteps(fn, ptrHandle)
 	if !ok {
 		return nil, false
 	}
@@ -2547,25 +2547,25 @@ func (e *Emitter) resolveCBVPointerChain(fn *ir.Function, ptrHandle ir.Expressio
 	return chain, true
 }
 
-// cbvStep is one index of a pointer chain: a constant index, or the
+// pointerStep is one index of a pointer chain: a constant index, or the
 // expression of a run-time one.
-type cbvStep struct {
+type pointerStep struct {
 	index   uint32
 	dynamic bool
 	expr    ir.ExpressionHandle
 }
 
-// cbvChainSteps follows Access and AccessIndex expressions from handle down
+// pointerSteps follows Access and AccessIndex expressions from handle down
 // to a global variable and returns it with the indices, tip first.
-func cbvChainSteps(fn *ir.Function, handle ir.ExpressionHandle) (ir.GlobalVariableHandle, []cbvStep, bool) {
-	var steps []cbvStep
+func pointerSteps(fn *ir.Function, handle ir.ExpressionHandle) (ir.GlobalVariableHandle, []pointerStep, bool) {
+	var steps []pointerStep
 	for int(handle) < len(fn.Expressions) {
 		switch ek := fn.Expressions[handle].Kind.(type) {
 		case ir.ExprAccessIndex:
-			steps = append(steps, cbvStep{index: ek.Index})
+			steps = append(steps, pointerStep{index: ek.Index})
 			handle = ek.Base
 		case ir.ExprAccess:
-			steps = append(steps, cbvStep{dynamic: true, expr: ek.Index})
+			steps = append(steps, pointerStep{dynamic: true, expr: ek.Index})
 			handle = ek.Base
 		case ir.ExprGlobalVariable:
 			return ek.Variable, steps, true
@@ -2576,12 +2576,12 @@ func cbvChainSteps(fn *ir.Function, handle ir.ExpressionHandle) (ir.GlobalVariab
 	return 0, nil, false
 }
 
-// cbvElement returns the type of the elements of current, a struct (the
+// layoutElement returns the type of the elements of current, a struct (the
 // member index), array, matrix (its columns) or vector, their stride in
 // bytes and their count (0 when unknown), and for a struct member its
 // offset. Matrix columns are as far apart as WGSL lays them out, which is
 // 8 bytes for a two-row f32 matrix.
-func (e *Emitter) cbvElement(current ir.TypeInner, index uint32) (elem ir.TypeInner, offset, stride, count uint32, ok bool) {
+func (e *Emitter) layoutElement(current ir.TypeInner, index uint32) (elem ir.TypeInner, offset, stride, count uint32, ok bool) {
 	switch ct := current.(type) {
 	case ir.StructType:
 		if int(index) >= len(ct.Members) {
@@ -2611,12 +2611,12 @@ func (e *Emitter) cbvElement(current ir.TypeInner, index uint32) (elem ir.TypeIn
 // elements are whole registers apart, and returns the type it selects.
 // addressed is false for any other run-time index, which chain leaves to
 // rest; ok is false when the index can't be resolved.
-func (e *Emitter) applyCBVStep(chain *cbvPointerChain, current ir.TypeInner, st cbvStep) (next ir.TypeInner, addressed, ok bool) {
+func (e *Emitter) applyCBVStep(chain *cbvPointerChain, current ir.TypeInner, st pointerStep) (next ir.TypeInner, addressed, ok bool) {
 	_, isStruct := current.(ir.StructType)
 	if st.dynamic && isStruct {
 		return nil, false, false
 	}
-	elem, offset, stride, count, ok := e.cbvElement(current, st.index)
+	elem, offset, stride, count, ok := e.layoutElement(current, st.index)
 	if !ok {
 		return nil, false, false
 	}
@@ -2675,12 +2675,12 @@ func (e *Emitter) cbvLeaves(inner ir.TypeInner, base uint32, out []cbvLeaf) []cb
 		return append(out, cbvLeaf{offset: base, scalar: t})
 	case ir.StructType:
 		for i := range t.Members {
-			elem, offset, _, _, _ := e.cbvElement(t, uint32(i))
+			elem, offset, _, _, _ := e.layoutElement(t, uint32(i))
 			out = e.cbvLeaves(elem, base+offset, out)
 		}
 		return out
 	}
-	elem, _, stride, count, ok := e.cbvElement(inner, 0)
+	elem, _, stride, count, ok := e.layoutElement(inner, 0)
 	if !ok {
 		return out
 	}
@@ -2756,7 +2756,7 @@ func (e *Emitter) emitCBVLoad(fn *ir.Function, chain *cbvPointerChain) (int, err
 // element of a constant index directly, those of an element of a run-time
 // index with a select over it, which an index past the end makes the last
 // element, as WGSL keeps such an access in bounds.
-func (e *Emitter) pickCBVComponents(fn *ir.Function, inner ir.TypeInner, rest []cbvStep, comps []int) ([]int, error) {
+func (e *Emitter) pickCBVComponents(fn *ir.Function, inner ir.TypeInner, rest []pointerStep, comps []int) ([]int, error) {
 	for _, st := range rest {
 		if s, ok := inner.(ir.StructType); ok {
 			if st.dynamic || int(st.index) >= len(s.Members) {
@@ -2770,7 +2770,7 @@ func (e *Emitter) pickCBVComponents(fn *ir.Function, inner ir.TypeInner, rest []
 			comps = comps[first : first+cbvComponentCount(e.ir, inner)]
 			continue
 		}
-		elem, _, _, count, ok := e.cbvElement(inner, st.index)
+		elem, _, _, count, ok := e.layoutElement(inner, st.index)
 		if !ok || count == 0 || len(comps)%int(count) != 0 {
 			return nil, fmt.Errorf("CBV index into %T", inner)
 		}
@@ -2864,36 +2864,30 @@ func (e *Emitter) getDxOpCBufLoadFunc(ol overloadType) *module.Function {
 
 // --- UAV (storage buffer) operations ---
 
-// uavPointerChain describes a resolved pointer chain leading to a UAV element.
+// uavPointerChain is a pointer into a storage buffer: the buffer, which
+// in a binding array of buffers its index selects, the type it points to,
+// and the byte address it is at, offset plus each run-time index times its
+// stride.
 type uavPointerChain struct {
-	varHandle  ir.GlobalVariableHandle
-	indexExpr  ir.ExpressionHandle // array index expression (dynamic) — used when isConstIndex is false
-	constIndex uint32              // constant array index — used when isConstIndex is true
-	isConstIdx bool                // true if this is a constant-index access
-	isWhole    bool                // true if this is a whole-buffer load (direct GlobalVariable reference)
-	elemType   ir.TypeInner        // element type (what's being loaded/stored)
-	scalar     ir.ScalarType       // scalar element type for overload selection
-	// stride and fieldByteOffset together encode coord0 (in BYTES) per the
-	// formula:  coord0 = (constIdx | dynIdx) * stride + fieldByteOffset
-	//
-	// stride > 0: dynamic-index byte stride (or constIdx byte multiplier).
-	// stride == 0: no per-index multiplication; constIndex is treated as
-	//              precomputed byte offset directly (used for direct struct field access).
-	//
-	// All values are in BYTES. The DXIL spec (DXIL.rst:1789) requires bufferStore
-	// coord0 in bytes for RWRawBuffer (kind 11), which is how naga registers all
-	// storage buffer UAVs/SRVs.
-	stride          uint32 // byte stride per index unit (0 = constIndex is precomputed byte offset)
-	fieldByteOffset uint32 // additional static byte offset (struct member offset, etc.)
-	// dynamicHandleID is set for binding array UAVs where the handle is created
-	// at point of use (not at function entry). -1 means use the static handle.
-	dynamicHandleID int
+	varHandle ir.GlobalVariableHandle
+	offset    uint32
+	indices   []uavIndex
+	isWhole   bool // a pointer to the whole buffer
+	elemType  ir.TypeInner
+	scalar    ir.ScalarType
 	// bindingArrayIndexExpr holds the index into the binding array (for dynamic handle creation).
 	bindingArrayIndexExpr ir.ExpressionHandle
 	hasBindingArrayIndex  bool
 	// isBindingArrayConstIdx is true when the binding array index is a constant (AccessIndex pattern).
 	isBindingArrayConstIdx bool
 	bindingArrayConstIndex int64
+}
+
+// uavIndex is a run-time index of a storage buffer pointer and the bytes
+// between the elements it indexes.
+type uavIndex struct {
+	expr   ir.ExpressionHandle
+	stride uint32
 }
 
 // isStorageBufferClass returns true if the given resource class represents
@@ -2906,199 +2900,56 @@ func isStorageBufferClass(class uint8) bool {
 	return class == resourceClassUAV || class == resourceClassSRV
 }
 
-// resolveUAVPointerChain walks an expression chain and determines whether it
-// leads to a UAV (storage buffer) global variable. If so, returns chain info.
-//
-// Supported patterns:
-//   - ExprAccess → ExprGlobalVariable (dynamic array index)
-//   - ExprAccessIndex → ExprGlobalVariable (constant array index)
-//   - ExprGlobalVariable (entire buffer — not typical)
-//
-// Reference: Mesa nir_to_dxil.c emit_store_ssbo() for storage buffer write patterns
+// resolveUAVPointerChain resolves a pointer into a storage buffer, a
+// read-only one included, to its chain: the struct members, array
+// elements, matrix columns and vector components it indexes are where WGSL
+// lays them out, and an index into a binding array of buffers selects the
+// buffer.
 func (e *Emitter) resolveUAVPointerChain(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*uavPointerChain, bool) {
-	if int(ptrHandle) >= len(fn.Expressions) {
-		return nil, false
-	}
-	expr := fn.Expressions[ptrHandle]
-
-	switch ek := expr.Kind.(type) {
-	case ir.ExprAccess:
-		// Dynamic index: data[index] where index is a runtime expression.
-		return e.resolveUAVAccessChain(fn, ek.Base, ek.Index, true)
-
-	case ir.ExprAccessIndex:
-		// Check for binding array UAV pattern:
-		// AccessIndex(fieldIdx, Access(base=GlobalVariable(binding_array), index=arrayIdx))
-		if chain, ok := e.resolveBindingArrayUAVChain(fn, ek); ok {
-			return chain, true
-		}
-		// Constant index: data[N] where N is compile-time constant.
-		return e.resolveUAVAccessIndexChain(fn, ek.Base, ek.Index)
-
-	case ir.ExprGlobalVariable:
-		// Direct reference to the UAV global variable (whole-buffer load/store).
-		// This handles patterns like: let x = storage_var; or output = value;
-		return e.resolveUAVDirectGlobal(ek.Variable)
-
-	default:
-		return nil, false
-	}
-}
-
-// resolveBindingArrayUAVChain detects the binding array UAV access pattern:
-//
-//	AccessIndex(fieldIdx, Access(base=GlobalVariable(binding_array), index=arrayIdx))
-//
-// This occurs for storage buffer arrays like storage_array[index].field.
-// Returns a uavPointerChain with binding array index info for dynamic handle creation.
-func (e *Emitter) resolveBindingArrayUAVChain(fn *ir.Function, ai ir.ExprAccessIndex) (*uavPointerChain, bool) {
-	if int(ai.Base) >= len(fn.Expressions) {
-		return nil, false
-	}
-	baseExpr := fn.Expressions[ai.Base]
-
-	// Pattern 1: AccessIndex(fieldIdx, Access(base=GlobalVariable(binding_array), index=dynamicIdx))
-	// This handles storage_array[dynamic_index].field
-	if acc, ok := baseExpr.Kind.(ir.ExprAccess); ok {
-		return e.resolveBindingArrayUAVChainFromGV(fn, ai, acc.Base, acc.Index, true)
-	}
-
-	// Pattern 2: AccessIndex(fieldIdx, AccessIndex(constArrayIdx, GlobalVariable(binding_array)))
-	// This handles storage_array[0].field (constant index into binding array)
-	if innerAI, ok := baseExpr.Kind.(ir.ExprAccessIndex); ok {
-		return e.resolveBindingArrayUAVChainFromGV(fn, ai, innerAI.Base, ir.ExpressionHandle(0), false)
-	}
-
-	return nil, false
-}
-
-// resolveBindingArrayUAVChainFromGV is the common path for binding array UAV chain detection.
-// It checks if gvBase resolves to a binding array UAV global variable and builds the chain.
-// If isDynamicIndex is true, indexExpr is the dynamic array index expression.
-// If isDynamicIndex is false, the array index comes from a constant AccessIndex (the parent caller).
-func (e *Emitter) resolveBindingArrayUAVChainFromGV(
-	fn *ir.Function, ai ir.ExprAccessIndex,
-	gvBase ir.ExpressionHandle, indexExpr ir.ExpressionHandle,
-	isDynamicIndex bool,
-) (*uavPointerChain, bool) {
-	if int(gvBase) >= len(fn.Expressions) {
-		return nil, false
-	}
-	gvExpr, ok := fn.Expressions[gvBase].Kind.(ir.ExprGlobalVariable)
+	global, steps, ok := pointerSteps(fn, ptrHandle)
 	if !ok {
 		return nil, false
 	}
-
-	// Check if this is a binding array UAV.
-	resIdx, found := e.resourceHandles[gvExpr.Variable]
-	if !found {
+	idx, found := e.resourceHandles[global]
+	if !found || !isStorageBufferClass(e.resources[idx].class) {
 		return nil, false
 	}
-	res := &e.resources[resIdx]
-	if !isStorageBufferClass(res.class) || !res.isBindingArray {
-		return nil, false
-	}
-
-	// Unwrap binding array to get element type.
-	gv := &e.ir.GlobalVariables[gvExpr.Variable]
-	if int(gv.Type) >= len(e.ir.Types) {
-		return nil, false
-	}
-	inner := e.ir.Types[gv.Type].Inner
-	ba, ok := inner.(ir.BindingArrayType)
-	if !ok {
-		return nil, false
-	}
-	if int(ba.Base) >= len(e.ir.Types) {
-		return nil, false
-	}
-	elemInner := e.ir.Types[ba.Base].Inner
-
-	// ai.Index is the struct field index into the element type.
-	// For a struct element like Foo { x: u32, far: array<i32> }, field 0 = x, field 1 = far.
-	var fieldType ir.TypeInner
-	var fieldByteOffset uint32
-	if st, ok := elemInner.(ir.StructType); ok && int(ai.Index) < len(st.Members) {
-		member := st.Members[ai.Index]
-		fieldByteOffset = member.Offset
-		if int(member.Type) < len(e.ir.Types) {
-			fieldType = e.ir.Types[member.Type].Inner
+	chain := &uavPointerChain{varHandle: global, isWhole: len(steps) == 0}
+	current := e.ir.Types[e.ir.GlobalVariables[global].Type].Inner
+	if ba, isArray := current.(ir.BindingArrayType); isArray {
+		if len(steps) == 0 {
+			return nil, false
 		}
+		st := steps[len(steps)-1]
+		steps = steps[:len(steps)-1]
+		chain.hasBindingArrayIndex = true
+		chain.bindingArrayIndexExpr = st.expr
+		chain.isBindingArrayConstIdx = !st.dynamic
+		chain.bindingArrayConstIndex = int64(st.index)
+		current = e.ir.Types[ba.Base].Inner
 	}
-	if fieldType == nil {
-		fieldType = elemInner
+	for i := len(steps) - 1; i >= 0; i-- {
+		st := steps[i]
+		if _, isStruct := current.(ir.StructType); isStruct && st.dynamic {
+			return nil, false
+		}
+		elem, offset, stride, _, ok := e.layoutElement(current, st.index)
+		if !ok {
+			return nil, false
+		}
+		if st.dynamic {
+			chain.indices = append(chain.indices, uavIndex{expr: st.expr, stride: stride})
+		} else {
+			chain.offset += offset
+		}
+		current = elem
 	}
-
-	scalar := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-	if s, found := deepScalarOfType(e.ir, fieldType); found {
-		scalar = s
+	chain.elemType = current
+	chain.scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	if s, found := deepScalarOfType(e.ir, current); found {
+		chain.scalar = s
 	}
-
-	chain := &uavPointerChain{
-		varHandle:            gvExpr.Variable,
-		isConstIdx:           true,
-		constIndex:           0,
-		elemType:             fieldType,
-		scalar:               scalar,
-		fieldByteOffset:      fieldByteOffset,
-		dynamicHandleID:      -1, // will be created at emit time
-		hasBindingArrayIndex: true,
-	}
-
-	if isDynamicIndex {
-		chain.bindingArrayIndexExpr = indexExpr
-	} else {
-		// Constant index: get from the inner AccessIndex.
-		innerAI := fn.Expressions[ai.Base].Kind.(ir.ExprAccessIndex)
-		chain.bindingArrayConstIndex = int64(innerAI.Index)
-		chain.isBindingArrayConstIdx = true
-	}
-
 	return chain, true
-}
-
-// resolveUAVDirectGlobal handles direct reference to a UAV global variable
-// (loading/storing the entire buffer content, not a specific element).
-// The element type and scalar are derived from the variable's type.
-func (e *Emitter) resolveUAVDirectGlobal(varHandle ir.GlobalVariableHandle) (*uavPointerChain, bool) {
-	idx, found := e.resourceHandles[varHandle]
-	if !found {
-		return nil, false
-	}
-	res := &e.resources[idx]
-	if !isStorageBufferClass(res.class) {
-		return nil, false
-	}
-
-	// For a direct GlobalVariable reference, we load the entire type at index 0.
-	// We use the full variable type (not element type) since we're loading everything.
-	if int(varHandle) >= len(e.ir.GlobalVariables) {
-		return nil, false
-	}
-	gv := &e.ir.GlobalVariables[varHandle]
-	if int(gv.Type) >= len(e.ir.Types) {
-		return nil, false
-	}
-
-	fullType := e.ir.Types[gv.Type].Inner
-	scalar, ok := scalarOfType(fullType)
-	if !ok {
-		// For struct/array types, default to f32 scalar for the overload.
-		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-		// Try to find the actual scalar from nested types.
-		if s, found := deepScalarOfType(e.ir, fullType); found {
-			scalar = s
-		}
-	}
-
-	return &uavPointerChain{
-		varHandle:  varHandle,
-		constIndex: 0,
-		isConstIdx: true,
-		elemType:   fullType,
-		scalar:     scalar,
-		isWhole:    true,
-	}, true
 }
 
 // deepScalarOfType finds the scalar type buried inside structs, arrays, and vectors.
@@ -3124,21 +2975,10 @@ func deepScalarOfType(irMod *ir.Module, inner ir.TypeInner) (ir.ScalarType, bool
 	return ir.ScalarType{}, false
 }
 
-// resolveUAVIndex computes the coord0 value ID (in BYTES) for a UAV access.
-//
-// Per DXIL spec (DXIL.rst:1789), bufferStore/bufferLoad on RWRawBuffer (kind 11)
-// expect coord0 in BYTES. Naga registers all storage buffers as RWRawBuffer, so
-// the raw element/scalar index from WGSL must be byte-scaled before emit.
-//
-// chain.stride is the byte-stride per dynamic-index unit (or per constIndex unit
-// when isConstIdx). chain.fieldByteOffset is the additional static byte offset
-// (struct member, etc.). When stride == 0, isConstIdx is treated as a precomputed
-// byte offset directly (constIndex is bytes); otherwise constIndex is multiplied.
-//
-// Final formula:  coord0 = (constIdx | dynIdx) * stride + fieldByteOffset   [bytes]
-//
-// Reference: DXC HLOperationLower.cpp:4651 — `Coord0 (Index)` already byte-scaled
-// from HLSL frontend; same expectation here.
+// resolveUAVIndex computes the coord0 value ID (in BYTES) for a UAV access,
+// its dynamic offset included. Per DXIL spec (DXIL.rst:1789),
+// bufferStore/bufferLoad on RWRawBuffer (kind 11), which naga registers all
+// storage buffers as, expect coord0 in bytes.
 func (e *Emitter) resolveUAVIndex(fn *ir.Function, chain *uavPointerChain) (int, error) {
 	index, err := e.uavByteIndex(fn, chain)
 	if err != nil {
@@ -3182,47 +3022,37 @@ func (e *Emitter) loadDynamicOffset(ref dynamicOffsetRef) (int, error) {
 }
 
 // uavByteIndex is the byte address of a storage buffer chain, its dynamic
-// offset left out.
+// offset left out. A run-time index that is a constant folds into the
+// offset, as DXC's SimplifyInst folds it.
 func (e *Emitter) uavByteIndex(fn *ir.Function, chain *uavPointerChain) (int, error) {
-	if chain.isConstIdx {
-		var bytes uint32
-		if chain.stride == 0 {
-			// constIndex IS the byte offset (struct field direct, etc.)
-			bytes = chain.constIndex + chain.fieldByteOffset
-		} else {
-			bytes = chain.constIndex*chain.stride + chain.fieldByteOffset
-		}
-		return e.getIntConstID(int64(bytes)), nil
-	}
-
-	// Try constant folding: if the index expression resolves to a literal
-	// integer (possibly through ExprAlias chains from mem2reg), fold the
-	// byte offset at compile time. This matches DXC's SimplifyInst pass
-	// which constant-folds `1 * 4` to `4`.
-	if constVal, ok := e.tryResolveConstInt(fn, chain.indexExpr); ok {
-		var bytes uint64
-		if chain.stride == 0 {
-			bytes = constVal + uint64(chain.fieldByteOffset)
-		} else {
-			bytes = constVal*uint64(chain.stride) + uint64(chain.fieldByteOffset)
-		}
-		return e.getIntConstID(int64(bytes)), nil //nolint:gosec // bytes bounded by shader address space (32-bit)
-	}
-
-	dynID, err := e.emitExpression(fn, chain.indexExpr)
-	if err != nil {
-		return 0, fmt.Errorf("UAV index: %w", err)
-	}
 	i32Ty := e.mod.GetIntType(32)
-	if chain.stride > 1 {
-		strideID := e.getIntConstID(int64(chain.stride))
-		dynID = e.addMulOrShlInstr(i32Ty, dynID, strideID)
+	offset := uint64(chain.offset)
+	address := -1
+	for _, ix := range chain.indices {
+		if v, ok := e.tryResolveConstInt(fn, ix.expr); ok {
+			offset += v * uint64(ix.stride)
+			continue
+		}
+		id, err := e.emitExpression(fn, ix.expr)
+		if err != nil {
+			return 0, fmt.Errorf("UAV index: %w", err)
+		}
+		if ix.stride > 1 {
+			id = e.addMulOrShlInstr(i32Ty, id, e.getIntConstID(int64(ix.stride)))
+		}
+		if address < 0 {
+			address = id
+		} else {
+			address = e.addBinOpInstr(i32Ty, BinOpAdd, address, id)
+		}
 	}
-	if chain.fieldByteOffset > 0 {
-		offID := e.getIntConstID(int64(chain.fieldByteOffset))
-		dynID = e.addBinOpInstr(i32Ty, BinOpAdd, dynID, offID)
+	if address < 0 {
+		return e.getIntConstID(int64(offset)), nil //nolint:gosec // bounded by the 32-bit address space of the buffer
 	}
-	return dynID, nil
+	if offset > 0 {
+		address = e.addBinOpInstr(i32Ty, BinOpAdd, address, e.getIntConstID(int64(offset))) //nolint:gosec // as above
+	}
+	return address, nil
 }
 
 // tryResolveConstInt follows ExprAlias chains from the given expression
@@ -3260,150 +3090,6 @@ func (e *Emitter) tryResolveConstInt(fn *ir.Function, h ir.ExpressionHandle) (ui
 	return 0, false
 }
 
-// resolveUAVAccessChain resolves a dynamic-index access to a UAV global variable.
-// Handles patterns:
-//   - Access(dynIdx, GlobalVariable) — direct array element access
-//   - Access(dynIdx, AccessIndex(structFieldIdx, GlobalVariable)) — struct-wrapped array access
-//
-// Sets stride to the BYTE stride per dynamic-index unit, and fieldByteOffset to
-// the static struct field offset (if AccessIndex peeled a struct member).
-//
-// Matrix-column write: when the AccessIndex selects a matrix struct member, the
-// outer Access dynamically indexes a column. The resolved chain reflects:
-//   - elemType = column vector (vec<R>)
-//   - stride   = column byte stride (R*scalarW or 16 for matCxR with R=3)
-//   - fieldByteOffset = struct member byte offset
-//
-// This mirrors DXC HLOperationLower.cpp which lowers `m[i] = v` to a single
-// rawBufferStore at byte offset (memberOffset + i*columnStride) with mask covering
-// all column components — fixes BUG-DXIL-030.
-func (e *Emitter) resolveUAVAccessChain(fn *ir.Function, baseHandle, indexHandle ir.ExpressionHandle, _ bool) (*uavPointerChain, bool) {
-	if int(baseHandle) >= len(fn.Expressions) {
-		return nil, false
-	}
-	baseExpr := fn.Expressions[baseHandle]
-
-	var varHandle ir.GlobalVariableHandle
-	var fieldOffset uint32 // struct member byte offset (0 if no struct wrap)
-	var fieldType ir.TypeInner
-
-	switch bk := baseExpr.Kind.(type) {
-	case ir.ExprGlobalVariable:
-		varHandle = bk.Variable
-
-	case ir.ExprAccessIndex:
-		// Access(dynIdx, AccessIndex(structFieldIdx, GlobalVariable))
-		// The AccessIndex unwraps the struct wrapper (e.g., .particles field).
-		gv, ok := e.resolveToGlobalVariable(fn, bk.Base)
-		if !ok {
-			return nil, false
-		}
-		varHandle = gv
-		// Look up field byte offset and field type for stride computation below.
-		fieldOffset, fieldType = e.resolveStructFieldInfo(varHandle, bk.Index)
-
-	default:
-		return nil, false
-	}
-
-	idx, found := e.resourceHandles[varHandle]
-	if !found {
-		return nil, false
-	}
-	res := &e.resources[idx]
-	if !isStorageBufferClass(res.class) {
-		return nil, false
-	}
-
-	// Determine the effective element type after the dynamic dimension is peeled.
-	//
-	// Three cases:
-	//   1. Field is array<T>: dyn dim peels array → elemType = T, stride = arr.Stride.
-	//   2. Field is matrix<C,R>: dyn dim peels matrix → elemType = vec<R>, stride = column.
-	//   3. No struct wrap: dyn dim peels the global's outer array. Use resolveUAVElementType.
-	var elemType ir.TypeInner
-	var scalar ir.ScalarType
-	var stride uint32
-
-	switch ft := fieldType.(type) {
-	case ir.ArrayType:
-		elemType = e.ir.Types[ft.Base].Inner
-		stride = ft.Stride
-		if stride == 0 {
-			stride = elemByteSize(e.ir, elemType)
-		}
-		if s, ok := scalarOfType(elemType); ok {
-			scalar = s
-		} else if s, ok := deepScalarOfType(e.ir, elemType); ok {
-			scalar = s
-		}
-
-	case ir.MatrixType:
-		// Matrix column write: dynamic index selects a column (vec<R>).
-		// Reference: DXC HLOperationLower.cpp `m[i] = v` lowering to a single
-		// rawBufferStore at (memberOffset + i*columnStride), mask covers all
-		// R components.
-		elemType = ir.VectorType{Size: ft.Rows, Scalar: ft.Scalar}
-		stride = matrixColumnByteStride(ft)
-		scalar = ft.Scalar
-
-	case ir.VectorType:
-		// Dynamic index into a vector member (rare): scalar element with stride = scalar width.
-		elemType = ft.Scalar
-		stride = uint32(ft.Scalar.Width)
-		scalar = ft.Scalar
-
-	case nil:
-		// No struct wrap — fall back to resolveUAVElementType for global's outer array.
-		var ok bool
-		elemType, scalar, ok = e.resolveUAVElementType(varHandle)
-		if !ok {
-			return nil, false
-		}
-		stride = elemByteSize(e.ir, elemType)
-
-	default:
-		// Other field types (struct member without dynamic indexing handled by other paths).
-		var ok bool
-		elemType, scalar, ok = e.resolveUAVElementType(varHandle)
-		if !ok {
-			return nil, false
-		}
-		stride = elemByteSize(e.ir, elemType)
-	}
-
-	return &uavPointerChain{
-		varHandle:       varHandle,
-		indexExpr:       indexHandle,
-		elemType:        elemType,
-		scalar:          scalar,
-		stride:          stride,
-		fieldByteOffset: fieldOffset,
-	}, true
-}
-
-// resolveStructFieldInfo returns the byte offset and IR type of a struct member,
-// unwrapping a top-level struct wrapper around the global variable. Returns
-// (0, nil) when the global is not a struct or fieldIdx is out of range.
-func (e *Emitter) resolveStructFieldInfo(varHandle ir.GlobalVariableHandle, fieldIdx uint32) (uint32, ir.TypeInner) {
-	if int(varHandle) >= len(e.ir.GlobalVariables) {
-		return 0, nil
-	}
-	gv := &e.ir.GlobalVariables[varHandle]
-	if int(gv.Type) >= len(e.ir.Types) {
-		return 0, nil
-	}
-	st, ok := e.ir.Types[gv.Type].Inner.(ir.StructType)
-	if !ok || int(fieldIdx) >= len(st.Members) {
-		return 0, nil
-	}
-	m := &st.Members[fieldIdx]
-	if int(m.Type) >= len(e.ir.Types) {
-		return m.Offset, nil
-	}
-	return m.Offset, e.ir.Types[m.Type].Inner
-}
-
 // resolveToGlobalVariable walks through an expression to find the underlying GlobalVariable handle.
 // Handles chains like AccessIndex(idx, Access(dynIdx, AccessIndex(idx, GlobalVariable)))
 // by peeling off intermediate AccessIndex and Access expressions.
@@ -3422,611 +3108,6 @@ func (e *Emitter) resolveToGlobalVariable(fn *ir.Function, handle ir.ExpressionH
 	default:
 		return 0, false
 	}
-}
-
-// resolveUAVAccessIndexChain resolves a constant-index access to a UAV.
-// Handles patterns:
-//   - AccessIndex(idx, GlobalVariable) — direct field/element access
-//   - AccessIndex(fieldIdx, Access(dynIdx, ...)) — array[i].field
-//   - AccessIndex(fieldIdx, AccessIndex(arrIdx, ...)) — array[N].field OR struct.data[N]
-func (e *Emitter) resolveUAVAccessIndexChain(fn *ir.Function, baseHandle ir.ExpressionHandle, constIdx uint32) (*uavPointerChain, bool) {
-	if int(baseHandle) >= len(fn.Expressions) {
-		return nil, false
-	}
-	baseExpr := fn.Expressions[baseHandle]
-
-	switch bk := baseExpr.Kind.(type) {
-	case ir.ExprGlobalVariable:
-		// Direct: AccessIndex(idx, GlobalVariable)
-		// Check if the variable's type is a struct — if so, this is a struct field access.
-		if chain, ok := e.resolveUAVStructFieldDirect(bk.Variable, constIdx); ok {
-			return chain, true
-		}
-		return e.resolveUAVFromGlobal(bk.Variable, constIdx, true)
-
-	case ir.ExprAccess:
-		// Nested: AccessIndex(compIdx, Access(dynIdx, ...))
-		// Multiple interpretations:
-		// (a) Array-of-struct: dynIdx is array element, constIdx is struct field
-		// (b) Matrix column+component: dynIdx is column, constIdx is component within column
-		// (c) Struct-member array-of-struct: struct.arr[dynIdx].field
-		gv, ok := e.resolveToGlobalVariable(fn, bk.Base)
-		if !ok {
-			return nil, false
-		}
-		// Try array-of-struct field chain. Also try via specific struct member if the
-		// Access base is an AccessIndex selecting a specific struct member with the array.
-		if chain, ok := e.resolveUAVStructFieldChainWithMember(fn, gv, bk.Base, constIdx); ok {
-			chain.indexExpr = bk.Index
-			chain.isConstIdx = false
-			return chain, true
-		}
-		// Try matrix column+component within a struct field.
-		// Pattern: AccessIndex(compIdx, Access(dynColIdx, AccessIndex(fieldIdx, GV)))
-		if chain, ok := e.resolveUAVMatrixColumnComponent(fn, bk, constIdx); ok {
-			return chain, true
-		}
-		return nil, false
-
-	case ir.ExprAccessIndex:
-		// Multiple sub-cases:
-		// (a) AccessIndex(fieldIdx, AccessIndex(arrIdx, AccessIndex(structWrap, GV)))
-		//     — struct element field access with constant array index (arr[N].field)
-		// (b) AccessIndex(arrIdx, AccessIndex(memberIdx, GV))
-		//     — array element access within specific struct member (struct.data[N])
-		// (c) AccessIndex(arrIdx, AccessIndex(structWrap, GV))
-		//     — simple array element access (struct.data[N]) via member[0]
-		gv, ok := e.resolveToGlobalVariable(fn, bk.Base)
-		if !ok {
-			return nil, false
-		}
-		// First try as struct-in-array field access: constIdx is fieldIdx, bk.Index is arrIdx.
-		if chain, ok := e.resolveUAVStructFieldChain(gv, constIdx); ok {
-			chain.constIndex = bk.Index
-			chain.isConstIdx = true
-			return chain, true
-		}
-		// Try resolving via the specific struct member if the inner AccessIndex
-		// selects a member (e.g., bar.data[0] where data is at member index 1).
-		if chain, ok := e.resolveUAVFromStructMemberArray(fn, gv, bk, constIdx); ok {
-			return chain, true
-		}
-		// Try matrix column+component with constant indices:
-		// AccessIndex(compIdx, AccessIndex(colIdx, AccessIndex(fieldIdx, GV)))
-		if chain, ok := e.resolveUAVMatrixConstAccess(fn, bk, constIdx); ok {
-			return chain, true
-		}
-		// Fall back to simple array element access.
-		return e.resolveUAVFromGlobal(gv, constIdx, true)
-	}
-
-	return nil, false
-}
-
-// resolveUAVFromStructMemberArray handles AccessIndex(elemIdx, AccessIndex(memberIdx, ...GV))
-// where the struct member at memberIdx is an array type. This occurs in multi-member structs
-// like struct Bar { _matrix: mat4x3, data: array<i32> } where data is NOT at member 0.
-// The innerAI.Base can be either a direct GV or an AccessIndex chain leading to the GV.
-func (e *Emitter) resolveUAVFromStructMemberArray(
-	fn *ir.Function, gv ir.GlobalVariableHandle, innerAI ir.ExprAccessIndex, elemIdx uint32,
-) (*uavPointerChain, bool) {
-	// The inner AccessIndex base should resolve to the GV (direct or through chain).
-	if int(innerAI.Base) >= len(fn.Expressions) {
-		return nil, false
-	}
-	// Check if the base is a direct GV or another AccessIndex with the member index.
-	baseExpr := fn.Expressions[innerAI.Base]
-	memberIdx := innerAI.Index
-	switch bk := baseExpr.Kind.(type) {
-	case ir.ExprGlobalVariable:
-		// Direct: AccessIndex(memberIdx, GV)
-	case ir.ExprAccessIndex:
-		// Chain: AccessIndex(elemIdx=innerAI.Index, AccessIndex(memberIdx=bk.Index, GV))
-		// In this case, innerAI.Index is the element index and bk.Index is the member index.
-		_, isInnerGV := fn.Expressions[bk.Base].Kind.(ir.ExprGlobalVariable)
-		if !isInnerGV {
-			return nil, false
-		}
-		// Swap: the member index is in the inner AccessIndex, element index is in the outer.
-		memberIdx = bk.Index
-		elemIdx = innerAI.Index
-	default:
-		return nil, false
-	}
-
-	idx, found := e.resourceHandles[gv]
-	if !found {
-		return nil, false
-	}
-	res := &e.resources[idx]
-	if !isStorageBufferClass(res.class) {
-		return nil, false
-	}
-	if int(gv) >= len(e.ir.GlobalVariables) {
-		return nil, false
-	}
-	gvVar := &e.ir.GlobalVariables[gv]
-	if int(gvVar.Type) >= len(e.ir.Types) {
-		return nil, false
-	}
-
-	inner := e.ir.Types[gvVar.Type].Inner
-	st, ok := inner.(ir.StructType)
-	if !ok || int(memberIdx) >= len(st.Members) {
-		return nil, false
-	}
-
-	arrayMember := &st.Members[memberIdx]
-	memberInner := e.ir.Types[arrayMember.Type].Inner
-	arr, ok := memberInner.(ir.ArrayType)
-	if !ok {
-		return nil, false
-	}
-
-	// Get the element type from the array.
-	elemInner := e.ir.Types[arr.Base].Inner
-	scalar, ok := scalarOfType(elemInner)
-	if !ok {
-		if s, f := deepScalarOfType(e.ir, elemInner); f {
-			scalar = s
-		} else {
-			return nil, false
-		}
-	}
-
-	// constIndex carries the byte offset directly (stride==0 path in resolveUAVIndex).
-	byteOffset := arrayMember.Offset + elemIdx*arr.Stride
-
-	return &uavPointerChain{
-		varHandle:  gv,
-		constIndex: byteOffset,
-		isConstIdx: true,
-		elemType:   elemInner,
-		scalar:     scalar,
-	}, true
-}
-
-// resolveUAVStructFieldChainWithMember tries resolveUAVStructFieldChain first,
-// then falls back to looking at the Access base expression to determine which
-// struct member contains the array (for multi-member structs like Bar{_matrix, data}).
-func (e *Emitter) resolveUAVStructFieldChainWithMember(
-	fn *ir.Function, gv ir.GlobalVariableHandle, accessBase ir.ExpressionHandle, fieldIdx uint32,
-) (*uavPointerChain, bool) {
-	// First try the standard path (works when member[0] is the array).
-	if chain, ok := e.resolveUAVStructFieldChain(gv, fieldIdx); ok {
-		return chain, true
-	}
-
-	// If the Access base is AccessIndex(memberIdx, ...), use memberIdx to select
-	// the correct struct member containing the array.
-	if int(accessBase) >= len(fn.Expressions) {
-		return nil, false
-	}
-	ai, ok := fn.Expressions[accessBase].Kind.(ir.ExprAccessIndex)
-	if !ok {
-		return nil, false
-	}
-
-	return e.resolveUAVStructFieldChainAtMember(gv, ai.Index, fieldIdx)
-}
-
-// resolveUAVStructFieldChainAtMember resolves an array[dynIdx].field pattern
-// where the array is at a specific struct member index (not necessarily member 0).
-func (e *Emitter) resolveUAVStructFieldChainAtMember(
-	varHandle ir.GlobalVariableHandle, memberIdx, fieldIdx uint32,
-) (*uavPointerChain, bool) {
-	idx, found := e.resourceHandles[varHandle]
-	if !found {
-		return nil, false
-	}
-	res := &e.resources[idx]
-	if !isStorageBufferClass(res.class) {
-		return nil, false
-	}
-	if int(varHandle) >= len(e.ir.GlobalVariables) {
-		return nil, false
-	}
-	gv := &e.ir.GlobalVariables[varHandle]
-	if int(gv.Type) >= len(e.ir.Types) {
-		return nil, false
-	}
-
-	// Get the struct type and select the correct member.
-	inner := e.ir.Types[gv.Type].Inner
-	st, ok := inner.(ir.StructType)
-	if !ok || int(memberIdx) >= len(st.Members) {
-		return nil, false
-	}
-
-	arrayMember := &st.Members[memberIdx]
-	memberInner := e.ir.Types[arrayMember.Type].Inner
-	arr, ok := memberInner.(ir.ArrayType)
-	if !ok {
-		return nil, false
-	}
-
-	// Get the struct element type from the array.
-	elemInner := e.ir.Types[arr.Base].Inner
-	elemSt, ok := elemInner.(ir.StructType)
-	if !ok || int(fieldIdx) >= len(elemSt.Members) {
-		// Not a struct element — might be a scalar/vector array. Try as direct element.
-		return e.resolveNonStructArrayElement(varHandle, elemInner, arr, arrayMember)
-	}
-
-	// Get the field within the element struct.
-	member := &elemSt.Members[fieldIdx]
-	fieldInner := e.ir.Types[member.Type].Inner
-	scalar, ok := scalarOfType(fieldInner)
-	if !ok {
-		return nil, false
-	}
-
-	return &uavPointerChain{
-		varHandle:       varHandle,
-		elemType:        fieldInner,
-		scalar:          scalar,
-		stride:          arr.Stride,
-		fieldByteOffset: arrayMember.Offset + member.Offset,
-	}, true
-}
-
-// resolveNonStructArrayElement builds a UAV chain for a non-struct array element
-// (scalar or vector element type). Used when AccessIndex targets a non-struct array.
-func (e *Emitter) resolveNonStructArrayElement(
-	varHandle ir.GlobalVariableHandle, elemInner ir.TypeInner, arr ir.ArrayType, arrayMember *ir.StructMember,
-) (*uavPointerChain, bool) {
-	scalar, sOk := scalarOfType(elemInner)
-	if !sOk {
-		scalar, sOk = deepScalarOfType(e.ir, elemInner)
-	}
-	if !sOk {
-		return nil, false
-	}
-	return &uavPointerChain{
-		varHandle:       varHandle,
-		elemType:        elemInner,
-		scalar:          scalar,
-		stride:          arr.Stride,
-		fieldByteOffset: arrayMember.Offset,
-	}, true
-}
-
-// resolveUAVStructFieldChain resolves an array[dynIdx].field pattern on a UAV.
-// varHandle is the UAV global variable, fieldIdx is the struct member index.
-// Returns a chain with stride and fieldByteOffset set for index computation.
-func (e *Emitter) resolveUAVStructFieldChain(varHandle ir.GlobalVariableHandle, fieldIdx uint32) (*uavPointerChain, bool) {
-	idx, found := e.resourceHandles[varHandle]
-	if !found {
-		return nil, false
-	}
-	res := &e.resources[idx]
-	if !isStorageBufferClass(res.class) {
-		return nil, false
-	}
-
-	if int(varHandle) >= len(e.ir.GlobalVariables) {
-		return nil, false
-	}
-	gv := &e.ir.GlobalVariables[varHandle]
-	if int(gv.Type) >= len(e.ir.Types) {
-		return nil, false
-	}
-
-	// Get the outer type: should be array<Struct> or struct{array<Struct>}.
-	inner := e.ir.Types[gv.Type].Inner
-	if st, ok := inner.(ir.StructType); ok && len(st.Members) > 0 {
-		inner = e.ir.Types[st.Members[0].Type].Inner
-	}
-
-	arr, ok := inner.(ir.ArrayType)
-	if !ok {
-		return nil, false
-	}
-
-	// Get the struct element type from the array.
-	elemInner := e.ir.Types[arr.Base].Inner
-	st, ok := elemInner.(ir.StructType)
-	if !ok || int(fieldIdx) >= len(st.Members) {
-		return nil, false
-	}
-
-	// Get the field type and its byte offset within the struct.
-	member := &st.Members[fieldIdx]
-	fieldInner := e.ir.Types[member.Type].Inner
-	scalar, ok := scalarOfType(fieldInner)
-	if !ok {
-		return nil, false
-	}
-
-	return &uavPointerChain{
-		varHandle:       varHandle,
-		elemType:        fieldInner,
-		scalar:          scalar,
-		stride:          arr.Stride,
-		fieldByteOffset: member.Offset,
-	}, true
-}
-
-// resolveUAVMatrixColumnComponent handles the pattern:
-//
-//	AccessIndex(compIdx, Access(dynColIdx, AccessIndex(fieldIdx, GlobalVariable)))
-//
-// where the struct field is a matrix type. This occurs with expressions like
-// bar._matrix[index].x — dynamic column selection followed by component extraction.
-//
-// The byte offset is: structFieldOffset + dynColIdx * columnStride + compIdx * scalarWidth.
-// This maps to the strided index pattern: index = dynColIdx * (columnStride/scalarW) + staticOffset/scalarW.
-func (e *Emitter) resolveUAVMatrixColumnComponent(
-	fn *ir.Function, acc ir.ExprAccess, compIdx uint32,
-) (*uavPointerChain, bool) {
-	if int(acc.Base) >= len(fn.Expressions) {
-		return nil, false
-	}
-	baseExpr := fn.Expressions[acc.Base]
-	ai, ok := baseExpr.Kind.(ir.ExprAccessIndex)
-	if !ok {
-		return nil, false
-	}
-
-	// The AccessIndex base should be a GlobalVariable (or chain to one).
-	gv, ok := e.resolveToGlobalVariable(fn, ai.Base)
-	if !ok {
-		return nil, false
-	}
-	idx, found := e.resourceHandles[gv]
-	if !found {
-		return nil, false
-	}
-	res := &e.resources[idx]
-	if !isStorageBufferClass(res.class) {
-		return nil, false
-	}
-
-	if int(gv) >= len(e.ir.GlobalVariables) {
-		return nil, false
-	}
-	gvVar := &e.ir.GlobalVariables[gv]
-	if int(gvVar.Type) >= len(e.ir.Types) {
-		return nil, false
-	}
-
-	// The global variable's type should be a struct.
-	inner := e.ir.Types[gvVar.Type].Inner
-	st, ok := inner.(ir.StructType)
-	if !ok || int(ai.Index) >= len(st.Members) {
-		return nil, false
-	}
-
-	// The accessed member should be a matrix type.
-	member := &st.Members[ai.Index]
-	fieldInner := e.ir.Types[member.Type].Inner
-	mt, ok := fieldInner.(ir.MatrixType)
-	if !ok {
-		return nil, false
-	}
-
-	scalar := mt.Scalar
-	scalarW := uint32(scalar.Width)
-	if scalarW == 0 {
-		scalarW = 4
-	}
-
-	// Column stride = rows * scalarWidth, padded to 16 bytes (vec4 alignment in storage layout).
-	rows := uint32(mt.Rows)
-	columnStride := rows * scalarW
-	if columnStride < 16 {
-		columnStride = 16 // DXIL raw buffer columns are 16-byte aligned
-	}
-
-	// Static byte offset = struct field offset + component * scalarWidth.
-	staticByteOffset := member.Offset + compIdx*scalarW
-
-	return &uavPointerChain{
-		varHandle:       gv,
-		indexExpr:       acc.Index,
-		isConstIdx:      false,
-		elemType:        scalar,
-		scalar:          scalar,
-		stride:          columnStride,
-		fieldByteOffset: staticByteOffset,
-	}, true
-}
-
-// resolveUAVMatrixConstAccess handles constant-index matrix column+component access:
-//
-//	AccessIndex(compIdx, AccessIndex(colIdx, AccessIndex(fieldIdx, GV)))
-//
-// where the struct field is a matrix type. This is the constant-index variant of
-// resolveUAVMatrixColumnComponent (which handles dynamic column index).
-// Used for stores like bar._matrix[1].z = 1.0.
-func (e *Emitter) resolveUAVMatrixConstAccess(
-	fn *ir.Function, outerAI ir.ExprAccessIndex, compIdx uint32,
-) (*uavPointerChain, bool) {
-	// outerAI = AccessIndex(colIdx, AccessIndex(fieldIdx, GV))
-	if int(outerAI.Base) >= len(fn.Expressions) {
-		return nil, false
-	}
-	innerExpr := fn.Expressions[outerAI.Base]
-	innerAI, ok := innerExpr.Kind.(ir.ExprAccessIndex)
-	if !ok {
-		return nil, false
-	}
-
-	// innerAI = AccessIndex(fieldIdx, GV)
-	gv, ok := e.resolveToGlobalVariable(fn, innerAI.Base)
-	if !ok {
-		return nil, false
-	}
-	idx, found := e.resourceHandles[gv]
-	if !found {
-		return nil, false
-	}
-	res := &e.resources[idx]
-	if !isStorageBufferClass(res.class) {
-		return nil, false
-	}
-	if int(gv) >= len(e.ir.GlobalVariables) {
-		return nil, false
-	}
-	gvVar := &e.ir.GlobalVariables[gv]
-	if int(gvVar.Type) >= len(e.ir.Types) {
-		return nil, false
-	}
-
-	inner := e.ir.Types[gvVar.Type].Inner
-	st, ok := inner.(ir.StructType)
-	if !ok || int(innerAI.Index) >= len(st.Members) {
-		return nil, false
-	}
-
-	member := &st.Members[innerAI.Index]
-	fieldInner := e.ir.Types[member.Type].Inner
-	mt, ok := fieldInner.(ir.MatrixType)
-	if !ok {
-		return nil, false
-	}
-
-	scalar := mt.Scalar
-	scalarW := uint32(scalar.Width)
-	if scalarW == 0 {
-		scalarW = 4
-	}
-
-	colIdx := outerAI.Index
-	byteOffset := member.Offset + colIdx*matrixColumnByteStride(mt) + compIdx*scalarW
-
-	// constIndex carries the byte offset directly (stride==0 path in resolveUAVIndex).
-	return &uavPointerChain{
-		varHandle:  gv,
-		constIndex: byteOffset,
-		isConstIdx: true,
-		elemType:   scalar,
-		scalar:     scalar,
-	}, true
-}
-
-// resolveUAVStructFieldDirect handles AccessIndex(fieldIdx, GlobalVariable) when the
-// UAV's type is a struct (not wrapped in an array). Computes byte offset from struct
-// layout and uses the field's actual scalar type for the correct bufferStore overload.
-//
-// Example: var<storage, read_write> output: S; store to output.field_f16 needs f16 overload.
-func (e *Emitter) resolveUAVStructFieldDirect(varHandle ir.GlobalVariableHandle, fieldIdx uint32) (*uavPointerChain, bool) {
-	idx, found := e.resourceHandles[varHandle]
-	if !found {
-		return nil, false
-	}
-	res := &e.resources[idx]
-	if !isStorageBufferClass(res.class) {
-		return nil, false
-	}
-	if int(varHandle) >= len(e.ir.GlobalVariables) {
-		return nil, false
-	}
-	gv := &e.ir.GlobalVariables[varHandle]
-	if int(gv.Type) >= len(e.ir.Types) {
-		return nil, false
-	}
-
-	inner := e.ir.Types[gv.Type].Inner
-	st, ok := inner.(ir.StructType)
-	if !ok || int(fieldIdx) >= len(st.Members) {
-		return nil, false
-	}
-
-	member := &st.Members[fieldIdx]
-	fieldInner := e.ir.Types[member.Type].Inner
-	scalar, ok := scalarOfType(fieldInner)
-	if !ok {
-		// For array/vector/matrix fields, use deep scalar.
-		scalar, ok = deepScalarOfType(e.ir, fieldInner)
-		if !ok {
-			return nil, false
-		}
-	}
-
-	// constIndex carries the byte offset directly (stride==0 path in resolveUAVIndex).
-	// Per DXIL spec, bufferStore coord0 for RWRawBuffer is in bytes.
-	return &uavPointerChain{
-		varHandle:  varHandle,
-		constIndex: member.Offset,
-		isConstIdx: true,
-		elemType:   fieldInner,
-		scalar:     scalar,
-	}, true
-}
-
-// resolveUAVFromGlobal checks if a global variable is a UAV and builds a chain.
-func (e *Emitter) resolveUAVFromGlobal(varHandle ir.GlobalVariableHandle, constIdx uint32, isConst bool) (*uavPointerChain, bool) {
-	idx, found := e.resourceHandles[varHandle]
-	if !found {
-		return nil, false
-	}
-	res := &e.resources[idx]
-	if !isStorageBufferClass(res.class) {
-		return nil, false
-	}
-
-	elemType, scalar, ok := e.resolveUAVElementType(varHandle)
-	if !ok {
-		return nil, false
-	}
-
-	// constIdx is the WGSL element index. Convert to byte offset by multiplying
-	// by element size — chain.stride==0 means constIndex is precomputed bytes.
-	elemBytes := elemByteSize(e.ir, elemType)
-	return &uavPointerChain{
-		varHandle:  varHandle,
-		constIndex: constIdx * elemBytes,
-		isConstIdx: isConst,
-		elemType:   elemType,
-		scalar:     scalar,
-	}, true
-}
-
-// resolveUAVElementType determines the element type of a UAV's array contents.
-// Storage buffers in naga IR are typed as array<T> or struct { array<T> }.
-func (e *Emitter) resolveUAVElementType(varHandle ir.GlobalVariableHandle) (ir.TypeInner, ir.ScalarType, bool) {
-	if int(varHandle) >= len(e.ir.GlobalVariables) {
-		return nil, ir.ScalarType{}, false
-	}
-	gv := &e.ir.GlobalVariables[varHandle]
-	if int(gv.Type) >= len(e.ir.Types) {
-		return nil, ir.ScalarType{}, false
-	}
-
-	inner := e.ir.Types[gv.Type].Inner
-
-	// Unwrap struct wrapper if present (e.g., struct { data: array<u32> }).
-	if st, ok := inner.(ir.StructType); ok {
-		if len(st.Members) > 0 {
-			memberType := e.ir.Types[st.Members[0].Type]
-			inner = memberType.Inner
-		}
-	}
-
-	// Now inner should be an ArrayType — get the element type.
-	if arr, ok := inner.(ir.ArrayType); ok {
-		elemInner := e.ir.Types[arr.Base].Inner
-		scalar, found := scalarOfType(elemInner)
-		if found {
-			return elemInner, scalar, true
-		}
-		// For struct/array element types, find the deep scalar.
-		if scalar, found := deepScalarOfType(e.ir, elemInner); found {
-			return elemInner, scalar, true
-		}
-	}
-
-	// Direct scalar or vector type.
-	scalar, found := scalarOfType(inner)
-	if found {
-		return inner, scalar, true
-	}
-	// For struct/array types at the top level, find the deep scalar.
-	if scalar, found := deepScalarOfType(e.ir, inner); found {
-		return inner, scalar, true
-	}
-	return inner, ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}, false
 }
 
 // resolveUAVHandleID returns the resource handle ID for a UAV pointer chain.
