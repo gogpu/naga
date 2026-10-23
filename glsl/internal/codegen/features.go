@@ -197,12 +197,19 @@ func (w *Writer) collectFeatures() {
 	}
 
 	// Scan globals for features
-	for _, global := range w.module.GlobalVariables {
+	for handle, global := range w.module.GlobalVariables {
 		switch global.Space {
 		case ir.SpaceWorkGroup:
 			w.features.request(FeatureComputeShader)
 		case ir.SpaceStorage:
 			w.features.request(FeatureBufferStorage)
+			// The readonly qualifier of a read-only buffer block is one of
+			// the memory qualifiers, which desktop GLSL below 420 only has
+			// through GL_ARB_shader_image_load_store.
+			used := w.reachable == nil || w.reachable.hasGlobal(ir.GlobalVariableHandle(handle))
+			if used && global.Access == ir.StorageRead {
+				w.features.request(FeatureImageLoadStore)
+			}
 		}
 	}
 
