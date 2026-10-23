@@ -823,7 +823,7 @@ func TestEmitBinaryLogicalOps(t *testing.T) {
 }
 
 func TestEmitBinaryFloatModulo(t *testing.T) {
-	// Float modulo is lowered to: a - b * floor(a / b).
+	// Float modulo is lowered to WGSL's a - b * trunc(a / b).
 	f32 := ir.TypeHandle(0)
 	vec4 := ir.TypeHandle(1)
 
@@ -867,9 +867,27 @@ func TestEmitBinaryFloatModulo(t *testing.T) {
 	mod := emitOK(t, irMod)
 	fn2 := mainFunc(t, mod)
 
-	// Float modulo should produce dx.op calls (floor) + binary ops (fdiv, fmul, fsub).
+	// Float modulo should produce a dx.op call (trunc) + binary ops (fdiv, fmul, fsub).
 	if n := countInstr(fn2, module.InstrBinOp); n < 3 {
 		t.Errorf("expected at least 3 BinOps for float modulo lowering, got %d", n)
+	}
+	// The quotient is rounded toward zero (round_z), not down (round_ni):
+	// -1.5 % 1.0 is -0.5 in WGSL, where floor gives +0.5.
+	var ops []int64
+	for _, bb := range fn2.BasicBlocks {
+		for _, instr := range bb.Instructions {
+			if instr.Kind != module.InstrCall || instr.CalledFunc == nil || instr.CalledFunc.Name != "dx.op.unary.f32" {
+				continue
+			}
+			for _, c := range mod.Constants {
+				if c.ValueID == instr.Operands[0] {
+					ops = append(ops, c.IntValue)
+				}
+			}
+		}
+	}
+	if len(ops) != 1 || ops[0] != int64(OpRoundZ) {
+		t.Errorf("dx.op.unary opcodes = %v, want [%d] (round_z)", ops, OpRoundZ)
 	}
 }
 

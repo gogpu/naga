@@ -447,3 +447,29 @@ func TestWrappedModU32(t *testing.T) {
 		t.Error("u32 modulo wrapper should use OpUMod")
 	}
 }
+
+// =============================================================================
+// Test: f32 modulo is OpFRem (truncated), not OpFMod (floored)
+// =============================================================================
+
+// WGSL defines e1 % e2 on floats as e1 - e2 * trunc(e1 / e2), whose sign
+// follows e1 (OpFRem). OpFMod follows e2: -1.5 % 1.0 gave 0.5, not -0.5.
+func TestFloatModUsesOpFRem(t *testing.T) {
+	spvBytes := compileWGSL(t, `
+@group(0) @binding(0) var<storage, read_write> d: array<f32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let v = vec2(d[0], d[1]);
+    d[2] = d[0] % d[1];
+    d[3] = (v % v.yx).x;
+    d[4] = (v % d[1]).y;
+}
+`)
+	if n := divmodCountOpcode(spvBytes, OpFRem); n != 3 {
+		t.Errorf("OpFRem count = %d, want 3 (scalar, vector, vector by scalar)", n)
+	}
+	if divmodHasOpcode(spvBytes, OpFMod) {
+		t.Error("float modulo must not use OpFMod")
+	}
+}
