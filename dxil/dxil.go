@@ -21,6 +21,7 @@ package dxil
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 
@@ -121,6 +122,13 @@ type Options struct {
 	// num_workgroups from all three. Without it, num_workgroups comes from a
 	// constant buffer at b0 in space 0.
 	SpecialConstantsBinding *BindTarget
+
+	// DynamicStorageBufferOffsetsTargets holds, by bind group, the constant
+	// buffer of the dynamic offsets of its storage buffers, as with
+	// hlsl.Options.DynamicStorageBufferOffsetsTargets: a storage buffer
+	// whose BindTarget has a DynamicStorageBufferOffsetsIndex adds that
+	// offset, in bytes, to all its addresses.
+	DynamicStorageBufferOffsetsTargets map[uint32]OffsetsBindTarget
 }
 
 // FragmentEntryPoint is a fragment entry point and its module.
@@ -147,10 +155,11 @@ func convertBindingMap(m BindingMap) emit.BindingMap {
 	out := make(emit.BindingMap, len(m))
 	for k, v := range m {
 		out[emit.BindingLocation{Group: k.Group, Binding: k.Binding}] = emit.BindTarget{
-			Space:            v.Space,
-			Register:         v.Register,
-			BindingArraySize: v.BindingArraySize,
-			RestrictIndexing: v.RestrictIndexing,
+			Space:                            v.Space,
+			Register:                         v.Register,
+			BindingArraySize:                 v.BindingArraySize,
+			RestrictIndexing:                 v.RestrictIndexing,
+			DynamicStorageBufferOffsetsIndex: v.DynamicStorageBufferOffsetsIndex,
 		}
 	}
 	return out
@@ -367,6 +376,8 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	if special != nil {
 		emitOpts.SpecialConstants = &emit.BindTarget{Space: special.Space, Register: special.Register}
 	}
+	dynamicOffsets := usedDynamicOffsets(irModule, reachableGlobals, opts)
+	emitOpts.DynamicOffsets = dynamicOffsets
 	mod, bitcodeShaderFlags, err := emit.EmitWithFlags(irModule, emitOpts)
 	if err != nil {
 		return nil, fmt.Errorf("dxil: emit: %w", err)
@@ -402,7 +413,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		c.AddPrimitiveSignature(primSig)
 	}
 
-	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), reachableGlobals, opts.BindingMap, opts.SamplerHeapTargets, opts.SamplerBufferBindingMap, special))
+	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), reachableGlobals, opts.BindingMap, opts.SamplerHeapTargets, opts.SamplerBufferBindingMap, dynamicOffsets, special))
 
 	// STAT (Shader Statistics) is required by the D3D12 runtime format
 	// validator for graphics pipelines (BUG-DXIL-011). IDxcValidator
@@ -963,7 +974,7 @@ func sigCompTypeForScalarKind(kind ir.ScalarKind) container.ProgSigCompType {
 // shaders with only `@builtin(position)` output now produce a self-consistent
 // PSV0 part with one PSVSignatureElement entry, achieving the first-ever
 // `S_OK` from the real validator.
-func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, special *BindTarget) container.PSVInfo {
+func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, dynamicOffsets []emit.DynamicOffsetsBuffer, special *BindTarget) container.PSVInfo {
 	_ = isFragment // kept for caller compatibility; stage comes from ep.Stage
 	info := container.PSVInfo{
 		ShaderStage:       stageToPSVKind(ep.Stage),
@@ -1014,7 +1025,17 @@ func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, 
 	// mismatch'. Inject the synthetic binding when the entry point reads
 	// the num_workgroups builtin.
 	// The special constants take its place when they are given. The
-	// emitter declares either after the shader's own constant buffers.
+	// emitter declares the buffers of dynamic offsets, then either, after
+	// the shader's own constant buffers.
+	for _, b := range dynamicOffsets {
+		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
+			ResType:    container.PSVResTypeCBV,
+			ResKind:    container.PSVResKindCBuffer,
+			Space:      b.Space,
+			LowerBound: b.Register,
+			UpperBound: b.Register,
+		})
+	}
 	switch {
 	case special != nil:
 		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
@@ -1755,9 +1776,9 @@ func componentMask(n int) uint8 {
 }
 
 // buildPSVEx creates PSV info for an entry point, including mesh shader support.
-func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, special *BindTarget) container.PSVInfo {
+func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, dynamicOffsets []emit.DynamicOffsetsBuffer, special *BindTarget) container.PSVInfo {
 	if !isMesh {
-		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, reachable, bindingMap, samplerHeap, samplerBufMap, special)
+		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, reachable, bindingMap, samplerHeap, samplerBufMap, dynamicOffsets, special)
 	}
 
 	info := container.PSVInfo{
@@ -1986,6 +2007,29 @@ func entryWritesDepthInModule(irMod *ir.Module, ep *ir.EntryPoint) bool {
 		}
 	}
 	return false
+}
+
+// usedDynamicOffsets returns the constant buffers of dynamic offsets the
+// entry point needs: those of the bind groups of the storage buffers it uses
+// with a dynamic offset, in ascending bind group order.
+func usedDynamicOffsets(irMod *ir.Module, reachable map[ir.GlobalVariableHandle]bool, opts Options) []emit.DynamicOffsetsBuffer {
+	used := make(map[uint32]bool)
+	for i := range irMod.GlobalVariables {
+		gv := &irMod.GlobalVariables[i]
+		if gv.Binding == nil || gv.Space != ir.SpaceStorage || (reachable != nil && !reachable[ir.GlobalVariableHandle(i)]) {
+			continue
+		}
+		if t, ok := opts.BindingMap[BindingLocation{Group: gv.Binding.Group, Binding: gv.Binding.Binding}]; ok && t.DynamicStorageBufferOffsetsIndex != nil {
+			used[gv.Binding.Group] = true
+		}
+	}
+	var out []emit.DynamicOffsetsBuffer
+	for _, group := range slices.Sorted(maps.Keys(used)) {
+		if t, ok := opts.DynamicStorageBufferOffsetsTargets[group]; ok {
+			out = append(out, emit.DynamicOffsetsBuffer{Group: group, Space: t.Space, Register: t.Register, Size: t.Size})
+		}
+	}
+	return out
 }
 
 // insertAfterCBVs inserts b into bindings after the constant buffers, which
