@@ -105,6 +105,18 @@ type Options struct {
 	// populate this map so that the generated DXIL matches the root
 	// signature's SRV layout for sampler index buffers.
 	SamplerBufferBindingMap map[uint32]BindTarget
+
+	// FragmentEntryPoint is, for a vertex stage, the fragment stage of its
+	// pipeline: the vertex stage writes only the outputs at locations the
+	// fragment stage reads, as with hlsl.Options.FragmentEntryPoint, since
+	// D3D12 matches the two signatures register for register.
+	FragmentEntryPoint *FragmentEntryPoint
+}
+
+// FragmentEntryPoint is a fragment entry point and its module.
+type FragmentEntryPoint struct {
+	Module   *ir.Module
+	Function *ir.Function
 }
 
 // DefaultOptions returns the default DXIL compilation options.
@@ -279,6 +291,9 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		return nil, inlineErr
 	}
 	ep = &irModule.EntryPoints[0]
+	if opts.FragmentEntryPoint != nil && ep.Stage == ir.StageVertex {
+		unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
+	}
 	// Run mem2reg + DCE, mirroring the DXC pipeline order
 	// (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE).
 	if err := runOptPasses(irModule); err != nil {
@@ -412,6 +427,46 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	}
 
 	return containerData, nil
+}
+
+// unbindUnreadOutputs takes the bindings off the members of the vertex
+// stage's result at locations frag doesn't read, in the module's own copy, so
+// they are neither written nor part of the output signature: the HLSL writer
+// leaves them out of its output struct (Rust naga's write_ep_output_struct).
+func unbindUnreadOutputs(irModule *ir.Module, ep *ir.EntryPoint, frag *FragmentEntryPoint) {
+	if ep.Function.Result == nil {
+		return
+	}
+	st, ok := irModule.Types[ep.Function.Result.Type].Inner.(ir.StructType)
+	if !ok {
+		return
+	}
+	read := make(map[uint32]bool)
+	addLocation := func(b *ir.Binding) {
+		if b == nil {
+			return
+		}
+		if loc, ok := (*b).(ir.LocationBinding); ok {
+			read[loc.Location] = true
+		}
+	}
+	for _, arg := range frag.Function.Arguments {
+		if argSt, ok := frag.Module.Types[arg.Type].Inner.(ir.StructType); ok {
+			for _, m := range argSt.Members {
+				addLocation(m.Binding)
+			}
+			continue
+		}
+		addLocation(arg.Binding)
+	}
+	for i, m := range st.Members {
+		if m.Binding == nil {
+			continue
+		}
+		if loc, ok := (*m.Binding).(ir.LocationBinding); ok && !read[loc.Location] {
+			st.Members[i].Binding = nil
+		}
+	}
 }
 
 // buildSignatures extracts input/output signature elements from an entry point.
