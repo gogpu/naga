@@ -2496,11 +2496,16 @@ func (e *Emitter) sampledKindToDxilCompType(kind ir.ScalarKind) int {
 // cbvPointerChain describes a resolved pointer chain leading to a CBV field.
 type cbvPointerChain struct {
 	varHandle  ir.GlobalVariableHandle
-	byteOffset uint32        // byte offset of the field with every dynamic index 0
-	fieldType  ir.TypeInner  // the IR type of the final accessed field
-	scalar     ir.ScalarType // scalar element type for overload selection
-	// dynamic lists the run-time indices of the chain, root first.
+	byteOffset uint32       // byte offset of the field with every dynamic index 0
+	fieldType  ir.TypeInner // the IR type of the final accessed field
+	// dynamic lists the run-time indices of the chain, root first, each a
+	// whole number of 16-byte registers apart.
 	dynamic []cbvDynamicIndex
+	// rest are the indices that pick from the field's value once it is
+	// loaded, root first: the first run-time index into a vector, or into
+	// an array or matrix whose elements aren't a whole number of registers
+	// apart, and those after it.
+	rest []cbvStep
 }
 
 // cbvDynamicIndex is a run-time index into an array, or the columns of a
@@ -2514,7 +2519,8 @@ type cbvDynamicIndex struct {
 // resolveCBVPointerChain walks an expression chain (Access and AccessIndex
 // down to a GlobalVariable) and, when it leads into a CBV, returns the field
 // it selects. Run-time indices may select array elements and matrix columns
-// at any level; a run-time index into a vector is not supported.
+// at any level when they are whole registers apart; from one that isn't, or
+// one into a vector, the indices go to chain.rest.
 //
 // Reference: Mesa nir_to_dxil.c emit_load_ubo_vec4() — offset is passed as
 // register index (byte_offset / 16).
@@ -2530,17 +2536,19 @@ func (e *Emitter) resolveCBVPointerChain(fn *ir.Function, ptrHandle ir.Expressio
 	chain := &cbvPointerChain{varHandle: global}
 	current := e.ir.Types[e.ir.GlobalVariables[global].Type].Inner
 	for i := len(steps) - 1; i >= 0; i-- {
-		if current, ok = e.applyCBVStep(chain, current, steps[i]); !ok {
+		next, addressed, ok := e.applyCBVStep(chain, current, steps[i])
+		if !ok {
 			return nil, false
 		}
+		if !addressed {
+			for j := i; j >= 0; j-- {
+				chain.rest = append(chain.rest, steps[j])
+			}
+			break
+		}
+		current = next
 	}
 	chain.fieldType = current
-	scalar, ok := scalarOfType(current)
-	if !ok {
-		// Default to f32 for struct types that we'll flatten.
-		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-	}
-	chain.scalar = scalar
 	return chain, true
 }
 
@@ -2573,66 +2581,72 @@ func cbvChainSteps(fn *ir.Function, handle ir.ExpressionHandle) (ir.GlobalVariab
 	return 0, nil, false
 }
 
-// applyCBVStep adds the offset of one index into current to chain, or the
-// index itself when it is a run-time one, and returns the type it selects;
-// false when the index can't be resolved.
-func (e *Emitter) applyCBVStep(chain *cbvPointerChain, current ir.TypeInner, st cbvStep) (ir.TypeInner, bool) {
+// cbvElement returns the type of the elements of current, a struct (the
+// member index), array, matrix (its columns) or vector, their stride in
+// bytes and their count (0 when unknown), and for a struct member its
+// offset. Matrix columns are as far apart as WGSL lays them out, which is
+// 8 bytes for a two-row f32 matrix.
+func (e *Emitter) cbvElement(current ir.TypeInner, index uint32) (elem ir.TypeInner, offset, stride, count uint32, ok bool) {
 	switch ct := current.(type) {
 	case ir.StructType:
-		if st.dynamic || int(st.index) >= len(ct.Members) {
-			return nil, false
+		if int(index) >= len(ct.Members) {
+			return nil, 0, 0, 0, false
 		}
-		chain.byteOffset += ct.Members[st.index].Offset
-		return e.ir.Types[ct.Members[st.index].Type].Inner, true
+		return e.ir.Types[ct.Members[index].Type].Inner, ct.Members[index].Offset, 0, 0, true
 	case ir.ArrayType:
-		if st.dynamic {
-			var length uint32
-			if ct.Size.Constant != nil {
-				length = *ct.Size.Constant
-			}
-			chain.dynamic = append(chain.dynamic, cbvDynamicIndex{expr: st.expr, stride: ct.Stride, length: length})
-		} else {
-			chain.byteOffset += st.index * ct.Stride
+		if ct.Size.Constant != nil {
+			count = *ct.Size.Constant
 		}
-		return e.ir.Types[ct.Base].Inner, true
-	case ir.VectorType:
-		if st.dynamic {
-			return nil, false
-		}
-		chain.byteOffset += st.index * uint32(ct.Scalar.Width)
-		return ct.Scalar, true
+		return e.ir.Types[ct.Base].Inner, index * ct.Stride, ct.Stride, count, true
 	case ir.MatrixType:
-		// One 16-byte register per column, as emitCBVMatrixLoad reads them.
-		colStride := (uint32(ct.Rows)*uint32(ct.Scalar.Width) + 15) &^ 15
-		if st.dynamic {
-			chain.dynamic = append(chain.dynamic, cbvDynamicIndex{expr: st.expr, stride: colStride, length: uint32(ct.Columns)})
-		} else {
-			chain.byteOffset += st.index * colStride
+		stride = uint32(ct.Rows) * uint32(ct.Scalar.Width)
+		if ct.Rows == ir.Vec3 {
+			stride = 4 * uint32(ct.Scalar.Width)
 		}
-		return ir.VectorType{Size: ct.Rows, Scalar: ct.Scalar}, true
+		return ir.VectorType{Size: ct.Rows, Scalar: ct.Scalar}, index * stride, stride, uint32(ct.Columns), true
+	case ir.VectorType:
+		w := uint32(ct.Scalar.Width)
+		return ct.Scalar, index * w, w, uint32(ct.Size), true
 	}
-	return nil, false
+	return nil, 0, 0, 0, false
 }
 
-// cbvRegister returns the register a CBV chain's field starts in, offset by
-// add registers, with its run-time indices. A binding that restricts
+// applyCBVStep adds the offset of one index into current to chain, or the
+// index itself when it is a run-time one into an array or matrix whose
+// elements are whole registers apart, and returns the type it selects.
+// addressed is false for any other run-time index, which chain leaves to
+// rest; ok is false when the index can't be resolved.
+func (e *Emitter) applyCBVStep(chain *cbvPointerChain, current ir.TypeInner, st cbvStep) (next ir.TypeInner, addressed, ok bool) {
+	_, isStruct := current.(ir.StructType)
+	if st.dynamic && isStruct {
+		return nil, false, false
+	}
+	elem, offset, stride, count, ok := e.cbvElement(current, st.index)
+	if !ok {
+		return nil, false, false
+	}
+	if !st.dynamic {
+		chain.byteOffset += offset
+		return elem, true, true
+	}
+	if _, isVector := current.(ir.VectorType); isVector || stride%16 != 0 {
+		return nil, false, true
+	}
+	chain.dynamic = append(chain.dynamic, cbvDynamicIndex{expr: st.expr, stride: stride, length: count})
+	return elem, true, true
+}
+
+// cbvRegister returns the register that holds byte off of a CBV chain's
+// field, the chain's run-time indices added. A binding that restricts
 // indexing, a root CBV, which D3D12 doesn't bounds check, has each index
 // clamped to its array, as the HLSL writer does with min(uint(i), n - 1).
-func (e *Emitter) cbvRegister(fn *ir.Function, chain *cbvPointerChain, add uint32) (int, error) {
+func (e *Emitter) cbvRegister(fn *ir.Function, chain *cbvPointerChain, off uint32) (int, error) {
+	reg := e.getIntConstID(int64(off / 16))
 	if len(chain.dynamic) == 0 {
-		return e.getIntConstID(int64(chain.byteOffset/16 + add)), nil
+		return reg, nil
 	}
 	restrict := e.resources[e.resourceHandles[chain.varHandle]].restrictIndexing
 	i32Ty := e.mod.GetIntType(32)
-	// A stride of a whole number of registers keeps the component; any
-	// other is counted in bytes, the component being the static one.
-	unit := uint32(16)
-	for _, d := range chain.dynamic {
-		if d.stride%16 != 0 {
-			unit = 1
-		}
-	}
-	reg := -1
 	for _, d := range chain.dynamic {
 		idx, err := e.emitExpression(fn, d.expr)
 		if err != nil {
@@ -2642,228 +2656,164 @@ func (e *Emitter) cbvRegister(fn *ir.Function, chain *cbvPointerChain, add uint3
 			umin := e.getDxOpBinaryFunc(dxOpClassBinary, overloadI32)
 			idx = e.addCallInstr(umin, i32Ty, []int{e.getIntConstID(int64(OpUMin)), idx, e.getIntConstID(int64(d.length - 1))})
 		}
-		if m := d.stride / unit; m > 1 {
+		if m := d.stride / 16; m > 1 {
 			idx = e.addMulOrShlInstr(i32Ty, idx, e.getIntConstID(int64(m)))
 		}
-		if reg < 0 {
-			reg = idx
-		} else {
-			reg = e.addBinOpInstr(i32Ty, BinOpAdd, reg, idx)
-		}
-	}
-	static := chain.byteOffset / 16
-	if unit == 1 {
-		static = chain.byteOffset
-	}
-	if static > 0 {
-		reg = e.addBinOpInstr(i32Ty, BinOpAdd, reg, e.getIntConstID(int64(static)))
-	}
-	if unit == 1 {
-		reg = e.addBinOpInstr(i32Ty, BinOpLShr, reg, e.getIntConstID(4))
-	}
-	if add > 0 {
-		reg = e.addBinOpInstr(i32Ty, BinOpAdd, reg, e.getIntConstID(int64(add)))
+		reg = e.addBinOpInstr(i32Ty, BinOpAdd, idx, reg)
 	}
 	return reg, nil
 }
 
-// emitCBVLoad emits a dx.op.cbufferLoadLegacy call and extracts the needed
-// components based on the field type and byte offset.
+// cbvLeaf is one scalar of a value in a constant buffer: its byte offset
+// and its type.
+type cbvLeaf struct {
+	offset uint32
+	scalar ir.ScalarType
+}
+
+// cbvLeaves appends the scalars of a value of type inner at byte offset
+// base to out, in the order the emitter flattens a value: members,
+// elements and columns in turn, the components of each in order.
+func (e *Emitter) cbvLeaves(inner ir.TypeInner, base uint32, out []cbvLeaf) []cbvLeaf {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return append(out, cbvLeaf{offset: base, scalar: t})
+	case ir.StructType:
+		for i := range t.Members {
+			elem, offset, _, _, _ := e.cbvElement(t, uint32(i))
+			out = e.cbvLeaves(elem, base+offset, out)
+		}
+		return out
+	}
+	elem, _, stride, count, ok := e.cbvElement(inner, 0)
+	if !ok {
+		return out
+	}
+	for i := range count {
+		out = e.cbvLeaves(elem, base+i*stride, out)
+	}
+	return out
+}
+
+// emitCBVLoad loads the value a CBV chain selects with one
+// dx.op.cbufferLoadLegacy per register and scalar type it has components
+// in, each component taken from where WGSL lays it out, and picks from it
+// by the chain's rest. A value of more than one component is left in
+// pendingComponents.
 //
 // dx.op.cbufferLoadLegacy signature:
 //
 //	%dx.types.CBufRet.XX @dx.op.cbufferLoadLegacy.XX(i32 59, %dx.types.Handle handle, i32 regIndex)
 //
-// regIndex = byteOffset / 16 (each CBV register is 16 bytes = 4 floats).
-// The result is a struct with 4 components (for f32/i32). Individual fields
-// are extracted with extractvalue at index = (byteOffset % 16) / scalarWidth.
+// The result holds the 16-byte register as 4 32-bit, 8 16-bit or 2 64-bit
+// components.
 //
 // Reference: Mesa nir_to_dxil.c load_ubo() line ~3061, emit_load_ubo_vec4() line ~3527
 func (e *Emitter) emitCBVLoad(fn *ir.Function, chain *cbvPointerChain) (int, error) {
-	// Get the resource handle for this CBV.
 	handleID, found := e.getResourceHandleID(chain.varHandle)
 	if !found {
 		return 0, fmt.Errorf("CBV handle not found for global variable %d", chain.varHandle)
 	}
-
-	// Matrix types require special handling: each column is in a separate
-	// 16-byte CBV register. We emit one cbufferLoadLegacy per column.
-	if mt, isMat := chain.fieldType.(ir.MatrixType); isMat {
-		return e.emitCBVMatrixLoad(fn, handleID, chain, mt)
+	type register struct {
+		index uint32
+		ol    overloadType
 	}
-
-	ol := overloadForScalar(chain.scalar)
-	scalarWidth := uint32(chain.scalar.Width)
-
-	// Get or create the CBufRet type and function declaration.
-	cbufRetTy := e.getDxCBufRetType(ol)
-	cbufLoadFn := e.getDxOpCBufLoadFunc(ol)
-	scalarTy := e.overloadReturnType(ol)
-
-	// Determine how many scalar components to extract based on the field type.
-	// For structs, we recursively count all scalar members across register boundaries.
-	numComps := cbvComponentCount(e.ir, chain.fieldType)
-
-	// If the field spans multiple registers (e.g., struct with >4 scalars),
-	// we need multiple cbufferLoadLegacy calls.
-	if numComps > 4 {
-		return e.emitCBVMultiRegLoad(fn, handleID, chain, ol, scalarWidth, numComps)
+	loaded := make(map[register]int)
+	leaves := e.cbvLeaves(chain.fieldType, chain.byteOffset, nil)
+	comps := make([]int, len(leaves))
+	for i, leaf := range leaves {
+		ol := overloadForScalar(leaf.scalar)
+		reg := register{index: leaf.offset / 16, ol: ol}
+		retID, ok := loaded[reg]
+		if !ok {
+			regIndex, err := e.cbvRegister(fn, chain, leaf.offset)
+			if err != nil {
+				return 0, err
+			}
+			retID = e.addCallInstr(e.getDxOpCBufLoadFunc(ol), e.getDxCBufRetType(ol),
+				[]int{e.getIntConstID(int64(OpCBufferLoadLegacy)), handleID, regIndex})
+			loaded[reg] = retID
+		}
+		comps[i] = e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: e.overloadReturnType(ol),
+			Operands:   []int{retID, int(leaf.offset%16) / int(leaf.scalar.Width)},
+			ValueID:    comps[i],
+		})
 	}
-
-	// Single register path: scalar / vector / small struct.
-	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
-
-	regIndexVal, err := e.cbvRegister(fn, chain, 0)
+	comps, err := e.pickCBVComponents(fn, chain.fieldType, chain.rest, comps)
 	if err != nil {
 		return 0, err
 	}
-	compOffset := (chain.byteOffset % 16) / scalarWidth
-
-	retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
-
-	comps := make([]int, numComps)
-	for i := 0; i < numComps; i++ {
-		extractIdx := int(compOffset) + i
-		extractID := e.allocValue()
-		instr := &module.Instruction{
-			Kind:       module.InstrExtractVal,
-			HasValue:   true,
-			ResultType: scalarTy,
-			Operands:   []int{retID, extractIdx},
-			ValueID:    extractID,
-		}
-		e.currentBB.AddInstruction(instr)
-		comps[i] = extractID
+	if len(comps) == 0 {
+		return 0, fmt.Errorf("CBV load of %T has no components", chain.fieldType)
 	}
-
-	if numComps > 1 {
-		e.pendingComponents = comps
-	}
-
-	return comps[0], nil
-}
-
-// emitCBVMultiRegLoad loads multiple CBV registers to fill all scalar components.
-// Used when a struct or large vector spans multiple 16-byte registers.
-func (e *Emitter) emitCBVMultiRegLoad(
-	fn *ir.Function,
-	handleID int,
-	chain *cbvPointerChain,
-	ol overloadType,
-	scalarWidth uint32,
-	totalComps int,
-) (int, error) {
-	cbufRetTy := e.getDxCBufRetType(ol)
-	cbufLoadFn := e.getDxOpCBufLoadFunc(ol)
-	scalarTy := e.overloadReturnType(ol)
-	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
-
-	compsPerReg := 16 / int(scalarWidth)
-	baseCompOffset := int((chain.byteOffset % 16) / scalarWidth)
-
-	comps := make([]int, 0, totalComps)
-
-	currentReg := uint32(0)
-	currentComp := baseCompOffset
-	remaining := totalComps
-
-	for remaining > 0 {
-		regIndexVal, err := e.cbvRegister(fn, chain, currentReg)
-		if err != nil {
-			return 0, err
-		}
-		retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
-
-		// Extract components from this register.
-		available := compsPerReg - currentComp
-		toExtract := remaining
-		if toExtract > available {
-			toExtract = available
-		}
-
-		for i := 0; i < toExtract; i++ {
-			extractIdx := currentComp + i
-			extractID := e.allocValue()
-			instr := &module.Instruction{
-				Kind:       module.InstrExtractVal,
-				HasValue:   true,
-				ResultType: scalarTy,
-				Operands:   []int{retID, extractIdx},
-				ValueID:    extractID,
-			}
-			e.currentBB.AddInstruction(instr)
-			comps = append(comps, extractID)
-		}
-
-		remaining -= toExtract
-		currentReg++
-		currentComp = 0 // subsequent registers start at component 0
-	}
-
 	if len(comps) > 1 {
 		e.pendingComponents = comps
 	}
-
 	return comps[0], nil
 }
 
-// emitCBVMatrixLoad loads a matrix from a CBV by issuing one cbufferLoadLegacy
-// per column. Each column occupies one 16-byte register.
-//
-// For mat4x4<f32>: 4 registers, 4 components each = 16 total components.
-// For mat3x3<f32>: 3 registers, 3 components each = 9 total components
-// (but each register still returns 4 components; we only use the first 3).
-//
-// Reference: Mesa nir_to_dxil.c — matrix loads decompose to per-column loads.
-func (e *Emitter) emitCBVMatrixLoad(
-	fn *ir.Function,
-	handleID int,
-	chain *cbvPointerChain,
-	mt ir.MatrixType,
-) (int, error) {
-	ol := overloadForScalar(chain.scalar)
-	scalarWidth := uint32(chain.scalar.Width)
-	cbufRetTy := e.getDxCBufRetType(ol)
-	cbufLoadFn := e.getDxOpCBufLoadFunc(ol)
-	scalarTy := e.overloadReturnType(ol)
-
-	cols := int(mt.Columns)
-	rows := int(mt.Rows)
-	totalComps := cols * rows
-
-	// Each column is aligned to 16 bytes in a cbuffer.
-	colAligned := (uint32(rows)*scalarWidth + 15) &^ 15 //nolint:gosec // rows is small (2-4)
-
-	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
-
-	comps := make([]int, 0, totalComps)
-	for col := 0; col < cols; col++ {
-		regIndexVal, err := e.cbvRegister(fn, chain, uint32(col)*(colAligned/16))
-		if err != nil {
-			return 0, err
-		}
-
-		retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
-
-		for row := 0; row < rows; row++ {
-			extractID := e.allocValue()
-			instr := &module.Instruction{
-				Kind:       module.InstrExtractVal,
-				HasValue:   true,
-				ResultType: scalarTy,
-				Operands:   []int{retID, row},
-				ValueID:    extractID,
+// pickCBVComponents picks from comps, the components of a loaded value of
+// type inner, the ones the indices rest select: those of a member or an
+// element of a constant index directly, those of an element of a run-time
+// index with a select over it, which an index past the end makes the last
+// element, as WGSL keeps such an access in bounds.
+func (e *Emitter) pickCBVComponents(fn *ir.Function, inner ir.TypeInner, rest []cbvStep, comps []int) ([]int, error) {
+	for _, st := range rest {
+		if s, ok := inner.(ir.StructType); ok {
+			if st.dynamic || int(st.index) >= len(s.Members) {
+				return nil, fmt.Errorf("CBV struct index %d", st.index)
 			}
-			e.currentBB.AddInstruction(instr)
-			comps = append(comps, extractID)
+			first := 0
+			for _, m := range s.Members[:st.index] {
+				first += cbvComponentCount(e.ir, e.ir.Types[m.Type].Inner)
+			}
+			inner = e.ir.Types[s.Members[st.index].Type].Inner
+			comps = comps[first : first+cbvComponentCount(e.ir, inner)]
+			continue
 		}
+		elem, _, _, count, ok := e.cbvElement(inner, st.index)
+		if !ok || count == 0 || len(comps)%int(count) != 0 {
+			return nil, fmt.Errorf("CBV index into %T", inner)
+		}
+		size := len(comps) / int(count)
+		if !st.dynamic {
+			if st.index >= count {
+				return nil, fmt.Errorf("CBV index %d out of %d", st.index, count)
+			}
+			comps, inner = comps[int(st.index)*size:int(st.index+1)*size], elem
+			continue
+		}
+		idx, err := e.emitExpression(fn, st.expr)
+		if err != nil {
+			return nil, fmt.Errorf("CBV dynamic index: %w", err)
+		}
+		comps, inner = e.selectElement(idx, comps, int(count), elem), elem
 	}
+	return comps, nil
+}
 
-	if len(comps) > 1 {
-		e.pendingComponents = comps
+// selectElement returns the components of element idx, a run-time index,
+// of the count elements of type elem that comps holds one after the other,
+// each picked by a select over idx. An index past the end picks the last
+// element.
+func (e *Emitter) selectElement(idx int, comps []int, count int, elem ir.TypeInner) []int {
+	size := len(comps) / count
+	leaves := e.cbvLeaves(elem, 0, nil)
+	picked := make([]int, size)
+	for j := range picked {
+		ty := e.overloadReturnType(overloadForScalar(leaves[j].scalar))
+		cur := comps[(count-1)*size+j]
+		for k := count - 2; k >= 0; k-- {
+			cmp := e.addCmpInstr(ICmpEQ, idx, e.getIntConstID(int64(k)))
+			cur = e.emitSelect3(ty, cmp, comps[k*size+j], cur)
+		}
+		picked[j] = cur
 	}
-
-	return comps[0], nil
+	return picked
 }
 
 // getDxCBufRetType returns the %dx.types.CBufRet.XX struct type.
