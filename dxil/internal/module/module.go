@@ -359,6 +359,7 @@ func (m *Module) AddFunction(name string, funcType *Type, isDecl bool) *Function
 		IsDeclaration: isDecl,
 		AttrSetID:     attrs,
 	}
+	m.GetPointerType(funcType)
 	m.Functions = append(m.Functions, f)
 	return f
 }

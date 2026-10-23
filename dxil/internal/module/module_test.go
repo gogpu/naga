@@ -152,6 +152,20 @@ func TestAddFunction(t *testing.T) {
 	}
 }
 
+// A function's value is a pointer to its type, which a DXIL reader such as
+// vkd3d-shader looks up in the type table for every function record.
+func TestAddFunctionDeclaresItsPointerType(t *testing.T) {
+	mod := NewModule(ComputeShader)
+	funcTy := mod.GetFunctionType(mod.GetVoidType(), nil)
+	mod.AddFunction("main", funcTy, false)
+	for _, ty := range mod.Types {
+		if ty.Kind == TypePointer && ty.PointerElem == funcTy {
+			return
+		}
+	}
+	t.Error("the module has no pointer type to the function's type")
+}
+
 func TestAddBasicBlock(t *testing.T) {
 	mod := NewModule(VertexShader)
 	voidTy := mod.GetVoidType()
