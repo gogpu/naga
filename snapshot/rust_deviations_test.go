@@ -67,6 +67,11 @@ const (
 		"spv::PipelineOptions); the spirv package cannot restrict output to one entry point"
 	reasonCompactNoEntryPoints = "the module has no entry points; Rust's compact(KeepUnused::No) removes " +
 		"everything, ir.CompactUnused returns early and every type and function is emitted"
+	reasonGLSLStd140MatCx2 = "2-row matrices in uniform buffers are declared std140-compatible, a struct's matrix " +
+		"member as one vec2 member per column and any other such matrix as a struct of its columns, rebuilt on " +
+		"load: std140 puts matrix columns 16 bytes apart where WGSL puts a matCx2's 8 apart, so Rust's GLSL, " +
+		"which declares the matrix as is, reads the wrong offsets (its SPIR-V writer declares the same " +
+		"std140-compatible types, 35975143)"
 )
 
 // rustDeviations is the complete list of known differences from the vendored
@@ -144,6 +149,9 @@ var rustDeviations = []rustDeviation{
 	{Shader: "access", File: "wgsl-access.hlsl", Kind: deviationBug, Card: "BUG-UNIFORM-MAT2-001",
 		Reason:      notPorted("786b8b11"),
 		Fingerprint: "68e371f863469673cd98e0c02a4df13f11b910f88f8664a74d88c9c3820e1fec"},
+	{Shader: "access", File: "wgsl-access.foo_vert.Vertex.glsl", Kind: deviationIntentional,
+		Reason:      reasonGLSLStd140MatCx2,
+		Fingerprint: "a9fc778ce836d7e82dcc04a0c449ffd2250246f8509aefaf83865c9263527bbe"},
 	{Shader: "aliased-ray-query", File: "wgsl-aliased-ray-query.spvasm", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("7721a3e0", "56e4a389", "55534165"),
 		Fingerprint: "2bd5dc71a566e16bd4b835879e407493894aaff5077842c0a98fc5d3aaacf346"},
@@ -238,8 +246,8 @@ var rustDeviations = []rustDeviation{
 		Reason:      reasonMSLThreadgroup + "; " + notPorted("b5bd5aed"),
 		Fingerprint: "87877e2771f0c8885fd9a990e6be655d147090486e3a043d129c8bf63c9dd8e3"},
 	{Shader: "globals", File: "wgsl-globals.main.Compute.glsl", Kind: deviationBug, Card: "BUG-ATOMIC-POLYFILL-001",
-		Reason:      notPorted("f0201c9c"),
-		Fingerprint: "7d17136d781ca652f753c0330f934bbf596fc711b3b9c96fe132f7b86274603c"},
+		Reason:      notPorted("f0201c9c") + "; intentional: " + reasonGLSLStd140MatCx2,
+		Fingerprint: "5618dace61a0e53826ff5ddc3eff2d72c243da1877e12af533eaa3dfe505c402"},
 	{Shader: "globals", File: "wgsl-globals.hlsl", Kind: deviationBug, Card: "BUG-ATOMIC-POLYFILL-001",
 		Reason:      notPorted("96b7872f", "a53ffffe", "f0201c9c", "786b8b11"),
 		Fingerprint: "e9af820e456ec48cb0dd123516ba47c76037885238812a5099520056a80f71e1"},

@@ -127,6 +127,11 @@ type Writer struct {
 	// on GL < 4.2. Matches Rust naga's reflection_names_globals.
 	uniformInfos []UniformInfo
 
+	// std140-compatible declarations of the types uniform buffers hold that
+	// contain two-row matrices (std140.go), in declaration order.
+	std140Types map[ir.TypeHandle]*std140Type
+	std140Order []ir.TypeHandle
+
 	// Reachability set for dead code elimination.
 	// When set, only reachable types, constants, globals, and functions
 	// are emitted in the output. Built by collectReachable for the
@@ -338,10 +343,13 @@ func (w *Writer) writeModule() error {
 		return err
 	}
 
-	// 4. Write type definitions (structs)
+	// 4. Write type definitions (structs), then the std140-compatible
+	// declarations of the uniform types with two-row matrices.
 	if err := w.writeTypes(); err != nil {
 		return err
 	}
+	w.collectStd140Types()
+	w.writeStd140Types()
 
 	// 4b. Write predeclared helper functions (naga_modf, naga_frexp)
 	// Rust naga emits these right after type definitions, before constants.
@@ -1244,6 +1252,9 @@ func (w *Writer) writeUniformVariable(name, typeName string, global ir.GlobalVar
 		blockName, instanceName := w.getBlockNames(global)
 		baseType := w.getBaseTypeName(global.Type)
 		arraySuffix := w.getArraySuffix(global.Type)
+		if global.Space == ir.SpaceUniform {
+			baseType, arraySuffix = w.std140TypeName(global.Type)
+		}
 		if binding, ok := w.lookupBinding(global); ok {
 			w.WriteLine("layout(std140, binding = %d) uniform %s { %s %s%s; };", binding, blockName, baseType, instanceName, arraySuffix)
 		} else {
@@ -1264,6 +1275,9 @@ func (w *Writer) writeUniformVariable(name, typeName string, global ir.GlobalVar
 // Matches Rust naga naming: TypeName_block_{binding}{Stage} { TypeName _group_G_binding_B_{stage}; }
 func (w *Writer) writeUniformBlock(name, typeName string, global ir.GlobalVariable, st ir.StructType) {
 	blockName, instanceName := w.getBlockNames(global)
+	if global.Space == ir.SpaceUniform {
+		typeName, _ = w.std140TypeName(global.Type)
+	}
 
 	if global.Binding != nil {
 		if binding, ok := w.lookupBinding(global); ok {
