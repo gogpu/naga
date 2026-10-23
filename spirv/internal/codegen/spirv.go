@@ -83,6 +83,16 @@ type Options struct {
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero their
 	// workgroup variables.
 	ZeroInitializeWorkgroupMemory ZeroInitializeWorkgroupMemoryMode
+
+	// ClampFragDepth clamps the depth a fragment entry point writes to the
+	// range two f32 push constants hold, min then max, at byte offset
+	// ClampFragDepth.Offset (see the spirv package).
+	ClampFragDepth *ClampFragDepth
+}
+
+// ClampFragDepth is where the range of the frag_depth clamp is.
+type ClampFragDepth struct {
+	Offset uint32
 }
 
 // ZeroInitializeWorkgroupMemoryMode is how workgroup memory gets zeroed.

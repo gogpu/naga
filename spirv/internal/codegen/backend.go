@@ -170,6 +170,10 @@ type Backend struct {
 	// OpConstantNull per SPIR-V type ID, the zero initializer of function
 	// and private variables (constantNull).
 	nullConstantIDs map[uint32]uint32
+	// fragDepthVars are the FragDepth output variables, and fragDepthRange
+	// the push constant block of their clamp (Options.ClampFragDepth).
+	fragDepthVars  map[uint32]bool
+	fragDepthRange uint32
 }
 
 // wrappedBinaryOp is the dedup key for wrapped binary operation functions.
@@ -213,6 +217,7 @@ func NewBackend(options Options) *Backend {
 		std140ConvertIDs:    make(map[ir.TypeHandle]uint32),
 		matCx2ColumnIDs:     make(map[ir.TypeHandle]uint32),
 		nullConstantIDs:     make(map[uint32]uint32, 4),
+		fragDepthVars:       make(map[uint32]bool),
 	}
 }
 
@@ -257,6 +262,8 @@ func (b *Backend) Reset() {
 	clear(b.std140ConvertIDs)
 	clear(b.matCx2ColumnIDs)
 	clear(b.nullConstantIDs)
+	clear(b.fragDepthVars)
+	b.fragDepthRange = 0
 
 	// Reset scalar IDs
 	b.glslExtID = 0
@@ -2202,6 +2209,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 					b.addBuiltinCapabilities(binding.Builtin)
 					spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassOutput)
 					b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+					b.fragDepthVars[varID] = binding.Builtin == ir.BuiltinFragDepth
 				case ir.LocationBinding:
 					b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
 					b.addInterpolationDecorations(varID, binding, entryPoint.Stage, StorageClassOutput)
@@ -2259,6 +2267,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 							b.addBuiltinCapabilities(binding.Builtin)
 							spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassOutput)
 							b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+							b.fragDepthVars[varID] = binding.Builtin == ir.BuiltinFragDepth
 						case ir.LocationBinding:
 							b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
 							b.addInterpolationDecorations(varID, binding, entryPoint.Stage, StorageClassOutput)
@@ -2268,6 +2277,9 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 			}
 
 			b.entryOutputVars[epIdx] = output
+			if err := b.declareFragDepthRange(entryPoint); err != nil {
+				return err
+			}
 		}
 
 		// ForcePointSize: add BuiltIn PointSize output variable for vertex shaders
@@ -2560,6 +2572,9 @@ func (b *Backend) emitEntryPoints() error {
 		// Add workgroup init polyfill LocalInvocationId variable to interface
 		if wgVarID, ok := b.workgroupInitVars[epIdx]; ok {
 			interfaces = append(interfaces, wgVarID)
+		}
+		if b.fragDepthRange != 0 && spvVersionWord >= 0x10400 && entryPoint.Stage == ir.StageFragment && b.entryPointWritesFragDepth(entryPoint) {
+			interfaces = append(interfaces, b.fragDepthRange)
 		}
 
 		// Add entry point
@@ -6304,6 +6319,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 							e.backend.builder.funcAppend(e.backend.ib.Build(OpFConvert))
 							memberValue = convertedID
 						}
+						if memberValue, err = e.clampFragDepth(varID, memberValue); err != nil {
+							return err
+						}
 						// Store to output variable (SampleMask needs AccessChain[0])
 						if e.backend.sampleMaskVars[varID] {
 							elemPtrType := e.backend.emitPointerType(StorageClassOutput, memberTypeID)
@@ -6330,6 +6348,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 						e.backend.ib.AddWord(valueID)
 						e.backend.builder.funcAppend(e.backend.ib.Build(OpFConvert))
 						storeValue = convertedID
+					}
+					if storeValue, err = e.clampFragDepth(e.output.singleVarID, storeValue); err != nil {
+						return err
 					}
 					// SampleMask output needs AccessChain[0]
 					if e.backend.sampleMaskVars[e.output.singleVarID] {
