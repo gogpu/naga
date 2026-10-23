@@ -335,18 +335,6 @@ func elemByteSize(irMod *ir.Module, inner ir.TypeInner) uint32 {
 	}
 }
 
-// matrixColumnByteStride returns the byte stride between consecutive columns
-// of a matrix per WGSL alignment rules. For matCxR with R=3 (e.g., mat3x3),
-// columns are padded to 16 bytes per HLSL `float3` alignment; otherwise
-// the stride equals R*scalarW.
-func matrixColumnByteStride(m ir.MatrixType) uint32 {
-	stride := uint32(m.Rows) * uint32(m.Scalar.Width)
-	if m.Rows == 3 && m.Scalar.Width == 4 {
-		stride = 16
-	}
-	return stride
-}
-
 // cbvComponentCount returns the total number of scalar components for a type
 // in the context of CBV (constant buffer) loads. Unlike componentCount, this
 // recursively expands structs and arrays to count all scalar values.
