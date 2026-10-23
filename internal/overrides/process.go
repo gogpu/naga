@@ -650,7 +650,7 @@ func (t *types) Array(base ir.TypeHandle, size ir.ArraySize) ir.TypeHandle {
 // arenaIndex is n as an arena index. IR handles are 32-bit; an arena never
 // holds 2^32 entries.
 func arenaIndex(n int) uint32 {
-	if n < 0 || n > math.MaxUint32 {
+	if n < 0 || uint64(n) > math.MaxUint32 {
 		panic("pipeline constants: arena index out of the 32-bit handle range")
 	}
 	return uint32(n)
