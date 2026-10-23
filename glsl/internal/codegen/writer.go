@@ -1823,6 +1823,23 @@ func (w *Writer) scanNeedBakeExpressions(fn *ir.Function) {
 	// Phase 3: Math-specific forced baking (matches Rust's explicit inserts)
 	for _, expr := range fn.Expressions {
 		switch m := expr.Kind.(type) {
+		case ir.ExprBinary:
+			// Integer % is written as left - right * (left / right), which
+			// uses each operand twice.
+			if m.Op == ir.BinaryModulo && int(m.Left) < len(fn.ExpressionTypes) {
+				isInt := func(k ir.ScalarKind) bool { return k == ir.ScalarSint || k == ir.ScalarUint }
+				bake := false
+				switch t := w.resolveTypeInner(&fn.ExpressionTypes[m.Left], m.Left).(type) {
+				case ir.ScalarType:
+					bake = isInt(t.Kind)
+				case ir.VectorType:
+					bake = isInt(t.Scalar.Kind)
+				}
+				if bake {
+					w.needBakeExpression[m.Left] = struct{}{}
+					w.needBakeExpression[m.Right] = struct{}{}
+				}
+			}
 		case ir.ExprMath:
 			switch m.Fun {
 			case ir.MathDot4I8Packed, ir.MathDot4U8Packed:
