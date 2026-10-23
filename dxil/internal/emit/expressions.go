@@ -415,8 +415,8 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 			if res.isBindingArray {
 				return e.emitDynamicCreateHandleConst(res, int64(ai.Index))
 			}
-			// UAV/CBV: pass through to load/store site.
-			if res.class == resourceClassUAV || res.class == resourceClassCBV {
+			// Storage and constant buffers: pass through to load/store site.
+			if isStorageBufferClass(res.class) || res.class == resourceClassCBV {
 				return baseID, nil
 			}
 		}

@@ -77,3 +77,24 @@ func valueTree(mod *module.Module, fn *module.Function, id int) string {
 	}
 	return "?"
 }
+
+// A constant index into a read-only storage buffer leaves the buffer to the
+// load, as one into a read-write buffer does. It indexed the handle of the
+// buffer with a GEP, which IDxcValidator refuses.
+func TestReadOnlyStorageIndexEmitsNoGEP(t *testing.T) {
+	_, fn := emitMainModule(t, `
+struct P { a: u32, v: array<u32> }
+@group(0) @binding(0) var<storage, read> p: P;
+@group(0) @binding(1) var<storage, read_write> o: array<u32>;
+@compute @workgroup_size(1) fn main() {
+	o[0] = p.v[0];
+}
+`)
+	for _, bb := range fn.BasicBlocks {
+		for _, in := range bb.Instructions {
+			if in.Kind == module.InstrGEP {
+				t.Errorf("GEP %v in a shader that only loads and stores storage buffers", in.Operands)
+			}
+		}
+	}
+}
