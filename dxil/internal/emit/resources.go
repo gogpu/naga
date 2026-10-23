@@ -80,6 +80,9 @@ type resourceInfo struct {
 	// restrictIndexing clamps the run-time indices of a CBV's loads to
 	// their arrays (BindTarget.RestrictIndexing).
 	restrictIndexing bool
+	// specialConstants marks the CBV of EmitOptions.SpecialConstants, three
+	// 32-bit values.
+	specialConstants bool
 }
 
 // analyzeResources scans the module's global variables and classifies them
@@ -227,6 +230,20 @@ func (e *Emitter) analyzeResources() {
 	// After the main loop: synthesize the sampler array heap entries.
 	// Index buffer SRVs were already prepended above.
 	e.appendSamplerHeapSamplers(&rangeCounters)
+
+	if t := e.opts.SpecialConstants; t != nil {
+		e.resources = append(e.resources, resourceInfo{
+			name:             "_NagaConstants",
+			class:            resourceClassCBV,
+			rangeID:          rangeCounters[resourceClassCBV],
+			group:            t.Space,
+			binding:          t.Register,
+			typeHandle:       ir.TypeHandle(len(e.ir.Types)),
+			handleID:         -1,
+			specialConstants: true,
+		})
+		rangeCounters[resourceClassCBV]++
+	}
 }
 
 // classifyGlobalVariable determines the resource class of a global variable.
@@ -1637,6 +1654,10 @@ func (e *Emitter) getCBVStructType(res *resourceInfo) *module.Type {
 // For bare (non-struct) CBV types (e.g., var<uniform> m: mat4x4<f32>), the
 // result is a single-element slice with that type's LLVM representation.
 func (e *Emitter) buildCBVMemberTypes(res *resourceInfo) []*module.Type {
+	if res.specialConstants {
+		i32Ty := e.mod.GetIntType(32)
+		return []*module.Type{i32Ty, i32Ty, i32Ty}
+	}
 	if int(res.typeHandle) >= len(e.ir.Types) {
 		// Fallback: single vec4 register as flat float array.
 		f32Ty := e.mod.GetFloatType(32)
@@ -2276,6 +2297,9 @@ func (e *Emitter) addMetadataI1(value bool) *module.MetadataNode {
 // rounding to vec4 boundary. DXC uses this value directly in the resource
 // metadata field[6]. For a struct with a single f32, this returns 4.
 func (e *Emitter) computeCBVSizeBytes(res *resourceInfo) int {
+	if res.specialConstants {
+		return 12
+	}
 	if int(res.typeHandle) >= len(e.ir.Types) {
 		return 16 // default: 1 vec4 register
 	}
