@@ -162,7 +162,7 @@ type Backend struct {
 	// std140Types holds the std140-compatible type of each type uniform
 	// buffers hold that needs one, std140ConvertIDs the functions converting
 	// them to the regular types, and matCx2ColumnIDs the functions returning
-	// a column of a two-row matrix by a dynamic index (std140.go).
+	// a column of a std140Matrix by a dynamic index (std140.go).
 	std140Types      map[ir.TypeHandle]*std140Type
 	std140ConvertIDs map[ir.TypeHandle]uint32
 	matCx2ColumnIDs  map[ir.TypeHandle]uint32
