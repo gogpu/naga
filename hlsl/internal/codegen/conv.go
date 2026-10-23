@@ -107,6 +107,8 @@ func BuiltInToSemantic(b ir.BuiltinValue) string {
 		return "SV_VertexID"
 	case ir.BuiltinInstanceIndex:
 		return "SV_InstanceID"
+	case ir.BuiltinClipDistance:
+		return "SV_ClipDistance"
 	// Fragment shader
 	case ir.BuiltinFrontFacing:
 		return "SV_IsFrontFace"
