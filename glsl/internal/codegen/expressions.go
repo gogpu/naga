@@ -570,11 +570,12 @@ func (w *Writer) writeBinary(b ir.ExprBinary) (string, error) {
 	case ir.BinaryDivide:
 		return fmt.Sprintf("(%s / %s)", left, right), nil
 	case ir.BinaryModulo:
-		// Rust naga: float modulo → (a - b * trunc(a / b)), integer → native %
 		if w.isFloatBinaryExpr(b) {
 			return fmt.Sprintf("(%s - %s * trunc(%s / %s))", left, right, left, right), nil
 		}
-		return fmt.Sprintf("(%s %% %s)", left, right), nil
+		// GLSL leaves % undefined when an operand is negative. Integer
+		// division truncates, so this is WGSL's remainder.
+		return fmt.Sprintf("(%s - %s * (%s / %s))", left, right, left, right), nil
 	case ir.BinaryEqual:
 		if w.isVectorBinaryExpr(b) {
 			return fmt.Sprintf("equal(%s, %s)", left, right), nil
