@@ -10,7 +10,7 @@ ByteAddressBuffer in_storage : register(t0);
 cbuffer in_uniform : register(b1) { InUniform in_uniform; }
 Texture2DArray<float4> image_2d_array : register(t2);
 groupshared float in_workgroup[30];
-static float[40] in_private = (float[40])0;
+static float in_private[40] = (float[40])0;
 
 typedef float4 ret_Constructarray2_float4_[2];
 ret_Constructarray2_float4_ Constructarray2_float4_(float4 arg0, float4 arg1) {
