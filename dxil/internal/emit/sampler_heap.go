@@ -24,11 +24,12 @@ const (
 //     - nagaSamplerHeap[2048] at register(s0, space0) — non-comparison
 //     - nagaComparisonSamplerHeap[2048] at register(s0, space1) — comparison
 //   * Per-bind-group StructuredBuffer<uint> nagaGroup<N>SamplerIndexArray at
-//     register(t<N>, space255) — each WGSL sampler @binding(M) reads slot M
-//     of this buffer to discover its position in the global sampler heap.
+//     register(t<N>, space255) — each WGSL sampler reads slot M of this
+//     buffer to discover its position in the global sampler heap, M being
+//     the register the binding map gives it, as in the HLSL backend, or its
+//     @binding number.
 //   * At each sample site, the sampler handle is created by:
-//     1. dx.op.bufferLoad on the index buffer at offset M (where M is the
-//        WGSL sampler's @binding number)
+//     1. dx.op.bufferLoad on the index buffer at offset M
 //     2. extractvalue + add (the dxc HLSL→DXIL lowering inserts add 0; we
 //        match for byte-cmp parity though the add is a no-op semantically)
 //     3. dx.op.createHandle with class=Sampler(3), rangeID = the heap's
@@ -132,7 +133,7 @@ type samplerHeapState struct {
 
 type samplerHeapBinding struct {
 	group      uint32
-	binding    uint32 // raw WGSL @binding number — used as the index-buffer offset
+	binding    uint32 // index-buffer offset: the binding map's register, or the WGSL @binding number
 	comparison bool
 }
 
@@ -183,9 +184,13 @@ func (e *Emitter) detectSamplerHeapNeeded() *samplerHeapState {
 			groupSet[group] = true
 			st.groupsWithSamplers = append(st.groupsWithSamplers, group)
 		}
+		binding := gv.Binding.Binding
+		if tgt, ok := e.opts.BindingMap[BindingLocation{Group: group, Binding: binding}]; ok {
+			binding = tgt.Register
+		}
 		st.samplerWGSLBinding[ir.GlobalVariableHandle(i)] = samplerHeapBinding{
 			group:      group,
-			binding:    gv.Binding.Binding,
+			binding:    binding,
 			comparison: samplerKind.comparison,
 		}
 	}
