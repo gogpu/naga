@@ -38,6 +38,41 @@ struct U { a: vec4<f32>, lights: array<L, 8> }
 	}
 }
 
+// RestrictIndexing clamps a run-time index into a function, private or
+// workgroup array, nested ones included, or into a vector to its last
+// element, as the HLSL writer does, and leaves an index into a storage
+// buffer, which D3D12 bounds checks, and a constant index in bounds as they
+// are. Without it every index is used as it is.
+func TestRestrictIndexingClampsArrayIndices(t *testing.T) {
+	src := `
+var<private> p: array<u32, 6>;
+var<workgroup> w: array<u32, 8>;
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+@compute @workgroup_size(1) fn main(@builtin(local_invocation_index) i: u32) {
+	var a: array<u32, 4>;
+	var m: array<array<u32, 3>, 5>;
+	var v = vec4<u32>(data[2]);
+	a[i] = 1u;
+	a[2] = 2u;
+	data[i] = a[data[0]] + p[i] + w[i] + m[i][data[1]] + v[i];
+}
+`
+	for _, restrict := range []bool{false, true} {
+		opts := DefaultOptions()
+		opts.RestrictIndexing = restrict
+		mod, fn := emitMainModuleOpts(t, src, opts)
+		limits := uminLimits(mod, fn)
+		slices.Sort(limits)
+		var want []int64
+		if restrict {
+			want = []int64{2, 3, 3, 3, 4, 5, 7}
+		}
+		if !slices.Equal(limits, want) {
+			t.Errorf("RestrictIndexing %v: indices clamped to %v, want %v", restrict, limits, want)
+		}
+	}
+}
+
 // uminLimits returns the constant upper bound of every dx.op UMin in fn.
 func uminLimits(mod *module.Module, fn *module.Function) []int64 {
 	constants := map[int]int64{}

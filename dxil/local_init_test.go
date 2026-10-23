@@ -107,7 +107,7 @@ func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module,
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if err := runOptPasses(irMod); err != nil {
+	if err := lowerForEmit(irMod, opts); err != nil {
 		t.Fatalf("passes: %v", err)
 	}
 	emitOpts := emit.EmitOptions{
