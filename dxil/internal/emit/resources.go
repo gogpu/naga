@@ -3498,10 +3498,11 @@ func (e *Emitter) emitUAVLoadDecomposed(chain *uavPointerChain, handleID, indexI
 
 	// indexID from resolveUAVIndex is the BYTE coord0 base (BUG-DXIL-031).
 	// Each field's byteOffset adds directly without scalar-unit conversion.
+	// A 64-bit field is loaded with rawBufferLoad of its own type, as DXC
+	// loads one, any other with bufferLoad.
 	undefVal := e.getUndefConstID()
 	i32Ty := e.mod.GetIntType(32)
 	f32Ty := e.mod.GetFloatType(32)
-	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
 
 	comps := make([]int, len(fields))
 	for i, f := range fields {
@@ -3513,7 +3514,6 @@ func (e *Emitter) emitUAVLoadDecomposed(chain *uavPointerChain, handleID, indexI
 		}
 		resRetTy := e.getDxResRetType(ol)
 		scalarTy := e.overloadReturnType(ol)
-		bufLoadFn := e.getDxOpBufferLoadFunc(ol)
 
 		coord := indexID
 		if f.byteOffset > 0 {
@@ -3521,8 +3521,14 @@ func (e *Emitter) emitUAVLoadDecomposed(chain *uavPointerChain, handleID, indexI
 			coord = e.addBinOpInstr(i32Ty, BinOpAdd, indexID, ofsID)
 		}
 
-		retID := e.addCallInstr(bufLoadFn, resRetTy,
-			[]int{opcodeVal, handleID, coord, undefVal})
+		var retID int
+		if f.scalar.Width == 8 {
+			retID = e.addCallInstr(e.getDxOpRawBufferLoadFunc(ol), resRetTy, []int{e.getIntConstID(int64(OpRawBufferLoad)),
+				handleID, coord, undefVal, e.getI8ConstID(1), e.getIntConstID(int64(f.scalar.Width))})
+		} else {
+			retID = e.addCallInstr(e.getDxOpBufferLoadFunc(ol), resRetTy, []int{e.getIntConstID(int64(OpBufferLoad)),
+				handleID, coord, undefVal})
+		}
 
 		extractID := e.allocValue()
 		instr := &module.Instruction{
@@ -3735,15 +3741,14 @@ func (e *Emitter) emitUAVStoreDecomposed(chain *uavPointerChain, valueHandle ir.
 			coord = e.addBinOpInstr(i32Ty, BinOpAdd, indexID, e.getIntConstID(int64(f.byteOffset)))
 		}
 		valUndef := e.getTypedUndefConstID(e.overloadReturnType(ol))
-		fn, opcode := e.getDxOpBufferStoreFunc(ol), OpBufferStore
-		if f.scalar.Width == 8 {
-			fn, opcode = e.getDxOpRawBufferStoreFunc(ol), OpRawBufferStore
+		mask := e.getI8ConstID(1)
+		if f.scalar.Width != 8 {
+			e.addCallInstr(e.getDxOpBufferStoreFunc(ol), e.mod.GetVoidType(), []int{e.getIntConstID(int64(OpBufferStore)),
+				handleID, coord, undefI32, v, valUndef, valUndef, valUndef, mask})
+			continue
 		}
-		args := []int{e.getIntConstID(int64(opcode)), handleID, coord, undefI32, v, valUndef, valUndef, valUndef, e.getI8ConstID(1)}
-		if f.scalar.Width == 8 {
-			args = append(args, e.getIntConstID(8))
-		}
-		e.addCallInstr(fn, e.mod.GetVoidType(), args)
+		e.addCallInstr(e.getDxOpRawBufferStoreFunc(ol), e.mod.GetVoidType(), []int{e.getIntConstID(int64(OpRawBufferStore)),
+			handleID, coord, undefI32, v, valUndef, valUndef, valUndef, mask, e.getIntConstID(int64(f.scalar.Width))})
 	}
 }
 
