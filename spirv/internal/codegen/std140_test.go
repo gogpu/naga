@@ -55,3 +55,41 @@ fn main(@builtin(local_invocation_index) i: u32) {
 		t.Fatalf("spirv-val --target-env vulkan1.1:\n%s", strings.TrimSpace(string(out)))
 	}
 }
+
+// The columns of an f16 matrix of three or four rows are 8 bytes apart in
+// WGSL, which a Uniform block can't hold as a MatrixStride either, so such
+// matrices are declared std140-compatible like two-row ones, and read whole,
+// by constant and dynamic column and as members.
+func TestUniformF16MatricesAreStd140(t *testing.T) {
+	spirvVal := testtools.Look(t, "spirv-val", testtools.InstallSPIRVTools)
+	spv := compileWGSLForCapabilityTestWithOpts(t, `
+enable f16;
+struct WithMat { a: f16, m: mat3x3<f16>, n: mat2x4<f16>, b: vec4<f16> }
+@group(0) @binding(0) var<uniform> u_m: mat4x3<f16>;
+@group(0) @binding(1) var<uniform> u_s: WithMat;
+@group(0) @binding(2) var<uniform> u_a: array<mat4x4<f16>, 2>;
+@group(0) @binding(3) var<storage, read_write> out: array<vec4<f16>, 8>;
+
+@compute @workgroup_size(1)
+fn main(@builtin(local_invocation_index) i: u32) {
+	let c = i & 1u;
+	out[0] = vec4(u_m[1] + u_m[c], u_m[c][2]);
+	let m = u_m;
+	out[1] = vec4(m[3], 1.0h);
+	out[2] = vec4(u_s.m[2] + u_s.m[c], u_s.a) + u_s.n[c] + u_s.b;
+	let s = u_s;
+	out[3] = vec4(s.m[1], s.n[0][3]);
+	out[4] = u_a[c][1] + u_a[1][c];
+	let a = u_a;
+	out[5] = a[1][2];
+}
+`, Options{Version: Version1_3})
+
+	path := filepath.Join(t.TempDir(), "std140-f16.spv")
+	if err := os.WriteFile(path, spv, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(spirvVal, "--target-env", "vulkan1.1", path).CombinedOutput(); err != nil {
+		t.Fatalf("spirv-val --target-env vulkan1.1:\n%s", strings.TrimSpace(string(out)))
+	}
+}

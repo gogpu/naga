@@ -231,8 +231,10 @@ var rustDeviations = []rustDeviation{
 		Reason:      notPorted("b9c09622"),
 		Fingerprint: "9cc4a8b6c5f9adf9e3d72894fd457e33380f644e177428d15c8653baca43d2cd"},
 	{Shader: "f16", File: "wgsl-f16.spvasm", Kind: deviationIntentional,
-		Reason:      reasonSPVUnusedUniformPointers,
-		Fingerprint: "155c1ad39533b3406a76ef986332332174b419c31c7fb59f6eb18460ec2d8222"},
+		Reason: reasonSPVUnusedUniformPointers + "; the f16 matrices of three and four rows are declared std140-compatible " +
+			"too: WGSL puts their columns 8 bytes apart, which a Uniform block holds only with uniformBufferStandardLayout, " +
+			"and Rust declares two-row matrices std140-compatible only",
+		Fingerprint: "2c79ac76e502eb50e6d0fde1cf925315453722b3516c573c244662febff50dfb"},
 	{Shader: "f16", File: "wgsl-f16.hlsl", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      "sign() of a float is not cast back to the float type (HLSL sign returns int); " + notPorted("ae19a470"),
 		Fingerprint: "82a5677093ac582f802788b8337d7bd588cf47beed4fd6e6d3214955a2e0e4db"},
