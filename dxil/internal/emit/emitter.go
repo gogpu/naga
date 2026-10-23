@@ -216,6 +216,11 @@ type Emitter struct {
 	// emitCompose call. Used by emitExpression to store in exprComponents.
 	pendingComponents []int
 
+	// componentErr is the first component asked of an expression that has
+	// no value for it, which fails the emission instead of reading another
+	// value in its place.
+	componentErr error
+
 	// doubleExtensions is set by the double operations DXC sets
 	// EnableDoubleExtensions for: fdiv, conversions between doubles and
 	// integers, and dx.op.fma.
@@ -585,6 +590,9 @@ func EmitWithFlags(irMod *ir.Module, opts EmitOptions) (*module.Module, uint64, 
 
 	if err := e.emitEntryPoint(ep); err != nil {
 		return nil, 0, fmt.Errorf("dxil/emit: entry point %q: %w", ep.Name, err)
+	}
+	if e.componentErr != nil {
+		return nil, 0, fmt.Errorf("dxil/emit: entry point %q: %w", ep.Name, e.componentErr)
 	}
 
 	// Finalize helper functions AFTER the entry point finalize
@@ -3534,18 +3542,23 @@ func (e *Emitter) getI8MetadataConst(v int64) *module.Constant {
 	return c
 }
 
-// getComponentID returns the value ID for a specific component of a
-// vector expression. If per-component tracking exists, uses that.
-// Otherwise falls back to baseID + component (legacy behavior).
+// getComponentID returns the value ID of a component of an expression:
+// the one its per-component tracking has, or for component 0 of an
+// expression without tracking, a scalar, its value. Any other component
+// has no value, which componentErr records.
 func (e *Emitter) getComponentID(handle ir.ExpressionHandle, comp int) int {
-	if comps, ok := e.exprComponents[handle]; ok && comp < len(comps) {
+	comps, tracked := e.exprComponents[handle]
+	if tracked && comp < len(comps) {
 		return comps[comp]
 	}
-	// Fallback: assume sequential IDs from base.
-	if base, ok := e.exprValues[handle]; ok {
-		return base + comp
+	base, emitted := e.exprValues[handle]
+	if !tracked && emitted && comp == 0 {
+		return base
 	}
-	return 0
+	if e.componentErr == nil {
+		e.componentErr = fmt.Errorf("expression [%d] has no value for component %d", handle, comp)
+	}
+	return base
 }
 
 // allocValue assigns the next value ID and returns it.

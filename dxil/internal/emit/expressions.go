@@ -96,7 +96,7 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		if _, isSingle := e.singleStoreLocals[ek.Variable]; isSingle {
 			return 0, nil
 		}
-		valueID, err = e.emitLocalVariable(fn, ek)
+		valueID, err = e.emitLocalVariableExpr(fn, ek)
 
 	case ir.ExprGlobalVariable:
 		// If this is a resource binding, return the pre-created handle ID.
@@ -500,8 +500,28 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 		return id, nil
 	}
 
-	// For vector component access, use per-component tracking.
+	// A component of a vector, or of a vector variable held as an alloca
+	// per component, is one of its tracked components; no other access
+	// reaches here with a value.
+	if !e.isVectorOrPointerToVector(e.resolveExprTypeInner(fn, ai.Base)) {
+		return 0, fmt.Errorf("AccessIndex %d into %T is not supported", ai.Index, e.resolveExprTypeInner(fn, ai.Base))
+	}
 	return e.getComponentID(ai.Base, int(ai.Index)), nil
+}
+
+// isVectorOrPointerToVector reports whether inner is a vector or a pointer
+// to one.
+func (e *Emitter) isVectorOrPointerToVector(inner ir.TypeInner) bool {
+	switch t := inner.(type) {
+	case ir.VectorType:
+		return true
+	case ir.PointerType:
+		_, isVec := e.ir.Types[t.Base].Inner.(ir.VectorType)
+		return isVec
+	case ir.ValuePointerType:
+		return t.Size != nil
+	}
+	return false
 }
 
 // tryStructVectorComponentAccess handles the pattern
@@ -1249,19 +1269,10 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 		}
 	}
 
-	// If the base is a Compose array with known elements, and all elements
-	// are identical, return the first element directly (common pattern for
-	// constant arrays accessed dynamically).
-	if comp, ok := fn.Expressions[acc.Base].Kind.(ir.ExprCompose); ok {
-		if arrTy := e.resolveExprArrayType(fn, acc.Base); arrTy != nil {
-			return e.emitComposeArrayDynamicAccess(fn, comp, *arrTy)
-		}
-	}
-
-	// If the base is a non-pointer value and an array, create a temp alloca
-	// with proper scalarized size for dynamic GEP access.
+	// An array value whose elements the select above can't pick from has
+	// no value to give for its element.
 	if arrTy := e.resolveExprArrayType(fn, acc.Base); arrTy != nil {
-		return e.emitTempAllocaAccess(fn, baseID, indexID, *arrTy)
+		return 0, fmt.Errorf("run-time index into an array value of %d components the emitter doesn't track", len(e.exprComponents[acc.Base]))
 	}
 
 	// Fallback: return the base value (for cases handled by UAV pointer chain upstream).
@@ -1306,41 +1317,6 @@ func (e *Emitter) emitZeroValueElement(zv ir.ExprZeroValue, _ ir.ExprAccess) (in
 	}
 }
 
-// emitComposeArrayDynamicAccess handles dynamic indexing into a Compose array.
-// For arrays where all elements produce the same value (common with constant arrays),
-// returns the first element's scalar components. For the general case, creates a
-// temp alloca with proper scalarization.
-func (e *Emitter) emitComposeArrayDynamicAccess(fn *ir.Function, comp ir.ExprCompose, arr ir.ArrayType) (int, error) {
-	if len(comp.Components) == 0 {
-		return e.getIntConstID(0), nil
-	}
-
-	// Get element type info.
-	elemInner := e.ir.Types[arr.Base].Inner
-	scalarsPerElem := totalScalarCount(e.ir, elemInner)
-
-	// Emit the first element and set up its components.
-	// For the case where the dynamic index selects any element, all elements of a
-	// constant array are usually the same, so returning the first is correct.
-	// For non-constant arrays, this is still safe since we're emitting valid DXIL
-	// (the DXC validator checks structure, not semantics).
-	firstID, err := e.emitExpression(fn, comp.Components[0])
-	if err != nil {
-		return 0, fmt.Errorf("compose array element: %w", err)
-	}
-
-	if scalarsPerElem > 1 {
-		// Collect component IDs from the first element.
-		comps := make([]int, scalarsPerElem)
-		for i := 0; i < scalarsPerElem; i++ {
-			comps[i] = e.getComponentID(comp.Components[0], i)
-		}
-		e.pendingComponents = comps
-	}
-
-	return firstID, nil
-}
-
 // resolveExprArrayType checks if the given expression produces an array type
 // and returns the array type info. Returns nil if not an array.
 func (e *Emitter) resolveExprArrayType(fn *ir.Function, handle ir.ExpressionHandle) *ir.ArrayType {
@@ -1352,80 +1328,6 @@ func (e *Emitter) resolveExprArrayType(fn *ir.Function, handle ir.ExpressionHand
 		return &arr
 	}
 	return nil
-}
-
-// emitTempAllocaAccess creates a temporary alloca for the array value, stores
-// each element individually, then emits a GEP to access the element at the given index.
-// This is needed when dynamically indexing into a non-pointer value (Compose, etc.).
-func (e *Emitter) emitTempAllocaAccess(fn *ir.Function, baseID, indexID int, arr ir.ArrayType) (int, error) {
-	_ = fn
-	arrayDxilTy, err := typeToDXIL(e.mod, e.ir, arr)
-	if err != nil {
-		return 0, fmt.Errorf("temp alloca array type: %w", err)
-	}
-	ptrTy := e.mod.GetPointerType(arrayDxilTy)
-
-	// Alloca for the array.
-	i32Ty := e.mod.GetIntType(32)
-	sizeID := e.getIntConstID(1)
-	align := e.alignForType(arrayDxilTy)
-	alignFlags := align | (1 << 6)
-
-	allocaID := e.allocValue()
-	allocaInstr := &module.Instruction{
-		Kind:       module.InstrAlloca,
-		HasValue:   true,
-		ResultType: ptrTy,
-		Operands:   []int{arrayDxilTy.ID, i32Ty.ID, sizeID, alignFlags},
-		ValueID:    allocaID,
-	}
-	e.currentBB.AddInstruction(allocaInstr)
-
-	// Store each element individually using GEP + store.
-	// The base value's components are in pendingComponents (flattened by emitCompose).
-	elemInner := e.ir.Types[arr.Base].Inner
-	scalarsPerElem := totalScalarCount(e.ir, elemInner)
-	elemCount := 0
-	if arr.Size.Constant != nil {
-		elemCount = int(*arr.Size.Constant)
-	}
-	if elemCount == 0 {
-		elemCount = 1
-	}
-
-	elemDxilTy := arrayDxilTy.ElemType
-	if elemDxilTy == nil {
-		return 0, fmt.Errorf("temp alloca: array has no element type")
-	}
-	elemPtrTy := e.mod.GetPointerType(elemDxilTy)
-	zeroID := e.getIntConstID(0)
-	storeAlign := e.alignForType(elemDxilTy)
-
-	compIdx := 0
-	for elemIdx := 0; elemIdx < elemCount; elemIdx++ {
-		// GEP to element: getelementptr [N x T]*, i32 0, i32 elemIdx
-		elemIdxID := e.getIntConstID(int64(elemIdx))
-		gepID := e.addGEPInstr(arrayDxilTy, elemPtrTy, allocaID, []int{zeroID, elemIdxID})
-
-		// Store the first scalar component of the element.
-		// For scalarized DXIL, vector elements are stored as individual scalars
-		// (the DXIL array type is [N x scalar] where N = total scalar count).
-		compID := baseID
-		if len(e.pendingComponents) > compIdx {
-			compID = e.pendingComponents[compIdx]
-		}
-		storeInstr := &module.Instruction{
-			Kind:        module.InstrStore,
-			HasValue:    false,
-			Operands:    []int{gepID, compID, storeAlign, 0},
-			ReturnValue: -1,
-		}
-		e.currentBB.AddInstruction(storeInstr)
-		compIdx += scalarsPerElem
-	}
-
-	// GEP into the alloca at the dynamic index.
-	return e.emitArrayGEP(allocaID, arrayDxilTy, indexID)
 }
 
 // emitArrayGEP emits a GEP instruction to index into an array alloca.
@@ -5433,6 +5335,17 @@ func (e *Emitter) resolvePointerAddrSpace(fn *ir.Function, ptrHandle ir.Expressi
 			return 0
 		}
 	}
+}
+
+// emitLocalVariableExpr is the alloca of a local variable expression; a
+// vector or matrix held as an alloca per component has those as its
+// components.
+func (e *Emitter) emitLocalVariableExpr(fn *ir.Function, lv ir.ExprLocalVariable) (int, error) {
+	ptr, err := e.emitLocalVariable(fn, lv)
+	if comps, ok := e.localVarComponentPtrs[lv.Variable]; ok {
+		e.pendingComponents = comps
+	}
+	return ptr, err
 }
 
 // emitLocalVariable emits alloca(s) for the local variable (on first use)
