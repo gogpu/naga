@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 136
+; Bound: 137
 ; Schema: 0
 
                OpCapability Shader
@@ -46,155 +46,156 @@
          %_19 = OpTypePointer Input %_9
          %_21 = OpTypeFunction %_2
          %_24 = OpTypePointer Function %_5
-         %_26 = OpConstant %_6 0
-         %_27 = OpTypePointer Input %_6
-         %_30 = OpTypePointer Uniform %_7
-         %_32 = OpConstant %_6 1
-         %_33 = OpTypePointer Uniform %_6
-         %_36 = OpTypeBool
-         %_41 = OpTypePointer StorageBuffer %_8
-         %_43 = OpTypePointer StorageBuffer %_5
-         %_46 = OpTypePointer Function %_4
-         %_50 = OpConstant %_3 1028443341
-         %_59 = OpConstant %_3 1041865114
-         %_62 = OpTypePointer Uniform %_3
-         %_72 = OpConstant %_3 1065344827
-         %_85 = OpTypePointer Function %_3
-         %_88 = OpConstant %_3 1065353216
-         %_96 = OpConstant %_3 3209481421
-         %_101 = OpConstant %_3 3212836864
+         %_26 = OpConstantNull %_5
+         %_27 = OpConstant %_6 0
+         %_28 = OpTypePointer Input %_6
+         %_31 = OpTypePointer Uniform %_7
+         %_33 = OpConstant %_6 1
+         %_34 = OpTypePointer Uniform %_6
+         %_37 = OpTypeBool
+         %_42 = OpTypePointer StorageBuffer %_8
+         %_44 = OpTypePointer StorageBuffer %_5
+         %_47 = OpTypePointer Function %_4
+         %_51 = OpConstant %_3 1028443341
+         %_60 = OpConstant %_3 1041865114
+         %_63 = OpTypePointer Uniform %_3
+         %_73 = OpConstant %_3 1065344827
+         %_86 = OpTypePointer Function %_3
+         %_89 = OpConstant %_3 1065353216
+         %_97 = OpConstant %_3 3209481421
+         %_102 = OpConstant %_3 3212836864
          %_12 = OpVariable %_11 StorageBuffer
          %_15 = OpVariable %_14 StorageBuffer
          %_18 = OpVariable %_17 Uniform
          %_20 = OpVariable %_19 Input
          %_22 = OpFunction %_2 None %_21
          %_23 = OpLabel
-         %_25 = OpVariable %_24 Function
-         %_28 = OpAccessChain %_27 %_20 %_26
-         %_29 = OpLoad %_6 %_28
-         %_31 = OpAccessChain %_30 %_18 %_26
-         %_34 = OpAccessChain %_33 %_31 %_32
-         %_35 = OpLoad %_6 %_34
-         %_37 = OpLogicalEqual %_36 %_29 %_35
-               OpSelectionMerge %_40 0
-               OpBranchConditional %_37 %_38 %_39
-         %_38 = OpLabel
-               OpReturn
+         %_25 = OpVariable %_24 Function %_26
+         %_29 = OpAccessChain %_28 %_20 %_27
+         %_30 = OpLoad %_6 %_29
+         %_32 = OpAccessChain %_31 %_18 %_27
+         %_35 = OpAccessChain %_34 %_32 %_33
+         %_36 = OpLoad %_6 %_35
+         %_38 = OpLogicalEqual %_37 %_30 %_36
+               OpSelectionMerge %_41 0
+               OpBranchConditional %_38 %_39 %_40
          %_39 = OpLabel
-               OpBranch %_40
+               OpReturn
          %_40 = OpLabel
-         %_42 = OpAccessChain %_41 %_12 %_26
-         %_44 = OpAccessChain %_43 %_42 %_29
-         %_45 = OpLoad %_5 %_44
-               OpStore %_25 %_45
-         %_47 = OpAccessChain %_46 %_25 %_26
-         %_48 = OpLoad %_4 %_47
-         %_49 = OpExtInst %_3 %_1 %_66 %_48
-         %_51 = OpExtInst %_3 %_1 %_40 %_49 %_50
-         %_52 = OpAccessChain %_46 %_25 %_26
-         %_53 = OpLoad %_4 %_52
-         %_54 = OpFNegate %_4 %_53
-         %_55 = OpFMul %_3 %_51 %_51
-         %_56 = OpFMul %_3 %_55 %_51
-         %_57 = OpCompositeConstruct %_4 %_56 %_56
-         %_58 = OpFDiv %_4 %_54 %_57
-         %_60 = OpVectorTimesScalar %_4 %_58 %_59
-         %_61 = OpAccessChain %_30 %_18 %_26
-         %_63 = OpAccessChain %_62 %_61 %_26
-         %_64 = OpLoad %_3 %_63
-         %_65 = OpVectorTimesScalar %_4 %_60 %_64
-         %_66 = OpAccessChain %_46 %_25 %_32
-         %_67 = OpLoad %_4 %_66
-         %_68 = OpFAdd %_4 %_67 %_65
-         %_69 = OpAccessChain %_46 %_25 %_32
-               OpStore %_69 %_68
-         %_70 = OpAccessChain %_46 %_25 %_32
-         %_71 = OpLoad %_4 %_70
-         %_73 = OpVectorTimesScalar %_4 %_71 %_72
-         %_74 = OpAccessChain %_46 %_25 %_32
-               OpStore %_74 %_73
-         %_75 = OpAccessChain %_46 %_25 %_26
-         %_76 = OpLoad %_4 %_75
-         %_77 = OpAccessChain %_46 %_25 %_32
-         %_78 = OpLoad %_4 %_77
-         %_79 = OpAccessChain %_30 %_18 %_26
-         %_80 = OpAccessChain %_62 %_79 %_26
-         %_81 = OpLoad %_3 %_80
-         %_82 = OpVectorTimesScalar %_4 %_78 %_81
-         %_83 = OpFAdd %_4 %_76 %_82
-         %_84 = OpAccessChain %_46 %_25 %_26
-               OpStore %_84 %_83
-         %_86 = OpAccessChain %_85 %_25 %_26 %_26
-         %_87 = OpLoad %_3 %_86
-         %_89 = OpULessThan %_36 %_87 %_88
-               OpSelectionMerge %_92 0
-               OpBranchConditional %_89 %_90 %_91
-         %_90 = OpLabel
-         %_93 = OpAccessChain %_85 %_25 %_26 %_26
-               OpStore %_93 %_88
-         %_94 = OpAccessChain %_85 %_25 %_32 %_26
-         %_95 = OpLoad %_3 %_94
-         %_97 = OpFMul %_3 %_95 %_96
-         %_98 = OpAccessChain %_85 %_25 %_32 %_26
-               OpStore %_98 %_97
-               OpBranch %_92
+               OpBranch %_41
+         %_41 = OpLabel
+         %_43 = OpAccessChain %_42 %_12 %_27
+         %_45 = OpAccessChain %_44 %_43 %_30
+         %_46 = OpLoad %_5 %_45
+               OpStore %_25 %_46
+         %_48 = OpAccessChain %_47 %_25 %_27
+         %_49 = OpLoad %_4 %_48
+         %_50 = OpExtInst %_3 %_1 %_66 %_49
+         %_52 = OpExtInst %_3 %_1 %_40 %_50 %_51
+         %_53 = OpAccessChain %_47 %_25 %_27
+         %_54 = OpLoad %_4 %_53
+         %_55 = OpFNegate %_4 %_54
+         %_56 = OpFMul %_3 %_52 %_52
+         %_57 = OpFMul %_3 %_56 %_52
+         %_58 = OpCompositeConstruct %_4 %_57 %_57
+         %_59 = OpFDiv %_4 %_55 %_58
+         %_61 = OpVectorTimesScalar %_4 %_59 %_60
+         %_62 = OpAccessChain %_31 %_18 %_27
+         %_64 = OpAccessChain %_63 %_62 %_27
+         %_65 = OpLoad %_3 %_64
+         %_66 = OpVectorTimesScalar %_4 %_61 %_65
+         %_67 = OpAccessChain %_47 %_25 %_33
+         %_68 = OpLoad %_4 %_67
+         %_69 = OpFAdd %_4 %_68 %_66
+         %_70 = OpAccessChain %_47 %_25 %_33
+               OpStore %_70 %_69
+         %_71 = OpAccessChain %_47 %_25 %_33
+         %_72 = OpLoad %_4 %_71
+         %_74 = OpVectorTimesScalar %_4 %_72 %_73
+         %_75 = OpAccessChain %_47 %_25 %_33
+               OpStore %_75 %_74
+         %_76 = OpAccessChain %_47 %_25 %_27
+         %_77 = OpLoad %_4 %_76
+         %_78 = OpAccessChain %_47 %_25 %_33
+         %_79 = OpLoad %_4 %_78
+         %_80 = OpAccessChain %_31 %_18 %_27
+         %_81 = OpAccessChain %_63 %_80 %_27
+         %_82 = OpLoad %_3 %_81
+         %_83 = OpVectorTimesScalar %_4 %_79 %_82
+         %_84 = OpFAdd %_4 %_77 %_83
+         %_85 = OpAccessChain %_47 %_25 %_27
+               OpStore %_85 %_84
+         %_87 = OpAccessChain %_86 %_25 %_27 %_27
+         %_88 = OpLoad %_3 %_87
+         %_90 = OpULessThan %_37 %_88 %_89
+               OpSelectionMerge %_93 0
+               OpBranchConditional %_90 %_91 %_92
          %_91 = OpLabel
-               OpBranch %_92
+         %_94 = OpAccessChain %_86 %_25 %_27 %_27
+               OpStore %_94 %_89
+         %_95 = OpAccessChain %_86 %_25 %_33 %_27
+         %_96 = OpLoad %_3 %_95
+         %_98 = OpFMul %_3 %_96 %_97
+         %_99 = OpAccessChain %_86 %_25 %_33 %_27
+               OpStore %_99 %_98
+               OpBranch %_93
          %_92 = OpLabel
-         %_99 = OpAccessChain %_85 %_25 %_26 %_26
-         %_100 = OpLoad %_3 %_99
-         %_102 = OpUGreaterThanEqual %_36 %_100 %_101
-               OpSelectionMerge %_105 0
-               OpBranchConditional %_102 %_103 %_104
-         %_103 = OpLabel
-         %_106 = OpAccessChain %_85 %_25 %_26 %_26
-               OpStore %_106 %_101
-         %_107 = OpAccessChain %_85 %_25 %_32 %_26
-         %_108 = OpLoad %_3 %_107
-         %_109 = OpFMul %_3 %_108 %_96
-         %_110 = OpAccessChain %_85 %_25 %_32 %_26
-               OpStore %_110 %_109
-               OpBranch %_105
+               OpBranch %_93
+         %_93 = OpLabel
+         %_100 = OpAccessChain %_86 %_25 %_27 %_27
+         %_101 = OpLoad %_3 %_100
+         %_103 = OpUGreaterThanEqual %_37 %_101 %_102
+               OpSelectionMerge %_106 0
+               OpBranchConditional %_103 %_104 %_105
          %_104 = OpLabel
-               OpBranch %_105
+         %_107 = OpAccessChain %_86 %_25 %_27 %_27
+               OpStore %_107 %_102
+         %_108 = OpAccessChain %_86 %_25 %_33 %_27
+         %_109 = OpLoad %_3 %_108
+         %_110 = OpFMul %_3 %_109 %_97
+         %_111 = OpAccessChain %_86 %_25 %_33 %_27
+               OpStore %_111 %_110
+               OpBranch %_106
          %_105 = OpLabel
-         %_111 = OpAccessChain %_85 %_25 %_26 %_32
-         %_112 = OpLoad %_3 %_111
-         %_113 = OpULessThan %_36 %_112 %_88
-               OpSelectionMerge %_116 0
-               OpBranchConditional %_113 %_114 %_115
-         %_114 = OpLabel
-         %_117 = OpAccessChain %_85 %_25 %_26 %_32
-               OpStore %_117 %_88
-         %_118 = OpAccessChain %_85 %_25 %_32 %_32
-         %_119 = OpLoad %_3 %_118
-         %_120 = OpFMul %_3 %_119 %_96
-         %_121 = OpAccessChain %_85 %_25 %_32 %_32
-               OpStore %_121 %_120
-               OpBranch %_116
+               OpBranch %_106
+         %_106 = OpLabel
+         %_112 = OpAccessChain %_86 %_25 %_27 %_33
+         %_113 = OpLoad %_3 %_112
+         %_114 = OpULessThan %_37 %_113 %_89
+               OpSelectionMerge %_117 0
+               OpBranchConditional %_114 %_115 %_116
          %_115 = OpLabel
-               OpBranch %_116
+         %_118 = OpAccessChain %_86 %_25 %_27 %_33
+               OpStore %_118 %_89
+         %_119 = OpAccessChain %_86 %_25 %_33 %_33
+         %_120 = OpLoad %_3 %_119
+         %_121 = OpFMul %_3 %_120 %_97
+         %_122 = OpAccessChain %_86 %_25 %_33 %_33
+               OpStore %_122 %_121
+               OpBranch %_117
          %_116 = OpLabel
-         %_122 = OpAccessChain %_85 %_25 %_26 %_32
-         %_123 = OpLoad %_3 %_122
-         %_124 = OpUGreaterThanEqual %_36 %_123 %_101
-               OpSelectionMerge %_127 0
-               OpBranchConditional %_124 %_125 %_126
-         %_125 = OpLabel
-         %_128 = OpAccessChain %_85 %_25 %_26 %_32
-               OpStore %_128 %_101
-         %_129 = OpAccessChain %_85 %_25 %_32 %_32
-         %_130 = OpLoad %_3 %_129
-         %_131 = OpFMul %_3 %_130 %_96
-         %_132 = OpAccessChain %_85 %_25 %_32 %_32
-               OpStore %_132 %_131
-               OpBranch %_127
+               OpBranch %_117
+         %_117 = OpLabel
+         %_123 = OpAccessChain %_86 %_25 %_27 %_33
+         %_124 = OpLoad %_3 %_123
+         %_125 = OpUGreaterThanEqual %_37 %_124 %_102
+               OpSelectionMerge %_128 0
+               OpBranchConditional %_125 %_126 %_127
          %_126 = OpLabel
-               OpBranch %_127
+         %_129 = OpAccessChain %_86 %_25 %_27 %_33
+               OpStore %_129 %_102
+         %_130 = OpAccessChain %_86 %_25 %_33 %_33
+         %_131 = OpLoad %_3 %_130
+         %_132 = OpFMul %_3 %_131 %_97
+         %_133 = OpAccessChain %_86 %_25 %_33 %_33
+               OpStore %_133 %_132
+               OpBranch %_128
          %_127 = OpLabel
-         %_133 = OpLoad %_5 %_25
-         %_134 = OpAccessChain %_41 %_15 %_26
-         %_135 = OpAccessChain %_43 %_134 %_29
-               OpStore %_135 %_133
+               OpBranch %_128
+         %_128 = OpLabel
+         %_134 = OpLoad %_5 %_25
+         %_135 = OpAccessChain %_42 %_15 %_27
+         %_136 = OpAccessChain %_44 %_135 %_30
+               OpStore %_136 %_134
                OpReturn
                OpFunctionEnd

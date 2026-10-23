@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 18
+; Bound: 19
 ; Schema: 0
 
                OpCapability Shader
@@ -16,16 +16,17 @@
          %_5 = OpTypePointer Input %_4
          %_7 = OpTypeFunction %_2
          %_10 = OpTypePointer Function %_3
-         %_12 = OpConstant %_3 0
-         %_13 = OpTypePointer Input %_3
-         %_16 = OpConstant %_3 2
+         %_12 = OpConstantNull %_3
+         %_13 = OpConstant %_3 0
+         %_14 = OpTypePointer Input %_3
+         %_17 = OpConstant %_3 2
          %_6 = OpVariable %_5 Input
          %_8 = OpFunction %_2 None %_7
          %_9 = OpLabel
-         %_11 = OpVariable %_10 Function
-         %_14 = OpAccessChain %_13 %_6 %_12
-         %_15 = OpLoad %_3 %_14
-         %_17 = OpIMul %_3 %_15 %_16
-               OpStore %_11 %_17
+         %_11 = OpVariable %_10 Function %_12
+         %_15 = OpAccessChain %_14 %_6 %_13
+         %_16 = OpLoad %_3 %_15
+         %_18 = OpIMul %_3 %_16 %_17
+               OpStore %_11 %_18
                OpReturn
                OpFunctionEnd
