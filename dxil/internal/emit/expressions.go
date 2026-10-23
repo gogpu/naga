@@ -310,6 +310,18 @@ func (e *Emitter) extractComponentsForAccessIndex(fn *ir.Function, ai ir.ExprAcc
 		}
 	}
 
+	// Array: AccessIndex extracts an element's range of components.
+	if at, isArr := baseType.(ir.ArrayType); isArr {
+		n := cbvComponentCount(e.ir, e.ir.Types[at.Base].Inner)
+		if start := int(ai.Index) * n; start+n <= len(comps) {
+			elem := comps[start : start+n]
+			if n > 1 {
+				e.pendingComponents = elem
+			}
+			return elem[0], true
+		}
+	}
+
 	// Struct: AccessIndex extracts a member's range of components.
 	if st, isSt := baseType.(ir.StructType); isSt && int(ai.Index) < len(st.Members) {
 		flatOffset := 0
@@ -1221,6 +1233,26 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 	// with proper scalarized size for dynamic GEP access.
 	if arrTy := e.resolveExprArrayType(fn, acc.Base); arrTy != nil {
 		return e.emitTempAllocaAccess(fn, baseID, indexID, *arrTy)
+	}
+
+	// A run-time index into a vector or matrix value picks a component or
+	// a column by a select over the index.
+	if comps, ok := e.exprComponents[acc.Base]; ok {
+		var count int
+		var elem ir.TypeInner
+		switch t := e.resolveExprTypeInner(fn, acc.Base).(type) {
+		case ir.VectorType:
+			count, elem = int(t.Size), t.Scalar
+		case ir.MatrixType:
+			count, elem = int(t.Columns), ir.VectorType{Size: t.Rows, Scalar: t.Scalar}
+		}
+		if count > 0 && len(comps) == count*cbvComponentCount(e.ir, elem) {
+			picked := e.selectElement(indexID, comps, count, elem)
+			if len(picked) > 1 {
+				e.pendingComponents = picked
+			}
+			return picked[0], nil
+		}
 	}
 
 	// Fallback: return the base value (for cases handled by UAV pointer chain upstream).
