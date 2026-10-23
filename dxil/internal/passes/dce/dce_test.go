@@ -566,3 +566,37 @@ func TestDeadSwitchEliminated(t *testing.T) {
 		t.Fatalf("expected 1 statement after DCE (just return), got %d", len(fn.Body))
 	}
 }
+
+// A local whose value is stored into another, live local is live too, so
+// its own stores stay: b = a; return b keeps a = 5. DCE found the dead
+// locals once, before the values of the live locals' stores were marked,
+// so a, read only by the store into b, lost its store and b read garbage.
+func TestLocalReadIntoALiveLocalKeepsItsStores(t *testing.T) {
+	mod := &ir.Module{}
+	f32 := scalarTypeHandle(mod, ir.ScalarFloat, 4)
+	fn := &ir.Function{
+		LocalVars: []ir.LocalVariable{{Name: "a", Type: f32}, {Name: "b", Type: f32}},
+	}
+	val := appendExpr(fn, ir.Literal{Value: ir.LiteralF32(5)})
+	a := appendExpr(fn, ir.ExprLocalVariable{Variable: 0})
+	loadA := appendExpr(fn, ir.ExprLoad{Pointer: a})
+	b := appendExpr(fn, ir.ExprLocalVariable{Variable: 1})
+	loadB := appendExpr(fn, ir.ExprLoad{Pointer: b})
+	fn.Body = ir.Block{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: val, End: val + 1}}},
+		{Kind: ir.StmtStore{Pointer: a, Value: val}},
+		{Kind: ir.StmtStore{Pointer: b, Value: loadA}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: loadB, End: loadB + 1}}},
+		{Kind: ir.StmtReturn{Value: &loadB}},
+	}
+	Run(mod, fn)
+	stores := 0
+	for _, st := range fn.Body {
+		if _, ok := st.Kind.(ir.StmtStore); ok {
+			stores++
+		}
+	}
+	if stores != 2 {
+		t.Errorf("%d stores left, want both", stores)
+	}
+}
