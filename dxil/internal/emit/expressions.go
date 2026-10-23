@@ -1628,7 +1628,7 @@ func selectDivOp(isFloat, isSigned bool) BinOpKind {
 
 // emitModulo emits a modulo/remainder operation. DXIL does not support FRem
 // natively (DXC rejects it with "Invalid record"), so float modulo is lowered
-// to: a - b * floor(a / b). This matches Mesa nir_to_dxil.c lower_fmod.
+// to WGSL's definition, a - b * trunc(a / b) (emitFRemLowered).
 //
 // For unsigned integer modulo by a constant power of 2, DXC's LLVM
 // InstCombine applies strength reduction: urem x, 2^N -> and x, (2^N - 1).
