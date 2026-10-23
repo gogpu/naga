@@ -14,7 +14,6 @@ var upstreamChanges = map[string]string{
 	"1f4ae673": "[naga test] Run hlsl_mat_cxN.wgsl snapshot tests on SPIR-V too",
 	"24cee9e4": "test(naga): add runtime_{f,i}32 to math-functions' sign coverage",
 	"2ef10891": "Fix constant evaluation of sign(0.0f) (#8942)",
-	"35975143": "[naga spv-out] Handle 2-row matrices in uniform buffers",
 	"4c1ea47e": "fix(dx12): Fix textureNum{Levels,Layers,Samples} functions (#9542)",
 	"4d11f5f8": "Made traces use .metal extension instead of .msl (#8880)",
 	"4e7ffe09": "Workaround Metal driver bug with atomic texture writes (#9185)",

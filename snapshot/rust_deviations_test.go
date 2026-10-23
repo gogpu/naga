@@ -65,6 +65,9 @@ const (
 		"OpEntryPoint lists every global the entry point uses, where Rust emits 1.1 with Input/Output only"
 	reasonSPVPerEntryPoint = "Rust writes one SPIR-V module per entry point ([spv] separate_entry_points, " +
 		"spv::PipelineOptions); the spirv package cannot restrict output to one entry point"
+	reasonSPVUnusedUniformPointers = "Rust declares the type of every expression it caches, also where nothing uses it, " +
+		"so it has a pointer to the regular type of each uniform buffer it declares std140-compatible; " +
+		"nothing uses it and we don't declare it"
 	reasonCompactNoEntryPoints = "the module has no entry points; Rust's compact(KeepUnused::No) removes " +
 		"everything, ir.CompactUnused returns early and every type and function is emitted"
 	reasonGLSLStd140MatCx2 = "2-row matrices in uniform buffers are declared std140-compatible, a struct's matrix " +
@@ -111,7 +114,7 @@ var rustDeviations = []rustDeviation{
 	// Own shader with Rust-derived references (not part of parity).
 	{Shader: "ptr-deref-test", File: "wgsl-ptr-deref-test.spvasm", Kind: deviationBug,
 		Reason: reasonCompactNoEntryPoints, Card: "BUG-IR-COMPACT-001",
-		Fingerprint: "3f5cef028aac29a741d56970e98587bc3a6ab8de98f93f4177f88949b2a98749"},
+		Fingerprint: "afa5c31789b54342a4002bdb5d83260f46b7563d38105af05d9edae65f2d592a"},
 	{Shader: "ptr-deref-test", File: "wgsl-ptr-deref-test.metal", Kind: deviationBug,
 		Reason: reasonCompactNoEntryPoints, Card: "BUG-IR-COMPACT-001",
 		Fingerprint: "bf25348238f50d14efd99b4b9fe83405cb2eb934988242266e63dd4954320e18"},
@@ -140,9 +143,9 @@ var rustDeviations = []rustDeviation{
 	{Shader: "abstract-types-var", File: "wgsl-abstract-types-var.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("b9c09622"),
 		Fingerprint: "cc66aa85c91e01df3793623675f8198edc1f7ee92c17e4cb2dcb33640240a6c4"},
-	{Shader: "access", File: "wgsl-access.spvasm", Kind: deviationBug, Card: "BUG-UNIFORM-MAT2-001",
-		Reason:      notPorted("35975143", "1f4ae673"),
-		Fingerprint: "e759e867f617d7eae23904feae6305c2ce88f7380cb08039a0ad4168815bd56c"},
+	{Shader: "access", File: "wgsl-access.spvasm", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
+		Reason:      reasonSPVUnusedUniformPointers + "; " + notPorted("1f4ae673"),
+		Fingerprint: "c6b9d70188106f954299f1bbe3c5d6947f69679590ecd6fbb41e14a2f484f145"},
 	{Shader: "access", File: "wgsl-access.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("b9c09622"),
 		Fingerprint: "cbe4bf60b8c5171e70c1bf30a6bbb200b181a60201d773c6ce227b04e12c1e97"},
@@ -227,9 +230,9 @@ var rustDeviations = []rustDeviation{
 	{Shader: "constructors", File: "wgsl-constructors.metal", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("b9c09622"),
 		Fingerprint: "9cc4a8b6c5f9adf9e3d72894fd457e33380f644e177428d15c8653baca43d2cd"},
-	{Shader: "f16", File: "wgsl-f16.spvasm", Kind: deviationBug, Card: "BUG-UNIFORM-MAT2-001",
-		Reason:      notPorted("35975143"),
-		Fingerprint: "1732c1d7d43674a201c2b5224cec7bcc87a1bad694427dacfa919ef7c571e00d"},
+	{Shader: "f16", File: "wgsl-f16.spvasm", Kind: deviationIntentional,
+		Reason:      reasonSPVUnusedUniformPointers,
+		Fingerprint: "155c1ad39533b3406a76ef986332332174b419c31c7fb59f6eb18460ec2d8222"},
 	{Shader: "f16", File: "wgsl-f16.hlsl", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      "sign() of a float is not cast back to the float type (HLSL sign returns int); " + notPorted("ae19a470"),
 		Fingerprint: "82a5677093ac582f802788b8337d7bd588cf47beed4fd6e6d3214955a2e0e4db"},
@@ -239,9 +242,9 @@ var rustDeviations = []rustDeviation{
 	{Shader: "fragment-output", File: "wgsl-fragment-output.hlsl", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
 		Reason:      notPorted("b051a87e"),
 		Fingerprint: "a0f26490b1acc6d644f85bd2379f22727bf0cd4e6440b2ada79e74a18e2ad0a5"},
-	{Shader: "globals", File: "wgsl-globals.spvasm", Kind: deviationBug, Card: "BUG-UNIFORM-MAT2-001",
-		Reason:      notPorted("35975143", "6bca1014"),
-		Fingerprint: "1e2a75676c4715b7c79bcdc1200ba93e815bd8ab2fd42552a5b47713621ba791"},
+	{Shader: "globals", File: "wgsl-globals.spvasm", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
+		Reason:      reasonSPVUnusedUniformPointers + "; " + notPorted("6bca1014"),
+		Fingerprint: "37fa83b46ae4ba3d2d1e093f15fa12dedaa3770177fbc8ccbf4dc3e392949b55"},
 	{Shader: "globals", File: "wgsl-globals.metal", Kind: deviationBug, Card: "BUG-ZERO-INIT-INDEX-001",
 		Reason:      reasonMSLThreadgroup + "; " + notPorted("b5bd5aed"),
 		Fingerprint: "87877e2771f0c8885fd9a990e6be655d147090486e3a043d129c8bf63c9dd8e3"},
@@ -383,18 +386,15 @@ var rustDeviations = []rustDeviation{
 	{Shader: "int-div-unchecked", File: "wgsl-int-div-unchecked.metal", Kind: deviationBug, Card: "TEST-TOML-KEYS-001",
 		Reason:      "[msl] emit_int_div_checks = false is not supported: we always emit the naga_div/naga_mod helpers",
 		Fingerprint: "4cfb5183e47d7e2edf8866a5e5fc2d9411db1881d8dfb089d91fb18d3772334d"},
-	{Shader: "mat2-uniform-alignment", File: "wgsl-mat2-uniform-alignment.spvasm", Kind: deviationBug, Card: "BUG-UNIFORM-MAT2-001",
-		Reason:      "2-row matrices in uniform buffers use the WGSL layout directly; Rust rewrites them to std140-compatible types; " + notPorted("35975143"),
-		Fingerprint: "79535975bb6d6483dab2dd4860968d8af0ddeb827c17fa406a0ee5bcdafa2819"},
-	{Shader: "mat_cx2", File: "wgsl-mat_cx2.spvasm", Kind: deviationBug, Card: "BUG-UNIFORM-MAT2-001",
-		Reason:      "2-row matrices in uniform buffers use the WGSL layout directly; Rust rewrites them to std140-compatible types; " + notPorted("35975143", "1f4ae673"),
-		Fingerprint: "752b058ad74d91354cd1b9ef6a1e35e810ea29e96c1af2b34e118a72c2aabadb"},
+	{Shader: "mat_cx2", File: "wgsl-mat_cx2.spvasm", Kind: deviationBug, Card: "PARITY-UPSTREAM-001",
+		Reason:      reasonSPVUnusedUniformPointers + "; " + notPorted("1f4ae673"),
+		Fingerprint: "2f976ffc231c30d0a8d7680661da1d668835c312d22b6c536adba9241e11a99c"},
 	{Shader: "mat_cx2", File: "wgsl-mat_cx2.hlsl", Kind: deviationBug, Card: "BUG-UNIFORM-MAT2-001",
 		Reason:      "mat2x2 helpers are named __mat2x2 instead of __mat2x2_f32, and arrays of mat2x2 in a cbuffer are indexed directly instead of through the column helpers (wrong cbuffer layout)",
 		Fingerprint: "75f1a125fc76a394bc91ca390afe139cce7c22fc71f005b19aa76c4b975e3b99"},
-	{Shader: "mat_cx2_f16", File: "wgsl-mat_cx2_f16.spvasm", Kind: deviationBug, Card: "BUG-UNIFORM-MAT2-001",
-		Reason:      "2-row f16 matrices in uniform buffers use the WGSL layout directly; Rust rewrites them to std140-compatible types; " + notPorted("35975143"),
-		Fingerprint: "c78f6b43654c8f948c6e507f32c3752217041f48f1d117c35b2a3bf4327e51c1"},
+	{Shader: "mat_cx2_f16", File: "wgsl-mat_cx2_f16.spvasm", Kind: deviationIntentional,
+		Reason:      reasonSPVUnusedUniformPointers,
+		Fingerprint: "fa004ff5b57449f383eaef09de1f8e7a6627a9c4808bab5716282aa6489c4e70"},
 	{Shader: "mat_cx2_f16", File: "wgsl-mat_cx2_f16.hlsl", Kind: deviationBug, Card: "BUG-UNIFORM-MAT2-001",
 		Reason:      "no helper types for matCx2<f16> in the uniform address space; " + notPorted("786b8b11"),
 		Fingerprint: "9fc8dc7f6eae8576ff3d5898cbdb1d27f4c15e5d9eac1f31bcac0015395ef45d"},
