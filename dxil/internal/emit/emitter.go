@@ -2776,8 +2776,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 				addOutputPacked(&oid, *m.Binding, m.Type, pm.PackedElement)
 			}
 		} else if fn.Result.Binding != nil {
-			pe := backend.PackedElement{Register: 0, StartCol: 0, ColCount: 4, Rows: 1}
-			addOutputPacked(&oid, *fn.Result.Binding, fn.Result.Type, pe)
+			addOutputPacked(&oid, *fn.Result.Binding, fn.Result.Type, backend.ResultElement(*fn.Result.Binding, stage))
 		}
 	}
 	return inputs, outputs
