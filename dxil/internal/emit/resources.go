@@ -1,6 +1,7 @@
 package emit
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -434,6 +435,11 @@ func (e *Emitter) getResourceHandleID(varHandle ir.GlobalVariableHandle) (int, b
 	return e.resources[idx].handleID, true
 }
 
+// errExternalTexture refuses a texture_external, whose planes and
+// conversion the DXIL writer doesn't implement, rather than writing it as a
+// plain texture of the wrong type.
+var errExternalTexture = errors.New("external textures are not supported")
+
 // --- Texture sampling ---
 
 // emitImageSample dispatches texture sampling to the appropriate dx.op intrinsic
@@ -487,6 +493,9 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 		ol = imageOverload(imgInner)
 		imgType = imgInner
 		haveImgType = true
+	}
+	if imgType.Class == ir.ImageClassExternal {
+		return 0, errExternalTexture
 	}
 
 	// Out-of-bound coordinate / offset / clamp slots must be undef per the
@@ -748,6 +757,9 @@ func (e *Emitter) emitImageQuery(fn *ir.Function, query ir.ExprImageQuery) (int,
 	if !ok {
 		return 0, fmt.Errorf("ExprImageQuery: image expression is not ImageType, got %T", imgInner)
 	}
+	if imgType.Class == ir.ImageClassExternal {
+		return 0, errExternalTexture
+	}
 
 	i32Ty := e.mod.GetIntType(32)
 	dimTy := e.getDxDimensionsType()
@@ -931,6 +943,9 @@ func (e *Emitter) emitImageLoad(fn *ir.Function, load ir.ExprImageLoad) (int, er
 	imgType, ok := imgInner.(ir.ImageType)
 	if !ok {
 		return 0, fmt.Errorf("ExprImageLoad: image expression is not ImageType, got %T", imgInner)
+	}
+	if imgType.Class == ir.ImageClassExternal {
+		return 0, errExternalTexture
 	}
 
 	ol := imageOverload(imgType)
