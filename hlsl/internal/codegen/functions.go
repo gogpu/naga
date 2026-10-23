@@ -218,8 +218,9 @@ func (w *Writer) writeEPOutputStruct(
 
 	// Gather fragment input locations to filter vertex outputs.
 	// Only applied when a fragment entry point is provided and stage is Vertex.
+	filter := fragEP != nil && stage == ir.StageVertex
 	var fsInputLocs []uint32
-	if fragEP != nil && stage == ir.StageVertex {
+	if filter {
 		for _, arg := range fragEP.Function.Arguments {
 			if int(arg.Type) < len(fragEP.Module.Types) {
 				if fragSt, ok := fragEP.Module.Types[arg.Type].Inner.(ir.StructType); ok {
@@ -245,7 +246,7 @@ func (w *Writer) writeEPOutputStruct(
 	var fakeMembers []epStructMember
 	for i, member := range st.Members {
 		// Filter out vertex outputs not consumed by fragment shader
-		if len(fsInputLocs) > 0 {
+		if filter {
 			if member.Binding != nil {
 				if loc, ok := (*member.Binding).(ir.LocationBinding); ok {
 					found := sort.Search(len(fsInputLocs), func(k int) bool {
