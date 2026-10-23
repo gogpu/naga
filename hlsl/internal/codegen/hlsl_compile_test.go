@@ -1588,3 +1588,38 @@ fn test_bits_extract(x: u32) -> u32 {
 		t.Error("expected non-empty output")
 	}
 }
+
+// A vertex stage compiled with a fragment stage keeps only the outputs the
+// fragment stage reads, as Rust naga does, also when that is none of its
+// locations: the vertex and pixel shader signatures must match.
+func TestCompile_FragmentEntryPointReadsNoLocations(t *testing.T) {
+	vs := parseWGSL(t, `
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+}
+@vertex fn vs_main() -> VertexOut {
+    return VertexOut(vec4(1.0), vec4(0.5));
+}
+`)
+	fs := parseWGSL(t, `
+@fragment fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    return pos;
+}
+`)
+	opts := DefaultOptions()
+	opts.FakeMissingBindings = true
+	opts.FragmentEntryPoint = &FragmentEntryPoint{Module: fs, Function: &fs.EntryPoints[0].Function}
+	code, _, err := Compile(vs, opts)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	start := strings.Index(code, "struct VertexOutput_vs_main {")
+	if start < 0 {
+		t.Fatalf("no VertexOutput_vs_main struct:\n%s", code)
+	}
+	output := code[start : start+strings.Index(code[start:], "};")]
+	if !strings.Contains(output, "SV_Position") || strings.Contains(output, "LOC0") {
+		t.Errorf("the vertex outputs are not just the position, which is all the fragment stage reads:\n%s", output)
+	}
+}
