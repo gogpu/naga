@@ -38,6 +38,10 @@ var dxcClassPriority = [4]int{
 // dx.op function name for resource handle creation.
 const dxOpCreateHandleName = "dx.op.createHandle"
 
+// noIRHandle is the type and global variable handle of a synthetic resource:
+// past every arena, also as an int on 32-bit targets.
+const noIRHandle = math.MaxInt32
+
 // DXIL resource classes (matches DXIL spec D3D12_SHADER_INPUT_BIND_DESC).
 const (
 	resourceClassSRV     uint8 = 0
