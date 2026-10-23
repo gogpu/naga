@@ -55,12 +55,12 @@ const validatorFlagInPlaceEdit = 1
 
 // vtableMethod reads the function pointer at `index` from the COM vtable
 // for an object whose first qword is its vtable pointer.
-func vtableMethod(thisPtr uintptr, index int) uintptr {
-	vtable := *(*uintptr)(unsafe.Pointer(thisPtr))
-	return *(*uintptr)(unsafe.Pointer(vtable + uintptr(index)*unsafe.Sizeof(uintptr(0))))
+func vtableMethod(this unsafe.Pointer, index int) uintptr {
+	vtable := *(*unsafe.Pointer)(this)
+	return *(*uintptr)(unsafe.Add(vtable, uintptr(index)*unsafe.Sizeof(uintptr(0))))
 }
 
-func dxcCreateInstance2(proc, pMalloc uintptr, clsid, iid *guid, out *uintptr) uintptr {
+func dxcCreateInstance2(proc, pMalloc uintptr, clsid, iid *guid, out *unsafe.Pointer) uintptr {
 	ret, _, _ := syscall.SyscallN(proc,
 		pMalloc,
 		uintptr(unsafe.Pointer(clsid)),
@@ -69,50 +69,53 @@ func dxcCreateInstance2(proc, pMalloc uintptr, clsid, iid *guid, out *uintptr) u
 	return ret
 }
 
-func validatorValidate(validator, blob uintptr, flags uint32, resultOut *uintptr) uintptr {
+func validatorValidate(validator, blob unsafe.Pointer, flags uint32, resultOut *unsafe.Pointer) uintptr {
 	method := vtableMethod(validator, idxValidatorValidate)
 	ret, _, _ := syscall.SyscallN(method,
-		validator,
-		blob,
+		uintptr(validator),
+		uintptr(blob),
 		uintptr(flags),
 		uintptr(unsafe.Pointer(resultOut)))
 	return ret
 }
 
-func resultGetStatus(result uintptr, statusOut *uint32) uintptr {
+func resultGetStatus(result unsafe.Pointer, statusOut *uint32) uintptr {
 	method := vtableMethod(result, idxResultGetStatus)
-	ret, _, _ := syscall.SyscallN(method, result, uintptr(unsafe.Pointer(statusOut)))
+	ret, _, _ := syscall.SyscallN(method, uintptr(result), uintptr(unsafe.Pointer(statusOut)))
 	return ret
 }
 
-func resultGetErrorBuffer(result uintptr, blobOut *uintptr) uintptr {
+func resultGetErrorBuffer(result unsafe.Pointer, blobOut *unsafe.Pointer) uintptr {
 	method := vtableMethod(result, idxResultGetErrorBuffer)
-	ret, _, _ := syscall.SyscallN(method, result, uintptr(unsafe.Pointer(blobOut)))
+	ret, _, _ := syscall.SyscallN(method, uintptr(result), uintptr(unsafe.Pointer(blobOut)))
 	return ret
 }
 
-func blobGetBufferPointer(blob uintptr) uintptr {
+func blobGetBufferPointer(blob unsafe.Pointer) uintptr {
 	method := vtableMethod(blob, idxBlobGetBufferPointer)
-	ret, _, _ := syscall.SyscallN(method, blob)
+	ret, _, _ := syscall.SyscallN(method, uintptr(blob))
 	return ret
 }
 
-func blobGetBufferSize(blob uintptr) uintptr {
+func blobGetBufferSize(blob unsafe.Pointer) uintptr {
 	method := vtableMethod(blob, idxBlobGetBufferSize)
-	ret, _, _ := syscall.SyscallN(method, blob)
+	ret, _, _ := syscall.SyscallN(method, uintptr(blob))
 	return ret
 }
 
-func release(obj uintptr) {
-	if obj == 0 {
+func release(obj unsafe.Pointer) {
+	if obj == nil {
 		return
 	}
 	method := vtableMethod(obj, idxUnknownRelease)
-	_, _, _ = syscall.SyscallN(method, obj)
+	_, _, _ = syscall.SyscallN(method, uintptr(obj))
 }
 
-func readBlob(blob uintptr) string {
-	if blob == 0 {
+// readBlob returns the text of a blob dxil.dll returned. GetBufferPointer
+// gives its buffer as a bare address, so RtlMoveMemory copies it out instead
+// of Go converting the address to a pointer.
+func readBlob(blob unsafe.Pointer) string {
+	if blob == nil {
 		return ""
 	}
 	ptr := blobGetBufferPointer(blob)
@@ -120,7 +123,8 @@ func readBlob(blob uintptr) string {
 	if ptr == 0 || size == 0 {
 		return ""
 	}
-	data := unsafe.Slice((*byte)(unsafe.Pointer(ptr)), size)
+	data := make([]byte, size)
+	_, _, _ = syscall.SyscallN(procMoveMemory, uintptr(unsafe.Pointer(&data[0])), ptr, size)
 	return strings.TrimRight(string(data), "\x00\n\r ")
 }
 
@@ -133,7 +137,8 @@ func readBlob(blob uintptr) string {
 
 type goBlob struct {
 	vtablePtr uintptr // MUST be first field
-	data      []byte
+	data      uintptr // process heap memory (allocOnProcessHeap)
+	size      uintptr
 }
 
 // goBlobVtable is package-global so the vtable address is stable for the
@@ -156,26 +161,26 @@ func initGoBlobVtable() {
 		// IUnknown::Release
 		goBlobVtable[2] = syscall.NewCallback(func(this uintptr) uintptr { return 0 })
 		// IDxcBlob::GetBufferPointer
-		goBlobVtable[3] = syscall.NewCallback(func(this uintptr) uintptr {
-			b := (*goBlob)(unsafe.Pointer(this))
-			if len(b.data) == 0 {
+		goBlobVtable[3] = syscall.NewCallback(func(this unsafe.Pointer) uintptr {
+			b := (*goBlob)(this)
+			if b.size == 0 {
 				return 0
 			}
-			return uintptr(unsafe.Pointer(&b.data[0]))
+			return b.data
 		})
 		// IDxcBlob::GetBufferSize
-		goBlobVtable[4] = syscall.NewCallback(func(this uintptr) uintptr {
-			b := (*goBlob)(unsafe.Pointer(this))
-			return uintptr(len(b.data))
+		goBlobVtable[4] = syscall.NewCallback(func(this unsafe.Pointer) uintptr {
+			return (*goBlob)(this).size
 		})
 	})
 }
 
-func newGoBlob(data []byte) *goBlob {
+func newGoBlob(data, size uintptr) *goBlob {
 	initGoBlobVtable()
 	return &goBlob{
 		vtablePtr: uintptr(unsafe.Pointer(&goBlobVtable[0])),
 		data:      data,
+		size:      size,
 	}
 }
 
@@ -187,11 +192,12 @@ func newGoBlob(data []byte) *goBlob {
 // HeapAlloc'd buffer before validation.
 
 var (
-	heapProcsOnce sync.Once
-	errHeapProcs  error
-	heapHandle    uintptr
-	procHeapAlloc uintptr
-	procHeapFree  uintptr
+	heapProcsOnce  sync.Once
+	errHeapProcs   error
+	heapHandle     uintptr
+	procHeapAlloc  uintptr
+	procHeapFree   uintptr
+	procMoveMemory uintptr
 )
 
 func ensureHeapProcs() error {
@@ -220,6 +226,12 @@ func ensureHeapProcs() error {
 			return
 		}
 		procHeapFree = p.Addr()
+		p, err = k.FindProc("RtlMoveMemory")
+		if err != nil {
+			errHeapProcs = err
+			return
+		}
+		procMoveMemory = p.Addr()
 	})
 	return errHeapProcs
 }
@@ -287,7 +299,7 @@ func loadDLLWithFallback(name string) (*syscall.DLL, error) {
 type validatorImpl struct {
 	dxilDLL    *syscall.DLL
 	taskMalloc uintptr
-	validator  uintptr // IDxcValidator*
+	validator  unsafe.Pointer // IDxcValidator*
 }
 
 func newValidatorImpl() (*validatorImpl, error) {
@@ -321,11 +333,11 @@ func newValidatorImpl() (*validatorImpl, error) {
 
 func (v *validatorImpl) close() {
 	release(v.validator)
-	v.validator = 0
+	v.validator = nil
 }
 
 func (v *validatorImpl) validate(blob []byte) (Result, error) {
-	if v == nil || v.validator == 0 {
+	if v == nil || v.validator == nil {
 		return Result{}, fmt.Errorf("dxcvalidator: validator not initialized")
 	}
 	if len(blob) == 0 {
@@ -357,14 +369,12 @@ func (v *validatorImpl) validate(blob []byte) (Result, error) {
 		return Result{}, err
 	}
 	defer freeHeap()
-	heapSlice := unsafe.Slice((*byte)(unsafe.Pointer(heapPtr)), len(blob))
-	copy(heapSlice, blob)
+	_, _, _ = syscall.SyscallN(procMoveMemory, heapPtr, uintptr(unsafe.Pointer(&blob[0])), uintptr(len(blob)))
 
-	dxcBlob := newGoBlob(heapSlice)
-	dxcBlobPtr := uintptr(unsafe.Pointer(dxcBlob))
+	dxcBlob := newGoBlob(heapPtr, uintptr(len(blob)))
 
-	var opResult uintptr
-	hr := validatorValidate(v.validator, dxcBlobPtr, validatorFlagInPlaceEdit, &opResult)
+	var opResult unsafe.Pointer
+	hr := validatorValidate(v.validator, unsafe.Pointer(dxcBlob), validatorFlagInPlaceEdit, &opResult)
 	runtime.KeepAlive(dxcBlob)
 	runtime.KeepAlive(blob)
 	if hr != 0 {
@@ -373,7 +383,7 @@ func (v *validatorImpl) validate(blob []byte) (Result, error) {
 	// dxil.dll occasionally returns S_OK with a NULL IDxcOperationResult on
 	// large or unusual inputs (observed on debug-symbol-large-source.wgsl).
 	// Treat that as a validate-time error instead of dereferencing NULL.
-	if opResult == 0 {
+	if opResult == nil {
 		return Result{}, fmt.Errorf("IDxcValidator::Validate returned S_OK with NULL IDxcOperationResult")
 	}
 	defer release(opResult)
@@ -385,8 +395,8 @@ func (v *validatorImpl) validate(blob []byte) (Result, error) {
 
 	res := Result{Status: status, OK: status == 0}
 	if status != 0 {
-		var errBlob uintptr
-		if errHR := resultGetErrorBuffer(opResult, &errBlob); errHR == 0 && errBlob != 0 {
+		var errBlob unsafe.Pointer
+		if errHR := resultGetErrorBuffer(opResult, &errBlob); errHR == 0 && errBlob != nil {
 			res.Error = readBlob(errBlob)
 			release(errBlob)
 		}
