@@ -5,6 +5,7 @@ package glsl_test
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -61,6 +62,34 @@ fn size(t: texture_depth_2d) -> vec2<u32> { return textureDimensions(t); }
 		_, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: "fs_main"})
 		if err == nil || !strings.Contains(err.Error(), "different sampler types") {
 			t.Errorf("%s: err = %v, want a refusal", name, err)
+		}
+	}
+}
+
+// TestRestrictedLoadsDeclareTheirLevel: under the Restrict image load policy
+// a texelFetch reads the level clamped into a variable declared before it,
+// also for a depth texture and for a texture a helper function takes as an
+// argument, whose image type the writer reads off the argument.
+func TestRestrictedLoadsDeclareTheirLevel(t *testing.T) {
+	source := mustReadFile("testdata/depth/depth.wgsl")
+	uses := regexp.MustCompile(`_e\d+_clamped_lod`)
+	for _, ep := range []string{"loaded", "helpers"} {
+		got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{
+			LangVersion:         glsl.Version430,
+			EntryPoint:          ep,
+			BoundsCheckPolicies: glsl.BoundsCheckPolicies{ImageLoad: glsl.BoundsCheckRestrict},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := uses.FindAllString(got, -1)
+		if len(names) == 0 {
+			t.Errorf("%s: no clamped level:\n%s", ep, got)
+		}
+		for _, name := range names {
+			if !strings.Contains(got, "int "+name+" = clamp(") {
+				t.Errorf("%s: %s is used but not declared:\n%s", ep, name, got)
+			}
 		}
 	}
 }
