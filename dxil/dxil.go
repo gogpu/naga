@@ -234,10 +234,11 @@ func autoUpgradeSMPre(irModule *ir.Module, ep *ir.EntryPoint, smMinor uint32) ui
 	if moduleUsesInt64Atomics(irModule) && smMinor < 6 {
 		smMinor = 6
 	}
-	// Note: NativeLowPrecision SM 6.2 upgrade is not applied because
-	// our DXC golden pipeline uses min16float polyfill (no native half).
-	// QuantizeF16 uses legacy ops (SM 6.0). When we add native
-	// -enable-16bit-types support, this should be gated on a compile option.
+	// f16 is written as native 16-bit types, DXC's -enable-16bit-types,
+	// which need SM 6.2. QuantizeF16 uses legacy ops (SM 6.0).
+	if moduleUsesLowPrecision(irModule) && smMinor < 2 {
+		smMinor = 2
+	}
 	// dx.op.viewID (opcode 138) is valid from SM 6.1.
 	if moduleUsesViewID(irModule) && smMinor < 1 {
 		smMinor = 1
@@ -3127,29 +3128,42 @@ func memberScalarCount(m *ir.Module, inner ir.TypeInner) int {
 	return 1
 }
 
-// moduleUsesLowPrecision reports whether any type in the module is a
-// 16-bit float, 16-bit integer, or a vector/matrix thereof.
+// moduleUsesLowPrecision reports whether any type in the module, or of
+// an expression of its functions, is a 16-bit float, 16-bit integer, or a
+// vector/matrix thereof. QuantizeF16's lowering uses
+// dx.op.legacyF32ToF16/legacyF16ToF32 (opcodes 130/131), which are
+// available since SM 6.0 and don't introduce the LLVM half type.
 func moduleUsesLowPrecision(m *ir.Module) bool {
-	for i := range m.Types {
-		switch t := m.Types[i].Inner.(type) {
+	is16 := func(inner ir.TypeInner) bool {
+		switch t := inner.(type) {
 		case ir.ScalarType:
-			if t.Width == 2 {
-				return true
-			}
+			return t.Width == 2
 		case ir.VectorType:
-			if t.Scalar.Width == 2 {
-				return true
-			}
+			return t.Scalar.Width == 2
 		case ir.MatrixType:
-			if t.Scalar.Width == 2 {
+			return t.Scalar.Width == 2
+		}
+		return false
+	}
+	for i := range m.Types {
+		if is16(m.Types[i].Inner) {
+			return true
+		}
+	}
+	fns := make([]*ir.Function, 0, len(m.Functions)+len(m.EntryPoints))
+	for i := range m.Functions {
+		fns = append(fns, &m.Functions[i])
+	}
+	for i := range m.EntryPoints {
+		fns = append(fns, &m.EntryPoints[i].Function)
+	}
+	for _, fn := range fns {
+		for _, res := range fn.ExpressionTypes {
+			if res.Handle == nil && is16(res.Value) {
 				return true
 			}
 		}
 	}
-	// Note: ir.MathQuantizeF16 no longer requires SM 6.2 because the
-	// lowering now uses dx.op.legacyF32ToF16/legacyF16ToF32 (opcodes
-	// 130/131) which are available since SM 6.0 and do not introduce
-	// the LLVM half type.
 	return false
 }
 

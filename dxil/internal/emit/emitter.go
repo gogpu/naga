@@ -1712,13 +1712,14 @@ func (e *Emitter) computeBitcodeShaderFlags() uint64 {
 			flags |= 0x40 // EnableDoubleExtensions (bit 6)
 		}
 	}
-	// Note: NativeLowPrecision (UseNativeLowPrecision bit 23 + LowPrecisionPresent
-	// bit 5) is intentionally NOT set. Our DXC golden pipeline uses naga HLSL
-	// which emits min16float for WGSL f16 (polyfill semantics, no -enable-16bit-types).
-	// DXC therefore never sets these flags. QuantizeF16 uses dx.op.legacyF32ToF16 /
-	// legacyF16ToF32 (opcodes 130/131) which do not introduce the LLVM half type.
-	// When we add native -enable-16bit-types support, these flags should be gated
-	// on a compile option, not on IR type presence.
+	// 16-bit values are native ones, as DXC writes them with
+	// -enable-16bit-types: LowPrecisionPresent with UseNativeLowPrecision.
+	// QuantizeF16 uses dx.op.legacyF32ToF16 / legacyF16ToF32 (opcodes
+	// 130/131), which don't introduce the LLVM half type.
+	if e.moduleUses16Bit() {
+		flags |= 0x20     // LowPrecisionPresent (bit 5)
+		flags |= 0x800000 // UseNativeLowPrecision (bit 23)
+	}
 	if e.moduleUsesRayQuery() {
 		flags |= 0x2000000 // RaytracingTier1_1
 	}
@@ -1978,15 +1979,35 @@ func (e *Emitter) entryUsesViewIDInput() bool {
 	return false
 }
 
-// moduleUsesLowPrecision returns true if any IR type or expression
-// forces 16-bit float/int operations in the emitted bitcode. DXC's
-// CollectShaderFlagsForModule sets m_bLowPrecisionPresent (bit 5,
-// 0x20) on ANY f16/i16 materialization, and the validator rejects a
-// Note: moduleUsesLowPrecision was removed because NativeLowPrecision
-// flags are no longer set. Our DXC golden pipeline uses min16float
-// polyfill (no native half), and QuantizeF16 uses legacy ops that do
-// not introduce the LLVM half type. When we add native -enable-16bit-types
-// support, a new flag detection method should be added.
+// moduleUses16Bit reports whether the EMITTED bitcode contains half or
+// i16 values, in a function signature or an instruction result, which
+// DXC's CollectShaderFlagsForModule sets LowPrecisionPresent for, as
+// moduleUsesDouble does for doubles.
+func (e *Emitter) moduleUses16Bit() bool {
+	is16 := func(t *module.Type) bool {
+		return t != nil && (t.Kind == module.TypeFloat && t.FloatBits == 16 || t.Kind == module.TypeInteger && t.IntBits == 16)
+	}
+	for _, fn := range e.mod.Functions {
+		if fn.FuncType != nil {
+			if is16(fn.FuncType.RetType) {
+				return true
+			}
+			for _, p := range fn.FuncType.ParamTypes {
+				if is16(p) {
+					return true
+				}
+			}
+		}
+		for _, bb := range fn.BasicBlocks {
+			for _, instr := range bb.Instructions {
+				if is16(instr.ResultType) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
 
 // moduleUsesDouble returns true when the EMITTED bitcode actually contains
 // f64 values (as opposed to merely declaring f64 types in the IR).

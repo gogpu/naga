@@ -3193,19 +3193,18 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		}
 	}
 
-	// dx.op.bufferLoad supports overloads f16/f32/i16/i32 only (mask 0x63
-	// in DxilOperations.cpp:BufferLoad). For 64-bit element types
-	// (i64/u64/f64) we MUST use dx.op.rawBufferLoad (mask 0xe7) which
-	// covers i16/i32/i64/f16/f32/f64. The atomic-int64 / int64 storage
-	// buffer test corpus depends on this routing.
-	is64Bit := chain.scalar.Width == 8
+	// A 64-bit or 16-bit element is loaded with dx.op.rawBufferLoad of its
+	// own type, as DXC loads them for SM 6.3 and native 16-bit types, at
+	// the alignment of its scalars; bufferLoad's overloads have no 64-bit
+	// ones, and its 16-bit ones would load a 32-bit word per component.
+	raw := chain.scalar.Width != 4
 
 	// For raw buffer loads (all naga storage buffers are ByteAddressBuffer /
 	// RWByteAddressBuffer, kind 11), DXC always uses the i32 overload.
 	// HLSL ByteAddressBuffer.Load() returns uint; asfloat() wraps the result.
 	// This mirrors the store side which already uses i32+bitcast. After
 	// extractvalue we bitcast i32 to float to recover the original type.
-	needsBitcast := !is64Bit && chain.scalar.Kind == ir.ScalarFloat
+	needsBitcast := !raw && chain.scalar.Kind == ir.ScalarFloat
 	if needsBitcast {
 		ol = overloadI32
 	}
@@ -3220,7 +3219,7 @@ func (e *Emitter) emitUAVLoad(fn *ir.Function, chain *uavPointerChain) (int, err
 		targetScalarTy = e.mod.GetFloatType(32)
 	}
 
-	if numComps <= 4 && !is64Bit {
+	if numComps <= 4 && !raw {
 		// Single bufferLoad call (≤4 components fit one ResRet).
 		bufLoadFn := e.getDxOpBufferLoadFunc(ol)
 		opcodeVal := e.getIntConstID(int64(OpBufferLoad))
@@ -3498,8 +3497,8 @@ func (e *Emitter) emitUAVLoadDecomposed(chain *uavPointerChain, handleID, indexI
 
 	// indexID from resolveUAVIndex is the BYTE coord0 base (BUG-DXIL-031).
 	// Each field's byteOffset adds directly without scalar-unit conversion.
-	// A 64-bit field is loaded with rawBufferLoad of its own type, as DXC
-	// loads one, any other with bufferLoad.
+	// A 64-bit or 16-bit field is loaded with rawBufferLoad of its own type,
+	// as DXC loads one, any other with bufferLoad.
 	undefVal := e.getUndefConstID()
 	i32Ty := e.mod.GetIntType(32)
 	f32Ty := e.mod.GetFloatType(32)
@@ -3508,7 +3507,7 @@ func (e *Emitter) emitUAVLoadDecomposed(chain *uavPointerChain, handleID, indexI
 	for i, f := range fields {
 		ol := overloadForScalar(f.scalar)
 		// For raw buffer loads of float fields, use i32 overload + bitcast.
-		fieldNeedsBitcast := f.scalar.Kind == ir.ScalarFloat && f.scalar.Width != 8
+		fieldNeedsBitcast := f.scalar.Kind == ir.ScalarFloat && f.scalar.Width == 4
 		if fieldNeedsBitcast {
 			ol = overloadI32
 		}
@@ -3522,7 +3521,7 @@ func (e *Emitter) emitUAVLoadDecomposed(chain *uavPointerChain, handleID, indexI
 		}
 
 		var retID int
-		if f.scalar.Width == 8 {
+		if f.scalar.Width != 4 {
 			retID = e.addCallInstr(e.getDxOpRawBufferLoadFunc(ol), resRetTy, []int{e.getIntConstID(int64(OpRawBufferLoad)),
 				handleID, coord, undefVal, e.getI8ConstID(1), e.getIntConstID(int64(f.scalar.Width))})
 		} else {
@@ -3593,30 +3592,29 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 	}
 
 	ol := overloadForScalar(chain.scalar)
-	// dx.op.bufferStore overload mask 0x63 covers f16/f32/i16/i32 only;
-	// 64-bit element types must use dx.op.rawBufferStore (mask 0xe7) just
-	// like the load side does. atomicOps-int64.wgsl trips
-	// 'DXIL intrinsic overload must be valid' on bufferStore.i64 without
-	// this routing.
-	is64Bit := chain.scalar.Width == 8
+	// A 64-bit or 16-bit element is stored with dx.op.rawBufferStore of its
+	// own type at the alignment of its scalars, as the load side loads it:
+	// bufferStore has no 64-bit overloads (atomicOps-int64.wgsl trips
+	// 'DXIL intrinsic overload must be valid' on bufferStore.i64).
+	raw := chain.scalar.Width != 4
 
 	// For raw buffer stores (all naga storage buffers are RWByteAddressBuffer,
 	// kind 11), DXC always uses the i32 overload. Float values are bitcast to
 	// i32 (matching HLSL's asuint pattern). Force the overload to i32 for
-	// non-64-bit float types so our output matches DXC's convention.
-	needsBitcast := !is64Bit && chain.scalar.Kind == ir.ScalarFloat
+	// 32-bit float types so our output matches DXC's convention.
+	needsBitcast := !raw && chain.scalar.Kind == ir.ScalarFloat
 	if needsBitcast {
 		ol = overloadI32
 	}
 
 	var bufStoreFn *module.Function
-	if is64Bit {
+	if raw {
 		bufStoreFn = e.getDxOpRawBufferStoreFunc(ol)
 	} else {
 		bufStoreFn = e.getDxOpBufferStoreFunc(ol)
 	}
 	storeOpcode := int64(OpBufferStore)
-	if is64Bit {
+	if raw {
 		storeOpcode = int64(OpRawBufferStore)
 	}
 	opcodeVal := e.getIntConstID(storeOpcode)
@@ -3635,7 +3633,6 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 	// for Particle), fixing the store to emit all components.
 	numComps := cbvComponentCount(e.ir, chain.elemType)
 
-	//nolint:nestif // dispatch over single-call vs multi-batch buffer store
 	if numComps <= 4 {
 		// Single bufferStore call.
 		vals := [4]int{valUndefID, valUndefID, valUndefID, valUndefID}
@@ -3655,20 +3652,16 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 			opcodeVal, handleID, indexID, undefI32,
 			vals[0], vals[1], vals[2], vals[3], maskVal,
 		}
-		if is64Bit {
+		if raw {
 			// rawBufferStore takes an additional alignment operand.
-			scalarWidth := uint32(chain.scalar.Width)
-			if scalarWidth == 0 {
-				scalarWidth = 8
-			}
-			args = append(args, e.getIntConstID(int64(scalarWidth)))
+			args = append(args, e.getIntConstID(int64(chain.scalar.Width)))
 		}
 		e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), args)
 		return nil
 	}
 
 	return e.emitUAVStoreBatched(chain, valueHandle, bufStoreFn, opcodeVal,
-		handleID, indexID, undefI32, valUndefID, numComps, needsBitcast)
+		handleID, indexID, undefI32, valUndefID, numComps, needsBitcast, raw)
 }
 
 // emitUAVStoreBatched emits N bufferStore calls for element types with >4
@@ -3677,11 +3670,12 @@ func (e *Emitter) emitUAVStore(fn *ir.Function, chain *uavPointerChain, valueHan
 // :4722 `NewCoord = EltSize * MaxStoreElemCount * j`.
 //
 // When needsBitcast is true, float values are bitcast to i32 before storing
-// (matching DXC's raw buffer store convention).
+// (matching DXC's raw buffer store convention). A raw store also takes the
+// alignment of the scalars.
 func (e *Emitter) emitUAVStoreBatched(
 	chain *uavPointerChain, valueHandle ir.ExpressionHandle,
 	bufStoreFn *module.Function, opcodeVal, handleID, indexID, undefI32, valUndefID, numComps int,
-	needsBitcast bool,
+	needsBitcast, raw bool,
 ) error {
 	i32Ty := e.mod.GetIntType(32)
 	scalarW := uint32(chain.scalar.Width)
@@ -3712,10 +3706,14 @@ func (e *Emitter) emitUAVStoreBatched(
 		}
 		writeMask := (1 << count) - 1
 		maskVal := e.getI8ConstID(int64(writeMask))
-		e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
+		args := []int{
 			opcodeVal, handleID, batchIndexID, undefI32,
 			vals[0], vals[1], vals[2], vals[3], maskVal,
-		})
+		}
+		if raw {
+			args = append(args, e.getIntConstID(int64(scalarW)))
+		}
+		e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), args)
 		compIdx += count
 		remaining -= count
 		batchIdx++
@@ -3725,8 +3723,9 @@ func (e *Emitter) emitUAVStoreBatched(
 
 // emitUAVStoreDecomposed stores each scalar of a value whose scalars aren't
 // one after the other in memory, or not of one DXIL type, with a store of
-// its own at its WGSL offset, as emitUAVLoadDecomposed loads them: a float
-// as its bits in an i32, a 64-bit scalar with a rawBufferStore.
+// its own at its WGSL offset, as emitUAVLoadDecomposed loads them: a 32-bit
+// float as its bits in an i32, a 64-bit or 16-bit scalar with a
+// rawBufferStore of its own type.
 func (e *Emitter) emitUAVStoreDecomposed(chain *uavPointerChain, valueHandle ir.ExpressionHandle, handleID, indexID int) {
 	i32Ty := e.mod.GetIntType(32)
 	undefI32 := e.getUndefConstID()
@@ -3742,7 +3741,7 @@ func (e *Emitter) emitUAVStoreDecomposed(chain *uavPointerChain, valueHandle ir.
 		}
 		valUndef := e.getTypedUndefConstID(e.overloadReturnType(ol))
 		mask := e.getI8ConstID(1)
-		if f.scalar.Width != 8 {
+		if f.scalar.Width == 4 {
 			e.addCallInstr(e.getDxOpBufferStoreFunc(ol), e.mod.GetVoidType(), []int{e.getIntConstID(int64(OpBufferStore)),
 				handleID, coord, undefI32, v, valUndef, valUndef, valUndef, mask})
 			continue
