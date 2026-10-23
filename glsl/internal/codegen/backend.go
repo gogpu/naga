@@ -79,6 +79,17 @@ func (v Version) supportsIOLocations() bool {
 	return v.Major > 3 || (v.Major == 3 && v.Minor >= 30)
 }
 
+// supportsStd430Layout returns true if std430 buffer blocks (storage
+// buffers) are available: desktop GLSL 400+ through
+// GL_ARB_shader_storage_buffer_object, ES 310+. Matches Rust naga
+// Version::supports_std430_layout.
+func (v Version) supportsStd430Layout() bool {
+	if v.ES {
+		return v.Major > 3 || (v.Major == 3 && v.Minor >= 10)
+	}
+	return v.Major >= 4
+}
+
 // supportsExplicitLocations returns true if explicit layout locations for bindings are supported.
 // Desktop GLSL 420+, ES 310+.
 func (v Version) supportsExplicitLocations() bool {

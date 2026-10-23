@@ -967,7 +967,9 @@ func (w *Writer) writeGlobalVariables() error {
 		case ir.SpaceUniform:
 			w.writeUniformVariable(name, typeName, global)
 		case ir.SpaceStorage:
-			w.writeStorageVariable(name, typeName, global)
+			if err := w.writeStorageVariable(name, typeName, global); err != nil {
+				return err
+			}
 		case ir.SpacePrivate:
 			baseType := w.getBaseTypeName(global.Type)
 			arraySuffix := w.getArraySuffix(global.Type)
@@ -1352,10 +1354,12 @@ func (w *Writer) storageLayoutPrefix(global ir.GlobalVariable) string {
 	return "layout(std430) "
 }
 
-func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVariable) {
-	if !w.options.LangVersion.SupportsStorageBuffers() {
-		w.writeUniformVariable(name, typeName, global)
-		return
+func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVariable) error {
+	// A storage buffer written as a uniform block would be read from the
+	// uniform binding point numbered like its storage slot, with std140
+	// strides, so it is an error, as in Rust naga.
+	if !w.options.LangVersion.supportsStd430Layout() {
+		return fmt.Errorf("storage address space requires std430 layout support (GLSL 400 or ES 310), have %s", w.options.LangVersion)
 	}
 
 	blockName, instanceName := w.getBlockNames(global)
@@ -1395,7 +1399,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 					IsStorage: true,
 				})
 			}
-			return
+			return nil
 		}
 	}
 
@@ -1411,6 +1415,7 @@ func (w *Writer) writeStorageVariable(name, typeName string, global ir.GlobalVar
 			IsStorage: true,
 		})
 	}
+	return nil
 }
 
 // writeVaryingDeclarations writes entry point in/out declarations at module level.
