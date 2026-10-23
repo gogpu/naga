@@ -186,17 +186,11 @@ const (
 		"first; the type handles that follow shift"
 	reasonIRMemoryDecorations = "@coherent / @volatile memory decorations are not supported: our IR has no " +
 		"GlobalVariable.memory_decorations"
-	reasonIRLoopVarReinit = "a var without initializer declared in a loop body: Rust re-stores a ZeroValue on each " +
-		"iteration, we do not (one expression fewer, handles shift)"
 )
 
 // irReferenceDeviations is keyed by "<shader>" (TestIRReference) and
 // "<shader>.compact" (TestIRReferenceCompact).
 var irReferenceDeviations = map[string]irDeviation{
-	"9489-loop-local-var-init": {Card: "BUG-LOOP-VAR-REINIT-001", Reason: reasonIRLoopVarReinit,
-		Fingerprint: "e931190827947d68f77fe43b7f5f4bbae8c40814491736133ed87bf27cb939a5"}, // 43 differences
-	"9489-loop-local-var-init.compact": {Card: "BUG-LOOP-VAR-REINIT-001", Reason: reasonIRLoopVarReinit,
-		Fingerprint: "e931190827947d68f77fe43b7f5f4bbae8c40814491736133ed87bf27cb939a5"}, // 43 differences
 	"9883-atomic_sub-negative": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,
 		Fingerprint: "471e199c4c239f12a8f92b68aa618fc21683abcf6e4096aedc29cc8ec65ae174"}, // 4 differences
 	"9883-atomic_sub-negative.compact": {Card: "PARITY-UPSTREAM-001", Reason: reasonIRTypeOrder,

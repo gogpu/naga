@@ -1394,6 +1394,20 @@ func (l *Lowerer) lowerLocalVar(v *parser.VarDecl, target *[]ir.Statement) error
 	l.scopeSet(v.Name)
 	l.locals[v.Name] = exprHandle
 
+	// Backends zero a variable without an initializer once, at function
+	// entry. Inside a loop the declaration runs on every iteration and makes
+	// a new zero value each time, so it stores one (Rust naga, #9489).
+	if initHandle == nil && l.isInsideLoop {
+		if _, isRayQuery := l.module.Types[typeHandle].Inner.(ir.RayQueryType); !isRayQuery {
+			zero, err := l.addExpression(ir.Expression{Kind: ir.ExprZeroValue{Type: typeHandle}})
+			if err != nil {
+				return err
+			}
+			initHandle = &zero
+			needStore = true
+		}
+	}
+
 	// Emit Store for runtime initial values (or const values inside loops).
 	if needStore {
 		*target = append(*target, ir.Statement{Kind: ir.StmtStore{
