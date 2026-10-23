@@ -1,6 +1,7 @@
 package dxil
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -44,4 +45,44 @@ func callOperands(fn *module.Function, prefix string, i int) []int {
 		}
 	}
 	return ops
+}
+
+// A sampler reads its place in the sampler heap from the slot of its bind
+// group's sampler index buffer at the register the binding map gives it,
+// as the HLSL writer reads it, where it read the slot of its @binding.
+func TestSamplerIndexAtItsRegister(t *testing.T) {
+	opts := DefaultOptions()
+	opts.BindingMap = BindingMap{
+		{Group: 0, Binding: 0}: {Register: 0},
+		{Group: 0, Binding: 1}: {Space: 255, Register: 0},
+		{Group: 0, Binding: 2}: {Space: 255, Register: 1},
+	}
+	mod, fn := emitMainModuleOpts(t, `
+@group(0) @binding(0) var t: texture_2d<f32>;
+@group(0) @binding(1) var a: sampler;
+@group(0) @binding(2) var b: sampler;
+@fragment fn main() -> @location(0) vec4<f32> {
+	return textureSample(t, a, vec2(0.25)) + textureSample(t, b, vec2(0.75));
+}
+`, opts)
+	if slots := intConstants(mod, callOperands(fn, "dx.op.bufferLoad", 2)); !slices.Equal(slots, []int64{0, 1}) {
+		t.Errorf("samplers read index buffer slots %v, want [0 1]", slots)
+	}
+}
+
+// intConstants returns the values of the integer constants among ids.
+func intConstants(mod *module.Module, ids []int) []int64 {
+	values := map[int]int64{}
+	for _, c := range mod.Constants {
+		if c.ConstType != nil && c.ConstType.Kind == module.TypeInteger {
+			values[c.ValueID] = c.IntValue
+		}
+	}
+	var out []int64
+	for _, id := range ids {
+		if v, ok := values[id]; ok {
+			out = append(out, v)
+		}
+	}
+	return out
 }
