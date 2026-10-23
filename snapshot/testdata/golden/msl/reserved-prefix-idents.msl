@@ -1,0 +1,76 @@
+// language: metal1.0
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using metal::uint;
+struct DefaultConstructible {
+    template<typename T>
+    operator T() && {
+        return T {};
+    }
+};
+
+struct gl_Light {
+    metal::float4 gl_color;
+    float gl_intensity;
+    char _pad2[12];
+};
+struct gl_VertexOut {
+    metal::float4 gl_pos;
+    metal::float2 gl_uv;
+    char _pad2[8];
+};
+constant float gl_SCALE = 2.0;
+
+metal::float4 gl_shade(
+    gl_Light gl_l,
+    float _group_0_binding_0_fs
+) {
+    metal::float4 gl_acc = {};
+    metal::float4 gl_c = (gl_l.gl_color * gl_l.gl_intensity) * gl_SCALE;
+    gl_acc = gl_c * _group_0_binding_0_fs;
+    metal::float4 _e9 = gl_acc;
+    return _e9;
+}
+
+struct vs_mainInput {
+    metal::float2 gl_in [[attribute(0)]];
+};
+struct vs_mainOutput {
+    metal::float4 gl_pos [[position]];
+    metal::float2 gl_uv [[user(loc0), center_perspective]];
+};
+vertex vs_mainOutput vs_main(
+  vs_mainInput varyings [[stage_in]]
+) {
+    const auto gl_in = varyings.gl_in;
+    gl_VertexOut gl_o = {};
+    gl_o.gl_pos = metal::float4(gl_in, 0.0, 1.0);
+    gl_o.gl_uv = gl_in;
+    gl_VertexOut _e7 = gl_o;
+    const auto _tmp = _e7;
+    return vs_mainOutput { _tmp.gl_pos, _tmp.gl_uv };
+}
+
+
+struct fs_mainInput {
+    metal::float2 gl_uv [[user(loc0), center_perspective]];
+};
+struct fs_mainOutput {
+    metal::float4 member_1 [[color(0)]];
+};
+fragment fs_mainOutput fs_main(
+  fs_mainInput varyings_1 [[stage_in]]
+, metal::float4 gl_pos [[position]]
+, constant gl_Light& gl_light [[user(fake0)]]
+) {
+    const gl_VertexOut gl_v = { gl_pos, varyings_1.gl_uv };
+    int gl_counter = {};
+    int _e2 = gl_counter;
+    gl_counter = as_type<int>(as_type<uint>(_e2) + as_type<uint>(1));
+    int _e6 = gl_counter;
+    float _immediates_binding_fs = static_cast<float>(_e6);
+    gl_Light _e9 = gl_light;
+    metal::float4 _e10 = gl_shade(_e9, _immediates_binding_fs);
+    return fs_mainOutput { _e10 + metal::float4(gl_v.gl_uv, 0.0, 0.0) };
+}

@@ -227,12 +227,17 @@ func (n *namer) call(base string) string {
 	return result
 }
 
+// reservedPrefixes are the prefix GLSL reserves for its built-ins and the
+// prefixes of the names the writer gives bindings.
+var reservedPrefixes = []string{"gl_", "_group", "_immediates_binding_"}
+
 // sanitizeName cleans a name for use as a GLSL identifier.
 // Matches Rust naga's Namer::sanitize:
 //   - Drop leading digits
 //   - Retain only ASCII alphanumeric and '_'
 //   - Collapse consecutive '__' into single '_'
 //   - Trim trailing '_'
+//   - Put gen_ in front of a name that starts with a reserved prefix
 func sanitizeName(name string) string {
 	if name == "" {
 		return "unnamed"
@@ -277,7 +282,13 @@ func sanitizeName(name string) string {
 	if len(result) == 0 {
 		return "unnamed"
 	}
-	return string(result)
+	name = string(result)
+	for _, prefix := range reservedPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return "gen_" + name
+		}
+	}
+	return name
 }
 
 // newWriter creates a new GLSL writer.
