@@ -1109,3 +1109,24 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 		assertContains(t, code, "nagaSamplerHeap")
 	})
 }
+
+// HLSL array declarators follow C: the size goes after the name. A private
+// array written as static uint[16] parr failed to compile in FXC and DXC
+// (error X3000: unexpected token '[').
+func TestPrivateArrayDeclarator(t *testing.T) {
+	code := compileWGSLToHLSL(t, `
+var<private> parr: array<u32, 16>;
+var<private> offs: array<vec2<f32>, 2> = array(vec2(0.0, 1.0), vec2(1.0, 0.0));
+var<private> nested: array<array<i32, 2>, 3>;
+@group(0) @binding(0) var<storage, read_write> d: array<u32>;
+@compute @workgroup_size(1)
+fn main() {
+    parr[d[0] & 15u] = 7u;
+    nested[d[1] % 3u][1] = 2;
+    d[1] = parr[3] + u32(offs[d[0] & 1u].y) + u32(nested[2][1]);
+}
+`)
+	assertContains(t, code, "static uint parr[16] = (uint[16])0;")
+	assertContains(t, code, "static float2 offs[2] = ")
+	assertContains(t, code, "static int nested[3][2] = (int[3][2])0;")
+}
