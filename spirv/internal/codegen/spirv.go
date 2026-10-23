@@ -79,6 +79,16 @@ type Options struct {
 	// naga's fake_missing_bindings (default true), so the zero value matches
 	// Rust's default.
 	RequireBindings bool
+
+	// ClampFragDepth clamps the depth a fragment entry point writes to the
+	// range two f32 push constants hold, min then max, at byte offset
+	// ClampFragDepth.Offset (see the spirv package).
+	ClampFragDepth *ClampFragDepth
+}
+
+// ClampFragDepth is where the range of the frag_depth clamp is.
+type ClampFragDepth struct {
+	Offset uint32
 }
 
 // BindingInfo is where a resource binding goes in SPIR-V; see
