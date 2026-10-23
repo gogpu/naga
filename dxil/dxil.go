@@ -129,6 +129,13 @@ type Options struct {
 	// whose BindTarget has a DynamicStorageBufferOffsetsIndex adds that
 	// offset, in bytes, to all its addresses.
 	DynamicStorageBufferOffsetsTargets map[uint32]OffsetsBindTarget
+
+	// RestrictIndexing clamps every run-time index into an array, matrix or
+	// vector that isn't in a storage or constant buffer to the last element,
+	// as hlsl.Options.RestrictIndexing does, so an index out of bounds
+	// reads and writes an element of it. A constant buffer binding clamps
+	// its own indices with BindTarget.RestrictIndexing.
+	RestrictIndexing bool
 }
 
 // FragmentEntryPoint is a fragment entry point and its module.
@@ -140,8 +147,9 @@ type FragmentEntryPoint struct {
 // DefaultOptions returns the default DXIL compilation options.
 func DefaultOptions() Options {
 	return Options{
-		ShaderModel:   SM6_0,
-		UseBypassHash: false, // retail hash — portable, no dev-mode requirement
+		ShaderModel:      SM6_0,
+		UseBypassHash:    false, // retail hash — portable, no dev-mode requirement
+		RestrictIndexing: true,
 	}
 }
 
@@ -324,6 +332,9 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	// (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE).
 	if err := runOptPasses(irModule); err != nil {
 		return nil, err
+	}
+	if opts.RestrictIndexing {
+		restrictIndices(irModule)
 	}
 
 	// BUG-DXIL-016: compute the set of GlobalVariables transitively

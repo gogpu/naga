@@ -103,6 +103,9 @@ func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module,
 	if err := runOptPasses(irMod); err != nil {
 		t.Fatalf("passes: %v", err)
 	}
+	if opts.RestrictIndexing {
+		restrictIndices(irMod)
+	}
 	emitOpts := emit.EmitOptions{
 		ShaderModelMajor: 6,
 		ShaderModelMinor: 0,
