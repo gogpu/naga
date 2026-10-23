@@ -745,7 +745,7 @@ func parseGLSLBindingMap(glslSection string) map[glsl.BindingMapKey]uint8 {
 }
 
 // glslBoundsCheckPolicies converts the shader's [bounds_check_policies] to
-// glsl options. Rust's GLSL writer honours image_load only, so the index and
+// glsl options. Rust's GLSL writer honors image_load only, so the index and
 // buffer policies stay unchecked as there (Rust's [bounds_check_policies] has
 // no image_store field).
 func glslBoundsCheckPolicies(p rustBoundsCheckPolicies) glsl.BoundsCheckPolicies {
