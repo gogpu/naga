@@ -306,6 +306,12 @@ func (w *Writer) writeInterfaceStruct(
 		if isSubgroupBuiltinBinding(m.binding) {
 			continue
 		}
+		if n := w.clipDistanceCount(m); n > 0 {
+			for i, size := range clipDistanceVectors(n) {
+				fmt.Fprintf(&w.Out, "    %s %s : SV_ClipDistance%d;\n", clipDistanceType(size), w.namer.call(fmt.Sprintf("%s%d", m.name, i)), i)
+			}
+			continue
+		}
 		w.Out.WriteString("    ")
 		if m.binding != nil {
 			w.writeModifierForType(m.binding, m.ty)
@@ -983,4 +989,38 @@ func (w *Writer) writeWorkgroupZeroInit(varExpr string, typeHandle ir.TypeHandle
 		typeName := w.getTypeName(typeHandle)
 		w.WriteLine("%s = (%s)0;", varExpr, typeName)
 	}
+}
+
+// clipDistanceCount returns the length of the array<f32, N> of member m when
+// it is the clip_distances builtin, else 0.
+func (w *Writer) clipDistanceCount(m epStructMember) uint32 {
+	if m.binding == nil || int(m.ty) >= len(w.module.Types) {
+		return 0
+	}
+	if b, ok := (*m.binding).(ir.BuiltinBinding); !ok || b.Builtin != ir.BuiltinClipDistance {
+		return 0
+	}
+	if arr, ok := w.module.Types[m.ty].Inner.(ir.ArrayType); ok && arr.Size.Constant != nil {
+		return *arr.Size.Constant
+	}
+	return 0
+}
+
+// clipDistanceVectors splits n clip distances into the sizes of the vectors
+// that hold them: the first four in SV_ClipDistance0, the rest in
+// SV_ClipDistance1. Each element of an array with a semantic would take a
+// register of its own, and clip and cull distances may take two.
+func clipDistanceVectors(n uint32) []uint32 {
+	if n <= 4 {
+		return []uint32{n}
+	}
+	return []uint32{4, n - 4}
+}
+
+// clipDistanceType is the HLSL type of a vector of n clip distances.
+func clipDistanceType(n uint32) string {
+	if n == 1 {
+		return "float"
+	}
+	return fmt.Sprintf("float%d", n)
 }

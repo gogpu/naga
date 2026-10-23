@@ -879,6 +879,10 @@ func (w *Writer) writeStructReturn(s ir.StmtReturn, epOutput *entryPointBinding)
 			if memberName == "" {
 				memberName = fmt.Sprintf("member_%d", m.index)
 			}
+			if n := w.clipDistanceCount(m); n > 0 {
+				w.writeClipDistanceVectors(varName+"."+memberName, n)
+				continue
+			}
 			fmt.Fprintf(&w.Out, "%s.%s", varName, memberName)
 		}
 		w.Out.WriteString(" };\n")
@@ -888,6 +892,27 @@ func (w *Writer) writeStructReturn(s ir.StmtReturn, epOutput *entryPointBinding)
 	w.WriteIndent()
 	fmt.Fprintf(&w.Out, "return %s;\n", finalName)
 	return nil
+}
+
+// writeClipDistanceVectors writes the vectors of clipDistanceVectors from
+// the n elements of the clip distances array expr, separated by commas.
+func (w *Writer) writeClipDistanceVectors(expr string, n uint32) {
+	first := uint32(0)
+	for i, size := range clipDistanceVectors(n) {
+		if i > 0 {
+			w.Out.WriteString(", ")
+		}
+		elements := make([]string, size)
+		for j := range elements {
+			elements[j] = fmt.Sprintf("%s[%d]", expr, first+uint32(j))
+		}
+		if size == 1 {
+			w.Out.WriteString(elements[0])
+		} else {
+			fmt.Fprintf(&w.Out, "%s(%s)", clipDistanceType(size), strings.Join(elements, ", "))
+		}
+		first += size
+	}
 }
 
 // writeKillStatement writes a discard/kill statement.
