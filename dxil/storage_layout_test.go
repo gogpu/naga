@@ -1,6 +1,7 @@
 package dxil
 
 import (
+	"encoding/binary"
 	"fmt"
 	"slices"
 	"strings"
@@ -162,4 +163,26 @@ func constValue(mod *module.Module, fn *module.Function, id int) (int64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// EnableDoubleExtensions is set for the double operations DXC sets it for,
+// a division here, and not for others, a multiplication: the validator
+// refused the flag on a shader that only multiplies doubles ("Flags must
+// match usage").
+func TestDoubleExtensionsOnlyForTheirOperations(t *testing.T) {
+	for op, want := range map[string]bool{"*": false, "/": true} {
+		blob, err := Compile(lowerForTest(t, `
+@group(0) @binding(0) var<storage, read_write> s: array<f64>;
+@compute @workgroup_size(1) fn main() {
+	s[1] = s[0] `+op+` 3.0lf;
+}
+`), DefaultOptions())
+		if err != nil {
+			t.Fatal(err)
+		}
+		features := binary.LittleEndian.Uint64(dxbcParts(t, blob)["SFI0"])
+		if features&0x1 == 0 || (features&0x20 != 0) != want {
+			t.Errorf("%s: features %#x, want Doubles with DoubleExtensions %v", op, features, want)
+		}
+	}
 }

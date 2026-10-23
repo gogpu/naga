@@ -3170,6 +3170,7 @@ func (e *Emitter) emitMathTernary(mf ir.MathFunction, ol overloadType, isFloat, 
 			opc := OpFMad
 			if ol == overloadF64 {
 				opc = OpFma
+				e.doubleExtensions = true
 			}
 			opcodeVal := e.getIntConstID(int64(opc))
 			return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg, arg1, arg2}), nil
@@ -6321,6 +6322,9 @@ func (e *Emitter) emitAs(fn *ir.Function, as ir.ExprAs) (int, error) {
 
 // emitScalarCast emits a single scalar cast instruction.
 func (e *Emitter) emitScalarCast(src int, srcScalar, dstScalar ir.ScalarType, isBitcast bool) (int, error) {
+	if !isBitcast && srcScalar.Kind == ir.ScalarFloat && srcScalar.Width == 8 && isIntegerKind(dstScalar.Kind) {
+		e.doubleExtensions = true
+	}
 	// Same-type cast is a no-op (e.g., bitcast i32 to i32). Also, integer
 	// sign reinterpretation (u32 <-> i32) maps to the same DXIL type (i32)
 	// so the bitcast is a no-op. DXC never emits these.
@@ -6494,6 +6498,9 @@ func selectDXILCastOp(src, dst ir.ScalarType) (CastOpKind, error) {
 
 // addCastInstr adds a cast instruction to the current basic block.
 func (e *Emitter) addCastInstr(destTy *module.Type, op CastOpKind, src int) int {
+	if (op == CastUIToFP || op == CastSIToFP) && isDoubleType(destTy) {
+		e.doubleExtensions = true
+	}
 	valueID := e.allocValue()
 	instr := &module.Instruction{
 		Kind:       module.InstrCast,
