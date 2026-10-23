@@ -234,6 +234,12 @@ const (
 
 // BoundsCheckPolicies holds per-resource-type bounds check policies.
 type BoundsCheckPolicies struct {
+	// Index applies to indexing an array, vector or matrix that is a value
+	// or lives in function, private or workgroup memory. Restrict clamps
+	// the index to the last element; ReadZeroSkipWrite is not supported.
+	Index BoundsCheckPolicy
+	// Buffer is Index for one in a uniform or storage buffer.
+	Buffer BoundsCheckPolicy
 	// ImageLoad controls bounds checking for image load operations.
 	ImageLoad BoundsCheckPolicy
 	// ImageStore controls bounds checking for image store operations.
@@ -317,6 +323,9 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	// Apply defaults for zero values
 	if options.LangVersion.Major == 0 {
 		options.LangVersion = Version330
+	}
+	if p := options.BoundsCheckPolicies; p.Index == BoundsCheckReadZeroSkipWrite || p.Buffer == BoundsCheckReadZeroSkipWrite {
+		return "", TranslationInfo{}, fmt.Errorf("glsl: the index and buffer bounds checks support Restrict only")
 	}
 
 	// Create writer
