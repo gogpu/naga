@@ -579,61 +579,135 @@ func (w *Writer) registerNames() error {
 	return nil
 }
 
-// scanTextureSamplerPairs scans reachable functions and entry points for ExprImageSample
-// expressions to discover which texture globals are paired with which sampler globals.
-// GLSL has no separate texture/sampler types, so each pair must be emitted as a
-// single "uniform sampler2D" declaration.
+// scanTextureSamplerPairs finds which texture globals the selected entry point
+// samples with which sampler globals. GLSL has no separate texture/sampler
+// types, so each pair must be emitted as a single "uniform sampler2D"
+// declaration. A sample in a helper function whose texture or sampler is an
+// argument pairs the globals its call sites pass, as Rust naga's validator
+// tracks sampling through calls (valid/analyzer.rs, process_call).
 func (w *Writer) scanTextureSamplerPairs() {
-	// Scan regular functions (skip unreachable ones).
-	for i := range w.module.Functions {
-		if w.reachable != nil && !w.reachable.hasFunction(ir.FunctionHandle(i)) {
-			continue
-		}
-		fn := &w.module.Functions[i]
-		w.scanFunctionForPairs(fn)
+	ep := w.getSelectedEntryPoint()
+	if ep == nil {
+		return
 	}
-	// Scan entry point functions (stored inline, not in Functions[]).
-	for i := range w.module.EntryPoints {
-		ep := &w.module.EntryPoints[i]
-		if w.options.EntryPoint != "" && ep.Name != w.options.EntryPoint {
-			continue
+	for _, s := range w.functionSamplings(&ep.Function, map[ir.FunctionHandle][]sampling{}) {
+		if !s.image.argument && !s.sampler.argument {
+			w.registerTextureSamplerPair(ir.GlobalVariableHandle(s.image.index), ir.GlobalVariableHandle(s.sampler.index))
 		}
-		w.scanFunctionForPairs(&ep.Function)
 	}
 }
 
-// scanFunctionForPairs scans a single function's expressions for ExprImageSample.
-func (w *Writer) scanFunctionForPairs(fn *ir.Function) {
+// samplingOperand is the texture or the sampler of a sample: a global
+// variable, or an argument of the function that samples.
+type samplingOperand struct {
+	argument bool
+	index    uint32 // GlobalVariableHandle, or the argument index
+}
+
+// sampling is a texture sampled with a sampler.
+type sampling struct {
+	image, sampler samplingOperand
+}
+
+// functionSamplings returns the samplings of fn and of the functions it
+// calls, with the operands of a callee's samplings mapped through the call's
+// arguments. memo holds the samplings of the functions already done.
+func (w *Writer) functionSamplings(fn *ir.Function, memo map[ir.FunctionHandle][]sampling) []sampling {
+	var out []sampling
 	for _, expr := range fn.Expressions {
 		sample, ok := expr.Kind.(ir.ExprImageSample)
 		if !ok {
 			continue
 		}
-		w.registerTextureSamplerPair(fn, sample)
+		image, imageOK := samplingOperandOf(fn, sample.Image)
+		smp, samplerOK := samplingOperandOf(fn, sample.Sampler)
+		if imageOK && samplerOK {
+			out = append(out, sampling{image: image, sampler: smp})
+		}
+	}
+	forEachCall(fn.Body, func(call ir.StmtCall) {
+		if int(call.Function) >= len(w.module.Functions) {
+			return
+		}
+		callee, done := memo[call.Function]
+		if !done {
+			callee = w.functionSamplings(&w.module.Functions[call.Function], memo)
+			memo[call.Function] = callee
+		}
+		through := func(op samplingOperand) (samplingOperand, bool) {
+			if !op.argument {
+				return op, true
+			}
+			if int(op.index) >= len(call.Arguments) {
+				return samplingOperand{}, false
+			}
+			return samplingOperandOf(fn, call.Arguments[op.index])
+		}
+		for _, s := range callee {
+			image, imageOK := through(s.image)
+			smp, samplerOK := through(s.sampler)
+			if imageOK && samplerOK {
+				out = append(out, sampling{image: image, sampler: smp})
+			}
+		}
+	})
+	return out
+}
+
+// samplingOperandOf resolves a texture or sampler expression of fn to the
+// global variable or argument it is, following loads.
+func samplingOperandOf(fn *ir.Function, h ir.ExpressionHandle) (samplingOperand, bool) {
+	if int(h) >= len(fn.Expressions) {
+		return samplingOperand{}, false
+	}
+	switch k := fn.Expressions[h].Kind.(type) {
+	case ir.ExprGlobalVariable:
+		return samplingOperand{index: uint32(k.Variable)}, true
+	case ir.ExprFunctionArgument:
+		return samplingOperand{argument: true, index: k.Index}, true
+	case ir.ExprLoad:
+		return samplingOperandOf(fn, k.Pointer)
+	}
+	return samplingOperand{}, false
+}
+
+// forEachCall calls f for every call statement in block, at any depth.
+func forEachCall(block ir.Block, f func(ir.StmtCall)) {
+	for _, st := range block {
+		switch s := st.Kind.(type) {
+		case ir.StmtCall:
+			f(s)
+		case ir.StmtBlock:
+			forEachCall(s.Block, f)
+		case ir.StmtIf:
+			forEachCall(s.Accept, f)
+			forEachCall(s.Reject, f)
+		case ir.StmtLoop:
+			forEachCall(s.Body, f)
+			forEachCall(s.Continuing, f)
+		case ir.StmtSwitch:
+			for _, c := range s.Cases {
+				forEachCall(c.Body, f)
+			}
+		}
 	}
 }
 
-// registerTextureSamplerPair resolves the texture and sampler expression handles
-// back to their GlobalVariableHandles and creates a combined sampler entry.
-func (w *Writer) registerTextureSamplerPair(fn *ir.Function, sample ir.ExprImageSample) {
-	imageHandle := w.resolveGlobalVarHandle(fn, sample.Image)
-	samplerHandle := w.resolveGlobalVarHandle(fn, sample.Sampler)
-	if imageHandle == nil || samplerHandle == nil {
-		return
-	}
-
-	pairKey := combinedPairKey(*imageHandle, *samplerHandle)
+// registerTextureSamplerPair creates the combined sampler entry of a texture
+// global sampled with a sampler global.
+func (w *Writer) registerTextureSamplerPair(image, sampler ir.GlobalVariableHandle) {
+	pairKey := combinedPairKey(image, sampler)
 	if _, exists := w.combinedSamplers[pairKey]; exists {
 		return // Already registered
 	}
 
-	texName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(*imageHandle)}]
-	samplerName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(*samplerHandle)}]
+	texName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(image)}]
+	samplerName := w.names[nameKey{kind: nameKeyGlobalVariable, handle1: uint32(sampler)}]
 	combinedName := texName + "_" + samplerName
 
 	// Determine the GLSL combined sampler type from the texture's ImageType.
 	glslType := "sampler2D" // default
-	texGlobal := &w.module.GlobalVariables[*imageHandle]
+	texGlobal := &w.module.GlobalVariables[image]
 	if int(texGlobal.Type) < len(w.module.Types) {
 		if imgType, ok := w.module.Types[texGlobal.Type].Inner.(ir.ImageType); ok {
 			glslType = w.imageToGLSL(imgType)
@@ -642,8 +716,8 @@ func (w *Writer) registerTextureSamplerPair(fn *ir.Function, sample ir.ExprImage
 
 	info := &combinedSamplerInfo{
 		glslName:      combinedName,
-		textureHandle: *imageHandle,
-		samplerHandle: *samplerHandle,
+		textureHandle: image,
+		samplerHandle: sampler,
 		glslTypeName:  glslType,
 		binding:       texGlobal.Binding,
 	}
@@ -651,7 +725,7 @@ func (w *Writer) registerTextureSamplerPair(fn *ir.Function, sample ir.ExprImage
 	w.combinedSamplers[pairKey] = info
 	// Only mark the sampler as combined (skipped in writeGlobalVariables).
 	// The texture global stays visible so the combined declaration is emitted in-place.
-	w.globalIsCombined[*samplerHandle] = true
+	w.globalIsCombined[sampler] = true
 }
 
 // resolveGlobalVarHandle traces an expression handle back to its GlobalVariableHandle.
