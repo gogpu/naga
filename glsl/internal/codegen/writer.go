@@ -62,6 +62,12 @@ type Writer struct {
 	// into a combined sampler and should be skipped in writeGlobalVariables.
 	globalIsCombined map[ir.GlobalVariableHandle]bool
 
+	// plainDepth and plainDepthArgs hold, for the depth texture globals and
+	// function arguments, whether they are declared as the sampler of a
+	// float texture rather than a shadow sampler (scanDepthTextures).
+	plainDepth     map[ir.GlobalVariableHandle]bool
+	plainDepthArgs map[depthArg]bool
+
 	// Function context (set during function writing)
 	currentFunction   *ir.Function
 	currentFuncHandle ir.FunctionHandle
@@ -325,6 +331,9 @@ func (w *Writer) writeModule() error {
 	}
 
 	// 3b. Scan for texture-sampler pairs (WGSL separate → GLSL combined)
+	if err := w.scanDepthTextures(); err != nil {
+		return err
+	}
 	if err := w.scanTextureSamplerPairs(); err != nil {
 		return err
 	}
@@ -724,7 +733,7 @@ func (w *Writer) registerTextureSamplerPair(image, sampler ir.GlobalVariableHand
 	texGlobal := &w.module.GlobalVariables[image]
 	if int(texGlobal.Type) < len(w.module.Types) {
 		if imgType, ok := w.module.Types[texGlobal.Type].Inner.(ir.ImageType); ok {
-			glslType = w.imageToGLSL(imgType)
+			glslType = w.depthImageTypeName(imgType, w.plainDepth[image])
 		}
 	}
 
@@ -1080,7 +1089,7 @@ func (w *Writer) writeGlobalVariables() error {
 		default:
 			// Handle texture/sampler globals — textures need "uniform", samplers are skipped
 			if int(global.Type) < len(w.module.Types) {
-				switch w.module.Types[global.Type].Inner.(type) {
+				switch img := w.module.Types[global.Type].Inner.(type) {
 				case ir.SamplerType:
 					continue // GLSL has no standalone samplers
 				case ir.ImageType:
@@ -1088,7 +1097,7 @@ func (w *Writer) writeGlobalVariables() error {
 					if info, hasCombined := textureToCombined[ir.GlobalVariableHandle(handle)]; hasCombined {
 						w.writeCombinedSamplerDecl(info)
 					} else {
-						w.writeImageGlobalDecl(global, name, typeName)
+						w.writeImageGlobalDecl(global, name, w.depthImageTypeName(img, w.plainDepth[ir.GlobalVariableHandle(handle)]))
 					}
 				default:
 					w.WriteLine("%s %s;", typeName, name)
@@ -2001,6 +2010,11 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 		}
 
 		baseType := w.getBaseTypeName(argType)
+		if int(argType) < len(w.module.Types) {
+			if img, ok := w.module.Types[argType].Inner.(ir.ImageType); ok {
+				baseType = w.depthImageTypeName(img, w.plainDepthArgs[depthArg{function: handle, index: uint32(argIdx)}])
+			}
+		}
 		arraySuffix := w.getArraySuffix(argType)
 		args = append(args, fmt.Sprintf("%s%s%s %s%s", qualifier, precision, baseType, argName, arraySuffix))
 	}
