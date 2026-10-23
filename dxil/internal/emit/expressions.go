@@ -1224,6 +1224,30 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 		return e.emitZeroValueElement(zv, acc)
 	}
 
+	// A run-time index into an array, matrix or vector value picks an
+	// element, a column or a component by a select over the index.
+	if comps, ok := e.exprComponents[acc.Base]; ok {
+		var count int
+		var elem ir.TypeInner
+		switch t := e.resolveExprTypeInner(fn, acc.Base).(type) {
+		case ir.ArrayType:
+			if t.Size.Constant != nil {
+				count, elem = int(*t.Size.Constant), e.ir.Types[t.Base].Inner
+			}
+		case ir.VectorType:
+			count, elem = int(t.Size), t.Scalar
+		case ir.MatrixType:
+			count, elem = int(t.Columns), ir.VectorType{Size: t.Rows, Scalar: t.Scalar}
+		}
+		if count > 0 && len(comps) == count*cbvComponentCount(e.ir, elem) {
+			picked := e.selectElement(indexID, comps, count, elem)
+			if len(picked) > 1 {
+				e.pendingComponents = picked
+			}
+			return picked[0], nil
+		}
+	}
+
 	// If the base is a Compose array with known elements, and all elements
 	// are identical, return the first element directly (common pattern for
 	// constant arrays accessed dynamically).
@@ -1237,26 +1261,6 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 	// with proper scalarized size for dynamic GEP access.
 	if arrTy := e.resolveExprArrayType(fn, acc.Base); arrTy != nil {
 		return e.emitTempAllocaAccess(fn, baseID, indexID, *arrTy)
-	}
-
-	// A run-time index into a vector or matrix value picks a component or
-	// a column by a select over the index.
-	if comps, ok := e.exprComponents[acc.Base]; ok {
-		var count int
-		var elem ir.TypeInner
-		switch t := e.resolveExprTypeInner(fn, acc.Base).(type) {
-		case ir.VectorType:
-			count, elem = int(t.Size), t.Scalar
-		case ir.MatrixType:
-			count, elem = int(t.Columns), ir.VectorType{Size: t.Rows, Scalar: t.Scalar}
-		}
-		if count > 0 && len(comps) == count*cbvComponentCount(e.ir, elem) {
-			picked := e.selectElement(indexID, comps, count, elem)
-			if len(picked) > 1 {
-				e.pendingComponents = picked
-			}
-			return picked[0], nil
-		}
 	}
 
 	// Fallback: return the base value (for cases handled by UAV pointer chain upstream).
