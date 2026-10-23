@@ -626,6 +626,14 @@ func TestCompile_AllowAndForcePointSize(t *testing.T) {
 	}
 
 	mustContainMSL(t, result, "[[point_size]]")
+
+	// The per-pipeline option asks for the same, as in Rust naga, where it
+	// is the only one.
+	result, _, err = CompileWithPipeline(module, DefaultOptions(), PipelineOptions{AllowAndForcePointSize: true})
+	if err != nil {
+		t.Fatalf("CompileWithPipeline failed: %v", err)
+	}
+	mustContainMSL(t, result, "[[point_size]]")
 }
 
 func TestCompile_DualSourceBlending(t *testing.T) {

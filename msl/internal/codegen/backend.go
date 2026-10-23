@@ -369,6 +369,7 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 	if options.LangVersion.Major == 0 {
 		options.LangVersion = Version2_1
 	}
+	options.AllowAndForcePointSize = options.AllowAndForcePointSize || pipeline.AllowAndForcePointSize
 
 	// Overrides must have been replaced by naga.ProcessOverrides.
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
