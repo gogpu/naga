@@ -25,6 +25,7 @@ func TestParseVertexFormat(t *testing.T) {
 		{"sint32x4", msl.VertexFormatSint32x4},
 		{"unorm10-10-10-2", msl.VertexFormatUnorm10_10_10_2},
 		{"unorm8x4-bgra", msl.VertexFormatUnorm8x4Bgra},
+		{"snorm10-10-10-2", msl.VertexFormatSnorm10_10_10_2},
 	} {
 		got, err := parseVertexFormat(tc.name)
 		if err != nil || got != tc.want {
@@ -35,7 +36,6 @@ func TestParseVertexFormat(t *testing.T) {
 	for _, tc := range []struct{ name, errContains string }{
 		{"Uint8x2", "unknown vertex format"}, // pre-14328f49 spelling, not Rust's
 		{"float", "unknown vertex format"},
-		{"snorm10-10-10-2", "not supported by the msl package"},
 		{"float64x2", "not supported by the msl package"},
 	} {
 		_, err := parseVertexFormat(tc.name)

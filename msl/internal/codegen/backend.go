@@ -293,6 +293,7 @@ const (
 	VertexFormatSint32x4        VertexFormat = 38
 	VertexFormatUnorm10_10_10_2 VertexFormat = 43
 	VertexFormatUnorm8x4Bgra    VertexFormat = 44
+	VertexFormatSnorm10_10_10_2 VertexFormat = 45
 )
 
 // VertexBufferStepMode defines how to advance the data in vertex buffers.
@@ -368,6 +369,7 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 	if options.LangVersion.Major == 0 {
 		options.LangVersion = Version2_1
 	}
+	options.AllowAndForcePointSize = options.AllowAndForcePointSize || pipeline.AllowAndForcePointSize
 
 	// Overrides must have been replaced by naga.ProcessOverrides.
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {

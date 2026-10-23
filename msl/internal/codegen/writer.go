@@ -307,6 +307,7 @@ type vptUnpackFunc struct {
 	name      string
 	byteCount uint32
 	dimension uint32
+	scalar    ir.ScalarType
 }
 
 // vptBufferMappingResolved holds resolved names for a vertex buffer mapping.
@@ -325,6 +326,7 @@ type vptAttributeResolved struct {
 	tyName    string
 	dimension uint32
 	tyIsInt   bool
+	scalar    ir.ScalarType
 	name      string
 }
 

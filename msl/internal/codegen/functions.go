@@ -566,6 +566,10 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	}
 	returnType, returnAttr := resolveReturnSignature()
 
+	if ep.Stage == ir.StageCompute && !w.options.LangVersion.Less(Version2_1) {
+		w.write("[[max_total_threads_per_threadgroup(%d)]] ", ep.Workgroup[0]*ep.Workgroup[1]*ep.Workgroup[2])
+	}
+
 	// Function signature — Rust naga format:
 	// First param: "\n  param", subsequent: "\n, param"
 	w.write("%s %s %s(", stageKeyword, returnType, epName)
@@ -697,6 +701,9 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// This assigns sequential per-type indices across all bind groups,
 	// preventing collisions when multiple groups share binding numbers.
 	w.computeResourceMap(ep.Name)
+	if err := w.checkBindTargets(ep, epUsedGlobals); err != nil {
+		return err
+	}
 
 	// Global variable parameters — emitted in declaration order (matching Rust naga).
 	// This includes both resource bindings (device/constant with [[buffer]]/[[texture]])
@@ -1597,6 +1604,60 @@ func (w *Writer) computeResourceMap(epName string) {
 	}
 
 	w.currentResourceMap = resMap
+}
+
+// checkBindTargets reports, as Rust naga does, a resource the entry point
+// uses that its PerEntryPointMap entry lacks or holds as another kind of
+// resource, and a sizes or immediates buffer the entry point needs that the
+// entry doesn't place. An entry point without an entry has its resources
+// numbered automatically, and FakeMissingBindings writes placeholders.
+func (w *Writer) checkBindTargets(ep *ir.EntryPoint, used map[uint32]struct{}) error {
+	epRes, mapped := w.options.PerEntryPointMap[ep.Name]
+	if !mapped || w.options.FakeMissingBindings {
+		return nil
+	}
+	needsSizes := w.doVertexPulling(ep)
+	for h := range w.module.GlobalVariables {
+		if _, ok := used[uint32(h)]; !ok {
+			continue
+		}
+		global := &w.module.GlobalVariables[h]
+		needsSizes = needsSizes || w.needsArrayLength(global.Type)
+		switch global.Space {
+		case ir.SpaceUniform, ir.SpaceStorage, ir.SpaceHandle:
+		case ir.SpaceImmediate:
+			if epRes.ImmediatesBuffer == nil {
+				return fmt.Errorf("msl: entry point %q has no immediates buffer", ep.Name)
+			}
+			continue
+		default:
+			continue
+		}
+		if global.Binding == nil {
+			return fmt.Errorf("msl: entry point %q uses %s, which has no binding", ep.Name, global.Name)
+		}
+		target, ok := epRes.Resources[*global.Binding]
+		switch t := w.module.Types[global.Type].Inner.(type) {
+		case ir.ImageType:
+			if t.Class == ir.ImageClassExternal {
+				ok = ok && target.ExternalTexture != nil
+			} else {
+				ok = ok && target.Texture != nil
+			}
+		case ir.SamplerType:
+			ok = ok && target.Sampler != nil
+		default:
+			ok = ok && target.Buffer != nil
+		}
+		if !ok {
+			return fmt.Errorf("msl: entry point %q has no bind target for %s at @group(%d) @binding(%d)",
+				ep.Name, global.Name, global.Binding.Group, global.Binding.Binding)
+		}
+	}
+	if needsSizes && epRes.SizesBuffer == nil {
+		return fmt.Errorf("msl: entry point %q has no sizes buffer", ep.Name)
+	}
+	return nil
 }
 
 // bindTargetIndex returns the Metal binding index from a BindTarget slot pointer.

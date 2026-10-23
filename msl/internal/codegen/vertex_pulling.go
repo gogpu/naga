@@ -64,6 +64,7 @@ func (w *Writer) initVertexPulling() {
 					name:      name,
 					byteCount: byteCount,
 					dimension: dimension,
+					scalar:    vptFormatScalar(attr.Format),
 				}
 			}
 		}
@@ -274,6 +275,11 @@ func (w *Writer) writeUnpackingFunction(format VertexFormat) (string, uint32, ui
 		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
 		w.Out.WriteString("    return metal::unpack_unorm10a2_to_float(b3 << 24 | b2 << 16 | b1 << 8 | b0);\n}\n")
 		return name, 4, 4
+	case VertexFormatSnorm10_10_10_2:
+		name := w.namer.call("unpackSnorm10_10_10_2")
+		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(uint b0, uint b1, uint b2, uint b3) {\n", name))
+		w.Out.WriteString("    uint v = (b3 << 24 | b2 << 16 | b1 << 8 | b0); return metal::max(metal::float4(float(as_type<int>(v << 22) >> 22) / 511.0f, float(as_type<int>(v << 12) >> 22) / 511.0f, float(as_type<int>(v << 2) >> 22) / 511.0f, float(as_type<int>(v) >> 30)), metal::float4(-1.0f));\n}\n")
+		return name, 4, 4
 	case VertexFormatUnorm8x4Bgra:
 		name := w.namer.call("unpackUnorm8x4Bgra")
 		w.Out.WriteString(fmt.Sprintf("metal::float4 %s(metal::uchar b0, metal::uchar b1, metal::uchar b2, metal::uchar b3) {\n", name))
@@ -296,6 +302,36 @@ func (w *Writer) vptVertexInputDimension(tyHandle ir.TypeHandle) uint32 {
 		return uint32(inner.Size)
 	}
 	return 1
+}
+
+// vptFormatScalar returns the scalar type of the value the unpacking function
+// of format returns: u32 for the uint formats, i32 for the sint formats, f32
+// for the others.
+func vptFormatScalar(format VertexFormat) ir.ScalarType {
+	switch format {
+	case VertexFormatUint8, VertexFormatUint8x2, VertexFormatUint8x4,
+		VertexFormatUint16, VertexFormatUint16x2, VertexFormatUint16x4,
+		VertexFormatUint32, VertexFormatUint32x2, VertexFormatUint32x3, VertexFormatUint32x4:
+		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
+	case VertexFormatSint8, VertexFormatSint8x2, VertexFormatSint8x4,
+		VertexFormatSint16, VertexFormatSint16x2, VertexFormatSint16x4,
+		VertexFormatSint32, VertexFormatSint32x2, VertexFormatSint32x3, VertexFormatSint32x4:
+		return ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
+	}
+	return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+}
+
+// vptScalar returns the scalar type of a scalar or vector type.
+func (w *Writer) vptScalar(tyHandle ir.TypeHandle) ir.ScalarType {
+	if int(tyHandle) < len(w.module.Types) {
+		switch inner := w.module.Types[tyHandle].Inner.(type) {
+		case ir.ScalarType:
+			return inner
+		case ir.VectorType:
+			return inner.Scalar
+		}
+	}
+	return ir.ScalarType{}
 }
 
 // vptTypeIsInt returns true if the scalar type of tyHandle is integer (signed, unsigned, bool).
@@ -409,6 +445,8 @@ func vptFormatDebugName(format VertexFormat) string {
 		return "Unorm10_10_10_2"
 	case VertexFormatUnorm8x4Bgra:
 		return "Unorm8x4Bgra"
+	case VertexFormatSnorm10_10_10_2:
+		return "Snorm10_10_10_2"
 	}
 	return "Unknown"
 }
@@ -430,38 +468,31 @@ func (w *Writer) vptBufferSizeMembers() []uint32 {
 // writeVPTEntryPointInputStruct handles the input struct for a VPT-enabled entry point.
 // Instead of emitting a stage_in struct, it builds the attribute mapping (am_resolved)
 // that will be used later to emit zero-init + bounds-check + unpacking code.
+// A location argument of the entry point is unpacked into a local with the
+// argument's own name, which the body reads; the location members of a struct
+// argument get fresh names, from which the struct is rebuilt.
 // Returns the am_resolved map.
 // Matches Rust naga writer.rs ~6818-6862.
 func (w *Writer) writeVPTEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir.Function) map[uint32]vptAttributeResolved {
 	amResolved := make(map[uint32]vptAttributeResolved)
+	attribute := func(location uint32, ty ir.TypeHandle, name string) {
+		amResolved[location] = vptAttributeResolved{
+			tyName:    w.writeTypeName(ty, StorageAccess(0)),
+			dimension: w.vptVertexInputDimension(ty),
+			tyIsInt:   w.vptTypeIsInt(ty),
+			scalar:    w.vptScalar(ty),
+			name:      name,
+		}
+	}
 
-	epName := w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})
-	// Must call namer.call for Input name even though we won't emit the struct.
-	_ = w.namer.call(epName + "Input")
-
-	// Flatten arguments and find location-bound members.
-	for _, arg := range fn.Arguments {
+	for argIdx, arg := range fn.Arguments {
 		if arg.Binding != nil {
-			// Direct argument — skip non-location bindings
 			if loc, ok := (*arg.Binding).(ir.LocationBinding); ok {
-				// This shouldn't happen for VPT (struct args are typical), but handle it
-				tyName := w.writeTypeName(arg.Type, StorageAccess(0))
-				dim := w.vptVertexInputDimension(arg.Type)
-				isInt := w.vptTypeIsInt(arg.Type)
-				// For direct args, we need to generate a name via namer
-				argKey := nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(0)}
-				name := w.getName(argKey)
-				freshName := w.namer.call(name)
-				amResolved[loc.Location] = vptAttributeResolved{
-					tyName:    tyName,
-					dimension: dim,
-					tyIsInt:   isInt,
-					name:      freshName,
-				}
+				argKey := nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(argIdx)}
+				attribute(loc.Location, arg.Type, w.getName(argKey))
 			}
 			continue
 		}
-		// Struct argument — flatten members
 		if int(arg.Type) >= len(w.module.Types) {
 			continue
 		}
@@ -471,30 +502,20 @@ func (w *Writer) writeVPTEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn 
 		}
 		for memberIdx, member := range st.Members {
 			key := nameKey{kind: nameKeyStructMember, handle1: uint32(arg.Type), handle2: uint32(memberIdx)}
-			baseName := w.getName(key)
-
-			if member.Binding != nil {
-				if loc, ok := (*member.Binding).(ir.LocationBinding); ok {
-					// Location member — use namer.call (not varyings namer) for VPT
-					freshName := w.namer.call(baseName)
-					w.flattenedMemberNames[key] = freshName
-					tyName := w.writeTypeName(member.Type, StorageAccess(0))
-					dim := w.vptVertexInputDimension(member.Type)
-					isInt := w.vptTypeIsInt(member.Type)
-					amResolved[loc.Location] = vptAttributeResolved{
-						tyName:    tyName,
-						dimension: dim,
-						tyIsInt:   isInt,
-						name:      freshName,
-					}
-				} else {
-					// Builtin member
-					freshName := w.namer.call(baseName)
-					w.flattenedMemberNames[key] = freshName
-				}
+			freshName := w.namer.call(w.getName(key))
+			w.flattenedMemberNames[key] = freshName
+			if member.Binding == nil {
+				continue
+			}
+			if loc, ok := (*member.Binding).(ir.LocationBinding); ok {
+				attribute(loc.Location, member.Type, freshName)
 			}
 		}
 	}
+
+	// The struct is not written, but the name is taken as in Rust naga.
+	epName := w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})
+	_ = w.namer.call(epName + "Input")
 
 	return amResolved
 }
@@ -600,11 +621,25 @@ func (w *Writer) writeVPTBodyPrologue(amResolved map[uint32]vptAttributeResolved
 				sb.WriteString(fmt.Sprintf("%s(", am.tyName))
 			}
 
+			// The unpacking functions return 32-bit values; an attribute of
+			// another scalar type, such as f16, takes a conversion.
+			needsConversion := am.scalar != unpackFunc.scalar
+			if needsConversion {
+				if unpackFunc.dimension > 1 {
+					sb.WriteString(fmt.Sprintf("%s%s%d(", Namespace, scalarTypeName(am.scalar), unpackFunc.dimension))
+				} else {
+					sb.WriteString(fmt.Sprintf("%s(", scalarTypeName(am.scalar)))
+				}
+			}
+
 			sb.WriteString(fmt.Sprintf("%s(%s.data[%d]", unpackFunc.name, vbm.elemName, attr.Offset))
 			for i := attr.Offset + 1; i < attr.Offset+unpackFunc.byteCount; i++ {
 				sb.WriteString(fmt.Sprintf(", %s.data[%d]", vbm.elemName, i))
 			}
 			sb.WriteString(")")
+			if needsConversion {
+				sb.WriteString(")")
+			}
 
 			switch {
 			case needsPaddingOrTruncation > 0:

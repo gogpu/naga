@@ -204,6 +204,10 @@ type Options struct {
 	// slots. These slots depend on which globals the module has, so
 	// naga.ProcessOverrides with an EntryPoint, which removes unused globals,
 	// can move them. Pass a map for stable slots (Rust naga requires one).
+	// The entry of an entry point must give every resource it uses a slot of
+	// its kind, and the sizes and immediates buffers it needs, or Compile
+	// fails, unless FakeMissingBindings is set. An entry point the map has
+	// no entry for gets the automatic slots.
 	PerEntryPointMap map[string]EntryPointResources
 
 	// InlineSamplers defines constexpr samplers to be inlined into the code.
@@ -279,6 +283,7 @@ const (
 	VertexFormatSint32x4        VertexFormat = 38
 	VertexFormatUnorm10_10_10_2 VertexFormat = 43
 	VertexFormatUnorm8x4Bgra    VertexFormat = 44
+	VertexFormatSnorm10_10_10_2 VertexFormat = 45
 )
 
 // VertexBufferStepMode defines how to advance the data in vertex buffers.
