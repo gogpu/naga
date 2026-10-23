@@ -22,7 +22,6 @@ var upstreamChanges = map[string]string{
 	"56e4a389": "[spv-out] ray tracing pipelines (#9085)",
 	"6604345c": "fix(naga msl-out): Fix invalid MSL when vertex data and shader type are both f16 (#9166)",
 	"6bca1014": "Various SPIR-V fixes for mesh shaders (#8756)",
-	"74827c41": "[[max_total_threads_per_threadgroup]] MSL attribute (#9327)",
 	"7721a3e0": "[spv-out] handle rayQueryTerminate correctly (#8581)",
 	"786b8b11": "[hlsl] handle matCx2<f16> in the uniform address space properly",
 	"948b1a6c": "Remove unnecessary object data threadgroup barriers in MSL writer (#9396)",
