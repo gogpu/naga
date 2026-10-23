@@ -1,106 +1,107 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 59
+; Bound: 60
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_51 "main"
-               OpExecutionMode %_51 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_52 "main"
+               OpExecutionMode %_52 LocalSize 1 1 1
          %_2 = OpTypeVoid
          %_3 = OpTypeInt 32 1
          %_4 = OpTypeInt 32 0
          %_5 = OpTypeFunction %_3 %_3
          %_9 = OpTypePointer Function %_3
-         %_19 = OpConstant %_3 0
-         %_20 = OpConstant %_3 1
-         %_21 = OpConstant %_3 2
-         %_22 = OpConstant %_3 4294967295
-         %_24 = OpTypeFunction %_4 %_4
-         %_32 = OpConstant %_4 100
-         %_33 = OpConstant %_4 200
-         %_34 = OpConstant %_4 0
-         %_35 = OpTypeFunction %_3 %_3 %_3
-         %_47 = OpConstant %_3 110
-         %_48 = OpConstant %_3 100
-         %_50 = OpTypeFunction %_2
-         %_53 = OpConstant %_3 3
-         %_55 = OpConstant %_4 1
-         %_57 = OpConstant %_3 10
+         %_11 = OpConstantNull %_3
+         %_20 = OpConstant %_3 0
+         %_21 = OpConstant %_3 1
+         %_22 = OpConstant %_3 2
+         %_23 = OpConstant %_3 4294967295
+         %_25 = OpTypeFunction %_4 %_4
+         %_33 = OpConstant %_4 100
+         %_34 = OpConstant %_4 200
+         %_35 = OpConstant %_4 0
+         %_36 = OpTypeFunction %_3 %_3 %_3
+         %_48 = OpConstant %_3 110
+         %_49 = OpConstant %_3 100
+         %_51 = OpTypeFunction %_2
+         %_54 = OpConstant %_3 3
+         %_56 = OpConstant %_4 1
+         %_58 = OpConstant %_3 10
          %_6 = OpFunction %_3 None %_5
          %_7 = OpFunctionParameter %_3
          %_8 = OpLabel
-         %_10 = OpVariable %_9 Function
-               OpSelectionMerge %_11 0
-               OpSwitch %_7 %_18 0 %_12 1 %_13 2 %_14 3 %_15 4 %_16 5 %_17
-         %_12 = OpLabel
-               OpStore %_10 %_19
-               OpBranch %_11
+         %_10 = OpVariable %_9 Function %_11
+               OpSelectionMerge %_12 0
+               OpSwitch %_7 %_19 0 %_13 1 %_14 2 %_15 3 %_16 4 %_17 5 %_18
          %_13 = OpLabel
-               OpBranch %_14
-         %_14 = OpLabel
                OpStore %_10 %_20
-               OpBranch %_11
+               OpBranch %_12
+         %_14 = OpLabel
+               OpBranch %_15
          %_15 = OpLabel
-               OpBranch %_16
+               OpStore %_10 %_21
+               OpBranch %_12
          %_16 = OpLabel
                OpBranch %_17
          %_17 = OpLabel
-               OpStore %_10 %_21
-               OpBranch %_11
+               OpBranch %_18
          %_18 = OpLabel
                OpStore %_10 %_22
-               OpBranch %_11
-         %_11 = OpLabel
-         %_23 = OpLoad %_3 %_10
-               OpReturnValue %_23
+               OpBranch %_12
+         %_19 = OpLabel
+               OpStore %_10 %_23
+               OpBranch %_12
+         %_12 = OpLabel
+         %_24 = OpLoad %_3 %_10
+               OpReturnValue %_24
                OpFunctionEnd
-         %_25 = OpFunction %_4 None %_24
-         %_26 = OpFunctionParameter %_4
-         %_27 = OpLabel
-               OpSelectionMerge %_28 0
-               OpSwitch %_26 %_31 0 %_29 1 %_30
-         %_29 = OpLabel
-               OpReturnValue %_32
+         %_26 = OpFunction %_4 None %_25
+         %_27 = OpFunctionParameter %_4
+         %_28 = OpLabel
+               OpSelectionMerge %_29 0
+               OpSwitch %_27 %_32 0 %_30 1 %_31
          %_30 = OpLabel
                OpReturnValue %_33
          %_31 = OpLabel
                OpReturnValue %_34
-         %_28 = OpLabel
+         %_32 = OpLabel
+               OpReturnValue %_35
+         %_29 = OpLabel
                OpUnreachable
                OpFunctionEnd
-         %_36 = OpFunction %_3 None %_35
-         %_37 = OpFunctionParameter %_3
+         %_37 = OpFunction %_3 None %_36
          %_38 = OpFunctionParameter %_3
-         %_39 = OpLabel
-         %_40 = OpVariable %_9 Function
-               OpStore %_40 %_19
-               OpSelectionMerge %_41 0
-               OpSwitch %_37 %_43 1 %_42
-         %_42 = OpLabel
-               OpSelectionMerge %_44 0
-               OpSwitch %_38 %_46 10 %_45
-         %_45 = OpLabel
-               OpStore %_40 %_47
-               OpBranch %_44
-         %_46 = OpLabel
-               OpStore %_40 %_48
-               OpBranch %_44
-         %_44 = OpLabel
-               OpBranch %_41
+         %_39 = OpFunctionParameter %_3
+         %_40 = OpLabel
+         %_41 = OpVariable %_9 Function
+               OpStore %_41 %_20
+               OpSelectionMerge %_42 0
+               OpSwitch %_38 %_44 1 %_43
          %_43 = OpLabel
-               OpStore %_40 %_19
-               OpBranch %_41
-         %_41 = OpLabel
-         %_49 = OpLoad %_3 %_40
-               OpReturnValue %_49
+               OpSelectionMerge %_45 0
+               OpSwitch %_39 %_47 10 %_46
+         %_46 = OpLabel
+               OpStore %_41 %_48
+               OpBranch %_45
+         %_47 = OpLabel
+               OpStore %_41 %_49
+               OpBranch %_45
+         %_45 = OpLabel
+               OpBranch %_42
+         %_44 = OpLabel
+               OpStore %_41 %_20
+               OpBranch %_42
+         %_42 = OpLabel
+         %_50 = OpLoad %_3 %_41
+               OpReturnValue %_50
                OpFunctionEnd
-         %_51 = OpFunction %_2 None %_50
-         %_52 = OpLabel
-         %_54 = OpFunctionCall %_3 %_6 %_53
-         %_56 = OpFunctionCall %_4 %_25 %_55
-         %_58 = OpFunctionCall %_3 %_36 %_20 %_57
+         %_52 = OpFunction %_2 None %_51
+         %_53 = OpLabel
+         %_55 = OpFunctionCall %_3 %_6 %_54
+         %_57 = OpFunctionCall %_4 %_26 %_56
+         %_59 = OpFunctionCall %_3 %_37 %_21 %_58
                OpReturn
                OpFunctionEnd

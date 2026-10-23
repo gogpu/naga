@@ -340,6 +340,67 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 	}
 }
 
+// TestVarWithoutInitializerIsZeroed: WGSL gives a function or private
+// variable declared without an initializer the zero value of its type. A bare
+// OpVariable starts undefined, and drivers fold that into whatever the
+// variable is assigned on another path, so each gets an OpConstantNull
+// initializer, as Rust naga writes it.
+func TestVarWithoutInitializerIsZeroed(t *testing.T) {
+	const shader = `
+@group(0) @binding(0) var<storage, read_write> d: array<u32>;
+var<private> p: u32;
+var<private> pa: array<u32, 4>;
+
+@compute @workgroup_size(1)
+fn main() {
+    var x: u32;
+    var v: vec4<u32>;
+    if d[0] == 12345u {
+        x = 77u;
+        v = vec4(55u);
+        p = 99u;
+        pa[d[1]] = 44u;
+    }
+    d[2] = x + v.y + p + pa[3];
+}
+`
+	instrs := decodeSPIRVInstructions(compileWGSLToSPIRV(t, "VarWithoutInitializer", shader))
+	names := collectNames(instrs)
+	nulls := map[uint32]bool{}
+	for _, inst := range instrs {
+		if inst.opcode == OpConstantNull {
+			nulls[inst.words[2]] = true
+		}
+	}
+	zeroed := func(inst spirvInstruction) bool { return inst.wordCount > 4 && nulls[inst.words[4]] }
+	locals := map[string]bool{}
+	privates := 0
+	for _, inst := range instrs {
+		if inst.opcode != OpVariable {
+			continue
+		}
+		switch StorageClass(inst.words[3]) {
+		case StorageClassFunction:
+			locals[names[inst.words[2]]] = zeroed(inst)
+		case StorageClassPrivate:
+			privates++
+			if !zeroed(inst) {
+				t.Errorf("private variable %%%d has no OpConstantNull initializer", inst.words[2])
+			}
+		}
+	}
+	if privates != 2 {
+		t.Errorf("found %d private variables, want 2 (p, pa)", privates)
+	}
+	for _, name := range []string{"x", "v"} {
+		if z, ok := locals[name]; !ok {
+			t.Errorf("local %s not found", name)
+		} else if !z {
+			t.Errorf("local %s has no OpConstantNull initializer", name)
+		}
+	}
+}
+
 // --- Helper functions ---
 
 // collectNames builds an ID-to-name map from OpName instructions.
