@@ -162,6 +162,10 @@ type Backend struct {
 	// Set of struct type handles whose global variables use Uniform address space.
 	// Used to apply std140 MatrixStride rules (column stride >= 16 for f32).
 	uniformStructTypes map[ir.TypeHandle]bool
+
+	// OpConstantNull per SPIR-V type ID, the zero initializer of function
+	// and private variables (constantNull).
+	nullConstantIDs map[uint32]uint32
 }
 
 // wrappedBinaryOp is the dedup key for wrapped binary operation functions.
@@ -202,6 +206,7 @@ func NewBackend(options Options) *Backend {
 		sampleMaskVars:      make(map[uint32]bool, 2),
 		rayQueryFuncIDs:     make(map[rayQueryFuncKind]uint32, 6),
 		uniformStructTypes:  make(map[ir.TypeHandle]bool, 4),
+		nullConstantIDs:     make(map[uint32]uint32, 4),
 	}
 }
 
@@ -243,6 +248,7 @@ func (b *Backend) Reset() {
 	clear(b.sampleMaskVars)
 	clear(b.rayQueryFuncIDs)
 	clear(b.uniformStructTypes)
+	clear(b.nullConstantIDs)
 
 	// Reset scalar IDs
 	b.glslExtID = 0
@@ -1504,6 +1510,19 @@ func (b *Backend) globalVarInitID(global *ir.GlobalVariable) (uint32, bool, erro
 	return id, true, nil
 }
 
+// constantNull returns the OpConstantNull of a type, written once per type.
+// A function or private variable declared without an initializer starts as
+// the zero value of its type (WGSL "var Declarations"), so it gets this as
+// its OpVariable initializer, as Rust naga's writer does.
+func (b *Backend) constantNull(typeID uint32) uint32 {
+	if id, ok := b.nullConstantIDs[typeID]; ok {
+		return id
+	}
+	id := b.builder.AddConstantNull(typeID)
+	b.nullConstantIDs[typeID] = id
+	return id
+}
+
 // emitConstants emits all IR constants to SPIR-V.
 func (b *Backend) emitConstants() error {
 	for handle := range b.module.Constants {
@@ -1812,6 +1831,9 @@ func (b *Backend) emitGlobals() error {
 		initID, hasInit, err := b.globalVarInitID(&global)
 		if err != nil {
 			return err
+		}
+		if !hasInit && global.Space == ir.SpacePrivate && global.Init == nil && global.InitExpr == nil {
+			initID, hasInit = b.constantNull(varType), true
 		}
 		if hasInit {
 			varID = b.builder.AddVariableWithInit(ptrType, storageClass, initID)
@@ -3222,6 +3244,10 @@ func (b *Backend) emitFunctionImpl(fn *ir.Function, isEntryPoint bool, handle ir
 		ib.AddWord(ptrType)
 		ib.AddWord(varID)
 		ib.AddWord(uint32(StorageClassFunction))
+		_, isRayQuery := b.module.Types[localVar.Type].Inner.(ir.RayQueryType)
+		if localVar.Init == nil && !isRayQuery {
+			ib.AddWord(b.constantNull(varType))
+		}
 		fb.Variables = append(fb.Variables, ib.Build(OpVariable))
 
 		localVarIDs[i] = varID
