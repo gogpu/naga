@@ -689,24 +689,35 @@ func (e *Emitter) emitImageSample(fn *ir.Function, sample ir.ExprImageSample) (i
 		}
 	}
 
-	// Extract 4 components from the result and store as pending components.
+	// A depth texture samples to a scalar, unless gathered.
+	scalar := sample.Gather == nil && (sample.DepthRef != nil || imgType.Class == ir.ImageClassDepth)
+	return e.extractResRet(ol, retID, scalar), nil
+}
+
+// extractResRet extracts the four components of a texture sample or load
+// result as the components of its expression, or only the first when the
+// expression is a scalar.
+func (e *Emitter) extractResRet(ol overloadType, retID int, scalar bool) int {
+	n := 4
+	if scalar {
+		n = 1
+	}
 	scalarTy := e.overloadReturnType(ol)
-	comps := make([]int, 4)
-	for i := 0; i < 4; i++ {
-		extractID := e.allocValue()
-		instr := &module.Instruction{
+	comps := make([]int, n)
+	for i := range comps {
+		comps[i] = e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
 			Kind:       module.InstrExtractVal,
 			HasValue:   true,
 			ResultType: scalarTy,
 			Operands:   []int{retID, i},
-			ValueID:    extractID,
-		}
-		e.currentBB.AddInstruction(instr)
-		comps[i] = extractID
+			ValueID:    comps[i],
+		})
 	}
-	e.pendingComponents = comps
-
-	return comps[0], nil
+	if !scalar {
+		e.pendingComponents = comps
+	}
+	return comps[0]
 }
 
 // emitImageQuery emits dx.op.getDimensions (opcode 72) for image size/level/sample queries.
@@ -987,23 +998,7 @@ func (e *Emitter) emitImageLoad(fn *ir.Function, load ir.ExprImageLoad) (int, er
 	textureLoadFn := e.getDxOpTextureLoadFunc(ol)
 	retID := e.addCallInstr(textureLoadFn, resRetTy, operands)
 
-	// Extract 4 components.
-	scalarTy := e.overloadReturnType(ol)
-	comps := make([]int, 4)
-	for i := 0; i < 4; i++ {
-		extractID := e.allocValue()
-		instr := &module.Instruction{
-			Kind:       module.InstrExtractVal,
-			HasValue:   true,
-			ResultType: scalarTy,
-			Operands:   []int{retID, i},
-			ValueID:    extractID,
-		}
-		e.currentBB.AddInstruction(instr)
-		comps[i] = extractID
-	}
-	e.pendingComponents = comps
-	return comps[0], nil
+	return e.extractResRet(ol, retID, imgType.Class == ir.ImageClassDepth), nil
 }
 
 // emitStmtImageStore emits dx.op.textureStore (opcode 67) for writing to storage textures.
