@@ -1326,10 +1326,16 @@ func (w *Writer) getExprVectorSize(handle ir.ExpressionHandle) (int, bool) {
 	return 0, false
 }
 
-// resolveImageType resolves the image type from an expression handle.
+// resolveImageType resolves the image type from an expression handle: a
+// texture global, or a texture argument of the function.
 func (w *Writer) resolveImageType(exprHandle ir.ExpressionHandle) *ir.ImageType {
 	if w.currentFunction == nil {
 		return nil
+	}
+	if int(exprHandle) < len(w.currentFunction.ExpressionTypes) {
+		if t, ok := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[exprHandle], exprHandle).(ir.ImageType); ok {
+			return &t
+		}
 	}
 	gvHandle := w.resolveGlobalVarHandle(w.currentFunction, exprHandle)
 	if gvHandle == nil {
