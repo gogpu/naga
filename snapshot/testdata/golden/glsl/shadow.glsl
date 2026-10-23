@@ -51,7 +51,7 @@ void main() {
 
 
 // === Entry Point: fs_main (fragment) ===
-#version 330 core
+#version 430 core
 #extension GL_ARB_shader_storage_buffer_object : require
 struct Globals {
     mat4x4 view_proj;
@@ -78,12 +78,12 @@ layout(std140) uniform Globals_block_0Fragment { Globals _group_0_binding_0_fs; 
 
 layout(std140) uniform Entity_block_1Fragment { Entity _group_1_binding_0_fs; };
 
-layout(std140) uniform type_8_block_2Fragment { Light _group_0_binding_1_fs[]; };
+layout(std430) readonly buffer type_8_block_2Fragment { Light _group_0_binding_1_fs[]; };
 
 uniform sampler2DArrayShadow _group_0_binding_2_fs;
 
-smooth in vec3 _vs2fs_location0;
-smooth in vec4 _vs2fs_location1;
+layout(location = 0) smooth in vec3 _vs2fs_location0;
+layout(location = 1) smooth in vec4 _vs2fs_location1;
 layout(location = 0) out vec4 _fs2p_location0;
 
 float fetch_shadow(uint light_id, vec4 homogeneous_coords) {

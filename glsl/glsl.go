@@ -120,6 +120,13 @@ const (
 
 // BoundsCheckPolicies holds per-resource-type bounds check policies.
 type BoundsCheckPolicies struct {
+	// Index applies to indexing an array, vector or matrix that is a value
+	// or lives in function, private or workgroup memory. Restrict clamps
+	// the index to the last element; ReadZeroSkipWrite is not supported
+	// and makes Compile fail.
+	Index BoundsCheckPolicy
+	// Buffer is Index for one in a uniform or storage buffer.
+	Buffer BoundsCheckPolicy
 	// ImageLoad controls bounds checking for image load operations.
 	ImageLoad BoundsCheckPolicy
 	// ImageStore controls bounds checking for image store operations.
@@ -278,6 +285,8 @@ func toCodegenOptions(o Options) codegen.Options {
 		WriterFlags:        codegen.WriterFlags(o.WriterFlags),
 		ForceHighPrecision: o.ForceHighPrecision,
 		BoundsCheckPolicies: codegen.BoundsCheckPolicies{
+			Index:      codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Index),
+			Buffer:     codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Buffer),
 			ImageLoad:  codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageLoad),
 			ImageStore: codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageStore),
 		},
