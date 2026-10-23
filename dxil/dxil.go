@@ -21,6 +21,8 @@ package dxil
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/container"
@@ -105,6 +107,34 @@ type Options struct {
 	// populate this map so that the generated DXIL matches the root
 	// signature's SRV layout for sampler index buffers.
 	SamplerBufferBindingMap map[uint32]BindTarget
+
+	// FragmentEntryPoint is, for a vertex stage, the fragment stage of its
+	// pipeline: the vertex stage writes only the outputs at locations the
+	// fragment stage reads, as with hlsl.Options.FragmentEntryPoint, since
+	// D3D12 matches the two signatures register for register.
+	FragmentEntryPoint *FragmentEntryPoint
+
+	// SpecialConstantsBinding is a constant buffer of three 32-bit root
+	// constants, first_vertex, first_instance and a third value, as with
+	// hlsl.Options.SpecialConstantsBinding: a vertex stage adds the first
+	// two to vertex_index and instance_index, which SV_VertexID and
+	// SV_InstanceID count from zero, and a compute stage reads
+	// num_workgroups from all three. Without it, num_workgroups comes from a
+	// constant buffer at b0 in space 0.
+	SpecialConstantsBinding *BindTarget
+
+	// DynamicStorageBufferOffsetsTargets holds, by bind group, the constant
+	// buffer of the dynamic offsets of its storage buffers, as with
+	// hlsl.Options.DynamicStorageBufferOffsetsTargets: a storage buffer
+	// whose BindTarget has a DynamicStorageBufferOffsetsIndex adds that
+	// offset, in bytes, to all its addresses.
+	DynamicStorageBufferOffsetsTargets map[uint32]OffsetsBindTarget
+}
+
+// FragmentEntryPoint is a fragment entry point and its module.
+type FragmentEntryPoint struct {
+	Module   *ir.Module
+	Function *ir.Function
 }
 
 // DefaultOptions returns the default DXIL compilation options.
@@ -125,12 +155,23 @@ func convertBindingMap(m BindingMap) emit.BindingMap {
 	out := make(emit.BindingMap, len(m))
 	for k, v := range m {
 		out[emit.BindingLocation{Group: k.Group, Binding: k.Binding}] = emit.BindTarget{
-			Space:            v.Space,
-			Register:         v.Register,
-			BindingArraySize: v.BindingArraySize,
+			Space:                            v.Space,
+			Register:                         v.Register,
+			BindingArraySize:                 v.BindingArraySize,
+			RestrictIndexing:                 v.RestrictIndexing,
+			DynamicStorageBufferOffsetsIndex: v.DynamicStorageBufferOffsetsIndex,
 		}
 	}
 	return out
+}
+
+// convertBindTarget converts the space and register of a public BindTarget
+// to the internal emit mirror. Returns nil when t is nil.
+func convertBindTarget(t *BindTarget) *emit.BindTarget {
+	if t == nil {
+		return nil
+	}
+	return &emit.BindTarget{Space: t.Space, Register: t.Register}
 }
 
 // convertSamplerHeapTargets converts the public SamplerHeapBindTargets to
@@ -278,6 +319,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		return nil, inlineErr
 	}
 	ep = &irModule.EntryPoints[0]
+	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
 	// Run mem2reg + DCE, mirroring the DXC pipeline order
 	// (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE).
 	if err := runOptPasses(irModule); err != nil {
@@ -323,6 +365,9 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		}
 	}
 
+	special := specialConstantsTarget(irModule, ep, opts)
+	dynamicOffsets := usedDynamicOffsets(irModule, reachableGlobals, opts)
+
 	// Step 1: Emit naga IR -> DXIL module.
 	emitOpts := emit.EmitOptions{
 		ShaderModelMajor:        opts.ShaderModel.Major,
@@ -332,6 +377,8 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		SamplerBufferBindingMap: convertSamplerBufferBindingMap(opts.SamplerBufferBindingMap),
 		ReachableGlobals:        reachableGlobals,
 		InputUsedMasks:          inputUsedMasks,
+		SpecialConstants:        convertBindTarget(special),
+		DynamicOffsets:          dynamicOffsets,
 	}
 	mod, bitcodeShaderFlags, err := emit.EmitWithFlags(irModule, emitOpts)
 	if err != nil {
@@ -368,7 +415,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		c.AddPrimitiveSignature(primSig)
 	}
 
-	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), reachableGlobals, opts.BindingMap, opts.SamplerHeapTargets, opts.SamplerBufferBindingMap))
+	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), reachableGlobals, opts.BindingMap, opts.SamplerHeapTargets, opts.SamplerBufferBindingMap, dynamicOffsets, special))
 
 	// STAT (Shader Statistics) is required by the D3D12 runtime format
 	// validator for graphics pipelines (BUG-DXIL-011). IDxcValidator
@@ -411,6 +458,47 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	}
 
 	return containerData, nil
+}
+
+// unbindUnreadOutputs takes the bindings off the members of a vertex stage's
+// result at locations frag doesn't read, in the module's own copy, so they
+// are neither written nor part of the output signature: the HLSL writer
+// leaves them out of its output struct (Rust naga's write_ep_output_struct).
+// Without frag, or for another stage, it changes nothing.
+func unbindUnreadOutputs(irModule *ir.Module, ep *ir.EntryPoint, frag *FragmentEntryPoint) {
+	if frag == nil || ep.Stage != ir.StageVertex || ep.Function.Result == nil {
+		return
+	}
+	st, ok := irModule.Types[ep.Function.Result.Type].Inner.(ir.StructType)
+	if !ok {
+		return
+	}
+	read := make(map[uint32]bool)
+	addLocation := func(b *ir.Binding) {
+		if b == nil {
+			return
+		}
+		if loc, ok := (*b).(ir.LocationBinding); ok {
+			read[loc.Location] = true
+		}
+	}
+	for _, arg := range frag.Function.Arguments {
+		if argSt, ok := frag.Module.Types[arg.Type].Inner.(ir.StructType); ok {
+			for _, m := range argSt.Members {
+				addLocation(m.Binding)
+			}
+			continue
+		}
+		addLocation(arg.Binding)
+	}
+	for i, m := range st.Members {
+		if m.Binding == nil {
+			continue
+		}
+		if loc, ok := (*m.Binding).(ir.LocationBinding); ok && !read[loc.Location] {
+			st.Members[i].Binding = nil
+		}
+	}
 }
 
 // buildSignatures extracts input/output signature elements from an entry point.
@@ -889,7 +977,7 @@ func sigCompTypeForScalarKind(kind ir.ScalarKind) container.ProgSigCompType {
 // shaders with only `@builtin(position)` output now produce a self-consistent
 // PSV0 part with one PSVSignatureElement entry, achieving the first-ever
 // `S_OK` from the real validator.
-func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget) container.PSVInfo {
+func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, dynamicOffsets []emit.DynamicOffsetsBuffer, special *BindTarget) container.PSVInfo {
 	_ = isFragment // kept for caller compatibility; stage comes from ep.Stage
 	info := container.PSVInfo{
 		ShaderStage:       stageToPSVKind(ep.Stage),
@@ -939,14 +1027,32 @@ func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, 
 	// declare the same binding or the validator reports 'ResourceCount
 	// mismatch'. Inject the synthetic binding when the entry point reads
 	// the num_workgroups builtin.
-	if entryUsesNumWorkGroups(ep) {
-		info.ResourceBindings = append([]container.PSVResourceBinding{{
+	// The special constants take its place when they are given. The
+	// emitter declares the buffers of dynamic offsets, then either, after
+	// the shader's own constant buffers.
+	for _, b := range dynamicOffsets {
+		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
 			ResType:    container.PSVResTypeCBV,
 			ResKind:    container.PSVResKindCBuffer,
-			Space:      0,
-			LowerBound: 0,
-			UpperBound: 0,
-		}}, info.ResourceBindings...)
+			Space:      b.Space,
+			LowerBound: b.Register,
+			UpperBound: b.Register,
+		})
+	}
+	switch {
+	case special != nil:
+		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
+			ResType:    container.PSVResTypeCBV,
+			ResKind:    container.PSVResKindCBuffer,
+			Space:      special.Space,
+			LowerBound: special.Register,
+			UpperBound: special.Register,
+		})
+	case entryUsesNumWorkGroups(ep):
+		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
+			ResType: container.PSVResTypeCBV,
+			ResKind: container.PSVResKindCBuffer,
+		})
 	}
 
 	// BUG-DXIL-019: build PSVSignatureElement entries from the same data
@@ -1673,9 +1779,9 @@ func componentMask(n int) uint8 {
 }
 
 // buildPSVEx creates PSV info for an entry point, including mesh shader support.
-func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget) container.PSVInfo {
+func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, dynamicOffsets []emit.DynamicOffsetsBuffer, special *BindTarget) container.PSVInfo {
 	if !isMesh {
-		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, reachable, bindingMap, samplerHeap, samplerBufMap)
+		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, reachable, bindingMap, samplerHeap, samplerBufMap, dynamicOffsets, special)
 	}
 
 	info := container.PSVInfo{
@@ -1900,6 +2006,84 @@ func entryWritesDepthInModule(irMod *ir.Module, ep *ir.EntryPoint) bool {
 			continue
 		}
 		if bb, isBB := (*m.Binding).(ir.BuiltinBinding); isBB && bb.Builtin == ir.BuiltinFragDepth {
+			return true
+		}
+	}
+	return false
+}
+
+// usedDynamicOffsets returns the constant buffers of dynamic offsets the
+// entry point needs: those of the bind groups of the storage buffers it uses
+// with a dynamic offset, in ascending bind group order.
+func usedDynamicOffsets(irMod *ir.Module, reachable map[ir.GlobalVariableHandle]bool, opts Options) []emit.DynamicOffsetsBuffer {
+	used := make(map[uint32]bool)
+	for i := range irMod.GlobalVariables {
+		gv := &irMod.GlobalVariables[i]
+		if gv.Binding == nil || gv.Space != ir.SpaceStorage || (reachable != nil && !reachable[ir.GlobalVariableHandle(i)]) {
+			continue
+		}
+		if t, ok := opts.BindingMap[BindingLocation{Group: gv.Binding.Group, Binding: gv.Binding.Binding}]; ok && t.DynamicStorageBufferOffsetsIndex != nil {
+			used[gv.Binding.Group] = true
+		}
+	}
+	var out []emit.DynamicOffsetsBuffer
+	for _, group := range slices.Sorted(maps.Keys(used)) {
+		if t, ok := opts.DynamicStorageBufferOffsetsTargets[group]; ok {
+			out = append(out, emit.DynamicOffsetsBuffer{Group: group, Space: t.Space, Register: t.Register, Size: t.Size})
+		}
+	}
+	return out
+}
+
+// insertAfterCBVs inserts b into bindings after the constant buffers, which
+// come first.
+func insertAfterCBVs(bindings []container.PSVResourceBinding, b container.PSVResourceBinding) []container.PSVResourceBinding {
+	i := 0
+	for i < len(bindings) && bindings[i].ResType == container.PSVResTypeCBV {
+		i++
+	}
+	return slices.Insert(bindings, i, b)
+}
+
+// specialConstantsTarget is the binding of the special constants the entry
+// point reads, or nil when it reads none or opts gives no binding.
+func specialConstantsTarget(irMod *ir.Module, ep *ir.EntryPoint, opts Options) *BindTarget {
+	if opts.SpecialConstantsBinding != nil && entryUsesSpecialConstants(irMod, ep) {
+		return opts.SpecialConstantsBinding
+	}
+	return nil
+}
+
+// entryUsesSpecialConstants reports whether the entry point has an input the
+// special constants give: vertex_index or instance_index in a vertex stage,
+// num_workgroups in a compute stage.
+func entryUsesSpecialConstants(irMod *ir.Module, ep *ir.EntryPoint) bool {
+	uses := func(b *ir.Binding) bool {
+		if b == nil {
+			return false
+		}
+		bb, ok := (*b).(ir.BuiltinBinding)
+		if !ok {
+			return false
+		}
+		switch bb.Builtin {
+		case ir.BuiltinVertexIndex, ir.BuiltinInstanceIndex:
+			return ep.Stage == ir.StageVertex
+		case ir.BuiltinNumWorkGroups:
+			return ep.Stage == ir.StageCompute
+		}
+		return false
+	}
+	for _, arg := range ep.Function.Arguments {
+		if st, ok := irMod.Types[arg.Type].Inner.(ir.StructType); ok && arg.Binding == nil {
+			for _, m := range st.Members {
+				if uses(m.Binding) {
+					return true
+				}
+			}
+			continue
+		}
+		if uses(arg.Binding) {
 			return true
 		}
 	}

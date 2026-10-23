@@ -38,6 +38,10 @@ var dxcClassPriority = [4]int{
 // dx.op function name for resource handle creation.
 const dxOpCreateHandleName = "dx.op.createHandle"
 
+// noIRHandle is the type and global variable handle of a synthetic resource:
+// past every arena, also as an int on 32-bit targets.
+const noIRHandle = math.MaxInt32
+
 // DXIL resource classes (matches DXIL spec D3D12_SHADER_INPUT_BIND_DESC).
 const (
 	resourceClassSRV     uint8 = 0
@@ -73,6 +77,24 @@ type resourceInfo struct {
 	// resource has no backing IR SamplerType. Only meaningful when
 	// class == resourceClassSampler.
 	comparisonSampler bool
+	// restrictIndexing clamps the run-time indices of a CBV's loads to
+	// their arrays (BindTarget.RestrictIndexing).
+	restrictIndexing bool
+	// specialConstants marks the CBV of EmitOptions.SpecialConstants.
+	specialConstants bool
+	// words, when not 0, is the number of 32-bit values a synthetic CBV
+	// holds.
+	words uint32
+	// dynamicOffset, for a storage buffer with a dynamic offset, is where
+	// the offset is (BindTarget.DynamicStorageBufferOffsetsIndex).
+	dynamicOffset *dynamicOffsetRef
+}
+
+// dynamicOffsetRef is the dynamic offset of a storage buffer: value index of
+// the offsets CBV of bind group group.
+type dynamicOffsetRef struct {
+	group uint32
+	index uint32
 }
 
 // analyzeResources scans the module's global variables and classifies them
@@ -162,29 +184,6 @@ func (e *Emitter) analyzeResources() {
 			}
 		}
 
-		// Apply caller-supplied binding remap, if any. Bindings not
-		// present in the map keep their raw WGSL numbers. See
-		// EmitOptions.BindingMap (and dxil.Options.BindingMap) for
-		// rationale — wgpu/hal/dx12 uses monotonic per-class register
-		// counters that do not match raw @group/@binding numbers.
-		//
-		// When the map supplies BindingArraySize for an IR-unbounded
-		// binding_array, use it as the concrete range size. DXIL PSV0
-		// and bitcode resource metadata MUST agree on the size or the
-		// validator trips 'ResourceBindInfo mismatch'; unbounded stays
-		// as the fallback when no override is present.
-		grp := gv.Binding.Group
-		bnd := gv.Binding.Binding
-		if e.opts.BindingMap != nil {
-			if tgt, ok := e.opts.BindingMap[BindingLocation{Group: grp, Binding: bnd}]; ok {
-				grp = tgt.Space
-				bnd = tgt.Register
-				if isBA && baSize == 0 && tgt.BindingArraySize != nil {
-					baSize = *tgt.BindingArraySize
-				}
-			}
-		}
-
 		// Apply the HLSL namer suffix convention: names that end
 		// with a digit or match an HLSL keyword get a trailing
 		// underscore. DXC reads the resource name from dx.resources
@@ -201,13 +200,14 @@ func (e *Emitter) analyzeResources() {
 			name:           resName,
 			class:          class,
 			rangeID:        rangeID,
-			group:          grp,
-			binding:        bnd,
+			group:          gv.Binding.Group,
+			binding:        gv.Binding.Binding,
 			typeHandle:     gv.Type,
 			handleID:       -1,
 			isBindingArray: isBA,
 			arraySize:      baSize,
 		}
+		e.applyBindingMap(&info, gv.Space)
 
 		e.resourceHandles[info.varHandle] = len(e.resources)
 		e.resources = append(e.resources, info)
@@ -216,6 +216,66 @@ func (e *Emitter) analyzeResources() {
 	// After the main loop: synthesize the sampler array heap entries.
 	// Index buffer SRVs were already prepended above.
 	e.appendSamplerHeapSamplers(&rangeCounters)
+	e.appendRootConstantBuffers(&rangeCounters)
+}
+
+// applyBindingMap moves info from its WGSL group and binding to the register
+// the caller's binding map gives them, if any, with the map's indexing and
+// dynamic offset options. See EmitOptions.BindingMap (and
+// dxil.Options.BindingMap) for rationale — wgpu/hal/dx12 uses monotonic
+// per-class register counters that do not match raw @group/@binding numbers.
+//
+// When the map supplies BindingArraySize for an IR-unbounded binding_array,
+// it is the concrete range size. DXIL PSV0 and bitcode resource metadata MUST
+// agree on the size or the validator trips 'ResourceBindInfo mismatch';
+// unbounded stays as the fallback when no override is present.
+func (e *Emitter) applyBindingMap(info *resourceInfo, space ir.AddressSpace) {
+	tgt, ok := e.opts.BindingMap[BindingLocation{Group: info.group, Binding: info.binding}]
+	if !ok {
+		return
+	}
+	if tgt.DynamicStorageBufferOffsetsIndex != nil && space == ir.SpaceStorage {
+		info.dynamicOffset = &dynamicOffsetRef{group: info.group, index: *tgt.DynamicStorageBufferOffsetsIndex}
+	}
+	info.group = tgt.Space
+	info.binding = tgt.Register
+	info.restrictIndexing = tgt.RestrictIndexing
+	if info.isBindingArray && info.arraySize == 0 && tgt.BindingArraySize != nil {
+		info.arraySize = *tgt.BindingArraySize
+	}
+}
+
+// appendRootConstantBuffers declares the constant buffers of root constants
+// that have no IR global behind them, after the shader's own: the dynamic
+// offsets of each bind group's storage buffers, then the special constants.
+func (e *Emitter) appendRootConstantBuffers(rangeCounters *[4]int) {
+	for _, b := range e.opts.DynamicOffsets {
+		e.resources = append(e.resources, resourceInfo{
+			name:       fmt.Sprintf("__dynamic_buffer_offsets%d", b.Group),
+			class:      resourceClassCBV,
+			rangeID:    rangeCounters[resourceClassCBV],
+			group:      b.Space,
+			binding:    b.Register,
+			typeHandle: ir.TypeHandle(noIRHandle),
+			handleID:   -1,
+			words:      b.Size,
+		})
+		rangeCounters[resourceClassCBV]++
+	}
+	if t := e.opts.SpecialConstants; t != nil {
+		e.resources = append(e.resources, resourceInfo{
+			name:             "_NagaConstants",
+			class:            resourceClassCBV,
+			rangeID:          rangeCounters[resourceClassCBV],
+			group:            t.Space,
+			binding:          t.Register,
+			typeHandle:       ir.TypeHandle(noIRHandle),
+			handleID:         -1,
+			specialConstants: true,
+			words:            3,
+		})
+		rangeCounters[resourceClassCBV]++
+	}
 }
 
 // classifyGlobalVariable determines the resource class of a global variable.
@@ -1626,6 +1686,13 @@ func (e *Emitter) getCBVStructType(res *resourceInfo) *module.Type {
 // For bare (non-struct) CBV types (e.g., var<uniform> m: mat4x4<f32>), the
 // result is a single-element slice with that type's LLVM representation.
 func (e *Emitter) buildCBVMemberTypes(res *resourceInfo) []*module.Type {
+	if res.words > 0 {
+		members := make([]*module.Type, res.words)
+		for i := range members {
+			members[i] = e.mod.GetIntType(32)
+		}
+		return members
+	}
 	if int(res.typeHandle) >= len(e.ir.Types) {
 		// Fallback: single vec4 register as flat float array.
 		f32Ty := e.mod.GetFloatType(32)
@@ -2265,6 +2332,9 @@ func (e *Emitter) addMetadataI1(value bool) *module.MetadataNode {
 // rounding to vec4 boundary. DXC uses this value directly in the resource
 // metadata field[6]. For a struct with a single f32, this returns 4.
 func (e *Emitter) computeCBVSizeBytes(res *resourceInfo) int {
+	if res.words > 0 {
+		return int(4 * res.words)
+	}
 	if int(res.typeHandle) >= len(e.ir.Types) {
 		return 16 // default: 1 vec4 register
 	}
@@ -2426,244 +2496,175 @@ func (e *Emitter) sampledKindToDxilCompType(kind ir.ScalarKind) int {
 // cbvPointerChain describes a resolved pointer chain leading to a CBV field.
 type cbvPointerChain struct {
 	varHandle  ir.GlobalVariableHandle
-	byteOffset uint32        // accumulated byte offset into the struct (static part)
+	byteOffset uint32        // byte offset of the field with every dynamic index 0
 	fieldType  ir.TypeInner  // the IR type of the final accessed field
 	scalar     ir.ScalarType // scalar element type for overload selection
-	// dynIndexExpr and dynStride are set when the chain contains a dynamic Access.
-	// The total byte offset = dynIndex * dynStride + byteOffset.
-	dynIndexExpr ir.ExpressionHandle // dynamic array index expression (0 = no dynamic)
-	dynStride    uint32              // array element stride in bytes (0 = no dynamic)
-	hasDynIndex  bool                // true if this chain has a dynamic index component
+	// dynamic lists the run-time indices of the chain, root first.
+	dynamic []cbvDynamicIndex
 }
 
-// resolveCBVPointerChain walks an expression chain (AccessIndex → GlobalVariable)
-// and determines whether it leads to a CBV global variable. If so, it returns
-// the CBV pointer chain info including the accumulated byte offset.
-//
-// Supported patterns:
-//   - ExprGlobalVariable (load entire CBV struct — offset 0)
-//   - ExprAccessIndex → ExprGlobalVariable (load struct field)
-//   - ExprAccessIndex → ExprAccessIndex → ExprGlobalVariable (nested struct/vector)
+// cbvDynamicIndex is a run-time index into an array, or the columns of a
+// matrix, in a constant buffer: it adds index * stride bytes.
+type cbvDynamicIndex struct {
+	expr   ir.ExpressionHandle
+	stride uint32
+	length uint32 // elements, 0 when unknown
+}
+
+// resolveCBVPointerChain walks an expression chain (Access and AccessIndex
+// down to a GlobalVariable) and, when it leads into a CBV, returns the field
+// it selects. Run-time indices may select array elements and matrix columns
+// at any level; a run-time index into a vector is not supported.
 //
 // Reference: Mesa nir_to_dxil.c emit_load_ubo_vec4() — offset is passed as
 // register index (byte_offset / 16).
 func (e *Emitter) resolveCBVPointerChain(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*cbvPointerChain, bool) {
-	// Walk the expression chain to find the root global variable and accumulate offsets.
-	var indices []uint32
-	handle := ptrHandle
-	var dynIndexExpr ir.ExpressionHandle
-	var dynStride uint32
-	hasDynIndex := false
-
-	for {
-		if int(handle) >= len(fn.Expressions) {
-			return nil, false
-		}
-		expr := fn.Expressions[handle]
-
-		switch ek := expr.Kind.(type) {
-		case ir.ExprGlobalVariable:
-			// Found root — check if it's a CBV.
-			if _, found := e.resourceHandles[ek.Variable]; !found {
-				return nil, false
-			}
-			idx := e.resourceHandles[ek.Variable]
-			res := &e.resources[idx]
-			if res.class != resourceClassCBV {
-				return nil, false
-			}
-
-			// Now walk indices forward to compute byte offset.
-			// When hasDynIndex is true, the dynamic Access already handles the
-			// array dimension, so we start from the array's element type.
-			byteOffset, fieldType, scalar, ok := e.computeCBVFieldOffset(ek.Variable, indices, hasDynIndex)
-			if !ok {
-				return nil, false
-			}
-
-			return &cbvPointerChain{
-				varHandle:    ek.Variable,
-				byteOffset:   byteOffset,
-				fieldType:    fieldType,
-				scalar:       scalar,
-				dynIndexExpr: dynIndexExpr,
-				dynStride:    dynStride,
-				hasDynIndex:  hasDynIndex,
-			}, true
-
-		case ir.ExprAccessIndex:
-			indices = append([]uint32{ek.Index}, indices...)
-			handle = ek.Base
-
-		case ir.ExprAccess:
-			// Dynamic array access: we need the array stride to compute the offset.
-			// The stride comes from the type of the base expression's inner array.
-			if !hasDynIndex {
-				// Only support one level of dynamic access.
-				stride := e.resolveArrayStride(fn, ek.Base)
-				if stride == 0 {
-					return nil, false
-				}
-				dynIndexExpr = ek.Index
-				dynStride = stride
-				hasDynIndex = true
-				handle = ek.Base
-			} else {
-				// Multiple dynamic accesses — not supported.
-				return nil, false
-			}
-
-		default:
-			return nil, false
-		}
-	}
-}
-
-// resolveArrayStride determines the array stride for a given expression's type.
-// Used when computing dynamic CBV offsets for array[i] access patterns.
-func (e *Emitter) resolveArrayStride(fn *ir.Function, exprHandle ir.ExpressionHandle) uint32 {
-	if int(exprHandle) >= len(fn.Expressions) {
-		return 0
-	}
-	expr := fn.Expressions[exprHandle]
-	gv, ok := expr.Kind.(ir.ExprGlobalVariable)
+	global, steps, ok := cbvChainSteps(fn, ptrHandle)
 	if !ok {
-		return 0
+		return nil, false
 	}
-	if int(gv.Variable) >= len(e.ir.GlobalVariables) {
-		return 0
+	idx, found := e.resourceHandles[global]
+	if !found || e.resources[idx].class != resourceClassCBV || int(global) >= len(e.ir.GlobalVariables) {
+		return nil, false
 	}
-	gvDef := &e.ir.GlobalVariables[gv.Variable]
-	if int(gvDef.Type) >= len(e.ir.Types) {
-		return 0
-	}
-	inner := e.ir.Types[gvDef.Type].Inner
-	if arr, ok := inner.(ir.ArrayType); ok {
-		return arr.Stride
-	}
-	return 0
-}
-
-// resolveCBVRegIndex computes the CBV register index and component offset for
-// a cbufferLoadLegacy call. Handles both static and dynamic (stride-based) indices.
-// Returns (regIndexValueID, componentOffset, error).
-func (e *Emitter) resolveCBVRegIndex(fn *ir.Function, chain *cbvPointerChain, scalarWidth uint32) (int, uint32, error) {
-	if !chain.hasDynIndex {
-		regIndex := chain.byteOffset / 16
-		compOffset := (chain.byteOffset % 16) / scalarWidth
-		return e.getIntConstID(int64(regIndex)), compOffset, nil
-	}
-
-	dynID, err := e.emitExpression(fn, chain.dynIndexExpr)
-	if err != nil {
-		return 0, 0, fmt.Errorf("CBV dynamic index: %w", err)
-	}
-
-	compOffset := (chain.byteOffset % 16) / scalarWidth
-	i32Ty := e.mod.GetIntType(32)
-
-	if chain.dynStride%16 == 0 {
-		// Stride is register-aligned — simple multiply + constant offset.
-		regsPerElem := chain.dynStride / 16
-		regIdx := dynID
-		if regsPerElem > 1 {
-			mulID := e.getIntConstID(int64(regsPerElem))
-			regIdx = e.addMulOrShlInstr(i32Ty, dynID, mulID)
-		}
-		if staticRegOff := chain.byteOffset / 16; staticRegOff > 0 {
-			offID := e.getIntConstID(int64(staticRegOff))
-			regIdx = e.addBinOpInstr(i32Ty, BinOpAdd, regIdx, offID)
-		}
-		return regIdx, compOffset, nil
-	}
-
-	// Non-aligned stride: totalByteOff = dynIndex * stride + byteOffset, regIndex = totalByteOff >> 4.
-	strideID := e.getIntConstID(int64(chain.dynStride))
-	totalOff := e.addMulOrShlInstr(i32Ty, dynID, strideID)
-	if chain.byteOffset > 0 {
-		offID := e.getIntConstID(int64(chain.byteOffset))
-		totalOff = e.addBinOpInstr(i32Ty, BinOpAdd, totalOff, offID)
-	}
-	shiftID := e.getIntConstID(4) // >> 4 = / 16
-	regIdx := e.addBinOpInstr(i32Ty, BinOpLShr, totalOff, shiftID)
-	return regIdx, compOffset, nil
-}
-
-// computeCBVFieldOffset walks the type hierarchy using the given indices
-// to compute the byte offset of the accessed field within the CBV struct.
-// When skipArrayLevel is true, the top-level array type is skipped (the array
-// dimension is handled by a dynamic index elsewhere).
-// Returns (byteOffset, fieldType, scalarType, ok).
-func (e *Emitter) computeCBVFieldOffset(varHandle ir.GlobalVariableHandle, indices []uint32, skipArrayLevel bool) (uint32, ir.TypeInner, ir.ScalarType, bool) {
-	if int(varHandle) >= len(e.ir.GlobalVariables) {
-		return 0, nil, ir.ScalarType{}, false
-	}
-	gv := &e.ir.GlobalVariables[varHandle]
-	if int(gv.Type) >= len(e.ir.Types) {
-		return 0, nil, ir.ScalarType{}, false
-	}
-
-	currentType := e.ir.Types[gv.Type].Inner
-	var byteOffset uint32
-
-	// When a dynamic Access handles the array dimension, skip past the top-level array
-	// so the static indices only traverse the element type (struct).
-	if skipArrayLevel {
-		if arr, ok := currentType.(ir.ArrayType); ok {
-			if int(arr.Base) < len(e.ir.Types) {
-				currentType = e.ir.Types[arr.Base].Inner
-			}
+	chain := &cbvPointerChain{varHandle: global}
+	current := e.ir.Types[e.ir.GlobalVariables[global].Type].Inner
+	for i := len(steps) - 1; i >= 0; i-- {
+		if current, ok = e.applyCBVStep(chain, current, steps[i]); !ok {
+			return nil, false
 		}
 	}
-
-	for _, idx := range indices {
-		switch ct := currentType.(type) {
-		case ir.StructType:
-			if int(idx) >= len(ct.Members) {
-				return 0, nil, ir.ScalarType{}, false
-			}
-			member := &ct.Members[idx]
-			byteOffset += member.Offset
-			if int(member.Type) >= len(e.ir.Types) {
-				return 0, nil, ir.ScalarType{}, false
-			}
-			currentType = e.ir.Types[member.Type].Inner
-
-		case ir.ArrayType:
-			// Array element access: offset = idx * stride.
-			byteOffset += idx * ct.Stride
-			if int(ct.Base) >= len(e.ir.Types) {
-				return 0, nil, ir.ScalarType{}, false
-			}
-			currentType = e.ir.Types[ct.Base].Inner
-
-		case ir.VectorType:
-			// Vector component access: offset = idx * scalar_width.
-			byteOffset += idx * uint32(ct.Scalar.Width)
-			currentType = ct.Scalar
-
-		case ir.MatrixType:
-			// Matrix column access: offset = idx * column_stride.
-			// CBV matrix columns are 16-byte aligned (one register per column),
-			// even if the column has fewer than 4 components.
-			colBytes := uint32(ct.Rows) * uint32(ct.Scalar.Width)
-			colStride := (colBytes + 15) &^ 15 // align to 16 bytes
-			byteOffset += idx * colStride
-			currentType = ir.VectorType{Size: ct.Rows, Scalar: ct.Scalar}
-
-		default:
-			return 0, nil, ir.ScalarType{}, false
-		}
-	}
-
-	// Determine the scalar type of the final field.
-	scalar, ok := scalarOfType(currentType)
+	chain.fieldType = current
+	scalar, ok := scalarOfType(current)
 	if !ok {
 		// Default to f32 for struct types that we'll flatten.
 		scalar = ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	}
+	chain.scalar = scalar
+	return chain, true
+}
 
-	return byteOffset, currentType, scalar, true
+// cbvStep is one index of a pointer chain: a constant index, or the
+// expression of a run-time one.
+type cbvStep struct {
+	index   uint32
+	dynamic bool
+	expr    ir.ExpressionHandle
+}
+
+// cbvChainSteps follows Access and AccessIndex expressions from handle down
+// to a global variable and returns it with the indices, tip first.
+func cbvChainSteps(fn *ir.Function, handle ir.ExpressionHandle) (ir.GlobalVariableHandle, []cbvStep, bool) {
+	var steps []cbvStep
+	for int(handle) < len(fn.Expressions) {
+		switch ek := fn.Expressions[handle].Kind.(type) {
+		case ir.ExprAccessIndex:
+			steps = append(steps, cbvStep{index: ek.Index})
+			handle = ek.Base
+		case ir.ExprAccess:
+			steps = append(steps, cbvStep{dynamic: true, expr: ek.Index})
+			handle = ek.Base
+		case ir.ExprGlobalVariable:
+			return ek.Variable, steps, true
+		default:
+			return 0, nil, false
+		}
+	}
+	return 0, nil, false
+}
+
+// applyCBVStep adds the offset of one index into current to chain, or the
+// index itself when it is a run-time one, and returns the type it selects;
+// false when the index can't be resolved.
+func (e *Emitter) applyCBVStep(chain *cbvPointerChain, current ir.TypeInner, st cbvStep) (ir.TypeInner, bool) {
+	switch ct := current.(type) {
+	case ir.StructType:
+		if st.dynamic || int(st.index) >= len(ct.Members) {
+			return nil, false
+		}
+		chain.byteOffset += ct.Members[st.index].Offset
+		return e.ir.Types[ct.Members[st.index].Type].Inner, true
+	case ir.ArrayType:
+		if st.dynamic {
+			var length uint32
+			if ct.Size.Constant != nil {
+				length = *ct.Size.Constant
+			}
+			chain.dynamic = append(chain.dynamic, cbvDynamicIndex{expr: st.expr, stride: ct.Stride, length: length})
+		} else {
+			chain.byteOffset += st.index * ct.Stride
+		}
+		return e.ir.Types[ct.Base].Inner, true
+	case ir.VectorType:
+		if st.dynamic {
+			return nil, false
+		}
+		chain.byteOffset += st.index * uint32(ct.Scalar.Width)
+		return ct.Scalar, true
+	case ir.MatrixType:
+		// One 16-byte register per column, as emitCBVMatrixLoad reads them.
+		colStride := (uint32(ct.Rows)*uint32(ct.Scalar.Width) + 15) &^ 15
+		if st.dynamic {
+			chain.dynamic = append(chain.dynamic, cbvDynamicIndex{expr: st.expr, stride: colStride, length: uint32(ct.Columns)})
+		} else {
+			chain.byteOffset += st.index * colStride
+		}
+		return ir.VectorType{Size: ct.Rows, Scalar: ct.Scalar}, true
+	}
+	return nil, false
+}
+
+// cbvRegister returns the register a CBV chain's field starts in, offset by
+// add registers, with its run-time indices. A binding that restricts
+// indexing, a root CBV, which D3D12 doesn't bounds check, has each index
+// clamped to its array, as the HLSL writer does with min(uint(i), n - 1).
+func (e *Emitter) cbvRegister(fn *ir.Function, chain *cbvPointerChain, add uint32) (int, error) {
+	if len(chain.dynamic) == 0 {
+		return e.getIntConstID(int64(chain.byteOffset/16 + add)), nil
+	}
+	restrict := e.resources[e.resourceHandles[chain.varHandle]].restrictIndexing
+	i32Ty := e.mod.GetIntType(32)
+	// A stride of a whole number of registers keeps the component; any
+	// other is counted in bytes, the component being the static one.
+	unit := uint32(16)
+	for _, d := range chain.dynamic {
+		if d.stride%16 != 0 {
+			unit = 1
+		}
+	}
+	reg := -1
+	for _, d := range chain.dynamic {
+		idx, err := e.emitExpression(fn, d.expr)
+		if err != nil {
+			return 0, fmt.Errorf("CBV dynamic index: %w", err)
+		}
+		if restrict && d.length > 0 {
+			umin := e.getDxOpBinaryFunc(dxOpClassBinary, overloadI32)
+			idx = e.addCallInstr(umin, i32Ty, []int{e.getIntConstID(int64(OpUMin)), idx, e.getIntConstID(int64(d.length - 1))})
+		}
+		if m := d.stride / unit; m > 1 {
+			idx = e.addMulOrShlInstr(i32Ty, idx, e.getIntConstID(int64(m)))
+		}
+		if reg < 0 {
+			reg = idx
+		} else {
+			reg = e.addBinOpInstr(i32Ty, BinOpAdd, reg, idx)
+		}
+	}
+	static := chain.byteOffset / 16
+	if unit == 1 {
+		static = chain.byteOffset
+	}
+	if static > 0 {
+		reg = e.addBinOpInstr(i32Ty, BinOpAdd, reg, e.getIntConstID(int64(static)))
+	}
+	if unit == 1 {
+		reg = e.addBinOpInstr(i32Ty, BinOpLShr, reg, e.getIntConstID(4))
+	}
+	if add > 0 {
+		reg = e.addBinOpInstr(i32Ty, BinOpAdd, reg, e.getIntConstID(int64(add)))
+	}
+	return reg, nil
 }
 
 // emitCBVLoad emits a dx.op.cbufferLoadLegacy call and extracts the needed
@@ -2688,7 +2689,7 @@ func (e *Emitter) emitCBVLoad(fn *ir.Function, chain *cbvPointerChain) (int, err
 	// Matrix types require special handling: each column is in a separate
 	// 16-byte CBV register. We emit one cbufferLoadLegacy per column.
 	if mt, isMat := chain.fieldType.(ir.MatrixType); isMat {
-		return e.emitCBVMatrixLoad(handleID, chain, mt)
+		return e.emitCBVMatrixLoad(fn, handleID, chain, mt)
 	}
 
 	ol := overloadForScalar(chain.scalar)
@@ -2706,16 +2707,17 @@ func (e *Emitter) emitCBVLoad(fn *ir.Function, chain *cbvPointerChain) (int, err
 	// If the field spans multiple registers (e.g., struct with >4 scalars),
 	// we need multiple cbufferLoadLegacy calls.
 	if numComps > 4 {
-		return e.emitCBVMultiRegLoad(handleID, chain, ol, scalarWidth, numComps)
+		return e.emitCBVMultiRegLoad(fn, handleID, chain, ol, scalarWidth, numComps)
 	}
 
 	// Single register path: scalar / vector / small struct.
 	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
 
-	regIndexVal, compOffset, dynErr := e.resolveCBVRegIndex(fn, chain, scalarWidth)
-	if dynErr != nil {
-		return 0, dynErr
+	regIndexVal, err := e.cbvRegister(fn, chain, 0)
+	if err != nil {
+		return 0, err
 	}
+	compOffset := (chain.byteOffset % 16) / scalarWidth
 
 	retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
 
@@ -2744,6 +2746,7 @@ func (e *Emitter) emitCBVLoad(fn *ir.Function, chain *cbvPointerChain) (int, err
 // emitCBVMultiRegLoad loads multiple CBV registers to fill all scalar components.
 // Used when a struct or large vector spans multiple 16-byte registers.
 func (e *Emitter) emitCBVMultiRegLoad(
+	fn *ir.Function,
 	handleID int,
 	chain *cbvPointerChain,
 	ol overloadType,
@@ -2756,17 +2759,19 @@ func (e *Emitter) emitCBVMultiRegLoad(
 	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
 
 	compsPerReg := 16 / int(scalarWidth)
-	baseRegIndex := chain.byteOffset / 16
 	baseCompOffset := int((chain.byteOffset % 16) / scalarWidth)
 
 	comps := make([]int, 0, totalComps)
 
-	currentReg := int(baseRegIndex)
+	currentReg := uint32(0)
 	currentComp := baseCompOffset
 	remaining := totalComps
 
 	for remaining > 0 {
-		regIndexVal := e.getIntConstID(int64(currentReg))
+		regIndexVal, err := e.cbvRegister(fn, chain, currentReg)
+		if err != nil {
+			return 0, err
+		}
 		retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
 
 		// Extract components from this register.
@@ -2811,6 +2816,7 @@ func (e *Emitter) emitCBVMultiRegLoad(
 //
 // Reference: Mesa nir_to_dxil.c — matrix loads decompose to per-column loads.
 func (e *Emitter) emitCBVMatrixLoad(
+	fn *ir.Function,
 	handleID int,
 	chain *cbvPointerChain,
 	mt ir.MatrixType,
@@ -2827,14 +2833,15 @@ func (e *Emitter) emitCBVMatrixLoad(
 
 	// Each column is aligned to 16 bytes in a cbuffer.
 	colAligned := (uint32(rows)*scalarWidth + 15) &^ 15 //nolint:gosec // rows is small (2-4)
-	baseRegIndex := chain.byteOffset / 16
 
 	opcodeVal := e.getIntConstID(int64(OpCBufferLoadLegacy))
 
 	comps := make([]int, 0, totalComps)
 	for col := 0; col < cols; col++ {
-		regIdx := baseRegIndex + uint32(col)*(colAligned/16)
-		regIndexVal := e.getIntConstID(int64(regIdx))
+		regIndexVal, err := e.cbvRegister(fn, chain, uint32(col)*(colAligned/16))
+		if err != nil {
+			return 0, err
+		}
 
 		retID := e.addCallInstr(cbufLoadFn, cbufRetTy, []int{opcodeVal, handleID, regIndexVal})
 
@@ -3188,6 +3195,50 @@ func deepScalarOfType(irMod *ir.Module, inner ir.TypeInner) (ir.ScalarType, bool
 // Reference: DXC HLOperationLower.cpp:4651 — `Coord0 (Index)` already byte-scaled
 // from HLSL frontend; same expectation here.
 func (e *Emitter) resolveUAVIndex(fn *ir.Function, chain *uavPointerChain) (int, error) {
+	index, err := e.uavByteIndex(fn, chain)
+	if err != nil {
+		return 0, err
+	}
+	idx, ok := e.resourceHandles[chain.varHandle]
+	if !ok || e.resources[idx].dynamicOffset == nil {
+		return index, nil
+	}
+	offset, err := e.loadDynamicOffset(*e.resources[idx].dynamicOffset)
+	if err != nil {
+		return 0, err
+	}
+	return e.addBinOpInstr(e.mod.GetIntType(32), BinOpAdd, index, offset), nil
+}
+
+// loadDynamicOffset loads the dynamic offset of a storage buffer, in bytes,
+// from the offsets CBV of its bind group, as the HLSL writer adds
+// __dynamic_buffer_offsets<group>._<index> to its addresses.
+func (e *Emitter) loadDynamicOffset(ref dynamicOffsetRef) (int, error) {
+	name := fmt.Sprintf("__dynamic_buffer_offsets%d", ref.group)
+	for i := range e.resources {
+		res := &e.resources[i]
+		if res.words == 0 || res.name != name {
+			continue
+		}
+		i32Ty := e.mod.GetIntType(32)
+		ret := e.addCallInstr(e.getDxOpCBufLoadFunc(overloadI32), e.getDxCBufRetType(overloadI32),
+			[]int{e.getIntConstID(int64(OpCBufferLoadLegacy)), res.handleID, e.getIntConstID(int64(ref.index / 4))})
+		offset := e.allocValue()
+		e.currentBB.AddInstruction(&module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{ret, int(ref.index % 4)},
+			ValueID:    offset,
+		})
+		return offset, nil
+	}
+	return 0, fmt.Errorf("no dynamic offsets constant buffer for bind group %d", ref.group)
+}
+
+// uavByteIndex is the byte address of a storage buffer chain, its dynamic
+// offset left out.
+func (e *Emitter) uavByteIndex(fn *ir.Function, chain *uavPointerChain) (int, error) {
 	if chain.isConstIdx {
 		var bytes uint32
 		if chain.stride == 0 {

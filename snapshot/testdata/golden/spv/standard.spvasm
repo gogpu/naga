@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 45
+; Bound: 46
 ; Schema: 0
 
                OpCapability Shader
@@ -22,6 +22,7 @@
          %_13 = OpConstantTrue %_3
          %_14 = OpTypeFunction %_2
          %_17 = OpTypePointer Function %_5
+         %_19 = OpConstantNull %_5
          %_7 = OpVariable %_6 Input
          %_9 = OpVariable %_8 Output
          %_11 = OpFunction %_3 None %_10
@@ -30,42 +31,42 @@
                OpFunctionEnd
          %_15 = OpFunction %_2 None %_14
          %_16 = OpLabel
-         %_18 = OpVariable %_17 Function
-         %_19 = OpVariable %_17 Function
-         %_20 = OpVariable %_17 Function
-         %_21 = OpLoad %_5 %_7
-         Op213 %_5 %_22 %_21
-               OpStore %_18 %_22
-         %_23 = OpLoad %_5 %_7
-         Op214 %_5 %_24 %_23
-               OpStore %_19 %_24
-         %_25 = OpLoad %_5 %_7
-         Op215 %_5 %_26 %_25
-               OpStore %_20 %_26
-         %_27 = OpLoad %_5 %_7
-         Op210 %_5 %_28 %_27
-               OpStore %_18 %_28
-         %_29 = OpLoad %_5 %_7
-         Op211 %_5 %_30 %_29
-               OpStore %_19 %_30
-         %_31 = OpLoad %_5 %_7
-         Op212 %_5 %_32 %_31
-               OpStore %_20 %_32
-         %_33 = OpLoad %_5 %_7
-         Op207 %_5 %_34 %_33
-               OpStore %_18 %_34
-         %_35 = OpLoad %_5 %_7
-         Op208 %_5 %_36 %_35
-               OpStore %_19 %_36
-         %_37 = OpLoad %_5 %_7
-         Op209 %_5 %_38 %_37
-               OpStore %_20 %_38
-         %_39 = OpFunctionCall %_3 %_11
-         %_40 = OpLoad %_5 %_18
-         %_41 = OpLoad %_5 %_19
-         %_42 = OpFAdd %_5 %_40 %_41
-         %_43 = OpLoad %_5 %_20
-         %_44 = OpFMul %_5 %_42 %_43
-               OpStore %_9 %_44
+         %_18 = OpVariable %_17 Function %_19
+         %_20 = OpVariable %_17 Function %_19
+         %_21 = OpVariable %_17 Function %_19
+         %_22 = OpLoad %_5 %_7
+         Op213 %_5 %_23 %_22
+               OpStore %_18 %_23
+         %_24 = OpLoad %_5 %_7
+         Op214 %_5 %_25 %_24
+               OpStore %_20 %_25
+         %_26 = OpLoad %_5 %_7
+         Op215 %_5 %_27 %_26
+               OpStore %_21 %_27
+         %_28 = OpLoad %_5 %_7
+         Op210 %_5 %_29 %_28
+               OpStore %_18 %_29
+         %_30 = OpLoad %_5 %_7
+         Op211 %_5 %_31 %_30
+               OpStore %_20 %_31
+         %_32 = OpLoad %_5 %_7
+         Op212 %_5 %_33 %_32
+               OpStore %_21 %_33
+         %_34 = OpLoad %_5 %_7
+         Op207 %_5 %_35 %_34
+               OpStore %_18 %_35
+         %_36 = OpLoad %_5 %_7
+         Op208 %_5 %_37 %_36
+               OpStore %_20 %_37
+         %_38 = OpLoad %_5 %_7
+         Op209 %_5 %_39 %_38
+               OpStore %_21 %_39
+         %_40 = OpFunctionCall %_3 %_11
+         %_41 = OpLoad %_5 %_18
+         %_42 = OpLoad %_5 %_20
+         %_43 = OpFAdd %_5 %_41 %_42
+         %_44 = OpLoad %_5 %_21
+         %_45 = OpFMul %_5 %_43 %_44
+               OpStore %_9 %_45
                OpReturn
                OpFunctionEnd
