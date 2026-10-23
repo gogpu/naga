@@ -45,7 +45,6 @@ var upstreamChanges = map[string]string{
 	"fc9060f5": "BarycentricNoPerspective (#8852)",
 	"fdd903e6": "Add supported caps info to naga backends (#9068)",
 	"0892b384": "fix(naga msl-out): Fix identifier collision for multiple fragment returns (#9684)",
-	"10fe6409": "Partial snorm10-10-10-2 vertex format support (#10226)",
 }
 
 // notPorted is the reason of a deviation that consists of upstream changes
