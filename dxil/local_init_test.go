@@ -306,3 +306,31 @@ fn main() {
 		}
 	}
 }
+
+// A store to a local array at a constant index leaves the variable the
+// alloca a later access at a run-time index indexes. The store made the
+// variable read as the element pointer, which the later GEP indexed as the
+// array ("Explicit gep type does not match pointee type").
+func TestLocalArrayStaysItsAllocaAfterAConstantIndex(t *testing.T) {
+	fn := emitMain(t, `
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+@compute @workgroup_size(1) fn main(@builtin(local_invocation_index) i: u32) {
+	var a: array<u32, 4>;
+	a[2] = 2u;
+	data[i] = a[data[0]];
+}
+`)
+	allocas := map[int]bool{}
+	for _, bb := range fn.BasicBlocks {
+		for _, in := range bb.Instructions {
+			switch in.Kind {
+			case module.InstrAlloca:
+				allocas[in.ValueID] = true
+			case module.InstrGEP:
+				if !allocas[in.Operands[2]] {
+					t.Errorf("GEP %%%d indexes %%%d, not the array's alloca", in.ValueID, in.Operands[2])
+				}
+			}
+		}
+	}
+}
