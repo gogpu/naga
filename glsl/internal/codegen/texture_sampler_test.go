@@ -583,16 +583,18 @@ func TestCompile_DepthTextureSampler(t *testing.T) {
 					{Kind: ir.ExprFunctionArgument{Index: 0}},
 					{Kind: ir.ExprGlobalVariable{Variable: 1}},
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
+					{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}},
 					{Kind: ir.ExprImageSample{
 						Image:      1,
 						Sampler:    2,
 						Coordinate: 0,
 						Level:      nil,
+						DepthRef:   ptrExpr(3),
 					}},
 				},
 				Body: []ir.Statement{
-					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
-					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
+					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
+					{Kind: ir.StmtReturn{Value: ptrExpr(4)}},
 				},
 			}},
 		},
@@ -605,7 +607,7 @@ func TestCompile_DepthTextureSampler(t *testing.T) {
 
 	t.Logf("Generated GLSL:\n%s", source)
 
-	// Depth texture should produce sampler2DShadow — globals use their original names
+	// A depth texture sampled with a comparison is a sampler2DShadow — globals use their original names
 	mustContain(t, source, "uniform sampler2DShadow shadowMap;")
 }
 

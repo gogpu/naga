@@ -10,6 +10,15 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
+// isIntegerExpr reports whether the expression is an integer scalar.
+func (w *Writer) isIntegerExpr(handle ir.ExpressionHandle) bool {
+	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.ExpressionTypes) {
+		return false
+	}
+	t, ok := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[handle], handle).(ir.ScalarType)
+	return ok && (t.Kind == ir.ScalarSint || t.Kind == ir.ScalarUint || t.Kind == ir.ScalarAbstractInt)
+}
+
 // isUnsigned checks if an expression resolves to an unsigned integer type.
 // Returns (vecSize, true) where vecSize is 0 for scalar, 2/3/4 for vectors.
 // Returns (0, false) if not unsigned.
@@ -1256,6 +1265,9 @@ func (w *Writer) writeImageSample(s ir.ExprImageSample) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if w.isIntegerExpr(level.Level) {
+			levelExpr = "float(" + levelExpr + ")"
+		}
 		fmt.Fprintf(&b, ", %s", levelExpr)
 	case ir.SampleLevelBias:
 		// Bias goes AFTER offset (written below)
@@ -1305,6 +1317,9 @@ func (w *Writer) writeImageSample(s ir.ExprImageSample) (string, error) {
 	}
 
 	b.WriteString(")")
+	if w.isPlainDepth(s.Image) {
+		b.WriteString(".x")
+	}
 	return b.String(), nil
 }
 
@@ -1420,14 +1435,19 @@ func (w *Writer) writeImageLoad(l ir.ExprImageLoad, handle ir.ExpressionHandle) 
 	// Determine coordinate vector size for ivecN constructors
 	coordVecSize := w.getCoordVectorSize(imgType, l.ArrayIndex != nil)
 
+	var load string
 	switch policy {
 	case BoundsCheckRestrict:
-		return w.writeImageLoadRestrict(l, handle, image, coordStr, coordVecSize, imgType)
+		load, err = w.writeImageLoadRestrict(l, handle, image, coordStr, coordVecSize, imgType)
 	case BoundsCheckReadZeroSkipWrite:
-		return w.writeImageLoadReadZero(l, image, coordStr, coordVecSize, imgType)
+		load, err = w.writeImageLoadReadZero(l, image, coordStr, coordVecSize, imgType)
 	default:
-		return w.writeImageLoadUnchecked(l, image, coordStr)
+		load, err = w.writeImageLoadUnchecked(l, image, coordStr)
 	}
+	if err == nil && w.isDepthImage(l.Image) {
+		load += ".x"
+	}
+	return load, err
 }
 
 // writeImageLoadUnchecked writes texelFetch without bounds checking.
