@@ -1700,6 +1700,31 @@ fn fs_main() -> @location(0) vec4<f32> {
 	glslMustContain(t, output, "void main()")
 }
 
+// GLSL leaves % undefined for negative operands, so integer % is written as
+// a - b * (a / b), with operands that are not plain names baked first.
+func TestCompileWGSL_IntegerModuloAvoidsPercent(t *testing.T) {
+	source := `
+@group(0) @binding(0) var<storage, read_write> d: array<i32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let a = d[0];
+    let b = d[1];
+    d[2] = a % b;
+    d[3] = (vec2(a, -a) % vec2(b)).y;
+    d[4] = i32(u32(a) % 3u);
+}
+`
+	output := wgslToGLSL(t, source, Options{LangVersion: Version430})
+	if strings.Contains(output, "%") {
+		t.Errorf("integer %% must not be written as %%:\n%s", output)
+	}
+	glslMustContain(t, output, "(a - b * (a / b))")
+	glslMustContain(t, output, "ivec2 _e12 = ivec2(a, -(a));")
+	glslMustContain(t, output, "(_e12 - _e13 * (_e12 / _e13))")
+	glslMustContain(t, output, "(_e18 - 3u * (_e18 / 3u))")
+}
+
 // =============================================================================
 // Exp2/Log2 Tests
 // =============================================================================
