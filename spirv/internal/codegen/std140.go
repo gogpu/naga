@@ -9,15 +9,16 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-// Two-row matrices in uniform buffers.
+// Two-row and f16 matrices in uniform buffers.
 //
 // Vulkan lays out a uniform buffer with its extended (std140) rules, which put
 // the columns of a matrix at least 16 bytes apart, where WGSL puts those of a
-// matCx2 8 bytes apart (4 for f16), also in the uniform address space: a
-// MatrixStride of 8 in a Uniform block is only valid with
-// uniformBufferStandardLayout. Like Rust naga (back/spv/mod.rs), the backend
-// declares each type a uniform buffer holds that contains a two-row matrix as
-// a std140-compatible type: a matrix member of a struct becomes one vector
+// matCx2 8 bytes apart (4 for f16) and those of any other f16 matrix 8 apart,
+// also in the uniform address space: a MatrixStride of 8 in a Uniform block is
+// only valid with uniformBufferStandardLayout. Like Rust naga
+// (back/spv/mod.rs), which does it for two-row matrices, the backend declares
+// each type a uniform buffer holds that contains such a matrix as a
+// std140-compatible type: a matrix member of a struct becomes one vector
 // member per column, a matrix elsewhere a struct of its columns, and structs
 // and arrays containing them compatible types of their own. Uniform buffers
 // are read-only, so only loads convert: a load of such a type goes through a
@@ -34,9 +35,20 @@ type std140Type struct {
 	memberIndices []uint32
 }
 
-func twoRowMatrix(inner ir.TypeInner) (ir.MatrixType, bool) {
+// std140Matrix reports whether inner is a matrix whose columns WGSL puts
+// less than 16 bytes apart: a two-row matrix, or an f16 matrix.
+func std140Matrix(inner ir.TypeInner) (ir.MatrixType, bool) {
 	m, ok := inner.(ir.MatrixType)
-	return m, ok && m.Rows == ir.Vec2
+	return m, ok && (m.Rows == ir.Vec2 || m.Scalar.Width == 2)
+}
+
+// columnStride is how far apart WGSL puts the columns of m: the alignment
+// of a column, which a three-row column has as four.
+func columnStride(m ir.MatrixType) uint32 {
+	if m.Rows == ir.Vec3 {
+		return 4 * uint32(m.Scalar.Width)
+	}
+	return uint32(m.Rows) * uint32(m.Scalar.Width)
 }
 
 // declareStd140Types declares the std140-compatible types of the uniform
@@ -61,7 +73,7 @@ func (b *Backend) declareStd140(ty ir.TypeHandle) error {
 	var info *std140Type
 	switch t := b.module.Types[ty].Inner.(type) {
 	case ir.MatrixType:
-		if t.Rows != ir.Vec2 {
+		if _, ok := std140Matrix(t); !ok {
 			return nil
 		}
 		columnTypeID, err := b.emitInlineType(ir.VectorType{Size: t.Rows, Scalar: t.Scalar})
@@ -74,7 +86,7 @@ func (b *Backend) declareStd140(ty ir.TypeHandle) error {
 		}
 		id := b.builder.AddTypeStruct(members...)
 		for c := range members {
-			b.builder.AddMemberDecorate(id, uint32(c), DecorationOffset, uint32(c)*2*uint32(t.Scalar.Width))
+			b.builder.AddMemberDecorate(id, uint32(c), DecorationOffset, uint32(c)*columnStride(t))
 			if b.options.Debug {
 				b.builder.AddMemberName(id, uint32(c), fmt.Sprintf("col%d", c))
 			}
@@ -101,7 +113,7 @@ func (b *Backend) declareStd140(ty ir.TypeHandle) error {
 	case ir.StructType:
 		needed := false
 		for _, m := range t.Members {
-			if _, ok := twoRowMatrix(b.module.Types[m.Type].Inner); ok {
+			if _, ok := std140Matrix(b.module.Types[m.Type].Inner); ok {
 				needed = true
 				continue
 			}
@@ -117,7 +129,7 @@ func (b *Backend) declareStd140(ty ir.TypeHandle) error {
 		var members []uint32
 		for _, m := range t.Members {
 			info.memberIndices = append(info.memberIndices, uint32(len(members)))
-			if mat, ok := twoRowMatrix(b.module.Types[m.Type].Inner); ok {
+			if mat, ok := std140Matrix(b.module.Types[m.Type].Inner); ok {
 				columnTypeID, err := b.emitInlineType(ir.VectorType{Size: mat.Rows, Scalar: mat.Scalar})
 				if err != nil {
 					return err
@@ -138,9 +150,9 @@ func (b *Backend) declareStd140(ty ir.TypeHandle) error {
 		info.id = b.builder.AddTypeStruct(members...)
 		for i, m := range t.Members {
 			index := info.memberIndices[i]
-			if mat, ok := twoRowMatrix(b.module.Types[m.Type].Inner); ok {
+			if mat, ok := std140Matrix(b.module.Types[m.Type].Inner); ok {
 				for c := range uint32(mat.Columns) {
-					b.builder.AddMemberDecorate(info.id, index+c, DecorationOffset, m.Offset+c*2*uint32(mat.Scalar.Width))
+					b.builder.AddMemberDecorate(info.id, index+c, DecorationOffset, m.Offset+c*columnStride(mat))
 					if b.options.Debug && m.Name != "" {
 						b.builder.AddMemberName(info.id, index+c, fmt.Sprintf("%s_col%d", m.Name, c))
 					}
@@ -228,7 +240,7 @@ func (b *Backend) emitStd140Wrappers(fn *ir.Function, expr ir.ExpressionKind) er
 		if !ok {
 			return nil
 		}
-		if _, isMatrix := twoRowMatrix(b.module.Types[ty].Inner); !isMatrix {
+		if _, isMatrix := std140Matrix(b.module.Types[ty].Inner); !isMatrix {
 			return nil
 		}
 		if _, err := b.matCx2GetColumn(ty); err != nil {
@@ -325,7 +337,7 @@ func (b *Backend) std140Convert(ty ir.TypeHandle) (uint32, error) {
 			if err != nil {
 				return 0, err
 			}
-			if mat, ok := twoRowMatrix(b.module.Types[m.Type].Inner); ok {
+			if mat, ok := std140Matrix(b.module.Types[m.Type].Inner); ok {
 				ids, err := columns(mat, next)
 				if err != nil {
 					return 0, err
@@ -356,17 +368,18 @@ func (b *Backend) std140Convert(ty ir.TypeHandle) (uint32, error) {
 	return functionID, nil
 }
 
-// matCx2GetColumn returns the function returning the column of a two-row
-// matrix of type ty its u32 argument selects, which it writes the first time.
+// matCx2GetColumn returns the function returning the column of a matrix of
+// type ty, one std140Matrix reports, its u32 argument selects, which it
+// writes the first time.
 // An index out of bounds is handled by the Index bounds check policy, as in
 // Rust naga: the last column for Restrict, zero for ReadZeroSkipWrite.
 func (b *Backend) matCx2GetColumn(ty ir.TypeHandle) (uint32, error) {
 	if id, ok := b.matCx2ColumnIDs[ty]; ok {
 		return id, nil
 	}
-	mat, ok := twoRowMatrix(b.module.Types[ty].Inner)
+	mat, ok := std140Matrix(b.module.Types[ty].Inner)
 	if !ok {
-		return 0, fmt.Errorf("type %d is not a two-row matrix", ty)
+		return 0, fmt.Errorf("type %d is not a matrix std140Matrix reports", ty)
 	}
 	functionID := b.builder.AllocID()
 	b.matCx2ColumnIDs[ty] = functionID
@@ -451,15 +464,15 @@ func uniformPointee(module *ir.Module, fn *ir.Function, h ir.ExpressionHandle) (
 	return p.Base, ok && p.Space == ir.SpaceUniform
 }
 
-// isUniformMatCx2Member reports whether h points to a two-row matrix member
-// of a struct in a uniform buffer, whose columns are members of the struct's
-// std140-compatible type.
+// isUniformMatCx2Member reports whether h points to a matrix member of a
+// struct in a uniform buffer, one std140Matrix reports, whose columns are
+// members of the struct's std140-compatible type.
 func isUniformMatCx2Member(module *ir.Module, fn *ir.Function, h ir.ExpressionHandle) bool {
 	ty, ok := uniformPointee(module, fn, h)
 	if !ok {
 		return false
 	}
-	if _, ok := twoRowMatrix(module.Types[ty].Inner); !ok {
+	if _, ok := std140Matrix(module.Types[ty].Inner); !ok {
 		return false
 	}
 	access, ok := fn.Expressions[h].Kind.(ir.ExprAccessIndex)
@@ -529,7 +542,7 @@ func (e *ExpressionEmitter) loadUniform(pointer ir.ExpressionHandle) (uint32, bo
 	return e.emitFunctionCall(typeID, convert, value), true, nil
 }
 
-// loadDynamicMatCx2Column loads the column of a two-row matrix in a uniform
+// loadDynamicMatCx2Column loads the column of a std140Matrix in a uniform
 // buffer that pointer selects by a dynamic index, or a component of it: the
 // columns of the std140-compatible type are struct members, which an access
 // chain can't select by a dynamic index, so the matrix is loaded and the
@@ -572,7 +585,7 @@ func (e *ExpressionEmitter) loadDynamicMatCx2Column(pointer ir.ExpressionHandle)
 	if !ok {
 		return 0, false, nil
 	}
-	mat, ok := twoRowMatrix(module.Types[ty].Inner)
+	mat, ok := std140Matrix(module.Types[ty].Inner)
 	if !ok {
 		return 0, false, nil
 	}
@@ -621,7 +634,7 @@ func (e *ExpressionEmitter) loadDynamicMatCx2Column(pointer ir.ExpressionHandle)
 	return value, true, err
 }
 
-// loadMatCx2Member loads the two-row matrix member of a struct in a uniform
+// loadMatCx2Member loads the std140Matrix member of a struct in a uniform
 // buffer pointer points to, column by column from the struct's
 // std140-compatible type.
 func (e *ExpressionEmitter) loadMatCx2Member(pointer ir.ExpressionHandle) (uint32, bool, error) {
@@ -630,11 +643,11 @@ func (e *ExpressionEmitter) loadMatCx2Member(pointer ir.ExpressionHandle) (uint3
 		return 0, false, nil
 	}
 	ty, _ := uniformPointee(module, e.function, pointer)
-	mat, _ := twoRowMatrix(module.Types[ty].Inner)
+	mat, _ := std140Matrix(module.Types[ty].Inner)
 	access := e.function.Expressions[pointer].Kind.(ir.ExprAccessIndex)
 	info := e.std140Struct(access.Base)
 	if info == nil {
-		return 0, true, fmt.Errorf("uniform struct with a two-row matrix member has no std140-compatible type")
+		return 0, true, fmt.Errorf("uniform struct with a %dx%d matrix member has no std140-compatible type", mat.Columns, mat.Rows)
 	}
 	matrixTypeID, err := e.backend.emitType(ty)
 	if err != nil {

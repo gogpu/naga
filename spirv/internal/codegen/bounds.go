@@ -281,7 +281,7 @@ func (e *ExpressionEmitter) chainIndices(links []ir.ExpressionHandle) ([]uint32,
 		}
 	}
 
-	// Tip first: a column of a two-row matrix member of a uniform struct is
+	// Tip first: a column of a std140Matrix member of a uniform struct is
 	// a member of the struct's std140-compatible type, so its index goes
 	// into the struct member's.
 	indices := make([]uint32, 0, len(links))
