@@ -180,6 +180,9 @@ var glslKeywords = map[string]struct{}{
 	"atomicAdd":             {}, "atomicMin": {}, "atomicMax": {}, "atomicAnd": {}, "atomicOr": {}, "atomicXor": {},
 	"atomicExchange": {}, "atomicCompSwap": {},
 	"subpassLoad": {},
+
+	// Uniforms the writer declares.
+	FragDepthRangeUniform: {},
 }
 
 // isKeyword checks if a name is a GLSL keyword or reserved word.

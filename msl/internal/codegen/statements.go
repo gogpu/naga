@@ -1026,13 +1026,14 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 		outputStructName := w.getOutputStructName()
 		w.WriteIndent()
 		w.write("return %s { ", outputStructName)
-		if err := w.writeExpression(value); err != nil {
+		if err := w.writeOutputMember(w.currentFunction.Result.Binding, func() error { return w.writeExpression(value) }); err != nil {
 			return false, err
 		}
 		// Add 1.0 for forced point size in vertex shaders
 		if w.entryPointStage == ir.StageVertex && w.options.AllowAndForcePointSize {
 			w.write(", 1.0")
 		}
+		w.writeSampleMaskValue(false)
 		w.write(" };\n")
 		return true, nil
 	}
@@ -1053,14 +1054,20 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 	w.write("return %s {", outputStructName)
 
 	isFirst := true
-	for memberIdx := range st.Members {
+	for memberIdx, member := range st.Members {
 		memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(typeHandle), handle2: uint32(memberIdx)})
 		comma := ","
 		if isFirst {
 			comma = ""
 			isFirst = false
 		}
-		w.write("%s _tmp.%s", comma, memberName)
+		w.write("%s ", comma)
+		if err := w.writeOutputMember(member.Binding, func() error {
+			w.write("_tmp.%s", memberName)
+			return nil
+		}); err != nil {
+			return false, err
+		}
 	}
 
 	// Add 1.0 for forced point size in vertex shaders.
@@ -1082,6 +1089,7 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 			w.write(" 1.0")
 		}
 	}
+	w.writeSampleMaskValue(isFirst)
 
 	w.write(" };\n")
 	return true, nil
@@ -1090,6 +1098,10 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 // writeReturn writes a return statement.
 func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 	if ret.Value == nil {
+		if w.voidOutputStruct != "" {
+			w.writeVoidOutputReturn()
+			return nil
+		}
 		w.WriteLine("return;")
 		return nil
 	}
