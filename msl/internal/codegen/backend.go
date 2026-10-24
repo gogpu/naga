@@ -245,6 +245,16 @@ type Options struct {
 	// VertexBufferMappings describes the vertex buffer layout for vertex pulling.
 	// Each entry describes one vertex buffer with its stride, step mode, and attributes.
 	VertexBufferMappings []VertexBufferMapping
+
+	// ClampFragDepth clamps the depth a fragment entry point writes to the
+	// range in a float2 at buffer slot ClampFragDepth.Buffer (see the msl
+	// package).
+	ClampFragDepth *ClampFragDepth
+}
+
+// ClampFragDepth is where the range of the frag_depth clamp is.
+type ClampFragDepth struct {
+	Buffer uint8
 }
 
 // VertexFormat describes the format of a vertex attribute.

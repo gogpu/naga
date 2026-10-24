@@ -162,6 +162,18 @@ type Backend struct {
 	// Set of struct type handles whose global variables use Uniform address space.
 	// Used to apply std140 MatrixStride rules (column stride >= 16 for f32).
 	uniformStructTypes map[ir.TypeHandle]bool
+
+	// fragDepthVars are the FragDepth output variables, and fragDepthRanges
+	// where the range of their clamp is (Options.ClampFragDepth).
+	// fragDepthRange is the push constant block of the range of entry points
+	// without push constants of their own, fragDepthRangeEPs the entry points
+	// that use it, and fragDepthRangeGlobals the push constant globals that
+	// carry the range of the entry points that have them.
+	fragDepthVars         map[uint32]bool
+	fragDepthRanges       map[uint32]fragDepthRangeAt
+	fragDepthRange        uint32
+	fragDepthRangeEPs     map[int]bool
+	fragDepthRangeGlobals map[ir.GlobalVariableHandle]bool
 }
 
 // wrappedBinaryOp is the dedup key for wrapped binary operation functions.
@@ -175,33 +187,37 @@ type wrappedBinaryOp struct {
 // NewBackend creates a new SPIR-V backend.
 func NewBackend(options Options) *Backend {
 	return &Backend{
-		options:             options,
-		typeIDs:             make(map[ir.TypeHandle]uint32, 16),
-		constantIDs:         make(map[ir.ConstantHandle]uint32, 16),
-		globalIDs:           make(map[ir.GlobalVariableHandle]uint32, 4),
-		functionIDs:         make(map[ir.FunctionHandle]uint32, 4),
-		entryInputVars:      make(map[int][]*entryPointInput, 2),
-		entryOutputVars:     make(map[int]*entryPointOutput, 2),
-		entryPointFuncIDs:   make(map[int]uint32, 2),
-		sampledImageTypeIDs: make(map[uint64]uint32, 4),
-		imageTypeIDs:        make(map[uint64]uint32, 4),
-		scalarTypeIDs:       make(map[uint32]uint32, 8),
-		pointerTypeIDs:      make(map[uint32]uint32, 8),
-		vectorTypeIDs:       make(map[uint32]uint32, 8),
-		matrixTypeIDs:       make(map[uint32]uint32, 4),
-		usedCapabilities:    make(map[Capability]bool, 4),
-		usedExtensions:      make(map[string]bool, 2),
-		funcTypeIDs:         make(map[string]uint32, 4),
-		wrappedStorageVars:  make(map[ir.GlobalVariableHandle]bool, 2),
-		blockDecoratedTypes: make(map[uint32]bool, 4),
-		layoutFreeTypeIDs:   make(map[ir.TypeHandle]uint32, 4),
-		forcePointSizeVars:  make(map[int]uint32, 2),
-		workgroupInitVars:   make(map[int]uint32, 2),
-		wrappedFuncIDs:      make(map[wrappedBinaryOp]uint32, 4),
-		f16PolyfillVars:     make(map[uint32]uint32, 4),
-		sampleMaskVars:      make(map[uint32]bool, 2),
-		rayQueryFuncIDs:     make(map[rayQueryFuncKind]uint32, 6),
-		uniformStructTypes:  make(map[ir.TypeHandle]bool, 4),
+		options:               options,
+		typeIDs:               make(map[ir.TypeHandle]uint32, 16),
+		constantIDs:           make(map[ir.ConstantHandle]uint32, 16),
+		globalIDs:             make(map[ir.GlobalVariableHandle]uint32, 4),
+		functionIDs:           make(map[ir.FunctionHandle]uint32, 4),
+		entryInputVars:        make(map[int][]*entryPointInput, 2),
+		entryOutputVars:       make(map[int]*entryPointOutput, 2),
+		entryPointFuncIDs:     make(map[int]uint32, 2),
+		sampledImageTypeIDs:   make(map[uint64]uint32, 4),
+		imageTypeIDs:          make(map[uint64]uint32, 4),
+		scalarTypeIDs:         make(map[uint32]uint32, 8),
+		pointerTypeIDs:        make(map[uint32]uint32, 8),
+		vectorTypeIDs:         make(map[uint32]uint32, 8),
+		matrixTypeIDs:         make(map[uint32]uint32, 4),
+		usedCapabilities:      make(map[Capability]bool, 4),
+		usedExtensions:        make(map[string]bool, 2),
+		funcTypeIDs:           make(map[string]uint32, 4),
+		wrappedStorageVars:    make(map[ir.GlobalVariableHandle]bool, 2),
+		blockDecoratedTypes:   make(map[uint32]bool, 4),
+		layoutFreeTypeIDs:     make(map[ir.TypeHandle]uint32, 4),
+		forcePointSizeVars:    make(map[int]uint32, 2),
+		workgroupInitVars:     make(map[int]uint32, 2),
+		wrappedFuncIDs:        make(map[wrappedBinaryOp]uint32, 4),
+		f16PolyfillVars:       make(map[uint32]uint32, 4),
+		sampleMaskVars:        make(map[uint32]bool, 2),
+		rayQueryFuncIDs:       make(map[rayQueryFuncKind]uint32, 6),
+		uniformStructTypes:    make(map[ir.TypeHandle]bool, 4),
+		fragDepthVars:         make(map[uint32]bool),
+		fragDepthRanges:       make(map[uint32]fragDepthRangeAt),
+		fragDepthRangeEPs:     make(map[int]bool),
+		fragDepthRangeGlobals: make(map[ir.GlobalVariableHandle]bool),
 	}
 }
 
@@ -243,6 +259,11 @@ func (b *Backend) Reset() {
 	clear(b.sampleMaskVars)
 	clear(b.rayQueryFuncIDs)
 	clear(b.uniformStructTypes)
+	clear(b.fragDepthVars)
+	clear(b.fragDepthRanges)
+	clear(b.fragDepthRangeEPs)
+	clear(b.fragDepthRangeGlobals)
+	b.fragDepthRange = 0
 
 	// Reset scalar IDs
 	b.glslExtID = 0
@@ -1749,11 +1770,28 @@ func (b *Backend) emitGlobals() error {
 		// Determine if this variable needs a wrapper struct (matching Rust naga's
 		// global_needs_wrapper logic). In SPIR-V, Uniform/Storage variables must be
 		// typed as OpTypeStruct with Block decoration.
-		needsWrap := b.globalNeedsWrapper(global)
+		carriesRange, err := b.carriesFragDepthRange(ir.GlobalVariableHandle(handle))
+		if err != nil {
+			return err
+		}
+		needsWrap := b.globalNeedsWrapper(global) || carriesRange
 		if needsWrap {
-			wrapperStruct := b.builder.AddTypeStruct(varType)
+			members := []uint32{varType}
+			if carriesRange {
+				f32TypeID, err := b.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
+				if err != nil {
+					return err
+				}
+				members = append(members, f32TypeID, f32TypeID)
+				b.fragDepthRangeGlobals[ir.GlobalVariableHandle(handle)] = true
+			}
+			wrapperStruct := b.builder.AddTypeStruct(members...)
 			b.builder.AddDecorate(wrapperStruct, DecorationBlock)
 			b.builder.AddMemberDecorate(wrapperStruct, 0, DecorationOffset, 0)
+			if carriesRange {
+				b.builder.AddMemberDecorate(wrapperStruct, 1, DecorationOffset, b.options.ClampFragDepth.Offset)
+				b.builder.AddMemberDecorate(wrapperStruct, 2, DecorationOffset, b.options.ClampFragDepth.Offset+4)
+			}
 			// Add matrix layout decorations if member is a matrix type
 			b.addMatrixLayoutIfNeeded(wrapperStruct, 0, global.Type)
 			varType = wrapperStruct
@@ -2164,6 +2202,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 					b.addBuiltinCapabilities(binding.Builtin)
 					spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassOutput)
 					b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+					b.fragDepthVars[varID] = binding.Builtin == ir.BuiltinFragDepth
 				case ir.LocationBinding:
 					b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
 					b.addInterpolationDecorations(varID, binding, entryPoint.Stage, StorageClassOutput)
@@ -2221,6 +2260,7 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 							b.addBuiltinCapabilities(binding.Builtin)
 							spirvBuiltin := builtinToSPIRV(binding.Builtin, StorageClassOutput)
 							b.builder.AddDecorate(varID, DecorationBuiltIn, uint32(spirvBuiltin))
+							b.fragDepthVars[varID] = binding.Builtin == ir.BuiltinFragDepth
 						case ir.LocationBinding:
 							b.builder.AddDecorate(varID, DecorationLocation, binding.Location)
 							b.addInterpolationDecorations(varID, binding, entryPoint.Stage, StorageClassOutput)
@@ -2230,6 +2270,9 @@ func (b *Backend) emitEntryPointInterfaceVars() error {
 			}
 
 			b.entryOutputVars[epIdx] = output
+			if err := b.declareFragDepthRange(epIdx, entryPoint, output); err != nil {
+				return err
+			}
 		}
 
 		// ForcePointSize: add BuiltIn PointSize output variable for vertex shaders
@@ -2522,6 +2565,9 @@ func (b *Backend) emitEntryPoints() error {
 		// Add workgroup init polyfill LocalInvocationId variable to interface
 		if wgVarID, ok := b.workgroupInitVars[epIdx]; ok {
 			interfaces = append(interfaces, wgVarID)
+		}
+		if b.fragDepthRangeEPs[epIdx] && spvVersionWord >= 0x10400 {
+			interfaces = append(interfaces, b.fragDepthRange)
 		}
 
 		// Add entry point
@@ -6236,6 +6282,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 							e.backend.builder.funcAppend(e.backend.ib.Build(OpFConvert))
 							memberValue = convertedID
 						}
+						if memberValue, err = e.clampFragDepth(varID, memberValue); err != nil {
+							return err
+						}
 						// Store to output variable (SampleMask needs AccessChain[0])
 						if e.backend.sampleMaskVars[varID] {
 							elemPtrType := e.backend.emitPointerType(StorageClassOutput, memberTypeID)
@@ -6262,6 +6311,9 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 						e.backend.ib.AddWord(valueID)
 						e.backend.builder.funcAppend(e.backend.ib.Build(OpFConvert))
 						storeValue = convertedID
+					}
+					if storeValue, err = e.clampFragDepth(e.output.singleVarID, storeValue); err != nil {
+						return err
 					}
 					// SampleMask output needs AccessChain[0]
 					if e.backend.sampleMaskVars[e.output.singleVarID] {

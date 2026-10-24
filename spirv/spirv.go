@@ -160,6 +160,26 @@ type Options struct {
 	// (ErrMissingBinding). The inverse of Rust naga's fake_missing_bindings,
 	// so the zero value behaves like Rust's default.
 	RequireBindings bool
+
+	// ClampFragDepth, when set, clamps the depth a fragment entry point
+	// writes to the range in two f32 push constants, min then max, at byte
+	// offset ClampFragDepth.Offset, for which the module declares a push
+	// constant block: WebGPU clamps frag_depth to the viewport's depth
+	// range, and Vulkan doesn't. The caller pushes the viewport's minDepth
+	// and maxDepth there. Rust naga's CLAMP_FRAG_DEPTH clamps to 0..1;
+	// Dawn's ClampFragDepth transform reads the range as this does. An
+	// entry point that writes frag_depth and has push constants of its own
+	// finds the range in its own block instead, members appended after its
+	// data, as an entry point has at most one push constant block, so Offset
+	// has to be past that data. Every stage that uses such a block then has
+	// the range in its block too.
+	ClampFragDepth *ClampFragDepth
+}
+
+// ClampFragDepth is where the range of the frag_depth clamp is.
+type ClampFragDepth struct {
+	// Offset is the byte offset of min in the push constants; max follows.
+	Offset uint32
 }
 
 // ResourceBinding is a resource's WGSL @group and @binding.
@@ -949,6 +969,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		RayQueryInitTracking:  o.RayQueryInitTracking,
 		BindingMap:            toCodegenBindingMap(o.BindingMap),
 		RequireBindings:       o.RequireBindings,
+		ClampFragDepth:        (*codegen.ClampFragDepth)(o.ClampFragDepth),
 	}
 }
 
