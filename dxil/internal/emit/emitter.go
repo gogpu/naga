@@ -462,6 +462,7 @@ type BindTarget struct {
 	BindingArraySize                 *uint32
 	RestrictIndexing                 bool
 	DynamicStorageBufferOffsetsIndex *uint32
+	DynamicStorageBufferSizeIndex    *uint32
 }
 
 // DynamicOffsetsBuffer is the constant buffer of the dynamic offsets of the

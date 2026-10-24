@@ -174,6 +174,7 @@ func convertBindingMap(m BindingMap) emit.BindingMap {
 			BindingArraySize:                 v.BindingArraySize,
 			RestrictIndexing:                 v.RestrictIndexing,
 			DynamicStorageBufferOffsetsIndex: v.DynamicStorageBufferOffsetsIndex,
+			DynamicStorageBufferSizeIndex:    v.DynamicStorageBufferSizeIndex,
 		}
 	}
 	return out
