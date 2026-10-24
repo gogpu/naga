@@ -156,6 +156,13 @@ type BindTarget struct {
 	// constant buffer for this binding.
 	DynamicStorageBufferOffsetsIndex *uint32
 
+	// DynamicStorageBufferSizeIndex is the index into the same constant
+	// buffer of the binding's size in bytes, which arrayLength() counts the
+	// elements of. A binding with a dynamic offset is viewed to the end of
+	// its buffer, which arrayLength() would count otherwise, past the
+	// binding and without the offset. Rust naga has no such field.
+	DynamicStorageBufferSizeIndex *uint32
+
 	// RestrictIndexing indicates that this binding should have bounds checking.
 	RestrictIndexing bool
 }
@@ -793,6 +800,7 @@ func toCodegenBindTarget(bt BindTarget) codegen.BindTarget {
 		Register:                         bt.Register,
 		BindingArraySize:                 bt.BindingArraySize,
 		DynamicStorageBufferOffsetsIndex: bt.DynamicStorageBufferOffsetsIndex,
+		DynamicStorageBufferSizeIndex:    bt.DynamicStorageBufferSizeIndex,
 		RestrictIndexing:                 bt.RestrictIndexing,
 	}
 }
