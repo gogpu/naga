@@ -1033,6 +1033,7 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 		if w.entryPointStage == ir.StageVertex && w.options.AllowAndForcePointSize {
 			w.write(", 1.0")
 		}
+		w.writeSampleMaskValue(false)
 		w.write(" };\n")
 		return true, nil
 	}
@@ -1088,6 +1089,7 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 			w.write(" 1.0")
 		}
 	}
+	w.writeSampleMaskValue(isFirst)
 
 	w.write(" };\n")
 	return true, nil
@@ -1096,6 +1098,10 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 // writeReturn writes a return statement.
 func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 	if ret.Value == nil {
+		if w.voidOutputStruct != "" {
+			w.writeVoidOutputReturn()
+			return nil
+		}
 		w.WriteLine("return;")
 		return nil
 	}

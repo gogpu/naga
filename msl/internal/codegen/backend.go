@@ -250,6 +250,10 @@ type Options struct {
 	// range in a float2 at buffer slot ClampFragDepth.Buffer (see the msl
 	// package).
 	ClampFragDepth *ClampFragDepth
+
+	// FixedSampleMask is the render pipeline's sample mask, which fragment
+	// entry points apply themselves (see the msl package).
+	FixedSampleMask *uint32
 }
 
 // ClampFragDepth is where the range of the frag_depth clamp is.

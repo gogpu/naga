@@ -58,8 +58,17 @@ func (w *Writer) writeFragDepthRangeParam(ep *ir.EntryPoint, paramCount *int) {
 
 // writeOutputMember writes value, the output member or result with binding
 // b, clamped to the range of the frag_depth clamp when it is frag_depth and
-// the entry point clamps it.
+// the entry point clamps it, and ANDed with Options.FixedSampleMask when it
+// is sample_mask and the entry point applies the mask.
 func (w *Writer) writeOutputMember(b *ir.Binding, value func() error) error {
+	if w.options.FixedSampleMask != nil && w.entryPointStage == ir.StageFragment && isSampleMask(b) {
+		w.write("(")
+		if err := value(); err != nil {
+			return err
+		}
+		w.write(" & %du)", *w.options.FixedSampleMask)
+		return nil
+	}
 	if !w.clampFragDepth || !isFragDepth(b) {
 		return value()
 	}

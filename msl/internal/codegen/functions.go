@@ -495,6 +495,8 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		w.flattenedMemberNames = nil
 		w.hasVaryings = false
 		w.clampFragDepth = false
+		w.sampleMaskOutput = ""
+		w.voidOutputStruct = ""
 	}()
 
 	// Determine if this entry point should do vertex pulling.
@@ -546,6 +548,9 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 
 	// Return type
 	resolveReturnSignature := func() (string, string) {
+		if hasOutputStruct && fn.Result == nil {
+			return outputStructName, ""
+		}
 		if hasOutputStruct {
 			w.entryPointOutputVar = "_output"
 			w.entryPointOutputType = fn.Result.Type
@@ -911,6 +916,9 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	if err := w.writeBlock(fn.Body); err != nil {
 		return err
 	}
+	if w.voidOutputStruct != "" && !blockEndsWithReturn(fn.Body) {
+		w.writeVoidOutputReturn()
+	}
 
 	w.PopIndent()
 	w.WriteLine("}")
@@ -1063,7 +1071,17 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 		// advances consistently. Without this, subsequent entry points get
 		// wrong member name suffixes.
 		w.namer.call("member")
-		return "", false
+		if !w.appliesSampleMask(ep) {
+			return "", false
+		}
+		epName := w.getName(nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)})
+		w.voidOutputStruct = w.namer.call(epName + "Output")
+		w.WriteLine("struct %s {", w.voidOutputStruct)
+		w.PushIndent()
+		w.writeSampleMaskMember(ep)
+		w.PopIndent()
+		w.WriteLine("};")
+		return w.voidOutputStruct, true
 	}
 
 	// Check if result type is a struct with bindings
@@ -1103,6 +1121,7 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 				if ep.Stage == ir.StageVertex && w.options.AllowAndForcePointSize {
 					w.WriteLine("float _point_size [[point_size]];")
 				}
+				w.writeSampleMaskMember(ep)
 				w.PopIndent()
 				w.WriteLine("};")
 
@@ -1156,6 +1175,7 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 			w.WriteLine("float _point_size [[point_size]];")
 		}
 	}
+	w.writeSampleMaskMember(ep)
 
 	w.PopIndent()
 	w.WriteLine("};")
