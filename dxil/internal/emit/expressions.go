@@ -110,7 +110,12 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		} else {
 			// Non-resource global variable (workgroup, private, push-constant).
 			// Emit an alloca to create a proper pointer for load/store.
+			_, existed := e.globalVarAllocas[ek.Variable]
 			valueID, err = e.emitGlobalVarAlloca(ek.Variable)
+			if global := &e.ir.GlobalVariables[ek.Variable]; err == nil && !existed && global.Space == ir.SpacePrivate {
+				e.exprValues[handle] = valueID
+				err = e.initPrivateGlobal(fn, handle, global)
+			}
 		}
 
 	case ir.ExprImageSample:
@@ -1176,7 +1181,7 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 				}
 				return handleID, nil
 			}
-			if res.class == resourceClassUAV || res.class == resourceClassSRV {
+			if res.class == resourceClassUAV || res.class == resourceClassSRV || res.class == resourceClassCBV {
 				return baseID, nil
 			}
 		}
@@ -4326,28 +4331,37 @@ func (e *Emitter) emitArrayLength(fn *ir.Function, al ir.ExprArrayLength) (int, 
 		stride = 4 // Default to 4 bytes (f32/i32/u32).
 	}
 
-	// Emit dx.op.getDimensions(72, handle, undef) → %dx.types.Dimensions
 	i32Ty := e.mod.GetIntType(32)
-	dimTy := e.getDxDimensionsType()
-	getDimFn := e.getDxOpGetDimensionsFunc()
+	var resultID int
+	if res.dynamicSize != nil {
+		size, err := e.loadDynamicOffset(*res.dynamicSize)
+		if err != nil {
+			return 0, fmt.Errorf("ExprArrayLength: %w", err)
+		}
+		resultID = size
+	} else {
+		// Emit dx.op.getDimensions(72, handle, undef) → %dx.types.Dimensions
+		dimTy := e.getDxDimensionsType()
+		getDimFn := e.getDxOpGetDimensionsFunc()
 
-	opcodeVal := e.getIntConstID(int64(OpGetDimensions))
-	undefVal := e.getUndefConstID()
+		opcodeVal := e.getIntConstID(int64(OpGetDimensions))
+		undefVal := e.getUndefConstID()
 
-	dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, handleID, undefVal})
+		dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, handleID, undefVal})
 
-	// Extract component 0 = total byte size.
-	totalBytesID := e.allocValue()
-	extractInstr := &module.Instruction{
-		Kind:       module.InstrExtractVal,
-		HasValue:   true,
-		ResultType: i32Ty,
-		Operands:   []int{dimRetID, 0},
-		ValueID:    totalBytesID,
+		// Extract component 0 = total byte size.
+		totalBytesID := e.allocValue()
+		extractInstr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{dimRetID, 0},
+			ValueID:    totalBytesID,
+		}
+		e.currentBB.AddInstruction(extractInstr)
+
+		resultID = totalBytesID
 	}
-	e.currentBB.AddInstruction(extractInstr)
-
-	resultID := totalBytesID
 
 	// Subtract offset if nonzero: (totalBytes - offset)
 	if offset > 0 {

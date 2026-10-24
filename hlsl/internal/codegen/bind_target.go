@@ -24,6 +24,11 @@ type BindTarget struct {
 	// Matches Rust naga's BindTarget::dynamic_storage_buffer_offsets_index.
 	DynamicStorageBufferOffsetsIndex *uint32
 
+	// DynamicStorageBufferSizeIndex is the index into the same constant
+	// buffer of the binding's size in bytes, which arrayLength() counts the
+	// elements of (see the hlsl package).
+	DynamicStorageBufferSizeIndex *uint32
+
 	// RestrictIndexing indicates that this specific binding should have bounds
 	// checking applied to array indices, even for Uniform address space.
 	// Matches Rust naga's BindTarget::restrict_indexing.

@@ -41,6 +41,32 @@ type BindTarget struct {
 	// with hlsl.BindTarget so callers can share a single binding-map
 	// builder; it is currently not consulted by the DXIL backend.
 	BindingArraySize *uint32
+
+	// RestrictIndexing clamps run-time indices into the arrays and matrix
+	// columns of the constant buffer at this binding to their bounds, as
+	// hlsl.BindTarget.RestrictIndexing does. A root CBV needs it: D3D12
+	// doesn't bounds check root descriptors.
+	RestrictIndexing bool
+
+	// DynamicStorageBufferOffsetsIndex is, for a storage buffer with a
+	// dynamic offset, the index of the offset in the constant buffer of its
+	// bind group in Options.DynamicStorageBufferOffsetsTargets.
+	DynamicStorageBufferOffsetsIndex *uint32
+
+	// DynamicStorageBufferSizeIndex is the index in the same constant buffer
+	// of the binding's size in bytes, which arrayLength() counts the elements
+	// of. A binding with a dynamic offset is viewed to the end of its buffer,
+	// which arrayLength() would count otherwise, past the binding and without
+	// the offset.
+	DynamicStorageBufferSizeIndex *uint32
+}
+
+// OffsetsBindTarget is the constant buffer of the dynamic offsets of the
+// storage buffers of a bind group: Size 32-bit root constants.
+type OffsetsBindTarget struct {
+	Space    uint32
+	Register uint32
+	Size     uint32
 }
 
 // BindingMap maps WGSL/SPIR-V binding locations to DXIL register bindings.

@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 89
+; Bound: 90
 ; Schema: 0
 
                OpCapability Shader
@@ -30,23 +30,24 @@
          %_18 = OpTypePointer Input %_8
          %_21 = OpTypeFunction %_2
          %_24 = OpTypePointer Function %_9
-         %_29 = OpTypeVector %_9 3
-         %_30 = OpConstantNull %_8
-         %_35 = OpConstantNull %_3
-         %_36 = OpConstantNull %_4
-         %_37 = OpConstantNull %_15
-         %_38 = OpConstant %_3 264
-         %_40 = OpConstant %_3 0
-         %_41 = OpTypePointer Input %_3
-         %_44 = OpConstant %_3 1
-         %_47 = OpConstant %_3 32768
-         %_50 = OpConstant %_3 64
-         %_53 = OpConstant %_4 2
-         %_55 = OpConstant %_4 1
-         %_70 = OpConstant %_4 0
-         %_72 = OpConstantFalse %_9
-         %_78 = OpConstantFalse %_9
-         %_84 = OpConstantFalse %_9
+         %_26 = OpConstantNull %_9
+         %_30 = OpTypeVector %_9 3
+         %_31 = OpConstantNull %_8
+         %_36 = OpConstantNull %_3
+         %_37 = OpConstantNull %_4
+         %_38 = OpConstantNull %_15
+         %_39 = OpConstant %_3 264
+         %_41 = OpConstant %_3 0
+         %_42 = OpTypePointer Input %_3
+         %_45 = OpConstant %_3 1
+         %_48 = OpConstant %_3 32768
+         %_51 = OpConstant %_3 64
+         %_54 = OpConstant %_4 2
+         %_56 = OpConstant %_4 1
+         %_71 = OpConstant %_4 0
+         %_73 = OpConstantFalse %_9
+         %_79 = OpConstantFalse %_9
+         %_85 = OpConstantFalse %_9
          %_11 = OpVariable %_10 Workgroup
          %_13 = OpVariable %_12 Workgroup
          %_17 = OpVariable %_16 Workgroup
@@ -54,92 +55,92 @@
          %_20 = OpVariable %_18 Input
          %_22 = OpFunction %_2 None %_21
          %_23 = OpLabel
-         %_25 = OpVariable %_24 Function
-         %_26 = OpVariable %_24 Function
-         %_27 = OpVariable %_24 Function
-         %_28 = OpLoad %_8 %_20
-         %_31 = OpSignBitSet %_29 %_28 %_30
-         %_32 = Op155 %_9 %_31
-               OpSelectionMerge %_33 0
-               OpBranchConditional %_32 %_34 %_33
+         %_25 = OpVariable %_24 Function %_26
+         %_27 = OpVariable %_24 Function %_26
+         %_28 = OpVariable %_24 Function %_26
+         %_29 = OpLoad %_8 %_20
+         %_32 = OpSignBitSet %_30 %_29 %_31
+         %_33 = Op155 %_9 %_32
+               OpSelectionMerge %_34 0
+               OpBranchConditional %_33 %_35 %_34
+         %_35 = OpLabel
+               OpStore %_11 %_36
+               OpStore %_13 %_37
+               OpStore %_17 %_38
+               OpBranch %_34
          %_34 = OpLabel
-               OpStore %_11 %_35
-               OpStore %_13 %_36
-               OpStore %_17 %_37
-               OpBranch %_33
-         %_33 = OpLabel
-         OpControlBarrier %_5 %_5 %_38
-               OpBranch %_39
-         %_39 = OpLabel
-         %_42 = OpAccessChain %_41 %_19 %_40
-         %_43 = OpLoad %_3 %_42
-         %_45 = OpAccessChain %_41 %_19 %_44
-         %_46 = OpLoad %_3 %_45
-         %_48 = OpIMul %_3 %_46 %_47
-         %_49 = OpIAdd %_3 %_43 %_48
-         %_51 = OpLogicalEqual %_9 %_49 %_50
-         %_52 = OpIsNormal %_3 %_51 %_44 %_40
-         OpAtomicOr %_3 %_54 %_11 %_53 %_40 %_52
-         OpAtomicIAdd %_4 %_56 %_13 %_53 %_40 %_55
-         %_57 = OpAccessChain %_10 %_17 %_40
-         OpAtomicStore %_57 %_53 %_40 %_44
-         %_58 = OpAccessChain %_12 %_17 %_44 %_40
-         OpAtomicIAdd %_4 %_59 %_58 %_53 %_40 %_55
-         OpControlBarrier %_5 %_5 %_38
-         OpControlBarrier %_5 %_5 %_38
-         OpAtomicLoad %_3 %_60 %_11 %_53 %_40
-         OpControlBarrier %_5 %_5 %_38
-         OpControlBarrier %_5 %_5 %_38
-         OpAtomicLoad %_4 %_61 %_13 %_53 %_40
-         OpControlBarrier %_5 %_5 %_38
-         OpControlBarrier %_5 %_5 %_38
-         %_62 = OpAccessChain %_10 %_17 %_40
-         OpAtomicLoad %_3 %_63 %_62 %_53 %_40
-         OpControlBarrier %_5 %_5 %_38
-         OpControlBarrier %_5 %_5 %_38
-         %_64 = OpAccessChain %_12 %_17 %_44 %_40
-         OpAtomicLoad %_4 %_65 %_64 %_53 %_40
-         OpControlBarrier %_5 %_5 %_38
-         %_66 = OpSignBitSet %_9 %_60 %_40
-               OpSelectionMerge %_69 0
-               OpBranchConditional %_66 %_67 %_68
-         %_67 = OpLabel
-         %_71 = OpUnordered %_9 %_61 %_70
-               OpStore %_25 %_71
-               OpBranch %_69
+         OpControlBarrier %_5 %_5 %_39
+               OpBranch %_40
+         %_40 = OpLabel
+         %_43 = OpAccessChain %_42 %_19 %_41
+         %_44 = OpLoad %_3 %_43
+         %_46 = OpAccessChain %_42 %_19 %_45
+         %_47 = OpLoad %_3 %_46
+         %_49 = OpIMul %_3 %_47 %_48
+         %_50 = OpIAdd %_3 %_44 %_49
+         %_52 = OpLogicalEqual %_9 %_50 %_51
+         %_53 = OpIsNormal %_3 %_52 %_45 %_41
+         OpAtomicOr %_3 %_55 %_11 %_54 %_41 %_53
+         OpAtomicIAdd %_4 %_57 %_13 %_54 %_41 %_56
+         %_58 = OpAccessChain %_10 %_17 %_41
+         OpAtomicStore %_58 %_54 %_41 %_45
+         %_59 = OpAccessChain %_12 %_17 %_45 %_41
+         OpAtomicIAdd %_4 %_60 %_59 %_54 %_41 %_56
+         OpControlBarrier %_5 %_5 %_39
+         OpControlBarrier %_5 %_5 %_39
+         OpAtomicLoad %_3 %_61 %_11 %_54 %_41
+         OpControlBarrier %_5 %_5 %_39
+         OpControlBarrier %_5 %_5 %_39
+         OpAtomicLoad %_4 %_62 %_13 %_54 %_41
+         OpControlBarrier %_5 %_5 %_39
+         OpControlBarrier %_5 %_5 %_39
+         %_63 = OpAccessChain %_10 %_17 %_41
+         OpAtomicLoad %_3 %_64 %_63 %_54 %_41
+         OpControlBarrier %_5 %_5 %_39
+         OpControlBarrier %_5 %_5 %_39
+         %_65 = OpAccessChain %_12 %_17 %_45 %_41
+         OpAtomicLoad %_4 %_66 %_65 %_54 %_41
+         OpControlBarrier %_5 %_5 %_39
+         %_67 = OpSignBitSet %_9 %_61 %_41
+               OpSelectionMerge %_70 0
+               OpBranchConditional %_67 %_68 %_69
          %_68 = OpLabel
+         %_72 = OpUnordered %_9 %_62 %_71
                OpStore %_25 %_72
-               OpBranch %_69
+               OpBranch %_70
          %_69 = OpLabel
-         %_73 = OpLoad %_9 %_25
-               OpSelectionMerge %_76 0
-               OpBranchConditional %_73 %_74 %_75
-         %_74 = OpLabel
-         %_77 = OpOrdered %_9 %_63 %_40
-               OpStore %_26 %_77
-               OpBranch %_76
+               OpStore %_25 %_73
+               OpBranch %_70
+         %_70 = OpLabel
+         %_74 = OpLoad %_9 %_25
+               OpSelectionMerge %_77 0
+               OpBranchConditional %_74 %_75 %_76
          %_75 = OpLabel
-               OpStore %_26 %_78
-               OpBranch %_76
+         %_78 = OpOrdered %_9 %_64 %_41
+               OpStore %_27 %_78
+               OpBranch %_77
          %_76 = OpLabel
-         %_79 = OpLoad %_9 %_26
-               OpSelectionMerge %_82 0
-               OpBranchConditional %_79 %_80 %_81
-         %_80 = OpLabel
-         %_83 = OpUnordered %_9 %_65 %_70
-               OpStore %_27 %_83
-               OpBranch %_82
+               OpStore %_27 %_79
+               OpBranch %_77
+         %_77 = OpLabel
+         %_80 = OpLoad %_9 %_27
+               OpSelectionMerge %_83 0
+               OpBranchConditional %_80 %_81 %_82
          %_81 = OpLabel
-               OpStore %_27 %_84
-               OpBranch %_82
+         %_84 = OpUnordered %_9 %_66 %_71
+               OpStore %_28 %_84
+               OpBranch %_83
          %_82 = OpLabel
-         %_85 = OpLoad %_9 %_27
-               OpSelectionMerge %_88 0
-               OpBranchConditional %_85 %_86 %_87
-         %_86 = OpLabel
-               OpReturn
+               OpStore %_28 %_85
+               OpBranch %_83
+         %_83 = OpLabel
+         %_86 = OpLoad %_9 %_28
+               OpSelectionMerge %_89 0
+               OpBranchConditional %_86 %_87 %_88
          %_87 = OpLabel
                OpReturn
          %_88 = OpLabel
+               OpReturn
+         %_89 = OpLabel
                OpUnreachable
                OpFunctionEnd
