@@ -1,7 +1,7 @@
 struct FragmentInput_func {
     float input_location_1 : LOC0;
+    uint index_1 : SV_PrimitiveID;
     float4 arbitrary_position_1 : SV_Position;
-    uint index_1 : SV_Position;
 };
 
 float4 func(FragmentInput_func fragmentinput_func) : SV_Target0

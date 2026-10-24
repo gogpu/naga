@@ -61,7 +61,11 @@ func interfaceKeyLess(a, b interfaceKey) bool {
 	if a.kind == interfaceKeyLocation {
 		return a.location < b.location
 	}
-	// For builtins, use numeric value for deterministic ordering
+	// FXC takes SV_PrimitiveID for a user value, which has to come before
+	// every system value.
+	if (a.builtin == ir.BuiltinPrimitiveIndex) != (b.builtin == ir.BuiltinPrimitiveIndex) {
+		return a.builtin == ir.BuiltinPrimitiveIndex
+	}
 	return a.builtin < b.builtin
 }
 
