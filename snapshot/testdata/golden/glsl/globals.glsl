@@ -7,6 +7,41 @@ struct FooStruct {
     vec3 v3_;
     float v1_;
 };
+struct mat3x2_std140_ {
+    vec2 col0;
+    vec2 col1;
+    vec2 col2;
+};
+struct mat4x2_std140_ {
+    vec2 col0;
+    vec2 col1;
+    vec2 col2;
+    vec2 col3;
+};
+mat3x2 mat3x2_from_std140_(mat3x2_std140_ v) {
+    return mat3x2(v.col0, v.col1, v.col2);
+}
+
+mat4x2 mat4x2_from_std140_(mat4x2_std140_ v) {
+    return mat4x2(v.col0, v.col1, v.col2, v.col3);
+}
+
+mat4x2[2] array_from_std140_(mat4x2_std140_ v[2]) {
+    mat4x2 r[2];
+    for (int i = 0; i < 2; i++) {
+        r[i] = mat4x2_from_std140_(v[i]);
+    }
+    return r;
+}
+
+mat4x2[2][2] array_from_std140_1(mat4x2_std140_ v[2][2]) {
+    mat4x2 r[2][2];
+    for (int i = 0; i < 2; i++) {
+        r[i] = array_from_std140_(v[i]);
+    }
+    return r;
+}
+
 const bool Foo_1 = true;
 
 shared float wg[10];
@@ -21,11 +56,11 @@ layout(std140) uniform type_8_block_2Compute { vec4 _group_0_binding_3_cs[20]; }
 
 layout(std140) uniform type_4_block_3Compute { vec3 _group_0_binding_4_cs; };
 
-layout(std140) uniform type_9_block_4Compute { mat3x2 _group_0_binding_5_cs; };
+layout(std140) uniform type_9_block_4Compute { mat3x2_std140_ _group_0_binding_5_cs; };
 
 layout(std140) uniform type_12_block_5Compute { mat2x4 _group_0_binding_6_cs[2][2]; };
 
-layout(std140) uniform type_15_block_6Compute { mat4x2 _group_0_binding_7_cs[2][2]; };
+layout(std140) uniform type_15_block_6Compute { mat4x2_std140_ _group_0_binding_7_cs[2][2]; };
 
 
 void test_msl_packed_vec3_as_arg(vec3 arg) {
@@ -60,10 +95,10 @@ void main() {
     float Foo_2 = 1.0;
     bool at_2 = true;
     test_msl_packed_vec3_();
-    mat4x2 _e5 = _group_0_binding_7_cs[0][0];
+    mat4x2 _e5 = mat4x2_from_std140_(_group_0_binding_7_cs[0][0]);
     vec4 _e10 = _group_0_binding_6_cs[0][0][0];
     wg[7] = (_e5 * _e10).x;
-    mat3x2 _e16 = _group_0_binding_5_cs;
+    mat3x2 _e16 = mat3x2_from_std140_(_group_0_binding_5_cs);
     vec3 _e18 = _group_0_binding_4_cs;
     wg[6] = (_e16 * _e18).x;
     float _e26 = _group_0_binding_2_cs[1].y;

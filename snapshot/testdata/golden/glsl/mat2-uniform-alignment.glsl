@@ -6,11 +6,20 @@ struct S {
     int a;
     mat2x2 b;
 };
-layout(std140) uniform S_block_0Compute { S _group_0_binding_0_cs; };
+struct S_std140_ {
+    int a;
+    vec2 b_0;
+    vec2 b_1;
+};
+S S_from_std140_(S_std140_ v) {
+    return S(v.a, mat2x2(v.b_0, v.b_1));
+}
+
+layout(std140) uniform S_block_0Compute { S_std140_ _group_0_binding_0_cs; };
 
 
 void main() {
-    S v = _group_0_binding_0_cs;
+    S v = S_from_std140_(_group_0_binding_0_cs);
     return;
 }
 

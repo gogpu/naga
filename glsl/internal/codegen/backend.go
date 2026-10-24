@@ -79,6 +79,17 @@ func (v Version) supportsIOLocations() bool {
 	return v.Major > 3 || (v.Major == 3 && v.Minor >= 30)
 }
 
+// supportsStd430Layout returns true if std430 buffer blocks (storage
+// buffers) are available: desktop GLSL 400+ through
+// GL_ARB_shader_storage_buffer_object, ES 310+. Matches Rust naga
+// Version::supports_std430_layout.
+func (v Version) supportsStd430Layout() bool {
+	if v.ES {
+		return v.Major > 3 || (v.Major == 3 && v.Minor >= 10)
+	}
+	return v.Major >= 4
+}
+
 // supportsExplicitLocations returns true if explicit layout locations for bindings are supported.
 // Desktop GLSL 420+, ES 310+.
 func (v Version) supportsExplicitLocations() bool {
@@ -223,6 +234,12 @@ const (
 
 // BoundsCheckPolicies holds per-resource-type bounds check policies.
 type BoundsCheckPolicies struct {
+	// Index applies to indexing an array, vector or matrix that is a value
+	// or lives in function, private or workgroup memory. Restrict clamps
+	// the index to the last element; ReadZeroSkipWrite is not supported.
+	Index BoundsCheckPolicy
+	// Buffer is Index for one in a uniform or storage buffer.
+	Buffer BoundsCheckPolicy
 	// ImageLoad controls bounds checking for image load operations.
 	ImageLoad BoundsCheckPolicy
 	// ImageStore controls bounds checking for image store operations.
@@ -307,6 +324,9 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	if options.LangVersion.Major == 0 {
 		options.LangVersion = Version330
 	}
+	if p := options.BoundsCheckPolicies; p.Index == BoundsCheckReadZeroSkipWrite || p.Buffer == BoundsCheckReadZeroSkipWrite {
+		return "", TranslationInfo{}, fmt.Errorf("glsl: the index and buffer bounds checks support Restrict only")
+	}
 
 	// Create writer
 	w := newWriter(module, &options)
@@ -314,6 +334,9 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	// Generate GLSL code
 	if err := w.writeModule(); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
+	}
+	if w.float16 {
+		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", errNoFloat16)
 	}
 
 	// Build TextureMappings from combined sampler pairs (matches Rust naga

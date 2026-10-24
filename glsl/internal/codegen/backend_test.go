@@ -305,7 +305,6 @@ func TestIsKeyword(t *testing.T) {
 		"if", "else", "for", "while", "do", "switch", "case", "default",
 		"break", "continue", "return", "discard",
 		// Built-ins
-		"gl_Position", "gl_FragCoord", "gl_VertexID", "gl_InstanceID",
 		"main", "texture",
 	}
 

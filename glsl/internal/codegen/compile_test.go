@@ -362,6 +362,57 @@ fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
 	glslMustContain(t, output, "buffer")
 }
 
+// A storage buffer needs std430 buffer blocks: desktop GLSL 400 (with
+// GL_ARB_shader_storage_buffer_object) or ES 310. Below that it used to be
+// written as a std140 uniform block, which the GL backend bound to the
+// uniform binding point numbered like its storage slot, so the shader read
+// whatever uniform buffer sat there.
+func TestCompileWGSL_StorageBufferNeedsStd430(t *testing.T) {
+	source := `
+struct Light { color: vec4<f32>, pos: vec2<f32> }
+@group(0) @binding(0) var<storage, read> lights: array<Light>;
+
+@fragment
+fn fs_main(@location(0) @interpolate(flat) i: u32) -> @location(0) vec4<f32> {
+    return lights[i].color;
+}
+`
+	lexer := wgsl.NewLexer(source)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast, err := wgsl.NewParser(tokens).Parse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, err := wgsl.Lower(ast)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []Version{Version330, VersionES300} {
+		if _, _, err := Compile(module, Options{LangVersion: v}); err == nil || !strings.Contains(err.Error(), "std430") {
+			t.Errorf("GLSL %s: err = %v, want the std430 error", v, err)
+		}
+	}
+	for _, v := range []Version{Version400, Version430, VersionES310} {
+		out, info, err := Compile(module, Options{LangVersion: v})
+		if err != nil {
+			t.Errorf("GLSL %s: %v", v, err)
+			continue
+		}
+		glslMustContain(t, out, "layout(std430) readonly buffer")
+		if len(info.Uniforms) != 1 || !info.Uniforms[0].IsStorage {
+			t.Errorf("GLSL %s: Uniforms = %+v, want one storage block", v, info.Uniforms)
+		}
+		if v == Version400 {
+			// Buffer blocks and their readonly qualifier come from extensions there.
+			glslMustContain(t, out, "#extension GL_ARB_shader_storage_buffer_object : require")
+			glslMustContain(t, out, "#extension GL_ARB_shader_image_load_store : require")
+		}
+	}
+}
+
 // =============================================================================
 // Type Conversion Tests
 // =============================================================================

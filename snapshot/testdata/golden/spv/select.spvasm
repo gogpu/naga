@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 34
+; Bound: 35
 ; Schema: 0
 
                OpCapability Shader
@@ -17,31 +17,32 @@
          %_7 = OpTypeFunction %_2
          %_10 = OpTypePointer Function %_6
          %_12 = OpTypePointer Function %_4
-         %_14 = OpConstant %_5 1
-         %_15 = OpConstant %_5 2
-         %_17 = OpConstant %_3 1065353216
-         %_18 = OpConstant %_3 0
-         %_21 = OpTypeInt 32 0
-         %_22 = OpConstant %_21 0
-         %_23 = OpTypePointer Function %_5
-         %_26 = OpConstant %_21 1
-         %_29 = OpTypeBool
-         %_31 = OpTypeVector %_29 2
+         %_14 = OpConstantNull %_4
+         %_15 = OpConstant %_5 1
+         %_16 = OpConstant %_5 2
+         %_18 = OpConstant %_3 1065353216
+         %_19 = OpConstant %_3 0
+         %_22 = OpTypeInt 32 0
+         %_23 = OpConstant %_22 0
+         %_24 = OpTypePointer Function %_5
+         %_27 = OpConstant %_22 1
+         %_30 = OpTypeBool
+         %_32 = OpTypeVector %_30 2
          %_8 = OpFunction %_2 None %_7
          %_9 = OpLabel
          %_11 = OpVariable %_10 Function
-         %_13 = OpVariable %_12 Function
-         %_16 = OpCompositeConstruct %_6 %_14 %_15
-               OpStore %_11 %_16
-         %_19 = OpCompositeConstruct %_4 %_17 %_18
-         %_20 = OpCompositeConstruct %_4 %_18 %_17
-         %_24 = OpAccessChain %_23 %_11 %_22
-         %_25 = OpLoad %_5 %_24
-         %_27 = OpAccessChain %_23 %_11 %_26
-         %_28 = OpLoad %_5 %_27
-         %_30 = OpLogicalAnd %_29 %_25 %_28
-         %_32 = OpCompositeConstruct %_31 %_30 %_30
-         %_33 = OpIsNormal %_4 %_32 %_20 %_19
-               OpStore %_13 %_33
+         %_13 = OpVariable %_12 Function %_14
+         %_17 = OpCompositeConstruct %_6 %_15 %_16
+               OpStore %_11 %_17
+         %_20 = OpCompositeConstruct %_4 %_18 %_19
+         %_21 = OpCompositeConstruct %_4 %_19 %_18
+         %_25 = OpAccessChain %_24 %_11 %_23
+         %_26 = OpLoad %_5 %_25
+         %_28 = OpAccessChain %_24 %_11 %_27
+         %_29 = OpLoad %_5 %_28
+         %_31 = OpLogicalAnd %_30 %_26 %_29
+         %_33 = OpCompositeConstruct %_32 %_31 %_31
+         %_34 = OpIsNormal %_4 %_33 %_21 %_20
+               OpStore %_13 %_34
                OpReturn
                OpFunctionEnd
