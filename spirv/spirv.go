@@ -173,8 +173,11 @@ type Options struct {
 	// range, and Vulkan doesn't. The caller pushes the viewport's minDepth
 	// and maxDepth there. Rust naga's CLAMP_FRAG_DEPTH clamps to 0..1;
 	// Dawn's ClampFragDepth transform reads the range as this does. An
-	// entry point that writes frag_depth must not use push constants of its
-	// own: an entry point has at most one push constant block.
+	// entry point that writes frag_depth and has push constants of its own
+	// finds the range in its own block instead, members appended after its
+	// data, as an entry point has at most one push constant block, so Offset
+	// has to be past that data. Every stage that uses such a block then has
+	// the range in its block too.
 	ClampFragDepth *ClampFragDepth
 }
 
