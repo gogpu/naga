@@ -132,6 +132,8 @@ func BuiltInToSemantic(b ir.BuiltinValue) string {
 		return "SV_ViewID"
 	case ir.BuiltinBarycentric:
 		return "SV_Barycentrics"
+	case ir.BuiltinPrimitiveIndex:
+		return "SV_PrimitiveID"
 	default:
 		return semanticSVPosition // Safe fallback
 	}
