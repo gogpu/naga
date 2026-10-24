@@ -6,14 +6,14 @@ struct ImmediateData {
 
 struct FragmentIn {
     float4 color : LOC0;
-    uint primitive_index : SV_Position;
+    uint primitive_index : SV_PrimitiveID;
 };
 
 ConstantBuffer<ImmediateData> im: register(b0);
 
 struct FragmentInput_main {
     float4 color : LOC0;
-    uint primitive_index : SV_Position;
+    uint primitive_index : SV_PrimitiveID;
 };
 
 float4 main(FragmentInput_main fragmentinput_main) : SV_Target0

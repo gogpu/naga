@@ -139,6 +139,7 @@ func TestBuiltInToSemantic(t *testing.T) {
 		{"frag_depth", ir.BuiltinFragDepth, "SV_Depth"},
 		{"sample_index", ir.BuiltinSampleIndex, "SV_SampleIndex"},
 		{"sample_mask", ir.BuiltinSampleMask, "SV_Coverage"},
+		{"primitive_index", ir.BuiltinPrimitiveIndex, "SV_PrimitiveID"},
 		// Compute shader
 		{"global_invocation_id", ir.BuiltinGlobalInvocationID, "SV_DispatchThreadID"},
 		{"local_invocation_id", ir.BuiltinLocalInvocationID, "SV_GroupThreadID"},

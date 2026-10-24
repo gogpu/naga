@@ -4,7 +4,7 @@ struct VertexOutput {
 
 struct PrimitiveOutput {
     uint3 indices_ : SV_Position;
-    uint index : SV_Position;
+    uint index : SV_PrimitiveID;
 };
 
 struct MeshOutput {
@@ -17,7 +17,7 @@ struct MeshOutput {
 groupshared MeshOutput mesh_output;
 
 struct FragmentInput_fs_main {
-    uint index_1 : SV_Position;
+    uint index_1 : SV_PrimitiveID;
 };
 
 void ms_main()
