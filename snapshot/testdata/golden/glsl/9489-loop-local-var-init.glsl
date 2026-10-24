@@ -16,8 +16,8 @@ void main() {
     bool loop_init = true;
     while(true) {
         if (!loop_init) {
-            uint _e46 = t_1;
-            t_1 = (_e46 + 1u);
+            uint _e47 = t_1;
+            t_1 = (_e47 + 1u);
         }
         loop_init = false;
         uint _e2 = t_1;
@@ -26,37 +26,38 @@ void main() {
             break;
         }
         {
+            acc_noinit_1 = vec4(0.0);
             acc_init_1 = vec4(0.0);
             d_1 = 0u;
             bool loop_init_1 = true;
             while(true) {
                 if (!loop_init_1) {
-                    uint _e27 = d_1;
-                    d_1 = (_e27 + 1u);
+                    uint _e28 = d_1;
+                    d_1 = (_e28 + 1u);
                 }
                 loop_init_1 = false;
-                uint _e10 = d_1;
-                if ((_e10 < 16u)) {
+                uint _e11 = d_1;
+                if ((_e11 < 16u)) {
                 } else {
                     break;
                 }
                 {
-                    uint _e14 = t_1;
-                    uint _e17 = d_1;
-                    float _e20 = _group_0_binding_0_cs[((_e14 * 16u) + _e17)];
-                    vec4 v = vec4(_e20);
-                    vec4 _e22 = acc_noinit_1;
-                    acc_noinit_1 = (_e22 + v);
-                    vec4 _e24 = acc_init_1;
-                    acc_init_1 = (_e24 + v);
+                    uint _e15 = t_1;
+                    uint _e18 = d_1;
+                    float _e21 = _group_0_binding_0_cs[((_e15 * 16u) + _e18)];
+                    vec4 v = vec4(_e21);
+                    vec4 _e23 = acc_noinit_1;
+                    acc_noinit_1 = (_e23 + v);
+                    vec4 _e25 = acc_init_1;
+                    acc_init_1 = (_e25 + v);
                 }
             }
-            uint _e30 = t_1;
-            float _e35 = acc_noinit_1.x;
-            _group_0_binding_1_cs[(_e30 * 2u)] = _e35;
-            uint _e37 = t_1;
-            float _e44 = acc_init_1.x;
-            _group_0_binding_1_cs[((_e37 * 2u) + 1u)] = _e44;
+            uint _e31 = t_1;
+            float _e36 = acc_noinit_1.x;
+            _group_0_binding_1_cs[(_e31 * 2u)] = _e36;
+            uint _e38 = t_1;
+            float _e45 = acc_init_1.x;
+            _group_0_binding_1_cs[((_e38 * 2u) + 1u)] = _e45;
         }
     }
     return;

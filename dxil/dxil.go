@@ -21,6 +21,8 @@ package dxil
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 
 	"github.com/gogpu/naga/dxil/internal/container"
@@ -105,13 +107,49 @@ type Options struct {
 	// populate this map so that the generated DXIL matches the root
 	// signature's SRV layout for sampler index buffers.
 	SamplerBufferBindingMap map[uint32]BindTarget
+
+	// FragmentEntryPoint is, for a vertex stage, the fragment stage of its
+	// pipeline: the vertex stage writes only the outputs at locations the
+	// fragment stage reads, as with hlsl.Options.FragmentEntryPoint, since
+	// D3D12 matches the two signatures register for register.
+	FragmentEntryPoint *FragmentEntryPoint
+
+	// SpecialConstantsBinding is a constant buffer of three 32-bit root
+	// constants, first_vertex, first_instance and a third value, as with
+	// hlsl.Options.SpecialConstantsBinding: a vertex stage adds the first
+	// two to vertex_index and instance_index, which SV_VertexID and
+	// SV_InstanceID count from zero, and a compute stage reads
+	// num_workgroups from all three. Without it, num_workgroups comes from a
+	// constant buffer at b0 in space 0.
+	SpecialConstantsBinding *BindTarget
+
+	// DynamicStorageBufferOffsetsTargets holds, by bind group, the constant
+	// buffer of the dynamic offsets of its storage buffers, as with
+	// hlsl.Options.DynamicStorageBufferOffsetsTargets: a storage buffer
+	// whose BindTarget has a DynamicStorageBufferOffsetsIndex adds that
+	// offset, in bytes, to all its addresses.
+	DynamicStorageBufferOffsetsTargets map[uint32]OffsetsBindTarget
+
+	// RestrictIndexing clamps every run-time index into an array, matrix or
+	// vector that isn't in a storage or constant buffer to the last element,
+	// as hlsl.Options.RestrictIndexing does, so an index out of bounds
+	// reads and writes an element of it. A constant buffer binding clamps
+	// its own indices with BindTarget.RestrictIndexing.
+	RestrictIndexing bool
+}
+
+// FragmentEntryPoint is a fragment entry point and its module.
+type FragmentEntryPoint struct {
+	Module   *ir.Module
+	Function *ir.Function
 }
 
 // DefaultOptions returns the default DXIL compilation options.
 func DefaultOptions() Options {
 	return Options{
-		ShaderModel:   SM6_0,
-		UseBypassHash: false, // retail hash — portable, no dev-mode requirement
+		ShaderModel:      SM6_0,
+		UseBypassHash:    false, // retail hash — portable, no dev-mode requirement
+		RestrictIndexing: true,
 	}
 }
 
@@ -125,12 +163,23 @@ func convertBindingMap(m BindingMap) emit.BindingMap {
 	out := make(emit.BindingMap, len(m))
 	for k, v := range m {
 		out[emit.BindingLocation{Group: k.Group, Binding: k.Binding}] = emit.BindTarget{
-			Space:            v.Space,
-			Register:         v.Register,
-			BindingArraySize: v.BindingArraySize,
+			Space:                            v.Space,
+			Register:                         v.Register,
+			BindingArraySize:                 v.BindingArraySize,
+			RestrictIndexing:                 v.RestrictIndexing,
+			DynamicStorageBufferOffsetsIndex: v.DynamicStorageBufferOffsetsIndex,
 		}
 	}
 	return out
+}
+
+// convertBindTarget converts the space and register of a public BindTarget
+// to the internal emit mirror. Returns nil when t is nil.
+func convertBindTarget(t *BindTarget) *emit.BindTarget {
+	if t == nil {
+		return nil
+	}
+	return &emit.BindTarget{Space: t.Space, Register: t.Register}
 }
 
 // convertSamplerHeapTargets converts the public SamplerHeapBindTargets to
@@ -185,10 +234,11 @@ func autoUpgradeSMPre(irModule *ir.Module, ep *ir.EntryPoint, smMinor uint32) ui
 	if moduleUsesInt64Atomics(irModule) && smMinor < 6 {
 		smMinor = 6
 	}
-	// Note: NativeLowPrecision SM 6.2 upgrade is not applied because
-	// our DXC golden pipeline uses min16float polyfill (no native half).
-	// QuantizeF16 uses legacy ops (SM 6.0). When we add native
-	// -enable-16bit-types support, this should be gated on a compile option.
+	// f16 is written as native 16-bit types, DXC's -enable-16bit-types,
+	// which need SM 6.2. QuantizeF16 uses legacy ops (SM 6.0).
+	if moduleUsesLowPrecision(irModule) && smMinor < 2 {
+		smMinor = 2
+	}
 	// dx.op.viewID (opcode 138) is valid from SM 6.1.
 	if moduleUsesViewID(irModule) && smMinor < 1 {
 		smMinor = 1
@@ -278,9 +328,8 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		return nil, inlineErr
 	}
 	ep = &irModule.EntryPoints[0]
-	// Run mem2reg + DCE, mirroring the DXC pipeline order
-	// (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE).
-	if err := runOptPasses(irModule); err != nil {
+	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
+	if err := lowerForEmit(irModule, opts); err != nil {
 		return nil, err
 	}
 
@@ -323,6 +372,9 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		}
 	}
 
+	special := specialConstantsTarget(irModule, ep, opts)
+	dynamicOffsets := usedDynamicOffsets(irModule, reachableGlobals, opts)
+
 	// Step 1: Emit naga IR -> DXIL module.
 	emitOpts := emit.EmitOptions{
 		ShaderModelMajor:        opts.ShaderModel.Major,
@@ -332,6 +384,8 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		SamplerBufferBindingMap: convertSamplerBufferBindingMap(opts.SamplerBufferBindingMap),
 		ReachableGlobals:        reachableGlobals,
 		InputUsedMasks:          inputUsedMasks,
+		SpecialConstants:        convertBindTarget(special),
+		DynamicOffsets:          dynamicOffsets,
 	}
 	mod, bitcodeShaderFlags, err := emit.EmitWithFlags(irModule, emitOpts)
 	if err != nil {
@@ -368,7 +422,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		c.AddPrimitiveSignature(primSig)
 	}
 
-	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), reachableGlobals, opts.BindingMap, opts.SamplerHeapTargets, opts.SamplerBufferBindingMap))
+	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), reachableGlobals, opts.BindingMap, opts.SamplerHeapTargets, opts.SamplerBufferBindingMap, dynamicOffsets, special))
 
 	// STAT (Shader Statistics) is required by the D3D12 runtime format
 	// validator for graphics pipelines (BUG-DXIL-011). IDxcValidator
@@ -411,6 +465,47 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	}
 
 	return containerData, nil
+}
+
+// unbindUnreadOutputs takes the bindings off the members of a vertex stage's
+// result at locations frag doesn't read, in the module's own copy, so they
+// are neither written nor part of the output signature: the HLSL writer
+// leaves them out of its output struct (Rust naga's write_ep_output_struct).
+// Without frag, or for another stage, it changes nothing.
+func unbindUnreadOutputs(irModule *ir.Module, ep *ir.EntryPoint, frag *FragmentEntryPoint) {
+	if frag == nil || ep.Stage != ir.StageVertex || ep.Function.Result == nil {
+		return
+	}
+	st, ok := irModule.Types[ep.Function.Result.Type].Inner.(ir.StructType)
+	if !ok {
+		return
+	}
+	read := make(map[uint32]bool)
+	addLocation := func(b *ir.Binding) {
+		if b == nil {
+			return
+		}
+		if loc, ok := (*b).(ir.LocationBinding); ok {
+			read[loc.Location] = true
+		}
+	}
+	for _, arg := range frag.Function.Arguments {
+		if argSt, ok := frag.Module.Types[arg.Type].Inner.(ir.StructType); ok {
+			for _, m := range argSt.Members {
+				addLocation(m.Binding)
+			}
+			continue
+		}
+		addLocation(arg.Binding)
+	}
+	for i, m := range st.Members {
+		if m.Binding == nil {
+			continue
+		}
+		if loc, ok := (*m.Binding).(ir.LocationBinding); ok && !read[loc.Location] {
+			st.Members[i].Binding = nil
+		}
+	}
 }
 
 // buildSignatures extracts input/output signature elements from an entry point.
@@ -494,8 +589,8 @@ func buildOutputSigElements(
 		if res.Binding == nil {
 			return nil
 		}
-		// Scalar/vector result with binding — single element on row 0.
-		return bindingToSignatureElements(irMod, *res.Binding, res.Type, 0, 0, true, isFragment)
+		pe := backend.ResultElement(*res.Binding, stage)
+		return bindingToSignatureElements(irMod, *res.Binding, res.Type, pe.Register, 0, true, isFragment)
 	}
 	// Walk members in graphics output order — locations first, then builtins
 	// (SV_Position last). Same convention naga's HLSL backend applies via
@@ -889,7 +984,7 @@ func sigCompTypeForScalarKind(kind ir.ScalarKind) container.ProgSigCompType {
 // shaders with only `@builtin(position)` output now produce a self-consistent
 // PSV0 part with one PSVSignatureElement entry, achieving the first-ever
 // `S_OK` from the real validator.
-func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget) container.PSVInfo {
+func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, dynamicOffsets []emit.DynamicOffsetsBuffer, special *BindTarget) container.PSVInfo {
 	_ = isFragment // kept for caller compatibility; stage comes from ep.Stage
 	info := container.PSVInfo{
 		ShaderStage:       stageToPSVKind(ep.Stage),
@@ -939,14 +1034,32 @@ func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, 
 	// declare the same binding or the validator reports 'ResourceCount
 	// mismatch'. Inject the synthetic binding when the entry point reads
 	// the num_workgroups builtin.
-	if entryUsesNumWorkGroups(ep) {
-		info.ResourceBindings = append([]container.PSVResourceBinding{{
+	// The special constants take its place when they are given. The
+	// emitter declares the buffers of dynamic offsets, then either, after
+	// the shader's own constant buffers.
+	for _, b := range dynamicOffsets {
+		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
 			ResType:    container.PSVResTypeCBV,
 			ResKind:    container.PSVResKindCBuffer,
-			Space:      0,
-			LowerBound: 0,
-			UpperBound: 0,
-		}}, info.ResourceBindings...)
+			Space:      b.Space,
+			LowerBound: b.Register,
+			UpperBound: b.Register,
+		})
+	}
+	switch {
+	case special != nil:
+		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
+			ResType:    container.PSVResTypeCBV,
+			ResKind:    container.PSVResKindCBuffer,
+			Space:      special.Space,
+			LowerBound: special.Register,
+			UpperBound: special.Register,
+		})
+	case entryUsesNumWorkGroups(ep):
+		info.ResourceBindings = insertAfterCBVs(info.ResourceBindings, container.PSVResourceBinding{
+			ResType: container.PSVResTypeCBV,
+			ResKind: container.PSVResKindCBuffer,
+		})
 	}
 
 	// BUG-DXIL-019: build PSVSignatureElement entries from the same data
@@ -1153,8 +1266,7 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 	if ep.Function.Result != nil {
 		res := ep.Function.Result
 		if res.Binding != nil {
-			pe := backend.PackedElement{Register: 0, StartCol: 0, ColCount: 4, Rows: 1}
-			elem, ok := addElement(*res.Binding, res.Type, true, pe, &outputRow)
+			elem, ok := addElement(*res.Binding, res.Type, true, backend.ResultElement(*res.Binding, stage), &outputRow)
 			if ok {
 				psvOutputs = append(psvOutputs, elem)
 			}
@@ -1673,9 +1785,9 @@ func componentMask(n int) uint8 {
 }
 
 // buildPSVEx creates PSV info for an entry point, including mesh shader support.
-func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget) container.PSVInfo {
+func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, dynamicOffsets []emit.DynamicOffsetsBuffer, special *BindTarget) container.PSVInfo {
 	if !isMesh {
-		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, reachable, bindingMap, samplerHeap, samplerBufMap)
+		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, reachable, bindingMap, samplerHeap, samplerBufMap, dynamicOffsets, special)
 	}
 
 	info := container.PSVInfo{
@@ -1900,6 +2012,84 @@ func entryWritesDepthInModule(irMod *ir.Module, ep *ir.EntryPoint) bool {
 			continue
 		}
 		if bb, isBB := (*m.Binding).(ir.BuiltinBinding); isBB && bb.Builtin == ir.BuiltinFragDepth {
+			return true
+		}
+	}
+	return false
+}
+
+// usedDynamicOffsets returns the constant buffers of dynamic offsets the
+// entry point needs: those of the bind groups of the storage buffers it uses
+// with a dynamic offset, in ascending bind group order.
+func usedDynamicOffsets(irMod *ir.Module, reachable map[ir.GlobalVariableHandle]bool, opts Options) []emit.DynamicOffsetsBuffer {
+	used := make(map[uint32]bool)
+	for i := range irMod.GlobalVariables {
+		gv := &irMod.GlobalVariables[i]
+		if gv.Binding == nil || gv.Space != ir.SpaceStorage || (reachable != nil && !reachable[ir.GlobalVariableHandle(i)]) {
+			continue
+		}
+		if t, ok := opts.BindingMap[BindingLocation{Group: gv.Binding.Group, Binding: gv.Binding.Binding}]; ok && t.DynamicStorageBufferOffsetsIndex != nil {
+			used[gv.Binding.Group] = true
+		}
+	}
+	var out []emit.DynamicOffsetsBuffer
+	for _, group := range slices.Sorted(maps.Keys(used)) {
+		if t, ok := opts.DynamicStorageBufferOffsetsTargets[group]; ok {
+			out = append(out, emit.DynamicOffsetsBuffer{Group: group, Space: t.Space, Register: t.Register, Size: t.Size})
+		}
+	}
+	return out
+}
+
+// insertAfterCBVs inserts b into bindings after the constant buffers, which
+// come first.
+func insertAfterCBVs(bindings []container.PSVResourceBinding, b container.PSVResourceBinding) []container.PSVResourceBinding {
+	i := 0
+	for i < len(bindings) && bindings[i].ResType == container.PSVResTypeCBV {
+		i++
+	}
+	return slices.Insert(bindings, i, b)
+}
+
+// specialConstantsTarget is the binding of the special constants the entry
+// point reads, or nil when it reads none or opts gives no binding.
+func specialConstantsTarget(irMod *ir.Module, ep *ir.EntryPoint, opts Options) *BindTarget {
+	if opts.SpecialConstantsBinding != nil && entryUsesSpecialConstants(irMod, ep) {
+		return opts.SpecialConstantsBinding
+	}
+	return nil
+}
+
+// entryUsesSpecialConstants reports whether the entry point has an input the
+// special constants give: vertex_index or instance_index in a vertex stage,
+// num_workgroups in a compute stage.
+func entryUsesSpecialConstants(irMod *ir.Module, ep *ir.EntryPoint) bool {
+	uses := func(b *ir.Binding) bool {
+		if b == nil {
+			return false
+		}
+		bb, ok := (*b).(ir.BuiltinBinding)
+		if !ok {
+			return false
+		}
+		switch bb.Builtin {
+		case ir.BuiltinVertexIndex, ir.BuiltinInstanceIndex:
+			return ep.Stage == ir.StageVertex
+		case ir.BuiltinNumWorkGroups:
+			return ep.Stage == ir.StageCompute
+		}
+		return false
+	}
+	for _, arg := range ep.Function.Arguments {
+		if st, ok := irMod.Types[arg.Type].Inner.(ir.StructType); ok && arg.Binding == nil {
+			for _, m := range st.Members {
+				if uses(m.Binding) {
+					return true
+				}
+			}
+			continue
+		}
+		if uses(arg.Binding) {
 			return true
 		}
 	}
@@ -2938,29 +3128,42 @@ func memberScalarCount(m *ir.Module, inner ir.TypeInner) int {
 	return 1
 }
 
-// moduleUsesLowPrecision reports whether any type in the module is a
-// 16-bit float, 16-bit integer, or a vector/matrix thereof.
+// moduleUsesLowPrecision reports whether any type in the module, or of
+// an expression of its functions, is a 16-bit float, 16-bit integer, or a
+// vector/matrix thereof. QuantizeF16's lowering uses
+// dx.op.legacyF32ToF16/legacyF16ToF32 (opcodes 130/131), which are
+// available since SM 6.0 and don't introduce the LLVM half type.
 func moduleUsesLowPrecision(m *ir.Module) bool {
-	for i := range m.Types {
-		switch t := m.Types[i].Inner.(type) {
+	is16 := func(inner ir.TypeInner) bool {
+		switch t := inner.(type) {
 		case ir.ScalarType:
-			if t.Width == 2 {
-				return true
-			}
+			return t.Width == 2
 		case ir.VectorType:
-			if t.Scalar.Width == 2 {
-				return true
-			}
+			return t.Scalar.Width == 2
 		case ir.MatrixType:
-			if t.Scalar.Width == 2 {
+			return t.Scalar.Width == 2
+		}
+		return false
+	}
+	for i := range m.Types {
+		if is16(m.Types[i].Inner) {
+			return true
+		}
+	}
+	fns := make([]*ir.Function, 0, len(m.Functions)+len(m.EntryPoints))
+	for i := range m.Functions {
+		fns = append(fns, &m.Functions[i])
+	}
+	for i := range m.EntryPoints {
+		fns = append(fns, &m.EntryPoints[i].Function)
+	}
+	for _, fn := range fns {
+		for _, res := range fn.ExpressionTypes {
+			if res.Handle == nil && is16(res.Value) {
 				return true
 			}
 		}
 	}
-	// Note: ir.MathQuantizeF16 no longer requires SM 6.2 because the
-	// lowering now uses dx.op.legacyF32ToF16/legacyF16ToF32 (opcodes
-	// 130/131) which are available since SM 6.0 and do not introduce
-	// the LLVM half type.
 	return false
 }
 
@@ -3090,6 +3293,19 @@ func moduleUsesInt64Atomics(m *ir.Module) bool {
 		}
 	}
 	return false
+}
+
+// lowerForEmit runs the optimization passes, mem2reg and DCE in the DXC
+// pipeline order (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE), and
+// then clamps run-time indices when opts restrict indexing.
+func lowerForEmit(irModule *ir.Module, opts Options) error {
+	if err := runOptPasses(irModule); err != nil {
+		return err
+	}
+	if opts.RestrictIndexing {
+		restrictIndices(irModule)
+	}
+	return nil
 }
 
 // runOptPasses runs the optimization pass pipeline on all functions

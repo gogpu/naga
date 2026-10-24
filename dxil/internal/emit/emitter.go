@@ -8,6 +8,7 @@ import (
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/dxil/internal/viewid"
 	"github.com/gogpu/naga/internal/backend"
+	"github.com/gogpu/naga/internal/consteval"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -214,6 +215,16 @@ type Emitter struct {
 	// pendingComponents holds per-component IDs from the last
 	// emitCompose call. Used by emitExpression to store in exprComponents.
 	pendingComponents []int
+
+	// componentErr is the first component asked of an expression that has
+	// no value for it, which fails the emission instead of reading another
+	// value in its place.
+	componentErr error
+
+	// doubleExtensions is set by the double operations DXC sets
+	// EnableDoubleExtensions for: fdiv, conversions between doubles and
+	// integers, and dx.op.fma.
+	doubleExtensions bool
 
 	// Resource bindings: analyzed from GlobalVariables.
 	resources        []resourceInfo
@@ -446,9 +457,17 @@ type BindingLocation struct {
 // BindTarget specifies the DXIL register binding for a resource.
 // Mirror of dxil.BindTarget.
 type BindTarget struct {
-	Space            uint32
-	Register         uint32
-	BindingArraySize *uint32
+	Space                            uint32
+	Register                         uint32
+	BindingArraySize                 *uint32
+	RestrictIndexing                 bool
+	DynamicStorageBufferOffsetsIndex *uint32
+}
+
+// DynamicOffsetsBuffer is the constant buffer of the dynamic offsets of the
+// storage buffers of bind group Group: Size 32-bit values.
+type DynamicOffsetsBuffer struct {
+	Group, Space, Register, Size uint32
 }
 
 // BindingMap maps source-shader binding locations to DXIL register
@@ -488,6 +507,16 @@ type EmitOptions struct {
 	// unrelated bindings into the per-EP DXIL container. nil means
 	// "include every global" (single-EP modules / tests). BUG-DXIL-016.
 	ReachableGlobals map[ir.GlobalVariableHandle]bool
+
+	// DynamicOffsets are the constant buffers of the dynamic offsets of the
+	// storage buffers the entry point uses, by bind group in ascending order
+	// (dxil.Options.DynamicStorageBufferOffsetsTargets).
+	DynamicOffsets []DynamicOffsetsBuffer
+
+	// SpecialConstants is the constant buffer of first_vertex,
+	// first_instance and a third value (dxil.Options.SpecialConstantsBinding),
+	// given when the entry point reads one of them.
+	SpecialConstants *BindTarget
 
 	// InputUsedMasks holds per-input-argument component usage masks
 	// computed from IR body analysis. Used by the metadata builder to
@@ -561,6 +590,9 @@ func EmitWithFlags(irMod *ir.Module, opts EmitOptions) (*module.Module, uint64, 
 
 	if err := e.emitEntryPoint(ep); err != nil {
 		return nil, 0, fmt.Errorf("dxil/emit: entry point %q: %w", ep.Name, err)
+	}
+	if e.componentErr != nil {
+		return nil, 0, fmt.Errorf("dxil/emit: entry point %q: %w", ep.Name, e.componentErr)
 	}
 
 	// Finalize helper functions AFTER the entry point finalize
@@ -1678,21 +1710,24 @@ func (e *Emitter) computeBitcodeShaderFlags() uint64 {
 		flags |= 0x100000 // Int64Ops
 	}
 	if e.moduleUsesDouble() {
-		// DXC's CollectShaderFlagsForModule sets both bits together
-		// whenever any f64 type appears (DxilShaderFlags.cpp). Bit 2 is
-		// the historical D3D11 "doubles enabled" flag; bit 6 was added
-		// for the double-extensions instructions (FMA on doubles, etc.)
-		// and DXC always pairs them.
-		flags |= 0x4  // EnableDoublePrecision (bit 2)
-		flags |= 0x40 // EnableDoubleExtensions (bit 6)
+		// DXC's CollectShaderFlagsForModule sets bit 2, the historical
+		// D3D11 "doubles enabled" flag, whenever an f64 materializes, and
+		// bit 6 only for the double-extension instructions: fdiv,
+		// conversions between doubles and integers, and fma
+		// (DxilShaderFlags.cpp).
+		flags |= 0x4 // EnableDoublePrecision (bit 2)
+		if e.doubleExtensions {
+			flags |= 0x40 // EnableDoubleExtensions (bit 6)
+		}
 	}
-	// Note: NativeLowPrecision (UseNativeLowPrecision bit 23 + LowPrecisionPresent
-	// bit 5) is intentionally NOT set. Our DXC golden pipeline uses naga HLSL
-	// which emits min16float for WGSL f16 (polyfill semantics, no -enable-16bit-types).
-	// DXC therefore never sets these flags. QuantizeF16 uses dx.op.legacyF32ToF16 /
-	// legacyF16ToF32 (opcodes 130/131) which do not introduce the LLVM half type.
-	// When we add native -enable-16bit-types support, these flags should be gated
-	// on a compile option, not on IR type presence.
+	// 16-bit values are native ones, as DXC writes them with
+	// -enable-16bit-types: LowPrecisionPresent with UseNativeLowPrecision.
+	// QuantizeF16 uses dx.op.legacyF32ToF16 / legacyF16ToF32 (opcodes
+	// 130/131), which don't introduce the LLVM half type.
+	if e.moduleUses16Bit() {
+		flags |= 0x20     // LowPrecisionPresent (bit 5)
+		flags |= 0x800000 // UseNativeLowPrecision (bit 23)
+	}
 	if e.moduleUsesRayQuery() {
 		flags |= 0x2000000 // RaytracingTier1_1
 	}
@@ -1952,15 +1987,35 @@ func (e *Emitter) entryUsesViewIDInput() bool {
 	return false
 }
 
-// moduleUsesLowPrecision returns true if any IR type or expression
-// forces 16-bit float/int operations in the emitted bitcode. DXC's
-// CollectShaderFlagsForModule sets m_bLowPrecisionPresent (bit 5,
-// 0x20) on ANY f16/i16 materialization, and the validator rejects a
-// Note: moduleUsesLowPrecision was removed because NativeLowPrecision
-// flags are no longer set. Our DXC golden pipeline uses min16float
-// polyfill (no native half), and QuantizeF16 uses legacy ops that do
-// not introduce the LLVM half type. When we add native -enable-16bit-types
-// support, a new flag detection method should be added.
+// moduleUses16Bit reports whether the EMITTED bitcode contains half or
+// i16 values, in a function signature or an instruction result, which
+// DXC's CollectShaderFlagsForModule sets LowPrecisionPresent for, as
+// moduleUsesDouble does for doubles.
+func (e *Emitter) moduleUses16Bit() bool {
+	is16 := func(t *module.Type) bool {
+		return t != nil && (t.Kind == module.TypeFloat && t.FloatBits == 16 || t.Kind == module.TypeInteger && t.IntBits == 16)
+	}
+	for _, fn := range e.mod.Functions {
+		if fn.FuncType != nil {
+			if is16(fn.FuncType.RetType) {
+				return true
+			}
+			for _, p := range fn.FuncType.ParamTypes {
+				if is16(p) {
+					return true
+				}
+			}
+		}
+		for _, bb := range fn.BasicBlocks {
+			for _, instr := range bb.Instructions {
+				if is16(instr.ResultType) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
 
 // moduleUsesDouble returns true when the EMITTED bitcode actually contains
 // f64 values (as opposed to merely declaring f64 types in the IR).
@@ -2758,8 +2813,7 @@ func (e *Emitter) collectGraphicsSignatures(ep *ir.EntryPoint, isFragment bool) 
 				addOutputPacked(&oid, *m.Binding, m.Type, pm.PackedElement)
 			}
 		} else if fn.Result.Binding != nil {
-			pe := backend.PackedElement{Register: 0, StartCol: 0, ColCount: 4, Rows: 1}
-			addOutputPacked(&oid, *fn.Result.Binding, fn.Result.Type, pe)
+			addOutputPacked(&oid, *fn.Result.Binding, fn.Result.Type, backend.ResultElement(*fn.Result.Binding, stage))
 		}
 	}
 	return inputs, outputs
@@ -3341,6 +3395,22 @@ func (e *Emitter) getFloatConstID(v float64) int {
 	return id
 }
 
+// floatConstFor is a constant v of the float type of s: an f16 rounded to
+// half precision (one beyond its range is written as an infinity), an f64,
+// or an f32 for any other width.
+func (e *Emitter) floatConstFor(s ir.ScalarType, v float64) int {
+	switch s.Width {
+	case 2:
+		if r, ok := consteval.RoundF16(v); ok {
+			v = float64(r)
+		}
+		return e.addFloatConstID(e.mod.GetFloatType(16), v)
+	case 8:
+		return e.addFloatConstID(e.mod.GetFloatType(64), v)
+	}
+	return e.getFloatConstID(v)
+}
+
 // isConstValueID returns true if the given emitter value ID refers to a
 // module-level constant (int or float). Used for LLVM operand canonicalization:
 // commutative binops place constants on the right.
@@ -3472,18 +3542,23 @@ func (e *Emitter) getI8MetadataConst(v int64) *module.Constant {
 	return c
 }
 
-// getComponentID returns the value ID for a specific component of a
-// vector expression. If per-component tracking exists, uses that.
-// Otherwise falls back to baseID + component (legacy behavior).
+// getComponentID returns the value ID of a component of an expression:
+// the one its per-component tracking has, or for component 0 of an
+// expression without tracking, a scalar, its value. Any other component
+// has no value, which componentErr records.
 func (e *Emitter) getComponentID(handle ir.ExpressionHandle, comp int) int {
-	if comps, ok := e.exprComponents[handle]; ok && comp < len(comps) {
+	comps, tracked := e.exprComponents[handle]
+	if tracked && comp < len(comps) {
 		return comps[comp]
 	}
-	// Fallback: assume sequential IDs from base.
-	if base, ok := e.exprValues[handle]; ok {
-		return base + comp
+	base, emitted := e.exprValues[handle]
+	if !tracked && emitted && comp == 0 {
+		return base
 	}
-	return 0
+	if e.componentErr == nil {
+		e.componentErr = fmt.Errorf("expression [%d] has no value for component %d", handle, comp)
+	}
+	return base
 }
 
 // allocValue assigns the next value ID and returns it.
@@ -3539,6 +3614,9 @@ func (e *Emitter) emitFRemLowered(resultTy *module.Type, lhs, rhs int) int {
 }
 
 func (e *Emitter) addBinOpInstr(resultTy *module.Type, op BinOpKind, lhs, rhs int) int {
+	if op == BinOpFDiv && isDoubleType(resultTy) {
+		e.doubleExtensions = true
+	}
 	valueID := e.allocValue()
 	var flags uint32
 	// DXC always sets the UnsafeAlgebra fast-math flag (bit 0) for

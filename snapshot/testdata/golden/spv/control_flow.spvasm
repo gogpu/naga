@@ -1,14 +1,14 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 149
+; Bound: 150
 ; Schema: 0
 
                OpCapability Shader
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %_141 "main"
-               OpExecutionMode %_141 LocalSize 1 1 1
+               OpEntryPoint GLCompute %_142 "main"
+               OpExecutionMode %_142 LocalSize 1 1 1
          %_2 = OpTypeVoid
          %_3 = OpTypeInt 32 1
          %_4 = OpTypeFunction %_3 %_3
@@ -34,9 +34,10 @@
          %_90 = OpConstant %_3 3
          %_108 = OpConstantComposite %_31 %_34 %_34
          %_109 = OpConstantComposite %_31 %_36 %_36
-         %_138 = OpConstant %_3 20
-         %_140 = OpTypeFunction %_2
-         %_147 = OpConstant %_3 2
+         %_133 = OpConstantNull %_3
+         %_139 = OpConstant %_3 20
+         %_141 = OpTypeFunction %_2
+         %_148 = OpConstant %_3 2
          %_5 = OpFunction %_3 None %_4
          %_6 = OpFunctionParameter %_3
          %_7 = OpLabel
@@ -211,30 +212,30 @@
          %_129 = OpFunction %_3 None %_4
          %_130 = OpFunctionParameter %_3
          %_131 = OpLabel
-         %_132 = OpVariable %_23 Function
-               OpSelectionMerge %_133 0
-               OpSwitch %_130 %_137 1 %_134 2 %_135 3 %_136
-         %_134 = OpLabel
-               OpStore %_132 %_51
-               OpBranch %_133
+         %_132 = OpVariable %_23 Function %_133
+               OpSelectionMerge %_134 0
+               OpSwitch %_130 %_138 1 %_135 2 %_136 3 %_137
          %_135 = OpLabel
-               OpBranch %_136
+               OpStore %_132 %_51
+               OpBranch %_134
          %_136 = OpLabel
-               OpStore %_132 %_138
-               OpBranch %_133
+               OpBranch %_137
          %_137 = OpLabel
+               OpStore %_132 %_139
+               OpBranch %_134
+         %_138 = OpLabel
                OpStore %_132 %_8
-               OpBranch %_133
-         %_133 = OpLabel
-         %_139 = OpLoad %_3 %_132
-               OpReturnValue %_139
+               OpBranch %_134
+         %_134 = OpLabel
+         %_140 = OpLoad %_3 %_132
+               OpReturnValue %_140
                OpFunctionEnd
-         %_141 = OpFunction %_2 None %_140
-         %_142 = OpLabel
-         %_143 = OpFunctionCall %_3 %_5 %_14
-         %_144 = OpFunctionCall %_3 %_21
-         %_145 = OpFunctionCall %_3 %_62
-         %_146 = OpFunctionCall %_3 %_101
-         %_148 = OpFunctionCall %_3 %_129 %_147
+         %_142 = OpFunction %_2 None %_141
+         %_143 = OpLabel
+         %_144 = OpFunctionCall %_3 %_5 %_14
+         %_145 = OpFunctionCall %_3 %_21
+         %_146 = OpFunctionCall %_3 %_62
+         %_147 = OpFunctionCall %_3 %_101
+         %_149 = OpFunctionCall %_3 %_129 %_148
                OpReturn
                OpFunctionEnd

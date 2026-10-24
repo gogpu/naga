@@ -71,6 +71,19 @@ func TestLocalInitializerStoredBeforeUse(t *testing.T) {
 // returns the main function.
 func emitMain(t *testing.T, src string) *module.Function {
 	t.Helper()
+	_, fn := emitMainModule(t, src)
+	return fn
+}
+
+// emitMainModule is emitMain returning the module too.
+func emitMainModule(t *testing.T, src string) (*module.Module, *module.Function) {
+	t.Helper()
+	return emitMainModuleOpts(t, src, DefaultOptions())
+}
+
+// emitMainModuleOpts is emitMainModule with the binding options of opts.
+func emitMainModuleOpts(t *testing.T, src string, opts Options) (*module.Module, *module.Function) {
+	t.Helper()
 	tokens, err := wgsl.NewLexer(src).Tokenize()
 	if err != nil {
 		t.Fatalf("tokenize: %v", err)
@@ -87,24 +100,31 @@ func emitMain(t *testing.T, src string) *module.Function {
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if err := runOptPasses(irMod); err != nil {
+	if err := lowerForEmit(irMod, opts); err != nil {
 		t.Fatalf("passes: %v", err)
 	}
-	mod, _, err := emit.EmitWithFlags(irMod, emit.EmitOptions{
-		ShaderModelMajor: 6,
-		ShaderModelMinor: 0,
-		ReachableGlobals: reachableGlobalsForEntry(irMod, &irMod.EntryPoints[0]),
-	})
+	emitOpts := emit.EmitOptions{
+		ShaderModelMajor:   6,
+		ShaderModelMinor:   0,
+		BindingMap:         convertBindingMap(opts.BindingMap),
+		SamplerHeapTargets: convertSamplerHeapTargets(opts.SamplerHeapTargets),
+		ReachableGlobals:   reachableGlobalsForEntry(irMod, &irMod.EntryPoints[0]),
+	}
+	emitOpts.DynamicOffsets = usedDynamicOffsets(irMod, emitOpts.ReachableGlobals, opts)
+	if t := opts.SpecialConstantsBinding; t != nil && entryUsesSpecialConstants(irMod, &irMod.EntryPoints[0]) {
+		emitOpts.SpecialConstants = &emit.BindTarget{Space: t.Space, Register: t.Register}
+	}
+	mod, _, err := emit.EmitWithFlags(irMod, emitOpts)
 	if err != nil {
 		t.Fatalf("emit: %v", err)
 	}
 	for _, f := range mod.Functions {
 		if f.Name == "main" {
-			return f
+			return mod, f
 		}
 	}
 	t.Fatal("main not found")
-	return nil
+	return nil, nil
 }
 
 // firstAccessToAllocas maps every alloca of fn to the kind of the first load
@@ -190,6 +210,121 @@ fn main() {
 		}
 		if !loadedInLoop[a] {
 			t.Errorf("alloca %%%d is never loaded after the entry block", a)
+		}
+	}
+}
+
+// TestUninitializedVariablesStoredAtEntry: WGSL starts a function variable
+// declared without an initializer at zero, and a private variable at its
+// initializer, or at zero without one, in every invocation. The emitter keeps
+// both in allocas, which start undefined, and stored nothing for them: a
+// variable assigned only on a path that did not run read garbage. Every
+// alloca must now be stored in the entry block, private ones with their
+// initializers.
+func TestUninitializedVariablesStoredAtEntry(t *testing.T) {
+	mod, fn := emitMainModule(t, `
+struct S { a: u32, b: vec2<f32> }
+var<private> p: u32 = 5u;
+var<private> q: array<u32, 3> = array(7u, 8u, 9u);
+var<private> z: u32;
+@group(0) @binding(0) var<storage, read_write> r: array<u32>;
+@compute @workgroup_size(1)
+fn main() {
+    var x: u32;
+    var v: vec4<u32>;
+    var a: array<u32, 8>;
+    var s: S;
+    for (var i = 0u; i < r[4]; i++) {
+        if r[0] == 1u {
+            x = 7u;
+            v = vec4(5u);
+            a[r[2]] = 3u;
+            s.a = 2u;
+            s.b = vec2(1.0);
+            p = 9u;
+            q[r[2]] = 1u;
+            z = 4u;
+        }
+    }
+    r[1] = x + v.y + a[3] + s.a + u32(s.b.y) + p + q[2] + z;
+}
+`)
+	constants := map[int]int64{}
+	for _, c := range mod.Constants {
+		if c.ConstType != nil && c.ConstType.Kind == module.TypeInteger {
+			constants[c.ValueID] = c.IntValue
+		}
+	}
+	root := map[int]int{}
+	stored := map[int]bool{}
+	var values []int64
+	for _, in := range fn.BasicBlocks[0].Instructions {
+		switch in.Kind {
+		case module.InstrAlloca:
+			root[in.ValueID] = in.ValueID
+		case module.InstrGEP:
+			if len(in.Operands) > 2 {
+				if a, ok := root[in.Operands[2]]; ok {
+					root[in.ValueID] = a
+				}
+			}
+		case module.InstrStore:
+			if a, ok := root[in.Operands[0]]; ok {
+				stored[a] = true
+				if v, isConst := constants[in.Operands[1]]; isConst {
+					values = append(values, v)
+				}
+			}
+		}
+	}
+	allocas := 0
+	for a, r := range root {
+		if a != r {
+			continue
+		}
+		allocas++
+		if !stored[a] {
+			t.Errorf("alloca %%%d is not stored in the entry block", a)
+		}
+	}
+	if allocas == 0 {
+		t.Fatal("no allocas in the entry block")
+	}
+	for _, want := range []int64{5, 7, 8, 9} {
+		found := false
+		for _, v := range values {
+			found = found || v == want
+		}
+		if !found {
+			t.Errorf("no private initializer value %d stored in the entry block (stored %v)", want, values)
+		}
+	}
+}
+
+// A store to a local array at a constant index leaves the variable the
+// alloca a later access at a run-time index indexes. The store made the
+// variable read as the element pointer, which the later GEP indexed as the
+// array ("Explicit gep type does not match pointee type").
+func TestLocalArrayStaysItsAllocaAfterAConstantIndex(t *testing.T) {
+	fn := emitMain(t, `
+@group(0) @binding(0) var<storage, read_write> data: array<u32>;
+@compute @workgroup_size(1) fn main(@builtin(local_invocation_index) i: u32) {
+	var a: array<u32, 4>;
+	a[2] = 2u;
+	data[i] = a[data[0]];
+}
+`)
+	allocas := map[int]bool{}
+	for _, bb := range fn.BasicBlocks {
+		for _, in := range bb.Instructions {
+			switch in.Kind {
+			case module.InstrAlloca:
+				allocas[in.ValueID] = true
+			case module.InstrGEP:
+				if !allocas[in.Operands[2]] {
+					t.Errorf("GEP %%%d indexes %%%d, not the array's alloca", in.ValueID, in.Operands[2])
+				}
+			}
 		}
 	}
 }

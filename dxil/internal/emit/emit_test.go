@@ -1,6 +1,7 @@
 package emit
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/dxil/internal/module"
@@ -2916,10 +2917,11 @@ func TestEmitLocalVariable(t *testing.T) {
 		t.Errorf("expected 1 alloca instruction, got %d", allocaCount)
 	}
 
-	// Verify store instructions were emitted (2 stores: x = 1.0 and x = 2.0).
+	// Verify store instructions were emitted: x has no initializer, so it
+	// starts at zero, then x = 1.0 and x = 2.0.
 	storeCount := countInstrKind(mod, module.InstrStore)
-	if storeCount != 2 {
-		t.Errorf("expected 2 store instructions, got %d", storeCount)
+	if storeCount != 3 {
+		t.Errorf("expected 3 store instructions, got %d", storeCount)
 	}
 
 	// Verify load instruction was emitted.
@@ -3536,12 +3538,10 @@ func TestEmitUnsupportedStatement(t *testing.T) {
 func TestEmitStmtKillSilentSkip(t *testing.T) {
 	// StmtKill should be silently skipped (not error) since it's Phase 2.
 	f32Handle := ir.TypeHandle(0)
-	vec4Handle := ir.TypeHandle(1)
 
 	mod := &ir.Module{
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-			{Name: "", Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
 	}
 
@@ -3555,7 +3555,7 @@ func TestEmitStmtKillSilentSkip(t *testing.T) {
 			{Name: "v", Type: f32Handle, Binding: &vBinding},
 		},
 		Result: &ir.FunctionResult{
-			Type:    vec4Handle,
+			Type:    f32Handle,
 			Binding: &resultBinding,
 		},
 		Expressions: []ir.Expression{
@@ -3580,6 +3580,39 @@ func TestEmitStmtKillSilentSkip(t *testing.T) {
 		t.Fatalf("StmtKill should be silently skipped, got error: %v", err)
 	}
 	t.Log("StmtKill correctly silently skipped")
+}
+
+// A component asked of an expression that has no value for it fails the
+// emission: returning an f32 as a vec4 asks components 1 to 3 of the f32.
+// The emitter took the values after the f32's in their place.
+func TestMissingComponentIsAnError(t *testing.T) {
+	f32Handle := ir.TypeHandle(0)
+	vec4Handle := ir.TypeHandle(1)
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+		},
+	}
+	vBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	resultBinding := ir.Binding(ir.LocationBinding{Location: 0})
+	retHandle := ir.ExpressionHandle(0)
+	fn := ir.Function{
+		Name:            "main",
+		Arguments:       []ir.FunctionArgument{{Name: "v", Type: f32Handle, Binding: &vBinding}},
+		Result:          &ir.FunctionResult{Type: vec4Handle, Binding: &resultBinding},
+		Expressions:     []ir.Expression{{Kind: ir.ExprFunctionArgument{Index: 0}}},
+		ExpressionTypes: []ir.TypeResolution{{Handle: &f32Handle}},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
+			{Kind: ir.StmtReturn{Value: &retHandle}},
+		},
+	}
+	mod.EntryPoints = []ir.EntryPoint{{Name: "main", Stage: ir.StageFragment, Function: fn}}
+	_, err := Emit(mod, EmitOptions{ShaderModelMajor: 6, ShaderModelMinor: 0})
+	if err == nil || !strings.Contains(err.Error(), "has no value for component 1") {
+		t.Errorf("err = %v, want the missing component error", err)
+	}
 }
 
 // --- Resource binding tests ---
