@@ -4331,28 +4331,37 @@ func (e *Emitter) emitArrayLength(fn *ir.Function, al ir.ExprArrayLength) (int, 
 		stride = 4 // Default to 4 bytes (f32/i32/u32).
 	}
 
-	// Emit dx.op.getDimensions(72, handle, undef) → %dx.types.Dimensions
 	i32Ty := e.mod.GetIntType(32)
-	dimTy := e.getDxDimensionsType()
-	getDimFn := e.getDxOpGetDimensionsFunc()
+	var resultID int
+	if res.dynamicSize != nil {
+		size, err := e.loadDynamicOffset(*res.dynamicSize)
+		if err != nil {
+			return 0, fmt.Errorf("ExprArrayLength: %w", err)
+		}
+		resultID = size
+	} else {
+		// Emit dx.op.getDimensions(72, handle, undef) → %dx.types.Dimensions
+		dimTy := e.getDxDimensionsType()
+		getDimFn := e.getDxOpGetDimensionsFunc()
 
-	opcodeVal := e.getIntConstID(int64(OpGetDimensions))
-	undefVal := e.getUndefConstID()
+		opcodeVal := e.getIntConstID(int64(OpGetDimensions))
+		undefVal := e.getUndefConstID()
 
-	dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, handleID, undefVal})
+		dimRetID := e.addCallInstr(getDimFn, dimTy, []int{opcodeVal, handleID, undefVal})
 
-	// Extract component 0 = total byte size.
-	totalBytesID := e.allocValue()
-	extractInstr := &module.Instruction{
-		Kind:       module.InstrExtractVal,
-		HasValue:   true,
-		ResultType: i32Ty,
-		Operands:   []int{dimRetID, 0},
-		ValueID:    totalBytesID,
+		// Extract component 0 = total byte size.
+		totalBytesID := e.allocValue()
+		extractInstr := &module.Instruction{
+			Kind:       module.InstrExtractVal,
+			HasValue:   true,
+			ResultType: i32Ty,
+			Operands:   []int{dimRetID, 0},
+			ValueID:    totalBytesID,
+		}
+		e.currentBB.AddInstruction(extractInstr)
+
+		resultID = totalBytesID
 	}
-	e.currentBB.AddInstruction(extractInstr)
-
-	resultID := totalBytesID
 
 	// Subtract offset if nonzero: (totalBytes - offset)
 	if offset > 0 {

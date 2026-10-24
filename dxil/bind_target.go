@@ -52,6 +52,13 @@ type BindTarget struct {
 	// dynamic offset, the index of the offset in the constant buffer of its
 	// bind group in Options.DynamicStorageBufferOffsetsTargets.
 	DynamicStorageBufferOffsetsIndex *uint32
+
+	// DynamicStorageBufferSizeIndex is the index in the same constant buffer
+	// of the binding's size in bytes, which arrayLength() counts the elements
+	// of. A binding with a dynamic offset is viewed to the end of its buffer,
+	// which arrayLength() would count otherwise, past the binding and without
+	// the offset.
+	DynamicStorageBufferSizeIndex *uint32
 }
 
 // OffsetsBindTarget is the constant buffer of the dynamic offsets of the
