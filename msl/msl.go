@@ -248,6 +248,14 @@ type Options struct {
 	// data of its own finds the range in the same buffer, so Offset has to
 	// be past that data. Rust naga has no such option.
 	ClampFragDepth *ClampFragDepth
+
+	// FixedSampleMask, when set, is the render pipeline's sample mask, which
+	// a fragment entry point applies itself: it ANDs it into the sample_mask
+	// it returns, or returns it as a [[sample_mask]] output when it returns
+	// none. Metal has no pipeline sample mask; Dawn folds it into the shader
+	// the same way. Leave it nil for a mask of all ones. Rust naga has no
+	// such option.
+	FixedSampleMask *uint32
 }
 
 // ClampFragDepth is where the range of the frag_depth clamp is.
@@ -451,6 +459,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		VertexPullingTransform:        o.VertexPullingTransform,
 		VertexBufferMappings:          vbMappings,
 		ClampFragDepth:                (*codegen.ClampFragDepth)(o.ClampFragDepth),
+		FixedSampleMask:               o.FixedSampleMask,
 	}
 }
 

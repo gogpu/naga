@@ -247,6 +247,12 @@ type Writer struct {
 	// the frag_depth it returns (Options.ClampFragDepth), the address of the
 	// range of the clamp.
 	fragDepthRange string
+	// sampleMaskOutput is the [[sample_mask]] member a fragment entry point
+	// adds to return Options.FixedSampleMask when it returns no sample_mask,
+	// and voidOutputStruct the output struct it gets for it when it returns
+	// nothing.
+	sampleMaskOutput string
+	voidOutputStruct string
 
 	// flattenedMemberNames maps (struct type, member index) to the MSL name
 	// used for that member when it appears as a flattened entry point parameter.
