@@ -212,6 +212,9 @@ type Options struct {
 	// Matches Rust naga's back::glsl::BindingMap.
 	// When set, layout(binding = N) qualifiers are emitted.
 	BindingMap map[BindingMapKey]uint8
+
+	// SkipWorkgroupMemoryZeroInit leaves workgroup variables as they are.
+	SkipWorkgroupMemoryZeroInit bool
 }
 
 // BindingMapKey identifies a resource binding for the BindingMap.
