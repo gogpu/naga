@@ -136,6 +136,11 @@ type Options struct {
 	// reads and writes an element of it. A constant buffer binding clamps
 	// its own indices with BindTarget.RestrictIndexing.
 	RestrictIndexing bool
+
+	// ZeroInitializeWorkgroupMemory makes a compute entry point store zero
+	// to the workgroup variables it uses before running, as WebGPU requires
+	// and as hlsl.Options.ZeroInitializeWorkgroupMemory does.
+	ZeroInitializeWorkgroupMemory bool
 }
 
 // FragmentEntryPoint is a fragment entry point and its module.
@@ -150,6 +155,8 @@ func DefaultOptions() Options {
 		ShaderModel:      SM6_0,
 		UseBypassHash:    false, // retail hash — portable, no dev-mode requirement
 		RestrictIndexing: true,
+
+		ZeroInitializeWorkgroupMemory: true,
 	}
 }
 
@@ -328,7 +335,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		return nil, inlineErr
 	}
 	ep = &irModule.EntryPoints[0]
-	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
+	prepareEntryPoint(irModule, ep, opts)
 	if err := lowerForEmit(irModule, opts); err != nil {
 		return nil, err
 	}
@@ -3281,6 +3288,16 @@ func moduleUsesInt64Atomics(m *ir.Module) bool {
 		}
 	}
 	return false
+}
+
+// prepareEntryPoint drops the outputs of a vertex entry point that its
+// fragment stage doesn't read and zeroes the workgroup memory a compute
+// entry point uses.
+func prepareEntryPoint(irModule *ir.Module, ep *ir.EntryPoint, opts Options) {
+	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
+	if opts.ZeroInitializeWorkgroupMemory {
+		zeroInitWorkgroupMemory(irModule, ep)
+	}
 }
 
 // lowerForEmit runs the optimization passes, mem2reg and DCE in the DXC
