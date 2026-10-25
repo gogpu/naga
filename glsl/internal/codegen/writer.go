@@ -2014,7 +2014,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 
 	// Workgroup variable zero initialization (compute shaders only).
 	// Rust naga: if zero_initialize_workgroup_memory && compute stage
-	if ep.Stage == ir.StageCompute {
+	if ep.Stage == ir.StageCompute && !w.options.SkipWorkgroupMemoryZeroInit {
 		w.writeWorkgroupVarInit()
 	}
 
