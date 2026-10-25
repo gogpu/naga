@@ -1661,6 +1661,26 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 		return w.writeUnpack2x16float(e)
 	}
 
+	// firstbithigh returns 0xFFFFFFFF for zero, so 31u minus it is 32 there.
+	if e.Fun == ir.MathCountLeadingZeros {
+		argScalar := w.getExprScalar(e.Arg)
+		if argScalar != nil && argScalar.Width == 4 {
+			signed := argScalar.Kind == ir.ScalarSint
+			if signed {
+				w.Out.WriteString("asint(")
+			}
+			w.Out.WriteString("(31u - firstbithigh(asuint(")
+			if err := w.writeExpression(e.Arg); err != nil {
+				return fmt.Errorf("math arg: %w", err)
+			}
+			w.Out.WriteString(")))")
+			if signed {
+				w.Out.WriteByte(')')
+			}
+			return nil
+		}
+	}
+
 	// MissingIntOverload: countbits, reversebits — for signed i32: asint(fn(asuint(arg)))
 	// Matches Rust naga's Function::MissingIntOverload pattern.
 	switch e.Fun {
@@ -2196,7 +2216,7 @@ func mathFunctionToHLSL(fun ir.MathFunction) (string, error) {
 	case ir.MathCountTrailingZeros:
 		return "firstbitlow", nil
 	case ir.MathCountLeadingZeros:
-		return "firstbithigh", nil // Needs adjustment for actual CLZ
+		return "firstbithigh", nil
 	case ir.MathCountOneBits:
 		return "countbits", nil
 	case ir.MathReverseBits:

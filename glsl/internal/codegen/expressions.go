@@ -926,8 +926,15 @@ func (w *Writer) writeMath(m ir.ExprMath) (string, error) {
 		// findLSB always returns signed; cast to unsigned if arg is unsigned
 		return w.wrapUintCast(fmt.Sprintf("findLSB(%s)", argStr), m.Arg), nil
 	case ir.MathCountLeadingZeros:
-		// GLSL doesn't have direct clz, use workaround
-		return fmt.Sprintf("(31 - findMSB(%s))", args[0]), nil
+		// findMSB of an unsigned value is -1 for zero and 31 for a negative i32.
+		if _, isUint := w.isUnsignedExpr(m.Arg); isUint {
+			return w.wrapUintCast(fmt.Sprintf("(31 - findMSB(%s))", args[0]), m.Arg), nil
+		}
+		toUint := glslTypeUint
+		if size, ok := w.getExprVectorSize(m.Arg); ok {
+			toUint = fmt.Sprintf("uvec%d", size)
+		}
+		return fmt.Sprintf("(31 - findMSB(%s(%s)))", toUint, args[0]), nil
 	case ir.MathCountTrailingZeros:
 		// GLSL doesn't have direct ctz, use findLSB
 		return fmt.Sprintf("findLSB(%s)", argStr), nil
