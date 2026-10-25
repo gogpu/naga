@@ -936,8 +936,16 @@ func (w *Writer) writeMath(m ir.ExprMath) (string, error) {
 		}
 		return fmt.Sprintf("(31 - findMSB(%s(%s)))", toUint, args[0]), nil
 	case ir.MathCountTrailingZeros:
-		// GLSL doesn't have direct ctz, use findLSB
-		return fmt.Sprintf("findLSB(%s)", argStr), nil
+		// findLSB is -1 for zero, which read as unsigned is above 32.
+		toUint, toInt := glslTypeUint, glslTypeInt
+		if size, ok := w.getExprVectorSize(m.Arg); ok {
+			toUint, toInt = fmt.Sprintf("uvec%d", size), fmt.Sprintf("ivec%d", size)
+		}
+		ctz := fmt.Sprintf("min(%s(findLSB(%s)), 32u)", toUint, args[0])
+		if _, isUint := w.isUnsignedExpr(m.Arg); isUint {
+			return ctz, nil
+		}
+		return fmt.Sprintf("%s(%s)", toInt, ctz), nil
 	case ir.MathExtractBits:
 		// Rust naga: clamp offset and count for safety
 		// bitfieldExtract(val, int(min(offset, 32u)), int(min(count, 32u - min(offset, 32u))))

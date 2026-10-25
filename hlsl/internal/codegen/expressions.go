@@ -1661,15 +1661,20 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 		return w.writeUnpack2x16float(e)
 	}
 
-	// firstbithigh returns 0xFFFFFFFF for zero, so 31u minus it is 32 there.
-	if e.Fun == ir.MathCountLeadingZeros {
+	// firstbithigh and firstbitlow return 0xFFFFFFFF for zero, so 31u minus
+	// the one is 32 there, and the other is 32 at most.
+	if e.Fun == ir.MathCountLeadingZeros || e.Fun == ir.MathCountTrailingZeros {
 		argScalar := w.getExprScalar(e.Arg)
 		if argScalar != nil && argScalar.Width == 4 {
 			signed := argScalar.Kind == ir.ScalarSint
 			if signed {
 				w.Out.WriteString("asint(")
 			}
-			w.Out.WriteString("(31u - firstbithigh(asuint(")
+			if e.Fun == ir.MathCountLeadingZeros {
+				w.Out.WriteString("(31u - firstbithigh(asuint(")
+			} else {
+				w.Out.WriteString("min(32u, firstbitlow(asuint(")
+			}
 			if err := w.writeExpression(e.Arg); err != nil {
 				return fmt.Errorf("math arg: %w", err)
 			}
