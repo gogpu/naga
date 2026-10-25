@@ -1832,7 +1832,9 @@ func (b *Backend) emitGlobals() error {
 		if err != nil {
 			return err
 		}
-		if !hasInit && global.Space == ir.SpacePrivate && global.Init == nil && global.InitExpr == nil {
+		zeroed := global.Space == ir.SpacePrivate ||
+			(global.Space == ir.SpaceWorkGroup && b.options.ZeroInitializeWorkgroupMemory == ZeroInitWorkgroupNative)
+		if !hasInit && zeroed && global.Init == nil && global.InitExpr == nil {
 			initID, hasInit = b.constantNull(varType), true
 		}
 		if hasInit {
@@ -3618,7 +3620,7 @@ func (b *Backend) emitFunctionImpl(fn *ir.Function, isEntryPoint bool, handle ir
 	// For compute entry points, generate code that zero-initializes all workgroup
 	// variables when local_invocation_id == (0,0,0), followed by a barrier.
 	// This matches Rust naga's ZeroInitializeWorkgroupMemoryMode::Polyfill.
-	if isEntryPoint && epIdx >= 0 {
+	if isEntryPoint && epIdx >= 0 && b.options.ZeroInitializeWorkgroupMemory == ZeroInitWorkgroupPolyfill {
 		entryPoint := &b.module.EntryPoints[epIdx]
 		if entryPoint.Stage == ir.StageCompute {
 			if err := b.emitWorkgroupInitPolyfill(epIdx, fn, emitter, &fb); err != nil {

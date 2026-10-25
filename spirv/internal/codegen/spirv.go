@@ -79,7 +79,27 @@ type Options struct {
 	// naga's fake_missing_bindings (default true), so the zero value matches
 	// Rust's default.
 	RequireBindings bool
+
+	// ZeroInitializeWorkgroupMemory is how compute entry points zero their
+	// workgroup variables.
+	ZeroInitializeWorkgroupMemory ZeroInitializeWorkgroupMemoryMode
 }
+
+// ZeroInitializeWorkgroupMemoryMode is how workgroup memory gets zeroed.
+// Mirrors Rust naga's spv::ZeroInitializeWorkgroupMemoryMode.
+type ZeroInitializeWorkgroupMemoryMode uint8
+
+const (
+	// ZeroInitWorkgroupPolyfill has invocation 0 store zero to the
+	// variables, followed by a workgroup barrier.
+	ZeroInitWorkgroupPolyfill ZeroInitializeWorkgroupMemoryMode = iota
+	// ZeroInitWorkgroupNative declares the variables with a null
+	// initializer, which needs Vulkan's
+	// shaderZeroInitializeWorkgroupMemory feature.
+	ZeroInitWorkgroupNative
+	// ZeroInitWorkgroupNone leaves workgroup memory as it is.
+	ZeroInitWorkgroupNone
+)
 
 // BindingInfo is where a resource binding goes in SPIR-V; see
 // spirv.BindingInfo. Mirrors Rust naga's back::spv::BindingInfo.
