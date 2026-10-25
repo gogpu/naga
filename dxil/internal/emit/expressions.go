@@ -6091,12 +6091,18 @@ func (e *Emitter) emitZeroValue(zv ir.ExprZeroValue) (int, error) {
 		if t.Kind == ir.ScalarFloat {
 			return e.floatConstFor(t, 0.0), nil
 		}
+		if t.Width == 8 {
+			return e.zeroScalarID(t), nil
+		}
 		return e.getIntConstID(0), nil
 	case ir.VectorType:
 		var zeroID int
-		if t.Scalar.Kind == ir.ScalarFloat {
+		switch {
+		case t.Scalar.Kind == ir.ScalarFloat:
 			zeroID = e.floatConstFor(t.Scalar, 0.0)
-		} else {
+		case t.Scalar.Width == 8:
+			zeroID = e.zeroScalarID(t.Scalar)
+		default:
 			zeroID = e.getIntConstID(0)
 		}
 		// Set up per-component tracking — all components are the same zero value.
