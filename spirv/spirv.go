@@ -160,7 +160,28 @@ type Options struct {
 	// (ErrMissingBinding). The inverse of Rust naga's fake_missing_bindings,
 	// so the zero value behaves like Rust's default.
 	RequireBindings bool
+
+	// ZeroInitializeWorkgroupMemory is how compute entry points zero their
+	// workgroup variables, as WebGPU requires. The zero value is
+	// ZeroInitWorkgroupPolyfill, which works on every device.
+	ZeroInitializeWorkgroupMemory ZeroInitializeWorkgroupMemoryMode
 }
+
+// ZeroInitializeWorkgroupMemoryMode is how workgroup memory gets zeroed.
+// Mirrors Rust naga's spv::ZeroInitializeWorkgroupMemoryMode.
+type ZeroInitializeWorkgroupMemoryMode = codegen.ZeroInitializeWorkgroupMemoryMode
+
+const (
+	// ZeroInitWorkgroupPolyfill has invocation 0 store zero to the
+	// variables, followed by a workgroup barrier.
+	ZeroInitWorkgroupPolyfill = codegen.ZeroInitWorkgroupPolyfill
+	// ZeroInitWorkgroupNative declares the variables with a null
+	// initializer, which needs Vulkan's
+	// shaderZeroInitializeWorkgroupMemory feature.
+	ZeroInitWorkgroupNative = codegen.ZeroInitWorkgroupNative
+	// ZeroInitWorkgroupNone leaves workgroup memory as it is.
+	ZeroInitWorkgroupNone = codegen.ZeroInitWorkgroupNone
+)
 
 // ResourceBinding is a resource's WGSL @group and @binding.
 type ResourceBinding struct {
@@ -949,6 +970,8 @@ func toCodegenOptions(o Options) codegen.Options {
 		RayQueryInitTracking:  o.RayQueryInitTracking,
 		BindingMap:            toCodegenBindingMap(o.BindingMap),
 		RequireBindings:       o.RequireBindings,
+
+		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 	}
 }
 
