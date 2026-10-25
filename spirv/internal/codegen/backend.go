@@ -6848,6 +6848,31 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 }
 
 // emitMath emits a math built-in function using GLSL.std.450.
+// emitIntSplat emits value as a constant of ty, an integer scalar or vector.
+func (e *ExpressionEmitter) emitIntSplat(ty ir.TypeResolution, value uint32) (uint32, error) {
+	var scalar ir.ScalarType
+	var size uint32
+	switch t := ir.TypeResInner(e.backend.module, ty).(type) {
+	case ir.ScalarType:
+		scalar = t
+	case ir.VectorType:
+		scalar, size = t.Scalar, uint32(t.Size)
+	}
+	scalarTypeID, err := e.backend.emitScalarType(scalar)
+	if err != nil {
+		return 0, err
+	}
+	id := e.backend.builder.AddConstant(scalarTypeID, value)
+	if size == 0 {
+		return id, nil
+	}
+	components := make([]uint32, size)
+	for i := range components {
+		components[i] = id
+	}
+	return e.backend.builder.AddConstantComposite(e.backend.emitVectorType(scalarTypeID, size), components...), nil
+}
+
 func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	// Emit first argument
 	argID, err := e.emitExpression(mathExpr.Arg)
@@ -7117,31 +7142,22 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Bit manipulation functions
 	case ir.MathCountTrailingZeros:
-		// WGSL countTrailingZeros -> GLSL.std.450 FindILsb
-		glslInst = GLSLstd450FindILsb
+		// FindILsb is -1 for zero, which read as unsigned is above 32.
+		{
+			thirtyTwoID, err := e.emitIntSplat(argType, 32)
+			if err != nil {
+				return 0, err
+			}
+			lsbID := e.backend.builder.AddExtInst(resultType, e.backend.glslExtID, GLSLstd450FindILsb, argID)
+			return e.backend.builder.AddExtInst(resultType, e.backend.glslExtID, GLSLstd450UMin, lsbID, thirtyTwoID), nil
+		}
 	case ir.MathCountLeadingZeros:
 		// FindUMsb also suits i32 (a negative value gives 31) and returns -1 for
 		// zero, so 31 - FindUMsb(x) is the count for every input.
 		{
-			var scalar ir.ScalarType
-			var size uint8
-			switch t := ir.TypeResInner(e.backend.module, argType).(type) {
-			case ir.ScalarType:
-				scalar = t
-			case ir.VectorType:
-				scalar, size = t.Scalar, uint8(t.Size)
-			}
-			scalarTypeID, err := e.backend.emitScalarType(scalar)
+			thirtyOneID, err := e.emitIntSplat(argType, 31)
 			if err != nil {
 				return 0, err
-			}
-			thirtyOneID := e.backend.builder.AddConstant(scalarTypeID, 31)
-			if size > 0 {
-				components := make([]uint32, size)
-				for i := range components {
-					components[i] = thirtyOneID
-				}
-				thirtyOneID = e.backend.builder.AddConstantComposite(e.backend.emitVectorType(scalarTypeID, uint32(size)), components...)
 			}
 			msbID := e.backend.builder.AddExtInst(resultType, e.backend.glslExtID, GLSLstd450FindUMsb, argID)
 			return e.backend.builder.AddBinaryOp(OpISub, resultType, thirtyOneID, msbID), nil
