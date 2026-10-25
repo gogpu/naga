@@ -7120,15 +7120,31 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		// WGSL countTrailingZeros -> GLSL.std.450 FindILsb
 		glslInst = GLSLstd450FindILsb
 	case ir.MathCountLeadingZeros:
-		// WGSL countLeadingZeros -> polyfill: (31 - FindUMsb(x)) for u32, or FindSMsb for i32
-		// Simplified: use FindUMsb for unsigned, FindSMsb for signed
-		// Note: GLSL FindUMsb returns the bit position of the MSB (undefined for 0)
-		// WGSL countLeadingZeros expects the count. We emit FindUMsb/FindSMsb and
-		// the result subtraction is done at IR level by the lowerer.
-		if scalarKind == ir.ScalarSint {
-			glslInst = GLSLstd450FindSMsb
-		} else {
-			glslInst = GLSLstd450FindUMsb
+		// FindUMsb also suits i32 (a negative value gives 31) and returns -1 for
+		// zero, so 31 - FindUMsb(x) is the count for every input.
+		{
+			var scalar ir.ScalarType
+			var size uint8
+			switch t := ir.TypeResInner(e.backend.module, argType).(type) {
+			case ir.ScalarType:
+				scalar = t
+			case ir.VectorType:
+				scalar, size = t.Scalar, uint8(t.Size)
+			}
+			scalarTypeID, err := e.backend.emitScalarType(scalar)
+			if err != nil {
+				return 0, err
+			}
+			thirtyOneID := e.backend.builder.AddConstant(scalarTypeID, 31)
+			if size > 0 {
+				components := make([]uint32, size)
+				for i := range components {
+					components[i] = thirtyOneID
+				}
+				thirtyOneID = e.backend.builder.AddConstantComposite(e.backend.emitVectorType(scalarTypeID, uint32(size)), components...)
+			}
+			msbID := e.backend.builder.AddExtInst(resultType, e.backend.glslExtID, GLSLstd450FindUMsb, argID)
+			return e.backend.builder.AddBinaryOp(OpISub, resultType, thirtyOneID, msbID), nil
 		}
 	case ir.MathCountOneBits:
 		// OpBitCount is a native SPIR-V instruction
