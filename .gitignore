@@ -47,6 +47,9 @@ __debug_bin*
 # Private dev docs
 docs/dev/
 
+# Private project management (status, handoff, kanban)
+.pm/
+
 # Temp folder
 tmp/
 
