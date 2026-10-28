@@ -4,6 +4,10 @@ snapshot/testdata/rust/** -text
 snapshot/testdata/rust-derived/** -text
 # Rust naga outputs compared byte for byte (glsl TestOverrideOutputMatchesRust).
 glsl/testdata/overrides/** -text
+# GLSL goldens compared byte for byte (glsl TestDepthTextureDeclarations and
+# TestRestrictBoundsChecks).
+glsl/testdata/bounds/** -text
+glsl/testdata/depth/** -text
 
 # Shell scripts run under bash on every CI runner, Windows included: keep LF.
 *.sh text eol=lf
