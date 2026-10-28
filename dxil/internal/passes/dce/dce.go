@@ -396,7 +396,8 @@ func unmarkDeadControlFlow(
 			unmarkDeadControlFlow(fn, sk.Reject, deadLocals, live, localPtrs)
 
 			if blockWillBeEmpty(fn, sk.Accept, deadLocals, live, localPtrs) &&
-				blockWillBeEmpty(fn, sk.Reject, deadLocals, live, localPtrs) {
+				blockWillBeEmpty(fn, sk.Reject, deadLocals, live, localPtrs) &&
+				!feedsLivePhi(fn, block, i, live) {
 				// Both branches dead — unmark the condition.
 				unmarkExpr(fn, sk.Condition, live)
 			}
@@ -409,7 +410,7 @@ func unmarkDeadControlFlow(
 					allEmpty = false
 				}
 			}
-			if allEmpty {
+			if allEmpty && !feedsLivePhi(fn, block, i, live) {
 				unmarkExpr(fn, sk.Selector, live)
 			}
 
@@ -421,6 +422,25 @@ func unmarkDeadControlFlow(
 			unmarkDeadControlFlow(fn, sk.Block, deadLocals, live, localPtrs)
 		}
 	}
+}
+
+// feedsLivePhi reports whether the emits right after block[i] hold a live
+// ExprPhi. mem2reg places a phi there and takes its incomings from the
+// branches of block[i], so that if or switch has to stay even when its
+// branches end up empty.
+func feedsLivePhi(fn *ir.Function, block ir.Block, i int, live []bool) bool {
+	for _, st := range block[i+1:] {
+		emit, ok := st.Kind.(ir.StmtEmit)
+		if !ok {
+			return false
+		}
+		for h := emit.Range.Start; h < emit.Range.End; h++ {
+			if _, isPhi := fn.Expressions[h].Kind.(ir.ExprPhi); isPhi && live[h] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // unmarkExpr unmarks an expression and all sub-expressions that are
