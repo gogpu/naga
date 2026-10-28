@@ -2853,20 +2853,33 @@ func selectBinaryOpcode(op ir.BinaryOperator, leftType ir.TypeInner) (BinOpKind,
 
 // emitUnary emits a unary operation.
 func (e *Emitter) emitUnary(fn *ir.Function, un ir.ExprUnary) (int, error) {
-	operand, err := e.emitExpression(fn, un.Expr)
-	if err != nil {
+	if _, err := e.emitExpression(fn, un.Expr); err != nil {
 		return 0, err
 	}
-
 	exprType := e.resolveExprType(fn, un.Expr)
-	isFloat := isFloatType(exprType)
-	resultTy, _ := typeToDXIL(e.mod, e.ir, exprType)
+	scalar, _ := scalarOfType(exprType)
+	n := componentCount(exprType)
+	comps := make([]int, n)
+	for i := range comps {
+		v, err := e.emitScalarUnary(un.Op, scalar, e.getComponentID(un.Expr, i))
+		if err != nil {
+			return 0, err
+		}
+		comps[i] = v
+	}
+	if n > 1 {
+		e.pendingComponents = comps
+	}
+	return comps[0], nil
+}
 
-	switch un.Op {
+// emitScalarUnary emits a unary operation on one component of type scalar.
+func (e *Emitter) emitScalarUnary(op ir.UnaryOperator, scalar ir.ScalarType, operand int) (int, error) {
+	resultTy := scalarToDXIL(e.mod, scalar)
+	switch op {
 	case ir.UnaryNegate:
-		if isFloat {
+		if scalar.Kind == ir.ScalarFloat {
 			// fneg = fsub -0.0, operand
-			scalar, _ := scalarOfType(exprType)
 			zeroID := e.floatConstFor(scalar, 0.0)
 			return e.addBinOpInstr(resultTy, BinOpFSub, zeroID, operand), nil
 		}
@@ -2887,7 +2900,7 @@ func (e *Emitter) emitUnary(fn *ir.Function, un ir.ExprUnary) (int, error) {
 		return e.addBinOpInstr(e.mod.GetIntType(1), BinOpXor, operand, trueID), nil
 
 	default:
-		return 0, fmt.Errorf("unsupported unary operator: %d", un.Op)
+		return 0, fmt.Errorf("unsupported unary operator: %d", op)
 	}
 }
 
