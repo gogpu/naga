@@ -169,18 +169,19 @@ type Options struct {
 
 // ZeroInitializeWorkgroupMemoryMode is how workgroup memory gets zeroed.
 // Mirrors Rust naga's spv::ZeroInitializeWorkgroupMemoryMode.
-type ZeroInitializeWorkgroupMemoryMode = codegen.ZeroInitializeWorkgroupMemoryMode
+type ZeroInitializeWorkgroupMemoryMode uint8
 
+// ZeroInitializeWorkgroupMemoryMode values.
 const (
 	// ZeroInitWorkgroupPolyfill has invocation 0 store zero to the
 	// variables, followed by a workgroup barrier.
-	ZeroInitWorkgroupPolyfill = codegen.ZeroInitWorkgroupPolyfill
+	ZeroInitWorkgroupPolyfill ZeroInitializeWorkgroupMemoryMode = iota
 	// ZeroInitWorkgroupNative declares the variables with a null
 	// initializer, which needs Vulkan's
 	// shaderZeroInitializeWorkgroupMemory feature.
-	ZeroInitWorkgroupNative = codegen.ZeroInitWorkgroupNative
+	ZeroInitWorkgroupNative
 	// ZeroInitWorkgroupNone leaves workgroup memory as it is.
-	ZeroInitWorkgroupNone = codegen.ZeroInitWorkgroupNone
+	ZeroInitWorkgroupNone
 )
 
 // ResourceBinding is a resource's WGSL @group and @binding.
@@ -971,7 +972,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		BindingMap:            toCodegenBindingMap(o.BindingMap),
 		RequireBindings:       o.RequireBindings,
 
-		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
+		ZeroInitializeWorkgroupMemory: codegen.ZeroInitializeWorkgroupMemoryMode(o.ZeroInitializeWorkgroupMemory),
 	}
 }
 
