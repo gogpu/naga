@@ -137,10 +137,11 @@ type Options struct {
 	// its own indices with BindTarget.RestrictIndexing.
 	RestrictIndexing bool
 
-	// ZeroInitializeWorkgroupMemory makes a compute entry point store zero
-	// to the workgroup variables it uses before running, as WebGPU requires
-	// and as hlsl.Options.ZeroInitializeWorkgroupMemory does.
-	ZeroInitializeWorkgroupMemory bool
+	// SkipWorkgroupMemoryZeroInit leaves workgroup memory as it is. By
+	// default a compute entry point stores zero to the workgroup variables it
+	// uses before running, as WebGPU requires and as
+	// hlsl.Options.ZeroInitializeWorkgroupMemory does.
+	SkipWorkgroupMemoryZeroInit bool
 }
 
 // FragmentEntryPoint is a fragment entry point and its module.
@@ -155,8 +156,6 @@ func DefaultOptions() Options {
 		ShaderModel:      SM6_0,
 		UseBypassHash:    false, // retail hash — portable, no dev-mode requirement
 		RestrictIndexing: true,
-
-		ZeroInitializeWorkgroupMemory: true,
 	}
 }
 
@@ -3297,7 +3296,7 @@ func moduleUsesInt64Atomics(m *ir.Module) bool {
 // entry point uses.
 func prepareEntryPoint(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
 	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
-	if opts.ZeroInitializeWorkgroupMemory {
+	if !opts.SkipWorkgroupMemoryZeroInit {
 		return zeroInitWorkgroupMemory(irModule, ep)
 	}
 	return nil
