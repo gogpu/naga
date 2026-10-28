@@ -2188,8 +2188,9 @@ func collectPSVResources(irMod *ir.Module, reachable map[ir.GlobalVariableHandle
 	// that the PSV0 resource list and the DXIL bitcode resource metadata
 	// agree (the validator memcmp's the two and reports 'DXIL container
 	// mismatch for ResourceCount/ResourceBindInfo' on any drift).
-	samplerGroups, hasStdSampler, hasCmpSampler := detectPSVSamplerHeap(irMod, reachable)
+	hasStdSampler, hasCmpSampler := detectPSVSamplerHeap(irMod, reachable)
 	samplerHeapMode := hasStdSampler || hasCmpSampler
+	indexBufferGroups := make(map[uint32]bool)
 
 	var buckets [4][]container.PSVResourceBinding
 	for i := range irMod.GlobalVariables {
@@ -2207,9 +2208,21 @@ func collectPSVResources(irMod *ir.Module, reachable map[ir.GlobalVariableHandle
 			continue
 		}
 		// In sampler-heap mode, skip per-WGSL sampler globals. The heap
-		// and per-group index buffer entries are appended below.
+		// entries are appended below; a group's index buffer goes where its
+		// first sampler is, as emit/resources.go analyzeResources puts it.
 		if samplerHeapMode && gv.Space == ir.SpaceHandle {
-			if _, isSampler, _ := psvSamplerKindOfGlobal(irMod, gv); isSampler {
+			if _, isSampler, inBindingArray := psvSamplerKindOfGlobal(irMod, gv); isSampler {
+				if group := gv.Binding.Group; !inBindingArray && !indexBufferGroups[group] {
+					indexBufferGroups[group] = true
+					idxSpace, idxReg := psvSamplerIndexBufferTarget(samplerBufMap, group)
+					buckets[classSRV] = append(buckets[classSRV], container.PSVResourceBinding{
+						ResType:    container.PSVResTypeSRVStructured,
+						Space:      idxSpace,
+						LowerBound: idxReg,
+						UpperBound: idxReg, // single buffer view
+						ResKind:    container.PSVResKindStructuredBuffer,
+					})
+				}
 				continue
 			}
 		}
@@ -2335,16 +2348,6 @@ func collectPSVResources(irMod *ir.Module, reachable map[ir.GlobalVariableHandle
 			ResKind:    container.PSVResKindSampler,
 		})
 	}
-	for _, group := range samplerGroups {
-		idxSpace, idxReg := psvSamplerIndexBufferTarget(samplerBufMap, group)
-		buckets[classSRV] = append(buckets[classSRV], container.PSVResourceBinding{
-			ResType:    container.PSVResTypeSRVStructured,
-			Space:      idxSpace,
-			LowerBound: idxReg,
-			UpperBound: idxReg, // single buffer view
-			ResKind:    container.PSVResKindStructuredBuffer,
-		})
-	}
 
 	out := make([]container.PSVResourceBinding, 0, len(buckets[0])+len(buckets[1])+len(buckets[2])+len(buckets[3]))
 	out = append(out, buckets[classCBV]...)
@@ -2385,11 +2388,9 @@ func psvSamplerIndexBufferTarget(m map[uint32]BindTarget, group uint32) (space, 
 // detectPSVSamplerHeap is the PSV0-side counterpart of
 // emit/sampler_heap.go:detectSamplerHeapNeeded. Must stay byte-aligned
 // with the emit logic (same filter: reachability + SpaceHandle + SamplerType
-// + skip binding_array<sampler>). Returns the sorted list of bind groups
-// that contain at least one sampler, plus two flags for whether any
-// standard / comparison sampler is present.
-func detectPSVSamplerHeap(irMod *ir.Module, reachable map[ir.GlobalVariableHandle]bool) (groups []uint32, hasStd, hasCmp bool) {
-	groupSet := make(map[uint32]bool)
+// + skip binding_array<sampler>). Reports whether any standard /
+// comparison sampler is present.
+func detectPSVSamplerHeap(irMod *ir.Module, reachable map[ir.GlobalVariableHandle]bool) (hasStd, hasCmp bool) {
 	for i := range irMod.GlobalVariables {
 		gv := &irMod.GlobalVariables[i]
 		if reachable != nil && !reachable[ir.GlobalVariableHandle(i)] {
@@ -2407,21 +2408,8 @@ func detectPSVSamplerHeap(irMod *ir.Module, reachable map[ir.GlobalVariableHandl
 		} else {
 			hasStd = true
 		}
-		if !groupSet[gv.Binding.Group] {
-			groupSet[gv.Binding.Group] = true
-			groups = append(groups, gv.Binding.Group)
-		}
 	}
-	if !hasStd && !hasCmp {
-		return nil, false, false
-	}
-	// Sort ascending — deterministic register allocation.
-	for i := 1; i < len(groups); i++ {
-		for j := i; j > 0 && groups[j-1] > groups[j]; j-- {
-			groups[j-1], groups[j] = groups[j], groups[j-1]
-		}
-	}
-	return groups, hasStd, hasCmp
+	return hasStd, hasCmp
 }
 
 // psvSamplerKindOfGlobal returns (comparison, isSampler, isBindingArray).

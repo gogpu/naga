@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/gogpu/naga/dxil/internal/container"
@@ -1384,4 +1385,35 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     buf[idx] = x * 5.0;
 }
 `)
+}
+
+// TestPSVSamplerIndexBufferAtFirstSampler requires PSV0 to list a group's
+// sampler index buffer where the group's first sampler is declared, as the
+// module's resource metadata does. Listed after every SRV instead, a storage
+// buffer declared after the sampler swapped places with it and the validator
+// reported a ResourceBindInfo mismatch.
+func TestPSVSamplerIndexBufferAtFirstSampler(t *testing.T) {
+	const src = `
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+@group(1) @binding(0) var<storage, read> data: array<f32>;
+@fragment
+fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+	return textureSample(tex, samp, uv) * data[0];
+}
+`
+	mod := lowerSource(t, src)
+	info := buildPSV(mod, &mod.EntryPoints[0], true, 1, 1, nil, nil, nil, nil, nil, nil)
+	type srv struct{ space, lower uint32 }
+	var got []srv
+	for _, rb := range info.ResourceBindings {
+		switch rb.ResType {
+		case container.PSVResTypeSRVTyped, container.PSVResTypeSRVRaw, container.PSVResTypeSRVStructured:
+			got = append(got, srv{rb.Space, rb.LowerBound})
+		}
+	}
+	want := []srv{{0, 0}, {255, 0}, {1, 0}} // tex, group 0's index buffer, data
+	if !slices.Equal(got, want) {
+		t.Errorf("PSV0 SRVs (space, register) = %v, want %v", got, want)
+	}
 }
