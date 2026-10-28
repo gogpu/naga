@@ -65,6 +65,24 @@ func (w *Writer) writeSampleMaskValue(first bool) {
 	w.write(" %du", *w.options.FixedSampleMask)
 }
 
+// mayReachEnd reports whether control can reach the end of block. Only a
+// return ends it: metal::discard_fragment() is a call to C++, so a branch
+// that discards still reaches the end of a function that returns a value.
+func mayReachEnd(block ir.Block) bool {
+	if len(block) == 0 {
+		return true
+	}
+	switch s := block[len(block)-1].Kind.(type) {
+	case ir.StmtReturn:
+		return false
+	case ir.StmtBlock:
+		return mayReachEnd(s.Block)
+	case ir.StmtIf:
+		return mayReachEnd(s.Accept) || mayReachEnd(s.Reject)
+	}
+	return true
+}
+
 // writeVoidOutputReturn writes a return of the output struct a fragment
 // entry point that returns nothing gets for the fixed sample mask.
 func (w *Writer) writeVoidOutputReturn() {

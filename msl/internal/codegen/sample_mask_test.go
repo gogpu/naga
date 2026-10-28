@@ -58,8 +58,8 @@ struct Out { @location(0) color: vec4<f32>, @builtin(sample_mask) mask: u32 }
 			if fixed && strings.Contains(got, "fixed_sample_mask") && strings.Count(got, "[[sample_mask]]") != 1 {
 				t.Errorf("%s: more than one [[sample_mask]] output:\n%s", name, got)
 			}
-			if fixed && name == "void" && strings.Count(got, "return fs_mainOutput { 5u };") != 2 {
-				t.Errorf("void: want the explicit return and the one at the end:\n%s", got)
+			if fixed && name == "void" && !strings.Contains(got, "\n    return fs_mainOutput { 5u };\n}\n") {
+				t.Errorf("void: no return at the end, after the branch that discards:\n%s", got)
 			}
 			if fixed && name == "own mask" && strings.Count(got, "& 5u)") != 2 {
 				t.Errorf("own mask: want the mask on both returns:\n%s", got)
