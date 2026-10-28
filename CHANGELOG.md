@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **DXIL: vector derivatives and several vector built-ins computed only the
+  first component** — `dpdx`, `dpdy`, `fwidth` (all controls), `step`,
+  `smoothstep`, `pow`, `sign`, `degrees`, `radians`, `extractBits` and
+  `insertBits` emitted their instruction chain once, on component 0. The
+  other components took whatever value the emitter had emitted next: wrong
+  results where the bitcode stayed well formed (gg's MSDF text measured
+  `fwidth` of `tex_coord.x` only; its blend and composite shaders use
+  `step(vec3, x)`), and records `dxc -dumpbin` cannot parse ("Invalid
+  record") where it did not. `dxc -dumpbin` and naga's own bitcode check
+  accepted the well-formed ones.
+  These functions are now emitted per component, like the other math
+  built-ins and like DXC, which emits one derivative per component.
+
 ## [0.20.3] - 2026-10-18
 
 ### Fixed
