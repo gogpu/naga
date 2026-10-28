@@ -1,6 +1,7 @@
 package dxil
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/gogpu/naga/ir"
@@ -11,10 +12,11 @@ import (
 // stores and a workgroup barrier holds the others until it is done, as the
 // HLSL writer does with ZeroInitializeWorkgroupMemory. The stores go to each
 // scalar and vector, an array's elements in a loop, since the emitter splits
-// a store of a struct or an array only one level deep.
-func zeroInitWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) {
+// a store of a struct or an array only one level deep. A workgroup matrix is
+// an error, since the emitter can't store to one yet.
+func zeroInitWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) error {
 	if ep.Stage != ir.StageCompute {
-		return
+		return nil
 	}
 	var vars []ir.GlobalVariableHandle
 	for h := range reachableGlobalsForEntry(m, ep) {
@@ -23,7 +25,7 @@ func zeroInitWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) {
 		}
 	}
 	if len(vars) == 0 {
-		return
+		return nil
 	}
 	slices.Sort(vars)
 
@@ -36,13 +38,18 @@ func zeroInitWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) {
 	var stores ir.Block
 	for _, h := range vars {
 		ty := m.GlobalVariables[h].Type
-		stores = append(stores, z.zero(z.add(ir.ExprGlobalVariable{Variable: h}, z.pointer(ty, ir.SpaceWorkGroup)), ty)...)
+		b, err := z.zero(z.add(ir.ExprGlobalVariable{Variable: h}, z.pointer(ty, ir.SpaceWorkGroup)), ty)
+		if err != nil {
+			return fmt.Errorf("dxil: zero-initializing workgroup variable %q: %w", m.GlobalVariables[h].Name, err)
+		}
+		stores = append(stores, b...)
 	}
 	z.fn.Body = slices.Concat(ir.Block{
 		emitIsFirst,
 		{Kind: ir.StmtIf{Condition: isFirst, Accept: stores}},
 		{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}},
 	}, z.fn.Body)
+	return nil
 }
 
 type workgroupZeroer struct {
@@ -53,32 +60,60 @@ type workgroupZeroer struct {
 
 // zero returns the statements storing zero to all of the ty that ptr, a
 // pointer into workgroup memory, points to.
-func (z *workgroupZeroer) zero(ptr ir.ExpressionHandle, ty ir.TypeHandle) ir.Block {
+func (z *workgroupZeroer) zero(ptr ir.ExpressionHandle, ty ir.TypeHandle) (ir.Block, error) {
 	switch t := z.m.Types[ty].Inner.(type) {
 	case ir.StructType:
+		if z.flat(t) {
+			return z.zeroFlatStruct(ptr, ty, t), nil
+		}
 		b := make(ir.Block, 0, len(t.Members))
 		for i, member := range t.Members {
 			field, emit := z.emitted(ir.ExprAccessIndex{Base: ptr, Index: uint32(i)}, z.pointer(member.Type, ir.SpaceWorkGroup))
+			stores, err := z.zero(field, member.Type)
+			if err != nil {
+				return nil, err
+			}
 			b = append(b, emit)
-			b = append(b, z.zero(field, member.Type)...)
+			b = append(b, stores...)
 		}
-		return b
+		return b, nil
 	case ir.ArrayType:
 		return z.zeroArray(ptr, t)
 	case ir.MatrixType:
-		// ponytail: the emitter can't read or index a workgroup matrix, nor
-		// store a whole one validly, so no shader that reads one compiles yet.
-		// Zero its columns once it can.
-		return nil
+		return nil, fmt.Errorf("it holds a matrix, which DXIL can't store to in workgroup memory yet")
 	case ir.AtomicType:
 		ty = typeHandle(z.m, t.Scalar)
 	}
-	return ir.Block{{Kind: ir.StmtStore{Pointer: ptr, Value: z.add(ir.ExprZeroValue{Type: ty}, z.value(ty))}}}
+	return ir.Block{{Kind: ir.StmtStore{Pointer: ptr, Value: z.add(ir.ExprZeroValue{Type: ty}, z.value(ty))}}}, nil
+}
+
+// flat reports whether every member of t is a scalar or a vector.
+func (z *workgroupZeroer) flat(t ir.StructType) bool {
+	for _, member := range t.Members {
+		switch z.m.Types[member.Type].Inner.(type) {
+		case ir.ScalarType, ir.VectorType:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// zeroFlatStruct stores a struct composed of zeros, as s = S(0u, ...) does.
+// The emitter can store a whole struct where it can't index one of its
+// members, in an element of a workgroup array.
+func (z *workgroupZeroer) zeroFlatStruct(ptr ir.ExpressionHandle, ty ir.TypeHandle, t ir.StructType) ir.Block {
+	components := make([]ir.ExpressionHandle, len(t.Members))
+	for i, member := range t.Members {
+		components[i] = z.add(ir.ExprZeroValue{Type: member.Type}, z.value(member.Type))
+	}
+	value, emit := z.emitted(ir.ExprCompose{Type: ty, Components: components}, z.value(ty))
+	return ir.Block{emit, {Kind: ir.StmtStore{Pointer: ptr, Value: value}}}
 }
 
 // zeroArray returns a loop storing zero to each element of the array ptr
 // points to.
-func (z *workgroupZeroer) zeroArray(ptr ir.ExpressionHandle, t ir.ArrayType) ir.Block {
+func (z *workgroupZeroer) zeroArray(ptr ir.ExpressionHandle, t ir.ArrayType) (ir.Block, error) {
 	init := z.literal(0)
 	z.fn.LocalVars = append(z.fn.LocalVars, ir.LocalVariable{Name: "__zero_init_index", Type: z.u32, Init: &init})
 	counter := z.add(ir.ExprLocalVariable{Variable: uint32(len(z.fn.LocalVars) - 1)}, z.pointer(z.u32, ir.SpaceFunction)) //nolint:gosec // local count fits uint32
@@ -86,17 +121,21 @@ func (z *workgroupZeroer) zeroArray(ptr ir.ExpressionHandle, t ir.ArrayType) ir.
 	i, emitI := z.emitted(ir.ExprLoad{Pointer: counter}, z.value(z.u32))
 	inBounds, emitInBounds := z.emitted(ir.ExprBinary{Op: ir.BinaryLess, Left: i, Right: z.literal(*t.Size.Constant)}, z.boolean())
 	elem, emitElem := z.emitted(ir.ExprAccess{Base: ptr, Index: i}, z.pointer(t.Base, ir.SpaceWorkGroup))
+	stores, err := z.zero(elem, t.Base)
+	if err != nil {
+		return nil, err
+	}
 	body := slices.Concat(ir.Block{
 		emitI,
 		emitInBounds,
 		{Kind: ir.StmtIf{Condition: inBounds, Reject: ir.Block{{Kind: ir.StmtBreak{}}}}},
 		emitElem,
-	}, z.zero(elem, t.Base))
+	}, stores)
 
 	last, emitLast := z.emitted(ir.ExprLoad{Pointer: counter}, z.value(z.u32))
 	next, emitNext := z.emitted(ir.ExprBinary{Op: ir.BinaryAdd, Left: last, Right: z.literal(1)}, z.value(z.u32))
 	continuing := ir.Block{emitLast, emitNext, {Kind: ir.StmtStore{Pointer: counter, Value: next}}}
-	return ir.Block{{Kind: ir.StmtLoop{Body: body, Continuing: continuing}}}
+	return ir.Block{{Kind: ir.StmtLoop{Body: body, Continuing: continuing}}}, nil
 }
 
 func (z *workgroupZeroer) add(kind ir.ExpressionKind, ty ir.TypeResolution) ir.ExpressionHandle {

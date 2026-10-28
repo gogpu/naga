@@ -335,7 +335,9 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		return nil, inlineErr
 	}
 	ep = &irModule.EntryPoints[0]
-	prepareEntryPoint(irModule, ep, opts)
+	if err := prepareEntryPoint(irModule, ep, opts); err != nil {
+		return nil, err
+	}
 	if err := lowerForEmit(irModule, opts); err != nil {
 		return nil, err
 	}
@@ -3293,11 +3295,12 @@ func moduleUsesInt64Atomics(m *ir.Module) bool {
 // prepareEntryPoint drops the outputs of a vertex entry point that its
 // fragment stage doesn't read and zeroes the workgroup memory a compute
 // entry point uses.
-func prepareEntryPoint(irModule *ir.Module, ep *ir.EntryPoint, opts Options) {
+func prepareEntryPoint(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
 	unbindUnreadOutputs(irModule, ep, opts.FragmentEntryPoint)
 	if opts.ZeroInitializeWorkgroupMemory {
-		zeroInitWorkgroupMemory(irModule, ep)
+		return zeroInitWorkgroupMemory(irModule, ep)
 	}
+	return nil
 }
 
 // lowerForEmit runs the optimization passes, mem2reg and DCE in the DXC
