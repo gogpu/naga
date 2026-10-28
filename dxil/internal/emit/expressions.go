@@ -1582,7 +1582,7 @@ func (e *Emitter) emitScalarBinaryOp(op ir.BinaryOperator, resultTy *module.Type
 		}
 		return e.addBinOpInstr(resultTy, selectBinOp(isFloat, BinOpFMul, BinOpMul), lhs, rhs), nil
 	case ir.BinaryDivide:
-		return e.addBinOpInstr(resultTy, selectDivOp(isFloat, isSigned), lhs, rhs), nil
+		return e.emitDivide(resultTy, lhs, rhs, isFloat, isSigned), nil
 	case ir.BinaryModulo:
 		return e.emitModulo(resultTy, lhs, rhs, isFloat, isSigned)
 	case ir.BinaryAnd:
@@ -1638,13 +1638,55 @@ func (e *Emitter) emitModulo(resultTy *module.Type, lhs, rhs int, isFloat, isSig
 		return e.emitFRemLowered(resultTy, lhs, rhs), nil
 	}
 	if isSigned {
-		return e.addBinOpInstr(resultTy, BinOpSRem, lhs, rhs), nil
+		return e.addBinOpInstr(resultTy, BinOpSRem, lhs, e.guardedDivisor(resultTy, lhs, rhs, true)), nil
 	}
 	// Strength reduction: urem x, 2^N -> and x, (2^N - 1).
 	if maskID, ok := e.tryURemToBitwiseAnd(rhs); ok {
 		return e.addBinOpInstr(resultTy, BinOpAnd, lhs, maskID), nil
 	}
-	return e.addBinOpInstr(resultTy, BinOpURem, lhs, rhs), nil
+	return e.addBinOpInstr(resultTy, BinOpURem, lhs, e.guardedDivisor(resultTy, lhs, rhs, false)), nil
+}
+
+// emitDivide emits a scalar division; an integer divisor is guarded.
+func (e *Emitter) emitDivide(resultTy *module.Type, lhs, rhs int, isFloat, isSigned bool) int {
+	if !isFloat {
+		rhs = e.guardedDivisor(resultTy, lhs, rhs, isSigned)
+	}
+	return e.addBinOpInstr(resultTy, selectDivOp(isFloat, isSigned), lhs, rhs)
+}
+
+// guardedDivisor returns the divisor of a WGSL integer / or %: 1 in place of
+// a zero divisor and, for signed operands, in place of -1 when the dividend
+// is the most negative value. Those are the cases LLVM's sdiv, udiv, srem
+// and urem leave undefined; with divisor 1 they give what WGSL defines for
+// run-time operands: e1 / 0 = e1, MIN / -1 = MIN, e1 % 0 = 0, MIN % -1 = 0.
+// It is the select naga's HLSL naga_div/naga_mod wrappers write, in the
+// order DXC compiles them; for a constant divisor that is neither 0 nor -1
+// DXC folds the select away, so it is not emitted then (P1-DXIL-043).
+func (e *Emitter) guardedDivisor(resultTy *module.Type, lhs, rhs int, isSigned bool) int {
+	if c, ok := e.constMap[rhs]; ok && !c.IsUndef && !c.IsAggregate && c.ConstType != nil &&
+		c.ConstType.Kind == module.TypeInteger && c.IntValue != 0 && (!isSigned || c.IntValue != -1) {
+		return rhs
+	}
+	constID := func(v int64) int {
+		if resultTy.IntBits == 64 {
+			e.getInt64Const(v)
+			return e.int64Consts[v]
+		}
+		return e.getIntConstID(v)
+	}
+	unsafe := e.addCmpInstr(ICmpEQ, rhs, constID(0))
+	if isSigned {
+		minValue := int64(math.MinInt32)
+		if resultTy.IntBits == 64 {
+			minValue = math.MinInt64
+		}
+		lhsMin := e.addCmpInstr(ICmpEQ, lhs, constID(minValue))
+		rhsNegOne := e.addCmpInstr(ICmpEQ, rhs, constID(-1))
+		overflow := e.addBinOpInstr(e.mod.GetIntType(1), BinOpAnd, lhsMin, rhsNegOne)
+		unsafe = e.addBinOpInstr(e.mod.GetIntType(1), BinOpOr, overflow, unsafe)
+	}
+	return e.emitSelect3(resultTy, unsafe, constID(1), rhs)
 }
 
 // tryURemToBitwiseAnd checks whether valueID refers to an integer constant
@@ -2361,6 +2403,11 @@ func (e *Emitter) emitBinaryVectorized(fn *ir.Function, bin ir.ExprBinary, leftT
 			// FRem is not supported in DXIL — use lowered sequence per component.
 			comps[i] = e.emitFRemLowered(scalarTy, lComp, rComp)
 		} else {
+			// Integer division only: fdiv shares sdiv's opcode (BinOpFDiv ==
+			// BinOpSDiv), so the operand type decides.
+			if (bin.Op == ir.BinaryDivide || bin.Op == ir.BinaryModulo) && !isFloatType(leftType) {
+				rComp = e.guardedDivisor(scalarTy, lComp, rComp, isSignedInt(leftType))
+			}
 			comps[i] = e.addBinOpInstr(scalarTy, binOp, lComp, rComp)
 		}
 	}
