@@ -566,3 +566,36 @@ func TestDeadSwitchEliminated(t *testing.T) {
 		t.Fatalf("expected 1 statement after DCE (just return), got %d", len(fn.Body))
 	}
 }
+
+// TestIfFeedingALivePhiStays covers mem2reg's var x = 0u; if c { x = 1u; }
+// once both branches are empty: the phi after the if picks a value by the
+// branch taken, so the if and its condition stay.
+func TestIfFeedingALivePhiStays(t *testing.T) {
+	mod := &ir.Module{}
+	fn := &ir.Function{}
+	cond := appendExpr(fn, ir.Literal{Value: ir.LiteralBool(true)})
+	zero := appendExpr(fn, ir.Literal{Value: ir.LiteralU32(0)})
+	one := appendExpr(fn, ir.Literal{Value: ir.LiteralU32(1)})
+	phi := appendExpr(fn, ir.ExprPhi{Incoming: []ir.PhiIncoming{
+		{PredKey: ir.PhiPredIfAccept, Value: one},
+		{PredKey: ir.PhiPredIfReject, Value: zero},
+	}})
+	fn.Body = ir.Block{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: cond, End: one + 1}}},
+		{Kind: ir.StmtIf{Condition: cond}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: phi, End: phi + 1}}},
+		{Kind: ir.StmtReturn{Value: &phi}},
+	}
+
+	Run(mod, fn)
+
+	if len(fn.Body) != 4 {
+		t.Fatalf("got %d statements, want the emit, the if, the phi and the return", len(fn.Body))
+	}
+	if _, ok := fn.Body[1].Kind.(ir.StmtIf); !ok {
+		t.Errorf("statement 1 is %T, want the StmtIf the phi follows", fn.Body[1].Kind)
+	}
+	if r := fn.Body[0].Kind.(ir.StmtEmit).Range; cond < r.Start || cond >= r.End {
+		t.Errorf("the condition left the emit range %v", r)
+	}
+}
