@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/emit"
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -75,8 +76,8 @@ func emitMain(t *testing.T, src string) *module.Function {
 	return fn
 }
 
-// emitMainModule is emitMain returning the module too.
-func emitMainModule(t *testing.T, src string) (*module.Module, *module.Function) {
+// lowerSource parses and lowers WGSL source to an IR module.
+func lowerSource(t *testing.T, src string) *ir.Module {
 	t.Helper()
 	tokens, err := wgsl.NewLexer(src).Tokenize()
 	if err != nil {
@@ -90,7 +91,13 @@ func emitMainModule(t *testing.T, src string) (*module.Module, *module.Function)
 	if err != nil {
 		t.Fatalf("lower: %v", err)
 	}
-	irMod, err = prepareModule(irMod)
+	return irMod
+}
+
+// emitMainModule is emitMain returning the module too.
+func emitMainModule(t *testing.T, src string) (*module.Module, *module.Function) {
+	t.Helper()
+	irMod, err := prepareModule(lowerSource(t, src))
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}

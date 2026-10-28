@@ -2836,6 +2836,8 @@ func (e *Emitter) emitMath(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 		return e.emitMathCountTrailingZeros(fn, mathExpr)
 	case ir.MathCountLeadingZeros:
 		return e.emitMathCountLeadingZeros(fn, mathExpr)
+	case ir.MathFirstLeadingBit:
+		return e.emitMathFirstLeadingBit(fn, mathExpr)
 	case ir.MathQuantizeF16:
 		return e.emitMathQuantizeF16(fn, mathExpr)
 	case ir.MathInverse:
@@ -3558,8 +3560,6 @@ func mathToDxOpUnary(mf ir.MathFunction) (DXILOpcode, string, error) {
 		return OpCountBits, dxOpClassUnaryBits, nil
 	case ir.MathFirstTrailingBit:
 		return OpFirstbitLo, dxOpClassUnaryBits, nil
-	case ir.MathFirstLeadingBit:
-		return OpFirstbitHi, dxOpClassUnaryBits, nil
 	default:
 		return 0, "", fmt.Errorf("unsupported unary math function: %d", mf)
 	}
@@ -4039,72 +4039,57 @@ func (e *Emitter) emitMathQuantizeF16(fn *ir.Function, mathExpr ir.ExprMath) (in
 	return comps[0], nil
 }
 
-// emitMathCountTrailingZeros emulates countTrailingZeros using firstbitLo.
-// CTZ(x) = x == 0 ? 32 : firstbitLo(x)
+// DXIL's FirstbitHi and FirstbitSHi count from the most significant bit and
+// FirstbitLo from the least significant one; all three return -1 when no bit
+// qualifies. DXC lowers HLSL firstbithigh(x) to `fb == -1 ? -1 : 31 - fb`
+// and firstbitlow(x) to the bare FirstbitLo.
+
+// emitMathCountTrailingZeros emits countTrailingZeros per component:
+// x == 0 ? 32 : firstbitLo(x).
 func (e *Emitter) emitMathCountTrailingZeros(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
-	arg, err := e.emitExpression(fn, mathExpr.Arg)
-	if err != nil {
-		return 0, err
-	}
-	i32Ty := e.mod.GetIntType(32)
-	ol := overloadI32
-
-	// firstbitLo(x) returns 0xFFFFFFFF (-1) if no bit is set.
-	dxFn := e.getDxOpUnaryFunc(dxOpClassUnaryBits, ol)
-	opcodeVal := e.getIntConstID(int64(OpFirstbitLo))
-	fblo := e.addCallInstr(dxFn, i32Ty, []int{opcodeVal, arg})
-
-	// If firstbitLo returned -1 (no bits set), return 32.
-	negOne := e.getIntConstID(-1)
-	thirty2 := e.getIntConstID(32)
-	cmp := e.addCmpInstr(ICmpEQ, fblo, negOne)
-	return e.emitSelect3(i32Ty, cmp, thirty2, fblo), nil
+	return e.emitScalarized(fn, []ir.ExpressionHandle{mathExpr.Arg}, func(ops []int) (int, error) {
+		fblo := e.emitFirstbit(OpFirstbitLo, ops[0])
+		return e.emitNoBitSelect(fblo, 32, fblo), nil
+	})
 }
 
-// emitMathCountLeadingZeros emulates countLeadingZeros using firstbitHi.
-// CLZ(x) = x == 0 ? 32 : (31 - firstbitHi(x))
-// For signed: firstbitSHi returns position of highest bit differing from sign.
+// emitMathCountLeadingZeros emits countLeadingZeros per component:
+// x == 0 ? 32 : firstbitHi(x). FirstbitHi already counts from the most
+// significant bit, and countLeadingZeros counts the bits of an i32 as they
+// are (a negative value gives 0), so both signs use FirstbitHi.
 func (e *Emitter) emitMathCountLeadingZeros(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
-	arg, err := e.emitExpression(fn, mathExpr.Arg)
-	if err != nil {
-		return 0, err
-	}
-	argType := e.resolveExprType(fn, mathExpr.Arg)
-	scalar, _ := scalarOfType(argType)
+	return e.emitScalarized(fn, []ir.ExpressionHandle{mathExpr.Arg}, func(ops []int) (int, error) {
+		fbhi := e.emitFirstbit(OpFirstbitHi, ops[0])
+		return e.emitNoBitSelect(fbhi, 32, fbhi), nil
+	})
+}
 
-	i32Ty := e.mod.GetIntType(32)
-	i1Ty := e.mod.GetIntType(1)
-	ol := overloadI32
-
-	var opcode DXILOpcode
-	var opName string
+// emitMathFirstLeadingBit emits firstLeadingBit per component as DXC lowers
+// HLSL firstbithigh: fb == -1 ? -1 : 31 - fb, with FirstbitSHi (the highest
+// bit that differs from the sign bit) for i32 and FirstbitHi for u32.
+func (e *Emitter) emitMathFirstLeadingBit(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
+	scalar, _ := scalarOfType(e.resolveExprType(fn, mathExpr.Arg))
+	opcode := OpFirstbitHi
 	if scalar.Kind == ir.ScalarSint {
 		opcode = OpFirstbitShiHi
-		opName = dxOpClassUnaryBits
-	} else {
-		opcode = OpFirstbitHi
-		opName = dxOpClassUnaryBits
 	}
+	return e.emitScalarized(fn, []ir.ExpressionHandle{mathExpr.Arg}, func(ops []int) (int, error) {
+		fb := e.emitFirstbit(opcode, ops[0])
+		pos := e.addBinOpInstr(e.mod.GetIntType(32), BinOpSub, e.getIntConstID(31), fb)
+		return e.emitNoBitSelect(fb, -1, pos), nil
+	})
+}
 
-	dxFn := e.getDxOpUnaryFunc(opName, ol)
-	opcodeVal := e.getIntConstID(int64(opcode))
-	fbhi := e.addCallInstr(dxFn, i32Ty, []int{opcodeVal, arg})
+// emitFirstbit emits one dx.op.unaryBits firstbit call on an i32 value.
+func (e *Emitter) emitFirstbit(opcode DXILOpcode, arg int) int {
+	dxFn := e.getDxOpUnaryFunc(dxOpClassUnaryBits, overloadI32)
+	return e.addCallInstr(dxFn, e.mod.GetIntType(32), []int{e.getIntConstID(int64(opcode)), arg})
+}
 
-	// If firstbitHi returned -1 (all zeros/no significant bit), return 32.
-	negOne := e.getIntConstID(-1)
-	thirty2 := e.getIntConstID(32)
-	_ = i1Ty // used by addCmpInstr internally
-	cmp := e.addCmpInstr(ICmpEQ, fbhi, negOne)
-
-	if scalar.Kind == ir.ScalarSint {
-		// For signed, firstbitSHi returns position from MSB of highest differing bit.
-		// CLZ for signed = firstbitSHi value directly (it already counts from MSB).
-		return e.emitSelect3(i32Ty, cmp, thirty2, fbhi), nil
-	}
-	// For unsigned: firstbitHi returns position from LSB. CLZ = 31 - firstbitHi.
-	thirtyOne := e.getIntConstID(31)
-	sub := e.addBinOpInstr(i32Ty, BinOpSub, thirtyOne, fbhi)
-	return e.emitSelect3(i32Ty, cmp, thirty2, sub), nil
+// emitNoBitSelect emits fb == -1 ? noBit : value.
+func (e *Emitter) emitNoBitSelect(fb int, noBit int64, value int) int {
+	cmp := e.addCmpInstr(ICmpEQ, fb, e.getIntConstID(-1))
+	return e.emitSelect3(e.mod.GetIntType(32), cmp, e.getIntConstID(noBit), value)
 }
 
 // getOrCreateDxOpFunc gets or creates a dx.op function with a custom type.
