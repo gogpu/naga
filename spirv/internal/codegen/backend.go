@@ -5868,12 +5868,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			if wrapperID, ok := e.backend.wrappedFuncIDs[key]; ok {
 				return e.emitFunctionCallWrapped(resultType, wrapperID, leftID, rightID), nil
 			}
-			// Fallback (shouldn't happen if scanning was correct)
-			if scalarKind == ir.ScalarSint {
-				opcode = OpSDiv
-			} else {
-				opcode = OpUDiv
-			}
+			return 0, errors.New("spirv: integer division has no wrapper function")
 		}
 	case ir.BinaryModulo:
 		if scalarKind == ir.ScalarFloat {
@@ -5901,12 +5896,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			if wrapperID, ok := e.backend.wrappedFuncIDs[key]; ok {
 				return e.emitFunctionCallWrapped(resultType, wrapperID, leftID, rightID), nil
 			}
-			// Fallback (shouldn't happen if scanning was correct)
-			if scalarKind == ir.ScalarSint {
-				opcode = OpSRem
-			} else {
-				opcode = OpUMod
-			}
+			return 0, errors.New("spirv: integer remainder has no wrapper function")
 		}
 	case ir.BinaryEqual:
 		if scalarKind == ir.ScalarFloat {
