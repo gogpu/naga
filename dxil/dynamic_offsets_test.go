@@ -1,6 +1,7 @@
 package dxil
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/dxil/internal/module"
@@ -85,5 +86,26 @@ func TestArrayLengthOfDynamicStorageBinding(t *testing.T) {
 	}
 	if dims != 0 || !sizeLoad {
 		t.Errorf("%d getDimensions calls and a constant buffer load %v, want the size loaded from the constant buffer only", dims, sizeLoad)
+	}
+}
+
+// A DynamicStorageBufferSizeIndex is read with the binding's dynamic offset,
+// so one set without a DynamicStorageBufferOffsetsIndex is refused instead
+// of ignored.
+func TestDynamicStorageBufferSizeIndexNeedsOffsetsIndex(t *testing.T) {
+	size := uint32(1)
+	opts := DefaultOptions()
+	opts.BindingMap = BindingMap{
+		{Group: 0, Binding: 0}: {Register: 0, DynamicStorageBufferSizeIndex: &size},
+	}
+	opts.DynamicStorageBufferOffsetsTargets = map[uint32]OffsetsBindTarget{0: {Space: 0, Register: 4, Size: 2}}
+	_, err := Compile(lowerSource(t, `
+@group(0) @binding(0) var<storage, read_write> moved: array<u32>;
+@compute @workgroup_size(1) fn main() {
+    moved[0] = arrayLength(&moved);
+}
+`), opts)
+	if err == nil || !strings.Contains(err.Error(), "DynamicStorageBufferOffsetsIndex") {
+		t.Errorf("Compile error = %v, want one naming the missing DynamicStorageBufferOffsetsIndex", err)
 	}
 }

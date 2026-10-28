@@ -57,7 +57,8 @@ type BindTarget struct {
 	// of the binding's size in bytes, which arrayLength() counts the elements
 	// of. A binding with a dynamic offset is viewed to the end of its buffer,
 	// which arrayLength() would count otherwise, past the binding and without
-	// the offset.
+	// the offset. It needs DynamicStorageBufferOffsetsIndex; Compile refuses
+	// it without.
 	DynamicStorageBufferSizeIndex *uint32
 }
 
