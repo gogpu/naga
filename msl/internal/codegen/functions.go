@@ -926,7 +926,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	if err := w.writeBlock(fn.Body); err != nil {
 		return err
 	}
-	if w.voidOutputStruct != "" && !blockEndsWithReturn(fn.Body) {
+	if w.voidOutputStruct != "" && mayReachEnd(fn.Body) {
 		w.writeVoidOutputReturn()
 	}
 
