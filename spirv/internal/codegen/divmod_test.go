@@ -70,6 +70,28 @@ func divmodHasOpcode(spvBytes []byte, op OpCode) bool {
 	return false
 }
 
+// divmodOperands returns the operand words of every instruction with opcode op.
+func divmodOperands(spvBytes []byte, op OpCode) [][]uint32 {
+	var found [][]uint32
+	offset := 20
+	for offset+4 <= len(spvBytes) {
+		word := binary.LittleEndian.Uint32(spvBytes[offset:])
+		wordCount := int(word >> 16)
+		if wordCount == 0 || offset+wordCount*4 > len(spvBytes) {
+			break
+		}
+		if word&0xFFFF == uint32(op) {
+			operands := make([]uint32, wordCount-1)
+			for i := range operands {
+				operands[i] = binary.LittleEndian.Uint32(spvBytes[offset+4+i*4:])
+			}
+			found = append(found, operands)
+		}
+		offset += wordCount * 4
+	}
+	return found
+}
+
 // divmodCountOpcode counts occurrences of a specific opcode.
 func divmodCountOpcode(spvBytes []byte, op OpCode) int {
 	count := 0
@@ -245,10 +267,25 @@ func TestWrappedModI32AvoidsOpSRem(t *testing.T) {
 	if divmodHasOpcode(spvBytes, OpSRem) || divmodHasOpcode(spvBytes, OpSMod) {
 		t.Error("signed modulo wrapper must not use OpSRem or OpSMod")
 	}
-	for name, op := range map[string]OpCode{"OpSDiv": OpSDiv, "OpIMul": OpIMul, "OpISub": OpISub} {
-		if !divmodHasOpcode(spvBytes, op) {
-			t.Errorf("signed modulo wrapper has no %s (lhs - (lhs / rhs) * rhs)", name)
-		}
+	selects := divmodOperands(spvBytes, OpSelect)
+	divs := divmodOperands(spvBytes, OpSDiv)
+	muls := divmodOperands(spvBytes, OpIMul)
+	subs := divmodOperands(spvBytes, OpISub)
+	if len(selects) != 1 || len(divs) != 1 || len(muls) != 1 || len(subs) != 1 {
+		t.Fatalf("want one OpSelect, OpSDiv, OpIMul and OpISub, got %d, %d, %d, %d",
+			len(selects), len(divs), len(muls), len(subs))
+	}
+	divisor, quotient, product := selects[0][1], divs[0][1], muls[0][1]
+	if divs[0][3] != divisor {
+		t.Errorf("OpSDiv divides by %%%d, want the selected divisor %%%d", divs[0][3], divisor)
+	}
+	if muls[0][2] != quotient || muls[0][3] != divisor {
+		t.Errorf("OpIMul multiplies %%%d by %%%d, want quotient %%%d by divisor %%%d",
+			muls[0][2], muls[0][3], quotient, divisor)
+	}
+	if subs[0][2] != divs[0][2] || subs[0][3] != product {
+		t.Errorf("OpISub is %%%d - %%%d, want lhs %%%d - product %%%d",
+			subs[0][2], subs[0][3], divs[0][2], product)
 	}
 }
 
