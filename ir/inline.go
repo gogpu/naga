@@ -577,6 +577,13 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 			// Copy the Kind of the load expression so downstream remappers
 			// see a valid ExprLoad at the original ExprCallResult handle.
 			caller.Expressions[crIdx].Kind = caller.Expressions[int(*retLoadExpr)].Kind
+			// The call result was produced by the StmtCall; as a load it
+			// needs an emit after the body, or a backend evaluates it at its
+			// first use, which can be inside a branch its other uses
+			// don't follow.
+			inlinedBody = append(inlinedBody, Statement{Kind: StmtEmit{
+				Range: Range{Start: *call.Result, End: *call.Result + 1},
+			}})
 		}
 	}
 

@@ -723,3 +723,51 @@ func TestInlineEmitsArgLoadExpressions(t *testing.T) {
 		t.Fatal("expected at least one ExprLoad of arg-spill local to be inside a StmtEmit range (step 8b)")
 	}
 }
+
+// emittedIn reports whether a StmtEmit directly in block covers h.
+func emittedIn(block Block, h ExpressionHandle) bool {
+	for _, s := range block {
+		if em, ok := s.Kind.(StmtEmit); ok && em.Range.Start <= h && h < em.Range.End {
+			return true
+		}
+	}
+	return false
+}
+
+// TestInlineEmitsTheCallResult requires the load that replaces a call's
+// result to be emitted after the inlined body, so it is evaluated at the
+// call and not wherever it is first used.
+func TestInlineEmitsTheCallResult(t *testing.T) {
+	i32 := TypeHandle(0)
+	mod := &Module{
+		Types: []Type{{Inner: ScalarType{Kind: ScalarSint, Width: 4}}},
+		Functions: []Function{{
+			Name:            "seven",
+			Result:          &FunctionResult{Type: i32},
+			Expressions:     []Expression{{Kind: Literal{Value: LiteralI32(7)}}},
+			ExpressionTypes: []TypeResolution{{Handle: &i32}},
+			Body:            Block{{Kind: StmtReturn{Value: handlePtr(0)}}},
+		}},
+	}
+	mod.EntryPoints = []EntryPoint{{
+		Name:  "main",
+		Stage: StageCompute,
+		Function: Function{
+			Name:            "main",
+			Expressions:     []Expression{{Kind: ExprCallResult{Function: 0}}},
+			ExpressionTypes: []TypeResolution{{Handle: &i32}},
+			Body:            Block{{Kind: StmtCall{Function: 0, Result: handlePtr(0)}}},
+		},
+	}}
+
+	if err := InlineUserFunctions(mod, func(*Function) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	fn := &mod.EntryPoints[0].Function
+	if _, ok := fn.Expressions[0].Kind.(ExprLoad); !ok {
+		t.Fatalf("call result is %T, want ExprLoad", fn.Expressions[0].Kind)
+	}
+	if !emittedIn(fn.Body, 0) {
+		t.Errorf("the load of the call result has no emit, body=%+v", fn.Body)
+	}
+}
