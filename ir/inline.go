@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"slices"
 )
 
 // InlineUserFunctions rewrites the module so that every user-defined helper
@@ -390,9 +391,8 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 	//
 	// For pointer-aliased arguments (argShouldAlias[i] == true) we set
 	// argLoadExprs[i] to the caller's argH directly — no slot expressions
-	// are allocated and no ExprLoad is inserted; the substitution in step 5
-	// copies the Kind of caller.Expressions[argH] into every callee
-	// reference site, behaving as a pure alias.
+	// are allocated and no ExprLoad is inserted; step 5 points every callee
+	// reference at argH, a pure alias.
 	//
 	// Both the slot-pointer ExprLocalVariable and the ExprLoad need their
 	// ExpressionTypes populated — the DXIL backend's resolveExprType
@@ -447,6 +447,17 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 		}
 	}
 
+	// An aliased argument is the caller's expression itself, so the body
+	// reads the value the caller evaluated, in argument order, and not a
+	// copy evaluated after the arguments to its right. Its slot keeps a copy
+	// that nothing reads.
+	exprRefs := slices.Clone(calleeExprMap)
+	for i := range callee.Expressions {
+		if k, ok := callee.Expressions[i].Kind.(ExprFunctionArgument); ok && int(k.Index) < len(argShouldAlias) && argShouldAlias[k.Index] {
+			exprRefs[i] = argLoadExprs[k.Index]
+		}
+	}
+
 	// 5. Fill in the reserved slots with remapped content.
 	for i := range callee.Expressions {
 		origKind := callee.Expressions[i].Kind
@@ -466,7 +477,7 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 		case ExprLocalVariable:
 			newKind = ExprLocalVariable{Variable: k.Variable + localOffset}
 		default:
-			newKind = remapExprHandles(origKind, calleeExprMap)
+			newKind = remapExprHandles(origKind, exprRefs)
 		}
 		caller.Expressions[calleeExprMap[i]].Kind = newKind
 	}
@@ -478,8 +489,8 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 		}
 		idx := int(localOffset) + i
 		orig := *callee.LocalVars[i].Init
-		if int(orig) < len(calleeExprMap) {
-			v := calleeExprMap[orig]
+		if int(orig) < len(exprRefs) {
+			v := exprRefs[orig]
 			caller.LocalVars[idx].Init = &v
 		}
 	}
@@ -531,7 +542,7 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 	}
 
 	// 8. Remap the callee body statements into caller's handle space.
-	inlinedBody := remapInlineBlockHandles(callee.Body, calleeExprMap, localOffset)
+	inlinedBody := remapInlineBlockHandles(callee.Body, exprRefs, localOffset)
 
 	// 8b. Emit coverage for scalar-spilled arguments. The callee's
 	// ExprFunctionArgument expressions were implicitly available (like
@@ -622,7 +633,9 @@ func remapInlineStatementHandles(stmt Statement, exprMap []ExpressionHandle, loc
 	// not the new "one past" boundary, depending on how exprMap was
 	// constructed. The correct caller-side End is exprMap[end-1]+1, which
 	// works as long as the callee's emit range was non-empty and the
-	// inline pass kept calleeExprMap a single contiguous block.
+	// inline pass kept calleeExprMap a single contiguous block. The aliased
+	// arguments that exprMap points outside that block are function
+	// arguments, which no emit covers.
 	remapEmitRange := func(start, end ExpressionHandle) Range {
 		if start >= end {
 			// Empty range — nothing to remap.
