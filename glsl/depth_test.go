@@ -93,3 +93,40 @@ func TestRestrictedLoadsDeclareTheirLevel(t *testing.T) {
 		}
 	}
 }
+
+// TestUncalledFunctionOfBothKindsIsLeftOut compiles an entry point that
+// doesn't call a function taking a depth texture it samples both with and
+// without a comparison. The function is written for every entry point whose
+// globals cover its own, but GLSL has no type for that argument, so it is
+// left out instead of failing an entry point that never calls it.
+func TestUncalledFunctionOfBothKindsIsLeftOut(t *testing.T) {
+	const source = `
+@group(0) @binding(0) var d: texture_depth_2d;
+@group(0) @binding(1) var d2: texture_depth_2d;
+@group(0) @binding(2) var s: sampler;
+@group(0) @binding(3) var sc: sampler_comparison;
+fn cmp(t: texture_depth_2d, c: sampler_comparison, uv: vec2<f32>) -> f32 { return textureSampleCompare(t, c, uv, 0.5); }
+fn lvl(t: texture_depth_2d, sm: sampler, uv: vec2<f32>) -> f32 { return textureSampleLevel(t, sm, uv, 0); }
+fn both(t: texture_depth_2d, uv: vec2<f32>) -> f32 { return cmp(t, sc, uv) + lvl(t, s, uv); }
+fn calls_both(uv: vec2<f32>) -> f32 { return both(d2, uv); }
+@fragment
+fn mixed(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+	return vec4<f32>(cmp(d, sc, uv), lvl(d2, s, uv), textureSampleLevel(d2, s, uv, 1u), 1.0);
+}
+@fragment
+fn other(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+	return vec4<f32>(both(d2, uv), 0.0, 0.0, 1.0);
+}
+`
+	got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: "mixed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "both(") {
+		t.Errorf("both, or calls_both calling it, is written:\n%s", got)
+	}
+	_, _, err = glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: "other"})
+	if err == nil || !strings.Contains(err.Error(), "different sampler types") {
+		t.Errorf("other: err = %v, want a refusal", err)
+	}
+}

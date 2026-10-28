@@ -33,7 +33,9 @@ type depthUse struct {
 // sampled without one or loaded is an error. A function argument has the
 // type of the textures the entry point's calls pass to it, which must be of
 // one kind; one that no call passes a texture to, of a function written for
-// the entry point all the same, is typed by its own uses.
+// the entry point all the same, is typed by its own uses. Such a function
+// that the entry point never calls and whose own uses are of both kinds is
+// left out, with the uncalled functions that call it.
 func (w *Writer) scanDepthTextures() error {
 	ep := w.getSelectedEntryPoint()
 	if ep == nil {
@@ -61,7 +63,9 @@ func (w *Writer) scanDepthTextures() error {
 	}
 
 	w.plainDepthArgs = make(map[depthArg]bool)
-	reach := w.depthArgGlobals(ep)
+	called := w.calledFunctions(&ep.Function)
+	reach := w.depthArgGlobals(ep, called)
+	leftOut := make(map[ir.FunctionHandle]bool)
 	for h := range w.module.Functions {
 		fn := &w.module.Functions[h]
 		uses := w.functionDepthUses(fn, memo)
@@ -81,13 +85,56 @@ func (w *Writer) scanDepthTextures() error {
 					}
 				}
 			}
+			if len(kinds) > 1 && !called[key.function] {
+				leftOut[key.function] = true
+				break
+			}
 			if len(kinds) > 1 {
 				return fmt.Errorf("function %q takes depth textures declared as different sampler types as argument %d", fn.Name, i)
 			}
 			w.plainDepthArgs[key] = kinds[true]
 		}
 	}
+	w.leaveOut(leftOut, called)
 	return nil
+}
+
+// calledFunctions returns the functions fn calls, directly or through others.
+func (w *Writer) calledFunctions(fn *ir.Function) map[ir.FunctionHandle]bool {
+	called := make(map[ir.FunctionHandle]bool)
+	var walk func(*ir.Function)
+	walk = func(fn *ir.Function) {
+		forEachCall(fn.Body, func(call ir.StmtCall) {
+			if int(call.Function) < len(w.module.Functions) && !called[call.Function] {
+				called[call.Function] = true
+				walk(&w.module.Functions[call.Function])
+			}
+		})
+	}
+	walk(fn)
+	return called
+}
+
+// leaveOut takes the functions in leftOut, and the functions not in called
+// that call them, out of the functions the writer writes.
+func (w *Writer) leaveOut(leftOut, called map[ir.FunctionHandle]bool) {
+	for grown := len(leftOut) > 0; grown; {
+		grown = false
+		for h := range w.module.Functions {
+			fh := ir.FunctionHandle(h)
+			if leftOut[fh] || called[fh] {
+				continue
+			}
+			forEachCall(w.module.Functions[h].Body, func(call ir.StmtCall) {
+				if leftOut[call.Function] && !leftOut[fh] {
+					leftOut[fh], grown = true, true
+				}
+			})
+		}
+	}
+	for h := range leftOut {
+		delete(w.reachable.functions, h)
+	}
 }
 
 // isSingleSampledDepth reports whether t is a depth texture that isn't
@@ -144,8 +191,9 @@ func (w *Writer) functionDepthUses(fn *ir.Function, memo map[ir.FunctionHandle][
 }
 
 // depthArgGlobals returns, for each argument of the functions ep calls
-// directly or not, the texture globals its calls pass to it.
-func (w *Writer) depthArgGlobals(ep *ir.EntryPoint) map[depthArg]map[ir.GlobalVariableHandle]bool {
+// directly or not, the texture globals its calls pass to it. called holds
+// those functions.
+func (w *Writer) depthArgGlobals(ep *ir.EntryPoint, called map[ir.FunctionHandle]bool) map[depthArg]map[ir.GlobalVariableHandle]bool {
 	reach := make(map[depthArg]map[ir.GlobalVariableHandle]bool)
 	visit := func(fn *ir.Function, self ir.FunctionHandle, isEntry bool) bool {
 		grew := false
@@ -179,8 +227,8 @@ func (w *Writer) depthArgGlobals(ep *ir.EntryPoint) map[depthArg]map[ir.GlobalVa
 	visit(&ep.Function, 0, true)
 	for grew := true; grew; {
 		grew = false
-		for h := range w.module.Functions {
-			if visit(&w.module.Functions[h], ir.FunctionHandle(h), false) {
+		for h := range called {
+			if visit(&w.module.Functions[h], h, false) {
 				grew = true
 			}
 		}
