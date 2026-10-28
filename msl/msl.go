@@ -238,18 +238,23 @@ type Options struct {
 	VertexBufferMappings []VertexBufferMapping
 
 	// ClampFragDepth, when set, clamps the depth a fragment entry point
-	// writes to the range in a float2, min then max, which the entry point
-	// takes as a constant buffer at buffer slot ClampFragDepth.Buffer.
-	// WebGPU clamps frag_depth to the viewport's depth range; the caller
-	// binds the viewport's minDepth and maxDepth there, as Dawn does on
-	// Metal for its ClampFragDepth transform. Rust naga has no such option.
+	// writes to the range in two f32, min then max, at byte offset
+	// ClampFragDepth.Offset of the entry point's immediates buffer
+	// (EntryPointResources.ImmediatesBuffer), which it then needs. WebGPU
+	// clamps frag_depth to the viewport's depth range; the caller puts the
+	// viewport's minDepth and maxDepth there, where Dawn's ClampFragDepth
+	// transform reads them on Metal, and as the spirv option of the same
+	// name reads them from push constants. An entry point with immediate
+	// data of its own finds the range in the same buffer, so Offset has to
+	// be past that data. Rust naga has no such option.
 	ClampFragDepth *ClampFragDepth
 }
 
 // ClampFragDepth is where the range of the frag_depth clamp is.
 type ClampFragDepth struct {
-	// Buffer is the buffer slot of the range.
-	Buffer uint8
+	// Offset is the byte offset of min in the immediates buffer, a multiple
+	// of 4; max follows.
+	Offset uint32
 }
 
 // VertexFormat describes the format of a vertex attribute.

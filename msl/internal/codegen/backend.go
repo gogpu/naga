@@ -247,14 +247,14 @@ type Options struct {
 	VertexBufferMappings []VertexBufferMapping
 
 	// ClampFragDepth clamps the depth a fragment entry point writes to the
-	// range in a float2 at buffer slot ClampFragDepth.Buffer (see the msl
-	// package).
+	// range at byte ClampFragDepth.Offset of its immediates buffer (see the
+	// msl package).
 	ClampFragDepth *ClampFragDepth
 }
 
 // ClampFragDepth is where the range of the frag_depth clamp is.
 type ClampFragDepth struct {
-	Buffer uint8
+	Offset uint32
 }
 
 // VertexFormat describes the format of a vertex attribute.
