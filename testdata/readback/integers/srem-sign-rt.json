@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "desc": "i32 % with run-time operands: -7 % 3 = -1, 7 % -3 = 1, -7 % -3 = -1, 7 % 3 = 1, INT_MIN % 3 = -2 (sign of e1; PR #118: SPIR-V OpSRem is undefined for negative operands in Vulkan, GLSL % too)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "type": "i32",
+     "words": ["0xFFFFFFF9", 3, 7, "0xFFFFFFFD", "0xFFFFFFF9", "0xFFFFFFFD", 7, 3, "0x80000000", 3]},
+    {"binding": 1, "kind": "storage-rw", "type": "i32", "len": 6, "fill": "0xDEADBEEF",
+     "expect": [["0xFFFFFFFF", 1, "0xFFFFFFFF", 1, "0xFFFFFFFE", "fill"]]}
+  ]
+}

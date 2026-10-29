@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "vars without initializer read before any write (the writes sit behind src[0] == 7, src[0] is 0): function u32, private i32, vec2 component, struct field = 0; private q with initializer 9 = 9 (PR #119: SPIR-V had no OpConstantNull initializers, DXIL dropped private initializers)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [0]},
+    {"binding": 1, "kind": "storage-rw", "len": 6, "fill": "0xDEADBEEF",
+     "expect": [[0, 0, 0, 0, 9, "fill"]]}
+  ]
+}

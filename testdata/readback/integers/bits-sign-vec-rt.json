@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "desc": "extractBits (u32 and sign-extending i32), insertBits and i32 sign on run-time vec4: (0x0F, 0x67, 0xFF, 0), (15, 103, -1, 0), (0xFFFF00FF, 0x0000AB00, 0x12340178, 0xAAAA55AA), (-1, 0, 1, -1); the fifth vec4 is not written (P0-DXIL-054)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read",
+     "words": ["0xF0F0F0F0", "0x12345678", "0x00000FF0", 0,
+               "0xFFFFFFFF", 0, "0x12345678", "0xAAAAAAAA",
+               0, "0xAB", "0xFFFFFF01", "0x55",
+               "0xFFFFFFF9", 0, 5, "0x80000000"]},
+    {"binding": 1, "kind": "storage-rw", "len": 20, "fill": "0xDEADBEEF",
+     "expect": [["0x0F", "0x67", "0xFF", 0, 15, 103, "0xFFFFFFFF", 0,
+                 "0xFFFF00FF", "0x0000AB00", "0x12340178", "0xAAAA55AA", "0xFFFFFFFF", 0, 1, "0xFFFFFFFF",
+                 "fill", "fill", "fill", "fill"]]}
+  ]
+}

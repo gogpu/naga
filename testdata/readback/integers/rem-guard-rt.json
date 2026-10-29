@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "desc": "% at the guarded cases, run-time operands: i32 5 % 0, -5 % 0, INT_MIN % -1 and u32 5 % 0 all give 0 (WGSL; the SPIR-V/HLSL/MSL wrappers select a safe divisor)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "type": "i32", "words": [5, 0, "0xFFFFFFFB", 0, "0x80000000", "0xFFFFFFFF"]},
+    {"binding": 1, "kind": "storage-read", "words": [5, 0]},
+    {"binding": 2, "kind": "storage-rw", "len": 5, "fill": "0xDEADBEEF",
+     "expect": [[0, 0, 0, 0, "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "gles", "card": "P1-GLSL-009", "reason": "GLSL % is not guarded (as in Rust naga): x % 0 is undefined"}
+  ]
+}

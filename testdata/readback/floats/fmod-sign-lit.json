@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "desc": "f32 % with literal operands, folded by the constant evaluator: -1.5 % 1 = -0.5, 1.5 % -1 = 0.5, -7.5 % 2 = -1.5, 7.5 % -2 = 1.5, -7.5 % -2 = -1.5",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "type": "f32", "len": 6, "fill": "0xDEADBEEF",
+     "expect": [["0xBF000000", "0x3F000000", "0xBFC00000", "0x3FC00000", "0xBFC00000", "fill"]]}
+  ]
+}

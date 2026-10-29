@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "desc": "f32 % with run-time operands: -1.5 % 1 = -0.5, 1.5 % -1 = 0.5, -7.5 % 2 = -1.5, 7.5 % -2 = 1.5, -7.5 % -2 = -1.5 (sign of e1; PR #118: SPIR-V OpFMod and DXIL floor gave the sign of e2)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "type": "f32",
+     "words": ["0xBFC00000", "0x3F800000", "0x3FC00000", "0xBF800000", "0xC0F00000", "0x40000000", "0x40F00000", "0xC0000000", "0xC0F00000", "0xC0000000"]},
+    {"binding": 1, "kind": "storage-rw", "type": "f32", "len": 6, "fill": "0xDEADBEEF",
+     "expect": [["0xBF000000", "0x3F000000", "0xBFC00000", "0x3FC00000", "0xBFC00000", "fill"]]}
+  ]
+}
