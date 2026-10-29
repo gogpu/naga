@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "desc": "countLeadingZeros of run-time u32 (0, 1, 0x00F00000, 0x7FFFFFFF, 0x80000000) and i32 (0, 1, -1, 0x7FFFFFFF, INT_MIN): 32, 31, 8, 1, 0 and 32, 31, 0, 1, 0 (issue #133: SPIR-V and HLSL returned the bit index)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read",
+     "words": [0, 1, "0x00F00000", "0x7FFFFFFF", "0x80000000", 0, 1, "0xFFFFFFFF", "0x7FFFFFFF", "0x80000000"]},
+    {"binding": 1, "kind": "storage-rw", "len": 11, "fill": "0xDEADBEEF",
+     "expect": [[32, 31, 8, 1, 0, 32, 31, 0, 1, 0, "fill"]]}
+  ]
+}

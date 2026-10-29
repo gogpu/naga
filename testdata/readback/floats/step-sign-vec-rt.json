@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "desc": "step(e, x) and sign(v) on run-time vec4<f32>: e = (0.5, 1, -1, 2), x = (0.5, 0.9, -0.5, 3) -> (1, 0, 1, 1); v = (-2.5, 0, 3, -0.25) -> (-1, 0, 1, -1); the third vec4 is not written (P0-DXIL-054: DXIL emitted component 0 only)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "type": "f32",
+     "words": ["0x3F000000", "0x3F800000", "0xBF800000", "0x40000000",
+               "0x3F000000", "0x3F666666", "0xBF000000", "0x40400000",
+               "0xC0200000", 0, "0x40400000", "0xBE800000"]},
+    {"binding": 1, "kind": "storage-rw", "type": "f32", "len": 12, "fill": "0xDEADBEEF",
+     "expect": [["0x3F800000", 0, "0x3F800000", "0x3F800000", "0xBF800000", 0, "0x3F800000", "0xBF800000",
+                 "fill", "fill", "fill", "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "dx12-fxc", "card": "P1-HLSL-032", "reason": "sign() of a float is written bare; HLSL sign returns int, so dst[1] receives the bit patterns of -1, 0, 1 (NaN, 0, 1e-45)"}
+  ]
+}

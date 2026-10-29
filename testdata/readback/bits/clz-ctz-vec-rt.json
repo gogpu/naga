@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "countLeadingZeros/countTrailingZeros of run-time vec4<u32> (0, 1, 0x00F00000, 0x80000000) and vec4<i32> (0, -1, 12, INT_MIN): clz 32, 31, 8, 0 / ctz 32, 0, 20, 31 and clz 32, 0, 28, 0 / ctz 32, 0, 2, 31; the fifth vec4 is not written",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [0, 1, "0x00F00000", "0x80000000", 0, "0xFFFFFFFF", 12, "0x80000000"]},
+    {"binding": 1, "kind": "storage-rw", "len": 20, "fill": "0xDEADBEEF",
+     "expect": [[32, 31, 8, 0, 32, 0, 20, 31, 32, 0, 28, 0, 32, 0, 2, 31, "fill", "fill", "fill", "fill"]]}
+  ]
+}
