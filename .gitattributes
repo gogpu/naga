@@ -8,6 +8,9 @@ glsl/testdata/overrides/** -text
 # TestRestrictBoundsChecks).
 glsl/testdata/bounds/** -text
 glsl/testdata/depth/** -text
+# GPU readback corpus: gogpu/wgpu reads these files from the naga module, and
+# TestReadbackReadmeExample cuts the README example at "```json\n".
+testdata/readback/** -text
 
 # Shell scripts run under bash on every CI runner, Windows included: keep LF.
 *.sh text eol=lf
