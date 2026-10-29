@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- GPU readback corpus in `testdata/readback`: compute shaders with their
+  input buffers and the values a correct backend writes back. gogpu/wgpu runs
+  every case on each backend and adapter; `TestReadbackCorpusCompile` checks
+  that every naga backend compiles and validates each case. Format and rules
+  are in `testdata/readback/README.md`.
+
 ## [0.20.4] - 2026-10-29
 
 Most of the fixes below come from @roffe's review of the backends. Thank
