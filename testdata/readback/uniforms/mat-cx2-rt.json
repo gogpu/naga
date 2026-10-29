@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "desc": "mat2x2<f32> and mat3x2<f32> in a uniform buffer, WGSL layout (columns 8 bytes apart, v at 16, m3 at 24, w at 48): constant columns 1..4, v 5 6, m3 7..12, w 13 14; run-time column m[1] = (3, 4), m3[2] = (11, 12); m * (1, 1) = (4, 6); the last word is not written (#125, BUG-UNIFORM-MAT2-001: std140 reads columns 16 bytes apart)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "uniform", "type": "f32",
+     "words": ["0x3F800000", "0x40000000", "0x40400000", "0x40800000",
+               "0x40A00000", "0x40C00000",
+               "0x40E00000", "0x41000000", "0x41100000", "0x41200000", "0x41300000", "0x41400000",
+               "0x41500000", "0x41600000"]},
+    {"binding": 1, "kind": "storage-read", "words": [1]},
+    {"binding": 2, "kind": "storage-rw", "type": "f32", "len": 21, "fill": "0xDEADBEEF",
+     "expect": [["0x3F800000", "0x40000000", "0x40400000", "0x40800000",
+                 "0x40A00000", "0x40C00000",
+                 "0x40E00000", "0x41000000", "0x41100000", "0x41200000", "0x41300000", "0x41400000",
+                 "0x41500000", "0x41600000",
+                 "0x40400000", "0x40800000", "0x41300000", "0x41400000",
+                 "0x40800000", "0x40C00000",
+                 "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "dx12-dxil", "card": "P0-DXIL-058", "reason": "a run-time index into a matrix of a constant buffer struct (u.m[i]) is invalid DXIL: IDxcValidator refuses \"Load/Store operand is not a pointer type\"; pipeline creation removes the device on Intel (DXGI_ERROR_DRIVER_INTERNAL_ERROR), E_OUTOFMEMORY on NVIDIA; fixed by #128"}
+  ]
+}
