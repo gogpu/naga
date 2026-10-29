@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "desc": "data = [5, 1, 9, 3, 12, 0, 7, 2], stop = 2: first index >= 9 is 2, >= 10 is 4, >= 13 none (99); the entry point writes 1, 2, 3 and returns before writing 4",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [5, 1, 9, 3, 12, 0, 7, 2, 2]},
+    {"binding": 1, "kind": "storage-rw", "len": 8, "fill": "0xDEADBEEF",
+     "expect": [[2, 4, 99, 1, 2, 3, "fill", "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "dx12-dxil", "card": "P0-DXIL-052", "reason": "a return inside a loop is lost: the helper returns 99 and the entry point writes 4"}
+  ]
+}

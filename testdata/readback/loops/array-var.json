@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "desc": "local array (5, 6) incremented element by element in a loop: result = [6, 7]",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "len": 3, "fill": "0xDEADBEEF",
+     "expect": [[6, 7, "fill"]]}
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "for (var j = 2; j < 5; j++) with both bounds read at run time writes result[j] = j*10 for j = 2, 3, 4 only",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [2, 5]},
+    {"binding": 1, "kind": "storage-rw", "len": 6, "fill": "0xDEADBEEF",
+     "expect": [["fill", "fill", 20, 30, 40, "fill"]]}
+  ]
+}

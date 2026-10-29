@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "desc": "Collatz step counts of literal arguments 1, 2, 3, 4, 7, 27: 0, 1, 7, 2, 16, 111",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "len": 7, "fill": "0xDEADBEEF",
+     "expect": [[0, 1, 7, 2, 16, 111, "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "dx12-dxil", "adapter": "NVIDIA", "card": "P0-DXIL-053", "reason": "wrong step counts on NVIDIA (0x130, 0x170, ...; Intel passes)"}
+  ]
+}

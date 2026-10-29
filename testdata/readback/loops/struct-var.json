@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "desc": "s = S(1, 2), s.x += 1 three times: result = [4, 2]",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "len": 3, "fill": "0xDEADBEEF",
+     "expect": [[4, 2, "fill"]]}
+  ]
+}

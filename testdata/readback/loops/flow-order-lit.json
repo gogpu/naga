@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "desc": "i=0: body, continuing; i=1: continue goes to continuing; i=2: body, continuing; i=3: break skips continuing; then after the loop: 0,10,100, 1,101, 2,12,102, 3, 1000 (10 events)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "len": 13, "fill": "0xDEADBEEF",
+     "expect": [[10, 0, 10, 100, 1, 101, 2, 12, 102, 3, 1000, "fill", "fill"]]}
+  ]
+}
