@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "n = 3: the lower triangle j <= i of a 3x3 grid gets i*10+j at i*3+j (0; 10, 11; 20, 21, 22); the upper triangle and the tenth word stay",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [3]},
+    {"binding": 1, "kind": "storage-rw", "len": 10, "fill": "0xDEADBEEF",
+     "expect": [[0, "fill", "fill", 10, 11, "fill", 20, 21, 22, "fill"]]}
+  ]
+}

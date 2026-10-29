@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "desc": "Collatz step counts of run-time inputs 1, 2, 3, 4, 7, 27 (one workgroup each): 0, 1, 7, 2, 16, 111; the seventh word is not an input and stays",
+  "entry": "main",
+  "workgroups": [6, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "words": [1, 2, 3, 4, 7, 27, "0xDEADBEEF"],
+     "expect": [[0, 1, 7, 2, 16, 111, "0xDEADBEEF"]]}
+  ],
+  "knownFailures": [
+    {"backend": "dx12-dxil", "adapter": "NVIDIA", "card": "P0-DXIL-053", "reason": "the inputs come back unchanged on NVIDIA (Intel passes)"}
+  ]
+}

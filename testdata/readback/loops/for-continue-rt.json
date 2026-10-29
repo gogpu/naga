@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "for i in 0..4, continue at i == 1: events 0, 2, 3 (a continue that skips i++ would loop forever or repeat 1)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [1]},
+    {"binding": 1, "kind": "storage-rw", "len": 6, "fill": "0xDEADBEEF",
+     "expect": [[3, 0, 2, 3, "fill", "fill"]]}
+  ]
+}

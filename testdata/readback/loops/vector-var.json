@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "desc": "v = (10, 20), v[i] += 1 for i in 0..2: result = [11, 21] (the v0.20.3 bug gave [12, 20])",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-rw", "len": 3, "fill": "0xDEADBEEF",
+     "expect": [[11, 21, "fill"]]}
+  ]
+}
