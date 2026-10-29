@@ -7,8 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.4] - 2026-10-29
+
+Most of the fixes below come from @roffe's review of the backends. Thank
+you!
+
 ### Fixed
 
+- **`%` on negative operands gave the wrong sign or an undefined result**
+  — WGSL defines float `e1 % e2` as `e1 - e2 * trunc(e1 / e2)` (sign of
+  `e1`). The SPIR-V backend emitted `OpFMod` and the DXIL backend a floored
+  remainder, so `-1.5 % 1.0` was `0.5` on Vulkan and on the DXIL path
+  instead of `-0.5`; SPIR-V now uses `OpFRem`, DXIL the truncated form.
+  Signed integer `%` in SPIR-V no longer uses `OpSRem` (undefined for a
+  negative operand in Vulkan without `VK_KHR_maintenance8`), and GLSL
+  writes integer `%` as `a - b * (a / b)`, since GLSL leaves `%` undefined
+  for negative operands. An integer `/` or `%` the SPIR-V backend cannot
+  guard is now a compile error instead of a raw unguarded instruction, as
+  in Rust naga. (#118, by @roffe)
+- **`countLeadingZeros` and `countTrailingZeros` in SPIR-V, HLSL and
+  GLSL** — `countLeadingZeros` returned the index of the highest set bit
+  instead of the number of zero bits above it (and 32 for a negative `i32`
+  in GLSL); `countTrailingZeros(0)` returned `0xFFFFFFFF` instead of 32.
+  (#136, #137, by @roffe; fixes #133)
+- **Variables declared without an initializer did not start at zero** —
+  SPIR-V emitted function and private variables without an initializer, so
+  they started undefined and drivers folded that into whichever value one
+  branch assigned (`var x: u32;` set to 77 only on a branch not taken read
+  77 on NVIDIA and lavapipe). Such variables are now zero-initialized, in
+  DXIL as well. A `var` without initializer declared inside a loop body now
+  starts at zero on every iteration on every backend instead of keeping the
+  previous iteration's value (the same bug as gfx-rs/wgpu#9489). (#119, by
+  @roffe)
+- **DXIL: `countLeadingZeros` and `firstLeadingBit` were inverted** —
+  DXIL's `FirstbitHi`/`FirstbitSHi` count from the most significant bit;
+  the emitter treated them as bit indices, so `countLeadingZeros(1u)` gave
+  0 instead of 31 and `countLeadingZeros(-1)` 32 instead of 0. They are now
+  lowered as DXC lowers `firstbithigh`, and every vector component gets its
+  own operation (vectors produced bitcode the GPU driver rejected). (#139)
+- **DXIL: integer division and remainder by zero and `MIN / -1`** — LLVM's
+  `sdiv`/`udiv`/`srem`/`urem` are undefined there and the result depended
+  on the driver. Run-time operands now get WGSL's results (`e1 / 0 = e1`,
+  `MIN / -1 = MIN`, `e1 % 0 = 0`, `MIN % -1 = 0`). (#139)
 - **DXIL: vector derivatives and several vector built-ins computed only the
   first component** — `dpdx`, `dpdy`, `fwidth` (all controls), `step`,
   `smoothstep`, `pow`, `sign`, `degrees`, `radians`, `extractBits` and
@@ -20,7 +60,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   record") where it did not. `dxc -dumpbin` and naga's own bitcode check
   accepted the well-formed ones.
   These functions are now emitted per component, like the other math
-  built-ins and like DXC, which emits one derivative per component.
+  built-ins and like DXC, which emits one derivative per component. (#138)
+- **HLSL: private arrays, vertex outputs, `clip_distances`,
+  `primitive_index`** — a module-scope `var<private>` array was declared
+  with its size on the type, which FXC and DXC reject; a vertex stage
+  paired with a fragment stage that reads no location wrote every output,
+  so D3D12 refused the pipeline; `@builtin(clip_distances)` and
+  `@builtin(primitive_index)` fell back to `SV_Position` and are now
+  `SV_ClipDistance` and `SV_PrimitiveID`, as in Rust naga. (#122, #130, by
+  @roffe)
+- **WGSL: texture calls on a texture passed as a function argument** — the
+  lowerer took the texture's type from a global variable of the same name,
+  so `textureLoad` on an array or multisampled texture argument read the
+  wrong operands as level, layer or sample. (#127, by @roffe)
+- **32-bit targets and `go vet` on Windows** — naga did not build for
+  `GOARCH=386` or `arm`, and `GOOS=windows go vet` reported six misuses of
+  `unsafe.Pointer` in the DXC validator bindings. (#126, by @roffe)
+
+### Known issues
+
+The DXIL backend stays opt-in. GPU readback tests found these, not fixed in
+this release: a `return` inside a loop is lost; one loop shader gives wrong
+results on NVIDIA only; a helper whose result passes through two local
+variables (for example a helper inlined into another helper) loses its
+body; `break` inside a `switch` inside a loop leaves the loop.
 
 ## [0.20.3] - 2026-10-18
 
@@ -470,7 +533,7 @@ replaces the old override API; see Migration.
 ### Added
 
 - **`enable swizzle_assignment` extension** ([#89](https://github.com/gogpu/naga/issues/89),
-  [ADR-003](docs/dev/architecture/ADR-003-SWIZZLE-ASSIGNMENT.md)) —
+  ADR-003) —
   multi-component swizzle on the left-hand side of assignments is now supported
   when the `swizzle_assignment` language extension is enabled. Matches the W3C
   WGSL spec ([gpuweb/gpuweb#5268](https://github.com/gpuweb/gpuweb/pull/5268),
@@ -490,7 +553,7 @@ replaces the old override API; see Migration.
 
 ### Added
 
-- **Unified capability-based validator** ([#85](https://github.com/gogpu/naga/issues/85), [ADR-002](docs/dev/architecture/ADR-002-UNIFIED-VALIDATOR-CAPABILITIES.md)) —
+- **Unified capability-based validator** ([#85](https://github.com/gogpu/naga/issues/85), ADR-002) —
   `ir.ValidateWithCapabilities(module, caps)` enforces scalar width restrictions
   matching Rust naga's validator architecture. Types `f64`, `i64`, `u64`, `f16`
   are now rejected unless the caller enables the corresponding capability flag.
@@ -627,7 +690,7 @@ replaces the old override API; see Migration.
 
 ### Fixed (DXIL)
 
-- **Array-of-vector flattening** ([BUG-DXIL-041](docs/dev/kanban/1-next/BUG-DXIL-041-fine-wgsl-invalid-record.md)).
+- **Array-of-vector flattening** (BUG-DXIL-041).
   `array<vec4<f32>, N>` locals caused "Invalid record" from IDxcValidator.
   Three coordinated bugs: (1) GEP index not scaled by vector width,
   (2) single-scalar load instead of multi-scalar vector load,
@@ -1270,7 +1333,6 @@ All 8 fixes verified against Rust naga — identical rejection behavior.
   Compilation time: 22s → 68ms. Handles nested arrays recursively.
   First implementation in the industry to fix this — Rust naga, ANGLE, Dawn
   all have the same bug or workaround it differently.
-  See `docs/dev/research/HLSL-ZERO-INIT-FXC-HANG-RESEARCH.md`.
 - **Defaults changed to match Rust** — `ForceLoopBounding: true`,
   `RestrictIndexing: true` (were both `false`).
 
