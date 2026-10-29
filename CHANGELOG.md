@@ -85,6 +85,11 @@ results on NVIDIA only; a helper whose result passes through two local
 variables (for example a helper inlined into another helper) loses its
 body; `break` inside a `switch` inside a loop leaves the loop.
 
+HLSL: `sign()` of a float vector is written without a conversion, and
+HLSL's `sign` returns `int`, so on FXC the result holds the integer bit
+patterns of -1, 0 and 1. Rust naga casts the result; the fix is planned
+for the next release.
+
 ## [0.20.3] - 2026-10-18
 
 ### Fixed
