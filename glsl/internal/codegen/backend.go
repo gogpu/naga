@@ -318,6 +318,10 @@ type TranslationInfo struct {
 	// queries block indices by name and assigns bindings via GL calls.
 	// Matches Rust naga ReflectionInfo.uniforms.
 	Uniforms []UniformInfo
+
+	// ImmediateItems lists the GL uniforms of the immediate data.
+	// Matches Rust naga ReflectionInfo.immediates_items.
+	ImmediateItems []ImmediateItem
 }
 
 // Compile generates GLSL source code from an IR module.
@@ -368,6 +372,7 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 		TextureSamplerPairs: w.textureSamplerPairs,
 		TextureMappings:     textureMappings,
 		Uniforms:            w.uniformInfos,
+		ImmediateItems:      w.immediateItems,
 	}
 
 	return w.String(), info, nil

@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SPIR-V tests that compile Rust naga and gfx-rs/wgpu example shaders read a
   directory outside the repository and were skipped everywhere else, CI
   included; they now run.
+- `glsl.TranslationInfo.ImmediateItems`: the GL uniforms that carry an entry
+  point's `var<immediate>` data, each with its GLSL access path, type, byte
+  offset and size, so a GL runtime can feed immediate data with
+  `glGetUniformLocation` and `glUniform*` (Rust naga's
+  `ReflectionInfo::immediates_items`). Offsets follow the variable's WGSL
+  layout, including `@size` and `@align`. The GLSL backend now refuses an
+  entry point that uses two immediate variables, and arrays in immediate
+  data, which WGSL does not allow.
 
 ## [0.20.4] - 2026-10-29
 

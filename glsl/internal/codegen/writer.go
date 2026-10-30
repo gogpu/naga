@@ -130,6 +130,9 @@ type Writer struct {
 	// on GL < 4.2. Matches Rust naga's reflection_names_globals.
 	uniformInfos []UniformInfo
 
+	// immediateItems is TranslationInfo.ImmediateItems (immediates.go).
+	immediateItems []ImmediateItem
+
 	// std140-compatible declarations of the types uniform buffers hold that
 	// contain two-row matrices (std140.go), in declaration order.
 	std140Types map[ir.TypeHandle]*std140Type
@@ -346,6 +349,11 @@ func (w *Writer) writeModule() error {
 
 	// 3. Register all names
 	if err := w.registerNames(); err != nil {
+		return err
+	}
+
+	// 3a. Reflect the GL uniforms of the immediate data (needs the names).
+	if err := w.collectImmediateItems(); err != nil {
 		return err
 	}
 
