@@ -240,6 +240,40 @@ type TranslationInfo struct {
 	// names and source bindings. Used by GLES HAL for runtime binding
 	// fallback on GL < 4.2. Matches Rust naga ReflectionInfo.uniforms.
 	Uniforms []UniformInfo
+
+	// ImmediateItems lists the GL uniforms that carry the entry point's
+	// immediate data, in declaration order; empty when the entry point uses
+	// none. Matches Rust naga ReflectionInfo.immediates_items.
+	ImmediateItems []ImmediateItem
+}
+
+// ImmediateItem is one GL uniform that carries part of the immediate data.
+//
+// OpenGL has no immediate data, so the writer declares the immediate
+// variable as a plain (non-block) uniform, and GL gives each of its leaf
+// scalars, vectors and matrices a location of its own. After linking, the
+// runtime looks each item up with glGetUniformLocation(program, AccessPath)
+// and, whenever the application sets immediate data, uploads the SizeBytes
+// bytes at Offset with the glUniform* call that fits Type. GL cannot update
+// part of a uniform, so the runtime keeps a copy of the whole immediate data
+// and re-sends every item a write overlaps.
+type ImmediateItem struct {
+	// AccessPath is the GLSL name of the uniform, as a shader would access
+	// it: "_immediates_binding_vs.light.color" for a member of a nested
+	// struct, "_immediates_binding_fs" when the variable is not a struct.
+	AccessPath string
+
+	// Type is the uniform's type: always an ir.ScalarType, ir.VectorType or
+	// ir.MatrixType.
+	Type ir.TypeInner
+
+	// Offset is the item's byte offset in the immediate data, the WGSL
+	// layout of the immediate variable (StructMember.Offset).
+	Offset uint32
+
+	// SizeBytes is the item's size in bytes; a matrix counts its columns
+	// padded to their alignment (mat3x3<f32> is 48 bytes).
+	SizeBytes uint32
 }
 
 // DefaultOptions returns sensible default options for GLSL generation.
@@ -325,6 +359,18 @@ func fromCodegenTranslationInfo(ci codegen.TranslationInfo) TranslationInfo {
 			}
 		}
 	}
+	var immediates []ImmediateItem
+	if len(ci.ImmediateItems) > 0 {
+		immediates = make([]ImmediateItem, len(ci.ImmediateItems))
+		for i, item := range ci.ImmediateItems {
+			immediates[i] = ImmediateItem{
+				AccessPath: item.AccessPath,
+				Type:       item.Type,
+				Offset:     item.Offset,
+				SizeBytes:  item.SizeBytes,
+			}
+		}
+	}
 	return TranslationInfo{
 		EntryPointNames: ci.EntryPointNames,
 		UsedExtensions:  ci.UsedExtensions,
@@ -336,5 +382,6 @@ func fromCodegenTranslationInfo(ci codegen.TranslationInfo) TranslationInfo {
 		TextureSamplerPairs: ci.TextureSamplerPairs,
 		TextureMappings:     texMappings,
 		Uniforms:            uniforms,
+		ImmediateItems:      immediates,
 	}
 }
