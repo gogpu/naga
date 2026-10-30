@@ -186,7 +186,8 @@ type Options struct {
 	// ClampFragDepth.Offset of the entry point's immediate data. The shader
 	// declares them in its immediates uniform, after the entry point's own
 	// immediate data, which it then holds in a struct with them, or alone
-	// when the entry point has none. WebGPU clamps frag_depth to the
+	// when the entry point has none, and TranslationInfo.ImmediateItems
+	// lists them as immediate data. WebGPU clamps frag_depth to the
 	// viewport's depth range; the caller puts the viewport's minDepth and
 	// maxDepth there, where Dawn's GL backend keeps them next to the
 	// immediates, and as the spirv and msl options of the same name read
@@ -262,8 +263,9 @@ type TranslationInfo struct {
 	Uniforms []UniformInfo
 
 	// ImmediateItems lists the GL uniforms that carry the entry point's
-	// immediate data, in declaration order; empty when the entry point uses
-	// none. Matches Rust naga ReflectionInfo.immediates_items.
+	// immediate data, the range of Options.ClampFragDepth included, in
+	// declaration order; empty when there is none. Matches Rust naga
+	// ReflectionInfo.immediates_items.
 	ImmediateItems []ImmediateItem
 }
 

@@ -8,19 +8,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/internal/testtools"
+	"github.com/gogpu/naga/ir"
 )
 
 const clampedStore = "gl_FragDepth = clamp(%s, _immediates_binding_fs.naga_frag_depth_min, _immediates_binding_fs.naga_frag_depth_max);"
 
 // TestClampFragDepth: with ClampFragDepth, a fragment entry point that
 // returns frag_depth, alone or in a struct, and has no immediate data
-// declares an immediates uniform holding just the range, and stores
-// frag_depth clamped to it, on desktop GL and ES. Without the option, or in
+// declares an immediates uniform holding just the range, lists its two
+// floats in ImmediateItems, and stores frag_depth clamped to it, on desktop
+// GL and ES. Without the option, or in
 // an entry point that doesn't write frag_depth, nothing changes.
 func TestClampFragDepth(t *testing.T) {
 	glslang, _ := testtools.Optional(t, "glslangValidator", testtools.InstallSPIRVTools)
@@ -41,7 +44,7 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 	} {
 		for _, version := range []glsl.Version{glsl.Version330, glsl.VersionES300} {
 			for _, clamp := range []*glsl.ClampFragDepth{nil, {Offset: 0}} {
-				got, _, err := glsl.Compile(lowerWGSL(t, tc.source), glsl.Options{
+				got, info, err := glsl.Compile(lowerWGSL(t, tc.source), glsl.Options{
 					LangVersion:        version,
 					EntryPoint:         "fs_main",
 					ForceHighPrecision: true,
@@ -60,6 +63,9 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 				if strings.Contains(got, decl) != want {
 					t.Errorf("%s, %v, clamp %v: declares the range: %v, want %v:\n%s", name, version, clamp, !want, want, got)
 				}
+				if (len(info.ImmediateItems) == 2) != want {
+					t.Errorf("%s, %v, clamp %v: ImmediateItems %+v", name, version, clamp, info.ImmediateItems)
+				}
 				for _, v := range tc.values {
 					store := fmt.Sprintf(clampedStore, v)
 					if strings.Contains(got, store) != want {
@@ -74,7 +80,8 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 
 // TestClampFragDepthWithImmediates: a fragment entry point with immediate
 // data of its own finds the range in the same uniform, after that data,
-// which it then reads through the uniform's data member. A vertex entry
+// which it then reads through the uniform's data member, and ImmediateItems
+// lists that data, then the range at the offset. A vertex entry
 // point using the same immediates is left as it was. An offset inside the
 // data, or one that isn't a multiple of 4, is an error.
 func TestClampFragDepthWithImmediates(t *testing.T) {
@@ -84,16 +91,15 @@ struct Immediates { tint: vec4<f32> }
 var<immediate> im: Immediates;
 @vertex fn vs_main() -> @builtin(position) vec4<f32> { return im.tint; }
 @fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @builtin(frag_depth) f32 { return p.z * im.tint.x; }`
-	compile := func(ep string, offset uint32) (string, error) {
-		got, _, err := glsl.Compile(lowerWGSL(t, src), glsl.Options{
+	compile := func(ep string, offset uint32) (string, glsl.TranslationInfo, error) {
+		return glsl.Compile(lowerWGSL(t, src), glsl.Options{
 			LangVersion:    glsl.Version330,
 			EntryPoint:     ep,
 			ClampFragDepth: &glsl.ClampFragDepth{Offset: offset},
 		})
-		return got, err
 	}
 
-	got, err := compile("fs_main", 16)
+	got, info, err := compile("fs_main", 16)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,9 +112,18 @@ var<immediate> im: Immediates;
 			t.Errorf("%q not in:\n%s", want, got)
 		}
 	}
+	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	items := []glsl.ImmediateItem{
+		{AccessPath: "_immediates_binding_fs.data.tint", Type: ir.VectorType{Size: ir.Vec4, Scalar: f32}, Offset: 0, SizeBytes: 16},
+		{AccessPath: "_immediates_binding_fs.naga_frag_depth_min", Type: f32, Offset: 16, SizeBytes: 4},
+		{AccessPath: "_immediates_binding_fs.naga_frag_depth_max", Type: f32, Offset: 20, SizeBytes: 4},
+	}
+	if !reflect.DeepEqual(info.ImmediateItems, items) {
+		t.Errorf("ImmediateItems:\n got %+v\nwant %+v", info.ImmediateItems, items)
+	}
 	validateGLSL(t, glslang, "frag", got)
 
-	got, err = compile("vs_main", 16)
+	got, _, err = compile("vs_main", 16)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +133,7 @@ var<immediate> im: Immediates;
 	validateGLSL(t, glslang, "vert", got)
 
 	for offset, want := range map[uint32]string{8: "overlaps the 16 bytes", 18: "not a multiple of 4"} {
-		if _, err := compile("fs_main", offset); err == nil || !strings.Contains(err.Error(), want) {
+		if _, _, err := compile("fs_main", offset); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("offset %d: error %v, want %q", offset, err, want)
 		}
 	}
