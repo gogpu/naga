@@ -175,7 +175,7 @@ var glslKeywords = map[string]struct{}{
 
 	// Functions and uniforms the writer declares.
 	"naga_modf": {}, "naga_frexp": {}, "naga_vs_first_instance": {},
-	FragDepthRangeUniform: {},
+	immediatesRangeType: {},
 }
 
 // isKeyword checks if a name is a GLSL keyword or reserved word.

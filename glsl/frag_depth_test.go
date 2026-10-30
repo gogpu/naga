@@ -5,17 +5,25 @@ package glsl_test
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/glsl"
+	"github.com/gogpu/naga/internal/testtools"
 )
 
+const clampedStore = "gl_FragDepth = clamp(%s, _immediates_binding_fs.naga_frag_depth_min, _immediates_binding_fs.naga_frag_depth_max);"
+
 // TestClampFragDepth: with ClampFragDepth, a fragment entry point that
-// returns frag_depth, alone or in a struct, declares the range uniform and
-// stores frag_depth clamped to it, on desktop GL and ES. Without the option,
-// or in an entry point that doesn't write frag_depth, nothing changes.
+// returns frag_depth, alone or in a struct, and has no immediate data
+// declares an immediates uniform holding just the range, and stores
+// frag_depth clamped to it, on desktop GL and ES. Without the option, or in
+// an entry point that doesn't write frag_depth, nothing changes.
 func TestClampFragDepth(t *testing.T) {
+	glslang, _ := testtools.Optional(t, "glslangValidator", testtools.InstallSPIRVTools)
 	for name, tc := range map[string]struct {
 		source string
 		values []string
@@ -32,7 +40,7 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 @fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> { return p; }`, nil},
 	} {
 		for _, version := range []glsl.Version{glsl.Version330, glsl.VersionES300} {
-			for _, clamp := range []bool{false, true} {
+			for _, clamp := range []*glsl.ClampFragDepth{nil, {Offset: 0}} {
 				got, _, err := glsl.Compile(lowerWGSL(t, tc.source), glsl.Options{
 					LangVersion:        version,
 					EntryPoint:         "fs_main",
@@ -42,21 +50,92 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 				if err != nil {
 					t.Fatalf("%s, %v, clamp %v: %v", name, version, clamp, err)
 				}
-				decl := "uniform vec2 " + glsl.FragDepthRangeUniform + ";"
+				precision := ""
 				if version.ES {
-					decl = "uniform highp vec2 " + glsl.FragDepthRangeUniform + ";"
+					precision = "highp "
 				}
-				want := clamp && tc.values != nil
+				decl := fmt.Sprintf("struct naga_immediates {\n    %sfloat naga_frag_depth_min;\n    %sfloat naga_frag_depth_max;\n};\nuniform naga_immediates _immediates_binding_fs;",
+					precision, precision)
+				want := clamp != nil && tc.values != nil
 				if strings.Contains(got, decl) != want {
 					t.Errorf("%s, %v, clamp %v: declares the range: %v, want %v:\n%s", name, version, clamp, !want, want, got)
 				}
 				for _, v := range tc.values {
-					store := fmt.Sprintf("gl_FragDepth = clamp(%s, naga_frag_depth_range.x, naga_frag_depth_range.y);", v)
+					store := fmt.Sprintf(clampedStore, v)
 					if strings.Contains(got, store) != want {
 						t.Errorf("%s, %v, clamp %v: %q: %v, want %v:\n%s", name, version, clamp, store, !want, want, got)
 					}
 				}
+				validateGLSL(t, glslang, "frag", got)
 			}
 		}
+	}
+}
+
+// TestClampFragDepthWithImmediates: a fragment entry point with immediate
+// data of its own finds the range in the same uniform, after that data,
+// which it then reads through the uniform's data member. A vertex entry
+// point using the same immediates is left as it was. An offset inside the
+// data, or one that isn't a multiple of 4, is an error.
+func TestClampFragDepthWithImmediates(t *testing.T) {
+	glslang, _ := testtools.Optional(t, "glslangValidator", testtools.InstallSPIRVTools)
+	const src = `
+struct Immediates { tint: vec4<f32> }
+var<immediate> im: Immediates;
+@vertex fn vs_main() -> @builtin(position) vec4<f32> { return im.tint; }
+@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @builtin(frag_depth) f32 { return p.z * im.tint.x; }`
+	compile := func(ep string, offset uint32) (string, error) {
+		got, _, err := glsl.Compile(lowerWGSL(t, src), glsl.Options{
+			LangVersion:    glsl.Version330,
+			EntryPoint:     ep,
+			ClampFragDepth: &glsl.ClampFragDepth{Offset: offset},
+		})
+		return got, err
+	}
+
+	got, err := compile("fs_main", 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"struct naga_immediates {\n    Immediates data;\n    float naga_frag_depth_min;\n    float naga_frag_depth_max;\n};\nuniform naga_immediates _immediates_binding_fs;",
+		" = _immediates_binding_fs.data.tint.x;",
+		", _immediates_binding_fs.naga_frag_depth_min, _immediates_binding_fs.naga_frag_depth_max);",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q not in:\n%s", want, got)
+		}
+	}
+	validateGLSL(t, glslang, "frag", got)
+
+	got, err = compile("vs_main", 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "uniform Immediates _immediates_binding_vs;") || strings.Contains(got, "naga_immediates") {
+		t.Errorf("vertex stage changed:\n%s", got)
+	}
+	validateGLSL(t, glslang, "vert", got)
+
+	for offset, want := range map[uint32]string{8: "overlaps the 16 bytes", 18: "not a multiple of 4"} {
+		if _, err := compile("fs_main", offset); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("offset %d: error %v, want %q", offset, err, want)
+		}
+	}
+}
+
+// validateGLSL runs glslangValidator over source as a shader of stage,
+// when the tool was found.
+func validateGLSL(t *testing.T, glslang, stage, source string) {
+	t.Helper()
+	if glslang == "" {
+		return
+	}
+	path := filepath.Join(t.TempDir(), "shader."+stage)
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(glslang, path).CombinedOutput(); err != nil {
+		t.Errorf("glslangValidator:\n%s\n%s", out, source)
 	}
 }

@@ -9,21 +9,74 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-// writeFragDepthRangeUniform declares the uniform that holds the range of
-// the frag_depth clamp, when Options.ClampFragDepth asks for it and the
-// selected entry point returns frag_depth.
-func (w *Writer) writeFragDepthRangeUniform() {
+// The range of the frag_depth clamp is in the fragment stage's immediates
+// uniform, of struct type immediatesRangeType: the entry point's own
+// immediate data, if any, in member immediatesData, then fragDepthMin and
+// fragDepthMax.
+const (
+	fragImmediates      = "_immediates_binding_fs"
+	immediatesRangeType = "naga_immediates"
+	immediatesData      = "data"
+	fragDepthMin        = "naga_frag_depth_min"
+	fragDepthMax        = "naga_frag_depth_max"
+)
+
+// prepareFragDepthRange finds where the range of the frag_depth clamp
+// goes, when Options.ClampFragDepth asks for it and the selected entry
+// point returns frag_depth: in the immediates uniform with the entry
+// point's own immediate data, or in one of its own, declared here, when
+// the entry point has none.
+func (w *Writer) prepareFragDepthRange() error {
+	clamp := w.options.ClampFragDepth
 	ep := w.getSelectedEntryPoint()
-	if !w.options.ClampFragDepth || ep == nil || ep.Stage != ir.StageFragment || !w.writesFragDepth(ep.Function.Result) {
-		return
+	if clamp == nil || ep == nil || ep.Stage != ir.StageFragment || !w.writesFragDepth(ep.Function.Result) {
+		return nil
 	}
+	if clamp.Offset%4 != 0 {
+		return fmt.Errorf("glsl: ClampFragDepth.Offset %d is not a multiple of 4", clamp.Offset)
+	}
+	w.clampFragDepth = true
+	for handle, global := range w.module.GlobalVariables {
+		h := ir.GlobalVariableHandle(handle)
+		if global.Space != ir.SpaceImmediate || w.reachable != nil && !w.reachable.hasGlobal(h) {
+			continue
+		}
+		if size := ir.TypeSize(w.module, global.Type); clamp.Offset < size {
+			return fmt.Errorf("glsl: the frag_depth range at offset %d overlaps the %d bytes of immediate data of entry point %q",
+				clamp.Offset, size, ep.Name)
+		}
+		w.rangeImmediates = &h
+		return nil
+	}
+	w.writeImmediatesRangeType(nil)
+	w.WriteLine("uniform %s %s;", immediatesRangeType, fragImmediates)
+	w.WriteLine("")
+	return nil
+}
+
+// carriesFragDepthRange reports whether the immediates uniform of h holds
+// the range of the frag_depth clamp next to h's data.
+func (w *Writer) carriesFragDepthRange(h ir.GlobalVariableHandle) bool {
+	return w.rangeImmediates != nil && *w.rangeImmediates == h
+}
+
+// writeImmediatesRangeType declares the struct of the immediates uniform
+// that holds the range of the frag_depth clamp, after the immediate data of
+// type data when there is any.
+func (w *Writer) writeImmediatesRangeType(data *ir.TypeHandle) {
 	precision := ""
 	if w.options.LangVersion.ES {
 		precision = "highp "
 	}
-	w.WriteLine("uniform %svec2 %s;", precision, FragDepthRangeUniform)
-	w.WriteLine("")
-	w.clampFragDepth = true
+	w.WriteLine("struct %s {", immediatesRangeType)
+	w.PushIndent()
+	if data != nil {
+		w.WriteLine("%s %s%s;", w.getBaseTypeName(*data), immediatesData, w.getArraySuffix(*data))
+	}
+	w.WriteLine("%sfloat %s;", precision, fragDepthMin)
+	w.WriteLine("%sfloat %s;", precision, fragDepthMax)
+	w.PopIndent()
+	w.WriteLine("};")
 }
 
 // writesFragDepth reports whether result is frag_depth or has it as a
@@ -62,5 +115,5 @@ func (w *Writer) outputValue(b *ir.Binding, value string) string {
 	if !w.clampFragDepth || !isFragDepth(b) {
 		return value
 	}
-	return fmt.Sprintf("clamp(%s, %s.x, %s.y)", value, FragDepthRangeUniform, FragDepthRangeUniform)
+	return fmt.Sprintf("clamp(%s, %s.%s, %s.%s)", value, fragImmediates, fragDepthMin, fragImmediates, fragDepthMax)
 }
