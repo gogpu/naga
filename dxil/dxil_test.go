@@ -674,7 +674,7 @@ func TestFeatureInfoFromShaderFlags(t *testing.T) {
 		flagAtom64Heap  uint64 = 0x100000000 // bit 32 AtomicInt64OnHeapResource
 
 		// Target bits in SFI0. Values from
-		// reference/dxil/dxc/include/dxc/DXIL/DxilConstants.h:2299+.
+		// DXC include/dxc/DXIL/DxilConstants.h:2299+.
 		sfiDoubles    uint64 = 0x1        // ShaderFeatureInfo_Doubles
 		sfiUAVsEvery  uint64 = 0x4        // ShaderFeatureInfo_UAVsAtEveryStage
 		sfiMinPrec    uint64 = 0x10       // ShaderFeatureInfo_MinimumPrecision

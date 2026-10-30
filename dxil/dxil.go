@@ -1972,7 +1972,7 @@ func globalUsesInt64Atomic(irMod *ir.Module, gv *ir.GlobalVariable) bool {
 // PSVResourceBinding per resource. BUG-DXIL-022.
 //
 // Ordering MUST match dxc's PSV0 layout: CBuffers, Samplers, SRVs, UAVs
-// (see reference/dxil/dxc/lib/DxilContainer/DxilContainerAssembler.cpp
+// (see DXC lib/DxilContainer/DxilContainerAssembler.cpp
 // line 816-855). The validator builds its own list from the same DxilModule
 // resource accessors and memcmp's element-by-element, so any reordering
 // here breaks 'ResourceBindInfo mismatch' even when the records are

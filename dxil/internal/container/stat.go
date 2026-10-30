@@ -54,10 +54,10 @@ var FourCCSTAT = fourCC('S', 'T', 'A', 'T')
 // suffices.
 //
 // Reference:
-//   - reference/dxil/dxc/lib/DxilContainer/DxilContainerAssembler.cpp
+//   - DXC lib/DxilContainer/DxilContainerAssembler.cpp
 //     StripAndCreateReflectionStream (line 1873)
 //     SerializeDxilContainerForModule STAT emission (line 2091)
-//   - reference/dxil/mesa/src/microsoft/compiler/dxil_container.h:65
+//   - Mesa src/microsoft/compiler/dxil_container.h:65
 //     (DXIL_STAT fourCC definition; no emission site)
 func (c *Container) AddSTATPart(shaderKind, majorVer, minorVer uint32, bitcodeData []byte) {
 	// The DxilProgramHeader layout matches AddDXILPart exactly: 24
