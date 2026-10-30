@@ -27,11 +27,12 @@ var (
 //
 // The offsets are the variable's WGSL layout, the one setImmediateData
 // writes. Rust naga instead walks the members one after another, rounding
-// each up to its alignment and ignoring StructMember.offset, so @size and
-// @align shift every later item: for "sizealign" Rust reports b, c, d at
-// 4, 8, 16 and for "nested struct size" e2.x, e2.y, z at 8, 12, 16 (checked
-// on gfx-rs/wgpu 14328f49). The cases without those attributes match Rust's
-// output for the same shader.
+// each up to its alignment and ignoring StructMember.offset, so a member
+// that follows an @size or @align member can get the wrong offset: for
+// "sizealign" Rust reports b, c, d at 4, 8, 16 and for "nested struct size"
+// e2.x, e2.y, z at 8, 12, 16, though its own IR places sizealign's b, c, d
+// at 16, 32, 40 (checked on gfx-rs/wgpu 14328f49). The cases without those
+// attributes match Rust's output for the same shader.
 func TestImmediateItems(t *testing.T) {
 	tests := []struct {
 		name string

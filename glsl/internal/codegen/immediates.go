@@ -26,7 +26,8 @@ var errMultipleImmediateData = errors.New("an entry point uses multiple immediat
 //
 // Offsets come from the WGSL layout (StructMember.Offset), the bytes the
 // application writes, where Rust re-derives them by rounding each member up
-// to its alignment and so misplaces every member after an @size or @align.
+// to its alignment, so a member that follows an @size or @align member can
+// get the wrong offset.
 func (w *Writer) collectImmediateItems() error {
 	used := false
 	for handle, global := range w.module.GlobalVariables {
