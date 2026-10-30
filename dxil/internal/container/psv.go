@@ -28,10 +28,10 @@ import (
 // with E_INVALIDARG.
 //
 // Source of truth (keep in sync):
-//   - DXC:  reference/dxil/dxc/include/dxc/DXIL/DxilConstants.h:244
+//   - DXC:  include/dxc/DXIL/DxilConstants.h:244
 //     enum class ShaderKind { Pixel=0, Vertex=1, Geometry=2, ... }
 //     "Must match D3D11_SHADER_VERSION_TYPE"
-//   - Mesa: reference/dxil/mesa/src/microsoft/compiler/dxil_module.h:44
+//   - Mesa: src/microsoft/compiler/dxil_module.h:44
 //     DXIL_PIXEL_SHADER=0, DXIL_VERTEX_SHADER=1, ...
 //
 // This enum is ABI-locked by TestPSVShaderKindMatchesMicrosoftABI in

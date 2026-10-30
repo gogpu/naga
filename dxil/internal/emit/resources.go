@@ -4760,7 +4760,7 @@ func (e *Emitter) resourceKind(res *resourceInfo) int {
 	case resourceClassSRV:
 		// SRV: image (texture), storage buffer, or ray-tracing acceleration
 		// structure. The DXIL enum, per
-		// reference/dxil/dxc/include/dxc/DXIL/DxilConstants.h:433
+		// DXC include/dxc/DXIL/DxilConstants.h:433
 		//   1=Texture1D, 2=Texture2D, 3=Texture2DMS, 4=Texture3D,
 		//   10=TypedBuffer, 11=RawBuffer, 12=StructuredBuffer,
 		//   16=RTAccelerationStructure.
@@ -4810,7 +4810,7 @@ func unwrapBindingArray(mod *ir.Module, inner ir.TypeInner) ir.TypeInner {
 
 // imageResourceKind returns the DXIL resource kind for an image type.
 // imageResourceKind returns the DXIL ResourceKind enum value for an image.
-// Values match reference/dxil/dxc/include/dxc/DXIL/DxilConstants.h
+// Values match DXC include/dxc/DXIL/DxilConstants.h
 // `enum class ResourceKind`:
 //
 //	1=Texture1D, 2=Texture2D, 3=Texture2DMS, 4=Texture3D,

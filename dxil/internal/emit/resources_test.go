@@ -860,7 +860,7 @@ func TestEmitBindingMapEndToEndCreateHandleIndex(t *testing.T) {
 // bufferStore with mask 0xF (or, for >4-component aggregates, multiple
 // batched bufferStore calls covering all components).
 //
-// Reference: D:/projects/gogpu/naga/dxil/internal/emit/resources.go
+// Reference: dxil/internal/emit/resources.go
 // emitUAVStore() — uses cbvComponentCount unconditionally to compute numComps.
 func TestUAVStoreStructElemFlattenedComponentCount(t *testing.T) {
 	mod := &ir.Module{

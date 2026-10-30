@@ -11,9 +11,9 @@ import (
 // at runtime (which is how BUG-DXIL-007 originally escaped our test gates).
 //
 // Sources of truth:
-//   - Microsoft DXC: reference/dxil/dxc/include/dxc/DXIL/DxilConstants.h:244
+//   - Microsoft DXC: include/dxc/DXIL/DxilConstants.h:244
 //     (enum class ShaderKind, "Must match D3D11_SHADER_VERSION_TYPE")
-//   - Mesa DXIL:     reference/dxil/mesa/src/microsoft/compiler/dxil_module.h:44
+//   - Mesa DXIL:     src/microsoft/compiler/dxil_module.h:44
 //     (enum dxil_shader_kind)
 func TestPSVShaderKindMatchesMicrosoftABI(t *testing.T) {
 	cases := []struct {

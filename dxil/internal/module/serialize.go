@@ -45,7 +45,7 @@ const (
 )
 
 // LLVM attribute kind IDs (subset used by DXIL intrinsic declarations).
-// Full enum: reference/dxil/mesa/src/microsoft/compiler/dxil_enums.h:244.
+// Full enum: Mesa src/microsoft/compiler/dxil_enums.h:244.
 const (
 	attrKindNoDuplicate = 12
 	attrKindNoUnwind    = 18
@@ -215,7 +215,7 @@ func (s *serializer) emitModule() {
 	// empty (no abbrevs). A minimal BLOCKINFO still signals "proper
 	// bitcode" to D3D12's parser — absence caused graphics pipeline
 	// rejection even with byte-correct container hashes. Reference:
-	// reference/dxil/mesa/src/microsoft/compiler/dxil_module.c:3947.
+	// Mesa src/microsoft/compiler/dxil_module.c:3947.
 	s.emitBlockInfoBlock()
 
 	// PARAMATTR_GROUP_BLOCK + PARAMATTR_BLOCK. Per Mesa order (line

@@ -3754,7 +3754,7 @@ func (e *Emitter) emitMathInsertBits(fn *ir.Function, mathExpr ir.ExprMath) (int
 // its own sitofp + exp + fmul triple and the result is tracked via
 // pendingComponents like other vectorised math intrinsics.
 //
-// Reference: `reference/dxil/dxc/lib/HLSL/HLOperationLower.cpp:2504`
+// Reference: `DXC lib/HLSL/HLOperationLower.cpp:2504`
 // (TranslateLdExp); WGSL spec §16.6.26 (ldexp signatures).
 func (e *Emitter) emitMathLdexp(fn *ir.Function, mathExpr ir.ExprMath) (int, error) {
 	if mathExpr.Arg1 == nil {
@@ -5498,7 +5498,7 @@ func (e *Emitter) emitStructLocalVariable(varIdx uint32, localVar *ir.LocalVaria
 // select chains; constant indices fold to literal constants.
 //
 // Reference: BUG-DXIL-011 (D3D12 runtime format validator) +
-// `reference/dxil/mesa/src/microsoft/compiler/nir_to_dxil.c:6300`
+// `Mesa src/microsoft/compiler/nir_to_dxil.c:6300`
 // (`nir_lower_indirect_derefs_to_if_else_trees` with
 // `nir_var_function_temp` target).
 func (e *Emitter) emitArrayLocalVariable(varIdx uint32, localVar *ir.LocalVariable, irType ir.Type) (int, error) {

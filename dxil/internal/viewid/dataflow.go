@@ -7,7 +7,7 @@
 //
 // The DXC reference lives at:
 //
-//	reference/dxil/dxc/lib/HLSL/ComputeViewIdStateBuilder.cpp
+//	DXC lib/HLSL/ComputeViewIdStateBuilder.cpp
 //
 // That implementation is a full LLVM-based def-use walker with control-
 // dependence and alloca reaching-def analysis. We implement a conservative
