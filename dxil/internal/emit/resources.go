@@ -87,8 +87,11 @@ type resourceInfo struct {
 	// holds.
 	words uint32
 	// dynamicOffset, for a storage buffer with a dynamic offset, is where
-	// the offset is (BindTarget.DynamicStorageBufferOffsetsIndex).
+	// the offset is (BindTarget.DynamicStorageBufferOffsetsIndex), and
+	// dynamicSize where its binding size is
+	// (BindTarget.DynamicStorageBufferSizeIndex).
 	dynamicOffset *dynamicOffsetRef
+	dynamicSize   *dynamicOffsetRef
 }
 
 // dynamicOffsetRef is the dynamic offset of a storage buffer: value index of
@@ -237,6 +240,9 @@ func (e *Emitter) applyBindingMap(info *resourceInfo, space ir.AddressSpace) {
 	}
 	if tgt.DynamicStorageBufferOffsetsIndex != nil && space == ir.SpaceStorage {
 		info.dynamicOffset = &dynamicOffsetRef{group: info.group, index: *tgt.DynamicStorageBufferOffsetsIndex}
+		if tgt.DynamicStorageBufferSizeIndex != nil {
+			info.dynamicSize = &dynamicOffsetRef{group: info.group, index: *tgt.DynamicStorageBufferSizeIndex}
+		}
 	}
 	info.group = tgt.Space
 	info.binding = tgt.Register

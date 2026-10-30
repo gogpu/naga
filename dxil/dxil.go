@@ -174,6 +174,7 @@ func convertBindingMap(m BindingMap) emit.BindingMap {
 			BindingArraySize:                 v.BindingArraySize,
 			RestrictIndexing:                 v.RestrictIndexing,
 			DynamicStorageBufferOffsetsIndex: v.DynamicStorageBufferOffsetsIndex,
+			DynamicStorageBufferSizeIndex:    v.DynamicStorageBufferSizeIndex,
 		}
 	}
 	return out
@@ -299,6 +300,24 @@ func prepareModule(irModule *ir.Module) (*ir.Module, error) {
 	return irModule, nil
 }
 
+// checkInput refuses a module Compile can't translate and binding targets
+// whose options can't work together.
+func checkInput(irModule *ir.Module, opts Options) error {
+	if irModule == nil {
+		return fmt.Errorf("dxil: nil IR module")
+	}
+	if len(irModule.EntryPoints) == 0 {
+		return fmt.Errorf("dxil: module has no entry points")
+	}
+	for loc, tgt := range opts.BindingMap {
+		if tgt.DynamicStorageBufferSizeIndex != nil && tgt.DynamicStorageBufferOffsetsIndex == nil {
+			return fmt.Errorf("dxil: binding (group %d, binding %d) has a DynamicStorageBufferSizeIndex but no DynamicStorageBufferOffsetsIndex",
+				loc.Group, loc.Binding)
+		}
+	}
+	return nil
+}
+
 // Compile translates a naga IR module to DXIL bytecode wrapped in
 // a DXBC container.
 //
@@ -310,11 +329,8 @@ func prepareModule(irModule *ir.Module) (*ir.Module, error) {
 // The result is a valid DXBC container that can be loaded by D3D12
 // or inspected with dxc.exe -dumpbin.
 func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
-	if irModule == nil {
-		return nil, fmt.Errorf("dxil: nil IR module")
-	}
-	if len(irModule.EntryPoints) == 0 {
-		return nil, fmt.Errorf("dxil: module has no entry points")
+	if err := checkInput(irModule, opts); err != nil {
+		return nil, err
 	}
 	if err := ir.CheckWorkgroupSizesResolved(irModule); err != nil {
 		return nil, fmt.Errorf("dxil: %w", err)

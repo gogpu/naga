@@ -3053,6 +3053,12 @@ func (w *Writer) writeArrayLengthExpression(e ir.ExprArrayLength) error {
 	if writable {
 		funcName = "NagaBufferLengthRW"
 	}
+	if gv.Binding != nil {
+		if bt, ok := w.options.BindingMap[ResourceBinding{Group: gv.Binding.Group, Binding: gv.Binding.Binding}]; ok && bt.DynamicStorageBufferSizeIndex != nil {
+			fmt.Fprintf(&w.Out, "((%s%d._%d - %d) / %d)", DynamicBufferOffsetsPrefix, gv.Binding.Group, *bt.DynamicStorageBufferSizeIndex, offset, stride)
+			return nil
+		}
+	}
 	fmt.Fprintf(&w.Out, "((%s(%s) - %d) / %d)", funcName, varName, offset, stride)
 	return nil
 }

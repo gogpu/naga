@@ -1,6 +1,7 @@
 package dxil
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gogpu/naga/dxil/internal/module"
@@ -49,5 +50,62 @@ func TestDynamicStorageBufferOffsets(t *testing.T) {
 	}
 	if !hasCBVAt(mod, 0, 4) {
 		t.Error("no constant buffer of dynamic offsets at b4")
+	}
+}
+
+// arrayLength() of a storage buffer whose binding has a
+// DynamicStorageBufferSizeIndex loads the binding size from the dynamic
+// offsets constant buffer instead of asking the view for its dimensions.
+func TestArrayLengthOfDynamicStorageBinding(t *testing.T) {
+	offset, size := uint32(0), uint32(1)
+	opts := DefaultOptions()
+	opts.BindingMap = BindingMap{
+		{Group: 0, Binding: 0}: {Register: 0, DynamicStorageBufferOffsetsIndex: &offset, DynamicStorageBufferSizeIndex: &size},
+	}
+	opts.DynamicStorageBufferOffsetsTargets = map[uint32]OffsetsBindTarget{0: {Space: 0, Register: 4, Size: 2}}
+	_, fn := emitMainModuleOpts(t, `
+@group(0) @binding(0) var<storage, read_write> moved: array<u32>;
+@compute @workgroup_size(1) fn main() {
+    moved[0] = arrayLength(&moved);
+}
+`, opts)
+	var dims int
+	var sizeLoad bool
+	for _, bb := range fn.BasicBlocks {
+		for _, in := range bb.Instructions {
+			if in.Kind != module.InstrCall || in.CalledFunc == nil {
+				continue
+			}
+			switch in.CalledFunc.Name {
+			case "dx.op.getDimensions":
+				dims++
+			case "dx.op.cbufferLoadLegacy.i32":
+				sizeLoad = true
+			}
+		}
+	}
+	if dims != 0 || !sizeLoad {
+		t.Errorf("%d getDimensions calls and a constant buffer load %v, want the size loaded from the constant buffer only", dims, sizeLoad)
+	}
+}
+
+// A DynamicStorageBufferSizeIndex is read with the binding's dynamic offset,
+// so one set without a DynamicStorageBufferOffsetsIndex is refused instead
+// of ignored.
+func TestDynamicStorageBufferSizeIndexNeedsOffsetsIndex(t *testing.T) {
+	size := uint32(1)
+	opts := DefaultOptions()
+	opts.BindingMap = BindingMap{
+		{Group: 0, Binding: 0}: {Register: 0, DynamicStorageBufferSizeIndex: &size},
+	}
+	opts.DynamicStorageBufferOffsetsTargets = map[uint32]OffsetsBindTarget{0: {Space: 0, Register: 4, Size: 2}}
+	_, err := Compile(lowerSource(t, `
+@group(0) @binding(0) var<storage, read_write> moved: array<u32>;
+@compute @workgroup_size(1) fn main() {
+    moved[0] = arrayLength(&moved);
+}
+`), opts)
+	if err == nil || !strings.Contains(err.Error(), "DynamicStorageBufferOffsetsIndex") {
+		t.Errorf("Compile error = %v, want one naming the missing DynamicStorageBufferOffsetsIndex", err)
 	}
 }
