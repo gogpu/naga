@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "kind": "vendored",
+  "source": {
+    "repository": "https://github.com/gfx-rs/wgpu",
+    "commit": "14328f49918cce19f7cc8bf703435968c8293035",
+    "commitDate": "2026-10-14"
+  },
+  "files": [
+    {
+      "path": "LICENSE.APACHE",
+      "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+      "gitBlob": "d9a10c0d8e868ebf8da0b3dc95bb0be634c34bfe"
+    },
+    {
+      "path": "LICENSE.MIT",
+      "sha256": "f427ebe372a8ed2317b681a2ff8ff8a58ba98e64921e7d9428ea36ec7c2cbe25",
+      "gitBlob": "709e6b7fd4d7ba60826365d30f7fdc164dc8f6cd"
+    },
+    {
+      "path": "examples/features/src/cube/shader.wgsl",
+      "sha256": "d7a6a25958169013b951e0f5e90dcdaedf0a262e8af273850912bf57a3b172f7",
+      "gitBlob": "8e9fa6c49506b9b86ea48c60161dc48eb20119fd"
+    },
+    {
+      "path": "examples/features/src/hello_triangle/shader.wgsl",
+      "sha256": "ec2bd378ef2c55cc87c118dd6c93db0807437f74b7e1fdd279e26a7bd1bdebbc",
+      "gitBlob": "f84ccfe94dab324a42081d0f235a7b6247648c82"
+    },
+    {
+      "path": "examples/features/src/msaa_line/shader.wgsl",
+      "sha256": "8640e7d7513dd437154d7e36f3b3aa3164d09f26e15609cfa8a59e3a668dcfed",
+      "gitBlob": "687bb5718d3efadd0c861e421b8e731197804caa"
+    },
+    {
+      "path": "examples/features/src/render_to_texture/shader.wgsl",
+      "sha256": "180b9a7bb6e7890b6128d11b1b660f45496f14b42b824a60e4d85501b52ca120",
+      "gitBlob": "f7131a1be1960dcfca463f905c105a0670d422f8"
+    },
+    {
+      "path": "examples/standalone/01_hello_compute/src/shader.wgsl",
+      "sha256": "437299875ae405233fe82f8f3071ae037d6060e357d872e391cb53deaa1063bd",
+      "gitBlob": "54285d6da67e1beaa62bfd39e2ffe6215707c1bd"
+    }
+  ]
+}

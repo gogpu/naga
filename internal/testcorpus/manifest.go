@@ -31,6 +31,9 @@ const (
 	// ReadmeName is the human-written description of a corpus tree. It is ours,
 	// not vendored, so the manifest does not cover it.
 	ReadmeName = "README.md"
+	// ProvenanceName records where the files of a testdata/upstream tree come
+	// from and how to refresh them. Like the README it is ours, not vendored.
+	ProvenanceName = "PROVENANCE.md"
 	// SchemaVersion is the manifest format version this package reads and writes.
 	SchemaVersion = 1
 )
@@ -96,7 +99,7 @@ func hashFile(rel string, content []byte) File {
 // isOwnFile reports whether rel is a file of the tree itself rather than corpus
 // content: the manifest and the readme at the tree root.
 func isOwnFile(rel string) bool {
-	return rel == ManifestName || rel == ReadmeName
+	return rel == ManifestName || rel == ReadmeName || rel == ProvenanceName
 }
 
 // withRoot opens dir as an os.Root, which confines every access to the tree,

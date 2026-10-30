@@ -2545,14 +2545,29 @@ func TestCompileFineShader(t *testing.T) {
 		strings.Count(string(source), "\n"), len(spirvBytes))
 }
 
+const (
+	// rustWGSLDir holds Rust naga's WGSL test inputs (snapshot/testdata/rust, ADR-006).
+	rustWGSLDir = "../../../snapshot/testdata/rust/in/wgsl/"
+	// wgpuExamplesDir holds the vendored gfx-rs/wgpu example shaders.
+	wgpuExamplesDir = "../../../testdata/upstream/github.com/gfx-rs/wgpu/examples/"
+)
+
+// readShader reads a WGSL file shipped in this repository. A missing file
+// fails the test: test inputs are part of the module, never optional.
+func readShader(t *testing.T, path string) []byte {
+	t.Helper()
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return source
+}
+
 // TestCompileBoidsShader compiles the wgpu reference boids compute shader.
 // Tests loop with continuing block, runtime-sized arrays, struct member access,
 // distance/normalize/clamp/length builtins, read-only and read-write storage buffers.
 func TestCompileBoidsShader(t *testing.T) {
-	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/naga/tests/in/wgsl/boids.wgsl")
-	if err != nil {
-		t.Skipf("boids.wgsl not available: %v", err)
-	}
+	source := readShader(t, rustWGSLDir+"boids.wgsl")
 
 	spirvBytes := compileWGSL(t, string(source))
 	validateSPIRVBinary(t, spirvBytes)
@@ -2565,10 +2580,7 @@ func TestCompileBoidsShader(t *testing.T) {
 // TestCompileCollatzShader compiles the wgpu reference collatz compute shader.
 // Tests while loops, function calls, modulo operator, runtime-sized arrays.
 func TestCompileCollatzShader(t *testing.T) {
-	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/naga/tests/in/wgsl/collatz.wgsl")
-	if err != nil {
-		t.Skipf("collatz.wgsl not available: %v", err)
-	}
+	source := readShader(t, rustWGSLDir+"collatz.wgsl")
 
 	spirvBytes := compileWGSL(t, string(source))
 	validateSPIRVBinary(t, spirvBytes)
@@ -2581,10 +2593,7 @@ func TestCompileCollatzShader(t *testing.T) {
 // TestCompileCubeShader compiles the wgpu cube example shader.
 // Tests textureLoad with integer textures, multiple entry points, mat4x4 uniform.
 func TestCompileCubeShader(t *testing.T) {
-	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/cube/shader.wgsl")
-	if err != nil {
-		t.Skipf("cube shader.wgsl not available: %v", err)
-	}
+	source := readShader(t, wgpuExamplesDir+"features/src/cube/shader.wgsl")
 
 	spirvBytes := compileWGSL(t, string(source))
 	validateSPIRVBinary(t, spirvBytes)
@@ -2596,10 +2605,7 @@ func TestCompileCubeShader(t *testing.T) {
 
 // TestCompileHelloTriangleShader compiles the wgpu hello_triangle example.
 func TestCompileHelloTriangleShader(t *testing.T) {
-	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/hello_triangle/shader.wgsl")
-	if err != nil {
-		t.Skipf("hello_triangle shader.wgsl not available: %v", err)
-	}
+	source := readShader(t, wgpuExamplesDir+"features/src/hello_triangle/shader.wgsl")
 
 	spirvBytes := compileWGSL(t, string(source))
 	validateSPIRVBinary(t, spirvBytes)
@@ -2611,10 +2617,7 @@ func TestCompileHelloTriangleShader(t *testing.T) {
 
 // TestCompileHelloComputeShader compiles the wgpu hello_compute standalone example.
 func TestCompileHelloComputeShader(t *testing.T) {
-	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/standalone/01_hello_compute/src/shader.wgsl")
-	if err != nil {
-		t.Skipf("hello_compute shader.wgsl not available: %v", err)
-	}
+	source := readShader(t, wgpuExamplesDir+"standalone/01_hello_compute/src/shader.wgsl")
 
 	spirvBytes := compileWGSL(t, string(source))
 	validateSPIRVBinary(t, spirvBytes)
@@ -2633,10 +2636,7 @@ func TestCompileHelloWorkgroupsShader(t *testing.T) {
 
 // TestCompileRenderToTextureShader tests the wgpu render_to_texture example.
 func TestCompileRenderToTextureShader(t *testing.T) {
-	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/render_to_texture/shader.wgsl")
-	if err != nil {
-		t.Skipf("render_to_texture shader.wgsl not available: %v", err)
-	}
+	source := readShader(t, wgpuExamplesDir+"features/src/render_to_texture/shader.wgsl")
 
 	spirvBytes := compileWGSL(t, string(source))
 	validateSPIRVBinary(t, spirvBytes)
@@ -2655,10 +2655,7 @@ func TestCompileUniformValuesShader(t *testing.T) {
 
 // TestCompileMSAALineShader tests a simple MSAA line rendering shader.
 func TestCompileMSAALineShader(t *testing.T) {
-	source, err := os.ReadFile("../../reference/wgpu-ecosystem/wgpu/examples/features/src/msaa_line/shader.wgsl")
-	if err != nil {
-		t.Skipf("msaa_line shader.wgsl not available: %v", err)
-	}
+	source := readShader(t, wgpuExamplesDir+"features/src/msaa_line/shader.wgsl")
 
 	spirvBytes := compileWGSL(t, string(source))
 	validateSPIRVBinary(t, spirvBytes)

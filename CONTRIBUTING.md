@@ -201,6 +201,13 @@ The snapshot tests run over two corpora:
 - `snapshot/testdata/own/in/` — shaders written for this project. They do not
   count toward Rust parity.
 
+Tests read only files of this repository, its Go module dependencies and
+`t.TempDir()`, never a path on a developer's machine. Other third-party test
+inputs live in `testdata/upstream/<host>/<owner>/<repo>/`, copied verbatim with
+the upstream license, a `PROVENANCE.md` (source commit and how to refresh) and
+a `MANIFEST.json`; `TestUpstreamTrees` checks each tree. Only permissively
+licensed files (MIT, BSD, Apache-2.0, ISC, zlib, OFL, CC0, CC-BY) can go there.
+
 ### Adding a new test shader
 
 1. Add the `.wgsl` file to `snapshot/testdata/own/in/` with a name not used by

@@ -48,6 +48,7 @@ func TestHashTreeIsSortedAndSkipsOwnFiles(t *testing.T) {
 		"LICENSE.MIT":  "mit",
 		ManifestName:   "{}",
 		ReadmeName:     "readme",
+		ProvenanceName: "provenance",
 		"in/sub/c.txt": "c",
 	})
 	files, err := HashTree(dir)
