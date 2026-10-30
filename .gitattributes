@@ -2,6 +2,7 @@
 # (internal/testcorpus): never convert their line endings.
 snapshot/testdata/rust/** -text
 snapshot/testdata/rust-derived/** -text
+testdata/upstream/** -text
 # Rust naga outputs compared byte for byte (glsl TestOverrideOutputMatchesRust).
 glsl/testdata/overrides/** -text
 # GLSL goldens compared byte for byte (glsl TestDepthTextureDeclarations and

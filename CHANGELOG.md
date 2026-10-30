@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every case on each backend and adapter; `TestReadbackCorpusCompile` checks
   that every naga backend compiles and validates each case. Format and rules
   are in `testdata/readback/README.md`.
+- Third-party test inputs in `testdata/upstream`, copied verbatim with their
+  license, provenance and a manifest checked by `TestUpstreamTrees`. Seven
+  SPIR-V tests that compile Rust naga and gfx-rs/wgpu example shaders read a
+  directory outside the repository and were skipped everywhere else, CI
+  included; they now run.
 
 ## [0.20.4] - 2026-10-29
 
