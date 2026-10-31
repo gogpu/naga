@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "struct and array arguments are the variable's value before a later argument bumps it through a pointer: fs(s, bump(&s.a)) = 7, s.a = 8, fa(arr, bump(&arr[0])) = 7, arr[0] = 8 (P0-DXIL-062: the inlined DXIL callee read 8)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [7]},
+    {"binding": 1, "kind": "storage-rw", "len": 5, "fill": "0xDEADBEEF",
+     "expect": [[7, 8, 7, 8, "fill"]]}
+  ]
+}
