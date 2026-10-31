@@ -7,5 +7,8 @@
     {"binding": 0, "kind": "storage-read", "words": [0, 3, 0, 1, 2, 0, 3, 4, 1, 0]},
     {"binding": 1, "kind": "storage-rw", "len": 6, "fill": "0xDEADBEEF",
      "expect": [[70, 1021, 1000, 10, 5, "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "dx12-fxc", "card": "P0-HLSL-033", "reason": "FXC turns the return inside the switch into the case's break: [70 70 65 10 5]"}
   ]
 }
