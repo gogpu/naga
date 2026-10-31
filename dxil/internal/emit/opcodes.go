@@ -107,6 +107,9 @@ const (
 	OpTextureGather    DXILOpcode = 73
 	OpTextureGatherCmp DXILOpcode = 74
 
+	// Discard (DXC OC::Discard): WGSL discard, with a true condition.
+	OpDiscard DXILOpcode = 82
+
 	// Derivative operations.
 	OpDerivCoarseX DXILOpcode = 83
 	OpDerivCoarseY DXILOpcode = 84
