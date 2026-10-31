@@ -6159,13 +6159,22 @@ func (e *Emitter) emitGlobalExpression(handle ir.ExpressionHandle) (int, error) 
 		if len(gk.Components) == 0 {
 			return e.getIntConstID(0), nil
 		}
+		// A value's components are its scalars, so a vector or struct
+		// component gives all of its own: S(7, vec2(8, 9)) is 7, 8, 9.
+		// Taking one value per component dropped 9 and left later
+		// components unset.
 		var flatIDs []int
 		for _, ch := range gk.Components {
+			e.pendingComponents = nil
 			v, err := e.emitGlobalExpression(ch)
 			if err != nil {
 				return 0, err
 			}
-			flatIDs = append(flatIDs, v)
+			if len(e.pendingComponents) > 0 {
+				flatIDs = append(flatIDs, e.pendingComponents...)
+			} else {
+				flatIDs = append(flatIDs, v)
+			}
 		}
 		e.pendingComponents = flatIDs
 		return flatIDs[0], nil

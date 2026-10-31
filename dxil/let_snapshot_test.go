@@ -109,6 +109,7 @@ struct Out { v: i32, seed: i32, i: u32 }
 @group(0) @binding(0) var<storage, read_write> out: Out;
 struct S { a: i32, b: vec2<i32> }
 struct N { s: S, k: i32 }
+const cs = S(7, vec2<i32>(8, 9));
 fn bumpi(p: ptr<function, i32>) -> i32 { *p = *p + 1; return 0; }
 fn fs(s: S, k: i32) -> i32 { return s.a + k; }
 fn fa(arr: array<i32, 2>, k: i32) -> i32 { return arr[0] + k; }
@@ -146,6 +147,9 @@ fn fa(arr: array<i32, 2>, k: i32) -> i32 { return arr[0] + k; }
 		{"struct without let", `
     var s = S(out.seed, vec2<i32>(1, 2));
     out.v = s.a;`},
+		{"struct initialized from a constant", `
+    var s = cs;
+    out.v = s.a + out.seed;`},
 		{"struct assigned whole", `
     var s: S;
     s = S(out.seed, vec2<i32>(1, 2));
@@ -174,6 +178,8 @@ fn fa(arr: array<i32, 2>, k: i32) -> i32 { return arr[0] + k; }
 		"struct argument":           func(s string) bool { return s == "("+seed+" op0 c0)" },
 		"array argument":            func(s string) bool { return s == "("+seed+" op0 c0)" },
 		"array by a run-time index": func(s string) bool { return strings.HasSuffix(s, " ? "+seed+" : "+seed+")") },
+		// cs.a is 7: SROA dropped the constant initializer and read 0.
+		"struct initialized from a constant": func(s string) bool { return s == "(c7 op0 "+seed+")" || s == "("+seed+" op0 c7)" },
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

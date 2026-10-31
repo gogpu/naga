@@ -1,11 +1,11 @@
 {
   "format": 1,
-  "desc": "a let of a local array, struct, nested struct and array of vectors keeps the value where the let is; a struct var initialized from run-time values holds them: 7 17 7 9 7 8 7 7, then the array variable itself 8 (P0-DXIL-062: DXIL read the array let after the stores and stored 0 for the struct init and lets)",
+  "desc": "a let of a local array, struct, nested struct and array of vectors keeps the value where the let is; a struct var initialized from run-time values holds them: 7 17 7 9 7 8 7 7, then the array variable itself 8, then a struct var initialized from a constant, c.a + c.b.y = 14 (P0-DXIL-062: DXIL read the array let after the stores, stored 0 for the struct init and lets, and dropped the constant initializer)",
   "entry": "main",
   "workgroups": [1, 1, 1],
   "bindings": [
     {"binding": 0, "kind": "storage-read", "words": [7, 1]},
-    {"binding": 1, "kind": "storage-rw", "len": 10, "fill": "0xDEADBEEF",
-     "expect": [[7, 17, 7, 9, 7, 8, 7, 7, 8, "fill"]]}
+    {"binding": 1, "kind": "storage-rw", "len": 11, "fill": "0xDEADBEEF",
+     "expect": [[7, 17, 7, 9, 7, 8, 7, 7, 8, 14, "fill"]]}
   ]
 }
