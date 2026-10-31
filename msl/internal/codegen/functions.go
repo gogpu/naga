@@ -494,6 +494,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		w.entryPointInputStructArg = -1
 		w.flattenedMemberNames = nil
 		w.hasVaryings = false
+		w.fragDepthRange = ""
 	}()
 
 	// Determine if this entry point should do vertex pulling.
@@ -770,6 +771,9 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		w.writeEntryPointParam(paramCount, fmt.Sprintf("constant _mslBufferSizes& _buffer_sizes %s", bufferSizeAttr))
 		paramCount++
 	}
+	if err := w.writeFragDepthRangeParam(ep, epUsedGlobals, &paramCount); err != nil {
+		return err
+	}
 
 	if returnAttr != "" {
 		w.write("\n) %s {\n", returnAttr)
@@ -777,6 +781,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 		w.write("\n) {\n")
 	}
 	w.PushIndent()
+	w.writeFragDepthRange()
 
 	// VPT body prologue: emit zero-init + bounds check + unpacking BEFORE input aliases.
 	// This must happen first because the input alias reconstruction uses the VPT locals.

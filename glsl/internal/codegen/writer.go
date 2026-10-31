@@ -80,6 +80,11 @@ type Writer struct {
 	// float16 is set when the writer names an f16 type, which GLSL doesn't
 	// have: Compile then fails with errNoFloat16.
 	float16 bool
+	// clampFragDepth is set when the entry point clamps the frag_depth it
+	// returns (Options.ClampFragDepth), and rangeImmediates is the immediate
+	// global whose uniform then holds the range, nil for one of its own.
+	clampFragDepth  bool
+	rangeImmediates *ir.GlobalVariableHandle
 
 	// Entry point struct IO flattening.
 	// Maps argument index to the flattened struct member info.
@@ -343,6 +348,9 @@ func (w *Writer) writeModule() error {
 
 	// 2b2. Write first instance uniform for vertex shaders using InstanceIndex
 	w.writeFirstInstanceBinding()
+	if err := w.prepareFragDepthRange(); err != nil {
+		return err
+	}
 
 	// 2c. Write early depth test layout (fragment shaders)
 	w.writeEarlyDepthTest()
@@ -598,6 +606,9 @@ func (w *Writer) registerNames() error {
 				stageSuffix = "vs"
 			}
 			name = fmt.Sprintf("_immediates_binding_%s", stageSuffix)
+			if w.carriesFragDepthRange(ir.GlobalVariableHandle(handle)) {
+				name += "." + immediatesData
+			}
 		} else if hasBindingName {
 			stage := w.currentEntryPointStage()
 			stageSuffix := "cs"
@@ -1128,6 +1139,10 @@ func (w *Writer) writeGlobalVariables() error {
 				stageSuffix = "fs"
 			case ir.StageVertex:
 				stageSuffix = "vs"
+			}
+			if w.carriesFragDepthRange(ir.GlobalVariableHandle(handle)) {
+				w.writeImmediatesRangeType(&global.Type)
+				typeName = immediatesRangeType
 			}
 			w.WriteLine("uniform %s _immediates_binding_%s;", typeName, stageSuffix)
 		default:

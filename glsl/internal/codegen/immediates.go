@@ -49,6 +49,13 @@ func (w *Writer) collectImmediateItems() error {
 			return err
 		}
 	}
+	if w.clampFragDepth {
+		f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+		offset := w.options.ClampFragDepth.Offset
+		w.immediateItems = append(w.immediateItems,
+			ImmediateItem{AccessPath: fragImmediates + "." + fragDepthMin, Type: f32, Offset: offset, SizeBytes: 4},
+			ImmediateItem{AccessPath: fragImmediates + "." + fragDepthMax, Type: f32, Offset: offset + 4, SizeBytes: 4})
+	}
 	return nil
 }
 

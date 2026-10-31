@@ -215,6 +215,16 @@ type Options struct {
 
 	// SkipWorkgroupMemoryZeroInit leaves workgroup variables as they are.
 	SkipWorkgroupMemoryZeroInit bool
+
+	// ClampFragDepth clamps the depth a fragment entry point writes to the
+	// range at byte ClampFragDepth.Offset of its immediate data (see the
+	// glsl package).
+	ClampFragDepth *ClampFragDepth
+}
+
+// ClampFragDepth is where the range of the frag_depth clamp is.
+type ClampFragDepth struct {
+	Offset uint32
 }
 
 // BindingMapKey identifies a resource binding for the BindingMap.
