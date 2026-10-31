@@ -269,10 +269,13 @@ func autoUpgradeSMPre(irModule *ir.Module, ep *ir.EntryPoint, smMinor uint32) ui
 // Helpers with side effects (UAV writes, globals) that CAN be emitted
 // standalone stay as separate LLVM functions.
 func prepareModule(irModule *ir.Module) (*ir.Module, error) {
-	if len(irModule.Functions) == 0 {
-		return irModule.Clone(), nil
-	}
 	irModule = irModule.Clone()
+	if len(irModule.Functions) == 0 {
+		if err := lowerPrivatesToLocals(irModule); err != nil {
+			return nil, fmt.Errorf("dxil: private variables: %w", err)
+		}
+		return irModule, nil
+	}
 	shouldInline := func(callee *ir.Function) bool {
 		if helperNeedsInlining(irModule, callee) {
 			return true
@@ -296,6 +299,9 @@ func prepareModule(irModule *ir.Module) (*ir.Module, error) {
 	}
 	if err := ir.InlineUserFunctions(irModule, shouldInline); err != nil {
 		return nil, fmt.Errorf("dxil: inline user functions: %w", err)
+	}
+	if err := lowerPrivatesToLocals(irModule); err != nil {
+		return nil, fmt.Errorf("dxil: private variables: %w", err)
 	}
 	return irModule, nil
 }
