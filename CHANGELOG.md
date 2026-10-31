@@ -28,6 +28,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry point that uses two immediate variables, and arrays in immediate
   data, which WGSL does not allow.
 
+### Fixed
+
+- **DXIL: local structs and arrays read wrong values** — three silent
+  miscompiles, all in 0.20.4; the validator accepted each module.
+  - A struct `var` initialized from run-time values read zeros
+    (`var s = S(x, y); s.a` gave 0): the store of the constructor was
+    dropped when the struct was split into its members.
+  - An element or member of a `let` copy of a local array or struct read
+    the variable as it was at the use, not at the `let`
+    (`let a = arr; arr[0] += 1; a[0]` gave the incremented value). Struct
+    and array arguments of a function call had the same bug when another
+    argument changed them through a pointer.
+  - A struct `var` initialized from a named constant
+    (`const cs = S(7, vec2(8, 9)); var s = cs;`) lost the initializer.
+
 ## [0.20.4] - 2026-10-29
 
 Most of the fixes below come from @roffe's review of the backends. Thank
