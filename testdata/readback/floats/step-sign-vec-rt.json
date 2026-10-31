@@ -11,8 +11,5 @@
     {"binding": 1, "kind": "storage-rw", "type": "f32", "len": 12, "fill": "0xDEADBEEF",
      "expect": [["0x3F800000", 0, "0x3F800000", "0x3F800000", "0xBF800000", 0, "0x3F800000", "0xBF800000",
                  "fill", "fill", "fill", "fill"]]}
-  ],
-  "knownFailures": [
-    {"backend": "dx12-fxc", "card": "P1-HLSL-032", "reason": "sign() of a float is written bare; HLSL sign returns int, so dst[1] receives the bit patterns of -1, 0, 1 (NaN, 0, 1e-45)"}
   ]
 }

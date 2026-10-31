@@ -28,7 +28,6 @@ var upstreamChanges = map[string]string{
 	"a03be8d2": "[msl] Make ray queries safer (#9442)",
 	"a071a4d5": "firstLeadingBit returns signed semantics result (#9299)",
 	"a53ffffe": "Mesh shader HLSL writer (#8752)",
-	"ae19a470": "fix(hlsl-out): cast float types back from sign's output",
 	"b051a87e": "fix(naga): Require explicit flat interpolation for integer shader I/O",
 	"b5bd5aed": "Mesh shaders MSL writer (#8739)",
 	"b9c09622": "fix(naga): Fix macOS 10.12 nested initializers",

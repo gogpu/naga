@@ -1630,6 +1630,20 @@ func (w *Writer) writeMathExpression(e ir.ExprMath) error {
 		return nil
 	}
 
+	// HLSL's sign returns int even for a float argument, so a float result is
+	// converted back to the argument's type (Rust naga's Function::Sign).
+	if e.Fun == ir.MathSign {
+		if s := w.getExprScalar(e.Arg); s != nil && s.Kind == ir.ScalarFloat {
+			w.Out.WriteString(w.typeInnerToHLSLStr(w.getExpressionTypeInner(e.Arg)))
+			w.Out.WriteString("(sign(")
+			if err := w.writeExpression(e.Arg); err != nil {
+				return fmt.Errorf("sign arg: %w", err)
+			}
+			w.Out.WriteString("))")
+			return nil
+		}
+	}
+
 	// Special case: Pack4xI8/U8/I8Clamp/U8Clamp — inline polyfill
 	// Matches Rust naga's Function::Pack4x{I8,U8,I8Clamp,U8Clamp} handling.
 	switch e.Fun {
