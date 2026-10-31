@@ -110,7 +110,8 @@ The runner matches every run against the entries of its case:
 - not matched and failed → error.
 
 On the naga side, a backend may fail to compile a case only when that backend has an entry with no `adapter` and
-no `driver` (it fails everywhere). `spirv` serves both `vulkan` and `software`, so a SPIR-V compile failure needs
+no `driver` (it fails everywhere). A case is not compiled at all for a backend that never exposes a feature it
+`requires`, since no run reaches it there: `gles` never offers `shader-f16`. `spirv` serves both `vulkan` and `software`, so a SPIR-V compile failure needs
 an entry for each.
 
 ### Lockstep rule for another repository's cards

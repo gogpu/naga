@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,6 +48,10 @@ func TestReadbackCorpusCompile(t *testing.T) {
 				t.Fatalf("%s.json does not match the shader:\n%v", c.Name, err)
 			}
 			for _, target := range corpusTargets {
+				if f := target.neverRuns(&c.Spec); f != "" {
+					t.Logf("%s: not compiled, the case requires %s and its backends never expose it", target.name, f)
+					continue
+				}
 				err := target.compile(t, v, m, c.Spec.Entry)
 				switch allowed := compileFailureAllowed(&c.Spec, target.backends); {
 				case err != nil && allowed:
@@ -157,19 +162,52 @@ func TestCompileFailureAllowed(t *testing.T) {
 	}
 }
 
+func TestCorpusTargetNeverRuns(t *testing.T) {
+	gles := &corpusTarget{name: "glsl", never: []string{"shader-f16"}}
+	spirv := &corpusTarget{name: "spirv"}
+	f16 := &readback.Spec{Requires: []string{"shader-f16"}}
+	plain := &readback.Spec{}
+	if got := gles.neverRuns(f16); got != "shader-f16" {
+		t.Errorf("glsl, f16 case: neverRuns = %q, want shader-f16", got)
+	}
+	if got := gles.neverRuns(plain); got != "" {
+		t.Errorf("glsl, plain case: neverRuns = %q, want none", got)
+	}
+	if got := spirv.neverRuns(f16); got != "" {
+		t.Errorf("spirv, f16 case: neverRuns = %q, want none", got)
+	}
+}
+
 // corpusTarget is one naga backend and the wgpu backends that run its output.
 type corpusTarget struct {
 	name     string
 	backends []readback.Backend
 	compile  func(t *testing.T, v *corpusValidators, m *ir.Module, entry string) error
+	// never lists the features no adapter of these backends exposes. A case
+	// that requires one is skipped on them at run time, so it is not compiled
+	// for them either.
+	never []string
 }
 
 var corpusTargets = []corpusTarget{
-	{"spirv", []readback.Backend{readback.BackendVulkan, readback.BackendSoftware}, compileCorpusSPIRV},
-	{"hlsl", []readback.Backend{readback.BackendDX12FXC}, compileCorpusHLSL},
-	{"dxil", []readback.Backend{readback.BackendDX12DXIL}, compileCorpusDXIL},
-	{"glsl", []readback.Backend{readback.BackendGLES}, compileCorpusGLSL},
-	{"msl", []readback.Backend{readback.BackendMetal}, compileCorpusMSL},
+	{"spirv", []readback.Backend{readback.BackendVulkan, readback.BackendSoftware}, compileCorpusSPIRV, nil},
+	{"hlsl", []readback.Backend{readback.BackendDX12FXC}, compileCorpusHLSL, nil},
+	{"dxil", []readback.Backend{readback.BackendDX12DXIL}, compileCorpusDXIL, nil},
+	// GLES has no shader-f16: wgpu-hal's gles adapter offers only the
+	// SHADER_F16_IN_F32 downlevel flag (gles/adapter.rs), and so does wgpu's.
+	{"glsl", []readback.Backend{readback.BackendGLES}, compileCorpusGLSL, []string{"shader-f16"}},
+	{"msl", []readback.Backend{readback.BackendMetal}, compileCorpusMSL, nil},
+}
+
+// neverRuns reports the first feature spec requires that target's backends
+// never expose, or "" when the case can run there.
+func (target *corpusTarget) neverRuns(spec *readback.Spec) string {
+	for _, r := range spec.Requires {
+		if slices.Contains(target.never, r) {
+			return r
+		}
+	}
+	return ""
 }
 
 // compileFailureAllowed reports whether every backend has a known failure
