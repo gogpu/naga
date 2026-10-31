@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "desc": "a struct of f32, vec3, vec2, mat2x3, array<vec3> and u32 members copied member by member from a uniform to a storage buffer lands at the WGSL offsets 28/32/64/96/112, and reads back (1, 12, 31, 6) (#128 review: DXIL cbuffer and raw-buffer layouts)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "uniform", "type": "f32", "words": [
+      "0x3F800000", 0, 0, 0, "0x40000000", "0x40400000", "0x40800000", "0x40A00000",
+      "0x40C00000", "0x40E00000", 0, 0, "0x41000000", "0x41100000", "0x41200000", 0,
+      "0x41300000", "0x41400000", "0x41500000", 0, "0x41600000", "0x41700000", "0x41800000", 0,
+      "0x41880000", "0x41900000", "0x41980000", 0, 3, 0, 0, 0]},
+    {"binding": 1, "kind": "storage-rw", "len": 33, "fill": 0, "type": "f32", "expect": [[
+      "fill", "fill", "fill", "fill", "fill", "fill", "fill", "0x40C00000",
+      "0x40C00000", "0x40E00000", "fill", "fill", "fill", "fill", "fill", "fill",
+      "0x41300000", "0x41400000", "0x41500000", "fill", "fill", "fill", "fill", "fill",
+      "0x41880000", "0x41900000", "0x41980000", "fill", 3, "fill", "fill", "fill", "fill"]]},
+    {"binding": 2, "kind": "storage-rw", "len": 5, "fill": "0xDEADBEEF", "type": "f32",
+     "expect": [["0x3F800000", "0x41400000", "0x41F80000", "0x40C00000", "fill"]]}
+  ]
+}

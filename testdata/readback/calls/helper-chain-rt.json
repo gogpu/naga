@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "helpers inlined inside a switch case of an inlined helper, and through a var, keep their bodies: [47, 4, 7, 94, 47] (P0-DXIL-055: DXIL read the result from an unwritten alloca)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [4, 7, 3, 1, 0]},
+    {"binding": 1, "kind": "storage-rw", "len": 6, "fill": "0xDEADBEEF",
+     "expect": [[47, 4, 7, 94, 47, "fill"]]}
+  ]
+}

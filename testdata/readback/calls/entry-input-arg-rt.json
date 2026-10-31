@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "the entry point's global_invocation_id passed to a helper next to a side-effecting argument: id.x * 10 + 6 for id.x 0..3 (#128 review: DXIL failed with \"function argument 0 not in value map\" before #128)",
+  "entry": "main",
+  "workgroups": [2, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [5]},
+    {"binding": 1, "kind": "storage-rw", "len": 5, "fill": "0xDEADBEEF",
+     "expect": [[6, 16, 26, 36, "fill"]]}
+  ]
+}
