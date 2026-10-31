@@ -1,5 +1,5 @@
 {
-  "format": 1,
+  "format": 2,
   "desc": "helpers inlined inside a switch case of an inlined helper, and through a var, keep their bodies: [47, 4, 7, 94, 47] (P0-DXIL-055: DXIL read the result from an unwritten alloca)",
   "entry": "main",
   "workgroups": [1, 1, 1],
@@ -7,5 +7,9 @@
     {"binding": 0, "kind": "storage-read", "words": [4, 7, 3, 1, 0]},
     {"binding": 1, "kind": "storage-rw", "len": 6, "fill": "0xDEADBEEF",
      "expect": [[47, 4, 7, 94, 47, "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "dx12-dxil", "adapter": "NVIDIA", "card": "P0-DXIL-055", "skip": true,
+     "reason": "hangs the GPU (DXGI_ERROR_DEVICE_HUNG, 12 s TDR) and reads back zeros on a GTX 1660 SUPER"}
   ]
 }

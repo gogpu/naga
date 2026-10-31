@@ -16,5 +16,8 @@
       "0x41880000", "0x41900000", "0x41980000", "fill", 3, "fill", "fill", "fill", "fill"]]},
     {"binding": 2, "kind": "storage-rw", "len": 5, "fill": "0xDEADBEEF", "type": "f32",
      "expect": [["0x3F800000", "0x41400000", "0x41F80000", "0x40C00000", "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "software", "card": "gogpu/wgpu:P1-SW-013", "reason": "the SPIR-V interpreter reads the mixed struct layout wrong"}
   ]
 }
