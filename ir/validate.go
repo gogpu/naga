@@ -39,10 +39,22 @@ type Validator struct {
 type validationContext struct {
 	function       *Function
 	functionName   string
-	loopDepth      int
-	inContinuing   bool
+	flow           controlFlowAbility
 	expressionUsed map[ExpressionHandle]bool
 }
+
+// controlFlowAbility is what a statement may do to leave the block it is
+// in: Rust naga's ControlFlowAbility (valid/function.rs). A function body
+// may return; a switch case may also break; a loop body may also break and
+// continue; a continuing block may do none of them, and a loop inside it
+// may break and continue again.
+type controlFlowAbility uint8
+
+const (
+	abilityReturn controlFlowAbility = 1 << iota
+	abilityBreak
+	abilityContinue
+)
 
 // Validate checks the IR module for correctness.
 // All capabilities are enabled (CapAll) — backward-compatible with existing callers.
@@ -281,8 +293,7 @@ func (v *Validator) validateFunctions() {
 		v.context = validationContext{
 			function:       fn,
 			functionName:   fn.Name,
-			loopDepth:      0,
-			inContinuing:   false,
+			flow:           abilityReturn,
 			expressionUsed: make(map[ExpressionHandle]bool),
 		}
 
@@ -554,6 +565,15 @@ func (v *Validator) validateBlock(block Block) {
 	}
 }
 
+// validateBlockWith validates a block whose statements may leave it as
+// flow allows.
+func (v *Validator) validateBlockWith(block Block, flow controlFlowAbility) {
+	saved := v.context.flow
+	v.context.flow = flow
+	v.validateBlock(block)
+	v.context.flow = saved
+}
+
 // validateStatement validates a single statement.
 func (v *Validator) validateStatement(index int, stmt *Statement) {
 	if stmt.Kind == nil {
@@ -599,22 +619,15 @@ func (v *Validator) validateStatement(index int, stmt *Statement) {
 				}
 				hasDefault = true
 			}
-			v.validateBlock(c.Body)
+			v.validateBlockWith(c.Body, v.context.flow&(abilityReturn|abilityContinue)|abilityBreak)
 		}
 		if !hasDefault {
 			v.addErrorInStatement(index, "switch missing default case")
 		}
 
 	case StmtLoop:
-		oldDepth := v.context.loopDepth
-		v.context.loopDepth++
-
-		v.validateBlock(kind.Body)
-
-		oldContinuing := v.context.inContinuing
-		v.context.inContinuing = true
-		v.validateBlock(kind.Continuing)
-		v.context.inContinuing = oldContinuing
+		v.validateBlockWith(kind.Body, v.context.flow&abilityReturn|abilityBreak|abilityContinue)
+		v.validateBlockWith(kind.Continuing, 0)
 
 		if kind.BreakIf != nil {
 			if !v.isValidExpressionHandle(*kind.BreakIf) {
@@ -622,27 +635,20 @@ func (v *Validator) validateStatement(index int, stmt *Statement) {
 			}
 		}
 
-		v.context.loopDepth = oldDepth
-
+	// The messages are Rust naga's FunctionError texts.
 	case StmtBreak:
-		if v.context.loopDepth == 0 {
-			v.addErrorInStatement(index, "break outside of loop")
-		}
-		if v.context.inContinuing {
-			v.addErrorInStatement(index, "break in continuing block")
+		if v.context.flow&abilityBreak == 0 {
+			v.addErrorInStatement(index, "The `break` is used outside of a `loop` or `switch` context")
 		}
 
 	case StmtContinue:
-		if v.context.loopDepth == 0 {
-			v.addErrorInStatement(index, "continue outside of loop")
-		}
-		if v.context.inContinuing {
-			v.addErrorInStatement(index, "continue in continuing block")
+		if v.context.flow&abilityContinue == 0 {
+			v.addErrorInStatement(index, "The `continue` is used outside of a `loop` context")
 		}
 
 	case StmtReturn:
-		if v.context.inContinuing {
-			v.addErrorInStatement(index, "return in continuing block")
+		if v.context.flow&abilityReturn == 0 {
+			v.addErrorInStatement(index, "The `return` is called within a `continuing` block")
 		}
 		if kind.Value != nil {
 			if !v.isValidExpressionHandle(*kind.Value) {
@@ -651,9 +657,8 @@ func (v *Validator) validateStatement(index int, stmt *Statement) {
 		}
 
 	case StmtKill:
-		if v.context.inContinuing {
-			v.addErrorInStatement(index, "kill in continuing block")
-		}
+		// Allowed anywhere in a fragment shader, a continuing block too
+		// (Rust naga checks only the stage).
 
 	case StmtBarrier:
 		// Barriers are always valid
@@ -764,6 +769,7 @@ func (v *Validator) validateEntryPoints() {
 		v.context = validationContext{
 			function:       fn,
 			functionName:   ep.Name,
+			flow:           abilityReturn,
 			expressionUsed: make(map[ExpressionHandle]bool),
 		}
 		v.validateFunction(fn)

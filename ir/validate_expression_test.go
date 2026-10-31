@@ -566,7 +566,7 @@ func TestValidateNew_NestedLoopContext(t *testing.T) {
 			},
 		}},
 	}
-	expectValidationErrors(t, m, "break in continuing block")
+	expectValidationErrors(t, m, "`break` is used outside of a `loop` or `switch`")
 }
 
 // =============================================================================

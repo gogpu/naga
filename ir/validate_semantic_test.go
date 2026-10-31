@@ -809,7 +809,7 @@ func TestValidateSemantic_ContinueOutsideLoop(t *testing.T) {
 			},
 		},
 	}
-	expectErrors(t, module, "continue outside of loop")
+	expectErrors(t, module, "`continue` is used outside of a `loop`")
 }
 
 func TestValidateSemantic_BreakInContinuingBlock(t *testing.T) {
@@ -831,7 +831,7 @@ func TestValidateSemantic_BreakInContinuingBlock(t *testing.T) {
 			},
 		},
 	}
-	expectErrors(t, module, "break in continuing block")
+	expectErrors(t, module, "`break` is used outside of a `loop` or `switch`")
 }
 
 func TestValidateSemantic_ContinueInContinuingBlock(t *testing.T) {
@@ -850,7 +850,7 @@ func TestValidateSemantic_ContinueInContinuingBlock(t *testing.T) {
 			},
 		},
 	}
-	expectErrors(t, module, "continue in continuing block")
+	expectErrors(t, module, "`continue` is used outside of a `loop`")
 }
 
 func TestValidateSemantic_ReturnInContinuingBlock(t *testing.T) {
@@ -869,9 +869,12 @@ func TestValidateSemantic_ReturnInContinuingBlock(t *testing.T) {
 			},
 		},
 	}
-	expectErrors(t, module, "return in continuing block")
+	expectErrors(t, module, "`return` is called within a `continuing` block")
 }
 
+// TestValidateSemantic_KillInContinuingBlock: a discard may stand in a
+// continuing block; Rust naga's validator checks only its stage (valid/
+// function.rs, S::Kill), and so do we.
 func TestValidateSemantic_KillInContinuingBlock(t *testing.T) {
 	module := &Module{
 		Functions: []Function{
@@ -888,7 +891,7 @@ func TestValidateSemantic_KillInContinuingBlock(t *testing.T) {
 			},
 		},
 	}
-	expectErrors(t, module, "kill in continuing block")
+	expectNoValidationErrors(t, module)
 }
 
 func TestValidateSemantic_EmitRangeInvalid(t *testing.T) {
