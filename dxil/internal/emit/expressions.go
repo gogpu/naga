@@ -7057,7 +7057,7 @@ func (e *Emitter) emitRoundNE(arg int) int {
 // not match and the caller should take the default path.
 func (e *Emitter) tryInlineLoadOfLocalVarAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, bool, error) {
 	load, ok := fn.Expressions[ai.Base].Kind.(ir.ExprLoad)
-	if !ok {
+	if !ok || e.loadEmitted(ai.Base) {
 		return 0, false, nil
 	}
 	lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable)
@@ -7123,6 +7123,16 @@ func (e *Emitter) tryInlineLoadOfLocalVarAccessIndex(fn *ir.Function, ai ir.Expr
 	return 0, false, nil
 }
 
+// loadEmitted reports whether the Load at h was already emitted, by its
+// Emit statement, into the components of its value. Its value is the
+// variable where the Load is, so an access of it reads those components:
+// reading the variable at the access instead reads any store made to it
+// between the two, and `let a = arr; arr[0] = 1; a[0]` read 1.
+func (e *Emitter) loadEmitted(h ir.ExpressionHandle) bool {
+	_, ok := e.exprValues[h]
+	return ok
+}
+
 // flatScalarCount is the number of scalars a value of type inner takes in
 // a local array flattened to scalars, or false for a type the flattening
 // doesn't make a run of scalars of, a struct.
@@ -7174,7 +7184,7 @@ func (e *Emitter) loadFlatElement(allocaID int, arrayTy *module.Type, k int, fla
 // to the indexed element with the dynamic index value, then scalar-Load.
 func (e *Emitter) tryInlineLoadOfLocalVarAccess(fn *ir.Function, acc ir.ExprAccess) (int, bool, error) {
 	load, ok := fn.Expressions[acc.Base].Kind.(ir.ExprLoad)
-	if !ok {
+	if !ok || e.loadEmitted(acc.Base) {
 		return 0, false, nil
 	}
 	lv, ok := fn.Expressions[load.Pointer].Kind.(ir.ExprLocalVariable)
