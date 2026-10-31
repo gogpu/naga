@@ -1241,7 +1241,7 @@ func (e *Emitter) emitStatement(fn *ir.Function, stmt *ir.Statement) error {
 		return e.emitSwitchStatement(fn, sk)
 
 	case ir.StmtKill:
-		// Fragment shader discard — not yet implemented.
+		e.emitDiscard()
 		return nil
 
 	case ir.StmtCall:
@@ -3332,6 +3332,22 @@ func (e *Emitter) getDxOpAtomicCmpXchgFuncTyped(ol overloadType) *module.Functio
 	fn := e.mod.AddFunction(fullName, funcTy, true)
 	e.dxOpFuncs[key] = fn
 	return fn
+}
+
+// emitDiscard emits WGSL discard: dx.op.discard(82, true), as Mesa's
+// nir_to_dxil emit_discard and DXC do. Like WGSL's discard (a demote), it
+// does not end the invocation: it goes on as a helper invocation whose
+// outputs are dropped, so it is no terminator here.
+func (e *Emitter) emitDiscard() {
+	name := "dx.op.discard"
+	key := dxOpKey{name: name, overload: overloadVoid}
+	fn, ok := e.dxOpFuncs[key]
+	if !ok {
+		params := []*module.Type{e.mod.GetIntType(32), e.mod.GetIntType(1)}
+		fn = e.mod.AddFunction(name, e.mod.GetFunctionType(e.mod.GetVoidType(), params), true)
+		e.dxOpFuncs[key] = fn
+	}
+	e.addCallInstr(fn, e.mod.GetVoidType(), []int{e.getIntConstID(int64(OpDiscard)), e.getBoolConstID(true)})
 }
 
 // getDxOpBarrierFunc creates the dx.op.barrier function declaration.
