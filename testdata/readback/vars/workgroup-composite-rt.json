@@ -9,6 +9,7 @@
      "expect": [[0, 0, 11, 15, 0, 5, "fill"]]}
   ],
   "knownFailures": [
-    {"backend": "dx12-dxil", "card": "P1-DXIL-066", "reason": "workgroup vectors are refused at compile time; workgroup structs give invalid DXIL"}
+    {"backend": "dx12-dxil", "card": "P1-DXIL-066", "reason": "workgroup vectors are refused at compile time; workgroup structs give invalid DXIL"},
+    {"backend": "software", "card": "gogpu/wgpu:P1-SW-013", "reason": "the SPIR-V interpreter writes [0 0 11 0x41700000 0 5]"}
   ]
 }

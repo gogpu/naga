@@ -9,6 +9,7 @@
      "expect": [[11, 21, "fill"]]}
   ],
   "knownFailures": [
-    {"backend": "dx12-dxil", "card": "P0-DXIL-059", "reason": "a var<private> vector is refused at compile time"}
+    {"backend": "dx12-dxil", "card": "P0-DXIL-059", "reason": "a var<private> vector is refused at compile time"},
+    {"backend": "software", "card": "gogpu/wgpu:P1-SW-013", "reason": "the SPIR-V interpreter writes [0 0]"}
   ]
 }
