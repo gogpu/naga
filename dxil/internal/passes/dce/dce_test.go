@@ -702,3 +702,62 @@ func TestLocalReadIntoALiveLocalKeepsItsStores(t *testing.T) {
 		t.Errorf("%d stores left, want both", stores)
 	}
 }
+
+// TestPureCallChainKeepsArguments: out = g(g(g(x))). The store makes the last
+// call's result live, which makes the one before it live, and so on back to x.
+// The pass propagated call-result liveness a fixed number of times (once in
+// the mark phase, once per round of the local-store loop, which stopped when
+// the dead locals stopped changing), so the first call of a chain of three
+// kept dead arguments: x's emit was swept and the emitter evaluated x lazily
+// at a later use, where it did not dominate every use (gg's Vello coarse.wgsl,
+// minf/maxf chains: "Instruction does not dominate all uses"). Liveness now
+// grows to a fixed point.
+func TestPureCallChainKeepsArguments(t *testing.T) {
+	mod := &ir.Module{
+		GlobalVariables: []ir.GlobalVariable{{Name: "out", Space: ir.SpaceStorage, Type: 0}},
+	}
+	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
+	g := ir.Function{
+		Name:      "g",
+		Arguments: []ir.FunctionArgument{{Name: "v", Type: i32}},
+		Result:    &ir.FunctionResult{Type: i32},
+	}
+	arg := appendExpr(&g, ir.ExprFunctionArgument{Index: 0})
+	g.Body = ir.Block{{Kind: ir.StmtReturn{Value: &arg}}}
+	mod.Functions = []ir.Function{g}
+
+	fn := &ir.Function{}
+	one := appendExpr(fn, ir.Literal{Value: ir.LiteralI32(1)})
+	x := appendExpr(fn, ir.ExprBinary{Op: ir.BinaryAdd, Left: one, Right: one})
+	r0 := appendExpr(fn, ir.ExprCallResult{Function: 0})
+	r1 := appendExpr(fn, ir.ExprCallResult{Function: 0})
+	r2 := appendExpr(fn, ir.ExprCallResult{Function: 0})
+	global := appendExpr(fn, ir.ExprGlobalVariable{Variable: 0})
+	fn.Body = ir.Block{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: x, End: x + 1}}},
+		{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{x}, Result: &r0}},
+		{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{r0}, Result: &r1}},
+		{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{r1}, Result: &r2}},
+		{Kind: ir.StmtStore{Pointer: global, Value: r2}},
+		{Kind: ir.StmtReturn{}},
+	}
+	Run(mod, fn)
+
+	emitsX, calls := false, 0
+	for _, s := range fn.Body {
+		switch k := s.Kind.(type) {
+		case ir.StmtEmit:
+			if k.Range.Start <= x && x < k.Range.End {
+				emitsX = true
+			}
+		case ir.StmtCall:
+			calls++
+		}
+	}
+	if !emitsX {
+		t.Errorf("the emit of the first call's argument was swept, body=%+v", fn.Body)
+	}
+	if calls != 3 {
+		t.Errorf("calls left = %d, want 3", calls)
+	}
+}

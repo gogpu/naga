@@ -63,6 +63,13 @@ func Run(mod *ir.Module, fn *ir.Function) {
 	// Phase 2b-fixup: after local-store propagation, some ExprCallResult
 	// handles may have become live through local store chains. Retroactively
 	// mark the arguments of those calls so the sweep keeps them.
+	//
+	// Both only ever add liveness, and each can feed the other (a call's
+	// argument loads a local; a local holds a call's result; a call's
+	// result is the argument of the call before it), so they repeat until
+	// nothing more comes alive, as Mesa's nir_opt_dce iterates its worklist.
+	// Stopping earlier left the arguments of the first calls of a chain of
+	// pure calls dead.
 	var mark func(h ir.ExpressionHandle)
 	mark = func(h ir.ExpressionHandle) {
 		if int(h) >= len(live) || live[h] {
@@ -72,13 +79,13 @@ func Run(mod *ir.Module, fn *ir.Function) {
 		visitExprHandles(fn.Expressions[h].Kind, mark)
 	}
 	for {
+		before := countLive(live)
 		markLiveLocalStoreValues(fn, live, deadLocals)
 		propagateCallResultLiveness(fn.Body, live, mark)
-		next := findDeadLocals(fn, live)
-		if len(next) == len(deadLocals) {
+		deadLocals = findDeadLocals(fn, live)
+		if countLive(live) == before {
 			break
 		}
-		deadLocals = next
 	}
 
 	// Phase 2c: unmark control-flow conditions whose sub-blocks
@@ -98,6 +105,16 @@ func Run(mod *ir.Module, fn *ir.Function) {
 	// instructions in the DXIL body, diverging from DXC which runs
 	// LLVM DCE and strips them.
 	fn.Body = sweepBlock(fn, fn.Body, deadLocals, live)
+}
+
+func countLive(live []bool) int {
+	n := 0
+	for _, l := range live {
+		if l {
+			n++
+		}
+	}
+	return n
 }
 
 // markLive performs the mark phase. It walks the statement tree and
