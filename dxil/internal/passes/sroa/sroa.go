@@ -437,6 +437,12 @@ func decompose(_ *ir.Module, fn *ir.Function, varIdx uint32, info *candidateInfo
 		_ = fieldExprHandles[fieldIdx]
 	}
 
+	// Step 3b: Split each full-struct store of a Compose (classifyStmts lets
+	// only those through) into one store per member. Left as it was, the
+	// store wrote the struct's own slot, which nothing reads any more, and
+	// the member locals kept their zero values: `var s = S(x, y); s.a` read 0.
+	fn.Body = splitComposeStores(fn, fn.Body, varIdx, fieldExprHandles)
+
 	// Step 4: Rewrite full struct loads to Compose of per-field loads.
 	// Also create StmtEmit ranges for the new load expressions so that
 	// mem2reg's classifyExpressions sees them as live.
@@ -471,6 +477,31 @@ func decompose(_ *ir.Module, fn *ir.Function, varIdx uint32, info *candidateInfo
 		insertEmitForRange(&bodySlice, loadH, ir.Range{Start: newExprStart, End: newExprEnd})
 		fn.Body = ir.Block(bodySlice)
 	}
+}
+
+// splitComposeStores replaces every store of a Compose to the struct local
+// varIdx in block with the stores of its components to the member locals
+// fieldPtrs names. Such stores are only in the top-level body: a candidate
+// with a store in control flow is not decomposed.
+func splitComposeStores(fn *ir.Function, block ir.Block, varIdx uint32, fieldPtrs map[uint32]ir.ExpressionHandle) ir.Block {
+	out := make(ir.Block, 0, len(block))
+	for _, st := range block {
+		store, ok := st.Kind.(ir.StmtStore)
+		if !ok {
+			out = append(out, st)
+			continue
+		}
+		lv, isLV := fn.Expressions[store.Pointer].Kind.(ir.ExprLocalVariable)
+		compose, isCompose := fn.Expressions[store.Value].Kind.(ir.ExprCompose)
+		if !isLV || lv.Variable != varIdx || !isCompose {
+			out = append(out, st)
+			continue
+		}
+		for i, c := range compose.Components {
+			out = append(out, ir.Statement{Kind: ir.StmtStore{Pointer: fieldPtrs[uint32(i)], Value: c}})
+		}
+	}
+	return out
 }
 
 // insertEmitForRange finds the StmtEmit that contains targetH and

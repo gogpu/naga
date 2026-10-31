@@ -303,6 +303,68 @@ func TestRunWithInit(t *testing.T) {
 	}
 }
 
+// A store of a whole Compose to the struct becomes a store of each
+// component to its member's local, in the store's place. The store was
+// left to the struct's own slot, which nothing reads after the pass, so
+// `var s = S(x, y); s.a` read the member local's zero value.
+func TestRunSplitsComposeStore(t *testing.T) {
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
+			{Inner: ir.StructType{
+				Members: []ir.StructMember{
+					{Name: "a", Type: makeTypeHandle(0)},
+					{Name: "b", Type: makeTypeHandle(0), Offset: 4},
+				},
+				Span: 8,
+			}},
+		},
+	}
+	fn := &ir.Function{
+		Name:      "main",
+		LocalVars: []ir.LocalVariable{{Name: "s", Type: makeTypeHandle(1)}},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},                                // [0] x
+			{Kind: ir.ExprFunctionArgument{Index: 1}},                                // [1] y
+			{Kind: ir.ExprCompose{Type: 1, Components: []ir.ExpressionHandle{0, 1}}}, // [2] S(x, y)
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                                // [3] &s
+			{Kind: ir.ExprAccessIndex{Base: 3, Index: 0}},                            // [4] &s.a
+			{Kind: ir.ExprLoad{Pointer: 4}},                                          // [5] s.a
+		},
+		ExpressionTypes: make([]ir.TypeResolution, 6),
+		Body: ir.Block{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
+			{Kind: ir.StmtStore{Pointer: 3, Value: 2}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 4, End: 6}}},
+		},
+	}
+
+	if n := Run(mod, fn); n != 1 {
+		t.Fatalf("decomposed %d locals, want 1", n)
+	}
+	var stores []ir.StmtStore
+	for _, st := range fn.Body {
+		if s, ok := st.Kind.(ir.StmtStore); ok {
+			stores = append(stores, s)
+		}
+	}
+	if len(stores) != 2 {
+		t.Fatalf("body has %d stores, want the 2 of the members: %+v", len(stores), fn.Body)
+	}
+	for i, s := range stores {
+		lv, ok := fn.Expressions[s.Pointer].Kind.(ir.ExprLocalVariable)
+		if !ok || fn.LocalVars[lv.Variable].Name != mod.Types[1].Inner.(ir.StructType).Members[i].Name {
+			t.Errorf("store %d writes %+v, want the local of member %d", i, fn.Expressions[s.Pointer].Kind, i)
+		}
+		if s.Value != ir.ExpressionHandle(i) {
+			t.Errorf("store %d writes value [%d], want component [%d]", i, s.Value, i)
+		}
+	}
+	if _, ok := fn.Body[1].Kind.(ir.StmtStore); !ok {
+		t.Errorf("the member stores aren't where the struct store was: %+v", fn.Body)
+	}
+}
+
 // TestRunNilInputs verifies graceful handling of nil parameters.
 func TestRunNilInputs(t *testing.T) {
 	count := Run(nil, nil)
