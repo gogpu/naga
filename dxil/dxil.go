@@ -253,51 +253,21 @@ func autoUpgradeSMPre(irModule *ir.Module, ep *ir.EntryPoint, smMinor uint32) ui
 	return smMinor
 }
 
-// prepareModule clones the IR module and inlines user helper functions.
-// Returns the prepared module ready for optimization passes.
+// prepareModule clones the IR module, inlines every user function into the
+// entry points and makes private variables entry-point locals. Returns the
+// prepared module ready for the optimization passes.
 //
-// BUG-DXIL-029: inline user helper functions at IR level so the DXIL
-// emitter never sees a StmtCall to a helper with features it cannot
-// emit as a standalone LLVM function (globals access, aggregate
-// return, complex locals).
-//
-// Two-tier inline policy:
-//  1. MUST inline: helpers that cannot be emitted standalone
-//  2. ALSO inline: pure helpers (no globals access, no break/continue)
-//     that CAN be emitted standalone but produce cleaner output inlined
-//
-// Helpers with side effects (UAV writes, globals) that CAN be emitted
-// standalone stay as separate LLVM functions.
+// Every helper is inlined: DXC inlines all functions of a non-library shader
+// (AlwaysInliner, DxilLinker.cpp) and Mesa all of a NIR shader
+// (nir_inline_functions), so drivers' DXIL compilers meet no user function
+// calls from them. Our standalone helpers (an LLVM function per helper with
+// control flow) read back garbage and hung NVIDIA's DX12 driver (GTX 1660
+// SUPER: loops/switch-break-in-loop-rt, loops/collatz-*,
+// flow/return-in-switch-in-loop-rt, calls/helper-chain-rt), and read
+// correctly with every helper inlined (wgpu's A/B run, 2026-10-31).
 func prepareModule(irModule *ir.Module) (*ir.Module, error) {
 	irModule = irModule.Clone()
-	if len(irModule.Functions) == 0 {
-		if err := lowerPrivatesToLocals(irModule); err != nil {
-			return nil, fmt.Errorf("dxil: private variables: %w", err)
-		}
-		return irModule, nil
-	}
-	shouldInline := func(callee *ir.Function) bool {
-		if helperNeedsInlining(irModule, callee) {
-			return true
-		}
-		if functionHasBreakContinue(callee) {
-			return false
-		}
-		if emit.FunctionAccessesGlobals(callee) {
-			return false
-		}
-		if emit.FunctionHasComplexLocals(callee, irModule) {
-			return false
-		}
-		if emit.FunctionHasComplexExpressions(callee, irModule) {
-			return false
-		}
-		if functionHasControlFlow(callee) {
-			return false
-		}
-		return true
-	}
-	if err := ir.InlineUserFunctions(irModule, shouldInline); err != nil {
+	if err := ir.InlineUserFunctions(irModule, nil); err != nil {
 		return nil, fmt.Errorf("dxil: inline user functions: %w", err)
 	}
 	if err := lowerPrivatesToLocals(irModule); err != nil {
@@ -3181,107 +3151,6 @@ func moduleUsesLowPrecision(m *ir.Module) bool {
 				return true
 			}
 		}
-	}
-	return false
-}
-
-// functionHasControlFlow reports whether the function body contains
-// any structured control flow (if/loop/switch). Functions with control
-// flow produce loops/branches that our DCE cannot fully eliminate when
-// the call result is unused, diverging from DXC which eliminates dead
-// calls before inlining.
-func functionHasControlFlow(fn *ir.Function) bool {
-	return blockHasControlFlow(fn.Body)
-}
-
-func blockHasControlFlow(block ir.Block) bool {
-	for i := range block {
-		switch sk := block[i].Kind.(type) {
-		case ir.StmtIf, ir.StmtLoop, ir.StmtSwitch:
-			return true
-		case ir.StmtBlock:
-			if blockHasControlFlow(sk.Block) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// functionHasBreakContinue reports whether any statement in the function
-// body is a StmtBreak or StmtContinue. Such functions cannot be safely
-// inlined because the break/continue would escape its enclosing loop.
-func functionHasBreakContinue(fn *ir.Function) bool {
-	return blockHasBreakContinue(fn.Body)
-}
-
-func blockHasBreakContinue(block ir.Block) bool {
-	for i := range block {
-		switch sk := block[i].Kind.(type) {
-		case ir.StmtBreak, ir.StmtContinue:
-			return true
-		case ir.StmtIf:
-			if blockHasBreakContinue(sk.Accept) || blockHasBreakContinue(sk.Reject) {
-				return true
-			}
-		case ir.StmtSwitch:
-			for ci := range sk.Cases {
-				if blockHasBreakContinue(sk.Cases[ci].Body) {
-					return true
-				}
-			}
-		case ir.StmtLoop:
-			// break/continue INSIDE a loop is self-contained — safe to inline.
-			// Don't recurse into loop body.
-		case ir.StmtBlock:
-			if blockHasBreakContinue(sk.Block) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// helperNeedsInlining mirrors emitHelperFunctions' eligibility gate and
-// returns true when the callee CANNOT be emitted as a standalone LLVM
-// function and would therefore fall through to emitStmtCall's
-// zero-valued fallback. The IR inline pass consults this predicate to
-// expand only the helpers that would otherwise silently return zero
-// (BUG-DXIL-029).
-//
-// Must stay in lockstep with emitHelperFunctions (emitter.go:538).
-func helperNeedsInlining(irMod *ir.Module, callee *ir.Function) bool {
-	for _, arg := range callee.Arguments {
-		if int(arg.Type) >= len(irMod.Types) {
-			return true
-		}
-		if !emit.IsScalarizableType(irMod.Types[arg.Type].Inner) {
-			return true
-		}
-	}
-	if callee.Result != nil {
-		if int(callee.Result.Type) >= len(irMod.Types) {
-			return true
-		}
-		resultIR := irMod.Types[callee.Result.Type]
-		if !emit.IsScalarizableType(resultIR.Inner) {
-			return true
-		}
-		if st, ok := resultIR.Inner.(ir.ScalarType); ok && st.Kind == ir.ScalarBool {
-			return true
-		}
-		if emit.ComponentCount(resultIR.Inner) > 1 {
-			return true
-		}
-	}
-	if emit.FunctionAccessesGlobals(callee) {
-		return true
-	}
-	if emit.FunctionHasComplexLocals(callee, irMod) {
-		return true
-	}
-	if emit.FunctionHasComplexExpressions(callee, irMod) {
-		return true
 	}
 	return false
 }
