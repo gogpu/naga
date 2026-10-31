@@ -17,8 +17,8 @@ var cardRe = regexp.MustCompile(`^(gogpu(/[a-z0-9-]+)?:)?[A-Z][A-Z0-9]*(-[A-Z0-9
 // validate checks the rules of FormatVersion that the JSON decoder does not.
 // It reports every broken rule, not only the first.
 func (s *Spec) validate() error {
-	if s.Format != FormatVersion {
-		return fmt.Errorf("format %d: this reader supports format %d", s.Format, FormatVersion)
+	if s.Format < 1 || s.Format > FormatVersion {
+		return fmt.Errorf("format %d: this reader supports formats 1 to %d", s.Format, FormatVersion)
 	}
 	var errs []error
 	if s.Desc == "" {
@@ -42,7 +42,7 @@ func (s *Spec) validate() error {
 	}
 	errs = append(errs, s.validateBindings()...)
 	for i := range s.KnownFailures {
-		if err := s.KnownFailures[i].validate(); err != nil {
+		if err := s.KnownFailures[i].validate(s.Format); err != nil {
 			errs = append(errs, fmt.Errorf("knownFailures[%d]: %w", i, err))
 		}
 	}
@@ -120,8 +120,11 @@ func (b *Binding) validateExpect() []error {
 	return errs
 }
 
-func (k *KnownFailure) validate() error {
+func (k *KnownFailure) validate(format int) error {
 	var errs []error
+	if k.Skip && format < 2 {
+		errs = append(errs, fmt.Errorf("skip needs format 2, the case declares format %d", format))
+	}
 	if !slices.Contains(Backends, k.Backend) {
 		errs = append(errs, fmt.Errorf("backend %q: want one of %v", k.Backend, Backends))
 	}

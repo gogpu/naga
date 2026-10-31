@@ -51,7 +51,7 @@ func TestLoadRejects(t *testing.T) {
 		{"other file", map[string]string{"loops/a.wgsl": validShader, "loops/a.json": validSpec, "loops/notes.txt": "x"}, "loops/notes.txt: not a .wgsl or .json file"},
 		{"bad name", map[string]string{"loops/Loop_A.wgsl": validShader, "loops/Loop_A.json": validSpec}, "name"},
 		{"bad area", map[string]string{"Loops/a.wgsl": validShader, "Loops/a.json": validSpec}, "name"},
-		{"bad spec", map[string]string{"loops/a.wgsl": validShader, "loops/a.json": `{"format": 2}`}, "loops/a.json: format 2"},
+		{"bad spec", map[string]string{"loops/a.wgsl": validShader, "loops/a.json": `{"format": 3}`}, "loops/a.json: format 3"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -30,7 +30,9 @@ testdata/readback/
   a literal and `<name>-rt.wgsl` reading it from a storage buffer (the WebGPU CTS `preventValueOptimizations`
   pattern). The v0.20.3 bugs appeared only with run-time values.
 
-## Case format 1
+## Case format
+
+Format 2 is format 1 plus `skip` in a known failure (below). A reader reads every format up to its own.
 
 ```json
 {
@@ -55,7 +57,7 @@ Unknown fields are errors. Every field below is required unless marked optional.
 
 | Field | Meaning |
 |---|---|
-| `format` | `1`. A reader rejects any other value: an older reader fails with "corpus format N > supported M" instead of misreading a newer case. |
+| `format` | `1` or `2`; `2` only when the case uses `skip`. A reader rejects a format newer than its own: an older reader fails with "corpus format N > supported M" instead of misreading a newer case. |
 | `desc` | What the case checks and why it exists (the bug it guards, with its card if any). |
 | `entry` | Name of the `@compute` entry point. |
 | `workgroups` | Dispatch size: exactly three counts, each ≥ 1. |
@@ -101,9 +103,14 @@ A known failure says a case is expected to fail on some runs, as Rust wgpu's `Fa
 | `adapter`, `driver` | Optional. Case-insensitive substrings of the adapter name and the driver description; empty matches every adapter. |
 | `card` | The card that tracks the bug: a naga card ID (`BUG-DXIL-043`) or `gogpu/<repo>:<ID>` for another gogpu repository (`gogpu/wgpu:P1-INFRA-001`). Required: no anonymous failures. |
 | `reason` | One line: what goes wrong. |
+| `skip` | Optional, format 2. `true`: the runner does not dispatch the case on matched runs and reports it as skipped with the card (Rust wgpu's `FailureCase` skip). Only for a case that hangs the GPU or loses the device, which would fail every case after it. |
+
+A `skip` entry still names a card. A skipped run cannot report an unexpected pass, so whoever works the card runs
+the case on that backend by hand and removes the entry with the fix.
 
 The runner matches every run against the entries of its case:
 
+- matched by a `skip` entry → not dispatched, reported as skipped with the card;
 - matched and failed → expected failure, reported as such;
 - matched and **passed** → **error**: "unexpected pass, close `<card>`". A fixed bug cannot hide behind a stale
   entry;
@@ -111,7 +118,8 @@ The runner matches every run against the entries of its case:
 
 On the naga side, a backend may fail to compile a case only when that backend has an entry with no `adapter` and
 no `driver` (it fails everywhere). A case is not compiled at all for a backend that never exposes a feature it
-`requires`, since no run reaches it there: `gles` never offers `shader-f16`. `spirv` serves both `vulkan` and `software`, so a SPIR-V compile failure needs
+`requires`, since no run reaches it there: `gles` never offers `shader-f16`. `spirv` serves both `vulkan` and
+`software`, so a SPIR-V compile failure needs
 an entry for each.
 
 ### Lockstep rule for another repository's cards
