@@ -116,6 +116,75 @@ func TestLiveLocalUsedByGlobalStore(t *testing.T) {
 	}
 }
 
+// TestLiveLocalChain verifies that liveness flows back through a chain of
+// locals: a value stored into x, loaded and stored into y, whose load feeds
+// a global store, keeps every store of the chain (P0-DXIL-055).
+//
+// IR shape (what the inline pass leaves for a helper inlined into a helper
+// that is itself inlined: one return-slot local per level):
+//
+//	var x, y, z: i32
+//	x = 42
+//	y = load(x)
+//	z = load(y)
+//	global_out = load(z)
+//
+// A local is live only once one of its loads is live, and a load of x
+// becomes live only when the store into y is found live. Deciding the dead
+// locals once, before that store is seen, dropped x's store and left
+// load(x) reading an uninitialized alloca. Mesa's nir_opt_dce iterates to a
+// fixed point for the same reason.
+func TestLiveLocalChain(t *testing.T) {
+	mod := &ir.Module{
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "out", Space: ir.SpaceStorage, Type: 0},
+		},
+	}
+	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
+
+	fn := &ir.Function{
+		LocalVars: []ir.LocalVariable{
+			{Name: "x", Type: i32},
+			{Name: "y", Type: i32},
+			{Name: "z", Type: i32},
+		},
+	}
+
+	val := appendExpr(fn, ir.Literal{Value: ir.LiteralI32(42)})
+	x := appendExpr(fn, ir.ExprLocalVariable{Variable: 0})
+	y := appendExpr(fn, ir.ExprLocalVariable{Variable: 1})
+	z := appendExpr(fn, ir.ExprLocalVariable{Variable: 2})
+	loadX := appendExpr(fn, ir.ExprLoad{Pointer: x})
+	loadY := appendExpr(fn, ir.ExprLoad{Pointer: y})
+	loadZ := appendExpr(fn, ir.ExprLoad{Pointer: z})
+	global := appendExpr(fn, ir.ExprGlobalVariable{Variable: 0})
+
+	fn.Body = ir.Block{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: val, End: val + 1}}},
+		{Kind: ir.StmtStore{Pointer: x, Value: val}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: loadX, End: loadX + 1}}},
+		{Kind: ir.StmtStore{Pointer: y, Value: loadX}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: loadY, End: loadY + 1}}},
+		{Kind: ir.StmtStore{Pointer: z, Value: loadY}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: loadZ, End: loadZ + 1}}},
+		{Kind: ir.StmtStore{Pointer: global, Value: loadZ}},
+		{Kind: ir.StmtReturn{}},
+	}
+
+	bodyLenBefore := len(fn.Body)
+	Run(mod, fn)
+
+	if len(fn.Body) != bodyLenBefore {
+		t.Fatalf("expected %d statements (every store of the chain is live), got %d", bodyLenBefore, len(fn.Body))
+	}
+	for i, want := range []ir.ExpressionHandle{x, y, z} {
+		st, ok := fn.Body[1+2*i].Kind.(ir.StmtStore)
+		if !ok || st.Pointer != want {
+			t.Errorf("statement %d: want the store into local %d, got %T %+v", 1+2*i, i, fn.Body[1+2*i].Kind, fn.Body[1+2*i].Kind)
+		}
+	}
+}
+
 // TestMultipleDeadLocals verifies that multiple dead locals are all
 // eliminated in a single pass.
 func TestMultipleDeadLocals(t *testing.T) {
