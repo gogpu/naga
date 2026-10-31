@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Readback corpus format 2.** A known failure can carry `"skip": true`: the runner does not dispatch the case on
+  matching runs (the GPU hangs or the device is lost) and reports it skipped with its card, as Rust wgpu's
+  `FailureCase` skip. Format 1 cases still read; `skip` needs format 2. A case that requires a feature a backend
+  never exposes is no longer compiled for it (`gles` and `shader-f16`).
+
+### Added
+
+- **Readback corpus: 11 cases** (32 → 43): calls/helper-chain-rt, arg-order-rt, result-both-branches-rt,
+  entry-input-arg-rt; loops/switch-break-in-loop-rt; flow/if-in-if-phi-rt; floats/f16-ops-rt;
+  uniforms/struct-mixed-rt; vars/private-vec-rt, workgroup-zero-rt, workgroup-composite-rt. Run on Vulkan, DX12
+  (FXC and DXIL) on Intel and NVIDIA, GLES and software. They found two DXIL failures beyond the known ones: a
+  switch in an inlined helper hangs NVIDIA GPUs (P0-DXIL-055), and DXIL refuses workgroup vectors and emits
+  invalid DXIL for workgroup structs (P1-DXIL-066). Both are open, with known failures in the corpus; DXIL is
+  opt-in in gogpu/wgpu (`GOGPU_DX12_DXIL=1`).
+- DXIL regression tests for chains of inlined helpers and of locals (P0-DXIL-055).
+
 ## [0.20.5] - 2026-10-31
 
 Most of this release is @roffe's work on the GLSL, MSL, SPIR-V and DXIL
