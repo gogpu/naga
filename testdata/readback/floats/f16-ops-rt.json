@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "desc": "f16 multiply, add and negate stored as vec2<f16> members at bytes 16 and 20, and converted to vec4<f32>: v = (3.25, 5.25, 3.25, 5.25), h = (3.25, 5.25), hs = (-0.25, 0.25) (#128 review: DXIL f16, SM 6.2)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "requires": ["shader-f16"],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": ["0x40000000"], "type": "f32"},
+    {"binding": 1, "kind": "storage-rw", "len": 9, "fill": "0xDEADBEEF",
+     "expect": [["0x40500000", "0x40A80000", "0x40500000", "0x40A80000", "0x45404280", "0x3400B400", "fill", "fill", "fill"]]}
+  ]
+}

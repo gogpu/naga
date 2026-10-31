@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "var<workgroup> array<u32, 16>, u32 and i32 read before any write are zero: 18 zeros (the backends' workgroup zero-init, ADR-009 row 2)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [0]},
+    {"binding": 1, "kind": "storage-rw", "len": 19, "fill": "0xDEADBEEF",
+     "expect": [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "fill"]]}
+  ]
+}

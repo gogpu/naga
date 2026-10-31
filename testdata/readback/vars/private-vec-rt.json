@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "desc": "a var<private> vec2 written and updated whole keeps both components: (11, 21) (P0-DXIL-059: DXIL gave it one scalar alloca; refused at compile time until fixed)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [10, 20], "type": "i32"},
+    {"binding": 1, "kind": "storage-rw", "len": 3, "fill": "0xDEADBEEF", "type": "i32",
+     "expect": [[11, 21, "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "dx12-dxil", "card": "P0-DXIL-059", "reason": "a var<private> vector is refused at compile time"}
+  ]
+}

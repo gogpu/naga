@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "desc": "var<workgroup> vec2, array<vec4> and a struct are zero at the start and keep every member after a write: [0, 0, 11, 15, 0, 5] (P1-DXIL-066: DXIL refuses workgroup vectors and emits invalid DXIL for workgroup structs)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [5]},
+    {"binding": 1, "kind": "storage-rw", "len": 7, "fill": "0xDEADBEEF",
+     "expect": [[0, 0, 11, 15, 0, 5, "fill"]]}
+  ],
+  "knownFailures": [
+    {"backend": "dx12-dxil", "card": "P1-DXIL-066", "reason": "workgroup vectors are refused at compile time; workgroup structs give invalid DXIL"}
+  ]
+}

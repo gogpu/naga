@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "a helper returning from both sides of an if, its result used on both sides of an if in the caller: [6, 107, 108, 114] for li 0..3 with k = 2 (#128 review)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "uniform", "words": [2, 0, 0, 0], "type": "i32"},
+    {"binding": 1, "kind": "storage-rw", "len": 5, "fill": "0xDEADBEEF", "type": "i32",
+     "expect": [[6, 107, 108, 114, "fill"]]}
+  ]
+}

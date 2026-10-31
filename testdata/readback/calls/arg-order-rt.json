@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "a vector argument is evaluated before a later argument bumps it through a pointer: f(acc, bump(&acc)) = 10, acc = (11, 21) (#128 review: the inlined DXIL callee re-loaded acc and wrote 11)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [10, 20], "type": "i32"},
+    {"binding": 1, "kind": "storage-rw", "len": 4, "fill": "0xDEADBEEF", "type": "i32",
+     "expect": [[10, 11, 21, "fill"]]}
+  ]
+}
