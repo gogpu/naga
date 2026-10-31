@@ -7,9 +7,13 @@
 //   nested struct let: m.s.a = 7
 //   array of vectors:  b[0].x = 7
 //   the variable:      arr[0] = 8
-// DXIL (P0-DXIL-062): the array let read the variable at the use (8, 18), the struct init and lets stored 0.
+//   constant init:     c.a + c.b.y = 5 + 9 = 14 (var c = cs)
+// DXIL (P0-DXIL-062): the array let read the variable at the use (8, 18), the struct init and lets stored 0, the
+// constant-initialized struct read 0 and uninitialized memory.
 struct S { a: u32, b: vec2<u32> }
 struct N { s: S, k: u32 }
+
+const cs = S(5u, vec2<u32>(6u, 9u));
 
 @group(0) @binding(0) var<storage, read> src: array<u32, 2>;
 @group(0) @binding(1) var<storage, read_write> dst: array<u32>;
@@ -46,4 +50,7 @@ fn main() {
     dst[7] = b[0].x;
 
     dst[8] = arr[0];
+
+    var c = cs;
+    dst[9] = c.a + c.b.y;
 }

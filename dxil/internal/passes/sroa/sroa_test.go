@@ -365,6 +365,36 @@ func TestRunSplitsComposeStore(t *testing.T) {
 	}
 }
 
+// A struct local initialized from a named constant is left whole: its
+// initializer has no components to give the member locals, which started at
+// zero, so `var s = cs; s.a` read 0.
+func TestRunKeepsConstantInitializedStruct(t *testing.T) {
+	mod := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
+			{Inner: ir.StructType{Members: []ir.StructMember{{Name: "a", Type: makeTypeHandle(0)}}, Span: 4}},
+		},
+	}
+	initH := ir.ExpressionHandle(0)
+	fn := &ir.Function{
+		Name:      "main",
+		LocalVars: []ir.LocalVariable{{Name: "s", Type: makeTypeHandle(1), Init: &initH}},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprConstant{Constant: 0}},          // [0] cs
+			{Kind: ir.ExprLocalVariable{Variable: 0}},     // [1] &s
+			{Kind: ir.ExprAccessIndex{Base: 1, Index: 0}}, // [2] &s.a
+			{Kind: ir.ExprLoad{Pointer: 2}},               // [3] s.a
+		},
+		ExpressionTypes: make([]ir.TypeResolution, 4),
+		Body: ir.Block{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 4}}},
+		},
+	}
+	if n := Run(mod, fn); n != 0 {
+		t.Fatalf("decomposed %d locals, want the constant-initialized struct left whole", n)
+	}
+}
+
 // TestRunNilInputs verifies graceful handling of nil parameters.
 func TestRunNilInputs(t *testing.T) {
 	count := Run(nil, nil)

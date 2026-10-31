@@ -132,6 +132,14 @@ func classify(mod *ir.Module, fn *ir.Function) map[uint32]*candidateInfo {
 		if !allMembersDecomposable(mod, st) {
 			continue
 		}
+		// decompose gives the member locals the components of a Compose
+		// initializer. Any other initializer, a constant (`var s = cs`), has
+		// no components to give: the member locals would start at zero.
+		if local.Init != nil {
+			if _, isCompose := fn.Expressions[*local.Init].Kind.(ir.ExprCompose); !isCompose {
+				continue
+			}
+		}
 		hh := ir.ExpressionHandle(h)
 		lvHandleMap[hh] = lv.Variable
 		if _, exists := candidates[lv.Variable]; !exists {

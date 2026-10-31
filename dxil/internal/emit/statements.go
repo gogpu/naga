@@ -72,8 +72,10 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 		}
 		// Init-only optimization: if the local has a non-nil Init and is
 		// never stored to, register it so loads resolve to Init directly.
+		// A struct read through a pointer to a member (`s.a`) is not:
+		// that load goes to the alloca, which then has to hold the Init.
 		lv := &fn.LocalVars[i]
-		if lv.Init != nil && !stored[uint32(i)] {
+		if lv.Init != nil && !stored[uint32(i)] && !e.structMemberAccessed(fn, uint32(i)) {
 			e.initOnlyLocals[uint32(i)] = *lv.Init
 			continue
 		}
@@ -98,6 +100,35 @@ func (e *Emitter) preAllocateLocalVars(fn *ir.Function) error {
 		}
 	}
 	return e.storeLocalInitializers(fn)
+}
+
+// structMemberAccessed reports whether the local v is a struct some
+// expression takes a pointer to a member of. The loads of an init-only
+// local resolve to its Init only when they load the whole variable; a load
+// of a member goes to an alloca, and an init-only local's alloca never got
+// the Init stored: `const cs = S(7, ...); var s = cs; s.a` read
+// uninitialized memory. A struct whose whole-variable store the emitter
+// cannot write (storableWhole) keeps the init-only path.
+func (e *Emitter) structMemberAccessed(fn *ir.Function, v uint32) bool {
+	ty := fn.LocalVars[v].Type
+	if _, isStruct := e.ir.Types[ty].Inner.(ir.StructType); !isStruct || !e.storableWhole(ty) {
+		return false
+	}
+	for _, expr := range fn.Expressions {
+		var base ir.ExpressionHandle
+		switch k := expr.Kind.(type) {
+		case ir.ExprAccessIndex:
+			base = k.Base
+		case ir.ExprAccess:
+			base = k.Base
+		default:
+			continue
+		}
+		if lv, ok := fn.Expressions[base].Kind.(ir.ExprLocalVariable); ok && lv.Variable == v {
+			return true
+		}
+	}
+	return false
 }
 
 // storeLocalInitializers stores the initializer of every local that got an
