@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     argument changed them through a pointer.
   - A struct `var` initialized from a named constant
     (`const cs = S(7, vec2(8, 9)); var s = cs;`) lost the initializer.
+- **HLSL: `sign()` of a float returned integer bits** — HLSL's `sign`
+  returns `int` for every argument, and the backend wrote it bare, so on
+  FXC a `vec4<f32>` received the bit patterns of -1, 0 and 1, and a stored
+  `sign(-2.0)` became `0xFFFFFFFF`. The result of a float `sign` is now
+  converted back to its type, as in Rust naga. This was listed as a known
+  issue of 0.20.4.
 
 ## [0.20.4] - 2026-10-29
 
