@@ -104,7 +104,84 @@ func selectStructuredCandidates(ctx *promotionContext) map[uint32]struct{} {
 	// disqualified the variable, and the loop then read an
 	// uninitialized alloca.
 	dropLoopStoredCandidates(&ctx.localPtrs, out, ctx.fn.Body)
+	dropUnmergeableSwitchCandidates(&ctx.localPtrs, out, ctx.fn.Body)
 	return out
+}
+
+// dropUnmergeableSwitchCandidates removes from candidates every variable
+// stored inside a switch whose merge has predecessors a PhiPredSwitchCase
+// incoming cannot name: a break that is not at the end of its case (it
+// branches to the merge from a block inside the case), a fall-through case
+// (its end branches to the next case), or a missing default (the last
+// comparison branches to the merge). Those variables keep their alloca,
+// which is always right.
+func dropUnmergeableSwitchCandidates(ptrs *localPtr, candidates map[uint32]struct{}, block []ir.Statement) {
+	for i := range block {
+		switch sk := block[i].Kind.(type) {
+		case ir.StmtSwitch:
+			if !switchMergeIsCaseEnds(sk) {
+				stored := make(map[uint32]struct{})
+				for ci := range sk.Cases {
+					collectStores(ptrs, candidates, []ir.Statement(sk.Cases[ci].Body), stored)
+				}
+				for v := range stored {
+					delete(candidates, v)
+				}
+			}
+			for ci := range sk.Cases {
+				dropUnmergeableSwitchCandidates(ptrs, candidates, sk.Cases[ci].Body)
+			}
+		case ir.StmtBlock:
+			dropUnmergeableSwitchCandidates(ptrs, candidates, sk.Block)
+		case ir.StmtIf:
+			dropUnmergeableSwitchCandidates(ptrs, candidates, sk.Accept)
+			dropUnmergeableSwitchCandidates(ptrs, candidates, sk.Reject)
+		case ir.StmtLoop:
+			dropUnmergeableSwitchCandidates(ptrs, candidates, sk.Body)
+			dropUnmergeableSwitchCandidates(ptrs, candidates, sk.Continuing)
+		}
+	}
+}
+
+// switchMergeIsCaseEnds reports whether the only predecessors of the
+// switch's merge are the end blocks of its cases.
+func switchMergeIsCaseEnds(sk ir.StmtSwitch) bool {
+	hasDefault := false
+	for ci := range sk.Cases {
+		c := &sk.Cases[ci]
+		if _, ok := c.Value.(ir.SwitchValueDefault); ok {
+			hasDefault = true
+		}
+		if c.FallThrough || hasInnerBreak(c.Body, true) {
+			return false
+		}
+	}
+	return hasDefault
+}
+
+// hasInnerBreak reports whether block holds a break that leaves the switch
+// around it from anywhere but the end of the case (tail reports whether
+// block's last statement is the end of the case). Breaks inside a nested
+// loop or switch leave that construct and do not count.
+func hasInnerBreak(block []ir.Statement, tail bool) bool {
+	for i := range block {
+		last := tail && i == len(block)-1
+		switch sk := block[i].Kind.(type) {
+		case ir.StmtBreak:
+			if !last {
+				return true
+			}
+		case ir.StmtBlock:
+			if hasInnerBreak(sk.Block, last) {
+				return true
+			}
+		case ir.StmtIf:
+			if hasInnerBreak(sk.Accept, false) || hasInnerBreak(sk.Reject, false) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // dropLoopStoredCandidates removes from candidates every variable stored
@@ -166,18 +243,37 @@ func initialValueOf(ctx *promotionContext, v uint32) ir.ExpressionHandle {
 	return zh
 }
 
+// blockExit is how control leaves the end of a block, in the emitter's
+// terms (emit/statements.go): a block that ends with a break, continue or
+// return ends its basic block with that branch, so it is no predecessor of
+// the enclosing if's merge; a break is the one exit that still reaches a
+// switch's merge, from the case's own end block.
+type blockExit uint8
+
+const (
+	exitFallsThrough blockExit = iota
+	exitBreak
+	exitOther // continue or return
+)
+
 // walkBlock performs the rename pass for a single statement block.
 // The block is mutated in place: stores to candidates are removed,
 // loads to candidates are rewritten to ExprAlias, and synthesized
 // phi-bearing StmtEmit statements are inserted at structured merge
-// points.
-//
-// Returns nothing — all output goes through ctx.fn mutation.
-func (w *phiWalker) walkBlock(blk *[]ir.Statement) {
+// points. Statements after a break, continue or return never run and
+// are dropped, as the emitter drops them.
+func (w *phiWalker) walkBlock(blk *[]ir.Statement) blockExit {
 	out := make([]ir.Statement, 0, len(*blk))
+	exit := exitFallsThrough
 	for i := range *blk {
 		stmt := (*blk)[i]
 		switch sk := stmt.Kind.(type) {
+		case ir.StmtBreak:
+			out = append(out, stmt)
+			exit = exitBreak
+		case ir.StmtContinue, ir.StmtReturn:
+			out = append(out, stmt)
+			exit = exitOther
 		case ir.StmtStore:
 			if v, ok := w.ctx.localPtrs[sk.Pointer]; ok {
 				if _, isCand := w.candidates[v]; isCand {
@@ -203,13 +299,17 @@ func (w *phiWalker) walkBlock(blk *[]ir.Statement) {
 			out = append(out, extra...)
 		case ir.StmtBlock:
 			b := []ir.Statement(sk.Block)
-			w.walkBlock(&b)
+			exit = w.walkBlock(&b)
 			out = append(out, ir.Statement{Kind: ir.StmtBlock{Block: ir.Block(b)}})
 		default:
 			out = append(out, stmt)
 		}
+		if exit != exitFallsThrough {
+			break
+		}
 	}
 	*blk = out
+	return exit
 }
 
 // rewriteLoadsInRange rewrites every load handle in r whose target is
@@ -245,18 +345,34 @@ func (w *phiWalker) handleIf(stmtPtr *ir.Statement) []ir.Statement {
 	preIf := snapshotValues(w.currentValue)
 
 	accept := []ir.Statement(sk.Accept)
-	w.walkBlock(&accept)
+	acceptExit := w.walkBlock(&accept)
 	acceptValues := snapshotValues(w.currentValue)
 
 	w.currentValue = snapshotValues(preIf)
 	reject := []ir.Statement(sk.Reject)
-	w.walkBlock(&reject)
+	rejectExit := w.walkBlock(&reject)
 	rejectValues := snapshotValues(w.currentValue)
 
 	stmtPtr.Kind = ir.StmtIf{
 		Condition: sk.Condition,
 		Accept:    ir.Block(accept),
 		Reject:    ir.Block(reject),
+	}
+
+	// A branch that leaves with a break, continue or return is no
+	// predecessor of the merge: the merge sees only the other branch's
+	// values, and a phi with an incoming from it would be invalid.
+	switch {
+	case acceptExit != exitFallsThrough && rejectExit != exitFallsThrough:
+		// The merge is unreachable; any value is right there.
+		w.currentValue = snapshotValues(preIf)
+		return nil
+	case acceptExit != exitFallsThrough:
+		w.currentValue = rejectValues
+		return nil
+	case rejectExit != exitFallsThrough:
+		w.currentValue = acceptValues
+		return nil
 	}
 
 	var phis []ir.Statement
@@ -299,12 +415,17 @@ func (w *phiWalker) handleSwitch(stmtPtr *ir.Statement) []ir.Statement {
 	preSwitch := snapshotValues(w.currentValue)
 
 	caseValues := make([]map[uint32]ir.ExpressionHandle, len(sk.Cases))
+	reachesMerge := make([]bool, len(sk.Cases))
 	cases := make([]ir.SwitchCase, len(sk.Cases))
 	copy(cases, sk.Cases)
 	for ci := range cases {
 		w.currentValue = snapshotValues(preSwitch)
 		body := []ir.Statement(cases[ci].Body)
-		w.walkBlock(&body)
+		// A case's end block branches to the merge when the case falls
+		// off its end or ends with a break; a continue or return leaves
+		// elsewhere. A fall-through case branches to the next case
+		// instead (candidates stored in such a switch were dropped).
+		reachesMerge[ci] = w.walkBlock(&body) != exitOther && !cases[ci].FallThrough
 		caseValues[ci] = snapshotValues(w.currentValue)
 		cases[ci].Body = ir.Block(body)
 	}
@@ -312,35 +433,52 @@ func (w *phiWalker) handleSwitch(stmtPtr *ir.Statement) []ir.Statement {
 
 	var phis []ir.Statement
 	for v := range w.candidates {
-		// Decide whether ANY case wrote to v.
-		writes := false
-		for ci := range caseValues {
-			if val, ok := caseValues[ci][v]; ok && val != preSwitch[v] {
-				writes = true
-				break
-			}
-		}
-		if !writes {
+		incomings := switchMergeIncomings(v, caseValues, reachesMerge, preSwitch)
+		switch {
+		case len(incomings) == 0:
+			// No case reaches the merge: it is unreachable.
 			w.currentValue[v] = preSwitch[v]
-			continue
+		case allSameValue(incomings):
+			// One value along every edge (the one before the switch, or
+			// one every case stored): no phi.
+			w.currentValue[v] = incomings[0].Value
+		default:
+			phiHandle := w.appendPhi(incomings)
+			w.currentValue[v] = phiHandle
+			phis = append(phis, makePhiEmit(phiHandle))
 		}
-		incomings := make([]ir.PhiIncoming, 0, len(caseValues))
-		for ci := range caseValues {
-			val, ok := caseValues[ci][v]
-			if !ok {
-				val = preSwitch[v]
-			}
-			incomings = append(incomings, ir.PhiIncoming{
-				PredKey: ir.PhiPredSwitchCase,
-				CaseIdx: uint32(ci),
-				Value:   val,
-			})
-		}
-		phiHandle := w.appendPhi(incomings)
-		w.currentValue[v] = phiHandle
-		phis = append(phis, makePhiEmit(phiHandle))
 	}
 	return phis
+}
+
+// switchMergeIncomings returns v's value along each edge into the switch's
+// merge, one per case that reaches it.
+func switchMergeIncomings(v uint32, caseValues []map[uint32]ir.ExpressionHandle, reachesMerge []bool, preSwitch map[uint32]ir.ExpressionHandle) []ir.PhiIncoming {
+	incomings := make([]ir.PhiIncoming, 0, len(caseValues))
+	for ci := range caseValues {
+		if !reachesMerge[ci] {
+			continue
+		}
+		val, ok := caseValues[ci][v]
+		if !ok {
+			val = preSwitch[v]
+		}
+		incomings = append(incomings, ir.PhiIncoming{
+			PredKey: ir.PhiPredSwitchCase,
+			CaseIdx: uint32(ci),
+			Value:   val,
+		})
+	}
+	return incomings
+}
+
+func allSameValue(incomings []ir.PhiIncoming) bool {
+	for _, in := range incomings[1:] {
+		if in.Value != incomings[0].Value {
+			return false
+		}
+	}
+	return true
 }
 
 // handleLoop processes a StmtLoop during the rename pass.

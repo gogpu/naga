@@ -348,10 +348,11 @@ func walkStmts(b Block, fn func(*Statement)) {
 	}
 }
 
-// TestInlineEarlyReturnWrap verifies that a callee with early returns
-// (returns inside if/switch) is wrapped in a loop+break pattern after
-// inlining. This mirrors DXC's AlwaysInliner behavior.
-func TestInlineEarlyReturnWrap(t *testing.T) {
+// TestInlineEarlyReturnsInIf: returns in both branches of an if, with nothing
+// after it, become stores into the return slot and nothing else: no loop
+// around the body, no break (there is no loop or switch to leave) and no
+// "returned" flag (no code after the if needs a guard).
+func TestInlineEarlyReturnsInIf(t *testing.T) {
 	scalarI32 := TypeHandle(0)
 	module := &Module{
 		Types: []Type{
@@ -420,36 +421,24 @@ func TestInlineEarlyReturnWrap(t *testing.T) {
 
 	main := &module.EntryPoints[0].Function
 
-	// The inlined body must contain a StmtLoop (wrapper) because test_if
-	// has early returns inside the if-statement.
-	foundLoop := false
+	slotStores := 0
 	walkStmts(main.Body, func(s *Statement) {
-		if _, ok := s.Kind.(StmtLoop); ok {
-			foundLoop = true
-		}
-	})
-	if !foundLoop {
-		t.Fatalf("expected StmtLoop wrapper in inlined body for early-return callee, body=%+v", main.Body)
-	}
-
-	// Inside the loop, the returns must have been replaced with
-	// StmtStore (to ret slot) + StmtBreak.
-	breakCount := 0
-	storeCount := 0
-	walkStmts(main.Body, func(s *Statement) {
-		switch s.Kind.(type) {
-		case StmtBreak:
-			breakCount++
+		switch k := s.Kind.(type) {
+		case StmtLoop, StmtBreak:
+			t.Errorf("unexpected %T in the inlined body: %+v", k, main.Body)
 		case StmtStore:
-			storeCount++
+			if lv, ok := main.Expressions[k.Pointer].Kind.(ExprLocalVariable); ok && main.LocalVars[lv.Variable].Name == "_inline_ret_test_if" {
+				slotStores++
+			}
 		}
 	})
-	// Two early returns -> two store+break pairs
-	if breakCount < 2 {
-		t.Errorf("expected at least 2 StmtBreak in wrapped body, got %d", breakCount)
+	if slotStores != 2 {
+		t.Errorf("stores into the return slot = %d, want 2 (one per return)", slotStores)
 	}
-	if storeCount < 2 {
-		t.Errorf("expected at least 2 StmtStore (ret slot + arg spill) in wrapped body, got %d", storeCount)
+	for _, lv := range main.LocalVars {
+		if lv.Name == "_inline_returned_test_if" {
+			t.Errorf("a returned flag was made though no guard reads it")
+		}
 	}
 
 	// The call result expression should now be an ExprLoad (from the ret slot).
@@ -459,8 +448,8 @@ func TestInlineEarlyReturnWrap(t *testing.T) {
 	}
 }
 
-// TestInlineEarlyReturnVoid verifies that void callees with early returns
-// get wrapped in loop+break without a return slot.
+// TestInlineEarlyReturnVoid: a void callee's early return with nothing after
+// its if lowers to nothing at all: no loop, no break, no flag.
 func TestInlineEarlyReturnVoid(t *testing.T) {
 	scalarI32 := TypeHandle(0)
 	module := &Module{
@@ -524,26 +513,16 @@ func TestInlineEarlyReturnVoid(t *testing.T) {
 
 	main := &module.EntryPoints[0].Function
 
-	// Verify loop wrapper exists
-	foundLoop := false
 	walkStmts(main.Body, func(s *Statement) {
-		if _, ok := s.Kind.(StmtLoop); ok {
-			foundLoop = true
+		switch k := s.Kind.(type) {
+		case StmtLoop, StmtBreak, StmtReturn:
+			t.Errorf("unexpected %T in the inlined body: %+v", k, main.Body)
 		}
 	})
-	if !foundLoop {
-		t.Fatalf("expected StmtLoop wrapper for void callee with early return")
-	}
-
-	// Verify break exists (void return -> just break, no store)
-	breakCount := 0
-	walkStmts(main.Body, func(s *Statement) {
-		if _, ok := s.Kind.(StmtBreak); ok {
-			breakCount++
+	for _, lv := range main.LocalVars {
+		if lv.Name == "_inline_returned_early_void" {
+			t.Errorf("a returned flag was made though no guard reads it")
 		}
-	})
-	if breakCount == 0 {
-		t.Errorf("expected at least 1 StmtBreak in wrapped void body")
 	}
 }
 
