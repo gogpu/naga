@@ -184,6 +184,14 @@ type Emitter struct {
 	// Loop context stack for break/continue targets.
 	loopStack []loopContext
 
+	// cfDepth counts the if, switch and loop bodies being emitted; a return
+	// at depth 0 ends the entry point where it stands.
+	cfDepth int
+	// entryExitBB is the entry point's shared return block, made by the
+	// first return nested in control flow (-1 until then). Every return
+	// branches to it, so the entry point has one exit, as DXC emits it.
+	entryExitBB int
+
 	// lastBranchBBs holds the BB indices recorded by the most-recently
 	// completed StmtIf / StmtSwitch / (future) StmtLoop emit. Used by
 	// emitExpression for ExprPhi to map each PhiIncoming.PredKey to a
@@ -381,9 +389,13 @@ type wgMemberKey struct {
 
 // loopContext holds the branch targets for the innermost loop,
 // used by break and continue statements to emit correct branches.
+// loopContext is one construct a break can leave: a loop or a switch. In the
+// IR, as in WGSL and Rust naga, a break leaves the innermost of them and a
+// continue goes to the innermost loop's continuing block.
 type loopContext struct {
-	continuingBBIndex int // basic block index for the continuing block
-	mergeBBIndex      int // basic block index for the merge (after-loop) block
+	continuingBBIndex int  // basic block index for the continuing block (loops only)
+	mergeBBIndex      int  // basic block index for the merge (after-construct) block
+	isSwitch          bool // a switch: a break target but not a continue target
 }
 
 // branchKind tags the kind of structured construct that produced the
@@ -601,6 +613,12 @@ func EmitWithFlags(irMod *ir.Module, opts EmitOptions) (*module.Module, uint64, 
 	for handle, helperFn := range e.helperFunctions {
 		helperConstMap := e.helperConstMaps[handle]
 		e.finalizeHelperFunction(helperFn, helperConstMap)
+	}
+
+	for _, fn := range mod.Functions {
+		if err := fn.VerifyCFG(); err != nil {
+			return nil, 0, fmt.Errorf("dxil/emit: entry point %q: internal error, invalid control flow: %w", ep.Name, err)
+		}
 	}
 
 	return mod, e.finalShaderFlags, nil
@@ -1106,6 +1124,8 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 	e.workgroupFieldPtrs = make(map[int]workgroupFieldOrigin)
 	e.workgroupElemPtrs = make(map[int]workgroupElemOrigin)
 	e.loopStack = e.loopStack[:0]
+	e.cfDepth = 0
+	e.entryExitBB = -1
 	e.meshCtx = nil
 
 	fn := &ep.Function
@@ -1157,9 +1177,19 @@ func (e *Emitter) emitEntryPoint(ep *ir.EntryPoint) error {
 		return fmt.Errorf("function body: %w", err)
 	}
 
-	// Add void return at the end.
-	bb = e.currentBB
-	bb.AddInstruction(module.NewRetVoidInstr())
+	// End the body: fall into the shared exit when an early return made
+	// one, else return here (a return at depth 0 already did).
+	if !e.currentBBHasTerminator() {
+		if e.entryExitBB >= 0 {
+			e.currentBB.AddInstruction(module.NewBrInstr(e.entryExitBB))
+		} else {
+			e.currentBB.AddInstruction(module.NewRetVoidInstr())
+		}
+	}
+	if e.entryExitBB >= 0 {
+		e.mainFn.BasicBlocks[e.entryExitBB].AddInstruction(module.NewRetVoidInstr())
+		e.currentBB = e.mainFn.BasicBlocks[e.entryExitBB]
+	}
 
 	// Emit metadata BEFORE finalize so all constants are known.
 	if err := e.emitMetadata(ep, stageToShaderKind(ep.Stage)); err != nil {

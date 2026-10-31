@@ -515,7 +515,7 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 	// fully typed arena (otherwise resolveExprType falls through to a
 	// scalar-float default, which the DXIL backend then propagates as an
 	// invalid pointer kind).
-	var retSlot *uint32
+	var retPtr *ExpressionHandle
 	var retLoadExpr *ExpressionHandle
 	if callee.Result != nil {
 		slotIdx := uint32(len(caller.LocalVars))
@@ -524,10 +524,10 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 			Name: "_inline_ret_" + callee.Name,
 			Type: retType,
 		})
-		retSlot = &slotIdx
 
 		// Expression for the return-slot pointer: type is pointer-to-T.
 		slotPtrHandle := ExpressionHandle(len(caller.Expressions))
+		retPtr = &slotPtrHandle
 		caller.Expressions = append(caller.Expressions, Expression{Kind: ExprLocalVariable{Variable: slotIdx}})
 		caller.ExpressionTypes = append(caller.ExpressionTypes, TypeResolution{
 			Value: PointerType{Base: retType, Space: SpaceFunction},
@@ -565,18 +565,12 @@ func inlineOneCall(module *Module, caller *Function, call StmtCall, callee *Func
 		}})
 	}
 
-	// 9. Rewrite StmtReturn in the inlined body. If the callee has early
-	// returns (returns inside nested if/switch/loop), wrap the body in a
-	// synthetic loop and replace each return with store+break. This mirrors
-	// LLVM AlwaysInliner's wrap pattern (DxilLinker.cpp:1248).
-	hasEarly := blockHasEarlyReturn(inlinedBody)
-	inlinedBody = rewriteReturnsForInline(inlinedBody, retSlot, caller.Expressions, hasEarly)
-	if hasEarly {
-		// Wrap in loop { <body> } so break statements exit to after the call.
-		inlinedBody = Block{Statement{Kind: StmtLoop{
-			Body:       inlinedBody,
-			Continuing: Block{},
-		}}}
+	// 9. Rewrite StmtReturn in the inlined body so control reaches the code
+	// after the call (see lowerReturns).
+	lowering := returnLowering{module: module, caller: caller, calleeName: callee.Name, retPtr: retPtr}
+	inlinedBody, err := lowering.lower(inlinedBody)
+	if err != nil {
+		return nil, fmt.Errorf("callee %q: %w", callee.Name, err)
 	}
 
 	// 10. Wire the caller's ExprCallResult to load from the return slot.
@@ -712,36 +706,196 @@ func remapInlineStatementHandles(stmt Statement, exprMap []ExpressionHandle, loc
 	}
 }
 
-// blockHasEarlyReturn reports whether a statement block contains any
-// StmtReturn inside nested control flow (if/switch/loop). A return at the
-// very end of the top-level block is NOT considered early — it's a tail
-// return that Phase 1 can handle without loop wrapping.
-func blockHasEarlyReturn(block Block) bool {
-	// Walk the block: any return that appears inside a sub-block of
-	// if/switch/loop is early.
-	for i := range block {
-		switch sk := block[i].Kind.(type) {
-		case StmtIf:
-			if blockContainsReturn(sk.Accept) || blockContainsReturn(sk.Reject) {
-				return true
-			}
-		case StmtSwitch:
-			for j := range sk.Cases {
-				if blockContainsReturn(sk.Cases[j].Body) {
-					return true
-				}
-			}
-		case StmtLoop:
-			if blockContainsReturn(sk.Body) || blockContainsReturn(sk.Continuing) {
-				return true
-			}
+// returnLowering rewrites the returns of an inlined callee body so that
+// control reaches the statement after the call. It is Mesa's
+// nir_lower_returns for our structured IR:
+//
+//   - a return stores its value into the return slot, sets the "returned"
+//     flag and, inside a loop or a switch, leaves the innermost one with a
+//     break;
+//   - after a loop or switch that a return left, an enclosing loop or switch
+//     is left too: `if returned { break }`;
+//   - outside any loop or switch, the statements after a construct a return
+//     left run only when it did not: `if returned {} else { rest }`.
+//
+// The LLVM inliner's shape (DXC's AlwaysInliner) wraps the body in a loop
+// and turns each return into a branch to its exit. That is right for an
+// unstructured CFG but not here: in the IR, as in WGSL and Rust naga, a
+// break inside a switch only leaves the switch, and one inside a nested loop
+// only leaves that loop.
+type returnLowering struct {
+	module     *Module
+	caller     *Function
+	calleeName string
+	retPtr     *ExpressionHandle // pointer to the return slot; nil for a void callee
+
+	// dry counts the guards without building anything; useFlag is set for
+	// the real run when there is a guard to read the flag.
+	dry     bool
+	guards  int
+	useFlag bool
+
+	hasFlag bool
+	flagPtr ExpressionHandle
+	boolTy  TypeHandle
+	err     error
+}
+
+// lower returns the rewritten body. A first, dry run decides whether any
+// guard reads the flag; without one (every return is followed by nothing but
+// the end of the body) the flag would be dead, so it is not made. With one,
+// the body starts by clearing it: the caller may run the inlined body many
+// times (a call inside a loop), and a flag left set by a previous run would
+// skip this one.
+func (l *returnLowering) lower(body Block) (Block, error) {
+	l.dry = true
+	l.block(body, false, true)
+	if l.err != nil {
+		return nil, l.err
+	}
+	l.dry, l.useFlag = false, l.guards > 0
+	out, _ := l.block(body, false, true)
+	if l.useFlag {
+		out = append(Block{l.setFlag(false)}, out...)
+	}
+	return out, nil
+}
+
+// block lowers the returns in b. breakable reports whether b lies inside a
+// loop or switch of the callee (a break there leaves it); top reports
+// whether b is the callee's body itself, where nothing follows a return.
+// The result reports whether a return may leave b.
+func (l *returnLowering) block(b Block, breakable, top bool) (Block, bool) {
+	out := make(Block, 0, len(b))
+	for i := range b {
+		var left, ownsBreak bool
+		switch sk := b[i].Kind.(type) {
+		case StmtReturn:
+			// What follows a return in the same block never runs.
+			return append(out, l.returnSite(sk, breakable, top)...), true
 		case StmtBlock:
-			if blockHasEarlyReturn(sk.Block) {
-				return true
+			var inner Block
+			inner, left = l.block(sk.Block, breakable, false)
+			out = append(out, Statement{Kind: StmtBlock{Block: inner}})
+		case StmtIf:
+			acc, la := l.block(sk.Accept, breakable, false)
+			rej, lr := l.block(sk.Reject, breakable, false)
+			left = la || lr
+			out = append(out, Statement{Kind: StmtIf{Condition: sk.Condition, Accept: acc, Reject: rej}})
+		case StmtSwitch:
+			cases := make([]SwitchCase, len(sk.Cases))
+			for j := range sk.Cases {
+				body, lc := l.block(sk.Cases[j].Body, true, false)
+				left = left || lc
+				cases[j] = SwitchCase{Value: sk.Cases[j].Value, Body: body, FallThrough: sk.Cases[j].FallThrough}
 			}
+			ownsBreak = true
+			out = append(out, Statement{Kind: StmtSwitch{Selector: sk.Selector, Cases: cases}})
+		case StmtLoop:
+			if blockContainsReturn(sk.Continuing) {
+				l.err = fmt.Errorf("return inside a loop's continuing block")
+			}
+			var body Block
+			body, left = l.block(sk.Body, true, false)
+			ownsBreak = true
+			out = append(out, Statement{Kind: StmtLoop{Body: body, Continuing: sk.Continuing, BreakIf: sk.BreakIf}})
+		default:
+			out = append(out, b[i])
+		}
+		if left {
+			return l.afterExit(out, b[i+1:], breakable, top, ownsBreak), true
 		}
 	}
-	return false
+	return out, false
+}
+
+// afterExit appends the statements that follow a construct a return may
+// have left. ownsBreak reports whether that construct is a loop or switch,
+// whose break the return used up.
+func (l *returnLowering) afterExit(out, rest Block, breakable, top, ownsBreak bool) Block {
+	switch {
+	case breakable && ownsBreak:
+		out = append(out, l.guard(Block{Statement{Kind: StmtBreak{}}}, nil)...)
+	case breakable:
+		// The return already left the enclosing loop or switch.
+	default:
+		if len(rest) == 0 {
+			return out
+		}
+		restLowered, _ := l.block(rest, false, top)
+		return append(out, l.guard(nil, restLowered)...)
+	}
+	restLowered, _ := l.block(rest, breakable, false)
+	return append(out, restLowered...)
+}
+
+func (l *returnLowering) returnSite(ret StmtReturn, breakable, top bool) []Statement {
+	var out []Statement
+	if ret.Value != nil && l.retPtr != nil {
+		out = append(out, Statement{Kind: StmtStore{Pointer: *l.retPtr, Value: *ret.Value}})
+	}
+	if !top && l.useFlag {
+		out = append(out, l.setFlag(true))
+	}
+	if breakable {
+		out = append(out, Statement{Kind: StmtBreak{}})
+	}
+	return out
+}
+
+// guard returns `if returned { accept } else { reject }`.
+func (l *returnLowering) guard(accept, reject Block) []Statement {
+	l.guards++
+	if l.dry {
+		return []Statement{{Kind: StmtIf{Accept: accept, Reject: reject}}}
+	}
+	l.ensureFlag()
+	load := l.addExpression(ExprLoad{Pointer: l.flagPtr}, TypeResolution{Handle: &l.boolTy})
+	return []Statement{
+		{Kind: StmtEmit{Range: Range{Start: load, End: load + 1}}},
+		{Kind: StmtIf{Condition: load, Accept: accept, Reject: reject}},
+	}
+}
+
+func (l *returnLowering) setFlag(v bool) Statement {
+	l.ensureFlag()
+	lit := l.addExpression(Literal{Value: LiteralBool(v)}, TypeResolution{Handle: &l.boolTy})
+	return Statement{Kind: StmtStore{Pointer: l.flagPtr, Value: lit}}
+}
+
+func (l *returnLowering) ensureFlag() {
+	if l.hasFlag {
+		return
+	}
+	l.hasFlag = true
+	l.boolTy = boolTypeHandle(l.module)
+	idx := uint32(len(l.caller.LocalVars))
+	l.caller.LocalVars = append(l.caller.LocalVars, LocalVariable{
+		Name: "_inline_returned_" + l.calleeName,
+		Type: l.boolTy,
+	})
+	l.flagPtr = l.addExpression(ExprLocalVariable{Variable: idx},
+		TypeResolution{Value: PointerType{Base: l.boolTy, Space: SpaceFunction}})
+}
+
+func (l *returnLowering) addExpression(kind ExpressionKind, ty TypeResolution) ExpressionHandle {
+	h := ExpressionHandle(len(l.caller.Expressions))
+	l.caller.Expressions = append(l.caller.Expressions, Expression{Kind: kind})
+	l.caller.ExpressionTypes = append(l.caller.ExpressionTypes, ty)
+	return h
+}
+
+// boolTypeHandle returns the module's bool type, adding it if the module has
+// none (types are unique, as in Rust naga's UniqueArena).
+func boolTypeHandle(m *Module) TypeHandle {
+	want := ScalarType{Kind: ScalarBool, Width: 1}
+	for i := range m.Types {
+		if st, ok := m.Types[i].Inner.(ScalarType); ok && st == want {
+			return TypeHandle(i)
+		}
+	}
+	m.Types = append(m.Types, Type{Inner: want})
+	return TypeHandle(len(m.Types) - 1)
 }
 
 // blockContainsReturn reports whether any StmtReturn exists anywhere in the
@@ -772,74 +926,6 @@ func blockContainsReturn(block Block) bool {
 		}
 	}
 	return false
-}
-
-// rewriteReturnsForInline walks a freshly inlined body and replaces StmtReturn
-// statements. When wrapInLoop is true (early returns detected), each return is
-// replaced with store-to-slot + break (the caller wraps in a loop). When
-// wrapInLoop is false, returns are simply replaced with store-to-slot (tail
-// return only, Phase 1 behavior).
-func rewriteReturnsForInline(block Block, retSlot *uint32, exprArena []Expression, wrapInLoop bool) Block {
-	// We need to know the index of an ExprLocalVariable pointing to the
-	// return slot; allocate one on first use and cache the handle.
-	var slotPtrHandle ExpressionHandle
-	slotInit := false
-	getSlotPtr := func() ExpressionHandle {
-		if slotInit {
-			return slotPtrHandle
-		}
-		// Search exprArena for an existing ExprLocalVariable matching the
-		// return slot. inlineOneCall already appended one; reuse it.
-		if retSlot != nil {
-			for i, e := range exprArena {
-				if lv, ok := e.Kind.(ExprLocalVariable); ok && lv.Variable == *retSlot {
-					slotPtrHandle = ExpressionHandle(i)
-					slotInit = true
-					return slotPtrHandle
-				}
-			}
-		}
-		slotInit = true
-		return slotPtrHandle
-	}
-
-	var walk func(b Block) Block
-	walk = func(b Block) Block {
-		out := make(Block, 0, len(b))
-		for i := range b {
-			switch sk := b[i].Kind.(type) {
-			case StmtReturn:
-				if retSlot == nil || sk.Value == nil {
-					// Void return or no-value return.
-					if wrapInLoop {
-						out = append(out, Statement{Kind: StmtBreak{}})
-					}
-					continue
-				}
-				ptr := getSlotPtr()
-				out = append(out, Statement{Kind: StmtStore{Pointer: ptr, Value: *sk.Value}})
-				if wrapInLoop {
-					out = append(out, Statement{Kind: StmtBreak{}})
-				}
-			case StmtBlock:
-				out = append(out, Statement{Kind: StmtBlock{Block: walk(sk.Block)}})
-			case StmtIf:
-				out = append(out, Statement{Kind: StmtIf{Condition: sk.Condition, Accept: walk(sk.Accept), Reject: walk(sk.Reject)}})
-			case StmtLoop:
-				out = append(out, Statement{Kind: StmtLoop{Body: walk(sk.Body), Continuing: walk(sk.Continuing), BreakIf: sk.BreakIf}})
-			case StmtSwitch:
-				cases := make([]SwitchCase, len(sk.Cases))
-				for j := range sk.Cases {
-					cases[j] = SwitchCase{Value: sk.Cases[j].Value, Body: walk(sk.Cases[j].Body), FallThrough: sk.Cases[j].FallThrough}
-				}
-				out = append(out, Statement{Kind: StmtSwitch{Selector: sk.Selector, Cases: cases}})
-			default:
-				out = append(out, b[i])
-			}
-		}
-		return out
-	}
-	return walk(block)
 }
 
 // shouldAliasArgType reports whether a function argument of this type should

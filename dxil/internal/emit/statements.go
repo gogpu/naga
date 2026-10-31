@@ -1021,6 +1021,11 @@ func (e *Emitter) emitBlock(fn *ir.Function, block ir.Block) error {
 			if err := e.emitStatement(fn, &block[i]); err != nil {
 				return err
 			}
+			// After a break, continue or return the rest of the block is
+			// unreachable; nothing may follow the terminator.
+			if e.currentBBHasTerminator() {
+				return nil
+			}
 			i++
 			continue
 		}
@@ -1447,52 +1452,82 @@ func (e *Emitter) emitStmtReturn(fn *ir.Function, ret ir.StmtReturn) error {
 		return e.captureInlineReturn(fn, ret)
 	}
 
+	if !e.emittingHelperFunction {
+		if err := e.emitEntryReturnValue(fn, ret); err != nil {
+			return err
+		}
+		e.leaveEntryPoint()
+		return nil
+	}
+
+	return e.emitHelperReturn(fn, ret)
+}
+
+// emitHelperReturn emits a helper function's LLVM ret.
+func (e *Emitter) emitHelperReturn(fn *ir.Function, ret ir.StmtReturn) error {
 	if ret.Value == nil || fn.Result == nil {
-		// Void return for helper functions.
-		if e.emittingHelperFunction {
-			e.currentBB.AddInstruction(module.NewRetVoidInstr())
-		}
+		e.currentBB.AddInstruction(module.NewRetVoidInstr())
 		return nil
 	}
+	valueID, err := e.emitExpression(fn, *ret.Value)
+	if err != nil {
+		return fmt.Errorf("helper return value: %w", err)
+	}
 
-	// Helper function: emit an LLVM ret instruction with the return value.
-	if e.emittingHelperFunction {
-		valueID, err := e.emitExpression(fn, *ret.Value)
-		if err != nil {
-			return fmt.Errorf("helper return value: %w", err)
-		}
-
-		// For vector returns (helperReturnComps > 1), pack components into a struct
-		// using insertvalue instructions: {scalar, scalar, ...}.
-		if e.helperReturnComps > 1 {
-			retTy := e.mainFn.FuncType.RetType
-			// Start with undef of the struct type.
-			aggID := e.getTypedUndefConstID(retTy)
-			for c := 0; c < e.helperReturnComps; c++ {
-				compID := e.getComponentID(*ret.Value, c)
-				insertID := e.allocValue()
-				insertInstr := &module.Instruction{
-					Kind:       module.InstrInsertVal,
-					HasValue:   true,
-					ResultType: retTy,
-					Operands:   []int{aggID, compID, c},
-					ValueID:    insertID,
-				}
-				e.currentBB.AddInstruction(insertInstr)
-				aggID = insertID
+	// For vector returns (helperReturnComps > 1), pack components into a struct
+	// using insertvalue instructions: {scalar, scalar, ...}.
+	if e.helperReturnComps > 1 {
+		retTy := e.mainFn.FuncType.RetType
+		// Start with undef of the struct type.
+		aggID := e.getTypedUndefConstID(retTy)
+		for c := 0; c < e.helperReturnComps; c++ {
+			compID := e.getComponentID(*ret.Value, c)
+			insertID := e.allocValue()
+			insertInstr := &module.Instruction{
+				Kind:       module.InstrInsertVal,
+				HasValue:   true,
+				ResultType: retTy,
+				Operands:   []int{aggID, compID, c},
+				ValueID:    insertID,
 			}
-			valueID = aggID
+			e.currentBB.AddInstruction(insertInstr)
+			aggID = insertID
 		}
-
-		instr := &module.Instruction{
-			Kind:        module.InstrRet,
-			HasValue:    false,
-			ReturnValue: valueID,
-		}
-		e.currentBB.AddInstruction(instr)
-		return nil
+		valueID = aggID
 	}
 
+	e.currentBB.AddInstruction(&module.Instruction{
+		Kind:        module.InstrRet,
+		HasValue:    false,
+		ReturnValue: valueID,
+	})
+	return nil
+}
+
+// leaveEntryPoint ends the entry point at a return whose outputs are
+// stored: by a branch to the shared exit block once an earlier return in
+// control flow made one (one exit, as DXC emits it; drivers see the same
+// shape as from DXC), else in place at the top level. Nothing after a
+// top-level return is emitted, so no return nested in control flow comes
+// after it. The caller stops emitting the rest of the block (see emitBlock).
+func (e *Emitter) leaveEntryPoint() {
+	if e.cfDepth == 0 && e.entryExitBB < 0 {
+		e.currentBB.AddInstruction(module.NewRetVoidInstr())
+		return
+	}
+	if e.entryExitBB < 0 {
+		e.mainFn.AddBasicBlock("entry.exit")
+		e.entryExitBB = len(e.mainFn.BasicBlocks) - 1
+	}
+	e.currentBB.AddInstruction(module.NewBrInstr(e.entryExitBB))
+}
+
+// emitEntryReturnValue stores an entry point's return value into its
+// outputs (DXIL entry points are void and write outputs via storeOutput).
+func (e *Emitter) emitEntryReturnValue(fn *ir.Function, ret ir.StmtReturn) error {
+	if ret.Value == nil || fn.Result == nil {
+		return nil
+	}
 	resultType := e.ir.Types[fn.Result.Type]
 
 	// Handle struct return types specially to avoid loading entire structs.
@@ -3425,6 +3460,8 @@ func (e *Emitter) emitIfStatement(fn *ir.Function, stmt ir.StmtIf) error {
 		falseBBIndex = elseBBIndex
 	}
 	e.currentBB.AddInstruction(module.NewBrCondInstr(thenBBIndex, falseBBIndex, condID))
+	e.cfDepth++
+	defer func() { e.cfDepth-- }()
 
 	// Emit accept (then) block.
 	e.currentBB = thenBB
@@ -3566,7 +3603,13 @@ func (e *Emitter) emitSwitchStatement(fn *ir.Function, stmt ir.StmtSwitch) error
 		e.currentBB.AddInstruction(module.NewBrInstr(mergeBBIndex))
 	}
 
-	// Emit each case body.
+	// Emit each case body. A break in a case leaves the switch.
+	e.loopStack = append(e.loopStack, loopContext{mergeBBIndex: mergeBBIndex, isSwitch: true})
+	e.cfDepth++
+	defer func() {
+		e.loopStack = e.loopStack[:len(e.loopStack)-1]
+		e.cfDepth--
+	}()
 	caseEndBBs := make([]int, len(stmt.Cases))
 	for i := range stmt.Cases {
 		c := &stmt.Cases[i]
@@ -3643,6 +3686,8 @@ func (e *Emitter) emitLoopStatement(fn *ir.Function, stmt ir.StmtLoop) error {
 		continuingBBIndex: continuingBBIndex,
 		mergeBBIndex:      mergeBBIndex,
 	})
+	e.cfDepth++
+	defer func() { e.cfDepth-- }()
 
 	// Emit body.
 	e.currentBB = bodyBB
@@ -3683,24 +3728,26 @@ func (e *Emitter) emitLoopStatement(fn *ir.Function, stmt ir.StmtLoop) error {
 	return nil
 }
 
-// emitBreak emits a branch to the loop merge block (exits the loop).
+// emitBreak branches to the merge block of the innermost loop or switch.
 func (e *Emitter) emitBreak() error {
 	if len(e.loopStack) == 0 {
-		return fmt.Errorf("break outside of loop")
+		return fmt.Errorf("break outside of a loop or switch")
 	}
 	ctx := e.loopStack[len(e.loopStack)-1]
 	e.currentBB.AddInstruction(module.NewBrInstr(ctx.mergeBBIndex))
 	return nil
 }
 
-// emitContinue emits a branch to the loop continuing block.
+// emitContinue branches to the continuing block of the innermost loop,
+// through any switches between it and the continue.
 func (e *Emitter) emitContinue() error {
-	if len(e.loopStack) == 0 {
-		return fmt.Errorf("continue outside of loop")
+	for i := len(e.loopStack) - 1; i >= 0; i-- {
+		if ctx := e.loopStack[i]; !ctx.isSwitch {
+			e.currentBB.AddInstruction(module.NewBrInstr(ctx.continuingBBIndex))
+			return nil
+		}
 	}
-	ctx := e.loopStack[len(e.loopStack)-1]
-	e.currentBB.AddInstruction(module.NewBrInstr(ctx.continuingBBIndex))
-	return nil
+	return fmt.Errorf("continue outside of loop")
 }
 
 // blockHasTerminator checks whether the basic block already ends with

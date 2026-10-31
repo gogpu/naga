@@ -484,3 +484,82 @@ func TestPromoteInlineArgSpillPattern(t *testing.T) {
 		}
 	}
 }
+
+// TestPhaseBBranchThatLeavesFeedsNoPhi: `if c { x = 1; return; } else { x = 2; }
+// use(x)`. The accept branch ends with a return, so its block is no
+// predecessor of the merge: the load after the if is the reject branch's
+// value, with no phi. A phi with an accept incoming named a block that does
+// not branch to the merge (the CFG verifier's "phi incomings from blocks ...").
+func TestPhaseBBranchThatLeavesFeedsNoPhi(t *testing.T) {
+	for _, exit := range []ir.StatementKind{ir.StmtReturn{}, ir.StmtContinue{}} {
+		mod := &ir.Module{}
+		i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
+		fn := &ir.Function{LocalVars: []ir.LocalVariable{{Name: "x", Type: i32}}}
+		cond := appendExpr(fn, ir.Literal{Value: ir.LiteralBool(true)})
+		val1 := appendExpr(fn, ir.Literal{Value: ir.LiteralI32(1)})
+		val2 := appendExpr(fn, ir.Literal{Value: ir.LiteralI32(2)})
+		lv := appendExpr(fn, ir.ExprLocalVariable{Variable: 0})
+		load := appendExpr(fn, ir.ExprLoad{Pointer: lv})
+		fn.Body = ir.Block{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: cond, End: val2 + 1}}},
+			{Kind: ir.StmtIf{
+				Condition: cond,
+				Accept:    ir.Block{{Kind: ir.StmtStore{Pointer: lv, Value: val1}}, {Kind: exit}},
+				Reject:    ir.Block{{Kind: ir.StmtStore{Pointer: lv, Value: val2}}},
+			}},
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: load, End: load + 1}}},
+		}
+		if _, isContinue := exit.(ir.StmtContinue); isContinue {
+			fn.Body = ir.Block{{Kind: ir.StmtLoop{Body: fn.Body}}}
+		}
+		if err := Run(mod, fn); err != nil {
+			t.Fatal(err)
+		}
+		alias, ok := fn.Expressions[load].Kind.(ir.ExprAlias)
+		if _, isContinue := exit.(ir.StmtContinue); isContinue {
+			// Stored inside a loop: the variable keeps its alloca.
+			if ok {
+				t.Errorf("%T: a variable stored in a loop was promoted", exit)
+			}
+			continue
+		}
+		if !ok {
+			t.Fatalf("%T: load not promoted: %T", exit, fn.Expressions[load].Kind)
+		}
+		if alias.Source != val2 {
+			t.Errorf("%T: load after the if aliases %d (%T), want the reject value %d", exit, alias.Source, fn.Expressions[alias.Source].Kind, val2)
+		}
+	}
+}
+
+// TestPhaseBSwitchWithInnerBreakKeepsAlloca: a break inside an if inside a
+// case branches to the switch's merge from a block that no
+// PhiPredSwitchCase incoming can name, so a variable stored in that switch
+// keeps its alloca instead of getting a phi with a missing predecessor.
+func TestPhaseBSwitchWithInnerBreakKeepsAlloca(t *testing.T) {
+	mod := &ir.Module{}
+	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
+	fn := &ir.Function{LocalVars: []ir.LocalVariable{{Name: "x", Type: i32}}}
+	sel := appendExpr(fn, ir.Literal{Value: ir.LiteralI32(1)})
+	cond := appendExpr(fn, ir.Literal{Value: ir.LiteralBool(true)})
+	val1 := appendExpr(fn, ir.Literal{Value: ir.LiteralI32(7)})
+	lv := appendExpr(fn, ir.ExprLocalVariable{Variable: 0})
+	load := appendExpr(fn, ir.ExprLoad{Pointer: lv})
+	fn.Body = ir.Block{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: sel, End: val1 + 1}}},
+		{Kind: ir.StmtSwitch{Selector: sel, Cases: []ir.SwitchCase{
+			{Value: ir.SwitchValueI32(1), Body: ir.Block{
+				{Kind: ir.StmtIf{Condition: cond, Accept: ir.Block{{Kind: ir.StmtBreak{}}}}},
+				{Kind: ir.StmtStore{Pointer: lv, Value: val1}},
+			}},
+			{Value: ir.SwitchValueDefault{}, Body: ir.Block{}},
+		}}},
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: load, End: load + 1}}},
+	}
+	if err := Run(mod, fn); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fn.Expressions[load].Kind.(ir.ExprLoad); !ok {
+		t.Errorf("load became %T, want it to stay a load of the alloca", fn.Expressions[load].Kind)
+	}
+}
