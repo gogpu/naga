@@ -7,18 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.5] - 2026-10-31
+
+Most of this release is @roffe's work on the GLSL, MSL, SPIR-V and DXIL
+backends. Thank you!
+
 ### Added
 
+- `ClampFragDepth` in `spirv.Options`, `msl.Options` and `glsl.Options`:
+  WebGPU clamps `frag_depth` to the viewport's depth range, and Vulkan,
+  Metal and GL do not. With the option set, a fragment entry point clamps
+  the depth it writes to two `f32`, min then max, at
+  `ClampFragDepth.Offset` of its immediate data: push constants in
+  SPIR-V, the immediates buffer in MSL, the immediates uniform in GLSL,
+  after the entry point's own immediate data. GLSL lists the two floats in
+  `TranslationInfo.ImmediateItems`. This is Dawn's model. Rust naga's
+  SPIR-V writer clamps to 0..1 by default instead; a nil option clamps
+  nothing. (#124, by @roffe)
+- Choosing how workgroup memory is zeroed: `spirv.Options.ZeroInitializeWorkgroupMemory`
+  (`ZeroInitWorkgroupPolyfill`, the zero value; `ZeroInitWorkgroupNative`
+  with `OpConstantNull` initializers for devices with
+  `shaderZeroInitializeWorkgroupMemory`; `ZeroInitWorkgroupNone`) and
+  `glsl.Options.SkipWorkgroupMemoryZeroInit`, as Rust naga allows for
+  every backend (#135, by @roffe); `dxil.Options.SkipWorkgroupMemoryZeroInit`
+  (#134, by @roffe). These options change to one shape across the
+  backends in 0.21.0.
+- `glsl.Options.BoundsCheckPolicies` gets `Index` and `Buffer`; `Restrict`
+  clamps indices, so an index out of bounds cannot read outside an array
+  on GL, where a robust context covers buffers only. (#120, by @roffe)
+- DXIL: `Options.RestrictIndexing` clamps run-time indices into function,
+  private and workgroup arrays, matrices and vectors, and
+  `BindTarget.RestrictIndexing` those of a constant buffer, as the HLSL
+  options do. `Options.FragmentEntryPoint`, `SpecialConstantsBinding` and
+  `DynamicStorageBufferOffsetsTargets` work as their HLSL counterparts.
+  (#128, by @roffe)
+- `BindTarget.DynamicStorageBufferSizeIndex` in `hlsl` and `dxil`: the
+  index of a dynamically offset storage binding's size in the dynamic
+  offsets constant buffer, so `arrayLength()` counts the binding as WebGPU
+  does. (#132, by @roffe)
 - GPU readback corpus in `testdata/readback`: compute shaders with their
   input buffers and the values a correct backend writes back. gogpu/wgpu runs
   every case on each backend and adapter; `TestReadbackCorpusCompile` checks
   that every naga backend compiles and validates each case. Format and rules
-  are in `testdata/readback/README.md`.
+  are in `testdata/readback/README.md`. (#141, #142)
 - Third-party test inputs in `testdata/upstream`, copied verbatim with their
   license, provenance and a manifest checked by `TestUpstreamTrees`. Seven
   SPIR-V tests that compile Rust naga and gfx-rs/wgpu example shaders read a
   directory outside the repository and were skipped everywhere else, CI
-  included; they now run.
+  included; they now run. (#143)
 - `glsl.TranslationInfo.ImmediateItems`: the GL uniforms that carry an entry
   point's `var<immediate>` data, each with its GLSL access path, type, byte
   offset and size, so a GL runtime can feed immediate data with
@@ -26,10 +62,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ReflectionInfo::immediates_items`). Offsets follow the variable's WGSL
   layout, including `@size` and `@align`. The GLSL backend now refuses an
   entry point that uses two immediate variables, and arrays in immediate
-  data, which WGSL does not allow.
+  data, which WGSL does not allow. (#144)
 
 ### Fixed
 
+- **DXIL: buffers read and written at the wrong bytes** — constant buffer
+  values are now read at their WGSL offsets (two-row matrix columns 8
+  bytes apart, struct padding, integer members), storage buffer access
+  chains such as `data[3].z` and `data[i][j]` reach the right bytes, and
+  padded values (a struct of two `vec3`, `mat3x3`) load and store at their
+  WGSL offsets. 64-bit fields of mixed structs and `f16` values (now
+  native 16-bit, shader model 6.2) load and store as DXC does, and the
+  dynamic offsets of storage buffers are added to their addresses.
+  (#128, by @roffe)
+- **DXIL: wrong values from locals, operators and depth textures** — a
+  run-time index into an array value picked the first element (a
+  fullscreen triangle from a `let` array put every vertex at the first);
+  unary operators, `sign` and matrix conversions applied to the first
+  component only; depth samples and loads were vectors; inlined local
+  copies and the stores of a local read into another live local were lost
+  (the boids example lost its flocking rules). A component the emitter has
+  no value for is now an error instead of whatever value came next.
+  (#128, by @roffe)
+- **DXIL: bindings and signatures** — a sampler read its heap slot at the
+  wrong register and its handle ignored the heap's first register; a
+  fragment result that is not a struct went to row 0 instead of the row of
+  its location; vkd3d-shader refused modules without a pointer type for
+  every function; external textures were written as a texture of ints and
+  are now refused. (#128, by @roffe)
+- **DXIL: workgroup memory started undefined** — the HLSL, MSL, GLSL and
+  SPIR-V backends zero it as WebGPU requires; DXIL now does too, and a
+  64-bit integer zero is a 64-bit constant. Workgroup matrices are refused
+  for now. (#134, by @roffe)
+- **`arrayLength()` of a storage buffer bound with a dynamic offset** —
+  HLSL and DXIL counted from the bind group's offset to the end of the
+  buffer, whatever the binding size; see `DynamicStorageBufferSizeIndex`
+  above. Rust naga has the same problem. (#132, by @roffe)
+- **Two-row matrices in uniform buffers** — WGSL puts the columns of a
+  `matCx2` 8 bytes apart, and std140 rounds them up to 16, so a `mat2x2`
+  in a uniform struct read its second column, and every member after it,
+  from the wrong place. SPIR-V (the Vulkan validation layer refused these
+  shaders) and GLSL now declare such types std140-compatible and convert
+  on load, and so do `f16` matrices of three and four rows in SPIR-V.
+  Rust naga's GLSL writer still has this bug. (#125, by @roffe)
+- **GLSL** — below GLSL 430 and ES 310 a storage buffer became a std140
+  uniform block that a GL backend bound at the wrong buffer, and is now an
+  error, as in Rust naga; texture/sampler pairs sampled in helper
+  functions got no mapping; a texture sampled with two samplers silently
+  used one of them and is now an error; depth textures sampled without a
+  comparison were declared as shadow samplers and did not compile;
+  `texelFetch` under the `Restrict` image load policy missed its clamped
+  level outside sampled texture globals (#120, by @roffe). `f16` types and
+  values, which GLSL lacks, are now an error instead of reading other
+  bytes, and identifiers starting with `gl_` (reserved by GLSL, refused by
+  strict compilers) are renamed as in Rust naga (#129, by @roffe).
+- **MSL** — vertex pulling wrote locals the function body did not read,
+  so the output did not compile; `PipelineOptions.AllowAndForcePointSize`
+  was ignored; kernels now get `max_total_threads_per_threadgroup` from
+  MSL 2.1; a resource missing from a per-entry-point map fell back to its
+  binding number and is now an error unless `FakeMissingBindings` is set.
+  (#121, by @roffe)
+- **IR inliner** — an inlined call's arguments that alias the caller's
+  variables are read from the caller, and the load that replaces an
+  inlined call's result is emitted. (#128, by @roffe)
 - **DXIL: local structs and arrays read wrong values** — three silent
   miscompiles, all in 0.20.4; the validator accepted each module.
   - A struct `var` initialized from run-time values read zeros
@@ -42,12 +137,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     argument changed them through a pointer.
   - A struct `var` initialized from a named constant
     (`const cs = S(7, vec2(8, 9)); var s = cs;`) lost the initializer.
+
+  (#145)
 - **HLSL: `sign()` of a float returned integer bits** — HLSL's `sign`
   returns `int` for every argument, and the backend wrote it bare, so on
   FXC a `vec4<f32>` received the bit patterns of -1, 0 and 1, and a stored
   `sign(-2.0)` became `0xFFFFFFFF`. The result of a float `sign` is now
   converted back to its type, as in Rust naga. This was listed as a known
   issue of 0.20.4.
+
+### Known issues
+
+The DXIL backend stays opt-in. These are not fixed in this release:
+- From 0.20.4, found by GPU readback: a `return` inside a loop is lost;
+  one loop shader gives wrong results on NVIDIA only; a helper whose
+  result passes through two local variables loses its body; `break`
+  inside a `switch` inside a loop leaves the loop.
+- A `var<private>` vector, which 0.20.4 lowered to one scalar, is now
+  refused with an error. A run-time `Compose` stored to a local struct with
+  an array member gives a module the validator rejects, and a local array
+  of structs does not compile.
+- `select()` with a non-bool vector condition fails DXIL validation. Such
+  WGSL is invalid per the spec, and naga does not reject it yet; gg fixes
+  its blend shader first.
+- gg's `sdf_render` vertex entry point fails validation on its PSV0
+  ViewIDState, as in 0.20.4.
 
 ## [0.20.4] - 2026-10-29
 
@@ -2609,7 +2723,9 @@ First stable release. Complete WGSL to SPIR-V compilation pipeline (~10K LOC).
 
 ---
 
-[Unreleased]: https://github.com/gogpu/naga/compare/v0.20.3...HEAD
+[Unreleased]: https://github.com/gogpu/naga/compare/v0.20.5...HEAD
+[0.20.5]: https://github.com/gogpu/naga/compare/v0.20.4...v0.20.5
+[0.20.4]: https://github.com/gogpu/naga/compare/v0.20.3...v0.20.4
 [0.20.3]: https://github.com/gogpu/naga/compare/v0.20.2...v0.20.3
 [0.20.2]: https://github.com/gogpu/naga/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/gogpu/naga/compare/v0.20.0...v0.20.1

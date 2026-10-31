@@ -18,8 +18,5 @@
                  "0x40400000", "0x40800000", "0x41300000", "0x41400000",
                  "0x40800000", "0x40C00000",
                  "fill"]]}
-  ],
-  "knownFailures": [
-    {"backend": "dx12-dxil", "card": "P0-DXIL-058", "reason": "a run-time index into a matrix of a constant buffer struct (u.m[i]) is invalid DXIL: IDxcValidator refuses \"Load/Store operand is not a pointer type\"; pipeline creation removes the device on Intel (DXGI_ERROR_DRIVER_INTERNAL_ERROR), E_OUTOFMEMORY on NVIDIA; fixed by #128"}
   ]
 }
