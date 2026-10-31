@@ -18,10 +18,11 @@ import (
 	"strings"
 )
 
-// FormatVersion is the case format this package reads. A case declares its
-// format; a reader rejects any other value, so a newer corpus fails loudly
-// instead of being misread.
-const FormatVersion = 1
+// FormatVersion is the newest case format this package reads; it reads every
+// format from 1 up to it. A case declares its format, and a reader rejects a
+// newer one, so a newer corpus fails loudly instead of being misread.
+// Format 2 adds KnownFailure.Skip.
+const FormatVersion = 2
 
 // Spec is one case's JSON file.
 type Spec struct {
@@ -154,6 +155,11 @@ type KnownFailure struct {
 	// "gogpu/<repo>:<ID>" for a card of another gogpu repository.
 	Card   string `json:"card"`
 	Reason string `json:"reason"`
+	// Skip (format 2) tells the runner not to dispatch the case on a matched
+	// run, as Rust wgpu's FailureCase skip: the GPU hangs or the device is
+	// lost, which would fail every case after it. A skipped run cannot report
+	// an unexpected pass, so whoever works the card re-checks the case.
+	Skip bool `json:"skip,omitempty"`
 }
 
 // AllAdapters reports whether the entry matches every adapter of its backend.

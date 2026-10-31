@@ -62,7 +62,7 @@ func CheckModule(spec *Spec, m *ir.Module) error {
 			continue
 		}
 		if g.Binding.Group != 0 {
-			errs = append(errs, fmt.Errorf("%s: group %d: format %d binds @group(0) only", g.Name, g.Binding.Group, FormatVersion))
+			errs = append(errs, fmt.Errorf("%s: group %d: the corpus binds @group(0) only", g.Name, g.Binding.Group))
 			continue
 		}
 		used[g.Binding.Binding] = true
@@ -104,7 +104,7 @@ func checkGlobal(m *ir.Module, g *ir.GlobalVariable, b *Binding) error {
 	case g.Space == ir.SpaceStorage:
 		kind = KindStorageRW
 	default:
-		return fmt.Errorf("not a buffer: format %d binds storage and uniform buffers only", FormatVersion)
+		return errors.New("not a buffer: the corpus binds storage and uniform buffers only")
 	}
 	if b == nil {
 		return fmt.Errorf("no JSON binding for this %s buffer", kind)

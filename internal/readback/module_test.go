@@ -92,7 +92,7 @@ func TestCheckModuleRejects(t *testing.T) {
 				"@compute @workgroup_size(1) fn main() { out[0] = 1u; }",
 			spec: `{"format": 1, "desc": "d", "entry": "main", "workgroups": [1, 1, 1],
   "bindings": [{"binding": 0, "kind": "storage-rw", "len": 1, "expect": [[1]]}]}`,
-			want: "group 1: format 1 binds @group(0) only",
+			want: "group 1: the corpus binds @group(0) only",
 		},
 		{
 			name: "texture",

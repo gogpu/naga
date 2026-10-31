@@ -24,7 +24,7 @@ func TestParseSpecValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSpec: %v", err)
 	}
-	if s.Format != FormatVersion || s.Entry != "main" || len(s.Bindings) != 2 {
+	if s.Format != 1 || s.Entry != "main" || len(s.Bindings) != 2 {
 		t.Fatalf("spec = %+v", s)
 	}
 	in := s.Bindings[0]
@@ -70,7 +70,8 @@ func TestParseSpecRejects(t *testing.T) {
 		want string // substring of the error
 	}{
 		{"no format", `"format": 1,`, ``, "format 0"},
-		{"newer format", `"format": 1,`, `"format": 2,`, "format 2"},
+		{"newer format", `"format": 1,`, `"format": 3,`, "format 3"},
+		{"skip in format 1", `"bindings"`, `"knownFailures": [{"backend": "gles", "card": "BUG-X-001", "reason": "r", "skip": true}], "bindings"`, "skip needs format 2"},
 		{"unknown field", `"entry"`, `"entyr": "x", "entry"`, `unknown field "entyr"`},
 		{"no desc", `"desc": "writes 1..4",`, ``, "desc"},
 		{"no entry", `"entry": "main",`, ``, "entry"},
@@ -115,6 +116,25 @@ func TestParseSpecRejects(t *testing.T) {
 				t.Errorf("error = %q, want it to contain %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestParseSpecFormat2 reads a format 2 case: format 1 plus a known failure
+// the runner must not dispatch (the GPU hangs on it).
+func TestParseSpecFormat2(t *testing.T) {
+	src := strings.Replace(validSpec, `"format": 1,`, `"format": 2,`, 1)
+	src = strings.Replace(src, `"bindings"`,
+		`"knownFailures": [{"backend": "dx12-dxil", "adapter": "NVIDIA", "card": "BUG-X-001", "reason": "hangs", "skip": true}], "bindings"`, 1)
+	s, err := ParseSpec([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if s.Format != 2 || len(s.KnownFailures) != 1 || !s.KnownFailures[0].Skip {
+		t.Fatalf("spec = %+v, want format 2 with one skip entry", s)
+	}
+	// A format 1 case still reads: format 2 only adds skip.
+	if _, err := ParseSpec([]byte(validSpec)); err != nil {
+		t.Errorf("format 1 case rejected: %v", err)
 	}
 }
 
