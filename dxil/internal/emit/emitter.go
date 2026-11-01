@@ -488,6 +488,11 @@ type EmitOptions struct {
 	// given when the entry point reads one of them.
 	SpecialConstants *BindTarget
 
+	// ImmediatesTarget is the constant buffer register of the immediate
+	// data (dxil.Options.ImmediatesTarget); dxil.Compile refuses a module
+	// that uses immediate data without it.
+	ImmediatesTarget *BindTarget
+
 	// InputUsedMasks holds per-input-argument component usage masks
 	// computed from IR body analysis. Used by the metadata builder to
 	// emit null extended-properties for unused inputs (matching DXC's

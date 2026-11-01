@@ -130,6 +130,14 @@ type Options struct {
 	// from zero, as in Rust naga.
 	SpecialConstantsBinding *BindTarget
 
+	// ImmediatesTarget is the constant buffer register of the immediate
+	// data (var<immediate>), the root constants D3D12 binds in the root
+	// signature, as hlsl.Options.ImmediatesTarget (Rust naga's
+	// immediates_target). The data has no WGSL binding, so an entry point
+	// that uses immediate data without a target is an error wrapping
+	// backend.ErrMissingBinding, FakeMissingBindings or not.
+	ImmediatesTarget *BindTarget
+
 	// DynamicStorageBufferOffsetsTargets holds, by bind group, the constant
 	// buffer of the dynamic offsets of its storage buffers, as with
 	// hlsl.Options.DynamicStorageBufferOffsetsTargets: a storage buffer
@@ -334,8 +342,9 @@ func checkInput(irModule *ir.Module, opts Options) error {
 	return nil
 }
 
-// checkBindings refuses what a non-nil map leaves out for the resources ep
-// uses (ADR-009 §6 rows 5 and 21), unless FakeMissingBindings: a resource
+// checkBindings refuses immediate data without ImmediatesTarget, and what a
+// non-nil map leaves out for the resources ep uses (ADR-009 §6 rows 5 and
+// 21), unless FakeMissingBindings: a resource
 // without a BindingMap entry, a group of samplers without a
 // SamplerBufferBindingMap entry, and num_workgroups without
 // SpecialConstantsBinding (FakeMissingBindings keeps the constant buffer at
@@ -343,10 +352,16 @@ func checkInput(irModule *ir.Module, opts Options) error {
 // and binding, a nil SamplerBufferBindingMap the index buffer of group G at
 // register(tG, space255). The errors wrap backend.ErrMissingBinding.
 func checkBindings(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
+	reachable := reachableGlobalsForEntry(irModule, ep)
+	for h := range reachable {
+		if gv := &irModule.GlobalVariables[h]; gv.Space == ir.SpaceImmediate && opts.ImmediatesTarget == nil {
+			return fmt.Errorf("dxil: immediate data %s needs ImmediatesTarget: %w", gv.Name, backend.ErrMissingBinding)
+		}
+	}
 	if opts.FakeMissingBindings {
 		return nil
 	}
-	for h := range reachableGlobalsForEntry(irModule, ep) {
+	for h := range reachable {
 		gv := &irModule.GlobalVariables[h]
 		if gv.Binding == nil {
 			continue
@@ -498,6 +513,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		ReachableGlobals:        reachableGlobals,
 		InputUsedMasks:          inputUsedMasks,
 		SpecialConstants:        convertBindTarget(special),
+		ImmediatesTarget:        convertBindTarget(opts.ImmediatesTarget),
 		DynamicOffsets:          dynamicOffsets,
 	}
 	mod, bitcodeShaderFlags, err := emit.EmitWithFlags(irModule, emitOpts)
@@ -535,7 +551,15 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 		c.AddPrimitiveSignature(primSig)
 	}
 
-	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), reachableGlobals, opts.BindingMap, opts.SamplerHeapTargets, opts.SamplerBufferBindingMap, dynamicOffsets, special))
+	c.AddPSV0(buildPSVEx(irModule, ep, isFragment, isMesh, len(inputSig), len(outputSig), len(primSig), psvTargets{
+		reachable:      reachableGlobals,
+		bindingMap:     opts.BindingMap,
+		samplerHeap:    opts.SamplerHeapTargets,
+		samplerBufMap:  opts.SamplerBufferBindingMap,
+		dynamicOffsets: dynamicOffsets,
+		special:        special,
+		immediates:     opts.ImmediatesTarget,
+	}))
 
 	// STAT (Shader Statistics) is required by the D3D12 runtime format
 	// validator for graphics pipelines (BUG-DXIL-011). IDxcValidator
@@ -1097,8 +1121,9 @@ func sigCompTypeForScalarKind(kind ir.ScalarKind) container.ProgSigCompType {
 // shaders with only `@builtin(position)` output now produce a self-consistent
 // PSV0 part with one PSVSignatureElement entry, achieving the first-ever
 // `S_OK` from the real validator.
-func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, dynamicOffsets []emit.DynamicOffsetsBuffer, special *BindTarget) container.PSVInfo {
+func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, outputCount int, t psvTargets) container.PSVInfo {
 	_ = isFragment // kept for caller compatibility; stage comes from ep.Stage
+	dynamicOffsets, special := t.dynamicOffsets, t.special
 	info := container.PSVInfo{
 		ShaderStage:       stageToPSVKind(ep.Stage),
 		MinWaveLaneCount:  0,
@@ -1128,7 +1153,7 @@ func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, 
 	// 'ResourceCount' between 'PSV0' part:('0') and DXIL module:('N')").
 	// Reachability filter (BUG-DXIL-016) keeps multi-EP modules in sync
 	// with emit/resources.go which applies the same filter.
-	info.ResourceBindings = collectPSVResources(irMod, reachable, bindingMap, samplerHeap, samplerBufMap)
+	info.ResourceBindings = collectPSVResources(irMod, t)
 	if entryUsesViewIndex(ep) {
 		info.UsesViewID = true
 	}
@@ -1897,10 +1922,23 @@ func componentMask(n int) uint8 {
 	}
 }
 
+// psvTargets is where an entry point's resources are bound, the part of
+// Options (and of what Compile derives from it) the PSV0 resource table
+// needs; it must agree with the emitter's resource metadata.
+type psvTargets struct {
+	reachable      map[ir.GlobalVariableHandle]bool
+	bindingMap     BindingMap
+	samplerHeap    *SamplerHeapBindTargets
+	samplerBufMap  map[uint32]BindTarget
+	dynamicOffsets []emit.DynamicOffsetsBuffer
+	special        *BindTarget
+	immediates     *BindTarget
+}
+
 // buildPSVEx creates PSV info for an entry point, including mesh shader support.
-func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget, dynamicOffsets []emit.DynamicOffsetsBuffer, special *BindTarget) container.PSVInfo {
+func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, inputCount, outputCount, primOutputCount int, t psvTargets) container.PSVInfo {
 	if !isMesh {
-		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, reachable, bindingMap, samplerHeap, samplerBufMap, dynamicOffsets, special)
+		return buildPSV(irMod, ep, isFragment, inputCount, outputCount, t)
 	}
 
 	info := container.PSVInfo{
@@ -1910,7 +1948,7 @@ func buildPSVEx(irMod *ir.Module, ep *ir.EntryPoint, isFragment, isMesh bool, in
 		SigInputElements:            uint8(inputCount),      //nolint:gosec // bounded by entry point args
 		SigOutputElements:           uint8(outputCount),     //nolint:gosec // bounded by mesh vertex outputs
 		SigPatchConstOrPrimElements: uint8(primOutputCount), //nolint:gosec // bounded by mesh primitive outputs
-		ResourceBindings:            collectPSVResources(irMod, reachable, bindingMap, samplerHeap, samplerBufMap),
+		ResourceBindings:            collectPSVResources(irMod, t),
 	}
 
 	if ep.MeshInfo != nil {
@@ -2288,10 +2326,11 @@ func globalUsesInt64Atomic(irMod *ir.Module, gv *ir.GlobalVariable) bool {
 // applies the same filter).
 //
 //nolint:gocognit,cyclop,gocyclo,funlen // single dispatch table over IR resource categories
-func collectPSVResources(irMod *ir.Module, reachable map[ir.GlobalVariableHandle]bool, bindingMap BindingMap, samplerHeap *SamplerHeapBindTargets, samplerBufMap map[uint32]BindTarget) []container.PSVResourceBinding {
+func collectPSVResources(irMod *ir.Module, t psvTargets) []container.PSVResourceBinding {
 	if irMod == nil {
 		return nil
 	}
+	reachable, bindingMap, samplerHeap, samplerBufMap := t.reachable, t.bindingMap, t.samplerHeap, t.samplerBufMap
 	const (
 		classCBV     = 0
 		classSampler = 1
@@ -2313,12 +2352,10 @@ func collectPSVResources(irMod *ir.Module, reachable map[ir.GlobalVariableHandle
 		if reachable != nil && !reachable[ir.GlobalVariableHandle(i)] {
 			continue
 		}
-		if gv.Binding == nil {
-			// Push constants / immediate data get a synthetic CBV binding
-			// inside emit.analyzeResources but the index is allocated
-			// there — we cannot reproduce it here without sharing state.
-			// Tracked as a follow-up; the affected shaders fall through
-			// to the next architectural wall.
+		// Immediate data is the constant buffer at ImmediatesTarget, which
+		// no binding map moves (emit/resources.go does the same).
+		immediate := gv.Binding == nil && gv.Space == ir.SpaceImmediate
+		if gv.Binding == nil && (!immediate || t.immediates == nil) {
 			continue
 		}
 		// In sampler-heap mode, skip per-WGSL sampler globals. The heap
@@ -2384,10 +2421,14 @@ func collectPSVResources(irMod *ir.Module, reachable map[ir.GlobalVariableHandle
 		// which applies the same map to DXIL bitcode resource metadata.
 		// Any disagreement trips 'DXIL container mismatch for
 		// ResourceBindInfo'.
-		space := gv.Binding.Group
-		lower := gv.Binding.Binding
+		var space, lower uint32
 		var explicitArraySize *uint32
-		if bindingMap != nil {
+		if immediate {
+			space, lower = uint32(t.immediates.Space), t.immediates.Register
+		} else {
+			space, lower = gv.Binding.Group, gv.Binding.Binding
+		}
+		if bindingMap != nil && !immediate {
 			loc := BindingLocation{Group: gv.Binding.Group, Binding: gv.Binding.Binding}
 			if tgt, ok := bindingMap[loc]; ok {
 				space = uint32(tgt.Space)

@@ -931,10 +931,19 @@ func (w *Writer) writeGlobalVariable(name string, global *ir.GlobalVariable) err
 		w.Out.WriteString(";\n")
 
 	case ir.SpaceImmediate:
-		// Immediate data (push constants) — wrapped in ConstantBuffer<T>
-		// Matches Rust naga: `ConstantBuffer<Type> name: register(bN, spaceN);`
-		binding := w.getBindTarget(global.Binding)
-		regStr := formatRegister("b", binding.Register, binding.Space)
+		// Immediate data, wrapped in ConstantBuffer<T> at ImmediatesTarget:
+		// `ConstantBuffer<Type> name: register(bN, spaceN);` as Rust naga
+		// writes it. The data has no WGSL binding, so nothing can stand in
+		// for a missing target, FakeMissingBindings included (Rust panics).
+		target := w.options.ImmediatesTarget
+		if target == nil {
+			if w.bindingErr == nil {
+				w.bindingErr = NewError(ErrMissingBinding,
+					fmt.Sprintf("immediate data %s needs ImmediatesTarget", global.Name))
+			}
+			target = &BindTarget{}
+		}
+		regStr := formatRegister("b", target.Register, target.Space)
 		w.WriteLine("ConstantBuffer<%s> %s: %s;", typeName, name, regStr)
 		w.registerBindings[name] = regStr
 

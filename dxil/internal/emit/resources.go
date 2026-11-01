@@ -158,18 +158,17 @@ func (e *Emitter) analyzeResources() {
 			continue
 		}
 
-		// Push constants / immediate data may not have explicit bindings.
-		// Create a synthetic binding for them so they can be accessed as CBV.
-		if gv.Binding == nil {
-			if gv.Space == ir.SpaceImmediate {
-				// Assign to group=0, binding=nextCBV to avoid conflict.
-				gv.Binding = &ir.ResourceBinding{
-					Group:   0,
-					Binding: uint32(rangeCounters[resourceClassCBV]), //nolint:gosec // range counter is small
-				}
-			} else {
-				continue
-			}
+		// Immediate data has no WGSL binding: it is the constant buffer at
+		// ImmediatesTarget, which no binding map moves.
+		immediate := gv.Binding == nil && gv.Space == ir.SpaceImmediate
+		var group, binding uint32
+		switch {
+		case immediate && e.opts.ImmediatesTarget != nil:
+			group, binding = e.opts.ImmediatesTarget.Space, e.opts.ImmediatesTarget.Register
+		case gv.Binding != nil:
+			group, binding = gv.Binding.Group, gv.Binding.Binding
+		default:
+			continue
 		}
 
 		rangeID := rangeCounters[class]
@@ -204,14 +203,16 @@ func (e *Emitter) analyzeResources() {
 			name:           resName,
 			class:          class,
 			rangeID:        rangeID,
-			group:          gv.Binding.Group,
-			binding:        gv.Binding.Binding,
+			group:          group,
+			binding:        binding,
 			typeHandle:     gv.Type,
 			handleID:       -1,
 			isBindingArray: isBA,
 			arraySize:      baSize,
 		}
-		e.applyBindingMap(&info, gv.Space)
+		if !immediate {
+			e.applyBindingMap(&info, gv.Space)
+		}
 
 		e.resourceHandles[info.varHandle] = len(e.resources)
 		e.resources = append(e.resources, info)

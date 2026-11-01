@@ -62,6 +62,9 @@ func TestDxilValSummary(t *testing.T) {
 	var passCount, compileFailCount, valFailCount, expectedFailCount int
 
 	opts := dxil.DefaultOptions()
+	// Immediate data at b0 in space 0, the immediates_target of every Rust
+	// parameter file that gives one.
+	opts.ImmediatesTarget = &dxil.BindTarget{}
 
 	for i := range shaders {
 		shader := &shaders[i]

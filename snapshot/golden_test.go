@@ -277,6 +277,11 @@ func goldenHLSL(module *ir.Module, shader string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Shaders whose Rust parameters have no HLSL target give no
+	// immediates_target; every one that does gives b0 in space 0.
+	if opts.ImmediatesTarget == nil {
+		opts.ImmediatesTarget = &hlsl.BindTarget{}
+	}
 	code, _, err := hlsl.Compile(module, opts)
 	return code, err
 }
