@@ -293,7 +293,7 @@ func goldenHLSL(module *ir.Module, shader string) (string, error) {
 func goldenMSL(module *ir.Module, _ string) (string, error) {
 	opts := msl.DefaultOptions()
 	opts.LangVersion = msl.Version1_0
-	// The goldens check ReadZeroSkipWrite, wgpu-hal Metal's policies.
+	// The goldens check ReadZeroSkipWrite, the policy they were written with.
 	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{
 		Index:        backend.BoundsCheckReadZeroSkipWrite,
 		Buffer:       backend.BoundsCheckReadZeroSkipWrite,
