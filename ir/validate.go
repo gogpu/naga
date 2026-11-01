@@ -686,7 +686,7 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 		// Allowed anywhere in a fragment shader, a continuing block too
 		// (Rust naga checks only the stage).
 
-	case StmtBarrier:
+	case StmtControlBarrier, StmtMemoryBarrier:
 		// Barriers are always valid
 
 	case StmtStore:

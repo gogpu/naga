@@ -112,7 +112,8 @@ func (a *analysis) scanBlock(block ir.Block, used []bool, st *stages) {
 		switch s := stmt.Kind.(type) {
 		case ir.StmtKill:
 			*st &= stageFragment
-		case ir.StmtBarrier, ir.StmtWorkGroupUniformLoad:
+		// Rust valid/function.rs:1038: both barriers are compute-like only.
+		case ir.StmtControlBarrier, ir.StmtMemoryBarrier, ir.StmtWorkGroupUniformLoad:
 			*st &= stagesComputeLike
 		case ir.StmtCall:
 			if int(s.Function) >= len(a.m.Functions) {

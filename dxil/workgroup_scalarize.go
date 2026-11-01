@@ -610,7 +610,7 @@ func (s *wgScalarizer) uniformLoad(l *wgLoc, k ir.StmtWorkGroupUniformLoad) ir.B
 	kind := s.loadKind(l)
 	emits := s.emitsFrom(start)
 	s.fn.Expressions[k.Result].Kind = kind
-	barrier := ir.Statement{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}}
+	barrier := ir.Statement{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}}
 	b := append(ir.Block{barrier}, emits...)
 	return append(b,
 		ir.Statement{Kind: ir.StmtEmit{Range: ir.Range{Start: k.Result, End: k.Result + 1}}},

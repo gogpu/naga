@@ -27,7 +27,7 @@ func module() *ir.Module {
 		GlobalVariables: []ir.GlobalVariable{{Name: "g0"}, {Name: "g1"}},
 		Functions: []ir.Function{
 			{Name: "f0", Expressions: []ir.Expression{global(0), {Kind: ir.ExprDerivative{}}}},
-			{Name: "f1", Body: ir.Block{{Kind: ir.StmtBarrier{}}}},
+			{Name: "f1", Body: ir.Block{{Kind: ir.StmtControlBarrier{}}}},
 			{Name: "f2", Body: ir.Block{{Kind: ir.StmtIf{Accept: ir.Block{call(0)}}}}},
 			{Name: "f3", Expressions: []ir.Expression{global(1)}},
 			{Name: "f4", Body: ir.Block{{Kind: ir.StmtLoop{Body: ir.Block{{Kind: ir.StmtKill{}}}}}}},

@@ -93,8 +93,13 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		w.WriteLine("%sdiscard_fragment();", Namespace)
 		return nil
 
-	case ir.StmtBarrier:
+	case ir.StmtControlBarrier:
 		return w.writeBarrier(k)
+
+	case ir.StmtMemoryBarrier:
+		// Metal has no barrier without execution sync; Rust naga writes
+		// both statements with write_barrier (back/msl/writer.rs:4133).
+		return w.writeBarrier(ir.StmtControlBarrier(k))
 
 	case ir.StmtStore:
 		return w.writeStore(k)
@@ -1128,7 +1133,7 @@ func (w *Writer) writeReturn(ret ir.StmtReturn) error {
 // writeBarrier writes a barrier statement.
 // Rust naga reference: writer.rs ~line 7624-7657, uses {NAMESPACE}::threadgroup_barrier
 // and {NAMESPACE}::mem_flags for fully qualified Metal calls.
-func (w *Writer) writeBarrier(barrier ir.StmtBarrier) error {
+func (w *Writer) writeBarrier(barrier ir.StmtControlBarrier) error {
 	// Metal uses different barrier functions based on the memory being synchronized.
 	// Both the function and mem_flags must be fully qualified with the metal:: namespace.
 	if barrier.Flags&ir.BarrierSubGroup != 0 {

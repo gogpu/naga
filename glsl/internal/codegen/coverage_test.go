@@ -378,7 +378,7 @@ func TestCoverage_ScanBlockForStages(t *testing.T) {
 					Selector: 0,
 					Cases: []ir.SwitchCase{
 						{Value: ir.SwitchValueDefault{},
-							Body: []ir.Statement{{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}}}},
+							Body: []ir.Statement{{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}}}},
 					},
 				}},
 			},
@@ -388,7 +388,7 @@ func TestCoverage_ScanBlockForStages(t *testing.T) {
 			"barrier_in_loop",
 			[]ir.Statement{
 				{Kind: ir.StmtLoop{
-					Body:       []ir.Statement{{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}}},
+					Body:       []ir.Statement{{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}}},
 					Continuing: nil,
 				}},
 			},

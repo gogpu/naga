@@ -2917,7 +2917,7 @@ func walkStmtExprs(fn *ir.Function, kind ir.StatementKind, followExpr func(*ir.F
 		}
 	case ir.StmtBlock:
 		walkBlockExprs(fn, sk.Block, followExpr)
-	case ir.StmtBarrier, ir.StmtKill:
+	case ir.StmtControlBarrier, ir.StmtMemoryBarrier, ir.StmtKill:
 		// No expression operands.
 	}
 }

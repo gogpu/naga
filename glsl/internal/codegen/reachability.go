@@ -189,7 +189,7 @@ func scanBlockForStages(block []ir.Statement, stages *uint8) {
 		switch k := stmt.Kind.(type) {
 		case ir.StmtKill: // discard → fragment only
 			*stages |= 1 << ir.StageFragment
-		case ir.StmtBarrier: // barrier → compute only
+		case ir.StmtControlBarrier, ir.StmtMemoryBarrier: // barrier → compute only
 			_ = k
 			*stages |= 1 << ir.StageCompute
 		case ir.StmtIf:
@@ -303,7 +303,7 @@ func (c *reachabilityCollector) walkStatement(kind ir.StatementKind) {
 		c.walkBlock(k.Block)
 	}
 	// StmtEmit, StmtStore, StmtReturn, StmtBreak, StmtContinue, StmtKill,
-	// StmtBarrier, StmtImageStore, StmtAtomic, StmtWorkGroupUniformLoad,
+	// StmtControlBarrier, StmtImageStore, StmtAtomic, StmtWorkGroupUniformLoad,
 	// StmtRayQuery — these reference expressions (already walked) or have
 	// no function/global/type handles.
 }

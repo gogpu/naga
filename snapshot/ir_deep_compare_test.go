@@ -543,7 +543,7 @@ func goStmtTag(s ir.Statement) string {
 		return "WorkGroupUniformLoad"
 	case ir.StmtImageAtomic:
 		return "ImageAtomic"
-	case ir.StmtBarrier:
+	case ir.StmtControlBarrier:
 		return "ControlBarrier"
 	default:
 		return fmt.Sprintf("Unknown(%T)", s)

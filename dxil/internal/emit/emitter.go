@@ -1818,7 +1818,7 @@ func containsSubgroupStmt(body ir.Block) bool {
 		switch k := s.Kind.(type) {
 		case ir.StmtSubgroupBallot, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
 			return true
-		case ir.StmtBarrier:
+		case ir.StmtControlBarrier:
 			if k.Flags&ir.BarrierSubGroup != 0 {
 				return true
 			}

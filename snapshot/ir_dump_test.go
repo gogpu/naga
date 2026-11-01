@@ -570,7 +570,7 @@ func dumpStatement(sb *strings.Builder, kind ir.StatementKind, pad string, inden
 		fmt.Fprintf(sb, "%sContinue\n", pad)
 	case ir.StmtKill:
 		fmt.Fprintf(sb, "%sKill\n", pad)
-	case ir.StmtBarrier:
+	case ir.StmtControlBarrier:
 		fmt.Fprintf(sb, "%sBarrier(flags=%d)\n", pad, s.Flags)
 	case ir.StmtAtomic:
 		result := "None"

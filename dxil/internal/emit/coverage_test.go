@@ -1119,7 +1119,7 @@ func TestEmitBarrierWorkgroup(t *testing.T) {
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
-			{Kind: ir.StmtBarrier{Flags: ir.BarrierWorkGroup}},
+			{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup}},
 			{Kind: ir.StmtReturn{}},
 		},
 	}

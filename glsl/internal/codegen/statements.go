@@ -86,8 +86,12 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		w.WriteLine("discard;")
 		return nil
 
-	case ir.StmtBarrier:
+	case ir.StmtControlBarrier:
 		return w.writeBarrier(k)
+
+	case ir.StmtMemoryBarrier:
+		w.writeMemoryBarrier(k.Flags)
+		return nil
 
 	case ir.StmtStore:
 		return w.writeStore(k)
@@ -688,23 +692,29 @@ func (w *Writer) writeCoordinateAdjustIfNeeded(info *epStructInfo) {
 // Matches Rust naga's write_control_barrier: memory barriers first, then barrier().
 // Memory barriers: STORAGE→memoryBarrierBuffer, WORK_GROUP→memoryBarrierShared,
 // SUB_GROUP→subgroupMemoryBarrier, TEXTURE→memoryBarrierImage.
-func (w *Writer) writeBarrier(barrier ir.StmtBarrier) error {
-	// Write memory barriers based on flags
-	if barrier.Flags&ir.BarrierStorage != 0 {
-		w.WriteLine("memoryBarrierBuffer();")
-	}
-	if barrier.Flags&ir.BarrierWorkGroup != 0 {
-		w.WriteLine("memoryBarrierShared();")
-	}
-	if barrier.Flags&ir.BarrierSubGroup != 0 {
-		w.WriteLine("subgroupMemoryBarrier();")
-	}
-	if barrier.Flags&ir.BarrierTexture != 0 {
-		w.WriteLine("memoryBarrierImage();")
-	}
-	// Execution barrier always follows memory barriers
+// writeBarrier writes a control barrier: the memory barriers, then
+// barrier() (Rust naga's write_control_barrier).
+func (w *Writer) writeBarrier(barrier ir.StmtControlBarrier) error {
+	w.writeMemoryBarrier(barrier.Flags)
 	w.WriteLine("barrier();")
 	return nil
+}
+
+// writeMemoryBarrier writes the memory barriers flags names (Rust naga's
+// write_memory_barrier, back/glsl/writer.rs:4482).
+func (w *Writer) writeMemoryBarrier(flags ir.BarrierFlags) {
+	if flags&ir.BarrierStorage != 0 {
+		w.WriteLine("memoryBarrierBuffer();")
+	}
+	if flags&ir.BarrierWorkGroup != 0 {
+		w.WriteLine("memoryBarrierShared();")
+	}
+	if flags&ir.BarrierSubGroup != 0 {
+		w.WriteLine("subgroupMemoryBarrier();")
+	}
+	if flags&ir.BarrierTexture != 0 {
+		w.WriteLine("memoryBarrierImage();")
+	}
 }
 
 // writeStore writes a store statement.

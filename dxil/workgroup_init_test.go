@@ -42,7 +42,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	if !ok {
 		t.Fatalf("body[1] is %T, want the If of invocation 0", ep.Function.Body[1].Kind)
 	}
-	if _, ok := ep.Function.Body[2].Kind.(ir.StmtBarrier); !ok {
+	if _, ok := ep.Function.Body[2].Kind.(ir.StmtControlBarrier); !ok {
 		t.Fatalf("body[2] is %T, want a barrier", ep.Function.Body[2].Kind)
 	}
 	stored := map[string]int{}
