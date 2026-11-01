@@ -323,15 +323,19 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
 
 ### Fixed
 
-- **MSL: math functions written as expansions computed their argument several times, without parentheses.** The
-  integer `sign`, `firstLeadingBit`, the offsets of `extractBits` and `insertBits`, and below MSL 2.1
-  `pack4x*`/`unpack4x*` repeat their argument in the code they expand to; written inline, a compound argument was
-  computed again each time and the expansion's operators bound into it: `sign(a & b)` compared `a & (b > 0)`,
-  `unpack4xI8(a & b)` shifted only `b`. The argument is now computed once into a temporary, as Rust naga's writer
-  does (P1-MSL-098). Arguments that are a plain value were not affected. GLSL repeated the argument of
-  `pack4x*`/`unpack4x*`, of an integer `dot` and of the `unpack4x8snorm`/`unorm` and `unpack2x16snorm`/`unorm`
-  fallbacks the same way; it now bakes them as Rust naga's GLSL writer does (the int64 golden's `dot` changes, with the
-  same value).
+- **MSL and GLSL: math functions written as expansions computed their argument several times, without parentheses**
+  (all released versions). Exposure: a shader passes a compound expression (not a plain variable, load or constant)
+  as the argument of
+  - MSL, every language version: an integer `sign`, `firstLeadingBit`, the offset of `extractBits` or `insertBits`;
+  - MSL below 2.1: `pack4x*`/`unpack4x*`;
+  - GLSL: `pack4x*`/`unpack4x*`, an integer `dot`, and `unpack4x8snorm`/`unorm` or `unpack2x16snorm`/`unorm` on a
+    GLSL version without the native function.
+
+  The writers repeated the argument in the code they expand to, so it was computed again each time, and in MSL the
+  expansion's operators bound into it: `sign(a & b)` compared `a & (b > 0)`, `firstLeadingBit(a & b)` used `~a & b`,
+  `unpack4xI8(a & b)` shifted only `b` — wrong values without an error. The argument is now computed once into a
+  temporary, as Rust naga's writers do (P1-MSL-098). No shader of the test corpus or of gg is exposed; the int64 GLSL
+  golden's `dot` arguments become temporaries, with the same value.
 - **Ray query shaders no longer panic.** Compaction kept the module's special types (the ray intersection struct, the
   external texture parameter types) only when they were named, and never renumbered them, so once an unused type before
   one was removed every backend indexed past the type arena: gfx-rs/wgpu's ray query examples panicked in every
