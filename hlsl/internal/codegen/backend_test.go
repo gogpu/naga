@@ -5,6 +5,7 @@ package codegen
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
@@ -143,17 +144,10 @@ func TestCompile_SimpleModule(t *testing.T) {
 				},
 			},
 		},
-		Constants: []ir.Constant{
-			{
-				Name: "PI",
-				Type: 0,
-				Value: ir.ScalarValue{
-					Bits: 0x40490fdb, // ~3.14159
-					Kind: ir.ScalarFloat,
-				},
-			},
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{name: "PI", ty: 0, lit: ir.LiteralF32(math.Float32frombits(0x40490fdb))}, // ~3.14159
+	)
 
 	opts := DefaultOptions()
 	opts.ShaderModel = ShaderModel6_0

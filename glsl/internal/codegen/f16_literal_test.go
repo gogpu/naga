@@ -2,7 +2,6 @@ package codegen
 
 import (
 	"errors"
-	"math"
 	"strings"
 	"testing"
 
@@ -39,19 +38,22 @@ var<private> p: f16 = 15.2h;
 `},
 	}
 	// The literal helpers themselves, for the three values of the f16 corpus
-	// shaders (-65504, 65504, 15.2), as a literal and as an f16 scalar value.
-	module := &ir.Module{Types: []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}}}}
-	w := newWriter(module, &Options{LangVersion: Version330})
+	// shaders (-65504, 65504, 15.2), as a literal and as an f16 constant's
+	// init expression.
 	for _, v := range []float32{-65504, 65504, 15.2} {
+		module := &ir.Module{
+			Types:             []ir.Type{{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}}},
+			GlobalExpressions: []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralF16(v)}}},
+		}
+		w := newWriter(module, &Options{LangVersion: Version330})
 		if got, err := w.formatLiteral(ir.Literal{Value: ir.LiteralF16(v)}); !errors.Is(err, errNoFloat16) {
 			t.Errorf("formatLiteral(F16(%v)) = %q, %v; want errNoFloat16", v, got, err)
 		}
 		if got, err := w.writeLiteral(ir.Literal{Value: ir.LiteralF16(v)}); !errors.Is(err, errNoFloat16) {
 			t.Errorf("writeLiteral(F16(%v)) = %q, %v; want errNoFloat16", v, got, err)
 		}
-		bits := uint64(math.Float32bits(v))
-		if got, err := w.writeScalarValue(ir.ScalarValue{Kind: ir.ScalarFloat, Bits: bits}, 0); !errors.Is(err, errNoFloat16) {
-			t.Errorf("writeScalarValue(f16 %v) = %q, %v; want errNoFloat16", v, got, err)
+		if got, err := w.writeConstExpr(0); !errors.Is(err, errNoFloat16) {
+			t.Errorf("writeConstExpr(F16(%v)) = %q, %v; want errNoFloat16", v, got, err)
 		}
 	}
 

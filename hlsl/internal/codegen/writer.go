@@ -556,8 +556,8 @@ func (w *Writer) writeAllEPInterfaces() error {
 	return nil
 }
 
-// NOTE: writeTypes, writeConstants, writeConstantValue, writeScalarValue,
-// writeCompositeValue, writeGlobalVariables are implemented in types.go
+// NOTE: writeTypes, writeConstants and writeGlobalVariables are implemented in
+// types.go
 
 // getBindTarget looks up or generates a bind target for a resource binding.
 func (w *Writer) getBindTarget(binding *ir.ResourceBinding) BindTarget {

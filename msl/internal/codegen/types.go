@@ -2,11 +2,9 @@ package codegen
 
 import (
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 
-	"github.com/gogpu/naga/internal/unsupported"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -642,7 +640,7 @@ func (w *Writer) writeConstants() error {
 		}
 		// Skip abstract-typed constants (e.g., `const ONE = 1;` without explicit type).
 		// In Rust naga, these are removed by the compact pass before reaching the MSL writer.
-		if constant.IsAbstract {
+		if int(constant.Type) < len(w.module.Types) && irutil.IsAbstractType(w.module.Types[constant.Type].Inner, w.module.Types) {
 			continue
 		}
 		if err := w.writeConstant(ir.ConstantHandle(handle), constant); err != nil {
@@ -659,218 +657,11 @@ func (w *Writer) writeConstant(handle ir.ConstantHandle, constant *ir.Constant) 
 	typeName := w.writeTypeName(constant.Type, StorageAccess(0))
 
 	w.write("constant %s %s = ", typeName, name)
-	// If Value is nil, the constant uses Init (GlobalExpressions handle) instead.
-	// This matches Rust naga which always uses put_const_expression(constant.init, ...).
-	if constant.Value == nil {
-		if err := w.writeGlobalExpression(constant.Init); err != nil {
-			return err
-		}
-	} else if err := w.writeConstantValue(constant.Value, constant.Type); err != nil {
+	// The value is the init expression, as Rust naga's
+	// put_const_expression(constant.init, ...).
+	if err := w.writeGlobalExpression(constant.Init); err != nil {
 		return err
 	}
 	w.WriteLine(";")
 	return nil
-}
-
-// writeConstantValue writes a constant value.
-func (w *Writer) writeConstantValue(value ir.ConstantValue, typeHandle ir.TypeHandle) error {
-	switch v := value.(type) {
-	case nil:
-		// Value is nil — should not normally happen if callers check first.
-		// Handle gracefully with zero-value braces.
-		typeName := w.writeTypeName(typeHandle, StorageAccess(0))
-		w.write("%s {}", typeName)
-		return nil
-
-	case ir.ScalarValue:
-		return w.writeScalarValue(v, typeHandle)
-
-	case ir.ZeroConstantValue:
-		typeName := w.writeTypeName(typeHandle, StorageAccess(0))
-		w.write("%s {}", typeName)
-		return nil
-
-	case ir.CompositeValue:
-		typeName := w.writeTypeName(typeHandle, StorageAccess(0))
-		// Arrays (wrapped in structs) and user-defined structs use brace initialization.
-		// Vectors and matrices use constructor call parentheses.
-		// Matches Rust naga MSL output.
-		useBraces := false
-		if _, ok := w.arrayWrappers[typeHandle]; ok {
-			useBraces = true
-		} else if int(typeHandle) < len(w.module.Types) {
-			if _, ok := w.module.Types[typeHandle].Inner.(ir.StructType); ok {
-				useBraces = true
-			}
-		}
-		if useBraces {
-			w.write("%s {", typeName)
-		} else {
-			w.write("%s(", typeName)
-		}
-		for i, componentHandle := range v.Components {
-			if i > 0 {
-				w.write(", ")
-			}
-			component := &w.module.Constants[componentHandle]
-			if err := w.writeConstantValue(component.Value, component.Type); err != nil {
-				return err
-			}
-		}
-		if useBraces {
-			w.write("}")
-		} else {
-			w.write(")")
-		}
-		return nil
-
-	default:
-		return unsupported.Errorf("unsupported constant value type: %T", value)
-	}
-}
-
-// writeScalarValue writes a scalar constant value.
-func (w *Writer) writeScalarValue(v ir.ScalarValue, typeHandle ir.TypeHandle) error {
-	switch v.Kind {
-	case ir.ScalarBool:
-		if v.Bits != 0 {
-			w.write("true")
-		} else {
-			w.write("false")
-		}
-
-	case ir.ScalarFloat:
-		// Get width from type
-		width := uint8(4) // Default to 32-bit
-		if int(typeHandle) < len(w.module.Types) {
-			if scalar, ok := w.module.Types[typeHandle].Inner.(ir.ScalarType); ok {
-				width = scalar.Width
-			}
-		}
-
-		if width == 2 {
-			// f16 (half): bits are stored as uint16 IEEE 754 half-precision.
-			// Convert to float64 for formatting, then add 'h' suffix.
-			floatVal := float64(halfToFloat32(uint16(v.Bits)))
-			if math.IsInf(floatVal, 0) {
-				if floatVal < 0 {
-					w.write("-INFINITY")
-				} else {
-					w.write("INFINITY")
-				}
-			} else if math.IsNaN(floatVal) {
-				w.write("NAN")
-			} else {
-				s := strconv.FormatFloat(floatVal, 'f', -1, 32)
-				if !strings.Contains(s, ".") {
-					s += ".0"
-				}
-				w.write("%sh", s)
-			}
-		} else if width == 4 {
-			floatVal := math.Float32frombits(uint32(v.Bits))
-			if math.IsInf(float64(floatVal), 0) {
-				if floatVal < 0 {
-					w.write("-INFINITY")
-				} else {
-					w.write("INFINITY")
-				}
-			} else if math.IsNaN(float64(floatVal)) {
-				w.write("NAN")
-			} else {
-				s := strconv.FormatFloat(float64(floatVal), 'f', -1, 32)
-				if !strings.Contains(s, ".") {
-					s += ".0"
-				}
-				w.write("%s", s)
-			}
-		} else {
-			floatVal := math.Float64frombits(v.Bits)
-			if math.IsInf(floatVal, 0) {
-				if floatVal < 0 {
-					w.write("-INFINITY")
-				} else {
-					w.write("INFINITY")
-				}
-			} else if math.IsNaN(floatVal) {
-				w.write("NAN")
-			} else {
-				s := strconv.FormatFloat(floatVal, 'f', -1, 64)
-				if !strings.Contains(s, ".") {
-					s += ".0"
-				}
-				w.write("%s", s)
-			}
-		}
-
-	case ir.ScalarSint:
-		// Get width from type to distinguish i32 vs i64.
-		sWidth := uint8(4)
-		if int(typeHandle) < len(w.module.Types) {
-			if scalar, ok := w.module.Types[typeHandle].Inner.(ir.ScalarType); ok {
-				sWidth = scalar.Width
-			}
-		}
-		if sWidth == 8 {
-			val := int64(v.Bits)
-			if val == -9223372036854775808 {
-				w.write("(-9223372036854775807L - 1L)")
-			} else {
-				w.write("%dL", val)
-			}
-		} else {
-			val := int32(v.Bits)
-			if val == -2147483648 {
-				w.write("(-2147483647 - 1)")
-			} else {
-				w.write("%d", val)
-			}
-		}
-
-	case ir.ScalarUint:
-		// Get width from type to distinguish u32 vs u64.
-		uWidth := uint8(4)
-		if int(typeHandle) < len(w.module.Types) {
-			if scalar, ok := w.module.Types[typeHandle].Inner.(ir.ScalarType); ok {
-				uWidth = scalar.Width
-			}
-		}
-		if uWidth == 8 {
-			w.write("%duL", uint64(v.Bits))
-		} else {
-			w.write("%du", uint32(v.Bits))
-		}
-
-	default:
-		return unsupported.Errorf("unsupported scalar kind: %v", v.Kind)
-	}
-	return nil
-}
-
-// halfToFloat32 converts a 16-bit IEEE 754 half-precision float to float32.
-func halfToFloat32(bits uint16) float32 {
-	sign := uint32(bits>>15) & 1
-	exp := uint32(bits>>10) & 0x1f
-	frac := uint32(bits) & 0x3ff
-
-	switch {
-	case exp == 0:
-		if frac == 0 {
-			return math.Float32frombits(sign << 31)
-		}
-		// Subnormal: normalize
-		for frac&0x400 == 0 {
-			frac <<= 1
-			exp--
-		}
-		exp++
-		frac &= 0x3ff
-		fallthrough
-	case exp < 31:
-		exp += 127 - 15
-		return math.Float32frombits(sign<<31 | exp<<23 | frac<<13)
-	default:
-		// Inf or NaN
-		return math.Float32frombits(sign<<31 | 0xff<<23 | frac<<13)
-	}
 }

@@ -494,8 +494,8 @@ fn main(@location(0) @interpolate(flat) v: u32) -> @location(0) vec4<f32> {
 	assertValidSPIRV(t, spv)
 }
 
-// TestScalarConstantEmission exercises emitScalarConstant (54.5%) with
-// various scalar literal types used in expressions.
+// TestScalarConstantEmission exercises scalar literal constants used in
+// expressions.
 func TestScalarConstantEmission(t *testing.T) {
 	source := `
 @fragment

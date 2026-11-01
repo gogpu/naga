@@ -4,6 +4,7 @@
 package codegen
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -237,37 +238,38 @@ func TestVectorTypeNameMethod(t *testing.T) {
 }
 
 // =============================================================================
-// writeConstantValue Tests — covers scalar constant value emission
+// writeConstants Tests — a scalar constant is written from its literal Init
 // =============================================================================
 
-func TestWriteConstantValue_Scalar(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 0: f32
-			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},  // 1: i32
-			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},  // 2: u32
-			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},  // 3: bool
-		},
+func TestWriteConstants_ScalarInit(t *testing.T) {
+	types := []ir.Type{
+		{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 0: f32
+		{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},  // 1: i32
+		{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},  // 2: u32
+		{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},  // 3: bool
 	}
-
-	w := newTestWriter(module, nil, nil)
 
 	tests := []struct {
 		name string
-		c    ir.Constant
+		c    testConst
 		want string
 	}{
-		{"f32_pi", ir.Constant{Type: 0, Value: ir.ScalarValue{Bits: 0x40490fdb, Kind: ir.ScalarFloat}}, "3.14159"},
-		{"i32_42", ir.Constant{Type: 1, Value: ir.ScalarValue{Bits: 42, Kind: ir.ScalarSint}}, "int(42)"},
-		{"u32_100", ir.Constant{Type: 2, Value: ir.ScalarValue{Bits: 100, Kind: ir.ScalarUint}}, "100u"},
-		{"bool_true", ir.Constant{Type: 3, Value: ir.ScalarValue{Bits: 1, Kind: ir.ScalarBool}}, "true"},
-		{"bool_false", ir.Constant{Type: 3, Value: ir.ScalarValue{Bits: 0, Kind: ir.ScalarBool}}, "false"},
+		{"f32_pi", testConst{name: "c", ty: 0, lit: ir.LiteralF32(math.Float32frombits(0x40490fdb))}, "static const float c = 3.1415927;"},
+		{"i32_42", testConst{name: "c", ty: 1, lit: ir.LiteralI32(42)}, "static const int c = int(42);"},
+		{"u32_100", testConst{name: "c", ty: 2, lit: ir.LiteralU32(100)}, "static const uint c = 100u;"},
+		{"bool_true", testConst{name: "c", ty: 3, lit: ir.LiteralBool(true)}, "static const bool c = true;"},
+		{"bool_false", testConst{name: "c", ty: 3, lit: ir.LiteralBool(false)}, "static const bool c = false;"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := w.writeConstantValue(&tt.c)
-			if !strings.Contains(got, tt.want) {
+			module := &ir.Module{Types: types}
+			module.Constants, module.GlobalExpressions = constantsOf(tt.c)
+			w := newTestWriter(module, map[nameKey]string{{kind: nameKeyConstant, handle1: 0}: "c"}, nil)
+			if err := w.writeConstants(); err != nil {
+				t.Fatalf("writeConstants: %v", err)
+			}
+			if got := w.Out.String(); !strings.Contains(got, tt.want) {
 				t.Errorf("expected %q in output, got: %q", tt.want, got)
 			}
 		})

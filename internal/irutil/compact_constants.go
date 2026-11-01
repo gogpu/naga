@@ -128,15 +128,13 @@ func (t *constantTracer) markUsedByDefinition(keep KeepUnused) {
 }
 
 // markNamedConstants marks every named constant of a concrete type: Rust
-// keeps abstract-typed constants away from the validator.
+// keeps abstract-typed constants away from the validator. A constant is
+// abstract by its type alone, as in Rust (TypeInner::is_abstract).
 func (t *constantTracer) markNamedConstants() {
 	m := t.module
 	for i := range m.Constants {
 		c := &m.Constants[i]
-		abstract := c.IsAbstract
-		if !abstract && int(c.Type) < len(m.Types) {
-			abstract = isAbstractType(m.Types[c.Type].Inner, m.Types)
-		}
+		abstract := int(c.Type) < len(m.Types) && IsAbstractType(m.Types[c.Type].Inner, m.Types)
 		if c.Name != "" && c.Name != "_" && !abstract {
 			t.constant(ir.ConstantHandle(i))
 		}
@@ -174,16 +172,6 @@ func (t *constantTracer) traceToFixpoint() {
 				t.override(k.Override)
 			default:
 				markExprHandleRefs(k, t.exprs)
-			}
-		}
-		for i := range m.Constants {
-			if !t.consts[i] {
-				continue
-			}
-			if cv, ok := m.Constants[i].Value.(ir.CompositeValue); ok {
-				for _, comp := range cv.Components {
-					t.constant(comp)
-				}
 			}
 		}
 		if t.count() == before {
@@ -290,13 +278,6 @@ func (t *constantTracer) applyConstants(r constantRemap, kept int) {
 			continue
 		}
 		c.Init = r.expr(c.Init)
-		if cv, ok := c.Value.(ir.CompositeValue); ok {
-			comps := make([]ir.ConstantHandle, len(cv.Components))
-			for j, comp := range cv.Components {
-				comps[j] = r.constant(comp)
-			}
-			c.Value = ir.CompositeValue{Components: comps}
-		}
 		newConsts = append(newConsts, c)
 	}
 	m.Constants = newConsts

@@ -1288,12 +1288,7 @@ func (w *Writer) writePrivateVarLocals(fn *ir.Function) error {
 func (w *Writer) writeConstExpression(handle ir.ConstantHandle) error {
 	// For private variable initializers, we need to emit the constant's value.
 	if int(handle) < len(w.module.Constants) {
-		c := &w.module.Constants[handle]
-		// If Value is nil, use Init (GlobalExpressions handle) instead.
-		if c.Value == nil {
-			return w.writeGlobalExpression(c.Init)
-		}
-		return w.writeConstantValue(c.Value, c.Type)
+		return w.writeGlobalExpression(w.module.Constants[handle].Init)
 	}
 	w.write("{}")
 	return nil

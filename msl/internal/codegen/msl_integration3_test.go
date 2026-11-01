@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -104,16 +105,16 @@ func TestIntegration_ConstantF32Values(t *testing.T) {
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
-		Constants: []ir.Constant{
-			{Name: "PI", Type: 0, Value: ir.ScalarValue{Bits: 0x40490FDB, Kind: ir.ScalarFloat}},      // 3.14159...
-			{Name: "ZERO", Type: 0, Value: ir.ScalarValue{Bits: 0, Kind: ir.ScalarFloat}},             // 0.0
-			{Name: "NEG_ONE", Type: 0, Value: ir.ScalarValue{Bits: 0xBF800000, Kind: ir.ScalarFloat}}, // -1.0
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{name: "PI", ty: 0, lit: ir.LiteralF32(math.Float32frombits(0x40490FDB))}, // 3.14159...
+		testConst{name: "ZERO", ty: 0, lit: ir.LiteralF32(0)},
+		testConst{name: "NEG_ONE", ty: 0, lit: ir.LiteralF32(-1)},
+	)
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "PI")
-	mustContainMSL(t, result, "ZERO")
-	mustContainMSL(t, result, "NEG_ONE")
+	mustContainMSL(t, result, "constant float PI = 3.1415927;")
+	mustContainMSL(t, result, "constant float ZERO = 0.0;")
+	mustContainMSL(t, result, "constant float NEG_ONE = -1.0;")
 }
 
 func TestIntegration_ConstantI32Values(t *testing.T) {
@@ -121,14 +122,14 @@ func TestIntegration_ConstantI32Values(t *testing.T) {
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
-		Constants: []ir.Constant{
-			{Name: "POS", Type: 0, Value: ir.ScalarValue{Bits: 42, Kind: ir.ScalarSint}},
-			{Name: "NEG", Type: 0, Value: ir.ScalarValue{Bits: 0xFFFFFFFFFFFFFFF6, Kind: ir.ScalarSint}}, // -10
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{name: "POS", ty: 0, lit: ir.LiteralI32(42)},
+		testConst{name: "NEG", ty: 0, lit: ir.LiteralI32(-10)},
+	)
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "42")
-	mustContainMSL(t, result, "-10")
+	mustContainMSL(t, result, "constant int POS = 42;")
+	mustContainMSL(t, result, "constant int NEG = -10;")
 }
 
 // =============================================================================

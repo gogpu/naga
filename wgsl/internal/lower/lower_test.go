@@ -1275,8 +1275,8 @@ fn main() { _ = result; }`
 	if resultConst == nil {
 		t.Fatal("constant 'result' not found")
 	}
-	if resultConst.Value != nil {
-		t.Error("result.Value should be nil (GE-based), got non-nil — sub-constants not converted to GE")
+	if _, ok := module.GlobalExpressions[resultConst.Init].Kind.(ir.ExprCompose); !ok {
+		t.Errorf("result.Init = %T, want the evaluated ExprCompose", module.GlobalExpressions[resultConst.Init].Kind)
 	}
 
 	// Check that GE contains the evaluated result: F32(4.0), F32(5.0), Compose

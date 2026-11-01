@@ -171,7 +171,7 @@ func TestLowerConcretizeComponentLiterals(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// buildGlobalExpressions — global expression building (57.1%)
+// Module.GlobalExpressions — constant and variable initializers
 // ---------------------------------------------------------------------------
 
 func TestLowerBuildGlobalExpressionsComplex(t *testing.T) {
@@ -241,18 +241,38 @@ fn test() {
 }
 
 // ---------------------------------------------------------------------------
-// scalarValueToLiteralWithType — through global expression paths (55.6%)
+// Typed scalar constants: the value is the literal Init (Rust Constant.init)
 // ---------------------------------------------------------------------------
 
-func TestLowerScalarValueToLiteralWithType(t *testing.T) {
+func TestLowerTypedScalarConstantInits(t *testing.T) {
 	src := `const A: i32 = 42;
 const B: u32 = 100u;
 const C: f32 = 3.14;
 const D: bool = true;
 fn test() { _ = A; _ = B; _ = C; _ = D; }`
 	module := mustCompile(t, src)
-	if len(module.GlobalExpressions) < 4 {
-		t.Errorf("expected at least 4 global expressions for typed constants, got %d", len(module.GlobalExpressions))
+	want := map[string]ir.LiteralValue{
+		"A": ir.LiteralI32(42),
+		"B": ir.LiteralU32(100),
+		"C": ir.LiteralF32(3.14),
+		"D": ir.LiteralBool(true),
+	}
+	for _, c := range module.Constants {
+		w, ok := want[c.Name]
+		if !ok {
+			continue
+		}
+		delete(want, c.Name)
+		if int(c.Init) >= len(module.GlobalExpressions) {
+			t.Fatalf("%s: init %d out of range (%d global expressions)", c.Name, c.Init, len(module.GlobalExpressions))
+		}
+		lit, ok := module.GlobalExpressions[c.Init].Kind.(ir.Literal)
+		if !ok || lit.Value != w {
+			t.Errorf("%s init = %#v, want Literal(%#v)", c.Name, module.GlobalExpressions[c.Init].Kind, w)
+		}
+	}
+	if len(want) != 0 {
+		t.Errorf("constants not found: %v", want)
 	}
 }
 

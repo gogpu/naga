@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -848,34 +849,11 @@ func (w *Writer) resolveAccessBaseSpace(handle ir.ExpressionHandle) ir.AddressSp
 // whose value is less than `length`. Matches Rust naga's access_needs_check:
 // if the index is Known and < length, no bounds check is needed.
 func (w *Writer) isConstantIndexInBounds(index ir.ExpressionHandle, length uint32) bool {
-	if w.currentFunction == nil || int(index) >= len(w.currentFunction.Expressions) {
+	if w.currentFunction == nil {
 		return false
 	}
-	expr := w.currentFunction.Expressions[index]
-	// Direct literal constant
-	if lit, ok := expr.Kind.(ir.Literal); ok {
-		switch v := lit.Value.(type) {
-		case ir.LiteralU32:
-			return uint32(v) < length
-		case ir.LiteralI32:
-			return v >= 0 && uint32(v) < length
-		}
-	}
-	// Constant expression (ExprConstant) - check global constants for scalar value
-	if c, ok := expr.Kind.(ir.ExprConstant); ok {
-		if int(c.Constant) < len(w.module.Constants) {
-			cnst := &w.module.Constants[c.Constant]
-			if sv, ok := cnst.Value.(ir.ScalarValue); ok {
-				switch sv.Kind {
-				case ir.ScalarUint:
-					return sv.Bits < uint64(length)
-				case ir.ScalarSint:
-					return int64(sv.Bits) >= 0 && sv.Bits < uint64(length)
-				}
-			}
-		}
-	}
-	return false
+	v, ok := irutil.ConstIndexValue(w.module, w.currentFunction, index)
+	return ok && v < length
 }
 
 // writeAccessIndexExpression writes access with compile-time constant index.

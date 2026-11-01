@@ -99,9 +99,6 @@ type Lowerer struct {
 	// causing expression count divergence (e.g., 39 vs 37 expressions).
 	globalExprCache map[ir.GlobalVariableHandle]ir.ExpressionHandle
 
-	// constsWithInlineInit tracks constants whose Init was set inline during lowering.
-	constsWithInlineInit map[ir.ConstantHandle]bool
-
 	// Errors and warnings
 	errors   parser.SourceErrors
 	warnings []Warning
@@ -304,11 +301,6 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 		return nil, &l.errors
 	}
 
-	// Build the GlobalExpressions of overrides and override-dependent global
-	// variable initializers (constants already have theirs), so that the
-	// module is complete before it is compacted, as in Rust naga's lower().
-	l.buildGlobalExpressions()
-
 	// Copy deduplicated types from registry to module
 	l.module.Types = l.registry.GetTypes()
 
@@ -336,14 +328,6 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 // addError adds an error with source location.
 func (l *Lowerer) addError(message string, span parser.Span) {
 	l.errors.Add(parser.NewSourceError(message, span, l.source))
-}
-
-// markConstInlineInit marks a constant as having its Init set inline during lowering.
-func (l *Lowerer) markConstInlineInit(ch ir.ConstantHandle) {
-	if l.constsWithInlineInit == nil {
-		l.constsWithInlineInit = make(map[ir.ConstantHandle]bool)
-	}
-	l.constsWithInlineInit[ch] = true
 }
 
 // registerBuiltinTypes is a no-op placeholder for future use.
@@ -868,8 +852,8 @@ func (l *Lowerer) lowerGlobalVar(v *parser.VarDecl) error {
 }
 
 // lowerOverride converts an override declaration to an ir.Override.
-// Overrides are stored in Module.Overrides (separate from Constants).
-// Init expressions are deferred to buildGlobalExpressions.
+// Overrides are stored in Module.Overrides (separate from Constants); the
+// initializer is appended to Module.GlobalExpressions here.
 func (l *Lowerer) lowerOverride(o *parser.OverrideDecl) error {
 	overrideHandle := ir.OverrideHandle(len(l.module.Overrides))
 
@@ -910,36 +894,6 @@ func (l *Lowerer) lowerOverride(o *parser.OverrideDecl) error {
 	})
 	l.moduleOverrides[o.Name] = overrideHandle
 	return nil
-}
-
-// halfToFloat32 converts IEEE 754 half-precision (16-bit) bits to float32.
-func halfToFloat32(h uint16) float32 {
-	sign := uint32(h>>15) & 1
-	exp := uint32(h>>10) & 0x1f
-	frac := uint32(h) & 0x3ff
-
-	switch {
-	case exp == 0x1f: // inf or nan
-		if frac == 0 {
-			return math.Float32frombits(sign<<31 | 0xff<<23) // inf
-		}
-		return math.Float32frombits(sign<<31 | 0xff<<23 | frac<<13) // nan
-	case exp == 0: // zero or subnormal
-		if frac == 0 {
-			return math.Float32frombits(sign << 31) // zero
-		}
-		// Subnormal: normalize
-		for frac&0x400 == 0 {
-			frac <<= 1
-			exp--
-		}
-		frac &= 0x3ff
-		exp++
-		fallthrough
-	default: // normal
-		f32exp := exp + 127 - 15
-		return math.Float32frombits(sign<<31 | f32exp<<23 | frac<<13)
-	}
 }
 
 // lowerFunction converts a function declaration to IR.
@@ -4412,73 +4366,6 @@ func (l *Lowerer) addPhonyExpression(handle ir.ExpressionHandle) {
 		return
 	}
 	l.currentFunc.NamedExpressions[handle] = "phony"
-}
-
-func scalarValueToLiteral(sv ir.ScalarValue) ir.LiteralValue {
-	switch sv.Kind {
-	case ir.ScalarBool:
-		return ir.LiteralBool(sv.Bits != 0)
-	case ir.ScalarSint:
-		return ir.LiteralI32(int32(sv.Bits))
-	case ir.ScalarUint:
-		return ir.LiteralU32(uint32(sv.Bits))
-	case ir.ScalarFloat:
-		return ir.LiteralF32(math.Float32frombits(uint32(sv.Bits)))
-	case ir.ScalarAbstractInt:
-		// Concretize: AbstractInt → I32 (WGSL default)
-		return ir.LiteralI32(int32(sv.Bits))
-	case ir.ScalarAbstractFloat:
-		// Concretize: AbstractFloat → F32 (WGSL default)
-		return ir.LiteralF32(math.Float32frombits(uint32(sv.Bits)))
-	default:
-		return nil
-	}
-}
-
-// scalarValueToLiteralWithType converts a ScalarValue to a LiteralValue,
-// using the associated type handle to determine the correct width.
-// This is important for f16 values where bits are stored as 16-bit half-precision.
-func (l *Lowerer) scalarValueToLiteralWithType(sv ir.ScalarValue, typeHandle ir.TypeHandle) ir.LiteralValue {
-	// Get the scalar type width from the type arena
-	if int(typeHandle) < len(l.module.Types) {
-		if st, ok := l.module.Types[typeHandle].Inner.(ir.ScalarType); ok {
-			switch sv.Kind {
-			case ir.ScalarFloat, ir.ScalarAbstractFloat:
-				switch st.Width {
-				case 2:
-					return ir.LiteralF16(halfToFloat32(uint16(sv.Bits)))
-				case 4:
-					return ir.LiteralF32(math.Float32frombits(uint32(sv.Bits)))
-				case 8:
-					if sv.Kind == ir.ScalarAbstractFloat {
-						// Concretize AbstractFloat → F32 when deep-copying to function
-						return ir.LiteralF32(math.Float32frombits(uint32(sv.Bits)))
-					}
-					return ir.LiteralF64(math.Float64frombits(sv.Bits))
-				}
-			case ir.ScalarSint, ir.ScalarAbstractInt:
-				switch st.Width {
-				case 8:
-					if sv.Kind == ir.ScalarAbstractInt {
-						// Concretize AbstractInt → I32 when deep-copying to function
-						return ir.LiteralI32(int32(sv.Bits))
-					}
-					return ir.LiteralI64(int64(sv.Bits))
-				default:
-					return ir.LiteralI32(int32(sv.Bits))
-				}
-			case ir.ScalarUint:
-				switch st.Width {
-				case 8:
-					return ir.LiteralU64(sv.Bits)
-				default:
-					return ir.LiteralU32(uint32(sv.Bits))
-				}
-			}
-		}
-	}
-	// Fallback to non-type-aware conversion
-	return scalarValueToLiteral(sv)
 }
 
 func (l *Lowerer) resolveIdentifier(name string) (ir.ExpressionHandle, error) {
@@ -8192,90 +8079,4 @@ func (l *Lowerer) lowerRayQueryPointer(arg parser.Expr, target *[]ir.Statement) 
 	}
 	// If not address-of, use reference lowering
 	return l.lowerExpressionForRef(arg, target)
-}
-
-// buildGlobalExpressions populates Module.GlobalExpressions from Overrides,
-// Constants, and GlobalVariable init values. This mirrors Rust naga's
-// global_expressions arena where all module-scope init values are stored.
-//
-// The order follows Rust naga's lowering convention:
-// 1. Override init expressions (created during override lowering)
-// 2. GlobalVariable init expressions
-// 3. Constant init expressions
-func (l *Lowerer) buildGlobalExpressions() {
-	m := l.module
-
-	// Map from ConstantHandle to ExpressionHandle in GlobalExpressions.
-	constToGlobalExpr := make(map[ir.ConstantHandle]ir.ExpressionHandle, len(m.Constants))
-
-	// Helper to add an expression to GlobalExpressions.
-	addExpr := func(kind ir.ExpressionKind) ir.ExpressionHandle {
-		h := ir.ExpressionHandle(len(m.GlobalExpressions))
-		m.GlobalExpressions = append(m.GlobalExpressions, ir.Expression{Kind: kind})
-		return h
-	}
-
-	// Convert a ConstantValue to a global expression, recursively for composites.
-	var convertValue func(ch ir.ConstantHandle, c *ir.Constant) ir.ExpressionHandle
-	convertValue = func(ch ir.ConstantHandle, c *ir.Constant) ir.ExpressionHandle {
-		if h, ok := constToGlobalExpr[ch]; ok {
-			return h
-		}
-
-		var h ir.ExpressionHandle
-		switch v := c.Value.(type) {
-		case ir.ScalarValue:
-			h = addExpr(ir.Literal{Value: scalarValueToLiteral(v)})
-		case ir.CompositeValue:
-			components := make([]ir.ExpressionHandle, len(v.Components))
-			for i, compCH := range v.Components {
-				if int(compCH) < len(m.Constants) {
-					components[i] = convertValue(compCH, &m.Constants[compCH])
-				}
-			}
-			h = addExpr(ir.ExprCompose{
-				Type:       c.Type,
-				Components: components,
-			})
-		case ir.ZeroConstantValue:
-			h = addExpr(ir.ExprZeroValue{Type: c.Type})
-		case nil:
-			// Init-based constant: GE already exists via inline path.
-			// Use c.Init directly — don't create duplicate GE.
-			h = c.Init
-		default:
-			h = addExpr(ir.ExprZeroValue{Type: c.Type})
-		}
-
-		constToGlobalExpr[ch] = h
-		if c.Value != nil {
-			c.Init = h
-		}
-		return h
-	}
-
-	// Override initializers are already in GlobalExpressions: lowerOverride
-	// appends them when the declaration is lowered.
-
-	// Phase 2: Constants — populate constToGlobalExpr from inline-built Init handles.
-	// Constants already have Init set when lowered in the module const context.
-	// We just need to register their handles so Phase 3 (GlobalVar init) can find them.
-	for i := range m.Constants {
-		ch := ir.ConstantHandle(i)
-		if l.constsWithInlineInit[ch] {
-			constToGlobalExpr[ch] = m.Constants[i].Init
-		}
-	}
-
-	// Phase 3: Set GlobalVariable.InitExpr to point into GlobalExpressions.
-	for i := range m.GlobalVariables {
-		gv := &m.GlobalVariables[i]
-		if gv.Init != nil {
-			// Global var init references a constant -> use that constant's global expression.
-			if h, ok := constToGlobalExpr[*gv.Init]; ok {
-				gv.InitExpr = &h
-			}
-		}
-		// Other initializers already set InitExpr in lowerGlobalVar.
-	}
 }

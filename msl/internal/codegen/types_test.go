@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"math"
 	"testing"
 
 	"github.com/gogpu/naga/ir"
@@ -555,13 +556,12 @@ func TestMSL_ConstantEmission(t *testing.T) {
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
-		Constants: []ir.Constant{
-			{Name: "PI", Type: tF32, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40490fdb}}, // ~3.14
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{name: "PI", ty: tF32, lit: ir.LiteralF32(math.Float32frombits(0x40490fdb))}, // ~3.14
+	)
 	result := compileModule(t, module)
-	mustContainMSL(t, result, "constant")
-	mustContainMSL(t, result, "PI")
+	mustContainMSL(t, result, "constant float PI = 3.1415927;")
 }
 
 // =============================================================================

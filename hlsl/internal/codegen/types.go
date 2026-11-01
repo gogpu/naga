@@ -719,116 +719,15 @@ func (w *Writer) writeConstants() error {
 		typeName, arraySuffix := w.getTypeNameWithArraySuffix(constant.Type)
 		w.WriteIndent()
 		fmt.Fprintf(&w.Out, "static const %s %s%s = ", typeName, name, arraySuffix)
-		// Use GlobalExpressions init if available
-		if int(constant.Init) < len(w.module.GlobalExpressions) {
-			if err := w.writeGlobalConstExpression(constant.Init); err != nil {
-				// Fallback to old method
-				w.Out.WriteString(w.writeConstantValue(constant))
-			}
-		} else {
-			w.Out.WriteString(w.writeConstantValue(constant))
+		// The value is the init expression, as Rust naga's
+		// write_global_constant: write_const_expression(constant.init).
+		if err := w.writeGlobalConstExpression(constant.Init); err != nil {
+			return fmt.Errorf("constant %q: %w", constant.Name, err)
 		}
 		w.Out.WriteString(";\n")
 	}
 	w.WriteLine("")
 	return nil
-}
-
-// writeConstantValue returns the HLSL representation of a constant value.
-func (w *Writer) writeConstantValue(constant *ir.Constant) string {
-	switch v := constant.Value.(type) {
-	case ir.ScalarValue:
-		return w.writeScalarValue(v, constant.Type)
-	case ir.CompositeValue:
-		return w.writeCompositeValue(v, constant.Type)
-	default:
-		return "0" // Unknown value type
-	}
-}
-
-// writeScalarValue returns the HLSL representation of a scalar value.
-func (w *Writer) writeScalarValue(v ir.ScalarValue, typeHandle ir.TypeHandle) string {
-	switch v.Kind {
-	case ir.ScalarBool:
-		if v.Bits != 0 {
-			return "true"
-		}
-		return "false"
-
-	case ir.ScalarSint:
-		// Get width from type
-		swidth := uint8(4)
-		if int(typeHandle) < len(w.module.Types) {
-			if scalar, ok := w.module.Types[typeHandle].Inner.(ir.ScalarType); ok {
-				swidth = scalar.Width
-			}
-		}
-		if swidth == 8 {
-			i := int64(v.Bits)
-			if i == math.MinInt64 {
-				return fmt.Sprintf("(%dL - 1L)", i+1)
-			}
-			return fmt.Sprintf("%dL", i)
-		}
-		// I32: wrap in int() constructor (matches Rust naga)
-		i := int32(v.Bits)
-		if i == math.MinInt32 {
-			return fmt.Sprintf("int(%d - 1)", i+1)
-		}
-		return fmt.Sprintf("int(%d)", i)
-
-	case ir.ScalarUint:
-		// Get width from type
-		uwidth := uint8(4)
-		if int(typeHandle) < len(w.module.Types) {
-			if scalar, ok := w.module.Types[typeHandle].Inner.(ir.ScalarType); ok {
-				uwidth = scalar.Width
-			}
-		}
-		if uwidth == 8 {
-			return fmt.Sprintf("%duL", uint64(v.Bits))
-		}
-		return fmt.Sprintf("%du", uint32(v.Bits))
-
-	case ir.ScalarFloat:
-		// Get width from type if available
-		width := uint8(4) // Default to 32-bit
-		if int(typeHandle) < len(w.module.Types) {
-			if scalar, ok := w.module.Types[typeHandle].Inner.(ir.ScalarType); ok {
-				width = scalar.Width
-			}
-		}
-
-		if width == 4 {
-			floatVal := float32FromBits(uint32(v.Bits))
-			return formatFloat32(floatVal)
-		}
-		// 64-bit double: add L suffix
-		floatVal := math.Float64frombits(v.Bits)
-		return formatFloat64(floatVal) + "L"
-
-	default:
-		return "0"
-	}
-}
-
-// writeCompositeValue returns the HLSL representation of a composite value.
-func (w *Writer) writeCompositeValue(v ir.CompositeValue, typeHandle ir.TypeHandle) string {
-	var components []string
-	for _, compHandle := range v.Components {
-		if int(compHandle) < len(w.module.Constants) {
-			constant := &w.module.Constants[compHandle]
-			components = append(components, w.writeConstantValue(constant))
-		} else {
-			components = append(components, "0")
-		}
-	}
-	// HLSL arrays use initializer list syntax { ... } not constructor syntax type(...)
-	if isArrayType(w.module, typeHandle) {
-		return fmt.Sprintf("{%s}", strings.Join(components, ", "))
-	}
-	typeName := w.getTypeName(typeHandle)
-	return fmt.Sprintf("%s(%s)", typeName, strings.Join(components, ", "))
 }
 
 // writeGlobalVariables writes global resource declarations.

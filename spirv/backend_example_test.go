@@ -23,33 +23,18 @@ func Example_backendCompile() {
 				},
 			},
 		},
+		// A constant's value is its Init: an expression in GlobalExpressions.
+		GlobalExpressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                               // 0
+			{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},                               // 1
+			{Kind: ir.Literal{Value: ir.LiteralF32(3.0)}},                               // 2
+			{Kind: ir.ExprCompose{Type: 1, Components: []ir.ExpressionHandle{0, 1, 2}}}, // 3
+		},
 		Constants: []ir.Constant{
-			// const x: f32 = 1.0;
-			{
-				Name:  "x",
-				Type:  0,                                                      // f32
-				Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}, // 1.0
-			},
-			// const y: f32 = 2.0;
-			{
-				Name:  "y",
-				Type:  0,                                                      // f32
-				Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40000000}, // 2.0
-			},
-			// const z: f32 = 3.0;
-			{
-				Name:  "z",
-				Type:  0,                                                      // f32
-				Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40400000}, // 3.0
-			},
-			// const position: vec3<f32> = vec3(1.0, 2.0, 3.0);
-			{
-				Name: "position",
-				Type: 1, // vec3f
-				Value: ir.CompositeValue{
-					Components: []ir.ConstantHandle{0, 1, 2},
-				},
-			},
+			{Name: "x", Type: 0, Init: 0},        // const x: f32 = 1.0;
+			{Name: "y", Type: 0, Init: 1},        // const y: f32 = 2.0;
+			{Name: "z", Type: 0, Init: 2},        // const z: f32 = 3.0;
+			{Name: "position", Type: 1, Init: 3}, // const position: vec3<f32> = vec3(1.0, 2.0, 3.0);
 		},
 		GlobalVariables: []ir.GlobalVariable{},
 		Functions:       []ir.Function{},

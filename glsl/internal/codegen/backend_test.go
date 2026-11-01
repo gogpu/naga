@@ -4,6 +4,7 @@
 package codegen
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -667,21 +668,27 @@ func TestCompile_ScalarConstants(t *testing.T) {
 			{Name: "", Inner: i32Type}, // Type 1
 			{Name: "", Inner: u32Type}, // Type 2
 		},
-		Constants: []ir.Constant{
-			{Name: "PI", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40490fdb}}, // 3.14159
-			{Name: "MAX_COUNT", Type: 1, Value: ir.ScalarValue{Kind: ir.ScalarSint, Bits: 100}},  // 100
-			{Name: "FLAGS", Type: 2, Value: ir.ScalarValue{Kind: ir.ScalarUint, Bits: 0xFF}},     // 255
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{name: "PI", ty: 0, lit: ir.LiteralF32(math.Float32frombits(0x40490fdb))}, // 3.14159
+		testConst{name: "MAX_COUNT", ty: 1, lit: ir.LiteralI32(100)},
+		testConst{name: "FLAGS", ty: 2, lit: ir.LiteralU32(0xFF)},
+	)
 
 	source, _, err := Compile(module, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
 
-	// Should have const declarations
-	if !strings.Contains(source, "const") {
-		t.Error("Expected const keyword in output")
+	// Each constant is declared with the value of its init expression.
+	for _, want := range []string{
+		"const float PI = 3.1415927;",
+		"const int MAX_COUNT = 100;",
+		"const uint FLAGS = 255u;",
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("Expected %q in output:\n%s", want, source)
+		}
 	}
 }
 

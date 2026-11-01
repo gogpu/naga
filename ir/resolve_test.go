@@ -67,8 +67,9 @@ func TestResolveExpressionType_Constant(t *testing.T) {
 			{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
 		},
 		Constants: []Constant{
-			{Name: "PI", Type: 0, Value: ScalarValue{Bits: 0, Kind: ScalarFloat}},
+			{Name: "PI", Type: 0, Init: 0},
 		},
+		GlobalExpressions: []Expression{{Kind: Literal{Value: LiteralF32(0)}}},
 	}
 
 	fn := &Function{

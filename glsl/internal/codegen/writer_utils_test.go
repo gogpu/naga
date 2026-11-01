@@ -529,40 +529,37 @@ func TestWriteConstExpr_ZeroValue(t *testing.T) {
 }
 
 // =============================================================================
-// writeScalarValue Tests
+// writeConstExpr Tests — a scalar constant's literal init
 // =============================================================================
 
-func TestWriteScalarValue(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},  // [0]
-			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},  // [1]
-			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},  // [2]
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // [3]
-		},
-	}
-	w := newWriter(module, &Options{LangVersion: Version330})
-
+func TestWriteConstExpr_ScalarLiterals(t *testing.T) {
 	tests := []struct {
-		name       string
-		value      ir.ScalarValue
-		typeHandle ir.TypeHandle
-		contains   string
+		name  string
+		value ir.LiteralValue
+		want  string
 	}{
-		{"bool_true", ir.ScalarValue{Kind: ir.ScalarBool, Bits: 1}, 0, "true"},
-		{"bool_false", ir.ScalarValue{Kind: ir.ScalarBool, Bits: 0}, 0, "false"},
-		{"int", ir.ScalarValue{Kind: ir.ScalarSint, Bits: 42}, 1, "42"},
-		{"uint", ir.ScalarValue{Kind: ir.ScalarUint, Bits: 100}, 2, "100u"},
+		{"bool_true", ir.LiteralBool(true), "true"},
+		{"bool_false", ir.LiteralBool(false), "false"},
+		{"int", ir.LiteralI32(42), "42"},
+		{"int_negative", ir.LiteralI32(-7), "-7"},
+		{"uint", ir.LiteralU32(100), "100u"},
+		{"float", ir.LiteralF32(1.5), "1.5"},
+		// 64-bit values keep all their bits; a constant's former scalar
+		// value wrote u64 and i64 through their low 32 bits.
+		{"int64", ir.LiteralI64(-5000000000), "-5000000000l"},
+		{"uint64", ir.LiteralU64(5000000000), "5000000000ul"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := w.writeScalarValue(tt.value, tt.typeHandle)
+			module := &ir.Module{GlobalExpressions: []ir.Expression{{Kind: ir.Literal{Value: tt.value}}}}
+			w := newWriter(module, &Options{LangVersion: Version330})
+			got, err := w.writeConstExpr(0)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(got, tt.contains) {
-				t.Errorf("writeScalarValue() = %q, should contain %q", got, tt.contains)
+			if got != tt.want {
+				t.Errorf("writeConstExpr() = %q, want %q", got, tt.want)
 			}
 		})
 	}

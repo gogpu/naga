@@ -29,6 +29,12 @@ import (
 func buildTestModule() *ir.Module {
 	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	vec4 := ir.VectorType{Size: ir.Vec4, Scalar: f32}
+	consts, exprs := constantsOf(
+		testConst{name: "c0", ty: 0, lit: ir.LiteralF32(1)}, // c0: used by ep
+		testConst{name: "c1", ty: 0, lit: ir.LiteralF32(2)}, // c1: used by funcA
+		testConst{name: "c2", ty: 0, lit: ir.LiteralF32(3)}, // c2: UNUSED
+		testConst{name: "c3", ty: 0, lit: ir.LiteralF32(4)}, // c3: used by funcB
+	)
 
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -39,12 +45,8 @@ func buildTestModule() *ir.Module {
 			{Name: "StructC", Inner: ir.StructType{Members: []ir.StructMember{{Name: "col", Type: 1}}}}, // Type 4: StructC (uses vec4)
 			{Name: "StructD", Inner: ir.StructType{Members: []ir.StructMember{{Name: "x", Type: 0}}}},   // Type 5: StructD (UNUSED)
 		},
-		Constants: []ir.Constant{
-			{Name: "c0", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}}, // c0: used by ep
-			{Name: "c1", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40000000}}, // c1: used by funcA
-			{Name: "c2", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40400000}}, // c2: UNUSED
-			{Name: "c3", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40800000}}, // c3: used by funcB
-		},
+		Constants:         consts,
+		GlobalExpressions: exprs,
 		GlobalVariables: []ir.GlobalVariable{
 			{Name: "g0", Space: ir.SpaceUniform, Type: 0, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}}, // g0: used by ep
 			{Name: "g1", Space: ir.SpaceUniform, Type: 2, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}}, // g1: used by funcA (StructA)
@@ -487,7 +489,10 @@ func TestCompile_NoEntryPoint_NoFiltering(t *testing.T) {
 			{Name: "MyStruct", Inner: ir.StructType{Members: []ir.StructMember{{Name: "val", Type: 0}}}},
 		},
 		Constants: []ir.Constant{
-			{Name: "MY_CONST", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}},
+			{Name: "MY_CONST", Type: 0, Init: 0},
+		},
+		GlobalExpressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(1)}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
 			{Name: "my_global", Space: ir.SpacePrivate, Type: 0},
@@ -532,12 +537,14 @@ func TestCompile_OutputSizeReduction(t *testing.T) {
 
 	// Add 100 constants
 	constants := make([]ir.Constant, 100)
+	constInits := make([]ir.Expression, 100)
 	for i := range constants {
 		constants[i] = ir.Constant{
-			Name:  fmt.Sprintf("const_%d", i),
-			Type:  0,
-			Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: uint64(i)},
+			Name: fmt.Sprintf("const_%d", i),
+			Type: 0,
+			Init: ir.ExpressionHandle(i),
 		}
+		constInits[i] = ir.Expression{Kind: ir.Literal{Value: ir.LiteralF32(float32(i))}}
 	}
 
 	// Add 100 globals (each with a different struct type)
@@ -564,10 +571,11 @@ func TestCompile_OutputSizeReduction(t *testing.T) {
 	}
 
 	module := &ir.Module{
-		Types:           types,
-		Constants:       constants,
-		GlobalVariables: globals,
-		Functions:       functions,
+		Types:             types,
+		Constants:         constants,
+		GlobalExpressions: constInits,
+		GlobalVariables:   globals,
+		Functions:         functions,
 		EntryPoints: []ir.EntryPoint{
 			{Name: "main", Stage: ir.StageVertex, Function: ir.Function{
 				Name: "ep_main",
@@ -610,10 +618,18 @@ func TestCollectReachable_CompositeConstant(t *testing.T) {
 			{Name: "", Inner: vec4},
 		},
 		Constants: []ir.Constant{
-			{Name: "x", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x3f800000}},           // c0
-			{Name: "y", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40000000}},           // c1
-			{Name: "unused", Type: 0, Value: ir.ScalarValue{Kind: ir.ScalarFloat, Bits: 0x40400000}},      // c2: unused
-			{Name: "vec", Type: 1, Value: ir.CompositeValue{Components: []ir.ConstantHandle{0, 1, 0, 1}}}, // c3: uses c0, c1
+			{Name: "x", Type: 0, Init: 0},      // c0
+			{Name: "y", Type: 0, Init: 1},      // c1
+			{Name: "unused", Type: 0, Init: 2}, // c2: unused
+			{Name: "vec", Type: 1, Init: 5},    // c3: its init uses c0, c1
+		},
+		GlobalExpressions: []ir.Expression{
+			{Kind: ir.Literal{Value: ir.LiteralF32(1)}},                                    // 0
+			{Kind: ir.Literal{Value: ir.LiteralF32(2)}},                                    // 1
+			{Kind: ir.Literal{Value: ir.LiteralF32(3)}},                                    // 2
+			{Kind: ir.ExprConstant{Constant: 0}},                                           // 3
+			{Kind: ir.ExprConstant{Constant: 1}},                                           // 4
+			{Kind: ir.ExprCompose{Type: 1, Components: []ir.ExpressionHandle{3, 4, 3, 4}}}, // 5
 		},
 		EntryPoints: []ir.EntryPoint{
 			{Name: "main", Stage: ir.StageVertex, Function: ir.Function{

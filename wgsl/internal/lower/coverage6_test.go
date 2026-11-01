@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"math"
 	"strings"
 	"testing"
 
@@ -9,45 +8,8 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// halfToFloat32 / roundToF16 — IEEE 754 half-precision decoding and rounding
+// roundToF16 — IEEE 754 half-precision rounding
 // ---------------------------------------------------------------------------
-
-func TestHalfToFloat32(t *testing.T) {
-	tests := []struct {
-		name string
-		half uint16
-		want float32
-	}{
-		{"positive zero", 0x0000, 0.0},
-		{"negative zero", 0x8000, float32(math.Copysign(0, -1))},
-		{"one", 0x3c00, 1.0},
-		{"negative one", 0xbc00, -1.0},
-		{"positive inf", 0x7c00, float32(math.Inf(1))},
-		{"negative inf", 0xfc00, float32(math.Inf(-1))},
-		{"NaN", 0x7e00, float32(math.NaN())},
-		{"subnormal", 0x0001, 5.9604645e-8},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := halfToFloat32(tt.half)
-			if math.IsNaN(float64(tt.want)) {
-				if !math.IsNaN(float64(got)) {
-					t.Errorf("halfToFloat32(0x%04x) = %v, want NaN", tt.half, got)
-				}
-				return
-			}
-			if math.IsInf(float64(tt.want), 0) {
-				if !math.IsInf(float64(got), int(math.Copysign(1, float64(tt.want)))) {
-					t.Errorf("halfToFloat32(0x%04x) = %v, want %v", tt.half, got, tt.want)
-				}
-				return
-			}
-			if got != tt.want {
-				t.Errorf("halfToFloat32(0x%04x) = %v, want %v", tt.half, got, tt.want)
-			}
-		})
-	}
-}
 
 func TestFloat32HalfRoundTrip(t *testing.T) {
 	// Values exactly representable in f16 survive the f16 quantization
@@ -836,9 +798,15 @@ fn test() -> mat2x2<f32> { return M; }`
 	for _, c := range module.Constants {
 		if c.Name == "M" {
 			found = true
-			// Value may be CompositeValue with column components, or may have
-			// a different representation depending on the lowering path
-			t.Logf("matrix constant M: type=%v, value=%T", c.Type, c.Value)
+			// The scalars are grouped into columns: Compose(mat2x2, [col0, col1]).
+			compose, ok := module.GlobalExpressions[c.Init].Kind.(ir.ExprCompose)
+			if !ok {
+				t.Fatalf("M init = %T, want ExprCompose", module.GlobalExpressions[c.Init].Kind)
+			}
+			if compose.Type != c.Type || len(compose.Components) != 2 {
+				t.Errorf("M init = Compose(type %d, %d components), want Compose(type %d, 2 columns)",
+					compose.Type, len(compose.Components), c.Type)
+			}
 		}
 	}
 	if !found {
@@ -1385,10 +1353,12 @@ fn test() -> f32 { return P.x + P.y; }`
 	for _, c := range module.Constants {
 		if c.Name == "P" {
 			found = true
-			if cv, ok := c.Value.(ir.CompositeValue); ok {
-				if len(cv.Components) < 2 {
-					t.Errorf("expected at least 2 components in struct constant, got %d", len(cv.Components))
-				}
+			compose, ok := module.GlobalExpressions[c.Init].Kind.(ir.ExprCompose)
+			if !ok {
+				t.Fatalf("P init = %T, want ExprCompose", module.GlobalExpressions[c.Init].Kind)
+			}
+			if len(compose.Components) != 2 {
+				t.Errorf("expected 2 components in struct constant, got %d", len(compose.Components))
 			}
 		}
 	}

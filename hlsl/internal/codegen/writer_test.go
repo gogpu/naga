@@ -4,6 +4,7 @@
 package codegen
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -329,19 +330,11 @@ func TestWriter_WriteConstants(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
 		},
-		Constants: []ir.Constant{
-			{
-				Name:  "PI",
-				Type:  0,
-				Value: ir.ScalarValue{Bits: 0x40490fdb, Kind: ir.ScalarFloat},
-			},
-			{
-				Name:  "MAX_LIGHTS",
-				Type:  1,
-				Value: ir.ScalarValue{Bits: 8, Kind: ir.ScalarSint},
-			},
-		},
 	}
+	module.Constants, module.GlobalExpressions = constantsOf(
+		testConst{name: "PI", ty: 0, lit: ir.LiteralF32(math.Float32frombits(0x40490fdb))},
+		testConst{name: "MAX_LIGHTS", ty: 1, lit: ir.LiteralI32(8)},
+	)
 	opts := DefaultOptions()
 
 	w := newWriter(module, opts)
@@ -363,28 +356,33 @@ func TestWriter_WriteConstants(t *testing.T) {
 	}
 }
 
-func TestWriter_ScalarValue(t *testing.T) {
-	module := &ir.Module{}
-	opts := DefaultOptions()
-	w := newWriter(module, opts)
-
+// TestWriter_ScalarConstantInit: a scalar constant's value is its literal
+// Init, written by the const-expression writer.
+func TestWriter_ScalarConstantInit(t *testing.T) {
 	tests := []struct {
 		name  string
-		value ir.ScalarValue
+		value ir.LiteralValue
 		want  string
 	}{
-		{"bool true", ir.ScalarValue{Bits: 1, Kind: ir.ScalarBool}, "true"},
-		{"bool false", ir.ScalarValue{Bits: 0, Kind: ir.ScalarBool}, "false"},
-		{"int positive", ir.ScalarValue{Bits: 42, Kind: ir.ScalarSint}, "int(42)"},
-		{"int negative", ir.ScalarValue{Bits: 0xFFFFFFFF, Kind: ir.ScalarSint}, "int(-1)"},
-		{"uint", ir.ScalarValue{Bits: 100, Kind: ir.ScalarUint}, "100u"},
+		{"bool true", ir.LiteralBool(true), "true"},
+		{"bool false", ir.LiteralBool(false), "false"},
+		{"int positive", ir.LiteralI32(42), "int(42)"},
+		{"int negative", ir.LiteralI32(-1), "int(-1)"},
+		{"int min", ir.LiteralI32(math.MinInt32), "int(-2147483647 - 1)"},
+		{"uint", ir.LiteralU32(100), "100u"},
+		{"int64", ir.LiteralI64(-5), "-5L"},
+		{"uint64", ir.LiteralU64(5000000000), "5000000000uL"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := w.writeScalarValue(tt.value, 0) // 0 is a dummy type handle for basic tests
-			if got != tt.want {
-				t.Errorf("writeScalarValue() = %q, want %q", got, tt.want)
+			module := &ir.Module{GlobalExpressions: []ir.Expression{{Kind: ir.Literal{Value: tt.value}}}}
+			w := newWriter(module, DefaultOptions())
+			if err := w.writeGlobalConstExpression(0); err != nil {
+				t.Fatalf("writeGlobalConstExpression: %v", err)
+			}
+			if got := w.Out.String(); got != tt.want {
+				t.Errorf("writeGlobalConstExpression() = %q, want %q", got, tt.want)
 			}
 		})
 	}
