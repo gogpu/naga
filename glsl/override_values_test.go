@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/ir"
 )
@@ -126,7 +127,7 @@ func compileOverrides(t *testing.T, source, entry string, constants naga.Pipelin
 	t.Helper()
 	module, err := naga.ProcessOverrides(lowerWGSL(t, source), naga.OverrideOptions{
 		Constants:  constants,
-		EntryPoint: &naga.EntryPointSelector{Stage: ir.StageCompute, Name: entry},
+		EntryPoint: &backend.EntryPointSelector{Stage: ir.StageCompute, Name: entry},
 	})
 	if err != nil {
 		return "", err

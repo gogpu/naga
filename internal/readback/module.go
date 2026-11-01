@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -32,7 +33,7 @@ func Module(c *Case) (*ir.Module, error) {
 	}
 	return naga.ProcessOverrides(m, naga.OverrideOptions{
 		Constants:  c.Spec.Constants,
-		EntryPoint: &naga.EntryPointSelector{Stage: ir.StageCompute, Name: c.Spec.Entry},
+		EntryPoint: &backend.EntryPointSelector{Stage: ir.StageCompute, Name: c.Spec.Entry},
 	})
 }
 

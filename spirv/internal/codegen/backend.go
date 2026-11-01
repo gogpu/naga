@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -1884,7 +1885,7 @@ func (b *Backend) emitGlobals() error {
 			return err
 		}
 		zeroed := global.Space == ir.SpacePrivate ||
-			(global.Space == ir.SpaceWorkGroup && b.options.ZeroInitializeWorkgroupMemory == ZeroInitWorkgroupNative)
+			(global.Space == ir.SpaceWorkGroup && b.options.ZeroInitializeWorkgroupMemory == backend.ZeroInitWorkgroupNative)
 		if !hasInit && zeroed && global.Init == nil && global.InitExpr == nil {
 			initID, hasInit = b.constantNull(varType), true
 		}
@@ -3694,7 +3695,7 @@ func (b *Backend) emitFunctionImpl(fn *ir.Function, isEntryPoint bool, handle ir
 	// For compute entry points, generate code that zero-initializes all workgroup
 	// variables when local_invocation_id == (0,0,0), followed by a barrier.
 	// This matches Rust naga's ZeroInitializeWorkgroupMemoryMode::Polyfill.
-	if isEntryPoint && epIdx >= 0 && b.options.ZeroInitializeWorkgroupMemory == ZeroInitWorkgroupPolyfill {
+	if isEntryPoint && epIdx >= 0 && b.options.ZeroInitializeWorkgroupMemory == backend.ZeroInitWorkgroupPolyfill {
 		entryPoint := &b.module.EntryPoints[epIdx]
 		if entryPoint.Stage == ir.StageCompute {
 			if err := b.emitWorkgroupInitPolyfill(epIdx, fn, emitter, &fb); err != nil {

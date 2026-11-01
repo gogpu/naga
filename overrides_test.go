@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga"
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
@@ -50,7 +51,7 @@ override onlyB: u32;
 @compute @workgroup_size(1) fn b() { o[0] = onlyB; }
 `
 
-var selectA = &naga.EntryPointSelector{Stage: ir.StageCompute, Name: "a"}
+var selectA = &backend.EntryPointSelector{Stage: ir.StageCompute, Name: "a"}
 
 // TestProcessOverridesDoesNotModifyInput: the input is left as it was, so it
 // can be processed again for other pipelines.
@@ -79,7 +80,7 @@ func TestProcessOverridesDoesNotModifyInput(t *testing.T) {
 // returned (Rust Cow::Borrowed).
 func TestProcessOverridesIdentity(t *testing.T) {
 	m := lowerSource(t, `@compute @workgroup_size(1) fn main() {}`)
-	for _, opts := range []naga.OverrideOptions{{}, {EntryPoint: &naga.EntryPointSelector{Stage: ir.StageCompute, Name: "main"}}} {
+	for _, opts := range []naga.OverrideOptions{{}, {EntryPoint: &backend.EntryPointSelector{Stage: ir.StageCompute, Name: "main"}}} {
 		out, err := naga.ProcessOverrides(m, opts)
 		if err != nil {
 			t.Fatal(err)
@@ -140,7 +141,7 @@ func TestProcessOverridesErrors(t *testing.T) {
 		// Sorted order: "aa" is reported before "zz" whatever the map order.
 		{"first key in sorted order", naga.OverrideOptions{Constants: naga.PipelineConstants{"zz": 1, "aa": 1, "mm": 1}}, naga.ErrOverrideNotFound, "aa",
 			"pipeline-overridable constant 'aa' not found in the shader"},
-		{"missing value", naga.OverrideOptions{EntryPoint: &naga.EntryPointSelector{Stage: ir.StageCompute, Name: "b"}}, naga.ErrOverrideMissingValue, "onlyB",
+		{"missing value", naga.OverrideOptions{EntryPoint: &backend.EntryPointSelector{Stage: ir.StageCompute, Name: "b"}}, naga.ErrOverrideMissingValue, "onlyB",
 			"Missing value for pipeline-overridable constant with identifier string: 'onlyB'"},
 		{"missing value, all entry points", naga.OverrideOptions{}, naga.ErrOverrideMissingValue, "onlyB",
 			"Missing value for pipeline-overridable constant with identifier string: 'onlyB'"},
@@ -210,7 +211,7 @@ func TestProcessOverridesKeyOfUnusedOverride(t *testing.T) {
 // module unchanged whatever the selector; ours reports the mismatch.
 func TestProcessOverridesEntryPointNotFound(t *testing.T) {
 	m := lowerSource(t, `@compute @workgroup_size(1) fn main() {}`)
-	for _, sel := range []naga.EntryPointSelector{{Stage: ir.StageCompute, Name: "other"}, {Stage: ir.StageVertex, Name: "main"}} {
+	for _, sel := range []backend.EntryPointSelector{{Stage: ir.StageCompute, Name: "other"}, {Stage: ir.StageVertex, Name: "main"}} {
 		_, err := naga.ProcessOverrides(m, naga.OverrideOptions{EntryPoint: &sel})
 		if !errors.Is(err, naga.ErrEntryPointNotFound) {
 			t.Errorf("selector %+v: err = %v, want ErrEntryPointNotFound", sel, err)

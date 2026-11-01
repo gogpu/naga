@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/internal/testtools"
 	"github.com/gogpu/naga/ir"
@@ -43,7 +44,7 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 @fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> { return p; }`, nil},
 	} {
 		for _, version := range []glsl.Version{glsl.Version330, glsl.VersionES300} {
-			for _, clamp := range []*glsl.ClampFragDepth{nil, {Offset: 0}} {
+			for _, clamp := range []*backend.ClampFragDepth{nil, {Offset: 0}} {
 				got, info, err := glsl.Compile(lowerWGSL(t, tc.source), glsl.Options{
 					LangVersion:        version,
 					EntryPoint:         "fs_main",
@@ -95,7 +96,7 @@ var<immediate> im: Immediates;
 		return glsl.Compile(lowerWGSL(t, src), glsl.Options{
 			LangVersion:    glsl.Version330,
 			EntryPoint:     ep,
-			ClampFragDepth: &glsl.ClampFragDepth{Offset: offset},
+			ClampFragDepth: &backend.ClampFragDepth{Offset: offset},
 		})
 	}
 

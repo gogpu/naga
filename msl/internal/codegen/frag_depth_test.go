@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/backend"
 )
 
 // clampOptions clamps frag_depth to the range at offset of the immediates
@@ -15,7 +17,7 @@ func clampOptions(offset uint32) Options {
 	slot := uint8(5)
 	opts := DefaultOptions()
 	opts.PerEntryPointMap = map[string]EntryPointResources{"fs_main": {ImmediatesBuffer: &slot}}
-	opts.ClampFragDepth = &ClampFragDepth{Offset: offset}
+	opts.ClampFragDepth = &backend.ClampFragDepth{Offset: offset}
 	return opts
 }
 

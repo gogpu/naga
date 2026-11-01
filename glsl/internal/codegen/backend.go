@@ -6,6 +6,7 @@ package codegen
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -219,12 +220,7 @@ type Options struct {
 	// ClampFragDepth clamps the depth a fragment entry point writes to the
 	// range at byte ClampFragDepth.Offset of its immediate data (see the
 	// glsl package).
-	ClampFragDepth *ClampFragDepth
-}
-
-// ClampFragDepth is where the range of the frag_depth clamp is.
-type ClampFragDepth struct {
-	Offset uint32
+	ClampFragDepth *backend.ClampFragDepth
 }
 
 // BindingMapKey identifies a resource binding for the BindingMap.
