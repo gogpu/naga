@@ -207,7 +207,7 @@ const ggUpstreamDir = "../testdata/upstream/github.com/gogpu/gg"
 // point) whose DXIL the validator rejects today, each with its card. The test
 // fails when one of them validates, so a fixed entry leaves this list.
 var ggKnownDXILFailures = map[string]string{
-	"internal/gpu/shaders/blend.wgsl/fs_main": "P0-DXIL-077",
+	"internal/gpu/shaders/blend.wgsl/fs_main": "P1-WGSL-095",
 }
 
 // TestDxilValGGProduction walks the gg production shader corpora and requires
