@@ -58,6 +58,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   5.0), 6.0 for DXIL (`dxil.Options{}` wrote 0.0 in the container part headers and 6.0 in `!dx.shaderModel`; both
   carry the same version now). A model the backend cannot write is an error. `hlsl.TranslationInfo.RequiredShaderModel`
   is a `backend.ShaderModel` too.
+- **Breaking: HLSL and DXIL refuse a shader model below what the shader needs.** `dxil.Compile` raised
+  `Options.ShaderModel` to the model a feature needs (the view index 6.1, 16-bit types 6.2, ray queries and mesh
+  shaders 6.5, 64-bit atomics 6.6); `hlsl.Compile` wrote SV_ViewID and mesh shaders at any model. Both now return a
+  `*backend.ShaderModelError` naming the feature and the model, as DXC's validator rejects such a module and Rust naga's
+  HLSL writer returns `ShaderModelTooLow`. Pass the device's highest supported model. Known gap (P1-DXIL-072): DXIL
+  storage buffers still use raw buffer operations, which take the model to 6.2 (6.3 for 64-bit elements).
 - **Breaking: one entry point selector.** `Options.EntryPoint` is a `*backend.EntryPointSelector{Stage, Name}` in
   `spirv`, `msl`, `hlsl`, `glsl` and `dxil`, replacing glsl's and hlsl's name strings and msl's
   `PipelineOptions.EntryPoint`; a selector names the stage too, as a SPIR-V or GLSL input may hold two entry points of

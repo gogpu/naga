@@ -1,6 +1,7 @@
 package run
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -57,6 +58,14 @@ func compileWGSL(srcPath, entry string) (blobs [][]byte, names []string, stages 
 		}
 		opts.EntryPoint = &backend.EntryPointSelector{Stage: ep.Stage, Name: ep.Name}
 		bytes, _, cerr := dxil.Compile(module, opts)
+		// An entry point that needs a newer shader model is validated at it,
+		// the model a device that supports it is asked for.
+		var smErr *backend.ShaderModelError
+		if errors.As(cerr, &smErr) {
+			epOpts := opts
+			epOpts.ShaderModel = smErr.Required
+			bytes, _, cerr = dxil.Compile(module, epOpts)
+		}
 		if cerr != nil {
 			// Skip individual EP failures; corpus mode tallies these
 			// separately and single mode reports the first error.
