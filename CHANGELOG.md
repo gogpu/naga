@@ -58,13 +58,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   5.0), 6.0 for DXIL (`dxil.Options{}` wrote 0.0 in the container part headers and 6.0 in `!dx.shaderModel`; both
   carry the same version now). A model the backend cannot write is an error. `hlsl.TranslationInfo.RequiredShaderModel`
   is a `backend.ShaderModel` too.
-- **Breaking: HLSL and DXIL refuse a shader model below what the shader needs.** `dxil.Compile` raised
+- **Breaking: no backend raises a target version; one error says it is too low.** `dxil.Compile` raised
   `Options.ShaderModel` to the model a feature needs (the view index 6.1, 16-bit types 6.2, ray queries and mesh
   shaders 6.5, 64-bit atomics 6.6); `hlsl.Compile` wrote SV_ViewID and mesh shaders at any model. Both now return a
-  `*backend.ShaderModelError` naming the feature and the model, as DXC's validator rejects such a module and Rust naga's
+  `*backend.VersionError` naming the feature and the model, as DXC's validator rejects such a module and Rust naga's
   HLSL writer returns `ShaderModelTooLow`. Pass the device's highest supported model. For now DXIL refuses the same
   way a storage buffer whose element has more than four components below 6.2, or 64-bit elements below 6.3: it is
   written with raw buffer operations, our limit and not the shader's (DXC writes bufferLoad there; P1-DXIL-072).
+  The MSL backend raised `Options.LangVersion` the same way and wrote the raised version in the header while it chose
+  version-dependent code for the requested one; it now refuses as Rust naga's writer does: `@invariant` 2.1,
+  `instance_index` and `blend_src` 1.2, `primitive_index` and barycentrics 2.3, `view_index` 2.2, `reverseBits`,
+  `extractBits` and `insertBits` 1.2, ray queries 2.4, mesh shaders 3.0, per-vertex inputs 4.0, writable storage in
+  vertex and fragment stages 1.2, binding arrays 2.0 (of read-write storage textures 3.0), r64 storage textures 3.1.
+  The zero `LangVersion` stays 2.1 (Rust's default is 1.0): a Metal device passes its own version. SPIR-V refuses
+  likewise. Every refusal is one `*backend.VersionError{Space, Feature, Required, Requested}` (`backend.VersionSPIRV`,
+  `VersionShaderModel`, `VersionMSL`), which replaces `backend.ShaderModelError` and wraps `backend.ErrUnsupported`:
+  "ray query needs MSL 2.4, Options.LangVersion is 2.1".
 - **Breaking: one entry point selector.** `Options.EntryPoint` is a `*backend.EntryPointSelector{Stage, Name}` in
   `spirv`, `msl`, `hlsl`, `glsl` and `dxil`, replacing glsl's and hlsl's name strings and msl's
   `PipelineOptions.EntryPoint`; a selector names the stage too, as a SPIR-V or GLSL input may hold two entry points of
@@ -182,7 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Validate` (`valid.Validate`) and the `Cap*` constants (`valid.Cap*`).
 - **Breaking: error categories every backend shares** (ADR-010 N9). The new `backend.ErrUnsupported` is wrapped by
   every refusal of what a target cannot express: an option value a backend refuses, a shader model or GLSL version
-  below what the shader needs (`*backend.ShaderModelError`, `*glsl.MissingFeaturesError`), a built-in without a name
+  below what the shader needs (`*backend.VersionError`, `*glsl.MissingFeaturesError`), a built-in without a name
   there, a construct a backend cannot write (`hlsl`'s `*Error` of kinds `UnsupportedFeature`, `UnsupportedType`,
   `InvalidShaderModel`). Messages are unchanged; `errors.Is(err, backend.ErrUnsupported)` tells "this target cannot"
   from a broken module or a missing binding (`backend.ErrMissingBinding`). `naga.ErrEntryPointNotFound` is removed:
@@ -337,7 +346,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     instead of the `naga_vs_first_instance` uniform. Below 4.60 without it, and on GLSL ES, the draw index is an
     error (`DRAW_INDEX`); Rust writes `gl_DrawID`, which no earlier GLSL declares.
   - HLSL: `noperspective float3 … : SV_Barycentrics`. SV_Barycentrics and SV_ViewID need shader model 6.1, so
-    barycentrics below it are a `*backend.ShaderModelError` too (Rust writes them at any model). The draw index and
+    barycentrics below it are a `*backend.VersionError` too (Rust writes them at any model). The draw index and
     point size have no semantic and are refused ("Unsupported builtin" in Rust); they were written `SV_Position`.
   - MSL: `[[barycentric_coord, center_no_perspective]]`, MSL 2.3. Barycentrics are now members of the `[[stage_in]]`
     struct, as in Rust naga (fc9060f5). The draw index is refused (Rust's `UnsupportedBuiltIn`).
