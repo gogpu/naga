@@ -17,8 +17,7 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 }
 `
 	opts := CompileOptions{
-		Debug:    false,
-		Validate: false, // Skip validation for minimal shader
+		SkipValidation: true, // Skip validation for minimal shader
 	}
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
@@ -46,7 +45,7 @@ fn main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
     return color;
 }
 `
-	opts := CompileOptions{Validate: false} // Skip validation for minimal shader
+	opts := CompileOptions{SkipValidation: true} // Skip validation for minimal shader
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -76,7 +75,7 @@ fn main(@location(0) v: vec3<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(n, len);
 }
 `
-	opts := CompileOptions{Validate: false} // Skip validation for test
+	opts := CompileOptions{SkipValidation: true} // Skip validation for test
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -98,7 +97,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Compute work here
 }
 `
-	opts := CompileOptions{Validate: false} // Skip validation for test
+	opts := CompileOptions{SkipValidation: true} // Skip validation for test
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -125,8 +124,8 @@ fn main() -> @builtin(position) vec4<f32> {
 }
 `
 	opts := CompileOptions{
-		Debug:    true,
-		Validate: false, // Skip validation for minimal shader
+		SPIRV:          spirv.Options{Debug: true},
+		SkipValidation: true, // Skip validation for minimal shader
 	}
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
@@ -243,7 +242,7 @@ fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
     return color;
 }
 `
-	opts := CompileOptions{Validate: false} // Skip validation for test
+	opts := CompileOptions{SkipValidation: true} // Skip validation for test
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -279,7 +278,7 @@ fn fs_main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
 }
 `
 
-	opts := CompileOptions{Validate: false} // Skip validation for integration test
+	opts := CompileOptions{SkipValidation: true} // Skip validation for integration test
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -314,7 +313,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 `
 
-	opts := CompileOptions{Validate: false} // Skip validation for integration test
+	opts := CompileOptions{SkipValidation: true} // Skip validation for integration test
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -355,7 +354,7 @@ fn main(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 }
 `
 
-	opts := CompileOptions{Validate: false} // Skip validation for integration test
+	opts := CompileOptions{SkipValidation: true} // Skip validation for integration test
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -473,7 +472,7 @@ fn main( -> @builtin(position) vec4<f32> {
 		t.Run(tt.name, func(t *testing.T) {
 			var err error
 			if tt.skipValidation {
-				opts := CompileOptions{Validate: false}
+				opts := CompileOptions{SkipValidation: true}
 				_, err = CompileWithOptions(tt.source, opts)
 			} else {
 				_, err = Compile(tt.source)
@@ -502,7 +501,7 @@ fn main(@location(0) idx: u32) -> @location(0) vec4<f32> {
     return color;
 }
 `
-	opts := CompileOptions{Validate: false}
+	opts := CompileOptions{SkipValidation: true}
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -530,7 +529,7 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(x, 0.0, 0.0, 1.0);
 }
 `
-	opts := CompileOptions{Validate: false}
+	opts := CompileOptions{SkipValidation: true}
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -560,7 +559,7 @@ fn main() {
     v.rgb = vec3<f32>(0.5, 0.6, 0.7);
 }
 `
-	opts := CompileOptions{Validate: false}
+	opts := CompileOptions{SkipValidation: true}
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("SPIR-V compile failed: %v", err)
@@ -588,7 +587,7 @@ fn main() {
     v.ywx *= w;
 }
 `
-	opts := CompileOptions{Validate: false}
+	opts := CompileOptions{SkipValidation: true}
 	spirvBytes, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatalf("SPIR-V compile failed: %v", err)
@@ -636,7 +635,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{Index: backend.BoundsCheckRestrict, Buffer: backend.BoundsCheckUnchecked}
+	opts.SPIRV.BoundsCheckPolicies = backend.BoundsCheckPolicies{Index: backend.BoundsCheckRestrict, Buffer: backend.BoundsCheckUnchecked}
 	unchecked, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatal(err)

@@ -80,6 +80,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was a type alias of an internal type), `dxil.Compile` returns a `TranslationInfo` too, and `hlsl.Compile` takes
   `hlsl.Options` and returns `hlsl.TranslationInfo` by value (`hlsl.DefaultOptions` returns a value). The spirv and
   dxil `TranslationInfo` carry `EntryPointNames`, as the text backends' do.
+- **Breaking: `naga.CompileOptions` is `{SPIRV spirv.Options, Capabilities, SkipValidation}`.** It carries the whole
+  `spirv.Options` instead of a copy of three fields (`SPIRVVersion`, `Debug`, `BoundsCheckPolicies`), and
+  `SkipValidation` replaces `Validate`, so the zero value validates. `DefaultOptions()` is the zero value: it used to
+  ask for SPIR-V 1.3, and `naga.Compile` now writes SPIR-V 1.0, Rust naga's default; a shader that needs a newer
+  version (subgroup operations need 1.3) is an error until `SPIRV.Version` gives one. gg's 25 production shaders
+  compile and pass spirv-val at the zero options.
+- **Breaking: the three meanings of "capabilities" have three names.** `spirv.Options.Capabilities` (extra
+  capabilities to declare) is `ExtraCapabilities`; `spirv.Options.CapabilitiesAvailable` (the allowed set, Rust naga's
+  `capabilities`) is `AllowedCapabilities`; `naga.CompileOptions.Capabilities` (what the IR validator allows) stays.
 - **Breaking: GLSL writer flags are named fields, and GL clip space is converted at the zero value.**
   `glsl.Options.WriterFlags` and the `glsl.WriterFlag*` constants are replaced by `SkipAdjustCoordinateSpace`,
   `ForcePointSize` and `TextureShadowLod`. A vertex entry point now converts `gl_Position` to GL clip space by

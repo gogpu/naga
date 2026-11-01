@@ -218,9 +218,8 @@ func BenchmarkCompileSPIRV(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				var err error
 				result, err = CompileWithOptions(sc.source, CompileOptions{
-					SPIRVVersion: spirv.Version1_3,
-					Debug:        false,
-					Validate:     false,
+					SPIRV:          spirv.Options{Version: spirv.Version1_3},
+					SkipValidation: true,
 				})
 				if err != nil {
 					b.Fatalf("compile failed: %v", err)
@@ -244,9 +243,7 @@ func BenchmarkCompileSPIRVWithValidation(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				var err error
 				result, err = CompileWithOptions(sc.source, CompileOptions{
-					SPIRVVersion: spirv.Version1_3,
-					Debug:        false,
-					Validate:     true,
+					SPIRV: spirv.Options{Version: spirv.Version1_3},
 				})
 				if err != nil {
 					b.Fatalf("compile failed: %v", err)
@@ -269,9 +266,8 @@ func BenchmarkCompileSPIRVWithDebug(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var err error
 		result, err = CompileWithOptions(source, CompileOptions{
-			SPIRVVersion: spirv.Version1_3,
-			Debug:        true,
-			Validate:     false,
+			SPIRV:          spirv.Options{Version: spirv.Version1_3, Debug: true},
+			SkipValidation: true,
 		})
 		if err != nil {
 			b.Fatalf("compile failed: %v", err)
@@ -385,8 +381,8 @@ func BenchmarkFullPipeline(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			var compErr error
 			result, compErr = CompileWithOptions(source, CompileOptions{
-				SPIRVVersion: spirv.Version1_3,
-				Validate:     false,
+				SPIRV:          spirv.Options{Version: spirv.Version1_3},
+				SkipValidation: true,
 			})
 			if compErr != nil {
 				b.Fatalf("spirv pipeline failed: %v", compErr)

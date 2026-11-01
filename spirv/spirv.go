@@ -89,8 +89,9 @@ type Options struct {
 	// member instead of with OpCopyLogical.
 	Version Version
 
-	// Capabilities are additional capabilities to declare.
-	Capabilities []Capability
+	// ExtraCapabilities are declared in addition to those the module needs
+	// (no Rust naga counterpart).
+	ExtraCapabilities []Capability
 
 	// Debug includes debug information.
 	Debug bool
@@ -140,8 +141,10 @@ type Options struct {
 	// wrapping backend.ErrEntryPointNotFound.
 	EntryPoint *backend.EntryPointSelector
 
-	// CapabilitiesAvailable limits which capabilities may be used.
-	CapabilitiesAvailable map[Capability]struct{}
+	// AllowedCapabilities is the set of capabilities the module may use
+	// (Rust naga's capabilities): one it needs outside the set is an error.
+	// nil allows every capability.
+	AllowedCapabilities map[Capability]struct{}
 
 	// SkipRayQueryInitTracking leaves out the state variable every ray query
 	// gets to prevent misuse: by default rayQueryInitialize checks its ray
@@ -968,7 +971,7 @@ func toCodegenOptions(o Options) codegen.Options {
 			Major: o.Version.Major,
 			Minor: o.Version.Minor,
 		},
-		Capabilities:            o.Capabilities,
+		ExtraCapabilities:       o.ExtraCapabilities,
 		Debug:                   o.Debug,
 		UseStorageInputOutput16: o.UseStorageInputOutput16,
 		ForcePointSize:          o.ForcePointSize,
@@ -976,7 +979,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		ForceLoopBounding:       !o.SkipLoopBounding,
 		BoundsCheckPolicies:     o.BoundsCheckPolicies,
 		EntryPoint:              o.EntryPoint,
-		CapabilitiesAvailable:   o.CapabilitiesAvailable,
+		AllowedCapabilities:     o.AllowedCapabilities,
 		RayQueryInitTracking:    !o.SkipRayQueryInitTracking,
 		BindingMap:              toCodegenBindingMap(o.BindingMap),
 		FakeMissingBindings:     o.FakeMissingBindings,

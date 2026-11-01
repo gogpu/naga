@@ -509,7 +509,7 @@ func TestCapability_UserRequestedViaOptions(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	opts.Capabilities = []Capability{CapabilityFloat64, CapabilityInt64}
+	opts.ExtraCapabilities = []Capability{CapabilityFloat64, CapabilityInt64}
 
 	backend := NewBackend(opts)
 	spvBytes, err := backend.Compile(module)
@@ -545,7 +545,7 @@ func TestCapability_NoDuplicates(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	opts.Capabilities = []Capability{CapabilityFloat64}
+	opts.ExtraCapabilities = []Capability{CapabilityFloat64}
 
 	backend := NewBackend(opts)
 	spvBytes, err := backend.Compile(module)
