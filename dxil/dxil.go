@@ -435,7 +435,26 @@ func normalizeShaderModel(sm backend.ShaderModel) (backend.ShaderModel, error) {
 //
 // The result is a valid DXBC container that can be loaded by D3D12
 // or inspected with dxc.exe -dumpbin.
-func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
+func Compile(irModule *ir.Module, opts Options) ([]byte, TranslationInfo, error) {
+	blob, err := compileContainer(irModule, opts)
+	if err != nil {
+		return nil, TranslationInfo{}, err
+	}
+	// compileContainer has checked the selection.
+	i, _ := entrypoint.Index(irModule, opts.EntryPoint, true)
+	name := irModule.EntryPoints[i].Name
+	return blob, TranslationInfo{EntryPointNames: map[string]string{name: name}}, nil
+}
+
+// TranslationInfo describes what Compile wrote.
+type TranslationInfo struct {
+	// EntryPointNames maps the name of the entry point the container holds
+	// to its name in the container, the same in DXIL.
+	EntryPointNames map[string]string
+}
+
+// compileContainer is Compile without its TranslationInfo.
+func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	irModule, err := checkOptions(irModule, &opts)
 	if err != nil {
 		return nil, err

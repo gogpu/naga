@@ -10,10 +10,9 @@
 //
 // # IR to SPIR-V Backend
 //
-// The Backend translates naga IR modules to SPIR-V binary format:
+// Compile translates naga IR modules to SPIR-V binary format:
 //
-//	backend := spirv.NewBackend(spirv.DefaultOptions())
-//	binary, err := backend.Compile(irModule)
+//	binary, info, err := spirv.Compile(irModule, spirv.DefaultOptions())
 //	if err != nil {
 //		log.Fatal(err)
 //	}

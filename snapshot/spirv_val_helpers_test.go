@@ -35,6 +35,12 @@ func lowerToIR(ast *wgsl.Module, source string) (*ir.Module, error) {
 	return module, nil
 }
 
+// spirvBinary is spirv.Compile without its TranslationInfo.
+func spirvBinary(module *ir.Module, opts spirv.Options) ([]byte, error) {
+	binary, _, err := spirv.Compile(module, opts)
+	return binary, err
+}
+
 // generateSPIRVBinary compiles an IR module to SPIR-V binary bytes with the
 // default options, so spirv-val checks the default bounds-check policy
 // (Restrict) over the whole corpus. The binding map comes from the shader's
@@ -44,14 +50,13 @@ func generateSPIRVBinary(name string, module *ir.Module) ([]byte, error) {
 	opts := spirv.DefaultOptions()
 	rust := readRustSPVConfig(name)
 	opts.BindingMap, opts.FakeMissingBindings = rust.BindingMap, rust.FakeMissingBindings
-	backend := spirv.NewBackend(opts)
-	spvBytes, err := backend.Compile(module)
+	spvBytes, err := spirvBinary(module, opts)
 	// A shader that needs a newer version than the default (subgroup
 	// operations need 1.3), which the backend refuses to raise, takes the
 	// one its Rust parameters give.
 	if err != nil && strings.Contains(err.Error(), "need SPIR-V") {
 		opts.Version = rust.Version
-		spvBytes, err = spirv.NewBackend(opts).Compile(module)
+		spvBytes, err = spirvBinary(module, opts)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("SPIR-V generation error: %w", err)

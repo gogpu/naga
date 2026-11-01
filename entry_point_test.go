@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 
@@ -47,19 +48,31 @@ var (
 	selCS = &backend.EntryPointSelector{Stage: ir.StageCompute, Name: "cs"}
 )
 
+// spirvBinary is spirv.Compile without its TranslationInfo.
+func spirvBinary(module *ir.Module, opts spirv.Options) ([]byte, error) {
+	binary, _, err := spirv.Compile(module, opts)
+	return binary, err
+}
+
+// dxilBlob is dxil.Compile without its TranslationInfo.
+func dxilBlob(module *ir.Module, opts dxil.Options) ([]byte, error) {
+	blob, _, err := dxil.Compile(module, opts)
+	return blob, err
+}
+
 // entryPointBackends compiles a module with an entry point selector in each
 // backend.
 func entryPointBackends() map[string]func(*ir.Module, *backend.EntryPointSelector) ([]byte, error) {
 	return map[string]func(*ir.Module, *backend.EntryPointSelector) ([]byte, error){
 		"spirv": func(m *ir.Module, sel *backend.EntryPointSelector) ([]byte, error) {
-			return spirv.NewBackend(spirv.Options{EntryPoint: sel}).Compile(m)
+			return spirvBinary(m, spirv.Options{EntryPoint: sel})
 		},
 		"msl": func(m *ir.Module, sel *backend.EntryPointSelector) ([]byte, error) {
 			src, _, err := msl.Compile(m, msl.Options{EntryPoint: sel})
 			return []byte(src), err
 		},
 		"hlsl": func(m *ir.Module, sel *backend.EntryPointSelector) ([]byte, error) {
-			src, _, err := hlsl.Compile(m, &hlsl.Options{EntryPoint: sel})
+			src, _, err := hlsl.Compile(m, hlsl.Options{EntryPoint: sel})
 			return []byte(src), err
 		},
 		"glsl": func(m *ir.Module, sel *backend.EntryPointSelector) ([]byte, error) {
@@ -67,7 +80,7 @@ func entryPointBackends() map[string]func(*ir.Module, *backend.EntryPointSelecto
 			return []byte(src), err
 		},
 		"dxil": func(m *ir.Module, sel *backend.EntryPointSelector) ([]byte, error) {
-			return dxil.Compile(m, dxil.Options{EntryPoint: sel})
+			return dxilBlob(m, dxil.Options{EntryPoint: sel})
 		},
 	}
 }
@@ -229,7 +242,7 @@ func TestSPIRVEntryPointFilter(t *testing.T) {
 		if tt.sel != nil {
 			name = tt.sel.Name
 		}
-		bin, err := spirv.NewBackend(spirv.Options{EntryPoint: tt.sel}).Compile(entryPointModule(t))
+		bin, err := spirvBinary(entryPointModule(t), spirv.Options{EntryPoint: tt.sel})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -250,7 +263,7 @@ func TestSPIRVEntryPointFilter(t *testing.T) {
 // Invariant decoration (Rust naga back/spv/writer.rs, Position { invariant });
 // the SPIR-V backend used to drop it.
 func TestSPIRVInvariantPosition(t *testing.T) {
-	bin, err := spirv.NewBackend(spirv.Options{}).Compile(entryPointModule(t))
+	bin, err := spirvBinary(entryPointModule(t), spirv.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,11 +279,37 @@ func TestSPIRVInvariantPosition(t *testing.T) {
 	}
 }
 
+// TestTranslationInfoEntryPointNames: spirv and dxil report the entry points
+// they wrote, by name, as the text backends do.
+func TestTranslationInfoEntryPointNames(t *testing.T) {
+	_, all, err := spirv.Compile(entryPointModule(t), spirv.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"vs": "vs", "fs": "fs", "cs": "cs"}; !maps.Equal(all.EntryPointNames, want) {
+		t.Errorf("spirv, every entry point: %v, want %v", all.EntryPointNames, want)
+	}
+	_, one, err := spirv.Compile(entryPointModule(t), spirv.Options{EntryPoint: selFS})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"fs": "fs"}; !maps.Equal(one.EntryPointNames, want) {
+		t.Errorf("spirv, fs: %v, want %v", one.EntryPointNames, want)
+	}
+	_, info, err := dxil.Compile(entryPointModule(t), dxil.Options{EntryPoint: selCS})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"cs": "cs"}; !maps.Equal(info.EntryPointNames, want) {
+		t.Errorf("dxil, cs: %v, want %v", info.EntryPointNames, want)
+	}
+}
+
 // TestDXILEntryPointSelection: each selection compiles its own container.
 func TestDXILEntryPointSelection(t *testing.T) {
 	var blobs [][]byte
 	for _, sel := range []*backend.EntryPointSelector{selVS, selFS, selCS} {
-		blob, err := dxil.Compile(entryPointModule(t), dxil.Options{EntryPoint: sel, FakeMissingBindings: true})
+		blob, _, err := dxil.Compile(entryPointModule(t), dxil.Options{EntryPoint: sel, FakeMissingBindings: true})
 		if err != nil {
 			t.Fatalf("%s: %v", sel.Name, err)
 		}

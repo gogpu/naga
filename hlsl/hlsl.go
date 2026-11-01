@@ -481,26 +481,23 @@ const (
 
 // Compile generates HLSL source code from an IR module.
 // Returns the HLSL source, translation info, or an error.
-func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, error) {
+func Compile(module *ir.Module, options Options) (string, TranslationInfo, error) {
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
-		return "", nil, fmt.Errorf("hlsl: %w", err)
+		return "", TranslationInfo{}, fmt.Errorf("hlsl: %w", err)
 	}
 	module, err := ir.ResolvePendingArraySizes(module)
 	if err != nil {
-		return "", nil, fmt.Errorf("hlsl: %w", err)
+		return "", TranslationInfo{}, fmt.Errorf("hlsl: %w", err)
 	}
-	copts := toCodegenOptions(options)
-	if copts != nil {
-		if copts.ShaderModel, err = toCodegenShaderModel(options.ShaderModel); err != nil {
-			return "", nil, err
-		}
+	copts := toCodegenOptions(&options)
+	if copts.ShaderModel, err = toCodegenShaderModel(options.ShaderModel); err != nil {
+		return "", TranslationInfo{}, err
 	}
 	src, cinfo, err := codegen.Compile(module, copts)
 	if err != nil {
-		return "", nil, err
+		return "", TranslationInfo{}, err
 	}
-	info := fromCodegenTranslationInfo(cinfo)
-	return src, &info, nil
+	return src, fromCodegenTranslationInfo(cinfo), nil
 }
 
 // toCodegenShaderModel maps sm onto the HLSL writer's shader models; the
@@ -517,9 +514,9 @@ func toCodegenShaderModel(sm backend.ShaderModel) (codegen.ShaderModel, error) {
 	return 0, fmt.Errorf("hlsl: shader model %v is not supported (5.0, 5.1 and 6.0 to 6.7 are)", sm)
 }
 
-// DefaultOptions returns sensible default options for HLSL generation.
-func DefaultOptions() *Options {
-	return &Options{}
+// DefaultOptions returns the zero Options, the safe defaults.
+func DefaultOptions() Options {
+	return Options{}
 }
 
 // DefaultBindTarget returns a BindTarget with default values.

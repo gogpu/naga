@@ -17,7 +17,7 @@ import (
 func TestMissingBindings(t *testing.T) {
 	compile := func(src string, opts Options) error {
 		t.Helper()
-		_, err := Compile(lowerSource(t, src), opts)
+		_, _, err := Compile(lowerSource(t, src), opts)
 		return err
 	}
 	const twoBuffers = `

@@ -218,12 +218,31 @@ func DefaultOptions() Options {
 
 // --- Implementation types (aliases — complex types with methods) ---
 
-// Backend translates IR to SPIR-V.
-type Backend = codegen.Backend
+// TranslationInfo describes what Compile wrote.
+type TranslationInfo struct {
+	// EntryPointNames maps the name of each entry point the module holds to
+	// its OpEntryPoint name, the same in SPIR-V.
+	EntryPointNames map[string]string
+}
 
-// NewBackend creates a new SPIR-V backend.
-func NewBackend(options Options) *Backend {
-	return codegen.NewBackend(toCodegenOptions(options))
+// Compile translates module to a SPIR-V module, returned as its
+// little-endian 32-bit words (Rust naga's back::spv::write_vec, as bytes).
+func Compile(module *ir.Module, options Options) ([]byte, TranslationInfo, error) {
+	binary, err := codegen.NewBackend(toCodegenOptions(options)).Compile(module)
+	if err != nil {
+		return nil, TranslationInfo{}, err
+	}
+	info := TranslationInfo{EntryPointNames: make(map[string]string)}
+	for _, ep := range module.EntryPoints {
+		// The backend does not write mesh and task entry points yet.
+		if ep.Stage == ir.StageMesh || ep.Stage == ir.StageTask {
+			continue
+		}
+		if sel := options.EntryPoint; sel == nil || (sel.Name == ep.Name && sel.Stage == ep.Stage) {
+			info.EntryPointNames[ep.Name] = ep.Name
+		}
+	}
+	return binary, info, nil
 }
 
 // ModuleBuilder builds complete SPIR-V modules.

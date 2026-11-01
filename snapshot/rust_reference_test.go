@@ -15,7 +15,6 @@ import (
 	"github.com/gogpu/naga/internal/testtools"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
-	"github.com/gogpu/naga/spirv"
 )
 
 // referenceTally counts outcomes for one backend.
@@ -211,7 +210,7 @@ func ourSPIRVDisassembly(module *ir.Module, shader string, o rustOutput, disasse
 	if o.entryPoint != "" {
 		opts.EntryPoint = &backend.EntryPointSelector{Stage: o.stage, Name: o.entryPoint}
 	}
-	binary, err := spirv.NewBackend(opts).Compile(module)
+	binary, err := spirvBinary(module, opts)
 	if err != nil {
 		return "", err
 	}

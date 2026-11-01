@@ -62,9 +62,7 @@ func Example_backendCompile() {
 		Debug:   true, // Include debug names
 	}
 
-	// Create backend and compile
-	backend := spirv.NewBackend(options)
-	binary, err := backend.Compile(module)
+	binary, _, err := spirv.Compile(module, options)
 	if err != nil {
 		panic(err)
 	}

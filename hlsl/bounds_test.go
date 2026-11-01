@@ -50,7 +50,7 @@ func TestBindingArrayRestrict(t *testing.T) {
 }`
 	binding := hlsl.ResourceBinding{Group: 0, Binding: 0}
 
-	code, _, err := hlsl.Compile(lowerBoundsSource(t, sized), &hlsl.Options{FakeMissingBindings: true})
+	code, _, err := hlsl.Compile(lowerBoundsSource(t, sized), hlsl.Options{FakeMissingBindings: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestBindingArrayRestrict(t *testing.T) {
 	}
 
 	size := uint32(16)
-	code, _, err = hlsl.Compile(lowerBoundsSource(t, unbounded), &hlsl.Options{
+	code, _, err = hlsl.Compile(lowerBoundsSource(t, unbounded), hlsl.Options{
 		BindingMap: map[hlsl.ResourceBinding]hlsl.BindTarget{binding: {BindingArraySize: &size}},
 	})
 	if err != nil {
@@ -69,12 +69,12 @@ func TestBindingArrayRestrict(t *testing.T) {
 		t.Errorf("unbounded binding array with BindingArraySize 16: no clamp to 15u:\n%s", code)
 	}
 
-	_, _, err = hlsl.Compile(lowerBoundsSource(t, unbounded), &hlsl.Options{FakeMissingBindings: true})
+	_, _, err = hlsl.Compile(lowerBoundsSource(t, unbounded), hlsl.Options{FakeMissingBindings: true})
 	if err == nil || !strings.Contains(err.Error(), "BindingArraySize") {
 		t.Errorf("unbounded binding array without a size: err = %v, want BindingArraySize named", err)
 	}
 
-	code, _, err = hlsl.Compile(lowerBoundsSource(t, unbounded), &hlsl.Options{FakeMissingBindings: true, BoundsCheckPolicies: uncheckedPolicies()})
+	code, _, err = hlsl.Compile(lowerBoundsSource(t, unbounded), hlsl.Options{FakeMissingBindings: true, BoundsCheckPolicies: uncheckedPolicies()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ struct U { values: array<vec4<f32>, 4> }
 		t.Helper()
 		p := uncheckedPolicies()
 		p.Index, p.Buffer = index, buffer
-		code, _, err := hlsl.Compile(lowerBoundsSource(t, source), &hlsl.Options{
+		code, _, err := hlsl.Compile(lowerBoundsSource(t, source), hlsl.Options{
 			BindingMap:          map[hlsl.ResourceBinding]hlsl.BindTarget{binding: {RestrictIndexing: restrictBinding}},
 			BoundsCheckPolicies: p,
 		})
@@ -140,7 +140,7 @@ struct U { values: array<vec4<f32>, 4> }
 		case "BindingArray":
 			p.BindingArray = backend.BoundsCheckReadZeroSkipWrite
 		}
-		_, _, err := hlsl.Compile(lowerBoundsSource(t, source), &hlsl.Options{FakeMissingBindings: true, BoundsCheckPolicies: p})
+		_, _, err := hlsl.Compile(lowerBoundsSource(t, source), hlsl.Options{FakeMissingBindings: true, BoundsCheckPolicies: p})
 		if err == nil || !strings.Contains(err.Error(), "BoundsCheckPolicies."+field+": ReadZeroSkipWrite is not supported") {
 			t.Errorf("%s ReadZeroSkipWrite: err = %v, want a refusal naming it", field, err)
 		}

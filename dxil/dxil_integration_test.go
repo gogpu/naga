@@ -27,7 +27,7 @@ func TestCompile_EmptyVertex(t *testing.T) {
 		{Name: "main", Stage: ir.StageVertex, Function: fn},
 	}
 
-	data, err := Compile(irMod, DefaultOptions())
+	data, _, err := Compile(irMod, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestDebug_PassthroughEmitterIDs(t *testing.T) {
 		{Name: "main", Stage: ir.StageVertex, Function: fn},
 	}
 
-	data, err := Compile(irMod, DefaultOptions())
+	data, _, err := Compile(irMod, DefaultOptions())
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
 	}

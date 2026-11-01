@@ -21,12 +21,12 @@ var<immediate> im: Im;
 func TestImmediatesTarget(t *testing.T) {
 	m := lowerBoundsSource(t, immediatesShader)
 	for _, fake := range []bool{false, true} {
-		_, _, err := hlsl.Compile(m, &hlsl.Options{FakeMissingBindings: fake})
+		_, _, err := hlsl.Compile(m, hlsl.Options{FakeMissingBindings: fake})
 		if !errors.Is(err, backend.ErrMissingBinding) {
 			t.Errorf("FakeMissingBindings %v, no target: err = %v, want backend.ErrMissingBinding", fake, err)
 		}
 	}
-	src, _, err := hlsl.Compile(m, &hlsl.Options{ImmediatesTarget: &hlsl.BindTarget{Register: 3, Space: 2}})
+	src, _, err := hlsl.Compile(m, hlsl.Options{ImmediatesTarget: &hlsl.BindTarget{Register: 3, Space: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestImmediatesTarget(t *testing.T) {
 		t.Errorf("output lacks %q:\n%s", want, src)
 	}
 	// A module without immediate data needs no target.
-	if _, _, err := hlsl.Compile(lowerBoundsSource(t, `@fragment fn main() {}`), &hlsl.Options{}); err != nil {
+	if _, _, err := hlsl.Compile(lowerBoundsSource(t, `@fragment fn main() {}`), hlsl.Options{}); err != nil {
 		t.Errorf("no immediate data: %v", err)
 	}
 }

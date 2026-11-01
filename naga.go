@@ -241,7 +241,7 @@ func Validate(module *ir.Module) ([]ir.ValidationError, error) {
 // This is the final stage of compilation. The output is a binary blob
 // that can be directly consumed by Vulkan or other SPIR-V consumers.
 func GenerateSPIRV(module *ir.Module, opts spirv.Options) ([]byte, error) {
-	spirvBytes, err := spirv.NewBackend(opts).Compile(module)
+	spirvBytes, _, err := spirv.Compile(module, opts)
 	if err != nil {
 		return nil, fmt.Errorf("SPIR-V generation error: %w", err)
 	}

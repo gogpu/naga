@@ -274,7 +274,7 @@ func backendBoundsCheckPolicies(p rustBoundsCheckPolicies) backend.BoundsCheckPo
 
 // rustHLSLOptions returns the HLSL options Rust's driver uses for a shader:
 // default_for_testing() plus the shader's TOML settings.
-func rustHLSLOptions(shaderName string) (*hlsl.Options, error) {
+func rustHLSLOptions(shaderName string) (hlsl.Options, error) {
 	opts := hlsl.DefaultOptions()
 	// Rust's binding_map is always present (empty by default) and
 	// fake_missing_bindings defaults to true.
@@ -288,8 +288,8 @@ func rustHLSLOptions(shaderName string) (*hlsl.Options, error) {
 		ImageLoad:    backend.BoundsCheckUnchecked,
 		BindingArray: backend.BoundsCheckUnchecked,
 	}
-	if err := readHLSLConfig(opts, shaderName); err != nil {
-		return nil, err
+	if err := readHLSLConfig(&opts, shaderName); err != nil {
+		return hlsl.Options{}, err
 	}
 	return opts, nil
 }

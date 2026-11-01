@@ -24,7 +24,7 @@ struct S { a: f16, b: vec2<f16>, c: f32 }
 	s[1].b = s[0].b * 2.0h;
 }
 `
-	blob, err := Compile(lowerForTest(t, src), DefaultOptions())
+	blob, _, err := Compile(lowerForTest(t, src), DefaultOptions())
 	if err != nil {
 		t.Fatal(err)
 	}

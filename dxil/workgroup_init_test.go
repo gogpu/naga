@@ -36,7 +36,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Compile(m, DefaultOptions()); err != nil {
+	if _, _, err := Compile(m, DefaultOptions()); err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 
@@ -114,7 +114,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	out[i] = m.a;
 }
 `)
-	if _, err := Compile(m, DefaultOptions()); err != nil {
+	if _, _, err := Compile(m, DefaultOptions()); err != nil {
 		t.Fatal(err)
 	}
 }

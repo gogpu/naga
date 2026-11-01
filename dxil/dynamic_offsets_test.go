@@ -99,7 +99,7 @@ func TestDynamicStorageBufferSizeIndexNeedsOffsetsIndex(t *testing.T) {
 		{Group: 0, Binding: 0}: {Register: 0, DynamicStorageBufferSizeIndex: &size},
 	}
 	opts.DynamicStorageBufferOffsetsTargets = map[uint32]OffsetsBindTarget{0: {Space: 0, Register: 4, Size: 2}}
-	_, err := Compile(lowerSource(t, `
+	_, _, err := Compile(lowerSource(t, `
 @group(0) @binding(0) var<storage, read_write> moved: array<u32>;
 @compute @workgroup_size(1) fn main() {
     moved[0] = arrayLength(&moved);

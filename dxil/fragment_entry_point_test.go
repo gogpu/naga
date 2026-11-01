@@ -38,7 +38,7 @@ struct VertexOut {
 			fs := lowerForTest(t, tc.fs)
 			opts.FragmentEntryPoint = &FragmentEntryPoint{Module: fs, Function: &fs.EntryPoints[0].Function}
 		}
-		blob, err := Compile(vs, opts)
+		blob, _, err := Compile(vs, opts)
 		if err != nil {
 			t.Fatalf("%s: Compile: %v", tc.name, err)
 		}
