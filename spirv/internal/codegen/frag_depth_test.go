@@ -58,15 +58,9 @@ struct Out { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 }
 // error.
 func TestClampFragDepthWithPushConstants(t *testing.T) {
 	spirvVal := testtools.Look(t, "spirv-val", testtools.InstallSPIRVTools)
-	for _, space := range []string{"immediate", "push_constant"} {
-		t.Run(space, func(t *testing.T) { clampFragDepthWithPushConstants(t, spirvVal, space) })
-	}
-}
-
-func clampFragDepthWithPushConstants(t *testing.T, spirvVal, space string) {
 	src := `
 struct Immediates { tint: vec4<f32> }
-var<` + space + `> im: Immediates;
+var<immediate> im: Immediates;
 @vertex fn vs_main() -> @builtin(position) vec4<f32> { return im.tint; }
 @fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @builtin(frag_depth) f32 { return p.z * im.tint.x; }`
 	spv := compileWGSLForCapabilityTestWithOpts(t, src, Options{Version: Version1_3, ClampFragDepth: &backend.ClampFragDepth{Offset: 16}})

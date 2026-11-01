@@ -319,7 +319,7 @@ func TestIntegration_AddressSpaceNames(t *testing.T) {
 		{ir.SpaceUniform, "constant"},
 		{ir.SpaceStorage, "device"},
 		{ir.SpaceHandle, ""},
-		{ir.SpacePushConstant, "constant"},
+		{ir.SpaceImmediate, "constant"},
 	}
 
 	for _, tt := range tests {

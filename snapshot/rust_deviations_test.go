@@ -508,8 +508,8 @@ var rustUnsupportedShaders = map[string]unsupportedShader{
 		Reason:        "16-bit integer types (i16, u16) are not supported",
 		ErrorContains: "unknown type: i16"},
 	"ray-tracing-pipeline": {Card: "PARITY-UPSTREAM-001",
-		Reason:        "ray tracing pipeline stages and traceRay are not supported",
-		ErrorContains: "unknown function: traceRay"},
+		Reason:        "ray tracing pipeline stages, ray payload address spaces and traceRay are not supported",
+		ErrorContains: "unknown address space: `ray_payload`"},
 }
 
 // lowerCorpusShader lowers a corpus shader. ok is false when the shader is a

@@ -51,8 +51,8 @@ func mapRonAddressSpace(s string) (ir.AddressSpace, error) {
 		return ir.SpaceUniform, nil
 	case "Handle":
 		return ir.SpaceHandle, nil
-	case "PushConstant":
-		return ir.SpacePushConstant, nil
+	case "Immediate":
+		return ir.SpaceImmediate, nil
 	case "TaskPayload":
 		return ir.SpaceTaskPayload, nil
 	default:

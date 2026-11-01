@@ -306,7 +306,8 @@ type RayQueryType struct{}
 
 func (RayQueryType) typeInner() {}
 
-// AddressSpace represents memory address spaces.
+// AddressSpace represents memory address spaces. Mirrors Rust naga's
+// AddressSpace, in the same order.
 type AddressSpace uint8
 
 const (
@@ -315,8 +316,11 @@ const (
 	SpaceWorkGroup
 	SpaceUniform
 	SpaceStorage
-	SpacePushConstant
 	SpaceHandle
+	// SpaceImmediate is immediate data, WGSL var<immediate> (the WebGPU
+	// immediate-data feature; Vulkan push constants). It was spelled
+	// push_constant before gpuweb renamed it; naga has one space for it, as
+	// Rust naga's AddressSpace::Immediate.
 	SpaceImmediate
 	SpaceTaskPayload
 )

@@ -380,8 +380,8 @@ func (l *Lowerer) wgslType(inner ir.TypeInner) string {
 		// pointer type, so it is not printed.
 		spaces := [...]string{
 			ir.SpaceFunction: "function", ir.SpacePrivate: "private", ir.SpaceWorkGroup: "workgroup",
-			ir.SpaceUniform: "uniform", ir.SpaceStorage: "storage", ir.SpacePushConstant: "push_constant",
-			ir.SpaceImmediate: "immediate", ir.SpaceTaskPayload: "task_payload",
+			ir.SpaceUniform: "uniform", ir.SpaceStorage: "storage", ir.SpaceImmediate: "immediate",
+			ir.SpaceTaskPayload: "task_payload",
 		}
 		if int(t.Space) < len(spaces) && spaces[t.Space] != "" {
 			return "ptr<" + spaces[t.Space] + ", " + l.wgslTypeHandle(t.Base) + ">"

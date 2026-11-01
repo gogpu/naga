@@ -292,8 +292,9 @@ StmtCall             — Function call as statement (no return value used)
 | WorkGroup | `var<workgroup>` | Shared within workgroup |
 | Uniform | `var<uniform>` | Read-only uniform buffer |
 | Storage | `var<storage>` | Read/write storage buffer |
-| PushConstant | `var<push_constant>` | Fast push constant data |
-| Handle | (internal) | Sampler/texture handle |
+| Handle | `var t: texture_2d<f32>` (no address space) | Sampler/texture handle |
+| Immediate | `var<immediate>` | Immediate data (Vulkan push constants) |
+| TaskPayload | `var<task_payload>` | Mesh shading task payload |
 
 ## SPIR-V Backend
 

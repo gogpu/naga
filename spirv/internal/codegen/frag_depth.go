@@ -18,7 +18,7 @@ type fragDepthRangeAt struct {
 // immediateGlobal returns the push constant global ep uses, if any.
 func (b *Backend) immediateGlobal(ep *ir.EntryPoint) (ir.GlobalVariableHandle, bool) {
 	for _, h := range b.collectUsedGlobalVars(&ep.Function) {
-		if space := b.module.GlobalVariables[h].Space; space == ir.SpacePushConstant || space == ir.SpaceImmediate {
+		if space := b.module.GlobalVariables[h].Space; space == ir.SpaceImmediate {
 			return h, true
 		}
 	}
@@ -33,7 +33,7 @@ func (b *Backend) carriesFragDepthRange(h ir.GlobalVariableHandle) (bool, error)
 	if b.options.ClampFragDepth == nil {
 		return false, nil
 	}
-	if space := b.module.GlobalVariables[h].Space; space != ir.SpacePushConstant && space != ir.SpaceImmediate {
+	if space := b.module.GlobalVariables[h].Space; space != ir.SpaceImmediate {
 		return false, nil
 	}
 	for i := range b.module.EntryPoints {
