@@ -29,17 +29,17 @@
                OpDecorate %_22 BuiltIn Position
                OpDecorate %_22 Invariant
                OpDecorate %_24 Location 1
-               OpDecorate %_26 BuiltIn PointCoord
+               OpDecorate %_26 BuiltIn FragCoord
                OpDecorate %_26 Invariant
                OpDecorate %_28 Location 1
-               OpDecorate %_30 BuiltIn SampleId
+               OpDecorate %_30 BuiltIn FrontFacing
                OpDecorate %_30 Flat
-               OpDecorate %_31 BuiltIn SamplePosition
+               OpDecorate %_31 BuiltIn SampleId
                OpDecorate %_31 Flat
-               OpDecorate %_34 BuiltIn 20
+               OpDecorate %_34 BuiltIn SampleMask
                OpDecorate %_34 Flat
                OpDecorate %_35 BuiltIn FragDepth
-               OpDecorate %_37 BuiltIn 20
+               OpDecorate %_37 BuiltIn SampleMask
                OpDecorate %_38 Location 0
                OpDecorate %_40 BuiltIn GlobalInvocationId
                OpDecorate %_41 BuiltIn LocalInvocationId

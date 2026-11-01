@@ -19,7 +19,7 @@
                OpMemberDecorate %_13 1 Offset 48
                OpMemberDecorate %_13 2 Offset 64
                OpMemberDecorate %_13 3 Offset 68
-               OpDecorate %_22 BuiltIn InvocationId
+               OpDecorate %_22 BuiltIn PrimitiveId
                OpDecorate %_22 Flat
                OpDecorate %_24 Location 0
          %_2 = OpTypeVoid

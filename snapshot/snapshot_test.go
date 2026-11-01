@@ -2328,15 +2328,18 @@ var spvDecorations = map[uint32]string{
 	43: "InputAttachmentIndex", 44: "Alignment",
 }
 
+// spvBuiltins names the BuiltIn values of the SPIR-V specification (section
+// 3.21, BuiltIn); 2 and 21 are unassigned.
 var spvBuiltins = map[uint32]string{
-	0: "Position", 1: "PointSize", 2: "ClipDistance", 3: "CullDistance",
-	4: "VertexId", 5: "InstanceId", 6: "PrimitiveId", 7: "InvocationId",
-	8: "Layer", 9: "ViewportIndex", 10: "TessLevelOuter", 11: "TessLevelInner",
-	12: "TessCoord", 13: "PatchVertices", 14: "FragCoord", 15: "PointCoord",
-	16: "FrontFacing", 17: "SampleId", 18: "SamplePosition", 19: "SampleMask",
+	0: "Position", 1: "PointSize", 3: "ClipDistance", 4: "CullDistance",
+	5: "VertexId", 6: "InstanceId", 7: "PrimitiveId", 8: "InvocationId",
+	9: "Layer", 10: "ViewportIndex", 11: "TessLevelOuter", 12: "TessLevelInner",
+	13: "TessCoord", 14: "PatchVertices", 15: "FragCoord", 16: "PointCoord",
+	17: "FrontFacing", 18: "SampleId", 19: "SamplePosition", 20: "SampleMask",
 	22: "FragDepth", 23: "HelperInvocation", 24: "NumWorkgroups",
 	25: "WorkgroupSize", 26: "WorkgroupId", 27: "LocalInvocationId",
 	28: "GlobalInvocationId", 29: "LocalInvocationIndex",
+	36: "SubgroupSize", 38: "NumSubgroups", 40: "SubgroupId", 41: "SubgroupLocalInvocationId",
 	42: "VertexIndex", 43: "InstanceIndex",
 	4440: "ViewIndex", 5286: "BaryCoordKHR",
 }

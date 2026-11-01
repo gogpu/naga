@@ -57,11 +57,11 @@
                OpDecorate %_44 BuiltIn Position
                OpDecorate %_46 Location 0
                OpDecorate %_47 Location 1
-               OpDecorate %_49 BuiltIn PointCoord
+               OpDecorate %_49 BuiltIn FragCoord
                OpDecorate %_51 Location 0
                OpDecorate %_52 Location 1
                OpDecorate %_53 Location 0
-               OpDecorate %_54 BuiltIn PointCoord
+               OpDecorate %_54 BuiltIn FragCoord
                OpDecorate %_55 Location 0
                OpDecorate %_56 Location 1
                OpDecorate %_57 Location 0

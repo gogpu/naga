@@ -12,7 +12,7 @@
                OpExecutionMode %_14 OriginUpperLeft
                OpDecorate %_6 BuiltIn Position
                OpDecorate %_6 Invariant
-               OpDecorate %_8 BuiltIn PointCoord
+               OpDecorate %_8 BuiltIn FragCoord
                OpDecorate %_8 Invariant
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32

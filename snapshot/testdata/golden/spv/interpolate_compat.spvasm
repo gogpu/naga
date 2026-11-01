@@ -43,7 +43,7 @@
                OpDecorate %_23 Location 10
                OpDecorate %_23 Sample
                OpDecorate %_24 Location 11
-               OpDecorate %_26 BuiltIn PointCoord
+               OpDecorate %_26 BuiltIn FragCoord
                OpDecorate %_28 Location 0
                OpDecorate %_28 Flat
                OpDecorate %_29 Location 2

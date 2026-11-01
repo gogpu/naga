@@ -11,8 +11,8 @@
                OpEntryPoint Fragment %_15 "func" %_7 %_9 %_11 %_13
                OpExecutionMode %_15 OriginUpperLeft
                OpDecorate %_7 Location 0
-               OpDecorate %_9 BuiltIn PointCoord
-               OpDecorate %_11 BuiltIn InvocationId
+               OpDecorate %_9 BuiltIn FragCoord
+               OpDecorate %_11 BuiltIn PrimitiveId
                OpDecorate %_11 Flat
                OpDecorate %_13 Location 0
          %_2 = OpTypeVoid
