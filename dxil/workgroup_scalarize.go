@@ -37,7 +37,7 @@ func scalarizeWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) error {
 	var handles []ir.GlobalVariableHandle
 	for h := range reachableGlobalsForEntry(m, ep) {
 		gv := &m.GlobalVariables[h]
-		if gv.Space == ir.SpaceWorkGroup && !flatWorkgroupType(m, gv.Type) {
+		if gv.Space == ir.SpaceWorkGroup && !emit.FlatWorkgroupType(m, gv.Type) {
 			handles = append(handles, h)
 		}
 	}
@@ -71,21 +71,6 @@ func scalarizeWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) error {
 		}
 	}
 	return nil
-}
-
-// flatWorkgroupType reports whether a workgroup variable of type ty stays as
-// it is: a scalar, an atomic, or an array of either.
-func flatWorkgroupType(m *ir.Module, ty ir.TypeHandle) bool {
-	switch t := m.Types[ty].Inner.(type) {
-	case ir.ScalarType, ir.AtomicType:
-		return true
-	case ir.ArrayType:
-		switch m.Types[t.Base].Inner.(type) {
-		case ir.ScalarType, ir.AtomicType:
-			return true
-		}
-	}
-	return false
 }
 
 // wgVar is a split workgroup variable: its type and its pieces, by the

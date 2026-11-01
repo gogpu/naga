@@ -3,7 +3,6 @@ package emit
 import (
 	"testing"
 
-	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -207,39 +206,6 @@ func TestResolvePointerAddrSpace_LocalVar(t *testing.T) {
 	got := e.resolvePointerAddrSpace(fn, ir.ExpressionHandle(0))
 	if got != 0 {
 		t.Errorf("local var: want addrspace 0, got %d", got)
-	}
-}
-
-// --- workgroupElemRoot ----------------------------------------------------
-
-func TestWorkgroupElemRoot_RoundTrip(t *testing.T) {
-	e := &Emitter{
-		workgroupElemPtrs: make(map[int]workgroupElemOrigin),
-	}
-	want := workgroupElemOrigin{
-		globalAllocaID: 42,
-		arrayTy:        &module.Type{Kind: module.TypeArray},
-		elemIndexID:    17,
-		elemTy:         &module.Type{Kind: module.TypeStruct},
-	}
-	e.workgroupElemPtrs[101] = want
-	got, ok := e.workgroupElemRoot(101)
-	if !ok {
-		t.Fatalf("workgroupElemRoot(101): not found")
-	}
-	if got != want {
-		t.Errorf("workgroupElemRoot(101): got %+v, want %+v", got, want)
-	}
-	if _, ok := e.workgroupElemRoot(202); ok {
-		t.Errorf("workgroupElemRoot(202): should not be found")
-	}
-}
-
-func TestWorkgroupElemRoot_NilMap(t *testing.T) {
-	// Before emitter init the map is nil — must not panic and must return false.
-	e := &Emitter{}
-	if _, ok := e.workgroupElemRoot(1); ok {
-		t.Errorf("nil map: should return false")
 	}
 }
 
