@@ -1,9 +1,11 @@
-package ir
+package valid
 
 import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/ir"
 )
 
 // =============================================================================
@@ -11,21 +13,21 @@ import (
 // =============================================================================
 
 // newValidModule returns a minimal valid module with basic types and one function.
-func newValidModule() *Module {
-	return &Module{
-		Types: []Type{
-			{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
-			{Name: "vec4f", Inner: VectorType{Size: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}},
-			{Name: "i32", Inner: ScalarType{Kind: ScalarSint, Width: 4}},
-			{Name: "bool", Inner: ScalarType{Kind: ScalarBool, Width: 1}},
-			{Name: "mat4f", Inner: MatrixType{Columns: Vec4, Rows: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 4}}},
+func newValidModule() *ir.Module {
+	return &ir.Module{
+		Types: []ir.Type{
+			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Name: "vec4f", Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
+			{Name: "i32", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
+			{Name: "bool", Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
+			{Name: "mat4f", Inner: ir.MatrixType{Columns: ir.Vec4, Rows: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
 		},
-		Functions: []Function{
+		Functions: []ir.Function{
 			{
 				Name: "test_fn",
-				Expressions: []Expression{
-					{Kind: Literal{Value: LiteralF32(1.0)}},
-					{Kind: Literal{Value: LiteralF32(2.0)}},
+				Expressions: []ir.Expression{
+					{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+					{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
 				},
 				Body: nil,
 			},
@@ -38,7 +40,7 @@ func uint32Ptr(v uint32) *uint32 {
 }
 
 // expectValidationErrors validates a module and expects specific error messages.
-func expectValidationErrors(t *testing.T, module *Module, expectedSubstrings ...string) {
+func expectValidationErrors(t *testing.T, module *ir.Module, expectedSubstrings ...string) {
 	t.Helper()
 	errors, err := validateErrs(module, CapAll)
 	if err != nil {
@@ -59,7 +61,7 @@ func expectValidationErrors(t *testing.T, module *Module, expectedSubstrings ...
 }
 
 // expectNoValidationErrors validates a module and expects no errors.
-func expectNoValidationErrors(t *testing.T, module *Module) {
+func expectNoValidationErrors(t *testing.T, module *ir.Module) {
 	t.Helper()
 	errors, err := validateErrs(module, CapAll)
 	if err != nil {
@@ -81,88 +83,88 @@ func TestValidateNew_FunctionArgOutOfRange(t *testing.T) {
 	m := newValidModule()
 	// Function has no arguments, but expression references arg index 5
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprFunctionArgument{Index: 5}})
+		ir.Expression{Kind: ir.ExprFunctionArgument{Index: 5}})
 	expectValidationErrors(t, m, "argument index 5 out of range")
 }
 
 func TestValidateNew_LocalVariableOutOfRange(t *testing.T) {
 	m := newValidModule()
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprLocalVariable{Variable: 999}})
+		ir.Expression{Kind: ir.ExprLocalVariable{Variable: 999}})
 	expectValidationErrors(t, m, "local variable index 999 out of range")
 }
 
 func TestValidateNew_GlobalVariableInvalid(t *testing.T) {
 	m := newValidModule()
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprGlobalVariable{Variable: 999}})
+		ir.Expression{Kind: ir.ExprGlobalVariable{Variable: 999}})
 	expectValidationErrors(t, m, "global variable 999 does not exist")
 }
 
 func TestValidateNew_MathInvalidArg2(t *testing.T) {
 	m := newValidModule()
-	arg1 := ExpressionHandle(1)
-	invalid := ExpressionHandle(999)
+	arg1 := ir.ExpressionHandle(1)
+	invalid := ir.ExpressionHandle(999)
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprMath{Fun: MathClamp, Arg: 0, Arg1: &arg1, Arg2: &invalid}})
+		ir.Expression{Kind: ir.ExprMath{Fun: ir.MathClamp, Arg: 0, Arg1: &arg1, Arg2: &invalid}})
 	expectValidationErrors(t, m, "arg2 expression 999 does not exist")
 }
 
 func TestValidateNew_MathInvalidArg3(t *testing.T) {
 	m := newValidModule()
-	arg1 := ExpressionHandle(1)
-	arg2 := ExpressionHandle(0)
-	invalid := ExpressionHandle(999)
+	arg1 := ir.ExpressionHandle(1)
+	arg2 := ir.ExpressionHandle(0)
+	invalid := ir.ExpressionHandle(999)
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprMath{Fun: MathClamp, Arg: 0, Arg1: &arg1, Arg2: &arg2, Arg3: &invalid}})
+		ir.Expression{Kind: ir.ExprMath{Fun: ir.MathClamp, Arg: 0, Arg1: &arg1, Arg2: &arg2, Arg3: &invalid}})
 	expectValidationErrors(t, m, "arg3 expression 999 does not exist")
 }
 
 func TestValidateNew_ImageSampleInvalidArrayIndex(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
+	invalid := ir.ExpressionHandle(999)
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprImageSample{Image: 0, Sampler: 0, Coordinate: 0, ArrayIndex: &invalid}})
+		ir.Expression{Kind: ir.ExprImageSample{Image: 0, Sampler: 0, Coordinate: 0, ArrayIndex: &invalid}})
 	expectValidationErrors(t, m, "array index expression 999 does not exist")
 }
 
 func TestValidateNew_ImageSampleInvalidOffset(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
+	invalid := ir.ExpressionHandle(999)
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprImageSample{Image: 0, Sampler: 0, Coordinate: 0, Offset: &invalid}})
+		ir.Expression{Kind: ir.ExprImageSample{Image: 0, Sampler: 0, Coordinate: 0, Offset: &invalid}})
 	expectValidationErrors(t, m, "offset expression 999 does not exist")
 }
 
 func TestValidateNew_ImageSampleInvalidDepthRef(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
+	invalid := ir.ExpressionHandle(999)
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprImageSample{Image: 0, Sampler: 0, Coordinate: 0, DepthRef: &invalid}})
+		ir.Expression{Kind: ir.ExprImageSample{Image: 0, Sampler: 0, Coordinate: 0, DepthRef: &invalid}})
 	expectValidationErrors(t, m, "depth ref expression 999 does not exist")
 }
 
 func TestValidateNew_ImageLoadInvalidArrayIndex(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
+	invalid := ir.ExpressionHandle(999)
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprImageLoad{Image: 0, Coordinate: 0, ArrayIndex: &invalid}})
+		ir.Expression{Kind: ir.ExprImageLoad{Image: 0, Coordinate: 0, ArrayIndex: &invalid}})
 	expectValidationErrors(t, m, "array index expression 999 does not exist")
 }
 
 func TestValidateNew_ImageLoadInvalidSample(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
+	invalid := ir.ExpressionHandle(999)
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprImageLoad{Image: 0, Coordinate: 0, Sample: &invalid}})
+		ir.Expression{Kind: ir.ExprImageLoad{Image: 0, Coordinate: 0, Sample: &invalid}})
 	expectValidationErrors(t, m, "sample expression 999 does not exist")
 }
 
 func TestValidateNew_ImageLoadInvalidLevel(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
+	invalid := ir.ExpressionHandle(999)
 	m.Functions[0].Expressions = append(m.Functions[0].Expressions,
-		Expression{Kind: ExprImageLoad{Image: 0, Coordinate: 0, Level: &invalid}})
+		ir.Expression{Kind: ir.ExprImageLoad{Image: 0, Coordinate: 0, Level: &invalid}})
 	expectValidationErrors(t, m, "level expression 999 does not exist")
 }
 
@@ -172,51 +174,51 @@ func TestValidateNew_ImageLoadInvalidLevel(t *testing.T) {
 
 func TestValidateNew_EmitRangeEndOutOfBounds(t *testing.T) {
 	m := newValidModule()
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtEmit{Range: Range{Start: 0, End: 100}}},
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 100}}},
 	}
 	expectValidationErrors(t, m, "emit range end 100 out of range")
 }
 
 func TestValidateNew_EmitRangeStartGEEnd(t *testing.T) {
 	m := newValidModule()
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtEmit{Range: Range{Start: 1, End: 1}}},
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtEmit{Range: ir.Range{Start: 1, End: 1}}},
 	}
 	expectValidationErrors(t, m, "emit range start 1 >= end 1")
 }
 
 func TestValidateNew_ImageStoreInvalidArrayIndex(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtImageStore{Image: 0, Coordinate: 0, Value: 0, ArrayIndex: &invalid}},
+	invalid := ir.ExpressionHandle(999)
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtImageStore{Image: 0, Coordinate: 0, Value: 0, ArrayIndex: &invalid}},
 	}
 	expectValidationErrors(t, m, "array index expression 999 does not exist")
 }
 
 func TestValidateNew_AtomicInvalidResult(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtAtomic{Pointer: 0, Value: 0, Result: &invalid}},
+	invalid := ir.ExpressionHandle(999)
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtAtomic{Pointer: 0, Value: 0, Result: &invalid}},
 	}
 	expectValidationErrors(t, m, "result expression 999 does not exist")
 }
 
 func TestValidateNew_CallInvalidResult(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtCall{Function: 0, Result: &invalid}},
+	invalid := ir.ExpressionHandle(999)
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtCall{Function: 0, Result: &invalid}},
 	}
 	expectValidationErrors(t, m, "result expression 999 does not exist")
 }
 
 func TestValidateNew_CallInvalidArguments(t *testing.T) {
 	m := newValidModule()
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtCall{Function: 0, Arguments: []ExpressionHandle{999}}},
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{999}}},
 	}
 	expectValidationErrors(t, m, "argument 0 expression 999 does not exist")
 }
@@ -227,59 +229,59 @@ func TestValidateNew_CallInvalidArguments(t *testing.T) {
 
 func TestValidateNew_ValidScalarWidthByte(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, Type{Name: "u8", Inner: ScalarType{Kind: ScalarUint, Width: 1}})
+	m.Types = append(m.Types, ir.Type{Name: "u8", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 1}})
 	expectNoValidationErrors(t, m)
 }
 
 func TestValidateNew_ValidScalarWidthHalf(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, Type{Name: "f16", Inner: ScalarType{Kind: ScalarFloat, Width: 2}})
+	m.Types = append(m.Types, ir.Type{Name: "f16", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}})
 	expectNoValidationErrors(t, m)
 }
 
 func TestValidateNew_ValidScalarWidthDouble(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, Type{Name: "f64", Inner: ScalarType{Kind: ScalarFloat, Width: 8}})
+	m.Types = append(m.Types, ir.Type{Name: "f64", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}})
 	expectNoValidationErrors(t, m)
 }
 
 func TestValidateNew_InvalidVectorScalarWidth(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, Type{Name: "bad", Inner: VectorType{
-		Size:   Vec2,
-		Scalar: ScalarType{Kind: ScalarFloat, Width: 3},
+	m.Types = append(m.Types, ir.Type{Name: "bad", Inner: ir.VectorType{
+		Size:   ir.Vec2,
+		Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 3},
 	}})
 	expectValidationErrors(t, m, "vector scalar width must be 1, 2, 4, or 8")
 }
 
 func TestValidateNew_InvalidMatrixColumns(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, Type{Name: "bad", Inner: MatrixType{
-		Columns: 5, Rows: Vec4, Scalar: ScalarType{Kind: ScalarFloat, Width: 4},
+	m.Types = append(m.Types, ir.Type{Name: "bad", Inner: ir.MatrixType{
+		Columns: 5, Rows: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
 	}})
 	expectValidationErrors(t, m, "matrix columns must be 2, 3, or 4")
 }
 
 func TestValidateNew_InvalidMatrixRows(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, Type{Name: "bad", Inner: MatrixType{
-		Columns: Vec4, Rows: 1, Scalar: ScalarType{Kind: ScalarFloat, Width: 4},
+	m.Types = append(m.Types, ir.Type{Name: "bad", Inner: ir.MatrixType{
+		Columns: ir.Vec4, Rows: 1, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4},
 	}})
 	expectValidationErrors(t, m, "matrix rows must be 2, 3, or 4")
 }
 
 func TestValidateNew_StructEmptyMemberName(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, Type{Name: "bad", Inner: StructType{
-		Members: []StructMember{{Name: "", Type: 0}},
+	m.Types = append(m.Types, ir.Type{Name: "bad", Inner: ir.StructType{
+		Members: []ir.StructMember{{Name: "", Type: 0}},
 	}})
 	expectValidationErrors(t, m, "struct member 0 has empty name")
 }
 
 func TestValidateNew_StructDuplicateMemberName(t *testing.T) {
 	m := newValidModule()
-	m.Types = append(m.Types, Type{Name: "bad", Inner: StructType{
-		Members: []StructMember{
+	m.Types = append(m.Types, ir.Type{Name: "bad", Inner: ir.StructType{
+		Members: []ir.StructMember{
 			{Name: "x", Type: 0},
 			{Name: "x", Type: 0},
 		},
@@ -290,8 +292,8 @@ func TestValidateNew_StructDuplicateMemberName(t *testing.T) {
 func TestValidateNew_StructMemberCircularRef(t *testing.T) {
 	m := newValidModule()
 	// Add struct at index 5 with member referencing itself
-	m.Types = append(m.Types, Type{Name: "bad", Inner: StructType{
-		Members: []StructMember{{Name: "self", Type: TypeHandle(5)}},
+	m.Types = append(m.Types, ir.Type{Name: "bad", Inner: ir.StructType{
+		Members: []ir.StructMember{{Name: "self", Type: ir.TypeHandle(5)}},
 	}})
 	expectValidationErrors(t, m, "struct member \"self\" has circular reference")
 }
@@ -302,28 +304,28 @@ func TestValidateNew_StructMemberCircularRef(t *testing.T) {
 
 func TestValidateNew_EntryPointEmptyName(t *testing.T) {
 	m := newValidModule()
-	m.EntryPoints = []EntryPoint{
-		{Name: "", Stage: StageVertex, Function: Function{Name: "vs"}},
+	m.EntryPoints = []ir.EntryPoint{
+		{Name: "", Stage: ir.StageVertex, Function: ir.Function{Name: "vs"}},
 	}
 	expectValidationErrors(t, m, "entry point 0 has empty name")
 }
 
 func TestValidateNew_EntryPointDuplicateName(t *testing.T) {
 	m := newValidModule()
-	m.EntryPoints = []EntryPoint{
-		{Name: "main", Stage: StageVertex, Function: Function{Name: "main"}},
-		{Name: "main", Stage: StageFragment, Function: Function{Name: "main"}},
+	m.EntryPoints = []ir.EntryPoint{
+		{Name: "main", Stage: ir.StageVertex, Function: ir.Function{Name: "main"}},
+		{Name: "main", Stage: ir.StageFragment, Function: ir.Function{Name: "main"}},
 	}
 	expectValidationErrors(t, m, "duplicate entry point name")
 }
 
 func TestValidateNew_VertexDirectPositionBinding(t *testing.T) {
 	m := newValidModule()
-	var posBinding Binding = BuiltinBinding{Builtin: BuiltinPosition}
-	m.EntryPoints = []EntryPoint{
-		{Name: "vs", Stage: StageVertex, Function: Function{
+	var posBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinPosition}
+	m.EntryPoints = []ir.EntryPoint{
+		{Name: "vs", Stage: ir.StageVertex, Function: ir.Function{
 			Name: "vs",
-			Result: &FunctionResult{
+			Result: &ir.FunctionResult{
 				Type:    1, // vec4f
 				Binding: &posBinding,
 			},
@@ -334,20 +336,20 @@ func TestValidateNew_VertexDirectPositionBinding(t *testing.T) {
 
 func TestValidateNew_VertexStructPositionBinding(t *testing.T) {
 	m := newValidModule()
-	var posBinding Binding = BuiltinBinding{Builtin: BuiltinPosition}
-	m.Types = append(m.Types, Type{
+	var posBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinPosition}
+	m.Types = append(m.Types, ir.Type{
 		Name: "VsOut",
-		Inner: StructType{
-			Members: []StructMember{
+		Inner: ir.StructType{
+			Members: []ir.StructMember{
 				{Name: "pos", Type: 1, Binding: &posBinding},
 			},
 		},
 	})
-	m.EntryPoints = []EntryPoint{
-		{Name: "vs", Stage: StageVertex, Function: Function{
+	m.EntryPoints = []ir.EntryPoint{
+		{Name: "vs", Stage: ir.StageVertex, Function: ir.Function{
 			Name: "vs",
-			Result: &FunctionResult{
-				Type: TypeHandle(len(m.Types) - 1),
+			Result: &ir.FunctionResult{
+				Type: ir.TypeHandle(len(m.Types) - 1),
 			},
 		}},
 	}
@@ -356,16 +358,16 @@ func TestValidateNew_VertexStructPositionBinding(t *testing.T) {
 
 func TestValidateNew_FragmentValid(t *testing.T) {
 	m := newValidModule()
-	m.EntryPoints = []EntryPoint{
-		{Name: "fs", Stage: StageFragment, Function: Function{Name: "fs"}},
+	m.EntryPoints = []ir.EntryPoint{
+		{Name: "fs", Stage: ir.StageFragment, Function: ir.Function{Name: "fs"}},
 	}
 	expectNoValidationErrors(t, m)
 }
 
 func TestValidateNew_GlobalVarInvalidInit(t *testing.T) {
 	m := newValidModule()
-	invalid := ConstantHandle(999)
-	m.GlobalVariables = []GlobalVariable{
+	invalid := ir.ConstantHandle(999)
+	m.GlobalVariables = []ir.GlobalVariable{
 		{Name: "g", Type: 0, Init: &invalid},
 	}
 	expectValidationErrors(t, m, "init constant 999 does not exist")
@@ -375,14 +377,14 @@ func TestValidateNew_GlobalVarInvalidInit(t *testing.T) {
 // Init outside Module.GlobalExpressions is a constant without a value.
 func TestValidateNew_ConstantInvalidInit(t *testing.T) {
 	m := newValidModule()
-	m.Constants = []Constant{{Name: "C", Type: 0, Init: ExpressionHandle(len(m.GlobalExpressions) + 7)}}
+	m.Constants = []ir.Constant{{Name: "C", Type: 0, Init: ir.ExpressionHandle(len(m.GlobalExpressions) + 7)}}
 	expectValidationErrors(t, m, fmt.Sprintf("constant 0 (C): init expression %d does not exist", len(m.GlobalExpressions)+7))
 }
 
 func TestValidateNew_FunctionInvalidLocalVarInit(t *testing.T) {
 	m := newValidModule()
-	invalid := ExpressionHandle(999)
-	m.Functions[0].LocalVars = []LocalVariable{
+	invalid := ir.ExpressionHandle(999)
+	m.Functions[0].LocalVars = []ir.LocalVariable{
 		{Name: "x", Type: 0, Init: &invalid},
 	}
 	expectValidationErrors(t, m, "init expression 999 does not exist")
@@ -390,7 +392,7 @@ func TestValidateNew_FunctionInvalidLocalVarInit(t *testing.T) {
 
 func TestValidateNew_FunctionInvalidResultType(t *testing.T) {
 	m := newValidModule()
-	m.Functions[0].Result = &FunctionResult{Type: 999}
+	m.Functions[0].Result = &ir.FunctionResult{Type: 999}
 	expectValidationErrors(t, m, "result type 999 does not exist")
 }
 
@@ -401,22 +403,22 @@ func TestValidateNew_FunctionInvalidResultType(t *testing.T) {
 func TestValidationError_Formatting(t *testing.T) {
 	tests := []struct {
 		name string
-		err  ValidationError
+		err  Error
 		want string
 	}{
 		{
 			"plain",
-			ValidationError{Message: "something bad", Statement: -1},
+			Error{Message: "something bad", Statement: -1},
 			"something bad",
 		},
 		{
 			"in_function",
-			ValidationError{Message: "bad type", Function: "main", Statement: -1},
+			Error{Message: "bad type", Function: "main", Statement: -1},
 			"in function main: bad type",
 		},
 		{
 			"in_function_expression",
-			ValidationError{
+			Error{
 				Message:    "invalid",
 				Function:   "main",
 				Expression: ptrExpr(5),
@@ -426,7 +428,7 @@ func TestValidationError_Formatting(t *testing.T) {
 		},
 		{
 			"in_function_statement",
-			ValidationError{
+			Error{
 				Message:   "error here",
 				Function:  "main",
 				Statement: 3,
@@ -445,7 +447,7 @@ func TestValidationError_Formatting(t *testing.T) {
 	}
 }
 
-func ptrExpr(h ExpressionHandle) *ExpressionHandle {
+func ptrExpr(h ir.ExpressionHandle) *ir.ExpressionHandle {
 	return &h
 }
 
@@ -456,12 +458,12 @@ func ptrExpr(h ExpressionHandle) *ExpressionHandle {
 func TestIsPositionBuiltin_Cases(t *testing.T) {
 	tests := []struct {
 		name    string
-		binding Binding
+		binding ir.Binding
 		want    bool
 	}{
-		{"position", BuiltinBinding{Builtin: BuiltinPosition}, true},
-		{"vertex_index", BuiltinBinding{Builtin: BuiltinVertexIndex}, false},
-		{"location", LocationBinding{Location: 0}, false},
+		{"position", ir.BuiltinBinding{Builtin: ir.BuiltinPosition}, true},
+		{"vertex_index", ir.BuiltinBinding{Builtin: ir.BuiltinVertexIndex}, false},
+		{"location", ir.LocationBinding{Location: 0}, false},
 	}
 
 	for _, tt := range tests {
@@ -479,34 +481,34 @@ func TestIsPositionBuiltin_Cases(t *testing.T) {
 // =============================================================================
 
 func TestStructHasPositionBuiltin(t *testing.T) {
-	var posBinding Binding = BuiltinBinding{Builtin: BuiltinPosition}
-	var locBinding Binding = LocationBinding{Location: 0}
+	var posBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinPosition}
+	var locBinding ir.Binding = ir.LocationBinding{Location: 0}
 
-	m := &Module{
-		Types: []Type{
-			{Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
-			{Inner: StructType{Members: []StructMember{
+	m := &ir.Module{
+		Types: []ir.Type{
+			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
+			{Inner: ir.StructType{Members: []ir.StructMember{
 				{Name: "pos", Type: 0, Binding: &posBinding},
 			}}},
-			{Inner: StructType{Members: []StructMember{
+			{Inner: ir.StructType{Members: []ir.StructMember{
 				{Name: "color", Type: 0, Binding: &locBinding},
 			}}},
-			{Inner: ScalarType{Kind: ScalarSint, Width: 4}}, // not a struct
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}, // not a struct
 		},
 	}
 
 	v := &validator{module: m}
 
-	if !v.structHasPositionBuiltin(TypeHandle(1)) {
+	if !v.structHasPositionBuiltin(ir.TypeHandle(1)) {
 		t.Error("Expected struct with @builtin(position) to return true")
 	}
-	if v.structHasPositionBuiltin(TypeHandle(2)) {
+	if v.structHasPositionBuiltin(ir.TypeHandle(2)) {
 		t.Error("Expected struct without position to return false")
 	}
-	if v.structHasPositionBuiltin(TypeHandle(3)) {
+	if v.structHasPositionBuiltin(ir.TypeHandle(3)) {
 		t.Error("Expected non-struct to return false")
 	}
-	if v.structHasPositionBuiltin(TypeHandle(999)) {
+	if v.structHasPositionBuiltin(ir.TypeHandle(999)) {
 		t.Error("Expected out-of-range type to return false")
 	}
 }
@@ -519,35 +521,35 @@ func TestValidateNew_CompleteValidModule(t *testing.T) {
 	m := newValidModule()
 
 	// Add constants
-	m.Constants = []Constant{
-		{Name: "PI", Type: 0, Init: ExpressionHandle(len(m.GlobalExpressions))},
+	m.Constants = []ir.Constant{
+		{Name: "PI", Type: 0, Init: ir.ExpressionHandle(len(m.GlobalExpressions))},
 	}
-	m.GlobalExpressions = append(m.GlobalExpressions, Expression{Kind: Literal{Value: LiteralF32(3.1415927)}})
+	m.GlobalExpressions = append(m.GlobalExpressions, ir.Expression{Kind: ir.Literal{Value: ir.LiteralF32(3.1415927)}})
 
 	// Add global variables with unique bindings
-	m.GlobalVariables = []GlobalVariable{
-		{Name: "g1", Type: 0, Binding: &ResourceBinding{Group: 0, Binding: 0}},
-		{Name: "g2", Type: 2, Binding: &ResourceBinding{Group: 0, Binding: 1}},
+	m.GlobalVariables = []ir.GlobalVariable{
+		{Name: "g1", Type: 0, Binding: &ir.ResourceBinding{Group: 0, Binding: 0}},
+		{Name: "g2", Type: 2, Binding: &ir.ResourceBinding{Group: 0, Binding: 1}},
 	}
 
 	// Valid function with arguments and local vars
-	m.Functions = append(m.Functions, Function{
+	m.Functions = append(m.Functions, ir.Function{
 		Name: "helper",
-		Arguments: []FunctionArgument{
+		Arguments: []ir.FunctionArgument{
 			{Name: "a", Type: 0},
 			{Name: "b", Type: 2},
 		},
-		Result: &FunctionResult{Type: 0},
-		Expressions: []Expression{
-			{Kind: ExprFunctionArgument{Index: 0}},
-			{Kind: ExprFunctionArgument{Index: 1}},
-			{Kind: ExprBinary{Op: BinaryAdd, Left: 0, Right: 1}},
+		Result: &ir.FunctionResult{Type: 0},
+		Expressions: []ir.Expression{
+			{Kind: ir.ExprFunctionArgument{Index: 0}},
+			{Kind: ir.ExprFunctionArgument{Index: 1}},
+			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: 1}},
 		},
-		LocalVars: []LocalVariable{
+		LocalVars: []ir.LocalVariable{
 			{Name: "tmp", Type: 0},
 		},
-		Body: []Statement{
-			{Kind: StmtEmit{Range: Range{Start: 0, End: 3}}},
+		Body: []ir.Statement{
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 		},
 	})
 
@@ -561,16 +563,16 @@ func TestValidateNew_CompleteValidModule(t *testing.T) {
 func TestValidateNew_NestedLoopContext(t *testing.T) {
 	m := newValidModule()
 	// Nested loops: inner loop continuing block should not allow break/continue
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtLoop{
-			Body: []Statement{
-				{Kind: StmtLoop{
-					Body: []Statement{
-						{Kind: StmtBreak{}}, // Valid: inside inner loop body
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtLoop{
+			Body: []ir.Statement{
+				{Kind: ir.StmtLoop{
+					Body: []ir.Statement{
+						{Kind: ir.StmtBreak{}}, // Valid: inside inner loop body
 					},
-					Continuing: []Statement{
+					Continuing: []ir.Statement{
 						// break in continuing is invalid
-						{Kind: StmtBreak{}},
+						{Kind: ir.StmtBreak{}},
 					},
 				}},
 			},
@@ -585,10 +587,10 @@ func TestValidateNew_NestedLoopContext(t *testing.T) {
 
 func TestValidateNew_BlockStatement(t *testing.T) {
 	m := newValidModule()
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtBlock{
-			Block: []Statement{
-				{Kind: StmtReturn{}},
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtBlock{
+			Block: []ir.Statement{
+				{Kind: ir.StmtReturn{}},
 			},
 		}},
 	}
@@ -601,8 +603,8 @@ func TestValidateNew_BlockStatement(t *testing.T) {
 
 func TestValidateNew_BarrierAlwaysValid(t *testing.T) {
 	m := newValidModule()
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtControlBarrier{Flags: BarrierWorkGroup | BarrierStorage | BarrierTexture}},
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtControlBarrier{Flags: ir.BarrierWorkGroup | ir.BarrierStorage | ir.BarrierTexture}},
 	}
 	expectNoValidationErrors(t, m)
 }
@@ -613,10 +615,10 @@ func TestValidateNew_BarrierAlwaysValid(t *testing.T) {
 
 func TestValidateNew_IfWithNestedInvalidStatement(t *testing.T) {
 	m := newValidModule()
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtIf{
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtIf{
 			Condition: 0,
-			Accept: []Statement{
+			Accept: []ir.Statement{
 				{Kind: nil}, // Invalid in accept block
 			},
 			Reject: nil,
@@ -627,11 +629,11 @@ func TestValidateNew_IfWithNestedInvalidStatement(t *testing.T) {
 
 func TestValidateNew_IfRejectBlockValidation(t *testing.T) {
 	m := newValidModule()
-	m.Functions[0].Body = []Statement{
-		{Kind: StmtIf{
+	m.Functions[0].Body = []ir.Statement{
+		{Kind: ir.StmtIf{
 			Condition: 0,
 			Accept:    nil,
-			Reject: []Statement{
+			Reject: []ir.Statement{
 				{Kind: nil}, // Invalid in reject block
 			},
 		}},

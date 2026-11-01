@@ -405,9 +405,6 @@ func TestIntegration_LiteralI64(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralI64(1000)}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI64},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -433,9 +430,6 @@ func TestIntegration_LiteralF16(t *testing.T) {
 				Result: &ir.FunctionResult{Type: tF16},
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralF16(0x3C00)}}, // 1.0 in f16
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF16},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},

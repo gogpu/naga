@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 // flattenConstGE returns the scalar leaves of a fully evaluated global
@@ -108,7 +109,7 @@ func TestModuleConstBuiltinCalls(t *testing.T) {
 			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
 				t.Errorf("X = %v, want %v", got, tt.want)
 			}
-			if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+			if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 				t.Errorf("validation: %v", err)
 			}
 		})

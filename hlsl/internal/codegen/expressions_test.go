@@ -27,13 +27,6 @@ func TestIsI32ScalarOp(t *testing.T) {
 		},
 	}
 
-	i32Handle := ir.TypeHandle(0)
-	u32Handle := ir.TypeHandle(1)
-	f32Handle := ir.TypeHandle(2)
-	ivec4Handle := ir.TypeHandle(3)
-	uvec4Handle := ir.TypeHandle(4)
-	i64Handle := ir.TypeHandle(5)
-
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}}, // 0: i32 literal
@@ -42,14 +35,6 @@ func TestIsI32ScalarOp(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}}, // 3: i32 (for vec4 test)
 			{Kind: ir.Literal{Value: ir.LiteralU32(1)}}, // 4: u32 (for vec4 test)
 			{Kind: ir.Literal{Value: ir.LiteralI64(1)}}, // 5: i64 literal
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &i32Handle},
-			{Handle: &u32Handle},
-			{Handle: &f32Handle},
-			{Handle: &ivec4Handle},
-			{Handle: &uvec4Handle},
-			{Handle: &i64Handle},
 		},
 	}
 
@@ -181,15 +166,10 @@ func TestWrappingSignedArithmetic(t *testing.T) {
 		},
 	}
 
-	i32Handle := ir.TypeHandle(0)
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
 			{Kind: ir.Literal{Value: ir.LiteralI32(2)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &i32Handle},
-			{Handle: &i32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -263,7 +243,7 @@ func TestGatherMethodNaming(t *testing.T) {
 }
 
 // TestGetExpressionVectorSize_SplatFallback verifies that getExpressionVectorSize
-// correctly infers the size from Splat expressions when ExpressionTypes is empty.
+// infers the size from the shape of a Splat expression of an untyped function.
 func TestGetExpressionVectorSize_SplatFallback(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -277,8 +257,7 @@ func TestGetExpressionVectorSize_SplatFallback(t *testing.T) {
 			{Kind: ir.ExprSplat{Size: ir.Vec3, Value: 0}}, // 2: splat to vec3
 			{Kind: ir.ExprSplat{Size: ir.Vec4, Value: 0}}, // 3: splat to vec4
 		},
-		// Intentionally empty ExpressionTypes to test fallback
-		ExpressionTypes: make([]ir.TypeResolution, 4),
+		// Not typed (no typifier): the shape decides
 	}
 
 	w := &Writer{module: module, currentFunction: fn}
@@ -303,8 +282,6 @@ func TestGetExpressionVectorSize_SplatFallback(t *testing.T) {
 // expression cache and writes the raw expression inline.
 func TestWriteConstExpression(t *testing.T) {
 	f32Handle := ir.TypeHandle(0)
-	i32Handle := ir.TypeHandle(1)
-	vec2i32Handle := ir.TypeHandle(2)
 
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -318,11 +295,6 @@ func TestWriteConstExpression(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralI32(3)}},                              // 0: 3
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},                              // 1: 1
 			{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{0, 1}}}, // 2: int2(3, 1)
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &i32Handle},
-			{Handle: &i32Handle},
-			{Handle: &vec2i32Handle},
 		},
 	}
 
@@ -381,7 +353,6 @@ func TestNonUniformResourceIndex(t *testing.T) {
 			{Kind: ir.ExprAccessIndex{Base: ir.ExpressionHandle(3), Index: 0}},  // 4: uni.index (uniform)
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},                         // 5: 0u (constant)
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 6),
 	}
 
 	w := newWriter(module, DefaultOptions())
@@ -463,11 +434,6 @@ func TestSamplerHeapBindingArray(t *testing.T) {
 				{Kind: ir.ExprGlobalVariable{Variable: ir.GlobalVariableHandle(1)}}, // 1: samp_comp
 				{Kind: ir.ExprGlobalVariable{Variable: ir.GlobalVariableHandle(2)}}, // 2: textures
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: ptrTo(ir.TypeHandle(1))}, // type of samp
-				{Handle: ptrTo(ir.TypeHandle(3))}, // type of samp_comp
-				{Handle: ptrTo(ir.TypeHandle(5))}, // type of textures
-			},
 		}
 		setCurrentFunction(t, w, fn)
 
@@ -512,7 +478,6 @@ func TestIsAbstractIntLiteral(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},         // 2: u32
 			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},         // 3: f32
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 4),
 	}
 
 	w := newWriter(module, DefaultOptions())
@@ -542,14 +507,10 @@ func TestWritePack4xI8U8(t *testing.T) {
 			{Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}}, // 0: vec4<i32>
 		},
 	}
-	ivec4Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // 0: placeholder arg
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &ivec4Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -603,14 +564,10 @@ func TestWriteUnpack4xI8U8(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0: u32
 		},
 	}
-	u32Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 0: placeholder
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &u32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -658,17 +615,12 @@ func TestWriteDot4Packed(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0: u32
 		},
 	}
-	u32Handle := ir.TypeHandle(0)
 
 	arg1Handle := ir.ExpressionHandle(1)
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 0: arg
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 1: arg1
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -729,16 +681,11 @@ func TestLiteralF16Formatting(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}}, // 0: f16
 		},
 	}
-	f16Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF16(1.5)}},
 			{Kind: ir.Literal{Value: ir.LiteralF16(0.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f16Handle},
-			{Handle: &f16Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}

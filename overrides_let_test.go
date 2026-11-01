@@ -10,6 +10,7 @@ import (
 	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
 )
 
 // TestProcessOverridesLetIsRuntime: an expression that refers to a let is not
@@ -75,7 +76,7 @@ override k: i32 = 3;
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := lowerSource(t, tc.src)
-			out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: tc.constants})
+			out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: tc.constants})
 			if err != nil {
 				t.Fatalf("ProcessOverrides: %v", err)
 			}
@@ -99,7 +100,7 @@ override k: f32 = -1.0;
 @compute @workgroup_size(1) fn main() {
     o[0] = sqrt(min(k, 0.0));
 }`)
-	_, err := naga.ProcessOverrides(m, naga.OverrideOptions{})
+	_, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{})
 	if err == nil || !strings.Contains(err.Error(), "sqrt") {
 		t.Errorf("err = %v, want the sqrt domain error", err)
 	}
@@ -134,7 +135,7 @@ override k: f32 = 1.0;
 @compute @workgroup_size(1) fn main() {
     `+body+`
 }`)
-			out, err := naga.ProcessOverrides(m, naga.OverrideOptions{Constants: naga.PipelineConstants{"k": 3}})
+			out, _, err := naga.ProcessOverrides(m, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"k": 3}})
 			if err != nil {
 				t.Fatalf("ProcessOverrides: %v", err)
 			}

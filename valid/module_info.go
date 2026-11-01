@@ -1,4 +1,6 @@
-package ir
+package valid
+
+import "github.com/gogpu/naga/ir"
 
 // GlobalUse is how a function uses a global variable: Rust naga's
 // valid::GlobalUse.
@@ -37,7 +39,7 @@ type ModuleInfo struct {
 
 // analyzeModule computes the ModuleInfo of a valid module, as Rust naga's
 // analyzer records global uses (valid/analyzer.rs: add_ref_impl, process_call).
-func analyzeModule(m *Module) ModuleInfo {
+func analyzeModule(m *ir.Module) ModuleInfo {
 	a := &useAnalysis{m: m, done: make([]bool, len(m.Functions))}
 	info := ModuleInfo{
 		Functions:   make([]FunctionInfo, len(m.Functions)),
@@ -45,7 +47,7 @@ func analyzeModule(m *Module) ModuleInfo {
 	}
 	a.info = info.Functions
 	for h := range m.Functions {
-		a.function(FunctionHandle(h))
+		a.function(ir.FunctionHandle(h))
 	}
 	for i := range m.EntryPoints {
 		info.EntryPoints[i] = FunctionInfo{GlobalUses: a.uses(&m.EntryPoints[i].Function)}
@@ -54,12 +56,12 @@ func analyzeModule(m *Module) ModuleInfo {
 }
 
 type useAnalysis struct {
-	m    *Module
+	m    *ir.Module
 	info []FunctionInfo
 	done []bool
 }
 
-func (a *useAnalysis) function(h FunctionHandle) []GlobalUse {
+func (a *useAnalysis) function(h ir.FunctionHandle) []GlobalUse {
 	if !a.done[h] {
 		// The call graph of a valid module is acyclic; marking first only
 		// keeps a malformed one from looping.
@@ -73,38 +75,38 @@ func (a *useAnalysis) function(h FunctionHandle) []GlobalUse {
 // an access chain into one (Rust's assignable_global), passes a use on to
 // the global; an operand that is a value never is one, so only the operand
 // positions that can hold a pointer or a handle are recorded.
-func (a *useAnalysis) uses(fn *Function) []GlobalUse {
+func (a *useAnalysis) uses(fn *ir.Function) []GlobalUse {
 	uses := make([]GlobalUse, len(a.m.GlobalVariables))
 	assignable := make([]int, len(fn.Expressions)) // global + 1, 0 for none
 	for h, e := range fn.Expressions {
 		switch k := e.Kind.(type) {
-		case ExprGlobalVariable:
+		case ir.ExprGlobalVariable:
 			assignable[h] = int(k.Variable) + 1
-		case ExprAccess:
+		case ir.ExprAccess:
 			assignable[h] = assignable[k.Base]
-		case ExprAccessIndex:
+		case ir.ExprAccessIndex:
 			assignable[h] = assignable[k.Base]
 		}
 	}
-	add := func(h ExpressionHandle, u GlobalUse) {
+	add := func(h ir.ExpressionHandle, u GlobalUse) {
 		if int(h) < len(assignable) && assignable[h] != 0 {
 			uses[assignable[h]-1] |= u
 		}
 	}
 	for _, e := range fn.Expressions {
 		switch k := e.Kind.(type) {
-		case ExprLoad:
+		case ir.ExprLoad:
 			add(k.Pointer, GlobalUseRead)
-		case ExprImageSample:
+		case ir.ExprImageSample:
 			add(k.Image, GlobalUseRead)
 			add(k.Sampler, GlobalUseRead)
-		case ExprImageLoad:
+		case ir.ExprImageLoad:
 			add(k.Image, GlobalUseRead)
-		case ExprImageQuery:
+		case ir.ExprImageQuery:
 			add(k.Image, GlobalUseQuery)
-		case ExprArrayLength:
+		case ir.ExprArrayLength:
 			add(k.Array, GlobalUseQuery)
-		case ExprRayQueryGetIntersection:
+		case ir.ExprRayQueryGetIntersection:
 			add(k.Query, GlobalUseRead)
 		}
 	}
@@ -119,25 +121,25 @@ func (a *useAnalysis) uses(fn *Function) []GlobalUse {
 	return uses
 }
 
-func (a *useAnalysis) block(b Block, add func(ExpressionHandle, GlobalUse), uses []GlobalUse) {
+func (a *useAnalysis) block(b ir.Block, add func(ir.ExpressionHandle, GlobalUse), uses []GlobalUse) {
 	for _, stmt := range b {
 		switch s := stmt.Kind.(type) {
-		case StmtStore:
+		case ir.StmtStore:
 			add(s.Pointer, GlobalUseWrite)
-		case StmtImageStore:
+		case ir.StmtImageStore:
 			add(s.Image, GlobalUseWrite)
-		case StmtAtomic:
+		case ir.StmtAtomic:
 			add(s.Pointer, GlobalUseRead|GlobalUseWrite)
-		case StmtImageAtomic:
+		case ir.StmtImageAtomic:
 			add(s.Image, GlobalUseAtomic)
-		case StmtWorkGroupUniformLoad:
+		case ir.StmtWorkGroupUniformLoad:
 			add(s.Pointer, GlobalUseRead)
-		case StmtRayQuery:
+		case ir.StmtRayQuery:
 			add(s.Query, GlobalUseRead)
-			if init, ok := s.Fun.(RayQueryInitialize); ok {
+			if init, ok := s.Fun.(ir.RayQueryInitialize); ok {
 				add(init.AccelerationStructure, GlobalUseRead)
 			}
-		case StmtCall:
+		case ir.StmtCall:
 			for _, arg := range s.Arguments {
 				add(arg, GlobalUseRead)
 			}
@@ -146,16 +148,16 @@ func (a *useAnalysis) block(b Block, add func(ExpressionHandle, GlobalUse), uses
 					uses[g] |= u
 				}
 			}
-		case StmtBlock:
+		case ir.StmtBlock:
 			a.block(s.Block, add, uses)
-		case StmtIf:
+		case ir.StmtIf:
 			a.block(s.Accept, add, uses)
 			a.block(s.Reject, add, uses)
-		case StmtSwitch:
+		case ir.StmtSwitch:
 			for _, c := range s.Cases {
 				a.block(c.Body, add, uses)
 			}
-		case StmtLoop:
+		case ir.StmtLoop:
 			a.block(s.Body, add, uses)
 			a.block(s.Continuing, add, uses)
 		}

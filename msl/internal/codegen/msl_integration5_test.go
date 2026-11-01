@@ -1177,7 +1177,6 @@ fn main(@builtin(local_invocation_index) lid: u32) {
 // =============================================================================
 
 func TestIntegration5_LiteralI64(t *testing.T) {
-	tI64 := ir.TypeHandle(0)
 	tVec4F32 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(0)
 	var posBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinPosition}
@@ -1198,10 +1197,6 @@ func TestIntegration5_LiteralI64(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralI64(9999999999)}},
 					{Kind: ir.ExprZeroValue{Type: tVec4F32}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tI64},
-					{Handle: &tVec4F32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1219,7 +1214,6 @@ func TestIntegration5_LiteralI64(t *testing.T) {
 // =============================================================================
 
 func TestMSL_ArrayLengthDirect(t *testing.T) {
-	tU32 := ir.TypeHandle(0)
 	tF32 := ir.TypeHandle(1)
 	tRuntimeArr := ir.TypeHandle(2)
 	tStruct := ir.TypeHandle(3)
@@ -1252,11 +1246,6 @@ func TestMSL_ArrayLengthDirect(t *testing.T) {
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},    // [0] global ref
 					{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1] access .data
 					{Kind: ir.ExprArrayLength{Array: 1}},          // [2] arrayLength
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tStruct},
-					{Handle: &tRuntimeArr},
-					{Handle: &tU32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},

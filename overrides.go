@@ -9,6 +9,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/overrides"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 // PipelineConstants are the values of pipeline-overridable constants
@@ -54,6 +55,15 @@ type OverrideOptions struct {
 // EntryPoints[0]. Processing a processed module again with other constants is
 // not supported: process the module from the frontend for every pipeline.
 //
+// The caller MUST have validated module first, with valid.Validate and the
+// device's own valid.Options, and info is that validation's ModuleInfo:
+// capabilities are gated there and nowhere else. When there is nothing to
+// do, module and info are returned as they are, unvalidated. Otherwise the
+// processed module is validated again, as Rust's revalidate does after
+// substitution (validate_resolved_overrides): with every capability allowed,
+// so it re-checks the structure but cannot catch a capability the device
+// lacks. Its new valid.ModuleInfo is returned. A backend never validates.
+//
 // Errors: a *PipelineConstantError for a constant (errors.Is with
 // ErrOverrideNotFound, ErrOverrideMissingValue, ErrOverrideValueNotFinite,
 // ErrOverrideValueOutOfRange); backend.ErrEntryPointNotFound;
@@ -61,20 +71,20 @@ type OverrideOptions struct {
 // an expression that becomes constant (for example a division by zero after
 // substitution); or an invalid processed module. Keys are checked in sorted
 // order, so the same input reports the same key.
-func ProcessOverrides(module *ir.Module, opts OverrideOptions) (*ir.Module, error) {
+func ProcessOverrides(module *ir.Module, info valid.ModuleInfo, opts OverrideOptions) (*ir.Module, valid.ModuleInfo, error) {
 	var sel *overrides.Selector
 	if opts.EntryPoint != nil {
 		sel = &overrides.Selector{Stage: opts.EntryPoint.Stage, Name: opts.EntryPoint.Name}
 	}
-	m, err := overrides.Process(module, opts.Constants, sel)
+	m, newInfo, err := overrides.Process(module, info, opts.Constants, sel)
 	if err != nil {
 		var ke *overrides.KeyError
 		if errors.As(err, &ke) {
-			return nil, &PipelineConstantError{Key: ke.Key, Err: ke.Err}
+			return nil, valid.ModuleInfo{}, &PipelineConstantError{Key: ke.Key, Err: ke.Err}
 		}
-		return nil, err
+		return nil, valid.ModuleInfo{}, err
 	}
-	return m, nil
+	return m, newInfo, nil
 }
 
 // PipelineConstantError is an error about one pipeline constant or override

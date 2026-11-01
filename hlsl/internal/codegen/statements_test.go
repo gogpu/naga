@@ -61,17 +61,10 @@ func TestGetPointerAddressSpace(t *testing.T) {
 		},
 	}
 
-	storPtrHandle := ir.TypeHandle(1)
-	wgPtrHandle := ir.TypeHandle(2)
-
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}}, // 0: storage global
 			{Kind: ir.ExprGlobalVariable{Variable: 1}}, // 1: workgroup global
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &storPtrHandle},
-			{Handle: &wgPtrHandle},
 		},
 	}
 
@@ -102,9 +95,6 @@ func TestWriteAtomicStatementWorkgroup(t *testing.T) {
 		},
 	}
 
-	wgPtrHandle := ir.TypeHandle(1)
-	u32Handle := ir.TypeHandle(0)
-
 	names := map[nameKey]string{
 		{kind: nameKeyGlobalVariable, handle1: 0}: "wg_var",
 	}
@@ -116,11 +106,6 @@ func TestWriteAtomicStatementWorkgroup(t *testing.T) {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},  // 0: wg_var ptr
 			{Kind: ir.Literal{Value: ir.LiteralU32(1)}}, // 1: 1u
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 2: result placeholder
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &wgPtrHandle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -193,9 +178,6 @@ func TestWriteAtomicStatementStorage(t *testing.T) {
 		},
 	}
 
-	storPtrHandle := ir.TypeHandle(1)
-	u32Handle := ir.TypeHandle(0)
-
 	names := map[nameKey]string{
 		{kind: nameKeyGlobalVariable, handle1: 0}: "storage_buf",
 	}
@@ -207,11 +189,6 @@ func TestWriteAtomicStatementStorage(t *testing.T) {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},  // 0: storage_buf ptr
 			{Kind: ir.Literal{Value: ir.LiteralU32(1)}}, // 1: 1u
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 2: result placeholder
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &storPtrHandle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
@@ -478,10 +455,6 @@ func TestWriteImageAtomicStatement(t *testing.T) {
 		},
 	}
 
-	u32Handle := ir.TypeHandle(0)
-	imgHandle := ir.TypeHandle(1)
-	vec2iHandle := ir.TypeHandle(2)
-
 	names := map[nameKey]string{
 		{kind: nameKeyGlobalVariable, handle1: 0}: "img",
 	}
@@ -492,12 +465,6 @@ func TestWriteImageAtomicStatement(t *testing.T) {
 			{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{ir.ExpressionHandle(3), 3}}}, // 1: coord
 			{Kind: ir.Literal{Value: ir.LiteralU32(42)}},                                                  // 2: value
 			{Kind: ir.Literal{Value: ir.LiteralI32(1)}},                                                   // 3: coord component
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &imgHandle},
-			{Handle: &vec2iHandle},
-			{Handle: &u32Handle},
-			{Handle: &u32Handle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}

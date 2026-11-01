@@ -73,16 +73,6 @@ func TestTrianglePassThroughFS(t *testing.T) {
 		{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{1, 2}}},
 	}
-	voutH := voutHandle
-	vec3H := ir.TypeHandle(1)
-	f32H := ir.TypeHandle(0)
-	vec4H := ir.TypeHandle(2)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &voutH},
-		{Handle: &vec3H},
-		{Handle: &f32H},
-		{Handle: &vec4H},
-	}
 
 	// Body: Emit 0..4, then Return(3)
 	ret := ir.ExpressionHandle(3)
@@ -198,10 +188,6 @@ func TestNonStructReturn(t *testing.T) {
 	fn.Expressions = []ir.Expression{
 		{Kind: ir.ExprFunctionArgument{Index: 0}},
 	}
-	vec4H := ir.TypeHandle(2)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &vec4H},
-	}
 
 	ret := ir.ExpressionHandle(0)
 	fn.Body = []ir.Statement{
@@ -292,18 +278,6 @@ func TestScalarTimesVectorPrecision(t *testing.T) {
 		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{3, 4, 5}}},
 		{Kind: ir.ExprCompose{Type: stHandle, Components: []ir.ExpressionHandle{1, 6}}},
 	}
-	f32H := ir.TypeHandle(0)
-	vec4H := ir.TypeHandle(2)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &vec2H},
-		{Handle: &vec2H},
-		{Handle: &f32H},
-		{Handle: &vec2H}, // c_scale * pos -> vec2
-		{Handle: &f32H},
-		{Handle: &f32H},
-		{Handle: &vec4H},
-		{Handle: &stHandle},
-	}
 
 	ret := ir.ExpressionHandle(7)
 	fn.Body = []ir.Statement{
@@ -393,12 +367,6 @@ func TestMatrixVectorMultiplyUnion(t *testing.T) {
 		{Kind: ir.ExprZeroValue{Type: mat4H}},
 		{Kind: ir.ExprBinary{Op: ir.BinaryMultiply, Left: 1, Right: 0}},
 	}
-	vec4H := ir.TypeHandle(2)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &vec4H},
-		{Handle: &mat4H},
-		{Handle: &vec4H}, // mat4*vec4 -> vec4
-	}
 
 	ret := ir.ExpressionHandle(2)
 	fn.Body = []ir.Statement{
@@ -440,16 +408,10 @@ func TestEmptyDeps(t *testing.T) {
 	fn := ir.Function{
 		Result: &ir.FunctionResult{Type: 2, Binding: &resBinding},
 	}
-	vec4H := ir.TypeHandle(2)
 
 	fn.Expressions = []ir.Expression{
 		{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{0, 0, 0, 0}}},
-	}
-	f32H := ir.TypeHandle(0)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &f32H},
-		{Handle: &vec4H},
 	}
 	ret := ir.ExpressionHandle(1)
 	fn.Body = []ir.Statement{
@@ -599,23 +561,6 @@ func TestVertexTwoStructsPrecision(t *testing.T) {
 		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{4, 5, 9, 10}}},
 	}
 
-	f32H := ir.TypeHandle(0)
-	vec4H := ir.TypeHandle(2)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &input1H}, // 0: FunctionArgument(0)
-		{Handle: &input2H}, // 1: FunctionArgument(1)
-		{Handle: &u32H},    // 2: AccessIndex
-		{Handle: &u32H},    // 3: AccessIndex
-		{Handle: &f32H},    // 4: As -> f32
-		{Handle: &f32H},    // 5: As -> f32
-		{Handle: &u32H},    // 6: Literal
-		{Handle: &u32H},    // 7: LocalVariable (ptr type simplified)
-		{Handle: &u32H},    // 8: Load
-		{Handle: &f32H},    // 9: As -> f32
-		{Handle: &f32H},    // 10: Literal
-		{Handle: &vec4H},   // 11: Compose
-	}
-
 	// Body:
 	// StmtEmit [2..6)   -- lower in1.index, in2.index, f32 casts
 	// StmtEmit [8..12)  -- Load, As, Literal, Compose
@@ -717,16 +662,6 @@ func TestExprAliasTaintForwarding(t *testing.T) {
 		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{2, 3, 3, 3}}},
 	}
 
-	f32H := ir.TypeHandle(0)
-	vec4H := ir.TypeHandle(2)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &u32H},
-		{Handle: &u32H},
-		{Handle: &f32H},
-		{Handle: &f32H},
-		{Handle: &vec4H},
-	}
-
 	ret := ir.ExpressionHandle(4)
 	fn.Body = []ir.Statement{
 		{Kind: ir.StmtEmit{Range: ir.Range{Start: 1, End: 5}}},
@@ -795,16 +730,6 @@ func TestExprPhiTaintMerge(t *testing.T) {
 		}}},
 		{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
 		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{2, 3, 3, 3}}},
-	}
-
-	f32H := ir.TypeHandle(0)
-	vec4H := ir.TypeHandle(2)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &f32H},
-		{Handle: &f32H},
-		{Handle: &f32H},
-		{Handle: &f32H},
-		{Handle: &vec4H},
 	}
 
 	ret := ir.ExpressionHandle(4)

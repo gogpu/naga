@@ -287,7 +287,7 @@ func compileWGSLToSPIRVBytes(name, source string) ([]byte, error) {
 
 	// Process pipeline overrides before SPIR-V compilation
 	// (Rust test driver calls process_overrides for all backends)
-	module, err = naga.ProcessOverrides(module, naga.OverrideOptions{Constants: readSPVPipelineConstants(name)})
+	module, _, err = naga.ProcessOverrides(module, unvalidated, naga.OverrideOptions{Constants: readSPVPipelineConstants(name)})
 	if err != nil {
 		return nil, fmt.Errorf("ProcessOverrides failed: %w", err)
 	}

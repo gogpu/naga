@@ -64,54 +64,6 @@ func TestValuePointerTypeInterface(t *testing.T) {
 	}
 }
 
-// --- ValidationError.Error ---
-
-func TestValidationError_Error(t *testing.T) {
-	tests := []struct {
-		name string
-		err  ValidationError
-		want string
-	}{
-		{
-			name: "message_only",
-			err:  ValidationError{Message: "test error"},
-			want: "test error",
-		},
-		{
-			name: "with_function",
-			err:  ValidationError{Message: "bad type", Function: "myFunc", Statement: -1},
-			want: "in function myFunc: bad type",
-		},
-		{
-			name: "with_function_and_expression",
-			err: ValidationError{
-				Message:    "invalid",
-				Function:   "foo",
-				Expression: func() *ExpressionHandle { h := ExpressionHandle(5); return &h }(),
-			},
-			want: "in function foo, expression 5: invalid",
-		},
-		{
-			name: "with_function_and_statement",
-			err: ValidationError{
-				Message:   "bad stmt",
-				Function:  "bar",
-				Statement: 3,
-			},
-			want: "in function bar, statement 3: bad stmt",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.err.Error()
-			if got != tt.want {
-				t.Errorf("Error() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 // --- ExprAlias and ExprPhi expressionKind ---
 
 func TestDxilOnlyExpressionKinds(t *testing.T) {
@@ -221,74 +173,6 @@ func TestLayouterSizeEdgeCases(t *testing.T) {
 }
 
 // --- Validate: exercises error paths for invalid modules ---
-
-func TestValidate_ErrorCases(t *testing.T) {
-	t.Run("nil_module", func(t *testing.T) {
-		_, err := Validate(nil, ValidateOptions{})
-		if err == nil {
-			t.Error("expected error for nil module")
-		}
-	})
-
-	t.Run("invalid_type_handle_in_constant", func(t *testing.T) {
-		module := &Module{
-			Types: []Type{
-				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
-			},
-			Constants: []Constant{
-				{Name: "bad", Type: 999}, // out of range
-			},
-		}
-		errs, err := validateErrs(module, CapAll)
-		if err != nil {
-			t.Fatalf("Validate returned error: %v", err)
-		}
-		if len(errs) == 0 {
-			t.Error("expected validation errors for invalid type handle")
-		}
-	})
-
-	t.Run("invalid_expression_handle_in_function", func(t *testing.T) {
-		module := &Module{
-			Types: []Type{
-				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
-			},
-			Functions: []Function{
-				{
-					Name: "broken",
-					Expressions: []Expression{
-						{Kind: ExprGlobalVariable{Variable: 999}}, // out of range
-					},
-					Body: Block{
-						{Kind: StmtEmit{Range: Range{Start: 0, End: 1}}},
-					},
-				},
-			},
-		}
-		errs, err := validateErrs(module, CapAll)
-		if err != nil {
-			t.Fatalf("Validate returned error: %v", err)
-		}
-		if len(errs) == 0 {
-			t.Error("expected validation errors for out-of-range global variable handle")
-		}
-	})
-
-	t.Run("valid_minimal_module", func(t *testing.T) {
-		module := &Module{
-			Types: []Type{
-				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
-			},
-		}
-		errs, err := validateErrs(module, CapAll)
-		if err != nil {
-			t.Fatalf("Validate returned error: %v", err)
-		}
-		if len(errs) != 0 {
-			t.Errorf("expected 0 validation errors, got %d: %v", len(errs), errs)
-		}
-	})
-}
 
 // --- MeshOutputTopology ---
 

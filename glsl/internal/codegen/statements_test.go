@@ -188,7 +188,6 @@ func TestWriteBarrier(t *testing.T) {
 // =============================================================================
 
 func TestWriteStore(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -200,10 +199,6 @@ func TestWriteStore(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 			{Kind: ir.Literal{Value: ir.LiteralF32(42.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tF32},
-			{Handle: &tF32},
 		},
 		LocalVars: []ir.LocalVariable{
 			{Name: "x", Type: 0},
@@ -226,7 +221,6 @@ func TestWriteStore(t *testing.T) {
 // =============================================================================
 
 func TestWriteIf(t *testing.T) {
-	tBool := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
@@ -238,9 +232,6 @@ func TestWriteIf(t *testing.T) {
 		w.currentFunction = &ir.Function{
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tBool},
 			},
 		}
 		w.namedExpressions = make(map[ir.ExpressionHandle]string)
@@ -272,9 +263,6 @@ func TestWriteIf(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralBool(false)}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tBool},
-			},
 		}
 		w.namedExpressions = make(map[ir.ExpressionHandle]string)
 		w.needBakeExpression = make(map[ir.ExpressionHandle]struct{})
@@ -302,7 +290,6 @@ func TestWriteIf(t *testing.T) {
 // =============================================================================
 
 func TestWriteLoop(t *testing.T) {
-	tBool := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarBool, Width: 1}},
@@ -312,8 +299,7 @@ func TestWriteLoop(t *testing.T) {
 	t.Run("simple_loop", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
 		w.currentFunction = &ir.Function{
-			Expressions:     []ir.Expression{},
-			ExpressionTypes: []ir.TypeResolution{},
+			Expressions: []ir.Expression{},
 		}
 		w.namedExpressions = make(map[ir.ExpressionHandle]string)
 		w.needBakeExpression = make(map[ir.ExpressionHandle]struct{})
@@ -338,8 +324,7 @@ func TestWriteLoop(t *testing.T) {
 	t.Run("loop_with_continuing", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
 		w.currentFunction = &ir.Function{
-			Expressions:     []ir.Expression{},
-			ExpressionTypes: []ir.TypeResolution{},
+			Expressions: []ir.Expression{},
 		}
 		w.namedExpressions = make(map[ir.ExpressionHandle]string)
 		w.needBakeExpression = make(map[ir.ExpressionHandle]struct{})
@@ -366,9 +351,6 @@ func TestWriteLoop(t *testing.T) {
 		w.currentFunction = &ir.Function{
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tBool},
 			},
 		}
 		w.namedExpressions = make(map[ir.ExpressionHandle]string)
@@ -398,7 +380,6 @@ func TestWriteLoop(t *testing.T) {
 // =============================================================================
 
 func TestWriteSwitch_MultiCase(t *testing.T) {
-	tI32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
@@ -409,9 +390,6 @@ func TestWriteSwitch_MultiCase(t *testing.T) {
 	w.currentFunction = &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tI32},
 		},
 	}
 	w.namedExpressions = make(map[ir.ExpressionHandle]string)
@@ -456,7 +434,6 @@ func TestWriteSwitch_MultiCase(t *testing.T) {
 }
 
 func TestWriteSwitch_UnsignedCase(t *testing.T) {
-	tU32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
@@ -467,9 +444,6 @@ func TestWriteSwitch_UnsignedCase(t *testing.T) {
 	w.currentFunction = &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralU32(0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tU32},
 		},
 	}
 	w.namedExpressions = make(map[ir.ExpressionHandle]string)
@@ -500,7 +474,6 @@ func TestWriteSwitch_UnsignedCase(t *testing.T) {
 }
 
 func TestWriteSwitch_FallthroughCase(t *testing.T) {
-	tI32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
@@ -511,9 +484,6 @@ func TestWriteSwitch_FallthroughCase(t *testing.T) {
 	w.currentFunction = &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tI32},
 		},
 	}
 	w.namedExpressions = make(map[ir.ExpressionHandle]string)
@@ -568,7 +538,6 @@ func TestWriteReturn_NoValue(t *testing.T) {
 }
 
 func TestWriteReturn_WithValue(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -579,9 +548,6 @@ func TestWriteReturn_WithValue(t *testing.T) {
 	w.currentFunction = &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tF32},
 		},
 	}
 	w.namedExpressions = make(map[ir.ExpressionHandle]string)
@@ -741,7 +707,6 @@ func TestWriteStatementKind_Block(t *testing.T) {
 // =============================================================================
 
 func TestWriteWorkGroupUniformLoad(t *testing.T) {
-	tI32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
@@ -756,10 +721,6 @@ func TestWriteWorkGroupUniformLoad(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
 			{Kind: ir.ExprLoad{Pointer: 0}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tI32},
-			{Handle: &tI32},
 		},
 	}
 	w.namedExpressions = make(map[ir.ExpressionHandle]string)
@@ -794,7 +755,6 @@ func TestWriteWorkGroupUniformLoad(t *testing.T) {
 // =============================================================================
 
 func TestShouldBakeExpression(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -806,9 +766,6 @@ func TestShouldBakeExpression(t *testing.T) {
 		w.currentFunction = &ir.Function{
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprLoad{Pointer: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
 			},
 		}
 		w.needBakeExpression = make(map[ir.ExpressionHandle]struct{})
@@ -824,9 +781,6 @@ func TestShouldBakeExpression(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprDerivative{Axis: ir.DerivativeX, Expr: 0}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-			},
 		}
 		w.needBakeExpression = make(map[ir.ExpressionHandle]struct{})
 
@@ -841,9 +795,6 @@ func TestShouldBakeExpression(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-			},
 		}
 		w.needBakeExpression = make(map[ir.ExpressionHandle]struct{})
 
@@ -857,9 +808,6 @@ func TestShouldBakeExpression(t *testing.T) {
 		w.currentFunction = &ir.Function{
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
 			},
 			NamedExpressions: map[ir.ExpressionHandle]string{
 				0: "my_const",
@@ -878,9 +826,6 @@ func TestShouldBakeExpression(t *testing.T) {
 		w.currentFunction = &ir.Function{
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
 			},
 			NamedExpressions: map[ir.ExpressionHandle]string{
 				0: "my_var",

@@ -634,9 +634,6 @@ func TestCoverage_FallbackCombinedName(t *testing.T) {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
 			{Kind: ir.ExprGlobalVariable{Variable: 1}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{}, {},
-		},
 	}
 
 	result := w.fallbackCombinedName(0, 1)
@@ -2103,7 +2100,6 @@ func TestCoverage_WriteSelectDirect(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
 		},
-		ExpressionTypes: []ir.TypeResolution{},
 	}
 	w.namedExpressions = map[ir.ExpressionHandle]string{}
 	w.needBakeExpression = map[ir.ExpressionHandle]struct{}{}
@@ -2134,7 +2130,6 @@ func TestCoverage_IsNanIsInf(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 		},
-		ExpressionTypes: []ir.TypeResolution{},
 	}
 	w.namedExpressions = map[ir.ExpressionHandle]string{}
 	w.needBakeExpression = map[ir.ExpressionHandle]struct{}{}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -84,7 +85,7 @@ func TestValidateStorageAccess(t *testing.T) {
 			}
 			tc.gv.Binding = &ir.ResourceBinding{}
 			m.GlobalVariables = []ir.GlobalVariable{tc.gv}
-			_, err := ir.Validate(m, ir.ValidateOptions{})
+			_, err := valid.Validate(m, valid.Options{})
 			switch {
 			case tc.want == "" && err != nil:
 				t.Errorf("error %v, want none", err)

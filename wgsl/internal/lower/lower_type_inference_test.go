@@ -59,15 +59,12 @@ func TestLowerer_TypeInference(t *testing.T) {
 
 	fn := module.EntryPoints[0].Function
 
-	// Verify ExpressionTypes has same length as Expressions
-	if len(fn.ExpressionTypes) != len(fn.Expressions) {
-		t.Errorf("ExpressionTypes length %d != Expressions length %d",
-			len(fn.ExpressionTypes), len(fn.Expressions))
-	}
+	// Every expression types from the IR, as a backend types it.
+	types := typesOf(t, module, &fn)
 
 	// Verify each expression has a resolved type
 	for i, expr := range fn.Expressions {
-		exprType := fn.ExpressionTypes[i]
+		exprType := types.Get(ir.ExpressionHandle(i))
 
 		// Check that we have either a handle or a value
 		if exprType.Handle == nil && exprType.Value == nil {
@@ -115,7 +112,7 @@ func TestLowerer_TypeInference(t *testing.T) {
 		case ir.Literal:
 			foundLiteral = true
 			// Literal should resolve to f32
-			exprType := fn.ExpressionTypes[i]
+			exprType := types.Get(ir.ExpressionHandle(i))
 			if scalar, ok := exprType.Value.(ir.ScalarType); ok {
 				if scalar.Kind != ir.ScalarFloat {
 					t.Errorf("Literal should be float, got %v", scalar.Kind)
@@ -125,7 +122,7 @@ func TestLowerer_TypeInference(t *testing.T) {
 		case ir.ExprCompose:
 			foundCompose = true
 			// Compose should resolve to vec4<f32>
-			exprType := fn.ExpressionTypes[i]
+			exprType := types.Get(ir.ExpressionHandle(i))
 			if exprType.Handle != nil {
 				typeInner := module.Types[*exprType.Handle].Inner
 				if vec, ok := typeInner.(ir.VectorType); ok {
@@ -185,12 +182,13 @@ func TestLowerer_TypeInference_BinaryOp(t *testing.T) {
 
 	// Constant folding: 1.0 + 2.0 is folded to Literal(F32(3.0)).
 	// Verify the folded literal has f32 type.
+	types := typesOf(t, module, &fn)
 	foundF32Literal := false
 	for i, expr := range fn.Expressions {
 		if lit, ok := expr.Kind.(ir.Literal); ok {
 			if f32Val, isF32 := lit.Value.(ir.LiteralF32); isF32 && float32(f32Val) == 3.0 {
 				foundF32Literal = true
-				exprType := fn.ExpressionTypes[i]
+				exprType := types.Get(ir.ExpressionHandle(i))
 				if scalar, ok := exprType.Value.(ir.ScalarType); ok {
 					if scalar.Kind != ir.ScalarFloat {
 						t.Errorf("Folded literal should have f32 type, got %v", scalar.Kind)
@@ -244,12 +242,13 @@ func TestLowerer_TypeInference_Comparison(t *testing.T) {
 
 	// Constant folding: 1.0 < 2.0 is folded to Literal(Bool(true)).
 	// Verify the folded literal has bool type.
+	types := typesOf(t, module, &fn)
 	foundBoolLiteral := false
 	for i, expr := range fn.Expressions {
 		if lit, ok := expr.Kind.(ir.Literal); ok {
 			if boolVal, isBool := lit.Value.(ir.LiteralBool); isBool && bool(boolVal) {
 				foundBoolLiteral = true
-				exprType := fn.ExpressionTypes[i]
+				exprType := types.Get(ir.ExpressionHandle(i))
 				if scalar, ok := exprType.Value.(ir.ScalarType); ok {
 					if scalar.Kind != ir.ScalarBool {
 						t.Errorf("Folded comparison should have bool type, got %v", scalar.Kind)

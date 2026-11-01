@@ -9,9 +9,9 @@ import (
 	"github.com/gogpu/naga/dxil"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/hlsl"
-	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -40,11 +40,11 @@ func TestCompileConcurrently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	module, err := ProcessOverrides(parsed, OverrideOptions{})
+	module, _, err := ProcessOverrides(parsed, valid.ModuleInfo{}, OverrideOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ir.Validate(module, ir.ValidateOptions{}); err != nil {
+	if _, err := valid.Validate(module, valid.Options{}); err != nil {
 		t.Fatal(err)
 	}
 	compilers := map[string]func() ([]byte, error){

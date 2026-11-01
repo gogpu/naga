@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -34,7 +35,7 @@ fn main(@builtin(local_invocation_index) i: u32) {
 
 	ep := &m.EntryPoints[0]
 	zeroInitWorkgroupMemory(m, ep)
-	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+	if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
 

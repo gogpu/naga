@@ -1,6 +1,7 @@
 package typifier
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -105,6 +106,10 @@ func TestGrowError(t *testing.T) {
 	}
 	if ty.Len() != 1 {
 		t.Errorf("after the error len %d, want 1", ty.Len())
+	}
+	var te *Error
+	if !errors.As(err, &te) || te.Expression != 1 {
+		t.Errorf("errors.As(*Error) = %+v, want the error of expression 1", te)
 	}
 
 	cycle := &ir.Function{Expressions: []ir.Expression{

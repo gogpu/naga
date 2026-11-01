@@ -1266,8 +1266,7 @@ func TestForcePointSizeInReturn(t *testing.T) {
 	w.inEntryPoint = true
 	w.entryPointResult = &ir.FunctionResult{Type: 0, Binding: &posBinding}
 	w.currentFunction = &ir.Function{
-		Expressions:     []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}}},
-		ExpressionTypes: []ir.TypeResolution{{Handle: func() *ir.TypeHandle { h := ir.TypeHandle(0); return &h }()}},
+		Expressions: []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}}},
 	}
 	handle := ir.ExpressionHandle(0)
 	ret := ir.StmtReturn{Value: &handle}
@@ -1567,7 +1566,6 @@ func TestFloatModuloDetection(t *testing.T) {
 
 func TestScanNeedBakeExpressions_RefCounting(t *testing.T) {
 	// Expressions used 2+ times should be baked (threshold = 2).
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -1580,10 +1578,6 @@ func TestScanNeedBakeExpressions_RefCounting(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},              // [0]
 			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: 0}}, // [1] uses [0] twice
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tF32},
-			{Handle: &tF32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1601,7 +1595,6 @@ func TestScanNeedBakeExpressions_RefCounting(t *testing.T) {
 
 func TestScanNeedBakeExpressions_AccessNeverBaked(t *testing.T) {
 	// Access/AccessIndex should never be baked (threshold = MAX).
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -1615,11 +1608,6 @@ func TestScanNeedBakeExpressions_AccessNeverBaked(t *testing.T) {
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // [1] AccessIndex
 			// Use AccessIndex twice to push refcount above 2
 			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 1, Right: 1}}, // [2]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tF32},
-			{Handle: &tF32},
-			{Handle: &tF32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -1636,7 +1624,6 @@ func TestScanNeedBakeExpressions_AccessNeverBaked(t *testing.T) {
 
 func TestScanNeedBakeExpressions_SingleUseNotBaked(t *testing.T) {
 	// Expression used only once should NOT be baked.
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -1649,11 +1636,6 @@ func TestScanNeedBakeExpressions_SingleUseNotBaked(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},              // [0]
 			{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},              // [1]
 			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 0, Right: 1}}, // [2] each used once
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tF32},
-			{Handle: &tF32},
-			{Handle: &tF32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -1672,7 +1654,6 @@ func TestScanNeedBakeExpressions_SingleUseNotBaked(t *testing.T) {
 
 func TestScanNeedBakeExpressions_MathQuantizeForced(t *testing.T) {
 	// MathQuantizeToF16 forces its argument to be baked regardless of ref count.
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -1684,10 +1665,6 @@ func TestScanNeedBakeExpressions_MathQuantizeForced(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},          // [0]
 			{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}}, // [1]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tF32},
-			{Handle: &tF32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1704,7 +1681,6 @@ func TestScanNeedBakeExpressions_MathQuantizeForced(t *testing.T) {
 
 func TestScanNeedBakeExpressions_StmtRefCounting(t *testing.T) {
 	// Expressions referenced from statements should also be counted.
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -1717,9 +1693,6 @@ func TestScanNeedBakeExpressions_StmtRefCounting(t *testing.T) {
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}}, // [0]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tF32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtStore{Pointer: 0, Value: 0}}, // refs [0] twice (pointer + value)
@@ -1737,7 +1710,6 @@ func TestScanNeedBakeExpressions_StmtRefCounting(t *testing.T) {
 
 func TestScanNeedBakeExpressions_Dot4PackedForced(t *testing.T) {
 	// MathDot4I8Packed/MathDot4U8Packed force baking of their arguments.
-	tF32 := ir.TypeHandle(0)
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -1751,11 +1723,6 @@ func TestScanNeedBakeExpressions_Dot4PackedForced(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                      // [0]
 			{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},                      // [1]
 			{Kind: ir.ExprMath{Fun: ir.MathDot4I8Packed, Arg: 0, Arg1: &arg1}}, // [2]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &tF32},
-			{Handle: &tF32},
-			{Handle: &tF32},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},

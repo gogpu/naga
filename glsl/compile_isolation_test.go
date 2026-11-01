@@ -10,6 +10,7 @@ import (
 	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/glsl"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -56,7 +57,7 @@ func TestCompileWithPipelineConstantsDoesNotMutateModule(t *testing.T) {
 
 	opts := glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: entry(t, module, "cs")}
 	compile := func() (string, error) {
-		processed, err := naga.ProcessOverrides(module, naga.OverrideOptions{Constants: naga.PipelineConstants{"o": 3}})
+		processed, _, err := naga.ProcessOverrides(module, valid.ModuleInfo{}, naga.OverrideOptions{Constants: naga.PipelineConstants{"o": 3}})
 		if err != nil {
 			return "", err
 		}

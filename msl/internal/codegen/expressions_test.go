@@ -62,7 +62,6 @@ func TestMSL_Literals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			tVec4 := ir.TypeHandle(1)
 			retExpr := ir.ExpressionHandle(0)
 			var posBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinPosition}
@@ -82,10 +81,6 @@ func TestMSL_Literals(t *testing.T) {
 						Expressions: []ir.Expression{
 							{Kind: ir.Literal{Value: tt.literal}},
 							{Kind: ir.ExprZeroValue{Type: tVec4}},
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tF32},
-							{Handle: &tVec4},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -117,7 +112,6 @@ func TestMSL_UnaryOperators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(1)
 
 			module := &ir.Module{
@@ -130,10 +124,6 @@ func TestMSL_UnaryOperators(t *testing.T) {
 						Expressions: []ir.Expression{
 							{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 							{Kind: ir.ExprUnary{Op: tt.op, Expr: 0}},
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tF32},
-							{Handle: &tF32},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -180,7 +170,6 @@ func TestMSL_BinaryOperators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(2)
 
 			module := &ir.Module{
@@ -194,11 +183,6 @@ func TestMSL_BinaryOperators(t *testing.T) {
 							{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 							{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
 							{Kind: ir.ExprBinary{Op: tt.op, Left: 0, Right: 1}},
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tF32},
-							{Handle: &tF32},
-							{Handle: &tF32},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -219,7 +203,6 @@ func TestMSL_BinaryOperators(t *testing.T) {
 
 func TestMSL_Swizzle(t *testing.T) {
 	tVec4 := ir.TypeHandle(1)
-	tVec2 := ir.TypeHandle(2)
 
 	retExpr := ir.ExpressionHandle(2)
 
@@ -236,11 +219,6 @@ func TestMSL_Swizzle(t *testing.T) {
 					{Kind: ir.ExprZeroValue{Type: tVec4}},                                                // [0]
 					{Kind: ir.ExprSwizzle{Vector: 0, Size: 2, Pattern: [4]ir.SwizzleComponent{0, 1}}},    // [1] .xy
 					{Kind: ir.ExprSwizzle{Vector: 0, Size: 3, Pattern: [4]ir.SwizzleComponent{2, 1, 0}}}, // [2] .zyx
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec4},
-					{Handle: &tVec2},
-					{Handle: &tVec2},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -259,9 +237,6 @@ func TestMSL_Swizzle(t *testing.T) {
 // =============================================================================
 
 func TestMSL_Select(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
-	tBool := ir.TypeHandle(1)
-
 	retExpr := ir.ExpressionHandle(3)
 
 	module := &ir.Module{
@@ -277,12 +252,6 @@ func TestMSL_Select(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},             // [1]
 					{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},             // [2]
 					{Kind: ir.ExprSelect{Condition: 0, Accept: 1, Reject: 2}}, // [3]
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tBool},
-					{Handle: &tF32},
-					{Handle: &tF32},
-					{Handle: &tF32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -301,7 +270,6 @@ func TestMSL_Select(t *testing.T) {
 // =============================================================================
 
 func TestMSL_Compose(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	tVec4 := ir.TypeHandle(1)
 
 	retExpr := ir.ExpressionHandle(4)
@@ -320,13 +288,6 @@ func TestMSL_Compose(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralF32(3.0)}},
 					{Kind: ir.Literal{Value: ir.LiteralF32(4.0)}},
 					{Kind: ir.ExprCompose{Type: tVec4, Components: []ir.ExpressionHandle{0, 1, 2, 3}}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-					{Handle: &tF32},
-					{Handle: &tF32},
-					{Handle: &tF32},
-					{Handle: &tVec4},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
@@ -384,21 +345,12 @@ func TestMSL_MathFunctions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
-
 			exprs := make([]ir.Expression, 0, 4)
 			exprs = append(exprs,
 				ir.Expression{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				ir.Expression{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
 				ir.Expression{Kind: ir.Literal{Value: ir.LiteralF32(3.0)}},
 			)
-			exprTypes := make([]ir.TypeResolution, 0, 4)
-			exprTypes = append(exprTypes,
-				ir.TypeResolution{Handle: &tF32},
-				ir.TypeResolution{Handle: &tF32},
-				ir.TypeResolution{Handle: &tF32},
-			)
-
 			mathExpr := ir.ExprMath{Fun: tt.fun, Arg: 0}
 			if tt.args >= 2 {
 				arg1 := ir.ExpressionHandle(1)
@@ -410,7 +362,6 @@ func TestMSL_MathFunctions(t *testing.T) {
 			}
 
 			exprs = append(exprs, ir.Expression{Kind: mathExpr})
-			exprTypes = append(exprTypes, ir.TypeResolution{Handle: &tF32})
 
 			retExpr := ir.ExpressionHandle(3)
 
@@ -420,9 +371,8 @@ func TestMSL_MathFunctions(t *testing.T) {
 				},
 				Functions: []ir.Function{
 					{
-						Name:            "test_fn",
-						Expressions:     exprs,
-						ExpressionTypes: exprTypes,
+						Name:        "test_fn",
+						Expressions: exprs,
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 							{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -453,9 +403,6 @@ func TestMSL_ZeroValue(t *testing.T) {
 				Name: "test_fn",
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprZeroValue{Type: tVec4}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec4},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
@@ -489,9 +436,6 @@ func TestMSL_ComposeZeroLocalInit(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralI32(0)}},                                         // [1]
 					{Kind: ir.ExprCompose{Type: tVec2i, Components: []ir.ExpressionHandle{lit0, lit1}}}, // [2]
 					{Kind: ir.ExprLocalVariable{Variable: 0}},                                           // [3]
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{}, {}, {Handle: &tVec2i}, {},
 				},
 				LocalVars: []ir.LocalVariable{
 					{Name: "x", Type: tVec2i, Init: &composeH},
@@ -777,8 +721,6 @@ fn main() {
 
 func TestMSL_TypeCast(t *testing.T) {
 	t.Run("conversion", func(t *testing.T) {
-		tF32 := ir.TypeHandle(0)
-		tI32 := ir.TypeHandle(1)
 		width := uint8(4)
 		retExpr := ir.ExpressionHandle(1)
 
@@ -794,10 +736,6 @@ func TestMSL_TypeCast(t *testing.T) {
 						{Kind: ir.Literal{Value: ir.LiteralF32(3.14)}},
 						{Kind: ir.ExprAs{Expr: 0, Kind: ir.ScalarSint, Convert: &width}},
 					},
-					ExpressionTypes: []ir.TypeResolution{
-						{Handle: &tF32},
-						{Handle: &tI32},
-					},
 					Body: []ir.Statement{
 						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 						{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -810,8 +748,6 @@ func TestMSL_TypeCast(t *testing.T) {
 	})
 
 	t.Run("bitcast", func(t *testing.T) {
-		tF32 := ir.TypeHandle(0)
-		tU32 := ir.TypeHandle(1)
 		retExpr := ir.ExpressionHandle(1)
 
 		module := &ir.Module{
@@ -825,10 +761,6 @@ func TestMSL_TypeCast(t *testing.T) {
 					Expressions: []ir.Expression{
 						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 						{Kind: ir.ExprAs{Expr: 0, Kind: ir.ScalarUint, Convert: nil}},
-					},
-					ExpressionTypes: []ir.TypeResolution{
-						{Handle: &tF32},
-						{Handle: &tU32},
 					},
 					Body: []ir.Statement{
 						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -897,7 +829,6 @@ func TestMSL_Derivative(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(1)
 
 			module := &ir.Module{
@@ -910,10 +841,6 @@ func TestMSL_Derivative(t *testing.T) {
 						Expressions: []ir.Expression{
 							{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 							{Kind: ir.ExprDerivative{Axis: tt.axis, Control: tt.control, Expr: 0}},
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tF32},
-							{Handle: &tF32},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -946,7 +873,6 @@ func TestMSL_Relational(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(1)
 
 			module := &ir.Module{
@@ -959,10 +885,6 @@ func TestMSL_Relational(t *testing.T) {
 						Expressions: []ir.Expression{
 							{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 							{Kind: ir.ExprRelational{Fun: tt.fun, Argument: 0}},
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tF32},
-							{Handle: &tF32},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1069,8 +991,6 @@ func TestMSL_MathFunctionName(t *testing.T) {
 // =============================================================================
 
 func TestMSL_AccessExpression(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
-	tI32 := ir.TypeHandle(1)
 	tVec4 := ir.TypeHandle(2)
 	retExpr := ir.ExpressionHandle(2)
 
@@ -1087,11 +1007,6 @@ func TestMSL_AccessExpression(t *testing.T) {
 				{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
 				{Kind: ir.ExprAccess{Base: 0, Index: 1}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tVec4},
-				{Handle: &tI32},
-				{Handle: &tF32},
-			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 				{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1107,7 +1022,6 @@ func TestMSL_AccessExpression(t *testing.T) {
 // =============================================================================
 
 func TestMSL_AccessIndexExpression(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	tVec4 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(1)
 
@@ -1124,10 +1038,6 @@ func TestMSL_AccessIndexExpression(t *testing.T) {
 					Components: []ir.ExpressionHandle{},
 				}},
 				{Kind: ir.ExprAccessIndex{Base: 0, Index: 2}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tVec4},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1168,7 +1078,6 @@ func TestMSL_BinaryOperatorsExtended(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(2)
 
 			module := &ir.Module{
@@ -1181,11 +1090,6 @@ func TestMSL_BinaryOperatorsExtended(t *testing.T) {
 						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 						{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
 						{Kind: ir.ExprBinary{Op: tt.op, Left: 0, Right: 1}},
-					},
-					ExpressionTypes: []ir.TypeResolution{
-						{Handle: &tF32},
-						{Handle: &tF32},
-						{Handle: &tF32},
 					},
 					Body: []ir.Statement{
 						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -1204,7 +1108,6 @@ func TestMSL_BinaryOperatorsExtended(t *testing.T) {
 // =============================================================================
 
 func TestMSL_LoadExpression(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	retExpr := ir.ExpressionHandle(1)
 
 	module := &ir.Module{
@@ -1216,10 +1119,6 @@ func TestMSL_LoadExpression(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				{Kind: ir.ExprLoad{Pointer: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1236,8 +1135,6 @@ func TestMSL_LoadExpression(t *testing.T) {
 // =============================================================================
 
 func TestMSL_SplatExpression(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
-	tVec4 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(1)
 
 	module := &ir.Module{
@@ -1250,10 +1147,6 @@ func TestMSL_SplatExpression(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				{Kind: ir.ExprSplat{Value: 0, Size: 4}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-				{Handle: &tVec4},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1287,9 +1180,6 @@ func TestMSL_FunctionWithArgument(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprFunctionArgument{Index: 0}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 				{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1321,10 +1211,6 @@ func TestMSL_LocalVariableExpression(t *testing.T) {
 				{Kind: ir.ExprLocalVariable{Variable: 0}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(42.0)}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-				{Handle: &tF32},
-			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 				{Kind: ir.StmtStore{Pointer: 0, Value: 1}},
@@ -1340,8 +1226,6 @@ func TestMSL_LocalVariableExpression(t *testing.T) {
 // =============================================================================
 
 func TestMSL_IfElseStatement(t *testing.T) {
-	tBool := ir.TypeHandle(0)
-	tF32 := ir.TypeHandle(1)
 	expr1 := ir.ExpressionHandle(1)
 	expr2 := ir.ExpressionHandle(2)
 
@@ -1356,11 +1240,6 @@ func TestMSL_IfElseStatement(t *testing.T) {
 				{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tBool},
-				{Handle: &tF32},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},

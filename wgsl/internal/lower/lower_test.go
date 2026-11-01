@@ -660,10 +660,11 @@ func TestLowerVec3ZeroValBinop(t *testing.T) {
 	}
 	t.Logf("Local var 'a': type=%d (%+v), init=%v", lv.Type, typeInner, lv.Init)
 	// Dump all expressions and their types
+	types := typesOf(t, module, fn)
 	for i, e := range fn.Expressions {
 		typeStr := "?"
-		if i < len(fn.ExpressionTypes) {
-			et := fn.ExpressionTypes[i]
+		if i < types.Len() {
+			et := types.Get(ir.ExpressionHandle(i))
 			if et.Handle != nil {
 				typeStr = fmt.Sprintf("Handle(%d)", *et.Handle)
 			} else if et.Value != nil {

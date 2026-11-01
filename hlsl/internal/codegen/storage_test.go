@@ -710,9 +710,6 @@ func TestIsStoragePointer(t *testing.T) {
 		},
 	}
 
-	storHandle := ir.TypeHandle(1)
-	uniHandle := ir.TypeHandle(2)
-
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			// [0] GlobalVariable(0) -> storBuf (storage)
@@ -721,11 +718,6 @@ func TestIsStoragePointer(t *testing.T) {
 			{Kind: ir.ExprGlobalVariable{Variable: 1}},
 			// [2] AccessIndex on expr[0] (storage chain)
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &storHandle}, // [0] -> ptr<storage>
-			{Handle: &uniHandle},  // [1] -> ptr<uniform>
-			{Handle: &storHandle}, // [2] -> ptr<storage> (access into storage)
 		},
 	}
 
@@ -786,9 +778,6 @@ func TestFillAccessChain(t *testing.T) {
 		},
 	}
 
-	ptrHandle := ir.TypeHandle(4)
-	structHandle := ir.TypeHandle(2)
-
 	t.Run("struct_member_access", func(t *testing.T) {
 		// expr[0] = GlobalVariable(0)  -> buf
 		// expr[1] = AccessIndex(base=0, index=1)  -> buf.b (offset=4)
@@ -796,10 +785,6 @@ func TestFillAccessChain(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprGlobalVariable{Variable: 0}},
 				{Kind: ir.ExprAccessIndex{Base: 0, Index: 1}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &ptrHandle},
-				{Handle: &structHandle}, // resolves to struct (deref'd by computeSubAccess)
 			},
 		}
 
@@ -828,9 +813,6 @@ func TestFillAccessChain(t *testing.T) {
 		fn := &ir.Function{
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprGlobalVariable{Variable: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &ptrHandle},
 			},
 		}
 
@@ -1010,13 +992,9 @@ func TestWriteStorageStore(t *testing.T) {
 	w := newTestWriter(module, names, typeNames)
 
 	// Set up a function with a literal expression for testing storeValueExpression
-	litExprHandle := ir.TypeHandle(0)
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.Literal{Value: ir.LiteralU32(42)}}, // expr[0] = 42u
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &litExprHandle}, // type = u32
 		},
 	}
 	setCurrentFunction(t, w, fn)

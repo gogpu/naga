@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 	"github.com/gogpu/naga/wgsl/internal/parser"
 )
 
@@ -1278,7 +1279,7 @@ func TestSwizzleAssignment_RHSConvertsToVectorScalar(t *testing.T) {
 					}
 				}
 			}
-			if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+			if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 				t.Errorf("validation: %v", err)
 			}
 		})

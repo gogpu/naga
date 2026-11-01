@@ -79,7 +79,7 @@ func TestDxilValSummary(t *testing.T) {
 		}
 
 		// Process pipeline overrides (replaces ExprOverride → ExprConstant/Literal).
-		processed, err := naga.ProcessOverrides(module, naga.OverrideOptions{Constants: readSPVPipelineConstants(shader.name)})
+		processed, _, err := naga.ProcessOverrides(module, unvalidated, naga.OverrideOptions{Constants: readSPVPipelineConstants(shader.name)})
 		if err != nil {
 			compileFailCount++
 			results = append(results, result{shader.name, "compile_fail", err.Error()})

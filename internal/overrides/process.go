@@ -12,8 +12,8 @@ import (
 	"github.com/gogpu/naga/internal/consteval"
 	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/registry"
-	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/valid"
 )
 
 // Selector selects one entry point by stage and name.
@@ -30,19 +30,37 @@ type Selector struct {
 // evaluated expression, as Rust does: override-sized arrays stay pending and
 // are sized from it. It has no ExprOverride left. With ep the other entry
 // points are removed and the selected one is EntryPoints[0]; only overrides
-// an entry point uses need a value. module itself is returned when there is
-// nothing to do (no overrides, and no selector or at most one entry point).
-func Process(module *ir.Module, constants map[string]float64, ep *Selector) (*ir.Module, error) {
+// an entry point uses need a value.
+//
+// info is module's ModuleInfo, from the caller's validation. When there is
+// nothing to do (no overrides, and no selector or at most one entry point)
+// module itself and info are returned unvalidated, as Rust's
+// process_overrides returns its inputs. Otherwise the processed module is
+// validated again, as Rust's revalidate does, with every capability (the
+// caller's validation gated them), and its new ModuleInfo returned.
+func Process(module *ir.Module, info valid.ModuleInfo, constants map[string]float64, ep *Selector) (*ir.Module, valid.ModuleInfo, error) {
 	if err := checkKeys(module, constants); err != nil {
-		return nil, err
+		return nil, valid.ModuleInfo{}, err
 	}
 	if ep != nil && findEntryPoint(module, ep) < 0 {
-		return nil, fmt.Errorf("%w: %q (%s stage)", ErrEntryPointNotFound, ep.Name, stageName(ep.Stage))
+		return nil, valid.ModuleInfo{}, fmt.Errorf("%w: %q (%s stage)", ErrEntryPointNotFound, ep.Name, stageName(ep.Stage))
 	}
 	if (ep == nil || len(module.EntryPoints) <= 1) && len(module.Overrides) == 0 {
-		return module, nil
+		return module, info, nil
 	}
+	m, err := process(module, constants, ep)
+	if err != nil {
+		return nil, valid.ModuleInfo{}, err
+	}
+	newInfo, err := revalidate(m)
+	if err != nil {
+		return nil, valid.ModuleInfo{}, err
+	}
+	return m, newInfo, nil
+}
 
+// process processes a module that has something to process (Process).
+func process(module *ir.Module, constants map[string]float64, ep *Selector) (*ir.Module, error) {
 	m := module.Clone()
 	if ep != nil {
 		m.EntryPoints = []ir.EntryPoint{m.EntryPoints[findEntryPoint(m, ep)]}
@@ -55,9 +73,6 @@ func Process(module *ir.Module, constants map[string]float64, ep *Selector) (*ir
 		if err := newProcessor(m, constants).run(); err != nil {
 			return nil, err
 		}
-	}
-	if err := revalidate(m); err != nil {
-		return nil, err
 	}
 	return m, nil
 }
@@ -446,17 +461,6 @@ func (p *processor) function(fn *ir.Function) error {
 		}
 		fn.NamedExpressions = named
 	}
-	types, err := typifier.Function(p.m, fn)
-	if err != nil {
-		return fmt.Errorf("function %q: %w", fn.Name, err)
-	}
-	// Interim (ADR-010 B4): ir.Validate's arrayLength check is the one
-	// reader of Function.ExpressionTypes left, and package ir cannot import
-	// the typifier; the field goes once the validator types expressions.
-	fn.ExpressionTypes = make([]ir.TypeResolution, len(fn.Expressions))
-	for i := range fn.Expressions {
-		fn.ExpressionTypes[i] = types.Get(ir.ExpressionHandle(i))
-	}
 	return nil
 }
 
@@ -576,26 +580,27 @@ func checkNoOverrideExpressions(m *ir.Module) error {
 	return nil
 }
 
-// revalidate validates the processed module (Rust revalidate with all
-// capabilities): with overrides resolved, an array sized by an override must
-// have a positive size.
-func revalidate(m *ir.Module) error {
+// revalidate validates the processed module as Rust's revalidate does,
+// Validator::new(ValidationFlags::all(), Capabilities::all()): every
+// capability (Options has nothing else to set). With overrides resolved, an
+// array sized by an override must have a positive size.
+func revalidate(m *ir.Module) (valid.ModuleInfo, error) {
 	for i := range m.Types {
 		if at, ok := m.Types[i].Inner.(ir.ArrayType); ok && at.Size.Pending != nil {
 			if _, err := at.Size.Resolve(m); err != nil {
-				return fmt.Errorf("Override-sized array type [%d] does not have a positive size: %w", i, err)
+				return valid.ModuleInfo{}, fmt.Errorf("Override-sized array type [%d] does not have a positive size: %w", i, err)
 			}
 		}
 	}
-	// The capabilities were checked before the overrides were processed.
-	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
-		var errs ir.ValidationErrors
+	info, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll})
+	if err != nil {
+		var errs valid.Errors
 		if errors.As(err, &errs) {
-			return fmt.Errorf("pipeline constants: the processed module is invalid: %s", errs[0].Message)
+			return valid.ModuleInfo{}, fmt.Errorf("pipeline constants: the processed module is invalid: %s", errs[0].Message)
 		}
-		return fmt.Errorf("pipeline constants: validating the processed module: %w", err)
+		return valid.ModuleInfo{}, fmt.Errorf("pipeline constants: validating the processed module: %w", err)
 	}
-	return nil
+	return info, nil
 }
 
 // globalArena is Module.GlobalExpressions as the evaluator's arena.

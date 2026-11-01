@@ -374,22 +374,6 @@ func remapFunctionTypes(f *ir.Function, remap []ir.TypeHandle) {
 	for ei := range f.Expressions {
 		f.Expressions[ei].Kind = remapExprTypeHandles(f.Expressions[ei].Kind, remap)
 	}
-	for ti := range f.ExpressionTypes {
-		tr := &f.ExpressionTypes[ti]
-		if tr.Handle != nil {
-			newH := remap[*tr.Handle]
-			if newH == ^ir.TypeHandle(0) {
-				// Abstract type was removed. Drop handle — backend will use
-				// Value or infer type from expression context.
-				tr.Handle = nil
-			} else {
-				tr.Handle = &newH
-			}
-		}
-		if tr.Value != nil {
-			tr.Value = remapTypeInner(tr.Value, remap)
-		}
-	}
 }
 
 // IsAbstractType reports whether inner is an abstract type: AbstractInt or
@@ -447,10 +431,6 @@ func markFunctionTypeRefs(f *ir.Function, referenced []bool) {
 	for _, expr := range f.Expressions {
 		markExprTypeRefs(expr.Kind, referenced)
 	}
-	// NOTE: ExpressionTypes handles are NOT traced. They contain internal type
-	// resolution data that may reference types not needed by backends. Tracing
-	// them would preserve extra types and break type numbering. Instead, backends
-	// handle nil/sentinel handles gracefully via concretization.
 }
 
 // markExprTypeRefs marks type handles referenced by expression kinds.
@@ -738,7 +718,7 @@ func visitExprTypeHandles(kind ir.ExpressionKind, visit func(ir.TypeHandle)) {
 }
 
 // safeRemapFunctionTypes remaps type handles within a function, guarding against sentinel values.
-// Used by ReorderTypes where ExpressionTypes may contain nil/sentinel handles from compactTypes.
+// Used by ReorderTypes.
 func safeRemapFunctionTypes(f *ir.Function, remap []ir.TypeHandle) {
 	safe := func(h ir.TypeHandle) ir.TypeHandle {
 		if h == ^ir.TypeHandle(0) || int(h) >= len(remap) {
@@ -757,19 +737,6 @@ func safeRemapFunctionTypes(f *ir.Function, remap []ir.TypeHandle) {
 	}
 	for ei := range f.Expressions {
 		f.Expressions[ei].Kind = remapExprTypeHandles(f.Expressions[ei].Kind, remap)
-	}
-	for ti := range f.ExpressionTypes {
-		tr := &f.ExpressionTypes[ti]
-		if tr.Handle != nil {
-			h := *tr.Handle
-			if h != ^ir.TypeHandle(0) && int(h) < len(remap) {
-				newH := remap[h]
-				tr.Handle = &newH
-			}
-		}
-		if tr.Value != nil {
-			tr.Value = remapTypeInner(tr.Value, remap)
-		}
 	}
 }
 
@@ -870,17 +837,6 @@ func compactFunctionExpressions(f *ir.Function) {
 			newH := remap[*f.LocalVars[i].Init]
 			f.LocalVars[i].Init = &newH
 		}
-	}
-
-	// Remap expression types cache.
-	if len(f.ExpressionTypes) > 0 {
-		newTypes := make([]ir.TypeResolution, len(newExprs))
-		for oldIdx := range n {
-			if used[oldIdx] && int(remap[oldIdx]) < len(newTypes) && oldIdx < len(f.ExpressionTypes) {
-				newTypes[remap[oldIdx]] = f.ExpressionTypes[oldIdx]
-			}
-		}
-		f.ExpressionTypes = newTypes
 	}
 
 	// Remap statements, adjusting each Emit range to the expressions left in

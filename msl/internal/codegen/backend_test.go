@@ -250,10 +250,8 @@ func TestCompile_SimpleStruct(t *testing.T) {
 
 func TestCompile_ArrayWrapperAccess(t *testing.T) {
 	size := uint32(3)
-	tF32 := ir.TypeHandle(0)
 	tVec2 := ir.TypeHandle(1)
 	tArr := ir.TypeHandle(2)
-	tU32 := ir.TypeHandle(3)
 
 	expressions := []ir.Expression{
 		{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                                  // 0
@@ -267,20 +265,6 @@ func TestCompile_ArrayWrapperAccess(t *testing.T) {
 		{Kind: ir.ExprLoad{Pointer: 7}},                                                // 8
 		{Kind: ir.Literal{Value: ir.LiteralU32(1)}},                                    // 9
 		{Kind: ir.ExprAccess{Base: 8, Index: 9}},                                       // 10
-	}
-
-	expressionTypes := []ir.TypeResolution{
-		{Handle: &tF32},  // 0
-		{Handle: &tF32},  // 1
-		{Handle: &tF32},  // 2
-		{Handle: &tVec2}, // 3
-		{Handle: &tVec2}, // 4
-		{Handle: &tVec2}, // 5
-		{Handle: &tArr},  // 6
-		{Value: ir.PointerType{Base: tArr, Space: ir.SpaceFunction}}, // 7
-		{Handle: &tArr},  // 8
-		{Handle: &tU32},  // 9
-		{Handle: &tVec2}, // 10
 	}
 
 	posInit := ir.ExpressionHandle(6)
@@ -300,8 +284,7 @@ func TestCompile_ArrayWrapperAccess(t *testing.T) {
 					{Name: "positions", Type: tArr, Init: &posInit},
 					{Name: "value", Type: tVec2, Init: &valInit},
 				},
-				Expressions:     expressions,
-				ExpressionTypes: expressionTypes,
+				Expressions: expressions,
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{}},
 				},
@@ -339,15 +322,6 @@ func TestCompile_EntryPointStructReturnMapping(t *testing.T) {
 		{Kind: ir.ExprLoad{Pointer: 0}},               // 5
 	}
 
-	expressionTypes := []ir.TypeResolution{
-		{Value: ir.PointerType{Base: tStruct, Space: ir.SpaceFunction}}, // 0
-		{Value: ir.PointerType{Base: tVec4, Space: ir.SpaceFunction}},   // 1
-		{Value: ir.PointerType{Base: tVec3, Space: ir.SpaceFunction}},   // 2
-		{Handle: &tVec4},   // 3
-		{Handle: &tVec3},   // 4
-		{Handle: &tStruct}, // 5
-	}
-
 	retExpr := ir.ExpressionHandle(5)
 
 	module := &ir.Module{
@@ -374,8 +348,7 @@ func TestCompile_EntryPointStructReturnMapping(t *testing.T) {
 				LocalVars: []ir.LocalVariable{
 					{Name: "output", Type: tStruct},
 				},
-				Expressions:     expressions,
-				ExpressionTypes: expressionTypes,
+				Expressions: expressions,
 				Body: []ir.Statement{
 					{Kind: ir.StmtStore{Pointer: 1, Value: 3}},
 					{Kind: ir.StmtStore{Pointer: 2, Value: 4}},
@@ -418,11 +391,6 @@ func TestCompile_FragmentStageInStructInput(t *testing.T) {
 		{Kind: ir.ExprAccessIndex{Base: 0, Index: 1}}, // 1
 	}
 
-	expressionTypes := []ir.TypeResolution{
-		{Handle: &tStruct}, // 0
-		{Handle: &tVec3},   // 1
-	}
-
 	retExpr := ir.ExpressionHandle(1)
 	var fragmentBinding ir.Binding = ir.LocationBinding{Location: 0}
 	var posBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinPosition}
@@ -453,8 +421,7 @@ func TestCompile_FragmentStageInStructInput(t *testing.T) {
 					Type:    tVec3,
 					Binding: &fragmentBinding,
 				},
-				Expressions:     expressions,
-				ExpressionTypes: expressionTypes,
+				Expressions: expressions,
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
@@ -494,9 +461,6 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 	expressions := []ir.Expression{
 		{Kind: ir.ExprZeroValue{Type: tVec4}},
 	}
-	exprTypes := []ir.TypeResolution{
-		{Handle: &tVec4},
-	}
 
 	var vertexBinding ir.Binding = ir.BuiltinBinding{Builtin: ir.BuiltinPosition}
 	var fragmentBinding ir.Binding = ir.LocationBinding{Location: 0}
@@ -507,19 +471,17 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 		},
 		EntryPoints: []ir.EntryPoint{
 			{Name: "vs_main", Stage: ir.StageVertex, Function: ir.Function{
-				Name:            "vs_main",
-				Result:          &ir.FunctionResult{Type: tVec4, Binding: &vertexBinding},
-				Expressions:     expressions,
-				ExpressionTypes: exprTypes,
+				Name:        "vs_main",
+				Result:      &ir.FunctionResult{Type: tVec4, Binding: &vertexBinding},
+				Expressions: expressions,
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
 			}},
 			{Name: "fs_main", Stage: ir.StageFragment, Function: ir.Function{
-				Name:            "fs_main",
-				Result:          &ir.FunctionResult{Type: tVec4, Binding: &fragmentBinding},
-				Expressions:     expressions,
-				ExpressionTypes: exprTypes,
+				Name:        "fs_main",
+				Result:      &ir.FunctionResult{Type: tVec4, Binding: &fragmentBinding},
+				Expressions: expressions,
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: &retExpr}},
 				},
@@ -559,7 +521,6 @@ func TestCompile_EntryPointReturnAttributePlacement(t *testing.T) {
 func TestMSL_PassThroughGlobals(t *testing.T) {
 	// Type handles:
 	// 0: f32, 1: vec2f, 2: vec4f, 3: texture2d, 4: sampler
-	tF32 := ir.TypeHandle(0)
 	tVec2 := ir.TypeHandle(1)
 	tVec4 := ir.TypeHandle(2)
 	tTex := ir.TypeHandle(3)
@@ -598,12 +559,6 @@ func TestMSL_PassThroughGlobals(t *testing.T) {
 						Level: ir.SampleLevelAuto{},
 					}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec2}, // 0: uv
-					{Handle: &tTex},  // 1: texture
-					{Handle: &tSamp}, // 2: sampler
-					{Handle: &tVec4}, // 3: sample result
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: ptrExpr(3)}},
@@ -627,12 +582,6 @@ func TestMSL_PassThroughGlobals(t *testing.T) {
 							Type: tVec2, Components: []ir.ExpressionHandle{0, 1},
 						}},
 						{Kind: ir.ExprCallResult{Function: 0}}, // 3: result of call
-					},
-					ExpressionTypes: []ir.TypeResolution{
-						{Handle: &tF32},  // 0: literal
-						{Handle: &tF32},  // 1: literal
-						{Handle: &tVec2}, // 2: compose
-						{Handle: &tVec4}, // 3: call result
 					},
 					Body: []ir.Statement{
 						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -734,12 +683,6 @@ func TestMSL_MultiGroupBindingIndices(t *testing.T) {
 		{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // 2: uniforms.viewport
 		{Kind: ir.ExprLoad{Pointer: 2}},               // 3: load viewport
 	}
-	expressionTypes := []ir.TypeResolution{
-		{Value: ir.PointerType{Base: tUniforms, Space: ir.SpaceUniform}},   // 0
-		{Value: ir.PointerType{Base: tClipParams, Space: ir.SpaceUniform}}, // 1
-		{Value: ir.PointerType{Base: tVec4, Space: ir.SpaceUniform}},       // 2
-		{Handle: &tVec4}, // 3
-	}
 
 	retExpr := ir.ExpressionHandle(3)
 
@@ -777,8 +720,7 @@ func TestMSL_MultiGroupBindingIndices(t *testing.T) {
 					Type:    tVec4,
 					Binding: bindingPtr(ir.LocationBinding{Location: 0}),
 				},
-				Expressions:     expressions,
-				ExpressionTypes: expressionTypes,
+				Expressions: expressions,
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -835,11 +777,6 @@ func TestMSL_MultiGroupMixedResourceTypes(t *testing.T) {
 		{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // 1: uniforms.viewport
 		{Kind: ir.ExprLoad{Pointer: 1}},               // 2: load viewport
 	}
-	expressionTypes := []ir.TypeResolution{
-		{Value: ir.PointerType{Base: tUniforms, Space: ir.SpaceUniform}}, // 0
-		{Value: ir.PointerType{Base: tVec4, Space: ir.SpaceUniform}},     // 1
-		{Handle: &tVec4}, // 2
-	}
 
 	retExpr := ir.ExpressionHandle(2)
 
@@ -878,8 +815,7 @@ func TestMSL_MultiGroupMixedResourceTypes(t *testing.T) {
 					Type:    tVec4,
 					Binding: bindingPtr(ir.LocationBinding{Location: 0}),
 				},
-				Expressions:     expressions,
-				ExpressionTypes: expressionTypes,
+				Expressions: expressions,
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},

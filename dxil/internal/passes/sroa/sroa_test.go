@@ -53,7 +53,6 @@ func TestRunStructDecomposition(t *testing.T) {
 			// [5] ExprLoad{Pointer: 0} — load vsOutput (full struct)
 			{Kind: ir.ExprLoad{Pointer: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 6),
 		Body: ir.Block{
 			// Emit range for expr [0..3]
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -169,8 +168,7 @@ func TestRunNoDecompositionDynamicAccess(t *testing.T) {
 			// [1] ExprAccess{Base: 0, Index: ...} — dynamic access
 			{Kind: ir.ExprAccess{Base: 0, Index: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 2),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	count := Run(mod, fn)
@@ -195,8 +193,7 @@ func TestRunNoDecompositionNonStruct(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 1),
-		Body:            ir.Block{},
+		Body: ir.Block{},
 	}
 
 	count := Run(mod, fn)
@@ -228,7 +225,6 @@ func TestRunNoDecompositionCallArgument(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprLocalVariable{Variable: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 1),
 		Body: ir.Block{
 			{Kind: ir.StmtCall{
 				Function:  0,
@@ -280,7 +276,6 @@ func TestRunWithInit(t *testing.T) {
 			// [5] ExprLoad{Pointer: 0} — load full struct
 			{Kind: ir.ExprLoad{Pointer: 0}},
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 6),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 			{Kind: ir.StmtStore{Pointer: 1, Value: 3}},
@@ -336,7 +331,6 @@ func TestRunSplitsComposeStore(t *testing.T) {
 			{Kind: ir.ExprAccessIndex{Base: 3, Index: 0}},                            // [4] &s.a
 			{Kind: ir.ExprLoad{Pointer: 4}},                                          // [5] s.a
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 6),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
 			{Kind: ir.StmtStore{Pointer: 3, Value: 2}},
@@ -390,7 +384,6 @@ func TestRunKeepsConstantInitializedStruct(t *testing.T) {
 			{Kind: ir.ExprAccessIndex{Base: 1, Index: 0}}, // [2] &s.a
 			{Kind: ir.ExprLoad{Pointer: 2}},               // [3] s.a
 		},
-		ExpressionTypes: make([]ir.TypeResolution, 4),
 		Body: ir.Block{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 4}}},
 		},

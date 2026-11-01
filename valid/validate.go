@@ -1,20 +1,24 @@
-package ir
+package valid
 
 import (
+	"errors"
 	"fmt"
+
+	"github.com/gogpu/naga/internal/typifier"
+	"github.com/gogpu/naga/ir"
 )
 
-// ValidationError represents a validation error.
-type ValidationError struct {
+// Error is a validation error (Rust naga's ValidationError).
+type Error struct {
 	Message string
 	// Optional context
 	Function   string
-	Expression *ExpressionHandle
+	Expression *ir.ExpressionHandle
 	Statement  int
 }
 
 // Error implements the error interface.
-func (e ValidationError) Error() string {
+func (e Error) Error() string {
 	if e.Function != "" {
 		if e.Expression != nil {
 			return fmt.Sprintf("in function %s, expression %d: %s", e.Function, *e.Expression, e.Message)
@@ -29,18 +33,19 @@ func (e ValidationError) Error() string {
 
 // validator validates IR modules.
 type validator struct {
-	module       *Module
+	module       *ir.Module
 	capabilities Capabilities
-	errors       []ValidationError
+	errors       []Error
 	context      validationContext
 }
 
 // validationContext holds current validation context.
 type validationContext struct {
-	function       *Function
+	function       *ir.Function
+	types          *typifier.Typifier // function's expression types; nil when it could not be typed
 	functionName   string
 	flow           controlFlowAbility
-	expressionUsed map[ExpressionHandle]bool
+	expressionUsed map[ir.ExpressionHandle]bool
 }
 
 // controlFlowAbility is what a statement may do to leave the block it is
@@ -56,9 +61,9 @@ const (
 	abilityContinue
 )
 
-// ValidateOptions configures Validate. The zero value is WebGPU core: no
+// Options configures Validate. The zero value is WebGPU core: no
 // optional capability.
-type ValidateOptions struct {
+type Options struct {
 	// Capabilities are the optional features the module may use; a type or
 	// operation that needs one outside the set is a validation error. This
 	// is the single gate for capabilities: neither the frontends nor the
@@ -66,12 +71,12 @@ type ValidateOptions struct {
 	Capabilities Capabilities
 }
 
-// ValidationErrors is the error Validate returns: every problem it found,
-// where Rust naga stops at the first. errors.As finds a *ValidationError.
-type ValidationErrors []ValidationError
+// Errors is the error Validate returns: every problem it found,
+// where Rust naga stops at the first. errors.As finds an *Error.
+type Errors []Error
 
 // Error reports the first error and how many follow.
-func (e ValidationErrors) Error() string {
+func (e Errors) Error() string {
 	switch len(e) {
 	case 0:
 		return "no validation errors"
@@ -82,7 +87,7 @@ func (e ValidationErrors) Error() string {
 }
 
 // Unwrap returns each error, for errors.As and errors.Is.
-func (e ValidationErrors) Unwrap() []error {
+func (e Errors) Unwrap() []error {
 	errs := make([]error, len(e))
 	for i := range e {
 		errs[i] = &e[i]
@@ -93,8 +98,8 @@ func (e ValidationErrors) Unwrap() []error {
 // Validate checks the module for correctness (Rust naga's
 // Validator::validate) and returns what a WebGPU implementation needs from
 // it: per function and entry point, the globals it uses and how. A module
-// with problems returns a ValidationErrors.
-func Validate(module *Module, opts ValidateOptions) (ModuleInfo, error) {
+// with problems returns an Errors.
+func Validate(module *ir.Module, opts Options) (ModuleInfo, error) {
 	if module == nil {
 		return ModuleInfo{}, fmt.Errorf("module is nil")
 	}
@@ -102,13 +107,13 @@ func Validate(module *Module, opts ValidateOptions) (ModuleInfo, error) {
 	v := &validator{
 		module:       module,
 		capabilities: opts.Capabilities,
-		errors:       make([]ValidationError, 0),
+		errors:       make([]Error, 0),
 	}
 
 	v.validateModule()
 
 	if len(v.errors) > 0 {
-		return ModuleInfo{}, ValidationErrors(v.errors)
+		return ModuleInfo{}, Errors(v.errors)
 	}
 	return analyzeModule(module), nil
 }
@@ -134,7 +139,7 @@ func (v *validator) validateModule() {
 // validateTypes checks all type definitions.
 func (v *validator) validateTypes() {
 	for i, typ := range v.module.Types {
-		v.validateType(TypeHandle(i), &typ)
+		v.validateType(ir.TypeHandle(i), &typ)
 	}
 }
 
@@ -144,21 +149,21 @@ func (v *validator) validateTypes() {
 // Width=8 (64-bit) requires CapFloat64 (for f64) or CapShaderInt64 (for i64/u64).
 // Width=2 (16-bit) requires CapShaderFloat16 (for f16).
 // Width=4 and width=1 (bool) are always allowed.
-func (v *validator) checkScalarCapability(handle TypeHandle, scalar ScalarType, context string) {
+func (v *validator) checkScalarCapability(handle ir.TypeHandle, scalar ir.ScalarType, context string) {
 	switch {
-	case scalar.Width == 8 && scalar.Kind == ScalarFloat:
+	case scalar.Width == 8 && scalar.Kind == ir.ScalarFloat:
 		if !v.capabilities.Contains(CapFloat64) {
 			v.addError(fmt.Sprintf("type [%d]%s: f64 requires the FLOAT64 capability", handle, context))
 		}
-	case scalar.Width == 8 && (scalar.Kind == ScalarSint || scalar.Kind == ScalarUint):
+	case scalar.Width == 8 && (scalar.Kind == ir.ScalarSint || scalar.Kind == ir.ScalarUint):
 		name := "i64"
-		if scalar.Kind == ScalarUint {
+		if scalar.Kind == ir.ScalarUint {
 			name = "u64"
 		}
 		if !v.capabilities.Contains(CapShaderInt64) {
 			v.addError(fmt.Sprintf("type [%d]%s: %s requires the SHADER_INT64 capability", handle, context, name))
 		}
-	case scalar.Width == 2 && scalar.Kind == ScalarFloat:
+	case scalar.Width == 2 && scalar.Kind == ir.ScalarFloat:
 		if !v.capabilities.Contains(CapShaderFloat16) {
 			v.addError(fmt.Sprintf("type [%d]%s: f16 requires the SHADER_FLOAT16 capability", handle, context))
 		}
@@ -166,23 +171,23 @@ func (v *validator) checkScalarCapability(handle TypeHandle, scalar ScalarType, 
 }
 
 // validateType validates a single type.
-func (v *validator) validateType(handle TypeHandle, typ *Type) {
+func (v *validator) validateType(handle ir.TypeHandle, typ *ir.Type) {
 	if typ.Inner == nil {
 		v.addError(fmt.Sprintf("type %d has nil inner type", handle))
 		return
 	}
 
 	switch inner := typ.Inner.(type) {
-	case ScalarType:
+	case ir.ScalarType:
 		// Scalar types are always valid
 		if inner.Width != 1 && inner.Width != 2 && inner.Width != 4 && inner.Width != 8 {
 			v.addError(fmt.Sprintf("type %d: scalar width must be 1, 2, 4, or 8 bytes, got %d", handle, inner.Width))
 		}
 		v.checkScalarCapability(handle, inner, "")
 
-	case VectorType:
+	case ir.VectorType:
 		// Vector size must be 2, 3, or 4
-		if inner.Size != Vec2 && inner.Size != Vec3 && inner.Size != Vec4 {
+		if inner.Size != ir.Vec2 && inner.Size != ir.Vec3 && inner.Size != ir.Vec4 {
 			v.addError(fmt.Sprintf("type %d: vector size must be 2, 3, or 4, got %d", handle, inner.Size))
 		}
 		// Scalar width validation
@@ -191,21 +196,21 @@ func (v *validator) validateType(handle TypeHandle, typ *Type) {
 		}
 		v.checkScalarCapability(handle, inner.Scalar, "")
 
-	case MatrixType:
+	case ir.MatrixType:
 		// Matrix dimensions must be 2, 3, or 4
-		if inner.Columns != Vec2 && inner.Columns != Vec3 && inner.Columns != Vec4 {
+		if inner.Columns != ir.Vec2 && inner.Columns != ir.Vec3 && inner.Columns != ir.Vec4 {
 			v.addError(fmt.Sprintf("type %d: matrix columns must be 2, 3, or 4, got %d", handle, inner.Columns))
 		}
-		if inner.Rows != Vec2 && inner.Rows != Vec3 && inner.Rows != Vec4 {
+		if inner.Rows != ir.Vec2 && inner.Rows != ir.Vec3 && inner.Rows != ir.Vec4 {
 			v.addError(fmt.Sprintf("type %d: matrix rows must be 2, 3, or 4, got %d", handle, inner.Rows))
 		}
 		// Matrix scalar must be float
-		if inner.Scalar.Kind != ScalarFloat {
+		if inner.Scalar.Kind != ir.ScalarFloat {
 			v.addError(fmt.Sprintf("type %d: matrix scalar must be float, got %v", handle, inner.Scalar.Kind))
 		}
 		v.checkScalarCapability(handle, inner.Scalar, "")
 
-	case ArrayType:
+	case ir.ArrayType:
 		// Base type must exist
 		if !v.isValidTypeHandle(inner.Base) {
 			v.addError(fmt.Sprintf("type %d: array base type %d does not exist", handle, inner.Base))
@@ -215,7 +220,7 @@ func (v *validator) validateType(handle TypeHandle, typ *Type) {
 			v.addError(fmt.Sprintf("type %d: array has circular reference to itself", handle))
 		}
 
-	case StructType:
+	case ir.StructType:
 		// Validate struct members
 		memberNames := make(map[string]bool)
 		for j, member := range inner.Members {
@@ -236,24 +241,24 @@ func (v *validator) validateType(handle TypeHandle, typ *Type) {
 			}
 		}
 
-	case PointerType:
+	case ir.PointerType:
 		// Base type must exist
 		if !v.isValidTypeHandle(inner.Base) {
 			v.addError(fmt.Sprintf("type %d: pointer base type %d does not exist", handle, inner.Base))
 		}
 
-	case AtomicType:
+	case ir.AtomicType:
 		// Atomic types embed a scalar directly — check capability.
 		v.checkScalarCapability(handle, inner.Scalar, "")
 
-	case SamplerType:
+	case ir.SamplerType:
 		// Sampler types are always valid
 
-	case ImageType:
-		if inner.Class == ImageClassStorage && inner.StorageFormat == StorageFormatUndefined {
+	case ir.ImageType:
+		if inner.Class == ir.ImageClassStorage && inner.StorageFormat == ir.StorageFormatUndefined {
 			v.addError(fmt.Sprintf("type %d: storage image has no format (StorageFormatUndefined)", handle))
 		}
-		if inner.Class == ImageClassStorage && inner.StorageAccess == 0 {
+		if inner.Class == ir.ImageClassStorage && inner.StorageAccess == 0 {
 			v.addError(fmt.Sprintf("type %d: storage image has no access (empty StorageAccess)", handle))
 		}
 	}
@@ -288,7 +293,7 @@ func (v *validator) validateGlobalVariables() {
 
 		if !v.isValidTypeHandle(gv.Type) {
 			v.addError(fmt.Sprintf("global variable %d (%s): type %d does not exist", i, gv.Name, gv.Type))
-		} else if gv.Space != SpaceWorkGroup && v.containsPendingArray(gv.Type, 0) {
+		} else if gv.Space != ir.SpaceWorkGroup && v.containsPendingArray(gv.Type, 0) {
 			// Rust: the type lacks CREATION_RESOLVED, which every address
 			// space but workgroup requires.
 			v.addError(fmt.Sprintf("Global variable [%d] '%s' is invalid: an array sized by an override is allowed only in the workgroup address space", i, gv.Name))
@@ -296,12 +301,12 @@ func (v *validator) validateGlobalVariables() {
 
 		// Rust keeps the access inside AddressSpace::Storage (ADR-010 E2).
 		switch {
-		case gv.Space == SpaceStorage && gv.Access == 0:
+		case gv.Space == ir.SpaceStorage && gv.Access == 0:
 			v.addError(fmt.Sprintf("global variable %q: storage variable has no access (empty StorageAccess)", gv.Name))
-		case gv.Space == SpaceStorage && !gv.Access.Contains(StorageAccessLoad):
+		case gv.Space == ir.SpaceStorage && !gv.Access.Contains(ir.StorageAccessLoad):
 			// Rust's GlobalVariableError text.
 			v.addError(fmt.Sprintf("global variable %q: Storage address space doesn't support write-only access", gv.Name))
-		case gv.Space != SpaceStorage && gv.Access != 0:
+		case gv.Space != ir.SpaceStorage && gv.Access != 0:
 			v.addError(fmt.Sprintf("global variable %q: only a storage variable has an access", gv.Name))
 		}
 
@@ -339,7 +344,7 @@ func (v *validator) validateFunctions() {
 			function:       fn,
 			functionName:   fn.Name,
 			flow:           abilityReturn,
-			expressionUsed: make(map[ExpressionHandle]bool),
+			expressionUsed: make(map[ir.ExpressionHandle]bool),
 		}
 
 		v.validateFunction(fn)
@@ -347,7 +352,18 @@ func (v *validator) validateFunctions() {
 }
 
 // validateFunction validates a single function.
-func (v *validator) validateFunction(fn *Function) {
+//
+// Its expressions are typed first, as Rust's analyzer types each one before
+// the checks that read the types. A function that cannot be typed is
+// reported as Rust reports it (FunctionError::Expression, "Type resolution
+// failed"), unless the function has other errors: those (a handle out of
+// range, say) are what keeps it from being typed, and they are what the
+// validator has always reported.
+func (v *validator) validateFunction(fn *ir.Function) {
+	types, typeErr := typifier.Function(v.module, fn)
+	v.context.types = types
+	errorsBefore := len(v.errors)
+
 	// Validate arguments
 	for i, arg := range fn.Arguments {
 		if !v.isValidTypeHandle(arg.Type) {
@@ -379,35 +395,40 @@ func (v *validator) validateFunction(fn *Function) {
 
 	// Validate expressions
 	for i, expr := range fn.Expressions {
-		v.validateExpression(ExpressionHandle(i), &expr)
+		v.validateExpression(ir.ExpressionHandle(i), &expr)
 	}
 
 	// Validate body
 	v.validateBlock(fn.Body)
+
+	var te *typifier.Error
+	if typeErr != nil && len(v.errors) == errorsBefore && errors.As(typeErr, &te) {
+		v.addErrorInExpression(te.Expression, "Type resolution failed: "+te.Err.Error())
+	}
 }
 
 // validateExpression validates a single expression.
-func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression) {
+func (v *validator) validateExpression(handle ir.ExpressionHandle, expr *ir.Expression) {
 	if expr.Kind == nil {
 		v.addErrorInExpression(handle, "expression has nil kind")
 		return
 	}
 
 	switch kind := expr.Kind.(type) {
-	case Literal:
+	case ir.Literal:
 		// Literals are always valid
 
-	case ExprConstant:
+	case ir.ExprConstant:
 		if !v.isValidConstantHandle(kind.Constant) {
 			v.addErrorInExpression(handle, fmt.Sprintf("constant %d does not exist", kind.Constant))
 		}
 
-	case ExprZeroValue:
+	case ir.ExprZeroValue:
 		if !v.isValidTypeHandle(kind.Type) {
 			v.addErrorInExpression(handle, fmt.Sprintf("type %d does not exist", kind.Type))
 		}
 
-	case ExprCompose:
+	case ir.ExprCompose:
 		if !v.isValidTypeHandle(kind.Type) {
 			v.addErrorInExpression(handle, fmt.Sprintf("type %d does not exist", kind.Type))
 		}
@@ -417,7 +438,7 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			}
 		}
 
-	case ExprAccess:
+	case ir.ExprAccess:
 		if !v.isValidExpressionHandle(kind.Base) {
 			v.addErrorInExpression(handle, fmt.Sprintf("base expression %d does not exist", kind.Base))
 		}
@@ -425,33 +446,33 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			v.addErrorInExpression(handle, fmt.Sprintf("index expression %d does not exist", kind.Index))
 		}
 
-	case ExprAccessIndex:
+	case ir.ExprAccessIndex:
 		if !v.isValidExpressionHandle(kind.Base) {
 			v.addErrorInExpression(handle, fmt.Sprintf("base expression %d does not exist", kind.Base))
 		}
 
-	case ExprSplat:
-		if kind.Size != Vec2 && kind.Size != Vec3 && kind.Size != Vec4 {
+	case ir.ExprSplat:
+		if kind.Size != ir.Vec2 && kind.Size != ir.Vec3 && kind.Size != ir.Vec4 {
 			v.addErrorInExpression(handle, fmt.Sprintf("splat size must be 2, 3, or 4, got %d", kind.Size))
 		}
 		if !v.isValidExpressionHandle(kind.Value) {
 			v.addErrorInExpression(handle, fmt.Sprintf("value expression %d does not exist", kind.Value))
 		}
 
-	case ExprSwizzle:
-		if kind.Size != Vec2 && kind.Size != Vec3 && kind.Size != Vec4 {
+	case ir.ExprSwizzle:
+		if kind.Size != ir.Vec2 && kind.Size != ir.Vec3 && kind.Size != ir.Vec4 {
 			v.addErrorInExpression(handle, fmt.Sprintf("swizzle size must be 2, 3, or 4, got %d", kind.Size))
 		}
 		if !v.isValidExpressionHandle(kind.Vector) {
 			v.addErrorInExpression(handle, fmt.Sprintf("vector expression %d does not exist", kind.Vector))
 		}
 		for i := 0; i < int(kind.Size); i++ {
-			if kind.Pattern[i] > SwizzleW {
+			if kind.Pattern[i] > ir.SwizzleW {
 				v.addErrorInExpression(handle, fmt.Sprintf("pattern[%d] invalid component %d", i, kind.Pattern[i]))
 			}
 		}
 
-	case ExprFunctionArgument:
+	case ir.ExprFunctionArgument:
 		if v.context.function != nil {
 			if int(kind.Index) >= len(v.context.function.Arguments) {
 				v.addErrorInExpression(handle, fmt.Sprintf("argument index %d out of range (function has %d args)",
@@ -459,12 +480,12 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			}
 		}
 
-	case ExprGlobalVariable:
+	case ir.ExprGlobalVariable:
 		if !v.isValidGlobalVariableHandle(kind.Variable) {
 			v.addErrorInExpression(handle, fmt.Sprintf("global variable %d does not exist", kind.Variable))
 		}
 
-	case ExprLocalVariable:
+	case ir.ExprLocalVariable:
 		if v.context.function != nil {
 			if int(kind.Variable) >= len(v.context.function.LocalVars) {
 				v.addErrorInExpression(handle, fmt.Sprintf("local variable index %d out of range (function has %d vars)",
@@ -472,12 +493,12 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			}
 		}
 
-	case ExprLoad:
+	case ir.ExprLoad:
 		if !v.isValidExpressionHandle(kind.Pointer) {
 			v.addErrorInExpression(handle, fmt.Sprintf("pointer expression %d does not exist", kind.Pointer))
 		}
 
-	case ExprImageSample:
+	case ir.ExprImageSample:
 		if !v.isValidExpressionHandle(kind.Image) {
 			v.addErrorInExpression(handle, fmt.Sprintf("image expression %d does not exist", kind.Image))
 		}
@@ -497,7 +518,7 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			v.addErrorInExpression(handle, fmt.Sprintf("depth ref expression %d does not exist", *kind.DepthRef))
 		}
 
-	case ExprImageLoad:
+	case ir.ExprImageLoad:
 		if !v.isValidExpressionHandle(kind.Image) {
 			v.addErrorInExpression(handle, fmt.Sprintf("image expression %d does not exist", kind.Image))
 		}
@@ -514,17 +535,17 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			v.addErrorInExpression(handle, fmt.Sprintf("level expression %d does not exist", *kind.Level))
 		}
 
-	case ExprImageQuery:
+	case ir.ExprImageQuery:
 		if !v.isValidExpressionHandle(kind.Image) {
 			v.addErrorInExpression(handle, fmt.Sprintf("image expression %d does not exist", kind.Image))
 		}
 
-	case ExprUnary:
+	case ir.ExprUnary:
 		if !v.isValidExpressionHandle(kind.Expr) {
 			v.addErrorInExpression(handle, fmt.Sprintf("operand expression %d does not exist", kind.Expr))
 		}
 
-	case ExprBinary:
+	case ir.ExprBinary:
 		if !v.isValidExpressionHandle(kind.Left) {
 			v.addErrorInExpression(handle, fmt.Sprintf("left expression %d does not exist", kind.Left))
 		}
@@ -532,7 +553,7 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			v.addErrorInExpression(handle, fmt.Sprintf("right expression %d does not exist", kind.Right))
 		}
 
-	case ExprSelect:
+	case ir.ExprSelect:
 		if !v.isValidExpressionHandle(kind.Condition) {
 			v.addErrorInExpression(handle, fmt.Sprintf("condition expression %d does not exist", kind.Condition))
 		}
@@ -543,17 +564,17 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			v.addErrorInExpression(handle, fmt.Sprintf("reject expression %d does not exist", kind.Reject))
 		}
 
-	case ExprDerivative:
+	case ir.ExprDerivative:
 		if !v.isValidExpressionHandle(kind.Expr) {
 			v.addErrorInExpression(handle, fmt.Sprintf("expression %d does not exist", kind.Expr))
 		}
 
-	case ExprRelational:
+	case ir.ExprRelational:
 		if !v.isValidExpressionHandle(kind.Argument) {
 			v.addErrorInExpression(handle, fmt.Sprintf("argument expression %d does not exist", kind.Argument))
 		}
 
-	case ExprMath:
+	case ir.ExprMath:
 		if !v.isValidExpressionHandle(kind.Arg) {
 			v.addErrorInExpression(handle, fmt.Sprintf("arg expression %d does not exist", kind.Arg))
 		}
@@ -567,17 +588,17 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			v.addErrorInExpression(handle, fmt.Sprintf("arg3 expression %d does not exist", *kind.Arg3))
 		}
 
-	case ExprAs:
+	case ir.ExprAs:
 		if !v.isValidExpressionHandle(kind.Expr) {
 			v.addErrorInExpression(handle, fmt.Sprintf("expression %d does not exist", kind.Expr))
 		}
 
-	case ExprCallResult:
+	case ir.ExprCallResult:
 		if !v.isValidFunctionHandle(kind.Function) {
 			v.addErrorInExpression(handle, fmt.Sprintf("function %d does not exist", kind.Function))
 		}
 
-	case ExprArrayLength:
+	case ir.ExprArrayLength:
 		if !v.isValidExpressionHandle(kind.Array) {
 			v.addErrorInExpression(handle, fmt.Sprintf("array expression %d does not exist", kind.Array))
 		} else if v.isSizedArrayPointer(kind.Array) {
@@ -585,18 +606,18 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 			v.addErrorInExpression(handle, fmt.Sprintf("Array length of [%d] can't be done", kind.Array))
 		}
 
-	case ExprRayQueryProceedResult:
+	case ir.ExprRayQueryProceedResult:
 		// No fields to validate — result is produced by StmtRayQuery with Proceed function
 
-	case ExprRayQueryGetIntersection:
+	case ir.ExprRayQueryGetIntersection:
 		if !v.isValidExpressionHandle(kind.Query) {
 			v.addErrorInExpression(handle, fmt.Sprintf("ray query expression %d does not exist", kind.Query))
 		}
 
-	case ExprSubgroupBallotResult:
+	case ir.ExprSubgroupBallotResult:
 		// No fields to validate — result is produced by StmtSubgroupBallot
 
-	case ExprSubgroupOperationResult:
+	case ir.ExprSubgroupOperationResult:
 		if !v.isValidTypeHandle(kind.Type) {
 			v.addErrorInExpression(handle, fmt.Sprintf("type %d does not exist", kind.Type))
 		}
@@ -604,7 +625,7 @@ func (v *validator) validateExpression(handle ExpressionHandle, expr *Expression
 }
 
 // validateBlock validates a block of statements.
-func (v *validator) validateBlock(block Block) {
+func (v *validator) validateBlock(block ir.Block) {
 	for i, stmt := range block {
 		v.validateStatement(i, &stmt)
 	}
@@ -612,7 +633,7 @@ func (v *validator) validateBlock(block Block) {
 
 // validateBlockWith validates a block whose statements may leave it as
 // flow allows.
-func (v *validator) validateBlockWith(block Block, flow controlFlowAbility) {
+func (v *validator) validateBlockWith(block ir.Block, flow controlFlowAbility) {
 	saved := v.context.flow
 	v.context.flow = flow
 	v.validateBlock(block)
@@ -620,21 +641,21 @@ func (v *validator) validateBlockWith(block Block, flow controlFlowAbility) {
 }
 
 // validateStatement validates a single statement.
-func (v *validator) validateStatement(index int, stmt *Statement) {
+func (v *validator) validateStatement(index int, stmt *ir.Statement) {
 	if stmt.Kind == nil {
 		v.addErrorInStatement(index, "statement has nil kind")
 		return
 	}
 
 	switch kind := stmt.Kind.(type) {
-	case StmtEmit:
+	case ir.StmtEmit:
 		// Validate range
 		if v.context.function != nil {
 			exprCount := uint32(len(v.context.function.Expressions))
-			if kind.Range.Start >= ExpressionHandle(exprCount) {
+			if kind.Range.Start >= ir.ExpressionHandle(exprCount) {
 				v.addErrorInStatement(index, fmt.Sprintf("emit range start %d out of range", kind.Range.Start))
 			}
-			if kind.Range.End > ExpressionHandle(exprCount) {
+			if kind.Range.End > ir.ExpressionHandle(exprCount) {
 				v.addErrorInStatement(index, fmt.Sprintf("emit range end %d out of range", kind.Range.End))
 			}
 			if kind.Range.Start >= kind.Range.End {
@@ -642,23 +663,23 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 			}
 		}
 
-	case StmtBlock:
+	case ir.StmtBlock:
 		v.validateBlock(kind.Block)
 
-	case StmtIf:
+	case ir.StmtIf:
 		if !v.isValidExpressionHandle(kind.Condition) {
 			v.addErrorInStatement(index, fmt.Sprintf("condition expression %d does not exist", kind.Condition))
 		}
 		v.validateBlock(kind.Accept)
 		v.validateBlock(kind.Reject)
 
-	case StmtSwitch:
+	case ir.StmtSwitch:
 		if !v.isValidExpressionHandle(kind.Selector) {
 			v.addErrorInStatement(index, fmt.Sprintf("selector expression %d does not exist", kind.Selector))
 		}
 		hasDefault := false
 		for _, c := range kind.Cases {
-			if _, ok := c.Value.(SwitchValueDefault); ok {
+			if _, ok := c.Value.(ir.SwitchValueDefault); ok {
 				if hasDefault {
 					v.addErrorInStatement(index, "switch has multiple default cases")
 				}
@@ -670,7 +691,7 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 			v.addErrorInStatement(index, "switch missing default case")
 		}
 
-	case StmtLoop:
+	case ir.StmtLoop:
 		v.validateBlockWith(kind.Body, v.context.flow&abilityReturn|abilityBreak|abilityContinue)
 		v.validateBlockWith(kind.Continuing, 0)
 
@@ -681,17 +702,17 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 		}
 
 	// The messages are Rust naga's FunctionError texts.
-	case StmtBreak:
+	case ir.StmtBreak:
 		if v.context.flow&abilityBreak == 0 {
 			v.addErrorInStatement(index, "The `break` is used outside of a `loop` or `switch` context")
 		}
 
-	case StmtContinue:
+	case ir.StmtContinue:
 		if v.context.flow&abilityContinue == 0 {
 			v.addErrorInStatement(index, "The `continue` is used outside of a `loop` context")
 		}
 
-	case StmtReturn:
+	case ir.StmtReturn:
 		if v.context.flow&abilityReturn == 0 {
 			v.addErrorInStatement(index, "The `return` is called within a `continuing` block")
 		}
@@ -701,14 +722,14 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 			}
 		}
 
-	case StmtKill:
+	case ir.StmtKill:
 		// Allowed anywhere in a fragment shader, a continuing block too
 		// (Rust naga checks only the stage).
 
-	case StmtControlBarrier, StmtMemoryBarrier:
+	case ir.StmtControlBarrier, ir.StmtMemoryBarrier:
 		// Barriers are always valid
 
-	case StmtStore:
+	case ir.StmtStore:
 		if !v.isValidExpressionHandle(kind.Pointer) {
 			v.addErrorInStatement(index, fmt.Sprintf("pointer expression %d does not exist", kind.Pointer))
 		}
@@ -716,7 +737,7 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 			v.addErrorInStatement(index, fmt.Sprintf("value expression %d does not exist", kind.Value))
 		}
 
-	case StmtImageStore:
+	case ir.StmtImageStore:
 		if !v.isValidExpressionHandle(kind.Image) {
 			v.addErrorInStatement(index, fmt.Sprintf("image expression %d does not exist", kind.Image))
 		}
@@ -730,7 +751,7 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 			v.addErrorInStatement(index, fmt.Sprintf("value expression %d does not exist", kind.Value))
 		}
 
-	case StmtAtomic:
+	case ir.StmtAtomic:
 		if !v.isValidExpressionHandle(kind.Pointer) {
 			v.addErrorInStatement(index, fmt.Sprintf("pointer expression %d does not exist", kind.Pointer))
 		}
@@ -741,7 +762,7 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 			v.addErrorInStatement(index, fmt.Sprintf("result expression %d does not exist", *kind.Result))
 		}
 
-	case StmtWorkGroupUniformLoad:
+	case ir.StmtWorkGroupUniformLoad:
 		if !v.isValidExpressionHandle(kind.Pointer) {
 			v.addErrorInStatement(index, fmt.Sprintf("pointer expression %d does not exist", kind.Pointer))
 		}
@@ -749,7 +770,7 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 			v.addErrorInStatement(index, fmt.Sprintf("result expression %d does not exist", kind.Result))
 		}
 
-	case StmtCall:
+	case ir.StmtCall:
 		if !v.isValidFunctionHandle(kind.Function) {
 			v.addErrorInStatement(index, fmt.Sprintf("function %d does not exist", kind.Function))
 		}
@@ -762,7 +783,7 @@ func (v *validator) validateStatement(index int, stmt *Statement) {
 			v.addErrorInStatement(index, fmt.Sprintf("result expression %d does not exist", *kind.Result))
 		}
 
-	case StmtRayQuery:
+	case ir.StmtRayQuery:
 		if !v.isValidExpressionHandle(kind.Query) {
 			v.addErrorInStatement(index, fmt.Sprintf("query expression %d does not exist", kind.Query))
 		}
@@ -787,7 +808,7 @@ func (v *validator) validateEntryPoints() {
 
 		// Validate stage-specific requirements
 		switch ep.Stage {
-		case StageVertex:
+		case ir.StageVertex:
 			// Vertex shader must return @builtin(position)
 			// Position can be either:
 			// 1. Direct return: fn() -> @builtin(position) vec4<f32>
@@ -798,11 +819,11 @@ func (v *validator) validateEntryPoints() {
 				v.addError(fmt.Sprintf("entry point %q (@vertex): must return @builtin(position)", ep.Name))
 			}
 
-		case StageFragment:
+		case ir.StageFragment:
 			// Fragment shader can optionally return with location binding
 			// No strict validation here as fragment can be void
 
-		case StageCompute:
+		case ir.StageCompute:
 			// Compute shader must have workgroup size
 			if ep.Workgroup[0] == 0 || ep.Workgroup[1] == 0 || ep.Workgroup[2] == 0 {
 				v.addError(fmt.Sprintf("entry point %q (@compute): workgroup size must be non-zero", ep.Name))
@@ -817,7 +838,7 @@ func (v *validator) validateEntryPoints() {
 			function:       fn,
 			functionName:   ep.Name,
 			flow:           abilityReturn,
-			expressionUsed: make(map[ExpressionHandle]bool),
+			expressionUsed: make(map[ir.ExpressionHandle]bool),
 		}
 		v.validateFunction(fn)
 	}
@@ -827,7 +848,7 @@ func (v *validator) validateEntryPoints() {
 // entry point's arguments and result, struct members included: the
 // interpolation part of Rust naga's VaryingContext::validate_impl
 // (valid/interface.rs). The messages are Rust's VaryingError texts.
-func (v *validator) validateVaryings(ep *EntryPoint) {
+func (v *validator) validateVaryings(ep *ir.EntryPoint) {
 	fn := &ep.Function
 	for i := range fn.Arguments {
 		arg := &fn.Arguments[i]
@@ -840,12 +861,12 @@ func (v *validator) validateVaryings(ep *EntryPoint) {
 
 // validateVarying checks one entry point argument or result: its binding,
 // or each struct member's.
-func (v *validator) validateVarying(ep *EntryPoint, where string, ty TypeHandle, binding *Binding, output bool) {
+func (v *validator) validateVarying(ep *ir.EntryPoint, where string, ty ir.TypeHandle, binding *ir.Binding, output bool) {
 	if binding == nil {
 		if !v.isValidTypeHandle(ty) {
 			return
 		}
-		if st, ok := v.module.Types[ty].Inner.(StructType); ok {
+		if st, ok := v.module.Types[ty].Inner.(ir.StructType); ok {
 			for _, m := range st.Members {
 				if m.Binding != nil {
 					v.validateVarying(ep, where, m.Type, m.Binding, output)
@@ -854,7 +875,7 @@ func (v *validator) validateVarying(ep *EntryPoint, where string, ty TypeHandle,
 		}
 		return
 	}
-	loc, ok := (*binding).(LocationBinding)
+	loc, ok := (*binding).(ir.LocationBinding)
 	if !ok {
 		return
 	}
@@ -866,20 +887,20 @@ func (v *validator) validateVarying(ep *EntryPoint, where string, ty TypeHandle,
 // locationVaryingError returns Rust's VaryingError text for a location
 // binding whose interpolation does not fit its stage, direction and type, or
 // "" when it fits.
-func (v *validator) locationVaryingError(stage ShaderStage, ty TypeHandle, loc LocationBinding, output bool) string {
+func (v *validator) locationVaryingError(stage ir.ShaderStage, ty ir.TypeHandle, loc ir.LocationBinding, output bool) string {
 	if !v.isValidTypeHandle(ty) {
 		return ""
 	}
-	perVertex := loc.Interpolation != nil && *loc.Interpolation == InterpolationPerVertex
+	perVertex := loc.Interpolation != nil && *loc.Interpolation == ir.InterpolationPerVertex
 	if perVertex {
-		if stage != StageFragment {
+		if stage != ir.StageFragment {
 			return "Interpolation PerVertex is only valid for stage Fragment"
 		}
-		if loc.Sampling != nil && *loc.Sampling != SamplingCenter {
+		if loc.Sampling != nil && *loc.Sampling != ir.SamplingCenter {
 			return "Per vertex can only have Center sampling or no sampling modifier"
 		}
 		// The checks below are on the element type of the array<T, 3>.
-		arr, ok := v.module.Types[ty].Inner.(ArrayType)
+		arr, ok := v.module.Types[ty].Inner.(ir.ArrayType)
 		if !ok || arr.Size.Constant == nil || *arr.Size.Constant != 3 {
 			return "Per vertex fragment inputs must be an array of length 3."
 		}
@@ -891,19 +912,19 @@ func (v *validator) locationVaryingError(stage ShaderStage, ty TypeHandle, loc L
 
 	// Only a fragment input reads a per-primitive value outside a mesh
 	// shader's primitive outputs, which are not entry point results.
-	if loc.PerPrimitive && (stage != StageFragment || output) {
+	if loc.PerPrimitive && (stage != ir.StageFragment || output) {
 		return "The `@per_primitive` attribute can only be used in fragment shader inputs or mesh shader primitive outputs"
 	}
 
 	if loc.Interpolation != nil && loc.Sampling != nil {
 		valid := false
 		switch *loc.Interpolation {
-		case InterpolationPerspective, InterpolationLinear:
+		case ir.InterpolationPerspective, ir.InterpolationLinear:
 			s := *loc.Sampling
-			valid = s == SamplingCenter || s == SamplingCentroid || s == SamplingSample
-		case InterpolationFlat:
-			valid = *loc.Sampling == SamplingFirst || *loc.Sampling == SamplingEither
-		case InterpolationPerVertex:
+			valid = s == ir.SamplingCenter || s == ir.SamplingCentroid || s == ir.SamplingSample
+		case ir.InterpolationFlat:
+			valid = *loc.Sampling == ir.SamplingFirst || *loc.Sampling == ir.SamplingEither
+		case ir.InterpolationPerVertex:
 			valid = true // Center only, checked above
 		}
 		if !valid {
@@ -913,34 +934,34 @@ func (v *validator) locationVaryingError(stage ShaderStage, ty TypeHandle, loc L
 
 	var needsInterpolation bool
 	switch stage {
-	case StageVertex, StageMesh:
+	case ir.StageVertex, ir.StageMesh:
 		needsInterpolation = output
-	case StageFragment:
+	case ir.StageFragment:
 		needsInterpolation = !output && !loc.PerPrimitive
 	}
 	if perVertex || !needsInterpolation {
 		return ""
 	}
-	var kind ScalarKind
+	var kind ir.ScalarKind
 	switch t := v.module.Types[ty].Inner.(type) {
-	case ScalarType:
+	case ir.ScalarType:
 		kind = t.Kind
-	case VectorType:
+	case ir.VectorType:
 		kind = t.Scalar.Kind
-	case MatrixType:
+	case ir.MatrixType:
 		kind = t.Scalar.Kind
 	default:
 		return ""
 	}
 	switch kind {
-	case ScalarFloat:
+	case ir.ScalarFloat:
 		// The frontend applies the default interpolation to floats.
 		if loc.Interpolation == nil {
 			return "Interpolation must be specified on vertex shader outputs and fragment shader inputs"
 		}
-	case ScalarSint, ScalarUint:
+	case ir.ScalarSint, ir.ScalarUint:
 		// Integers have no default interpolation: flat must be explicit.
-		if loc.Interpolation == nil || *loc.Interpolation != InterpolationFlat {
+		if loc.Interpolation == nil || *loc.Interpolation != ir.InterpolationFlat {
 			return "`@interpolate(flat)` must be explicitly specified for integer I/O"
 		}
 	}
@@ -951,7 +972,7 @@ func (v *validator) locationVaryingError(stage ShaderStage, ty TypeHandle, loc L
 // This can be either:
 // 1. Direct binding on result: fn() -> @builtin(position) vec4<f32>
 // 2. Struct member binding: fn() -> Struct { @builtin(position) pos: vec4<f32> }
-func (v *validator) hasPositionBuiltin(result *FunctionResult) bool {
+func (v *validator) hasPositionBuiltin(result *ir.FunctionResult) bool {
 	// Case 1: Direct binding on result
 	if result.Binding != nil && isPositionBuiltin(*result.Binding) {
 		return true
@@ -962,17 +983,17 @@ func (v *validator) hasPositionBuiltin(result *FunctionResult) bool {
 }
 
 // isPositionBuiltin checks if a binding is @builtin(position).
-func isPositionBuiltin(binding Binding) bool {
-	b, ok := binding.(BuiltinBinding)
-	return ok && b.Builtin == BuiltinPosition
+func isPositionBuiltin(binding ir.Binding) bool {
+	b, ok := binding.(ir.BuiltinBinding)
+	return ok && b.Builtin == ir.BuiltinPosition
 }
 
 // structHasPositionBuiltin checks if a struct type has a member with @builtin(position).
-func (v *validator) structHasPositionBuiltin(typeHandle TypeHandle) bool {
+func (v *validator) structHasPositionBuiltin(typeHandle ir.TypeHandle) bool {
 	if int(typeHandle) >= len(v.module.Types) {
 		return false
 	}
-	structType, ok := v.module.Types[typeHandle].Inner.(StructType)
+	structType, ok := v.module.Types[typeHandle].Inner.(ir.StructType)
 	if !ok {
 		return false
 	}
@@ -986,23 +1007,23 @@ func (v *validator) structHasPositionBuiltin(typeHandle TypeHandle) bool {
 
 // Helper methods for validation
 
-func (v *validator) isValidTypeHandle(handle TypeHandle) bool {
+func (v *validator) isValidTypeHandle(handle ir.TypeHandle) bool {
 	return int(handle) < len(v.module.Types)
 }
 
-func (v *validator) isValidConstantHandle(handle ConstantHandle) bool {
+func (v *validator) isValidConstantHandle(handle ir.ConstantHandle) bool {
 	return int(handle) < len(v.module.Constants)
 }
 
-func (v *validator) isValidGlobalVariableHandle(handle GlobalVariableHandle) bool {
+func (v *validator) isValidGlobalVariableHandle(handle ir.GlobalVariableHandle) bool {
 	return int(handle) < len(v.module.GlobalVariables)
 }
 
-func (v *validator) isValidFunctionHandle(handle FunctionHandle) bool {
+func (v *validator) isValidFunctionHandle(handle ir.FunctionHandle) bool {
 	return int(handle) < len(v.module.Functions)
 }
 
-func (v *validator) isValidExpressionHandle(handle ExpressionHandle) bool {
+func (v *validator) isValidExpressionHandle(handle ir.ExpressionHandle) bool {
 	if v.context.function == nil {
 		return false
 	}
@@ -1010,22 +1031,22 @@ func (v *validator) isValidExpressionHandle(handle ExpressionHandle) bool {
 }
 
 func (v *validator) addError(msg string) {
-	v.errors = append(v.errors, ValidationError{
+	v.errors = append(v.errors, Error{
 		Message:   msg,
 		Statement: -1,
 	})
 }
 
 func (v *validator) addErrorInFunction(msg string) {
-	v.errors = append(v.errors, ValidationError{
+	v.errors = append(v.errors, Error{
 		Message:   msg,
 		Function:  v.context.functionName,
 		Statement: -1,
 	})
 }
 
-func (v *validator) addErrorInExpression(handle ExpressionHandle, msg string) {
-	v.errors = append(v.errors, ValidationError{
+func (v *validator) addErrorInExpression(handle ir.ExpressionHandle, msg string) {
+	v.errors = append(v.errors, Error{
 		Message:    msg,
 		Function:   v.context.functionName,
 		Expression: &handle,
@@ -1034,7 +1055,7 @@ func (v *validator) addErrorInExpression(handle ExpressionHandle, msg string) {
 }
 
 func (v *validator) addErrorInStatement(index int, msg string) {
-	v.errors = append(v.errors, ValidationError{
+	v.errors = append(v.errors, Error{
 		Message:   msg,
 		Function:  v.context.functionName,
 		Statement: index,
@@ -1043,14 +1064,14 @@ func (v *validator) addErrorInStatement(index int, msg string) {
 
 // containsPendingArray reports a type that is, or holds, an array sized by
 // an override.
-func (v *validator) containsPendingArray(h TypeHandle, depth int) bool {
+func (v *validator) containsPendingArray(h ir.TypeHandle, depth int) bool {
 	if depth > 32 || !v.isValidTypeHandle(h) {
 		return false
 	}
 	switch t := v.module.Types[h].Inner.(type) {
-	case ArrayType:
+	case ir.ArrayType:
 		return t.Size.Pending != nil || v.containsPendingArray(t.Base, depth+1)
-	case StructType:
+	case ir.StructType:
 		for _, m := range t.Members {
 			if v.containsPendingArray(m.Type, depth+1) {
 				return true
@@ -1062,15 +1083,19 @@ func (v *validator) containsPendingArray(h TypeHandle, depth int) bool {
 
 // isSizedArrayPointer reports a pointer, in the function being validated,
 // to an array that is not runtime-sized.
-func (v *validator) isSizedArrayPointer(h ExpressionHandle) bool {
-	fn := v.context.function
-	if fn == nil || int(h) >= len(fn.ExpressionTypes) {
+func (v *validator) isSizedArrayPointer(h ir.ExpressionHandle) bool {
+	types := v.context.types
+	if types == nil || int(h) >= types.Len() {
 		return false
 	}
-	ptr, ok := fn.ExpressionTypes[h].Inner(v.module.Types).(PointerType)
+	res := types.Get(h)
+	if res.Handle != nil && !v.isValidTypeHandle(*res.Handle) {
+		return false
+	}
+	ptr, ok := res.Inner(v.module.Types).(ir.PointerType)
 	if !ok || !v.isValidTypeHandle(ptr.Base) {
 		return false
 	}
-	at, ok := v.module.Types[ptr.Base].Inner.(ArrayType)
+	at, ok := v.module.Types[ptr.Base].Inner.(ir.ArrayType)
 	return ok && !at.Size.IsRuntimeSized()
 }

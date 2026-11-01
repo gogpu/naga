@@ -330,7 +330,6 @@ func TestGLSL_DerivativeExpressions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(1)
 
 			module := &ir.Module{
@@ -343,10 +342,6 @@ func TestGLSL_DerivativeExpressions(t *testing.T) {
 						Expressions: []ir.Expression{
 							{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 							{Kind: ir.ExprDerivative{Axis: tt.axis, Control: tt.control, Expr: 0}},
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tF32},
-							{Handle: &tF32},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -424,7 +419,6 @@ func TestGLSL_Statements(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_LoopWithBreakIf(t *testing.T) {
-	tBool := ir.TypeHandle(0)
 	breakIfExpr := ir.ExpressionHandle(0)
 
 	module := &ir.Module{
@@ -435,9 +429,6 @@ func TestGLSL_LoopWithBreakIf(t *testing.T) {
 			Name: "test_fn",
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tBool},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtLoop{
@@ -458,8 +449,6 @@ func TestGLSL_LoopWithBreakIf(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_SwitchStatements(t *testing.T) {
-	tI32 := ir.TypeHandle(0)
-
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
@@ -468,9 +457,6 @@ func TestGLSL_SwitchStatements(t *testing.T) {
 			Name: "test_fn",
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tI32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtSwitch{
@@ -572,9 +558,6 @@ func TestGLSL_RayQueryUnsupported(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprZeroValue{Type: tI32}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tI32},
-			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtRayQuery{
 					Query: 0,
@@ -636,7 +619,6 @@ func TestGLSL_Literals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(0)
 
 			module := &ir.Module{
@@ -648,9 +630,6 @@ func TestGLSL_Literals(t *testing.T) {
 						Name: "test_fn",
 						Expressions: []ir.Expression{
 							{Kind: ir.Literal{Value: tt.literal}},
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tF32},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
@@ -697,7 +676,6 @@ func TestGLSL_BinaryOperators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(2)
 
 			module := &ir.Module{
@@ -711,11 +689,6 @@ func TestGLSL_BinaryOperators(t *testing.T) {
 							{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 							{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
 							{Kind: ir.ExprBinary{Op: tt.op, Left: 0, Right: 1}},
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tF32},
-							{Handle: &tF32},
-							{Handle: &tF32},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -747,7 +720,6 @@ func TestGLSL_UnaryOperators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(1)
 
 			module := &ir.Module{
@@ -760,10 +732,6 @@ func TestGLSL_UnaryOperators(t *testing.T) {
 						Expressions: []ir.Expression{
 							{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 							{Kind: ir.ExprUnary{Op: tt.op, Expr: 0}},
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tF32},
-							{Handle: &tF32},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -817,8 +785,6 @@ func TestGLSL_VersionDirective450(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_IfStatement(t *testing.T) {
-	tBool := ir.TypeHandle(0)
-	tF32 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(2)
 
 	module := &ir.Module{
@@ -832,11 +798,6 @@ func TestGLSL_IfStatement(t *testing.T) {
 				{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tBool},
-				{Handle: &tF32},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -854,8 +815,6 @@ func TestGLSL_IfStatement(t *testing.T) {
 }
 
 func TestGLSL_IfElseStatement(t *testing.T) {
-	tBool := ir.TypeHandle(0)
-	tF32 := ir.TypeHandle(1)
 	expr1 := ir.ExpressionHandle(1)
 	expr2 := ir.ExpressionHandle(2)
 
@@ -870,11 +829,6 @@ func TestGLSL_IfElseStatement(t *testing.T) {
 				{Kind: ir.Literal{Value: ir.LiteralBool(true)}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tBool},
-				{Handle: &tF32},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -896,8 +850,6 @@ func TestGLSL_IfElseStatement(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_StoreStatement(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
-
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
@@ -907,10 +859,6 @@ func TestGLSL_StoreStatement(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(42.0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -982,7 +930,6 @@ func TestGLSL_MathExpressions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			retExpr := ir.ExpressionHandle(1)
 
 			module := &ir.Module{
@@ -994,10 +941,6 @@ func TestGLSL_MathExpressions(t *testing.T) {
 					Expressions: []ir.Expression{
 						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 						{Kind: ir.ExprMath{Fun: tt.fun, Arg: 0}},
-					},
-					ExpressionTypes: []ir.TypeResolution{
-						{Handle: &tF32},
-						{Handle: &tF32},
 					},
 					Body: []ir.Statement{
 						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1031,7 +974,6 @@ func TestGLSL_MathTwoArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			arg1 := ir.ExpressionHandle(1)
 			retExpr := ir.ExpressionHandle(2)
 
@@ -1045,11 +987,6 @@ func TestGLSL_MathTwoArgs(t *testing.T) {
 						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 						{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
 						{Kind: ir.ExprMath{Fun: tt.fun, Arg: 0, Arg1: &arg1}},
-					},
-					ExpressionTypes: []ir.TypeResolution{
-						{Handle: &tF32},
-						{Handle: &tF32},
-						{Handle: &tF32},
 					},
 					Body: []ir.Statement{
 						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -1080,7 +1017,6 @@ func TestGLSL_MathThreeArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
 			arg1 := ir.ExpressionHandle(1)
 			arg2 := ir.ExpressionHandle(2)
 			retExpr := ir.ExpressionHandle(3)
@@ -1096,12 +1032,6 @@ func TestGLSL_MathThreeArgs(t *testing.T) {
 						{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
 						{Kind: ir.Literal{Value: ir.LiteralF32(3.0)}},
 						{Kind: ir.ExprMath{Fun: tt.fun, Arg: 0, Arg1: &arg1, Arg2: &arg2}},
-					},
-					ExpressionTypes: []ir.TypeResolution{
-						{Handle: &tF32},
-						{Handle: &tF32},
-						{Handle: &tF32},
-						{Handle: &tF32},
 					},
 					Body: []ir.Statement{
 						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -1120,8 +1050,6 @@ func TestGLSL_MathThreeArgs(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_SelectExpression(t *testing.T) {
-	tBool := ir.TypeHandle(0)
-	tF32 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(3)
 
 	module := &ir.Module{
@@ -1136,12 +1064,6 @@ func TestGLSL_SelectExpression(t *testing.T) {
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(2.0)}},
 				{Kind: ir.ExprSelect{Condition: 0, Accept: 1, Reject: 2}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tBool},
-				{Handle: &tF32},
-				{Handle: &tF32},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
@@ -1169,8 +1091,6 @@ func TestGLSL_RelationalExpressions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tF32 := ir.TypeHandle(0)
-			tBool := ir.TypeHandle(1)
 			retExpr := ir.ExpressionHandle(1)
 
 			module := &ir.Module{
@@ -1183,10 +1103,6 @@ func TestGLSL_RelationalExpressions(t *testing.T) {
 					Expressions: []ir.Expression{
 						{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 						{Kind: ir.ExprRelational{Fun: tt.fun, Argument: 0}},
-					},
-					ExpressionTypes: []ir.TypeResolution{
-						{Handle: &tF32},
-						{Handle: &tBool},
 					},
 					Body: []ir.Statement{
 						{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1206,8 +1122,6 @@ func TestGLSL_RelationalExpressions(t *testing.T) {
 
 func TestGLSL_AsExpression(t *testing.T) {
 	t.Run("convert", func(t *testing.T) {
-		tF32 := ir.TypeHandle(0)
-		tI32 := ir.TypeHandle(1)
 		width := uint8(4)
 		retExpr := ir.ExpressionHandle(1)
 
@@ -1222,10 +1136,6 @@ func TestGLSL_AsExpression(t *testing.T) {
 					{Kind: ir.Literal{Value: ir.LiteralF32(3.14)}},
 					{Kind: ir.ExprAs{Expr: 0, Kind: ir.ScalarSint, Convert: &width}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-					{Handle: &tI32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1237,8 +1147,6 @@ func TestGLSL_AsExpression(t *testing.T) {
 	})
 
 	t.Run("bitcast", func(t *testing.T) {
-		tF32 := ir.TypeHandle(0)
-		tI32 := ir.TypeHandle(1)
 		retExpr := ir.ExpressionHandle(1)
 
 		module := &ir.Module{
@@ -1251,10 +1159,6 @@ func TestGLSL_AsExpression(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.Literal{Value: ir.LiteralF32(3.14)}},
 					{Kind: ir.ExprAs{Expr: 0, Kind: ir.ScalarSint, Convert: nil}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tF32},
-					{Handle: &tI32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1284,9 +1188,6 @@ func TestGLSL_ZeroValueExpression(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprZeroValue{Type: tF32}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 				{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1315,9 +1216,6 @@ func TestGLSL_ReturnWithValue(t *testing.T) {
 			Result: &ir.FunctionResult{Type: tF32},
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralF32(42.0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
@@ -1364,9 +1262,6 @@ func TestGLSL_CallStatement(t *testing.T) {
 
 func TestGLSL_ImageStoreStatement(t *testing.T) {
 	_ = ir.TypeHandle(0) // tF32
-	tVec2 := ir.TypeHandle(1)
-	tVec4 := ir.TypeHandle(2)
-	tImg := ir.TypeHandle(3)
 
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -1381,11 +1276,6 @@ func TestGLSL_ImageStoreStatement(t *testing.T) {
 				{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}}, // image placeholder
 				{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}}, // coordinate placeholder
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}}, // value placeholder
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tImg},
-				{Handle: &tVec2},
-				{Handle: &tVec4},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -1402,8 +1292,6 @@ func TestGLSL_ImageStoreStatement(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_AtomicStatement(t *testing.T) {
-	tI32 := ir.TypeHandle(0)
-
 	opts := DefaultOptions()
 	opts.LangVersion = Version{Major: 4, Minor: 30}
 
@@ -1416,10 +1304,6 @@ func TestGLSL_AtomicStatement(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
 				{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tI32},
-				{Handle: &tI32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1439,8 +1323,6 @@ func TestGLSL_AtomicStatement(t *testing.T) {
 }
 
 func TestGLSL_AtomicVersionRequirement(t *testing.T) {
-	tI32 := ir.TypeHandle(0)
-
 	opts := DefaultOptions()
 	opts.LangVersion = Version{Major: 3, Minor: 0}
 
@@ -1453,10 +1335,6 @@ func TestGLSL_AtomicVersionRequirement(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
 				{Kind: ir.Literal{Value: ir.LiteralI32(1)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tI32},
-				{Handle: &tI32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1475,8 +1353,6 @@ func TestGLSL_AtomicVersionRequirement(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_WorkGroupUniformLoadStatement(t *testing.T) {
-	tI32 := ir.TypeHandle(0)
-
 	opts := DefaultOptions()
 	opts.LangVersion = Version{Major: 4, Minor: 30}
 
@@ -1489,10 +1365,6 @@ func TestGLSL_WorkGroupUniformLoadStatement(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
 				{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tI32},
-				{Handle: &tI32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1564,11 +1436,6 @@ func TestGLSL_LocalVariableAndLoad(t *testing.T) {
 				{Kind: ir.ExprLoad{Pointer: 0}},
 				{Kind: ir.Literal{Value: ir.LiteralF32(42.0)}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-				{Handle: &tF32},
-				{Handle: &tF32},
-			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 				{Kind: ir.StmtStore{Pointer: 0, Value: 2}},
@@ -1584,8 +1451,6 @@ func TestGLSL_LocalVariableAndLoad(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_SplatExpression(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
-	tVec4 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(1)
 
 	module := &ir.Module{
@@ -1598,10 +1463,6 @@ func TestGLSL_SplatExpression(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				{Kind: ir.ExprSplat{Value: 0, Size: 4}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-				{Handle: &tVec4},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1643,9 +1504,6 @@ func TestGLSL_VertexEntryPoint(t *testing.T) {
 				},
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprFunctionArgument{Index: 0}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec4},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
@@ -1690,9 +1548,6 @@ func TestGLSL_FragmentEntryPoint(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprFunctionArgument{Index: 0}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tVec2},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1726,9 +1581,6 @@ func TestGLSL_ConstantExpression(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprConstant{Constant: 0}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 				{Kind: ir.StmtReturn{Value: (*ir.ExpressionHandle)(&tF32)}},
@@ -1759,10 +1611,6 @@ func TestGLSL_GlobalVariable(t *testing.T) {
 				{Kind: ir.ExprGlobalVariable{Variable: 0}},
 				{Kind: ir.ExprLoad{Pointer: 0}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-				{Handle: &tF32},
-			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 				{Kind: ir.StmtReturn{Value: (*ir.ExpressionHandle)(&tF32)}},
@@ -1778,7 +1626,6 @@ func TestGLSL_GlobalVariable(t *testing.T) {
 // =============================================================================
 
 func TestGLSL_QuantizeToF16_Scalar(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	retExpr := ir.ExpressionHandle(1)
 
 	module := &ir.Module{
@@ -1790,10 +1637,6 @@ func TestGLSL_QuantizeToF16_Scalar(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 				{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1808,7 +1651,6 @@ func TestGLSL_QuantizeToF16_Scalar(t *testing.T) {
 }
 
 func TestGLSL_QuantizeToF16_Vec2(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	tVec2 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(1)
 
@@ -1823,10 +1665,6 @@ func TestGLSL_QuantizeToF16_Vec2(t *testing.T) {
 				{Kind: ir.ExprZeroValue{Type: tVec2}},
 				{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},
 			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tVec2},
-				{Handle: &tF32},
-			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
 				{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1839,7 +1677,6 @@ func TestGLSL_QuantizeToF16_Vec2(t *testing.T) {
 }
 
 func TestGLSL_QuantizeToF16_Vec3(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	tVec3 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(1)
 
@@ -1853,10 +1690,6 @@ func TestGLSL_QuantizeToF16_Vec3(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprZeroValue{Type: tVec3}},
 				{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tVec3},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1872,7 +1705,6 @@ func TestGLSL_QuantizeToF16_Vec3(t *testing.T) {
 }
 
 func TestGLSL_QuantizeToF16_Vec4(t *testing.T) {
-	tF32 := ir.TypeHandle(0)
 	tVec4 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(1)
 
@@ -1886,10 +1718,6 @@ func TestGLSL_QuantizeToF16_Vec4(t *testing.T) {
 			Expressions: []ir.Expression{
 				{Kind: ir.ExprZeroValue{Type: tVec4}},
 				{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tVec4},
-				{Handle: &tF32},
 			},
 			Body: []ir.Statement{
 				{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 2}}},
@@ -1927,7 +1755,6 @@ func TestGLSL_ImageQuery_SizeUintWrap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tImg := ir.TypeHandle(0)
-			tU32 := ir.TypeHandle(1)
 			retExpr := ir.ExpressionHandle(3)
 
 			outBinding := ir.Binding(ir.LocationBinding{Location: 0})
@@ -1969,12 +1796,6 @@ func TestGLSL_ImageQuery_SizeUintWrap(t *testing.T) {
 								Query: ir.ImageQuerySize{},
 							}},
 						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tU32},
-							{Handle: &tImg},
-							{Handle: &tU32},
-							{Handle: &tU32},
-						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},
 							{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -1996,7 +1817,6 @@ func TestGLSL_ImageQuery_NumLevels(t *testing.T) {
 	u32 := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
 	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	tImg := ir.TypeHandle(0)
-	tU32 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(2)
 
 	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
@@ -2026,9 +1846,6 @@ func TestGLSL_ImageQuery_NumLevels(t *testing.T) {
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					{Kind: ir.ExprImageQuery{Image: 1, Query: ir.ImageQueryNumLevels{}}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tU32}, {Handle: &tImg}, {Handle: &tU32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
 					{Kind: ir.StmtReturn{Value: &retExpr}},
@@ -2048,7 +1865,6 @@ func TestGLSL_ImageQuery_NumSamples(t *testing.T) {
 	u32 := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
 	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	tImg := ir.TypeHandle(0)
-	tU32 := ir.TypeHandle(1)
 	retExpr := ir.ExpressionHandle(2)
 
 	outBinding := ir.Binding(ir.LocationBinding{Location: 0})
@@ -2077,9 +1893,6 @@ func TestGLSL_ImageQuery_NumSamples(t *testing.T) {
 					{Kind: ir.ExprFunctionArgument{Index: 0}},
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					{Kind: ir.ExprImageQuery{Image: 1, Query: ir.ImageQueryNumSamples{}}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tU32}, {Handle: &tImg}, {Handle: &tU32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -2117,7 +1930,6 @@ func TestGLSL_ImageAtomic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tU32 := ir.TypeHandle(0)
 			tImg := ir.TypeHandle(1)
 			tIvec2 := ir.TypeHandle(2)
 
@@ -2139,11 +1951,6 @@ func TestGLSL_ImageAtomic(t *testing.T) {
 							{Kind: ir.ExprGlobalVariable{Variable: 0}},   // [0] image
 							{Kind: ir.ExprZeroValue{Type: tIvec2}},       // [1] coord
 							{Kind: ir.Literal{Value: ir.LiteralU32(42)}}, // [2] value
-						},
-						ExpressionTypes: []ir.TypeResolution{
-							{Handle: &tImg},
-							{Handle: &tIvec2},
-							{Handle: &tU32},
 						},
 						Body: []ir.Statement{
 							{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -2171,7 +1978,6 @@ func TestGLSL_ImageAtomic(t *testing.T) {
 
 func TestGLSL_ImageAtomic_Subtract(t *testing.T) {
 	// Subtract is emulated as atomicAdd with negated value.
-	tU32 := ir.TypeHandle(0)
 	tImg := ir.TypeHandle(1)
 	tIvec2 := ir.TypeHandle(2)
 
@@ -2193,11 +1999,6 @@ func TestGLSL_ImageAtomic_Subtract(t *testing.T) {
 					{Kind: ir.ExprGlobalVariable{Variable: 0}},
 					{Kind: ir.ExprZeroValue{Type: tIvec2}},
 					{Kind: ir.Literal{Value: ir.LiteralU32(5)}},
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tImg},
-					{Handle: &tIvec2},
-					{Handle: &tU32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
@@ -2225,7 +2026,6 @@ func TestGLSL_ImageAtomic_Subtract(t *testing.T) {
 
 func TestGLSL_ImageAtomic_WithArrayIndex(t *testing.T) {
 	// When array index is present, coord should be wrapped in ivec3.
-	tU32 := ir.TypeHandle(0)
 	tImg := ir.TypeHandle(1)
 	tIvec2 := ir.TypeHandle(2)
 
@@ -2249,12 +2049,6 @@ func TestGLSL_ImageAtomic_WithArrayIndex(t *testing.T) {
 					{Kind: ir.ExprZeroValue{Type: tIvec2}},
 					{Kind: ir.Literal{Value: ir.LiteralU32(1)}},
 					{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // array index
-				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &tImg},
-					{Handle: &tIvec2},
-					{Handle: &tU32},
-					{Handle: &tU32},
 				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},

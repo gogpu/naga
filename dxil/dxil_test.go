@@ -239,9 +239,6 @@ func TestCompile_PassthroughVertex(t *testing.T) {
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vec4f32Handle},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 			{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -321,7 +318,6 @@ func TestCompile_RetailHash(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprFunctionArgument{Index: 0}},
 				},
-				ExpressionTypes: []ir.TypeResolution{{Handle: &vec4f32Handle}},
 				Body: []ir.Statement{
 					{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 1}}},
 					{Kind: ir.StmtReturn{Value: &retHandle}},
@@ -381,7 +377,6 @@ func TestCompile_RetailHash(t *testing.T) {
 // TestCompile_SimpleFragment tests compilation of a minimal fragment shader.
 func TestCompile_SimpleFragment(t *testing.T) {
 	vec4f32Handle := ir.TypeHandle(0)
-	f32Handle := ir.TypeHandle(1)
 
 	irMod := &ir.Module{
 		Types: []ir.Type{
@@ -405,13 +400,6 @@ func TestCompile_SimpleFragment(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 1, 2, 3}}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &f32Handle},
-			{Handle: &vec4f32Handle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},
@@ -861,7 +849,6 @@ func TestBuildPSVSampleFrequency(t *testing.T) {
 func TestOutputIDIsSignatureIndex(t *testing.T) {
 	vec2f32 := ir.TypeHandle(0)
 	vec4f32 := ir.TypeHandle(1)
-	f32 := ir.TypeHandle(2)
 
 	locBinding := ir.Binding(ir.LocationBinding{Location: 0})
 	posBinding := ir.Binding(ir.BuiltinBinding{Builtin: ir.BuiltinPosition})
@@ -897,10 +884,6 @@ func TestOutputIDIsSignatureIndex(t *testing.T) {
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 1}}},       // vec2 uv
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{0, 0, 0, 3}}}, // vec4 pos
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{4, 5}}},       // struct
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32},
-			{Handle: &vec2f32}, {Handle: &vec4f32}, {Handle: &structHandle},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 7}}},
@@ -1145,12 +1128,6 @@ func TestModuleUsesLowPrecision_QuantizeF16NotTriggered(t *testing.T) {
 			{Kind: ir.ExprMath{Fun: ir.MathQuantizeToF16, Arg: 0}},                // [1] quantizeToF16(v)
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [2] 1.0
 			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 1, 1, 2}}}, // [3] vec4
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32},
-			{Handle: &f32},
-			{Handle: &f32},
-			{Handle: &vec4},
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 4}}},

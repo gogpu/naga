@@ -596,12 +596,7 @@ type Function struct {
 	Result      *FunctionResult
 	LocalVars   []LocalVariable
 	Expressions []Expression
-	// ExpressionTypes is the type of each expression, parallel to
-	// Expressions, as the WGSL frontend and ProcessOverrides record it.
-	// Validate is its one reader left (ADR-010 B4: it goes once the
-	// validator types expressions itself); backends type the IR.
-	ExpressionTypes []TypeResolution
-	Body            Block
+	Body        Block
 
 	// NamedExpressions maps expression handles to user-given names.
 	// This is used for let bindings and phony assignments (_ = expr).
