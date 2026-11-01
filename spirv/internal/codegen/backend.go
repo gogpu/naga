@@ -513,7 +513,7 @@ func (b *Backend) emitCapabilities() {
 	b.addCapability(CapabilityShader)
 
 	// Add user-requested capabilities
-	for _, cap := range b.options.Capabilities {
+	for _, cap := range b.options.ExtraCapabilities {
 		b.addCapability(cap)
 	}
 }
@@ -532,13 +532,13 @@ func (b *Backend) addCapability(capability Capability) {
 }
 
 // capabilityAvailable checks whether a capability may be used.
-// When CapabilitiesAvailable is nil (the default), all capabilities are
+// When AllowedCapabilities is nil (the default), all capabilities are
 // available. Otherwise, the capability must be present in the set.
 func (b *Backend) capabilityAvailable(capability Capability) bool {
-	if b.options.CapabilitiesAvailable == nil {
+	if b.options.AllowedCapabilities == nil {
 		return true
 	}
-	_, ok := b.options.CapabilitiesAvailable[capability]
+	_, ok := b.options.AllowedCapabilities[capability]
 	return ok
 }
 

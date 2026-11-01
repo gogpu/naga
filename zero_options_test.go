@@ -3,6 +3,7 @@ package naga
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -523,6 +524,25 @@ func TestZeroSPIRVAdjustCoordinateSpace(t *testing.T) {
 		if got := countOp(ops, opFNegate); got != want {
 			t.Errorf("AdjustCoordinateSpace %v: %d OpFNegate, want %d", adjust, got, want)
 		}
+	}
+}
+
+// TestZeroCompileOptions: the zero CompileOptions is DefaultOptions, and it
+// validates the module with the core capabilities, as Rust naga's CLI does:
+// f64 needs CapFloat64, and SkipValidation compiles without the check.
+func TestZeroCompileOptions(t *testing.T) {
+	if !reflect.DeepEqual(DefaultOptions(), CompileOptions{}) {
+		t.Errorf("DefaultOptions() = %+v, want the zero value", DefaultOptions())
+	}
+	const f64Shader = `@compute @workgroup_size(1) fn main() { var x: f64; }`
+	if _, err := Compile(f64Shader); err == nil || !strings.Contains(err.Error(), "validation") {
+		t.Errorf("zero options, f64: err = %v, want a validation error", err)
+	}
+	if _, err := CompileWithOptions(f64Shader, CompileOptions{Capabilities: CapFloat64}); err != nil {
+		t.Errorf("CapFloat64: %v", err)
+	}
+	if _, err := CompileWithOptions(f64Shader, CompileOptions{SkipValidation: true}); err != nil {
+		t.Errorf("SkipValidation: %v", err)
 	}
 }
 

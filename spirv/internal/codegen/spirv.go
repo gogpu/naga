@@ -28,8 +28,8 @@ type Options struct {
 	// Version is the SPIR-V version to target
 	Version Version
 
-	// Capabilities are additional capabilities to declare
-	Capabilities []Capability
+	// ExtraCapabilities are declared in addition to those the module needs.
+	ExtraCapabilities []Capability
 
 	// Debug includes debug information
 	Debug bool
@@ -60,11 +60,11 @@ type Options struct {
 	// EntryPoint selects the one entry point to write; nil writes all.
 	EntryPoint *backend.EntryPointSelector
 
-	// CapabilitiesAvailable limits which capabilities may be used. When nil,
+	// AllowedCapabilities limits which capabilities may be used. When nil,
 	// all capabilities are available (the default). When non-nil, only
 	// capabilities present in the set may be used; others trigger polyfills.
 	// This matches Rust naga's Options::capabilities field.
-	CapabilitiesAvailable map[Capability]struct{}
+	AllowedCapabilities map[Capability]struct{}
 
 	// RayQueryInitTracking enables initialization tracking for ray queries.
 	// When true (default), ray query helper functions include validation checks

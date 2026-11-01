@@ -65,9 +65,8 @@ func main() {
 
 	// Compile WGSL to SPIR-V
 	opts := naga.CompileOptions{
-		SPIRVVersion: spirv.Version1_3,
-		Debug:        *debugFlag,
-		Validate:     *validate,
+		SPIRV:          spirv.Options{Version: spirv.Version1_3, Debug: *debugFlag},
+		SkipValidation: !*validate,
 	}
 	spirvBytes, err := naga.CompileWithOptions(string(source), opts)
 	if err != nil {

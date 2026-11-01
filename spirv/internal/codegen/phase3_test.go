@@ -72,7 +72,7 @@ func TestForceLoopBounding(t *testing.T) {
 
 // TestDot4PolyfillWhenCapNotAvailable verifies that dot4I8Packed/dot4U8Packed
 // fall back to a polyfill (BitFieldExtract + IMul + IAdd) when DotProduct
-// capability is not in CapabilitiesAvailable.
+// capability is not in AllowedCapabilities.
 func TestDot4PolyfillWhenCapNotAvailable(t *testing.T) {
 	source := `@compute @workgroup_size(1)
 fn main() {
@@ -83,7 +83,7 @@ fn main() {
 }`
 	opts := DefaultOptions()
 	// Restrict capabilities to just Matrix — no DotProduct
-	opts.CapabilitiesAvailable = map[Capability]struct{}{
+	opts.AllowedCapabilities = map[Capability]struct{}{
 		CapabilityShader: {},
 		CapabilityMatrix: {},
 	}

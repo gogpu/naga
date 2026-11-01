@@ -171,7 +171,7 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 					}
 				}
 				if len(caps) > 0 {
-					opts.CapabilitiesAvailable = caps
+					opts.AllowedCapabilities = caps
 				}
 			}
 		}

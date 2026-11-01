@@ -36,7 +36,6 @@ package naga
 import (
 	"fmt"
 
-	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv"
 	"github.com/gogpu/naga/wgsl"
@@ -60,37 +59,27 @@ const (
 
 // CompileOptions configures shader compilation.
 type CompileOptions struct {
-	// SPIRVVersion is the target SPIR-V version (default: 1.3)
-	SPIRVVersion spirv.Version
+	// SPIRV is the SPIR-V backend's options, all of them. Its zero value is
+	// the safe set: SPIR-V 1.0, Restrict bounds checks, bounded loops,
+	// workgroup memory zeroed, every binding required. A shader that needs
+	// a newer SPIR-V version (subgroup operations need 1.3) is an error
+	// until SPIRV.Version gives one; the backend never raises it.
+	SPIRV spirv.Options
 
-	// Debug enables debug info in output (OpName, OpLine, etc.)
-	Debug bool
-
-	// Validate enables IR validation before code generation
-	Validate bool
-
-	// Capabilities controls which extended scalar types are allowed.
-	// Zero value rejects f64/i64/u64/f16 (matching Rust naga defaults).
-	// Use [CapFloat64], [CapShaderInt64], [CapShaderFloat16] to enable specific types,
-	// or [CapAll] to permit everything.
+	// Capabilities is what the IR validator allows beyond the core: the
+	// zero value rejects f64, i64, u64 and f16, as Rust naga's default
+	// does. Use [CapFloat64], [CapShaderInt64], [CapShaderFloat16] to
+	// enable one, or [CapAll] to permit everything.
 	Capabilities ir.Capabilities
 
-	// BoundsCheckPolicies selects how the generated SPIR-V handles indices
-	// and image loads that are out of bounds; see
-	// spirv.Options.BoundsCheckPolicies. The zero value is Restrict
-	// everywhere, which WebGPU requires. A device with robust buffer and
-	// image access can set Buffer and ImageLoad to Unchecked, as Rust
-	// wgpu-hal's Vulkan backend does.
-	BoundsCheckPolicies backend.BoundsCheckPolicies
+	// SkipValidation compiles the module without validating it first. The
+	// zero value validates, as Rust naga's CLI does.
+	SkipValidation bool
 }
 
-// DefaultOptions returns sensible default options.
+// DefaultOptions returns the zero CompileOptions, the safe defaults.
 func DefaultOptions() CompileOptions {
-	return CompileOptions{
-		SPIRVVersion: spirv.Version1_3,
-		Debug:        false,
-		Validate:     true,
-	}
+	return CompileOptions{}
 }
 
 // Compile compiles WGSL source code to SPIR-V binary using default options.
@@ -125,8 +114,8 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 		return nil, fmt.Errorf("lowering error: %w", err)
 	}
 
-	// Validate IR if requested (includes capability checks)
-	if opts.Validate {
+	// Validate IR unless skipped (includes capability checks)
+	if !opts.SkipValidation {
 		validationErrors, err := ir.ValidateWithCapabilities(module, opts.Capabilities)
 		if err != nil {
 			return nil, fmt.Errorf("validation error: %w", err)
@@ -141,13 +130,7 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 		return nil, fmt.Errorf("pipeline constants: %w", err)
 	}
 
-	// Generate SPIR-V
-	spirvOpts := spirv.Options{
-		Version:             opts.SPIRVVersion,
-		Debug:               opts.Debug,
-		BoundsCheckPolicies: opts.BoundsCheckPolicies,
-	}
-	spirvBytes, err := GenerateSPIRV(module, spirvOpts)
+	spirvBytes, err := GenerateSPIRV(module, opts.SPIRV)
 	if err != nil {
 		return nil, fmt.Errorf("SPIR-V generation error: %w", err)
 	}
