@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -631,10 +632,10 @@ func TestWriterFlags(t *testing.T) {
 
 func TestBoundsCheckPolicy_Values(t *testing.T) {
 	// Ensure policies have distinct values
-	if BoundsCheckUnchecked == BoundsCheckRestrict {
+	if backend.BoundsCheckUnchecked == backend.BoundsCheckRestrict {
 		t.Error("Unchecked and Restrict should be different")
 	}
-	if BoundsCheckRestrict == BoundsCheckReadZeroSkipWrite {
+	if backend.BoundsCheckRestrict == backend.BoundsCheckReadZeroSkipWrite {
 		t.Error("Restrict and ReadZeroSkipWrite should be different")
 	}
 }

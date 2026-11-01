@@ -6,6 +6,7 @@ package codegen
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -204,7 +205,7 @@ func (w *Writer) maybeEmitExpression(handle ir.ExpressionHandle) error {
 	// Pre-emit clamped LOD for Restrict-policy ImageLoad on mipmapped sampled images.
 	// Rust naga emits this as a separate statement BEFORE baking the ImageLoad expression.
 	// Pattern: int _eN_clamped_lod = clamp(level, 0, textureQueryLevels(image) - 1);
-	if w.options.BoundsCheckPolicies.ImageLoad == BoundsCheckRestrict {
+	if w.options.BoundsCheckPolicies.ImageLoad == backend.BoundsCheckRestrict {
 		if err := w.maybeEmitClampedLod(handle); err != nil {
 			return err
 		}

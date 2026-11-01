@@ -4,6 +4,10 @@
 package codegen
 
 import (
+	"fmt"
+	"strings"
+
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -43,6 +47,116 @@ const (
 // featuresManager collects and writes required features.
 type featuresManager struct {
 	required Features
+	// forImageLoadChecks are the features only the ImageLoad bounds checks
+	// asked for, so the error for a missing one can name the policy.
+	forImageLoadChecks Features
+}
+
+// featureNames are Rust naga's names of the features, in bit order, for
+// error messages.
+var featureNames = []struct {
+	feature Features
+	name    string
+}{
+	{FeatureBufferStorage, "BUFFER_STORAGE"},
+	{FeatureArrayOfArrays, "ARRAY_OF_ARRAYS"},
+	{FeatureDoubleType, "DOUBLE_TYPE"},
+	{FeatureFullImageFormats, "FULL_IMAGE_FORMATS"},
+	{FeatureMultisampledTextures, "MULTISAMPLED_TEXTURES"},
+	{FeatureMultisampledTexArrays, "MULTISAMPLED_TEXTURE_ARRAYS"},
+	{FeatureCubeTexturesArray, "CUBE_TEXTURES_ARRAY"},
+	{FeatureComputeShader, "COMPUTE_SHADER"},
+	{FeatureImageLoadStore, "IMAGE_LOAD_STORE"},
+	{FeatureConservativeDepth, "CONSERVATIVE_DEPTH"},
+	{FeatureNoPerspective, "NOPERSPECTIVE_QUALIFIER"},
+	{FeatureSampleQualifier, "SAMPLE_QUALIFIER"},
+	{FeatureClipDistance, "CLIP_DISTANCE"},
+	{FeatureCullDistance, "CULL_DISTANCE"},
+	{FeatureSampleVariables, "SAMPLE_VARIABLES"},
+	{FeatureDynamicArraySize, "DYNAMIC_ARRAY_SIZE"},
+	{FeatureMultiView, "MULTI_VIEW"},
+	{FeatureTextureSamples, "TEXTURE_SAMPLES"},
+	{FeatureTextureLevels, "TEXTURE_LEVELS"},
+	{FeatureImageSize, "IMAGE_SIZE"},
+	{FeatureDualSourceBlending, "DUAL_SOURCE_BLENDING"},
+	{FeatureInstanceIndex, "INSTANCE_INDEX"},
+	{FeatureTextureShadowLod, "TEXTURE_SHADOW_LOD"},
+	{FeatureSubgroupOperations, "SUBGROUP_OPERATIONS"},
+	{FeatureTextureAtomics, "TEXTURE_ATOMICS"},
+	{FeatureShaderBarycentrics, "SHADER_BARYCENTRICS"},
+}
+
+// String returns the names of the features joined by " | ", as Rust naga's
+// Display for Features.
+func (f Features) String() string {
+	var names []string
+	for _, n := range featureNames {
+		if f&n.feature != 0 {
+			names = append(names, n.name)
+		}
+	}
+	return strings.Join(names, " | ")
+}
+
+// checkAvailability returns an error naming the required features that
+// version v lacks, as Rust naga's FeaturesManager::check_availability does:
+// writing them anyway gives GLSL the driver rejects. A feature with only a
+// core version is missing on every GLSL ES version; with an ES version too,
+// it is missing below it.
+func (fm *featuresManager) checkAvailability(v Version) error {
+	var missing Features
+	core := func(f Features, coreVersion int) {
+		if fm.required&f != 0 && (v.ES || v.versionLessThan(coreVersion)) {
+			missing |= f
+		}
+	}
+	coreES := func(f Features, coreVersion, esVersion int) {
+		if fm.required&f == 0 {
+			return
+		}
+		if v.ES && v.versionLessThan(esVersion) || !v.ES && v.versionLessThan(coreVersion) {
+			missing |= f
+		}
+	}
+	coreES(FeatureComputeShader, 420, 310)
+	coreES(FeatureBufferStorage, 400, 310)
+	core(FeatureDoubleType, 150)
+	coreES(FeatureCubeTexturesArray, 130, 310)
+	coreES(FeatureMultisampledTextures, 150, 300)
+	coreES(FeatureMultisampledTexArrays, 150, 310)
+	coreES(FeatureArrayOfArrays, 120, 310)
+	coreES(FeatureImageLoadStore, 130, 310)
+	coreES(FeatureConservativeDepth, 130, 300)
+	core(FeatureNoPerspective, 130)
+	coreES(FeatureSampleQualifier, 400, 320)
+	coreES(FeatureClipDistance, 130, 300)
+	coreES(FeatureCullDistance, 450, 300)
+	coreES(FeatureSampleVariables, 400, 300)
+	coreES(FeatureDynamicArraySize, 400, 310)
+	coreES(FeatureDualSourceBlending, 330, 300)
+	coreES(FeatureSubgroupOperations, 430, 310)
+	coreES(FeatureTextureAtomics, 420, 310)
+	if v.isWebGL() {
+		coreES(FeatureMultiView, 140, 300)
+	} else {
+		coreES(FeatureMultiView, 140, 310)
+	}
+	// Only desktop GLSL can query the number of samples and levels of an
+	// image, so GLSL ES cannot bounds-check the sample or level of a
+	// texelFetch either.
+	core(FeatureTextureSamples, 150)
+	core(FeatureTextureLevels, 130)
+	coreES(FeatureImageSize, 430, 310)
+	coreES(FeatureTextureShadowLod, 200, 300)
+	if missing == 0 {
+		return nil
+	}
+	err := fmt.Errorf("GLSL %s doesn't support the required feature(s): %s", v, missing)
+	if missing&fm.forImageLoadChecks != 0 {
+		err = fmt.Errorf("%w (the ImageLoad bounds checks need them; set BoundsCheckPolicies.ImageLoad to Unchecked "+
+			"for this target, as wgpu-hal does below desktop GLSL 4.30)", err)
+	}
+	return err
 }
 
 func (fm *featuresManager) request(f Features) {
@@ -196,8 +310,13 @@ func (w *Writer) collectFeatures() {
 		}
 	}
 
-	// Scan globals for features
+	// Scan the globals the entry point uses for features; Rust naga skips
+	// the others (ep_info[handle].is_empty()), which the GLSL of this entry
+	// point does not declare.
 	for handle, global := range w.module.GlobalVariables {
+		if w.reachable != nil && !w.reachable.hasGlobal(ir.GlobalVariableHandle(handle)) {
+			continue
+		}
 		switch global.Space {
 		case ir.SpaceWorkGroup:
 			w.features.request(FeatureComputeShader)
@@ -206,8 +325,7 @@ func (w *Writer) collectFeatures() {
 			// The readonly qualifier of a read-only buffer block is one of
 			// the memory qualifiers, which desktop GLSL below 420 only has
 			// through GL_ARB_shader_image_load_store.
-			used := w.reachable == nil || w.reachable.hasGlobal(ir.GlobalVariableHandle(handle))
-			if used && global.Access == ir.StorageRead {
+			if global.Access == ir.StorageRead {
 				w.features.request(FeatureImageLoadStore)
 			}
 		}
@@ -311,12 +429,14 @@ func (w *Writer) scanExpressionFeatures(ep *ir.EntryPoint) {
 			case ir.ExprImageLoad:
 				// Bounds-checked image loads with sample/level need extension.
 				// Matches Rust naga: only when BoundsCheckPolicy != Unchecked.
-				if w.options.BoundsCheckPolicies.ImageLoad != BoundsCheckUnchecked {
+				if w.options.BoundsCheckPolicies.ImageLoad != backend.BoundsCheckUnchecked {
 					if k.Sample != nil {
 						w.features.request(FeatureTextureSamples)
+						w.features.forImageLoadChecks |= FeatureTextureSamples
 					}
 					if k.Level != nil {
 						w.features.request(FeatureTextureLevels)
+						w.features.forImageLoadChecks |= FeatureTextureLevels
 					}
 				}
 			case ir.ExprImageSample:

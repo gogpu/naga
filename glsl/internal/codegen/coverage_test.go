@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl"
 )
@@ -1992,8 +1993,8 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 `
 	output := wgslToGLSL(t, source, Options{
 		LangVersion: Version330,
-		BoundsCheckPolicies: BoundsCheckPolicies{
-			ImageLoad: BoundsCheckRestrict,
+		BoundsCheckPolicies: backend.BoundsCheckPolicies{
+			ImageLoad: backend.BoundsCheckRestrict,
 		},
 	})
 	glslMustContain(t, output, "texelFetch(")
@@ -2010,8 +2011,8 @@ fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 `
 	output := wgslToGLSL(t, source, Options{
 		LangVersion: Version330,
-		BoundsCheckPolicies: BoundsCheckPolicies{
-			ImageLoad: BoundsCheckReadZeroSkipWrite,
+		BoundsCheckPolicies: backend.BoundsCheckPolicies{
+			ImageLoad: backend.BoundsCheckReadZeroSkipWrite,
 		},
 	})
 	glslMustContain(t, output, "texelFetch(")

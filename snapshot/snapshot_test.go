@@ -74,6 +74,7 @@ func compileToIR(t *testing.T, name, source string) *ir.Module {
 // readRustSPVConfig reads a Rust TOML config file and returns SPIR-V options.
 func readRustSPVConfig(shaderName string) spirv.Options {
 	opts := spirv.DefaultOptions()
+	opts.BoundsCheckPolicies = uncheckedPolicies() // Rust default, also without a TOML file
 
 	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
@@ -580,7 +581,7 @@ type glslConfig struct {
 	version             glsl.Version // defaults to ES 310 (Rust default)
 	writerFlags         glsl.WriterFlags
 	excludeList         map[string]bool // entry points to skip
-	boundsCheckPolicies glsl.BoundsCheckPolicies
+	boundsCheckPolicies backend.BoundsCheckPolicies
 	bindingMap          map[glsl.BindingMapKey]uint8
 }
 
@@ -599,9 +600,10 @@ func (c glslConfig) toOptions() glsl.Options {
 // Returns Rust defaults (ES 310, ADJUST_COORDINATE_SPACE) if no TOML file exists.
 func readGLSLConfig(shaderName string) (glslConfig, error) {
 	cfg := glslConfig{
-		version:     glsl.Version{Major: 3, Minor: 10, ES: true}, // Rust default: ES 310
-		writerFlags: glsl.WriterFlagAdjustCoordinateSpace,        // Rust default
-		excludeList: make(map[string]bool),
+		version:             glsl.Version{Major: 3, Minor: 10, ES: true}, // Rust default: ES 310
+		writerFlags:         glsl.WriterFlagAdjustCoordinateSpace,        // Rust default
+		excludeList:         make(map[string]bool),
+		boundsCheckPolicies: glslBoundsCheckPolicies(rustBoundsCheckPolicies{}), // Rust default: Unchecked
 	}
 
 	tomlPath := rustParamsPath(shaderName)
@@ -750,14 +752,8 @@ func parseGLSLBindingMap(glslSection string) map[glsl.BindingMapKey]uint8 {
 // glsl options. Rust's GLSL writer honors image_load only, so the index and
 // buffer policies stay unchecked as there (Rust's [bounds_check_policies] has
 // no image_store field).
-func glslBoundsCheckPolicies(p rustBoundsCheckPolicies) glsl.BoundsCheckPolicies {
-	switch p.imageLoad {
-	case rustRestrict:
-		return glsl.BoundsCheckPolicies{ImageLoad: glsl.BoundsCheckRestrict}
-	case rustReadZeroSkipWrite:
-		return glsl.BoundsCheckPolicies{ImageLoad: glsl.BoundsCheckReadZeroSkipWrite}
-	}
-	return glsl.BoundsCheckPolicies{}
+func glslBoundsCheckPolicies(p rustBoundsCheckPolicies) backend.BoundsCheckPolicies {
+	return backendBoundsCheckPolicies(rustBoundsCheckPolicies{imageLoad: p.imageLoad})
 }
 
 // extractGLSLSection extracts the [glsl] section from TOML content.

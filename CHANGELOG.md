@@ -19,13 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ZeroInitWorkgroupNative` (`OpConstantNull` initializers) is SPIR-V only and an error elsewhere;
   `ZeroInitWorkgroupNone` leaves the memory as it is. Replaces the `msl` and `hlsl` bools of that name, whose zero
   value skipped the zeroing WebGPU requires, and `glsl`/`dxil` `SkipWorkgroupMemoryZeroInit`.
-- **Breaking: shared bounds-check policies.** `spirv`, `msl` and `naga.CompileOptions` `BoundsCheckPolicies` are
+- **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access
   can set `Buffer` and `ImageLoad` to it). msl's `Image` field is `ImageLoad`, as in Rust and the other backends, and
   `msl.BoundsCheckPolicies.Contains` is gone; `msl.DefaultBoundsCheckPolicies` still returns `ReadZeroSkipWrite`
-  everywhere. An unbounded binding array under `Restrict` in SPIR-V takes its size from the binding map
-  (`BindingArraySize`), as wgpu passes it.
+  everywhere. glsl's `ImageStore` field, which nothing read, is gone (Rust has none); `BindingArray` has no effect
+  there, as GLSL has no binding arrays. An unbounded binding array under `Restrict` in SPIR-V takes its size from the
+  binding map (`BindingArraySize`), as wgpu passes it. GLSL ES cannot query a texture's levels or samples, so it
+  cannot check the level or sample of a `textureLoad`: a GLSL ES target sets `ImageLoad` to `Unchecked`, as wgpu-hal
+  does below desktop GLSL 4.30, or compiling such a load fails with an error that says so.
 
 ### Added
 
@@ -48,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Rust naga does the same); `ReadZeroSkipWrite` on a multisampled or storage texture branched without an
   `OpSelectionMerge`; and both queried a `texture_external` with `OpImageQuerySize`, which only multisampled and
   storage images take (level 0 is queried now).
+- **GLSL: a feature the target version lacks is an error**, as Rust naga's `check_availability` makes it, instead
+  of GLSL the driver rejects: a compute shader, a storage buffer or `sample` interpolation on GLSL 3.30, and a
+  checked `textureLoad` level or sample on GLSL ES (which has no `textureQueryLevels`) compiled before. Features are
+  now collected only from the globals the entry point uses, as in Rust, so an entry point beside a storage buffer it
+  does not use no longer asks for `GL_ARB_shader_storage_buffer_object`.
 - **DXIL: silent miscompiles of control flow.** A `break` in a `switch` inside a loop left the loop (P0-DXIL-057);
   a `return` inside control flow of an entry point did nothing, so out-of-range invocations past a bounds guard
   kept writing (P0-DXIL-052); `discard` was dropped (P0-DXIL-068). Every return of an entry point now branches to

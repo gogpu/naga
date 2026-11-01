@@ -106,34 +106,6 @@ const (
 	WriterFlagTextureShadowLod
 )
 
-// BoundsCheckPolicy controls how out-of-bounds resource accesses are handled.
-type BoundsCheckPolicy uint8
-
-// Bounds check policy constants.
-const (
-	// BoundsCheckUnchecked performs no bounds checking.
-	BoundsCheckUnchecked BoundsCheckPolicy = iota
-	// BoundsCheckRestrict clamps indices to valid range.
-	BoundsCheckRestrict
-	// BoundsCheckReadZeroSkipWrite returns zero for reads, skips writes.
-	BoundsCheckReadZeroSkipWrite
-)
-
-// BoundsCheckPolicies holds per-resource-type bounds check policies.
-type BoundsCheckPolicies struct {
-	// Index applies to indexing an array, vector or matrix that is a value
-	// or lives in function, private or workgroup memory. Restrict clamps
-	// the index to the last element; ReadZeroSkipWrite is not supported
-	// and makes Compile fail.
-	Index BoundsCheckPolicy
-	// Buffer is Index for one in a uniform or storage buffer.
-	Buffer BoundsCheckPolicy
-	// ImageLoad controls bounds checking for image load operations.
-	ImageLoad BoundsCheckPolicy
-	// ImageStore controls bounds checking for image store operations.
-	ImageStore BoundsCheckPolicy
-}
-
 // BindingMapKey identifies a resource binding for the BindingMap.
 type BindingMapKey struct {
 	Group   uint32
@@ -169,8 +141,19 @@ type Options struct {
 	// If false, uses default precision qualifiers.
 	ForceHighPrecision bool
 
-	// BoundsCheckPolicies controls bounds checking for resource accesses.
-	BoundsCheckPolicies BoundsCheckPolicies
+	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
+	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
+	// which WebGPU requires; Rust naga's default is Unchecked. Per field:
+	//   - Index and Buffer: Restrict clamps the index with min(); Unchecked
+	//     adds nothing; ReadZeroSkipWrite is not supported and makes Compile
+	//     fail.
+	//   - ImageLoad: Restrict clamps the coordinates, level and sample to
+	//     the image's size; ReadZeroSkipWrite returns zero for a load out of
+	//     bounds; Unchecked adds nothing. The checks need textureSize and
+	//     imageSize, as in Rust naga.
+	//   - BindingArray: GLSL has no binding arrays (Rust naga writes none
+	//     either), so it has no effect.
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 
 	// BindingMap maps resource bindings to flat GL binding indices.
 	// When set, layout(binding = N) qualifiers are emitted.
@@ -336,21 +319,16 @@ func toCodegenOptions(o Options) codegen.Options {
 			Minor: o.LangVersion.Minor,
 			ES:    o.LangVersion.ES,
 		},
-		EntryPoint:         o.EntryPoint,
-		SamplerBindingBase: o.SamplerBindingBase,
-		TextureBindingBase: o.TextureBindingBase,
-		UniformBindingBase: o.UniformBindingBase,
-		StorageBindingBase: o.StorageBindingBase,
-		WriterFlags:        codegen.WriterFlags(o.WriterFlags),
-		ForceHighPrecision: o.ForceHighPrecision,
-		BoundsCheckPolicies: codegen.BoundsCheckPolicies{
-			Index:      codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Index),
-			Buffer:     codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.Buffer),
-			ImageLoad:  codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageLoad),
-			ImageStore: codegen.BoundsCheckPolicy(o.BoundsCheckPolicies.ImageStore),
-		},
-		BindingMap:     bindingMap,
-		ClampFragDepth: o.ClampFragDepth,
+		EntryPoint:          o.EntryPoint,
+		SamplerBindingBase:  o.SamplerBindingBase,
+		TextureBindingBase:  o.TextureBindingBase,
+		UniformBindingBase:  o.UniformBindingBase,
+		StorageBindingBase:  o.StorageBindingBase,
+		WriterFlags:         codegen.WriterFlags(o.WriterFlags),
+		ForceHighPrecision:  o.ForceHighPrecision,
+		BoundsCheckPolicies: o.BoundsCheckPolicies,
+		BindingMap:          bindingMap,
+		ClampFragDepth:      o.ClampFragDepth,
 
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 	}

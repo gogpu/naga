@@ -132,7 +132,7 @@ func compileOverrides(t *testing.T, source, entry string, constants naga.Pipelin
 	if err != nil {
 		return "", err
 	}
-	code, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: entry})
+	code, _, err := glsl.Compile(module, glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: entry, BoundsCheckPolicies: uncheckedPolicies})
 	return code, err
 }
 
@@ -244,7 +244,7 @@ const d: f64 = 5.0lf;
 @group(0) @binding(0) var<storage, read_write> o: array<f64>;
 @compute @workgroup_size(1) fn main() { o[0] = d % 3.0lf; }
 `
-	code, _, err := glsl.Compile(lowerWGSL(t, src), glsl.Options{LangVersion: glsl.Version450, EntryPoint: "main"})
+	code, _, err := glsl.Compile(lowerWGSL(t, src), glsl.Options{LangVersion: glsl.Version450, EntryPoint: "main", BoundsCheckPolicies: uncheckedPolicies})
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}

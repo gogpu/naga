@@ -207,7 +207,7 @@ type Options struct {
 
 	// BoundsCheckPolicies controls bounds checking for resource accesses.
 	// Matches Rust naga's proc::BoundsCheckPolicies.
-	BoundsCheckPolicies BoundsCheckPolicies
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 
 	// BindingMap maps resource bindings to flat GL binding indices.
 	// Matches Rust naga's back::glsl::BindingMap.
@@ -229,32 +229,6 @@ type Options struct {
 type BindingMapKey struct {
 	Group   uint32
 	Binding uint32
-}
-
-// BoundsCheckPolicy controls how out-of-bounds resource accesses are handled.
-type BoundsCheckPolicy uint8
-
-const (
-	// BoundsCheckUnchecked performs no bounds checking.
-	BoundsCheckUnchecked BoundsCheckPolicy = iota
-	// BoundsCheckRestrict clamps indices to valid range.
-	BoundsCheckRestrict
-	// BoundsCheckReadZeroSkipWrite returns zero for reads, skips writes.
-	BoundsCheckReadZeroSkipWrite
-)
-
-// BoundsCheckPolicies holds per-resource-type bounds check policies.
-type BoundsCheckPolicies struct {
-	// Index applies to indexing an array, vector or matrix that is a value
-	// or lives in function, private or workgroup memory. Restrict clamps
-	// the index to the last element; ReadZeroSkipWrite is not supported.
-	Index BoundsCheckPolicy
-	// Buffer is Index for one in a uniform or storage buffer.
-	Buffer BoundsCheckPolicy
-	// ImageLoad controls bounds checking for image load operations.
-	ImageLoad BoundsCheckPolicy
-	// ImageStore controls bounds checking for image store operations.
-	ImageStore BoundsCheckPolicy
 }
 
 // DefaultOptions returns sensible default options for GLSL generation.
@@ -339,7 +313,13 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 	if options.LangVersion.Major == 0 {
 		options.LangVersion = Version330
 	}
-	if p := options.BoundsCheckPolicies; p.Index == BoundsCheckReadZeroSkipWrite || p.Buffer == BoundsCheckReadZeroSkipWrite {
+	p := options.BoundsCheckPolicies
+	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
+		if policy > backend.BoundsCheckUnchecked {
+			return "", TranslationInfo{}, fmt.Errorf("glsl: BoundsCheckPolicies: %v is not supported", policy)
+		}
+	}
+	if p.Index == backend.BoundsCheckReadZeroSkipWrite || p.Buffer == backend.BoundsCheckReadZeroSkipWrite {
 		return "", TranslationInfo{}, fmt.Errorf("glsl: the index and buffer bounds checks support Restrict only")
 	}
 	if m := options.ZeroInitializeWorkgroupMemory; m != backend.ZeroInitWorkgroupPolyfill && m != backend.ZeroInitWorkgroupNone {
