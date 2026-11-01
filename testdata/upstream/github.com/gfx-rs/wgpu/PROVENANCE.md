@@ -1,8 +1,9 @@
 # gfx-rs/wgpu example shaders (vendored)
 
-Verbatim copies of five WGSL shaders from the examples of
+Verbatim copies of twelve WGSL shaders from the examples of
 [gfx-rs/wgpu](https://github.com/gfx-rs/wgpu). The SPIR-V backend tests in
-`spirv/internal/codegen/shader_test.go` compile them as real-world inputs.
+`spirv/internal/codegen/shader_test.go` compile five of them as real-world inputs;
+`ray_examples_test.go` compiles the seven ray query examples with every backend.
 
 **Do not edit files in this directory.** Every vendored file is listed with its
 SHA-256 and git blob id in `MANIFEST.json`, and `TestUpstreamTrees`
@@ -13,7 +14,7 @@ SHA-256 and git blob id in `MANIFEST.json`, and `TestUpstreamTrees`
 - Repository: https://github.com/gfx-rs/wgpu
 - Commit: `14328f49918cce19f7cc8bf703435968c8293035` (2026-10-14), the commit our
   Rust naga corpus (`snapshot/testdata/rust`) is pinned to.
-- Taken: 2026-10-30, read from git objects (`git cat-file blob <commit>:<path>`),
+- Taken: 2026-10-30 (the ray query examples 2026-11-01), read from git objects (`git cat-file blob <commit>:<path>`),
   so the bytes do not depend on a checkout's line-ending settings.
 
 | Here | Upstream |
@@ -21,6 +22,7 @@ SHA-256 and git blob id in `MANIFEST.json`, and `TestUpstreamTrees`
 | `examples/features/src/cube/shader.wgsl` | same path |
 | `examples/features/src/hello_triangle/shader.wgsl` | same path |
 | `examples/features/src/msaa_line/shader.wgsl` | same path |
+| `examples/features/src/ray_{aabb_compute,cube_compute,cube_fragment,cube_normals,scene,shadows,traced_triangle}/shader.wgsl` | same paths |
 | `examples/features/src/render_to_texture/shader.wgsl` | same path |
 | `examples/standalone/01_hello_compute/src/shader.wgsl` | same path |
 | `LICENSE.APACHE`, `LICENSE.MIT` | repository root |

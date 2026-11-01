@@ -264,6 +264,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ray query shaders no longer panic.** Compaction kept the module's special types (the ray intersection struct, the
+  external texture parameter types) only when they were named, and never renumbered them, so once an unused type before
+  one was removed every backend indexed past the type arena: gfx-rs/wgpu's ray query examples panicked in every
+  backend. Special types and a mesh entry point's output types are now kept and renumbered, as Rust naga's compaction
+  does. gfx-rs/wgpu's seven ray query examples are vendored and compiled with every backend that writes ray queries.
+  Found by @ahmedtd while porting the examples to gogpu/wgpu (gogpu/wgpu#369).
 - **Validator: two entry points may put their own resource at one binding.** Any two globals with the same
   `@group`/`@binding` in a module were rejected; as Rust naga, a collision is now checked per entry point, among the
   globals it uses, callees included ("Entry point main at Compute is invalid: Bindings for [1] conflict with other

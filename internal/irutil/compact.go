@@ -300,6 +300,16 @@ func compactTypes(module *ir.Module) (remap []ir.TypeHandle) {
 		module.GlobalExpressions[i].Kind = remapExprTypeHandles(module.GlobalExpressions[i].Kind, remap)
 	}
 
+	// Rust's adjust_special_types. A fresh pointer, so a module sharing the
+	// old one (a clone made before compaction) keeps its own handle.
+	st := &module.SpecialTypes
+	for _, p := range []**ir.TypeHandle{&st.RayIntersection, &st.ExternalTextureParams, &st.ExternalTextureTransferFunction} {
+		if *p != nil {
+			h := remap[**p]
+			*p = &h
+		}
+	}
+
 	return remap
 }
 
@@ -353,11 +363,34 @@ func referencedTypes(module *ir.Module) []bool {
 		markFunctionTypeRefs(&module.Functions[i], referenced)
 	}
 
-	// Entry point functions (inline in EntryPoints, not in Functions[])
+	// Entry point functions (inline in EntryPoints, not in Functions[]) and
+	// the output types of a mesh entry point (Rust's compact traces
+	// MeshStageInfo).
 	for i := range module.EntryPoints {
 		markFunctionTypeRefs(&module.EntryPoints[i].Function, referenced)
+		if mi := module.EntryPoints[i].MeshInfo; mi != nil {
+			referenced[mi.VertexOutputType] = true
+			referenced[mi.PrimitiveOutputType] = true
+		}
+	}
+
+	// The special types are used by definition: backends look them up even
+	// where the IR never names them (Rust's trace_special_types).
+	for _, h := range specialTypeHandles(&module.SpecialTypes) {
+		referenced[*h] = true
 	}
 	return referenced
+}
+
+// specialTypeHandles returns the set handles of st, to mark or renumber.
+func specialTypeHandles(st *ir.SpecialTypes) []*ir.TypeHandle {
+	var hs []*ir.TypeHandle
+	for _, h := range []*ir.TypeHandle{st.RayIntersection, st.ExternalTextureParams, st.ExternalTextureTransferFunction} {
+		if h != nil {
+			hs = append(hs, h)
+		}
+	}
+	return hs
 }
 
 // remapFunctionTypes remaps all type handles within a function.
