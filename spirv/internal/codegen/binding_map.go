@@ -15,13 +15,14 @@ type bindingArrayKey struct {
 }
 
 // resolveResourceBinding returns where binding goes in SPIR-V (Rust naga's
-// resolve_resource_binding): its BindingMap entry or, unless RequireBindings
-// is set, its WGSL @group/@binding.
+// resolve_resource_binding): its BindingMap entry or its WGSL @group/@binding
+// when the map is nil or FakeMissingBindings is set; otherwise a missing
+// entry is an error.
 func (b *Backend) resolveResourceBinding(binding ir.ResourceBinding) (BindingInfo, error) {
 	if info, ok := b.options.BindingMap[binding]; ok {
 		return info, nil
 	}
-	if b.options.RequireBindings {
+	if b.options.BindingMap != nil && !b.options.FakeMissingBindings {
 		return BindingInfo{}, fmt.Errorf("%w: group %d, binding %d", backend.ErrMissingBinding, binding.Group, binding.Binding)
 	}
 	return BindingInfo{DescriptorSet: binding.Group, Binding: binding.Binding}, nil

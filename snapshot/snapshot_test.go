@@ -75,6 +75,7 @@ func compileToIR(t *testing.T, name, source string) *ir.Module {
 func readRustSPVConfig(shaderName string) spirv.Options {
 	opts := spirv.DefaultOptions()
 	opts.BoundsCheckPolicies = uncheckedPolicies() // Rust default, also without a TOML file
+	opts.FakeMissingBindings = true                // Rust default
 
 	tomlPath := rustParamsPath(shaderName)
 	data, err := os.ReadFile(tomlPath)
@@ -121,6 +122,12 @@ func readRustSPVConfig(shaderName string) spirv.Options {
 			parts := strings.SplitN(trimmed, "=", 2)
 			if len(parts) == 2 {
 				opts.AdjustCoordinateSpace = strings.TrimSpace(parts[1]) == "true"
+			}
+		}
+		if strings.HasPrefix(trimmed, "fake_missing_bindings") {
+			parts := strings.SplitN(trimmed, "=", 2)
+			if len(parts) == 2 {
+				opts.FakeMissingBindings = strings.TrimSpace(parts[1]) == "true"
 			}
 		}
 		if strings.HasPrefix(trimmed, "ray_query_initialization_tracking") {

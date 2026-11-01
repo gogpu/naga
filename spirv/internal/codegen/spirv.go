@@ -78,11 +78,11 @@ type Options struct {
 	// Options::binding_map.
 	BindingMap map[ir.ResourceBinding]BindingInfo
 
-	// RequireBindings makes a resource without a BindingMap entry an error.
-	// When false it keeps its WGSL @group/@binding. The inverse of Rust
-	// naga's fake_missing_bindings (default true), so the zero value matches
-	// Rust's default.
-	RequireBindings bool
+	// FakeMissingBindings keeps a resource that a non-nil BindingMap leaves
+	// out at its WGSL @group/@binding; without it that is an error. A nil
+	// BindingMap keeps every resource there (Rust naga's
+	// fake_missing_bindings).
+	FakeMissingBindings bool
 
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero their
 	// workgroup variables.

@@ -41,7 +41,8 @@ func lowerToIR(ast *wgsl.Module, source string) (*ir.Module, error) {
 // wgpu passes it, and Restrict needs that size.
 func generateSPIRVBinary(name string, module *ir.Module) ([]byte, error) {
 	opts := spirv.DefaultOptions()
-	opts.BindingMap = readRustSPVConfig(name).BindingMap
+	rust := readRustSPVConfig(name)
+	opts.BindingMap, opts.FakeMissingBindings = rust.BindingMap, rust.FakeMissingBindings
 	backend := spirv.NewBackend(opts)
 	spvBytes, err := backend.Compile(module)
 	if err != nil {

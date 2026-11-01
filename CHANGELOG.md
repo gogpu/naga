@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   queries tracked unless the caller opts out, as Rust naga's defaults and wgpu-hal have them. An Options literal that
   left `ForceLoopBounding` unset now bounds loops. `spirv.UseStorageInputOutput16` stays an opt-in (zero = f32
   polyfill), since it needs device support.
+- **Breaking: a binding map that leaves out a resource is an error.** A nil map is the documented identity mapping;
+  a non-nil map, empty too, must list every resource, or compiling fails with an error wrapping
+  `backend.ErrMissingBinding` unless `FakeMissingBindings` is set, as wgpu-hal runs Rust naga
+  (`fake_missing_bindings: false`). spirv: `RequireBindings` (off at zero, so a missing entry was silently kept at
+  its WGSL binding) is replaced by `FakeMissingBindings`.
 - **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl`, `dxil` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access

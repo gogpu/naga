@@ -123,9 +123,11 @@ func TestBindingMapRemapsDescriptorSetAndBinding(t *testing.T) {
 	}
 }
 
-// TestBindingMapMissingEntry pins Rust naga's fake_missing_bindings: by
-// default a resource absent from the map keeps its WGSL @group/@binding;
-// RequireBindings (fake_missing_bindings = false) makes it an error.
+// TestBindingMapMissingEntry: a nil map keeps every resource at its WGSL
+// @group/@binding; a non-nil map without an entry for a resource is an error
+// wrapping backend.ErrMissingBinding, as Rust naga with
+// fake_missing_bindings = false (what wgpu-hal passes), an empty map too;
+// FakeMissingBindings keeps the resource at its WGSL @group/@binding.
 func TestBindingMapMissingEntry(t *testing.T) {
 	other := map[ir.ResourceBinding]BindingInfo{{Group: 7, Binding: 7}: {DescriptorSet: 1, Binding: 1}}
 
@@ -136,15 +138,15 @@ func TestBindingMapMissingEntry(t *testing.T) {
 		}
 		newSPVView(t, spv).boundVariable(t, 0, 0)
 	})
-	t.Run("absent_entry_keeps_wgsl_binding", func(t *testing.T) {
-		spv, err := compileWGSLWithOpts(t, bindingMapShader, Options{Version: Version1_3, BindingMap: other})
+	t.Run("fake_missing_bindings_keeps_wgsl_binding", func(t *testing.T) {
+		spv, err := compileWGSLWithOpts(t, bindingMapShader, Options{Version: Version1_3, BindingMap: other, FakeMissingBindings: true})
 		if err != nil {
 			t.Fatalf("Compile: %v", err)
 		}
 		newSPVView(t, spv).boundVariable(t, 0, 0)
 	})
-	t.Run("require_bindings_rejects_absent_entry", func(t *testing.T) {
-		_, err := compileWGSLWithOpts(t, bindingMapShader, Options{Version: Version1_3, BindingMap: other, RequireBindings: true})
+	t.Run("absent_entry_is_an_error", func(t *testing.T) {
+		_, err := compileWGSLWithOpts(t, bindingMapShader, Options{Version: Version1_3, BindingMap: other})
 		if err == nil {
 			t.Fatal("Compile succeeded, want a missing-binding error")
 		}
@@ -155,9 +157,10 @@ func TestBindingMapMissingEntry(t *testing.T) {
 			t.Errorf("error %q does not wrap backend.ErrMissingBinding", err)
 		}
 	})
-	t.Run("require_bindings_nil_map", func(t *testing.T) {
-		if _, err := compileWGSLWithOpts(t, bindingMapShader, Options{Version: Version1_3, RequireBindings: true}); err == nil {
-			t.Fatal("Compile succeeded, want a missing-binding error")
+	t.Run("empty_map_is_an_error", func(t *testing.T) {
+		_, err := compileWGSLWithOpts(t, bindingMapShader, Options{Version: Version1_3, BindingMap: map[ir.ResourceBinding]BindingInfo{}})
+		if !errors.Is(err, backend.ErrMissingBinding) {
+			t.Errorf("empty map: err = %v, want backend.ErrMissingBinding", err)
 		}
 	})
 }
@@ -190,7 +193,7 @@ func TestBindingMapBindingArraySize(t *testing.T) {
 		{"unbounded", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			spv, err := compileWGSLWithOpts(t, bindingArraySource(tc.size), Options{Version: Version1_3, BindingMap: sized})
+			spv, err := compileWGSLWithOpts(t, bindingArraySource(tc.size), Options{Version: Version1_3, BindingMap: sized, FakeMissingBindings: true})
 			if err != nil {
 				t.Fatalf("Compile: %v", err)
 			}
@@ -205,7 +208,7 @@ func TestBindingMapBindingArraySize(t *testing.T) {
 
 	t.Run("no_size_keeps_declared_type", func(t *testing.T) {
 		plain := map[ir.ResourceBinding]BindingInfo{{Group: 0, Binding: 0}: {DescriptorSet: 0, Binding: 0}}
-		spv, err := compileWGSLWithOpts(t, bindingArraySource("4"), Options{Version: Version1_3, BindingMap: plain})
+		spv, err := compileWGSLWithOpts(t, bindingArraySource("4"), Options{Version: Version1_3, BindingMap: plain, FakeMissingBindings: true})
 		if err != nil {
 			t.Fatalf("Compile: %v", err)
 		}
@@ -229,6 +232,7 @@ func TestBindingMapUnboundedBindingArrayBoundsCheck(t *testing.T) {
 			BindingMap: map[ir.ResourceBinding]BindingInfo{
 				{Group: 0, Binding: 0}: {DescriptorSet: 0, Binding: 0, BindingArraySize: u32Ptr(10)},
 			},
+			FakeMissingBindings: true,
 		})
 		if err != nil {
 			t.Fatalf("Compile: %v", err)
