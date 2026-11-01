@@ -142,6 +142,7 @@ func markAliveFromStmt(stmt *ir.Statement, fn *ir.Function, alive []bool) {
 	case ir.StmtSubgroupGather:
 		markExprAlive(s.Argument, alive)
 		markExprAlive(s.Result, alive)
+		markGatherModeAlive(s.Mode, alive)
 	case ir.StmtRayQuery:
 		markExprAlive(s.Query, alive)
 		markRayQueryAlive(s, alive)
@@ -162,6 +163,26 @@ func markRayQueryAlive(s ir.StmtRayQuery, alive []bool) {
 		// No expressions.
 	case ir.RayQueryConfirmIntersection:
 		// No expressions.
+	}
+}
+
+// markGatherModeAlive marks the lane operand of a subgroup gather as alive.
+func markGatherModeAlive(mode ir.GatherMode, alive []bool) {
+	switch m := mode.(type) {
+	case ir.GatherBroadcast:
+		markExprAlive(m.Index, alive)
+	case ir.GatherShuffle:
+		markExprAlive(m.Index, alive)
+	case ir.GatherShuffleDown:
+		markExprAlive(m.Delta, alive)
+	case ir.GatherShuffleUp:
+		markExprAlive(m.Delta, alive)
+	case ir.GatherShuffleXor:
+		markExprAlive(m.Mask, alive)
+	case ir.GatherQuadBroadcast:
+		markExprAlive(m.Index, alive)
+	case ir.GatherBroadcastFirst, ir.GatherQuadSwap:
+		// No expression operands.
 	}
 }
 
@@ -210,6 +231,12 @@ func propagateExprLiveness(fn *ir.Function, h ir.ExpressionHandle, alive []bool)
 		markExprAlive(e.Value, alive)
 	case ir.ExprLoad:
 		markExprAlive(e.Pointer, alive)
+	case ir.ExprAlias:
+		markExprAlive(e.Source, alive)
+	case ir.ExprPhi:
+		for _, inc := range e.Incoming {
+			markExprAlive(inc.Value, alive)
+		}
 	case ir.ExprUnary:
 		markExprAlive(e.Expr, alive)
 	case ir.ExprBinary:
