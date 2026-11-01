@@ -1176,6 +1176,14 @@ func (w *Writer) writeEntryPointOutputStruct(epIdx int, ep *ir.EntryPoint, fn *i
 		memberName := w.getName(nameKey{kind: nameKeyStructMember, handle1: uint32(resultType), handle2: uint32(memberIdx)})
 		memberType := w.writeTypeName(member.Type, StorageAccess(0))
 
+		// Metal reads clip distances from a raw float array with the
+		// [[clip_distance]] attribute (Rust: `float name [[clip_distance]]
+		// [N];`); the return copies the wrapped WGSL array into it.
+		if arr, n, ok := w.clipDistancesArray(member); ok {
+			w.WriteLine("%s %s [[clip_distance]] [%d];", w.writeTypeName(arr.Base, StorageAccess(0)), memberName, n)
+			continue
+		}
+
 		var attr string
 		if member.Binding != nil {
 			attr = w.outputMemberAttribute(*member.Binding, ep.Stage)
@@ -1864,6 +1872,24 @@ func builtinInputAttribute(builtin ir.BuiltinValue, stage ir.ShaderStage) string
 }
 
 // builtinOutputAttribute returns the MSL attribute for a built-in output.
+// clipDistancesArray returns the array type and length of an output member
+// bound to @builtin(clip_distances), which WGSL requires to be a fixed-size
+// array of f32.
+func (w *Writer) clipDistancesArray(member ir.StructMember) (ir.ArrayType, uint32, bool) {
+	if member.Binding == nil {
+		return ir.ArrayType{}, 0, false
+	}
+	bb, ok := (*member.Binding).(ir.BuiltinBinding)
+	if !ok || bb.Builtin != ir.BuiltinClipDistances || int(member.Type) >= len(w.module.Types) {
+		return ir.ArrayType{}, 0, false
+	}
+	arr, ok := w.module.Types[member.Type].Inner.(ir.ArrayType)
+	if !ok || arr.Size.Constant == nil {
+		return ir.ArrayType{}, 0, false
+	}
+	return arr, *arr.Size.Constant, true
+}
+
 func builtinOutputAttribute(binding ir.BuiltinBinding) string {
 	switch binding.Builtin {
 	case ir.BuiltinPosition:

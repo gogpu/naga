@@ -323,6 +323,10 @@ values. `apidiff` against v0.20.5 lists every change; the entries below explain 
 
 ### Fixed
 
+- **MSL: `@builtin(clip_distances)` clips** (all released versions). The output member was written as the wrapped
+  WGSL array without `[[clip_distance]]`, so Metal ignored it and clipped nothing, without an error. It is now
+  `float clip_distances [[clip_distance]] [N];`, filled element by element in the return, as Rust naga writes it
+  (BUG-MSL-CLIP-DISTANCES-001); the MSL output of the corpus's clip-distances shader equals Rust's.
 - **MSL and GLSL: math functions written as expansions computed their argument several times, without parentheses**
   (all released versions). Exposure: a shader passes a compound expression (not a plain variable, load or constant)
   as the argument of

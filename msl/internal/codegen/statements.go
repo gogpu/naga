@@ -1087,6 +1087,19 @@ func (w *Writer) writeEntryPointOutputReturn(value ir.ExpressionHandle) (bool, e
 			isFirst = false
 		}
 		w.write("%s ", comma)
+		// The output member is a raw array: copy the wrapped one element by
+		// element, as Rust naga does.
+		if _, n, ok := w.clipDistancesArray(member); ok {
+			w.write("{")
+			for j := range n {
+				if j != 0 {
+					w.write(", ")
+				}
+				w.write("_tmp.%s.inner[%d]", memberName, j)
+			}
+			w.write("}")
+			continue
+		}
 		if err := w.writeOutputMember(member.Binding, func() error {
 			w.write("_tmp.%s", memberName)
 			return nil
