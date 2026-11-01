@@ -2652,18 +2652,35 @@ func (w *Writer) writeEarlyDepthTest() {
 		if i != w.epIndex {
 			continue
 		}
-		if ep.Stage == ir.StageFragment && ep.EarlyDepthTest != nil {
-			switch ep.EarlyDepthTest.Conservative {
-			case ir.ConservativeDepthUnchanged:
+		// Rust back/glsl/writer.rs:179-193; below the versions with
+		// early tests Rust only logs, so the layout is left out.
+		if ep.Stage == ir.StageFragment && w.supportsEarlyDepthTest() {
+			switch edt := ep.EarlyDepthTest.(type) {
+			case ir.EarlyDepthForce:
 				w.WriteLine("layout(early_fragment_tests) in;")
-			case ir.ConservativeDepthGreaterEqual:
-				w.WriteLine("layout (depth_greater) out float gl_FragDepth;")
-			case ir.ConservativeDepthLessEqual:
-				w.WriteLine("layout (depth_less) out float gl_FragDepth;")
+			case ir.EarlyDepthAllow:
+				depth := "unchanged"
+				switch edt.Conservative {
+				case ir.ConservativeDepthGreaterEqual:
+					depth = "greater"
+				case ir.ConservativeDepthLessEqual:
+					depth = "less"
+				}
+				w.WriteLine("layout (depth_%s) out float gl_FragDepth;", depth)
 			}
 		}
 		break
 	}
+}
+
+// supportsEarlyDepthTest is Rust's Version::supports_early_depth_test:
+// desktop GLSL 1.30 and GLSL ES 3.10 on.
+func (w *Writer) supportsEarlyDepthTest() bool {
+	v := w.options.LangVersion
+	if v.ES {
+		return !v.versionLessThan(310)
+	}
+	return !v.versionLessThan(130)
 }
 
 // writeComputeLayoutEarly writes the compute layout declaration early in the output,

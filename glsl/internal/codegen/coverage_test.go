@@ -1012,7 +1012,7 @@ fn fs_main() -> @location(0) vec4<f32> {
 
 func TestCoverage_EarlyDepthTest(t *testing.T) {
 	source := `
-@early_depth_test
+@early_depth_test(force)
 @fragment
 fn fs_main() -> @location(0) vec4<f32> {
     return vec4<f32>(1.0, 0.0, 0.0, 1.0);

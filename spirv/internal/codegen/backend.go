@@ -2783,6 +2783,20 @@ func (b *Backend) emitEntryPoints() error {
 		case ir.StageFragment:
 			// Fragment shaders need OriginUpperLeft
 			b.builder.AddExecutionMode(funcID, ExecutionModeOriginUpperLeft)
+			// Rust back/spv/writer.rs:1821-1842, before DepthReplacing.
+			switch edt := entryPoint.EarlyDepthTest.(type) {
+			case ir.EarlyDepthForce:
+				b.builder.AddExecutionMode(funcID, ExecutionModeEarlyFragmentTests)
+			case ir.EarlyDepthAllow:
+				switch edt.Conservative {
+				case ir.ConservativeDepthGreaterEqual:
+					b.builder.AddExecutionMode(funcID, ExecutionModeDepthGreater)
+				case ir.ConservativeDepthLessEqual:
+					b.builder.AddExecutionMode(funcID, ExecutionModeDepthLess)
+				default:
+					b.builder.AddExecutionMode(funcID, ExecutionModeDepthUnchanged)
+				}
+			}
 			// DepthReplacing is required when fragment shader writes FragDepth.
 			// Matches Rust naga writer.rs execution mode emission.
 			if b.entryPointWritesFragDepth(entryPoint) {

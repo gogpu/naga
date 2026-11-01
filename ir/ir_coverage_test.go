@@ -324,8 +324,8 @@ func TestConservativeDepth(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			edt := &EarlyDepthTest{Conservative: tt.depth}
-			if edt.Conservative != tt.depth {
+			var edt EarlyDepthTest = EarlyDepthAllow{Conservative: tt.depth}
+			if edt.(EarlyDepthAllow).Conservative != tt.depth {
 				t.Error("unexpected conservative depth value")
 			}
 		})

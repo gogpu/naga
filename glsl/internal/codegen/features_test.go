@@ -507,17 +507,17 @@ func TestCollectFeatures_MultisampledArrayImage(t *testing.T) {
 }
 
 func TestCollectFeatures_EarlyDepthTest(t *testing.T) {
-	t.Run("unchanged", func(t *testing.T) {
+	// Rust back/glsl/features.rs:335-346: Force needs IMAGE_LOAD_STORE,
+	// every Allow CONSERVATIVE_DEPTH (unchanged too, which was Force).
+	t.Run("force", func(t *testing.T) {
 		module := &ir.Module{
 			Types: []ir.Type{},
 			EntryPoints: []ir.EntryPoint{
 				{
-					Name:  "main",
-					Stage: ir.StageFragment,
-					EarlyDepthTest: &ir.EarlyDepthTest{
-						Conservative: ir.ConservativeDepthUnchanged,
-					},
-					Function: ir.Function{},
+					Name:           "main",
+					Stage:          ir.StageFragment,
+					EarlyDepthTest: ir.EarlyDepthForce{},
+					Function:       ir.Function{},
 				},
 			},
 		}
@@ -525,7 +525,7 @@ func TestCollectFeatures_EarlyDepthTest(t *testing.T) {
 		w.collectFeatures()
 
 		if !w.features.contains(FeatureImageLoadStore) {
-			t.Error("EarlyDepthTest Unchanged should request FeatureImageLoadStore")
+			t.Error("EarlyDepthForce should request FeatureImageLoadStore")
 		}
 	})
 
@@ -536,7 +536,7 @@ func TestCollectFeatures_EarlyDepthTest(t *testing.T) {
 				{
 					Name:  "main",
 					Stage: ir.StageFragment,
-					EarlyDepthTest: &ir.EarlyDepthTest{
+					EarlyDepthTest: ir.EarlyDepthAllow{
 						Conservative: ir.ConservativeDepthGreaterEqual,
 					},
 					Function: ir.Function{},

@@ -9,6 +9,7 @@
                OpMemoryModel Logical GLSL450
                OpEntryPoint Fragment %_8 "main" %_6
                OpExecutionMode %_8 OriginUpperLeft
+               OpExecutionMode %_8 EarlyFragmentTests
                OpDecorate %_6 Location 0
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32

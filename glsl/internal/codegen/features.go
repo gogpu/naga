@@ -320,13 +320,14 @@ func (w *Writer) collectFeatures() {
 	}
 
 	// Early depth test
-	if ep.EarlyDepthTest != nil {
-		switch ep.EarlyDepthTest.Conservative {
-		case ir.ConservativeDepthUnchanged:
+	// Rust back/glsl/features.rs:335-346.
+	switch ep.EarlyDepthTest.(type) {
+	case ir.EarlyDepthForce:
+		if w.supportsEarlyDepthTest() {
 			w.features.request(FeatureImageLoadStore)
-		default:
-			w.features.request(FeatureConservativeDepth)
 		}
+	case ir.EarlyDepthAllow:
+		w.features.request(FeatureConservativeDepth)
 	}
 
 	// Scan types for features
