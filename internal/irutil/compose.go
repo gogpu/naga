@@ -1,4 +1,6 @@
-package ir
+package irutil
+
+import "github.com/gogpu/naga/ir"
 
 // FlattenCompose returns the components of a module-scope Compose of type ty,
 // spread the way a vector constant spells them out: one handle per lane.
@@ -17,45 +19,45 @@ package ir
 //
 // Arguments are followed only to lower handles, which the arena's ordering
 // guarantees for a well-formed module, so a malformed cycle cannot recurse.
-func FlattenCompose(module *Module, ty TypeHandle, components []ExpressionHandle) []ExpressionHandle {
+func FlattenCompose(module *ir.Module, ty ir.TypeHandle, components []ir.ExpressionHandle) []ir.ExpressionHandle {
 	if int(ty) >= len(module.Types) {
 		return components
 	}
-	if _, isVector := module.Types[ty].Inner.(VectorType); !isVector {
+	if _, isVector := module.Types[ty].Inner.(ir.VectorType); !isVector {
 		return components
 	}
-	flat := make([]ExpressionHandle, 0, 4)
+	flat := make([]ir.ExpressionHandle, 0, 4)
 	for _, component := range components {
-		flat = appendFlattened(flat, module, component, ExpressionHandle(len(module.GlobalExpressions)))
+		flat = appendFlattened(flat, module, component, len(module.GlobalExpressions))
 	}
 	return flat
 }
 
 // appendFlattened appends the lanes of the global expression handle to flat.
 // Only handles below limit are expanded; anything else is a lane of its own.
-func appendFlattened(flat []ExpressionHandle, module *Module, handle, limit ExpressionHandle) []ExpressionHandle {
-	if handle >= limit {
+func appendFlattened(flat []ir.ExpressionHandle, module *ir.Module, handle ir.ExpressionHandle, limit int) []ir.ExpressionHandle {
+	if int(handle) >= limit {
 		return append(flat, handle)
 	}
 	switch kind := module.GlobalExpressions[handle].Kind.(type) {
-	case ExprCompose:
+	case ir.ExprCompose:
 		for _, component := range kind.Components {
-			flat = appendFlattened(flat, module, component, handle)
+			flat = appendFlattened(flat, module, component, int(handle))
 		}
 		return flat
 
-	case ExprSplat:
+	case ir.ExprSplat:
 		for range kind.Size {
 			flat = append(flat, kind.Value)
 		}
 		return flat
 
-	case ExprConstant:
+	case ir.ExprConstant:
 		if int(kind.Constant) < len(module.Constants) {
 			constant := &module.Constants[kind.Constant]
 			if constant.Init < handle && int(constant.Type) < len(module.Types) {
-				if _, isVector := module.Types[constant.Type].Inner.(VectorType); isVector {
-					return appendFlattened(flat, module, constant.Init, handle)
+				if _, isVector := module.Types[constant.Type].Inner.(ir.VectorType); isVector {
+					return appendFlattened(flat, module, constant.Init, int(handle))
 				}
 			}
 		}

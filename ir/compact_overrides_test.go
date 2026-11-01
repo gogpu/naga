@@ -47,7 +47,7 @@ func overrideCompactModule() *Module {
 // the handles of the overrides that stay are renumbered everywhere.
 func TestCompactConstants_KeepUnusedNoRemovesUnusedOverrides(t *testing.T) {
 	m := overrideCompactModule()
-	CompactConstants(m, KeepUnusedNo)
+	compactConstants(m, KeepUnusedNo)
 
 	if got := len(m.Overrides); got != 2 {
 		t.Fatalf("overrides: got %d, want 2 (used, viaGlobal)", got)
@@ -82,7 +82,7 @@ func TestCompactConstants_KeepUnusedNoRemovesUnusedOverrides(t *testing.T) {
 // compact(KeepUnused::Yes), every named override and its initializer stay.
 func TestCompactConstants_KeepUnusedYesKeepsNamedOverrides(t *testing.T) {
 	m := overrideCompactModule()
-	CompactConstants(m, KeepUnusedYes)
+	compactConstants(m, KeepUnusedYes)
 
 	if got := len(m.Overrides); got != 3 {
 		t.Fatalf("overrides: got %d, want 3", got)
@@ -105,7 +105,7 @@ func TestCompactConstants_AnonymousOverrideRemovedWhenUnused(t *testing.T) {
 	}
 	init := ExpressionHandle(0)
 	m.Overrides = []Override{{Ty: 0, Init: &init}}
-	CompactConstants(m, KeepUnusedYes)
+	compactConstants(m, KeepUnusedYes)
 	if len(m.Overrides) != 0 || len(m.GlobalExpressions) != 0 {
 		t.Errorf("got %d overrides, %d global expressions; want 0, 0", len(m.Overrides), len(m.GlobalExpressions))
 	}
@@ -124,7 +124,7 @@ func TestCompactConstants_MeshOverrideKeepsOverride(t *testing.T) {
 			MeshInfo: &MeshStageInfo{MaxVerticesOverride: &maxV},
 		}},
 	}
-	CompactConstants(m, KeepUnusedNo)
+	compactConstants(m, KeepUnusedNo)
 	if len(m.Overrides) != 1 || len(m.GlobalExpressions) != 1 {
 		t.Errorf("got %d overrides, %d global expressions; want 1, 1", len(m.Overrides), len(m.GlobalExpressions))
 	}
@@ -147,7 +147,7 @@ func TestCompactConstants_WorkgroupSizeOverrideKept(t *testing.T) {
 			WorkgroupSizeOverrides: [3]*ExpressionHandle{&size, nil, nil},
 		}},
 	}
-	CompactConstants(m, KeepUnusedNo)
+	compactConstants(m, KeepUnusedNo)
 	if len(m.Overrides) != 1 || len(m.GlobalExpressions) != 1 {
 		t.Fatalf("got %d overrides, %d global expressions; want 1, 1", len(m.Overrides), len(m.GlobalExpressions))
 	}
@@ -170,7 +170,7 @@ func TestCompactConstants_PendingArraySizeKeepsOverride(t *testing.T) {
 		GlobalExpressions: []Expression{{Kind: Literal{Value: LiteralU32(4)}}},
 		Overrides:         []Override{{Name: "unused", Ty: 0}, {Ty: 0, Init: &four}},
 	}
-	CompactConstants(m, KeepUnusedNo)
+	compactConstants(m, KeepUnusedNo)
 	if len(m.Overrides) != 1 || m.Overrides[0].Init == nil {
 		t.Fatalf("overrides = %+v, want only the array size's", m.Overrides)
 	}

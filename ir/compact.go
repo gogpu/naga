@@ -1,5 +1,28 @@
 package ir
 
+// Compact removes the objects module does not use and renumbers the handles
+// of what is left, as Rust naga's compact::compact does. module must be
+// valid.
+//
+// With either keep value it removes the function expressions nothing refers
+// to, the constants, overrides and global expressions nothing uses (named
+// constants of a concrete type always stay), the abstract types and the
+// anonymous types nothing refers to any more. With KeepUnusedNo it first removes the global variables
+// and functions no entry point reaches, and the named overrides nothing uses.
+// Entry points, special types and named types always stay; Rust also removes
+// an unused named type under KeepUnused::No.
+func Compact(module *Module, keep KeepUnused) {
+	if keep == KeepUnusedNo {
+		CompactUnused(module)
+	}
+	// Dead function expressions first, so that they do not keep a constant
+	// alive; then constants with the global expressions only they use; then
+	// the types nothing refers to any more.
+	compactExpressions(module)
+	compactConstants(module, keep)
+	compactTypes(module)
+}
+
 // CompactUnused removes globals and functions not reachable from any entry point.
 // Matches Rust naga's compact pass which traces from entry points and removes
 // unreachable global variables, functions, and their associated types.
@@ -176,7 +199,7 @@ func remapStmtFuncHandles(stmts []Statement, remap []FunctionHandle) {
 	}
 }
 
-// CompactTypes removes anonymous types that are not referenced by any handle
+// compactTypes removes anonymous types that are not referenced by any handle
 // in the module, and renumbers all type handles to be contiguous.
 //
 // This replicates Rust naga's compact::compact() with KeepUnused::Yes,
@@ -187,7 +210,7 @@ func remapStmtFuncHandles(stmts []Statement, remap []FunctionHandle) {
 //
 // Verified: produces identical type arenas to Rust naga on 18/18 reference shaders.
 // See docs/dev/research/IR-DEEP-ANALYSIS.md for analysis.
-func CompactTypes(module *Module) {
+func compactTypes(module *Module) {
 	if len(module.Types) == 0 {
 		return
 	}
@@ -236,7 +259,7 @@ func CompactTypes(module *Module) {
 	// of reference count. Only abstract types are force-removed.
 	keep := make([]bool, len(module.Types))
 	for i, t := range module.Types {
-		if IsAbstractType(t.Inner, module.Types) {
+		if isAbstractType(t.Inner, module.Types) {
 			continue // Abstract types must not reach backends
 		}
 		if referenced[i] || t.Name != "" {
@@ -361,7 +384,7 @@ func remapFunctionTypes(f *Function, remap []TypeHandle) {
 // markTypeInnerRefs marks type handles referenced by a TypeInner.
 // Only types that use handles (not embedded values) are marked.
 // Abstract types are removed by compact and must never reach backends.
-func IsAbstractType(inner TypeInner, types []Type) bool {
+func isAbstractType(inner TypeInner, types []Type) bool {
 	switch t := inner.(type) {
 	case ScalarType:
 		return t.Kind == ScalarAbstractInt || t.Kind == ScalarAbstractFloat
@@ -371,7 +394,7 @@ func IsAbstractType(inner TypeInner, types []Type) bool {
 		return t.Scalar.Kind == ScalarAbstractInt || t.Scalar.Kind == ScalarAbstractFloat
 	case ArrayType:
 		if int(t.Base) < len(types) {
-			return IsAbstractType(types[t.Base].Inner, types)
+			return isAbstractType(types[t.Base].Inner, types)
 		}
 	}
 	return false
@@ -497,7 +520,7 @@ func markGlobalExpressionTypeRefs(module *Module, referenced []bool) {
 // This matches Rust naga where types are registered during dependency-ordered
 // lowering and dead intermediate types are never re-registered.
 //
-// Must be called AFTER CompactTypes (which removes unreferenced types).
+// Must be called AFTER compactTypes (which removes unreferenced types).
 func ReorderTypes(module *Module) {
 	if len(module.Types) == 0 {
 		return
@@ -520,7 +543,7 @@ func ReorderTypes(module *Module) {
 	}
 
 	// Use TypeUseOrder — records the exact registration order from
-	// dependency-ordered lowering, remapped by CompactTypes to surviving
+	// dependency-ordered lowering, remapped by compactTypes to surviving
 	// handles only. This preserves the interleaved constants/functions
 	// order that matches Rust naga's type arena.
 	for _, h := range module.TypeUseOrder {
@@ -682,7 +705,7 @@ func visitExprTypeHandles(kind ExpressionKind, visit func(TypeHandle)) {
 }
 
 // safeRemapFunctionTypes remaps type handles within a function, guarding against sentinel values.
-// Used by ReorderTypes where ExpressionTypes may contain nil/sentinel handles from CompactTypes.
+// Used by ReorderTypes where ExpressionTypes may contain nil/sentinel handles from compactTypes.
 func safeRemapFunctionTypes(f *Function, remap []TypeHandle) {
 	safe := func(h TypeHandle) TypeHandle {
 		if h == ^TypeHandle(0) || int(h) >= len(remap) {
@@ -748,7 +771,7 @@ func remapTypeInner(inner TypeInner, remap []TypeHandle) TypeInner {
 	}
 }
 
-// CompactExpressions removes unreferenced expressions from each function
+// compactExpressions removes unreferenced expressions from each function
 // in the module and renumbers all expression handles. This matches Rust naga's
 // compact pass which removes dead expressions (e.g., original abstract literals
 // replaced by concretized versions).
@@ -758,7 +781,7 @@ func remapTypeInner(inner TypeInner, remap []TypeHandle) TypeInner {
 // 2. Mark named expressions and local variable initializers as used
 // 3. Propagate usage back-to-front through expressions (transitive closure)
 // 4. Remove unused expressions, remap handles, adjust Emit ranges
-func CompactExpressions(module *Module) {
+func compactExpressions(module *Module) {
 	for fi := range module.Functions {
 		compactFunctionExpressions(&module.Functions[fi])
 	}
@@ -1609,99 +1632,5 @@ func remapExprTypeHandles(kind ExpressionKind, remap []TypeHandle) ExpressionKin
 		return k
 	default:
 		return kind
-	}
-}
-
-// DeduplicateEmits removes duplicate and redundant Emit statements from all functions.
-// An Emit is redundant if its range is already covered by a previous Emit in the same block.
-// This handles cases where the emitter flush in function calls generates duplicate ranges.
-func DeduplicateEmits(module *Module) {
-	for i := range module.Functions {
-		module.Functions[i].Body = deduplicateBlockEmits(module.Functions[i].Body, module.Functions[i].Expressions)
-	}
-	for i := range module.EntryPoints {
-		module.EntryPoints[i].Function.Body = deduplicateBlockEmits(module.EntryPoints[i].Function.Body, module.EntryPoints[i].Function.Expressions)
-	}
-}
-
-// deduplicateBlockEmits removes duplicate, empty, covered, and pre-emit-only Emit statements.
-func deduplicateBlockEmits(stmts []Statement, exprs []Expression) []Statement {
-	if len(stmts) == 0 {
-		return stmts
-	}
-	// First pass: remove empty, covered, and pre-emit-only Emits.
-	emitted := make(map[ExpressionHandle]bool)
-	filtered := make([]Statement, 0, len(stmts))
-	for _, s := range stmts {
-		if emit, ok := s.Kind.(StmtEmit); ok {
-			if emit.Range.Start == emit.Range.End {
-				continue
-			}
-			// Check if ALL handles in this range are already emitted
-			allCovered := true
-			for h := emit.Range.Start; h < emit.Range.End; h++ {
-				if !emitted[h] {
-					allCovered = false
-					break
-				}
-			}
-			if allCovered {
-				continue
-			}
-			// Check if ALL expressions in range are pre-emit (don't need Emit).
-			// Matches Rust naga's needs_pre_emit(): Literal, Constant, ZeroValue,
-			// GlobalVariable, FunctionArgument, LocalVariable, Override.
-			allPreEmit := true
-			for h := emit.Range.Start; h < emit.Range.End; h++ {
-				if int(h) < len(exprs) && !isPreEmitExpression(exprs[h].Kind) {
-					allPreEmit = false
-					break
-				}
-			}
-			if allPreEmit {
-				continue // Skip: all expressions are pre-emit, no Emit needed
-			}
-			for h := emit.Range.Start; h < emit.Range.End; h++ {
-				emitted[h] = true
-			}
-		}
-		filtered = append(filtered, s)
-	}
-
-	// Second pass: recurse into nested blocks
-	result := make([]Statement, 0, len(filtered))
-	for _, s := range filtered {
-		switch k := s.Kind.(type) {
-		case StmtBlock:
-			k.Block = Block(deduplicateBlockEmits([]Statement(k.Block), exprs))
-			s.Kind = k
-		case StmtIf:
-			k.Accept = Block(deduplicateBlockEmits([]Statement(k.Accept), exprs))
-			k.Reject = Block(deduplicateBlockEmits([]Statement(k.Reject), exprs))
-			s.Kind = k
-		case StmtSwitch:
-			for ci := range k.Cases {
-				k.Cases[ci].Body = Block(deduplicateBlockEmits([]Statement(k.Cases[ci].Body), exprs))
-			}
-			s.Kind = k
-		case StmtLoop:
-			k.Body = Block(deduplicateBlockEmits([]Statement(k.Body), exprs))
-			k.Continuing = Block(deduplicateBlockEmits([]Statement(k.Continuing), exprs))
-			s.Kind = k
-		}
-		result = append(result, s)
-	}
-	return result
-}
-
-// isPreEmitExpression returns true for expression types that don't need Emit statements.
-// Matches Rust naga's Expression::needs_pre_emit().
-func isPreEmitExpression(kind ExpressionKind) bool {
-	switch kind.(type) {
-	case Literal, ExprConstant, ExprOverride, ExprZeroValue,
-		ExprGlobalVariable, ExprFunctionArgument, ExprLocalVariable:
-		return true
-	default:
-		return false
 	}
 }

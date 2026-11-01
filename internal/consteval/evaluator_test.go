@@ -322,5 +322,9 @@ func TestEvalZeroValueAccess(t *testing.T) {
 
 // Array registers an array type; the test stride is the element size.
 func (a *testArena) Array(base ir.TypeHandle, size ir.ArraySize) ir.TypeHandle {
-	return a.Type(ir.ArrayType{Base: base, Size: size, Stride: ir.TypeSize(a.mod, base)})
+	var layouter ir.Layouter
+	if err := layouter.Update(a.mod); err != nil {
+		panic(err)
+	}
+	return a.Type(ir.ArrayType{Base: base, Size: size, Stride: layouter.Layout(base).Size})
 }

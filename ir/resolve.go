@@ -13,7 +13,7 @@ func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle
 
 	switch kind := expr.Kind.(type) {
 	case Literal:
-		return resolveLiteralType(kind)
+		return kind.Type()
 	case ExprConstant:
 		return resolveConstantType(module, kind)
 	case ExprOverride:
@@ -130,12 +130,9 @@ func ResolveExpressionType(module *Module, fn *Function, handle ExpressionHandle
 	}
 }
 
-// ResolveLiteralType resolves the type of a literal expression.
-func ResolveLiteralType(lit Literal) (TypeResolution, error) {
-	return resolveLiteralType(lit)
-}
-
-func resolveLiteralType(lit Literal) (TypeResolution, error) {
+// Type returns the type of the literal, always a scalar value (Rust naga's
+// Literal::ty_inner). It fails only for a LiteralValue of no known kind.
+func (lit Literal) Type() (TypeResolution, error) {
 	switch v := lit.Value.(type) {
 	case LiteralF64:
 		return TypeResolution{Value: ScalarType{Kind: ScalarFloat, Width: 8}}, nil
@@ -648,8 +645,8 @@ func resolveBinaryType(module *Module, fn *Function, expr ExprBinary) (TypeResol
 		// the result is vector (WGSL broadcasts scalar to match vector size).
 		rightType, rightErr := ResolveExpressionType(module, fn, expr.Right)
 		if rightErr == nil {
-			leftInner := TypeResInner(module, leftType)
-			rightInner := TypeResInner(module, rightType)
+			leftInner := leftType.Inner(module.Types)
+			rightInner := rightType.Inner(module.Types)
 			_, leftIsScalar := leftInner.(ScalarType)
 			_, rightIsVec := rightInner.(VectorType)
 			if leftIsScalar && rightIsVec {
@@ -663,8 +660,8 @@ func resolveBinaryType(module *Module, fn *Function, expr ExprBinary) (TypeResol
 // resolveMulResultType determines the result type of a multiplication.
 // Matches WGSL spec: scalar*vec→vec, scalar*mat→mat, mat*vec→vec(rows), vec*mat→vec(cols).
 func resolveMulResultType(module *Module, left, right TypeResolution) TypeResolution {
-	leftInner := TypeResInner(module, left)
-	rightInner := TypeResInner(module, right)
+	leftInner := left.Inner(module.Types)
+	rightInner := right.Inner(module.Types)
 
 	_, leftIsScalar := leftInner.(ScalarType)
 	_, rightIsScalar := rightInner.(ScalarType)
@@ -721,12 +718,14 @@ func findOrInferVectorHandle(module *Module, vec VectorType) TypeHandle {
 	return 0
 }
 
-// TypeResInner returns the inner type of a TypeResolution.
-func TypeResInner(module *Module, res TypeResolution) TypeInner {
-	if res.Handle != nil {
-		return module.Types[*res.Handle].Inner
+// Inner returns the type r stands for: the inner type of the arena type it
+// refers to, or its own value (Rust naga's TypeResolution::inner_with). types
+// is the module's type arena; a handle outside it panics.
+func (r TypeResolution) Inner(types []Type) TypeInner {
+	if r.Handle != nil {
+		return types[*r.Handle].Inner
 	}
-	return res.Value
+	return r.Value
 }
 
 func resolveSelectType(module *Module, fn *Function, expr ExprSelect) (TypeResolution, error) {
@@ -881,20 +880,16 @@ func resolveMathType(module *Module, fn *Function, expr ExprMath) (TypeResolutio
 	case MathModf:
 		// Modf returns a struct __modf_result_* with {fract, whole}.
 		// Search for the struct type by name in the module.
-		structName := modfResultStructName(module, argType)
-		if h := findNamedType(module, structName); h >= 0 {
-			handle := TypeHandle(h)
-			return TypeResolution{Handle: &handle}, nil
+		if h := findModfResultType(module, argType); int(h) < len(module.Types) {
+			return TypeResolution{Handle: &h}, nil
 		}
 		// Fallback: return the arg type (for cases where struct isn't created yet)
 		return argType, nil
 
 	case MathFrexp:
 		// Frexp returns a struct __frexp_result_* with {fract, exp}.
-		structName := frexpResultStructName(module, argType)
-		if h := findNamedType(module, structName); h >= 0 {
-			handle := TypeHandle(h)
-			return TypeResolution{Handle: &handle}, nil
+		if h := findFrexpResultType(module, argType); int(h) < len(module.Types) {
+			return TypeResolution{Handle: &h}, nil
 		}
 		return argType, nil
 
@@ -956,17 +951,17 @@ func frexpResultStructName(module *Module, argType TypeResolution) string {
 	}
 }
 
-// FindModfResultType returns the TypeHandle for the modf result struct for a given argument type.
+// findModfResultType returns the TypeHandle for the modf result struct for a given argument type.
 // Returns -1 if not found.
-func FindModfResultType(module *Module, argType TypeResolution) TypeHandle {
+func findModfResultType(module *Module, argType TypeResolution) TypeHandle {
 	name := modfResultStructName(module, argType)
 	h := findNamedType(module, name)
 	return TypeHandle(h)
 }
 
-// FindFrexpResultType returns the TypeHandle for the frexp result struct for a given argument type.
+// findFrexpResultType returns the TypeHandle for the frexp result struct for a given argument type.
 // Returns -1 if not found.
-func FindFrexpResultType(module *Module, argType TypeResolution) TypeHandle {
+func findFrexpResultType(module *Module, argType TypeResolution) TypeHandle {
 	name := frexpResultStructName(module, argType)
 	h := findNamedType(module, name)
 	return TypeHandle(h)
@@ -1051,7 +1046,7 @@ func resolveAtomicResultType(module *Module, fn *Function, handle ExpressionHand
 func findAtomicTypeForResult(module *Module, fn *Function, stmts []Statement, handle ExpressionHandle) *ScalarType {
 	for _, stmt := range stmts {
 		if s, ok := stmt.Kind.(StmtAtomic); ok && s.Result != nil && *s.Result == handle {
-			return ResolveAtomicPointerScalar(module, fn, s.Pointer)
+			return resolveAtomicPointerScalar(module, fn, s.Pointer)
 		}
 		for _, sub := range stmtSubBlocks(stmt) {
 			if t := findAtomicTypeForResult(module, fn, sub, handle); t != nil {
@@ -1062,13 +1057,13 @@ func findAtomicTypeForResult(module *Module, fn *Function, stmts []Statement, ha
 	return nil
 }
 
-// ResolveAtomicPointerScalar resolves a pointer expression to its atomic scalar type.
-func ResolveAtomicPointerScalar(module *Module, fn *Function, pointer ExpressionHandle) *ScalarType {
+// resolveAtomicPointerScalar resolves a pointer expression to its atomic scalar type.
+func resolveAtomicPointerScalar(module *Module, fn *Function, pointer ExpressionHandle) *ScalarType {
 	ptrType, err := ResolveExpressionType(module, fn, pointer)
 	if err != nil {
 		return nil
 	}
-	inner := TypeResInner(module, ptrType)
+	inner := ptrType.Inner(module.Types)
 	if at, ok := inner.(AtomicType); ok {
 		return &at.Scalar
 	}
@@ -1097,7 +1092,7 @@ func findWorkGroupUniformLoadType(module *Module, fn *Function, stmts []Statemen
 			if err != nil {
 				return nil
 			}
-			inner := TypeResInner(module, ptrRes)
+			inner := ptrRes.Inner(module.Types)
 			if pt, ok := inner.(PointerType); ok {
 				// Return the base type of the pointer.
 				if int(pt.Base) < len(module.Types) {

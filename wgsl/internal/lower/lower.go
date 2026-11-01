@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/internal/consteval"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/registry"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl/internal/parser"
@@ -312,21 +313,10 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	l.module.Types = l.registry.GetTypes()
 
 	// Rust naga's lower() ends with compact(KeepUnused::Yes): unused globals
-	// and functions stay (CompactUnused is the separate KeepUnused::No pass),
-	// dead expressions, abstract constants and what only they use go.
-	//
-	// Order matters: dead function expressions first, so that they do not
-	// keep a constant alive; then constants with the global expressions only
-	// they use; then the types nothing refers to any more.
-	ir.CompactExpressions(l.module)
-	ir.CompactConstants(l.module, ir.KeepUnusedYes)
-
-	// Compact types: remove anonymous types not referenced by any handle.
-	// This matches Rust naga's compact::compact(module, KeepUnused::Yes)
-	// called at the end of lower(), which removes scalar types that were
-	// registered during vec/mat/atomic resolution but are only embedded
-	// by value (not referenced by handle) in Vector/Matrix/Atomic types.
-	ir.CompactTypes(l.module)
+	// and functions stay, dead expressions, abstract constants and what only
+	// they use go, and so do the scalar types registered during vec/mat/atomic
+	// resolution but only embedded by value in Vector/Matrix/Atomic types.
+	ir.Compact(l.module, ir.KeepUnusedYes)
 
 	// Reorder surviving types in first-registration order.
 	ir.ReorderTypes(l.module)
@@ -335,7 +325,7 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	// Our emitter sometimes generates duplicate Emit ranges (e.g., Emit(7..8) twice)
 	// when function call flushes interact with statement-level emit wrappers.
 	// Rust naga doesn't have this issue because its emitter uses a different restart mechanism.
-	ir.DeduplicateEmits(l.module)
+	irutil.DeduplicateEmits(l.module)
 
 	return &LowerResult{
 		Module:   l.module,
@@ -3065,7 +3055,7 @@ func (l *Lowerer) checkArgumentType(argHandle ir.ExpressionHandle, paramType ir.
 	if l.currentFunc == nil || int(argHandle) >= len(l.currentFunc.ExpressionTypes) {
 		return nil
 	}
-	argInner := ir.TypeResInner(l.module, l.currentFunc.ExpressionTypes[argHandle])
+	argInner := l.currentFunc.ExpressionTypes[argHandle].Inner(l.module.Types)
 	if argInner == nil {
 		return nil
 	}
@@ -6179,7 +6169,7 @@ func (l *Lowerer) registerUnusedLetBindings() {
 		}
 		// Skip var declarations — Rust naga does NOT add var declarations to
 		// named_expressions. Only let bindings get named expression treatment.
-		// This allows CompactExpressions to remove unused LocalVariable expressions
+		// This allows compaction (ir.Compact) to remove unused LocalVariable expressions
 		// for const-init vars that are never referenced.
 		if l.localIsVar[name] {
 			continue
@@ -7591,7 +7581,7 @@ func (l *Lowerer) lowerWorkgroupUniformLoad(args []parser.Expr, target *[]ir.Sta
 	if l.currentFunc != nil && int(resultHandle) < len(l.currentFunc.ExpressionTypes) {
 		ptrType, ptrErr := ir.ResolveExpressionType(l.module, l.currentFunc, pointer)
 		if ptrErr == nil {
-			ptrInner := ir.TypeResInner(l.module, ptrType)
+			ptrInner := ptrType.Inner(l.module.Types)
 			if pt, ok := ptrInner.(ir.PointerType); ok {
 				h := pt.Base
 				// Like Load, a pointer to atomic<T> yields a T (Rust).
@@ -7948,14 +7938,14 @@ func (l *Lowerer) lowerAtomicCompareExchange(args []parser.Expr, target *[]ir.St
 
 // resolveAtomicScalarFromPointer resolves the scalar type of an atomic from its pointer expression.
 func (l *Lowerer) resolveAtomicScalarFromPointer(pointer ir.ExpressionHandle) ir.ScalarType {
-	scalar := ir.ResolveAtomicPointerScalar(l.module, l.currentFunc, pointer)
+	scalar := irutil.ResolveAtomicPointerScalar(l.module, l.currentFunc, pointer)
 	if scalar != nil {
 		return *scalar
 	}
 	// Fallback: try expression types
 	if l.currentFunc != nil && int(pointer) < len(l.currentFunc.ExpressionTypes) {
 		ptrRes := l.currentFunc.ExpressionTypes[pointer]
-		if ptrInner := ir.TypeResInner(l.module, ptrRes); ptrInner != nil {
+		if ptrInner := ptrRes.Inner(l.module.Types); ptrInner != nil {
 			if at, ok := ptrInner.(ir.AtomicType); ok {
 				return at.Scalar
 			}

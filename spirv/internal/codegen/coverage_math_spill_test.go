@@ -219,7 +219,7 @@ fn main(@location(0) @interpolate(flat) v: u32) -> @location(0) vec4<f32> {
 // ---------------------------------------------------------------------------
 
 // TestModfViaWGSL exercises modf through the standard WGSL lowering which
-// creates the struct type in the type arena (covering FindModfResultType path).
+// creates the struct type in the type arena (covering the arena struct lookup path).
 func TestModfViaWGSL(t *testing.T) {
 	source := `
 @fragment

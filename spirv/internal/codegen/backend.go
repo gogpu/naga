@@ -7,6 +7,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/entrypoint"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -401,10 +402,10 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 			return nil, unsupported.Errorf("spirv: BoundsCheckPolicies: %v is not supported", policy)
 		}
 	}
-	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
+	if err := irutil.CheckWorkgroupSizesResolved(module); err != nil {
 		return nil, fmt.Errorf("spirv: %w", err)
 	}
-	module, err = ir.ResolvePendingArraySizes(module)
+	module, err = irutil.ResolvePendingArraySizes(module)
 	if err != nil {
 		return nil, fmt.Errorf("spirv: %w", err)
 	}
@@ -1556,7 +1557,7 @@ func (b *Backend) emitGlobalCompose(compose ir.ExprCompose) (uint32, error) {
 	}
 	vector, isVector := b.module.Types[compose.Type].Inner.(ir.VectorType)
 
-	components := ir.FlattenCompose(b.module, compose.Type, compose.Components)
+	components := irutil.FlattenCompose(b.module, compose.Type, compose.Components)
 	componentIDs := make([]uint32, 0, len(components))
 	for _, component := range components {
 		if isVector && int(component) < len(b.module.GlobalExpressions) {
@@ -4258,7 +4259,7 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 	case ir.ExprSelect:
 		id, err = e.emitSelect(kind)
 	case ir.ExprMath:
-		id, err = e.emitMath(kind)
+		id, err = e.emitMath(handle, kind)
 	case ir.ExprDerivative:
 		id, err = e.emitDerivative(kind)
 	case ir.ExprRelational:
@@ -4357,7 +4358,7 @@ func (e *ExpressionEmitter) emitConstExpression(handle ir.ExpressionHandle) (uin
 			return 0, fmt.Errorf("splat value type: %w", rErr)
 		}
 		var scalar ir.ScalarType
-		inner := ir.TypeResInner(e.backend.module, valueType)
+		inner := valueType.Inner(e.backend.module.Types)
 		if s, ok := inner.(ir.ScalarType); ok {
 			scalar = s
 		} else {
@@ -4652,7 +4653,7 @@ func (e *ExpressionEmitter) emitSplat(splat ir.ExprSplat) (uint32, error) {
 		return 0, fmt.Errorf("splat value type: %w", err)
 	}
 	var scalar ir.ScalarType
-	inner := ir.TypeResInner(e.backend.module, valueType)
+	inner := valueType.Inner(e.backend.module.Types)
 	if s, ok := inner.(ir.ScalarType); ok {
 		scalar = s
 	} else {
@@ -7386,7 +7387,7 @@ func (e *ExpressionEmitter) emitSwitch(stmt ir.StmtSwitch) error {
 func (e *ExpressionEmitter) emitIntSplat(ty ir.TypeResolution, value uint32) (uint32, error) {
 	var scalar ir.ScalarType
 	var size uint32
-	switch t := ir.TypeResInner(e.backend.module, ty).(type) {
+	switch t := ty.Inner(e.backend.module.Types).(type) {
 	case ir.ScalarType:
 		scalar = t
 	case ir.VectorType:
@@ -7407,7 +7408,7 @@ func (e *ExpressionEmitter) emitIntSplat(ty ir.TypeResolution, value uint32) (ui
 	return e.backend.builder.AddConstantComposite(e.backend.emitVectorType(scalarTypeID, size), components...), nil
 }
 
-func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
+func (e *ExpressionEmitter) emitMath(handle ir.ExpressionHandle, mathExpr ir.ExprMath) (uint32, error) {
 	// Emit first argument
 	argID, err := e.emitExpression(mathExpr.Arg)
 	if err != nil {
@@ -7502,7 +7503,7 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	case ir.MathSaturate:
 		// Saturate = clamp(x, 0, 1). Construct 0 and 1 constants and emit FClamp.
 		{
-			inner := ir.TypeResInner(e.backend.module, argType)
+			inner := argType.Inner(e.backend.module.Types)
 			var floatScalar ir.ScalarType
 			var maybeSize uint8
 			switch t := inner.(type) {
@@ -7612,7 +7613,7 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		// OpDot is a native SPIR-V instruction, but ONLY for float vectors.
 		// For integer vectors, we must manually expand: sum of component-wise products.
 		// Matches Rust naga's write_dot_product fallback (block.rs).
-		argInner := ir.TypeResInner(e.backend.module, argType)
+		argInner := argType.Inner(e.backend.module.Types)
 		if vecType, ok := argInner.(ir.VectorType); ok && vecType.Scalar.Kind != ir.ScalarFloat {
 			// Integer dot product — manual expansion
 			useIntegerDot = true
@@ -7794,7 +7795,7 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	switch mathExpr.Fun {
 	case ir.MathModf:
 		// ModfStruct returns a struct type from the module's type arena.
-		if h := ir.FindModfResultType(e.backend.module, argType); h >= 0 {
+		if h, ok := e.mathResultStruct(handle); ok {
 			if id, err := e.backend.emitType(h); err == nil {
 				resultType = id
 			}
@@ -7808,7 +7809,7 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		}
 	case ir.MathFrexp:
 		// FrexpStruct returns a struct type from the module's type arena.
-		if h := ir.FindFrexpResultType(e.backend.module, argType); h >= 0 {
+		if h, ok := e.mathResultStruct(handle); ok {
 			if id, err := e.backend.emitType(h); err == nil {
 				resultType = id
 			}
@@ -7827,7 +7828,7 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		}
 	case ir.MathDot:
 		// Dot product result type matches the scalar kind of the input vector.
-		argInner := ir.TypeResInner(e.backend.module, argType)
+		argInner := argType.Inner(e.backend.module.Types)
 		if vecType, ok := argInner.(ir.VectorType); ok {
 			resultType, err = e.backend.resolveTypeResolution(ir.TypeResolution{Value: vecType.Scalar})
 			if err != nil {
@@ -7841,7 +7842,7 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		}
 	case ir.MathTranspose:
 		// transpose(matRxC) -> matCxR: swap columns and rows
-		inner := ir.TypeResInner(e.backend.module, argType)
+		inner := argType.Inner(e.backend.module.Types)
 		if mat, ok := inner.(ir.MatrixType); ok {
 			resultType, err = e.backend.resolveTypeResolution(ir.TypeResolution{
 				Value: ir.MatrixType{Columns: mat.Rows, Rows: mat.Columns, Scalar: mat.Scalar},
@@ -8037,8 +8038,8 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 	// SPIR-V FMix requires all operands to match Result Type.
 	if needsMixSplat && len(operands) >= 3 && mathExpr.Arg2 != nil {
 		selectorType, _ := ir.ResolveExpressionType(e.backend.module, e.function, *mathExpr.Arg2)
-		selectorInner := ir.TypeResInner(e.backend.module, selectorType)
-		argInner2 := ir.TypeResInner(e.backend.module, argType)
+		selectorInner := selectorType.Inner(e.backend.module.Types)
+		argInner2 := argType.Inner(e.backend.module.Types)
 		if _, isScalar := selectorInner.(ir.ScalarType); isScalar {
 			if vecType, isVec := argInner2.(ir.VectorType); isVec {
 				// Splat scalar to vector: OpCompositeConstruct with N copies
@@ -8061,6 +8062,22 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 
 	// Use GLSL.std.450 extended instruction
 	return e.backend.builder.AddExtInst(resultType, e.backend.glslExtID, glslInst, operands...), nil
+}
+
+// mathResultStruct returns the struct type of the module's arena a modf or
+// frexp expression handle results in (the predeclared __modf_result_* or
+// __frexp_result_* the frontend adds), as the typifier resolves it; Rust's
+// writer takes the result type of every expression from the typifier too.
+// It reports false when the arena has no such struct.
+func (e *ExpressionEmitter) mathResultStruct(handle ir.ExpressionHandle) (ir.TypeHandle, bool) {
+	res, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
+	if err != nil || res.Handle == nil || int(*res.Handle) >= len(e.backend.module.Types) {
+		return 0, false
+	}
+	if _, isStruct := e.backend.module.Types[*res.Handle].Inner.(ir.StructType); !isStruct {
+		return 0, false
+	}
+	return *res.Handle, true
 }
 
 // emitMatrixColumnOp decomposes a matrix binary operation into column-wise vector ops.
@@ -8687,7 +8704,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		if isDepthImage {
 			lodType, lodErr := ir.ResolveExpressionType(e.backend.module, e.function, level.Level)
 			if lodErr == nil {
-				lodInner := ir.TypeResInner(e.backend.module, lodType)
+				lodInner := lodType.Inner(e.backend.module.Types)
 				if sc, ok := lodInner.(ir.ScalarType); ok && (sc.Kind == ir.ScalarSint || sc.Kind == ir.ScalarUint) {
 					f32TypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
 					if err != nil {
@@ -11129,7 +11146,7 @@ func (b *Backend) emitFrexpStructType(argType ir.TypeResolution) (uint32, error)
 	}
 
 	// Determine the integer type matching the arg's structure
-	inner := ir.TypeResInner(b.module, argType)
+	inner := argType.Inner(b.module.Types)
 	var intType uint32
 	switch t := inner.(type) {
 	case ir.ScalarType:

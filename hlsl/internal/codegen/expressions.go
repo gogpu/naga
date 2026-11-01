@@ -658,7 +658,7 @@ func (w *Writer) getAccessMaxIndex(base ir.ExpressionHandle) (uint32, bool) {
 		// Last resort: use ir.ResolveExpressionType
 		if w.currentFunction != nil {
 			if res, err := ir.ResolveExpressionType(w.module, w.currentFunction, base); err == nil {
-				inner := ir.TypeResInner(w.module, res)
+				inner := res.Inner(w.module.Types)
 				if inner != nil {
 					baseType = &ir.Type{Inner: inner}
 				}
@@ -893,7 +893,7 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 		// Last resort: try resolving via ir.ResolveExpressionType
 		if w.currentFunction != nil {
 			if res, err := ir.ResolveExpressionType(w.module, w.currentFunction, e.Base); err == nil {
-				inner := ir.TypeResInner(w.module, res)
+				inner := res.Inner(w.module.Types)
 				if inner != nil {
 					baseType = &ir.Type{Inner: inner}
 				}

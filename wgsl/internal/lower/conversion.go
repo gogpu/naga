@@ -81,7 +81,7 @@ func (l *Lowerer) exprResolution(h ir.ExpressionHandle) ir.TypeResolution {
 }
 
 func (l *Lowerer) exprInner(h ir.ExpressionHandle) ir.TypeInner {
-	return ir.TypeResInner(l.module, l.exprResolution(h))
+	return l.exprResolution(h).Inner(l.module.Types)
 }
 
 // leafScalar is the scalar type of the leaves of a scalar, vector, matrix

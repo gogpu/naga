@@ -442,7 +442,7 @@ func (w *Writer) resolveExpressionTypeFallback(handle ir.ExpressionHandle) *ir.T
 			return &w.module.Types[e.Type]
 		}
 	case ir.Literal:
-		res, err := ir.ResolveLiteralType(e)
+		res, err := e.Type()
 		if err == nil && res.Value != nil {
 			return &ir.Type{Inner: res.Value}
 		}

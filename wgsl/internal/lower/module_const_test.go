@@ -97,7 +97,7 @@ func TestModuleConstFromAbstract(t *testing.T) {
 				t.Errorf("constants = %v, want %v", got, tt.want)
 			}
 			for i, ty := range m.Types {
-				if ir.IsAbstractType(ty.Inner, m.Types) {
+				if isAbstractType(ty.Inner, m.Types) {
 					t.Errorf("type [%d] %v is abstract; compact must remove abstract types", i, ty.Inner)
 				}
 			}

@@ -65,13 +65,17 @@ func (w *Writer) writeFragDepthRangeParam(ep *ir.EntryPoint, used map[uint32]str
 	if clamp.Offset%4 != 0 {
 		return fmt.Errorf("msl: ClampFragDepth.Offset %d is not a multiple of 4", clamp.Offset)
 	}
+	var layouter ir.Layouter
+	if err := layouter.Update(w.module); err != nil {
+		return fmt.Errorf("msl: %w", err)
+	}
 	base := immediatesName
 	for h := range used {
 		global := &w.module.GlobalVariables[h]
 		if global.Space != ir.SpaceImmediate {
 			continue
 		}
-		if size := ir.TypeSize(w.module, global.Type); clamp.Offset < size {
+		if size := layouter.Layout(global.Type).Size; clamp.Offset < size {
 			return fmt.Errorf("msl: the frag_depth range at offset %d overlaps the %d bytes of immediate data of entry point %q",
 				clamp.Offset, size, ep.Name)
 		}

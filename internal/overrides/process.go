@@ -48,10 +48,7 @@ func Process(module *ir.Module, constants map[string]float64, ep *Selector) (*ir
 	}
 	// Rust compact(KeepUnused::No): an override no entry point uses needs no
 	// value.
-	ir.CompactUnused(m)
-	ir.CompactExpressions(m)
-	ir.CompactConstants(m, ir.KeepUnusedNo)
-	ir.CompactTypes(m)
+	ir.Compact(m, ir.KeepUnusedNo)
 
 	if len(m.Overrides) > 0 {
 		if err := newProcessor(m, constants).run(); err != nil {
@@ -511,7 +508,7 @@ func filterEmits(block ir.Block, exprs []ir.Expression) ir.Block {
 		case ir.StmtEmit:
 			start, open := ir.ExpressionHandle(0), false
 			for h := s.Range.Start; h < s.Range.End; h++ {
-				if int(h) < len(exprs) && ir.NeedsPreEmit(exprs[h].Kind) {
+				if int(h) < len(exprs) && exprs[h].NeedsPreEmit() {
 					if open {
 						out = append(out, ir.Statement{Kind: ir.StmtEmit{Range: ir.Range{Start: start, End: h}}})
 						open = false
@@ -644,8 +641,16 @@ func (t *types) Type(inner ir.TypeInner) ir.TypeHandle {
 // Array registers the array of base with the given size; the stride is
 // base's size rounded up to its alignment, as Rust's layouter computes it.
 func (t *types) Array(base ir.TypeHandle, size ir.ArraySize) ir.TypeHandle {
-	align := ir.TypeAlignment(t.m, base)
-	stride := (ir.TypeSize(t.m, base) + align - 1) / align * align
+	// The types are laid out afresh at each call, so that no layout of an
+	// earlier state of the arena is used. Rust's cast_array treats a layout
+	// error other than TooLarge, which ours never reports, as unreachable for
+	// a module that passed validation.
+	var layouter ir.Layouter
+	if err := layouter.Update(t.m); err != nil {
+		panic(fmt.Sprintf("pipeline constants: unreachable: %v", err))
+	}
+	layout := layouter.Layout(base)
+	stride := (layout.Size + layout.Alignment - 1) / layout.Alignment * layout.Alignment
 	return t.Type(ir.ArrayType{Base: base, Size: size, Stride: stride})
 }
 

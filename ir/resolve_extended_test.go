@@ -1186,9 +1186,9 @@ func TestResolveInner(t *testing.T) {
 	})
 }
 
-// --- ResolveLiteralType (exported wrapper) ---
+// --- Literal.Type: wide and half-width literals ---
 
-func TestResolveLiteralType_Exported(t *testing.T) {
+func TestLiteralTypeWideAndHalf(t *testing.T) {
 	tests := []struct {
 		name      string
 		literal   Literal
@@ -1203,7 +1203,7 @@ func TestResolveLiteralType_Exported(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveLiteralType(tt.literal)
+			got, err := tt.literal.Type()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -1314,7 +1314,7 @@ func TestFrexpResultStructName(t *testing.T) {
 	}
 }
 
-// --- ResolveAtomicPointerScalar tests ---
+// --- resolveAtomicPointerScalar tests ---
 
 func TestResolveAtomicPointerScalar(t *testing.T) {
 	module := &Module{
@@ -1334,7 +1334,7 @@ func TestResolveAtomicPointerScalar(t *testing.T) {
 	}
 
 	// Atomic type pointer
-	scalar := ResolveAtomicPointerScalar(module, fn, 0)
+	scalar := resolveAtomicPointerScalar(module, fn, 0)
 	if scalar == nil {
 		t.Fatal("expected non-nil scalar")
 	}
@@ -1357,7 +1357,7 @@ func TestResolveAtomicPointerScalar_ScalarType(t *testing.T) {
 			{Kind: ExprGlobalVariable{Variable: 0}},
 		},
 	}
-	scalar := ResolveAtomicPointerScalar(module, fn, 0)
+	scalar := resolveAtomicPointerScalar(module, fn, 0)
 	if scalar == nil {
 		t.Fatal("expected non-nil scalar")
 	}
@@ -1369,7 +1369,7 @@ func TestResolveAtomicPointerScalar_ScalarType(t *testing.T) {
 func TestResolveAtomicPointerScalar_Error(t *testing.T) {
 	module := &Module{}
 	fn := &Function{Expressions: []Expression{}}
-	scalar := ResolveAtomicPointerScalar(module, fn, 99) // out of range
+	scalar := resolveAtomicPointerScalar(module, fn, 99) // out of range
 	if scalar != nil {
 		t.Error("expected nil for out-of-range")
 	}

@@ -120,7 +120,7 @@ func TestWorkgroupUniformLoadOfAtomic(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := ir.TypeResInner(m, res); got != (ir.ScalarType{Kind: ir.ScalarUint, Width: 4}) {
+		if got := res.Inner(m.Types); got != (ir.ScalarType{Kind: ir.ScalarUint, Width: 4}) {
 			t.Errorf("result type = %#v, want u32", got)
 		}
 		return
@@ -162,7 +162,7 @@ func TestBitcastConcretizesOperand(t *testing.T) {
 				if err != nil {
 					t.Fatalf("resolve bitcast operand: %v", err)
 				}
-				if inner := ir.TypeResInner(m, res); inner == nil || ir.IsAbstractType(inner, m.Types) {
+				if inner := res.Inner(m.Types); inner == nil || isAbstractType(inner, m.Types) {
 					t.Errorf("bitcast operand type = %v, want a concrete type", inner)
 				}
 			}
@@ -174,4 +174,23 @@ func TestBitcastConcretizesOperand(t *testing.T) {
 			}
 		})
 	}
+}
+
+// isAbstractType reports an abstract scalar, vector or matrix type, or an
+// array of one: the types compaction removes, which must not survive
+// lowering. The tests check the lowered module against it.
+func isAbstractType(inner ir.TypeInner, types []ir.Type) bool {
+	switch t := inner.(type) {
+	case ir.ScalarType:
+		return isAbstractScalar(t)
+	case ir.VectorType:
+		return isAbstractScalar(t.Scalar)
+	case ir.MatrixType:
+		return isAbstractScalar(t.Scalar)
+	case ir.ArrayType:
+		if int(t.Base) < len(types) {
+			return isAbstractType(types[t.Base].Inner, types)
+		}
+	}
+	return false
 }

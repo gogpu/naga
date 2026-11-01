@@ -3369,7 +3369,7 @@ func (w *Writer) resolveImageType(image ir.ExpressionHandle) *ir.ImageType {
 	if err != nil {
 		return nil
 	}
-	inner := ir.TypeResInner(w.module, exprType)
+	inner := exprType.Inner(w.module.Types)
 	if img, ok := inner.(ir.ImageType); ok {
 		return &img
 	}

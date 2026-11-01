@@ -167,9 +167,9 @@ func TestBindingTypes(t *testing.T) {
 	})
 }
 
-// --- TypeSize: verify WGSL alignment rules ---
+// --- Layouter sizes: verify WGSL alignment rules ---
 
-func TestTypeSizeEdgeCases(t *testing.T) {
+func TestLayouterSizeEdgeCases(t *testing.T) {
 	sz4 := uint32(4)
 	module := &Module{
 		Types: []Type{
@@ -212,9 +212,9 @@ func TestTypeSizeEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := TypeSize(module, tt.handle)
+			got := layoutOf(t, module, tt.handle).Size
 			if got != tt.want {
-				t.Errorf("TypeSize(%d) = %d, want %d", tt.handle, got, tt.want)
+				t.Errorf("Layout(%d).Size = %d, want %d", tt.handle, got, tt.want)
 			}
 		})
 	}

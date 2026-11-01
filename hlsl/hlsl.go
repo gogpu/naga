@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/hlsl/internal/codegen"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -196,10 +197,10 @@ type TranslationInfo struct {
 // Compile generates HLSL source code from an IR module.
 // Returns the HLSL source, translation info, or an error.
 func Compile(module *ir.Module, options Options) (string, TranslationInfo, error) {
-	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
+	if err := irutil.CheckWorkgroupSizesResolved(module); err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("hlsl: %w", err)
 	}
-	module, err := ir.ResolvePendingArraySizes(module)
+	module, err := irutil.ResolvePendingArraySizes(module)
 	if err != nil {
 		return "", TranslationInfo{}, fmt.Errorf("hlsl: %w", err)
 	}

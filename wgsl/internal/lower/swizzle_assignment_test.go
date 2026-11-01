@@ -1235,11 +1235,11 @@ func TestSwizzleAssignment_RHSConvertsToVectorScalar(t *testing.T) {
 					if err != nil {
 						t.Fatalf("resolve store value: %v", err)
 					}
-					p, ok := ir.TypeResInner(m, ptr).(ir.PointerType)
+					p, ok := ptr.Inner(m.Types).(ir.PointerType)
 					if !ok {
-						t.Fatalf("store pointer type = %v, want a pointer", ir.TypeResInner(m, ptr))
+						t.Fatalf("store pointer type = %v, want a pointer", ptr.Inner(m.Types))
 					}
-					if got, want := ir.TypeResInner(m, val), m.Types[p.Base].Inner; !reflect.DeepEqual(got, want) {
+					if got, want := val.Inner(m.Types), m.Types[p.Base].Inner; !reflect.DeepEqual(got, want) {
 						t.Errorf("stored value type = %v, want %v", got, want)
 					}
 				}
@@ -1257,7 +1257,7 @@ func TestSwizzleAssignment_RHSConvertsToVectorScalar(t *testing.T) {
 					t.Errorf("expression %d %#v has removed type [%d]", h, fn.Expressions[h].Kind, *res.Handle)
 					continue
 				}
-				if inner := ir.TypeResInner(m, res); ir.IsAbstractType(inner, m.Types) {
+				if inner := res.Inner(m.Types); isAbstractType(inner, m.Types) {
 					t.Errorf("expression %d %#v has abstract type %v", h, fn.Expressions[h].Kind, inner)
 				}
 				c, ok := fn.Expressions[h].Kind.(ir.ExprCompose)
@@ -1273,7 +1273,7 @@ func TestSwizzleAssignment_RHSConvertsToVectorScalar(t *testing.T) {
 					if err != nil {
 						t.Fatalf("resolve component %d: %v", comp, err)
 					}
-					if got := ir.TypeResInner(m, cres); got != vec.Scalar {
+					if got := cres.Inner(m.Types); got != vec.Scalar {
 						t.Errorf("Compose %d component %d has type %v, want %v", h, comp, got, vec.Scalar)
 					}
 				}

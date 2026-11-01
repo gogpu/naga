@@ -41,7 +41,11 @@ func (w *Writer) prepareFragDepthRange() error {
 		if global.Space != ir.SpaceImmediate || w.reachable != nil && !w.reachable.hasGlobal(h) {
 			continue
 		}
-		if size := ir.TypeSize(w.module, global.Type); clamp.Offset < size {
+		var layouter ir.Layouter
+		if err := layouter.Update(w.module); err != nil {
+			return fmt.Errorf("glsl: %w", err)
+		}
+		if size := layouter.Layout(global.Type).Size; clamp.Offset < size {
 			return fmt.Errorf("glsl: the frag_depth range at offset %d overlaps the %d bytes of immediate data of entry point %q",
 				clamp.Offset, size, ep.Name)
 		}
