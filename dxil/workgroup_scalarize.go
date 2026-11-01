@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/dxil/internal/emit"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
@@ -569,7 +570,7 @@ func (s *wgScalarizer) statement(out ir.Block, st ir.Statement) (ir.Block, error
 		return append(out, ir.Statement{Kind: kind}), err
 	default:
 		var err error
-		walkStmtExprs(s.fn, k, func(_ *ir.Function, h ir.ExpressionHandle) {
+		stmtUses(k, func(h ir.ExpressionHandle) {
 			if err == nil && s.loc(h) != nil {
 				err = fmt.Errorf("a pointer into workgroup variable used by %T", k)
 			}
@@ -659,7 +660,7 @@ func (s *wgScalarizer) emit(out ir.Block, r ir.Range) (ir.Block, error) {
 			}
 		}
 		var err error
-		visitExprSubHandles(kind, func(sub ir.ExpressionHandle) {
+		irutil.ExprHandles(kind, func(sub ir.ExpressionHandle) {
 			if err == nil && s.loc(sub) != nil {
 				err = fmt.Errorf("a pointer into workgroup variable used by %T", kind)
 			}

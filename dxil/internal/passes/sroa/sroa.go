@@ -27,6 +27,7 @@
 package sroa
 
 import (
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -194,89 +195,69 @@ func classify(mod *ir.Module, fn *ir.Function) map[uint32]*candidateInfo {
 func classifyExprs(fn *ir.Function, lvHandleMap map[ir.ExpressionHandle]uint32, candidates map[uint32]*candidateInfo) {
 	for h, expr := range fn.Expressions {
 		hh := ir.ExpressionHandle(h)
-		switch ek := expr.Kind.(type) {
-		case ir.ExprAccessIndex:
-			varIdx, ok := lvHandleMap[ek.Base]
+		irutil.ExprHandles(expr.Kind, func(operand ir.ExpressionHandle) {
+			varIdx, ok := lvHandleMap[operand]
 			if !ok {
-				continue
+				return
 			}
 			info := candidates[varIdx]
-			if !info.eligible {
-				continue
-			}
-			if int(ek.Index) >= len(info.st.Members) {
+			switch ek := expr.Kind.(type) {
+			case ir.ExprAccessIndex:
+				// The struct local is the base, the access's one operand.
+				if !info.eligible {
+					return
+				}
+				if int(ek.Index) >= len(info.st.Members) {
+					info.eligible = false
+					return
+				}
+				info.accessHandles[ek.Index] = append(info.accessHandles[ek.Index], hh)
+			case ir.ExprLoad:
+				if info.eligible {
+					info.fullLoadHandles = append(info.fullLoadHandles, hh)
+				}
+			default:
+				// A dynamic Access, or any other use of the whole struct's
+				// pointer, which no field local could stand for.
 				info.eligible = false
-				continue
 			}
-			info.accessHandles[ek.Index] = append(info.accessHandles[ek.Index], hh)
-		case ir.ExprLoad:
-			varIdx, ok := lvHandleMap[ek.Pointer]
-			if !ok {
-				continue
-			}
-			info := candidates[varIdx]
-			if !info.eligible {
-				continue
-			}
-			info.fullLoadHandles = append(info.fullLoadHandles, hh)
-		case ir.ExprAccess:
-			if varIdx, ok := lvHandleMap[ek.Base]; ok {
-				candidates[varIdx].eligible = false
-			}
-		}
+		})
 	}
 }
 
 // classifyStmts walks the statement tree and disqualifies struct locals
-// used in ways that prevent SROA (e.g., pointer escapes to function calls,
-// atomics, image stores).
-//
-//nolint:gocognit // exhaustive statement-kind dispatch mirrors mem2reg's classifyStatements
+// used in ways that prevent SROA: any statement operand that is a struct
+// local's pointer (a call argument, an atomic's pointer, a returned or
+// stored pointer, ...), except the pointer of a store of a Compose to the
+// whole struct, which decompose splits into field stores.
 func classifyStmts(fn *ir.Function, block ir.Block, lvHandleMap map[ir.ExpressionHandle]uint32, candidates map[uint32]*candidateInfo) {
 	for i := range block {
-		switch sk := block[i].Kind.(type) {
-		case ir.StmtStore:
-			// Store TO an AccessIndex of a struct local is fine (handled above).
-			// Store TO the struct local directly means full-struct store —
-			// this is fine only if the value is a Compose.
-			if varIdx, ok := lvHandleMap[sk.Pointer]; ok {
-				info := candidates[varIdx]
+		kind := block[i].Kind
+		store, isStore := kind.(ir.StmtStore)
+		irutil.StmtExprHandles(kind, func(operand ir.ExpressionHandle) {
+			varIdx, ok := lvHandleMap[operand]
+			if !ok {
+				return
+			}
+			info := candidates[varIdx]
+			if isStore && operand == store.Pointer {
+				// Store TO an AccessIndex of a struct local is fine (handled
+				// above). Store TO the struct local directly means
+				// full-struct store — this is fine only if the value is a
+				// Compose.
 				if !info.eligible {
-					continue
+					return
 				}
-				// Full struct store: check if value is Compose.
-				if int(sk.Value) < len(fn.Expressions) {
-					if _, isCompose := fn.Expressions[sk.Value].Kind.(ir.ExprCompose); isCompose {
+				if int(store.Value) < len(fn.Expressions) {
+					if _, isCompose := fn.Expressions[store.Value].Kind.(ir.ExprCompose); isCompose {
 						// Full compose store is OK — we'll decompose it.
-						continue
+						return
 					}
 				}
-				// Any other full-struct store disqualifies.
-				info.eligible = false
 			}
-		case ir.StmtCall:
-			for _, a := range sk.Arguments {
-				if varIdx, ok := lvHandleMap[a]; ok {
-					candidates[varIdx].eligible = false
-				}
-			}
-		case ir.StmtAtomic:
-			if varIdx, ok := lvHandleMap[sk.Pointer]; ok {
-				candidates[varIdx].eligible = false
-			}
-		case ir.StmtIf:
-			classifyStmts(fn, sk.Accept, lvHandleMap, candidates)
-			classifyStmts(fn, sk.Reject, lvHandleMap, candidates)
-		case ir.StmtLoop:
-			classifyStmts(fn, sk.Body, lvHandleMap, candidates)
-			classifyStmts(fn, sk.Continuing, lvHandleMap, candidates)
-		case ir.StmtSwitch:
-			for ci := range sk.Cases {
-				classifyStmts(fn, sk.Cases[ci].Body, lvHandleMap, candidates)
-			}
-		case ir.StmtBlock:
-			classifyStmts(fn, sk.Block, lvHandleMap, candidates)
-		}
+			info.eligible = false
+		})
+		irutil.NestedBlocks(kind, func(b ir.Block) { classifyStmts(fn, b, lvHandleMap, candidates) })
 	}
 }
 
@@ -424,7 +405,7 @@ func decompose(_ *ir.Module, fn *ir.Function, varIdx uint32, info *candidateInfo
 	// Step 3: Rewrite ExprAccessIndex(lvHandle, fieldIdx) to
 	// ExprLocalVariable directly. This is required for mem2reg to
 	// recognize the handle as a local-var pointer in buildLocalPtrMap
-	// (ExprAlias would not be recognized).
+	// (ssa.Alias would not be recognized).
 	for fieldIdx, handles := range info.accessHandles {
 		newVarIdx := fieldVarMap[fieldIdx]
 		for _, h := range handles {

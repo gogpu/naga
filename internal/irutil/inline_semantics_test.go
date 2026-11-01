@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -571,7 +572,7 @@ func (f *irFrame) eval(h ir.ExpressionHandle) (uint32, error) {
 			return 0, err
 		}
 		return *p, nil
-	case ir.ExprAlias:
+	case ssa.Alias:
 		return f.value(k.Source)
 	case ir.ExprUnary:
 		x, err := f.value(k.Expr)

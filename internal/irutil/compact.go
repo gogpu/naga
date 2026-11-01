@@ -921,7 +921,7 @@ func usedExpressions(f *ir.Function) []bool {
 
 // markExprHandleRefs marks in referenced the operand expressions of kind.
 func markExprHandleRefs(kind ir.ExpressionKind, referenced []bool) {
-	mapExprHandles(kind, markInto(referenced))
+	ExprHandles(kind, markInto(referenced))
 }
 
 // markStmtExprRefsForCompact marks in referenced the expressions stmts and
@@ -929,8 +929,7 @@ func markExprHandleRefs(kind ir.ExpressionKind, referenced []bool) {
 // marks nothing ("since evaluating expressions has no effect, we don't need
 // to assume that everything emitted is live"). stmts is not modified.
 func markStmtExprRefsForCompact(stmts []ir.Statement, referenced []bool) {
-	tracer := blockMapper{handle: markInto(referenced), emit: keepEmitRange, fresh: true}
-	tracer.block(stmts)
+	BlockExprHandles(stmts, markInto(referenced))
 }
 
 // compactEmitRange returns the Emit adjustment of expression compaction, as

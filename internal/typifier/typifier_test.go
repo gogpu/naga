@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -68,12 +69,12 @@ func TestGrowForwardReferences(t *testing.T) {
 	fn := &ir.Function{
 		LocalVars: []ir.LocalVariable{{Name: "slot", Type: 1}},
 		Expressions: []ir.Expression{
-			{Kind: ir.ExprLoad{Pointer: 3}},                                        // 0: loads the later slot
-			{Kind: ir.ExprAlias{Source: 4}},                                        // 1: stands for the later phi
-			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},                            // 2
-			{Kind: ir.ExprLocalVariable{Variable: 0}},                              // 3: the slot
-			{Kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{{Value: 5}, {Value: 2}}}}, // 4: loop phi
-			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 4, Right: 2}},             // 5: next iteration
+			{Kind: ir.ExprLoad{Pointer: 3}},                                   // 0: loads the later slot
+			{Kind: ssa.Alias{Source: 4}},                                      // 1: stands for the later phi
+			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},                       // 2
+			{Kind: ir.ExprLocalVariable{Variable: 0}},                         // 3: the slot
+			{Kind: ssa.Phi{Incoming: []ssa.Incoming{{Value: 5}, {Value: 2}}}}, // 4: loop phi
+			{Kind: ir.ExprBinary{Op: ir.BinaryAdd, Left: 4, Right: 2}},        // 5: next iteration
 		},
 	}
 	ty, err := Function(m, fn)
@@ -113,8 +114,8 @@ func TestGrowError(t *testing.T) {
 	}
 
 	cycle := &ir.Function{Expressions: []ir.Expression{
-		{Kind: ir.ExprAlias{Source: 1}},
-		{Kind: ir.ExprAlias{Source: 0}},
+		{Kind: ssa.Alias{Source: 1}},
+		{Kind: ssa.Alias{Source: 0}},
 	}}
 	if _, err := Function(m, cycle); err == nil || !strings.Contains(err.Error(), "cannot be typed before it") {
 		t.Errorf("alias cycle: err = %v, want the forward-reference error", err)

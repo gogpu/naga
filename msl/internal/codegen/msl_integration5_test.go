@@ -9,7 +9,8 @@ import (
 )
 
 // =============================================================================
-// Test: Atomic load/store operations (covers writeAtomicLoad, writeAtomicStore)
+// Test: Atomic load/store operations (a Load and a Store through a pointer to
+// atomic<T>: writeUncheckedLoad, writeUncheckedStore)
 // =============================================================================
 
 func TestIntegration5_AtomicLoad(t *testing.T) {

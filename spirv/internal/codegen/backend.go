@@ -9774,12 +9774,10 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		return err
 	}
 
-	_, isLoad := stmt.Fun.(ir.AtomicLoad)
-	_, isStore := stmt.Fun.(ir.AtomicStore)
 	exchange, isCompareExchange := stmt.Fun.(ir.AtomicExchange)
 	isCompareExchange = isCompareExchange && exchange.Compare != nil
 	var opcode OpCode
-	if !isLoad && !isStore && !isCompareExchange {
+	if !isCompareExchange {
 		var ok bool
 		if opcode, ok = atomicOpcode(stmt.Fun, scalarKind); !ok {
 			return unsupported.Errorf("unsupported atomic function: %T", stmt.Fun)
@@ -9789,10 +9787,8 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 	// The operands are computed before a ReadZeroSkipWrite selection, so
 	// that they dominate their other uses.
 	var valueID, compareID uint32
-	if !isLoad {
-		if valueID, err = e.emitExpression(stmt.Value); err != nil {
-			return err
-		}
+	if valueID, err = e.emitExpression(stmt.Value); err != nil {
+		return err
 	}
 	if isCompareExchange {
 		if compareID, err = e.emitExpression(*exchange.Compare); err != nil {
@@ -9813,14 +9809,7 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 		}
 	}
 	resultID, err := e.withAccess(pointer, mergeType, func(pointerID uint32) (uint32, error) {
-		switch {
-		case isLoad:
-			// Legacy ir.AtomicLoad: encoded like a Load through an atomic pointer.
-			return e.emitAtomicLoadInstruction(resultTypeID, pointerID, space)
-		case isStore:
-			// Legacy ir.AtomicStore: encoded like a Store through an atomic pointer.
-			return 0, e.emitAtomicStoreInstruction(pointerID, valueID, space)
-		case isCompareExchange:
+		if isCompareExchange {
 			return e.emitAtomicCompareExchange(stmt, pointerID, valueID, compareID, resultTypeID, scopeID, semanticsID)
 		}
 		// OpAtomic* ResultType Result Pointer Scope Semantics Value

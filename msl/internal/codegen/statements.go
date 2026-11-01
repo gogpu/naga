@@ -1173,7 +1173,7 @@ func (w *Writer) writeUncheckedStore(store ir.StmtStore) error {
 	// Rust naga emits StmtStore (not StmtAtomic) for atomicStore(),
 	// and the MSL backend detects atomic pointers at render time.
 	if w.isAtomicPointer(store.Pointer) {
-		if err := w.validateAtomicOperation(store.Pointer, ir.AtomicStore{}, nil); err != nil {
+		if err := w.validateAtomicOperation(store.Pointer, "store", false); err != nil {
 			return err
 		}
 		w.WriteIndent()
@@ -1208,11 +1208,13 @@ func (w *Writer) writeUncheckedStore(store ir.StmtStore) error {
 // the MSL backend. This matches Rust naga's SHADER_INT64_ATOMIC_MIN_MAX
 // capability: only result-discarded min/max operations in storage address
 // space are supported. MSL has no SHADER_INT64_ATOMIC_ALL_OPS equivalent.
-func (w *Writer) validateAtomicOperation(
-	pointer ir.ExpressionHandle,
-	fun ir.AtomicFunction,
-	result *ir.ExpressionHandle,
-) error {
+//
+// name is the operation's WGSL-facing name in the error: an atomic function's
+// (atomicFunctionName), or "load" or "store" for an atomic load or store,
+// which are a Load and a Store through a pointer to atomic<T> and no atomic
+// function, as in Rust naga. resultDiscardedMinMax says the operation is a
+// min or max whose result is not used.
+func (w *Writer) validateAtomicOperation(pointer ir.ExpressionHandle, name string, resultDiscardedMinMax bool) error {
 	if w.currentFunction == nil {
 		return nil
 	}
@@ -1222,11 +1224,6 @@ func (w *Writer) validateAtomicOperation(
 		return nil
 	}
 
-	resultDiscardedMinMax := false
-	switch fun.(type) {
-	case ir.AtomicMin, ir.AtomicMax:
-		resultDiscardedMinMax = result == nil
-	}
 	if resultDiscardedMinMax {
 		if space, ok := w.getPointerAddressSpace(pointer); ok && space == ir.SpaceStorage {
 			return nil
@@ -1235,7 +1232,7 @@ func (w *Writer) validateAtomicOperation(
 
 	return fmt.Errorf(
 		"64-bit atomic %s is unsupported by MSL; only result-discarded min/max in the storage address space are supported",
-		atomicFunctionName(fun),
+		name,
 	)
 }
 
@@ -1262,10 +1259,6 @@ func atomicFunctionName(fun ir.AtomicFunction) string {
 			return "compare exchange"
 		}
 		return "exchange"
-	case ir.AtomicLoad:
-		return "load"
-	case ir.AtomicStore:
-		return "store"
 	default:
 		return fmt.Sprintf("%T", fun)
 	}
@@ -1649,7 +1642,12 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 
 // writeAtomic writes an atomic operation statement.
 func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
-	if err := w.validateAtomicOperation(atomic.Pointer, atomic.Fun, atomic.Result); err != nil {
+	minMax := false
+	switch atomic.Fun.(type) {
+	case ir.AtomicMin, ir.AtomicMax:
+		minMax = true
+	}
+	if err := w.validateAtomicOperation(atomic.Pointer, atomicFunctionName(atomic.Fun), minMax && atomic.Result == nil); err != nil {
 		return err
 	}
 
@@ -1686,12 +1684,6 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 			return w.writeAtomicCompareExchange(atomic, f)
 		}
 		funcName = "atomic_exchange_explicit"
-	case ir.AtomicLoad:
-		// atomic_load_explicit returns the value, takes only pointer and memory order.
-		return w.writeAtomicLoad(atomic)
-	case ir.AtomicStore:
-		// atomic_store_explicit is void, takes pointer, value, and memory order.
-		return w.writeAtomicStore(atomic)
 	default:
 		return unsupported.Errorf("unsupported atomic function: %T", atomic.Fun)
 	}
@@ -1780,62 +1772,6 @@ func (w *Writer) writeAtomicCompareExchange(atomic ir.StmtAtomic, exchange ir.At
 		return err
 	}
 	w.write(");\n")
-	return nil
-}
-
-// writeAtomicLoad writes an atomic load operation.
-// MSL: metal::atomic_load_explicit(&pointer, metal::memory_order_relaxed)
-func (w *Writer) writeAtomicLoad(atomic ir.StmtAtomic) error {
-	w.WriteIndent()
-
-	// Atomic load always has a result.
-	if atomic.Result != nil {
-		resultType := "uint"
-		// Get the type from the pointer's target (the atomic's inner scalar type).
-		typeInner := w.getExpressionType(atomic.Pointer)
-		if typeInner != nil {
-			if pt, ok := typeInner.(ir.PointerType); ok {
-				if int(pt.Base) < len(w.module.Types) {
-					if at, ok := w.module.Types[pt.Base].Inner.(ir.AtomicType); ok {
-						resultType = scalarTypeName(at.Scalar)
-					}
-				}
-			} else if at, ok := typeInner.(ir.AtomicType); ok {
-				resultType = scalarTypeName(at.Scalar)
-			}
-		}
-		// Use the IR named expression name if available (from let bindings),
-		// otherwise generate _eN. Matches Rust naga: named expressions are
-		// used directly for atomic results.
-		varName := fmt.Sprintf("_e%d", *atomic.Result)
-		if irName, ok := w.getIRNamedExpression(*atomic.Result); ok {
-			varName = w.namer.call(irName)
-		}
-		w.namedExpressions[*atomic.Result] = varName
-		w.write("%s %s = ", resultType, varName)
-	}
-
-	w.write("%satomic_load_explicit(&", Namespace)
-	if err := w.writeExpression(atomic.Pointer); err != nil {
-		return err
-	}
-	w.write(", %smemory_order_relaxed);\n", Namespace)
-	return nil
-}
-
-// writeAtomicStore writes an atomic store operation.
-// MSL: metal::atomic_store_explicit(&pointer, value, metal::memory_order_relaxed)
-func (w *Writer) writeAtomicStore(atomic ir.StmtAtomic) error {
-	w.WriteIndent()
-	w.write("%satomic_store_explicit(&", Namespace)
-	if err := w.writeExpression(atomic.Pointer); err != nil {
-		return err
-	}
-	w.write(", ")
-	if err := w.writeExpression(atomic.Value); err != nil {
-		return err
-	}
-	w.write(", %smemory_order_relaxed);\n", Namespace)
 	return nil
 }
 

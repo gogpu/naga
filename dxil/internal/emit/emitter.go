@@ -159,7 +159,7 @@ type Emitter struct {
 
 	// lastBranchBBs holds the BB indices recorded by the most-recently
 	// completed StmtIf / StmtSwitch / (future) StmtLoop emit. Used by
-	// emitExpression for ExprPhi to map each PhiIncoming.PredKey to a
+	// emitExpression for ssa.Phi to map each ssa.Incoming.PredKey to a
 	// concrete LLVM BB index when materializing FUNC_CODE_INST_PHI.
 	// Cleared when emit hits any non-phi-bearing statement so a stale
 	// snapshot from a prior construct cannot accidentally feed into a
@@ -363,7 +363,7 @@ type loopContext struct {
 
 // branchKind tags the kind of structured construct that produced the
 // most recent BB snapshot, so phi materialization can pick the right
-// PhiPredKey -> BBIndex mapping.
+// ssa.PredKey -> BBIndex mapping.
 type branchKind uint8
 
 const (
@@ -372,12 +372,12 @@ const (
 )
 
 // branchBBs holds the BB indices a just-completed structured construct
-// produced, in the form needed to map each PhiIncoming.PredKey to a
+// produced, in the form needed to map each ssa.Incoming.PredKey to a
 // concrete LLVM BB index for FUNC_CODE_INST_PHI emission.
 //
 // Populated by emitIfStatement / emitSwitchStatement immediately
 // before transitioning currentBB to the merge BB. Consumed by
-// emitExpression for ExprPhi. Cleared on any non-phi statement.
+// emitExpression for ssa.Phi. Cleared on any non-phi statement.
 type branchBBs struct {
 	kind branchKind
 

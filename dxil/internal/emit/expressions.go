@@ -9,6 +9,7 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/consteval"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -78,14 +79,14 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 	case ir.ExprLoad:
 		valueID, err = e.emitLoad(fn, ek)
 
-	case ir.ExprAlias:
+	case ssa.Alias:
 		// Transparent passthrough produced by the DXIL mem2reg pass:
 		// the load was rewritten to alias an earlier-emitted value
 		// (the dominating store's value or the variable's Init).
 		// Emit nothing of our own — return the source's value ID.
 		valueID, err = e.emitExpression(fn, ek.Source)
 
-	case ir.ExprPhi:
+	case ssa.Phi:
 		// SSA phi node produced by the DXIL mem2reg Phase B walker.
 		// Materialize as LLVM FUNC_CODE_INST_PHI at the start of
 		// the current BB (which the caller — a single-handle StmtEmit
@@ -4739,7 +4740,7 @@ func (e *Emitter) tryLoadVectorFromFlatArray(
 	return comps[0], true
 }
 
-// emitPhi materializes an ExprPhi as an LLVM FUNC_CODE_INST_PHI
+// emitPhi materializes an ssa.Phi as an LLVM FUNC_CODE_INST_PHI
 // instruction at the prologue of the current basic block.
 //
 // Preconditions established by the DXIL mem2reg Phase B walker:
@@ -4749,7 +4750,7 @@ func (e *Emitter) tryLoadVectorFromFlatArray(
 //     just transitioned currentBB to the merge BB (empty or
 //     phi-only at this point) and recorded e.lastBranchBBs with
 //     the branch-end BB indices.
-//   - Each PhiIncoming.Value's expression has already been emitted
+//   - Each ssa.Incoming.Value's expression has already been emitted
 //     during the predecessor branch body, so e.exprValues holds a
 //     value ID for it.
 //
@@ -4760,14 +4761,14 @@ func (e *Emitter) tryLoadVectorFromFlatArray(
 // Reference parity: matches LLVM mem2reg's invariant that phi
 // instructions live at the start of the merge BB; the per-incoming
 // (value, predecessor BB) pairs come from the structured-CFG
-// branch snapshot in e.lastBranchBBs (PhiPredKey -> BB index).
-func (e *Emitter) emitPhi(fn *ir.Function, phi ir.ExprPhi) (int, error) {
+// branch snapshot in e.lastBranchBBs (ssa.PredKey -> BB index).
+func (e *Emitter) emitPhi(fn *ir.Function, phi ssa.Phi) (int, error) {
 	if e.lastBranchBBs == nil {
-		return 0, fmt.Errorf("ExprPhi without preceding branch context: phi must "+
+		return 0, fmt.Errorf("ssa.Phi without preceding branch context: phi must "+
 			"immediately follow a StmtIf or StmtSwitch (got %d incomings)", len(phi.Incoming))
 	}
 	if len(phi.Incoming) == 0 {
-		return 0, fmt.Errorf("ExprPhi with zero incomings")
+		return 0, fmt.Errorf("ssa.Phi with zero incomings")
 	}
 
 	// Resolve each incoming to a (value-ID, BB-index) pair. The
@@ -4798,21 +4799,21 @@ func (e *Emitter) emitPhi(fn *ir.Function, phi ir.ExprPhi) (int, error) {
 	return valueID, nil
 }
 
-// resolvePhiPredBB maps a PhiIncoming.PredKey (and CaseIdx for
+// resolvePhiPredBB maps a ssa.Incoming.PredKey (and CaseIdx for
 // switch cases) to the concrete BB index recorded in
 // e.lastBranchBBs by the most-recent emitIfStatement /
 // emitSwitchStatement.
-func (e *Emitter) resolvePhiPredBB(key ir.PhiPredKey, caseIdx uint32) (int, error) {
+func (e *Emitter) resolvePhiPredBB(key ssa.PredKey, caseIdx uint32) (int, error) {
 	bbs := e.lastBranchBBs
 	switch key {
-	case ir.PhiPredIfAccept:
+	case ssa.PredIfAccept:
 		if bbs.kind != branchKindIf {
-			return 0, fmt.Errorf("PhiPredIfAccept but lastBranchBBs.kind=%d", bbs.kind)
+			return 0, fmt.Errorf("ssa.PredIfAccept but lastBranchBBs.kind=%d", bbs.kind)
 		}
 		return bbs.acceptEndBB, nil
-	case ir.PhiPredIfReject:
+	case ssa.PredIfReject:
 		if bbs.kind != branchKindIf {
-			return 0, fmt.Errorf("PhiPredIfReject but lastBranchBBs.kind=%d", bbs.kind)
+			return 0, fmt.Errorf("ssa.PredIfReject but lastBranchBBs.kind=%d", bbs.kind)
 		}
 		// emitIfStatement seeds rejectEndBB to the entry BB (where the
 		// conditional branch was emitted) when there is no else block,
@@ -4820,29 +4821,29 @@ func (e *Emitter) resolvePhiPredBB(key ir.PhiPredKey, caseIdx uint32) (int, erro
 		// When there IS an else block, rejectEndBB is its terminator BB.
 		// Either way, returning bbs.rejectEndBB is correct.
 		return bbs.rejectEndBB, nil
-	case ir.PhiPredSwitchCase:
+	case ssa.PredSwitchCase:
 		if bbs.kind != branchKindSwitch {
-			return 0, fmt.Errorf("PhiPredSwitchCase but lastBranchBBs.kind=%d", bbs.kind)
+			return 0, fmt.Errorf("ssa.PredSwitchCase but lastBranchBBs.kind=%d", bbs.kind)
 		}
 		if int(caseIdx) >= len(bbs.caseEndBBs) {
-			return 0, fmt.Errorf("PhiPredSwitchCase CaseIdx=%d out of range %d", caseIdx, len(bbs.caseEndBBs))
+			return 0, fmt.Errorf("ssa.PredSwitchCase CaseIdx=%d out of range %d", caseIdx, len(bbs.caseEndBBs))
 		}
 		return bbs.caseEndBBs[caseIdx], nil
-	case ir.PhiPredLoopInit, ir.PhiPredLoopBackEdge, ir.PhiPredFallThrough:
+	case ssa.PredLoopInit, ssa.PredLoopBackEdge, ssa.PredFallThrough:
 		// Loop phi placement is deferred to BUG-DXIL-041 — mem2reg
 		// Phase B walker disqualifies any candidate stored inside
 		// a loop, so these PredKeys should never appear in emitted IR.
-		return 0, fmt.Errorf("PhiPredKey %d (loop / fallthrough) not yet supported by emit", key)
+		return 0, fmt.Errorf("ssa.PredKey %d (loop / fallthrough) not yet supported by emit", key)
 	default:
-		return 0, fmt.Errorf("unknown PhiPredKey %d", key)
+		return 0, fmt.Errorf("unknown ssa.PredKey %d", key)
 	}
 }
 
-// phiResultType resolves the LLVM type of an ExprPhi's value. Uses
+// phiResultType resolves the LLVM type of an ssa.Phi's value. Uses
 // the first incoming's type (SSA invariant: every incoming shares
 // type). Phase B promotes only scalar local variables, so the
 // expected resolution is always a scalar TypeInner.
-func (e *Emitter) phiResultType(fn *ir.Function, phi ir.ExprPhi) (*module.Type, error) {
+func (e *Emitter) phiResultType(fn *ir.Function, phi ssa.Phi) (*module.Type, error) {
 	if len(phi.Incoming) == 0 {
 		return nil, fmt.Errorf("phi has no incomings")
 	}

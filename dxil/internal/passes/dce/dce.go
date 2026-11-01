@@ -31,6 +31,8 @@
 package dce
 
 import (
+	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -107,7 +109,7 @@ func liveness(mod *ir.Module, fn *ir.Function) ([]bool, map[uint32]bool) {
 			return
 		}
 		live[h] = true
-		visitExprHandles(fn.Expressions[h].Kind, mark)
+		irutil.ExprHandles(fn.Expressions[h].Kind, mark)
 	}
 	for {
 		before := countLive(live)
@@ -166,7 +168,7 @@ func markLive(mod *ir.Module, fn *ir.Function) []bool {
 		}
 		live[h] = true
 		// Transitively mark all sub-expressions.
-		visitExprHandles(fn.Expressions[h].Kind, mark)
+		irutil.ExprHandles(fn.Expressions[h].Kind, mark)
 	}
 
 	// Walk statements and mark roots.
@@ -224,7 +226,7 @@ func markLiveLocalStoreValues(fn *ir.Function, live []bool, deadLocals map[uint3
 			return
 		}
 		live[h] = true
-		visitExprHandles(fn.Expressions[h].Kind, mark)
+		irutil.ExprHandles(fn.Expressions[h].Kind, mark)
 	}
 
 	markLiveStoresBlock(fn, fn.Body, localPtrs, deadLocals, mark)
@@ -278,9 +280,22 @@ func markBlockRoots(
 }
 
 // markStmtRoots marks expression handles referenced by a single
-// statement if that statement is a side-effecting root.
+// statement if that statement is a side-effecting root, and the roots of
+// the blocks nested in it.
 //
-//nolint:gocyclo,cyclop,funlen // exhaustive statement-kind dispatch
+// Every statement is a root with all its operands (irutil.StmtExprHandles)
+// but a store to a local and a call to a pure function. That covers:
+//   - stores to globals (output, UAV, workgroup), image stores and image
+//     atomics, returns, workgroup uniform loads, ray queries and subgroup
+//     operations;
+//   - atomics, even on a local: unlike a local store they are not left to
+//     the dead-local fixup (atomics on locals are not expected after
+//     mem2reg; classify.go disqualifies such variables);
+//   - barriers and kills, which have no operand but are always live;
+//   - control flow: a construct's condition is live while the construct is
+//     there, as LLVM's ADCE keeps every terminator. dropDeadControlFlow
+//     removes the constructs with nothing live in them, and liveness is
+//     computed again.
 func markStmtRoots(
 	mod *ir.Module,
 	fn *ir.Function,
@@ -289,6 +304,10 @@ func markStmtRoots(
 	mark func(ir.ExpressionHandle),
 ) {
 	switch sk := kind.(type) {
+	case ir.StmtEmit:
+		// Emit ranges define evaluation timing, not side effects. The
+		// expressions within the range become live only if some root
+		// references them (StmtExprHandles does not visit the range).
 	case ir.StmtStore:
 		if _, isLocal := isLocalStore(fn, sk.Pointer, localPtrs); isLocal {
 			// Store to local (including field stores via AccessIndex
@@ -296,122 +315,19 @@ func markStmtRoots(
 			// the local's loads are marked live (dead-local fixup).
 			return
 		}
-		// Store to global (output, UAV, workgroup): root.
-		mark(sk.Pointer)
-		mark(sk.Value)
-
-	case ir.StmtReturn:
-		if sk.Value != nil {
-			mark(*sk.Value)
-		}
-
-	case ir.StmtImageStore:
-		mark(sk.Image)
-		mark(sk.Coordinate)
-		mark(sk.Value)
-		if sk.ArrayIndex != nil {
-			mark(*sk.ArrayIndex)
-		}
-
-	case ir.StmtImageAtomic:
-		mark(sk.Image)
-		mark(sk.Coordinate)
-		mark(sk.Value)
-		if sk.ArrayIndex != nil {
-			mark(*sk.ArrayIndex)
-		}
-		markAtomicFunctionHandles(sk.Fun, mark)
-
-	case ir.StmtAtomic:
-		// Always a root, even on a local: unlike a local store it is
-		// not left to the dead-local fixup. Atomics on locals are not
-		// expected after mem2reg (classify.go disqualifies such vars).
-		mark(sk.Pointer)
-		mark(sk.Value)
-		if sk.Result != nil {
-			mark(*sk.Result)
-		}
-		markAtomicFunctionHandles(sk.Fun, mark)
-
-	case ir.StmtControlBarrier, ir.StmtMemoryBarrier:
-		// Execution barrier — always live (side effect).
-		// No expression operands to mark.
-
-	case ir.StmtKill:
-		// Discard/kill — always live.
-
 	case ir.StmtCall:
-		if calleeHasSideEffects(mod, sk.Function) {
-			for _, a := range sk.Arguments {
-				mark(a)
-			}
-			if sk.Result != nil {
-				mark(*sk.Result)
-			}
+		if !calleeHasSideEffects(mod, sk.Function) {
+			// Pure callees: don't mark anything. If the Result is
+			// consumed by a live expression, mark() will reach
+			// ExprCallResult via dependency chain. The fixup pass
+			// (propagateCallResultLiveness) then marks the call's
+			// arguments. The sweep drops calls where neither args
+			// nor Result are live.
+			return
 		}
-		// Pure callees: don't mark anything. If the Result is
-		// consumed by a live expression, mark() will reach
-		// ExprCallResult via dependency chain. The fixup pass
-		// (propagateCallResultLiveness) then marks the call's
-		// arguments. The sweep drops calls where neither args
-		// nor Result are live.
-
-	case ir.StmtWorkGroupUniformLoad:
-		mark(sk.Pointer)
-		mark(sk.Result)
-
-	case ir.StmtRayQuery:
-		mark(sk.Query)
-		markRayQueryFunctionHandles(sk.Fun, mark)
-
-	case ir.StmtSubgroupBallot:
-		mark(sk.Result)
-		if sk.Predicate != nil {
-			mark(*sk.Predicate)
-		}
-
-	case ir.StmtSubgroupCollectiveOperation:
-		mark(sk.Argument)
-		mark(sk.Result)
-
-	case ir.StmtSubgroupGather:
-		mark(sk.Argument)
-		mark(sk.Result)
-		markGatherModeHandles(sk.Mode, mark)
-
-	// Control flow — recurse into sub-blocks and mark conditions: a
-	// construct's condition is live while the construct is there, as
-	// LLVM's ADCE keeps every terminator. dropDeadControlFlow removes the
-	// constructs with nothing live in them, and liveness is computed again.
-	case ir.StmtIf:
-		mark(sk.Condition)
-		markBlockRoots(mod, fn, sk.Accept, localPtrs, mark)
-		markBlockRoots(mod, fn, sk.Reject, localPtrs, mark)
-
-	case ir.StmtLoop:
-		markBlockRoots(mod, fn, sk.Body, localPtrs, mark)
-		markBlockRoots(mod, fn, sk.Continuing, localPtrs, mark)
-		if sk.BreakIf != nil {
-			mark(*sk.BreakIf)
-		}
-
-	case ir.StmtSwitch:
-		mark(sk.Selector)
-		for ci := range sk.Cases {
-			markBlockRoots(mod, fn, sk.Cases[ci].Body, localPtrs, mark)
-		}
-
-	case ir.StmtBlock:
-		markBlockRoots(mod, fn, sk.Block, localPtrs, mark)
-
-	case ir.StmtEmit:
-		// Emit ranges define evaluation timing, not side effects.
-		// The expressions within the range become live only if
-		// some root references them.
-
-	case ir.StmtBreak, ir.StmtContinue:
-		// Control flow — no expression operands.
 	}
+	irutil.StmtExprHandles(kind, mark)
+	irutil.NestedBlocks(kind, func(b ir.Block) { markBlockRoots(mod, fn, b, localPtrs, mark) })
 }
 
 // dropDeadControlFlow returns block without the ifs and switches that
@@ -477,7 +393,7 @@ func dropDeadControlFlow(
 }
 
 // feedsLivePhi reports whether the emits right after block[i] hold a live
-// ExprPhi. mem2reg places a phi there and takes its incomings from the
+// ssa.Phi. mem2reg places a phi there and takes its incomings from the
 // branches of block[i], so that if or switch has to stay even when its
 // branches end up empty.
 func feedsLivePhi(fn *ir.Function, block ir.Block, i int, live []bool) bool {
@@ -487,7 +403,7 @@ func feedsLivePhi(fn *ir.Function, block ir.Block, i int, live []bool) bool {
 			return false
 		}
 		for h := emit.Range.Start; h < emit.Range.End; h++ {
-			if _, isPhi := fn.Expressions[h].Kind.(ir.ExprPhi); isPhi && live[h] {
+			if _, isPhi := fn.Expressions[h].Kind.(ssa.Phi); isPhi && live[h] {
 				return true
 			}
 		}
@@ -536,50 +452,6 @@ func stmtSurvivesSweep(
 		// Ifs and switches still here stay (see blockWillBeEmpty); the
 		// others are kept conservatively.
 		return true
-	}
-}
-
-// markAtomicFunctionHandles marks the comparand of a compare-exchange, the
-// one atomic function with an expression operand.
-func markAtomicFunctionHandles(fun ir.AtomicFunction, mark func(ir.ExpressionHandle)) {
-	if ex, ok := fun.(ir.AtomicExchange); ok && ex.Compare != nil {
-		mark(*ex.Compare)
-	}
-}
-
-// markGatherModeHandles marks the lane operand of a subgroup gather mode.
-func markGatherModeHandles(mode ir.GatherMode, mark func(ir.ExpressionHandle)) {
-	switch m := mode.(type) {
-	case ir.GatherBroadcast:
-		mark(m.Index)
-	case ir.GatherShuffle:
-		mark(m.Index)
-	case ir.GatherShuffleDown:
-		mark(m.Delta)
-	case ir.GatherShuffleUp:
-		mark(m.Delta)
-	case ir.GatherShuffleXor:
-		mark(m.Mask)
-	case ir.GatherQuadBroadcast:
-		mark(m.Index)
-	case ir.GatherBroadcastFirst, ir.GatherQuadSwap:
-		// No expression operands.
-	}
-}
-
-// markRayQueryFunctionHandles marks expression handles within a
-// RayQueryFunction variant.
-func markRayQueryFunctionHandles(fun ir.RayQueryFunction, mark func(ir.ExpressionHandle)) {
-	switch f := fun.(type) {
-	case ir.RayQueryInitialize:
-		mark(f.AccelerationStructure)
-		mark(f.Descriptor)
-	case ir.RayQueryProceed:
-		mark(f.Result)
-	case ir.RayQueryGenerateIntersection:
-		mark(f.HitT)
-	case ir.RayQueryTerminate, ir.RayQueryConfirmIntersection:
-		// No expression operands.
 	}
 }
 
@@ -904,24 +776,25 @@ func blockHasSideEffectsWalk(block ir.Block, localPtrs map[ir.ExpressionHandle]u
 // stmtHasSideEffects reports whether a single statement has observable
 // side effects (non-local stores, atomics, barriers, calls, image ops).
 // For control flow statements it recurses into nested blocks.
+//
+// Every statement kind has a case: TestStmtHasSideEffectsEveryKind fails for
+// a kind added to package ir without one, and the default keeps such a kind
+// (a side effect) until it has.
 func stmtHasSideEffects(stmt ir.Statement, localPtrs map[ir.ExpressionHandle]uint32, fn *ir.Function) bool {
 	switch sk := stmt.Kind.(type) {
 	case ir.StmtStore:
-		if _, isLocal := isLocalStore(fn, sk.Pointer, localPtrs); !isLocal {
-			return true
-		}
-	case ir.StmtAtomic:
+		_, isLocal := isLocalStore(fn, sk.Pointer, localPtrs)
+		return !isLocal
+	case ir.StmtAtomic, ir.StmtImageStore, ir.StmtImageAtomic,
+		ir.StmtControlBarrier, ir.StmtMemoryBarrier, ir.StmtKill,
+		ir.StmtCall, ir.StmtWorkGroupUniformLoad, ir.StmtRayQuery:
 		return true
-	case ir.StmtImageStore, ir.StmtImageAtomic:
-		return true
-	case ir.StmtControlBarrier, ir.StmtMemoryBarrier, ir.StmtKill:
-		return true
-	case ir.StmtCall:
-		return true
-	case ir.StmtWorkGroupUniformLoad:
-		return true
-	case ir.StmtRayQuery:
-		return true
+	case ir.StmtEmit, ir.StmtReturn, ir.StmtBreak, ir.StmtContinue,
+		ir.StmtSubgroupBallot, ir.StmtSubgroupCollectiveOperation, ir.StmtSubgroupGather:
+		// Evaluation and control flow inside the callee, and subgroup
+		// operations, which only compute their result: nothing a caller
+		// observes unless it uses the call's result.
+		return false
 	case ir.StmtIf:
 		return blockHasSideEffectsWalk(sk.Accept, localPtrs, fn) || blockHasSideEffectsWalk(sk.Reject, localPtrs, fn)
 	case ir.StmtLoop:
@@ -932,10 +805,12 @@ func stmtHasSideEffects(stmt ir.Statement, localPtrs map[ir.ExpressionHandle]uin
 				return true
 			}
 		}
+		return false
 	case ir.StmtBlock:
 		return blockHasSideEffectsWalk(sk.Block, localPtrs, fn)
+	default:
+		return true
 	}
-	return false
 }
 
 // buildLocalPtrMap returns a map from ExprLocalVariable expression
@@ -990,104 +865,4 @@ func isLocalStore(fn *ir.Function, pointer ir.ExpressionHandle, localPtrs map[ir
 	}
 	// Slow path: follow AccessIndex/Access chains.
 	return resolveLocalVar(fn, pointer)
-}
-
-// visitExprHandles invokes f for every ExpressionHandle field inside
-// the given expression kind. This mirrors the visitExpressionHandles
-// in emit/statements.go but lives here to avoid a circular import.
-//
-//nolint:gocyclo,cyclop,funlen // exhaustive expression-kind dispatch
-func visitExprHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle)) {
-	switch k := kind.(type) {
-	case ir.ExprLoad:
-		f(k.Pointer)
-	case ir.ExprAlias:
-		f(k.Source)
-	case ir.ExprAccess:
-		f(k.Base)
-		f(k.Index)
-	case ir.ExprAccessIndex:
-		f(k.Base)
-	case ir.ExprBinary:
-		f(k.Left)
-		f(k.Right)
-	case ir.ExprUnary:
-		f(k.Expr)
-	case ir.ExprSelect:
-		f(k.Condition)
-		f(k.Accept)
-		f(k.Reject)
-	case ir.ExprSplat:
-		f(k.Value)
-	case ir.ExprSwizzle:
-		f(k.Vector)
-	case ir.ExprCompose:
-		for _, c := range k.Components {
-			f(c)
-		}
-	case ir.ExprAs:
-		f(k.Expr)
-	case ir.ExprDerivative:
-		f(k.Expr)
-	case ir.ExprMath:
-		f(k.Arg)
-		if k.Arg1 != nil {
-			f(*k.Arg1)
-		}
-		if k.Arg2 != nil {
-			f(*k.Arg2)
-		}
-		if k.Arg3 != nil {
-			f(*k.Arg3)
-		}
-	case ir.ExprRelational:
-		f(k.Argument)
-	case ir.ExprArrayLength:
-		f(k.Array)
-	case ir.ExprImageSample:
-		f(k.Image)
-		f(k.Sampler)
-		f(k.Coordinate)
-		if k.ArrayIndex != nil {
-			f(*k.ArrayIndex)
-		}
-		if k.Offset != nil {
-			f(*k.Offset)
-		}
-		if k.DepthRef != nil {
-			f(*k.DepthRef)
-		}
-		switch l := k.Level.(type) {
-		case ir.SampleLevelExact:
-			f(l.Level)
-		case ir.SampleLevelBias:
-			f(l.Bias)
-		case ir.SampleLevelGradient:
-			f(l.X)
-			f(l.Y)
-		}
-	case ir.ExprImageLoad:
-		f(k.Image)
-		f(k.Coordinate)
-		if k.ArrayIndex != nil {
-			f(*k.ArrayIndex)
-		}
-		if k.Sample != nil {
-			f(*k.Sample)
-		}
-		if k.Level != nil {
-			f(*k.Level)
-		}
-	case ir.ExprImageQuery:
-		f(k.Image)
-		if size, ok := k.Query.(ir.ImageQuerySize); ok && size.Level != nil {
-			f(*size.Level)
-		}
-	case ir.ExprRayQueryGetIntersection:
-		f(k.Query)
-	case ir.ExprPhi:
-		for _, inc := range k.Incoming {
-			f(inc.Value)
-		}
-	}
 }

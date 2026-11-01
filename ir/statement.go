@@ -241,16 +241,6 @@ type AtomicExchange struct {
 
 func (AtomicExchange) atomicFunction() {}
 
-// AtomicStore performs atomic store. Has no result.
-type AtomicStore struct{}
-
-func (AtomicStore) atomicFunction() {}
-
-// AtomicLoad performs atomic load. Has no value operand.
-type AtomicLoad struct{}
-
-func (AtomicLoad) atomicFunction() {}
-
 // StmtImageAtomic performs an atomic operation on a texel in a storage texture.
 // The image must have atomic access. The coordinate type must match the image dimension.
 type StmtImageAtomic struct {

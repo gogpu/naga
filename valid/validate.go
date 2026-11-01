@@ -640,6 +640,14 @@ func (v *validator) validateExpression(handle ir.ExpressionHandle, expr *ir.Expr
 		if !v.isValidTypeHandle(kind.Type) {
 			v.addErrorInExpression(handle, fmt.Sprintf("type %d does not exist", kind.Type))
 		}
+
+	case ir.ExprOverride, ir.ExprAtomicResult, ir.ExprWorkGroupUniformLoadResult:
+		// No operand expression; this switch checks nothing more for them.
+
+	default:
+		// A kind of no frontend, such as the DXIL backend's SSA kinds,
+		// which exist only in that backend's own copy of a module.
+		v.addErrorInExpression(handle, fmt.Sprintf("unknown expression kind %T", kind))
 	}
 }
 

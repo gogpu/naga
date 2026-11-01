@@ -3,6 +3,7 @@ package mem2reg
 import (
 	"testing"
 
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -68,7 +69,7 @@ func TestClassifyScalarSingleStore(t *testing.T) {
 
 // TestClassifyVectorNotPromotable verifies that a vector local variable
 // is NOT promotable by mem2reg (vector locals require emit-layer changes
-// to handle ExprAlias chains for vector values).
+// to handle ssa.Alias chains for vector values).
 func TestClassifyVectorNotPromotable(t *testing.T) {
 	mod := &ir.Module{}
 	f32 := scalarTypeHandle(mod, ir.ScalarFloat, 4)
@@ -157,7 +158,7 @@ func TestClassifyStmtAtomicDisqualifies(t *testing.T) {
 }
 
 // TestPromoteSingleStoreSingleLoad verifies that the rewrite walks
-// the body, replaces the load with ExprAlias{Source: stored value},
+// the body, replaces the load with ssa.Alias{Source: stored value},
 // and removes the store from the statement stream.
 func TestPromoteSingleStoreSingleLoad(t *testing.T) {
 	mod := &ir.Module{}
@@ -178,10 +179,10 @@ func TestPromoteSingleStoreSingleLoad(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	// Load should now be ExprAlias{Source: val}.
-	alias, ok := fn.Expressions[loadHandle].Kind.(ir.ExprAlias)
+	// Load should now be ssa.Alias{Source: val}.
+	alias, ok := fn.Expressions[loadHandle].Kind.(ssa.Alias)
 	if !ok {
-		t.Fatalf("expected load handle %d to be ExprAlias, got %T", loadHandle, fn.Expressions[loadHandle].Kind)
+		t.Fatalf("expected load handle %d to be ssa.Alias, got %T", loadHandle, fn.Expressions[loadHandle].Kind)
 	}
 	if alias.Source != val {
 		t.Fatalf("expected alias source = %d (val), got %d", val, alias.Source)
@@ -234,17 +235,17 @@ func TestPromoteUsesInitWhenLoadPrecedesStore(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	earlyAlias, ok := fn.Expressions[earlyLoad].Kind.(ir.ExprAlias)
+	earlyAlias, ok := fn.Expressions[earlyLoad].Kind.(ssa.Alias)
 	if !ok {
-		t.Fatalf("early load not rewritten to ExprAlias: %T", fn.Expressions[earlyLoad].Kind)
+		t.Fatalf("early load not rewritten to ssa.Alias: %T", fn.Expressions[earlyLoad].Kind)
 	}
 	if earlyAlias.Source != initVal {
 		t.Fatalf("early load should alias Init (%d), got %d", initVal, earlyAlias.Source)
 	}
 
-	lateAlias, ok := fn.Expressions[lateLoad].Kind.(ir.ExprAlias)
+	lateAlias, ok := fn.Expressions[lateLoad].Kind.(ssa.Alias)
 	if !ok {
-		t.Fatalf("late load not rewritten to ExprAlias: %T", fn.Expressions[lateLoad].Kind)
+		t.Fatalf("late load not rewritten to ssa.Alias: %T", fn.Expressions[lateLoad].Kind)
 	}
 	if lateAlias.Source != storeVal {
 		t.Fatalf("late load should alias storeVal (%d), got %d", storeVal, lateAlias.Source)
@@ -281,7 +282,7 @@ func TestPromoteSynthesizesZeroValueWhenUninitialized(t *testing.T) {
 			exprCountBefore, len(fn.Expressions))
 	}
 	// The early load should alias that new ExprZeroValue.
-	earlyAlias, ok := fn.Expressions[earlyLoad].Kind.(ir.ExprAlias)
+	earlyAlias, ok := fn.Expressions[earlyLoad].Kind.(ssa.Alias)
 	if !ok {
 		t.Fatalf("early load not rewritten: %T", fn.Expressions[earlyLoad].Kind)
 	}
@@ -327,7 +328,7 @@ func TestPromoteMultipleStoresInOneBlock(t *testing.T) {
 
 	checkAlias := func(loadH, want ir.ExpressionHandle) {
 		t.Helper()
-		alias, ok := fn.Expressions[loadH].Kind.(ir.ExprAlias)
+		alias, ok := fn.Expressions[loadH].Kind.(ssa.Alias)
 		if !ok {
 			t.Fatalf("load %d not rewritten: %T", loadH, fn.Expressions[loadH].Kind)
 		}
@@ -348,9 +349,9 @@ func TestPromoteMultipleStoresInOneBlock(t *testing.T) {
 
 // TestPhaseBIfMergePromotion verifies the if-merge phi placement:
 // a variable stored on both branches of an if-statement is promoted
-// by Phase B, the load after the if becomes ExprAlias pointing to
-// an ExprPhi that merges the two stored values via PhiPredIfAccept
-// / PhiPredIfReject incomings.
+// by Phase B, the load after the if becomes ssa.Alias pointing to
+// an ssa.Phi that merges the two stored values via ssa.PredIfAccept
+// / ssa.PredIfReject incomings.
 func TestPhaseBIfMergePromotion(t *testing.T) {
 	mod := &ir.Module{}
 	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
@@ -381,13 +382,13 @@ func TestPhaseBIfMergePromotion(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	alias, isAlias := fn.Expressions[loadH].Kind.(ir.ExprAlias)
+	alias, isAlias := fn.Expressions[loadH].Kind.(ssa.Alias)
 	if !isAlias {
-		t.Fatalf("expected ExprAlias after Phase B, got %T", fn.Expressions[loadH].Kind)
+		t.Fatalf("expected ssa.Alias after Phase B, got %T", fn.Expressions[loadH].Kind)
 	}
-	phi, isPhi := fn.Expressions[alias.Source].Kind.(ir.ExprPhi)
+	phi, isPhi := fn.Expressions[alias.Source].Kind.(ssa.Phi)
 	if !isPhi {
-		t.Fatalf("expected ExprPhi at alias source %d, got %T", alias.Source, fn.Expressions[alias.Source].Kind)
+		t.Fatalf("expected ssa.Phi at alias source %d, got %T", alias.Source, fn.Expressions[alias.Source].Kind)
 	}
 	if len(phi.Incoming) != 2 {
 		t.Fatalf("expected 2 incomings, got %d", len(phi.Incoming))
@@ -395,12 +396,12 @@ func TestPhaseBIfMergePromotion(t *testing.T) {
 	hasAccept, hasReject := false, false
 	for _, inc := range phi.Incoming {
 		switch inc.PredKey {
-		case ir.PhiPredIfAccept:
+		case ssa.PredIfAccept:
 			hasAccept = true
 			if inc.Value != val1 {
 				t.Errorf("IfAccept incoming should be val1=%d, got %d", val1, inc.Value)
 			}
-		case ir.PhiPredIfReject:
+		case ssa.PredIfReject:
 			hasReject = true
 			if inc.Value != val2 {
 				t.Errorf("IfReject incoming should be val2=%d, got %d", val2, inc.Value)
@@ -467,10 +468,10 @@ func TestPromoteInlineArgSpillPattern(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	// The load should now be ExprAlias{Source: litVal}.
-	alias, ok := fn.Expressions[loadHandle].Kind.(ir.ExprAlias)
+	// The load should now be ssa.Alias{Source: litVal}.
+	alias, ok := fn.Expressions[loadHandle].Kind.(ssa.Alias)
 	if !ok {
-		t.Fatalf("expected load handle %d to be ExprAlias after promotion, got %T",
+		t.Fatalf("expected load handle %d to be ssa.Alias after promotion, got %T",
 			loadHandle, fn.Expressions[loadHandle].Kind)
 	}
 	if alias.Source != litVal {
@@ -515,7 +516,7 @@ func TestPhaseBBranchThatLeavesFeedsNoPhi(t *testing.T) {
 		if err := Run(mod, fn); err != nil {
 			t.Fatal(err)
 		}
-		alias, ok := fn.Expressions[load].Kind.(ir.ExprAlias)
+		alias, ok := fn.Expressions[load].Kind.(ssa.Alias)
 		if _, isContinue := exit.(ir.StmtContinue); isContinue {
 			// Stored inside a loop: the variable keeps its alloca.
 			if ok {
@@ -534,7 +535,7 @@ func TestPhaseBBranchThatLeavesFeedsNoPhi(t *testing.T) {
 
 // TestPhaseBSwitchWithInnerBreakKeepsAlloca: a break inside an if inside a
 // case branches to the switch's merge from a block that no
-// PhiPredSwitchCase incoming can name, so a variable stored in that switch
+// ssa.PredSwitchCase incoming can name, so a variable stored in that switch
 // keeps its alloca instead of getting a phi with a missing predecessor.
 func TestPhaseBSwitchWithInnerBreakKeepsAlloca(t *testing.T) {
 	mod := &ir.Module{}

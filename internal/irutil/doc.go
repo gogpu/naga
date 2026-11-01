@@ -10,7 +10,10 @@
 // (Compact, CompactUnused; public as naga.Compact), function inlining for
 // DXIL (InlineUserFunctions), type reordering (ReorderTypes), and the one
 // walker over the expression handles of an expression and of a statement
-// tree that they share with pipeline-constant processing
-// (RemapExpressionHandles, RemapStatementExpressionHandles). These passes
-// modify the module they are given in place.
+// that they share with pipeline-constant processing, which maps the handles
+// (RemapExpressionHandles, RemapStatementExpressionHandles), and with the
+// DXIL backend's analyses, which read them (ExprHandles, StmtExprHandles,
+// NestedBlocks, BlockExprHandles). The walker also knows the DXIL backend's
+// SSA kinds (package ssa). These passes modify the module they are given in
+// place.
 package irutil

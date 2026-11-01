@@ -6,6 +6,7 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -1325,7 +1326,7 @@ func expressionOperands(kind ir.ExpressionKind) []ir.ExpressionHandle {
 		return []ir.ExpressionHandle{k.Argument}
 	case ir.ExprArrayLength:
 		return []ir.ExpressionHandle{k.Array}
-	case ir.ExprAlias:
+	case ssa.Alias:
 		return []ir.ExpressionHandle{k.Source}
 	case ir.ExprImageSample:
 		return imageSampleOperands(k)
@@ -1604,7 +1605,7 @@ func expressionReferences(kind ir.ExpressionKind, target ir.ExpressionHandle) bo
 		return anyHandleEq(k.Components, target)
 	case ir.ExprImageSample, ir.ExprImageLoad, ir.ExprImageQuery:
 		return expressionReferencesImage(kind, target)
-	case ir.ExprAlias:
+	case ssa.Alias:
 		return k.Source == target
 	}
 	return expressionReferencesUnary(kind, target)

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -305,10 +306,10 @@ func (r *resolver) resolveKind(kind ir.ExpressionKind) (ir.TypeResolution, error
 		return valueRes(ir.PointerType{Base: r.fn.LocalVars[k.Variable].Type, Space: ir.SpaceFunction}), nil
 	case ir.ExprLoad:
 		return r.load(k)
-	case ir.ExprAlias:
+	case ssa.Alias:
 		// The DXIL mem2reg pass's alias stands for its source.
 		return r.operand(k.Source)
-	case ir.ExprPhi:
+	case ssa.Phi:
 		return r.phi(k)
 	case ir.ExprImageSample:
 		if k.Gather != nil {
@@ -497,9 +498,9 @@ func (r *resolver) load(k ir.ExprLoad) (ir.TypeResolution, error) {
 	return pointerType, nil
 }
 
-func (r *resolver) phi(k ir.ExprPhi) (ir.TypeResolution, error) {
+func (r *resolver) phi(k ssa.Phi) (ir.TypeResolution, error) {
 	if len(k.Incoming) == 0 {
-		return ir.TypeResolution{}, fmt.Errorf("ExprPhi with zero incomings")
+		return ir.TypeResolution{}, fmt.Errorf("ssa.Phi with zero incomings")
 	}
 	for _, in := range k.Incoming {
 		res, err := r.operand(in.Value)

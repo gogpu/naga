@@ -1848,18 +1848,13 @@ func TestAtomicOpcode(t *testing.T) {
 	}
 }
 
-// TestAtomicOpcodeLoad exercises AtomicLoad/Store which return false from atomicOpcode
-// (they're handled separately in emitAtomic).
-func TestAtomicOpcodeSpecialCases(t *testing.T) {
-	// AtomicLoad and AtomicStore are handled by emitAtomic directly,
-	// they don't go through atomicOpcode.
-	_, ok := atomicOpcode(ir.AtomicLoad{}, ir.ScalarUint)
-	if ok {
-		t.Error("AtomicLoad should not produce an opcode via atomicOpcode (handled separately)")
-	}
-	_, ok = atomicOpcode(ir.AtomicStore{}, ir.ScalarUint)
-	if ok {
-		t.Error("AtomicStore should not produce an opcode via atomicOpcode (handled separately)")
+// TestAtomicOpcodeNoFunction checks that a statement without an atomic
+// function gets no opcode, which emitAtomic reports as unsupported. An atomic
+// load or store is not an atomic function: it is a Load or a Store through a
+// pointer to atomic<T>, as in Rust naga.
+func TestAtomicOpcodeNoFunction(t *testing.T) {
+	if _, ok := atomicOpcode(nil, ir.ScalarUint); ok {
+		t.Error("atomicOpcode(nil) produced an opcode")
 	}
 }
 

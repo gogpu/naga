@@ -4,22 +4,26 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
-// This file holds the one walker over the expression handles of an
-// expression kind (mapExprHandles) and the one walker over the expression
-// handles of a statement tree (blockMapper). Compaction marks and renumbers
-// through them, inlining copies a callee body through them and
-// pipeline-constant processing renumbers through RemapExpressionHandles and
-// RemapStatementExpressionHandles, so a kind is handled in one place.
+// This file holds the one walker over the operand expression handles of an
+// expression kind (walkExpr) and the one over those of a statement kind
+// (walkStmt). Each is written once, generic over what it does with a handle
+// (handleOp): map the handles into a rebuilt kind, as compaction, inlining
+// and pipeline-constant processing do, or only read them, as the tracers of
+// compaction and the DXIL backend's liveness and use scans do (ExprHandles,
+// StmtExprHandles, BlockExprHandles). blockMapper carries the statement
+// walker through a statement tree.
 //
 // Rust naga matches every kind exhaustively (compact/expressions.rs,
 // compact/statements.rs) and the compiler rejects a missing one. Go has no
 // exhaustive switch, so both walkers panic on a kind they have no case for,
-// and TestWalkersCoverEveryKind builds every kind declared in package ir to
-// prove there is none: a kind added to ir without a case here fails that
-// test instead of keeping stale handles at run time.
+// and TestWalkersCoverEveryKind builds every kind declared in package ir, and
+// the DXIL backend's SSA kinds of package ssa, to prove there is none: a kind
+// added without a case here fails that test instead of keeping stale handles
+// at run time.
 
 // RemapExpressionHandles returns kind with every operand handle h replaced by
 // remap[h]; a handle outside remap is kept. Handles that name other arenas
@@ -39,6 +43,61 @@ func RemapStatementExpressionHandles(block []ir.Statement, remap []ir.Expression
 	m.block(block)
 }
 
+// ExprHandles calls f with every expression handle kind holds as an operand,
+// in field order. Handles that name other arenas (constants, overrides,
+// globals, locals, types) are not expression handles and are not visited.
+// kind is not modified and nothing is allocated. It panics on a kind it has
+// no case for.
+func ExprHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle)) {
+	walkExpr(kind, readHandles(f))
+}
+
+// StmtExprHandles calls f with every expression handle kind holds as an
+// operand, in field order: not the range of an Emit, which says when
+// expressions are evaluated and is no use of them, and not the handles of
+// the statements in the blocks nested in kind (NestedBlocks reaches those).
+// kind is not modified and nothing is allocated. It panics on a kind it has
+// no case for.
+func StmtExprHandles(kind ir.StatementKind, f func(ir.ExpressionHandle)) {
+	walkStmt(kind, readHandles(f))
+}
+
+// NestedBlocks calls f with each block nested directly in kind: the block of
+// a Block, the accept and reject blocks of an If, the body of every case of
+// a Switch, and the body and continuing block of a Loop. Other kinds hold no
+// block.
+func NestedBlocks(kind ir.StatementKind, f func(ir.Block)) {
+	switch s := kind.(type) {
+	case ir.StmtBlock:
+		f(s.Block)
+	case ir.StmtIf:
+		f(s.Accept)
+		f(s.Reject)
+	case ir.StmtSwitch:
+		for i := range s.Cases {
+			f(s.Cases[i].Body)
+		}
+	case ir.StmtLoop:
+		f(s.Body)
+		f(s.Continuing)
+	default:
+	}
+}
+
+// BlockExprHandles calls f with every operand handle (StmtExprHandles) of
+// every statement in block and in the blocks nested in it. block is not
+// modified.
+func BlockExprHandles(block ir.Block, f func(ir.ExpressionHandle)) {
+	var walk func(b ir.Block)
+	walk = func(b ir.Block) {
+		for i := range b {
+			StmtExprHandles(b[i].Kind, f)
+			NestedBlocks(b[i].Kind, walk)
+		}
+	}
+	walk(block)
+}
+
 // remapThrough returns the handle mapping of a remap table: remap[h] for a
 // handle inside it, h itself for one outside.
 func remapThrough(remap []ir.ExpressionHandle) func(ir.ExpressionHandle) ir.ExpressionHandle {
@@ -50,14 +109,13 @@ func remapThrough(remap []ir.ExpressionHandle) func(ir.ExpressionHandle) ir.Expr
 	}
 }
 
-// markInto returns a handle mapping that marks each handle it sees in used
-// and keeps it, so the walkers serve as tracers too.
-func markInto(used []bool) func(ir.ExpressionHandle) ir.ExpressionHandle {
-	return func(h ir.ExpressionHandle) ir.ExpressionHandle {
+// markInto returns a visitor that marks each handle it sees in used; a
+// handle outside used is ignored.
+func markInto(used []bool) func(ir.ExpressionHandle) {
+	return func(h ir.ExpressionHandle) {
 		if int(h) < len(used) {
 			used[h] = true
 		}
-		return h
 	}
 }
 
@@ -75,40 +133,125 @@ func adjustEmitRange(f func(ir.ExpressionHandle) ir.ExpressionHandle) func(ir.Ra
 	}
 }
 
-// keepEmitRange leaves an Emit range alone: a tracer does not treat emitted
-// expressions as used, as Rust naga's trace_block does not ("since
-// evaluating expressions has no effect, we don't need to assume that
-// everything emitted is live").
-func keepEmitRange(r ir.Range) (ir.Range, bool) { return r, true }
-
-// mapOpt maps an optional handle; the result never shares the pointer of h.
-func mapOpt(h *ir.ExpressionHandle, f func(ir.ExpressionHandle) ir.ExpressionHandle) *ir.ExpressionHandle {
-	if h == nil {
-		return nil
-	}
-	v := f(*h)
-	return &v
-}
-
 // mapExprHandles returns kind with f applied to every expression handle it
 // holds. kind is not modified: a slice of handles is copied. It panics on a
 // kind it has no case for.
 func mapExprHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle) ir.ExpressionHandle) ir.ExpressionKind {
-	if out, ok := mapValueExprHandles(kind, f); ok {
+	return walkExpr(kind, mapHandles{f: f})
+}
+
+// handleOp is what the walkers do with each operand handle they find.
+type handleOp interface {
+	// handle returns what h becomes; a reader returns h.
+	handle(h ir.ExpressionHandle) ir.ExpressionHandle
+	// rebuilds reports whether the walkers build each kind again with the
+	// handles handle returns. A reader does not: the walkers then neither
+	// copy nor allocate, and return the kind they were given.
+	rebuilds() bool
+	// inPlace reports whether a statement's slice of handles (a call's
+	// arguments) is written over instead of copied. The expression walker
+	// copies its slices whatever inPlace says: it never modifies its input.
+	inPlace() bool
+}
+
+// mapHandles rebuilds every kind with the handles f returns.
+type mapHandles struct {
+	f     func(ir.ExpressionHandle) ir.ExpressionHandle
+	write bool // statement slices are written over (blockMapper without fresh)
+}
+
+func (m mapHandles) handle(h ir.ExpressionHandle) ir.ExpressionHandle { return m.f(h) }
+func (mapHandles) rebuilds() bool                                     { return true }
+func (m mapHandles) inPlace() bool                                    { return m.write }
+
+// readHandles only reads the handles, calling itself with each.
+type readHandles func(ir.ExpressionHandle)
+
+func (r readHandles) handle(h ir.ExpressionHandle) ir.ExpressionHandle {
+	r(h)
+	return h
+}
+func (readHandles) rebuilds() bool { return false }
+func (readHandles) inPlace() bool  { return false }
+
+// rebuilt returns k, the walker's copy of a kind with its handles mapped,
+// when op rebuilds, and orig, the kind the walker was given, when op only
+// reads: boxing k into the interface would allocate for nothing.
+func rebuilt[O handleOp, I, K any](op O, orig I, k K) I {
+	if !op.rebuilds() {
+		return orig
+	}
+	return any(k).(I)
+}
+
+// opOpt hands an optional handle to op; a rebuilt handle never shares the
+// pointer of h.
+func opOpt[O handleOp](op O, h *ir.ExpressionHandle) *ir.ExpressionHandle {
+	if h == nil {
+		return nil
+	}
+	if !op.rebuilds() {
+		op.handle(*h)
+		return h
+	}
+	v := op.handle(*h)
+	return &v
+}
+
+// opExprHandles hands the handles of an expression's slice to op; a rebuilt
+// slice is a new one, as the expression walker never modifies its input.
+func opExprHandles[O handleOp](op O, hs []ir.ExpressionHandle) []ir.ExpressionHandle {
+	if !op.rebuilds() {
+		for _, h := range hs {
+			op.handle(h)
+		}
+		return hs
+	}
+	out := make([]ir.ExpressionHandle, len(hs))
+	for i, h := range hs {
+		out[i] = op.handle(h)
+	}
+	return out
+}
+
+// opStmtHandles hands the handles of a statement's slice to op; a rebuilt
+// slice is written over when op works in place, and is a new one otherwise.
+func opStmtHandles[O handleOp](op O, hs []ir.ExpressionHandle) []ir.ExpressionHandle {
+	if !op.rebuilds() {
+		for _, h := range hs {
+			op.handle(h)
+		}
+		return hs
+	}
+	out := hs
+	if !op.inPlace() && hs != nil {
+		out = make([]ir.ExpressionHandle, len(hs))
+	}
+	for i, h := range hs {
+		out[i] = op.handle(h)
+	}
+	return out
+}
+
+// walkExpr hands every operand handle of kind to op and returns the kind
+// rebuilt, or kind itself when op only reads. It panics on a kind it has no
+// case for.
+func walkExpr[O handleOp](kind ir.ExpressionKind, op O) ir.ExpressionKind {
+	if out, ok := walkValueExpr(kind, op); ok {
 		return out
 	}
-	if out, ok := mapOperationExprHandles(kind, f); ok {
+	if out, ok := walkOperationExpr(kind, op); ok {
 		return out
 	}
-	if out, ok := mapImageExprHandles(kind, f); ok {
+	if out, ok := walkImageExpr(kind, op); ok {
 		return out
 	}
 	panic(fmt.Sprintf("irutil: no expression-handle case for expression kind %T", kind))
 }
 
-// mapValueExprHandles maps the kinds that name, build or take apart a value;
-// it reports false for any other kind.
-func mapValueExprHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle) ir.ExpressionHandle) (ir.ExpressionKind, bool) {
+// walkValueExpr walks the kinds that name, build or take apart a value; it
+// reports false for any other kind.
+func walkValueExpr[O handleOp](kind ir.ExpressionKind, op O) (ir.ExpressionKind, bool) {
 	switch k := kind.(type) {
 	case nil:
 		return nil, true
@@ -121,208 +264,315 @@ func mapValueExprHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle) ir.
 		// is produced by a statement.
 		return kind, true
 	case ir.ExprCompose:
-		comps := make([]ir.ExpressionHandle, len(k.Components))
-		for i, c := range k.Components {
-			comps[i] = f(c)
-		}
-		k.Components = comps
-		return k, true
+		k.Components = opExprHandles(op, k.Components)
+		return rebuilt(op, kind, k), true
 	case ir.ExprAccess:
-		k.Base = f(k.Base)
-		k.Index = f(k.Index)
-		return k, true
+		k.Base = op.handle(k.Base)
+		k.Index = op.handle(k.Index)
+		return rebuilt(op, kind, k), true
 	case ir.ExprAccessIndex:
-		k.Base = f(k.Base)
-		return k, true
+		k.Base = op.handle(k.Base)
+		return rebuilt(op, kind, k), true
 	case ir.ExprSplat:
-		k.Value = f(k.Value)
-		return k, true
+		k.Value = op.handle(k.Value)
+		return rebuilt(op, kind, k), true
 	case ir.ExprSwizzle:
-		k.Vector = f(k.Vector)
-		return k, true
+		k.Vector = op.handle(k.Vector)
+		return rebuilt(op, kind, k), true
 	case ir.ExprLoad:
-		k.Pointer = f(k.Pointer)
-		return k, true
-	case ir.ExprAlias:
-		k.Source = f(k.Source)
-		return k, true
-	case ir.ExprPhi:
-		incoming := make([]ir.PhiIncoming, len(k.Incoming))
-		for i, in := range k.Incoming {
-			in.Value = f(in.Value)
-			incoming[i] = in
-		}
-		k.Incoming = incoming
-		return k, true
+		k.Pointer = op.handle(k.Pointer)
+		return rebuilt(op, kind, k), true
+	case ssa.Alias:
+		k.Source = op.handle(k.Source)
+		return rebuilt(op, kind, k), true
+	case ssa.Phi:
+		return walkPhi(kind, k, op), true
 	case ir.ExprArrayLength:
-		k.Array = f(k.Array)
-		return k, true
+		k.Array = op.handle(k.Array)
+		return rebuilt(op, kind, k), true
 	case ir.ExprRayQueryGetIntersection:
-		k.Query = f(k.Query)
-		return k, true
+		k.Query = op.handle(k.Query)
+		return rebuilt(op, kind, k), true
 	default:
 		return nil, false
 	}
 }
 
-// mapOperationExprHandles maps the operator, built-in function and
-// conversion kinds; it reports false for any other kind.
-func mapOperationExprHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle) ir.ExpressionHandle) (ir.ExpressionKind, bool) {
+// walkPhi walks the incoming values of a phi; a rebuilt phi has a new slice
+// of incomings.
+func walkPhi[O handleOp](kind ir.ExpressionKind, k ssa.Phi, op O) ir.ExpressionKind {
+	if !op.rebuilds() {
+		for _, in := range k.Incoming {
+			op.handle(in.Value)
+		}
+		return kind
+	}
+	incoming := make([]ssa.Incoming, len(k.Incoming))
+	for i, in := range k.Incoming {
+		in.Value = op.handle(in.Value)
+		incoming[i] = in
+	}
+	k.Incoming = incoming
+	return k
+}
+
+// walkOperationExpr walks the operator, built-in function and conversion
+// kinds; it reports false for any other kind.
+func walkOperationExpr[O handleOp](kind ir.ExpressionKind, op O) (ir.ExpressionKind, bool) {
 	switch k := kind.(type) {
 	case ir.ExprUnary:
-		k.Expr = f(k.Expr)
-		return k, true
+		k.Expr = op.handle(k.Expr)
+		return rebuilt(op, kind, k), true
 	case ir.ExprBinary:
-		k.Left = f(k.Left)
-		k.Right = f(k.Right)
-		return k, true
+		k.Left = op.handle(k.Left)
+		k.Right = op.handle(k.Right)
+		return rebuilt(op, kind, k), true
 	case ir.ExprSelect:
-		k.Condition = f(k.Condition)
-		k.Accept = f(k.Accept)
-		k.Reject = f(k.Reject)
-		return k, true
+		k.Condition = op.handle(k.Condition)
+		k.Accept = op.handle(k.Accept)
+		k.Reject = op.handle(k.Reject)
+		return rebuilt(op, kind, k), true
 	case ir.ExprDerivative:
-		k.Expr = f(k.Expr)
-		return k, true
+		k.Expr = op.handle(k.Expr)
+		return rebuilt(op, kind, k), true
 	case ir.ExprRelational:
-		k.Argument = f(k.Argument)
-		return k, true
+		k.Argument = op.handle(k.Argument)
+		return rebuilt(op, kind, k), true
 	case ir.ExprMath:
-		k.Arg = f(k.Arg)
-		k.Arg1 = mapOpt(k.Arg1, f)
-		k.Arg2 = mapOpt(k.Arg2, f)
-		k.Arg3 = mapOpt(k.Arg3, f)
-		return k, true
+		k.Arg = op.handle(k.Arg)
+		k.Arg1 = opOpt(op, k.Arg1)
+		k.Arg2 = opOpt(op, k.Arg2)
+		k.Arg3 = opOpt(op, k.Arg3)
+		return rebuilt(op, kind, k), true
 	case ir.ExprAs:
-		k.Expr = f(k.Expr)
-		return k, true
+		k.Expr = op.handle(k.Expr)
+		return rebuilt(op, kind, k), true
 	default:
 		return nil, false
 	}
 }
 
-// mapImageExprHandles maps the image kinds; it reports false for any other
-// kind.
-func mapImageExprHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle) ir.ExpressionHandle) (ir.ExpressionKind, bool) {
+// walkImageExpr walks the image kinds; it reports false for any other kind.
+func walkImageExpr[O handleOp](kind ir.ExpressionKind, op O) (ir.ExpressionKind, bool) {
 	switch k := kind.(type) {
 	case ir.ExprImageSample:
-		k.Image = f(k.Image)
-		k.Sampler = f(k.Sampler)
-		k.Coordinate = f(k.Coordinate)
-		k.ArrayIndex = mapOpt(k.ArrayIndex, f)
-		k.Offset = mapOpt(k.Offset, f)
-		k.Level = mapSampleLevel(k.Level, f)
-		k.DepthRef = mapOpt(k.DepthRef, f)
-		return k, true
+		k.Image = op.handle(k.Image)
+		k.Sampler = op.handle(k.Sampler)
+		k.Coordinate = op.handle(k.Coordinate)
+		k.ArrayIndex = opOpt(op, k.ArrayIndex)
+		k.Offset = opOpt(op, k.Offset)
+		k.Level = walkSampleLevel(k.Level, op)
+		k.DepthRef = opOpt(op, k.DepthRef)
+		return rebuilt(op, kind, k), true
 	case ir.ExprImageLoad:
-		k.Image = f(k.Image)
-		k.Coordinate = f(k.Coordinate)
-		k.ArrayIndex = mapOpt(k.ArrayIndex, f)
-		k.Sample = mapOpt(k.Sample, f)
-		k.Level = mapOpt(k.Level, f)
-		return k, true
+		k.Image = op.handle(k.Image)
+		k.Coordinate = op.handle(k.Coordinate)
+		k.ArrayIndex = opOpt(op, k.ArrayIndex)
+		k.Sample = opOpt(op, k.Sample)
+		k.Level = opOpt(op, k.Level)
+		return rebuilt(op, kind, k), true
 	case ir.ExprImageQuery:
-		k.Image = f(k.Image)
-		k.Query = mapImageQuery(k.Query, f)
-		return k, true
+		k.Image = op.handle(k.Image)
+		k.Query = walkImageQuery(k.Query, op)
+		return rebuilt(op, kind, k), true
 	default:
 		return nil, false
 	}
 }
 
-// mapSampleLevel maps the expression handles of a sample level; nil stays
+// walkSampleLevel walks the expression handles of a sample level; nil stays
 // nil.
-func mapSampleLevel(level ir.SampleLevel, f func(ir.ExpressionHandle) ir.ExpressionHandle) ir.SampleLevel {
+func walkSampleLevel[O handleOp](level ir.SampleLevel, op O) ir.SampleLevel {
 	switch l := level.(type) {
 	case nil, ir.SampleLevelAuto, ir.SampleLevelZero:
 		return level
 	case ir.SampleLevelExact:
-		l.Level = f(l.Level)
-		return l
+		l.Level = op.handle(l.Level)
+		return rebuilt(op, level, l)
 	case ir.SampleLevelBias:
-		l.Bias = f(l.Bias)
-		return l
+		l.Bias = op.handle(l.Bias)
+		return rebuilt(op, level, l)
 	case ir.SampleLevelGradient:
-		l.X = f(l.X)
-		l.Y = f(l.Y)
-		return l
+		l.X = op.handle(l.X)
+		l.Y = op.handle(l.Y)
+		return rebuilt(op, level, l)
 	default:
 		panic(fmt.Sprintf("irutil: no expression-handle case for sample level %T", level))
 	}
 }
 
-// mapImageQuery maps the expression handles of an image query.
-func mapImageQuery(query ir.ImageQuery, f func(ir.ExpressionHandle) ir.ExpressionHandle) ir.ImageQuery {
+// walkImageQuery walks the expression handles of an image query.
+func walkImageQuery[O handleOp](query ir.ImageQuery, op O) ir.ImageQuery {
 	switch q := query.(type) {
 	case nil, ir.ImageQueryNumLevels, ir.ImageQueryNumLayers, ir.ImageQueryNumSamples:
 		return query
 	case ir.ImageQuerySize:
-		q.Level = mapOpt(q.Level, f)
-		return q
+		q.Level = opOpt(op, q.Level)
+		return rebuilt(op, query, q)
 	default:
 		panic(fmt.Sprintf("irutil: no expression-handle case for image query %T", query))
 	}
 }
 
-// mapAtomicFunction maps the expression handles of an atomic function.
-func mapAtomicFunction(fun ir.AtomicFunction, f func(ir.ExpressionHandle) ir.ExpressionHandle) ir.AtomicFunction {
+// walkAtomicFunction walks the expression handles of an atomic function.
+func walkAtomicFunction[O handleOp](fun ir.AtomicFunction, op O) ir.AtomicFunction {
 	switch a := fun.(type) {
 	case nil, ir.AtomicAdd, ir.AtomicSubtract, ir.AtomicAnd, ir.AtomicExclusiveOr,
-		ir.AtomicInclusiveOr, ir.AtomicMin, ir.AtomicMax, ir.AtomicStore, ir.AtomicLoad:
+		ir.AtomicInclusiveOr, ir.AtomicMin, ir.AtomicMax:
 		return fun
 	case ir.AtomicExchange:
-		a.Compare = mapOpt(a.Compare, f)
-		return a
+		a.Compare = opOpt(op, a.Compare)
+		return rebuilt(op, fun, a)
 	default:
 		panic(fmt.Sprintf("irutil: no expression-handle case for atomic function %T", fun))
 	}
 }
 
-// mapRayQueryFunction maps the expression handles of a ray-query function.
-func mapRayQueryFunction(fun ir.RayQueryFunction, f func(ir.ExpressionHandle) ir.ExpressionHandle) ir.RayQueryFunction {
+// walkRayQueryFunction walks the expression handles of a ray-query function.
+func walkRayQueryFunction[O handleOp](fun ir.RayQueryFunction, op O) ir.RayQueryFunction {
 	switch r := fun.(type) {
 	case nil, ir.RayQueryTerminate, ir.RayQueryConfirmIntersection:
 		return fun
 	case ir.RayQueryInitialize:
-		r.AccelerationStructure = f(r.AccelerationStructure)
-		r.Descriptor = f(r.Descriptor)
-		return r
+		r.AccelerationStructure = op.handle(r.AccelerationStructure)
+		r.Descriptor = op.handle(r.Descriptor)
+		return rebuilt(op, fun, r)
 	case ir.RayQueryProceed:
-		r.Result = f(r.Result)
-		return r
+		r.Result = op.handle(r.Result)
+		return rebuilt(op, fun, r)
 	case ir.RayQueryGenerateIntersection:
-		r.HitT = f(r.HitT)
-		return r
+		r.HitT = op.handle(r.HitT)
+		return rebuilt(op, fun, r)
 	default:
 		panic(fmt.Sprintf("irutil: no expression-handle case for ray-query function %T", fun))
 	}
 }
 
-// mapGatherMode maps the expression handles of a subgroup gather mode.
-func mapGatherMode(mode ir.GatherMode, f func(ir.ExpressionHandle) ir.ExpressionHandle) ir.GatherMode {
+// walkGatherMode walks the expression handles of a subgroup gather mode.
+func walkGatherMode[O handleOp](mode ir.GatherMode, op O) ir.GatherMode {
 	switch g := mode.(type) {
 	case nil, ir.GatherBroadcastFirst, ir.GatherQuadSwap:
 		return mode
 	case ir.GatherBroadcast:
-		g.Index = f(g.Index)
-		return g
+		g.Index = op.handle(g.Index)
+		return rebuilt(op, mode, g)
 	case ir.GatherShuffle:
-		g.Index = f(g.Index)
-		return g
+		g.Index = op.handle(g.Index)
+		return rebuilt(op, mode, g)
 	case ir.GatherShuffleDown:
-		g.Delta = f(g.Delta)
-		return g
+		g.Delta = op.handle(g.Delta)
+		return rebuilt(op, mode, g)
 	case ir.GatherShuffleUp:
-		g.Delta = f(g.Delta)
-		return g
+		g.Delta = op.handle(g.Delta)
+		return rebuilt(op, mode, g)
 	case ir.GatherShuffleXor:
-		g.Mask = f(g.Mask)
-		return g
+		g.Mask = op.handle(g.Mask)
+		return rebuilt(op, mode, g)
 	case ir.GatherQuadBroadcast:
-		g.Index = f(g.Index)
-		return g
+		g.Index = op.handle(g.Index)
+		return rebuilt(op, mode, g)
 	default:
 		panic(fmt.Sprintf("irutil: no expression-handle case for gather mode %T", mode))
+	}
+}
+
+// walkStmt hands every operand handle of kind to op (not an Emit range, and
+// not the statements of nested blocks) and returns the kind rebuilt, or kind
+// itself when op only reads. A rebuilt kind keeps the blocks of kind. It
+// panics on a kind it has no case for.
+func walkStmt[O handleOp](kind ir.StatementKind, op O) ir.StatementKind {
+	if out, ok := walkControlStmt(kind, op); ok {
+		return out
+	}
+	return walkOperationStmt(kind, op)
+}
+
+// walkControlStmt walks the control-flow kinds and Emit; it reports false
+// for any other kind.
+func walkControlStmt[O handleOp](kind ir.StatementKind, op O) (ir.StatementKind, bool) {
+	switch s := kind.(type) {
+	case nil:
+		return nil, true
+	case ir.StmtEmit, ir.StmtBlock, ir.StmtBreak, ir.StmtContinue, ir.StmtKill,
+		ir.StmtControlBarrier, ir.StmtMemoryBarrier:
+		// No operand: an Emit range says when expressions are evaluated,
+		// and a block's statements are walked one by one.
+		return kind, true
+	case ir.StmtIf:
+		s.Condition = op.handle(s.Condition)
+		return rebuilt(op, kind, s), true
+	case ir.StmtSwitch:
+		s.Selector = op.handle(s.Selector)
+		return rebuilt(op, kind, s), true
+	case ir.StmtLoop:
+		s.BreakIf = opOpt(op, s.BreakIf)
+		return rebuilt(op, kind, s), true
+	case ir.StmtReturn:
+		s.Value = opOpt(op, s.Value)
+		return rebuilt(op, kind, s), true
+	default:
+		return nil, false
+	}
+}
+
+// walkOperationStmt walks a statement kind that is not control flow. It
+// panics on a kind it has no case for.
+func walkOperationStmt[O handleOp](kind ir.StatementKind, op O) ir.StatementKind {
+	switch s := kind.(type) {
+	case ir.StmtStore:
+		s.Pointer = op.handle(s.Pointer)
+		s.Value = op.handle(s.Value)
+		return rebuilt(op, kind, s)
+	case ir.StmtImageStore:
+		s.Image = op.handle(s.Image)
+		s.Coordinate = op.handle(s.Coordinate)
+		s.ArrayIndex = opOpt(op, s.ArrayIndex)
+		s.Value = op.handle(s.Value)
+		return rebuilt(op, kind, s)
+	case ir.StmtAtomic:
+		s.Pointer = op.handle(s.Pointer)
+		s.Fun = walkAtomicFunction(s.Fun, op)
+		s.Value = op.handle(s.Value)
+		s.Result = opOpt(op, s.Result)
+		return rebuilt(op, kind, s)
+	case ir.StmtImageAtomic:
+		// Rust's compact skips fun here (`fun: _`), as its validator allows
+		// no compare-exchange on an image; a Compare handle, if one is set,
+		// is still an expression of this function and is walked with the
+		// rest.
+		s.Image = op.handle(s.Image)
+		s.Coordinate = op.handle(s.Coordinate)
+		s.ArrayIndex = opOpt(op, s.ArrayIndex)
+		s.Fun = walkAtomicFunction(s.Fun, op)
+		s.Value = op.handle(s.Value)
+		return rebuilt(op, kind, s)
+	case ir.StmtWorkGroupUniformLoad:
+		s.Pointer = op.handle(s.Pointer)
+		s.Result = op.handle(s.Result)
+		return rebuilt(op, kind, s)
+	case ir.StmtCall:
+		s.Arguments = opStmtHandles(op, s.Arguments)
+		s.Result = opOpt(op, s.Result)
+		return rebuilt(op, kind, s)
+	case ir.StmtRayQuery:
+		s.Query = op.handle(s.Query)
+		s.Fun = walkRayQueryFunction(s.Fun, op)
+		return rebuilt(op, kind, s)
+	case ir.StmtSubgroupBallot:
+		s.Result = op.handle(s.Result)
+		s.Predicate = opOpt(op, s.Predicate)
+		return rebuilt(op, kind, s)
+	case ir.StmtSubgroupCollectiveOperation:
+		s.Argument = op.handle(s.Argument)
+		s.Result = op.handle(s.Result)
+		return rebuilt(op, kind, s)
+	case ir.StmtSubgroupGather:
+		s.Mode = walkGatherMode(s.Mode, op)
+		s.Argument = op.handle(s.Argument)
+		s.Result = op.handle(s.Result)
+		return rebuilt(op, kind, s)
+	default:
+		panic(fmt.Sprintf("irutil: no expression-handle case for statement kind %T", kind))
 	}
 }
 
@@ -360,43 +610,25 @@ func (m *blockMapper) block(b ir.Block) ir.Block {
 	return out
 }
 
-// handles maps a slice of handles; without fresh it is the slice's own
-// storage.
-func (m *blockMapper) handles(hs []ir.ExpressionHandle) []ir.ExpressionHandle {
-	out := hs
-	if m.fresh && hs != nil {
-		out = make([]ir.ExpressionHandle, len(hs))
-	}
-	for i, h := range hs {
-		out[i] = m.handle(h)
-	}
-	return out
-}
-
 // statement maps one statement kind and reports whether it stays: the
-// control-flow kinds here, the others in operation. It panics on a kind it
+// operands through walkStmt, then the nested blocks. It panics on a kind it
 // has no case for.
 func (m *blockMapper) statement(kind ir.StatementKind) (ir.StatementKind, bool) {
-	f := m.handle
-	switch s := kind.(type) {
-	case nil:
-		return nil, true
-	case ir.StmtBreak, ir.StmtContinue, ir.StmtKill, ir.StmtControlBarrier, ir.StmtMemoryBarrier:
-		return kind, true
-	case ir.StmtEmit:
+	if s, ok := kind.(ir.StmtEmit); ok {
 		r, keep := m.emit(s.Range)
 		s.Range = r
 		return s, keep
+	}
+	kind = walkStmt(kind, mapHandles{f: m.handle, write: !m.fresh})
+	switch s := kind.(type) {
 	case ir.StmtBlock:
 		s.Block = m.block(s.Block)
 		return s, true
 	case ir.StmtIf:
-		s.Condition = f(s.Condition)
 		s.Accept = m.block(s.Accept)
 		s.Reject = m.block(s.Reject)
 		return s, true
 	case ir.StmtSwitch:
-		s.Selector = f(s.Selector)
 		if m.fresh {
 			s.Cases = slices.Clone(s.Cases)
 		}
@@ -407,74 +639,8 @@ func (m *blockMapper) statement(kind ir.StatementKind) (ir.StatementKind, bool) 
 	case ir.StmtLoop:
 		s.Body = m.block(s.Body)
 		s.Continuing = m.block(s.Continuing)
-		s.BreakIf = mapOpt(s.BreakIf, f)
-		return s, true
-	case ir.StmtReturn:
-		s.Value = mapOpt(s.Value, f)
 		return s, true
 	default:
-		return m.operation(kind), true
-	}
-}
-
-// operation maps a statement kind that is not control flow; none of them is
-// ever dropped. It panics on a kind it has no case for.
-func (m *blockMapper) operation(kind ir.StatementKind) ir.StatementKind {
-	f := m.handle
-	switch s := kind.(type) {
-	case ir.StmtStore:
-		s.Pointer = f(s.Pointer)
-		s.Value = f(s.Value)
-		return s
-	case ir.StmtImageStore:
-		s.Image = f(s.Image)
-		s.Coordinate = f(s.Coordinate)
-		s.ArrayIndex = mapOpt(s.ArrayIndex, f)
-		s.Value = f(s.Value)
-		return s
-	case ir.StmtAtomic:
-		s.Pointer = f(s.Pointer)
-		s.Fun = mapAtomicFunction(s.Fun, f)
-		s.Value = f(s.Value)
-		s.Result = mapOpt(s.Result, f)
-		return s
-	case ir.StmtImageAtomic:
-		// Rust's compact skips fun here (`fun: _`), as its validator allows
-		// no compare-exchange on an image; a Compare handle, if one is set,
-		// is still an expression of this function and is mapped with the
-		// rest.
-		s.Image = f(s.Image)
-		s.Coordinate = f(s.Coordinate)
-		s.ArrayIndex = mapOpt(s.ArrayIndex, f)
-		s.Fun = mapAtomicFunction(s.Fun, f)
-		s.Value = f(s.Value)
-		return s
-	case ir.StmtWorkGroupUniformLoad:
-		s.Pointer = f(s.Pointer)
-		s.Result = f(s.Result)
-		return s
-	case ir.StmtCall:
-		s.Arguments = m.handles(s.Arguments)
-		s.Result = mapOpt(s.Result, f)
-		return s
-	case ir.StmtRayQuery:
-		s.Query = f(s.Query)
-		s.Fun = mapRayQueryFunction(s.Fun, f)
-		return s
-	case ir.StmtSubgroupBallot:
-		s.Result = f(s.Result)
-		s.Predicate = mapOpt(s.Predicate, f)
-		return s
-	case ir.StmtSubgroupCollectiveOperation:
-		s.Argument = f(s.Argument)
-		s.Result = f(s.Result)
-		return s
-	case ir.StmtSubgroupGather:
-		s.Mode = mapGatherMode(s.Mode, f)
-		s.Argument = f(s.Argument)
-		s.Result = f(s.Result)
-		return s
-	default:
-		panic(fmt.Sprintf("irutil: no expression-handle case for statement kind %T", kind))
+		return kind, true
 	}
 }

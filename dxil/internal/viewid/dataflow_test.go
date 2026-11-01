@@ -3,6 +3,7 @@ package viewid
 import (
 	"testing"
 
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -623,16 +624,16 @@ func TestVertexTwoStructsPrecision(t *testing.T) {
 	}
 }
 
-// TestExprAliasTaintForwarding verifies that ExprAlias (produced by
+// TestExprAliasTaintForwarding verifies that ssa.Alias (produced by
 // mem2reg) correctly forwards the source expression's taint. After
-// mem2reg promotes a scalar local, loads are rewritten to ExprAlias
+// mem2reg promotes a scalar local, loads are rewritten to ssa.Alias
 // pointing at the stored value. The ViewID analyzer must follow this
 // alias chain to produce precise per-component dependencies.
 //
 // Models a post-mem2reg IR where a local variable init is aliased:
 //
 //	original: var idx: u32 = vertex_index; ... f32(idx) ...
-//	after mem2reg: ExprAlias(vertex_index) replaces ExprLoad(localvar)
+//	after mem2reg: ssa.Alias(vertex_index) replaces ExprLoad(localvar)
 func TestExprAliasTaintForwarding(t *testing.T) {
 	mod := makeBasicMod()
 	u32H := ir.TypeHandle(len(mod.Types))
@@ -650,13 +651,13 @@ func TestExprAliasTaintForwarding(t *testing.T) {
 
 	// Expressions (after mem2reg):
 	// 0: FunctionArgument(0) = vertex_index : u32
-	// 1: ExprAlias(0)        = alias of vertex_index (was: load of promoted local)
+	// 1: ssa.Alias(0)        = alias of vertex_index (was: load of promoted local)
 	// 2: ExprAs(1, f32)      = f32(alias) : f32
 	// 3: Literal(0.0)        = 0.0 : f32
 	// 4: Compose(vec4, [2, 3, 3, 3])
 	fn.Expressions = []ir.Expression{
 		{Kind: ir.ExprFunctionArgument{Index: 0}},
-		{Kind: ir.ExprAlias{Source: 0}},
+		{Kind: ssa.Alias{Source: 0}},
 		{Kind: ir.ExprAs{Expr: 1, Kind: ir.ScalarFloat, Convert: ptrU8(4)}},
 		{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
 		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{2, 3, 3, 3}}},
@@ -690,7 +691,7 @@ func TestExprAliasTaintForwarding(t *testing.T) {
 	}
 }
 
-// TestExprPhiTaintMerge verifies that ExprPhi (produced by mem2reg for
+// TestExprPhiTaintMerge verifies that ssa.Phi (produced by mem2reg for
 // multi-block locals) correctly merges taint from all incoming values.
 //
 // Models:
@@ -698,7 +699,7 @@ func TestExprAliasTaintForwarding(t *testing.T) {
 //	if (cond) { x = input_a; } else { x = input_b; }
 //	return vec4(x, 0, 0, 0);
 //
-// After mem2reg, the load of x becomes ExprPhi([input_a, input_b]).
+// After mem2reg, the load of x becomes ssa.Phi([input_a, input_b]).
 // Output 0 should depend on BOTH input_a and input_b.
 func TestExprPhiTaintMerge(t *testing.T) {
 	mod := makeBasicMod()
@@ -718,15 +719,15 @@ func TestExprPhiTaintMerge(t *testing.T) {
 	// Expressions:
 	// 0: FunctionArgument(0) = a : f32
 	// 1: FunctionArgument(1) = b : f32
-	// 2: ExprPhi([a, b])     = merged value from if/else
+	// 2: ssa.Phi([a, b])     = merged value from if/else
 	// 3: Literal(0.0)        = 0.0 : f32
 	// 4: Compose(vec4, [2, 3, 3, 3])
 	fn.Expressions = []ir.Expression{
 		{Kind: ir.ExprFunctionArgument{Index: 0}},
 		{Kind: ir.ExprFunctionArgument{Index: 1}},
-		{Kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{
-			{PredKey: ir.PhiPredIfAccept, Value: 0},
-			{PredKey: ir.PhiPredIfReject, Value: 1},
+		{Kind: ssa.Phi{Incoming: []ssa.Incoming{
+			{PredKey: ssa.PredIfAccept, Value: 0},
+			{PredKey: ssa.PredIfReject, Value: 1},
 		}}},
 		{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},
 		{Kind: ir.ExprCompose{Type: 2, Components: []ir.ExpressionHandle{2, 3, 3, 3}}},

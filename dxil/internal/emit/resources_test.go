@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -1232,10 +1233,10 @@ func TestTryResolveConstInt(t *testing.T) {
 
 	// Alias chain: alias1 -> alias2 -> lit
 	alias2 := ir.ExpressionHandle(len(fn.Expressions))
-	fn.Expressions = append(fn.Expressions, ir.Expression{Kind: ir.ExprAlias{Source: lit}})
+	fn.Expressions = append(fn.Expressions, ir.Expression{Kind: ssa.Alias{Source: lit}})
 
 	alias1 := ir.ExpressionHandle(len(fn.Expressions))
-	fn.Expressions = append(fn.Expressions, ir.Expression{Kind: ir.ExprAlias{Source: alias2}})
+	fn.Expressions = append(fn.Expressions, ir.Expression{Kind: ssa.Alias{Source: alias2}})
 
 	// Non-constant expression
 	nonConst := ir.ExpressionHandle(len(fn.Expressions))
