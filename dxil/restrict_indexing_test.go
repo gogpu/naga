@@ -60,6 +60,9 @@ var<workgroup> w: array<u32, 8>;
 	for _, restrict := range []bool{false, true} {
 		opts := DefaultOptions()
 		opts.RestrictIndexing = restrict
+		// Only the shader's own indices: zeroing w loops over its elements
+		// with an index of its own, clamped too.
+		opts.SkipWorkgroupMemoryZeroInit = true
 		mod, fn := emitMainModuleOpts(t, src, opts)
 		limits := uminLimits(mod, fn)
 		slices.Sort(limits)
