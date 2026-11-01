@@ -14,7 +14,7 @@
                OpMemberDecorate %_5 1 Offset 16
                OpDecorate %_8 BuiltIn VertexIndex
                OpDecorate %_10 BuiltIn Position
-               OpDecorate %_12 BuiltIn PointCoord
+               OpDecorate %_12 BuiltIn FragCoord
                OpDecorate %_13 Location 0
                OpDecorate %_14 Location 1
          %_2 = OpTypeVoid

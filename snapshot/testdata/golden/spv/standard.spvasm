@@ -10,7 +10,7 @@
                OpMemoryModel Logical GLSL450
                OpEntryPoint Fragment %_15 "derivatives" %_7 %_9
                OpExecutionMode %_15 OriginUpperLeft
-               OpDecorate %_7 BuiltIn PointCoord
+               OpDecorate %_7 BuiltIn FragCoord
                OpDecorate %_9 Location 0
          %_2 = OpTypeVoid
          %_3 = OpTypeBool

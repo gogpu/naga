@@ -10,7 +10,7 @@
                OpMemoryModel Logical GLSL450
                OpEntryPoint Fragment %_11 "func" %_7 %_9
                OpExecutionMode %_11 OriginUpperLeft
-               OpDecorate %_7 BuiltIn InvocationId
+               OpDecorate %_7 BuiltIn PrimitiveId
                OpDecorate %_7 Flat
                OpDecorate %_9 Location 0
          %_2 = OpTypeVoid

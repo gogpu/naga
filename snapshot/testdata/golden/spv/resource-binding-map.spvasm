@@ -29,7 +29,7 @@
                OpMemberDecorate %_17 0 Offset 0
                OpDecorate %_19 DescriptorSet 1
                OpDecorate %_19 Binding 0
-               OpDecorate %_21 BuiltIn PointCoord
+               OpDecorate %_21 BuiltIn FragCoord
                OpDecorate %_23 Location 0
                OpDecorate %_24 Location 0
                OpDecorate %_25 Location 0

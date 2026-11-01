@@ -16,7 +16,7 @@
                OpDecorate %_10 Location 0
                OpDecorate %_11 Location 1
                OpDecorate %_13 BuiltIn Position
-               OpDecorate %_15 BuiltIn PointCoord
+               OpDecorate %_15 BuiltIn FragCoord
                OpDecorate %_16 Location 1
                OpDecorate %_17 Location 0
          %_2 = OpTypeVoid

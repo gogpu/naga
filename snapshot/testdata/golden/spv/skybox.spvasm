@@ -29,7 +29,7 @@
                OpDecorate %_22 BuiltIn VertexIndex
                OpDecorate %_24 BuiltIn Position
                OpDecorate %_26 Location 0
-               OpDecorate %_28 BuiltIn PointCoord
+               OpDecorate %_28 BuiltIn FragCoord
                OpDecorate %_30 Location 0
                OpDecorate %_31 Location 0
          %_2 = OpTypeVoid

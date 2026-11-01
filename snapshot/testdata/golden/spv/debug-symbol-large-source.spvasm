@@ -82,7 +82,7 @@
                OpDecorate %_59 Location 1
                OpDecorate %_60 Location 0
                OpDecorate %_60 Flat
-               OpDecorate %_62 BuiltIn PointCoord
+               OpDecorate %_62 BuiltIn FragCoord
                OpDecorate %_64 Location 1
                OpDecorate %_65 Location 0
                OpDecorate %_66 Location 1
@@ -91,7 +91,7 @@
                OpDecorate %_70 BuiltIn Position
                OpDecorate %_72 Location 0
                OpDecorate %_73 Location 1
-               OpDecorate %_74 BuiltIn PointCoord
+               OpDecorate %_74 BuiltIn FragCoord
                OpDecorate %_75 Location 0
                OpDecorate %_76 Location 1
                OpDecorate %_77 Location 0

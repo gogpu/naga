@@ -18,10 +18,10 @@
                OpExecutionMode %_12 LocalSize 1 1 1
                OpMemberDecorate %_4 0 Offset 0
                OpMemberDecorate %_4 1 Offset 4
-               OpDecorate %_7 BuiltIn 38
-               OpDecorate %_8 BuiltIn 36
-               OpDecorate %_9 BuiltIn 40
-               OpDecorate %_10 BuiltIn 41
+               OpDecorate %_7 BuiltIn NumSubgroups
+               OpDecorate %_8 BuiltIn SubgroupSize
+               OpDecorate %_9 BuiltIn SubgroupId
+               OpDecorate %_10 BuiltIn SubgroupLocalInvocationId
          %_2 = OpTypeVoid
          %_3 = OpTypeInt 32 0
          %_4 = OpTypeStruct %_3 %_3

@@ -9,7 +9,7 @@
                OpMemoryModel Logical GLSL450
                OpEntryPoint Vertex %_12 "vertex" %_8 %_10
                OpMemberDecorate %_4 0 Offset 0
-               OpDecorate %_8 BuiltIn PointCoord
+               OpDecorate %_8 BuiltIn FragCoord
                OpDecorate %_10 BuiltIn Position
          %_2 = OpTypeVoid
          %_3 = OpTypeInt 32 0
