@@ -1,0 +1,269 @@
+// msdf_text.wgsl - Multi-channel Signed Distance Field Text Rendering Shader
+//
+// This shader renders text using MSDF technique for crisp, resolution-independent
+// text rendering. MSDF encodes directional distance in RGB channels to preserve
+// sharp corners that would be lost with single-channel SDF.
+//
+// References:
+// - https://github.com/Chlumsky/msdfgen (original MSDF algorithm)
+// - W3C WebGPU Shading Language spec
+
+// ============================================================================
+// Uniform structures matching Go TextUniforms type
+// ============================================================================
+
+struct TextUniforms {
+    // Transform matrix: column-major mat4x4 for pixel-to-NDC conversion.
+    // Stored as 4 column vectors in memory.
+    transform: mat4x4<f32>,
+
+    // Text color (RGBA, premultiplied alpha)
+    color: vec4<f32>,
+
+    // MSDF parameters
+    // x: px_range - Distance range in pixels (typically 4.0)
+    //    Controls how far from the edge the SDF extends in the texture
+    // y: atlas_size - Texture size for screen-space derivative calculation
+    // z: unused (reserved for future: outline width)
+    // w: unused (reserved for future: outline softness)
+    msdf_params: vec4<f32>,
+}
+
+// ============================================================================
+// Vertex input/output structures
+// ============================================================================
+
+struct VertexInput {
+    // Position of quad vertex in local space
+    @location(0) position: vec2<f32>,
+
+    // UV coordinates for sampling MSDF atlas
+    @location(1) tex_coord: vec2<f32>,
+}
+
+struct VertexOutput {
+    // Clip-space position for rasterization
+    @builtin(position) position: vec4<f32>,
+
+    // Interpolated UV for fragment shader
+    @location(0) tex_coord: vec2<f32>,
+
+    // Text color passed to fragment shader
+    @location(1) color: vec4<f32>,
+}
+
+// ============================================================================
+// Bindings
+// ============================================================================
+
+@group(0) @binding(0) var<uniform> uniforms: TextUniforms;
+@group(0) @binding(1) var msdf_atlas: texture_2d<f32>;
+@group(0) @binding(2) var msdf_sampler: sampler;
+
+// --- RRect clip uniform (shared across all pipelines) ---
+struct ClipParams {
+    clip_rect: vec4<f32>,
+    clip_radius: f32,
+    clip_enabled: f32,
+    _pad: vec2<f32>,
+}
+@group(1) @binding(0) var<uniform> clip: ClipParams;
+
+fn rrect_clip_coverage(frag_pos: vec2<f32>) -> f32 {
+    // Text shaders: no per-pixel SDF clip. Returns 1.0 (no clipping).
+    //
+    // Enterprise research (GPU-CLIP-002) found that NO production 2D engine
+    // (Vello, Skia Graphite/Ganesh, Pathfinder, Qt RHI) computes per-pixel
+    // SDF clip inside text fragment shaders. The industry-standard approach
+    // is stencil-buffer clip (Skia Ganesh) or depth-buffer clip (Graphite).
+    //
+    // Per-pixel SDF clip (11 sqrt calls) combined with textureSample causes
+    // Intel Vulkan shader compiler to generate corrupt code — text becomes
+    // invisible. This is a known Intel driver limitation with register
+    // pressure from complex ALU + texture sampling in the same shader.
+    //
+    // Text clipping is handled by:
+    //   1. Hardware scissor rect (axis-aligned, free) — GPU-CLIP-001
+    //   2. Stencil-buffer RRect clip (planned) — GPU-CLIP-003
+    //
+    // The @group(1) binding is kept for uniform pipeline layout across all
+    // tiers, avoiding per-tier bind group logic in GPURenderSession.
+    return 1.0;
+}
+
+// ============================================================================
+// Vertex shader
+// ============================================================================
+
+// vs_main: Transform quad vertices and pass through UV coordinates.
+// Each glyph is rendered as a textured quad with 4 vertices.
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+
+    // Apply 2D transform (using mat4x4 for alignment, treating as affine 2D).
+    // Manual column multiply: naga SPIR-V backend does not yet support
+    // mat4x4 * vec4 as a single binary operator.
+    let p = vec4<f32>(in.position, 0.0, 1.0);
+    let col0 = uniforms.transform[0];
+    let col1 = uniforms.transform[1];
+    let col2 = uniforms.transform[2];
+    let col3 = uniforms.transform[3];
+    let pos = p.x * col0 + p.y * col1 + p.z * col2 + p.w * col3;
+    out.position = pos;
+
+    // Pass through texture coordinates
+    out.tex_coord = in.tex_coord;
+
+    // Pass through color (premultiplied)
+    out.color = uniforms.color;
+
+    return out;
+}
+
+// ============================================================================
+// MSDF sampling functions
+// ============================================================================
+
+// median3: Compute median of three values.
+// This is the key MSDF operation that recovers the signed distance from
+// the three directional distance channels (R, G, B).
+// Sharp corners are preserved because each channel encodes distance to
+// different edge segments.
+fn median3(r: f32, g: f32, b: f32) -> f32 {
+    return max(min(r, g), min(max(r, g), b));
+}
+
+// sampleSD: Sample the MSDF atlas and return the signed distance at a UV.
+// Returns the median of RGB channels minus 0.5, so 0.0 = on edge,
+// positive = inside glyph, negative = outside.
+fn sampleSD(uv: vec2<f32>) -> f32 {
+    let msdf = textureSample(msdf_atlas, msdf_sampler, uv).rgb;
+    return median3(msdf.r, msdf.g, msdf.b) - 0.5;
+}
+
+// ============================================================================
+// Fragment shader
+// ============================================================================
+
+// fs_main: Sample MSDF atlas and compute anti-aliased alpha.
+// Uses 2x2 supersampling of the signed distance for smoother edges.
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Standard MSDF screenPxRange calculation (Chlumsky/msdfgen reference).
+    // unitRange = pxRange / atlasSize — the fraction of the texture that is
+    // the distance field range.
+    let px_range = uniforms.msdf_params.x;
+    let atlas_size = uniforms.msdf_params.y;
+    let unit_range = vec2<f32>(px_range / atlas_size, px_range / atlas_size);
+
+    // screenTexSize = how many screen pixels one texel covers.
+    let screen_tex_size = vec2<f32>(1.0, 1.0) / fwidth(in.tex_coord);
+
+    // screenPxRange: how many screen pixels the distance range spans.
+    // max(..., 1.5) prevents AA failure on very small characters where
+    // the range would otherwise collapse below usable threshold.
+    let screen_px_range = max(0.5 * dot(unit_range, screen_tex_size), 1.5);
+
+    // 2x2 supersampling of the signed distance.
+    // Offsets are ±0.25 texel in screen space via fwidth, giving a rotated
+    // grid pattern that smooths sub-pixel aliasing at small font sizes.
+    let offset = fwidth(in.tex_coord) * 0.25;
+    let sd0 = sampleSD(in.tex_coord + vec2<f32>(-offset.x, -offset.y));
+    let sd1 = sampleSD(in.tex_coord + vec2<f32>( offset.x, -offset.y));
+    let sd2 = sampleSD(in.tex_coord + vec2<f32>(-offset.x,  offset.y));
+    let sd3 = sampleSD(in.tex_coord + vec2<f32>( offset.x,  offset.y));
+    let sd = (sd0 + sd1 + sd2 + sd3) * 0.25;
+
+    // Stem darkening: counteract gamma-induced thinning at small sizes.
+    // Adds a small positive bias that fades to zero at large screenPxRange.
+    // Used by macOS, FreeType, Pathfinder. Starts at 0.08 for screenPxRange=2,
+    // fades to zero at screenPxRange>=8 (large text unaffected).
+    let darkening = max(0.0, 0.08 * (1.0 - (screen_px_range - 2.0) / 6.0));
+    let sd_darkened = sd + darkening;
+
+    // Scale signed distance to screen pixels and compute anti-aliased alpha.
+    let alpha = clamp(screen_px_range * sd_darkened + 0.5, 0.0, 1.0);
+
+    // Apply RRect clip coverage.
+    let clip_cov = rrect_clip_coverage(in.position.xy);
+    let final_alpha = alpha * clip_cov;
+
+    // Apply alpha to text color (premultiplied alpha output).
+    return vec4<f32>(in.color.rgb * final_alpha, in.color.a * final_alpha);
+}
+
+// ============================================================================
+// Alternative entry points for different rendering modes
+// ============================================================================
+
+// fs_main_outline: Render text with outline effect.
+// Uses the SDF to render both fill and outline in a single pass.
+@fragment
+fn fs_main_outline(in: VertexOutput) -> @location(0) vec4<f32> {
+    let msdf = textureSample(msdf_atlas, msdf_sampler, in.tex_coord).rgb;
+    let sd = median3(msdf.r, msdf.g, msdf.b) - 0.5;
+
+    let unit_range = vec2<f32>(uniforms.msdf_params.x / uniforms.msdf_params.y,
+                              uniforms.msdf_params.x / uniforms.msdf_params.y);
+    let screen_tex_size = vec2<f32>(1.0, 1.0) / fwidth(in.tex_coord);
+    let screen_px_range = max(0.5 * dot(unit_range, screen_tex_size), 1.5);
+
+    // Stem darkening: counteract gamma-induced thinning at small sizes.
+    let darkening = max(0.0, 0.08 * (1.0 - (screen_px_range - 2.0) / 6.0));
+    let fill_sd = sd + darkening;
+    let screen_px_distance = screen_px_range * fill_sd;
+
+    // Outline width in screen pixels (stored in msdf_params.z)
+    let outline_width = uniforms.msdf_params.z;
+
+    // Fill alpha (inner glyph)
+    let fill_alpha = clamp(screen_px_distance + 0.5, 0.0, 1.0);
+
+    // Outline alpha (ring around glyph)
+    let outline_alpha = clamp(screen_px_distance + outline_width + 0.5, 0.0, 1.0);
+
+    // Blend: outline color where outline but not fill
+    // For simplicity, using inverted fill color for outline
+    let outline_color = vec4<f32>(1.0 - in.color.rgb, 1.0);
+
+    // Composite: fill over outline
+    let outline_diff = outline_alpha - fill_alpha;
+    let fill = vec4<f32>(in.color.rgb * fill_alpha, in.color.a * fill_alpha);
+    let outline = vec4<f32>(outline_color.rgb * outline_diff, outline_color.a * outline_diff);
+
+    return fill + outline;
+}
+
+// fs_main_shadow: Render text with drop shadow effect.
+// Samples the SDF twice with offset for shadow.
+@fragment
+fn fs_main_shadow(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Shadow offset in UV space (could be uniform parameter)
+    let shadow_offset = vec2<f32>(0.002, 0.002);
+    let shadow_color = vec4<f32>(0.0, 0.0, 0.0, 0.5);
+
+    let unit_range = vec2<f32>(uniforms.msdf_params.x / uniforms.msdf_params.y,
+                              uniforms.msdf_params.x / uniforms.msdf_params.y);
+    let screen_tex_size = vec2<f32>(1.0, 1.0) / fwidth(in.tex_coord);
+    let screen_px_range = max(0.5 * dot(unit_range, screen_tex_size), 1.5);
+
+    // Stem darkening: counteract gamma-induced thinning at small sizes.
+    let darkening = max(0.0, 0.08 * (1.0 - (screen_px_range - 2.0) / 6.0));
+
+    // Sample shadow (offset) — no stem darkening on shadow
+    let shadow_msdf = textureSample(msdf_atlas, msdf_sampler, in.tex_coord - shadow_offset).rgb;
+    let shadow_sd = median3(shadow_msdf.r, shadow_msdf.g, shadow_msdf.b) - 0.5;
+    let shadow_alpha = clamp(screen_px_range * shadow_sd + 0.5, 0.0, 1.0);
+
+    // Sample fill (no offset) — apply stem darkening to fill only
+    let msdf = textureSample(msdf_atlas, msdf_sampler, in.tex_coord).rgb;
+    let fill_sd = median3(msdf.r, msdf.g, msdf.b) - 0.5 + darkening;
+    let fill_alpha = clamp(screen_px_range * fill_sd + 0.5, 0.0, 1.0);
+
+    // Composite: fill over shadow (Porter-Duff Source Over)
+    let shadow = vec4<f32>(shadow_color.rgb * shadow_alpha, shadow_color.a * shadow_alpha);
+    let fill = vec4<f32>(in.color.rgb * fill_alpha, in.color.a * fill_alpha);
+
+    return fill + shadow * (1.0 - fill.a);
+}

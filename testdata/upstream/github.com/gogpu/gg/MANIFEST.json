@@ -1,0 +1,141 @@
+{
+  "schema": 1,
+  "kind": "vendored",
+  "source": {
+    "repository": "https://github.com/gogpu/gg",
+    "commit": "bd563f4c293fd1f70afe56276c444a38302bac15",
+    "commitDate": "2026-09-01"
+  },
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "e7e34d8ec3b1e35a15f6164f926f4bca8ca93bfc5b876a4730ef2af514c780fc",
+      "gitBlob": "6aa3b0b14c9939764840f2068924a9679c4c60dd"
+    },
+    {
+      "path": "internal/gpu/shaders/blend.wgsl",
+      "sha256": "4b76be757e2d25dcc02321b53f8e0f78aa5237b08cf4c1b960588d8c6b2b4ec4",
+      "gitBlob": "f517183ba60b3c9aece2e8a1589f4a8bd88e00a5"
+    },
+    {
+      "path": "internal/gpu/shaders/blit.wgsl",
+      "sha256": "49ee29ce6f7d13cebe44a1f7a310893d911fe46d4d4c3e54c185ef7bf80233b7",
+      "gitBlob": "baa0d5e72476f16b1e5cc7d481dbe29bf697050d"
+    },
+    {
+      "path": "internal/gpu/shaders/coarse.wgsl",
+      "sha256": "4818103ff314cb200795cf4312060a1eda67c2283f2d2177b9c4626d53d2bedb",
+      "gitBlob": "84d88c07fde414c9a94a2c5457713f74f314bc3a"
+    },
+    {
+      "path": "internal/gpu/shaders/composite.wgsl",
+      "sha256": "af20fff8b32218afaf64a66f9d1af36bc7666ad79a2491c2527e390404b7d000",
+      "gitBlob": "dab709f4b5d076decefc2fa0d74930e100a2b08d"
+    },
+    {
+      "path": "internal/gpu/shaders/convex.wgsl",
+      "sha256": "d0ca4c59f8e80147ae7b951e0df407bafd74010fde0abd3c0384135523a2fc79",
+      "gitBlob": "b31c0086281a0ef788bfba938d042b79075075d0"
+    },
+    {
+      "path": "internal/gpu/shaders/cover.wgsl",
+      "sha256": "8df424c249a81c7a9c6face6f09750327c24c1197f17de79f48380848cc2cfd7",
+      "gitBlob": "41ec33482621ed09569b123b26ce4b9b2cb7c3f4"
+    },
+    {
+      "path": "internal/gpu/shaders/depth_clip.wgsl",
+      "sha256": "a2c9e6ee0a32d45cb882953b2e900a5f5838bf31103ed0a37d60fe2743e4c829",
+      "gitBlob": "6c0e7db2f689fb8efbd4c6fbf6ee924bb6dde0c4"
+    },
+    {
+      "path": "internal/gpu/shaders/fine.wgsl",
+      "sha256": "93949d88d865c87f1949c3d2a6e081e24bce57bc2dd5a89428e4c055b05f49cd",
+      "gitBlob": "4fe8a90dde46f24e54dedcacda157f0f5fd023f6"
+    },
+    {
+      "path": "internal/gpu/shaders/flatten.wgsl",
+      "sha256": "b370da99faf038f26021215edf38e9b386ca056a779242ea24d5300412ed520f",
+      "gitBlob": "e6ba4a4b48037c3435c82970b93b2dcbed45fa73"
+    },
+    {
+      "path": "internal/gpu/shaders/glyph_mask.wgsl",
+      "sha256": "be510e5721c28dcec79ac37db0f276885058bdfdf8fdf56da7f3c7aa3725f018",
+      "gitBlob": "26ac2aa51de786ae92fb3e18446cfea668333c29"
+    },
+    {
+      "path": "internal/gpu/shaders/glyph_mask_lcd.wgsl",
+      "sha256": "9da38f35d9696e99ae25f1abea8ea8a168fef21549370168e67a8b62d4067cd5",
+      "gitBlob": "b507200ba03a5bd3ea185e4c60a59da51f8bf422"
+    },
+    {
+      "path": "internal/gpu/shaders/msdf_text.wgsl",
+      "sha256": "c69657fcb230acc0ecd409bba9de5b441ffae584d54fecf01428fe6ea5715f80",
+      "gitBlob": "c5912a4ef4d008cc2f08d677d1cd530e6701d948"
+    },
+    {
+      "path": "internal/gpu/shaders/sdf_render.wgsl",
+      "sha256": "38bd3c063e5e4573306aca99f1529b621de1c22296de86830e6cc0d005a52dc8",
+      "gitBlob": "3ad6c8ed6b63a92c39c01f590d46a6592fccdc79"
+    },
+    {
+      "path": "internal/gpu/shaders/stencil_fill.wgsl",
+      "sha256": "80356a2c9416df1f9fda2a2c66f2e7a992b873da81ff883d9abf79ff1952435b",
+      "gitBlob": "8d2fc36f79d243ae726013542006ee1c374d64bc"
+    },
+    {
+      "path": "internal/gpu/shaders/strip.wgsl",
+      "sha256": "b607c92d1a248da6da7f3c81dd62f2d11ec5eda697320ad018ddc1af75bb4ec3",
+      "gitBlob": "80dd3c3fffcd0f6a381762db9d341fcb1ec04d53"
+    },
+    {
+      "path": "internal/gpu/shaders/textured_quad.wgsl",
+      "sha256": "bb0b947081e2363824297a7b1603a188efda1809fe60770bffb1fd18733629fd",
+      "gitBlob": "ca3f8d6310b95aeec00474f8adc973564d21766c"
+    },
+    {
+      "path": "internal/gpu/tilecompute/shaders/backdrop.wgsl",
+      "sha256": "2fd750b029d433d4f2f84c6222f113ce5172fbdcefe3b2fcff8e0bcee09cae42",
+      "gitBlob": "b9a8f1a447076db0afb7761b4d8bf17d05d1aa93"
+    },
+    {
+      "path": "internal/gpu/tilecompute/shaders/coarse.wgsl",
+      "sha256": "ff45d39af9f7e258a041c64cf492464eeab8ce0d53f03f24417c3afff51a9956",
+      "gitBlob": "9302eabfdbdfddeb54ac63209a4884b64f886d22"
+    },
+    {
+      "path": "internal/gpu/tilecompute/shaders/draw_leaf.wgsl",
+      "sha256": "44eaaf981dbde385fb45b8f3b565bd97bf56a1293f2ab2ca9abb61b2328dd193",
+      "gitBlob": "1f752ebeb20542aa556df700a8e4635e3f642c5f"
+    },
+    {
+      "path": "internal/gpu/tilecompute/shaders/draw_reduce.wgsl",
+      "sha256": "0ccc497e98189aacced9c8b506e8946fdce8f4353b36ebf60254f488eef9eef9",
+      "gitBlob": "8c325b62acdd27d99145446c3f59041c9d409b7c"
+    },
+    {
+      "path": "internal/gpu/tilecompute/shaders/fine.wgsl",
+      "sha256": "6c7f77b723cf3b4c69936f933b2b40ef7fdebbb9a6f69d13bb1fcde80924babc",
+      "gitBlob": "a968ffdf177fa578b38f7d13f3fe60d0f69cd1f8"
+    },
+    {
+      "path": "internal/gpu/tilecompute/shaders/path_count.wgsl",
+      "sha256": "f57ff30cad459b573bd7e3253b51980c7546a08d770ee45f2414b8a1c574b48b",
+      "gitBlob": "bc70c2e0e80a3d991308885980b79f817d5add77"
+    },
+    {
+      "path": "internal/gpu/tilecompute/shaders/path_tiling.wgsl",
+      "sha256": "251b4ac7e5f5ac04b05918ed2d14dc768470ad077ff2b418857f7d8fef05c959",
+      "gitBlob": "b2d91fabc069ec7a4cc17ca7cda24584e777b7e3"
+    },
+    {
+      "path": "internal/gpu/tilecompute/shaders/pathtag_reduce.wgsl",
+      "sha256": "2756b6ea33ac5455731c8039ebba2d432e635f008998d43e474c4b68fa552d3f",
+      "gitBlob": "d84134595ea6b81b3ebf5413443e9708eb20d5b7"
+    },
+    {
+      "path": "internal/gpu/tilecompute/shaders/pathtag_scan.wgsl",
+      "sha256": "8b8aec2929dc7dbe661a5fc6ee29a78a4a9cb4d41c1d4c7526f03f4c4d2f342a",
+      "gitBlob": "99d263370524466fbece38f74f0b428810ffd833"
+    }
+  ]
+}

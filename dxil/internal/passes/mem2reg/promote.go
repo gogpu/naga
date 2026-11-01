@@ -1,8 +1,18 @@
 package mem2reg
 
 import (
+	"maps"
+	"slices"
+
 	"github.com/gogpu/naga/ir"
 )
+
+// sortedVars returns the variables of a candidate set in index order. A loop
+// that appends expressions or phis per variable walks them in this order:
+// map order would change the output from run to run.
+func sortedVars(set map[uint32]struct{}) []uint32 {
+	return slices.Sorted(maps.Keys(set))
+}
 
 // promotionContext bundles the per-function state needed by the
 // recursive block walker.
@@ -254,7 +264,7 @@ func rewriteBlock(ctx *promotionContext, blk *[]ir.Statement, candidates map[uin
 // without explicit Init see zero per the WGSL specification).
 func initialValues(ctx *promotionContext, candidates map[uint32]struct{}) map[uint32]ir.ExpressionHandle {
 	out := make(map[uint32]ir.ExpressionHandle, len(candidates))
-	for v := range candidates {
+	for _, v := range sortedVars(candidates) {
 		lv := &ctx.fn.LocalVars[v]
 		if lv.Init != nil {
 			out[v] = *lv.Init

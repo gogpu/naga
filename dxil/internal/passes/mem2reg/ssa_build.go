@@ -63,7 +63,7 @@ func newPhiWalker(ctx *promotionContext) *phiWalker {
 		candidates:   selectStructuredCandidates(ctx),
 	}
 	// Seed initial values from each candidate's Init or a fresh ZeroValue.
-	for v := range w.candidates {
+	for _, v := range sortedVars(w.candidates) {
 		w.currentValue[v] = initialValueOf(ctx, v)
 	}
 	return w
@@ -371,7 +371,7 @@ func (w *phiWalker) handleIf(stmtPtr *ir.Statement) []ir.Statement {
 	}
 
 	var phis []ir.Statement
-	for v := range w.candidates {
+	for _, v := range sortedVars(w.candidates) {
 		va, haveA := acceptValues[v]
 		vr, haveR := rejectValues[v]
 		if !haveA && !haveR {
@@ -427,7 +427,7 @@ func (w *phiWalker) handleSwitch(stmtPtr *ir.Statement) []ir.Statement {
 	stmtPtr.Kind = ir.StmtSwitch{Selector: sk.Selector, Cases: cases}
 
 	var phis []ir.Statement
-	for v := range w.candidates {
+	for _, v := range sortedVars(w.candidates) {
 		incomings := switchMergeIncomings(v, caseValues, reachesMerge, preSwitch)
 		switch {
 		case len(incomings) == 0:
