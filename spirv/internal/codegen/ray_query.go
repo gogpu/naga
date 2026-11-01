@@ -337,8 +337,15 @@ func (b *Backend) writeRayQueryProceed() uint32 {
 
 	if b.options.RayQueryInitTracking {
 		isInitialized := writeRayFlagsContainsFlag(b, &block, loadedTrackerID, rqPointInitialized)
+		// Unlike HLSL's Proceed, SPIR-V's returns false once and calling it
+		// again is undefined, so skip it once traversal has finished: the
+		// result stays false either way (Rust 55534165).
+		finished := writeRayFlagsContainsFlag(b, &block, loadedTrackerID, rqPointFinishedTraversal)
+		notFinished := b.builder.AllocID()
+		block.Push(Instruction{Opcode: OpLogicalNot, Words: []uint32{boolTypeID, notFinished, finished}})
+		isValid := writeLogicalAnd(b, &block, notFinished, isInitialized)
 		block.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{mergeID, 0}})
-		fb.Consume(block, Instruction{Opcode: OpBranchConditional, Words: []uint32{isInitialized, validBlockID, mergeID}})
+		fb.Consume(block, Instruction{Opcode: OpBranchConditional, Words: []uint32{isValid, validBlockID, mergeID}})
 	} else {
 		fb.Consume(block, Instruction{Opcode: OpBranch, Words: []uint32{validBlockID}})
 	}
@@ -577,7 +584,9 @@ func (b *Backend) writeRayQueryGetIntersection(committed bool) uint32 {
 	}
 
 	notNoneBlock.Push(Instruction{Opcode: OpSelectionMerge, Words: []uint32{innerMergeLabelID, 0}})
-	fb.Consume(notNoneBlock, Instruction{Opcode: OpBranchConditional, Words: []uint32{notNoneID, triLabelID, innerMergeLabelID}})
+	// Barycentrics and front face exist only for a triangle hit (Rust
+	// 55534165: branch on tri_comp_id, not not_none_comp_id).
+	fb.Consume(notNoneBlock, Instruction{Opcode: OpBranchConditional, Words: []uint32{triCompID, triLabelID, innerMergeLabelID}})
 
 	if !committed {
 		// Store t in tri block for candidate

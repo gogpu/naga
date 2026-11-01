@@ -1,7 +1,7 @@
 ; SPIR-V
 ; Version: 1.1
 ; Generator: 0x00000000
-; Bound: 165
+; Bound: 169
 ; Schema: 0
 
                OpCapability Shader
@@ -58,7 +58,7 @@
          %_144 = OpTypePointer Function %_29
          %_145 = OpTypeFunction %_29 %_16 %_14
          %_150 = OpConstantFalse %_29
-         %_158 = OpConstant %_4 6
+         %_162 = OpConstant %_4 6
          %_10 = OpVariable %_9 UniformConstant
          %_64 = OpFunction %_2 None %_63
          %_65 = OpFunctionParameter %_16
@@ -149,18 +149,22 @@
          %_152 = OpLoad %_4 %_148
          %_155 = OpBitwiseAnd %_4 %_152 %_31
          %_156 = OpLessOrGreater %_29 %_155 %_20
+         %_157 = OpBitwiseAnd %_4 %_152 %_47
+         %_158 = OpLessOrGreater %_29 %_157 %_20
+         %_159 = OpIsFinite %_29 %_158
+         %_160 = OpIsInf %_29 %_159 %_156
                OpSelectionMerge %_153 0
-               OpBranchConditional %_156 %_154 %_153
+               OpBranchConditional %_160 %_154 %_153
          %_154 = OpLabel
-         Op4477 %_29 %_157 %_147
-               OpStore %_151 %_157
-         %_159 = OpIsNormal %_4 %_157 %_113 %_158
-         %_160 = OpBitwiseOr %_4 %_152 %_159
-               OpStore %_148 %_160
+         Op4477 %_29 %_161 %_147
+               OpStore %_151 %_161
+         %_163 = OpIsNormal %_4 %_161 %_113 %_162
+         %_164 = OpBitwiseOr %_4 %_152 %_163
+               OpStore %_148 %_164
                OpBranch %_153
          %_153 = OpLabel
-         %_161 = OpLoad %_29 %_151
-               OpReturnValue %_161
+         %_165 = OpLoad %_29 %_151
+               OpReturnValue %_165
                OpFunctionEnd
          %_12 = OpFunction %_2 None %_11
          %_13 = OpLabel
@@ -205,12 +209,12 @@
          %_60 = OpCompositeConstruct %_8 %_31 %_57 %_58 %_59 %_54 %_56
          %_61 = OpLoad %_3 %_10
          %_143 = OpFunctionCall %_2 %_64 %_17 %_61 %_60 %_19 %_21
-         %_162 = OpFunctionCall %_29 %_146 %_17 %_19
+         %_166 = OpFunctionCall %_29 %_146 %_17 %_19
                OpBranch %_25
          %_25 = OpLabel
-         %_163 = OpLoad %_4 %_15
-         %_164 = OpIAdd %_4 %_163 %_31
-               OpStore %_15 %_164
+         %_167 = OpLoad %_4 %_15
+         %_168 = OpIAdd %_4 %_167 %_31
+               OpStore %_15 %_168
                OpBranch %_23
          %_26 = OpLabel
                OpReturn
