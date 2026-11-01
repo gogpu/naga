@@ -9,6 +9,7 @@ import (
 	"github.com/gogpu/naga/dxil/internal/viewid"
 	"github.com/gogpu/naga/internal/consteval"
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -192,6 +193,11 @@ type Emitter struct {
 	// no value for it, which fails the emission instead of reading another
 	// value in its place.
 	componentErr error
+
+	// types types the expressions of each function the emitter writes, the
+	// ones it appends too (typifierOf); typeErr is the first failure.
+	types   map[*ir.Function]*typifier.Typifier
+	typeErr error
 
 	// doubleExtensions is set by the double operations DXC sets
 	// EnableDoubleExtensions for: fdiv, conversions between doubles and
@@ -500,6 +506,11 @@ type EmitOptions struct {
 	// value is a bitmask of used components (0 = unused). nil means
 	// "assume all inputs used" (conservative).
 	InputUsedMasks map[InputUsageKey]uint8
+
+	// Types are the expression types of the module's functions, from the
+	// DXIL pipeline; the emitter grows them over the expressions it
+	// appends. nil: the emitter types the functions itself.
+	Types *typifier.Module
 }
 
 // InputUsageKey identifies a signature element by its argument and member.
@@ -553,6 +564,16 @@ func EmitWithFlags(irMod *ir.Module, opts EmitOptions) (*module.Module, uint64, 
 		helperConstMaps:      make(map[ir.FunctionHandle]map[int]*module.Constant),
 	}
 
+	// Type every function first, so a function that can't be typed fails
+	// the emission before any of it is written.
+	for i := range irMod.Functions {
+		e.typifierOf(&irMod.Functions[i])
+	}
+	e.typifierOf(&ep.Function)
+	if e.typeErr != nil {
+		return nil, 0, fmt.Errorf("dxil/emit: %w", e.typeErr)
+	}
+
 	// Pre-scan the entry point to find which helper functions are actually
 	// called. Store on the Emitter so flag computation (computeBitcodeShaderFlags)
 	// can scope ray-query / int64 / low-precision detection to the reachable
@@ -568,6 +589,9 @@ func EmitWithFlags(irMod *ir.Module, opts EmitOptions) (*module.Module, uint64, 
 	}
 	if e.componentErr != nil {
 		return nil, 0, fmt.Errorf("dxil/emit: entry point %q: %w", ep.Name, e.componentErr)
+	}
+	if e.typeErr != nil {
+		return nil, 0, fmt.Errorf("dxil/emit: entry point %q: %w", ep.Name, e.typeErr)
 	}
 
 	// Finalize helper functions AFTER the entry point finalize
@@ -3086,7 +3110,7 @@ func (e *Emitter) emitGraphicsViewIDState(ep *ir.EntryPoint) {
 	// Run the dataflow analyzer when we have both inputs and outputs.
 	var deps *viewid.Deps
 	if len(inElems) > 0 && len(outElems) > 0 {
-		deps = viewid.Analyze(e.ir, ep, inElems, outElems)
+		deps = viewid.Analyze(e.ir, ep, e.typifierOf(&ep.Function), inElems, outElems)
 	}
 	// Map pre-computed IR usage masks to per-input-element masks.
 	e.inputUsedMasks = e.computeInputElementUsedMasks(ep, inElems)

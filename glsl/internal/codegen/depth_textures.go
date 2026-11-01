@@ -252,10 +252,10 @@ func (w *Writer) isPlainDepth(image ir.ExpressionHandle) bool {
 // isDepthImage reports whether image, an expression of the function being
 // written, is a depth texture, multisampled or not.
 func (w *Writer) isDepthImage(image ir.ExpressionHandle) bool {
-	if w.currentFunction == nil || int(image) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(image) {
 		return false
 	}
-	t, ok := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[image], image).(ir.ImageType)
+	t, ok := w.exprInner(image).(ir.ImageType)
 	return ok && t.Class == ir.ImageClassDepth
 }
 

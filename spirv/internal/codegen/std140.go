@@ -232,12 +232,12 @@ func (b *Backend) std140DataTypeID(global *ir.GlobalVariable) (uint32, error) {
 func (b *Backend) emitStd140Wrappers(fn *ir.Function, expr ir.ExpressionKind) error {
 	switch k := expr.(type) {
 	case ir.ExprLoad:
-		if ty, ok := uniformPointee(b.module, fn, k.Pointer); ok && b.std140Types[ty] != nil {
+		if ty, ok := b.uniformPointee(fn, k.Pointer); ok && b.std140Types[ty] != nil {
 			_, err := b.std140Convert(ty)
 			return err
 		}
 	case ir.ExprAccess:
-		ty, ok := uniformPointee(b.module, fn, k.Base)
+		ty, ok := b.uniformPointee(fn, k.Base)
 		if !ok {
 			return nil
 		}
@@ -247,7 +247,7 @@ func (b *Backend) emitStd140Wrappers(fn *ir.Function, expr ir.ExpressionKind) er
 		if _, err := b.matCx2GetColumn(ty); err != nil {
 			return err
 		}
-		if !isUniformMatCx2Member(b.module, fn, k.Base) {
+		if !b.isUniformMatCx2Member(fn, k.Base) {
 			_, err := b.std140Convert(ty)
 			return err
 		}
@@ -456,20 +456,21 @@ func (b *Backend) matCx2GetColumn(ty ir.TypeHandle) (uint32, error) {
 
 // uniformPointee returns the type the pointer expression h points to in the
 // uniform address space.
-func uniformPointee(module *ir.Module, fn *ir.Function, h ir.ExpressionHandle) (ir.TypeHandle, bool) {
-	res, err := ir.ResolveExpressionType(module, fn, h)
+func (b *Backend) uniformPointee(fn *ir.Function, h ir.ExpressionHandle) (ir.TypeHandle, bool) {
+	res, err := b.exprType(fn, h)
 	if err != nil {
 		return 0, false
 	}
-	p, ok := typeResolutionInner(module, res).(ir.PointerType)
+	p, ok := typeResolutionInner(b.module, res).(ir.PointerType)
 	return p.Base, ok && p.Space == ir.SpaceUniform
 }
 
 // isUniformMatCx2Member reports whether h points to a matrix member of a
 // struct in a uniform buffer, one std140Matrix reports, whose columns are
 // members of the struct's std140-compatible type.
-func isUniformMatCx2Member(module *ir.Module, fn *ir.Function, h ir.ExpressionHandle) bool {
-	ty, ok := uniformPointee(module, fn, h)
+func (b *Backend) isUniformMatCx2Member(fn *ir.Function, h ir.ExpressionHandle) bool {
+	module := b.module
+	ty, ok := b.uniformPointee(fn, h)
 	if !ok {
 		return false
 	}
@@ -480,7 +481,7 @@ func isUniformMatCx2Member(module *ir.Module, fn *ir.Function, h ir.ExpressionHa
 	if !ok {
 		return false
 	}
-	res, err := ir.ResolveExpressionType(module, fn, access.Base)
+	res, err := b.exprType(fn, access.Base)
 	if err != nil {
 		return false
 	}
@@ -495,7 +496,7 @@ func isUniformMatCx2Member(module *ir.Module, fn *ir.Function, h ir.ExpressionHa
 // std140Struct returns the std140-compatible type of the struct base points
 // to in a uniform buffer.
 func (e *ExpressionEmitter) std140Struct(base ir.ExpressionHandle) *std140Type {
-	ty, ok := uniformPointee(e.backend.module, e.function, base)
+	ty, ok := e.backend.uniformPointee(e.function, base)
 	if !ok {
 		return nil
 	}
@@ -514,7 +515,7 @@ func (e *ExpressionEmitter) loadUniform(pointer ir.ExpressionHandle) (uint32, bo
 	if id, ok, err := e.loadMatCx2Member(pointer); ok || err != nil {
 		return id, ok, err
 	}
-	ty, ok := uniformPointee(e.backend.module, e.function, pointer)
+	ty, ok := e.backend.uniformPointee(e.function, pointer)
 	if !ok {
 		return 0, false, nil
 	}
@@ -551,7 +552,7 @@ func (e *ExpressionEmitter) loadUniform(pointer ir.ExpressionHandle) (uint32, bo
 func (e *ExpressionEmitter) loadDynamicMatCx2Column(pointer ir.ExpressionHandle) (uint32, bool, error) {
 	module := e.backend.module
 	var pointerType ir.TypeInner
-	if res, err := ir.ResolveExpressionType(module, e.function, pointer); err == nil {
+	if res, err := e.backend.exprType(e.function, pointer); err == nil {
 		pointerType = typeResolutionInner(module, res)
 	}
 	column := pointer
@@ -582,7 +583,7 @@ func (e *ExpressionEmitter) loadDynamicMatCx2Column(pointer ir.ExpressionHandle)
 	if !ok {
 		return 0, false, nil
 	}
-	ty, ok := uniformPointee(module, e.function, access.Base)
+	ty, ok := e.backend.uniformPointee(e.function, access.Base)
 	if !ok {
 		return 0, false, nil
 	}
@@ -610,7 +611,7 @@ func (e *ExpressionEmitter) loadDynamicMatCx2Column(pointer ir.ExpressionHandle)
 	if err != nil {
 		return 0, true, err
 	}
-	indexType, err := ir.ResolveExpressionType(module, e.function, access.Index)
+	indexType, err := e.backend.exprType(e.function, access.Index)
 	if err != nil {
 		return 0, true, err
 	}
@@ -640,10 +641,10 @@ func (e *ExpressionEmitter) loadDynamicMatCx2Column(pointer ir.ExpressionHandle)
 // std140-compatible type.
 func (e *ExpressionEmitter) loadMatCx2Member(pointer ir.ExpressionHandle) (uint32, bool, error) {
 	module := e.backend.module
-	if !isUniformMatCx2Member(module, e.function, pointer) {
+	if !e.backend.isUniformMatCx2Member(e.function, pointer) {
 		return 0, false, nil
 	}
-	ty, _ := uniformPointee(module, e.function, pointer)
+	ty, _ := e.backend.uniformPointee(e.function, pointer)
 	mat, _ := std140Matrix(module.Types[ty].Inner)
 	access := e.function.Expressions[pointer].Kind.(ir.ExprAccessIndex)
 	info := e.std140Struct(access.Base)

@@ -76,7 +76,7 @@ func TestGetPointerAddressSpace(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	if got := w.getPointerAddressSpace(0); got != ir.SpaceStorage {
 		t.Errorf("expr 0 (storage ptr): got space %d, want %d (SpaceStorage)", got, ir.SpaceStorage)
@@ -124,7 +124,7 @@ func TestWriteAtomicStatementWorkgroup(t *testing.T) {
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	t.Run("add_with_result", func(t *testing.T) {
 		w.Out.Reset()
@@ -215,7 +215,7 @@ func TestWriteAtomicStatementStorage(t *testing.T) {
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	t.Run("storage_add", func(t *testing.T) {
 		w.Out.Reset()
@@ -248,28 +248,26 @@ func TestWriteAtomicStatementStorage(t *testing.T) {
 func TestIsPointerExpressionAccessIndex(t *testing.T) {
 	// AccessIndex on a pointer base should be detected as pointer-valued.
 	// This ensures let-bindings like `let p = &arr[0]` are not baked in HLSL.
-	ptrHandle := ir.TypeHandle(1)
+	four := uint32(4)
 	module := &ir.Module{
 		Types: []ir.Type{
-			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},     // 0: i32
-			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceFunction}}, // 1: ptr<function, i32>
+			{Inner: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},                          // 0: i32
+			{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: &four}, Stride: 4}}, // 1: array<i32, 4>
+			{Inner: ir.PointerType{Base: 1, Space: ir.SpaceFunction}},                      // 2: ptr<function, array<i32, 4>>
 		},
 	}
 	names := map[nameKey]string{}
 	w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "int"})
 
 	fn := &ir.Function{
+		Arguments: []ir.FunctionArgument{{Name: "arr", Type: 2}},
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprFunctionArgument{Index: 0}},     // 0: arg (pointer)
 			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}}, // 1: arg[0]
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &ptrHandle}, // 0: pointer type
-			{},                   // 1: no pointer type in ExpressionTypes
-		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	// Expression 1 (AccessIndex on pointer base) should be pointer-valued
 	if !w.isPointerExpression(1) {
@@ -337,7 +335,7 @@ func TestMatCx2StoreDetection(t *testing.T) {
 		}
 
 		w := newTestWriter(module, nil, nil)
-		setCurrentFunction(w, fn)
+		setCurrentFunction(t, w, fn)
 
 		matExpr, vecIdx, scalarIdx := w.findMatCx2InAccessChain(1)
 		if matExpr == nil {
@@ -368,7 +366,7 @@ func TestMatCx2StoreDetection(t *testing.T) {
 		}
 
 		w := newTestWriter(module, nil, nil)
-		setCurrentFunction(w, fn)
+		setCurrentFunction(t, w, fn)
 
 		matExpr, vecIdx, scalarIdx := w.findMatCx2InAccessChain(2)
 		if matExpr == nil {
@@ -413,7 +411,7 @@ func TestMatCx2StoreDetection(t *testing.T) {
 		}
 
 		w := newTestWriter(mod, nil, nil)
-		setCurrentFunction(w, fn)
+		setCurrentFunction(t, w, fn)
 
 		matExpr, _, _ := w.findMatCx2InAccessChain(1)
 		if matExpr != nil {
@@ -447,7 +445,7 @@ func TestResolveExprTypeHandle(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	t.Run("local_variable", func(t *testing.T) {
 		ty := w.resolveExprTypeHandle(fn, 0)
@@ -462,50 +460,6 @@ func TestResolveExprTypeHandle(t *testing.T) {
 			t.Errorf("expected type handle 0 (f32), got %v", ty)
 		}
 	})
-}
-
-// TestResolveExpressionTypeFallback verifies the fallback type resolver for
-// Splat expressions when ExpressionTypes is not populated.
-func TestResolveExpressionTypeFallback(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 0: f32
-		},
-	}
-	f32Handle := ir.TypeHandle(0)
-	fn := &ir.Function{
-		Expressions: []ir.Expression{
-			{Kind: ir.Literal{Value: ir.LiteralF32(0.5)}}, // 0: literal f32
-			{Kind: ir.ExprSplat{Size: ir.Vec3, Value: 0}}, // 1: splat to vec3
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &f32Handle}, // 0: has type
-			{},                   // 1: missing type (nil)
-		},
-	}
-
-	w := &Writer{module: module, currentFunction: fn}
-
-	// Expression 1 (Splat) has empty ExpressionTypes - getExpressionType returns nil
-	if got := w.getExpressionType(1); got != nil {
-		t.Fatal("expected nil from getExpressionType for expression 1")
-	}
-
-	// Fallback should resolve to VectorType{Size: 3, Scalar: f32}
-	resolved := w.resolveExpressionTypeFallback(1)
-	if resolved == nil {
-		t.Fatal("resolveExpressionTypeFallback returned nil")
-	}
-	vec, ok := resolved.Inner.(ir.VectorType)
-	if !ok {
-		t.Fatalf("expected VectorType, got %T", resolved.Inner)
-	}
-	if vec.Size != ir.Vec3 {
-		t.Errorf("expected size Vec3, got %d", vec.Size)
-	}
-	if vec.Scalar.Kind != ir.ScalarFloat {
-		t.Errorf("expected float scalar, got %v", vec.Scalar.Kind)
-	}
 }
 
 // =============================================================================
@@ -561,7 +515,7 @@ func TestWriteImageAtomicStatement(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
-			setCurrentFunction(w, fn)
+			setCurrentFunction(t, w, fn)
 			w.Out.Reset()
 			w.Indent = 0
 
@@ -607,9 +561,6 @@ func TestWriteWorkGroupUniformLoadStatement(t *testing.T) {
 		},
 	}
 
-	wgPtrHandle := ir.TypeHandle(1)
-	u32Handle := ir.TypeHandle(0)
-
 	names := map[nameKey]string{
 		{kind: nameKeyGlobalVariable, handle1: 0}: "wg_data",
 	}
@@ -619,15 +570,12 @@ func TestWriteWorkGroupUniformLoadStatement(t *testing.T) {
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},  // 0: wg_data ptr
 			{Kind: ir.ExprWorkGroupUniformLoadResult{}}, // 1: result
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &wgPtrHandle},
-			{Handle: &u32Handle},
-		},
+		Body:             ir.Block{{Kind: ir.StmtWorkGroupUniformLoad{Pointer: 0, Result: 1}}},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
 
 	w := newTestWriter(module, names, map[ir.TypeHandle]string{0: "uint"})
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 	w.Out.Reset()
 	w.Indent = 0
 

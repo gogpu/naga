@@ -112,15 +112,12 @@ func TestWorkgroupUniformLoadOfAtomic(t *testing.T) {
 		t.Fatalf("lowering failed: %v", err)
 	}
 	fn := &m.EntryPoints[0].Function
-	for h, e := range fn.Expressions {
-		if _, ok := e.Kind.(ir.ExprWorkGroupUniformLoadResult); !ok {
+	for _, e := range fn.Expressions {
+		r, ok := e.Kind.(ir.ExprWorkGroupUniformLoadResult)
+		if !ok {
 			continue
 		}
-		res, err := ir.ResolveExpressionType(m, fn, ir.ExpressionHandle(h))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := res.Inner(m.Types); got != (ir.ScalarType{Kind: ir.ScalarUint, Width: 4}) {
+		if got := m.Types[r.Ty].Inner; got != (ir.ScalarType{Kind: ir.ScalarUint, Width: 4}) {
 			t.Errorf("result type = %#v, want u32", got)
 		}
 		return
@@ -158,7 +155,7 @@ func TestBitcastConcretizesOperand(t *testing.T) {
 					continue
 				}
 				found = true
-				res, err := ir.ResolveExpressionType(m, fn, as.Expr)
+				res, err := typeOfExpr(m, fn, as.Expr)
 				if err != nil {
 					t.Fatalf("resolve bitcast operand: %v", err)
 				}

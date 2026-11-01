@@ -275,17 +275,14 @@ func TestWriteStorageStoreScalar(t *testing.T) {
 	}
 	w := newTestWriter(module, names, nil)
 
+	module.GlobalVariables = []ir.GlobalVariable{{Name: "buffer0", Space: ir.SpaceStorage, Type: 0}}
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
 			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(0)}, // GlobalVariable -> f32
-			{Handle: ptrHandle(0)}, // Literal -> f32
-		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
@@ -315,17 +312,14 @@ func TestWriteStorageStoreVector(t *testing.T) {
 	}
 	w := newTestWriter(module, names, nil)
 
+	module.GlobalVariables = []ir.GlobalVariable{{Name: "buffer0", Space: ir.SpaceStorage, Type: 0}}
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(0)},
-			{Handle: ptrHandle(0)},
+			{Kind: ir.ExprZeroValue{Type: 0}},
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
@@ -353,17 +347,14 @@ func TestWriteStorageStoreMatrix(t *testing.T) {
 	}
 	w := newTestWriter(module, names, nil)
 
+	module.GlobalVariables = []ir.GlobalVariable{{Name: "buffer0", Space: ir.SpaceStorage, Type: 0}}
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(0)},
-			{Handle: ptrHandle(0)},
+			{Kind: ir.ExprZeroValue{Type: 0}},
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
@@ -405,17 +396,14 @@ func TestWriteStorageStoreStruct(t *testing.T) {
 	typeNames := map[ir.TypeHandle]string{1: "MyStruct"}
 	w := newTestWriter(module, names, typeNames)
 
+	module.GlobalVariables = []ir.GlobalVariable{{Name: "buffer0", Space: ir.SpaceStorage, Type: 1}}
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(1)},
-			{Handle: ptrHandle(1)},
+			{Kind: ir.ExprZeroValue{Type: 1}},
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
@@ -448,17 +436,14 @@ func TestWriteStorageStoreArray(t *testing.T) {
 	typeNames := map[ir.TypeHandle]string{0: "float"}
 	w := newTestWriter(module, names, typeNames)
 
+	module.GlobalVariables = []ir.GlobalVariable{{Name: "buffer0", Space: ir.SpaceStorage, Type: 1}}
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(1)},
-			{Handle: ptrHandle(1)},
+			{Kind: ir.ExprZeroValue{Type: 1}},
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	sv := storeValue{kind: storeValueExpression, expr: 1}
 	w.tempAccessChain = []subAccess{{kind: subAccessOffset, offset: 0}}
@@ -490,7 +475,7 @@ func TestWriteStorageStoreRecursionLimit(t *testing.T) {
 			{Handle: ptrHandle(0)},
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	sv := storeValue{kind: storeValueExpression, expr: 0}
 	// Exceed recursion limit
@@ -783,7 +768,7 @@ func TestWriteRayQueryGetIntersection(t *testing.T) {
 			{Handle: ptrHandle(0)},
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 	w.namedExpressions[0] = "rq"
 
 	// Committed intersection
@@ -983,288 +968,6 @@ func TestWriteExternalTextureLoadHelperIfNeeded_NoExternalTexture(t *testing.T) 
 	out := output(w)
 	if strings.Contains(out, "nagaTextureLoadExternal") {
 		t.Error("should not write external texture helper for non-external texture")
-	}
-}
-
-// =============================================================================
-// inferExpressionType / inferPointeeType (expressions.go) — 0% coverage
-// =============================================================================
-
-func TestInferExpressionType(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			// [0] f32
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-			// [1] vec3<f32>
-			{Inner: ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
-			// [2] struct { pos: vec3<f32> }
-			{Inner: ir.StructType{
-				Members: []ir.StructMember{{Name: "pos", Type: 1, Offset: 0}},
-				Span:    12,
-			}},
-			// [3] pointer to struct
-			{Inner: ir.PointerType{Base: 2, Space: ir.SpaceFunction}},
-			// [4] array<f32, 4>
-			{Inner: ir.ArrayType{Base: 0, Stride: 4, Size: ir.ArraySize{Constant: ptrU32(4)}}},
-			// [5] mat4x4<f32>
-			{Inner: ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
-		},
-		GlobalVariables: []ir.GlobalVariable{
-			{Name: "g", Type: 3, Space: ir.SpaceFunction},
-		},
-	}
-	w := newTestWriter(module, nil, nil)
-
-	fn := &ir.Function{
-		Expressions: []ir.Expression{
-			// [0] GlobalVariable -> g (struct pointer)
-			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-			// [1] AccessIndex { base: 0, index: 0 } -> struct member "pos"
-			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
-			// [2] Load { pointer: 1 } -> load the member
-			{Kind: ir.ExprLoad{Pointer: 1}},
-			// [3] FunctionArgument(0)
-			{Kind: ir.ExprFunctionArgument{Index: 0}},
-			// [4] LocalVariable(0)
-			{Kind: ir.ExprLocalVariable{Variable: 0}},
-		},
-		Arguments: []ir.FunctionArgument{
-			{Type: 0}, // f32 argument
-		},
-		LocalVars: []ir.LocalVariable{
-			{Type: 0}, // f32 local
-		},
-		// Empty ExpressionTypes to force fallback to inference
-		ExpressionTypes: nil,
-	}
-	setCurrentFunction(w, fn)
-
-	// Test inference from GlobalVariable
-	ty := w.inferExpressionType(0)
-	if ty == nil {
-		t.Fatal("expected type for GlobalVariable expr")
-	}
-	// Should resolve to struct (dereferenced from pointer)
-	if _, ok := ty.Inner.(ir.StructType); !ok {
-		t.Errorf("expected StructType from pointer deref, got %T", ty.Inner)
-	}
-
-	// Test inference from AccessIndex on struct
-	ty = w.inferExpressionType(1)
-	if ty == nil {
-		t.Fatal("expected type for AccessIndex expr")
-	}
-	if _, ok := ty.Inner.(ir.VectorType); !ok {
-		t.Errorf("expected VectorType from struct member, got %T", ty.Inner)
-	}
-
-	// Test inference from Load
-	ty = w.inferExpressionType(2)
-	if ty == nil {
-		t.Fatal("expected type for Load expr")
-	}
-
-	// Test inference from FunctionArgument
-	ty = w.inferExpressionType(3)
-	if ty == nil {
-		t.Fatal("expected type for FunctionArgument expr")
-	}
-	if _, ok := ty.Inner.(ir.ScalarType); !ok {
-		t.Errorf("expected ScalarType for function arg, got %T", ty.Inner)
-	}
-
-	// Test inference from LocalVariable
-	ty = w.inferExpressionType(4)
-	if ty == nil {
-		t.Fatal("expected type for LocalVariable expr")
-	}
-
-	// Test nil for out-of-range handle
-	ty = w.inferExpressionType(99)
-	if ty != nil {
-		t.Error("expected nil for out-of-range handle")
-	}
-
-	// Test nil when no current function
-	w.currentFunction = nil
-	ty = w.inferExpressionType(0)
-	if ty != nil {
-		t.Error("expected nil when currentFunction is nil")
-	}
-}
-
-func TestInferExpressionType_Access(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			// [0] f32
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-			// [1] array<f32, 4>
-			{Inner: ir.ArrayType{Base: 0, Stride: 4, Size: ir.ArraySize{Constant: ptrU32(4)}}},
-			// [2] vec4<f32>
-			{Inner: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
-			// [3] mat4x4<f32>
-			{Inner: ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
-		},
-		GlobalVariables: []ir.GlobalVariable{
-			{Name: "arr", Type: 1, Space: ir.SpaceFunction},
-			{Name: "vec", Type: 2, Space: ir.SpaceFunction},
-			{Name: "mat", Type: 3, Space: ir.SpaceFunction},
-		},
-	}
-	w := newTestWriter(module, nil, nil)
-
-	fn := &ir.Function{
-		Expressions: []ir.Expression{
-			// [0] GlobalVariable -> arr (array)
-			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-			// [1] Access { base: 0, index: ... } -> array element
-			{Kind: ir.ExprAccess{Base: 0, Index: 0}},
-			// [2] GlobalVariable -> vec (vector)
-			{Kind: ir.ExprGlobalVariable{Variable: 1}},
-			// [3] Access { base: 2, index: ... } -> vector element
-			{Kind: ir.ExprAccess{Base: 2, Index: 0}},
-			// [4] GlobalVariable -> mat (matrix)
-			{Kind: ir.ExprGlobalVariable{Variable: 2}},
-			// [5] Access { base: 4, index: ... } -> matrix column
-			{Kind: ir.ExprAccess{Base: 4, Index: 0}},
-		},
-	}
-	setCurrentFunction(w, fn)
-
-	// Access into array -> element type
-	ty := w.inferExpressionType(1)
-	if ty == nil {
-		t.Fatal("expected type for Access into array")
-	}
-	if _, ok := ty.Inner.(ir.ScalarType); !ok {
-		t.Errorf("expected ScalarType from array element, got %T", ty.Inner)
-	}
-
-	// Access into vector -> scalar type
-	ty = w.inferExpressionType(3)
-	if ty == nil {
-		t.Fatal("expected type for Access into vector")
-	}
-	if _, ok := ty.Inner.(ir.ScalarType); !ok {
-		t.Errorf("expected ScalarType from vector element, got %T", ty.Inner)
-	}
-
-	// Access into matrix -> vector (column)
-	ty = w.inferExpressionType(5)
-	if ty == nil {
-		t.Fatal("expected type for Access into matrix")
-	}
-	if _, ok := ty.Inner.(ir.VectorType); !ok {
-		t.Errorf("expected VectorType from matrix column, got %T", ty.Inner)
-	}
-}
-
-func TestInferPointeeType(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			// [0] f32
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-			// [1] pointer to f32
-			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceFunction}},
-			// [2] struct { x: f32 }
-			{Inner: ir.StructType{
-				Members: []ir.StructMember{{Name: "x", Type: 0, Offset: 0}},
-				Span:    4,
-			}},
-		},
-		GlobalVariables: []ir.GlobalVariable{
-			{Name: "g", Type: 1, Space: ir.SpaceFunction}, // pointer to f32
-		},
-	}
-	w := newTestWriter(module, nil, nil)
-
-	fn := &ir.Function{
-		Expressions: []ir.Expression{
-			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-			{Kind: ir.ExprLocalVariable{Variable: 0}},
-			{Kind: ir.ExprFunctionArgument{Index: 0}},
-		},
-		Arguments: []ir.FunctionArgument{
-			{Type: 2}, // struct type
-		},
-		LocalVars: []ir.LocalVariable{
-			{Type: 0}, // f32
-		},
-	}
-	setCurrentFunction(w, fn)
-
-	// GlobalVariable with pointer type: should dereference
-	ty := w.inferPointeeType(0)
-	if ty == nil {
-		t.Fatal("expected type for GlobalVariable pointer")
-	}
-	if _, ok := ty.Inner.(ir.ScalarType); !ok {
-		t.Errorf("expected ScalarType from pointer deref, got %T", ty.Inner)
-	}
-
-	// LocalVariable
-	ty = w.inferPointeeType(1)
-	if ty != nil {
-		if _, ok := ty.Inner.(ir.ScalarType); !ok {
-			t.Errorf("expected ScalarType for local var, got %T", ty.Inner)
-		}
-	}
-
-	// FunctionArgument
-	ty = w.inferPointeeType(2)
-	if ty != nil {
-		if _, ok := ty.Inner.(ir.StructType); !ok {
-			t.Errorf("expected StructType for func arg, got %T", ty.Inner)
-		}
-	}
-
-	// Out of range
-	ty = w.inferPointeeType(99)
-	if ty != nil {
-		t.Error("expected nil for out-of-range handle")
-	}
-
-	// Nil function
-	w.currentFunction = nil
-	ty = w.inferPointeeType(0)
-	if ty != nil {
-		t.Error("expected nil when no function")
-	}
-}
-
-func TestInferPointeeType_AccessIndex(t *testing.T) {
-	module := &ir.Module{
-		Types: []ir.Type{
-			// [0] f32
-			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
-			// [1] struct { x: f32 }
-			{Inner: ir.StructType{
-				Members: []ir.StructMember{{Name: "x", Type: 0, Offset: 0}},
-				Span:    4,
-			}},
-		},
-	}
-	w := newTestWriter(module, nil, nil)
-
-	fn := &ir.Function{
-		Expressions: []ir.Expression{
-			// [0] LocalVariable -> struct
-			{Kind: ir.ExprLocalVariable{Variable: 0}},
-			// [1] AccessIndex { base: 0, index: 0 } -> struct.x
-			{Kind: ir.ExprAccessIndex{Base: 0, Index: 0}},
-		},
-		LocalVars: []ir.LocalVariable{
-			{Type: 1}, // struct type
-		},
-	}
-	setCurrentFunction(w, fn)
-
-	ty := w.inferPointeeType(1)
-	if ty == nil {
-		t.Fatal("expected type for AccessIndex pointee")
-	}
-	if _, ok := ty.Inner.(ir.ScalarType); !ok {
-		t.Errorf("expected ScalarType from struct member, got %T", ty.Inner)
 	}
 }
 
@@ -1714,7 +1417,7 @@ func TestWriteLoadExpression_Simple(t *testing.T) {
 			{Type: 0},
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 	w.localNames[0] = "myVar"
 
 	// Simple load — just writes the pointer expression (loads are implicit in HLSL)
@@ -1737,24 +1440,19 @@ func TestGetGlobalUniformMatrix(t *testing.T) {
 		Types: []ir.Type{
 			// [0] mat4x4<f32>
 			{Inner: ir.MatrixType{Columns: 4, Rows: 4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},
-			// [1] pointer to mat4x4<f32>
-			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceUniform}},
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "transform", Type: 1, Space: ir.SpaceUniform},
+			{Name: "transform", Type: 0, Space: ir.SpaceUniform},
 		},
 	}
 	w := newTestWriter(module, nil, nil)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
-			{Kind: ir.ExprGlobalVariable{Variable: 0}},
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: ptrHandle(1)}, // pointer to mat4x4
+			{Kind: ir.ExprGlobalVariable{Variable: 0}}, // pointer to mat4x4
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	// Direct uniform matrix reference
 	m := w.getGlobalUniformMatrix(0)
@@ -1798,7 +1496,7 @@ func TestGetGlobalUniformMatrix_NotUniform(t *testing.T) {
 			{Handle: ptrHandle(0)},
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	m := w.getGlobalUniformMatrix(0)
 	if m != nil {

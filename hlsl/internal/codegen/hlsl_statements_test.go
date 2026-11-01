@@ -398,7 +398,7 @@ func TestWriteStatement_Emit(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, map[ir.TypeHandle]string{0: "float"})
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 	// Mark expression 0 for baking
 	w.needBakeExpressions[0] = struct{}{}
 
@@ -431,7 +431,7 @@ func TestWriteStatement_If(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	stmt := ir.StmtIf{
 		Condition: 0,
@@ -449,7 +449,7 @@ func TestWriteStatement_If(t *testing.T) {
 func TestWriteStatement_Break(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, &ir.Function{
+	setCurrentFunction(t, w, &ir.Function{
 		Expressions:     []ir.Expression{},
 		ExpressionTypes: []ir.TypeResolution{},
 	})
@@ -467,7 +467,7 @@ func TestWriteStatement_Break(t *testing.T) {
 func TestWriteStatement_Continue(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, &ir.Function{
+	setCurrentFunction(t, w, &ir.Function{
 		Expressions:     []ir.Expression{},
 		ExpressionTypes: []ir.TypeResolution{},
 	})
@@ -485,7 +485,7 @@ func TestWriteStatement_Continue(t *testing.T) {
 func TestWriteStatement_Kill(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, &ir.Function{
+	setCurrentFunction(t, w, &ir.Function{
 		Expressions:     []ir.Expression{},
 		ExpressionTypes: []ir.TypeResolution{},
 	})
@@ -503,7 +503,7 @@ func TestWriteStatement_Kill(t *testing.T) {
 func TestWriteStatement_ReturnVoid(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, &ir.Function{
+	setCurrentFunction(t, w, &ir.Function{
 		Expressions:     []ir.Expression{},
 		ExpressionTypes: []ir.TypeResolution{},
 	})
@@ -538,7 +538,7 @@ func TestWriteStatement_ReturnValue(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	err := w.writeStatement(ir.StmtReturn{Value: &exprHandle})
 	if err != nil {
@@ -553,7 +553,7 @@ func TestWriteStatement_ReturnValue(t *testing.T) {
 func TestWriteStatement_Barrier(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, &ir.Function{
+	setCurrentFunction(t, w, &ir.Function{
 		Expressions:     []ir.Expression{},
 		ExpressionTypes: []ir.TypeResolution{},
 	})
@@ -609,7 +609,7 @@ func TestWriteStatement_Store(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 	w.localNames[0] = "x"
 
 	err := w.writeStatement(ir.StmtStore{Pointer: 0, Value: 1})
@@ -645,7 +645,7 @@ func TestWriteStatement_Switch(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	stmt := ir.StmtSwitch{
 		Selector: 0,
@@ -686,7 +686,7 @@ func TestWriteStatement_Loop(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	stmt := ir.StmtLoop{
 		Body:       ir.Block{{Kind: ir.StmtBreak{}}},
@@ -707,7 +707,7 @@ func TestWriteStatement_Loop(t *testing.T) {
 func TestWriteBlock(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, &ir.Function{
+	setCurrentFunction(t, w, &ir.Function{
 		Expressions:     []ir.Expression{},
 		ExpressionTypes: []ir.TypeResolution{},
 	})
@@ -727,7 +727,7 @@ func TestWriteBlock(t *testing.T) {
 func TestWriteBlockStatement(t *testing.T) {
 	module := &ir.Module{}
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, &ir.Function{
+	setCurrentFunction(t, w, &ir.Function{
 		Expressions:     []ir.Expression{},
 		ExpressionTypes: []ir.TypeResolution{},
 	})
@@ -771,7 +771,7 @@ func TestIsIntegerBinaryOp(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	// i32 op -> integer
 	if !w.isIntegerBinaryOp(ir.ExprBinary{Left: 0, Right: 0}) {
@@ -825,7 +825,7 @@ func TestIsI32Negate(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	if !w.isI32Negate(0) {
 		t.Error("i32 should be I32 negate")
@@ -869,7 +869,7 @@ func TestWriteUnaryExpression(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	tests := []struct {
 		name string
@@ -924,7 +924,7 @@ func TestWriteSelectExpression(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	err := w.writeSelectExpression(ir.ExprSelect{Condition: 0, Accept: 1, Reject: 2})
 	if err != nil {
@@ -964,7 +964,7 @@ func TestWriteRelationalExpression(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	tests := []struct {
 		name string
@@ -1020,7 +1020,7 @@ func TestWriteDerivativeExpression(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	tests := []struct {
 		name string
@@ -1077,7 +1077,7 @@ func TestNameExpression(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, map[ir.TypeHandle]string{0: "float"})
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	name := w.nameExpression(0)
 	if name == "" {

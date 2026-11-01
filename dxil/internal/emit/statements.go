@@ -336,9 +336,6 @@ func (e *Emitter) initPrivateGlobal(fn *ir.Function, ptr ir.ExpressionHandle, gl
 func appendZeroValue(fn *ir.Function, ty ir.TypeHandle) ir.ExpressionHandle {
 	h := ir.ExpressionHandle(len(fn.Expressions)) //nolint:gosec // expression count fits uint32 by IR design
 	fn.Expressions = append(fn.Expressions, ir.Expression{Kind: ir.ExprZeroValue{Type: ty}})
-	if len(fn.ExpressionTypes) == int(h) {
-		fn.ExpressionTypes = append(fn.ExpressionTypes, ir.TypeResolution{Handle: &ty})
-	}
 	return h
 }
 
@@ -2568,11 +2565,7 @@ func (e *Emitter) emitStmtCall(fn *ir.Function, call ir.StmtCall) error {
 	// Build flattened argument list (expanding vectors to per-component).
 	var argIDs []int
 	for _, arg := range call.Arguments {
-		argTy := e.resolveExprTypeInner(fn, arg)
-		numComps := 1
-		if argTy != nil {
-			numComps = componentCount(argTy)
-		}
+		numComps := componentCount(e.resolveExprType(fn, arg))
 		if numComps > 1 {
 			for c := 0; c < numComps; c++ {
 				argIDs = append(argIDs, e.getComponentID(arg, c))
@@ -3178,26 +3171,18 @@ func (e *Emitter) emitWorkgroupCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, af
 	return nil
 }
 
-// resolveAtomicScalar walks the expression/type chain from a pointer to an atomic
-// and returns the scalar type of the atomic. This handles direct GlobalVariable,
-// AccessIndex into structs/arrays, and Access into arrays.
+// resolveAtomicScalar returns the scalar type of the atomic a pointer points
+// to, from the pointer's type (u32 for an expression that is none).
 func (e *Emitter) resolveAtomicScalar(fn *ir.Function, ptrHandle ir.ExpressionHandle) ir.ScalarType {
-	// Try ExpressionTypes first — the pointer type contains the base type.
-	if baseInner := e.resolveAtomicBaseType(fn, ptrHandle); baseInner != nil {
-		if at, ok := baseInner.(ir.AtomicType); ok {
-			return at.Scalar
-		}
+	if at, ok := e.resolveAtomicBaseType(fn, ptrHandle).(ir.AtomicType); ok {
+		return at.Scalar
 	}
-	// Fallback: walk expression chain to find the global variable + type.
-	return e.resolveAtomicScalarFromExpr(fn, ptrHandle)
+	return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
 }
 
-// resolveAtomicBaseType extracts the base type from a pointer's ExpressionTypes.
+// resolveAtomicBaseType returns the type a pointer expression points to.
 func (e *Emitter) resolveAtomicBaseType(fn *ir.Function, ptrHandle ir.ExpressionHandle) ir.TypeInner {
-	if int(ptrHandle) >= len(fn.ExpressionTypes) {
-		return nil
-	}
-	tr := fn.ExpressionTypes[ptrHandle]
+	tr := e.exprType(fn, ptrHandle)
 	if tr.Handle != nil {
 		inner := e.ir.Types[*tr.Handle].Inner
 		if pt, ok := inner.(ir.PointerType); ok {
@@ -3211,61 +3196,6 @@ func (e *Emitter) resolveAtomicBaseType(fn *ir.Function, ptrHandle ir.Expression
 		}
 	}
 	return nil
-}
-
-// resolveAtomicScalarFromExpr walks expression kinds recursively to find the atomic scalar.
-func (e *Emitter) resolveAtomicScalarFromExpr(fn *ir.Function, ptrHandle ir.ExpressionHandle) ir.ScalarType {
-	if int(ptrHandle) >= len(fn.Expressions) {
-		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
-	}
-	expr := fn.Expressions[ptrHandle]
-	switch ek := expr.Kind.(type) {
-	case ir.ExprGlobalVariable:
-		if int(ek.Variable) < len(e.ir.GlobalVariables) {
-			return e.resolveAtomicScalarFromType(e.ir.GlobalVariables[ek.Variable].Type)
-		}
-	case ir.ExprAccessIndex:
-		// Walk through the base's type to find the member/element type.
-		baseInner := e.resolveExprTypeInner(fn, ek.Base)
-		switch bt := baseInner.(type) {
-		case ir.StructType:
-			if int(ek.Index) < len(bt.Members) {
-				return e.resolveAtomicScalarFromType(bt.Members[ek.Index].Type)
-			}
-		case ir.ArrayType:
-			return e.resolveAtomicScalarFromType(bt.Base)
-		}
-		// Fall through to base.
-		return e.resolveAtomicScalarFromExpr(fn, ek.Base)
-	case ir.ExprAccess:
-		baseInner := e.resolveExprTypeInner(fn, ek.Base)
-		if at, ok := baseInner.(ir.ArrayType); ok {
-			return e.resolveAtomicScalarFromType(at.Base)
-		}
-		return e.resolveAtomicScalarFromExpr(fn, ek.Base)
-	}
-	return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
-}
-
-// resolveAtomicScalarFromType resolves an atomic scalar from a type handle,
-// walking through arrays to find the atomic.
-func (e *Emitter) resolveAtomicScalarFromType(th ir.TypeHandle) ir.ScalarType {
-	if int(th) >= len(e.ir.Types) {
-		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
-	}
-	inner := e.ir.Types[th].Inner
-	switch t := inner.(type) {
-	case ir.AtomicType:
-		return t.Scalar
-	case ir.ArrayType:
-		return e.resolveAtomicScalarFromType(t.Base)
-	case ir.StructType:
-		// Can't pick a member without an index — default.
-		if len(t.Members) > 0 {
-			return e.resolveAtomicScalarFromType(t.Members[0].Type)
-		}
-	}
-	return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
 }
 
 // isUnsignedAtomicPointer determines if the atomic variable's scalar type is unsigned.

@@ -108,7 +108,7 @@ func TestTrianglePassThroughFS(t *testing.T) {
 		{ScalarStart: 0, NumChannels: 4, VectorRow: 0}, // SV_Target
 	}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 
 	// With locations-first ordering: color at scalars 0-2, position at 4-7.
 	// Total: 3 (color) + gap + 4 (position) → cumScalar layout depends on
@@ -221,7 +221,7 @@ func TestNonStructReturn(t *testing.T) {
 		{ScalarStart: 0, NumChannels: 4, VectorRow: 0},
 	}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 
 	// Identity mapping: input scalar i → output scalar i.
 	for i := uint32(0); i < 4; i++ {
@@ -329,7 +329,7 @@ func TestScalarTimesVectorPrecision(t *testing.T) {
 		{ScalarStart: 2, NumChannels: 4, VectorRow: 1},
 	}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 
 	// Output scalar 0 (uv.x) depends on input scalar 2 (uv.x at row 1 col 0).
 	// Output scalar 1 (uv.y) depends on input scalar 3 (uv.y at row 1 col 1).
@@ -418,7 +418,7 @@ func TestMatrixVectorMultiplyUnion(t *testing.T) {
 		{ScalarStart: 0, NumChannels: 4, VectorRow: 0}, // SV_Position
 	}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 
 	// Matrix multiply: EVERY output should depend on ALL inputs.
 	// Output 0..3 each depend on inputs {0, 1, 2, 3} = bitmask 0xF.
@@ -464,7 +464,7 @@ func TestEmptyDeps(t *testing.T) {
 	inputs := []SigElement{}
 	outputs := []SigElement{{ScalarStart: 0, NumChannels: 4, VectorRow: 0}}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 	if deps.NumInputScalars != 0 {
 		t.Errorf("NumInputScalars = %d, want 0", deps.NumInputScalars)
 	}
@@ -645,7 +645,7 @@ func TestVertexTwoStructsPrecision(t *testing.T) {
 		{ScalarStart: 0, NumChannels: 4, VectorRow: 0, StartCol: 0}, // SV_Position
 	}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 
 	// Check: packed linear indexing.
 	// Input scalar 0 = SV_VertexID (row 0, col 0, packed = 0)
@@ -745,7 +745,7 @@ func TestExprAliasTaintForwarding(t *testing.T) {
 		{ScalarStart: 0, NumChannels: 4, VectorRow: 0, StartCol: 0},
 	}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 
 	// Only output 0 (x) depends on input 0 (vertex_index).
 	// Outputs 1-3 are constant (0.0), no deps.
@@ -826,7 +826,7 @@ func TestExprPhiTaintMerge(t *testing.T) {
 		{ScalarStart: 0, NumChannels: 4, VectorRow: 0, StartCol: 0},
 	}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 
 	// Output 0 (x) depends on BOTH inputs (phi merges a and b).
 	// Outputs 1-3 are constant, no deps.

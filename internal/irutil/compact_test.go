@@ -958,7 +958,7 @@ func TestCompactExpressions_LocalVarInitKept(t *testing.T) {
 
 func TestReorderTypes_EmptyModule(t *testing.T) {
 	module := &ir.Module{}
-	ReorderTypes(module) // should not panic
+	ReorderTypes(module, nil) // should not panic
 }
 
 func TestReorderTypes_AlreadyOrdered(t *testing.T) {
@@ -967,29 +967,27 @@ func TestReorderTypes_AlreadyOrdered(t *testing.T) {
 			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 			{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
 		},
-		TypeUseOrder: []ir.TypeHandle{0, 1},
 	}
 
-	ReorderTypes(module)
+	ReorderTypes(module, []ir.TypeHandle{0, 1})
 
 	if module.Types[0].Name != "f32" || module.Types[1].Name != "u32" {
 		t.Error("types should remain in same order")
 	}
 }
 
-func TestReorderTypes_ReordersBasedOnTypeUseOrder(t *testing.T) {
+func TestReorderTypes_ReordersBasedOnUseOrder(t *testing.T) {
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},  // 0
 			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 1
 		},
-		TypeUseOrder: []ir.TypeHandle{1, 0}, // f32 first, u32 second
 		Constants: []ir.Constant{
 			{Name: "C", Type: 0}, // references u32
 		},
 	}
 
-	ReorderTypes(module)
+	ReorderTypes(module, []ir.TypeHandle{1, 0}) // f32 first, u32 second
 
 	// After reorder: f32 at 0, u32 at 1
 	if module.Types[0].Name != "f32" {
@@ -1011,13 +1009,12 @@ func TestReorderTypes_RemapsSpecialTypes(t *testing.T) {
 			{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
 			{Name: "RayIntersection", Inner: ir.StructType{Members: nil, Span: 0}},
 		},
-		TypeUseOrder: []ir.TypeHandle{1, 0},
 		SpecialTypes: ir.SpecialTypes{
 			RayIntersection: &rayH,
 		},
 	}
 
-	ReorderTypes(module)
+	ReorderTypes(module, []ir.TypeHandle{1, 0})
 
 	// RayIntersection was at 1, now at 0
 	if module.SpecialTypes.RayIntersection == nil || *module.SpecialTypes.RayIntersection != 0 {
@@ -2519,10 +2516,9 @@ func TestReorderTypes_WithStructDependencies(t *testing.T) {
 			}, Span: 4}}, // 0: depends on 1
 			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 1: leaf
 		},
-		TypeUseOrder: []ir.TypeHandle{0}, // struct registered first
 	}
 
-	ReorderTypes(module)
+	ReorderTypes(module, []ir.TypeHandle{0}) // struct registered first
 
 	// f32 (dependency) should come before MyStruct
 	if module.Types[0].Name != "f32" {
@@ -2540,10 +2536,9 @@ func TestReorderTypes_WithArrayDependency(t *testing.T) {
 			{Name: "arr", Inner: ir.ArrayType{Base: 1, Size: ir.ArraySize{Constant: &size}, Stride: 16}}, // 0: depends on 1
 			{Name: "f32", Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},                          // 1: leaf
 		},
-		TypeUseOrder: []ir.TypeHandle{0},
 	}
 
-	ReorderTypes(module)
+	ReorderTypes(module, []ir.TypeHandle{0})
 
 	if module.Types[0].Name != "f32" {
 		t.Errorf("expected f32 first, got %s", module.Types[0].Name)
@@ -2556,10 +2551,9 @@ func TestReorderTypes_WithPointerDependency(t *testing.T) {
 			{Name: "ptr", Inner: ir.PointerType{Base: 1, Space: ir.SpaceFunction}}, // 0: depends on 1
 			{Name: "u32", Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},     // 1: leaf
 		},
-		TypeUseOrder: []ir.TypeHandle{0},
 	}
 
-	ReorderTypes(module)
+	ReorderTypes(module, []ir.TypeHandle{0})
 
 	if module.Types[0].Name != "u32" {
 		t.Errorf("expected u32 first, got %s", module.Types[0].Name)
@@ -2572,10 +2566,9 @@ func TestReorderTypes_WithBindingArrayDependency(t *testing.T) {
 			{Name: "ba", Inner: ir.BindingArrayType{Base: 1}},                              // 0
 			{Name: "tex", Inner: ir.ImageType{Dim: ir.Dim2D, Class: ir.ImageClassSampled}}, // 1: leaf
 		},
-		TypeUseOrder: []ir.TypeHandle{0},
 	}
 
-	ReorderTypes(module)
+	ReorderTypes(module, []ir.TypeHandle{0})
 
 	if module.Types[0].Name != "tex" {
 		t.Errorf("expected tex first, got %s", module.Types[0].Name)

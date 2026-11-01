@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -35,6 +36,9 @@ type restricter struct {
 	policies backend.BoundsCheckPolicies
 	bindings BindingMap
 	err      error
+	// types types the function being clamped as it was before; the clamps
+	// only read the types of access bases it had.
+	types *typifier.Typifier
 }
 
 // count is the number of elements a run-time index into base is clamped to,
@@ -49,7 +53,7 @@ func (r *restricter) count(fn *ir.Function, base ir.ExpressionHandle) uint32 {
 	if r.policies.Index != backend.BoundsCheckRestrict {
 		return 0
 	}
-	return indexCount(r.m, fn, base)
+	return indexCount(r.m, r.types.Get(base))
 }
 
 // bindingArraySize is the number of elements of binding array gv: its
@@ -92,6 +96,14 @@ func bindingArrayGlobal(m *ir.Module, fn *ir.Function, base ir.ExpressionHandle)
 // emits with an Emit of the clamps after it, and the others, which the
 // emitter emits where they are used, with clamps it emits there too.
 func restrictFunctionIndices(r *restricter, fn *ir.Function) {
+	types, err := typifier.Function(r.m, fn)
+	if err != nil {
+		if r.err == nil {
+			r.err = fmt.Errorf("dxil: bounds check: %w", err)
+		}
+		return
+	}
+	r.types = types
 	n := ir.ExpressionHandle(len(fn.Expressions)) //nolint:gosec // expression count fits uint32 by IR design
 	fn.Body = restrictBlock(r, fn, fn.Body)
 	for h := ir.ExpressionHandle(0); h < n; h++ {
@@ -153,13 +165,8 @@ func restrictAccess(r *restricter, fn *ir.Function, h ir.ExpressionHandle) {
 	if v, isConst := constIndex(fn, acc.Index); isConst && v < uint64(count) {
 		return
 	}
-	u32 := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
 	add := func(kind ir.ExpressionKind) ir.ExpressionHandle {
-		for len(fn.ExpressionTypes) < len(fn.Expressions) {
-			fn.ExpressionTypes = append(fn.ExpressionTypes, ir.TypeResolution{})
-		}
 		fn.Expressions = append(fn.Expressions, ir.Expression{Kind: kind})
-		fn.ExpressionTypes = append(fn.ExpressionTypes, ir.TypeResolution{Value: u32})
 		return ir.ExpressionHandle(len(fn.Expressions) - 1) //nolint:gosec // expression count fits uint32 by IR design
 	}
 	index := add(ir.ExprAs{Expr: acc.Index, Kind: ir.ScalarUint})
@@ -170,12 +177,8 @@ func restrictAccess(r *restricter, fn *ir.Function, h ir.ExpressionHandle) {
 
 // indexCount is the number of elements a run-time index into base picks
 // from, or 0 when it isn't clamped: base is in a storage or constant buffer,
-// a binding array or a runtime-sized array.
-func indexCount(m *ir.Module, fn *ir.Function, base ir.ExpressionHandle) uint32 {
-	res, err := ir.ResolveExpressionType(m, fn, base)
-	if err != nil {
-		return 0
-	}
+// a binding array or a runtime-sized array. res is the type of base.
+func indexCount(m *ir.Module, res ir.TypeResolution) uint32 {
 	inner := res.Inner(m.Types)
 	switch t := inner.(type) {
 	case ir.PointerType:

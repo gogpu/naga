@@ -359,13 +359,8 @@ func (w *Writer) writeEmittedExpression(handle ir.ExpressionHandle) error {
 		return nil // inline this expression
 	}
 
-	// Get expression type. If not resolved in ExpressionTypes, try resolving
-	// from the expression shape (Splat, Compose, etc.) — matches Rust naga which
-	// always has types resolved for emitted expressions.
+	// The expression type, as Rust has for every emitted expression.
 	exprType := w.getExpressionType(handle)
-	if exprType == nil {
-		exprType = w.resolveExpressionTypeFallback(handle)
-	}
 	if exprType == nil {
 		return nil
 	}
@@ -413,43 +408,6 @@ func (w *Writer) isVariableReference(handle ir.ExpressionHandle) bool {
 	}
 }
 
-// resolveExpressionTypeFallback resolves the type of an expression from its shape
-// when ExpressionTypes is not populated (e.g., Splat type lost during concretization).
-// Returns nil if the type cannot be determined.
-func (w *Writer) resolveExpressionTypeFallback(handle ir.ExpressionHandle) *ir.Type {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
-		return nil
-	}
-	expr := w.currentFunction.Expressions[handle].Kind
-	switch e := expr.(type) {
-	case ir.ExprSplat:
-		// Splat: derive VectorType from the value's scalar type
-		valueType := w.getExpressionType(e.Value)
-		if valueType == nil {
-			return nil
-		}
-		var scalar ir.ScalarType
-		switch t := valueType.Inner.(type) {
-		case ir.ScalarType:
-			scalar = t
-		default:
-			return nil
-		}
-		return &ir.Type{Inner: ir.VectorType{Size: e.Size, Scalar: scalar}}
-	case ir.ExprCompose:
-		// Compose: use the declared type
-		if int(e.Type) < len(w.module.Types) {
-			return &w.module.Types[e.Type]
-		}
-	case ir.Literal:
-		res, err := e.Type()
-		if err == nil && res.Value != nil {
-			return &ir.Type{Inner: res.Value}
-		}
-	}
-	return nil
-}
-
 // isPointerExpression returns true if the expression has a pointer type.
 // Pointer expressions are never baked — they are address-space references.
 // Matches Rust naga's ptr_class check in the Emit handler.
@@ -458,9 +416,9 @@ func (w *Writer) isPointerExpression(handle ir.ExpressionHandle) bool {
 		return false
 	}
 
-	// Check ExpressionTypes first (covers most cases)
-	if int(handle) < len(w.currentFunction.ExpressionTypes) {
-		resolution := &w.currentFunction.ExpressionTypes[handle]
+	// An expression of pointer type
+	if w.hasExprType(handle) {
+		resolution := w.exprType(handle)
 		if resolution.Handle != nil && w.module != nil {
 			if int(*resolution.Handle) < len(w.module.Types) {
 				if _, isPtr := w.module.Types[*resolution.Handle].Inner.(ir.PointerType); isPtr {
@@ -476,8 +434,8 @@ func (w *Writer) isPointerExpression(handle ir.ExpressionHandle) bool {
 	}
 
 	// Also check if this is an Access/AccessIndex on a pointer base.
-	// The ExpressionTypes resolver returns element type (not pointer) for
-	// AccessIndex through pointers, but the expression is still pointer-valued
+	// An element of a vector or matrix through a pointer is typed as a value
+	// pointer, not a pointer, but the expression is still pointer-valued
 	// in WGSL semantics (address-of an array element produces a pointer).
 	if int(handle) < len(w.currentFunction.Expressions) {
 		expr := w.currentFunction.Expressions[handle].Kind
@@ -806,9 +764,6 @@ func (w *Writer) writeReturnStatement(s ir.StmtReturn) error {
 	// Check if return value is a struct type - needs special handling
 	// Rust naga always wraps struct returns in a const variable
 	returnType := w.getExpressionType(*s.Value)
-	if returnType == nil {
-		returnType = w.inferExpressionType(*s.Value)
-	}
 	if returnType != nil {
 		resolvedInner := returnType.Inner
 		if ptr, ok := resolvedInner.(ir.PointerType); ok {
@@ -1609,8 +1564,8 @@ func (w *Writer) writeImageAtomicStatement(s ir.StmtImageAtomic) error {
 	if s.ArrayIndex != nil {
 		// Need to compose coordinate with array index
 		numCoords := 1
-		if w.currentFunction != nil && int(s.Coordinate) < len(w.currentFunction.ExpressionTypes) {
-			res := &w.currentFunction.ExpressionTypes[s.Coordinate]
+		if w.hasExprType(s.Coordinate) {
+			res := w.exprType(s.Coordinate)
 			if res.Value != nil {
 				if vec, ok := res.Value.(ir.VectorType); ok {
 					numCoords = int(vec.Size)
@@ -1673,8 +1628,8 @@ func (w *Writer) writeAtomicStatement(s ir.StmtAtomic) error {
 		resVarName = fmt.Sprintf("_e%d", resHandle)
 
 		// Get the result type
-		if int(resHandle) < len(w.currentFunction.ExpressionTypes) {
-			resolution := &w.currentFunction.ExpressionTypes[resHandle]
+		if w.hasExprType(resHandle) {
+			resolution := w.exprType(resHandle)
 			if resolution.Handle != nil {
 				h := *resolution.Handle
 				if int(h) < len(w.module.Types) {
@@ -1797,8 +1752,8 @@ func (w *Writer) getPointerAddressSpace(handle ir.ExpressionHandle) ir.AddressSp
 	if w.currentFunction == nil {
 		return ir.SpaceFunction
 	}
-	if int(handle) < len(w.currentFunction.ExpressionTypes) {
-		resolution := &w.currentFunction.ExpressionTypes[handle]
+	if w.hasExprType(handle) {
+		resolution := w.exprType(handle)
 		var inner ir.TypeInner
 		if resolution.Handle != nil {
 			h := *resolution.Handle
@@ -1923,8 +1878,8 @@ func (w *Writer) writeWorkGroupUniformLoadStatement(s ir.StmtWorkGroupUniformLoa
 	w.WriteIndent()
 
 	// Write the type of the result expression
-	if int(s.Result) < len(w.currentFunction.ExpressionTypes) {
-		resolution := &w.currentFunction.ExpressionTypes[s.Result]
+	if w.hasExprType(s.Result) {
+		resolution := w.exprType(s.Result)
 		if resolution.Handle != nil {
 			h := *resolution.Handle
 			if int(h) < len(w.module.Types) {
@@ -2271,10 +2226,10 @@ func (w *Writer) expressionTypeStr(handle ir.ExpressionHandle) string {
 	if w.currentFunction == nil {
 		return "uint"
 	}
-	if int(handle) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(handle) {
 		return "uint"
 	}
-	res := &w.currentFunction.ExpressionTypes[handle]
+	res := w.exprType(handle)
 	if res.Handle != nil {
 		return w.getTypeName(*res.Handle)
 	}

@@ -976,14 +976,7 @@ func TestIsPointerExpression(t *testing.T) {
 
 	t.Run("pointer_type_handle", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			Expressions: []ir.Expression{
-				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &ptrType},
-			},
-		}
+		setTestFunction(t, w, &ir.Function{Expressions: zeroValues(ptrType)})
 		if !w.isPointerExpression(0) {
 			t.Error("expression with pointer type handle should be detected as pointer")
 		}
@@ -991,14 +984,11 @@ func TestIsPointerExpression(t *testing.T) {
 
 	t.Run("pointer_type_value", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			Expressions: []ir.Expression{
-				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Value: ir.PointerType{Base: 1, Space: ir.SpaceFunction}},
-			},
-		}
+		// A local variable is a pointer value in the function space.
+		setTestFunction(t, w, &ir.Function{
+			LocalVars:   []ir.LocalVariable{{Name: "v", Type: scalarType}},
+			Expressions: []ir.Expression{{Kind: ir.ExprLocalVariable{Variable: 0}}},
+		})
 		if !w.isPointerExpression(0) {
 			t.Error("expression with pointer type value should be detected as pointer")
 		}
@@ -1006,14 +996,7 @@ func TestIsPointerExpression(t *testing.T) {
 
 	t.Run("non_pointer", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			Expressions: []ir.Expression{
-				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
-			},
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &scalarType},
-			},
-		}
+		setTestFunction(t, w, &ir.Function{Expressions: zeroValues(scalarType)})
 		if w.isPointerExpression(0) {
 			t.Error("scalar type should not be detected as pointer")
 		}

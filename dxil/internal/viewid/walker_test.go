@@ -52,7 +52,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Input feeds output via if-accept branch store.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (if-accept store)", got)
@@ -96,7 +96,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1", got)
 		}
@@ -136,7 +136,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1", got)
 		}
@@ -169,7 +169,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1", got)
 		}
@@ -202,7 +202,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// ImageStore does not affect signature outputs.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1", got)
@@ -234,7 +234,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		_ = deps // Kill does not crash, does not affect deps.
 	})
 
@@ -263,7 +263,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		_ = deps // Barrier does not crash.
 	})
 
@@ -295,7 +295,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		_ = deps // Continue does not crash.
 	})
 
@@ -324,7 +324,7 @@ func TestWalkStatementTypes(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// StmtCall triggers giveUp -> everything depends on everything.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (giveUp from call)", got)
@@ -371,7 +371,7 @@ func TestHandleStore(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (store to local)", got)
 		}
@@ -409,7 +409,7 @@ func TestHandleStore(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Input scalar 0 -> output scalar 0 (v.x). Output scalar 1 (v.y) has no deps.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (store to v.x)", got)
@@ -443,7 +443,7 @@ func TestHandleStore(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Store to global does not crash and does not affect output deps.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1", got)
@@ -464,7 +464,7 @@ func TestRootLocalVar(t *testing.T) {
 		}
 		fn.ExpressionTypes = []ir.TypeResolution{{Handle: &f32H}}
 		ep := ir.EntryPoint{Function: fn}
-		s := &analysisState{irMod: mod, ep: &ep}
+		s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
 		varIdx, path, ok := s.rootLocalVar(0)
 		if !ok {
@@ -490,7 +490,7 @@ func TestRootLocalVar(t *testing.T) {
 			{Handle: &f32H}, {Handle: &f32H}, {Handle: &f32H},
 		}
 		ep := ir.EntryPoint{Function: fn}
-		s := &analysisState{irMod: mod, ep: &ep}
+		s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
 		varIdx, path, ok := s.rootLocalVar(2)
 		if !ok {
@@ -523,7 +523,7 @@ func TestRootLocalVar(t *testing.T) {
 			{Handle: &f32H}, {Handle: &f32H}, {Handle: &f32H},
 		}
 		ep := ir.EntryPoint{Function: fn}
-		s := &analysisState{irMod: mod, ep: &ep}
+		s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
 		varIdx, path, ok := s.rootLocalVar(2)
 		if !ok {
@@ -551,7 +551,7 @@ func TestRootLocalVar(t *testing.T) {
 		}
 		fn.ExpressionTypes = []ir.TypeResolution{{Handle: &f32H}}
 		ep := ir.EntryPoint{Function: fn}
-		s := &analysisState{irMod: mod, ep: &ep}
+		s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
 		_, _, ok := s.rootLocalVar(0)
 		if ok {
@@ -674,7 +674,7 @@ func TestHandleReturnNilValue(t *testing.T) {
 	mod := makeBasicMod()
 	fn := ir.Function{}
 	ep := ir.EntryPoint{Name: "main", Stage: ir.StageFragment, Function: fn}
-	s := &analysisState{irMod: mod, ep: &ep, outputTaint: nil}
+	s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep), outputTaint: nil}
 	// Nil return value should not crash.
 	s.handleReturn(ir.StmtReturn{Value: nil})
 }
@@ -690,7 +690,7 @@ func TestHandleReturnNoResult(t *testing.T) {
 	f32H := ir.TypeHandle(0)
 	fn.ExpressionTypes = []ir.TypeResolution{{Handle: &f32H}}
 	ep := ir.EntryPoint{Name: "main", Stage: ir.StageFragment, Function: fn}
-	s := newAnalysisState(mod, &ep, nil, nil)
+	s := newAnalysisState(mod, &ep, typesOf(t, mod, &ep), nil, nil)
 	val := ir.ExpressionHandle(0)
 	// Non-nil value but nil Function.Result should not crash.
 	s.handleReturn(ir.StmtReturn{Value: &val})

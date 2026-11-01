@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/entrypoint"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -299,8 +300,16 @@ func Compile(module *ir.Module, options Options) (string, TranslationInfo, error
 		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
 	}
 
+	// Rust's writer reads expression types from the validator's ModuleInfo;
+	// Compile takes no such info, so it types the module it writes.
+	types, err := typifier.ForModule(module)
+	if err != nil {
+		return "", TranslationInfo{}, fmt.Errorf("glsl: %w", err)
+	}
+
 	// Create writer
 	w := newWriter(module, &options)
+	w.typifiers = types
 	if ep := w.getSelectedEntryPoint(); ep != nil {
 		if err := checkVaryingInterpolation(module, ep); err != nil {
 			return "", TranslationInfo{}, err

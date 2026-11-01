@@ -273,12 +273,6 @@ func initialValues(ctx *promotionContext, candidates map[uint32]struct{}) map[ui
 		ctx.fn.Expressions = append(ctx.fn.Expressions, ir.Expression{
 			Kind: ir.ExprZeroValue{Type: lv.Type},
 		})
-		// Keep ExpressionTypes parallel to Expressions.
-		if len(ctx.fn.ExpressionTypes) == int(zh) {
-			ctx.fn.ExpressionTypes = append(ctx.fn.ExpressionTypes, ir.TypeResolution{
-				Handle: &lv.Type,
-			})
-		}
 		out[v] = zh
 	}
 	return out

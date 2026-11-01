@@ -236,10 +236,10 @@ func (w *Writer) std140Load(ty ir.TypeHandle, expr string) string {
 // uniformPointee returns the type a pointer expression into a uniform buffer
 // points to.
 func (w *Writer) uniformPointee(h ir.ExpressionHandle) (ir.TypeHandle, bool) {
-	if w.currentFunction == nil || int(h) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(h) {
 		return 0, false
 	}
-	res := &w.currentFunction.ExpressionTypes[h]
+	res := w.exprType(h)
 	var inner ir.TypeInner = res.Value
 	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 		inner = w.module.Types[*res.Handle].Inner

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -47,8 +48,13 @@ func newTestWriter(module *ir.Module, names map[nameKey]string, typeNames map[ir
 }
 
 // setCurrentFunction sets the writer's current function context for tests.
-func setCurrentFunction(w *Writer, fn *ir.Function) {
-	w.currentFunction = fn
+func setCurrentFunction(t *testing.T, w *Writer, fn *ir.Function) {
+	t.Helper()
+	types, err := typifier.Function(w.module, fn)
+	if err != nil {
+		t.Fatalf("typify %q: %v", fn.Name, err)
+	}
+	w.currentFunction, w.types = fn, types
 	w.currentFuncHandle = 0
 	w.currentEPIndex = -1
 	w.localNames = make(map[uint32]string)
@@ -693,12 +699,13 @@ func TestIsStoragePointer(t *testing.T) {
 	//   [1] var<uniform> uniBuf: u32
 	module := &ir.Module{
 		Types: []ir.Type{
-			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},    // 0: u32
-			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceStorage}}, // 1: ptr<storage, u32>
-			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceUniform}}, // 2: ptr<uniform, u32>
+			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},                              // 0: u32
+			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceStorage}},                           // 1: ptr<storage, u32>
+			{Inner: ir.PointerType{Base: 0, Space: ir.SpaceUniform}},                           // 2: ptr<uniform, u32>
+			{Inner: ir.ArrayType{Base: 0, Size: ir.ArraySize{Constant: ptrU32(4)}, Stride: 4}}, // 3: array<u32, 4>
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "storBuf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 0},
+			{Name: "storBuf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 3},
 			{Name: "uniBuf", Space: ir.SpaceUniform, Type: 0},
 		},
 	}
@@ -723,7 +730,7 @@ func TestIsStoragePointer(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	t.Run("storage_global", func(t *testing.T) {
 		if !w.isStoragePointer(0) {
@@ -775,7 +782,7 @@ func TestFillAccessChain(t *testing.T) {
 			{Inner: ir.VectorType{Size: ir.Vec4, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}},                                  // 5: vec4<f32>
 		},
 		GlobalVariables: []ir.GlobalVariable{
-			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 4},
+			{Name: "buf", Space: ir.SpaceStorage, Access: ir.StorageAccessLoad | ir.StorageAccessStore, Type: 2},
 		},
 	}
 
@@ -797,7 +804,7 @@ func TestFillAccessChain(t *testing.T) {
 		}
 
 		w := newTestWriter(module, nil, nil)
-		setCurrentFunction(w, fn)
+		setCurrentFunction(t, w, fn)
 
 		varHandle, err := w.fillAccessChain(1)
 		if err != nil {
@@ -828,7 +835,7 @@ func TestFillAccessChain(t *testing.T) {
 		}
 
 		w := newTestWriter(module, nil, nil)
-		setCurrentFunction(w, fn)
+		setCurrentFunction(t, w, fn)
 
 		varHandle, err := w.fillAccessChain(0)
 		if err != nil {
@@ -1012,7 +1019,7 @@ func TestWriteStorageStore(t *testing.T) {
 			{Handle: &litExprHandle}, // type = u32
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	t.Run("scalar_u32_store", func(t *testing.T) {
 		w.Out.Reset()
@@ -1412,7 +1419,7 @@ func TestFillAccessChainWithDynamicOffset(t *testing.T) {
 			{Kind: ir.ExprAccess{Base: 0, Index: 0}}, // would need index expr, simplified
 		},
 	}
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	// Test fillAccessChain on the GlobalVariable expression directly
 	gvHandle, err := w.fillAccessChain(0)
@@ -1469,7 +1476,7 @@ func TestNeedsRestrictIndexingPerBinding(t *testing.T) {
 		w.options.BindingMap = map[ResourceBinding]BindTarget{
 			{Group: 0, Binding: 2}: {Register: 0, Space: 0, RestrictIndexing: false},
 		}
-		setCurrentFunction(w, fn)
+		setCurrentFunction(t, w, fn)
 		if w.needsRestrictIndexing(0) {
 			t.Error("should return false when per-binding restrict_indexing is false")
 		}
@@ -1481,7 +1488,7 @@ func TestNeedsRestrictIndexingPerBinding(t *testing.T) {
 		w.options.BindingMap = map[ResourceBinding]BindTarget{
 			{Group: 0, Binding: 2}: {Register: 0, Space: 0, RestrictIndexing: true},
 		}
-		setCurrentFunction(w, fn)
+		setCurrentFunction(t, w, fn)
 		if !w.needsRestrictIndexing(0) {
 			t.Error("should return true when per-binding restrict_indexing is true")
 		}
@@ -1506,25 +1513,17 @@ func TestComputeSubAccess_ValuePointerType(t *testing.T) {
 		},
 	}
 
-	vpScalarHandle := ir.TypeHandle(0)
-	vpVecHandle := ir.TypeHandle(1)
-
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
-			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 0: base expr (scalar ptr)
-			{Kind: ir.Literal{Value: ir.LiteralU32(0)}}, // 1: base expr (vector ptr)
+			{Kind: ir.ExprZeroValue{Type: 0}},           // 0: base expr (scalar ptr)
+			{Kind: ir.ExprZeroValue{Type: 1}},           // 1: base expr (vector ptr)
 			{Kind: ir.Literal{Value: ir.LiteralU32(3)}}, // 2: runtime index
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &vpScalarHandle},
-			{Handle: &vpVecHandle},
-			{Handle: &vpScalarHandle},
 		},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	t.Run("scalar_const_index", func(t *testing.T) {
 		sa, err := w.computeSubAccess(0, false, 0, 2)

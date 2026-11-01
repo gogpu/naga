@@ -3209,12 +3209,7 @@ func (w *Writer) writeImageQuerySize(image ir.ExpressionHandle, level *ir.Expres
 // resolveImageType resolves the type of an image expression and returns the ImageType,
 // or nil if the type cannot be resolved.
 func (w *Writer) resolveImageType(image ir.ExpressionHandle) *ir.ImageType {
-	exprType, err := ir.ResolveExpressionType(w.module, w.currentFunction, image)
-	if err != nil {
-		return nil
-	}
-	inner := exprType.Inner(w.module.Types)
-	if img, ok := inner.(ir.ImageType); ok {
+	if img, ok := w.getExpressionType(image).(ir.ImageType); ok {
 		return &img
 	}
 	return nil
@@ -3340,16 +3335,9 @@ func (w *Writer) resolveArrayLengthGlobal(handle ir.ExpressionHandle) (ir.Global
 // Helper methods for type information
 
 // getExpressionType returns the type of an expression.
-// getExpressionType returns the type of an expression.
 // Returns the TypeInner or nil if not found.
 func (w *Writer) getExpressionType(handle ir.ExpressionHandle) ir.TypeInner {
-	if w.currentFunction == nil {
-		return nil
-	}
-	if int(handle) >= len(w.currentFunction.ExpressionTypes) {
-		return nil
-	}
-	resolution := &w.currentFunction.ExpressionTypes[handle]
+	resolution := w.exprType(handle)
 	if resolution.Handle != nil {
 		if int(*resolution.Handle) < len(w.module.Types) {
 			return w.module.Types[*resolution.Handle].Inner
@@ -3363,13 +3351,7 @@ func (w *Writer) getExpressionType(handle ir.ExpressionHandle) ir.TypeInner {
 
 // getExpressionTypeHandle returns the type handle of an expression.
 func (w *Writer) getExpressionTypeHandle(handle ir.ExpressionHandle) *ir.TypeHandle {
-	if w.currentFunction == nil {
-		return nil
-	}
-	if int(handle) >= len(w.currentFunction.ExpressionTypes) {
-		return nil
-	}
-	return w.currentFunction.ExpressionTypes[handle].Handle
+	return w.exprType(handle).Handle
 }
 
 // getExpressionScalarType returns the scalar type of an expression (for scalars and vectors).

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -396,8 +397,16 @@ func CompileWithPipeline(module *ir.Module, options Options, pipeline PipelineOp
 		return "", TranslationInfo{}, err
 	}
 
+	// Rust's writer reads expression types from the validator's ModuleInfo;
+	// Compile takes no such info, so it types the module it writes.
+	types, err := typifier.ForModule(module)
+	if err != nil {
+		return "", TranslationInfo{}, fmt.Errorf("msl: %w", err)
+	}
+
 	// Create writer
 	w := newWriter(module, &options, &pipeline)
+	w.typifiers = types
 
 	// Generate MSL code
 	if err := w.writeModule(); err != nil {

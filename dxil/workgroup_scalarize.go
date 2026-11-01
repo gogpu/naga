@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/dxil/internal/emit"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -46,12 +47,17 @@ func scalarizeWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) error {
 	}
 	slices.Sort(handles)
 
+	types, err := typifier.Function(m, &ep.Function)
+	if err != nil {
+		return fmt.Errorf("dxil: workgroup memory: %w", err)
+	}
 	s := &wgScalarizer{
-		m:    m,
-		fn:   &ep.Function,
-		vars: make(map[ir.GlobalVariableHandle]*wgVar),
-		locs: make(map[ir.ExpressionHandle]*wgLoc),
-		u32:  typeHandle(m, ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
+		m:     m,
+		fn:    &ep.Function,
+		vars:  make(map[ir.GlobalVariableHandle]*wgVar),
+		locs:  make(map[ir.ExpressionHandle]*wgLoc),
+		u32:   typeHandle(m, ir.ScalarType{Kind: ir.ScalarUint, Width: 4}),
+		types: types,
 	}
 	for _, h := range handles {
 		if err := s.addVar(h); err != nil {
@@ -59,6 +65,9 @@ func scalarizeWorkgroupMemory(m *ir.Module, ep *ir.EntryPoint) error {
 		}
 	}
 	body, err := s.block(s.fn.Body)
+	if err == nil {
+		err = s.err
+	}
 	if err != nil {
 		return fmt.Errorf("dxil: workgroup memory: %w", err)
 	}
@@ -144,6 +153,10 @@ type wgScalarizer struct {
 	// split variable.
 	locs map[ir.ExpressionHandle]*wgLoc
 	u32  ir.TypeHandle
+	// types types fn's expressions, the ones add appends too; err is the
+	// first failure to type one.
+	types *typifier.Typifier
+	err   error
 }
 
 // addVar makes the pieces of workgroup variable h.
@@ -386,7 +399,7 @@ func (s *wgScalarizer) elementCount(ty ir.TypeHandle) (uint32, bool) {
 // scalarPtr returns a pointer to the scalar l points to.
 func (s *wgScalarizer) scalarPtr(l *wgLoc) ir.ExpressionHandle {
 	leaf := l.leaf
-	g := s.add(ir.ExprGlobalVariable{Variable: leaf.global}, s.pointer(s.m.GlobalVariables[leaf.global].Type))
+	g := s.add(ir.ExprGlobalVariable{Variable: leaf.global})
 	if leaf.single {
 		return g
 	}
@@ -398,7 +411,7 @@ func (s *wgScalarizer) scalarPtr(l *wgLoc) ir.ExpressionHandle {
 	}
 	index.c += l.off.c
 	index.terms = append(index.terms, l.off.terms...)
-	return s.add(ir.ExprAccess{Base: g, Index: s.linear(index)}, s.pointer(leaf.elem))
+	return s.add(ir.ExprAccess{Base: g, Index: s.linear(index)})
 }
 
 // linear returns an expression computing l, as a u32.
@@ -407,14 +420,14 @@ func (s *wgScalarizer) linear(l wgLinear) ir.ExpressionHandle {
 	have := false
 	addTerm := func(h ir.ExpressionHandle) {
 		if have {
-			h = s.add(ir.ExprBinary{Op: ir.BinaryAdd, Left: sum, Right: h}, s.value(s.u32))
+			h = s.add(ir.ExprBinary{Op: ir.BinaryAdd, Left: sum, Right: h})
 		}
 		sum, have = h, true
 	}
 	for _, t := range l.terms {
 		h := s.asU32(t.h)
 		if t.m != 1 {
-			h = s.add(ir.ExprBinary{Op: ir.BinaryMultiply, Left: h, Right: s.literal(t.m)}, s.value(s.u32))
+			h = s.add(ir.ExprBinary{Op: ir.BinaryMultiply, Left: h, Right: s.literal(t.m)})
 		}
 		addTerm(h)
 	}
@@ -426,8 +439,8 @@ func (s *wgScalarizer) linear(l wgLinear) ir.ExpressionHandle {
 
 // asU32 returns index h as a u32: a signed index's bits.
 func (s *wgScalarizer) asU32(h ir.ExpressionHandle) ir.ExpressionHandle {
-	if sc, ok := scalarOf(s.m, s.fn.ExpressionTypes[h]); ok && sc.Kind == ir.ScalarSint {
-		return s.add(ir.ExprAs{Expr: h, Kind: ir.ScalarUint}, s.value(s.u32))
+	if sc, ok := scalarOf(s.m, s.typeOf(h)); ok && sc.Kind == ir.ScalarSint {
+		return s.add(ir.ExprAs{Expr: h, Kind: ir.ScalarUint})
 	}
 	return h
 }
@@ -442,7 +455,7 @@ func (s *wgScalarizer) loadKind(l *wgLoc) ir.ExpressionKind {
 	components := make([]ir.ExpressionHandle, n)
 	for i := range components {
 		e := s.step(l, wgIndex{c: uint32(i)})
-		components[i] = s.add(s.loadKind(e), s.value(s.valueType(e.ty)))
+		components[i] = s.add(s.loadKind(e))
 	}
 	return ir.ExprCompose{Type: l.ty, Components: components}
 }
@@ -475,7 +488,7 @@ func (s *wgScalarizer) store(l *wgLoc, value ir.ExpressionHandle) ir.Block {
 func (s *wgScalarizer) element(v ir.ExpressionHandle, i uint32, ty ir.TypeHandle) ir.ExpressionHandle {
 	switch k := s.fn.Expressions[v].Kind.(type) {
 	case ir.ExprZeroValue:
-		return s.add(ir.ExprZeroValue{Type: ty}, s.value(ty))
+		return s.add(ir.ExprZeroValue{Type: ty})
 	case ir.ExprSplat:
 		return k.Value
 	case ir.ExprCompose:
@@ -483,7 +496,7 @@ func (s *wgScalarizer) element(v ir.ExpressionHandle, i uint32, ty ir.TypeHandle
 			return k.Components[i]
 		}
 	}
-	return s.add(ir.ExprAccessIndex{Base: v, Index: i}, s.value(ty))
+	return s.add(ir.ExprAccessIndex{Base: v, Index: i})
 }
 
 func (s *wgScalarizer) lenOf(ty ir.TypeHandle) int {
@@ -495,7 +508,7 @@ func (s *wgScalarizer) lenOf(ty ir.TypeHandle) int {
 // scalars, vectors and matrices are the same only by handle (a struct's
 // inner type is not comparable).
 func (s *wgScalarizer) hasType(h ir.ExpressionHandle, ty ir.TypeHandle) bool {
-	res := s.fn.ExpressionTypes[h]
+	res := s.typeOf(h)
 	inner := res.Value
 	if res.Handle != nil {
 		if *res.Handle == ty {
@@ -694,18 +707,26 @@ func isPreEmit(kind ir.ExpressionKind) bool {
 	return false
 }
 
-func (s *wgScalarizer) add(kind ir.ExpressionKind, res ir.TypeResolution) ir.ExpressionHandle {
-	return appendFnExpr(s.fn, kind, res)
+// add appends an expression of kind and types it. Its operands are typed
+// already, so on a valid function the typifier cannot fail here; the first
+// failure is kept and returned by the pass.
+func (s *wgScalarizer) add(kind ir.ExpressionKind) ir.ExpressionHandle {
+	h := appendFnExpr(s.fn, kind)
+	if err := s.types.Grow(s.m, s.fn, h+1); err != nil && s.err == nil {
+		s.err = err
+	}
+	return h
+}
+
+// typeOf returns the type of expression h, the zero TypeResolution when the
+// typifier failed (s.err).
+func (s *wgScalarizer) typeOf(h ir.ExpressionHandle) ir.TypeResolution {
+	if int(h) >= s.types.Len() {
+		return ir.TypeResolution{}
+	}
+	return s.types.Get(h)
 }
 
 func (s *wgScalarizer) literal(v uint32) ir.ExpressionHandle {
-	return s.add(ir.Literal{Value: ir.LiteralU32(v)}, s.value(s.u32))
-}
-
-func (s *wgScalarizer) value(ty ir.TypeHandle) ir.TypeResolution {
-	return ir.TypeResolution{Handle: &ty}
-}
-
-func (s *wgScalarizer) pointer(base ir.TypeHandle) ir.TypeResolution {
-	return ir.TypeResolution{Value: ir.PointerType{Base: base, Space: ir.SpaceWorkGroup}}
+	return s.add(ir.Literal{Value: ir.LiteralU32(v)})
 }

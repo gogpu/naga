@@ -49,7 +49,7 @@ type boundsCheck struct {
 // BindingArray, a pointer into a storage or uniform buffer uses Buffer, and
 // everything else (other address spaces, values) uses Index.
 func (e *ExpressionEmitter) choosePolicy(base ir.ExpressionHandle) (backend.BoundsCheckPolicy, error) {
-	res, err := ir.ResolveExpressionType(e.backend.module, e.function, base)
+	res, err := e.backend.exprType(e.function, base)
 	if err != nil {
 		return 0, fmt.Errorf("bounds check: base type: %w", err)
 	}
@@ -72,7 +72,7 @@ func (e *ExpressionEmitter) choosePolicy(base ir.ExpressionHandle) (backend.Boun
 // sequenceLength returns the number of elements of base: known, or the id
 // of an instruction computing it (Rust naga's write_sequence_length).
 func (e *ExpressionEmitter) sequenceLength(base ir.ExpressionHandle) (known, computed uint32, err error) {
-	res, err := ir.ResolveExpressionType(e.backend.module, e.function, base)
+	res, err := e.backend.exprType(e.function, base)
 	if err != nil {
 		return 0, 0, fmt.Errorf("bounds check: base type: %w", err)
 	}
@@ -253,7 +253,7 @@ func (e *ExpressionEmitter) chainLinks(tip ir.ExpressionHandle, stopAtSpill bool
 // isStructBase reports whether base is a struct or a pointer to one: its
 // members are selected by AccessIndex and never need a bounds check.
 func (e *ExpressionEmitter) isStructBase(base ir.ExpressionHandle) bool {
-	res, err := ir.ResolveExpressionType(e.backend.module, e.function, base)
+	res, err := e.backend.exprType(e.function, base)
 	if err != nil {
 		return false
 	}
@@ -309,7 +309,7 @@ func (e *ExpressionEmitter) chainIndices(links []ir.ExpressionHandle) ([]uint32,
 				indices = append(indices, id)
 				continue
 			}
-			if isUniformMatCx2Member(e.backend.module, e.function, base) {
+			if e.backend.isUniformMatCx2Member(e.function, base) {
 				column = k.Index
 				continue
 			}

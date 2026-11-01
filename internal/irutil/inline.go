@@ -442,11 +442,8 @@ func materializeArguments(module *ir.Module, caller *ir.Function, call ir.StmtCa
 		})
 
 		// ExprLocalVariable handle for the slot — the destination pointer
-		// for the argument-spill store. Its expression type is "pointer to
-		// the local-var's type in function space", matching what the
-		// typifier (ir/resolve.go ExprLocalVariable case) computes.
-		slotPtrHandle := appendExpression(caller, ir.ExprLocalVariable{Variable: slots[i]},
-			ir.TypeResolution{Value: ir.PointerType{Base: argType, Space: ir.SpaceFunction}})
+		// for the argument-spill store.
+		slotPtrHandle := appendExpression(caller, ir.ExprLocalVariable{Variable: slots[i]})
 
 		args.spills = append(args.spills, ir.Statement{Kind: ir.StmtStore{
 			Pointer: slotPtrHandle,
@@ -463,29 +460,14 @@ func materializeArguments(module *ir.Module, caller *ir.Function, call ir.StmtCa
 	// For aliased arguments we set args.load[i] to the caller's argH
 	// directly — no slot expressions are allocated and no ExprLoad is
 	// inserted; step 5 points every callee reference at argH, a pure alias.
-	//
-	// Both the slot-pointer ExprLocalVariable and the ExprLoad need their
-	// ExpressionTypes populated — the DXIL backend's resolveExprType
-	// reads them when classifying ExprAccess bases (e.g., to detect that
-	// the loaded value is itself a pointer that should be GEP'd directly,
-	// rather than treated as a value to copy into a temp alloca).
 	for i, argH := range call.Arguments {
 		if args.alias[i] {
 			args.load[i] = argH
 			continue
 		}
-		argType := callee.Arguments[i].Type
-
-		// ExprLocalVariable for the slot pointer: type is pointer-to-T.
-		slotPtrHandle := appendExpression(caller, ir.ExprLocalVariable{Variable: slots[i]},
-			ir.TypeResolution{Value: ir.PointerType{Base: argType, Space: ir.SpaceFunction}})
-
-		// ExprLoad of the slot returns the original argument value. Its
-		// type is the same as callee.Arguments[i].Type — the value the
-		// caller passed in.
-		argTypeCopy := argType
-		args.load[i] = appendExpression(caller, ir.ExprLoad{Pointer: slotPtrHandle},
-			ir.TypeResolution{Handle: &argTypeCopy})
+		// The slot pointer and its load, the value the caller passed in.
+		slotPtrHandle := appendExpression(caller, ir.ExprLocalVariable{Variable: slots[i]})
+		args.load[i] = appendExpression(caller, ir.ExprLoad{Pointer: slotPtrHandle})
 	}
 	return args, nil
 }
@@ -493,23 +475,10 @@ func materializeArguments(module *ir.Module, caller *ir.Function, call ir.StmtCa
 // reserveCalleeExpressions appends one empty caller expression per callee
 // expression, a single contiguous run, and returns the callee-to-caller
 // handle map.
-//
-// ExpressionTypes is copied verbatim — Module.Types is shared across
-// all functions in the module, so the TypeHandle inside
-// callee.ExpressionTypes[i] (when .Handle is non-nil) is already
-// valid in the caller's view. No remapping is needed for the
-// embedded TypeHandle. For ExprFunctionArgument expressions, we
-// substitute the type when filling the slot (see step 5) since the
-// argument-load expression has the same type as the argument
-// itself.
 func reserveCalleeExpressions(caller, callee *ir.Function) []ir.ExpressionHandle {
 	calleeExprMap := make([]ir.ExpressionHandle, len(callee.Expressions))
 	for i := range callee.Expressions {
-		var ty ir.TypeResolution
-		if i < len(callee.ExpressionTypes) {
-			ty = callee.ExpressionTypes[i]
-		}
-		calleeExprMap[i] = appendExpression(caller, nil, ty)
+		calleeExprMap[i] = appendExpression(caller, nil)
 	}
 	return calleeExprMap
 }
@@ -605,13 +574,9 @@ func addReturnSlot(caller, callee *ir.Function) (retPtr, retLoad *ir.ExpressionH
 		Type: retType,
 	})
 
-	// Expression for the return-slot pointer: type is pointer-to-T.
-	ptr := appendExpression(caller, ir.ExprLocalVariable{Variable: slot},
-		ir.TypeResolution{Value: ir.PointerType{Base: retType, Space: ir.SpaceFunction}})
-
-	// Expression for the load of the return slot — type is T.
-	retTypeCopy := retType
-	load := appendExpression(caller, ir.ExprLoad{Pointer: ptr}, ir.TypeResolution{Handle: &retTypeCopy})
+	// The return-slot pointer and its load, a T.
+	ptr := appendExpression(caller, ir.ExprLocalVariable{Variable: slot})
+	load := appendExpression(caller, ir.ExprLoad{Pointer: ptr})
 	return &ptr, &load
 }
 
@@ -804,7 +769,7 @@ func (l *returnLowering) guard(accept, reject ir.Block) []ir.Statement {
 		return []ir.Statement{{Kind: ir.StmtIf{Accept: accept, Reject: reject}}}
 	}
 	l.ensureFlag()
-	load := l.addExpression(ir.ExprLoad{Pointer: l.flagPtr}, ir.TypeResolution{Handle: &l.boolTy})
+	load := l.addExpression(ir.ExprLoad{Pointer: l.flagPtr})
 	return []ir.Statement{
 		{Kind: ir.StmtEmit{Range: ir.Range{Start: load, End: load + 1}}},
 		{Kind: ir.StmtIf{Condition: load, Accept: accept, Reject: reject}},
@@ -813,7 +778,7 @@ func (l *returnLowering) guard(accept, reject ir.Block) []ir.Statement {
 
 func (l *returnLowering) setFlag(v bool) ir.Statement {
 	l.ensureFlag()
-	lit := l.addExpression(ir.Literal{Value: ir.LiteralBool(v)}, ir.TypeResolution{Handle: &l.boolTy})
+	lit := l.addExpression(ir.Literal{Value: ir.LiteralBool(v)})
 	return ir.Statement{Kind: ir.StmtStore{Pointer: l.flagPtr, Value: lit}}
 }
 
@@ -827,12 +792,11 @@ func (l *returnLowering) ensureFlag() {
 		Name: "_inline_returned_" + l.calleeName,
 		Type: l.boolTy,
 	})
-	l.flagPtr = l.addExpression(ir.ExprLocalVariable{Variable: idx},
-		ir.TypeResolution{Value: ir.PointerType{Base: l.boolTy, Space: ir.SpaceFunction}})
+	l.flagPtr = l.addExpression(ir.ExprLocalVariable{Variable: idx})
 }
 
-func (l *returnLowering) addExpression(kind ir.ExpressionKind, ty ir.TypeResolution) ir.ExpressionHandle {
-	return appendExpression(l.caller, kind, ty)
+func (l *returnLowering) addExpression(kind ir.ExpressionKind) ir.ExpressionHandle {
+	return appendExpression(l.caller, kind)
 }
 
 // boolTypeHandle returns the module's bool type, adding it if the module has

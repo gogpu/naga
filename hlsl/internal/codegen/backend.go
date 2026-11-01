@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/entrypoint"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -408,8 +409,16 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 		return "", nil, err
 	}
 
+	// Rust's writer reads expression types from the validator's ModuleInfo;
+	// Compile takes no such info, so it types the module it writes.
+	types, err := typifier.ForModule(module)
+	if err != nil {
+		return "", nil, fmt.Errorf("hlsl: %w", err)
+	}
+
 	// Create writer
 	w := newWriter(module, options)
+	w.typifiers = types
 
 	// Generate HLSL code
 	if err := w.writeModule(); err != nil {

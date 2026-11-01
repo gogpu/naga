@@ -18,6 +18,13 @@ import (
 // Entry points, special types and named types always stay; Rust also removes
 // an unused named type under KeepUnused::No.
 func Compact(module *ir.Module, keep KeepUnused) {
+	CompactWithTypeOrder(module, keep, nil)
+}
+
+// CompactWithTypeOrder is Compact for the WGSL lowerer, which keeps the order
+// it registered the module's types in for ReorderTypes: it returns typeOrder
+// with the handles of the types that survive, renumbered.
+func CompactWithTypeOrder(module *ir.Module, keep KeepUnused, typeOrder []ir.TypeHandle) []ir.TypeHandle {
 	if keep == KeepUnusedNo {
 		CompactUnused(module)
 	}
@@ -26,7 +33,7 @@ func Compact(module *ir.Module, keep KeepUnused) {
 	// the types nothing refers to any more.
 	compactExpressions(module)
 	compactConstants(module, keep)
-	compactTypes(module)
+	return remapTypeOrder(typeOrder, compactTypes(module))
 }
 
 // CompactUnused removes globals and functions not reachable from any entry point.
@@ -212,9 +219,9 @@ func remapStmtFuncHandles(stmts []ir.Statement, remap []ir.FunctionHandle) {
 //
 // Verified: produces identical type arenas to Rust naga on 18/18 reference shaders.
 // See docs/dev/research/IR-DEEP-ANALYSIS.md for analysis.
-func compactTypes(module *ir.Module) {
+func compactTypes(module *ir.Module) (remap []ir.TypeHandle) {
 	if len(module.Types) == 0 {
-		return
+		return nil
 	}
 
 	// Step 1: Find all type handles referenced directly by handles
@@ -233,11 +240,11 @@ func compactTypes(module *ir.Module) {
 
 	// Check if anything would be removed
 	if !slices.Contains(keep, false) {
-		return // Nothing to compact
+		return nil // Nothing to compact
 	}
 
 	// Step 3: Build remap table (old handle -> new handle)
-	remap := make([]ir.TypeHandle, len(module.Types))
+	remap = make([]ir.TypeHandle, len(module.Types))
 	newTypes := make([]ir.Type, 0, len(module.Types))
 	for i, t := range module.Types {
 		if keep[i] {
@@ -293,17 +300,22 @@ func compactTypes(module *ir.Module) {
 		module.GlobalExpressions[i].Kind = remapExprTypeHandles(module.GlobalExpressions[i].Kind, remap)
 	}
 
-	// Remap and filter TypeUseOrder — remove handles for deleted types,
-	// remap surviving handles to new indices.
-	if len(module.TypeUseOrder) > 0 {
-		filtered := make([]ir.TypeHandle, 0, len(module.TypeUseOrder))
-		for _, h := range module.TypeUseOrder {
-			if int(h) < len(remap) && remap[h] != ^ir.TypeHandle(0) {
-				filtered = append(filtered, remap[h])
-			}
-		}
-		module.TypeUseOrder = filtered
+	return remap
+}
+
+// remapTypeOrder returns order with the handles of the types remap keeps,
+// renumbered; order itself when remap is nil (no type was removed).
+func remapTypeOrder(order, remap []ir.TypeHandle) []ir.TypeHandle {
+	if remap == nil || len(order) == 0 {
+		return order
 	}
+	filtered := make([]ir.TypeHandle, 0, len(order))
+	for _, h := range order {
+		if int(h) < len(remap) && remap[h] != ^ir.TypeHandle(0) {
+			filtered = append(filtered, remap[h])
+		}
+	}
+	return filtered
 }
 
 // referencedTypes returns which types something in module refers to by
@@ -458,6 +470,8 @@ func markExprTypeRefs(kind ir.ExpressionKind, referenced []bool) {
 		mark(k.Type)
 	case ir.ExprAtomicResult:
 		mark(k.Ty)
+	case ir.ExprWorkGroupUniformLoadResult:
+		mark(k.Ty)
 	}
 }
 
@@ -522,12 +536,16 @@ func markGlobalExpressionTypeRefs(module *ir.Module, referenced []bool) {
 // This matches Rust naga where types are registered during dependency-ordered
 // lowering and dead intermediate types are never re-registered.
 //
+// useOrder is the order the lowerer registered the types in, with the
+// handles of the module as it is now (CompactWithTypeOrder); types it
+// leaves out follow in arena order.
+//
 // Must be called AFTER compactTypes (which removes unreferenced types).
-func ReorderTypes(module *ir.Module) {
+func ReorderTypes(module *ir.Module, useOrder []ir.TypeHandle) {
 	if len(module.Types) == 0 {
 		return
 	}
-	order := firstUseTypeOrder(module)
+	order := firstUseTypeOrder(module, useOrder)
 	if isIdentityOrder(order, len(module.Types)) {
 		return
 	}
@@ -536,7 +554,7 @@ func ReorderTypes(module *ir.Module) {
 
 // firstUseTypeOrder returns the type handles of module in first-encounter
 // order, each after the types it depends on.
-func firstUseTypeOrder(module *ir.Module) []ir.TypeHandle {
+func firstUseTypeOrder(module *ir.Module, useOrder []ir.TypeHandle) []ir.TypeHandle {
 	seen := make([]bool, len(module.Types))
 	var order []ir.TypeHandle
 
@@ -552,11 +570,10 @@ func firstUseTypeOrder(module *ir.Module) []ir.TypeHandle {
 		}
 	}
 
-	// Use TypeUseOrder — records the exact registration order from
-	// dependency-ordered lowering, remapped by compactTypes to surviving
-	// handles only. This preserves the interleaved constants/functions
-	// order that matches Rust naga's type arena.
-	for _, h := range module.TypeUseOrder {
+	// The lowerer's registration order from dependency-ordered lowering,
+	// remapped to the surviving handles: it keeps the interleaved
+	// constants/functions order that matches Rust naga's type arena.
+	for _, h := range useOrder {
 		visit(h)
 	}
 	// Any remaining types not yet visited
@@ -714,6 +731,8 @@ func visitExprTypeHandles(kind ir.ExpressionKind, visit func(ir.TypeHandle)) {
 	case ir.ExprSubgroupOperationResult:
 		visit(k.Type)
 	case ir.ExprAtomicResult:
+		visit(k.Ty)
+	case ir.ExprWorkGroupUniformLoadResult:
 		visit(k.Ty)
 	}
 }
@@ -967,6 +986,9 @@ func remapExprTypeHandles(kind ir.ExpressionKind, remap []ir.TypeHandle) ir.Expr
 		k.Type = safe(k.Type)
 		return k
 	case ir.ExprAtomicResult:
+		k.Ty = safe(k.Ty)
+		return k
+	case ir.ExprWorkGroupUniformLoadResult:
 		k.Ty = safe(k.Ty)
 		return k
 	default:

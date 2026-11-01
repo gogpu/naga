@@ -637,10 +637,10 @@ func (w *Writer) computeSubAccess(base ir.ExpressionHandle, isRuntime bool, runt
 
 // resolveStorageBaseType resolves the TypeInner for an expression, used for storage access chains.
 func (w *Writer) resolveStorageBaseType(handle ir.ExpressionHandle) ir.TypeInner {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(handle) {
 		return nil
 	}
-	resolution := &w.currentFunction.ExpressionTypes[handle]
+	resolution := w.exprType(handle)
 	if resolution.Handle != nil {
 		h := *resolution.Handle
 		if int(h) < len(w.module.Types) {
@@ -1172,9 +1172,9 @@ func (w *Writer) isStoragePointer(handle ir.ExpressionHandle) bool {
 		return false
 	}
 
-	// First, try the fast path: check ExpressionTypes for a pointer type
-	if int(handle) < len(w.currentFunction.ExpressionTypes) {
-		resolution := &w.currentFunction.ExpressionTypes[handle]
+	// First, try the fast path: check the expression type for a pointer type
+	if w.hasExprType(handle) {
+		resolution := w.exprType(handle)
 		var inner ir.TypeInner
 		if resolution.Handle != nil {
 			h := *resolution.Handle

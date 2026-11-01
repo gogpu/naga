@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/internal/consteval"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl/internal/parser"
 )
@@ -72,12 +73,49 @@ func concretizeScalar(s ir.ScalarType) ir.ScalarType {
 	return s
 }
 
-// exprResolution is the type of expression h of the current function.
+// exprResolution is the type of expression h of the current function, from
+// the typifier grown over the expressions up to h as they are when asked
+// (Rust's grow_types before resolve_type). It is the zero TypeResolution
+// for an expression that cannot be typed.
 func (l *Lowerer) exprResolution(h ir.ExpressionHandle) ir.TypeResolution {
-	if int(h) < len(l.currentFunc.ExpressionTypes) {
-		return l.currentFunc.ExpressionTypes[h]
+	res, _ := l.typeOf(h)
+	return res
+}
+
+// typeOf is exprResolution with the reason an expression has no type.
+func (l *Lowerer) typeOf(h ir.ExpressionHandle) (ir.TypeResolution, error) {
+	fn := l.currentFunc
+	if fn == nil || int(h) >= len(fn.Expressions) {
+		return ir.TypeResolution{}, fmt.Errorf("expression %d out of range", h)
 	}
-	return ir.TypeResolution{}
+	t := l.typifierOf(fn)
+	if int(h) >= t.Len() {
+		if err := t.Grow(l.module, fn, h+1); err != nil {
+			return ir.TypeResolution{}, err
+		}
+	}
+	return t.Get(h), nil
+}
+
+// typifierOf returns the typifier of fn.
+func (l *Lowerer) typifierOf(fn *ir.Function) *typifier.Typifier {
+	if l.exprTypes == nil {
+		l.exprTypes = make(map[*ir.Function]*typifier.Typifier)
+	}
+	t := l.exprTypes[fn]
+	if t == nil {
+		t = &typifier.Typifier{}
+		l.exprTypes[fn] = t
+	}
+	return t
+}
+
+// retypeExpr types expression h again after the lowerer rewrote it in place
+// (Rust's Typifier::invalidate), when it was typed already.
+func (l *Lowerer) retypeExpr(h ir.ExpressionHandle) {
+	if t := l.exprTypes[l.currentFunc]; t != nil && int(h) < t.Len() {
+		_ = t.Invalidate(l.module, l.currentFunc, h)
+	}
 }
 
 func (l *Lowerer) exprInner(h ir.ExpressionHandle) ir.TypeInner {

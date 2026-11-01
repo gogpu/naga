@@ -188,7 +188,7 @@ func (w *Writer) maybeEmitExpression(handle ir.ExpressionHandle) error {
 	if w.currentFunction == nil {
 		return nil
 	}
-	if int(handle) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(handle) {
 		return nil
 	}
 
@@ -216,9 +216,9 @@ func (w *Writer) maybeEmitExpression(handle ir.ExpressionHandle) error {
 		}
 	}
 
-	// Determine expression type using ExpressionTypes.
+	// Determine the expression type.
 	// Use base type + array suffix for C-style array declarations.
-	resolution := &w.currentFunction.ExpressionTypes[handle]
+	resolution := w.exprType(handle)
 	baseType := ""
 	arraySuffix := ""
 	if resolution.Handle != nil {
@@ -234,28 +234,6 @@ func (w *Writer) maybeEmitExpression(handle ir.ExpressionHandle) error {
 			}
 		} else {
 			baseType = w.typeInnerToGLSL(resolution.Value)
-		}
-	}
-	// Fallback: if ExpressionTypes didn't populate this slot, try resolving
-	// the type dynamically from the expression itself.
-	if baseType == "" && w.module != nil && w.currentFunction != nil {
-		resolved, err := ir.ResolveExpressionType(w.module, w.currentFunction, handle)
-		if err == nil {
-			if resolved.Handle != nil {
-				baseType = w.getBaseTypeName(*resolved.Handle)
-				arraySuffix = w.getArraySuffix(*resolved.Handle)
-			} else if resolved.Value != nil {
-				if at, ok := resolved.Value.(ir.ArrayType); ok {
-					baseType = w.typeInnerToGLSL(w.module.Types[at.Base].Inner)
-					if at.Size.Constant != nil {
-						arraySuffix = fmt.Sprintf("[%d]", *at.Size.Constant)
-					} else {
-						arraySuffix = "[]"
-					}
-				} else {
-					baseType = w.typeInnerToGLSL(resolved.Value)
-				}
-			}
 		}
 	}
 	if baseType == "" {
@@ -305,12 +283,12 @@ func (w *Writer) isPointerExpression(handle ir.ExpressionHandle) bool {
 	if w.currentFunction == nil {
 		return false
 	}
-	if int(handle) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(handle) {
 		return false
 	}
 
 	// Type-based check
-	resolution := &w.currentFunction.ExpressionTypes[handle]
+	resolution := w.exprType(handle)
 	if resolution.Handle != nil && w.module != nil {
 		if int(*resolution.Handle) < len(w.module.Types) {
 			_, isPtr := w.module.Types[*resolution.Handle].Inner.(ir.PointerType)
@@ -864,10 +842,10 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 	if atomic.Result != nil {
 		tempName := fmt.Sprintf("_e%d", *atomic.Result)
 		w.namedExpressions[*atomic.Result] = tempName
-		// Determine type from ExpressionTypes
+		// Determine the type
 		typeName := "uint"
-		if w.currentFunction != nil && int(*atomic.Result) < len(w.currentFunction.ExpressionTypes) {
-			res := &w.currentFunction.ExpressionTypes[*atomic.Result]
+		if w.hasExprType(*atomic.Result) {
+			res := w.exprType(*atomic.Result)
 			if res.Handle != nil {
 				typeName = w.getTypeName(*res.Handle)
 			}
@@ -899,10 +877,10 @@ func (w *Writer) writeAtomicCompareExchange(atomic ir.StmtAtomic, exchange ir.At
 		tempName := fmt.Sprintf("_e%d", *atomic.Result)
 		w.namedExpressions[*atomic.Result] = tempName
 
-		// Determine result struct type from ExpressionTypes
+		// Determine the result struct type
 		resultType := "_atomic_compare_exchange_result"
-		if w.currentFunction != nil && int(*atomic.Result) < len(w.currentFunction.ExpressionTypes) {
-			res := &w.currentFunction.ExpressionTypes[*atomic.Result]
+		if w.hasExprType(*atomic.Result) {
+			res := w.exprType(*atomic.Result)
 			if res.Handle != nil {
 				resultType = w.getTypeName(*res.Handle)
 			}
@@ -951,11 +929,11 @@ func (w *Writer) writeCall(call ir.StmtCall) error {
 	if call.Result != nil {
 		tempName := fmt.Sprintf("_e%d", *call.Result)
 		w.namedExpressions[*call.Result] = tempName
-		// Determine type from ExpressionTypes — use C-style array syntax
+		// Determine the type — use C-style array syntax
 		baseType := "/* type */"
 		arraySuffix := ""
-		if w.currentFunction != nil && int(*call.Result) < len(w.currentFunction.ExpressionTypes) {
-			resolution := &w.currentFunction.ExpressionTypes[*call.Result]
+		if w.hasExprType(*call.Result) {
+			resolution := w.exprType(*call.Result)
 			if resolution.Handle != nil {
 				baseType = w.getBaseTypeName(*resolution.Handle)
 				arraySuffix = w.getArraySuffix(*resolution.Handle)
@@ -971,8 +949,8 @@ func (w *Writer) writeCall(call ir.StmtCall) error {
 // writeSubgroupBallot writes a subgroup ballot statement.
 func (w *Writer) writeSubgroupBallot(s ir.StmtSubgroupBallot) error {
 	typeName := "uvec4"
-	if w.currentFunction != nil && int(s.Result) < len(w.currentFunction.ExpressionTypes) {
-		if res := &w.currentFunction.ExpressionTypes[s.Result]; res.Handle != nil {
+	if w.hasExprType(s.Result) {
+		if res := w.exprType(s.Result); res.Handle != nil {
 			typeName = w.getTypeName(*res.Handle)
 		}
 	}
@@ -994,8 +972,8 @@ func (w *Writer) writeSubgroupBallot(s ir.StmtSubgroupBallot) error {
 // writeSubgroupCollective writes a subgroup collective operation.
 func (w *Writer) writeSubgroupCollective(s ir.StmtSubgroupCollectiveOperation) error {
 	typeName := "uint"
-	if w.currentFunction != nil && int(s.Result) < len(w.currentFunction.ExpressionTypes) {
-		if res := &w.currentFunction.ExpressionTypes[s.Result]; res.Handle != nil {
+	if w.hasExprType(s.Result) {
+		if res := w.exprType(s.Result); res.Handle != nil {
 			typeName = w.getTypeName(*res.Handle)
 		}
 	}
@@ -1053,8 +1031,8 @@ func (w *Writer) writeSubgroupCollective(s ir.StmtSubgroupCollectiveOperation) e
 // writeSubgroupGather writes a subgroup gather statement.
 func (w *Writer) writeSubgroupGather(s ir.StmtSubgroupGather) error {
 	typeName := "uint"
-	if w.currentFunction != nil && int(s.Result) < len(w.currentFunction.ExpressionTypes) {
-		if res := &w.currentFunction.ExpressionTypes[s.Result]; res.Handle != nil {
+	if w.hasExprType(s.Result) {
+		if res := w.exprType(s.Result); res.Handle != nil {
 			typeName = w.getTypeName(*res.Handle)
 		}
 	}
@@ -1136,13 +1114,13 @@ func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) err
 		return err
 	}
 
-	// Determine type from ExpressionTypes
+	// The result type, a handle or (an atomic's scalar) a value, as Rust's
+	// write_named_expr writes either.
 	typeName := "int" // fallback
-	if w.currentFunction != nil && int(load.Result) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[load.Result]
-		if res.Handle != nil {
-			typeName = w.getTypeName(*res.Handle)
-		}
+	if res := w.exprType(load.Result); res.Handle != nil {
+		typeName = w.getTypeName(*res.Handle)
+	} else if res.Value != nil {
+		typeName = w.typeInnerToGLSL(res.Value)
 	}
 	w.WriteLine("%s %s = %s;", typeName, tempName, pointer)
 

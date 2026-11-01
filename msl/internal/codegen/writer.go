@@ -6,6 +6,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/textutil"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -168,8 +169,10 @@ type Writer struct {
 
 	// Function context (set during function writing)
 	currentFunction    *ir.Function
-	currentFuncHandle  ir.FunctionHandle // For regular functions; for entry points, use epFuncHandle(currentEPIndex)
-	currentEPIndex     int               // Entry point index when writing an entry point; -1 for regular functions
+	typifiers          *typifier.Module   // the type of every expression of every function
+	types              *typifier.Typifier // typifiers of currentFunction
+	currentFuncHandle  ir.FunctionHandle  // For regular functions; for entry points, use epFuncHandle(currentEPIndex)
+	currentEPIndex     int                // Entry point index when writing an entry point; -1 for regular functions
 	localNames         map[uint32]string
 	namedExpressions   map[ir.ExpressionHandle]string
 	needBakeExpression map[ir.ExpressionHandle]struct{}
@@ -609,14 +612,15 @@ func (w *Writer) writeModule() error {
 
 	// Write entry points — each as a separate funcOutput so that helpers
 	// (naga_f2i32, etc.) can be interleaved between entry points, matching Rust naga.
-	for epIdx, ep := range w.module.EntryPoints {
+	for epIdx := range w.module.EntryPoints {
+		ep := &w.module.EntryPoints[epIdx]
 		if w.pipeline.EntryPoint != nil {
 			if w.pipeline.EntryPoint.Name != ep.Name || w.pipeline.EntryPoint.Stage != ep.Stage {
 				continue
 			}
 		}
 		w.Out = strings.Builder{}
-		if err := w.writeEntryPoint(epIdx, &ep); err != nil {
+		if err := w.writeEntryPoint(epIdx, ep); err != nil {
 			return err
 		}
 		funcOutputs = append(funcOutputs, funcOutput{
@@ -1141,22 +1145,13 @@ func (w *Writer) scanWrappedMathTypes() {
 			case ir.ExprMath:
 				if k.Fun == ir.MathModf || k.Fun == ir.MathFrexp {
 					// Resolve the argument type
-					if int(k.Arg) < len(fn.ExpressionTypes) {
-						res := &fn.ExpressionTypes[k.Arg]
-						var inner ir.TypeInner
-						if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
-							inner = w.module.Types[*res.Handle].Inner
-						} else if res.Value != nil {
-							inner = res.Value
-						}
-						if inner != nil {
-							scalar, vecSize := typeInnerScalarAndVec(inner)
-							if scalar != nil {
-								if k.Fun == ir.MathModf {
-									w.registerModfResult(*scalar, vecSize)
-								} else {
-									w.registerFrexpResult(*scalar, vecSize)
-								}
+					if inner := w.resolutionInner(w.fnExprType(fn, k.Arg)); inner != nil {
+						scalar, vecSize := typeInnerScalarAndVec(inner)
+						if scalar != nil {
+							if k.Fun == ir.MathModf {
+								w.registerModfResult(*scalar, vecSize)
+							} else {
+								w.registerFrexpResult(*scalar, vecSize)
 							}
 						}
 					}
@@ -1233,16 +1228,7 @@ func typeInnerScalarAndVec(inner ir.TypeInner) (*ir.ScalarType, ir.VectorSize) {
 // resolveAtomicScalarFromPointer walks the pointer expression chain to find the
 // atomic type's scalar. Returns nil if not found.
 func (w *Writer) resolveAtomicScalarFromPointer(fn *ir.Function, ptrHandle ir.ExpressionHandle) *ir.ScalarType {
-	if int(ptrHandle) >= len(fn.ExpressionTypes) {
-		return nil
-	}
-	res := &fn.ExpressionTypes[ptrHandle]
-	var inner ir.TypeInner
-	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
-		inner = w.module.Types[*res.Handle].Inner
-	} else if res.Value != nil {
-		inner = res.Value
-	}
+	inner := w.resolutionInner(w.fnExprType(fn, ptrHandle))
 	if inner == nil {
 		return nil
 	}
@@ -1264,16 +1250,7 @@ func (w *Writer) resolveAtomicScalarFromPointer(fn *ir.Function, ptrHandle ir.Ex
 
 // resolveScalarFromExprType resolves a scalar type from an expression's type resolution.
 func (w *Writer) resolveScalarFromExprType(fn *ir.Function, handle ir.ExpressionHandle) *ir.ScalarType {
-	if int(handle) >= len(fn.ExpressionTypes) {
-		return nil
-	}
-	res := &fn.ExpressionTypes[handle]
-	var inner ir.TypeInner
-	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
-		inner = w.module.Types[*res.Handle].Inner
-	} else if res.Value != nil {
-		inner = res.Value
-	}
+	inner := w.resolutionInner(w.fnExprType(fn, handle))
 	if inner == nil {
 		return nil
 	}
@@ -1627,16 +1604,10 @@ func (w *Writer) registerNames() error {
 		}
 	}
 
-	// 1b. Register type alias names so the namer detects collisions.
-	// In Rust naga, type aliases create type entries with their name,
-	// which the namer processes along with other types.
-	for _, aliasName := range w.module.TypeAliasNames {
-		w.namer.call(aliasName)
-	}
-
 	// 2. Register entry point names, arguments, and locals.
 	// Rust naga registers entry points BEFORE regular functions.
-	for epIdx, ep := range w.module.EntryPoints {
+	for epIdx := range w.module.EntryPoints {
+		ep := &w.module.EntryPoints[epIdx]
 		epName := w.namer.call(ep.Name)
 		w.names[nameKey{kind: nameKeyEntryPoint, handle1: uint32(epIdx)}] = epName
 		w.entryPointNames[ep.Name] = epName

@@ -301,7 +301,7 @@ func (e *Emitter) emitCompose(fn *ir.Function, comp ir.ExprCompose) (int, error)
 // For structs, extracts all components belonging to the indexed member.
 // Returns (valueID, true) if handled, or (0, false) if not handled (fallback to scalar).
 func (e *Emitter) extractComponentsForAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex, comps []int) (int, bool) {
-	baseType := e.resolveExprTypeInner(fn, ai.Base)
+	baseType := e.resolveExprType(fn, ai.Base)
 
 	// Matrix: AccessIndex extracts a column (vec of rows components).
 	if mt, isMat := baseType.(ir.MatrixType); isMat {
@@ -490,8 +490,8 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 	// A component of a vector, or of a vector variable held as an alloca
 	// per component, is one of its tracked components; no other access
 	// reaches here with a value.
-	if !e.isVectorOrPointerToVector(e.resolveExprTypeInner(fn, ai.Base)) {
-		return 0, unsupported.Errorf("AccessIndex %d into %T is not supported", ai.Index, e.resolveExprTypeInner(fn, ai.Base))
+	if !e.isVectorOrPointerToVector(e.resolveExprType(fn, ai.Base)) {
+		return 0, unsupported.Errorf("AccessIndex %d into %T is not supported", ai.Index, e.resolveExprType(fn, ai.Base))
 	}
 	return e.getComponentID(ai.Base, int(ai.Index)), nil
 }
@@ -1099,7 +1099,7 @@ func (e *Emitter) emitAccess(fn *ir.Function, acc ir.ExprAccess) (int, error) {
 	if comps, ok := e.exprComponents[acc.Base]; ok {
 		var count int
 		var elem ir.TypeInner
-		switch t := e.resolveExprTypeInner(fn, acc.Base).(type) {
+		switch t := e.resolveExprType(fn, acc.Base).(type) {
 		case ir.ArrayType:
 			if t.Size.Constant != nil {
 				count, elem = int(*t.Size.Constant), e.ir.Types[t.Base].Inner
@@ -4846,9 +4846,9 @@ func (e *Emitter) phiResultType(fn *ir.Function, phi ir.ExprPhi) (*module.Type, 
 	if len(phi.Incoming) == 0 {
 		return nil, fmt.Errorf("phi has no incomings")
 	}
-	resolution, err := ir.ResolveExpressionType(e.ir, fn, phi.Incoming[0].Value)
-	if err != nil {
-		return nil, err
+	resolution := e.exprType(fn, phi.Incoming[0].Value)
+	if resolution.Handle == nil && resolution.Value == nil {
+		return nil, fmt.Errorf("phi incoming %d has no type", phi.Incoming[0].Value)
 	}
 	if resolution.Handle != nil {
 		irType := e.ir.Types[*resolution.Handle]
@@ -5716,13 +5716,10 @@ func (e *Emitter) resolveAccessResultType(fn *ir.Function, acc ir.ExprAccess) ir
 	return nil
 }
 
-// resolveLoadTypeFromExpressionInfo resolves the loaded type by examining
-// the ExpressionTypes metadata for the pointer expression.
+// resolveLoadTypeFromExpressionInfo resolves the loaded type from the type
+// of the pointer expression.
 func (e *Emitter) resolveLoadTypeFromExpressionInfo(fn *ir.Function, ptrHandle ir.ExpressionHandle) (*module.Type, error) {
-	if int(ptrHandle) >= len(fn.ExpressionTypes) {
-		return e.mod.GetIntType(32), nil
-	}
-	res := fn.ExpressionTypes[ptrHandle]
+	res := e.exprType(fn, ptrHandle)
 
 	if res.Handle != nil && int(*res.Handle) < len(e.ir.Types) {
 		irType := e.ir.Types[*res.Handle]
@@ -6165,87 +6162,14 @@ func (e *Emitter) addCastInstr(destTy *module.Type, op CastOpKind, src int) int 
 	return valueID
 }
 
-// resolveExprType returns the TypeInner for an expression.
+// resolveExprType returns the type of an expression of fn. An expression
+// the typifier could not type, which fails the emission (typeErr), reads
+// as f32 meanwhile.
 func (e *Emitter) resolveExprType(fn *ir.Function, handle ir.ExpressionHandle) ir.TypeInner {
-	if int(handle) < len(fn.ExpressionTypes) {
-		tr := fn.ExpressionTypes[handle]
-		if tr.Handle != nil {
-			return e.ir.Types[*tr.Handle].Inner
-		}
-		if tr.Value != nil {
-			return tr.Value
-		}
-	}
-
-	// Fallback: try to infer from the expression itself. ExpressionTypes
-	// can be sparse for synthetic / lowered expressions (Splat, Swizzle,
-	// Compose) where the WGSL lowerer didn't populate the type slot.
-	// Returning a wrong default here propagates into componentCount and
-	// breaks downstream emission — for example texture sample coord packing
-	// counted only one component for vec3<f32>(0.5) and emitted three
-	// "coord uninitialized" slots.
-	if t := e.inferExprTypeFallback(fn, handle); t != nil {
+	if t := e.exprInner(fn, handle); t != nil {
 		return t
 	}
 	return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-}
-
-// inferExprTypeFallback infers a TypeInner for expressions whose type slot
-// in fn.ExpressionTypes is empty. Returns nil when the kind is not handled.
-func (e *Emitter) inferExprTypeFallback(fn *ir.Function, handle ir.ExpressionHandle) ir.TypeInner {
-	if int(handle) >= len(fn.Expressions) {
-		return nil
-	}
-	switch ek := fn.Expressions[handle].Kind.(type) {
-	case ir.Literal:
-		return literalType(ek)
-	case ir.ExprFunctionArgument:
-		if int(ek.Index) < len(fn.Arguments) {
-			return e.ir.Types[fn.Arguments[ek.Index].Type].Inner
-		}
-	case ir.ExprSplat:
-		// Splat produces vector<size, scalar(value)>.
-		scalarInner := e.resolveExprType(fn, ek.Value)
-		if scalar, ok := scalarOfType(scalarInner); ok {
-			return ir.VectorType{Size: ek.Size, Scalar: scalar}
-		}
-	case ir.ExprSwizzle:
-		// Swizzle produces vector<size, src.scalar> for vector→vector
-		// swizzles. For single-component swizzle (size 1) the result is
-		// the source scalar type.
-		srcInner := e.resolveExprType(fn, ek.Vector)
-		if vec, isVec := srcInner.(ir.VectorType); isVec {
-			if ek.Size == 1 {
-				return vec.Scalar
-			}
-			return ir.VectorType{Size: ek.Size, Scalar: vec.Scalar}
-		}
-	}
-	return nil
-}
-
-// literalType returns the TypeInner for a literal expression.
-func literalType(lit ir.Literal) ir.TypeInner {
-	switch lit.Value.(type) {
-	case ir.LiteralF32:
-		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-	case ir.LiteralF64:
-		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}
-	case ir.LiteralI32:
-		return ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
-	case ir.LiteralU32:
-		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
-	case ir.LiteralI64:
-		return ir.ScalarType{Kind: ir.ScalarSint, Width: 8}
-	case ir.LiteralU64:
-		return ir.ScalarType{Kind: ir.ScalarUint, Width: 8}
-	case ir.LiteralBool:
-		return ir.ScalarType{Kind: ir.ScalarBool, Width: 1}
-	case ir.LiteralF16:
-		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}
-	default:
-		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-	}
 }
 
 // emitSwizzle reorders or duplicates vector components.
@@ -6387,22 +6311,6 @@ func (e *Emitter) emitRelational(fn *ir.Function, rel ir.ExprRelational) (int, e
 	default:
 		return 0, unsupported.Errorf("unsupported relational function: %d", rel.Fun)
 	}
-}
-
-// resolveExprTypeInner returns the IR TypeInner for an expression.
-// Uses ExpressionTypes if available, otherwise falls back to heuristics.
-func (e *Emitter) resolveExprTypeInner(fn *ir.Function, handle ir.ExpressionHandle) ir.TypeInner {
-	if int(handle) < len(fn.ExpressionTypes) {
-		tr := &fn.ExpressionTypes[handle]
-		if tr.Handle != nil {
-			return e.ir.Types[*tr.Handle].Inner
-		}
-		if tr.Value != nil {
-			return tr.Value
-		}
-	}
-	// Fallback: use existing resolveExprType which infers from expression kind.
-	return e.resolveExprType(fn, handle)
 }
 
 // ============================================================================

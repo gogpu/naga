@@ -287,10 +287,10 @@ func TestCoverage_WriteConstExprCompose(t *testing.T) {
 }
 
 // =============================================================================
-// resolveTypeInner — coverage: 18.2%
+// resolutionInner and exprInner
 // =============================================================================
 
-func TestCoverage_ResolveTypeInner(t *testing.T) {
+func TestCoverage_ResolutionInner(t *testing.T) {
 	scalarInner := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 	vecInner := ir.VectorType{Size: 3, Scalar: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}
 	typeHandle0 := ir.TypeHandle(0)
@@ -319,27 +319,20 @@ func TestCoverage_ResolveTypeInner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := w.resolveTypeInner(&tt.res, tt.handle)
+			got := w.resolutionInner(tt.res)
 			if tt.isNil && got != nil {
-				t.Errorf("resolveTypeInner = %v, want nil", got)
+				t.Errorf("resolutionInner = %v, want nil", got)
 			}
 			if !tt.isNil && got == nil {
-				t.Errorf("resolveTypeInner = nil, want non-nil")
+				t.Errorf("resolutionInner = nil, want non-nil")
 			}
 		})
 	}
 
-	// Test fallback: with currentFunction and Compose expression (dynamic resolve)
-	w.currentFunction = &ir.Function{
-		Expressions: []ir.Expression{
-			{Kind: ir.ExprCompose{Type: 1, Components: []ir.ExpressionHandle{}}},
-		},
-		ExpressionTypes: []ir.TypeResolution{{}},
+	// Outside a function no expression has a type.
+	if got := w.exprInner(0); got != nil {
+		t.Errorf("exprInner outside a function = %v, want nil", got)
 	}
-	emptyRes := ir.TypeResolution{}
-	got := w.resolveTypeInner(&emptyRes, 0)
-	// May or may not resolve depending on ResolveExpressionType — just test no panic
-	_ = got
 }
 
 // =============================================================================

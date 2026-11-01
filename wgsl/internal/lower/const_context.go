@@ -15,8 +15,8 @@ import (
 // one of them must evaluate (consteval.BehaviorConst).
 //
 // The arena is a function value whose Expressions alias
-// Module.GlobalExpressions, the form ir.ResolveExpressionType takes for any
-// arena. It lives as long as the lowerer, like Rust's const_typifier and
+// Module.GlobalExpressions, the form the typifier takes for any arena. It
+// and its typifier live as long as the lowerer, like Rust's const_typifier and
 // global_expression_kind_tracker, so the types and evaluation stages of the
 // global expressions are computed once.
 
@@ -100,16 +100,9 @@ func (l *Lowerer) enterModuleConstContext() functionState {
 	}
 	a := l.moduleConstArena
 	// Global variable and override initializers are still appended to
-	// Module.GlobalExpressions outside this context (TECH-GE-002): type the
-	// expressions added since the last visit.
+	// Module.GlobalExpressions outside this context (TECH-GE-002); the
+	// typifier types them as they are asked for.
 	a.Expressions = l.module.GlobalExpressions
-	for h := len(a.ExpressionTypes); h < len(a.Expressions); h++ {
-		ty, err := ir.ResolveExpressionType(l.module, a, index32[ir.ExpressionHandle](h))
-		if err != nil {
-			ty = ir.TypeResolution{}
-		}
-		a.ExpressionTypes = append(a.ExpressionTypes, ty)
-	}
 
 	l.currentFunc = a
 	l.currentExprIdx = index32[ir.ExpressionHandle](len(a.Expressions))

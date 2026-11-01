@@ -3,6 +3,7 @@ package irutil
 import (
 	"testing"
 
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -163,10 +164,12 @@ func TestInlineNamedExpressionsPrefixed(t *testing.T) {
 	}
 }
 
-// TestInlineArgLoadExpressionTypes verifies that the synthesized argument
-// load expressions have their ExpressionTypes populated. Without this,
-// downstream emitters (DXIL) misclassify the loaded value (e.g., treat a
-// pointer-typed argument as a scalar default), producing invalid code.
+// TestInlineArgLoadExpressionTypes verifies that the inlined function types
+// as the DXIL emitter needs: the synthesized argument loads as the argument
+// type and the slots as function-space pointers to it, the call result, which
+// loads a later return slot, as the callee's result. Without that, downstream
+// emitters (DXIL) misclassify the loaded value (e.g., treat a pointer-typed
+// argument as a scalar default), producing invalid code.
 func TestInlineArgLoadExpressionTypes(t *testing.T) {
 	scalarI32 := ir.TypeHandle(0)
 	module := &ir.Module{
@@ -183,9 +186,6 @@ func TestInlineArgLoadExpressionTypes(t *testing.T) {
 				Expressions: []ir.Expression{
 					{Kind: ir.ExprFunctionArgument{Index: 0}},
 				},
-				ExpressionTypes: []ir.TypeResolution{
-					{Handle: &scalarI32},
-				},
 				Body: []ir.Statement{
 					{Kind: ir.StmtReturn{Value: handlePtr(0)}},
 				},
@@ -198,10 +198,6 @@ func TestInlineArgLoadExpressionTypes(t *testing.T) {
 			{Kind: ir.Literal{Value: ir.LiteralI32(99)}},
 			{Kind: ir.ExprCallResult{Function: 0}},
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &scalarI32},
-			{Handle: &scalarI32},
-		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtCall{Function: 0, Arguments: []ir.ExpressionHandle{0}, Result: handlePtr(1)}},
 		},
@@ -213,21 +209,27 @@ func TestInlineArgLoadExpressionTypes(t *testing.T) {
 	}
 
 	main := &module.EntryPoints[0].Function
-	if len(main.Expressions) != len(main.ExpressionTypes) {
-		t.Fatalf("Expressions and ExpressionTypes lengths diverged: %d vs %d",
-			len(main.Expressions), len(main.ExpressionTypes))
+	types, err := typifier.Function(module, main)
+	if err != nil {
+		t.Fatalf("typify the inlined function: %v", err)
 	}
-	// Every ExprLoad and ExprLocalVariable that the inline pass synthesizes
-	// must have a non-empty TypeResolution.
+	i32 := module.Types[scalarI32].Inner
 	for i := range main.Expressions {
+		h := ir.ExpressionHandle(i)
+		got := types.Inner(module, h)
 		switch main.Expressions[i].Kind.(type) {
-		case ir.ExprLoad, ir.ExprLocalVariable:
-			tr := main.ExpressionTypes[i]
-			if tr.Handle == nil && tr.Value == nil {
-				t.Errorf("expression [%d] (%T) has empty TypeResolution",
-					i, main.Expressions[i].Kind)
+		case ir.ExprLoad:
+			if got != i32 {
+				t.Errorf("load [%d] is typed %#v, want the argument's i32", i, got)
+			}
+		case ir.ExprLocalVariable:
+			if p, ok := got.(ir.PointerType); !ok || p.Space != ir.SpaceFunction || p.Base != scalarI32 {
+				t.Errorf("slot [%d] is typed %#v, want a function-space pointer to i32", i, got)
 			}
 		}
+	}
+	if got := types.Inner(module, 1); got != i32 {
+		t.Errorf("call result [1] is typed %#v, want the callee's i32", got)
 	}
 }
 

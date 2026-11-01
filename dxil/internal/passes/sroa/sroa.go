@@ -418,13 +418,6 @@ func decompose(_ *ir.Module, fn *ir.Function, varIdx uint32, info *candidateInfo
 		fn.Expressions = append(fn.Expressions, ir.Expression{
 			Kind: ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(fieldVarMap[uint32(i)])},
 		})
-		// Keep ExpressionTypes parallel.
-		if len(fn.ExpressionTypes) == int(h) {
-			th := fn.LocalVars[fieldVarMap[uint32(i)]].Type
-			fn.ExpressionTypes = append(fn.ExpressionTypes, ir.TypeResolution{
-				Handle: &th,
-			})
-		}
 		fieldExprHandles[uint32(i)] = h
 	}
 
@@ -465,18 +458,12 @@ func decompose(_ *ir.Module, fn *ir.Function, varIdx uint32, info *candidateInfo
 			fn.Expressions = append(fn.Expressions, ir.Expression{
 				Kind: ir.ExprLoad{Pointer: fieldExprHandles[uint32(i)]},
 			})
-			if len(fn.ExpressionTypes) == int(loadExprH) {
-				th := fn.LocalVars[fieldVarMap[uint32(i)]].Type
-				fn.ExpressionTypes = append(fn.ExpressionTypes, ir.TypeResolution{
-					Handle: &th,
-				})
-			}
 			components[i] = loadExprH
 		}
 		newExprEnd := ir.ExpressionHandle(len(fn.Expressions)) //nolint:gosec
 
-		// Rewrite the original load to a Compose.
-		fn.Expressions[loadH].Kind = ir.ExprCompose{Components: components}
+		// Rewrite the original load to a Compose of the struct's type.
+		fn.Expressions[loadH].Kind = ir.ExprCompose{Type: fn.LocalVars[varIdx].Type, Components: components}
 
 		// Insert a StmtEmit covering the new load expressions into the
 		// body. Find the StmtEmit that contains loadH and insert a new

@@ -148,7 +148,7 @@ func TestRestrictIndexingClampsBindingArrayIndices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lowerForEmit(irMod, opts); err == nil || !strings.Contains(err.Error(), "BindingArraySize") {
+	if _, err := lowerForEmit(irMod, opts); err == nil || !strings.Contains(err.Error(), "BindingArraySize") {
 		t.Errorf("unbounded binding array without a size: err = %v, want BindingArraySize named", err)
 	}
 
