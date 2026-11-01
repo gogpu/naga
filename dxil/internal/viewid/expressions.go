@@ -1,6 +1,7 @@
 package viewid
 
 import (
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -361,14 +362,14 @@ func (s *analysisState) computeTaint(h ir.ExpressionHandle) componentTaint {
 		ir.ExprSubgroupBallotResult, ir.ExprSubgroupOperationResult:
 		return emptyTaint(resultN)
 
-	case ir.ExprAlias:
-		// mem2reg rewrites promoted loads into ExprAlias pointing at
+	case ssa.Alias:
+		// mem2reg rewrites promoted loads into ssa.Alias pointing at
 		// the value that was stored (or the Init expression). The
 		// taint is simply the taint of the aliased source.
 		return s.taintOf(k.Source).perComponentCopy(resultN)
 
-	case ir.ExprPhi:
-		// mem2reg inserts ExprPhi at merge points (if/switch/loop).
+	case ssa.Phi:
+		// mem2reg inserts ssa.Phi at merge points (if/switch/loop).
 		// The taint of a phi is the per-component union of all
 		// incoming values -- any incoming path could supply the value
 		// at runtime.

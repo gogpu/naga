@@ -1,6 +1,7 @@
 package mem2reg
 
 import (
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -80,7 +81,7 @@ func classifyLocals(mod *ir.Module, fn *ir.Function) []localUseInfo {
 	emitted := collectEmittedHandles(fn)
 
 	classifyExpressions(fn, localPtrs, uses, emitted)
-	classifyStatements((*[]ir.Statement)(&fn.Body), localPtrs, uses)
+	classifyStatements(fn.Body, localPtrs, uses)
 
 	// Build per-variable fast-lookup load sets.
 	for v := range uses {
@@ -135,74 +136,47 @@ func buildLocalPtrMap(fn *ir.Function) localPtr {
 func classifyExpressions(fn *ir.Function, localPtrs localPtr, uses []localUseInfo, emitted map[ir.ExpressionHandle]bool) {
 	for h, expr := range fn.Expressions {
 		hh := ir.ExpressionHandle(h)
-		v, isUse := referencedLocalVar(expr.Kind, localPtrs)
-		if !isUse {
-			continue
-		}
-		if load, isLoad := expr.Kind.(ir.ExprLoad); isLoad {
-			if _, ptrIsLV := localPtrs[load.Pointer]; ptrIsLV {
+		load, isLoad := expr.Kind.(ir.ExprLoad)
+		irutil.ExprHandles(expr.Kind, func(operand ir.ExpressionHandle) {
+			v, isLocal := localPtrs[operand]
+			if !isLocal {
+				return
+			}
+			if isLoad && operand == load.Pointer {
 				// Only count loads that are inside an Emit range.
 				if emitted[hh] {
 					uses[v].loadHandles = append(uses[v].loadHandles, hh)
 				}
-				continue
+				return
 			}
-		}
-		// Any other referencer (Access, AccessIndex, Compose,
-		// math op, ...) is a disqualifying use.
-		uses[v].promotable = false
+			// Any other referencer (Access, AccessIndex, Compose,
+			// math op, ...) is a disqualifying use.
+			uses[v].promotable = false
+		})
 	}
 }
 
-// classifyStatements walks the statement tree under blk and tallies
-// StmtStore statements per variable. Disqualifies the variable on
-// any other statement that uses a local-var handle as a pointer.
-//
-// The blk parameter is *[]ir.Statement so that callers can pass
-// either fn.Body (declared as []ir.Statement) or a nested ir.Block
-// (declared as []ir.Statement under a different name) without an
-// awkward conversion.
-func classifyStatements(blk *[]ir.Statement, localPtrs localPtr, uses []localUseInfo) {
-	for i := range *blk {
-		switch sk := (*blk)[i].Kind.(type) {
-		case ir.StmtStore:
-			if v, ok := localPtrs[sk.Pointer]; ok {
+// classifyStatements walks the statement tree under block and tallies
+// StmtStore statements per variable. Any other use of a local-var handle
+// by a statement (an operand other than a store's pointer: an atomic's
+// pointer, an image's, a call argument, a returned or stored pointer, ...)
+// disqualifies the variable.
+func classifyStatements(block ir.Block, localPtrs localPtr, uses []localUseInfo) {
+	for i := range block {
+		kind := block[i].Kind
+		store, isStore := kind.(ir.StmtStore)
+		irutil.StmtExprHandles(kind, func(operand ir.ExpressionHandle) {
+			v, isLocal := localPtrs[operand]
+			if !isLocal {
+				return
+			}
+			if isStore && operand == store.Pointer {
 				uses[v].storeCount++
+				return
 			}
-		case ir.StmtAtomic:
-			if v, ok := localPtrs[sk.Pointer]; ok {
-				uses[v].promotable = false
-			}
-		case ir.StmtImageStore:
-			if v, ok := localPtrs[sk.Image]; ok {
-				uses[v].promotable = false
-			}
-		case ir.StmtCall:
-			for _, a := range sk.Arguments {
-				if v, ok := localPtrs[a]; ok {
-					uses[v].promotable = false
-				}
-			}
-		case ir.StmtBlock:
-			// Block is []Statement; alias to the same slice header.
-			b := []ir.Statement(sk.Block)
-			classifyStatements(&b, localPtrs, uses)
-		case ir.StmtIf:
-			a := []ir.Statement(sk.Accept)
-			r := []ir.Statement(sk.Reject)
-			classifyStatements(&a, localPtrs, uses)
-			classifyStatements(&r, localPtrs, uses)
-		case ir.StmtLoop:
-			b := []ir.Statement(sk.Body)
-			c := []ir.Statement(sk.Continuing)
-			classifyStatements(&b, localPtrs, uses)
-			classifyStatements(&c, localPtrs, uses)
-		case ir.StmtSwitch:
-			for ci := range sk.Cases {
-				cb := []ir.Statement(sk.Cases[ci].Body)
-				classifyStatements(&cb, localPtrs, uses)
-			}
-		}
+			uses[v].promotable = false
+		})
+		irutil.NestedBlocks(kind, func(b ir.Block) { classifyStatements(b, localPtrs, uses) })
 	}
 }
 
@@ -225,98 +199,6 @@ func isPromotableLocal(mod *ir.Module, lv *ir.LocalVariable) bool {
 	default:
 		return false
 	}
-}
-
-// referencedLocalVar reports whether the expression kind references
-// a local-var pointer handle, returning the variable index if so.
-//
-// ExprLocalVariable itself is NOT reported: this function asks
-// "does THIS expression USE some other handle that names a local
-// var?" — the canonical use being ExprLoad{Pointer: <lv handle>}.
-//
-// Implementation: collect every sub-handle reachable from the
-// expression kind into a small fixed-capacity buffer, then probe
-// the localPtrs map. Splitting into "collect" + "probe" lets the
-// dispatcher stay shallow and keeps complexity below the lint
-// threshold without sacrificing exhaustive coverage.
-func referencedLocalVar(kind ir.ExpressionKind, localPtrs localPtr) (uint32, bool) {
-	var buf [16]ir.ExpressionHandle
-	handles := collectExpressionHandles(kind, buf[:0])
-	for _, h := range handles {
-		if v, ok := localPtrs[h]; ok {
-			return v, true
-		}
-	}
-	return 0, false
-}
-
-// collectExpressionHandles returns the slice of every ExpressionHandle
-// directly referenced by kind, appended onto out.
-//
-// Expression kinds that hold no sub-handles (literals, ExprConstant,
-// ExprLocalVariable, ExprGlobalVariable, ExprFunctionArgument,
-// ExprAtomicResult, ExprCallResult, ExprZeroValue, ExprOverride, ...)
-// return out unchanged. Aggregate kinds (ExprCompose) append every
-// component handle.
-func collectExpressionHandles(kind ir.ExpressionKind, out []ir.ExpressionHandle) []ir.ExpressionHandle {
-	switch k := kind.(type) {
-	case ir.ExprLoad:
-		out = append(out, k.Pointer)
-	case ir.ExprAccess:
-		out = append(out, k.Base, k.Index)
-	case ir.ExprAccessIndex:
-		out = append(out, k.Base)
-	case ir.ExprBinary:
-		out = append(out, k.Left, k.Right)
-	case ir.ExprUnary:
-		out = append(out, k.Expr)
-	case ir.ExprSelect:
-		out = append(out, k.Condition, k.Accept, k.Reject)
-	case ir.ExprSplat:
-		out = append(out, k.Value)
-	case ir.ExprSwizzle:
-		out = append(out, k.Vector)
-	case ir.ExprCompose:
-		out = append(out, k.Components...)
-	case ir.ExprAs:
-		out = append(out, k.Expr)
-	case ir.ExprDerivative:
-		out = append(out, k.Expr)
-	case ir.ExprMath:
-		out = append(out, k.Arg)
-		out = appendOptional(out, k.Arg1)
-		out = appendOptional(out, k.Arg2)
-		out = appendOptional(out, k.Arg3)
-	case ir.ExprRelational:
-		out = append(out, k.Argument)
-	case ir.ExprArrayLength:
-		out = append(out, k.Array)
-	case ir.ExprImageSample:
-		out = append(out, k.Image, k.Sampler, k.Coordinate)
-		out = appendOptional(out, k.ArrayIndex)
-		out = appendOptional(out, k.Offset)
-		out = appendOptional(out, k.DepthRef)
-	case ir.ExprImageLoad:
-		out = append(out, k.Image, k.Coordinate)
-		out = appendOptional(out, k.ArrayIndex)
-		out = appendOptional(out, k.Sample)
-		out = appendOptional(out, k.Level)
-	case ir.ExprImageQuery:
-		out = append(out, k.Image)
-	case ir.ExprAlias:
-		out = append(out, k.Source)
-	}
-	return out
-}
-
-// appendOptional appends *h to out when h is non-nil; otherwise
-// returns out unchanged. Saves a 4-line if-block at every nullable
-// expression handle field.
-func appendOptional(out []ir.ExpressionHandle, h *ir.ExpressionHandle) []ir.ExpressionHandle {
-	if h != nil {
-		return append(out, *h)
-	}
-	return out
 }
 
 // collectEmittedHandles gathers every expression handle that falls

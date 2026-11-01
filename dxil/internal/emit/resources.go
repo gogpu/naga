@@ -8,6 +8,7 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -3078,7 +3079,7 @@ func (e *Emitter) uavByteIndex(fn *ir.Function, chain *uavPointerChain) (int, er
 	return address, nil
 }
 
-// tryResolveConstInt follows ExprAlias chains from the given expression
+// tryResolveConstInt follows ssa.Alias chains from the given expression
 // handle to see if it resolves to a constant integer literal. Returns
 // the unsigned value and true if successful, (0, false) otherwise.
 // This enables constant folding of byte-offset calculations after
@@ -3104,7 +3105,7 @@ func (e *Emitter) tryResolveConstInt(fn *ir.Function, h ir.ExpressionHandle) (ui
 			default:
 				return 0, false
 			}
-		case ir.ExprAlias:
+		case ssa.Alias:
 			h = ek.Source
 		default:
 			return 0, false

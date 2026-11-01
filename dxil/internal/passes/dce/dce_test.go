@@ -3,6 +3,7 @@ package dce
 import (
 	"testing"
 
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -645,9 +646,9 @@ func TestIfFeedingALivePhiStays(t *testing.T) {
 	cond := appendExpr(fn, ir.Literal{Value: ir.LiteralBool(true)})
 	zero := appendExpr(fn, ir.Literal{Value: ir.LiteralU32(0)})
 	one := appendExpr(fn, ir.Literal{Value: ir.LiteralU32(1)})
-	phi := appendExpr(fn, ir.ExprPhi{Incoming: []ir.PhiIncoming{
-		{PredKey: ir.PhiPredIfAccept, Value: one},
-		{PredKey: ir.PhiPredIfReject, Value: zero},
+	phi := appendExpr(fn, ssa.Phi{Incoming: []ssa.Incoming{
+		{PredKey: ssa.PredIfAccept, Value: one},
+		{PredKey: ssa.PredIfReject, Value: zero},
 	}})
 	fn.Body = ir.Block{
 		{Kind: ir.StmtEmit{Range: ir.Range{Start: cond, End: one + 1}}},

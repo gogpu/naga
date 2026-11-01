@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
@@ -81,7 +82,7 @@ func (r *restricter) bindingArraySize(gv ir.GlobalVariableHandle) uint32 {
 func bindingArrayGlobal(m *ir.Module, fn *ir.Function, base ir.ExpressionHandle) (ir.GlobalVariableHandle, bool) {
 	for {
 		switch k := fn.Expressions[base].Kind.(type) {
-		case ir.ExprAlias:
+		case ssa.Alias:
 			base = k.Source
 		case ir.ExprGlobalVariable:
 			_, ok := m.Types[m.GlobalVariables[k.Variable].Type].Inner.(ir.BindingArrayType)
@@ -210,7 +211,7 @@ func indexCount(m *ir.Module, res ir.TypeResolution) uint32 {
 func constIndex(fn *ir.Function, h ir.ExpressionHandle) (uint64, bool) {
 	for {
 		switch k := fn.Expressions[h].Kind.(type) {
-		case ir.ExprAlias:
+		case ssa.Alias:
 			h = k.Source
 		case ir.Literal:
 			switch v := k.Value.(type) {

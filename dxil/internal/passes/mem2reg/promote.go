@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -42,7 +43,7 @@ type promotionContext struct {
 //   - Promotion: walk the block once more in textual order. Track
 //     the current value per promoted variable. On StmtEmit, for
 //     each load handle in the range whose target is a promoted
-//     variable, rewrite fn.Expressions[h].Kind to ExprAlias{Source:
+//     variable, rewrite fn.Expressions[h].Kind to ssa.Alias{Source:
 //     currentValue}. On StmtStore, update currentValue and mark
 //     the statement for removal.
 //   - After the walk, drop the marked StmtStore statements from
@@ -207,12 +208,12 @@ func selectBlockCandidates(ctx *promotionContext, localStores, localLoads map[ui
 
 // rewriteBlock walks blk in textual order and performs the actual
 // promotion: per-variable currentValue tracking, load rewrites to
-// ExprAlias, and store removal.
+// ssa.Alias, and store removal.
 //
 // On entry currentValue[v] holds either the variable's Init handle
 // (when set) or a freshly synthesized ExprZeroValue handle. Each
 // StmtStore updates the value; each load found in a StmtEmit range
-// gets ExprAlias{Source: currentValue[v]}.
+// gets ssa.Alias{Source: currentValue[v]}.
 //
 // Stores targeting promoted variables are removed by collecting
 // keep-indices and slicing the block in place at the end.
@@ -290,7 +291,7 @@ func initialValues(ctx *promotionContext, candidates map[uint32]struct{}) map[ui
 
 // rewriteEmitRange walks one StmtEmit's expression range. For each
 // handle that loads a promoted variable, rewrites the expression
-// in fn.Expressions to ExprAlias{Source: currentValue[v]}.
+// in fn.Expressions to ssa.Alias{Source: currentValue[v]}.
 func rewriteEmitRange(ctx *promotionContext, r ir.Range, candidates map[uint32]struct{}, currentValue map[uint32]ir.ExpressionHandle) {
 	for h := r.Start; h < r.End; h++ {
 		v, ok := loadHandleVar(ctx, h)
@@ -304,6 +305,6 @@ func rewriteEmitRange(ctx *promotionContext, r ir.Range, candidates map[uint32]s
 		if !hasCV {
 			continue
 		}
-		ctx.fn.Expressions[h].Kind = ir.ExprAlias{Source: cv}
+		ctx.fn.Expressions[h].Kind = ssa.Alias{Source: cv}
 	}
 }

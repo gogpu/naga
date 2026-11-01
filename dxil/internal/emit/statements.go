@@ -5,6 +5,8 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -804,263 +806,21 @@ func liveLocalVars(fn *ir.Function) map[uint32]bool {
 		if _, isLV := expr.Kind.(ir.ExprLocalVariable); isLV {
 			continue
 		}
-		visitExpressionHandles(expr.Kind, func(eh ir.ExpressionHandle) {
+		irutil.ExprHandles(expr.Kind, func(eh ir.ExpressionHandle) {
 			if v, ok := lvHandle[eh]; ok {
 				live[v] = true
 			}
 		})
 	}
-	// Mark live: any statement that references one of the handles.
-	visitStatementHandles(fn.Body, func(h ir.ExpressionHandle) {
+	// Mark live: any statement that references one of the handles. An Emit
+	// range is no reference: it says when expressions are evaluated, and
+	// the emitted expressions' own operands are checked above.
+	irutil.BlockExprHandles(fn.Body, func(h ir.ExpressionHandle) {
 		if v, ok := lvHandle[h]; ok {
 			live[v] = true
 		}
 	})
 	return live
-}
-
-// visitExpressionHandles invokes f for every ExpressionHandle field
-// inside the given expression kind. Used by liveLocalVars to find
-// references to LocalVariable pointer handles.
-//
-//nolint:gocyclo,cyclop,funlen // exhaustive expression-kind dispatch mirrors classify.go's referencedLocalVar
-func visitExpressionHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle)) {
-	switch k := kind.(type) {
-	case ir.ExprLoad:
-		f(k.Pointer)
-	case ir.ExprAlias:
-		f(k.Source)
-	case ir.ExprAccess:
-		f(k.Base)
-		f(k.Index)
-	case ir.ExprAccessIndex:
-		f(k.Base)
-	case ir.ExprBinary:
-		f(k.Left)
-		f(k.Right)
-	case ir.ExprUnary:
-		f(k.Expr)
-	case ir.ExprSelect:
-		f(k.Condition)
-		f(k.Accept)
-		f(k.Reject)
-	case ir.ExprSplat:
-		f(k.Value)
-	case ir.ExprSwizzle:
-		f(k.Vector)
-	case ir.ExprCompose:
-		for _, c := range k.Components {
-			f(c)
-		}
-	case ir.ExprAs:
-		f(k.Expr)
-	case ir.ExprDerivative:
-		f(k.Expr)
-	case ir.ExprMath:
-		f(k.Arg)
-		if k.Arg1 != nil {
-			f(*k.Arg1)
-		}
-		if k.Arg2 != nil {
-			f(*k.Arg2)
-		}
-		if k.Arg3 != nil {
-			f(*k.Arg3)
-		}
-	case ir.ExprRelational:
-		f(k.Argument)
-	case ir.ExprArrayLength:
-		f(k.Array)
-	case ir.ExprImageSample:
-		f(k.Image)
-		f(k.Sampler)
-		f(k.Coordinate)
-		if k.ArrayIndex != nil {
-			f(*k.ArrayIndex)
-		}
-		if k.Offset != nil {
-			f(*k.Offset)
-		}
-		if k.DepthRef != nil {
-			f(*k.DepthRef)
-		}
-		switch l := k.Level.(type) {
-		case ir.SampleLevelExact:
-			f(l.Level)
-		case ir.SampleLevelBias:
-			f(l.Bias)
-		case ir.SampleLevelGradient:
-			f(l.X)
-			f(l.Y)
-		}
-	case ir.ExprImageLoad:
-		f(k.Image)
-		f(k.Coordinate)
-		if k.ArrayIndex != nil {
-			f(*k.ArrayIndex)
-		}
-		if k.Sample != nil {
-			f(*k.Sample)
-		}
-		if k.Level != nil {
-			f(*k.Level)
-		}
-	case ir.ExprImageQuery:
-		f(k.Image)
-		if size, ok := k.Query.(ir.ImageQuerySize); ok && size.Level != nil {
-			f(*size.Level)
-		}
-	case ir.ExprRayQueryGetIntersection:
-		f(k.Query)
-	case ir.ExprPhi:
-		for _, inc := range k.Incoming {
-			f(inc.Value)
-		}
-	}
-}
-
-// visitStatementHandles invokes f for every ExpressionHandle field
-// inside any statement of the block (recursively into nested blocks).
-func visitStatementHandles(blk ir.Block, f func(ir.ExpressionHandle)) {
-	for i := range blk {
-		visitStatementHandlesOne(blk[i].Kind, f)
-	}
-}
-
-// visitStatementHandlesOne invokes f for every ExpressionHandle
-// directly referenced by a single statement kind, and recurses into
-// nested control-flow blocks via visitStatementHandles.
-//
-// Split out from visitStatementHandles purely to keep the parent
-// dispatcher's cognitive-complexity score under the linter threshold;
-// the two functions together cover the full statement-kind arena.
-//
-//nolint:gocyclo,cyclop // exhaustive statement-kind dispatch
-func visitStatementHandlesOne(kind ir.StatementKind, f func(ir.ExpressionHandle)) {
-	switch sk := kind.(type) {
-	case ir.StmtStore:
-		f(sk.Pointer)
-		f(sk.Value)
-	case ir.StmtAtomic:
-		f(sk.Pointer)
-		f(sk.Value)
-		if sk.Result != nil {
-			f(*sk.Result)
-		}
-		visitAtomicFunctionHandles(sk.Fun, f)
-	case ir.StmtImageStore:
-		visitImageWriteHandles(sk.Image, sk.Coordinate, sk.Value, sk.ArrayIndex, f)
-	case ir.StmtImageAtomic:
-		visitImageWriteHandles(sk.Image, sk.Coordinate, sk.Value, sk.ArrayIndex, f)
-		visitAtomicFunctionHandles(sk.Fun, f)
-	case ir.StmtCall:
-		for _, a := range sk.Arguments {
-			f(a)
-		}
-		if sk.Result != nil {
-			f(*sk.Result)
-		}
-	case ir.StmtReturn:
-		if sk.Value != nil {
-			f(*sk.Value)
-		}
-	case ir.StmtIf:
-		f(sk.Condition)
-		visitStatementHandles(sk.Accept, f)
-		visitStatementHandles(sk.Reject, f)
-	case ir.StmtLoop:
-		visitStatementHandles(sk.Body, f)
-		visitStatementHandles(sk.Continuing, f)
-		if sk.BreakIf != nil {
-			f(*sk.BreakIf)
-		}
-	case ir.StmtSwitch:
-		f(sk.Selector)
-		for ci := range sk.Cases {
-			visitStatementHandles(sk.Cases[ci].Body, f)
-		}
-	case ir.StmtBlock:
-		visitStatementHandles(sk.Block, f)
-	case ir.StmtWorkGroupUniformLoad:
-		f(sk.Pointer)
-		f(sk.Result)
-	case ir.StmtRayQuery:
-		f(sk.Query)
-		visitRayQueryFunctionHandles(sk.Fun, f)
-	case ir.StmtSubgroupBallot:
-		f(sk.Result)
-		if sk.Predicate != nil {
-			f(*sk.Predicate)
-		}
-	case ir.StmtSubgroupCollectiveOperation:
-		f(sk.Argument)
-		f(sk.Result)
-	case ir.StmtSubgroupGather:
-		f(sk.Argument)
-		f(sk.Result)
-		visitGatherModeHandles(sk.Mode, f)
-	case ir.StmtEmit:
-		// StmtEmit ranges describe expression evaluation timing,
-		// not data flow. Expression bodies are visited separately
-		// by visitExpressionHandles — don't double-count the
-		// range as a use.
-	}
-}
-
-// visitImageWriteHandles invokes f for the operands an image store and an
-// image atomic share.
-func visitImageWriteHandles(image, coord, value ir.ExpressionHandle, arrayIndex *ir.ExpressionHandle, f func(ir.ExpressionHandle)) {
-	f(image)
-	f(coord)
-	f(value)
-	if arrayIndex != nil {
-		f(*arrayIndex)
-	}
-}
-
-// visitAtomicFunctionHandles invokes f for the comparand of a
-// compare-exchange, the one atomic function with an expression operand.
-func visitAtomicFunctionHandles(fun ir.AtomicFunction, f func(ir.ExpressionHandle)) {
-	if ex, ok := fun.(ir.AtomicExchange); ok && ex.Compare != nil {
-		f(*ex.Compare)
-	}
-}
-
-// visitRayQueryFunctionHandles invokes f for every expression handle of a
-// ray query function.
-func visitRayQueryFunctionHandles(fun ir.RayQueryFunction, f func(ir.ExpressionHandle)) {
-	switch fn := fun.(type) {
-	case ir.RayQueryInitialize:
-		f(fn.AccelerationStructure)
-		f(fn.Descriptor)
-	case ir.RayQueryProceed:
-		f(fn.Result)
-	case ir.RayQueryGenerateIntersection:
-		f(fn.HitT)
-	case ir.RayQueryTerminate, ir.RayQueryConfirmIntersection:
-		// No expression operands.
-	}
-}
-
-// visitGatherModeHandles invokes f for the lane operand of a subgroup
-// gather mode.
-func visitGatherModeHandles(mode ir.GatherMode, f func(ir.ExpressionHandle)) {
-	switch m := mode.(type) {
-	case ir.GatherBroadcast:
-		f(m.Index)
-	case ir.GatherShuffle:
-		f(m.Index)
-	case ir.GatherShuffleDown:
-		f(m.Delta)
-	case ir.GatherShuffleUp:
-		f(m.Delta)
-	case ir.GatherShuffleXor:
-		f(m.Mask)
-	case ir.GatherQuadBroadcast:
-		f(m.Index)
-	case ir.GatherBroadcastFirst, ir.GatherQuadSwap:
-		// No expression operands.
-	}
 }
 
 // emitBlock emits all statements in a block.
@@ -1134,7 +894,7 @@ func isFollowedByEmit(block ir.Block, i int) bool {
 //
 // LLVM requires all phi instructions to be grouped at the top of a
 // basic block, before any non-phi instructions. mem2reg Phase B inserts
-// phi-bearing StmtEmit ranges (single-handle ranges containing ExprPhi)
+// phi-bearing StmtEmit ranges (single-handle ranges containing ssa.Phi)
 // immediately after StmtIf/StmtSwitch in the IR statement list. When
 // these are followed by regular StmtEmit ranges for the merge block's
 // own expressions, merging them all into one combined emission would
@@ -1175,7 +935,7 @@ func (e *Emitter) emitConsecutiveEmitRun(fn *ir.Function, block ir.Block, start 
 
 // splitPhiRanges separates a list of StmtEmit ranges into phi-bearing
 // ranges and non-phi ranges. A range is phi-bearing when it covers
-// exactly one expression handle whose kind is ir.ExprPhi. Phi-bearing
+// exactly one expression handle whose kind is ssa.Phi. Phi-bearing
 // ranges must be emitted before non-phi ranges so that LLVM phi
 // instructions appear at the top of the basic block.
 func splitPhiRanges(fn *ir.Function, ranges []ir.Range) (phiRanges, nonPhiRanges []ir.Range) {
@@ -1190,12 +950,12 @@ func splitPhiRanges(fn *ir.Function, ranges []ir.Range) (phiRanges, nonPhiRanges
 }
 
 // isPhiExpression reports whether the expression at handle h is an
-// ir.ExprPhi node (produced by the DXIL mem2reg Phase B walker).
+// ssa.Phi node (produced by the DXIL mem2reg Phase B walker).
 func isPhiExpression(fn *ir.Function, h ir.ExpressionHandle) bool {
 	if int(h) >= len(fn.Expressions) {
 		return false
 	}
-	_, ok := fn.Expressions[h].Kind.(ir.ExprPhi)
+	_, ok := fn.Expressions[h].Kind.(ssa.Phi)
 	return ok
 }
 
@@ -2721,7 +2481,8 @@ func (e *Emitter) getZeroForType(inner ir.TypeInner) int {
 //
 //	i32 @dx.op.atomicCompareExchange(i32 79, %handle, i32 coord0, i32 coord1, i32 coord2, i32 cmpVal, i32 newVal)
 //
-// For AtomicLoad, emits dx.op.bufferLoad; for AtomicStore, emits dx.op.bufferStore.
+// An atomic load or store is no atomic function: it is a Load or a Store
+// through a pointer to atomic<T>, emitted with the other loads and stores.
 //
 // Reference: Mesa nir_to_dxil.c emit_atomic_binop() ~949, emit_atomic_cmpxchg() ~973
 func (e *Emitter) emitStmtAtomic(fn *ir.Function, atomic ir.StmtAtomic) error {
@@ -2750,12 +2511,6 @@ func (e *Emitter) emitStmtAtomic(fn *ir.Function, atomic ir.StmtAtomic) error {
 	ol := overloadForScalar(chain.scalar)
 
 	switch af := atomic.Fun.(type) {
-	case ir.AtomicLoad:
-		return e.emitAtomicLoad(fn, atomic, handleID, indexID, chain)
-
-	case ir.AtomicStore:
-		return e.emitAtomicStore(fn, atomic, handleID, indexID, chain)
-
 	case ir.AtomicExchange:
 		if af.Compare != nil {
 			return e.emitAtomicCmpXchg(fn, atomic, af, handleID, indexID, ol)
@@ -2938,62 +2693,6 @@ func (e *Emitter) emitAtomicCmpXchg(fn *ir.Function, atomic ir.StmtAtomic, excha
 	return nil
 }
 
-// emitAtomicLoad handles AtomicLoad by emitting a dx.op.bufferLoad.
-// Atomic loads on UAV buffers use the same bufferLoad intrinsic as regular loads.
-func (e *Emitter) emitAtomicLoad(_ *ir.Function, atomic ir.StmtAtomic, handleID, indexID int, chain *uavPointerChain) error {
-	ol := overloadForScalar(chain.scalar)
-	resRetTy := e.getDxResRetType(ol)
-	bufLoadFn := e.getDxOpBufferLoadFunc(ol)
-
-	opcodeVal := e.getIntConstID(int64(OpBufferLoad))
-	undefVal := e.getUndefConstID()
-
-	retID := e.addCallInstr(bufLoadFn, resRetTy, []int{opcodeVal, handleID, indexID, undefVal})
-
-	// Extract the first component as the atomic result (scalar).
-	scalarTy := e.overloadReturnType(ol)
-	extractID := e.allocValue()
-	instr := &module.Instruction{
-		Kind:       module.InstrExtractVal,
-		HasValue:   true,
-		ResultType: scalarTy,
-		Operands:   []int{retID, 0},
-		ValueID:    extractID,
-	}
-	e.currentBB.AddInstruction(instr)
-
-	if atomic.Result != nil {
-		e.exprValues[*atomic.Result] = extractID
-	}
-
-	return nil
-}
-
-// emitAtomicStore handles AtomicStore by emitting a dx.op.bufferStore.
-// Atomic stores on UAV buffers use the same bufferStore intrinsic as regular stores.
-func (e *Emitter) emitAtomicStore(fn *ir.Function, atomic ir.StmtAtomic, handleID, indexID int, chain *uavPointerChain) error {
-	valueID, err := e.emitExpression(fn, atomic.Value)
-	if err != nil {
-		return fmt.Errorf("atomic store value: %w", err)
-	}
-
-	ol := overloadForScalar(chain.scalar)
-	bufStoreFn := e.getDxOpBufferStoreFunc(ol)
-
-	opcodeVal := e.getIntConstID(int64(OpBufferStore))
-	undefVal := e.getUndefConstID()
-	maskVal := e.getI8ConstID(1) // single component write mask
-
-	// dx.op.bufferStore(i32 69, %handle, i32 index, i32 undef, val, undef, undef, undef, i8 mask)
-	e.addCallInstr(bufStoreFn, e.mod.GetVoidType(), []int{
-		opcodeVal, handleID, indexID, undefVal,
-		valueID, undefVal, undefVal, undefVal,
-		maskVal,
-	})
-
-	return nil
-}
-
 // isWorkgroupPointer returns true if the given pointer expression refers to a
 // workgroup (groupshared) global variable, either directly or through access chains.
 func (e *Emitter) isWorkgroupPointer(fn *ir.Function, ptrHandle ir.ExpressionHandle) bool {
@@ -3032,46 +2731,7 @@ func (e *Emitter) emitWorkgroupAtomic(fn *ir.Function, atomic ir.StmtAtomic) err
 		return fmt.Errorf("workgroup atomic pointer: %w", err)
 	}
 
-	// Resolve the actual scalar width of the atomic (i32, i64, etc.).
-	atomicScalar := e.resolveAtomicScalar(fn, atomic.Pointer)
-	bitWidth := uint(atomicScalar.Width) * 8
-	atomicTy := e.mod.GetIntType(bitWidth)
-	align := 3 // log2(4)+1 for i32
-	if bitWidth == 64 {
-		align = 4 // log2(8)+1 for i64
-	}
-
 	switch af := atomic.Fun.(type) {
-	case ir.AtomicLoad:
-		// atomicLoad on workgroup = plain load (DXIL doesn't need special atomic load for groupshared)
-		loadID := e.allocValue()
-		loadInstr := &module.Instruction{
-			Kind:       module.InstrLoad,
-			HasValue:   true,
-			ResultType: atomicTy,
-			Operands:   []int{ptrID, atomicTy.ID, align, 0},
-			ValueID:    loadID,
-		}
-		e.currentBB.AddInstruction(loadInstr)
-		if atomic.Result != nil {
-			e.exprValues[*atomic.Result] = loadID
-		}
-		return nil
-
-	case ir.AtomicStore:
-		// atomicStore on workgroup = plain store
-		valueID, err2 := e.emitExpression(fn, atomic.Value)
-		if err2 != nil {
-			return fmt.Errorf("workgroup atomic store value: %w", err2)
-		}
-		storeInstr := &module.Instruction{
-			Kind:     module.InstrStore,
-			HasValue: false,
-			Operands: []int{ptrID, valueID, align, 0},
-		}
-		e.currentBB.AddInstruction(storeInstr)
-		return nil
-
 	case ir.AtomicAdd:
 		return e.emitWorkgroupAtomicRMW(fn, atomic, AtomicRMWAdd, ptrID)
 
@@ -3489,7 +3149,7 @@ func (e *Emitter) emitIfStatement(fn *ir.Function, stmt ir.StmtIf) error {
 		}
 	}
 
-	// Snapshot the BB indices for any ExprPhi that may immediately
+	// Snapshot the BB indices for any ssa.Phi that may immediately
 	// follow this StmtIf in the parent block (placed there by the
 	// DXIL mem2reg Phase B walker).
 	e.lastBranchBBs = &branchBBs{
@@ -3507,7 +3167,7 @@ func (e *Emitter) emitIfStatement(fn *ir.Function, stmt ir.StmtIf) error {
 // bbIndexOf returns the slice index of bb within fn.BasicBlocks, or
 // -1 if not found. Used by branch-snapshot logic to record the BB
 // where a control-flow branch terminates so phi nodes at the merge
-// can map PhiPredKey -> BB index for FUNC_CODE_INST_PHI emission.
+// can map ssa.PredKey -> BB index for FUNC_CODE_INST_PHI emission.
 func bbIndexOf(fn *module.Function, bb *module.BasicBlock) int {
 	for i, candidate := range fn.BasicBlocks {
 		if candidate == bb {
@@ -3624,9 +3284,9 @@ func (e *Emitter) emitSwitchStatement(fn *ir.Function, stmt ir.StmtSwitch) error
 		}
 	}
 
-	// Snapshot per-case end BB indices for any ExprPhi that
+	// Snapshot per-case end BB indices for any ssa.Phi that
 	// immediately follows this StmtSwitch (placed by DXIL mem2reg
-	// Phase B walker). PhiIncoming.PredKey == PhiPredSwitchCase,
+	// Phase B walker). ssa.Incoming.PredKey == ssa.PredSwitchCase,
 	// CaseIdx selects which entry of caseEndBBs to use.
 	e.lastBranchBBs = &branchBBs{
 		kind:       branchKindSwitch,

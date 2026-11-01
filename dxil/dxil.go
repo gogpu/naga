@@ -2823,7 +2823,7 @@ func reachableGlobalsForEntry(irMod *ir.Module, ep *ir.EntryPoint) map[ir.Global
 			}
 		}
 		// Follow sub-expression references.
-		visitExprSubHandles(expr.Kind, func(sub ir.ExpressionHandle) {
+		irutil.ExprHandles(expr.Kind, func(sub ir.ExpressionHandle) {
 			followExpr(fn, sub)
 		})
 	}
@@ -2832,10 +2832,10 @@ func reachableGlobalsForEntry(irMod *ir.Module, ep *ir.EntryPoint) map[ir.Global
 	// handles referenced by live statements.
 	fn := &ep.Function
 	visited[fn] = true
-	walkBlockExprs(fn, fn.Body, followExpr)
+	blockUses(fn.Body, func(h ir.ExpressionHandle) { followExpr(fn, h) })
 
 	// Also follow StmtCall targets into helper functions.
-	// Call arguments and result are already followed by walkStmtExprs;
+	// Call arguments and result are already followed by blockUses;
 	// this only needs to walk into callees.
 	walkBlockForCalls(fn.Body, func(call ir.StmtCall) {
 		if int(call.Function) < len(irMod.Functions) {
@@ -2877,265 +2877,29 @@ func walkHelperFunction(
 	})
 }
 
-// walkBlockExprs walks a statement block and calls followExpr for every
-// expression handle referenced by statements (StmtEmit ranges, store
-// targets/values, return values, control-flow conditions, etc.).
-func walkBlockExprs(fn *ir.Function, block ir.Block, followExpr func(*ir.Function, ir.ExpressionHandle)) {
+// blockUses calls f with every expression handle the statements of block
+// and of the blocks nested in it use (stmtUses).
+func blockUses(block ir.Block, f func(ir.ExpressionHandle)) {
 	for i := range block {
-		walkStmtExprs(fn, block[i].Kind, followExpr)
+		stmtUses(block[i].Kind, f)
 	}
 }
 
-// walkStmtExprs dispatches a single statement, calling followExpr for
-// every expression handle it references and recursing into sub-blocks.
-//
-//nolint:gocyclo,cyclop // exhaustive statement-kind dispatch
-func walkStmtExprs(fn *ir.Function, kind ir.StatementKind, followExpr func(*ir.Function, ir.ExpressionHandle)) {
-	switch sk := kind.(type) {
-	case ir.StmtEmit:
-		for h := sk.Range.Start; h < sk.Range.End; h++ {
-			followExpr(fn, h)
+// stmtUses calls f with every expression handle a statement uses: each
+// expression of an Emit range, the operands of any other statement
+// (irutil.StmtExprHandles), and then those of the statements nested in it.
+// Unlike an operand walk it counts an Emit range as a use: the reachability
+// scan and the signature-usage liveness treat an emitted expression as
+// evaluated, and so as live, on its own.
+func stmtUses(kind ir.StatementKind, f func(ir.ExpressionHandle)) {
+	if e, ok := kind.(ir.StmtEmit); ok {
+		for h := e.Range.Start; h < e.Range.End; h++ {
+			f(h)
 		}
-	case ir.StmtStore:
-		followExpr(fn, sk.Pointer)
-		followExpr(fn, sk.Value)
-	case ir.StmtReturn:
-		if sk.Value != nil {
-			followExpr(fn, *sk.Value)
-		}
-	case ir.StmtImageStore:
-		followImageStoreExprs(fn, sk, followExpr)
-	case ir.StmtImageAtomic:
-		followImageAtomicExprs(fn, sk, followExpr)
-	case ir.StmtAtomic:
-		followExpr(fn, sk.Pointer)
-		followExpr(fn, sk.Value)
-		if sk.Result != nil {
-			followExpr(fn, *sk.Result)
-		}
-		followAtomicFunctionExprs(fn, sk.Fun, followExpr)
-	case ir.StmtCall:
-		for _, a := range sk.Arguments {
-			followExpr(fn, a)
-		}
-		if sk.Result != nil {
-			followExpr(fn, *sk.Result)
-		}
-	case ir.StmtWorkGroupUniformLoad:
-		followExpr(fn, sk.Pointer)
-		followExpr(fn, sk.Result)
-	case ir.StmtRayQuery:
-		followExpr(fn, sk.Query)
-		followRayQueryFunctionExprs(fn, sk.Fun, followExpr)
-	case ir.StmtSubgroupBallot:
-		followExpr(fn, sk.Result)
-		if sk.Predicate != nil {
-			followExpr(fn, *sk.Predicate)
-		}
-	case ir.StmtSubgroupCollectiveOperation:
-		followExpr(fn, sk.Argument)
-		followExpr(fn, sk.Result)
-	case ir.StmtSubgroupGather:
-		followExpr(fn, sk.Argument)
-		followExpr(fn, sk.Result)
-		followGatherModeExprs(fn, sk.Mode, followExpr)
-	case ir.StmtIf:
-		followExpr(fn, sk.Condition)
-		walkBlockExprs(fn, sk.Accept, followExpr)
-		walkBlockExprs(fn, sk.Reject, followExpr)
-	case ir.StmtLoop:
-		walkBlockExprs(fn, sk.Body, followExpr)
-		walkBlockExprs(fn, sk.Continuing, followExpr)
-		if sk.BreakIf != nil {
-			followExpr(fn, *sk.BreakIf)
-		}
-	case ir.StmtSwitch:
-		followExpr(fn, sk.Selector)
-		for ci := range sk.Cases {
-			walkBlockExprs(fn, sk.Cases[ci].Body, followExpr)
-		}
-	case ir.StmtBlock:
-		walkBlockExprs(fn, sk.Block, followExpr)
-	case ir.StmtControlBarrier, ir.StmtMemoryBarrier, ir.StmtKill:
-		// No expression operands.
+		return
 	}
-}
-
-func followImageStoreExprs(fn *ir.Function, sk ir.StmtImageStore, followExpr func(*ir.Function, ir.ExpressionHandle)) {
-	followExpr(fn, sk.Image)
-	followExpr(fn, sk.Coordinate)
-	followExpr(fn, sk.Value)
-	if sk.ArrayIndex != nil {
-		followExpr(fn, *sk.ArrayIndex)
-	}
-}
-
-func followImageAtomicExprs(fn *ir.Function, sk ir.StmtImageAtomic, followExpr func(*ir.Function, ir.ExpressionHandle)) {
-	followExpr(fn, sk.Image)
-	followExpr(fn, sk.Coordinate)
-	followExpr(fn, sk.Value)
-	if sk.ArrayIndex != nil {
-		followExpr(fn, *sk.ArrayIndex)
-	}
-	followAtomicFunctionExprs(fn, sk.Fun, followExpr)
-}
-
-// followAtomicFunctionExprs calls followExpr for the comparand of a
-// compare-exchange, the one atomic function with an expression operand.
-func followAtomicFunctionExprs(fn *ir.Function, fun ir.AtomicFunction, followExpr func(*ir.Function, ir.ExpressionHandle)) {
-	if ex, ok := fun.(ir.AtomicExchange); ok && ex.Compare != nil {
-		followExpr(fn, *ex.Compare)
-	}
-}
-
-// followGatherModeExprs calls followExpr for the lane operand of a subgroup
-// gather mode.
-func followGatherModeExprs(fn *ir.Function, mode ir.GatherMode, followExpr func(*ir.Function, ir.ExpressionHandle)) {
-	switch m := mode.(type) {
-	case ir.GatherBroadcast:
-		followExpr(fn, m.Index)
-	case ir.GatherShuffle:
-		followExpr(fn, m.Index)
-	case ir.GatherShuffleDown:
-		followExpr(fn, m.Delta)
-	case ir.GatherShuffleUp:
-		followExpr(fn, m.Delta)
-	case ir.GatherShuffleXor:
-		followExpr(fn, m.Mask)
-	case ir.GatherQuadBroadcast:
-		followExpr(fn, m.Index)
-	case ir.GatherBroadcastFirst, ir.GatherQuadSwap:
-		// No expression operands.
-	}
-}
-
-// visitExprSubHandles calls f for every expression handle directly
-// referenced by the given expression kind. This mirrors DCE's
-// visitExprHandles but lives in the dxil package to avoid a
-// cross-package dependency.
-//
-//nolint:gocyclo,cyclop // exhaustive expression-kind dispatch
-func visitExprSubHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle)) {
-	switch k := kind.(type) {
-	case ir.ExprLoad:
-		f(k.Pointer)
-	case ir.ExprAlias:
-		f(k.Source)
-	case ir.ExprAccess:
-		f(k.Base)
-		f(k.Index)
-	case ir.ExprAccessIndex:
-		f(k.Base)
-	case ir.ExprBinary:
-		f(k.Left)
-		f(k.Right)
-	case ir.ExprUnary:
-		f(k.Expr)
-	case ir.ExprSelect:
-		f(k.Condition)
-		f(k.Accept)
-		f(k.Reject)
-	case ir.ExprSplat:
-		f(k.Value)
-	case ir.ExprSwizzle:
-		f(k.Vector)
-	case ir.ExprCompose:
-		for _, c := range k.Components {
-			f(c)
-		}
-	case ir.ExprAs:
-		f(k.Expr)
-	case ir.ExprDerivative:
-		f(k.Expr)
-	case ir.ExprMath:
-		visitMathExprHandles(k, f)
-	case ir.ExprRelational:
-		f(k.Argument)
-	case ir.ExprArrayLength:
-		f(k.Array)
-	case ir.ExprImageSample:
-		visitImageSampleHandles(k, f)
-	case ir.ExprImageLoad:
-		visitImageLoadHandles(k, f)
-	case ir.ExprImageQuery:
-		f(k.Image)
-		if size, ok := k.Query.(ir.ImageQuerySize); ok && size.Level != nil {
-			f(*size.Level)
-		}
-	case ir.ExprRayQueryGetIntersection:
-		f(k.Query)
-	case ir.ExprPhi:
-		for _, inc := range k.Incoming {
-			f(inc.Value)
-		}
-	}
-}
-
-func visitMathExprHandles(k ir.ExprMath, f func(ir.ExpressionHandle)) {
-	f(k.Arg)
-	if k.Arg1 != nil {
-		f(*k.Arg1)
-	}
-	if k.Arg2 != nil {
-		f(*k.Arg2)
-	}
-	if k.Arg3 != nil {
-		f(*k.Arg3)
-	}
-}
-
-func visitImageSampleHandles(k ir.ExprImageSample, f func(ir.ExpressionHandle)) {
-	f(k.Image)
-	f(k.Sampler)
-	f(k.Coordinate)
-	if k.ArrayIndex != nil {
-		f(*k.ArrayIndex)
-	}
-	if k.Offset != nil {
-		f(*k.Offset)
-	}
-	if k.DepthRef != nil {
-		f(*k.DepthRef)
-	}
-	switch l := k.Level.(type) {
-	case ir.SampleLevelExact:
-		f(l.Level)
-	case ir.SampleLevelBias:
-		f(l.Bias)
-	case ir.SampleLevelGradient:
-		f(l.X)
-		f(l.Y)
-	}
-}
-
-func visitImageLoadHandles(k ir.ExprImageLoad, f func(ir.ExpressionHandle)) {
-	f(k.Image)
-	f(k.Coordinate)
-	if k.ArrayIndex != nil {
-		f(*k.ArrayIndex)
-	}
-	if k.Sample != nil {
-		f(*k.Sample)
-	}
-	if k.Level != nil {
-		f(*k.Level)
-	}
-}
-
-// followRayQueryFunctionExprs calls followExpr for every expression
-// handle embedded in a RayQueryFunction variant.
-func followRayQueryFunctionExprs(fn *ir.Function, fun ir.RayQueryFunction, followExpr func(*ir.Function, ir.ExpressionHandle)) {
-	switch f := fun.(type) {
-	case ir.RayQueryInitialize:
-		followExpr(fn, f.AccelerationStructure)
-		followExpr(fn, f.Descriptor)
-	case ir.RayQueryProceed:
-		followExpr(fn, f.Result)
-	case ir.RayQueryGenerateIntersection:
-		followExpr(fn, f.HitT)
-	case ir.RayQueryTerminate, ir.RayQueryConfirmIntersection:
-		// No expression operands.
-	}
+	irutil.StmtExprHandles(kind, f)
+	irutil.NestedBlocks(kind, func(b ir.Block) { blockUses(b, f) })
 }
 
 // walkBlockForCalls visits every StmtCall in a block tree, descending

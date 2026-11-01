@@ -16,11 +16,11 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-// This file is the enumeration of the IR's sum types that the visitor tests
-// of this package share. The same file, with another package clause and the
-// path of package ir, sits in dxil/internal/emit and
-// dxil/internal/passes/dce, and in internal/irutil as walk_coverage_test.go
-// (kept in step by hand: a test package cannot import another's test files).
+// This file is the enumeration of the IR's sum types that the kind tests of
+// this package (TestMarkStmtRootsEveryKind, TestStmtHasSideEffectsEveryKind)
+// share. internal/irutil's walk_coverage_test.go holds the same enumeration
+// for the operand walkers every pass uses (kept in step by hand: a test
+// package cannot import another's test files).
 //
 // Go cannot list a package's types at run time, so irKindRegistry is written
 // out. newIRKinds compares it with the declarations it parses from package
@@ -35,7 +35,7 @@ var irKindRegistry = []any{
 	ir.Literal{}, ir.ExprConstant{}, ir.ExprOverride{}, ir.ExprZeroValue{},
 	ir.ExprCompose{}, ir.ExprAccess{}, ir.ExprAccessIndex{}, ir.ExprSplat{},
 	ir.ExprSwizzle{}, ir.ExprFunctionArgument{}, ir.ExprGlobalVariable{},
-	ir.ExprLocalVariable{}, ir.ExprLoad{}, ir.ExprAlias{}, ir.ExprPhi{},
+	ir.ExprLocalVariable{}, ir.ExprLoad{},
 	ir.ExprImageSample{}, ir.ExprImageLoad{}, ir.ExprImageQuery{},
 	ir.ExprUnary{}, ir.ExprBinary{}, ir.ExprSelect{}, ir.ExprDerivative{},
 	ir.ExprRelational{}, ir.ExprMath{}, ir.ExprAs{}, ir.ExprCallResult{},
@@ -66,7 +66,6 @@ var irKindRegistry = []any{
 	// ir.AtomicFunction
 	ir.AtomicAdd{}, ir.AtomicSubtract{}, ir.AtomicAnd{}, ir.AtomicExclusiveOr{},
 	ir.AtomicInclusiveOr{}, ir.AtomicMin{}, ir.AtomicMax{}, ir.AtomicExchange{},
-	ir.AtomicStore{}, ir.AtomicLoad{},
 	// ir.RayQueryFunction
 	ir.RayQueryInitialize{}, ir.RayQueryProceed{}, ir.RayQueryTerminate{},
 	ir.RayQueryGenerateIntersection{}, ir.RayQueryConfirmIntersection{},

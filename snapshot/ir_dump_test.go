@@ -851,10 +851,6 @@ func formatAtomicFun(f ir.AtomicFunction) string {
 		return "Max"
 	case ir.AtomicExchange:
 		return "Exchange"
-	case ir.AtomicStore:
-		return "Store"
-	case ir.AtomicLoad:
-		return "Load"
 	default:
 		return fmt.Sprintf("AtomicFun(%T)", f)
 	}

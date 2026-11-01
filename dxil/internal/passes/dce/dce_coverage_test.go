@@ -3,6 +3,8 @@ package dce
 import (
 	"testing"
 
+	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -527,12 +529,10 @@ func TestKillStatementIsRoot(t *testing.T) {
 	}
 }
 
-// TestVisitExprHandlesAllKinds exercises visitExprHandles with various
-// expression kinds that have different sub-handle structures.
-//
-// Covers: visitExprHandles branches for ExprSelect, ExprSplat, ExprSwizzle,
-// ExprCompose, ExprAs, ExprDerivative, ExprMath, ExprRelational,
-// ExprArrayLength, ExprImageSample, ExprImageLoad, ExprImageQuery, ExprPhi.
+// TestVisitExprHandlesAllKinds checks the operands liveness follows through
+// irutil.ExprHandles for expression kinds with different sub-handle
+// structures, the SSA phi among them. Every kind and operand is pinned by
+// irutil's TestWalkersCoverEveryKind; these are the pass's everyday cases.
 func TestVisitExprHandlesAllKinds(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -610,9 +610,9 @@ func TestVisitExprHandlesAllKinds(t *testing.T) {
 		},
 		{
 			name: "Phi",
-			kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{
-				{PredKey: ir.PhiPredIfAccept, Value: 10},
-				{PredKey: ir.PhiPredIfReject, Value: 11},
+			kind: ssa.Phi{Incoming: []ssa.Incoming{
+				{PredKey: ssa.PredIfAccept, Value: 10},
+				{PredKey: ssa.PredIfReject, Value: 11},
 			}},
 			expected: []ir.ExpressionHandle{10, 11},
 		},
@@ -621,7 +621,7 @@ func TestVisitExprHandlesAllKinds(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var visited []ir.ExpressionHandle
-			visitExprHandles(tt.kind, func(h ir.ExpressionHandle) {
+			irutil.ExprHandles(tt.kind, func(h ir.ExpressionHandle) {
 				visited = append(visited, h)
 			})
 			if len(visited) != len(tt.expected) {

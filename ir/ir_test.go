@@ -427,8 +427,6 @@ func TestAtomicFunctionInterface(t *testing.T) {
 		{"Min", AtomicMin{}},
 		{"Max", AtomicMax{}},
 		{"Exchange", AtomicExchange{}},
-		{"Store", AtomicStore{}},
-		{"Load", AtomicLoad{}},
 	}
 
 	for _, tt := range tests {

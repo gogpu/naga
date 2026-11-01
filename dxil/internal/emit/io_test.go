@@ -3,6 +3,7 @@ package emit
 import (
 	"testing"
 
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -292,13 +293,13 @@ func TestExpressionReferences_ImageLoad(t *testing.T) {
 	}
 }
 
-// TestExpressionReferences_Alias verifies ExprAlias reference detection.
+// TestExpressionReferences_Alias verifies ssa.Alias reference detection.
 func TestExpressionReferences_Alias(t *testing.T) {
-	if !expressionReferences(ir.ExprAlias{Source: 7}, 7) {
-		t.Error("expected ExprAlias to reference its source")
+	if !expressionReferences(ssa.Alias{Source: 7}, 7) {
+		t.Error("expected ssa.Alias to reference its source")
 	}
-	if expressionReferences(ir.ExprAlias{Source: 7}, 8) {
-		t.Error("expected ExprAlias not to reference a different handle")
+	if expressionReferences(ssa.Alias{Source: 7}, 8) {
+		t.Error("expected ssa.Alias not to reference a different handle")
 	}
 }
 

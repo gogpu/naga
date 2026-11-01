@@ -1334,34 +1334,34 @@ func TestRemapExpressionHandles(t *testing.T) {
 	})
 }
 
-// --- mapSampleLevel tests ---
+// --- walkSampleLevel tests ---
 
 func TestMapSampleLevel(t *testing.T) {
 	rm := func(h ir.ExpressionHandle) ir.ExpressionHandle { return h + 10 }
 
 	t.Run("nil", func(t *testing.T) {
-		result := mapSampleLevel(nil, rm)
+		result := walkSampleLevel(nil, mapHandles{f: rm})
 		if result != nil {
 			t.Error("expected nil")
 		}
 	})
 
 	t.Run("auto unchanged", func(t *testing.T) {
-		result := mapSampleLevel(ir.SampleLevelAuto{}, rm)
+		result := walkSampleLevel(ir.SampleLevelAuto{}, mapHandles{f: rm})
 		if _, ok := result.(ir.SampleLevelAuto); !ok {
 			t.Error("expected SampleLevelAuto")
 		}
 	})
 
 	t.Run("zero unchanged", func(t *testing.T) {
-		result := mapSampleLevel(ir.SampleLevelZero{}, rm)
+		result := walkSampleLevel(ir.SampleLevelZero{}, mapHandles{f: rm})
 		if _, ok := result.(ir.SampleLevelZero); !ok {
 			t.Error("expected SampleLevelZero")
 		}
 	})
 
 	t.Run("exact remaps level", func(t *testing.T) {
-		result := mapSampleLevel(ir.SampleLevelExact{Level: 5}, rm)
+		result := walkSampleLevel(ir.SampleLevelExact{Level: 5}, mapHandles{f: rm})
 		exact := result.(ir.SampleLevelExact)
 		if exact.Level != 15 {
 			t.Errorf("got level=%d, want 15", exact.Level)
@@ -1369,7 +1369,7 @@ func TestMapSampleLevel(t *testing.T) {
 	})
 
 	t.Run("bias remaps bias", func(t *testing.T) {
-		result := mapSampleLevel(ir.SampleLevelBias{Bias: 3}, rm)
+		result := walkSampleLevel(ir.SampleLevelBias{Bias: 3}, mapHandles{f: rm})
 		bias := result.(ir.SampleLevelBias)
 		if bias.Bias != 13 {
 			t.Errorf("got bias=%d, want 13", bias.Bias)
@@ -1377,7 +1377,7 @@ func TestMapSampleLevel(t *testing.T) {
 	})
 
 	t.Run("gradient remaps x and y", func(t *testing.T) {
-		result := mapSampleLevel(ir.SampleLevelGradient{X: 1, Y: 2}, rm)
+		result := walkSampleLevel(ir.SampleLevelGradient{X: 1, Y: 2}, mapHandles{f: rm})
 		grad := result.(ir.SampleLevelGradient)
 		if grad.X != 11 || grad.Y != 12 {
 			t.Errorf("got x=%d y=%d, want x=11 y=12", grad.X, grad.Y)
@@ -1495,75 +1495,75 @@ func TestTraceStatementsForRefs_NestedBlocks(t *testing.T) {
 	}
 }
 
-// --- mapGatherMode tests ---
+// --- walkGatherMode tests ---
 
 func TestMapGatherMode(t *testing.T) {
 	rm := func(h ir.ExpressionHandle) ir.ExpressionHandle { return h + 100 }
 
 	t.Run("Broadcast", func(t *testing.T) {
-		result := mapGatherMode(ir.GatherBroadcast{Index: 5}, rm)
+		result := walkGatherMode(ir.GatherBroadcast{Index: 5}, mapHandles{f: rm})
 		if g, ok := result.(ir.GatherBroadcast); !ok || g.Index != 105 {
 			t.Errorf("expected index 105, got %v", result)
 		}
 	})
 
 	t.Run("Shuffle", func(t *testing.T) {
-		result := mapGatherMode(ir.GatherShuffle{Index: 3}, rm)
+		result := walkGatherMode(ir.GatherShuffle{Index: 3}, mapHandles{f: rm})
 		if g, ok := result.(ir.GatherShuffle); !ok || g.Index != 103 {
 			t.Errorf("expected index 103, got %v", result)
 		}
 	})
 
 	t.Run("ShuffleDown", func(t *testing.T) {
-		result := mapGatherMode(ir.GatherShuffleDown{Delta: 1}, rm)
+		result := walkGatherMode(ir.GatherShuffleDown{Delta: 1}, mapHandles{f: rm})
 		if g, ok := result.(ir.GatherShuffleDown); !ok || g.Delta != 101 {
 			t.Errorf("expected delta 101, got %v", result)
 		}
 	})
 
 	t.Run("ShuffleUp", func(t *testing.T) {
-		result := mapGatherMode(ir.GatherShuffleUp{Delta: 2}, rm)
+		result := walkGatherMode(ir.GatherShuffleUp{Delta: 2}, mapHandles{f: rm})
 		if g, ok := result.(ir.GatherShuffleUp); !ok || g.Delta != 102 {
 			t.Errorf("expected delta 102, got %v", result)
 		}
 	})
 
 	t.Run("ShuffleXor", func(t *testing.T) {
-		result := mapGatherMode(ir.GatherShuffleXor{Mask: 7}, rm)
+		result := walkGatherMode(ir.GatherShuffleXor{Mask: 7}, mapHandles{f: rm})
 		if g, ok := result.(ir.GatherShuffleXor); !ok || g.Mask != 107 {
 			t.Errorf("expected mask 107, got %v", result)
 		}
 	})
 
 	t.Run("QuadBroadcast", func(t *testing.T) {
-		result := mapGatherMode(ir.GatherQuadBroadcast{Index: 0}, rm)
+		result := walkGatherMode(ir.GatherQuadBroadcast{Index: 0}, mapHandles{f: rm})
 		if g, ok := result.(ir.GatherQuadBroadcast); !ok || g.Index != 100 {
 			t.Errorf("expected index 100, got %v", result)
 		}
 	})
 
 	t.Run("BroadcastFirst passthrough", func(t *testing.T) {
-		result := mapGatherMode(ir.GatherBroadcastFirst{}, rm)
+		result := walkGatherMode(ir.GatherBroadcastFirst{}, mapHandles{f: rm})
 		if _, ok := result.(ir.GatherBroadcastFirst); !ok {
 			t.Error("expected GatherBroadcastFirst passthrough")
 		}
 	})
 
 	t.Run("QuadSwap passthrough", func(t *testing.T) {
-		result := mapGatherMode(ir.GatherQuadSwap{Direction: ir.QuadDirectionX}, rm)
+		result := walkGatherMode(ir.GatherQuadSwap{Direction: ir.QuadDirectionX}, mapHandles{f: rm})
 		if _, ok := result.(ir.GatherQuadSwap); !ok {
 			t.Error("expected GatherQuadSwap passthrough")
 		}
 	})
 }
 
-// --- mapRayQueryFunction tests ---
+// --- walkRayQueryFunction tests ---
 
 func TestMapRayQueryFunction(t *testing.T) {
 	rm := func(h ir.ExpressionHandle) ir.ExpressionHandle { return h + 10 }
 
 	t.Run("Initialize", func(t *testing.T) {
-		result := mapRayQueryFunction(ir.RayQueryInitialize{AccelerationStructure: 1, Descriptor: 2}, rm)
+		result := walkRayQueryFunction(ir.RayQueryInitialize{AccelerationStructure: 1, Descriptor: 2}, mapHandles{f: rm})
 		init := result.(ir.RayQueryInitialize)
 		if init.AccelerationStructure != 11 || init.Descriptor != 12 {
 			t.Errorf("got as=%d desc=%d, want 11, 12", init.AccelerationStructure, init.Descriptor)
@@ -1571,7 +1571,7 @@ func TestMapRayQueryFunction(t *testing.T) {
 	})
 
 	t.Run("Proceed", func(t *testing.T) {
-		result := mapRayQueryFunction(ir.RayQueryProceed{Result: 3}, rm)
+		result := walkRayQueryFunction(ir.RayQueryProceed{Result: 3}, mapHandles{f: rm})
 		proc := result.(ir.RayQueryProceed)
 		if proc.Result != 13 {
 			t.Errorf("got result=%d, want 13", proc.Result)
@@ -1579,7 +1579,7 @@ func TestMapRayQueryFunction(t *testing.T) {
 	})
 
 	t.Run("GenerateIntersection", func(t *testing.T) {
-		result := mapRayQueryFunction(ir.RayQueryGenerateIntersection{HitT: 5}, rm)
+		result := walkRayQueryFunction(ir.RayQueryGenerateIntersection{HitT: 5}, mapHandles{f: rm})
 		gen := result.(ir.RayQueryGenerateIntersection)
 		if gen.HitT != 15 {
 			t.Errorf("got hitT=%d, want 15", gen.HitT)
@@ -1587,21 +1587,21 @@ func TestMapRayQueryFunction(t *testing.T) {
 	})
 
 	t.Run("Terminate passthrough", func(t *testing.T) {
-		result := mapRayQueryFunction(ir.RayQueryTerminate{}, rm)
+		result := walkRayQueryFunction(ir.RayQueryTerminate{}, mapHandles{f: rm})
 		if _, ok := result.(ir.RayQueryTerminate); !ok {
 			t.Error("expected RayQueryTerminate passthrough")
 		}
 	})
 }
 
-// --- mapAtomicFunction tests ---
+// --- walkAtomicFunction tests ---
 
 func TestMapAtomicFunction(t *testing.T) {
 	rm := func(h ir.ExpressionHandle) ir.ExpressionHandle { return h + 10 }
 
 	t.Run("Exchange with compare", func(t *testing.T) {
 		cmp := ir.ExpressionHandle(5)
-		result := mapAtomicFunction(ir.AtomicExchange{Compare: &cmp}, rm)
+		result := walkAtomicFunction(ir.AtomicExchange{Compare: &cmp}, mapHandles{f: rm})
 		ex := result.(ir.AtomicExchange)
 		if ex.Compare == nil || *ex.Compare != 15 {
 			t.Errorf("expected compare=15, got %v", ex.Compare)
@@ -1612,7 +1612,7 @@ func TestMapAtomicFunction(t *testing.T) {
 	})
 
 	t.Run("Exchange without compare", func(t *testing.T) {
-		result := mapAtomicFunction(ir.AtomicExchange{Compare: nil}, rm)
+		result := walkAtomicFunction(ir.AtomicExchange{Compare: nil}, mapHandles{f: rm})
 		ex := result.(ir.AtomicExchange)
 		if ex.Compare != nil {
 			t.Error("expected nil compare")
@@ -1620,7 +1620,7 @@ func TestMapAtomicFunction(t *testing.T) {
 	})
 
 	t.Run("Add passthrough", func(t *testing.T) {
-		result := mapAtomicFunction(ir.AtomicAdd{}, rm)
+		result := walkAtomicFunction(ir.AtomicAdd{}, mapHandles{f: rm})
 		if _, ok := result.(ir.AtomicAdd); !ok {
 			t.Error("expected AtomicAdd passthrough")
 		}

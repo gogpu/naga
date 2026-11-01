@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -6963,8 +6964,8 @@ func TestSplitPhiRanges(t *testing.T) {
 			{Kind: ir.ExprBinary{}}, // [0] non-phi
 			{Kind: ir.ExprBinary{}}, // [1] non-phi
 			{Kind: ir.ExprBinary{}}, // [2] non-phi
-			{Kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{{PredKey: ir.PhiPredIfAccept, Value: 0}, {PredKey: ir.PhiPredIfReject, Value: 1}}}}, // [3] phi
-			{Kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{{PredKey: ir.PhiPredIfAccept, Value: 1}, {PredKey: ir.PhiPredIfReject, Value: 2}}}}, // [4] phi
+			{Kind: ssa.Phi{Incoming: []ssa.Incoming{{PredKey: ssa.PredIfAccept, Value: 0}, {PredKey: ssa.PredIfReject, Value: 1}}}}, // [3] phi
+			{Kind: ssa.Phi{Incoming: []ssa.Incoming{{PredKey: ssa.PredIfAccept, Value: 1}, {PredKey: ssa.PredIfReject, Value: 2}}}}, // [4] phi
 		},
 	}
 
@@ -7018,7 +7019,7 @@ func TestIsPhiExpression(t *testing.T) {
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
 			{Kind: ir.ExprBinary{}},
-			{Kind: ir.ExprPhi{Incoming: []ir.PhiIncoming{{PredKey: ir.PhiPredIfAccept, Value: 0}}}},
+			{Kind: ssa.Phi{Incoming: []ssa.Incoming{{PredKey: ssa.PredIfAccept, Value: 0}}}},
 		},
 	}
 
@@ -7026,7 +7027,7 @@ func TestIsPhiExpression(t *testing.T) {
 		t.Error("handle 0 (ExprBinary) should not be phi")
 	}
 	if !isPhiExpression(fn, 1) {
-		t.Error("handle 1 (ExprPhi) should be phi")
+		t.Error("handle 1 (ssa.Phi) should be phi")
 	}
 	if isPhiExpression(fn, 99) {
 		t.Error("out-of-range handle should not be phi")

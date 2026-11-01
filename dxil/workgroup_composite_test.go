@@ -10,6 +10,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil/internal/module"
+	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/valid"
 )
@@ -115,7 +116,7 @@ func emitScopeErrors(fn *ir.Function) []string {
 			switch k := st.Kind.(type) {
 			case ir.StmtEmit:
 				for h := k.Range.Start; h < k.Range.End; h++ {
-					visitExprSubHandles(fn.Expressions[h].Kind, func(sub ir.ExpressionHandle) {
+					irutil.ExprHandles(fn.Expressions[h].Kind, func(sub ir.ExpressionHandle) {
 						check(scope, sub, fmt.Sprintf("[%d] %T", h, fn.Expressions[h].Kind))
 					})
 					scope[h] = true
@@ -140,7 +141,7 @@ func emitScopeErrors(fn *ir.Function) []string {
 				for _, r := range statementResults(k) {
 					scope[r] = true
 				}
-				walkStmtExprs(fn, k, func(_ *ir.Function, h ir.ExpressionHandle) {
+				irutil.StmtExprHandles(k, func(h ir.ExpressionHandle) {
 					check(scope, h, fmt.Sprintf("%T", k))
 				})
 			}

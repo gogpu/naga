@@ -64,28 +64,6 @@ func TestValuePointerTypeInterface(t *testing.T) {
 	}
 }
 
-// --- ExprAlias and ExprPhi expressionKind ---
-
-func TestDxilOnlyExpressionKinds(t *testing.T) {
-	// Verify DXIL-only expression kinds satisfy ExpressionKind interface
-	tests := []struct {
-		name string
-		kind ExpressionKind
-	}{
-		{"ExprAlias", ExprAlias{Source: 0}},
-		{"ExprPhi", ExprPhi{Incoming: []PhiIncoming{
-			{PredKey: PhiPredIfAccept, Value: 0},
-			{PredKey: PhiPredIfReject, Value: 1},
-		}}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tt.kind.expressionKind()
-		})
-	}
-}
-
 // --- Interpolation and Binding types ---
 
 func TestBindingTypes(t *testing.T) {

@@ -1,6 +1,7 @@
 package mem2reg
 
 import (
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -11,26 +12,26 @@ import (
 // Algorithm — adapted from LLVM PromoteMemoryToRegister.cpp:
 //
 //  1. For each promotable scalar var: track its current value through
-//     a DFS walk of fn.Body. Loads rewrite to ExprAlias of the current
+//     a DFS walk of fn.Body. Loads rewrite to ssa.Alias of the current
 //     value. Stores update the current value and are removed.
 //  2. At StmtIf merge: if the var's value differs between the two
-//     branches, synthesize ExprPhi at the merge point with one
-//     PhiPredIfAccept incoming and one PhiPredIfReject incoming. The
+//     branches, synthesize ssa.Phi at the merge point with one
+//     ssa.PredIfAccept incoming and one ssa.PredIfReject incoming. The
 //     phi handle becomes the new current value.
 //  3. At StmtLoop: insert phi at the loop "header" (which we model as
 //     the first statement of the body in our structured IR) with two
-//     incomings — PhiPredLoopInit (pre-loop value) and
-//     PhiPredLoopBackEdge (value at end of body+continuing). The
+//     incomings — ssa.PredLoopInit (pre-loop value) and
+//     ssa.PredLoopBackEdge (value at end of body+continuing). The
 //     back-edge incoming is patched up after the body walk.
-//  4. At StmtSwitch merge: synthesize ExprPhi with one
-//     PhiPredSwitchCase incoming per case (CaseIdx encodes the case
+//  4. At StmtSwitch merge: synthesize ssa.Phi with one
+//     ssa.PredSwitchCase incoming per case (CaseIdx encodes the case
 //     index in the original Cases slice).
 //
 // Each synthesized phi is materialized as (a) a new entry in
 // fn.Expressions and (b) a single-handle StmtEmit prepended to the
-// merge point. The DXIL emit layer recognizes ExprPhi inside a
+// merge point. The DXIL emit layer recognizes ssa.Phi inside a
 // StmtEmit range and lowers it to LLVM FUNC_CODE_INST_PHI at the
-// matching basic-block prologue, with PhiPredKey -> BBIndex
+// matching basic-block prologue, with ssa.PredKey -> BBIndex
 // resolved via the emitter's lastBranchContext side state.
 //
 // Reference parity: matches LLVM mem2reg's invariant that every
@@ -109,7 +110,7 @@ func selectStructuredCandidates(ctx *promotionContext) map[uint32]struct{} {
 }
 
 // dropUnmergeableSwitchCandidates removes from candidates every variable
-// stored inside a switch whose merge has predecessors a PhiPredSwitchCase
+// stored inside a switch whose merge has predecessors a ssa.PredSwitchCase
 // incoming cannot name: a break that is not at the end of its case (it
 // branches to the merge from a block inside the case), a fall-through case
 // (its end branches to the next case), or a missing default (the last
@@ -253,7 +254,7 @@ const (
 
 // walkBlock performs the rename pass for a single statement block.
 // The block is mutated in place: stores to candidates are removed,
-// loads to candidates are rewritten to ExprAlias, and synthesized
+// loads to candidates are rewritten to ssa.Alias, and synthesized
 // phi-bearing StmtEmit statements are inserted at structured merge
 // points. Statements after a break, continue or return never run and
 // are dropped, as the emitter drops them.
@@ -308,7 +309,7 @@ func (w *phiWalker) walkBlock(blk *[]ir.Statement) blockExit {
 }
 
 // rewriteLoadsInRange rewrites every load handle in r whose target is
-// a Phase B candidate to ExprAlias of currentValue[v]. Runs at every
+// a Phase B candidate to ssa.Alias of currentValue[v]. Runs at every
 // StmtEmit in the block walk.
 func (w *phiWalker) rewriteLoadsInRange(r ir.Range) {
 	for h := r.Start; h < r.End; h++ {
@@ -323,13 +324,13 @@ func (w *phiWalker) rewriteLoadsInRange(r ir.Range) {
 		if !hasCV {
 			continue
 		}
-		w.ctx.fn.Expressions[h].Kind = ir.ExprAlias{Source: cv}
+		w.ctx.fn.Expressions[h].Kind = ssa.Alias{Source: cv}
 	}
 }
 
 // handleIf processes a StmtIf during the rename pass. Walks both
 // branches with snapshot/restore of currentValue, then synthesizes
-// ExprPhi statements for any candidate whose value differs between
+// ssa.Phi statements for any candidate whose value differs between
 // the branches.
 //
 // Returns the synthesized phi-bearing StmtEmit statements that the
@@ -387,9 +388,9 @@ func (w *phiWalker) handleIf(stmtPtr *ir.Statement) []ir.Statement {
 			w.currentValue[v] = va
 			continue
 		}
-		phiHandle := w.appendPhi([]ir.PhiIncoming{
-			{PredKey: ir.PhiPredIfAccept, Value: va},
-			{PredKey: ir.PhiPredIfReject, Value: vr},
+		phiHandle := w.appendPhi([]ssa.Incoming{
+			{PredKey: ssa.PredIfAccept, Value: va},
+			{PredKey: ssa.PredIfReject, Value: vr},
 		})
 		w.currentValue[v] = phiHandle
 		phis = append(phis, makePhiEmit(phiHandle))
@@ -399,11 +400,11 @@ func (w *phiWalker) handleIf(stmtPtr *ir.Statement) []ir.Statement {
 
 // handleSwitch processes a StmtSwitch during the rename pass. Walks
 // each case with snapshot/restore of currentValue, then synthesizes
-// ExprPhi statements for any candidate whose value differs across
+// ssa.Phi statements for any candidate whose value differs across
 // the cases.
 //
 // Fall-through cases are conservatively treated like a separate
-// incoming — the emit-side BB-tracking maps PhiPredSwitchCase+CaseIdx
+// incoming — the emit-side BB-tracking maps ssa.PredSwitchCase+CaseIdx
 // to the BB where that case's body terminated.
 func (w *phiWalker) handleSwitch(stmtPtr *ir.Statement) []ir.Statement {
 	sk := stmtPtr.Kind.(ir.StmtSwitch)
@@ -448,8 +449,8 @@ func (w *phiWalker) handleSwitch(stmtPtr *ir.Statement) []ir.Statement {
 
 // switchMergeIncomings returns v's value along each edge into the switch's
 // merge, one per case that reaches it.
-func switchMergeIncomings(v uint32, caseValues []map[uint32]ir.ExpressionHandle, reachesMerge []bool, preSwitch map[uint32]ir.ExpressionHandle) []ir.PhiIncoming {
-	incomings := make([]ir.PhiIncoming, 0, len(caseValues))
+func switchMergeIncomings(v uint32, caseValues []map[uint32]ir.ExpressionHandle, reachesMerge []bool, preSwitch map[uint32]ir.ExpressionHandle) []ssa.Incoming {
+	incomings := make([]ssa.Incoming, 0, len(caseValues))
 	for ci := range caseValues {
 		if !reachesMerge[ci] {
 			continue
@@ -458,8 +459,8 @@ func switchMergeIncomings(v uint32, caseValues []map[uint32]ir.ExpressionHandle,
 		if !ok {
 			val = preSwitch[v]
 		}
-		incomings = append(incomings, ir.PhiIncoming{
-			PredKey: ir.PhiPredSwitchCase,
+		incomings = append(incomings, ssa.Incoming{
+			PredKey: ssa.PredSwitchCase,
 			CaseIdx: uint32(ci),
 			Value:   val,
 		})
@@ -467,7 +468,7 @@ func switchMergeIncomings(v uint32, caseValues []map[uint32]ir.ExpressionHandle,
 	return incomings
 }
 
-func allSameValue(incomings []ir.PhiIncoming) bool {
+func allSameValue(incomings []ssa.Incoming) bool {
 	for _, in := range incomings[1:] {
 		if in.Value != incomings[0].Value {
 			return false
@@ -562,13 +563,13 @@ func collectStores(ptrs *localPtr, candidates map[uint32]struct{}, block []ir.St
 	}
 }
 
-// appendPhi appends a new ExprPhi to fn.Expressions and returns its
+// appendPhi appends a new ssa.Phi to fn.Expressions and returns its
 // handle. The typifier gives the phi the type of its incoming values
 // (SSA invariant: every incoming has the same type).
-func (w *phiWalker) appendPhi(incomings []ir.PhiIncoming) ir.ExpressionHandle {
+func (w *phiWalker) appendPhi(incomings []ssa.Incoming) ir.ExpressionHandle {
 	h := ir.ExpressionHandle(len(w.ctx.fn.Expressions)) //nolint:gosec // expression count fits uint32 by IR design
 	w.ctx.fn.Expressions = append(w.ctx.fn.Expressions, ir.Expression{
-		Kind: ir.ExprPhi{Incoming: incomings},
+		Kind: ssa.Phi{Incoming: incomings},
 	})
 	return h
 }

@@ -16,7 +16,7 @@
 //   - StmtStore updates the current value and is removed
 //     from the statement stream.
 //   - Each load expression is rewritten in place to an
-//     ExprAlias pointing at the current value (or, when the
+//     ssa.Alias pointing at the current value (or, when the
 //     load precedes every store, at the variable's Init
 //     expression or a synthesized ExprZeroValue).
 //
@@ -29,7 +29,7 @@
 //     require phi insertion at structured-CFG merge points are left
 //     as alloca; they are tracked separately for Phase B.
 //
-// Phase B (deferred — tracked as BUG-DXIL-040) will add ExprPhi
+// Phase B (deferred — tracked as BUG-DXIL-040) will add ssa.Phi
 // expressions placed at structured-CFG merge points (if-merge,
 // loop-header, switch-merge), the corresponding emit-side support
 // for LLVM phi instructions in basic-block prologue position, and
@@ -53,7 +53,7 @@ import (
 // On success the function's Body and Expressions arrays are mutated
 // in place:
 //   - Promoted-variable loads (ExprLoad{ExprLocalVariable{i}}) are
-//     rewritten to ExprAlias pointing at the value last stored
+//     rewritten to ssa.Alias pointing at the value last stored
 //     into the variable (or, on first read, at the variable's
 //     Init expression or a synthesized ExprZeroValue).
 //   - Stores into promoted variables are removed from the
@@ -92,19 +92,19 @@ func Run(mod *ir.Module, fn *ir.Function) error {
 		localPtrs: buildLocalPtrMap(fn),
 	}
 	// Phase A: single-block promotion (no phi). Handles the easy
-	// cases without touching control flow and produces ExprAlias
+	// cases without touching control flow and produces ssa.Alias
 	// rewrites. After this pass, vars whose stores/loads spanned
 	// multiple blocks remain unpromoted with their alloca path.
 	promoteBlocks(ctx, (*[]ir.Statement)(&fn.Body))
 
 	// Phase B: structured-CFG SSA construction for remaining
-	// multi-block scalar candidates. Inserts ExprPhi at if/switch
+	// multi-block scalar candidates. Inserts ssa.Phi at if/switch
 	// merge points and at loop headers, plus the rename pass that
-	// rewrites loads to ExprAlias of the appropriate phi or
+	// rewrites loads to ssa.Alias of the appropriate phi or
 	// dominating store value.
 	//
 	// Re-classify to refresh the load handle set (Phase A may have
-	// already consumed some loads via ExprAlias rewrite, so the
+	// already consumed some loads via ssa.Alias rewrite, so the
 	// remaining loadHandles list is what Phase B should target).
 	// Phase B: structured-CFG SSA construction with if-merge AND
 	// switch-merge phi insertion. Loop-header phis are disqualified

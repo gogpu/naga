@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -27,7 +28,7 @@ var walkerRegistry = []any{
 	ir.Literal{}, ir.ExprConstant{}, ir.ExprOverride{}, ir.ExprZeroValue{},
 	ir.ExprCompose{}, ir.ExprAccess{}, ir.ExprAccessIndex{}, ir.ExprSplat{},
 	ir.ExprSwizzle{}, ir.ExprFunctionArgument{}, ir.ExprGlobalVariable{},
-	ir.ExprLocalVariable{}, ir.ExprLoad{}, ir.ExprAlias{}, ir.ExprPhi{},
+	ir.ExprLocalVariable{}, ir.ExprLoad{},
 	ir.ExprImageSample{}, ir.ExprImageLoad{}, ir.ExprImageQuery{},
 	ir.ExprUnary{}, ir.ExprBinary{}, ir.ExprSelect{}, ir.ExprDerivative{},
 	ir.ExprRelational{}, ir.ExprMath{}, ir.ExprAs{}, ir.ExprCallResult{},
@@ -58,7 +59,6 @@ var walkerRegistry = []any{
 	// ir.AtomicFunction
 	ir.AtomicAdd{}, ir.AtomicSubtract{}, ir.AtomicAnd{}, ir.AtomicExclusiveOr{},
 	ir.AtomicInclusiveOr{}, ir.AtomicMin{}, ir.AtomicMax{}, ir.AtomicExchange{},
-	ir.AtomicStore{}, ir.AtomicLoad{},
 	// ir.RayQueryFunction
 	ir.RayQueryInitialize{}, ir.RayQueryProceed{}, ir.RayQueryTerminate{},
 	ir.RayQueryGenerateIntersection{}, ir.RayQueryConfirmIntersection{},
@@ -68,10 +68,18 @@ var walkerRegistry = []any{
 	ir.GatherQuadBroadcast{}, ir.GatherQuadSwap{},
 }
 
+// ssaKindRegistry lists the expression kinds of package ssa, which the DXIL
+// backend adds to the functions it promotes and which the walkers handle
+// with the kinds of package ir. TestWalkersCoverEveryKind compares it with
+// the types package ssa declares.
+var ssaKindRegistry = []any{ssa.Alias{}, ssa.Phi{}}
+
 var (
+	irPkgPath      = reflect.TypeFor[ir.Literal]().PkgPath()
 	handleType     = reflect.TypeFor[ir.ExpressionHandle]()
 	typeHandleType = reflect.TypeFor[ir.TypeHandle]()
 	statementType  = reflect.TypeFor[ir.Statement]()
+	blockType      = reflect.TypeFor[ir.Block]()
 	emitType       = reflect.TypeFor[ir.StmtEmit]()
 	exprKindType   = reflect.TypeFor[ir.ExpressionKind]()
 	stmtKindType   = reflect.TypeFor[ir.StatementKind]()
@@ -83,36 +91,43 @@ var (
 const handleOffset = 100000
 
 // TestWalkersCoverEveryKind pins the coverage of the expression walker
-// (mapExprHandles) and the statement walker (blockMapper), the one copy of
-// each that compaction, inlining and pipeline-constant processing share.
+// (walkExpr) and the statement walker (walkStmt, carried through a tree by
+// blockMapper and BlockExprHandles), the one copy of each in the module:
+// compaction, inlining and pipeline-constant processing map through them,
+// and the DXIL backend reads through them.
 //
 // It parses package ir for every type with an expressionKind or
 // statementKind method, and for the variants of every marker interface
 // nested in them (sample level, image query, atomic and ray-query
 // functions, gather mode, ...), and requires walkerRegistry to list exactly
-// those. It then builds every kind, once per variant of its nested
-// interfaces, with each ExpressionHandle field (also inside slices, pointers,
-// structs, interfaces and nested blocks) set to a distinct handle, and
-// checks that
+// those; it parses package ssa for its expression kinds and requires
+// ssaKindRegistry to list exactly those. It then builds every kind, once per
+// variant of its nested interfaces, with each ExpressionHandle field (also
+// inside slices, pointers, structs, interfaces and nested blocks) set to a
+// distinct handle, and checks that
 //   - the walkers do not panic, which they do on a kind they have no case
 //     for;
 //   - remapping through a table that adds handleOffset changes every handle
 //     field to its own value plus handleOffset, in place and as a fresh copy;
 //   - the expression walker and the fresh statement walker leave their input
 //     alone;
+//   - the readers (ExprHandles, StmtExprHandles, BlockExprHandles) visit
+//     every handle in field order, a statement's own operands without those
+//     of its nested blocks, and nothing of an Emit range;
 //   - the tracers compaction runs (markExprHandleRefs,
 //     markStmtExprRefsForCompact) mark every handle, except those of an Emit
 //     range.
 func TestWalkersCoverEveryKind(t *testing.T) {
 	declared := parseMarkerImplementations(t, filepath.Join("..", "..", "ir"))
 	registry := map[string]reflect.Type{}
-	for _, v := range walkerRegistry {
+	for _, v := range append(slices.Clone(walkerRegistry), ssaKindRegistry...) {
 		ty := reflect.TypeOf(v)
 		if _, dup := registry[ty.Name()]; dup {
-			t.Fatalf("walkerRegistry lists %s twice", ty.Name())
+			t.Fatalf("walkerRegistry and ssaKindRegistry list %s twice", ty.Name())
 		}
 		registry[ty.Name()] = ty
 	}
+	checkSSAKinds(t, filepath.Join("..", "ssa"))
 
 	b := &kindBuilder{registry: registry, checked: map[reflect.Type]bool{}}
 	b.checkInterface(t, exprKindType, declared)
@@ -150,6 +165,14 @@ func checkExpressionWalker(t *testing.T, kind ir.ExpressionKind) {
 	expectOffset(t, fmt.Sprintf("RemapExpressionHandles(%T)", kind), before, collectHandles(reflect.ValueOf(got)))
 	if after := collectHandles(reflect.ValueOf(kind)); !slices.Equal(after, before) {
 		t.Errorf("RemapExpressionHandles(%T) changed its input: %v, was %v", kind, after, before)
+	}
+
+	var read []ir.ExpressionHandle
+	if err := noPanic(func() { ExprHandles(kind, func(h ir.ExpressionHandle) { read = append(read, h) }) }); err != nil {
+		t.Fatalf("ExprHandles(%#v): %v", kind, err)
+	}
+	if !slices.Equal(read, before) {
+		t.Errorf("ExprHandles(%T) visited %v, want %v", kind, read, before)
 	}
 
 	used := make([]bool, len(remap))
@@ -194,6 +217,126 @@ func checkStatementWalker(t *testing.T, b *kindBuilder, kind reflect.Type, varia
 		live = before
 	}
 	expectMarked(t, fmt.Sprintf("markStmtExprRefsForCompact(%v)", kind), live, used)
+
+	// The readers: BlockExprHandles visits the handles of the whole tree in
+	// field order, StmtExprHandles a statement's own, without its nested
+	// blocks; neither visits an Emit range.
+	var read []ir.ExpressionHandle
+	if err := noPanic(func() { BlockExprHandles(block, func(h ir.ExpressionHandle) { read = append(read, h) }) }); err != nil {
+		t.Fatalf("BlockExprHandles(%#v): %v", block[0].Kind, err)
+	}
+	// A statement's own operands come before its nested blocks, which a
+	// field-order walk does not keep for a loop's break-if: compare sets.
+	if !slices.Equal(sortedHandles(read), sortedHandles(live)) {
+		t.Errorf("BlockExprHandles(%v) visited %v, want %v", kind, read, live)
+	}
+	var own []ir.ExpressionHandle
+	if kind != emitType {
+		own = collectOwnHandles(reflect.ValueOf(block[0].Kind))
+	}
+	read = nil
+	StmtExprHandles(block[0].Kind, func(h ir.ExpressionHandle) { read = append(read, h) })
+	if !slices.Equal(read, own) {
+		t.Errorf("StmtExprHandles(%v) visited %v, want %v", kind, read, own)
+	}
+	if after := collectHandles(reflect.ValueOf(block)); !slices.Equal(after, before) {
+		t.Errorf("the readers changed %v: %v, was %v", kind, after, before)
+	}
+}
+
+// sortedHandles returns a sorted copy of hs.
+func sortedHandles(hs []ir.ExpressionHandle) []ir.ExpressionHandle {
+	out := slices.Clone(hs)
+	slices.Sort(out)
+	return out
+}
+
+// collectOwnHandles returns the ExpressionHandles of v outside the blocks
+// nested in it, in field order.
+func collectOwnHandles(v reflect.Value) []ir.ExpressionHandle {
+	var out []ir.ExpressionHandle
+	var walk func(v reflect.Value)
+	walk = func(v reflect.Value) {
+		switch {
+		case v.Type() == blockType:
+			return
+		case v.Type() == handleType:
+			out = append(out, ir.ExpressionHandle(v.Uint()))
+			return
+		}
+		switch v.Kind() {
+		case reflect.Interface, reflect.Pointer:
+			if !v.IsNil() {
+				walk(v.Elem())
+			}
+		case reflect.Struct:
+			for i := range v.NumField() {
+				walk(v.Field(i))
+			}
+		case reflect.Slice, reflect.Array:
+			for i := range v.Len() {
+				walk(v.Index(i))
+			}
+		default:
+		}
+	}
+	walk(v)
+	return out
+}
+
+// checkSSAKinds requires ssaKindRegistry to list exactly the struct types
+// package ssa (in dir) declares with an embedded field from package ir: the
+// embedding is how a kind outside package ir satisfies ir.ExpressionKind.
+// Every one of them must also be an ir.ExpressionKind.
+func checkSSAKinds(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var declared []string
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			spec, ok := n.(*ast.TypeSpec)
+			if !ok {
+				return true
+			}
+			st, ok := spec.Type.(*ast.StructType)
+			if !ok {
+				return false
+			}
+			for _, field := range st.Fields.List {
+				if sel, ok := field.Type.(*ast.SelectorExpr); ok && len(field.Names) == 0 {
+					if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "ir" {
+						declared = append(declared, spec.Name.Name)
+					}
+				}
+			}
+			return false
+		})
+	}
+	var listed []string
+	for _, v := range ssaKindRegistry {
+		ty := reflect.TypeOf(v)
+		listed = append(listed, ty.Name())
+		if !ty.Implements(exprKindType) {
+			t.Errorf("ssa.%s does not implement ir.ExpressionKind", ty.Name())
+		}
+	}
+	sort.Strings(declared)
+	sort.Strings(listed)
+	if !slices.Equal(declared, listed) {
+		t.Errorf("package ssa declares the kinds %v, ssaKindRegistry lists %v: list each and give the walkers a case for it", declared, listed)
+	}
 }
 
 // expectOffset reports every handle that is not its old value plus
@@ -321,7 +464,9 @@ func (b *kindBuilder) checkInterface(t *testing.T, iface reflect.Type, declared 
 	sort.Strings(want)
 	var got []string
 	for _, ty := range b.implementations(iface) {
-		got = append(got, ty.Name())
+		if ty.PkgPath() == irPkgPath { // the ssa kinds are checked by checkSSAKinds
+			got = append(got, ty.Name())
+		}
 	}
 	for _, name := range want {
 		if !slices.Contains(got, name) {

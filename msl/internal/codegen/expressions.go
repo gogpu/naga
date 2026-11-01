@@ -1122,7 +1122,7 @@ func (w *Writer) writeLoad(load ir.ExprLoad) error {
 // Matches Rust naga MSL put_unchecked_load.
 func (w *Writer) writeUncheckedLoad(pointer ir.ExpressionHandle) error {
 	if w.isAtomicPointer(pointer) {
-		if err := w.validateAtomicOperation(pointer, ir.AtomicLoad{}, nil); err != nil {
+		if err := w.validateAtomicOperation(pointer, "load", false); err != nil {
 			return err
 		}
 		w.write("metal::atomic_load_explicit(&")

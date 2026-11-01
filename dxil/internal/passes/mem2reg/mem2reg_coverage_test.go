@@ -3,6 +3,8 @@ package mem2reg
 import (
 	"testing"
 
+	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/ssa"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -11,13 +13,13 @@ import (
 // ---------------------------------------------------------------------------
 
 // TestPhaseBSwitchMergePromotion verifies switch-merge phi placement:
-// a variable stored in different switch cases produces an ExprPhi with
-// one PhiPredSwitchCase incoming per case at the merge point.
+// a variable stored in different switch cases produces an ssa.Phi with
+// one ssa.PredSwitchCase incoming per case at the merge point.
 //
 // Real pattern: shader that branches on vertex/instance ID and writes
 // different values to a local based on case.
 //
-// Covers: handleSwitch, collectExpressionHandles for ExprAlias.
+// Covers: handleSwitch, the classifier's view of an ssa.Alias.
 func TestPhaseBSwitchMergePromotion(t *testing.T) {
 	mod := &ir.Module{}
 	i32 := scalarTypeHandle(mod, ir.ScalarSint, 4)
@@ -58,15 +60,15 @@ func TestPhaseBSwitchMergePromotion(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	// The load should be rewritten to ExprAlias pointing to an ExprPhi.
-	alias, isAlias := fn.Expressions[loadH].Kind.(ir.ExprAlias)
+	// The load should be rewritten to ssa.Alias pointing to an ssa.Phi.
+	alias, isAlias := fn.Expressions[loadH].Kind.(ssa.Alias)
 	if !isAlias {
-		t.Fatalf("expected ExprAlias after Phase B switch, got %T", fn.Expressions[loadH].Kind)
+		t.Fatalf("expected ssa.Alias after Phase B switch, got %T", fn.Expressions[loadH].Kind)
 	}
 
-	phi, isPhi := fn.Expressions[alias.Source].Kind.(ir.ExprPhi)
+	phi, isPhi := fn.Expressions[alias.Source].Kind.(ssa.Phi)
 	if !isPhi {
-		t.Fatalf("expected ExprPhi at alias source, got %T", fn.Expressions[alias.Source].Kind)
+		t.Fatalf("expected ssa.Phi at alias source, got %T", fn.Expressions[alias.Source].Kind)
 	}
 
 	if len(phi.Incoming) != 3 {
@@ -74,8 +76,8 @@ func TestPhaseBSwitchMergePromotion(t *testing.T) {
 	}
 
 	for _, inc := range phi.Incoming {
-		if inc.PredKey != ir.PhiPredSwitchCase {
-			t.Errorf("expected PhiPredSwitchCase, got %d", inc.PredKey)
+		if inc.PredKey != ssa.PredSwitchCase {
+			t.Errorf("expected ssa.PredSwitchCase, got %d", inc.PredKey)
 		}
 	}
 }
@@ -117,9 +119,9 @@ func TestPhaseBSwitchNoWritePassThrough(t *testing.T) {
 	}
 
 	// The load should alias the init value directly (no phi needed).
-	alias, isAlias := fn.Expressions[loadH].Kind.(ir.ExprAlias)
+	alias, isAlias := fn.Expressions[loadH].Kind.(ssa.Alias)
 	if !isAlias {
-		t.Fatalf("expected ExprAlias, got %T", fn.Expressions[loadH].Kind)
+		t.Fatalf("expected ssa.Alias, got %T", fn.Expressions[loadH].Kind)
 	}
 	if alias.Source != initVal {
 		t.Errorf("expected alias to init val %d, got %d", initVal, alias.Source)
@@ -163,8 +165,8 @@ func TestPhaseBLoopDisqualification(t *testing.T) {
 	}
 
 	// Variable stored inside loop should be disqualified. The load should
-	// remain as ExprLoad (not rewritten to ExprAlias).
-	if _, isAlias := fn.Expressions[loadH].Kind.(ir.ExprAlias); isAlias {
+	// remain as ExprLoad (not rewritten to ssa.Alias).
+	if _, isAlias := fn.Expressions[loadH].Kind.(ssa.Alias); isAlias {
 		t.Fatal("load inside loop should NOT be rewritten (variable stored in loop body)")
 	}
 }
@@ -338,14 +340,11 @@ func TestClassifyStatementsCallArgDisqualifies(t *testing.T) {
 	}
 }
 
-// TestCollectExpressionHandlesExhaustive tests collectExpressionHandles
-// for expression kinds with different handle structures, including
-// optional arguments.
-//
-// Covers: collectExpressionHandles for ExprSplat, ExprSwizzle, ExprCompose,
-// ExprAs, ExprDerivative, ExprMath (with optionals), ExprRelational,
-// ExprArrayLength, ExprImageSample, ExprImageLoad, ExprImageQuery,
-// ExprAlias, appendOptional.
+// TestCollectExpressionHandlesExhaustive checks the operands the classifier
+// sees through irutil.ExprHandles for expression kinds with different handle
+// structures, including optional arguments and the SSA alias. Every kind and
+// operand is pinned by irutil's TestWalkersCoverEveryKind; these are the
+// classifier's everyday cases.
 func TestCollectExpressionHandlesExhaustive(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -438,7 +437,7 @@ func TestCollectExpressionHandlesExhaustive(t *testing.T) {
 		},
 		{
 			name:     "Alias",
-			kind:     ir.ExprAlias{Source: 9},
+			kind:     ssa.Alias{Source: 9},
 			expected: []ir.ExpressionHandle{9},
 		},
 		{
@@ -455,8 +454,8 @@ func TestCollectExpressionHandlesExhaustive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var buf [16]ir.ExpressionHandle
-			result := collectExpressionHandles(tt.kind, buf[:0])
+			var result []ir.ExpressionHandle
+			irutil.ExprHandles(tt.kind, func(h ir.ExpressionHandle) { result = append(result, h) })
 			if len(result) != len(tt.expected) {
 				t.Fatalf("expected %d handles, got %d: %v", len(tt.expected), len(result), result)
 			}
@@ -543,10 +542,10 @@ func TestPromoteBlocksRecursesIntoNestedControlFlow(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	// The load inside the nested block should be rewritten to ExprAlias.
-	alias, isAlias := fn.Expressions[loadH].Kind.(ir.ExprAlias)
+	// The load inside the nested block should be rewritten to ssa.Alias.
+	alias, isAlias := fn.Expressions[loadH].Kind.(ssa.Alias)
 	if !isAlias {
-		t.Fatalf("expected ExprAlias in nested block, got %T", fn.Expressions[loadH].Kind)
+		t.Fatalf("expected ssa.Alias in nested block, got %T", fn.Expressions[loadH].Kind)
 	}
 	if alias.Source != val {
 		t.Errorf("expected alias source %d, got %d", val, alias.Source)
@@ -583,8 +582,8 @@ func TestIsBoolLocalDisqualifiesPhiCandidate(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	// Bool variables should remain as alloca (ExprLoad, not ExprAlias).
-	if _, isAlias := fn.Expressions[loadH].Kind.(ir.ExprAlias); isAlias {
+	// Bool variables should remain as alloca (ExprLoad, not ssa.Alias).
+	if _, isAlias := fn.Expressions[loadH].Kind.(ssa.Alias); isAlias {
 		t.Fatal("bool local should NOT be promoted to phi (DXC rejects i1 phi)")
 	}
 }
@@ -697,14 +696,14 @@ func TestPromoteIfOneBranchOnly(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
-	alias, ok := fn.Expressions[loadH].Kind.(ir.ExprAlias)
+	alias, ok := fn.Expressions[loadH].Kind.(ssa.Alias)
 	if !ok {
-		t.Fatalf("expected ExprAlias, got %T", fn.Expressions[loadH].Kind)
+		t.Fatalf("expected ssa.Alias, got %T", fn.Expressions[loadH].Kind)
 	}
 
-	phi, isPhi := fn.Expressions[alias.Source].Kind.(ir.ExprPhi)
+	phi, isPhi := fn.Expressions[alias.Source].Kind.(ssa.Phi)
 	if !isPhi {
-		t.Fatalf("expected ExprPhi, got %T", fn.Expressions[alias.Source].Kind)
+		t.Fatalf("expected ssa.Phi, got %T", fn.Expressions[alias.Source].Kind)
 	}
 
 	// Two incomings: accept has val, reject has initial (zero) value.
@@ -821,9 +820,9 @@ func TestPhaseASameValueIfBranches(t *testing.T) {
 	}
 
 	// Both branches write same value → no phi needed, direct alias.
-	alias, ok := fn.Expressions[loadH].Kind.(ir.ExprAlias)
+	alias, ok := fn.Expressions[loadH].Kind.(ssa.Alias)
 	if !ok {
-		t.Fatalf("expected ExprAlias, got %T", fn.Expressions[loadH].Kind)
+		t.Fatalf("expected ssa.Alias, got %T", fn.Expressions[loadH].Kind)
 	}
 	// Should alias val directly (no phi intermediary).
 	if alias.Source != val {
