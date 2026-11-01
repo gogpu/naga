@@ -276,6 +276,10 @@ func backendBoundsCheckPolicies(p rustBoundsCheckPolicies) backend.BoundsCheckPo
 // default_for_testing() plus the shader's TOML settings.
 func rustHLSLOptions(shaderName string) (*hlsl.Options, error) {
 	opts := hlsl.DefaultOptions()
+	// Rust's binding_map is always present (empty by default) and
+	// fake_missing_bindings defaults to true.
+	opts.BindingMap = map[hlsl.ResourceBinding]hlsl.BindTarget{}
+	opts.FakeMissingBindings = true
 	// Rust's restrict_indexing (default true) is Index and Buffer Restrict;
 	// its HLSL writer never checks binding arrays.
 	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{

@@ -265,20 +265,38 @@ type Options struct {
 	ShaderModel ShaderModel
 
 	// BindingMap maps source resource bindings to HLSL register targets.
+	// A nil map puts every resource at register N, spaceG for its WGSL
+	// @group(G) @binding(N). A non-nil map, empty too, must list every
+	// resource the module writes: one without an entry is an error wrapping
+	// backend.ErrMissingBinding, unless FakeMissingBindings is set.
 	BindingMap map[ResourceBinding]BindTarget
 
-	// SamplerHeapTargets specifies binding targets for sampler heaps.
-	SamplerHeapTargets SamplerHeapBindTargets
+	// SamplerHeapTargets places the sampler heaps samplers are read from (as
+	// Rust naga and wgpu-hal's DX12 backend bind samplers). Nil places the
+	// standard samplers at register(s0, space0) and the comparison samplers
+	// at register(s0, space1), as Rust naga's default; the zero value of the
+	// struct would put both heaps in one register.
+	SamplerHeapTargets *SamplerHeapBindTargets
 
 	// SamplerBufferBindingMap maps group numbers to bind targets for
-	// sampler index buffers.
+	// sampler index buffers. A nil map puts the buffer of group G at
+	// register(tG, space255), Rust naga's fallback; a non-nil map without
+	// the group is an error wrapping backend.ErrMissingBinding, unless
+	// FakeMissingBindings is set.
 	SamplerBufferBindingMap map[uint32]BindTarget
 
-	// ExternalTextureBindingMap maps resource bindings to external texture bind targets.
+	// ExternalTextureBindingMap maps resource bindings to external texture
+	// bind targets: three planes and a parameters buffer each. Every
+	// texture_external needs an entry, a nil map too: there is no default
+	// for four registers. One without an entry is an error wrapping
+	// backend.ErrMissingBinding, unless FakeMissingBindings places it at
+	// t0-t2 and b3 as Rust naga does.
 	ExternalTextureBindingMap ExternalTextureBindingMap
 
-	// FakeMissingBindings generates automatic bindings for resources
-	// not found in BindingMap.
+	// FakeMissingBindings places a resource that a non-nil BindingMap,
+	// SamplerBufferBindingMap or ExternalTextureBindingMap leaves out where a
+	// nil map would, instead of failing. Rust naga's fake_missing_bindings
+	// defaults to true; wgpu-hal passes false, the zero value here.
 	FakeMissingBindings bool
 
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
@@ -605,12 +623,6 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 func DefaultOptions() *Options {
 	return &Options{
 		ShaderModel: ShaderModel5_1,
-		BindingMap:  make(map[ResourceBinding]BindTarget),
-		SamplerHeapTargets: SamplerHeapBindTargets{
-			StandardSamplers:   BindTarget{Space: 0, Register: 0},
-			ComparisonSamplers: BindTarget{Space: 1, Register: 0},
-		},
-		FakeMissingBindings: true,
 	}
 }
 
@@ -831,8 +843,15 @@ func toCodegenBindTarget(bt BindTarget) codegen.BindTarget {
 	}
 }
 
-// toCodegenSamplerHeapTargets converts public SamplerHeapBindTargets to codegen type.
-func toCodegenSamplerHeapTargets(t SamplerHeapBindTargets) codegen.SamplerHeapBindTargets {
+// toCodegenSamplerHeapTargets converts public SamplerHeapBindTargets to codegen type;
+// nil is the default std (s0, space0) and comparison (s0, space1).
+func toCodegenSamplerHeapTargets(t *SamplerHeapBindTargets) codegen.SamplerHeapBindTargets {
+	if t == nil {
+		return codegen.SamplerHeapBindTargets{
+			StandardSamplers:   codegen.BindTarget{Space: 0, Register: 0},
+			ComparisonSamplers: codegen.BindTarget{Space: 1, Register: 0},
+		}
+	}
 	return codegen.SamplerHeapBindTargets{
 		StandardSamplers:   toCodegenBindTarget(t.StandardSamplers),
 		ComparisonSamplers: toCodegenBindTarget(t.ComparisonSamplers),

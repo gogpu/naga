@@ -34,6 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resources a non-nil map leaves out. glsl gains `FakeMissingBindings`: on a version with explicit bindings
   (desktop 4.20, ES 3.10) a resource a non-nil `BindingMap` leaves out was written without a binding, so it got the
   driver's binding 0 (Rust naga does that silently); samplers need no entry, as GLSL combines them with the texture.
+  hlsl: `DefaultOptions` no longer sets `FakeMissingBindings` or an empty `BindingMap` (a nil map places resources at
+  their WGSL group and binding); a resource a non-nil map left out was silently written at `register(0, space0)`
+  although the doc promised an error. `SamplerHeapTargets` is a pointer: nil is Rust's default (standard samplers at
+  `s0, space0`, comparison samplers at `s0, space1`), where the zero struct put both heaps in one register. A nil
+  `SamplerBufferBindingMap` places group G's index buffer at `register(tG, space255)` (it was `t0, space0` for every
+  group); a `texture_external` without an `ExternalTextureBindingMap` entry is an error (it was left undeclared).
+  The HLSL errors match `backend.ErrMissingBinding` with `errors.Is`.
+- **Breaking: `num_workgroups` in HLSL needs `SpecialConstantsBinding`.** HLSL has no system value for it; without
+  the binding it was written as `SV_GroupID`, the workgroup's ID instead of the count (Rust naga does the same). It is
+  an error now, also under `FakeMissingBindings`.
 - **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl`, `dxil` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access

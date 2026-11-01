@@ -470,9 +470,8 @@ fn f(
     @builtin(local_invocation_id) lid: vec3<u32>,
     @builtin(workgroup_id) wid: vec3<u32>,
     @builtin(local_invocation_index) li: u32,
-    @builtin(num_workgroups) nwg: vec3<u32>,
 ) {
-    _ = gid; _ = lid; _ = wid; _ = li; _ = nwg;
+    _ = gid; _ = lid; _ = wid; _ = li;
 }`)
 	mustContain(t, code, []string{
 		"[numthreads(8, 8, 1)]",
