@@ -19,7 +19,7 @@
 //
 //	module := parseWGSL(source) // or other frontend
 //	options := hlsl.DefaultOptions()
-//	options.ShaderModel = hlsl.ShaderModel6_0
+//	options.ShaderModel = backend.ShaderModel{Major: 6, Minor: 0}
 //
 //	hlslCode, info, err := hlsl.Compile(module, options)
 //	if err != nil {

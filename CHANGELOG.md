@@ -52,6 +52,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Vulkan 1.0 device rejects. A value copied between Workgroup memory (layout-free types, VUID-10684) and a buffer used
   `OpCopyLogical` and raised the module to 1.4; below 1.4 it is now copied member by member in a function per type,
   as Tint does, so gg's Vello stages compile to valid SPIR-V 1.0.
+- **Breaking: one shader model type.** `hlsl.Options.ShaderModel` and `dxil.Options.ShaderModel` are
+  `backend.ShaderModel{Major, Minor}`, replacing the `hlsl.ShaderModel` enum with its methods and dxil's struct with
+  the exported variables `SM6_0` … `SM6_9`. The zero value is the backend's floor: 5.1 for HLSL (the enum's zero was
+  5.0), 6.0 for DXIL (`dxil.Options{}` wrote 0.0 in the container part headers and 6.0 in `!dx.shaderModel`; both
+  carry the same version now). A model the backend cannot write is an error. `hlsl.TranslationInfo.RequiredShaderModel`
+  is a `backend.ShaderModel` too.
 - **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl`, `dxil` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access

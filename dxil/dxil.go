@@ -37,30 +37,14 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-// ShaderModel represents a DXIL shader model version.
-type ShaderModel struct {
-	Major uint32
-	Minor uint32
-}
-
-// Predefined shader model versions.
-var (
-	SM6_0 = ShaderModel{6, 0}
-	SM6_1 = ShaderModel{6, 1}
-	SM6_2 = ShaderModel{6, 2}
-	SM6_3 = ShaderModel{6, 3}
-	SM6_4 = ShaderModel{6, 4}
-	SM6_5 = ShaderModel{6, 5}
-	SM6_6 = ShaderModel{6, 6}
-	SM6_7 = ShaderModel{6, 7}
-	SM6_8 = ShaderModel{6, 8}
-	SM6_9 = ShaderModel{6, 9}
-)
-
 // Options configures DXIL compilation.
 type Options struct {
-	// ShaderModel is the target shader model version.
-	ShaderModel ShaderModel
+	// ShaderModel is the shader model of the DXIL, 6.0 to 6.9; the zero
+	// value is 6.0, another version is an error. The container part headers
+	// and !dx.shaderModel carry the same version. A shader that uses a
+	// feature of a newer model (16-bit types 6.2, ray queries 6.5, 64-bit
+	// atomics 6.6, ...) gets that model's minor version.
+	ShaderModel backend.ShaderModel
 
 	// UseBypassHash uses the BYPASS sentinel hash (16×0x01) instead of
 	// the retail validator hash. The BYPASS form is accepted by
@@ -185,7 +169,7 @@ type FragmentEntryPoint struct {
 // DefaultOptions returns the default DXIL compilation options.
 func DefaultOptions() Options {
 	return Options{
-		ShaderModel:   SM6_0,
+		ShaderModel:   backend.ShaderModel{Major: 6, Minor: 0},
 		UseBypassHash: false, // retail hash — portable, no dev-mode requirement
 	}
 }
@@ -382,6 +366,29 @@ func checkBindings(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
 	return nil
 }
 
+// checkOptions refuses what checkInput refuses and normalizes the
+// shader model of opts.
+func checkOptions(irModule *ir.Module, opts *Options) error {
+	if err := checkInput(irModule, *opts); err != nil {
+		return err
+	}
+	var err error
+	opts.ShaderModel, err = normalizeShaderModel(opts.ShaderModel)
+	return err
+}
+
+// normalizeShaderModel returns sm, the zero value being 6.0, or an error for
+// a model DXIL does not have.
+func normalizeShaderModel(sm backend.ShaderModel) (backend.ShaderModel, error) {
+	if sm == (backend.ShaderModel{}) {
+		return backend.ShaderModel{Major: 6, Minor: 0}, nil
+	}
+	if sm.Major != 6 || sm.Minor > 9 {
+		return sm, fmt.Errorf("dxil: shader model %v is not supported (6.0 to 6.9 are)", sm)
+	}
+	return sm, nil
+}
+
 // Compile translates a naga IR module to DXIL bytecode wrapped in
 // a DXBC container.
 //
@@ -393,7 +400,7 @@ func checkBindings(irModule *ir.Module, ep *ir.EntryPoint, opts Options) error {
 // The result is a valid DXBC container that can be loaded by D3D12
 // or inspected with dxc.exe -dumpbin.
 func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
-	if err := checkInput(irModule, opts); err != nil {
+	if err := checkOptions(irModule, &opts); err != nil {
 		return nil, err
 	}
 	if err := ir.CheckWorkgroupSizesResolved(irModule); err != nil {
@@ -408,7 +415,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	if err := checkBindings(irModule, ep, opts); err != nil {
 		return nil, err
 	}
-	smMinor := autoUpgradeSMPre(irModule, ep, opts.ShaderModel.Minor)
+	smMinor := autoUpgradeSMPre(irModule, ep, uint32(opts.ShaderModel.Minor))
 
 	// Inline user helpers and clone the module so we never mutate the caller's IR.
 	var inlineErr error
@@ -468,7 +475,7 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 
 	// Step 1: Emit naga IR -> DXIL module.
 	emitOpts := emit.EmitOptions{
-		ShaderModelMajor:        opts.ShaderModel.Major,
+		ShaderModelMajor:        uint32(opts.ShaderModel.Major),
 		ShaderModelMinor:        smMinor,
 		BindingMap:              convertBindingMap(opts.BindingMap, opts.BoundsCheckPolicies.Buffer),
 		SamplerHeapTargets:      convertSamplerHeapTargets(opts.SamplerHeapTargets),
@@ -530,10 +537,10 @@ func Compile(irModule *ir.Module, opts Options) ([]byte, error) {
 	//
 	// STAT must precede HASH so the runtime hash covers it — DXC's
 	// part order is SFI0, ISG1, OSG1, PSV0, STAT, HASH, DXIL.
-	c.AddSTATPart(shaderKind, opts.ShaderModel.Major, smMinor, bitcodeData)
+	c.AddSTATPart(shaderKind, uint32(opts.ShaderModel.Major), smMinor, bitcodeData)
 
 	c.AddHashPart()
-	c.AddDXILPart(shaderKind, opts.ShaderModel.Major, smMinor, bitcodeData) // DXIL last
+	c.AddDXILPart(shaderKind, uint32(opts.ShaderModel.Major), smMinor, bitcodeData) // DXIL last
 
 	containerData := c.Bytes()
 

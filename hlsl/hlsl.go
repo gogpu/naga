@@ -12,133 +12,6 @@ import (
 	"github.com/gogpu/naga/ir"
 )
 
-// --- Configuration types ---
-
-// ShaderModel represents a DirectX Shader Model version.
-// Shader Models define the feature set available for shader compilation.
-type ShaderModel uint8
-
-// Supported Shader Model versions.
-const (
-	// ShaderModel5_0 is the base SM5 version (DirectX 11).
-	ShaderModel5_0 ShaderModel = iota
-
-	// ShaderModel5_1 provides improved resource binding (default).
-	ShaderModel5_1
-
-	// ShaderModel6_0 introduces wave intrinsics and DXIL.
-	ShaderModel6_0
-
-	// ShaderModel6_1 adds SV_ViewID and barycentrics.
-	ShaderModel6_1
-
-	// ShaderModel6_2 adds float16 and denorm control.
-	ShaderModel6_2
-
-	// ShaderModel6_3 adds DirectX Raytracing (DXR).
-	ShaderModel6_3
-
-	// ShaderModel6_4 adds variable rate shading and library subobjects.
-	ShaderModel6_4
-
-	// ShaderModel6_5 adds mesh shaders and sampler feedback.
-	ShaderModel6_5
-
-	// ShaderModel6_6 adds 64-bit atomics and dynamic resources.
-	ShaderModel6_6
-
-	// ShaderModel6_7 adds advanced mesh shaders and work graphs.
-	ShaderModel6_7
-)
-
-// String returns a human-readable representation of the shader model.
-func (sm ShaderModel) String() string {
-	major, minor := sm.version()
-	return fmt.Sprintf("SM %d.%d", major, minor)
-}
-
-// ProfileSuffix returns the shader profile suffix for this model.
-// Example: "5_1", "6_0". Used to construct profiles like "vs_5_1".
-func (sm ShaderModel) ProfileSuffix() string {
-	major, minor := sm.version()
-	return fmt.Sprintf("%d_%d", major, minor)
-}
-
-// Major returns the major version number.
-func (sm ShaderModel) Major() uint8 {
-	major, _ := sm.version()
-	return major
-}
-
-// Minor returns the minor version number.
-func (sm ShaderModel) Minor() uint8 {
-	_, minor := sm.version()
-	return minor
-}
-
-// SupportsDXIL returns true if this shader model uses DXIL output (SM 6.0+).
-func (sm ShaderModel) SupportsDXIL() bool {
-	return sm >= ShaderModel6_0
-}
-
-// SupportsWaveOps returns true if this shader model supports wave intrinsics (SM 6.0+).
-func (sm ShaderModel) SupportsWaveOps() bool {
-	return sm >= ShaderModel6_0
-}
-
-// SupportsMeshShaders returns true if this shader model supports mesh shaders (SM 6.5+).
-func (sm ShaderModel) SupportsMeshShaders() bool {
-	return sm >= ShaderModel6_5
-}
-
-// SupportsRayTracing returns true if this shader model supports ray tracing (SM 6.3+).
-func (sm ShaderModel) SupportsRayTracing() bool {
-	return sm >= ShaderModel6_3
-}
-
-// Supports64BitAtomics returns true if this shader model supports 64-bit atomics (SM 6.6+).
-func (sm ShaderModel) Supports64BitAtomics() bool {
-	return sm >= ShaderModel6_6
-}
-
-// SupportsFloat16 returns true if this shader model supports native float16 (SM 6.2+).
-func (sm ShaderModel) SupportsFloat16() bool {
-	return sm >= ShaderModel6_2
-}
-
-// SupportsVariableRateShading returns true if this shader model supports VRS (SM 6.4+).
-func (sm ShaderModel) SupportsVariableRateShading() bool {
-	return sm >= ShaderModel6_4
-}
-
-// version returns the major and minor version numbers.
-func (sm ShaderModel) version() (major, minor uint8) {
-	switch sm {
-	case ShaderModel5_0:
-		return 5, 0
-	case ShaderModel5_1:
-		return 5, 1
-	case ShaderModel6_0:
-		return 6, 0
-	case ShaderModel6_1:
-		return 6, 1
-	case ShaderModel6_2:
-		return 6, 2
-	case ShaderModel6_3:
-		return 6, 3
-	case ShaderModel6_4:
-		return 6, 4
-	case ShaderModel6_5:
-		return 6, 5
-	case ShaderModel6_6:
-		return 6, 6
-	case ShaderModel6_7:
-		return 6, 7
-	default:
-		return 5, 1
-	}
-}
-
 // --- Binding types ---
 
 // BindTarget specifies the HLSL register binding for a resource.
@@ -261,8 +134,10 @@ type ExternalTextureBindingMap map[ResourceBinding]ExternalTextureBindTarget
 
 // Options configures HLSL code generation.
 type Options struct {
-	// ShaderModel specifies the target shader model.
-	ShaderModel ShaderModel
+	// ShaderModel is the shader model the HLSL targets: 5.0, 5.1 or 6.0 to
+	// 6.7. The zero value is 5.1, as Rust naga's default; another
+	// version is an error.
+	ShaderModel backend.ShaderModel
 
 	// BindingMap maps source resource bindings to HLSL register targets.
 	// A nil map puts every resource at register N, spaceG for its WGSL
@@ -561,7 +436,7 @@ type TranslationInfo struct {
 	UsedFeatures FeatureFlags
 
 	// RequiredShaderModel is the minimum shader model needed for this shader.
-	RequiredShaderModel ShaderModel
+	RequiredShaderModel backend.ShaderModel
 
 	// RegisterBindings maps resource names to their HLSL register bindings.
 	RegisterBindings map[string]string
@@ -611,6 +486,11 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 		return "", nil, fmt.Errorf("hlsl: %w", err)
 	}
 	copts := toCodegenOptions(options)
+	if copts != nil {
+		if copts.ShaderModel, err = toCodegenShaderModel(options.ShaderModel); err != nil {
+			return "", nil, err
+		}
+	}
 	src, cinfo, err := codegen.Compile(module, copts)
 	if err != nil {
 		return "", nil, err
@@ -619,11 +499,23 @@ func Compile(module *ir.Module, options *Options) (string, *TranslationInfo, err
 	return src, &info, nil
 }
 
+// toCodegenShaderModel maps sm onto the HLSL writer's shader models; the
+// zero value is 5.1, as Rust naga's default.
+func toCodegenShaderModel(sm backend.ShaderModel) (codegen.ShaderModel, error) {
+	if sm == (backend.ShaderModel{}) {
+		return codegen.ShaderModel5_1, nil
+	}
+	for m := codegen.ShaderModel5_0; m <= codegen.ShaderModel6_7; m++ {
+		if m.Major() == sm.Major && m.Minor() == sm.Minor {
+			return m, nil
+		}
+	}
+	return 0, fmt.Errorf("hlsl: shader model %v is not supported (5.0, 5.1 and 6.0 to 6.7 are)", sm)
+}
+
 // DefaultOptions returns sensible default options for HLSL generation.
 func DefaultOptions() *Options {
-	return &Options{
-		ShaderModel: ShaderModel5_1,
-	}
+	return &Options{}
 }
 
 // DefaultBindTarget returns a BindTarget with default values.
@@ -815,7 +707,6 @@ func toCodegenOptions(o *Options) *codegen.Options {
 	}
 
 	return &codegen.Options{
-		ShaderModel:                        codegen.ShaderModel(o.ShaderModel),
 		BindingMap:                         bindingMap,
 		SamplerHeapTargets:                 toCodegenSamplerHeapTargets(o.SamplerHeapTargets),
 		SamplerBufferBindingMap:            samplerBufferBindingMap,
@@ -866,7 +757,7 @@ func fromCodegenTranslationInfo(ci *codegen.TranslationInfo) TranslationInfo {
 	return TranslationInfo{
 		EntryPointNames:     ci.EntryPointNames,
 		UsedFeatures:        FeatureFlags(ci.UsedFeatures),
-		RequiredShaderModel: ShaderModel(ci.RequiredShaderModel),
+		RequiredShaderModel: backend.ShaderModel{Major: ci.RequiredShaderModel.Major(), Minor: ci.RequiredShaderModel.Minor()},
 		RegisterBindings:    ci.RegisterBindings,
 		HelperFunctions:     ci.HelperFunctions,
 	}
