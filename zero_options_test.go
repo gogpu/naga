@@ -392,4 +392,19 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 	if err := mslWith(nil, false); err != nil {
 		t.Errorf("msl, nil map: %v", err)
 	}
+
+	glslWith := func(m map[glsl.BindingMapKey]uint8, fake bool) error {
+		_, _, err := glsl.Compile(bindingModule(t), glsl.Options{LangVersion: glsl.Version430, BindingMap: m, FakeMissingBindings: fake})
+		return err
+	}
+	glslPartial := map[glsl.BindingMapKey]uint8{{Group: 0, Binding: 0}: 0}
+	if err := glslWith(glslPartial, false); !errors.Is(err, backend.ErrMissingBinding) {
+		t.Errorf("glsl, partial map: err = %v, want backend.ErrMissingBinding", err)
+	}
+	if err := glslWith(glslPartial, true); err != nil {
+		t.Errorf("glsl, partial map, FakeMissingBindings: %v", err)
+	}
+	if err := glslWith(nil, false); err != nil {
+		t.Errorf("glsl, nil map: %v", err)
+	}
 }

@@ -214,6 +214,10 @@ type Options struct {
 	// When set, layout(binding = N) qualifiers are emitted.
 	BindingMap map[BindingMapKey]uint8
 
+	// FakeMissingBindings writes a resource a non-nil BindingMap leaves out
+	// without a binding qualifier instead of failing.
+	FakeMissingBindings bool
+
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
 	// shared variables they use: Polyfill (zero) or None; Native is an
 	// error.

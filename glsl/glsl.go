@@ -157,9 +157,20 @@ type Options struct {
 	//     either), so it has no effect.
 	BoundsCheckPolicies backend.BoundsCheckPolicies
 
-	// BindingMap maps resource bindings to flat GL binding indices.
-	// When set, layout(binding = N) qualifiers are emitted.
+	// BindingMap maps resource bindings to flat GL binding indices, written
+	// as layout(binding = N) on versions that have explicit bindings
+	// (desktop 4.20, ES 3.10). A nil map writes none: the caller binds the
+	// resources by the names TranslationInfo reports. A non-nil map, empty
+	// too, must list every resource the entry point uses when the version
+	// has explicit bindings: one without an entry would get the driver's
+	// binding 0, so it is an error wrapping backend.ErrMissingBinding unless
+	// FakeMissingBindings is set. Rust naga writes such a resource without a
+	// binding silently.
 	BindingMap map[BindingMapKey]uint8
+
+	// FakeMissingBindings writes a resource a non-nil BindingMap leaves out
+	// without a binding qualifier, as Rust naga does, instead of failing.
+	FakeMissingBindings bool
 
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero the
 	// shared variables they use, as WebGPU requires. The zero value,
@@ -365,6 +376,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		ForceHighPrecision:  o.ForceHighPrecision,
 		BoundsCheckPolicies: o.BoundsCheckPolicies,
 		BindingMap:          bindingMap,
+		FakeMissingBindings: o.FakeMissingBindings,
 		ClampFragDepth:      o.ClampFragDepth,
 
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
