@@ -2,6 +2,7 @@ package naga
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -329,5 +330,47 @@ func TestZeroOptionsBoundLoops(t *testing.T) {
 	}
 	if len(bounded) <= len(skipped) {
 		t.Errorf("spirv: zero Options (%d bytes) not longer than SkipLoopBounding (%d bytes): loop not bounded", len(bounded), len(skipped))
+	}
+}
+
+// bindingShader uses two resources; the binding maps below list only one.
+const bindingShader = `
+@group(0) @binding(0) var<storage, read_write> a: array<u32, 4>;
+@group(1) @binding(3) var<storage, read_write> b: array<u32, 4>;
+@compute @workgroup_size(1)
+fn main() { a[0] = b[1]; }`
+
+func bindingModule(t *testing.T) *ir.Module {
+	t.Helper()
+	ast, err := Parse(bindingShader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := LowerWithSource(ast, bindingShader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// A binding map that leaves out a resource the shader uses is an error
+// wrapping backend.ErrMissingBinding at the zero value (ADR-009 §6 row 5), as
+// wgpu-hal runs Rust naga (fake_missing_bindings: false); FakeMissingBindings
+// keeps the resource at its WGSL group and binding. A nil map is the
+// documented identity mapping and never an error.
+func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
+	spirvWith := func(m map[spirv.ResourceBinding]spirv.BindingInfo, fake bool) error {
+		_, err := spirv.NewBackend(spirv.Options{Version: spirv.Version1_3, BindingMap: m, FakeMissingBindings: fake}).Compile(bindingModule(t))
+		return err
+	}
+	partial := map[spirv.ResourceBinding]spirv.BindingInfo{{Group: 0, Binding: 0}: {DescriptorSet: 0, Binding: 0}}
+	if err := spirvWith(partial, false); !errors.Is(err, backend.ErrMissingBinding) {
+		t.Errorf("spirv, partial map: err = %v, want backend.ErrMissingBinding", err)
+	}
+	if err := spirvWith(partial, true); err != nil {
+		t.Errorf("spirv, partial map, FakeMissingBindings: %v", err)
+	}
+	if err := spirvWith(nil, false); err != nil {
+		t.Errorf("spirv, nil map: %v", err)
 	}
 }

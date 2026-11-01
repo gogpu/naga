@@ -135,15 +135,18 @@ type Options struct {
 	SkipRayQueryInitTracking bool
 
 	// BindingMap maps WGSL @group/@binding to the SPIR-V DescriptorSet and
-	// Binding decorations, and can give a binding array its size. A resource
-	// without an entry keeps its WGSL @group/@binding unless RequireBindings
-	// is set. Mirrors Rust naga's spv::Options::binding_map.
+	// Binding decorations, and can give a binding array its size. Mirrors
+	// Rust naga's spv::Options::binding_map. A nil map keeps every resource
+	// at its WGSL @group/@binding. A non-nil map, empty too, must list every
+	// resource the module declares: one without an entry is an error
+	// wrapping backend.ErrMissingBinding, unless FakeMissingBindings is set.
 	BindingMap map[ResourceBinding]BindingInfo
 
-	// RequireBindings makes a resource without a BindingMap entry an error
-	// wrapping backend.ErrMissingBinding. The inverse of Rust naga's
-	// fake_missing_bindings, so the zero value behaves like Rust's default.
-	RequireBindings bool
+	// FakeMissingBindings keeps a resource that a non-nil BindingMap leaves
+	// out at its WGSL @group/@binding instead of failing. Rust naga's
+	// fake_missing_bindings defaults to true; wgpu-hal passes false, the
+	// zero value here.
+	FakeMissingBindings bool
 
 	// ZeroInitializeWorkgroupMemory is how compute entry points zero their
 	// workgroup variables, as WebGPU requires. The zero value is
@@ -941,7 +944,7 @@ func toCodegenOptions(o Options) codegen.Options {
 		CapabilitiesAvailable:   o.CapabilitiesAvailable,
 		RayQueryInitTracking:    !o.SkipRayQueryInitTracking,
 		BindingMap:              toCodegenBindingMap(o.BindingMap),
-		RequireBindings:         o.RequireBindings,
+		FakeMissingBindings:     o.FakeMissingBindings,
 
 		ZeroInitializeWorkgroupMemory: o.ZeroInitializeWorkgroupMemory,
 		ClampFragDepth:                o.ClampFragDepth,
