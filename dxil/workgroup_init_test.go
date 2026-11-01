@@ -42,8 +42,8 @@ fn main(@builtin(local_invocation_index) i: u32) {
 
 	ep := &m.EntryPoints[0]
 	zeroInitWorkgroupMemory(m, ep)
-	if errs, err := ir.Validate(m); err != nil || len(errs) > 0 {
-		t.Fatalf("validate: %v %v", err, errs)
+	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+		t.Fatalf("validate: %v", err)
 	}
 
 	ifStmt, ok := ep.Function.Body[1].Kind.(ir.StmtIf)

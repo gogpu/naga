@@ -86,6 +86,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ask for SPIR-V 1.3, and `naga.Compile` now writes SPIR-V 1.0, Rust naga's default; a shader that needs a newer
   version (subgroup operations need 1.3) is an error until `SPIRV.Version` gives one. gg's 25 production shaders
   compile and pass spirv-val at the zero options.
+- **Breaking: `ir.Validate(module, ValidateOptions) (ModuleInfo, error)`** (ADR-010 N2, S-A) replaces `ir.Validate`
+  and `ir.ValidateWithCapabilities`, which returned `([]ValidationError, error)`. Problems come back as one error, an
+  `ir.ValidationErrors` holding all of them (`errors.As` finds each `*ValidationError`). The zero `ValidateOptions`
+  allows no optional capability: `ir.Validate` used to allow every one (`CapAll`), so a caller that validated f64,
+  i64 or f16 shaders now passes the device's capabilities. The new `ModuleInfo` gives, per function and entry point,
+  the `GlobalUses` of every global (`GlobalUseRead`, `Write`, `Query`, `Atomic`, Rust naga's `valid::GlobalUse`), callees
+  included: what a WebGPU implementation needs for the workgroup storage limit and bind group layout checks. The root
+  `naga.Validate` mirrors it.
 - **Breaking: IR names and widths follow Rust naga** (ADR-010 N1, N6, N7, N8): `ir.Capabilities` is `uint64`, as
   Rust's bits go above 31, and `CapAll` sets every bit; `MathQuantizeF16` is `MathQuantizeToF16` and
   `BuiltinClipDistance` is `BuiltinClipDistances`; `ExprLocalVariable.Variable` is a `LocalVariableHandle` and

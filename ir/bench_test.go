@@ -185,7 +185,7 @@ func BenchmarkValidateModule(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		errs, err := Validate(m)
+		errs, err := validateErrs(m, CapAll)
 		if err != nil {
 			b.Fatalf("validate failed: %v", err)
 		}

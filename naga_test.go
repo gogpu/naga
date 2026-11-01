@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv"
 )
 
@@ -195,15 +196,8 @@ fn main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 	}
 
 	// Stage 3: Validate (expect validation errors for minimal shader)
-	errors, err := Validate(module)
-	if err != nil {
+	if _, err := Validate(module, ir.ValidateOptions{}); err != nil {
 		t.Fatalf("Validate failed: %v", err)
-	}
-	// Note: Minimal shader has validation errors (missing bindings), which is expected
-	if len(errors) == 0 {
-		t.Log("No validation errors (shader is valid)")
-	} else {
-		t.Logf("Expected validation errors for minimal shader: %v", errors[0])
 	}
 
 	t.Log("Successfully parsed, lowered, and validated shader")
@@ -398,12 +392,9 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
 	}
 
 	// Test Validate stage
-	errors, err := Validate(module)
-	if err != nil {
+	if _, err := Validate(module, ir.ValidateOptions{}); err != nil {
 		t.Fatalf("Validate failed: %v", err)
 	}
-	// Note: Validation may report warnings for minimal shader
-	t.Logf("Validation completed with %d issues", len(errors))
 
 	// Test GenerateSPIRV stage
 	spirvOpts := spirv.Options{

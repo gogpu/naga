@@ -150,8 +150,8 @@ fn f() -> bool { return v || p || Q; }
 	if lit, ok := ge[q.Init].Kind.(ir.Literal); !ok || lit.Value != ir.LiteralBool(true) {
 		t.Errorf("Q init = %#v, want Literal(true)", ge[q.Init].Kind)
 	}
-	if errs, err := ir.Validate(m); err != nil || len(errs) > 0 {
-		t.Errorf("validation: %v %v", err, errs)
+	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+		t.Errorf("validation: %v", err)
 	}
 }
 

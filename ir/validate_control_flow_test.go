@@ -4,6 +4,7 @@
 package ir_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -57,8 +58,9 @@ func TestValidateControlFlowAbilities(t *testing.T) {
 				}
 				t.Fatalf("lower: %v", err)
 			}
-			errs, err := ir.Validate(mod)
-			if err != nil {
+			_, err = ir.Validate(mod, ir.ValidateOptions{Capabilities: ir.CapAll})
+			var errs ir.ValidationErrors
+			if err != nil && !errors.As(err, &errs) {
 				t.Fatal(err)
 			}
 			var msgs []string

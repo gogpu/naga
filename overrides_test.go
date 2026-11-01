@@ -499,9 +499,10 @@ func TestOverrideSizedArrayRules(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := lowerSource(t, tc.src)
-			errs, err := naga.Validate(m)
-			if err != nil {
-				t.Fatal(err)
+			_, err := naga.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll})
+			var errs ir.ValidationErrors
+			if !errors.As(err, &errs) {
+				t.Fatalf("want validation errors, got %v", err)
 			}
 			found := false
 			for _, e := range errs {
@@ -517,7 +518,7 @@ func TestOverrideSizedArrayRules(t *testing.T) {
 	}
 	// The allowed form is valid.
 	ok := lowerSource(t, "override n: u32 = 4;\nvar<workgroup> a: array<u32, n>;\n@compute @workgroup_size(1) fn main() { a[0] = 1u; let v = a[0]; }\n")
-	if errs, _ := naga.Validate(ok); len(errs) != 0 {
-		t.Errorf("workgroup array sized by an override: %v", errs)
+	if _, err := naga.Validate(ok, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+		t.Errorf("workgroup array sized by an override: %v", err)
 	}
 }

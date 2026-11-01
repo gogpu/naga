@@ -116,12 +116,8 @@ func CompileWithOptions(source string, opts CompileOptions) ([]byte, error) {
 
 	// Validate IR unless skipped (includes capability checks)
 	if !opts.SkipValidation {
-		validationErrors, err := ir.ValidateWithCapabilities(module, opts.Capabilities)
-		if err != nil {
-			return nil, fmt.Errorf("validation error: %w", err)
-		}
-		if len(validationErrors) > 0 {
-			return nil, fmt.Errorf("validation failed: %w", &validationErrors[0])
+		if _, err := ir.Validate(module, ir.ValidateOptions{Capabilities: opts.Capabilities}); err != nil {
+			return nil, fmt.Errorf("validation failed: %w", err)
 		}
 	}
 
@@ -195,17 +191,14 @@ func LowerWithCapabilities(ast *wgsl.Module, source string, caps ir.Capabilities
 		return nil, err
 	}
 	// Validate with capability restrictions.
-	validationErrors, verr := ir.ValidateWithCapabilities(module, caps)
-	if verr != nil {
-		return nil, verr
-	}
-	if len(validationErrors) > 0 {
-		return nil, fmt.Errorf("validation failed: %w", &validationErrors[0])
+	if _, err := ir.Validate(module, ir.ValidateOptions{Capabilities: caps}); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 	return module, nil
 }
 
-// Validate validates an IR module for correctness with all capabilities enabled.
+// Validate validates an IR module for correctness with the capabilities opts
+// allows.
 //
 // Validation checks include:
 //   - Type consistency
@@ -213,10 +206,10 @@ func LowerWithCapabilities(ast *wgsl.Module, source string, caps ir.Capabilities
 //   - Control flow validity (structured control flow rules)
 //   - Binding uniqueness (no duplicate @group/@binding)
 //
-// For capability-restricted validation, use [ir.ValidateWithCapabilities] directly.
-// Returns a slice of validation errors. If the slice is empty, validation passed.
-func Validate(module *ir.Module) ([]ir.ValidationError, error) {
-	return ir.Validate(module)
+// It is [ir.Validate]: the result tells which globals each entry point uses,
+// and an invalid module returns an [ir.ValidationErrors].
+func Validate(module *ir.Module, opts ir.ValidateOptions) (ir.ModuleInfo, error) {
+	return ir.Validate(module, opts)
 }
 
 // GenerateSPIRV generates SPIR-V binary from IR module.

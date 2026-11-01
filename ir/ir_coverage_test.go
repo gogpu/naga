@@ -224,7 +224,7 @@ func TestTypeSizeEdgeCases(t *testing.T) {
 
 func TestValidate_ErrorCases(t *testing.T) {
 	t.Run("nil_module", func(t *testing.T) {
-		_, err := Validate(nil)
+		_, err := Validate(nil, ValidateOptions{})
 		if err == nil {
 			t.Error("expected error for nil module")
 		}
@@ -239,7 +239,7 @@ func TestValidate_ErrorCases(t *testing.T) {
 				{Name: "bad", Type: 999}, // out of range
 			},
 		}
-		errs, err := Validate(module)
+		errs, err := validateErrs(module, CapAll)
 		if err != nil {
 			t.Fatalf("Validate returned error: %v", err)
 		}
@@ -265,7 +265,7 @@ func TestValidate_ErrorCases(t *testing.T) {
 				},
 			},
 		}
-		errs, err := Validate(module)
+		errs, err := validateErrs(module, CapAll)
 		if err != nil {
 			t.Fatalf("Validate returned error: %v", err)
 		}
@@ -280,7 +280,7 @@ func TestValidate_ErrorCases(t *testing.T) {
 				{Name: "f32", Inner: ScalarType{Kind: ScalarFloat, Width: 4}},
 			},
 		}
-		errs, err := Validate(module)
+		errs, err := validateErrs(module, CapAll)
 		if err != nil {
 			t.Fatalf("Validate returned error: %v", err)
 		}

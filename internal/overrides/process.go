@@ -4,6 +4,7 @@
 package overrides
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -585,12 +586,13 @@ func revalidate(m *ir.Module) error {
 			}
 		}
 	}
-	errs, err := ir.Validate(m)
-	if err != nil {
+	// The capabilities were checked before the overrides were processed.
+	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+		var errs ir.ValidationErrors
+		if errors.As(err, &errs) {
+			return fmt.Errorf("pipeline constants: the processed module is invalid: %s", errs[0].Message)
+		}
 		return fmt.Errorf("pipeline constants: validating the processed module: %w", err)
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("pipeline constants: the processed module is invalid: %s", errs[0].Message)
 	}
 	return nil
 }
