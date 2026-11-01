@@ -2906,6 +2906,7 @@ func walkStmtExprs(fn *ir.Function, kind ir.StatementKind, followExpr func(*ir.F
 		if sk.Result != nil {
 			followExpr(fn, *sk.Result)
 		}
+		followAtomicFunctionExprs(fn, sk.Fun, followExpr)
 	case ir.StmtCall:
 		for _, a := range sk.Arguments {
 			followExpr(fn, a)
@@ -2930,6 +2931,7 @@ func walkStmtExprs(fn *ir.Function, kind ir.StatementKind, followExpr func(*ir.F
 	case ir.StmtSubgroupGather:
 		followExpr(fn, sk.Argument)
 		followExpr(fn, sk.Result)
+		followGatherModeExprs(fn, sk.Mode, followExpr)
 	case ir.StmtIf:
 		followExpr(fn, sk.Condition)
 		walkBlockExprs(fn, sk.Accept, followExpr)
@@ -2967,6 +2969,36 @@ func followImageAtomicExprs(fn *ir.Function, sk ir.StmtImageAtomic, followExpr f
 	followExpr(fn, sk.Value)
 	if sk.ArrayIndex != nil {
 		followExpr(fn, *sk.ArrayIndex)
+	}
+	followAtomicFunctionExprs(fn, sk.Fun, followExpr)
+}
+
+// followAtomicFunctionExprs calls followExpr for the comparand of a
+// compare-exchange, the one atomic function with an expression operand.
+func followAtomicFunctionExprs(fn *ir.Function, fun ir.AtomicFunction, followExpr func(*ir.Function, ir.ExpressionHandle)) {
+	if ex, ok := fun.(ir.AtomicExchange); ok && ex.Compare != nil {
+		followExpr(fn, *ex.Compare)
+	}
+}
+
+// followGatherModeExprs calls followExpr for the lane operand of a subgroup
+// gather mode.
+func followGatherModeExprs(fn *ir.Function, mode ir.GatherMode, followExpr func(*ir.Function, ir.ExpressionHandle)) {
+	switch m := mode.(type) {
+	case ir.GatherBroadcast:
+		followExpr(fn, m.Index)
+	case ir.GatherShuffle:
+		followExpr(fn, m.Index)
+	case ir.GatherShuffleDown:
+		followExpr(fn, m.Delta)
+	case ir.GatherShuffleUp:
+		followExpr(fn, m.Delta)
+	case ir.GatherShuffleXor:
+		followExpr(fn, m.Mask)
+	case ir.GatherQuadBroadcast:
+		followExpr(fn, m.Index)
+	case ir.GatherBroadcastFirst, ir.GatherQuadSwap:
+		// No expression operands.
 	}
 }
 
@@ -3020,6 +3052,11 @@ func visitExprSubHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle)) {
 		visitImageLoadHandles(k, f)
 	case ir.ExprImageQuery:
 		f(k.Image)
+		if size, ok := k.Query.(ir.ImageQuerySize); ok && size.Level != nil {
+			f(*size.Level)
+		}
+	case ir.ExprRayQueryGetIntersection:
+		f(k.Query)
 	case ir.ExprPhi:
 		for _, inc := range k.Incoming {
 			f(inc.Value)
@@ -3052,6 +3089,15 @@ func visitImageSampleHandles(k ir.ExprImageSample, f func(ir.ExpressionHandle)) 
 	}
 	if k.DepthRef != nil {
 		f(*k.DepthRef)
+	}
+	switch l := k.Level.(type) {
+	case ir.SampleLevelExact:
+		f(l.Level)
+	case ir.SampleLevelBias:
+		f(l.Bias)
+	case ir.SampleLevelGradient:
+		f(l.X)
+		f(l.Y)
 	}
 }
 

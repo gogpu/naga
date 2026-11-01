@@ -246,6 +246,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **DXIL: analyses skipped operands of some expressions and statements.** Dead-code elimination, input-usage masks
+  and the emitter's handle visitors missed image sample and query levels, a ray query's intersection operand, an
+  atomic compare-exchange's compare value, subgroup shuffle/broadcast lanes and ray-query function operands, so an
+  operand reachable only through them could be dropped or left out of a signature mask. Every visitor now covers
+  every IR kind, and a test fails when a new kind or operand is missed (DXIL output for the corpus is unchanged).
 - **GLSL: 64-bit constants kept only their low 32 bits.** A `u64`/`i64` module constant was written through its low
   word without the 64-bit suffix: `const big: u64 = 5000000000lu;` became `const uint64_t big = 705032704u;`. Module
   constants are now written by the same literal writer as everything else (`5000000000ul`).

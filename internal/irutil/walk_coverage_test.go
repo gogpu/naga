@@ -69,11 +69,12 @@ var walkerRegistry = []any{
 }
 
 var (
-	handleType    = reflect.TypeFor[ir.ExpressionHandle]()
-	statementType = reflect.TypeFor[ir.Statement]()
-	emitType      = reflect.TypeFor[ir.StmtEmit]()
-	exprKindType  = reflect.TypeFor[ir.ExpressionKind]()
-	stmtKindType  = reflect.TypeFor[ir.StatementKind]()
+	handleType     = reflect.TypeFor[ir.ExpressionHandle]()
+	typeHandleType = reflect.TypeFor[ir.TypeHandle]()
+	statementType  = reflect.TypeFor[ir.Statement]()
+	emitType       = reflect.TypeFor[ir.StmtEmit]()
+	exprKindType   = reflect.TypeFor[ir.ExpressionKind]()
+	stmtKindType   = reflect.TypeFor[ir.StatementKind]()
 )
 
 // handleOffset is what the remap table adds to every handle, so a handle a
@@ -287,6 +288,7 @@ type kindBuilder struct {
 	declared map[string][]string
 	checked  map[reflect.Type]bool
 	next     ir.ExpressionHandle
+	nextType ir.TypeHandle
 }
 
 // implementations returns the registered types that implement iface, sorted
@@ -370,7 +372,7 @@ func (b *kindBuilder) variantsOf(t *testing.T, kind reflect.Type) int {
 // gets its variant number variant modulo the number of variants.
 func (b *kindBuilder) build(t *testing.T, kind reflect.Type, variant int) any {
 	t.Helper()
-	b.next = 1
+	b.next, b.nextType = 1, 1
 	v := reflect.New(kind).Elem()
 	b.fill(t, v, variant)
 	return v.Interface()
@@ -383,6 +385,13 @@ func (b *kindBuilder) fill(t *testing.T, v reflect.Value, variant int) {
 		v.SetUint(uint64(b.next))
 		// Gaps keep an Emit range's End-1 distinct from the next handle.
 		b.next += 3
+		return
+	}
+	if ty == typeHandleType {
+		// Type handles count apart from expression handles, so a walker that
+		// mixes the two up reads a wrong value.
+		v.SetUint(uint64(b.nextType))
+		b.nextType += 3
 		return
 	}
 	if ty == statementType {

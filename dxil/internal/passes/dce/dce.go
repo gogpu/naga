@@ -320,6 +320,7 @@ func markStmtRoots(
 		if sk.ArrayIndex != nil {
 			mark(*sk.ArrayIndex)
 		}
+		markAtomicFunctionHandles(sk.Fun, mark)
 
 	case ir.StmtAtomic:
 		// Always a root, even on a local: unlike a local store it is
@@ -330,6 +331,7 @@ func markStmtRoots(
 		if sk.Result != nil {
 			mark(*sk.Result)
 		}
+		markAtomicFunctionHandles(sk.Fun, mark)
 
 	case ir.StmtControlBarrier, ir.StmtMemoryBarrier:
 		// Execution barrier — always live (side effect).
@@ -375,6 +377,7 @@ func markStmtRoots(
 	case ir.StmtSubgroupGather:
 		mark(sk.Argument)
 		mark(sk.Result)
+		markGatherModeHandles(sk.Mode, mark)
 
 	// Control flow — recurse into sub-blocks and mark conditions: a
 	// construct's condition is live while the construct is there, as
@@ -533,6 +536,34 @@ func stmtSurvivesSweep(
 		// Ifs and switches still here stay (see blockWillBeEmpty); the
 		// others are kept conservatively.
 		return true
+	}
+}
+
+// markAtomicFunctionHandles marks the comparand of a compare-exchange, the
+// one atomic function with an expression operand.
+func markAtomicFunctionHandles(fun ir.AtomicFunction, mark func(ir.ExpressionHandle)) {
+	if ex, ok := fun.(ir.AtomicExchange); ok && ex.Compare != nil {
+		mark(*ex.Compare)
+	}
+}
+
+// markGatherModeHandles marks the lane operand of a subgroup gather mode.
+func markGatherModeHandles(mode ir.GatherMode, mark func(ir.ExpressionHandle)) {
+	switch m := mode.(type) {
+	case ir.GatherBroadcast:
+		mark(m.Index)
+	case ir.GatherShuffle:
+		mark(m.Index)
+	case ir.GatherShuffleDown:
+		mark(m.Delta)
+	case ir.GatherShuffleUp:
+		mark(m.Delta)
+	case ir.GatherShuffleXor:
+		mark(m.Mask)
+	case ir.GatherQuadBroadcast:
+		mark(m.Index)
+	case ir.GatherBroadcastFirst, ir.GatherQuadSwap:
+		// No expression operands.
 	}
 }
 
@@ -1026,6 +1057,15 @@ func visitExprHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle)) {
 		if k.DepthRef != nil {
 			f(*k.DepthRef)
 		}
+		switch l := k.Level.(type) {
+		case ir.SampleLevelExact:
+			f(l.Level)
+		case ir.SampleLevelBias:
+			f(l.Bias)
+		case ir.SampleLevelGradient:
+			f(l.X)
+			f(l.Y)
+		}
 	case ir.ExprImageLoad:
 		f(k.Image)
 		f(k.Coordinate)
@@ -1040,6 +1080,11 @@ func visitExprHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle)) {
 		}
 	case ir.ExprImageQuery:
 		f(k.Image)
+		if size, ok := k.Query.(ir.ImageQuerySize); ok && size.Level != nil {
+			f(*size.Level)
+		}
+	case ir.ExprRayQueryGetIntersection:
+		f(k.Query)
 	case ir.ExprPhi:
 		for _, inc := range k.Incoming {
 			f(inc.Value)

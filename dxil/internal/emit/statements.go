@@ -887,6 +887,15 @@ func visitExpressionHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle))
 		if k.DepthRef != nil {
 			f(*k.DepthRef)
 		}
+		switch l := k.Level.(type) {
+		case ir.SampleLevelExact:
+			f(l.Level)
+		case ir.SampleLevelBias:
+			f(l.Bias)
+		case ir.SampleLevelGradient:
+			f(l.X)
+			f(l.Y)
+		}
 	case ir.ExprImageLoad:
 		f(k.Image)
 		f(k.Coordinate)
@@ -901,6 +910,15 @@ func visitExpressionHandles(kind ir.ExpressionKind, f func(ir.ExpressionHandle))
 		}
 	case ir.ExprImageQuery:
 		f(k.Image)
+		if size, ok := k.Query.(ir.ImageQuerySize); ok && size.Level != nil {
+			f(*size.Level)
+		}
+	case ir.ExprRayQueryGetIntersection:
+		f(k.Query)
+	case ir.ExprPhi:
+		for _, inc := range k.Incoming {
+			f(inc.Value)
+		}
 	}
 }
 
@@ -932,20 +950,12 @@ func visitStatementHandlesOne(kind ir.StatementKind, f func(ir.ExpressionHandle)
 		if sk.Result != nil {
 			f(*sk.Result)
 		}
+		visitAtomicFunctionHandles(sk.Fun, f)
 	case ir.StmtImageStore:
-		f(sk.Image)
-		f(sk.Coordinate)
-		f(sk.Value)
-		if sk.ArrayIndex != nil {
-			f(*sk.ArrayIndex)
-		}
+		visitImageWriteHandles(sk.Image, sk.Coordinate, sk.Value, sk.ArrayIndex, f)
 	case ir.StmtImageAtomic:
-		f(sk.Image)
-		f(sk.Coordinate)
-		f(sk.Value)
-		if sk.ArrayIndex != nil {
-			f(*sk.ArrayIndex)
-		}
+		visitImageWriteHandles(sk.Image, sk.Coordinate, sk.Value, sk.ArrayIndex, f)
+		visitAtomicFunctionHandles(sk.Fun, f)
 	case ir.StmtCall:
 		for _, a := range sk.Arguments {
 			f(a)
@@ -979,6 +989,7 @@ func visitStatementHandlesOne(kind ir.StatementKind, f func(ir.ExpressionHandle)
 		f(sk.Result)
 	case ir.StmtRayQuery:
 		f(sk.Query)
+		visitRayQueryFunctionHandles(sk.Fun, f)
 	case ir.StmtSubgroupBallot:
 		f(sk.Result)
 		if sk.Predicate != nil {
@@ -990,11 +1001,68 @@ func visitStatementHandlesOne(kind ir.StatementKind, f func(ir.ExpressionHandle)
 	case ir.StmtSubgroupGather:
 		f(sk.Argument)
 		f(sk.Result)
+		visitGatherModeHandles(sk.Mode, f)
 	case ir.StmtEmit:
 		// StmtEmit ranges describe expression evaluation timing,
 		// not data flow. Expression bodies are visited separately
 		// by visitExpressionHandles — don't double-count the
 		// range as a use.
+	}
+}
+
+// visitImageWriteHandles invokes f for the operands an image store and an
+// image atomic share.
+func visitImageWriteHandles(image, coord, value ir.ExpressionHandle, arrayIndex *ir.ExpressionHandle, f func(ir.ExpressionHandle)) {
+	f(image)
+	f(coord)
+	f(value)
+	if arrayIndex != nil {
+		f(*arrayIndex)
+	}
+}
+
+// visitAtomicFunctionHandles invokes f for the comparand of a
+// compare-exchange, the one atomic function with an expression operand.
+func visitAtomicFunctionHandles(fun ir.AtomicFunction, f func(ir.ExpressionHandle)) {
+	if ex, ok := fun.(ir.AtomicExchange); ok && ex.Compare != nil {
+		f(*ex.Compare)
+	}
+}
+
+// visitRayQueryFunctionHandles invokes f for every expression handle of a
+// ray query function.
+func visitRayQueryFunctionHandles(fun ir.RayQueryFunction, f func(ir.ExpressionHandle)) {
+	switch fn := fun.(type) {
+	case ir.RayQueryInitialize:
+		f(fn.AccelerationStructure)
+		f(fn.Descriptor)
+	case ir.RayQueryProceed:
+		f(fn.Result)
+	case ir.RayQueryGenerateIntersection:
+		f(fn.HitT)
+	case ir.RayQueryTerminate, ir.RayQueryConfirmIntersection:
+		// No expression operands.
+	}
+}
+
+// visitGatherModeHandles invokes f for the lane operand of a subgroup
+// gather mode.
+func visitGatherModeHandles(mode ir.GatherMode, f func(ir.ExpressionHandle)) {
+	switch m := mode.(type) {
+	case ir.GatherBroadcast:
+		f(m.Index)
+	case ir.GatherShuffle:
+		f(m.Index)
+	case ir.GatherShuffleDown:
+		f(m.Delta)
+	case ir.GatherShuffleUp:
+		f(m.Delta)
+	case ir.GatherShuffleXor:
+		f(m.Mask)
+	case ir.GatherQuadBroadcast:
+		f(m.Index)
+	case ir.GatherBroadcastFirst, ir.GatherQuadSwap:
+		// No expression operands.
 	}
 }
 
