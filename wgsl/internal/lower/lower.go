@@ -6040,12 +6040,15 @@ func (l *Lowerer) parseStorageFormat(param parser.Type) ir.StorageFormat {
 	// The format is typically an identifier like "rgba8unorm"
 	namedType, ok := param.(*parser.NamedType)
 	if !ok {
-		return ir.StorageFormatUnknown
+		l.addError("expected a storage format", param.Pos())
+		return ir.StorageFormatUndefined
 	}
 	if format, ok := storageFormatTable[namedType.Name]; ok {
 		return format
 	}
-	return ir.StorageFormatUnknown
+	// Rust naga's Error::UnknownStorageFormat; it was left Undefined.
+	l.addError(fmt.Sprintf("unknown storage format: `%s`", namedType.Name), namedType.Span)
+	return ir.StorageFormatUndefined
 }
 
 // parseStorageAccess parses a storage texture access mode from a type parameter.

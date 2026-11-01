@@ -28,4 +28,9 @@
 // GLSL has over 500 reserved words (including future reserved).
 // The backend automatically escapes conflicting identifier names
 // by prefixing them with an underscore.
+//
+// # Concurrency
+//
+// Every exported function is safe for concurrent use. Compile never modifies
+// its input module, so one module can be compiled for several targets at once.
 package glsl

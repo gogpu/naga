@@ -97,7 +97,7 @@ func TestStorageFormatScalarKind(t *testing.T) {
 		{"Rg16Snorm", StorageFormatRg16Snorm, ScalarFloat},
 		{"Rgba16Unorm", StorageFormatRgba16Unorm, ScalarFloat},
 		{"Rgba16Snorm", StorageFormatRgba16Snorm, ScalarFloat},
-		{"Unknown", StorageFormatUnknown, ScalarFloat},
+		{"Unknown", StorageFormatUndefined, ScalarFloat},
 	}
 
 	for _, tt := range tests {
@@ -128,7 +128,7 @@ func TestStorageFormatIsUnorm(t *testing.T) {
 		StorageFormatR32Float, StorageFormatRgba32Float,
 		StorageFormatR8Uint, StorageFormatR32Uint,
 		StorageFormatR8Sint, StorageFormatR32Sint,
-		StorageFormatUnknown,
+		StorageFormatUndefined,
 	}
 	for _, f := range notUnorm {
 		if f.IsUnorm() {
@@ -152,7 +152,7 @@ func TestStorageFormatIsSnorm(t *testing.T) {
 		StorageFormatR32Float, StorageFormatRgba32Float,
 		StorageFormatR8Uint, StorageFormatR32Uint,
 		StorageFormatR8Sint, StorageFormatR32Sint,
-		StorageFormatUnknown,
+		StorageFormatUndefined,
 	}
 	for _, f := range notSnorm {
 		if f.IsSnorm() {

@@ -749,17 +749,7 @@ func compileAdvanced(t *testing.T, src string, opts *Options) string {
 
 func parseAdvanced(t *testing.T, src string) *ir.Module {
 	t.Helper()
-	lexer := wgsl.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("tokenize failed: %v", err)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("parse failed: %v", err)
-	}
-	module, err := wgsl.LowerWithSource(ast, src)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("lower failed: %v", err)
 	}

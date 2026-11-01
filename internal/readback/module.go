@@ -9,6 +9,7 @@ import (
 	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl"
 )
 
 const requireF16 = "shader-f16"
@@ -19,17 +20,16 @@ const requireF16 = "shader-f16"
 // point and pipeline constants. Processing for one entry point removes the
 // globals it does not use, so the bindings left are the pipeline's.
 func Module(c *Case) (*ir.Module, error) {
-	ast, err := naga.Parse(c.WGSL)
+	m, _, err := wgsl.Parse(c.WGSL, wgsl.ParseOptions{})
 	if err != nil {
 		return nil, err
 	}
 	var caps ir.Capabilities
 	if slices.Contains(c.Spec.Requires, requireF16) {
-		caps |= naga.CapShaderFloat16
+		caps |= ir.CapShaderFloat16
 	}
-	m, err := naga.LowerWithCapabilities(ast, c.WGSL, caps)
-	if err != nil {
-		return nil, err
+	if _, err := ir.Validate(m, ir.ValidateOptions{Capabilities: caps}); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 	return naga.ProcessOverrides(m, naga.OverrideOptions{
 		Constants:  c.Spec.Constants,

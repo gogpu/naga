@@ -393,7 +393,12 @@ const (
 type StorageFormat uint8
 
 const (
-	StorageFormatUnknown StorageFormat = iota
+	// StorageFormatUndefined is the zero value: no format is set. The
+	// validator rejects it for a storage image, so it never reaches a
+	// backend. Rust naga has no such member (a Rust enum has no zero); it
+	// keeps an ImageType literal without a format from meaning R8Unorm
+	// (ADR-010 R1, the <Enum>Undefined = 0 convention of webgpu.h).
+	StorageFormatUndefined StorageFormat = iota
 
 	// 8-bit formats
 	StorageFormatR8Unorm

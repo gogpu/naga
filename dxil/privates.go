@@ -6,6 +6,7 @@ package dxil
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -135,7 +136,7 @@ func copyGlobalExpr(m *ir.Module, fn *ir.Function, h ir.ExpressionHandle) (ir.Ex
 		res := ir.TypeResolution{Value: ir.VectorType{Size: k.Size, Scalar: scalar}}
 		return appendFnExpr(fn, ir.ExprSplat{Size: k.Size, Value: v}, res), nil
 	default:
-		return 0, fmt.Errorf("initializer expression %T is not supported", k)
+		return 0, unsupported.Errorf("initializer expression %T is not supported", k)
 	}
 }
 

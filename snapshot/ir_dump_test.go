@@ -75,19 +75,7 @@ func TestIRDump(t *testing.T) {
 // tryCompileToIR attempts to compile WGSL source to IR, returning an error
 // instead of calling t.Fatal on failure.
 func tryCompileToIR(source string) (*ir.Module, error) {
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		return nil, fmt.Errorf("tokenize: %w", err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		return nil, fmt.Errorf("parse: %w", err)
-	}
-
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("lower: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -723,7 +724,7 @@ func (w *Writer) writeConstantValue(value ir.ConstantValue, typeHandle ir.TypeHa
 		return nil
 
 	default:
-		return fmt.Errorf("unsupported constant value type: %T", value)
+		return unsupported.Errorf("unsupported constant value type: %T", value)
 	}
 }
 
@@ -840,7 +841,7 @@ func (w *Writer) writeScalarValue(v ir.ScalarValue, typeHandle ir.TypeHandle) er
 		}
 
 	default:
-		return fmt.Errorf("unsupported scalar kind: %v", v.Kind)
+		return unsupported.Errorf("unsupported scalar kind: %v", v.Kind)
 	}
 	return nil
 }

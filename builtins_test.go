@@ -13,6 +13,7 @@ import (
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/wgsl"
 )
 
 // Rust naga's draw-index.wgsl and barycentrics.wgsl (tests/in/wgsl).
@@ -30,11 +31,7 @@ fn fs_main_no_perspective(@builtin(barycentric_no_perspective) bary: vec3<f32>) 
 
 func lowerShader(t *testing.T, src string) *ir.Module {
 	t.Helper()
-	ast, err := Parse(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	module, err := LowerWithSource(ast, src)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,10 +43,7 @@ func lowerShader(t *testing.T, src string) *ir.Module {
 // fragment coordinate. Rust naga's parser rejects an unknown name.
 func TestUnknownBuiltinIsAnError(t *testing.T) {
 	src := `@fragment fn fs(@builtin(no_such_builtin) x: vec4<f32>) -> @location(0) vec4<f32> { return x; }`
-	ast, err := Parse(src)
-	if err == nil {
-		_, err = LowerWithSource(ast, src)
-	}
+	_, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err == nil || !strings.Contains(err.Error(), "unknown builtin: `no_such_builtin`") {
 		t.Fatalf("error %v, want unknown builtin: `no_such_builtin`", err)
 	}

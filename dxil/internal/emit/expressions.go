@@ -9,6 +9,7 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/consteval"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -186,7 +187,7 @@ func (e *Emitter) emitExpression(fn *ir.Function, handle ir.ExpressionHandle) (i
 		err = fmt.Errorf("dxil: %w", ir.ErrUnresolvedOverride)
 
 	default:
-		return 0, fmt.Errorf("unsupported expression kind: %T", expr.Kind)
+		return 0, unsupported.Errorf("unsupported expression kind: %T", expr.Kind)
 	}
 
 	if err != nil {
@@ -490,7 +491,7 @@ func (e *Emitter) emitAccessIndex(fn *ir.Function, ai ir.ExprAccessIndex) (int, 
 	// per component, is one of its tracked components; no other access
 	// reaches here with a value.
 	if !e.isVectorOrPointerToVector(e.resolveExprTypeInner(fn, ai.Base)) {
-		return 0, fmt.Errorf("AccessIndex %d into %T is not supported", ai.Index, e.resolveExprTypeInner(fn, ai.Base))
+		return 0, unsupported.Errorf("AccessIndex %d into %T is not supported", ai.Index, e.resolveExprTypeInner(fn, ai.Base))
 	}
 	return e.getComponentID(ai.Base, int(ai.Index)), nil
 }
@@ -1394,7 +1395,7 @@ func (e *Emitter) emitScalarBinaryOp(op ir.BinaryOperator, resultTy *module.Type
 	case ir.BinaryLogicalOr:
 		return e.addBinOpInstr(e.mod.GetIntType(1), BinOpOr, lhs, rhs), nil
 	default:
-		return 0, fmt.Errorf("unsupported binary operator: %d", op)
+		return 0, unsupported.Errorf("unsupported binary operator: %d", op)
 	}
 }
 
@@ -2321,7 +2322,7 @@ func (e *Emitter) emitMatrixBinary(fn *ir.Function, bin ir.ExprBinary,
 		return e.emitMatrixComponentWise(fn, bin, rightMat)
 
 	default:
-		return 0, fmt.Errorf("unsupported matrix binary operation: %v", bin.Op)
+		return 0, unsupported.Errorf("unsupported matrix binary operation: %v", bin.Op)
 	}
 }
 
@@ -2434,7 +2435,7 @@ func (e *Emitter) emitMatrixComponentWise(_ *ir.Function, bin ir.ExprBinary, mat
 	case ir.BinarySubtract:
 		op = BinOpFSub
 	default:
-		return 0, fmt.Errorf("unsupported component-wise matrix operation: %v", bin.Op)
+		return 0, unsupported.Errorf("unsupported component-wise matrix operation: %v", bin.Op)
 	}
 
 	comps := make([]int, total)
@@ -2597,7 +2598,7 @@ func selectBinaryOpcode(op ir.BinaryOperator, leftType ir.TypeInner) (BinOpKind,
 		}
 		return 0, ICmpUGE, true, nil
 	default:
-		return 0, 0, false, fmt.Errorf("unsupported vector binary operator: %d", op)
+		return 0, 0, false, unsupported.Errorf("unsupported vector binary operator: %d", op)
 	}
 }
 
@@ -2650,7 +2651,7 @@ func (e *Emitter) emitScalarUnary(op ir.UnaryOperator, scalar ir.ScalarType, ope
 		return e.addBinOpInstr(e.mod.GetIntType(1), BinOpXor, operand, trueID), nil
 
 	default:
-		return 0, fmt.Errorf("unsupported unary operator: %d", op)
+		return 0, unsupported.Errorf("unsupported unary operator: %d", op)
 	}
 }
 
@@ -2884,7 +2885,7 @@ func (e *Emitter) emitMathBinary(mf ir.MathFunction, ol overloadType, isFloat, i
 		opcodeVal := e.getIntConstID(int64(OpAtan))
 		return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, div}), nil
 	default:
-		return 0, fmt.Errorf("unsupported binary math function: %d", mf)
+		return 0, unsupported.Errorf("unsupported binary math function: %d", mf)
 	}
 
 	dxFn := e.getDxOpBinaryFunc(opName, ol)
@@ -2907,7 +2908,7 @@ func (e *Emitter) emitMathTernary(mf ir.MathFunction, ol overloadType, isFloat, 
 			opcodeVal := e.getIntConstID(int64(OpFMad))
 			return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg2, bMinusA, arg}), nil
 		}
-		return 0, fmt.Errorf("mix not supported for non-float types")
+		return 0, unsupported.Errorf("mix not supported for non-float types")
 	case ir.MathFma:
 		if isFloat {
 			// DXIL opcode 47 (Fma) is defined with overload mask 'd' only —
@@ -2925,9 +2926,9 @@ func (e *Emitter) emitMathTernary(mf ir.MathFunction, ol overloadType, isFloat, 
 			opcodeVal := e.getIntConstID(int64(opc))
 			return e.addCallInstr(dxFn, dxFn.FuncType.RetType, []int{opcodeVal, arg, arg1, arg2}), nil
 		}
-		return 0, fmt.Errorf("fma not supported for non-float types")
+		return 0, unsupported.Errorf("fma not supported for non-float types")
 	default:
-		return 0, fmt.Errorf("unsupported ternary math function: %d", mf)
+		return 0, unsupported.Errorf("unsupported ternary math function: %d", mf)
 	}
 }
 
@@ -3089,7 +3090,7 @@ func (e *Emitter) emitMathDot(fn *ir.Function, mathExpr ir.ExprMath) (int, error
 	ol := overloadForScalar(scalar)
 
 	if size < 2 || size > 4 {
-		return 0, fmt.Errorf("unsupported dot product vector size: %d", size)
+		return 0, unsupported.Errorf("unsupported dot product vector size: %d", size)
 	}
 
 	// Integer path: manual sum-of-products. DXIL dot intrinsics are
@@ -3216,7 +3217,7 @@ func (e *Emitter) emitDotForVector(handle ir.ExpressionHandle, size int, ol over
 	case 4:
 		opcode = OpDot4
 	default:
-		return 0, fmt.Errorf("unsupported vector size for dot: %d", size)
+		return 0, unsupported.Errorf("unsupported vector size for dot: %d", size)
 	}
 
 	dxFn := e.getDxOpDotFunc(size, ol)
@@ -3429,7 +3430,7 @@ func mathToDxOpUnary(mf ir.MathFunction) (DXILOpcode, string, error) {
 	case ir.MathFirstTrailingBit:
 		return OpFirstbitLo, dxOpClassUnaryBits, nil
 	default:
-		return 0, "", fmt.Errorf("unsupported unary math function: %d", mf)
+		return 0, "", unsupported.Errorf("unsupported unary math function: %d", mf)
 	}
 }
 
@@ -3739,7 +3740,7 @@ func (e *Emitter) emitDotTwoVectors(handleA, handleB ir.ExpressionHandle, size i
 	case 4:
 		opcode = OpDot4
 	default:
-		return 0, fmt.Errorf("unsupported vector size for dot: %d", size)
+		return 0, unsupported.Errorf("unsupported vector size for dot: %d", size)
 	}
 
 	dxFn := e.getDxOpDotFunc(size, ol)
@@ -6059,7 +6060,7 @@ func (e *Emitter) emitBoolToNumericDXIL(src int, dstScalar ir.ScalarType) (int, 
 		destTy := scalarToDXIL(e.mod, dstScalar)
 		return e.addCastInstr(destTy, CastUIToFP, intVal), nil
 	default:
-		return 0, fmt.Errorf("bool to %v: unsupported", dstScalar.Kind)
+		return 0, unsupported.Errorf("bool to %v: unsupported", dstScalar.Kind)
 	}
 }
 
@@ -6075,7 +6076,7 @@ func (e *Emitter) emitNumericToBoolDXIL(src int, srcScalar ir.ScalarType) (int, 
 		zero := e.floatConstFor(srcScalar, 0.0)
 		return e.addCmpInstr(FCmpONE, src, zero), nil
 	default:
-		return 0, fmt.Errorf("%v to bool: unsupported", srcScalar.Kind)
+		return 0, unsupported.Errorf("%v to bool: unsupported", srcScalar.Kind)
 	}
 }
 
@@ -6143,7 +6144,7 @@ func selectDXILCastOp(src, dst ir.ScalarType) (CastOpKind, error) {
 		return CastBitcast, nil
 
 	default:
-		return 0, fmt.Errorf("unsupported cast: %v(%d) → %v(%d)", src.Kind, src.Width, dst.Kind, dst.Width)
+		return 0, unsupported.Errorf("unsupported cast: %v(%d) → %v(%d)", src.Kind, src.Width, dst.Kind, dst.Width)
 	}
 }
 
@@ -6384,7 +6385,7 @@ func (e *Emitter) emitRelational(fn *ir.Function, rel ir.ExprRelational) (int, e
 		return arg, nil
 
 	default:
-		return 0, fmt.Errorf("unsupported relational function: %d", rel.Fun)
+		return 0, unsupported.Errorf("unsupported relational function: %d", rel.Fun)
 	}
 }
 

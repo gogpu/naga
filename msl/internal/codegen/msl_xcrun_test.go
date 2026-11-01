@@ -7,6 +7,7 @@ import (
 
 	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/ir"
+	"github.com/gogpu/naga/wgsl"
 )
 
 func TestMSLCompilesWithXcrun(t *testing.T) {
@@ -40,14 +41,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 }
 `
 
-	ast, err := naga.Parse(wgslSource)
+	module, _, err := wgsl.Parse(wgslSource, wgsl.ParseOptions{})
 	if err != nil {
-		t.Fatalf("naga.Parse failed: %v", err)
-	}
-
-	module, err := naga.LowerWithSource(ast, wgslSource)
-	if err != nil {
-		t.Fatalf("naga.LowerWithSource failed: %v", err)
+		t.Fatalf("wgsl.Parse failed: %v", err)
 	}
 
 	mslSource, _, err := Compile(module, DefaultOptions())
@@ -69,13 +65,9 @@ fn main() {
 }
 `
 
-	ast, err := naga.Parse(wgslSource)
+	module, _, err := wgsl.Parse(wgslSource, wgsl.ParseOptions{})
 	if err != nil {
-		t.Fatalf("naga.Parse failed: %v", err)
-	}
-	module, err := naga.LowerWithSource(ast, wgslSource)
-	if err != nil {
-		t.Fatalf("naga.LowerWithSource failed: %v", err)
+		t.Fatalf("wgsl.Parse failed: %v", err)
 	}
 
 	bufferSlot := uint8(0)

@@ -3,33 +3,24 @@ package wgsl
 import (
 	"strings"
 	"testing"
+
+	"github.com/gogpu/naga/wgsl/internal/parser"
 )
 
-// tryParse attempts to parse WGSL source and returns the first error, if any.
+// tryParse runs the parser alone, so a test of a syntax error cannot pass on
+// an error of the lowerer.
 func tryParse(source string) error {
-	lexer := NewLexer(source)
-	tokens, err := lexer.Tokenize()
+	tokens, err := parser.NewLexer(source).Tokenize()
 	if err != nil {
 		return err
 	}
-	parser := NewParser(tokens)
-	_, err = parser.Parse()
+	_, err = parser.NewParser(tokens).Parse()
 	return err
 }
 
-// tryLower attempts to parse and lower WGSL source and returns the first error, if any.
+// tryLower parses and lowers WGSL source and returns the error, if any.
 func tryLower(source string) error {
-	lexer := NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		return err
-	}
-	parser := NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		return err
-	}
-	_, err = LowerWithSource(ast, source)
+	_, _, err := Parse(source, ParseOptions{})
 	return err
 }
 
@@ -347,6 +338,12 @@ func TestWGSLErrors_LowerErrors(t *testing.T) {
 			name:        "unknown_type_in_return",
 			source:      `fn foo() -> bogus_type { return bogus_type(); }`,
 			errContains: "unknown type: bogus_type",
+		},
+		// Rust naga's UnknownStorageFormat; the format was left undefined.
+		{
+			name:        "unknown_storage_format",
+			source:      `@group(0) @binding(0) var t: texture_storage_2d<rgba8bogus, write>;`,
+			errContains: "unknown storage format: `rgba8bogus`",
 		},
 
 		// --- Unresolved identifier ---

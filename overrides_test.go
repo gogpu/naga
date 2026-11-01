@@ -19,15 +19,12 @@ import (
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
 	"github.com/gogpu/naga/spirv"
+	"github.com/gogpu/naga/wgsl"
 )
 
 func lowerSource(t *testing.T, src string) *ir.Module {
 	t.Helper()
-	ast, err := naga.Parse(src)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	m, err := naga.LowerWithSource(ast, src)
+	m, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("lower: %v", err)
 	}
@@ -219,7 +216,7 @@ func TestProcessOverridesEntryPointNotFound(t *testing.T) {
 	m := lowerSource(t, `@compute @workgroup_size(1) fn main() {}`)
 	for _, sel := range []backend.EntryPointSelector{{Stage: ir.StageCompute, Name: "other"}, {Stage: ir.StageVertex, Name: "main"}} {
 		_, err := naga.ProcessOverrides(m, naga.OverrideOptions{EntryPoint: &sel})
-		if !errors.Is(err, naga.ErrEntryPointNotFound) {
+		if !errors.Is(err, backend.ErrEntryPointNotFound) {
 			t.Errorf("selector %+v: err = %v, want ErrEntryPointNotFound", sel, err)
 		}
 	}
@@ -499,7 +496,7 @@ func TestOverrideSizedArrayRules(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			m := lowerSource(t, tc.src)
-			_, err := naga.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll})
+			_, err := ir.Validate(m, ir.ValidateOptions{Capabilities: ir.CapAll})
 			var errs ir.ValidationErrors
 			if !errors.As(err, &errs) {
 				t.Fatalf("want validation errors, got %v", err)
@@ -518,7 +515,7 @@ func TestOverrideSizedArrayRules(t *testing.T) {
 	}
 	// The allowed form is valid.
 	ok := lowerSource(t, "override n: u32 = 4;\nvar<workgroup> a: array<u32, n>;\n@compute @workgroup_size(1) fn main() { a[0] = 1u; let v = a[0]; }\n")
-	if _, err := naga.Validate(ok, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
+	if _, err := ir.Validate(ok, ir.ValidateOptions{Capabilities: ir.CapAll}); err != nil {
 		t.Errorf("workgroup array sized by an override: %v", err)
 	}
 }

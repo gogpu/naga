@@ -21,6 +21,11 @@ type Parser struct {
 	pendingEnables []Enable
 }
 
+// Errors returns every error Parse found, in source order.
+func (p *Parser) Errors() []ParseError {
+	return p.errors
+}
+
 // ParseError represents a parsing error.
 type ParseError struct {
 	Message string

@@ -67,15 +67,7 @@ func TestFragmentResultInTheRowOfItsLocation(t *testing.T) {
 
 func lowerForTest(t *testing.T, src string) *ir.Module {
 	t.Helper()
-	tokens, err := wgsl.NewLexer(src).Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := wgsl.LowerWithSource(ast, src)
+	m, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

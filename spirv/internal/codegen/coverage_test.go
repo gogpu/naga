@@ -118,7 +118,7 @@ func TestStorageFormatToImageFormat(t *testing.T) {
 		{ir.StorageFormatR64Uint, ImageFormatR64ui},
 		{ir.StorageFormatR64Sint, ImageFormatR64i},
 		// Unknown
-		{ir.StorageFormatUnknown, ImageFormatUnknown},
+		{ir.StorageFormatUndefined, ImageFormatUnknown},
 	}
 	for _, tt := range tests {
 		got := StorageFormatToImageFormat(tt.format)
@@ -975,19 +975,7 @@ fn main(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
     return vec4<f32>(result, pos.y, pos.z, 1.0);
 }
 `
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}

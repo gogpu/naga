@@ -7,6 +7,7 @@ import (
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/entrypoint"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -388,7 +389,7 @@ func (b *Backend) writesFunction(h int) bool {
 // a single Backend instance can be reused across multiple Compile calls.
 func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	if m := b.options.ZeroInitializeWorkgroupMemory; m > backend.ZeroInitWorkgroupNone {
-		return nil, fmt.Errorf("spirv: ZeroInitializeWorkgroupMemory %v is not supported", m)
+		return nil, unsupported.Errorf("spirv: ZeroInitializeWorkgroupMemory %v is not supported", m)
 	}
 	epIndex, err := entrypoint.Index(module, b.options.EntryPoint, false)
 	if err != nil {
@@ -397,7 +398,7 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	p := b.options.BoundsCheckPolicies
 	for _, policy := range []backend.BoundsCheckPolicy{p.Index, p.Buffer, p.ImageLoad, p.BindingArray} {
 		if policy > backend.BoundsCheckUnchecked {
-			return nil, fmt.Errorf("spirv: BoundsCheckPolicies: %v is not supported", policy)
+			return nil, unsupported.Errorf("spirv: BoundsCheckPolicies: %v is not supported", policy)
 		}
 	}
 	if err := ir.CheckWorkgroupSizesResolved(module); err != nil {
@@ -889,7 +890,7 @@ func (b *Backend) emitType(handle ir.TypeHandle) (uint32, error) {
 		b.builder.types = append(b.builder.types, builder.Build(OpTypeRayQueryKHR))
 
 	default:
-		return 0, fmt.Errorf("unsupported type: %T", inner)
+		return 0, unsupported.Errorf("unsupported type: %T", inner)
 	}
 
 	// Cache the result
@@ -1424,7 +1425,7 @@ func (b *Backend) emitLiteralConstant(value ir.LiteralValue) (uint32, error) {
 		return resultID, nil
 
 	default:
-		return 0, fmt.Errorf("unsupported literal type: %T", v)
+		return 0, unsupported.Errorf("unsupported literal type: %T", v)
 	}
 }
 
@@ -1696,7 +1697,7 @@ func (b *Backend) emitConstant(handle ir.ConstantHandle) (uint32, error) {
 		}
 
 	default:
-		return 0, fmt.Errorf("unsupported constant value type: %T", value)
+		return 0, unsupported.Errorf("unsupported constant value type: %T", value)
 	}
 
 	// Cache the result
@@ -2637,7 +2638,7 @@ func (b *Backend) checkBuiltins() error {
 			return nil
 		}
 		if bi, ok := (*binding).(ir.BuiltinBinding); ok && builtinToSPIRV(bi.Builtin, sc) == builtInUnmapped {
-			return fmt.Errorf("spirv: entry point %q: built-in %d is not supported", ep.Name, bi.Builtin)
+			return unsupported.Errorf("spirv: entry point %q: built-in %d is not supported", ep.Name, bi.Builtin)
 		}
 		return nil
 	}
@@ -2701,7 +2702,7 @@ func (b *Backend) emitEntryPoints() error {
 		case ir.StageCompute:
 			execModel = ExecutionModelGLCompute
 		default:
-			return fmt.Errorf("unsupported shader stage: %v", entryPoint.Stage)
+			return unsupported.Errorf("unsupported shader stage: %v", entryPoint.Stage)
 		}
 
 		// Collect interface variables (inputs/outputs used by entry point)
@@ -3130,7 +3131,7 @@ func (b *Backend) emitWrappedBinaryOp(op ir.BinaryOperator, returnTypeInner ir.T
 		isVector = true
 		vecSize = uint32(t.Size)
 	default:
-		return fmt.Errorf("emitWrappedBinaryOp: unsupported type %T", returnTypeInner)
+		return unsupported.Errorf("emitWrappedBinaryOp: unsupported type %T", returnTypeInner)
 	}
 
 	// Allocate the function ID and register in cache
@@ -3237,7 +3238,7 @@ func (b *Backend) emitWrappedBinaryOp(op ir.BinaryOperator, returnTypeInner ir.T
 			constMinID = b.builder.AddConstant(scalarTypeID, 0, 0x80000000)
 			constNegOneID = b.builder.AddConstant(scalarTypeID, 0xFFFFFFFF, 0xFFFFFFFF)
 		} else {
-			return fmt.Errorf("emitWrappedBinaryOp: unsupported scalar width %d", scalar.Width)
+			return unsupported.Errorf("emitWrappedBinaryOp: unsupported scalar width %d", scalar.Width)
 		}
 		compositeMinID := maybeSplat(constMinID)
 		compositeNegOneID := maybeSplat(constNegOneID)
@@ -4286,7 +4287,7 @@ func (e *ExpressionEmitter) emitExpression(handle ir.ExpressionHandle) (uint32, 
 		// Rust Error::Override: naga.ProcessOverrides replaces them first.
 		return 0, fmt.Errorf("spirv: %w", ir.ErrUnresolvedOverride)
 	default:
-		return 0, fmt.Errorf("unsupported expression kind: %T", kind)
+		return 0, unsupported.Errorf("unsupported expression kind: %T", kind)
 	}
 
 	if err != nil {
@@ -5062,7 +5063,7 @@ func (e *ExpressionEmitter) resolveAccessElementType(baseType ir.TypeResolution,
 			h := t.Members[index].Type
 			return ir.TypeResolution{Handle: &h}, nil
 		}
-		return ir.TypeResolution{}, fmt.Errorf("dynamic access on struct type is not supported")
+		return ir.TypeResolution{}, unsupported.Errorf("dynamic access on struct type is not supported")
 	case ir.BindingArrayType:
 		h := t.Base
 		return ir.TypeResolution{Handle: &h}, nil
@@ -5644,7 +5645,7 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 		isMatrix = true
 		matrixSrc = t
 	default:
-		return 0, fmt.Errorf("as: unsupported source type %T", srcInner)
+		return 0, unsupported.Errorf("as: unsupported source type %T", srcInner)
 	}
 
 	if as.Convert == nil {
@@ -5751,7 +5752,7 @@ func (e *ExpressionEmitter) emitBoolToNumeric(targetTypeID uint32, targetScalar 
 		oneID = e.backend.builder.AddConstant(scalarTypeID, 1)
 		zeroID = e.backend.builder.AddConstant(scalarTypeID, 0)
 	default:
-		return 0, fmt.Errorf("bool conversion: unsupported target kind %v", targetScalar.Kind)
+		return 0, unsupported.Errorf("bool conversion: unsupported target kind %v", targetScalar.Kind)
 	}
 
 	// For vector types, replicate constants into composite vectors
@@ -5795,7 +5796,7 @@ func (e *ExpressionEmitter) emitNumericToBool(targetTypeID uint32, srcScalar ir.
 		zeroID = e.backend.builder.AddConstant(srcScalarTypeID, 0)
 		cmpOp = OpINotEqual
 	default:
-		return 0, fmt.Errorf("bool conversion: unsupported source kind %v", srcScalar.Kind)
+		return 0, unsupported.Errorf("bool conversion: unsupported source kind %v", srcScalar.Kind)
 	}
 
 	// For vector types, replicate zero constant into composite vector
@@ -5855,7 +5856,7 @@ func selectConversionOp(src, dst ir.ScalarKind, srcWidth, dstWidth uint8) (OpCod
 	case src == ir.ScalarUint && dst == ir.ScalarUint:
 		return OpUConvert, nil
 	default:
-		return 0, fmt.Errorf("unsupported conversion: %v → %v", src, dst)
+		return 0, unsupported.Errorf("unsupported conversion: %v → %v", src, dst)
 	}
 }
 
@@ -6056,7 +6057,7 @@ func (e *ExpressionEmitter) emitUnary(unary ir.ExprUnary) (uint32, error) {
 	case ir.UnaryBitwiseNot:
 		opcode = OpNot
 	default:
-		return 0, fmt.Errorf("unsupported unary operator: %v", unary.Op)
+		return 0, unsupported.Errorf("unsupported unary operator: %v", unary.Op)
 	}
 
 	return e.backend.builder.AddUnaryOp(opcode, resultType, operandID), nil
@@ -6453,7 +6454,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			opcode = OpShiftRightLogical // Zero-filling
 		}
 	default:
-		return 0, fmt.Errorf("unsupported binary operator: %v", binary.Op)
+		return 0, unsupported.Errorf("unsupported binary operator: %v", binary.Op)
 	}
 
 	return e.backend.builder.AddBinaryOp(opcode, resultType, leftID, rightID), nil
@@ -6886,7 +6887,7 @@ func (e *ExpressionEmitter) emitStatement(stmt ir.Statement) error {
 		return e.emitWorkGroupUniformLoad(kind)
 
 	default:
-		return fmt.Errorf("unsupported statement kind: %T", kind)
+		return unsupported.Errorf("unsupported statement kind: %T", kind)
 	}
 }
 
@@ -7773,7 +7774,7 @@ func (e *ExpressionEmitter) emitMath(mathExpr ir.ExprMath) (uint32, error) {
 		useNativeOpcode = true
 
 	default:
-		return 0, fmt.Errorf("unsupported math function: %v", mathExpr.Fun)
+		return 0, unsupported.Errorf("unsupported math function: %v", mathExpr.Fun)
 	}
 
 	// Functions with special result types (not same as argument type).
@@ -8364,7 +8365,7 @@ func (e *ExpressionEmitter) emitRelational(handle ir.ExpressionHandle, rel ir.Ex
 	case ir.RelationalIsInf:
 		opcode = OpIsInf
 	default:
-		return 0, fmt.Errorf("unsupported relational function: %v", rel.Fun)
+		return 0, unsupported.Errorf("unsupported relational function: %v", rel.Fun)
 	}
 
 	resultRes, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
@@ -8433,7 +8434,7 @@ func (e *ExpressionEmitter) emitDerivative(deriv ir.ExprDerivative) (uint32, err
 			opcode = OpFwidth
 		}
 	default:
-		return 0, fmt.Errorf("unsupported derivative axis: %v", deriv.Axis)
+		return 0, unsupported.Errorf("unsupported derivative axis: %v", deriv.Axis)
 	}
 
 	return e.backend.builder.AddUnaryOp(opcode, resultType, exprID), nil
@@ -8764,7 +8765,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		}
 
 	default:
-		return 0, fmt.Errorf("unsupported sample level: %T", level)
+		return 0, unsupported.Errorf("unsupported sample level: %T", level)
 	}
 
 	// For depth images without Dref (non-comparison sampling), SPIR-V returns
@@ -9519,7 +9520,7 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 		e.backend.builder.funcAppend(builder.Build(OpImageQuerySamples))
 
 	default:
-		return 0, fmt.Errorf("unsupported image query: %T", q)
+		return 0, unsupported.Errorf("unsupported image query: %T", q)
 	}
 
 	return resultID, nil
@@ -9891,7 +9892,7 @@ func (e *ExpressionEmitter) emitAtomic(stmt ir.StmtAtomic) error {
 	if !isLoad && !isStore && !isCompareExchange {
 		var ok bool
 		if opcode, ok = atomicOpcode(stmt.Fun, scalarKind); !ok {
-			return fmt.Errorf("unsupported atomic function: %T", stmt.Fun)
+			return unsupported.Errorf("unsupported atomic function: %T", stmt.Fun)
 		}
 	}
 
@@ -10181,7 +10182,7 @@ func (e *ExpressionEmitter) emitImageAtomic(stmt ir.StmtImageAtomic) error {
 	// Determine the atomic opcode.
 	opcode, ok := atomicOpcode(stmt.Fun, scalar.Kind)
 	if !ok {
-		return fmt.Errorf("image atomic: unsupported atomic function: %T", stmt.Fun)
+		return unsupported.Errorf("image atomic: unsupported atomic function: %T", stmt.Fun)
 	}
 
 	// Emit the atomic operation: OpAtomic* ResultType Result Pointer Scope Semantics Value
@@ -10907,7 +10908,7 @@ func (e *ExpressionEmitter) resolveSubgroupTypeID(handle ir.ExpressionHandle) (u
 		}
 		return e.backend.emitVectorType(scalarID, uint32(t.Size)), nil
 	default:
-		return 0, fmt.Errorf("unsupported inline subgroup result type: %T", typeRes.Value)
+		return 0, unsupported.Errorf("unsupported inline subgroup result type: %T", typeRes.Value)
 	}
 }
 
@@ -11094,7 +11095,7 @@ func (e *ExpressionEmitter) emitRayQuery(stmt ir.StmtRayQuery) error {
 		e.backend.builder.funcAppend(ib.Build(OpFunctionCall))
 
 	default:
-		return fmt.Errorf("unsupported ray query function: %T", stmt.Fun)
+		return unsupported.Errorf("unsupported ray query function: %T", stmt.Fun)
 	}
 
 	return nil

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -169,7 +170,7 @@ func (w *Writer) writeExpressionKind(kind ir.ExpressionKind, handle ir.Expressio
 		// Rust Error::Override: naga.ProcessOverrides replaces them first.
 		return "", fmt.Errorf("glsl: %w", ir.ErrUnresolvedOverride)
 	default:
-		return "", fmt.Errorf("unsupported expression kind: %T", kind)
+		return "", unsupported.Errorf("unsupported expression kind: %T", kind)
 	}
 }
 
@@ -642,7 +643,7 @@ func (w *Writer) writeUnary(u ir.ExprUnary) (string, error) {
 	case ir.UnaryBitwiseNot:
 		return fmt.Sprintf("~(%s)", operand), nil
 	default:
-		return "", fmt.Errorf("unsupported unary operator: %v", u.Op)
+		return "", unsupported.Errorf("unsupported unary operator: %v", u.Op)
 	}
 }
 
@@ -732,7 +733,7 @@ func (w *Writer) writeBinary(b ir.ExprBinary) (string, error) {
 	case ir.BinaryShiftRight:
 		return fmt.Sprintf("(%s >> %s)", left, right), nil
 	default:
-		return "", fmt.Errorf("unsupported binary operator: %v", b.Op)
+		return "", unsupported.Errorf("unsupported binary operator: %v", b.Op)
 	}
 }
 
@@ -787,7 +788,7 @@ func (w *Writer) writeRelational(r ir.ExprRelational) (string, error) {
 	case ir.RelationalIsInf:
 		return fmt.Sprintf("isinf(%s)", argument), nil
 	default:
-		return "", fmt.Errorf("unsupported relational function: %v", r.Fun)
+		return "", unsupported.Errorf("unsupported relational function: %v", r.Fun)
 	}
 }
 
@@ -1133,7 +1134,7 @@ func (w *Writer) writeMath(m ir.ExprMath) (string, error) {
 		return fmt.Sprintf("unpackHalf2x16(%s)", argStr), nil
 
 	default:
-		return "", fmt.Errorf("unsupported math function: %v", m.Fun)
+		return "", unsupported.Errorf("unsupported math function: %v", m.Fun)
 	}
 }
 
@@ -1180,7 +1181,7 @@ func (w *Writer) writeDerivative(d ir.ExprDerivative) (string, error) {
 		}
 		return fmt.Sprintf("fwidth(%s)", expr), nil
 	default:
-		return "", fmt.Errorf("unsupported derivative axis: %v", d.Axis)
+		return "", unsupported.Errorf("unsupported derivative axis: %v", d.Axis)
 	}
 }
 
@@ -1817,7 +1818,7 @@ func (w *Writer) writeImageQuery(q ir.ExprImageQuery) (string, error) {
 		return fmt.Sprintf("uint(%s(%s))", funName, image), nil
 
 	default:
-		return "", fmt.Errorf("unsupported image query: %T", q.Query)
+		return "", unsupported.Errorf("unsupported image query: %T", q.Query)
 	}
 }
 

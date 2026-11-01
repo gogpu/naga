@@ -1,19 +1,10 @@
-// Package wgsl provides WGSL (WebGPU Shading Language) parsing and lowering.
+// Package wgsl is the WGSL (WebGPU Shading Language) frontend: [Parse] turns
+// WGSL source into an IR module, as Rust naga's front::wgsl.
 //
 // WGSL is the shader language for WebGPU, designed to be portable
 // and map well to modern GPU APIs like Vulkan, Metal, and DX12.
 //
-// # Components
-//
-// The wgsl package consists of several components:
-//
-//   - Lexer: Tokenizes WGSL source code into tokens
-//   - Parser: Parses tokens into an AST (Abstract Syntax Tree)
-//   - Lowerer: Converts AST to IR (Intermediate Representation)
-//
 // # Usage
-//
-// To parse and lower a WGSL shader:
 //
 //	source := `
 //	@vertex
@@ -22,22 +13,21 @@
 //	}
 //	`
 //
-//	lexer := wgsl.NewLexer(source)
-//	tokens, err := lexer.Tokenize()
+//	module, info, err := wgsl.Parse(source, wgsl.ParseOptions{})
 //	if err != nil {
+//	    var pe *wgsl.ParseError
+//	    if errors.As(err, &pe) {
+//	        log.Fatal(pe.Format(source, "shader.wgsl"))
+//	    }
 //	    log.Fatal(err)
+//	}
+//	for _, w := range info.Warnings {
+//	    log.Println(w.Message)
 //	}
 //
-//	parser := wgsl.NewParser(tokens)
-//	module, err := parser.Parse()
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	irModule, err := wgsl.LowerWithSource(module, source)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
+// The module is not validated: ir.Validate checks it against the
+// capabilities the device has, and a backend (spirv, msl, glsl, hlsl, dxil)
+// compiles it.
 //
 // # WGSL Specification
 //
@@ -54,4 +44,8 @@
 //   - Attributes (@vertex, @fragment, @compute, etc.)
 //   - Control flow (if, for, while, loop, switch)
 //   - All operators and expressions
+//
+// # Concurrency
+//
+// Parse is safe for concurrent use; each call returns a new module.
 package wgsl

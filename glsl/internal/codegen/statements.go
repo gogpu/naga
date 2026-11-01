@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -117,7 +118,7 @@ func (w *Writer) writeStatementKind(kind ir.StatementKind) error {
 		return w.writeSubgroupGather(k)
 
 	default:
-		return fmt.Errorf("unsupported statement kind: %T", kind)
+		return unsupported.Errorf("unsupported statement kind: %T", kind)
 	}
 }
 
@@ -781,7 +782,7 @@ func (w *Writer) writeImageAtomic(imgAtomic ir.StmtImageAtomic) error {
 	case ir.AtomicExchange:
 		funStr = "Exchange"
 	default:
-		return fmt.Errorf("unsupported image atomic function: %T", imgAtomic.Fun)
+		return unsupported.Errorf("unsupported image atomic function: %T", imgAtomic.Fun)
 	}
 
 	// Handle Subtract by negating value
@@ -846,7 +847,7 @@ func (w *Writer) writeAtomic(atomic ir.StmtAtomic) error {
 		}
 		funcName = "atomicExchange"
 	default:
-		return fmt.Errorf("unsupported atomic function: %T", atomic.Fun)
+		return unsupported.Errorf("unsupported atomic function: %T", atomic.Fun)
 	}
 
 	// If there's a result, assign it
@@ -1145,7 +1146,7 @@ func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) err
 func (w *Writer) writeRayQuery(_ ir.StmtRayQuery) error {
 	// Ray query requires extensions not commonly available in base GLSL
 	// Would need GL_EXT_ray_query extension
-	return fmt.Errorf("ray query statements not supported in GLSL (requires GL_EXT_ray_query)")
+	return unsupported.Errorf("ray query statements not supported in GLSL (requires GL_EXT_ray_query)")
 }
 
 // joinStrings joins strings with a separator.

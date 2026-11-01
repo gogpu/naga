@@ -13,19 +13,7 @@ import (
 func compileWGSLForCapabilityTest(t *testing.T, source string) []byte {
 	t.Helper()
 
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize: %v", err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}
@@ -123,19 +111,7 @@ func capabilityNameForTest(c uint32) string {
 func compileWGSLForCapabilityTestWithOpts(t *testing.T, source string, opts Options) []byte {
 	t.Helper()
 
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize: %v", err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower: %v", err)
 	}

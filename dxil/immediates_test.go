@@ -17,15 +17,7 @@ var<immediate> im: Im;
 
 func lowerImmediatesShader(t *testing.T) *ir.Module {
 	t.Helper()
-	tokens, err := wgsl.NewLexer(immediatesShader).Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := wgsl.LowerWithSource(ast, immediatesShader)
+	m, _, err := wgsl.Parse(immediatesShader, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

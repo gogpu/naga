@@ -513,17 +513,7 @@ func TestMSL_Vec2EmptyConstructorWithTypeAnnotation(t *testing.T) {
 	// The lowerer creates Compose<vec2<f32>> then concretizes to vec2<i32>.
 	// Regression test for abstract-types-var shader.
 	src := `fn test() { var x: vec2<i32> = vec2(); _ = x; }`
-	lexer := wgsl.NewLexer(src)
-	tokens, lexErr := lexer.Tokenize()
-	if lexErr != nil {
-		t.Fatal("Lex error:", lexErr)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, parseErr := parser.Parse()
-	if parseErr != nil {
-		t.Fatal("Parse error:", parseErr)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal("Lower error:", err)
 	}
@@ -583,17 +573,7 @@ fn test() {
     var e: vec2<f32> = vec2();
     _ = a; _ = b; _ = c; _ = d; _ = e;
 }`
-	lexer := wgsl.NewLexer(src)
-	tokens, lexErr := lexer.Tokenize()
-	if lexErr != nil {
-		t.Fatal("Lex error:", lexErr)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, parseErr := parser.Parse()
-	if parseErr != nil {
-		t.Fatal("Parse error:", parseErr)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal("Lower error:", err)
 	}
@@ -632,17 +612,7 @@ fn test() {
     c = vec2();
     d = vec2();
 }`
-	lexer := wgsl.NewLexer(src)
-	tokens, lexErr := lexer.Tokenize()
-	if lexErr != nil {
-		t.Fatal("Lex error:", lexErr)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, parseErr := parser.Parse()
-	if parseErr != nil {
-		t.Fatal("Parse error:", parseErr)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal("Lower error:", err)
 	}
@@ -674,17 +644,7 @@ func TestMSL_AbstractTypesVarFull(t *testing.T) {
 	}
 	src := string(srcBytes)
 
-	lexer := wgsl.NewLexer(src)
-	tokens, lexErr := lexer.Tokenize()
-	if lexErr != nil {
-		t.Fatal("Lex error:", lexErr)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, parseErr := parser.Parse()
-	if parseErr != nil {
-		t.Fatal("Parse error:", parseErr)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal("Lower error:", err)
 	}
@@ -786,17 +746,7 @@ fn all_constant_arguments() {
 fn main() {
     all_constant_arguments();
 }`
-	lexer := wgsl.NewLexer(src)
-	tokens, lexErr := lexer.Tokenize()
-	if lexErr != nil {
-		t.Fatal("Lex error:", lexErr)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, parseErr := parser.Parse()
-	if parseErr != nil {
-		t.Fatal("Parse error:", parseErr)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal("Lower error:", err)
 	}

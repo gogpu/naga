@@ -27,17 +27,9 @@ func compileWGSL(srcPath, entry string) (blobs [][]byte, names []string, stages 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	tokens, err := wgsl.NewLexer(string(src)).Tokenize()
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("tokenize: %w", err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
+	module, _, err := wgsl.Parse(string(src), wgsl.ParseOptions{})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("parse: %w", err)
-	}
-	module, err := wgsl.LowerWithSource(ast, string(src))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("lower: %w", err)
 	}
 	if len(module.EntryPoints) == 0 {
 		return nil, nil, nil, nil

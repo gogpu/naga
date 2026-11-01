@@ -29,19 +29,7 @@ func verifySPIRVOutput(t *testing.T, name string, spvBytes []byte, minSize int) 
 func compileWGSLSource(t *testing.T, name, source string) []byte {
 	t.Helper()
 
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("[%s] Tokenize failed: %v", name, err)
-	}
-
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("[%s] Parse failed: %v", name, err)
-	}
-
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("[%s] Lower failed: %v", name, err)
 	}

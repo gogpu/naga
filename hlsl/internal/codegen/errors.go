@@ -82,10 +82,14 @@ func (e *Error) Error() string {
 }
 
 // Unwrap returns the shared category of the error, so that callers can
-// match it with errors.Is: backend.ErrMissingBinding for a missing binding.
+// match it with errors.Is: backend.ErrMissingBinding for a missing binding,
+// backend.ErrUnsupported for what HLSL or the shader model cannot express.
 func (e *Error) Unwrap() error {
-	if e.Kind == ErrMissingBinding {
+	switch e.Kind {
+	case ErrMissingBinding:
 		return backend.ErrMissingBinding
+	case ErrUnsupportedFeature, ErrUnsupportedType, ErrInvalidShaderModel:
+		return backend.ErrUnsupported
 	}
 	return nil
 }

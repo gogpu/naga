@@ -6,6 +6,7 @@ import (
 
 	"github.com/gogpu/naga/dxil/internal/module"
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -316,7 +317,7 @@ func (e *Emitter) emitSingleInputLoad(fn *ir.Function, argIdx int, arg *ir.Funct
 		if st, isSt := argType.Inner.(ir.StructType); isSt {
 			return e.emitStructInputLoads(fn, argIdx, &st, stage, inputRow)
 		}
-		return fmt.Errorf("unsupported input type for argument %d", argIdx)
+		return unsupported.Errorf("unsupported input type for argument %d", argIdx)
 	}
 
 	// Bool inputs are loaded as i32 then converted with icmp ne 0.
@@ -456,7 +457,7 @@ func (e *Emitter) emitComputeBuiltinLoad(fn *ir.Function, argIdx int, builtin ir
 		return e.emitNumSubgroupsLoad(fn, exprHandle)
 
 	default:
-		return fmt.Errorf("unsupported compute builtin: %d", builtin)
+		return unsupported.Errorf("unsupported compute builtin: %d", builtin)
 	}
 }
 
@@ -755,7 +756,7 @@ func (e *Emitter) emitStructInputLoads(fn *ir.Function, argIdx int, st *ir.Struc
 		memberType := e.ir.Types[member.Type]
 		scalar, ok := scalarOfType(memberType.Inner)
 		if !ok {
-			return fmt.Errorf("unsupported struct member type for input %q", member.Name)
+			return unsupported.Errorf("unsupported struct member type for input %q", member.Name)
 		}
 
 		numComps := componentCount(memberType.Inner)
@@ -1145,7 +1146,7 @@ func (e *Emitter) emitComputeBuiltinMemberLoad(builtin ir.BuiltinValue) (int, er
 		return e.addCallInstr(fn, i32Ty, []int{op}), nil
 
 	default:
-		return 0, fmt.Errorf("compute builtin %d not supported as struct member (scalar only)", builtin)
+		return 0, unsupported.Errorf("compute builtin %d not supported as struct member (scalar only)", builtin)
 	}
 }
 

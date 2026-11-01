@@ -250,7 +250,9 @@ func (v *validator) validateType(handle TypeHandle, typ *Type) {
 		// Sampler types are always valid
 
 	case ImageType:
-		// Image types are always valid (dimension and class have enum constraints)
+		if inner.Class == ImageClassStorage && inner.StorageFormat == StorageFormatUndefined {
+			v.addError(fmt.Sprintf("type %d: storage image has no format (StorageFormatUndefined)", handle))
+		}
 	}
 }
 

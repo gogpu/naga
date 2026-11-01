@@ -36,4 +36,9 @@
 //	RWTexture: register(u#, space#) // UAVs
 //
 // The BindingMap in Options allows explicit control over register assignment.
+//
+// # Concurrency
+//
+// Every exported function is safe for concurrent use. Compile never modifies
+// its input module, so one module can be compiled for several targets at once.
 package hlsl

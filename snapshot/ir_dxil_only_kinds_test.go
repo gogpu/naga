@@ -28,19 +28,7 @@ func TestNoDxilOnlyKindsAfterParse(t *testing.T) {
 
 	for _, sh := range shaders {
 		t.Run(sh.name, func(t *testing.T) {
-			lexer := wgsl.NewLexer(sh.source)
-			tokens, lexErr := lexer.Tokenize()
-			if lexErr != nil {
-				t.Skipf("lex error (covered by snapshot tests): %v", lexErr)
-				return
-			}
-			parser := wgsl.NewParser(tokens)
-			ast, parseErr := parser.Parse()
-			if parseErr != nil {
-				t.Skipf("parse error (covered by snapshot tests): %v", parseErr)
-				return
-			}
-			module, lowerErr := wgsl.LowerWithSource(ast, sh.source)
+			module, _, lowerErr := wgsl.Parse(sh.source, wgsl.ParseOptions{})
 			if lowerErr != nil {
 				t.Skipf("lower error (covered by snapshot tests): %v", lowerErr)
 				return

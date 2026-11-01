@@ -1175,15 +1175,7 @@ func TestModuleUsesLowPrecision_QuantizeF16NotTriggered(t *testing.T) {
 // if parsing, lowering, compilation, or validation fails.
 func compileWGSLToDXIL(t *testing.T, src string) {
 	t.Helper()
-	tokens, err := wgsl.NewLexer(src).Tokenize()
-	if err != nil {
-		t.Fatalf("tokenize: %v", err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	irMod, err := wgsl.LowerWithSource(ast, src)
+	irMod, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("lower: %v", err)
 	}

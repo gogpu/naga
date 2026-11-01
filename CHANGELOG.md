@@ -99,8 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   allows no optional capability: `ir.Validate` used to allow every one (`CapAll`), so a caller that validated f64,
   i64 or f16 shaders now passes the device's capabilities. The new `ModuleInfo` gives, per function and entry point,
   the `GlobalUses` of every global (`GlobalUseRead`, `Write`, `Query`, `Atomic`, Rust naga's `valid::GlobalUse`), callees
-  included: what a WebGPU implementation needs for the workgroup storage limit and bind group layout checks. The root
-  `naga.Validate` mirrors it.
+  included: what a WebGPU implementation needs for the workgroup storage limit and bind group layout checks.
 - **Breaking: IR names and widths follow Rust naga** (ADR-010 N1, N6, N7, N8): `ir.Capabilities` is `uint64`, as
   Rust's bits go above 31, and `CapAll` sets every bit; `MathQuantizeF16` is `MathQuantizeToF16` and
   `BuiltinClipDistance` is `BuiltinClipDistances`; `ExprLocalVariable.Variable` is a `LocalVariableHandle` and
@@ -140,6 +139,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   map (`BindingArraySize`), as wgpu passes it; without it compiling fails. GLSL ES cannot query a texture's levels or samples, so it
   cannot check the level or sample of a `textureLoad`: a GLSL ES target sets `ImageLoad` to `Unchecked`, as wgpu-hal
   does below desktop GLSL 4.30, or compiling such a load fails with an error that says so.
+- **Breaking: one call from WGSL to IR, and Rust's error shape** (ADR-010 N3, N4). `wgsl.Parse(source,
+  wgsl.ParseOptions{}) (*ir.Module, wgsl.ParseInfo, error)` replaces the lexer, parser, AST and lowerer that were
+  public (`wgsl.NewLexer`, `Tokens`, `NewParser`, `Module`, `Lower`, `LowerWithSource`, `LowerWithWarnings`,
+  `LowerResult`, `Warning`, `Span`, `Position`), as Rust naga's `front::wgsl::Frontend::parse`; the module is not
+  validated. Its error is a `*wgsl.ParseError{Message, Labels, Notes}`: `Error()` is the message alone, as Rust's
+  Display; `Location(source)` gives the line and column and `Format(source, path)` renders the labelled lines as
+  Rust's `emit_to_string_with_path`. The parser's further errors are notes. Warnings come in
+  `ParseInfo.Warnings []wgsl.Diagnostic{Message, Span}`. Spans are one type, `ir.Span{Start, End}` in bytes, with
+  `Location(source) ir.SourceLocation{Line, Column, Offset, Length}` (Rust's `Span::location`; columns count bytes).
+  The root package keeps `Compile`, `CompileWithOptions` (its parse error now reads `wgsl:<line>:<column>: <message>`
+  and wraps the `*wgsl.ParseError`), `ProcessOverrides` and their types; removed are `naga.Parse`, `Lower`,
+  `LowerWithSource`, `LowerWithCapabilities` (use `wgsl.Parse` and `ir.Validate`), `GenerateSPIRV` (`spirv.Compile`),
+  `Validate` (`ir.Validate`) and the `Cap*` constants (`ir.Cap*`).
+- **Breaking: error categories every backend shares** (ADR-010 N9). The new `backend.ErrUnsupported` is wrapped by
+  every refusal of what a target cannot express: an option value a backend refuses, a shader model or GLSL version
+  below what the shader needs (`*backend.ShaderModelError`, `*glsl.MissingFeaturesError`), a built-in without a name
+  there, a construct a backend cannot write (`hlsl`'s `*Error` of kinds `UnsupportedFeature`, `UnsupportedType`,
+  `InvalidShaderModel`). Messages are unchanged; `errors.Is(err, backend.ErrUnsupported)` tells "this target cannot"
+  from a broken module or a missing binding (`backend.ErrMissingBinding`). `naga.ErrEntryPointNotFound` is removed:
+  `ProcessOverrides` wraps `backend.ErrEntryPointNotFound`, as the backends do.
+- **Breaking: `ir.StorageFormatUnknown` is `StorageFormatUndefined`** (ADR-010 R1), the zero value meaning "no format
+  set", as webgpu.h's `Undefined = 0`. The validator rejects a storage image with it, and the WGSL frontend rejects an
+  unknown format name (`unknown storage format: \`x\``, Rust naga's text); both left the format undefined before, and
+  the backends wrote some format for it.
 
 ### Added
 

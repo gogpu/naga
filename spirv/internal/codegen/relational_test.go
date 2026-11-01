@@ -110,15 +110,7 @@ fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
 // holds an ir.ExprRelational.
 func assertNoRelationalInIR(t *testing.T, source string) {
 	t.Helper()
-	tokens, err := wgsl.NewLexer(source).Tokenize()
-	if err != nil {
-		t.Fatalf("Tokenize failed: %v", err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower failed: %v", err)
 	}

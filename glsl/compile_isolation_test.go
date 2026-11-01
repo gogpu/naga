@@ -39,15 +39,7 @@ fn cs() {
 
 func lowerWGSL(t *testing.T, source string) *ir.Module {
 	t.Helper()
-	tokens, err := wgsl.NewLexer(source).Tokenize()
-	if err != nil {
-		t.Fatalf("tokenize: %v", err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	module, err := wgsl.LowerWithSource(ast, source)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("lower: %v", err)
 	}

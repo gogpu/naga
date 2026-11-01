@@ -153,6 +153,14 @@ func (sm ShaderModel) String() string {
 // naga reports it as EntryPointNotFound.
 var ErrEntryPointNotFound = errors.New("entry point not found")
 
+// ErrUnsupported reports a module or an option the target cannot express: an
+// option value a backend refuses (ADR-009 rule 7: refuse loudly, never weaken
+// silently), a feature above the target's version or shader model, a built-in
+// the target has no name for. Every backend's refusal wraps it, so a caller
+// can tell "this device or target cannot" from a broken module with
+// errors.Is; the message says what and why.
+var ErrUnsupported = errors.New("unsupported")
+
 // ShaderModelError is a feature of the shader that needs a newer shader model
 // than Options.ShaderModel (hlsl and dxil). The backends never raise the
 // model: DXC's validator rejects a module whose target model is below what
@@ -167,6 +175,9 @@ type ShaderModelError struct {
 func (e *ShaderModelError) Error() string {
 	return e.Feature + " needs shader model " + e.Required.String() + ", Options.ShaderModel is " + e.Requested.String()
 }
+
+// Unwrap returns ErrUnsupported: the target model cannot express the feature.
+func (e *ShaderModelError) Unwrap() error { return ErrUnsupported }
 
 // ErrMissingBinding reports a resource the module uses that has no entry in a
 // non-nil binding map. Every backend's error for it wraps this value. Rust

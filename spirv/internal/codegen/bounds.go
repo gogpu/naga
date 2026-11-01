@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/gogpu/naga/backend"
+	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -420,7 +421,7 @@ func (e *ExpressionEmitter) withAccess(p accessPointer, valueType uint32, body f
 func (e *ExpressionEmitter) loadAccessedElement(pointer accessPointer, elementType ir.TypeResolution, loadType uint32) (id uint32, done bool, err error) {
 	if elementType.Handle != nil && e.backend.typeContainsRuntimeArray(*elementType.Handle) {
 		if pointer.condition != 0 {
-			return 0, false, fmt.Errorf("a runtime-sized array reached through a ReadZeroSkipWrite-checked index is not supported")
+			return 0, false, unsupported.Errorf("a runtime-sized array reached through a ReadZeroSkipWrite-checked index is not supported")
 		}
 		return pointer.id, true, nil
 	}

@@ -337,6 +337,10 @@ func (e *MissingFeaturesError) Error() string {
 	return msg
 }
 
+// Unwrap returns backend.ErrUnsupported: the version cannot express the
+// features.
+func (e *MissingFeaturesError) Unwrap() error { return backend.ErrUnsupported }
+
 // toCodegenOptions converts public Options to internal codegen Options.
 func toCodegenOptions(o Options) codegen.Options {
 	var bindingMap map[codegen.BindingMapKey]uint8

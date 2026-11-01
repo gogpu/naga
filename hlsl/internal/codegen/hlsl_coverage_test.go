@@ -17,17 +17,7 @@ import (
 // wgslToHLSL compiles WGSL to HLSL for coverage tests.
 func wgslToHLSL(t *testing.T, src string) string {
 	t.Helper()
-	lexer := wgsl.NewLexer(src)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("tokenize: %v", err)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	module, err := wgsl.LowerWithSource(ast, src)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("lower: %v", err)
 	}

@@ -53,17 +53,7 @@ func processOverridesForTest(t *testing.T, module *ir.Module, constants map[stri
 // lowerWGSLForTest parses and lowers WGSL source.
 func lowerWGSLForTest(t *testing.T, src string) *ir.Module {
 	t.Helper()
-	lexer := wgsl.NewLexer(src)
-	tokens, lexErr := lexer.Tokenize()
-	if lexErr != nil {
-		t.Fatalf("Lex error: %v", lexErr)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, parseErr := parser.Parse()
-	if parseErr != nil {
-		t.Fatalf("Parse error: %v", parseErr)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(src, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("Lower error: %v", err)
 	}

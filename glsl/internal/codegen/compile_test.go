@@ -15,17 +15,7 @@ import (
 // wgslToGLSL is a test helper that compiles WGSL source to GLSL with options.
 func wgslToGLSL(t *testing.T, source string, opts Options) string {
 	t.Helper()
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatalf("WGSL tokenize error: %v", err)
-	}
-	parser := wgsl.NewParser(tokens)
-	ast, err := parser.Parse()
-	if err != nil {
-		t.Fatalf("WGSL parse error: %v", err)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatalf("WGSL lower error: %v", err)
 	}
@@ -379,16 +369,7 @@ fn fs_main(@location(0) @interpolate(flat) i: u32) -> @location(0) vec4<f32> {
     return lights[i].color;
 }
 `
-	lexer := wgsl.NewLexer(source)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ast, err := wgsl.NewParser(tokens).Parse()
-	if err != nil {
-		t.Fatal(err)
-	}
-	module, err := wgsl.Lower(ast)
+	module, _, err := wgsl.Parse(source, wgsl.ParseOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
