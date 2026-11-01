@@ -333,6 +333,9 @@ func (w *Writer) writeModule() error {
 	// actually used by the selected entry point, avoiding 150-320x output
 	// bloat when modules contain many functions shared across entry points.
 	w.buildReachableSet()
+	if err := w.checkBindingMap(); err != nil {
+		return err
+	}
 
 	// 1. Write version directive
 	w.writeVersionDirective()
@@ -1439,6 +1442,32 @@ func (w *Writer) currentEntryPointStage() ir.ShaderStage {
 		}
 	}
 	return ir.StageCompute // fallback
+}
+
+// checkBindingMap refuses a resource the entry point uses that a non-nil
+// BindingMap leaves out, on versions that write explicit bindings: it would
+// get the driver's binding 0 (ADR-009 §6 row 5; Rust naga writes it without
+// a binding silently). FakeMissingBindings, a nil map or a version without
+// explicit bindings skips the check.
+func (w *Writer) checkBindingMap() error {
+	if w.options.BindingMap == nil || w.options.FakeMissingBindings || !w.options.LangVersion.supportsExplicitLocations() {
+		return nil
+	}
+	for h, global := range w.module.GlobalVariables {
+		if global.Binding == nil || (w.reachable != nil && !w.reachable.hasGlobal(ir.GlobalVariableHandle(h))) {
+			continue
+		}
+		// A sampler has no binding of its own in GLSL: it is combined with
+		// the textures it samples, which carry the binding.
+		if _, isSampler := w.module.Types[global.Type].Inner.(ir.SamplerType); isSampler {
+			continue
+		}
+		key := BindingMapKey{Group: global.Binding.Group, Binding: global.Binding.Binding}
+		if _, ok := w.options.BindingMap[key]; !ok {
+			return fmt.Errorf("%w: %s at group %d, binding %d", backend.ErrMissingBinding, global.Name, key.Group, key.Binding)
+		}
+	}
+	return nil
 }
 
 // lookupBinding returns the flat binding index for a global variable from the BindingMap.

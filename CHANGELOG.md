@@ -31,7 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its WGSL binding) is replaced by `FakeMissingBindings`. msl: a nil `PerEntryPointMap` numbers the resources
   automatically, as before; a non-nil one must have an entry for every entry point that uses resources (an entry
   point it left out got automatic slots before), and `FakeMissingBindings` writes Rust's placeholders only for
-  resources a non-nil map leaves out.
+  resources a non-nil map leaves out. glsl gains `FakeMissingBindings`: on a version with explicit bindings
+  (desktop 4.20, ES 3.10) a resource a non-nil `BindingMap` leaves out was written without a binding, so it got the
+  driver's binding 0 (Rust naga does that silently); samplers need no entry, as GLSL combines them with the texture.
 - **Breaking: shared bounds-check policies.** `spirv`, `msl`, `glsl`, `hlsl`, `dxil` and `naga.CompileOptions` `BoundsCheckPolicies` are
   `backend.BoundsCheckPolicies`; the constants follow Rust naga's order, and the zero value is `BoundsCheckRestrict`
   on every field, which WebGPU requires (Rust's default is `Unchecked`; a device with robust buffer and image access
