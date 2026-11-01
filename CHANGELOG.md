@@ -239,6 +239,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Readback corpus: 6 more cases** (43 → 49) for the DXIL fixes below: flow/return-in-switch-in-loop-rt,
   entry-return-guard-rt, dead-if-shared-condition-rt; vars/workgroup-split-rt, workgroup-vec-dynamic-rt,
   workgroup-tile-dynamic-rt.
+- **Readback corpus: 2 more cases** (49 → 51) for the DXIL inliner fix below: calls/helper-atomic-cmpxchg-rt (an
+  atomic compare-exchange whose compare value is computed in the helper) and calls/helper-wg-uniform-load-rt (a
+  workgroupUniformLoad in a helper). Before the fix DXIL produced an invalid module for the first and failed to
+  compile the second.
 
 ### Fixed
 

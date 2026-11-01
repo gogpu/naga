@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "desc": "workgroupUniformLoad in an inlined helper: every invocation reads the value invocation 0 stored, [13, 13, 13, 13] (B7 e5eda7c: DXIL's inliner left its pointer and result naming caller expressions)",
+  "entry": "main",
+  "workgroups": [1, 1, 1],
+  "bindings": [
+    {"binding": 0, "kind": "storage-read", "words": [7, 3]},
+    {"binding": 1, "kind": "storage-rw", "len": 5, "fill": "0xDEADBEEF",
+     "expect": [[13, 13, 13, 13, "fill"]]}
+  ]
+}
