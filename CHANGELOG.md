@@ -365,9 +365,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   output (our HLSL is the same as Rust naga's and correct; DXC and the DXIL backend are right). wgpu's default DX12
   path is FXC. Tracked as P0-HLSL-033; the readback case flow/return-in-switch-in-loop-rt marks it as a known
   failure on dx12-fxc.
-- **DXIL, since 0.20.5:** gg's `blend.wgsl` fragment entry point compiles to DXIL the validator rejects ("Invalid
-  type for value"). 0.20.5 stopped dropping stores that live locals read, which keeps code alive that hits a latent
-  emitter bug (P0-DXIL-077).
 
 ## [0.20.5] - 2026-10-31
 
