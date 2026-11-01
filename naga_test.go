@@ -3,6 +3,7 @@ package naga
 import (
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/spirv"
 )
 
@@ -631,19 +632,19 @@ fn main(@builtin(local_invocation_index) i: u32) {
 	}
 
 	opts := DefaultOptions()
-	unchecked, err := CompileWithOptions(source, opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	opts.BoundsCheckPolicies = spirv.BoundsCheckPolicies{Buffer: spirv.BoundsCheckRestrict}
 	restricted, err := CompileWithOptions(source, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := countUMin(unchecked); n != 0 {
-		t.Errorf("default options: %d UMin, want 0", n)
+	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{Index: backend.BoundsCheckRestrict, Buffer: backend.BoundsCheckUnchecked}
+	unchecked, err := CompileWithOptions(source, opts)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if n := countUMin(restricted); n != 1 {
-		t.Errorf("Buffer=Restrict: %d UMin, want 1", n)
+		t.Errorf("default options (Restrict): %d UMin, want 1", n)
+	}
+	if n := countUMin(unchecked); n != 0 {
+		t.Errorf("Buffer=Unchecked: %d UMin, want 0", n)
 	}
 }

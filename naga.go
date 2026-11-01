@@ -36,6 +36,7 @@ package naga
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/spirv"
 	"github.com/gogpu/naga/wgsl"
@@ -75,11 +76,12 @@ type CompileOptions struct {
 	Capabilities ir.Capabilities
 
 	// BoundsCheckPolicies selects how the generated SPIR-V handles indices
-	// that are out of bounds. The zero value adds no checks. A WebGPU
-	// implementation needs at least Restrict for Index (and for Buffer and
-	// ImageLoad when the device has no robust buffer and image access), as
-	// Rust wgpu-hal's Vulkan backend configures naga.
-	BoundsCheckPolicies spirv.BoundsCheckPolicies
+	// and image loads that are out of bounds; see
+	// spirv.Options.BoundsCheckPolicies. The zero value is Restrict
+	// everywhere, which WebGPU requires. A device with robust buffer and
+	// image access can set Buffer and ImageLoad to Unchecked, as Rust
+	// wgpu-hal's Vulkan backend does.
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 }
 
 // DefaultOptions returns sensible default options.
@@ -239,8 +241,7 @@ func Validate(module *ir.Module) ([]ir.ValidationError, error) {
 // This is the final stage of compilation. The output is a binary blob
 // that can be directly consumed by Vulkan or other SPIR-V consumers.
 func GenerateSPIRV(module *ir.Module, opts spirv.Options) ([]byte, error) {
-	backend := spirv.NewBackend(opts)
-	spirvBytes, err := backend.Compile(module)
+	spirvBytes, err := spirv.NewBackend(opts).Compile(module)
 	if err != nil {
 		return nil, fmt.Errorf("SPIR-V generation error: %w", err)
 	}

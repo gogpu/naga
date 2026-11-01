@@ -56,3 +56,17 @@ func TestZeroInitializeWorkgroupMemoryModeString(t *testing.T) {
 		}
 	}
 }
+
+// The policy names are Rust naga's BoundsCheckPolicy variants.
+func TestBoundsCheckPolicyString(t *testing.T) {
+	for policy, want := range map[backend.BoundsCheckPolicy]string{
+		backend.BoundsCheckRestrict:          "Restrict",
+		backend.BoundsCheckReadZeroSkipWrite: "ReadZeroSkipWrite",
+		backend.BoundsCheckUnchecked:         "Unchecked",
+		7:                                    "BoundsCheckPolicy(7)",
+	} {
+		if got := policy.String(); got != want {
+			t.Errorf("%d.String() = %q, want %q", uint8(policy), got, want)
+		}
+	}
+}

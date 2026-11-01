@@ -56,8 +56,9 @@ type Options struct {
 	// (default true). The counter uses a vec2<u32> to simulate 64-bit range.
 	ForceLoopBounding bool
 
-	// BoundsCheckPolicies controls how out-of-bounds image accesses are handled.
-	BoundsCheckPolicies BoundsCheckPolicies
+	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
+	// are handled; see spirv.Options.BoundsCheckPolicies.
+	BoundsCheckPolicies backend.BoundsCheckPolicies
 
 	// CapabilitiesAvailable limits which capabilities may be used. When nil,
 	// all capabilities are available (the default). When non-nil, only
@@ -101,32 +102,6 @@ type BindingInfo struct {
 	// BindingArraySize, when set, declares a binding array with this many
 	// elements instead of its WGSL size.
 	BindingArraySize *uint32
-}
-
-// BoundsCheckPolicy selects how generated code handles an out-of-bounds
-// index; see spirv.BoundsCheckPolicy.
-type BoundsCheckPolicy uint8
-
-const (
-	// BoundsCheckUnchecked adds no checks (default).
-	BoundsCheckUnchecked BoundsCheckPolicy = iota
-	// BoundsCheckRestrict replaces an out-of-bounds index with an in-bounds one.
-	BoundsCheckRestrict
-	// BoundsCheckReadZeroSkipWrite reads zero and skips writes out of bounds.
-	BoundsCheckReadZeroSkipWrite
-)
-
-// BoundsCheckPolicies selects a BoundsCheckPolicy per kind of access; see
-// spirv.BoundsCheckPolicies. Mirrors Rust naga's proc::BoundsCheckPolicies.
-type BoundsCheckPolicies struct {
-	// Index: indices outside storage and uniform buffers.
-	Index BoundsCheckPolicy
-	// Buffer: indices into storage and uniform globals.
-	Buffer BoundsCheckPolicy
-	// ImageLoad: image load coordinates, array index, level and sample.
-	ImageLoad BoundsCheckPolicy
-	// BindingArray: indices into binding arrays.
-	BindingArray BoundsCheckPolicy
 }
 
 // DefaultOptions returns sensible default options.

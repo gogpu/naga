@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -45,7 +46,7 @@ type boundsCheck struct {
 // naga's BoundsCheckPolicies::choose_policy): a binding array uses
 // BindingArray, a pointer into a storage or uniform buffer uses Buffer, and
 // everything else (other address spaces, values) uses Index.
-func (e *ExpressionEmitter) choosePolicy(base ir.ExpressionHandle) (BoundsCheckPolicy, error) {
+func (e *ExpressionEmitter) choosePolicy(base ir.ExpressionHandle) (backend.BoundsCheckPolicy, error) {
 	res, err := ir.ResolveExpressionType(e.backend.module, e.function, base)
 	if err != nil {
 		return 0, fmt.Errorf("bounds check: base type: %w", err)
@@ -92,7 +93,7 @@ func (e *ExpressionEmitter) sequenceLength(base ir.ExpressionHandle) (known, com
 			return size, 0, nil
 		}
 		return 0, 0, fmt.Errorf("bounds check: the length of an unbounded binding array comes from " +
-			"Options.BindingMap (BindingArraySize), and this one has none; set it or use BoundsCheckUnchecked")
+			"Options.BindingMap (BindingArraySize), and this one has none; set it or use backend.BoundsCheckUnchecked")
 	}
 	id, err := e.emitArrayLength(ir.ExprArrayLength{Array: base})
 	if err != nil {
@@ -124,9 +125,9 @@ func (e *ExpressionEmitter) writeBoundsCheck(base ir.ExpressionHandle, index gua
 		return boundsCheck{}, err
 	}
 	switch policy {
-	case BoundsCheckRestrict:
+	case backend.BoundsCheckRestrict:
 		return e.writeRestrictedIndex(base, index, indexID)
-	case BoundsCheckReadZeroSkipWrite:
+	case backend.BoundsCheckReadZeroSkipWrite:
 		return e.writeIndexComparison(base, index, indexID)
 	}
 	if index.known {

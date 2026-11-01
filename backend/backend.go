@@ -46,6 +46,19 @@ const (
 	BoundsCheckUnchecked
 )
 
+// String returns the policy's name as in Rust naga.
+func (p BoundsCheckPolicy) String() string {
+	switch p {
+	case BoundsCheckRestrict:
+		return "Restrict"
+	case BoundsCheckReadZeroSkipWrite:
+		return "ReadZeroSkipWrite"
+	case BoundsCheckUnchecked:
+		return "Unchecked"
+	}
+	return "BoundsCheckPolicy(" + strconv.Itoa(int(p)) + ")"
+}
+
 // BoundsCheckPolicies selects a BoundsCheckPolicy per kind of access.
 // Mirrors Rust naga's proc::BoundsCheckPolicies. Each backend documents, for
 // every field and value, whether it emits the check, relies on the target API

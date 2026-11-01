@@ -34,9 +34,15 @@ func lowerToIR(ast *wgsl.Module, source string) (*ir.Module, error) {
 	return module, nil
 }
 
-// generateSPIRVBinary compiles an IR module to SPIR-V binary bytes.
-func generateSPIRVBinary(module *ir.Module) ([]byte, error) {
-	backend := spirv.NewBackend(spirv.DefaultOptions())
+// generateSPIRVBinary compiles an IR module to SPIR-V binary bytes with the
+// default options, so spirv-val checks the default bounds-check policy
+// (Restrict) over the whole corpus. The binding map comes from the shader's
+// Rust parameters: an unbounded binding array takes its size from it, as
+// wgpu passes it, and Restrict needs that size.
+func generateSPIRVBinary(name string, module *ir.Module) ([]byte, error) {
+	opts := spirv.DefaultOptions()
+	opts.BindingMap = readRustSPVConfig(name).BindingMap
+	backend := spirv.NewBackend(opts)
 	spvBytes, err := backend.Compile(module)
 	if err != nil {
 		return nil, fmt.Errorf("SPIR-V generation error: %w", err)
