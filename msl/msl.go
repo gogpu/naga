@@ -179,7 +179,8 @@ type Options struct {
 	// BoundsCheckPolicies selects how out-of-bounds indices and image loads
 	// are handled. The zero value is backend.BoundsCheckRestrict everywhere,
 	// which WebGPU requires; Rust naga's default is Unchecked, and wgpu-hal's
-	// Metal backend passes ReadZeroSkipWrite on every field.
+	// Metal backend passes Restrict for Index, Buffer and ImageLoad (Unchecked
+	// when its runtime bounds checks are off) and Unchecked for BindingArray.
 	// Every field honors every policy, as Rust naga's MSL writer does:
 	// Restrict with metal::min on the index (a runtime-sized array takes its
 	// length from the sizes buffer) and on image coordinates,
