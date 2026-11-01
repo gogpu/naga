@@ -194,6 +194,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`@early_depth_test`: `unchanged` meant `force`, and SPIR-V ignored it** (ADR-010 E1). `ir.EarlyDepthTest` is
+  Rust naga's shape, `ir.EarlyDepthForce{}` or `ir.EarlyDepthAllow{Conservative}` (it was a struct with only the
+  conservative depth, so `force` and `unchanged` were one value, both writing GLSL `layout(early_fragment_tests)`).
+  SPIR-V now writes `EarlyFragmentTests`, `DepthGreater`, `DepthLess` or `DepthUnchanged`, as Rust's writer does; GLSL
+  writes `layout (depth_unchanged) out float gl_FragDepth;` for `unchanged`, and neither below GLSL 1.30 / ES 3.10
+  (Rust's version check). An unknown word or a missing argument is an error ("unknown conservative depth: `x`", Rust's
+  text); it was taken as `force`. **Breaking:** `EntryPoint.EarlyDepthTest` is the interface, nil for none.
 - **`@builtin(draw_index)` and `@builtin(barycentric_no_perspective)` compiled as the fragment coordinate.** The IR
   had no such built-ins and the lowerer named every built-in it did not know `position`, with no error. The IR has
   `BuiltinDrawIndex` and `BuiltinBarycentricNoPerspective` now (Rust naga's `DrawIndex` and

@@ -5535,27 +5535,32 @@ func (l *Lowerer) entryPointStage(attrs []parser.Attribute) *ir.ShaderStage {
 // constant expressions (TWO - 1u). Matches Rust naga's const_u32 evaluation.
 // extractEarlyDepthTest checks for @early_depth_test attribute and returns the configuration.
 // Matches Rust: @early_depth_test(force) → Force, @early_depth_test(less_equal) → Allow(LessEqual).
-func (l *Lowerer) extractEarlyDepthTest(attrs []parser.Attribute) *ir.EarlyDepthTest {
+func (l *Lowerer) extractEarlyDepthTest(attrs []parser.Attribute) ir.EarlyDepthTest {
 	for _, attr := range attrs {
 		if attr.Name != "early_depth_test" {
 			continue
 		}
-		edt := &ir.EarlyDepthTest{}
-		if len(attr.Args) > 0 {
-			if ident, ok := attr.Args[0].(*parser.Ident); ok {
-				switch ident.Name {
-				case "force":
-					edt.Conservative = ir.ConservativeDepthUnchanged
-				case "greater_equal":
-					edt.Conservative = ir.ConservativeDepthGreaterEqual
-				case "less_equal":
-					edt.Conservative = ir.ConservativeDepthLessEqual
-				case "unchanged":
-					edt.Conservative = ir.ConservativeDepthUnchanged
-				}
-			}
+		var ident *parser.Ident
+		if len(attr.Args) == 1 {
+			ident, _ = attr.Args[0].(*parser.Ident)
 		}
-		return edt
+		if ident == nil {
+			l.addError("expected `force` or a conservative depth in @early_depth_test", attr.Span)
+			return nil
+		}
+		// Rust's parser and conv::map_conservative_depth.
+		switch ident.Name {
+		case "force":
+			return ir.EarlyDepthForce{}
+		case "greater_equal":
+			return ir.EarlyDepthAllow{Conservative: ir.ConservativeDepthGreaterEqual}
+		case "less_equal":
+			return ir.EarlyDepthAllow{Conservative: ir.ConservativeDepthLessEqual}
+		case "unchanged":
+			return ir.EarlyDepthAllow{Conservative: ir.ConservativeDepthUnchanged}
+		}
+		l.addError(fmt.Sprintf("unknown conservative depth: `%s`", ident.Name), ident.Span)
+		return nil
 	}
 	return nil
 }

@@ -1104,7 +1104,7 @@ fn fs_main() -> @location(0) vec4<f32> {
 
 func TestCompileWGSL_EarlyDepthTest(t *testing.T) {
 	source := `
-@early_depth_test
+@early_depth_test(force)
 @fragment
 fn fs_main() -> @builtin(frag_depth) f32 {
     return 0.5;

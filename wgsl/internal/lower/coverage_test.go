@@ -1137,7 +1137,7 @@ func TestLowerWithSource(t *testing.T) {
 // -----------------------------------------------------------------------
 
 func TestLowerEarlyDepthTest(t *testing.T) {
-	src := `@early_depth_test
+	src := `@early_depth_test(force)
 @fragment
 fn main() -> @location(0) vec4<f32> {
     return vec4<f32>(1.0, 0.0, 0.0, 1.0);
@@ -1147,8 +1147,8 @@ fn main() -> @location(0) vec4<f32> {
 		t.Fatal("expected 1 entry point")
 	}
 	ep := module.EntryPoints[0]
-	if ep.EarlyDepthTest == nil {
-		t.Error("expected EarlyDepthTest to be set")
+	if _, ok := ep.EarlyDepthTest.(ir.EarlyDepthForce); !ok {
+		t.Errorf("EarlyDepthTest = %#v, want ir.EarlyDepthForce", ep.EarlyDepthTest)
 	}
 }
 

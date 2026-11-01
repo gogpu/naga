@@ -98,7 +98,7 @@ type EntryPoint struct {
 	// workgroup_size_overrides); nil means the size is Workgroup's. Backends
 	// need a module processed by naga.ProcessOverrides, where all are nil.
 	WorkgroupSizeOverrides [3]*ExpressionHandle
-	EarlyDepthTest         *EarlyDepthTest       // For fragment shaders with early depth testing
+	EarlyDepthTest         EarlyDepthTest        // fragment early depth test; nil: none
 	MeshInfo               *MeshStageInfo        // For mesh shaders
 	TaskPayload            *GlobalVariableHandle // For mesh/task shaders referencing task payload variable
 }
@@ -124,10 +124,28 @@ type MeshStageInfo struct {
 	OutputVariable        GlobalVariableHandle
 }
 
-// EarlyDepthTest represents early fragment test configuration.
-type EarlyDepthTest struct {
+// EarlyDepthTest is Rust naga's EarlyDepthTest: EarlyDepthForce or
+// EarlyDepthAllow. A nil EntryPoint.EarlyDepthTest asks for neither.
+type EarlyDepthTest interface {
+	earlyDepthTest()
+}
+
+// EarlyDepthForce requires the depth and stencil tests before fragment
+// shading (SPIR-V EarlyFragmentTests, GLSL layout(early_fragment_tests));
+// a discard or a depth write then has no effect. WGSL
+// @early_depth_test(force).
+type EarlyDepthForce struct{}
+
+// EarlyDepthAllow allows an additional depth test before fragment shading,
+// and says how the shader may change the depth (SPIR-V DepthGreater,
+// DepthLess, DepthUnchanged; GLSL layout(depth_*) out float gl_FragDepth).
+// WGSL @early_depth_test(greater_equal | less_equal | unchanged).
+type EarlyDepthAllow struct {
 	Conservative ConservativeDepth
 }
+
+func (EarlyDepthForce) earlyDepthTest() {}
+func (EarlyDepthAllow) earlyDepthTest() {}
 
 // ConservativeDepth specifies how the depth value may be modified.
 type ConservativeDepth uint8
