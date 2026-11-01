@@ -171,10 +171,17 @@ func TestGoldenInventory(t *testing.T) {
 // Rust snapshots of the same shaders do; the Restrict default is checked by
 // spirv-val over the whole corpus (TestSpirvValBinary) and by the bounds
 // tests of the spirv package.
-func goldenSPIRV(module *ir.Module, _ string) (string, error) {
+func goldenSPIRV(module *ir.Module, shader string) (string, error) {
 	opts := spirv.DefaultOptions()
 	opts.BoundsCheckPolicies = uncheckedPolicies()
 	binary, err := spirv.NewBackend(opts).Compile(module)
+	// A shader that needs a newer version than the default (subgroup
+	// operations need 1.3), which the backend refuses to raise, takes the
+	// one its Rust parameters give.
+	if err != nil && strings.Contains(err.Error(), "need SPIR-V") {
+		opts.Version = readRustSPVConfig(shader).Version
+		binary, err = spirv.NewBackend(opts).Compile(module)
+	}
 	if err != nil {
 		return "", err
 	}

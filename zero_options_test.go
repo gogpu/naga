@@ -438,3 +438,36 @@ func TestZeroOptionsRefuseMissingBindings(t *testing.T) {
 		t.Errorf("dxil, nil map: %v", err)
 	}
 }
+
+// The zero SPIR-V version is 1.0, the only one every Vulkan device accepts
+// without knowing the device, as Rust naga's default. A feature that needs a
+// newer one is an error, never a silently raised version (Rust's
+// SpirvVersionTooLow).
+func TestZeroSPIRVVersion(t *testing.T) {
+	spv, err := spirv.NewBackend(spirv.Options{}).Compile(zeroOptionsModule(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spv[5] != 0 || spv[6] != 1 {
+		t.Errorf("zero Options: SPIR-V %d.%d, want 1.0", spv[6], spv[5])
+	}
+
+	const subgroups = `
+@group(0) @binding(0) var<storage, read_write> out: u32;
+@compute @workgroup_size(64) fn main(@builtin(subgroup_size) n: u32) { out = subgroupAdd(n); }`
+	ast, err := Parse(subgroups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := LowerWithCapabilities(ast, subgroups, ir.CapAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := spirv.NewBackend(spirv.Options{}).Compile(m); err == nil || !strings.Contains(err.Error(), "need SPIR-V 1.3") {
+		t.Errorf("subgroups at the zero version: err = %v, want need SPIR-V 1.3", err)
+	}
+	spv, err = spirv.NewBackend(spirv.Options{Version: spirv.Version1_3}).Compile(m)
+	if err != nil || spv[5] != 3 {
+		t.Errorf("subgroups at 1.3: err = %v", err)
+	}
+}

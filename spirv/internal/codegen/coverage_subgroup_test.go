@@ -59,7 +59,7 @@ func TestSubgroupBallotNoPredicate(t *testing.T) {
 		},
 	)
 
-	backend := NewBackend(DefaultOptions())
+	backend := NewBackend(subgroupOptions())
 	spvBytes, err := backend.Compile(mod)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -103,7 +103,7 @@ func TestSubgroupBallotWithPredicate(t *testing.T) {
 		},
 	)
 
-	backend := NewBackend(DefaultOptions())
+	backend := NewBackend(subgroupOptions())
 	spvBytes, err := backend.Compile(mod)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -143,7 +143,7 @@ func TestSubgroupCollectiveAdd(t *testing.T) {
 		},
 	)
 
-	backend := NewBackend(DefaultOptions())
+	backend := NewBackend(subgroupOptions())
 	spvBytes, err := backend.Compile(mod)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -301,7 +301,7 @@ func TestSubgroupCollectiveAllOps(t *testing.T) {
 				},
 			)
 
-			backend := NewBackend(DefaultOptions())
+			backend := NewBackend(subgroupOptions())
 			spvBytes, err := backend.Compile(mod)
 			if err != nil {
 				t.Fatalf("Compile failed: %v", err)
@@ -442,7 +442,7 @@ func TestSubgroupGatherAllModes(t *testing.T) {
 				stmts,
 			)
 
-			backend := NewBackend(DefaultOptions())
+			backend := NewBackend(subgroupOptions())
 			spvBytes, err := backend.Compile(mod)
 			if err != nil {
 				t.Fatalf("Compile failed: %v", err)
@@ -491,7 +491,7 @@ func TestSubgroupCollectiveWithVector(t *testing.T) {
 		},
 	)
 
-	backend := NewBackend(DefaultOptions())
+	backend := NewBackend(subgroupOptions())
 	spvBytes, err := backend.Compile(mod)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -503,4 +503,12 @@ func TestSubgroupCollectiveWithVector(t *testing.T) {
 	if !hasOpcodeInInstrs(instrs, OpGroupNonUniformFAdd) {
 		t.Error("expected OpGroupNonUniformFAdd for float vector reduce")
 	}
+}
+
+// subgroupOptions are DefaultOptions at SPIR-V 1.3, the version subgroup
+// operations need; the backend refuses them below it.
+func subgroupOptions() Options {
+	opts := DefaultOptions()
+	opts.Version = Version1_3
+	return opts
 }
