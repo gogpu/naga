@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/glsl"
 )
 
@@ -24,7 +25,7 @@ func TestDepthTextureDeclarations(t *testing.T) {
 	for _, ep := range []string{"sampled", "loaded", "compared", "helpers"} {
 		t.Run(ep, func(t *testing.T) {
 			golden := "testdata/depth/" + ep + ".frag"
-			got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: ep})
+			got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.Version430, EntryPoint: ep, BoundsCheckPolicies: uncheckedPolicies})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -37,7 +38,7 @@ func TestDepthTextureDeclarations(t *testing.T) {
 			if want := mustReadFile(golden); got != want {
 				t.Errorf("output differs from %s:\n%s", golden, got)
 			}
-			if _, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: ep, ForceHighPrecision: true}); err != nil {
+			if _, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{LangVersion: glsl.VersionES310, EntryPoint: ep, ForceHighPrecision: true, BoundsCheckPolicies: uncheckedPolicies}); err != nil {
 				t.Errorf("ES 3.10: %v", err)
 			}
 		})
@@ -77,7 +78,7 @@ func TestRestrictedLoadsDeclareTheirLevel(t *testing.T) {
 		got, _, err := glsl.Compile(lowerWGSL(t, source), glsl.Options{
 			LangVersion:         glsl.Version430,
 			EntryPoint:          ep,
-			BoundsCheckPolicies: glsl.BoundsCheckPolicies{ImageLoad: glsl.BoundsCheckRestrict},
+			BoundsCheckPolicies: backend.BoundsCheckPolicies{ImageLoad: backend.BoundsCheckRestrict},
 		})
 		if err != nil {
 			t.Fatal(err)

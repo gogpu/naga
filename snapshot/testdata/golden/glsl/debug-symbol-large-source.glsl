@@ -204,7 +204,6 @@ void main() {
 
 // === Entry Point: gen_terrain_vertex (vertex) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct ChunkData {
     uvec2 chunk_size;
     ivec2 chunk_corner;
@@ -388,7 +387,6 @@ void main() {
 
 // === Entry Point: gen_terrain_fragment (fragment) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct ChunkData {
     uvec2 chunk_size;
     ivec2 chunk_corner;
@@ -639,7 +637,6 @@ void main() {
 
 // === Entry Point: vs_main (vertex) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct ChunkData {
     uvec2 chunk_size;
     ivec2 chunk_corner;
@@ -818,7 +815,6 @@ void main() {
 
 // === Entry Point: fs_main (fragment) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct ChunkData {
     uvec2 chunk_size;
     ivec2 chunk_corner;

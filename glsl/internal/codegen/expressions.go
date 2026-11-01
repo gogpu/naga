@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -275,7 +276,7 @@ func (w *Writer) restrictIndex(base ir.ExpressionHandle, baseCode, index string,
 			policy = w.options.BoundsCheckPolicies.Buffer
 		}
 	}
-	if policy != BoundsCheckRestrict {
+	if policy != backend.BoundsCheckRestrict {
 		return index
 	}
 	length, err := ir.IndexableLengthOf(w.module, inner)
@@ -1473,7 +1474,7 @@ func (w *Writer) writeImageLoad(l ir.ExprImageLoad, handle ir.ExpressionHandle) 
 	// use configured policy on ES only.
 	policy := w.options.BoundsCheckPolicies.ImageLoad
 	if isStorage && !w.options.LangVersion.ES {
-		policy = BoundsCheckUnchecked
+		policy = backend.BoundsCheckUnchecked
 	}
 
 	coordStr := w.buildTextureCoord(coordinate, l.Coordinate, l.ArrayIndex, imgType)
@@ -1488,9 +1489,9 @@ func (w *Writer) writeImageLoad(l ir.ExprImageLoad, handle ir.ExpressionHandle) 
 
 	var load string
 	switch policy {
-	case BoundsCheckRestrict:
+	case backend.BoundsCheckRestrict:
 		load, err = w.writeImageLoadRestrict(l, handle, image, coordStr, coordVecSize, imgType)
-	case BoundsCheckReadZeroSkipWrite:
+	case backend.BoundsCheckReadZeroSkipWrite:
 		load, err = w.writeImageLoadReadZero(l, image, coordStr, coordVecSize, imgType)
 	default:
 		load, err = w.writeImageLoadUnchecked(l, image, coordStr)

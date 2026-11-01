@@ -1,6 +1,5 @@
 // === Entry Point: no_padding_frag (fragment) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct NoPadding {
     vec3 v3_;
     float f3_;
@@ -23,7 +22,6 @@ void main() {
 
 // === Entry Point: no_padding_vert (vertex) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct NoPadding {
     vec3 v3_;
     float f3_;
@@ -75,7 +73,6 @@ void main() {
 
 // === Entry Point: needs_padding_frag (fragment) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct NoPadding {
     vec3 v3_;
     float f3_;
@@ -99,7 +96,6 @@ void main() {
 
 // === Entry Point: needs_padding_vert (vertex) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct NoPadding {
     vec3 v3_;
     float f3_;

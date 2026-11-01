@@ -204,6 +204,16 @@ func boundsBackends() map[string]boundsBackend {
 				return []byte(code), err
 			},
 		},
+		"glsl": {
+			compile: func(m *ir.Module, p backend.BoundsCheckPolicies) ([]byte, error) {
+				code, _, err := glsl.Compile(m, glsl.Options{LangVersion: glsl.Version430, BoundsCheckPolicies: p})
+				return []byte(code), err
+			},
+			withZero: func(m *ir.Module) ([]byte, error) {
+				code, _, err := glsl.Compile(m, glsl.Options{LangVersion: glsl.Version430})
+				return []byte(code), err
+			},
+		},
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/wgsl"
 )
 
@@ -366,7 +367,8 @@ fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
 // GL_ARB_shader_storage_buffer_object) or ES 310. Below that it used to be
 // written as a std140 uniform block, which the GL backend bound to the
 // uniform binding point numbered like its storage slot, so the shader read
-// whatever uniform buffer sat there.
+// whatever uniform buffer sat there. It is refused, as Rust naga refuses it:
+// BUFFER_STORAGE is missing there (check_availability).
 func TestCompileWGSL_StorageBufferNeedsStd430(t *testing.T) {
 	source := `
 struct Light { color: vec4<f32>, pos: vec2<f32> }
@@ -391,8 +393,8 @@ fn fs_main(@location(0) @interpolate(flat) i: u32) -> @location(0) vec4<f32> {
 		t.Fatal(err)
 	}
 	for _, v := range []Version{Version330, VersionES300} {
-		if _, _, err := Compile(module, Options{LangVersion: v}); err == nil || !strings.Contains(err.Error(), "std430") {
-			t.Errorf("GLSL %s: err = %v, want the std430 error", v, err)
+		if _, _, err := Compile(module, Options{LangVersion: v}); err == nil || !strings.Contains(err.Error(), "BUFFER_STORAGE") {
+			t.Errorf("GLSL %s: err = %v, want BUFFER_STORAGE missing", v, err)
 		}
 	}
 	for _, v := range []Version{Version400, Version430, VersionES310} {
@@ -1896,8 +1898,8 @@ fn fs_main() -> @location(0) vec4<f32> {
 `
 	output := wgslToGLSL(t, source, Options{
 		LangVersion: Version430,
-		BoundsCheckPolicies: BoundsCheckPolicies{
-			ImageLoad: BoundsCheckRestrict,
+		BoundsCheckPolicies: backend.BoundsCheckPolicies{
+			ImageLoad: backend.BoundsCheckRestrict,
 		},
 	})
 	glslMustContain(t, output, "clamp(")
@@ -1915,8 +1917,8 @@ fn fs_main() -> @location(0) vec4<f32> {
 `
 	output := wgslToGLSL(t, source, Options{
 		LangVersion: Version430,
-		BoundsCheckPolicies: BoundsCheckPolicies{
-			ImageLoad: BoundsCheckReadZeroSkipWrite,
+		BoundsCheckPolicies: backend.BoundsCheckPolicies{
+			ImageLoad: backend.BoundsCheckReadZeroSkipWrite,
 		},
 	})
 	glslMustContain(t, output, "void main()")
@@ -2030,8 +2032,13 @@ fn fs_main(@builtin(sample_index) sid: u32) -> @location(0) vec4<f32> {
     return vec4<f32>(f32(sid), 0.0, 0.0, 1.0);
 }
 `
-	output := wgslToGLSL(t, source, Options{LangVersion: Version330})
+	// gl_SampleID is GLSL 4.00 (or ES 3.00); Rust naga refuses 3.30.
+	output := wgslToGLSL(t, source, Options{LangVersion: Version400})
 	glslMustContain(t, output, "gl_SampleID")
+	if _, _, err := compileWGSLHelper(source, Options{LangVersion: Version330}); err == nil ||
+		!strings.Contains(err.Error(), "SAMPLE_VARIABLES") {
+		t.Errorf("GLSL 330: err = %v, want SAMPLE_VARIABLES missing", err)
+	}
 }
 
 // =============================================================================

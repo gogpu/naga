@@ -1,5 +1,5 @@
 // === Entry Point: vert_main (vertex) ===
-#version 330 core
+#version 430 core
 struct FragmentInput {
     vec4 position;
     uint _flat;
@@ -14,17 +14,17 @@ struct FragmentInput {
     float perspective_sample;
     float perspective_center;
 };
-flat out uint _vs2fs_location0;
-flat out uint _vs2fs_location1;
-flat out uint _vs2fs_location2;
-noperspective out float _vs2fs_location3;
-noperspective centroid out vec2 _vs2fs_location4;
-noperspective sample out vec3 _vs2fs_location6;
-noperspective out vec3 _vs2fs_location7;
-smooth out vec4 _vs2fs_location8;
-smooth centroid out float _vs2fs_location9;
-smooth sample out float _vs2fs_location10;
-smooth out float _vs2fs_location11;
+layout(location = 0) flat out uint _vs2fs_location0;
+layout(location = 1) flat out uint _vs2fs_location1;
+layout(location = 2) flat out uint _vs2fs_location2;
+layout(location = 3) noperspective out float _vs2fs_location3;
+layout(location = 4) noperspective centroid out vec2 _vs2fs_location4;
+layout(location = 6) noperspective sample out vec3 _vs2fs_location6;
+layout(location = 7) noperspective out vec3 _vs2fs_location7;
+layout(location = 8) smooth out vec4 _vs2fs_location8;
+layout(location = 9) smooth centroid out float _vs2fs_location9;
+layout(location = 10) smooth sample out float _vs2fs_location10;
+layout(location = 11) smooth out float _vs2fs_location11;
 
 void main() {
     FragmentInput out_ = FragmentInput(vec4(0.0), 0u, 0u, 0u, 0.0, vec2(0.0), vec3(0.0), vec3(0.0), vec4(0.0), 0.0, 0.0, 0.0);
@@ -58,7 +58,7 @@ void main() {
 
 
 // === Entry Point: frag_main (fragment) ===
-#version 330 core
+#version 430 core
 struct FragmentInput {
     vec4 position;
     uint _flat;
@@ -73,17 +73,17 @@ struct FragmentInput {
     float perspective_sample;
     float perspective_center;
 };
-flat in uint _vs2fs_location0;
-flat in uint _vs2fs_location1;
-flat in uint _vs2fs_location2;
-noperspective in float _vs2fs_location3;
-noperspective centroid in vec2 _vs2fs_location4;
-noperspective sample in vec3 _vs2fs_location6;
-noperspective in vec3 _vs2fs_location7;
-smooth in vec4 _vs2fs_location8;
-smooth centroid in float _vs2fs_location9;
-smooth sample in float _vs2fs_location10;
-smooth in float _vs2fs_location11;
+layout(location = 0) flat in uint _vs2fs_location0;
+layout(location = 1) flat in uint _vs2fs_location1;
+layout(location = 2) flat in uint _vs2fs_location2;
+layout(location = 3) noperspective in float _vs2fs_location3;
+layout(location = 4) noperspective centroid in vec2 _vs2fs_location4;
+layout(location = 6) noperspective sample in vec3 _vs2fs_location6;
+layout(location = 7) noperspective in vec3 _vs2fs_location7;
+layout(location = 8) smooth in vec4 _vs2fs_location8;
+layout(location = 9) smooth centroid in float _vs2fs_location9;
+layout(location = 10) smooth sample in float _vs2fs_location10;
+layout(location = 11) smooth in float _vs2fs_location11;
 
 void main() {
     FragmentInput val = FragmentInput(gl_FragCoord, _vs2fs_location0, _vs2fs_location1, _vs2fs_location2, _vs2fs_location3, _vs2fs_location4, _vs2fs_location6, _vs2fs_location7, _vs2fs_location8, _vs2fs_location9, _vs2fs_location10, _vs2fs_location11);

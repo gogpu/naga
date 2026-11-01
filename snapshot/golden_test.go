@@ -173,12 +173,7 @@ func TestGoldenInventory(t *testing.T) {
 // tests of the spirv package.
 func goldenSPIRV(module *ir.Module, _ string) (string, error) {
 	opts := spirv.DefaultOptions()
-	opts.BoundsCheckPolicies = backend.BoundsCheckPolicies{
-		Index:        backend.BoundsCheckUnchecked,
-		Buffer:       backend.BoundsCheckUnchecked,
-		ImageLoad:    backend.BoundsCheckUnchecked,
-		BindingArray: backend.BoundsCheckUnchecked,
-	}
+	opts.BoundsCheckPolicies = uncheckedPolicies()
 	binary, err := spirv.NewBackend(opts).Compile(module)
 	if err != nil {
 		return "", err
@@ -189,26 +184,38 @@ func goldenSPIRV(module *ir.Module, _ string) (string, error) {
 // goldenGLSL compiles every entry point and joins them with a header per entry
 // point when there are several. GLSL 330, the default, has neither compute
 // shaders nor storage buffers, so compute entry points and those that use a
-// storage buffer are written for GLSL 430.
+// storage buffer are written for GLSL 430. Like goldenSPIRV, it uses Rust
+// naga's default bounds-check policy, Unchecked.
 func goldenGLSL(module *ir.Module, _ string) (string, error) {
 	optionsFor := func(ep *ir.EntryPoint) glsl.Options {
 		opts := glsl.DefaultOptions()
 		opts.EntryPoint = ep.Name
+		opts.BoundsCheckPolicies = uncheckedPolicies()
 		if ep.Stage == ir.StageCompute || usesStorageBuffer(module, &ep.Function) {
 			opts.LangVersion = glsl.Version430
 		}
 		return opts
 	}
+	// compile writes GLSL 330 when it has every feature the entry point
+	// needs and GLSL 430 otherwise, as the GLSL backend refuses a version
+	// that lacks one (Rust naga's check_availability).
+	compile := func(opts glsl.Options) (string, error) {
+		code, _, err := glsl.Compile(module, opts)
+		if err != nil && opts.LangVersion == glsl.Version330 && strings.Contains(err.Error(), "doesn't support the required feature") {
+			opts.LangVersion = glsl.Version430
+			code, _, err = glsl.Compile(module, opts)
+		}
+		return code, err
+	}
 	if len(module.EntryPoints) == 1 {
 		opts := optionsFor(&module.EntryPoints[0])
 		opts.EntryPoint = "" // the only entry point
-		code, _, err := glsl.Compile(module, opts)
-		return code, err
+		return compile(opts)
 	}
 	parts := make([]string, 0, len(module.EntryPoints))
 	for i := range module.EntryPoints {
 		ep := &module.EntryPoints[i]
-		code, _, err := glsl.Compile(module, optionsFor(ep))
+		code, err := compile(optionsFor(ep))
 		if err != nil {
 			return "", fmt.Errorf("entry point %q: %w", ep.Name, err)
 		}
@@ -273,4 +280,10 @@ func goldenMSL(module *ir.Module, _ string) (string, error) {
 	opts.FakeMissingBindings = true
 	code, _, err := msl.Compile(module, opts)
 	return code, err
+}
+
+// uncheckedPolicies is Rust naga's default bounds-check policy, Unchecked, on
+// every field; the zero value of backend.BoundsCheckPolicies is Restrict.
+func uncheckedPolicies() backend.BoundsCheckPolicies {
+	return backendBoundsCheckPolicies(rustBoundsCheckPolicies{})
 }

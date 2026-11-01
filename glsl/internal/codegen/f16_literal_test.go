@@ -57,7 +57,8 @@ var<private> p: f16 = 15.2h;
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, _, err := compileWGSLHelper(tt.src, DefaultOptions())
+			// GLSL 4.30: the corpus shaders have compute entry points.
+			out, _, err := compileWGSLHelper(tt.src, Options{LangVersion: Version430})
 			if err == nil || !strings.Contains(err.Error(), wantErr) {
 				t.Fatalf("err = %v, want %q; output:\n%s", err, wantErr, out)
 			}

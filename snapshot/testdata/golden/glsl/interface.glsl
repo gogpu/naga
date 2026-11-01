@@ -1,6 +1,5 @@
 // === Entry Point: vertex (vertex) ===
 #version 330 core
-#extension GL_ARB_compute_shader : require
 uniform uint naga_vs_first_instance;
 
 struct VertexOutput {
@@ -35,8 +34,7 @@ void main() {
 
 
 // === Entry Point: fragment (fragment) ===
-#version 330 core
-#extension GL_ARB_compute_shader : require
+#version 430 core
 struct VertexOutput {
     vec4 position;
     float _varying;
@@ -52,7 +50,7 @@ struct Input1_ {
 struct Input2_ {
     uint index;
 };
-smooth in float _vs2fs_location1;
+layout(location = 1) smooth in float _vs2fs_location1;
 layout(location = 0) out float _fs2p_location0;
 
 void main() {
@@ -111,7 +109,6 @@ void main() {
 
 // === Entry Point: vertex_two_structs (vertex) ===
 #version 330 core
-#extension GL_ARB_compute_shader : require
 uniform uint naga_vs_first_instance;
 
 struct VertexOutput {

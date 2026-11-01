@@ -1,6 +1,5 @@
 // === Entry Point: vs_main (vertex) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct Globals {
     mat4x4 view_proj;
     uvec4 num_lights;
@@ -135,7 +134,6 @@ void main() {
 
 // === Entry Point: fs_main_without_storage (fragment) ===
 #version 330 core
-#extension GL_ARB_shader_storage_buffer_object : require
 struct Globals {
     mat4x4 view_proj;
     uvec4 num_lights;

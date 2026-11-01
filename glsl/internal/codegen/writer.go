@@ -339,6 +339,9 @@ func (w *Writer) writeModule() error {
 
 	// 1b. Collect required features and write extensions
 	w.collectFeatures()
+	if err := w.features.checkAvailability(w.options.LangVersion); err != nil {
+		return err
+	}
 	w.features.writeExtensions(w)
 
 	// 2. Write precision qualifiers (ES only)
