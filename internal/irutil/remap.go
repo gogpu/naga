@@ -98,6 +98,15 @@ func BlockExprHandles(block ir.Block, f func(ir.ExpressionHandle)) {
 	walk(block)
 }
 
+// RemapStatementExpressionHandlesEmits is RemapStatementExpressionHandles
+// with the Emit ranges mapped by emit instead of by their first and last
+// expression: a pass that turns one expression into several, or into an
+// earlier one, knows which new expressions an old range stands for.
+func RemapStatementExpressionHandlesEmits(block []ir.Statement, remap []ir.ExpressionHandle, emit func(ir.Range) ir.Range) {
+	m := blockMapper{handle: remapThrough(remap), emit: func(r ir.Range) (ir.Range, bool) { return emit(r), true }}
+	m.block(block)
+}
+
 // remapThrough returns the handle mapping of a remap table: remap[h] for a
 // handle inside it, h itself for one outside.
 func remapThrough(remap []ir.ExpressionHandle) func(ir.ExpressionHandle) ir.ExpressionHandle {

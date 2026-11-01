@@ -4,13 +4,10 @@
 package dxil
 
 import (
-	"fmt"
-	"maps"
 	"testing"
 
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/dxil/internal/module"
-	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/valid"
 )
@@ -83,7 +80,8 @@ func scalarizedModule(t *testing.T, src string, zero bool) *ir.Module {
 
 // TestScalarizedWorkgroupIRValidates: after the split, with the zeroing
 // stores, the IR still validates: the loads and stores through the pieces
-// are typed and emitted before their uses.
+// are typed, and every statement uses expressions emitted before it (Rust's
+// NotInScope rule, which valid.Validate checks).
 func TestScalarizedWorkgroupIRValidates(t *testing.T) {
 	for _, tt := range workgroupCompositeCases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -91,88 +89,8 @@ func TestScalarizedWorkgroupIRValidates(t *testing.T) {
 			if _, err := valid.Validate(m, valid.Options{Capabilities: valid.CapAll}); err != nil {
 				t.Fatalf("validate: %v", err)
 			}
-			for _, e := range emitScopeErrors(&m.EntryPoints[0].Function) {
-				t.Error(e)
-			}
 		})
 	}
-}
-
-// emitScopeErrors checks what valid.Validate does not and Rust naga's validator
-// does: every expression a statement or an emitted expression uses is in
-// scope, emitted before it in its block or a block around it, the result of
-// a statement before it, or one that needs no Emit.
-func emitScopeErrors(fn *ir.Function) []string {
-	var errs []string
-	check := func(scope map[ir.ExpressionHandle]bool, h ir.ExpressionHandle, user string) {
-		if !scope[h] && !isPreEmit(fn.Expressions[h].Kind) {
-			errs = append(errs, fmt.Sprintf("expression [%d] %T used by %s out of scope", h, fn.Expressions[h].Kind, user))
-		}
-	}
-	var block func(ir.Block, map[ir.ExpressionHandle]bool) map[ir.ExpressionHandle]bool
-	block = func(b ir.Block, outer map[ir.ExpressionHandle]bool) map[ir.ExpressionHandle]bool {
-		scope := maps.Clone(outer)
-		for _, st := range b {
-			switch k := st.Kind.(type) {
-			case ir.StmtEmit:
-				for h := k.Range.Start; h < k.Range.End; h++ {
-					irutil.ExprHandles(fn.Expressions[h].Kind, func(sub ir.ExpressionHandle) {
-						check(scope, sub, fmt.Sprintf("[%d] %T", h, fn.Expressions[h].Kind))
-					})
-					scope[h] = true
-				}
-			case ir.StmtIf:
-				check(scope, k.Condition, "an if")
-				block(k.Accept, scope)
-				block(k.Reject, scope)
-			case ir.StmtSwitch:
-				check(scope, k.Selector, "a switch")
-				for _, c := range k.Cases {
-					block(c.Body, scope)
-				}
-			case ir.StmtLoop:
-				inner := block(k.Continuing, block(k.Body, scope))
-				if k.BreakIf != nil {
-					check(inner, *k.BreakIf, "a break-if")
-				}
-			case ir.StmtBlock:
-				block(k.Block, scope)
-			default:
-				for _, r := range statementResults(k) {
-					scope[r] = true
-				}
-				irutil.StmtExprHandles(k, func(h ir.ExpressionHandle) {
-					check(scope, h, fmt.Sprintf("%T", k))
-				})
-			}
-		}
-		return scope
-	}
-	block(fn.Body, map[ir.ExpressionHandle]bool{})
-	return errs
-}
-
-// statementResults are the expressions a statement gives a value to.
-func statementResults(kind ir.StatementKind) []ir.ExpressionHandle {
-	switch k := kind.(type) {
-	case ir.StmtAtomic:
-		if k.Result != nil {
-			return []ir.ExpressionHandle{*k.Result}
-		}
-	case ir.StmtCall:
-		if k.Result != nil {
-			return []ir.ExpressionHandle{*k.Result}
-		}
-	case ir.StmtWorkGroupUniformLoad:
-		return []ir.ExpressionHandle{k.Result}
-	case ir.StmtSubgroupBallot:
-		return []ir.ExpressionHandle{k.Result}
-	case ir.StmtSubgroupCollectiveOperation:
-		return []ir.ExpressionHandle{k.Result}
-	case ir.StmtSubgroupGather:
-		return []ir.ExpressionHandle{k.Result}
-	}
-	return nil
 }
 
 // storedAddress returns the variable and the constant index of the one

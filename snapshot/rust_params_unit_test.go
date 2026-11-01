@@ -8,6 +8,9 @@ import (
 
 func u32p(v uint32) *uint32 { return &v }
 
+// rustCapabilityBits is a capabilities parameter of the given bits.
+func rustCapabilityBits(bits uint64) *uint64 { return &bits }
+
 func TestParseRustParams(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -60,7 +63,12 @@ func TestParseRustParams(t *testing.T) {
 			name: "multi-line basic string",
 			content: "targets = \"\"\"\n  SPIRV\n  | METAL\n\"\"\"\n" +
 				"capabilities = \"\"\"\n  STORAGE_BUFFER_BINDING_ARRAY\n  | STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING\n\"\"\"\n",
-			want: rustParams{targets: rustTargetSPIRV | rustTargetMETAL},
+			want: rustParams{targets: rustTargetSPIRV | rustTargetMETAL, capabilities: rustCapabilityBits(1<<6 | 1<<35)},
+		},
+		{
+			name:    "capabilities",
+			content: `capabilities = "SUBGROUP | SUBGROUP_BARRIER"`,
+			want:    rustParams{targets: rustTargetsWGSLDefault, capabilities: rustCapabilityBits(1<<17 | 1<<18)},
 		},
 		{
 			// naga-test parses and validates such a shader but writes no output.
@@ -126,6 +134,8 @@ func TestParseRustParamsRejectsMalformedInput(t *testing.T) {
 		wantErr string
 	}{
 		{"unknown target flag", `targets = "SPIRV | VULKAN"`, "VULKAN"},
+		{"unknown capability", `capabilities = "SUBGROUP | WARP"`, "WARP"},
+		{"capabilities not a string", `capabilities = 3`, "capabilities"},
 		{"empty target flag", `targets = "SPIRV | "`, "empty"},
 		{"targets not a string", `targets = 3`, "targets"},
 		{"duplicate key", "targets = \"SPIRV\"\ntargets = \"METAL\"\n", "duplicate"},

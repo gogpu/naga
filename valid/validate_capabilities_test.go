@@ -163,9 +163,15 @@ func TestValidateWithCapabilities_AtomicTypes(t *testing.T) {
 		wantErr string
 	}{
 		{"atomic<i64> rejected", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}}, 0, "SHADER_INT64"},
-		{"atomic<i64> accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}}, CapShaderInt64, ""},
+		// A 64-bit atomic also needs one of the 64-bit atomic capabilities
+		// (Rust valid/type.rs, TypeInner::Atomic).
+		{"atomic<i64> needs an atomic capability", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}},
+			CapShaderInt64, "Capability Capabilities(SHADER_INT64_ATOMIC_ALL_OPS) is required"},
+		{"atomic<i64> accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 8}},
+			CapShaderInt64 | CapShaderInt64AtomicMinMax, ""},
 		{"atomic<u64> rejected", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}}, 0, "SHADER_INT64"},
-		{"atomic<u64> accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}}, CapShaderInt64, ""},
+		{"atomic<u64> accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 8}},
+			CapShaderInt64 | CapShaderInt64AtomicAllOps, ""},
 		{"atomic<i32> always accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}}, 0, ""},
 		{"atomic<u32> always accepted", ir.AtomicType{Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, 0, ""},
 	}

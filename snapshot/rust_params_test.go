@@ -93,6 +93,58 @@ type rustParams struct {
 	glslExcludeList     map[string]bool // entry points without GLSL output
 	boundsCheckPolicies rustBoundsCheckPolicies
 	spvBindingMap       []rustSPVBinding // [[spv.binding_map]]
+	// capabilities is the top-level `capabilities`, the bits of Rust's
+	// valid::Capabilities the snapshot driver validates with; nil means
+	// Capabilities::default().
+	capabilities *uint64
+}
+
+// rustCapabilityNames are Rust naga's valid::Capabilities flags by bit, as
+// a `capabilities` parameter spells them (valid/mod.rs at the pin).
+var rustCapabilityNames = []string{
+	"IMMEDIATES", "FLOAT64", "PRIMITIVE_INDEX", "TEXTURE_AND_SAMPLER_BINDING_ARRAY",
+	"BUFFER_BINDING_ARRAY", "STORAGE_TEXTURE_BINDING_ARRAY", "STORAGE_BUFFER_BINDING_ARRAY",
+	"CLIP_DISTANCES", "CULL_DISTANCE", "STORAGE_TEXTURE_16BIT_NORM_FORMATS", "MULTIVIEW",
+	"EARLY_DEPTH_TEST", "MULTISAMPLED_SHADING", "RAY_QUERY", "DUAL_SOURCE_BLENDING",
+	"CUBE_ARRAY_TEXTURES", "SHADER_INT64", "SUBGROUP", "SUBGROUP_BARRIER",
+	"SUBGROUP_VERTEX_STAGE", "SHADER_INT64_ATOMIC_MIN_MAX", "SHADER_INT64_ATOMIC_ALL_OPS",
+	"SHADER_FLOAT32_ATOMIC", "TEXTURE_ATOMIC", "TEXTURE_INT64_ATOMIC",
+	"RAY_HIT_VERTEX_POSITION", "SHADER_FLOAT16", "TEXTURE_EXTERNAL",
+	"SHADER_FLOAT16_IN_FLOAT32", "SHADER_BARYCENTRICS", "MESH_SHADER",
+	"MESH_SHADER_POINT_TOPOLOGY", "TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING",
+	"BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING", "STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING",
+	"STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING", "COOPERATIVE_MATRIX", "PER_VERTEX",
+	"RAY_TRACING_PIPELINE", "DRAW_INDEX", "ACCELERATION_STRUCTURE_BINDING_ARRAY",
+	"MEMORY_DECORATION_COHERENT", "MEMORY_DECORATION_VOLATILE", "SHADER_INT16",
+	"LINEAR_INTERPOLATION", "DEBUG_PRINTF",
+}
+
+// rustDefaultCapabilities is Capabilities::default():
+// MULTISAMPLED_SHADING | CUBE_ARRAY_TEXTURES.
+const rustDefaultCapabilities uint64 = 1<<12 | 1<<15
+
+// parseRustCapabilities parses bitflags syntax ("SUBGROUP | SUBGROUP_BARRIER")
+// into Rust's bits; an unknown name is an error.
+func parseRustCapabilities(s string) (uint64, error) {
+	var bits uint64
+	for _, name := range strings.Split(s, "|") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		found := false
+		for bit, n := range rustCapabilityNames {
+			if n == name {
+				bits |= 1 << bit
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0, fmt.Errorf("unknown capability %q", name)
+		}
+	}
+	return bits, nil
 }
 
 // rustSPVBinding is one [[spv.binding_map]] element: resource_binding =
@@ -284,6 +336,16 @@ func parseRustParams(content string) (rustParams, error) {
 					p.glslExcludeList[ep] = true
 				}
 			}
+		case section == "" && key == "capabilities":
+			s, ok := tomlString(value)
+			if !ok {
+				return fmt.Errorf("capabilities must be a string, got %s", value)
+			}
+			bits, err := parseRustCapabilities(s)
+			if err != nil {
+				return err
+			}
+			p.capabilities = &bits
 		case section == "spv" && key == "separate_entry_points":
 			b, err := strconv.ParseBool(value)
 			if err != nil {

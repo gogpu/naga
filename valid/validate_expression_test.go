@@ -549,7 +549,9 @@ func TestValidateNew_CompleteValidModule(t *testing.T) {
 			{Name: "tmp", Type: 0},
 		},
 		Body: []ir.Statement{
-			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 3}}},
+			// The arguments need no Emit (Rust: an Emit of one is
+			// ExpressionAlreadyInScope).
+			{Kind: ir.StmtEmit{Range: ir.Range{Start: 2, End: 3}}},
 		},
 	})
 

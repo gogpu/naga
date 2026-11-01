@@ -423,8 +423,13 @@ func (p *processor) function(fn *ir.Function) error {
 	old := fn.Expressions
 	fn.Expressions = make([]ir.Expression, 0, len(old))
 	adjusted := make([]ir.ExpressionHandle, len(old))
+	// spans[i] are the new expressions appended while evaluating old
+	// expression i; its result may also be an earlier expression (a
+	// component of a constant composite), which is not emitted again.
+	spans := make([]ir.Range, len(old))
 	ev := &consteval.Evaluator{Module: p.m, Arena: fnArena{fn}, Types: p.types, Behavior: consteval.BehaviorRuntime}
 	for i, e := range old {
+		spans[i].Start = ir.ExpressionHandle(irutil.ArenaIndex(len(fn.Expressions)))
 		kind := e.Kind
 		if eo, ok := kind.(ir.ExprOverride); ok {
 			c, err := p.constantFor(eo.Override)
@@ -439,6 +444,7 @@ func (p *processor) function(fn *ir.Function) error {
 			return fmt.Errorf("function %q, expression %d: %w", fn.Name, i, err)
 		}
 		adjusted[i] = h
+		spans[i].End = ir.ExpressionHandle(irutil.ArenaIndex(len(fn.Expressions)))
 		if _, named := fn.NamedExpressions[ir.ExpressionHandle(i)]; named {
 			// let bindings (and arguments and phony assignments, which
 			// are run-time anyway): the front end's force_non_const.
@@ -446,7 +452,17 @@ func (p *processor) function(fn *ir.Function) error {
 		}
 	}
 
-	irutil.RemapStatementExpressionHandles(fn.Body, adjusted)
+	// An Emit of old expressions emits the new ones they were evaluated
+	// into, each once. Rust maps the range by its first and last
+	// expression (adjust_stmt), which emits an expression twice or misses
+	// one when the evaluator returns an earlier expression
+	// (gfx-rs/wgpu#10646).
+	irutil.RemapStatementExpressionHandlesEmits(fn.Body, adjusted, func(r ir.Range) ir.Range {
+		if r.End <= r.Start || int(r.End) > len(spans) {
+			return r
+		}
+		return ir.Range{Start: spans[r.Start].Start, End: spans[r.End-1].End}
+	})
 	fn.Body = filterEmits(fn.Body, fn.Expressions)
 	for i := range fn.LocalVars {
 		if init := fn.LocalVars[i].Init; init != nil {

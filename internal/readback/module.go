@@ -16,6 +16,15 @@ import (
 
 const requireF16 = "shader-f16"
 
+// featureCapabilities are the validator capabilities each WebGPU feature a
+// case may require grants, as wgpu grants them (wgpu-naga-bridge
+// features_to_naga_capabilities: Features::SHADER_F16 gives
+// Capabilities::SHADER_FLOAT16). Every name in knownRequirements has an
+// entry.
+var featureCapabilities = map[string]valid.Capabilities{
+	requireF16: valid.CapShaderFloat16,
+}
+
 // Module returns the IR a backend compiles for case c, as wgpu builds a
 // compute pipeline from it: the WGSL frontend's module, validated with the
 // capabilities the case requires, with its overrides processed for its entry
@@ -27,8 +36,8 @@ func Module(c *Case) (*ir.Module, error) {
 		return nil, err
 	}
 	var caps valid.Capabilities
-	if slices.Contains(c.Spec.Requires, requireF16) {
-		caps |= valid.CapShaderFloat16
+	for _, feature := range c.Spec.Requires {
+		caps |= featureCapabilities[feature]
 	}
 	info, err := valid.Validate(m, valid.Options{Capabilities: caps})
 	if err != nil {
