@@ -342,6 +342,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 
 	// Set context
 	w.currentFunction = fn
+	w.types = w.typifiers.Function(fn)
 	w.currentFuncHandle = handle
 	w.localNames = make(map[uint32]string)
 	w.namedExpressions = make(map[ir.ExpressionHandle]string)
@@ -360,6 +361,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 
 	defer func() {
 		w.currentFunction = nil
+		w.types = nil
 		w.localNames = nil
 		w.namedExpressions = nil
 		w.needBakeExpression = nil
@@ -437,7 +439,8 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 
 // writeEntryPoints writes all entry point functions.
 func (w *Writer) writeEntryPoints() error {
-	for epIdx, ep := range w.module.EntryPoints {
+	for epIdx := range w.module.EntryPoints {
+		ep := &w.module.EntryPoints[epIdx]
 		// Check if we should skip this entry point
 		if w.pipeline.EntryPoint != nil {
 			if w.pipeline.EntryPoint.Name != ep.Name || w.pipeline.EntryPoint.Stage != ep.Stage {
@@ -445,7 +448,7 @@ func (w *Writer) writeEntryPoints() error {
 			}
 		}
 
-		if err := w.writeEntryPoint(epIdx, &ep); err != nil {
+		if err := w.writeEntryPoint(epIdx, ep); err != nil {
 			return err
 		}
 	}
@@ -465,6 +468,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 
 	// Set context
 	w.currentFunction = fn
+	w.types = w.typifiers.Function(fn)
 	w.currentFuncHandle = epFuncHandle(epIdx)
 	w.currentEPIndex = epIdx
 	w.localNames = make(map[uint32]string)
@@ -488,6 +492,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 
 	defer func() {
 		w.currentFunction = nil
+		w.types = nil
 		w.currentEPIndex = -1
 		w.localNames = nil
 		w.namedExpressions = nil

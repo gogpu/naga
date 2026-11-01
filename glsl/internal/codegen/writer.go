@@ -11,6 +11,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/internal/textutil"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -72,6 +73,8 @@ type Writer struct {
 
 	// Function context (set during function writing)
 	currentFunction   *ir.Function
+	typifiers         *typifier.Module   // the type of every expression of every function
+	types             *typifier.Typifier // typifiers of currentFunction
 	currentFuncHandle ir.FunctionHandle
 	localNames        map[uint32]string
 	namedExpressions  map[ir.ExpressionHandle]string
@@ -510,7 +513,8 @@ func (w *Writer) registerNames() error {
 	// Register entry point names, arguments, and locals BEFORE constants/globals.
 	// Matches Rust naga namer order: types → EP names+args+locals → functions → globals → constants.
 	// Register ALL entry points (Rust namer is module-wide, not per-EP)
-	for epIdx, ep := range w.module.EntryPoints {
+	for epIdx := range w.module.EntryPoints {
+		ep := &w.module.EntryPoints[epIdx]
 		epName := w.namer.call(ep.Name)
 		// The selected EP gets "main" as GLSL name
 		if epIdx == w.epIndex {
@@ -1981,10 +1985,10 @@ func (w *Writer) scanNeedBakeExpressions(fn *ir.Function) {
 		case ir.ExprBinary:
 			// Integer % is written as left - right * (left / right), which
 			// uses each operand twice.
-			if m.Op == ir.BinaryModulo && int(m.Left) < len(fn.ExpressionTypes) {
+			if m.Op == ir.BinaryModulo {
 				isInt := func(k ir.ScalarKind) bool { return k == ir.ScalarSint || k == ir.ScalarUint }
 				bake := false
-				switch t := w.resolveTypeInner(&fn.ExpressionTypes[m.Left], m.Left).(type) {
+				switch t := w.resolutionInner(w.fnExprType(fn, m.Left)).(type) {
 				case ir.ScalarType:
 					bake = isInt(t.Kind)
 				case ir.VectorType:
@@ -2063,6 +2067,7 @@ func (w *Writer) writeFunctions() error {
 // writeFunction writes a single function definition.
 func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error {
 	w.currentFunction = fn
+	w.types = w.typifiers.Function(fn)
 	w.currentFuncHandle = handle
 	w.localNames = make(map[uint32]string)
 	w.namedExpressions = make(map[ir.ExpressionHandle]string)
@@ -2138,18 +2143,20 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	w.WriteLine("}")
 
 	w.currentFunction = nil
+	w.types = nil
 	return nil
 }
 
 // writeEntryPoints writes entry point functions.
 func (w *Writer) writeEntryPoints() error {
-	for epIdx, ep := range w.module.EntryPoints {
+	for epIdx := range w.module.EntryPoints {
+		ep := &w.module.EntryPoints[epIdx]
 		// Skip if not the selected entry point
 		if epIdx != w.epIndex {
 			continue
 		}
 
-		if err := w.writeEntryPoint(epIdx, &ep); err != nil {
+		if err := w.writeEntryPoint(epIdx, ep); err != nil {
 			return err
 		}
 	}
@@ -2169,6 +2176,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	// Entry point function is stored inline (not in Functions[])
 	fn := &ep.Function
 	w.currentFunction = fn
+	w.types = w.typifiers.Function(fn)
 	// Use offset handle matching registerNames() so argument name lookups work
 	w.currentFuncHandle = ir.FunctionHandle(len(w.module.Functions) + epIdx)
 	w.localNames = make(map[uint32]string)
@@ -2216,6 +2224,7 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 	w.WriteLine("")
 
 	w.currentFunction = nil
+	w.types = nil
 	w.inEntryPoint = false
 	w.entryPointResult = nil
 	w.epStructArgs = nil
@@ -2856,29 +2865,20 @@ func (w *Writer) isDynamicallySized(typeHandle ir.TypeHandle) bool {
 	}
 }
 
-// resolveTypeInner attempts to extract a TypeInner from a TypeResolution.
-// If the resolution is empty (both Handle and Value are nil), it falls back
-// to dynamic type resolution using ir.ResolveExpressionType. This handles
-// cases where the lowerer didn't populate ExpressionTypes for certain expressions
-// (e.g., Splat, Compose) but the type can be inferred from the expression kind.
-func (w *Writer) resolveTypeInner(res *ir.TypeResolution, handle ir.ExpressionHandle) ir.TypeInner {
-	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
-		return w.module.Types[*res.Handle].Inner
-	}
-	if res.Value != nil {
-		return res.Value
-	}
-	// Fallback: resolve dynamically
-	if w.module != nil && w.currentFunction != nil {
-		resolved, err := ir.ResolveExpressionType(w.module, w.currentFunction, handle)
-		if err == nil {
-			if resolved.Handle != nil && int(*resolved.Handle) < len(w.module.Types) {
-				return w.module.Types[*resolved.Handle].Inner
-			}
-			return resolved.Value
+// resolutionInner returns the type res stands for, nil for none.
+func (w *Writer) resolutionInner(res ir.TypeResolution) ir.TypeInner {
+	if res.Handle != nil {
+		if int(*res.Handle) < len(w.module.Types) {
+			return w.module.Types[*res.Handle].Inner
 		}
+		return nil
 	}
-	return nil
+	return res.Value
+}
+
+// exprInner returns the type of expression h of the function being written.
+func (w *Writer) exprInner(h ir.ExpressionHandle) ir.TypeInner {
+	return w.resolutionInner(w.exprType(h))
 }
 
 // Note: writeBlock is defined in statements.go and takes ir.Block directly

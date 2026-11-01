@@ -203,17 +203,12 @@ func TestResultScalarCount(t *testing.T) {
 	mod := makeBasicMod()
 	fn := ir.Function{
 		Expressions: []ir.Expression{
-			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},
-			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},
+			{Kind: ir.ExprZeroValue{Type: 2}},           // expr 0: vec4 -> 4
+			{Kind: ir.Literal{Value: ir.LiteralF32(0)}}, // expr 1: f32 -> 1
 		},
 	}
-	vec4H := ir.TypeHandle(2)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &vec4H}, // expr 0: vec4 -> 4
-		{},               // expr 1: no resolved type -> fallback 1
-	}
 	ep := ir.EntryPoint{Function: fn}
-	s := &analysisState{irMod: mod, ep: &ep}
+	s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
 	t.Run("vec4_returns_4", func(t *testing.T) {
 		n := s.resultScalarCount(0)
@@ -222,10 +217,17 @@ func TestResultScalarCount(t *testing.T) {
 		}
 	})
 
-	t.Run("nil_type_returns_1", func(t *testing.T) {
+	t.Run("scalar_returns_1", func(t *testing.T) {
 		n := s.resultScalarCount(1)
 		if n != 1 {
-			t.Errorf("resultScalarCount(1) = %d, want 1 (nil fallback)", n)
+			t.Errorf("resultScalarCount(1) = %d, want 1", n)
+		}
+	})
+
+	t.Run("nil_type_returns_1", func(t *testing.T) {
+		n := s.resultScalarCount(7)
+		if n != 1 {
+			t.Errorf("resultScalarCount(7) = %d, want 1 (nil fallback)", n)
 		}
 	})
 }
@@ -236,20 +238,13 @@ func TestInnerOfExpr(t *testing.T) {
 	mod := makeBasicMod()
 	fn := ir.Function{
 		Expressions: []ir.Expression{
-			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},
-			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},
-			{Kind: ir.Literal{Value: ir.LiteralF32(0)}},
+			{Kind: ir.ExprZeroValue{Type: 2}},           // 0: Handle -> vec4
+			{Kind: ir.Literal{Value: ir.LiteralF32(0)}}, // 1: Value -> f32
+			{Kind: ir.ExprZeroValue{Type: 999}},         // 2: out-of-range handle
 		},
 	}
-	vec4H := ir.TypeHandle(2)
-	outOfRange := ir.TypeHandle(999)
-	fn.ExpressionTypes = []ir.TypeResolution{
-		{Handle: &vec4H}, // 0: Handle -> vec4
-		{Value: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}}, // 1: Value -> f32
-		{Handle: &outOfRange}, // 2: out-of-range handle
-	}
 	ep := ir.EntryPoint{Function: fn}
-	s := &analysisState{irMod: mod, ep: &ep}
+	s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
 	t.Run("handle_resolved", func(t *testing.T) {
 		inner := s.innerOfExpr(0)
@@ -316,7 +311,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Splat broadcasts scalar to both components -> both outputs depend on input 0.
 		if got := deps.InputScalarToOutputs[0]; got != 0x3 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x3 (splat broadcasts to both outputs)", got)
@@ -351,7 +346,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Swizzle .yx: output[0] depends on input[1], output[1] depends on input[0].
 		if got := deps.InputScalarToOutputs[0]; got != 0x2 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x2 (swizzle reverses: input.x -> output.y)", got)
@@ -384,7 +379,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Derivative is component-wise: input.x -> output.x, input.y -> output.y.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (derivative is component-wise)", got)
@@ -423,7 +418,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Relational collapses vector to scalar. Both inputs contribute to output.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1", got)
@@ -463,7 +458,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Dynamic access is conservative: union of base + index taint.
 		// Both input components feed the output.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
@@ -512,7 +507,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{ScalarStart: 0, NumChannels: 1, VectorRow: 0, StartCol: 0},
 		}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// min(a, b): output depends on both inputs.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (input a)", got)
@@ -555,7 +550,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// select with same accept/reject: component-wise identity.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1", got)
@@ -583,7 +578,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.StmtReturn{Value: &ret}},
 		}
 		ep := ir.EntryPoint{Name: "main", Stage: ir.StageFragment, Function: fn}
-		deps := Analyze(mod, &ep, nil, []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}})
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), nil, []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}})
 		// ImageQuery returns empty taint, no input deps.
 		if len(deps.InputScalarToOutputs) > 0 && deps.InputScalarToOutputs[0] != 0 {
 			t.Errorf("ImageQuery should have empty taint")
@@ -608,7 +603,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.StmtReturn{Value: &ret}},
 		}
 		ep := ir.EntryPoint{Name: "main", Stage: ir.StageFragment, Function: fn}
-		deps := Analyze(mod, &ep, nil, []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}})
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), nil, []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}})
 		if len(deps.InputScalarToOutputs) > 0 && deps.InputScalarToOutputs[0] != 0 {
 			t.Errorf("ArrayLength should have empty taint")
 		}
@@ -630,7 +625,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 			{Kind: ir.StmtReturn{Value: &ret}},
 		}
 		ep := ir.EntryPoint{Name: "main", Stage: ir.StageFragment, Function: fn}
-		deps := Analyze(mod, &ep, nil, []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}})
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), nil, []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}})
 		if len(deps.InputScalarToOutputs) > 0 && deps.InputScalarToOutputs[0] != 0 {
 			t.Errorf("GlobalVariable should have empty taint")
 		}
@@ -663,7 +658,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// CallResult triggers giveUp -> everything depends on everything.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (giveUp)", got)
@@ -701,7 +696,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// ImageSample with coordinate from input: output depends on input.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (coordinate taint)", got)
@@ -743,7 +738,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// ImageLoad coordinate feeds output.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1", got)
@@ -783,7 +778,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 4, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 2, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Matrix input taint is conservative (all scalars get full taint
 		// from expandTaintToType for matrix type). Column 1 access picks
 		// flat range [2..4), so each output depends on all 4 input scalars.
@@ -827,7 +822,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Array access is conservative union.
 		if got := deps.InputScalarToOutputs[0]; got != 0x1 {
 			t.Errorf("InputScalarToOutputs[0] = 0x%x, want 0x1 (array conservative)", got)
@@ -860,7 +855,7 @@ func TestComputeTaintExpressionKinds(t *testing.T) {
 		inputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		outputs := []SigElement{{ScalarStart: 0, NumChannels: 1, VectorRow: 0}}
 		// AtomicResult returns emptyTaint, does not trigger giveUp.
-		deps := Analyze(mod, &ep, inputs, outputs)
+		deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 		// Output has no deps since atomic result is not fed by inputs.
 		_ = deps
 	})

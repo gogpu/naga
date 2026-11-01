@@ -17,13 +17,11 @@ func ArenaIndex(n int) uint32 {
 	return uint32(n)
 }
 
-// appendExpression appends an expression of kind, with its type resolution
-// ty, to fn and returns its handle; Expressions and ExpressionTypes stay
-// parallel.
-func appendExpression(fn *ir.Function, kind ir.ExpressionKind, ty ir.TypeResolution) ir.ExpressionHandle {
+// appendExpression appends an expression of kind to fn and returns its
+// handle.
+func appendExpression(fn *ir.Function, kind ir.ExpressionKind) ir.ExpressionHandle {
 	h := ir.ExpressionHandle(ArenaIndex(len(fn.Expressions)))
 	fn.Expressions = append(fn.Expressions, ir.Expression{Kind: kind})
-	fn.ExpressionTypes = append(fn.ExpressionTypes, ty)
 	return h
 }
 

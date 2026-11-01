@@ -141,7 +141,7 @@ func TestMarkEverythingDependsOnEverything(t *testing.T) {
 		{ScalarStart: 0, NumChannels: 4, VectorRow: 0, StartCol: 0},
 	}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 
 	// Every input should contribute to every output (conservative).
 	outMask := MaskDwordsForScalars(deps.NumOutputScalars)
@@ -341,7 +341,7 @@ func TestFindArgHandle(t *testing.T) {
 		},
 	}
 	ep := ir.EntryPoint{Function: fn}
-	s := &analysisState{irMod: mod, ep: &ep}
+	s := &analysisState{irMod: mod, ep: &ep, types: typesOf(t, mod, &ep)}
 
 	t.Run("found_arg0", func(t *testing.T) {
 		h, ok := s.findArgHandle(0)
@@ -394,7 +394,7 @@ func TestSystemManagedInputsSkipped(t *testing.T) {
 		{ScalarStart: 0, NumChannels: 1, VectorRow: 0},
 	}
 
-	deps := Analyze(mod, &ep, inputs, outputs)
+	deps := Analyze(mod, &ep, typesOf(t, mod, &ep), inputs, outputs)
 	if deps.NumInputScalars != 0 {
 		t.Errorf("SystemManaged input should not count: NumInputScalars = %d, want 0", deps.NumInputScalars)
 	}

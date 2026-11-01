@@ -47,14 +47,6 @@ type Module struct {
 
 	// SpecialTypes holds handles to compiler-generated types (external textures, etc.)
 	SpecialTypes SpecialTypes
-
-	// TypeAliasNames records names from type alias declarations so the namer can register them and detect collisions with variables sharing the same name.
-	TypeAliasNames []string
-
-	// TypeUseOrder records the order in which types were first registered
-	// during lowering. Used by ReorderTypes to reorder the type arena
-	// to match Rust naga's dependency-ordered type registration.
-	TypeUseOrder []TypeHandle
 }
 
 // SpecialTypes holds handles to compiler-generated types used by backends.
@@ -599,12 +591,16 @@ type ResourceBinding struct {
 
 // Function represents a function definition.
 type Function struct {
-	Name            string
-	Arguments       []FunctionArgument
-	Result          *FunctionResult
-	LocalVars       []LocalVariable
-	Expressions     []Expression
-	ExpressionTypes []TypeResolution // Type of each expression (parallel to Expressions)
+	Name        string
+	Arguments   []FunctionArgument
+	Result      *FunctionResult
+	LocalVars   []LocalVariable
+	Expressions []Expression
+	// ExpressionTypes is the type of each expression, parallel to
+	// Expressions, as the WGSL frontend and ProcessOverrides record it.
+	// Validate is its one reader left (ADR-010 B4: it goes once the
+	// validator types expressions itself); backends type the IR.
+	ExpressionTypes []TypeResolution
 	Body            Block
 
 	// NamedExpressions maps expression handles to user-given names.

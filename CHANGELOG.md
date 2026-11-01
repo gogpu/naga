@@ -225,6 +225,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   IR kind has no case in them). Internal now as well: `CheckWorkgroupSizesResolved`, `ResolvePendingArraySizes`, `IndexableLengthOf`,
   `ConstIndexValue`, `FlattenCompose`, `DeduplicateEmits`, `IsAbstractType`, `ResolveAtomicPointerScalar`,
   `FindFrexpResultType`, `FindModfResultType`.
+- **Breaking: the IR carries no expression types of its own** (ADR-010 B4). One internal typifier (Rust's
+  `Typifier`: one memoized pass over the arena) types expressions for every backend, the DXIL passes and the WGSL
+  frontend; each backend's `Compile` types the module once. `ir.ResolveExpressionType`, `Module.TypeUseOrder` and
+  `Module.TypeAliasNames` (never written) are removed. `ExprWorkGroupUniformLoadResult` gains `Ty`, the loaded
+  type, as Rust's `WorkGroupUniformLoadResult { ty }`; the frontend now reports a non-pointer argument with Rust's
+  message. The typing that each backend redid per expression cost up to ~10× the rest of `Compile` on gg's shaders;
+  now it is 1–8% (SPIR-V compile of gg's 25 shaders: 33 ms → 5 ms). Output is unchanged.
 
 ### Added
 

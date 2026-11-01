@@ -12,6 +12,7 @@ import (
 	"github.com/gogpu/naga/internal/consteval"
 	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/registry"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -445,13 +446,16 @@ func (p *processor) function(fn *ir.Function) error {
 		}
 		fn.NamedExpressions = named
 	}
+	types, err := typifier.Function(p.m, fn)
+	if err != nil {
+		return fmt.Errorf("function %q: %w", fn.Name, err)
+	}
+	// Interim (ADR-010 B4): ir.Validate's arrayLength check is the one
+	// reader of Function.ExpressionTypes left, and package ir cannot import
+	// the typifier; the field goes once the validator types expressions.
 	fn.ExpressionTypes = make([]ir.TypeResolution, len(fn.Expressions))
 	for i := range fn.Expressions {
-		res, err := ir.ResolveExpressionType(p.m, fn, ir.ExpressionHandle(i))
-		if err != nil {
-			return fmt.Errorf("function %q, expression %d: %w", fn.Name, i, err)
-		}
-		fn.ExpressionTypes[i] = res
+		fn.ExpressionTypes[i] = types.Get(ir.ExpressionHandle(i))
 	}
 	return nil
 }

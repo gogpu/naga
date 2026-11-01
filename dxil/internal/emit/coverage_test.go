@@ -623,8 +623,6 @@ func TestEmitLiteralAbstractFloat(t *testing.T) {
 }
 
 func TestEmitLiteralAbstractInt(t *testing.T) {
-	f32 := ir.TypeHandle(0)
-	i32 := ir.TypeHandle(1)
 	vec4 := ir.TypeHandle(2)
 
 	irMod := &ir.Module{
@@ -642,14 +640,13 @@ func TestEmitLiteralAbstractInt(t *testing.T) {
 		Name:   "main",
 		Result: &ir.FunctionResult{Type: vec4, Binding: &retBind},
 		Expressions: []ir.Expression{
-			{Kind: ir.Literal{Value: ir.LiteralAbstractInt(7)}},                   // [0]
-			{Kind: ir.ExprAs{Kind: ir.ScalarFloat, Expr: 0, Convert: ptrU8(4)}},   // [1]
-			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                         // [2]
-			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                         // [3]
-			{Kind: ir.ExprCompose{Components: []ir.ExpressionHandle{1, 2, 2, 3}}}, // [4]
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &i32}, {Handle: &f32}, {Handle: &f32}, {Handle: &f32}, {Handle: &vec4},
+			// An abstract literal is typed abstract (Rust's typifier): emitted,
+			// but no operation of a valid function reads one.
+			{Kind: ir.Literal{Value: ir.LiteralAbstractInt(7)}},                               // [0]
+			{Kind: ir.Literal{Value: ir.LiteralF32(7.0)}},                                     // [1]
+			{Kind: ir.Literal{Value: ir.LiteralF32(0.0)}},                                     // [2]
+			{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},                                     // [3]
+			{Kind: ir.ExprCompose{Type: vec4, Components: []ir.ExpressionHandle{1, 2, 2, 3}}}, // [4]
 		},
 		Body: []ir.Statement{
 			{Kind: ir.StmtEmit{Range: ir.Range{Start: 0, End: 5}}},

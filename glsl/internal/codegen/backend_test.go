@@ -1501,21 +1501,13 @@ func TestBooleanBinaryOps(t *testing.T) {
 
 	// Boolean And → &&
 	boolBin := ir.ExprBinary{Left: 0, Right: 1, Op: ir.BinaryAnd}
-	w.currentFunction = &ir.Function{
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &boolHandle}, {Handle: &boolHandle},
-		},
-	}
+	setTestFunction(t, w, &ir.Function{Expressions: zeroValues(boolHandle, boolHandle)})
 	if w.isBooleanBinaryExpr(boolBin) != true {
 		t.Error("bool And should be detected as boolean")
 	}
 
 	// Int And → NOT boolean
-	w.currentFunction = &ir.Function{
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &intHandle}, {Handle: &intHandle},
-		},
-	}
+	setTestFunction(t, w, &ir.Function{Expressions: zeroValues(intHandle, intHandle)})
 	if w.isBooleanBinaryExpr(boolBin) != false {
 		t.Error("int And should NOT be detected as boolean")
 	}
@@ -1547,9 +1539,7 @@ func TestVectorComparisonDetection(t *testing.T) {
 		},
 	}
 	w := newWriter(module, &Options{LangVersion: Version330})
-	w.currentFunction = &ir.Function{
-		ExpressionTypes: []ir.TypeResolution{{Handle: &vecHandle}, {Handle: &vecHandle}},
-	}
+	setTestFunction(t, w, &ir.Function{Expressions: zeroValues(vecHandle, vecHandle)})
 	b := ir.ExprBinary{Left: 0, Right: 1, Op: ir.BinaryEqual}
 	if !w.isVectorBinaryExpr(b) {
 		t.Error("ivec2 should be detected as vector binary expr")
@@ -1564,9 +1554,7 @@ func TestFloatModuloDetection(t *testing.T) {
 		},
 	}
 	w := newWriter(module, &Options{LangVersion: Version330})
-	w.currentFunction = &ir.Function{
-		ExpressionTypes: []ir.TypeResolution{{Handle: &floatHandle}, {Handle: &floatHandle}},
-	}
+	setTestFunction(t, w, &ir.Function{Expressions: zeroValues(floatHandle, floatHandle)})
 	b := ir.ExprBinary{Left: 0, Right: 1, Op: ir.BinaryModulo}
 	if !w.isFloatBinaryExpr(b) {
 		t.Error("float should be detected as float binary expr")

@@ -1161,8 +1161,8 @@ func TestModuleUsesLowPrecision_QuantizeF16NotTriggered(t *testing.T) {
 		{Name: "main", Stage: ir.StageFragment, Function: fn},
 	}
 
-	if moduleUsesLowPrecision(irMod) {
-		t.Errorf("moduleUsesLowPrecision must NOT trigger on QuantizeF16 (legacy ops, no half type)")
+	if low, err := moduleUsesLowPrecision(irMod); err != nil || low {
+		t.Errorf("moduleUsesLowPrecision = %v, %v; must NOT trigger on QuantizeF16 (legacy ops, no half type)", low, err)
 	}
 
 	// Shader model must stay at 6.0 since legacy ops are available from SM 6.0.

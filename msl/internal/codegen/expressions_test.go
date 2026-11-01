@@ -1071,6 +1071,7 @@ func TestMSL_MathFunctionName(t *testing.T) {
 func TestMSL_AccessExpression(t *testing.T) {
 	tF32 := ir.TypeHandle(0)
 	tI32 := ir.TypeHandle(1)
+	tVec4 := ir.TypeHandle(2)
 	retExpr := ir.ExpressionHandle(2)
 
 	module := &ir.Module{
@@ -1082,12 +1083,12 @@ func TestMSL_AccessExpression(t *testing.T) {
 		Functions: []ir.Function{{
 			Name: "test_fn",
 			Expressions: []ir.Expression{
-				{Kind: ir.Literal{Value: ir.LiteralF32(1.0)}},
+				{Kind: ir.ExprZeroValue{Type: tVec4}},
 				{Kind: ir.Literal{Value: ir.LiteralI32(0)}},
 				{Kind: ir.ExprAccess{Base: 0, Index: 1}},
 			},
 			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &tF32},
+				{Handle: &tVec4},
 				{Handle: &tI32},
 				{Handle: &tF32},
 			},

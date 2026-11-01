@@ -653,20 +653,6 @@ func (w *Writer) writeAccessExpression(e ir.ExprAccess) error {
 func (w *Writer) getAccessMaxIndex(base ir.ExpressionHandle) (uint32, bool) {
 	baseType := w.getExpressionType(base)
 	if baseType == nil {
-		baseType = w.inferExpressionType(base)
-	}
-	if baseType == nil {
-		// Last resort: use ir.ResolveExpressionType
-		if w.currentFunction != nil {
-			if res, err := ir.ResolveExpressionType(w.module, w.currentFunction, base); err == nil {
-				inner := res.Inner(w.module.Types)
-				if inner != nil {
-					baseType = &ir.Type{Inner: inner}
-				}
-			}
-		}
-	}
-	if baseType == nil {
 		return 0, false
 	}
 	inner := baseType.Inner
@@ -863,21 +849,6 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 
 	// Get the base expression's type
 	baseType := w.getExpressionType(e.Base)
-	// If type resolution failed, try to infer through the expression chain
-	if baseType == nil {
-		baseType = w.inferExpressionType(e.Base)
-	}
-	if baseType == nil {
-		// Last resort: try resolving via ir.ResolveExpressionType
-		if w.currentFunction != nil {
-			if res, err := ir.ResolveExpressionType(w.module, w.currentFunction, e.Base); err == nil {
-				inner := res.Inner(w.module.Types)
-				if inner != nil {
-					baseType = &ir.Type{Inner: inner}
-				}
-			}
-		}
-	}
 	if baseType == nil {
 		// Fallback to array syntax
 		if err := w.writeExpression(e.Base); err != nil {
@@ -887,7 +858,7 @@ func (w *Writer) writeAccessIndexExpression(e ir.ExprAccessIndex) error {
 		return nil
 	}
 
-	// Dereference pointer types (common when ExpressionTypes returns ptr for loads)
+	// Dereference pointer types (the type of a pointer base)
 	resolvedInner := baseType.Inner
 	if ptr, ok := resolvedInner.(ir.PointerType); ok {
 		if int(ptr.Base) < len(w.module.Types) {
@@ -2806,36 +2777,10 @@ func (w *Writer) getExpressionVectorSize(handle ir.ExpressionHandle) int {
 	return 2 // default assumption
 }
 
-// isExpressionUint checks if an expression has unsigned int type.
-// Checks ExpressionTypes first, then falls back to examining the expression itself.
+// isExpressionUint checks if an expression has unsigned int scalar type.
 func (w *Writer) isExpressionUint(handle ir.ExpressionHandle) bool {
-	inner := w.getExpressionTypeInner(handle)
-	if inner != nil {
-		switch t := inner.(type) {
-		case ir.ScalarType:
-			return t.Kind == ir.ScalarUint
-		}
-		return false
-	}
-
-	// Fallback: check expression kind directly for Literal and ZeroValue
-	if w.currentFunction != nil && int(handle) < len(w.currentFunction.Expressions) {
-		expr := w.currentFunction.Expressions[handle]
-		switch e := expr.Kind.(type) {
-		case ir.Literal:
-			switch e.Value.(type) {
-			case ir.LiteralU32, ir.LiteralU64:
-				return true
-			}
-		case ir.ExprZeroValue:
-			if int(e.Type) < len(w.module.Types) {
-				if sc, ok := w.module.Types[e.Type].Inner.(ir.ScalarType); ok {
-					return sc.Kind == ir.ScalarUint
-				}
-			}
-		}
-	}
-	return false
+	t, ok := w.getExpressionTypeInner(handle).(ir.ScalarType)
+	return ok && t.Kind == ir.ScalarUint
 }
 
 // isAbstractIntLiteral checks if an expression is a Literal with an AbstractInt value.
@@ -3110,183 +3055,15 @@ func (w *Writer) writeArrayLengthExpression(e ir.ExprArrayLength) error {
 // Helper Functions
 // =============================================================================
 
-// getExpressionType returns the resolved type for an expression handle.
-// inferExpressionType attempts to infer the type of an expression by examining
-// the expression tree. Used as fallback when ExpressionTypes is not populated.
-func (w *Writer) inferExpressionType(handle ir.ExpressionHandle) *ir.Type {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
-		return nil
-	}
-	expr := &w.currentFunction.Expressions[handle]
-	switch e := expr.Kind.(type) {
-	case ir.ExprLoad:
-		// Load dereferences a pointer - get the pointee type
-		return w.inferPointeeType(e.Pointer)
-	case ir.ExprLocalVariable:
-		// Local variable type, dereferenced
-		if int(e.Variable) < len(w.currentFunction.LocalVars) {
-			local := &w.currentFunction.LocalVars[e.Variable]
-			if int(local.Type) < len(w.module.Types) {
-				ty := &w.module.Types[local.Type]
-				if ptr, ok := ty.Inner.(ir.PointerType); ok {
-					if int(ptr.Base) < len(w.module.Types) {
-						return &w.module.Types[ptr.Base]
-					}
-				}
-				return ty
-			}
-		}
-	case ir.ExprFunctionArgument:
-		if int(e.Index) < len(w.currentFunction.Arguments) {
-			arg := &w.currentFunction.Arguments[e.Index]
-			if int(arg.Type) < len(w.module.Types) {
-				return &w.module.Types[arg.Type]
-			}
-		}
-	case ir.ExprGlobalVariable:
-		if int(e.Variable) < len(w.module.GlobalVariables) {
-			global := &w.module.GlobalVariables[e.Variable]
-			if int(global.Type) < len(w.module.Types) {
-				ty := &w.module.Types[global.Type]
-				if ptr, ok := ty.Inner.(ir.PointerType); ok {
-					if int(ptr.Base) < len(w.module.Types) {
-						return &w.module.Types[ptr.Base]
-					}
-				}
-				return ty
-			}
-		}
-	case ir.ExprAccessIndex:
-		// Infer type from base's type and the index
-		baseType := w.getExpressionType(e.Base)
-		if baseType == nil {
-			baseType = w.inferExpressionType(e.Base)
-		}
-		if baseType != nil {
-			baseInner := baseType.Inner
-			if ptr, ok := baseInner.(ir.PointerType); ok {
-				if int(ptr.Base) < len(w.module.Types) {
-					baseInner = w.module.Types[ptr.Base].Inner
-				}
-			}
-			switch inner := baseInner.(type) {
-			case ir.StructType:
-				if int(e.Index) < len(inner.Members) {
-					memberType := inner.Members[e.Index].Type
-					if int(memberType) < len(w.module.Types) {
-						return &w.module.Types[memberType]
-					}
-				}
-			case ir.ArrayType:
-				if int(inner.Base) < len(w.module.Types) {
-					return &w.module.Types[inner.Base]
-				}
-			case ir.VectorType:
-				return &ir.Type{Inner: inner.Scalar}
-			case ir.MatrixType:
-				return &ir.Type{Inner: ir.VectorType{Size: inner.Rows, Scalar: inner.Scalar}}
-			}
-		}
-	case ir.ExprAccess:
-		// Infer type from base's type (dynamic index)
-		baseType := w.getExpressionType(e.Base)
-		if baseType == nil {
-			baseType = w.inferExpressionType(e.Base)
-		}
-		if baseType != nil {
-			baseInner := baseType.Inner
-			if ptr, ok := baseInner.(ir.PointerType); ok {
-				if int(ptr.Base) < len(w.module.Types) {
-					baseInner = w.module.Types[ptr.Base].Inner
-				}
-			}
-			switch inner := baseInner.(type) {
-			case ir.ArrayType:
-				if int(inner.Base) < len(w.module.Types) {
-					return &w.module.Types[inner.Base]
-				}
-			case ir.VectorType:
-				return &ir.Type{Inner: inner.Scalar}
-			case ir.MatrixType:
-				return &ir.Type{Inner: ir.VectorType{Size: inner.Rows, Scalar: inner.Scalar}}
-			}
-		}
-	}
-	return nil
-}
-
-// inferPointeeType gets the type that a pointer expression points to.
-func (w *Writer) inferPointeeType(handle ir.ExpressionHandle) *ir.Type {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
-		return nil
-	}
-	expr := &w.currentFunction.Expressions[handle]
-	switch e := expr.Kind.(type) {
-	case ir.ExprLocalVariable:
-		if int(e.Variable) < len(w.currentFunction.LocalVars) {
-			local := &w.currentFunction.LocalVars[e.Variable]
-			if int(local.Type) < len(w.module.Types) {
-				return &w.module.Types[local.Type]
-			}
-		}
-	case ir.ExprGlobalVariable:
-		if int(e.Variable) < len(w.module.GlobalVariables) {
-			global := &w.module.GlobalVariables[e.Variable]
-			typeHandle := global.Type
-			if int(typeHandle) < len(w.module.Types) {
-				ty := &w.module.Types[typeHandle]
-				if ptr, ok := ty.Inner.(ir.PointerType); ok {
-					if int(ptr.Base) < len(w.module.Types) {
-						return &w.module.Types[ptr.Base]
-					}
-				}
-				return ty
-			}
-		}
-	case ir.ExprFunctionArgument:
-		if int(e.Index) < len(w.currentFunction.Arguments) {
-			arg := &w.currentFunction.Arguments[e.Index]
-			if int(arg.Type) < len(w.module.Types) {
-				return &w.module.Types[arg.Type]
-			}
-		}
-	case ir.ExprAccessIndex:
-		// AccessIndex on a pointer: get the member type
-		parentType := w.inferPointeeType(e.Base)
-		if parentType != nil {
-			if st, ok := parentType.Inner.(ir.StructType); ok {
-				if int(e.Index) < len(st.Members) {
-					if int(st.Members[e.Index].Type) < len(w.module.Types) {
-						return &w.module.Types[st.Members[e.Index].Type]
-					}
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // getExpressionTypeHandle returns the TypeHandle for an expression, if available.
 func (w *Writer) getExpressionTypeHandle(handle ir.ExpressionHandle) *ir.TypeHandle {
-	if w.currentFunction == nil {
-		return nil
-	}
-	if int(handle) >= len(w.currentFunction.ExpressionTypes) {
-		return nil
-	}
-	resolution := &w.currentFunction.ExpressionTypes[handle]
-	return resolution.Handle
+	return w.exprType(handle).Handle
 }
 
+// getExpressionType returns the type of an expression of the function being
+// written: its module type, or a type made of its value; nil outside one.
 func (w *Writer) getExpressionType(handle ir.ExpressionHandle) *ir.Type {
-	if w.currentFunction == nil {
-		return nil
-	}
-	if int(handle) >= len(w.currentFunction.ExpressionTypes) {
-		return nil
-	}
-
-	resolution := &w.currentFunction.ExpressionTypes[handle]
+	resolution := w.exprType(handle)
 
 	// If it references a module type, return that
 	if resolution.Handle != nil {
@@ -3366,8 +3143,8 @@ func (w *Writer) resolveStructTypeHandleForAccess(base ir.ExpressionHandle) *ir.
 	}
 
 	// Path 2: Resolve through Value (PointerType stored as Value, not Handle)
-	if w.currentFunction != nil && int(base) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[base]
+	if w.hasExprType(base) {
+		res := w.exprType(base)
 		if res.Value != nil {
 			if ptr, ok := res.Value.(ir.PointerType); ok {
 				return &ptr.Base
@@ -3450,9 +3227,6 @@ func (w *Writer) samplerBindingArrayInfoFromExpression(base ir.ExpressionHandle)
 	// Resolve the base expression's type
 	baseType := w.getExpressionType(base)
 	if baseType == nil {
-		baseType = w.inferExpressionType(base)
-	}
-	if baseType == nil {
 		return nil
 	}
 	inner := baseType.Inner
@@ -3509,9 +3283,6 @@ func (w *Writer) samplerBindingArrayInfoFromExpression(base ir.ExpressionHandle)
 // isBindingArrayAccess returns true if base expression resolves to a BindingArray type.
 func (w *Writer) isBindingArrayAccess(base ir.ExpressionHandle) bool {
 	baseType := w.getExpressionType(base)
-	if baseType == nil {
-		baseType = w.inferExpressionType(base)
-	}
 	if baseType == nil {
 		return false
 	}

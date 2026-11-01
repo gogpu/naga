@@ -6,6 +6,7 @@ package dxil
 import (
 	"fmt"
 
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -29,6 +30,7 @@ func lowerPrivatesToLocals(m *ir.Module) error {
 }
 
 func privatesToLocals(m *ir.Module, fn *ir.Function) error {
+	var globals globalExprTypes
 	locals := make(map[ir.GlobalVariableHandle]uint32)
 	n := len(fn.Expressions) // initializers appended below are not rewritten
 	for h := 0; h < n; h++ {
@@ -40,7 +42,7 @@ func privatesToLocals(m *ir.Module, fn *ir.Function) error {
 		if !seen {
 			gv := &m.GlobalVariables[g.Variable]
 			lv := ir.LocalVariable{Name: gv.Name, Type: gv.Type}
-			init, hasInit, err := privateInitializer(m, fn, gv)
+			init, hasInit, err := privateInitializer(m, fn, gv, &globals)
 			if err != nil {
 				return fmt.Errorf("private %q: %w", gv.Name, err)
 			}
@@ -53,46 +55,36 @@ func privatesToLocals(m *ir.Module, fn *ir.Function) error {
 		}
 		fn.Expressions[h].Kind = ir.ExprLocalVariable{Variable: ir.LocalVariableHandle(idx)}
 	}
-	if len(locals) == 0 {
-		return nil
-	}
-	// Pointers into the variables are function-space pointers now.
-	for h := range fn.ExpressionTypes {
-		fn.ExpressionTypes[h] = functionSpacePointer(m, fn.ExpressionTypes[h])
-	}
 	return nil
 }
 
-// functionSpacePointer returns res with a private-space pointer type made a
-// function-space one; any other resolution unchanged.
-func functionSpacePointer(m *ir.Module, res ir.TypeResolution) ir.TypeResolution {
-	inner := res.Value
-	if res.Handle != nil && int(*res.Handle) < len(m.Types) {
-		inner = m.Types[*res.Handle].Inner
-	}
-	switch p := inner.(type) {
-	case ir.PointerType:
-		if p.Space == ir.SpacePrivate {
-			return ir.TypeResolution{Value: ir.PointerType{Base: p.Base, Space: ir.SpaceFunction}}
+// globalExprTypes types the module's global expressions on first use.
+type globalExprTypes struct {
+	types *typifier.Typifier
+}
+
+// get returns the type of global expression h.
+func (g *globalExprTypes) get(m *ir.Module, h ir.ExpressionHandle) (ir.TypeResolution, error) {
+	if g.types == nil {
+		t, err := typifier.Function(m, &ir.Function{Expressions: m.GlobalExpressions})
+		if err != nil {
+			return ir.TypeResolution{}, fmt.Errorf("global expressions: %w", err)
 		}
-	case ir.ValuePointerType:
-		if p.Space == ir.SpacePrivate {
-			return ir.TypeResolution{Value: ir.ValuePointerType{Size: p.Size, Scalar: p.Scalar, Space: ir.SpaceFunction}}
-		}
+		g.types = t
 	}
-	return res
+	return g.types.Get(h), nil
 }
 
 // privateInitializer copies the variable's initializer into fn's expression
 // arena (a local's Init is a function expression) and returns its handle;
 // ok is false without an initializer, which is the zero value as for any
 // local.
-func privateInitializer(m *ir.Module, fn *ir.Function, gv *ir.GlobalVariable) (h ir.ExpressionHandle, ok bool, err error) {
+func privateInitializer(m *ir.Module, fn *ir.Function, gv *ir.GlobalVariable, globals *globalExprTypes) (h ir.ExpressionHandle, ok bool, err error) {
 	switch {
 	case gv.Init != nil:
-		return appendFnExpr(fn, ir.ExprConstant{Constant: *gv.Init}, ir.TypeResolution{Handle: &gv.Type}), true, nil
+		return appendFnExpr(fn, ir.ExprConstant{Constant: *gv.Init}), true, nil
 	case gv.InitExpr != nil:
-		h, err = copyGlobalExpr(m, fn, *gv.InitExpr)
+		h, err = copyGlobalExpr(m, fn, *gv.InitExpr, globals)
 		return h, err == nil, err
 	default:
 		return 0, false, nil
@@ -102,39 +94,35 @@ func privateInitializer(m *ir.Module, fn *ir.Function, gv *ir.GlobalVariable) (h
 // copyGlobalExpr copies a constant expression of Module.GlobalExpressions,
 // with its operands, into fn. The kinds are the ones a folded WGSL
 // initializer is made of; anything else is refused rather than guessed.
-func copyGlobalExpr(m *ir.Module, fn *ir.Function, h ir.ExpressionHandle) (ir.ExpressionHandle, error) {
+func copyGlobalExpr(m *ir.Module, fn *ir.Function, h ir.ExpressionHandle, globals *globalExprTypes) (ir.ExpressionHandle, error) {
 	if int(h) >= len(m.GlobalExpressions) {
 		return 0, fmt.Errorf("initializer expression %d out of range", h)
 	}
 	switch k := m.GlobalExpressions[h].Kind.(type) {
-	case ir.Literal:
-		return appendFnExpr(fn, k, ir.TypeResolution{Value: literalScalar(k.Value)}), nil
-	case ir.ExprZeroValue:
-		return appendFnExpr(fn, k, ir.TypeResolution{Handle: &k.Type}), nil
-	case ir.ExprConstant:
-		ty := m.Constants[k.Constant].Type
-		return appendFnExpr(fn, k, ir.TypeResolution{Handle: &ty}), nil
+	case ir.Literal, ir.ExprZeroValue, ir.ExprConstant:
+		return appendFnExpr(fn, k), nil
 	case ir.ExprCompose:
-		res := ir.TypeResolution{Handle: &k.Type}
 		comps := make([]ir.ExpressionHandle, len(k.Components))
 		for i, c := range k.Components {
 			var err error
-			if comps[i], err = copyGlobalExpr(m, fn, c); err != nil {
+			if comps[i], err = copyGlobalExpr(m, fn, c, globals); err != nil {
 				return 0, err
 			}
 		}
-		return appendFnExpr(fn, ir.ExprCompose{Type: k.Type, Components: comps}, res), nil
+		return appendFnExpr(fn, ir.ExprCompose{Type: k.Type, Components: comps}), nil
 	case ir.ExprSplat:
-		v, err := copyGlobalExpr(m, fn, k.Value)
+		res, err := globals.get(m, k.Value)
 		if err != nil {
 			return 0, err
 		}
-		scalar, ok := scalarOf(m, fn.ExpressionTypes[v])
-		if !ok {
+		if _, ok := scalarOf(m, res); !ok {
 			return 0, fmt.Errorf("splat of a non-scalar initializer")
 		}
-		res := ir.TypeResolution{Value: ir.VectorType{Size: k.Size, Scalar: scalar}}
-		return appendFnExpr(fn, ir.ExprSplat{Size: k.Size, Value: v}, res), nil
+		v, err := copyGlobalExpr(m, fn, k.Value, globals)
+		if err != nil {
+			return 0, err
+		}
+		return appendFnExpr(fn, ir.ExprSplat{Size: k.Size, Value: v}), nil
 	default:
 		return 0, unsupported.Errorf("initializer expression %T is not supported", k)
 	}
@@ -149,34 +137,8 @@ func scalarOf(m *ir.Module, res ir.TypeResolution) (ir.ScalarType, bool) {
 	return s, ok
 }
 
-// literalScalar is a literal's scalar type, as the typifier resolves it.
-func literalScalar(v ir.LiteralValue) ir.ScalarType {
-	switch v.(type) {
-	case ir.LiteralBool:
-		return ir.ScalarType{Kind: ir.ScalarBool, Width: 1}
-	case ir.LiteralI32:
-		return ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
-	case ir.LiteralU32:
-		return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
-	case ir.LiteralI64:
-		return ir.ScalarType{Kind: ir.ScalarSint, Width: 8}
-	case ir.LiteralU64:
-		return ir.ScalarType{Kind: ir.ScalarUint, Width: 8}
-	case ir.LiteralF16:
-		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 2}
-	case ir.LiteralF64:
-		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 8}
-	default:
-		return ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
-	}
-}
-
-func appendFnExpr(fn *ir.Function, kind ir.ExpressionKind, res ir.TypeResolution) ir.ExpressionHandle {
+func appendFnExpr(fn *ir.Function, kind ir.ExpressionKind) ir.ExpressionHandle {
 	h := ir.ExpressionHandle(len(fn.Expressions)) //nolint:gosec // expression count fits uint32 by IR design
 	fn.Expressions = append(fn.Expressions, ir.Expression{Kind: kind})
-	for len(fn.ExpressionTypes) < int(h) {
-		fn.ExpressionTypes = append(fn.ExpressionTypes, ir.TypeResolution{})
-	}
-	fn.ExpressionTypes = append(fn.ExpressionTypes, res)
 	return h
 }

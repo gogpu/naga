@@ -699,11 +699,7 @@ func TestWrapUintCast(t *testing.T) {
 
 	t.Run("unsigned_scalar", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &scalarU32},
-			},
-		}
+		setTestFunction(t, w, &ir.Function{Expressions: zeroValues(scalarU32)})
 		got := w.wrapUintCast("findLSB(x)", 0)
 		if got != "uint(findLSB(x))" {
 			t.Errorf("got %q, want %q", got, "uint(findLSB(x))")
@@ -712,11 +708,7 @@ func TestWrapUintCast(t *testing.T) {
 
 	t.Run("signed_scalar", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &scalarI32},
-			},
-		}
+		setTestFunction(t, w, &ir.Function{Expressions: zeroValues(scalarI32)})
 		got := w.wrapUintCast("findLSB(x)", 0)
 		if got != "findLSB(x)" {
 			t.Errorf("got %q, want %q — should not wrap signed", got, "findLSB(x)")
@@ -725,11 +717,7 @@ func TestWrapUintCast(t *testing.T) {
 
 	t.Run("unsigned_vector", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			ExpressionTypes: []ir.TypeResolution{
-				{Handle: &vecU32},
-			},
-		}
+		setTestFunction(t, w, &ir.Function{Expressions: zeroValues(vecU32)})
 		got := w.wrapUintCast("findMSB(v)", 0)
 		if got != "uvec3(findMSB(v))" {
 			t.Errorf("got %q, want %q", got, "uvec3(findMSB(v))")
@@ -756,9 +744,7 @@ func TestIsUnsignedExpr(t *testing.T) {
 
 	t.Run("scalar_uint_via_handle", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			ExpressionTypes: []ir.TypeResolution{{Handle: &scalarU32}},
-		}
+		setTestFunction(t, w, &ir.Function{Expressions: zeroValues(scalarU32)})
 		size, ok := w.isUnsignedExpr(0)
 		if !ok || size != 0 {
 			t.Errorf("expected (0, true) for scalar uint, got (%d, %v)", size, ok)
@@ -767,9 +753,7 @@ func TestIsUnsignedExpr(t *testing.T) {
 
 	t.Run("scalar_sint_via_handle", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			ExpressionTypes: []ir.TypeResolution{{Handle: &scalarI32}},
-		}
+		setTestFunction(t, w, &ir.Function{Expressions: zeroValues(scalarI32)})
 		_, ok := w.isUnsignedExpr(0)
 		if ok {
 			t.Error("expected false for signed int")
@@ -778,9 +762,7 @@ func TestIsUnsignedExpr(t *testing.T) {
 
 	t.Run("vector_uint_via_handle", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			ExpressionTypes: []ir.TypeResolution{{Handle: &vecU32}},
-		}
+		setTestFunction(t, w, &ir.Function{Expressions: zeroValues(vecU32)})
 		size, ok := w.isUnsignedExpr(0)
 		if !ok || size != 2 {
 			t.Errorf("expected (2, true) for uvec2, got (%d, %v)", size, ok)
@@ -789,11 +771,8 @@ func TestIsUnsignedExpr(t *testing.T) {
 
 	t.Run("via_value_scalar", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			ExpressionTypes: []ir.TypeResolution{
-				{Value: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}},
-			},
-		}
+		// A u32 literal is typed as a u32 value.
+		setTestFunction(t, w, &ir.Function{Expressions: []ir.Expression{{Kind: ir.Literal{Value: ir.LiteralU32(1)}}}})
 		size, ok := w.isUnsignedExpr(0)
 		if !ok || size != 0 {
 			t.Errorf("expected (0, true) for value-based uint, got (%d, %v)", size, ok)
@@ -802,11 +781,8 @@ func TestIsUnsignedExpr(t *testing.T) {
 
 	t.Run("via_value_vector", func(t *testing.T) {
 		w := newWriter(module, &Options{LangVersion: Version330})
-		w.currentFunction = &ir.Function{
-			ExpressionTypes: []ir.TypeResolution{
-				{Value: ir.VectorType{Size: 4, Scalar: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}},
-			},
-		}
+		// A subgroup ballot is typed as a vec4<u32> value.
+		setTestFunction(t, w, &ir.Function{Expressions: []ir.Expression{{Kind: ir.ExprSubgroupBallotResult{}}}})
 		size, ok := w.isUnsignedExpr(0)
 		if !ok || size != 4 {
 			t.Errorf("expected (4, true) for value-based uvec4, got (%d, %v)", size, ok)

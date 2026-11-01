@@ -10,6 +10,7 @@ import (
 	"github.com/gogpu/naga/internal/consteval"
 	"github.com/gogpu/naga/internal/irutil"
 	"github.com/gogpu/naga/internal/registry"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/wgsl/internal/parser"
 )
@@ -72,6 +73,16 @@ type Lowerer struct {
 	// evaluator; see const_context.go.
 	moduleConstArena *ir.Function
 	moduleEval       *consteval.Evaluator
+
+	// exprTypes types the expressions of each function being lowered, the
+	// module const arena among them, as they are needed (Rust's
+	// Typifier::grow in the lowerer's resolve_type); see exprResolution.
+	exprTypes map[*ir.Function]*typifier.Typifier
+
+	// typeUseOrder is the order types were first registered in during
+	// lowering, which ReorderTypes gives the type arena to match Rust naga's
+	// dependency-ordered registration.
+	typeUseOrder []ir.TypeHandle
 
 	// enableSwizzleAssignment is true when the shader includes
 	// "enable swizzle_assignment;", allowing multi-component swizzle on the LHS
@@ -308,10 +319,10 @@ func lowerImpl(ast *parser.Module, source string) (*LowerResult, error) {
 	// and functions stay, dead expressions, abstract constants and what only
 	// they use go, and so do the scalar types registered during vec/mat/atomic
 	// resolution but only embedded by value in Vector/Matrix/Atomic types.
-	irutil.Compact(l.module, irutil.KeepUnusedYes)
+	l.typeUseOrder = irutil.CompactWithTypeOrder(l.module, irutil.KeepUnusedYes, l.typeUseOrder)
 
 	// Reorder surviving types in first-registration order.
-	irutil.ReorderTypes(l.module)
+	irutil.ReorderTypes(l.module, l.typeUseOrder)
 
 	// Remove duplicate/redundant Emit statements.
 	// Our emitter sometimes generates duplicate Emit ranges (e.g., Emit(7..8) twice)
@@ -492,9 +503,9 @@ func (l *Lowerer) registerType(name string, inner ir.TypeInner) ir.TypeHandle {
 
 	// Record type usage order for ReorderTypes.
 	// Always append (even for existing types) — ReorderTypes deduplicates via `seen`.
-	// This ensures types registered via dedup still appear in TypeUseOrder at their
+	// This ensures types registered via dedup still appear in typeUseOrder at their
 	// correct lowering position, not just at initial creation.
-	l.module.TypeUseOrder = append(l.module.TypeUseOrder, handle)
+	l.typeUseOrder = append(l.typeUseOrder, handle)
 
 	// Map named types for lookup by the lowerer
 	if name != "" {
@@ -506,7 +517,7 @@ func (l *Lowerer) registerType(name string, inner ir.TypeInner) ir.TypeHandle {
 	return handle
 }
 
-// registerTypeSilent registers a type WITHOUT recording in TypeUseOrder.
+// registerTypeSilent registers a type WITHOUT recording in typeUseOrder.
 // Used for intermediate types that may become dead before compaction. If the
 // type survives compact, ReorderTypes will pick it up from "remaining types"
 // in its current position.
@@ -522,7 +533,7 @@ func (l *Lowerer) registerTypeSilent(inner ir.TypeInner) ir.TypeHandle {
 func (l *Lowerer) registerNamedType(name string, inner ir.TypeInner) ir.TypeHandle {
 	handle := l.registry.GetOrCreate(name, inner)
 
-	l.module.TypeUseOrder = append(l.module.TypeUseOrder, handle)
+	l.typeUseOrder = append(l.typeUseOrder, handle)
 
 	if name != "" {
 		l.types[name] = handle
@@ -539,15 +550,15 @@ func (l *Lowerer) registerNamedType(name string, inner ir.TypeInner) ir.TypeHand
 // struct including name, so Type{name: Some("Mat"), inner: Matrix{...}} is
 // distinct from Type{name: None, inner: Matrix{...}}.
 func (l *Lowerer) lowerAlias(a *parser.AliasDecl) error {
-	// Save TypeUseOrder length — resolveType may register intermediate types
+	// Save typeUseOrder length — resolveType may register intermediate types
 	// (e.g., anonymous scalar for vec3<f32>) that should NOT appear in
-	// TypeUseOrder at the alias position. In Rust naga, resolve_named_ast_type
+	// typeUseOrder at the alias position. In Rust naga, resolve_named_ast_type
 	// computes the inner type and calls ensure_type_exists(Some(name), inner)
 	// which only registers the NAMED type in the arena order. Intermediate
 	// types (like anonymous scalars) are registered too, but at their resolution
 	// position, not at the alias position. We achieve the same by rolling back
-	// TypeUseOrder after resolveType and only appending the named handle.
-	savedLen := len(l.module.TypeUseOrder)
+	// typeUseOrder after resolveType and only appending the named handle.
+	savedLen := len(l.typeUseOrder)
 
 	typeHandle, err := l.resolveType(a.Type)
 	if err != nil {
@@ -572,10 +583,10 @@ func (l *Lowerer) lowerAlias(a *parser.AliasDecl) error {
 		// In Rust naga, UniqueArena deduplicates on (name, inner), so
 		// Type{name: Some("Mat"), inner: Matrix{...}} is distinct from
 		// Type{name: None, inner: Matrix{...}}.
-		l.module.TypeUseOrder = l.module.TypeUseOrder[:savedLen]
+		l.typeUseOrder = l.typeUseOrder[:savedLen]
 		aliasHandle := l.registry.GetOrCreate(a.Name, inner)
 		l.module.Types = l.registry.GetTypes()
-		l.module.TypeUseOrder = append(l.module.TypeUseOrder, aliasHandle)
+		l.typeUseOrder = append(l.typeUseOrder, aliasHandle)
 		l.types[a.Name] = aliasHandle
 	default:
 		// For RayQuery, AccelerationStructure, etc.: rename the existing type
@@ -955,7 +966,6 @@ func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
 		Arguments:        make([]ir.FunctionArgument, len(f.Params)),
 		LocalVars:        make([]ir.LocalVariable, 0, 4),
 		Expressions:      make([]ir.Expression, 0, estExprs),
-		ExpressionTypes:  make([]ir.TypeResolution, 0, estExprs),
 		Body:             make([]ir.Statement, 0, bodySize),
 		NamedExpressions: make(map[ir.ExpressionHandle]string, nParams+4),
 	}
@@ -1023,6 +1033,19 @@ func (l *Lowerer) lowerFunction(f *parser.FunctionDecl) error {
 	// Register unused let bindings in NamedExpressions so backends emit them.
 	// Used let bindings are already emitted through the normal baking mechanism.
 	l.registerUnusedLetBindings()
+
+	// Interim (ADR-010 B4): ir.Validate's arrayLength check is the one reader
+	// of Function.ExpressionTypes left, and package ir cannot import the
+	// typifier; the field goes once the validator types expressions.
+	types := l.typifierOf(fn)
+	if err := types.Grow(l.module, fn, ir.ExpressionHandle(len(fn.Expressions))); err != nil {
+		return fmt.Errorf("function %s: %w", f.Name, err)
+	}
+	fn.ExpressionTypes = make([]ir.TypeResolution, len(fn.Expressions))
+	for h := range fn.Expressions {
+		fn.ExpressionTypes[h] = types.Get(ir.ExpressionHandle(h))
+	}
+	delete(l.exprTypes, fn)
 
 	// Check if this is an entry point
 	stage := l.entryPointStage(f.Attributes)
@@ -1601,7 +1624,7 @@ func (l *Lowerer) lowerSwizzleAssign(
 	}
 
 	// Resolve the base vector type to determine the full vector size and scalar type.
-	baseType, err := ir.ResolveExpressionType(l.module, l.currentFunc, basePtr)
+	baseType, err := l.typeOf(basePtr)
 	if err != nil {
 		return fmt.Errorf("swizzle assignment base type: %w", err)
 	}
@@ -2992,10 +3015,10 @@ func (l *Lowerer) binaryOpSplat(op ir.BinaryOperator, left, right ir.ExpressionH
 
 // resolveExprTypeInner resolves the TypeInner of an expression. Returns nil if unresolvable.
 func (l *Lowerer) resolveExprTypeInner(handle ir.ExpressionHandle) ir.TypeInner {
-	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.ExpressionTypes) {
+	typeRes, err := l.typeOf(handle)
+	if err != nil {
 		return nil
 	}
-	typeRes := l.currentFunc.ExpressionTypes[handle]
 	inner, _, err := l.resolveTypeInner(typeRes)
 	if err != nil {
 		return nil
@@ -3006,10 +3029,7 @@ func (l *Lowerer) resolveExprTypeInner(handle ir.ExpressionHandle) ir.TypeInner 
 // checkArgumentType verifies that a call argument's resolved type matches the
 // expected parameter type. Abstract types are allowed (concretization handles them).
 func (l *Lowerer) checkArgumentType(argHandle ir.ExpressionHandle, paramType ir.TypeHandle, funcName string, argIndex int) error {
-	if l.currentFunc == nil || int(argHandle) >= len(l.currentFunc.ExpressionTypes) {
-		return nil
-	}
-	argInner := l.currentFunc.ExpressionTypes[argHandle].Inner(l.module.Types)
+	argInner := l.exprResolution(argHandle).Inner(l.module.Types)
 	if argInner == nil {
 		return nil
 	}
@@ -3439,7 +3459,7 @@ func (l *Lowerer) lowerMember(mem *parser.MemberExpr, target *[]ir.Statement) (i
 		}
 	}
 
-	baseType, err := ir.ResolveExpressionType(l.module, l.currentFunc, base)
+	baseType, err := l.typeOf(base)
 	if err != nil {
 		return 0, fmt.Errorf("member access base type: %w", err)
 	}
@@ -3523,20 +3543,19 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 		// Determine the argument's value type (scalar or vector of float)
 		argType := l.resolveExprValueType(arg)
 
-		// Create modf result struct type
-		modfStructType := l.getOrCreateModfResultType(argType)
+		// The modf result struct, which the call is typed as (Rust's predeclared
+		// ModfResult type)
+		l.getOrCreateModfResultType(argType)
 
-		// Create the Modf expression and override its type to the struct
+		// Create the Modf expression
 		modfExpr, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprMath{Fun: ir.MathModf, Arg: arg},
 		})
 		if err != nil {
 			return 0, false, err
 		}
-		// Override type resolution: MathModf returns the struct, not the arg type
-		l.currentFunc.ExpressionTypes[modfExpr] = ir.TypeResolution{Handle: &modfStructType}
 
-		// Create AccessIndex for the member, override its type to the member type
+		// Create AccessIndex for the member
 		var memberIndex uint32
 		switch mem.Member {
 		case "fract":
@@ -3552,8 +3571,6 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 		if err != nil {
 			return 0, false, err
 		}
-		// Override type: both fract and whole have the same type as the argument
-		l.overrideExprTypeFromValue(result, argType)
 		return result, true, nil
 
 	case "frexp":
@@ -3572,17 +3589,17 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 		// Determine the argument's value type
 		argType := l.resolveExprValueType(arg)
 
-		// Create frexp result struct type
-		frexpStructType := l.getOrCreateFrexResultType(argType)
+		// The frexp result struct, which the call is typed as (Rust's predeclared
+		// FrexpResult type)
+		l.getOrCreateFrexResultType(argType)
 
-		// Create the Frexp expression and override its type
+		// Create the Frexp expression
 		frexpExpr, err := l.addExpression(ir.Expression{
 			Kind: ir.ExprMath{Fun: ir.MathFrexp, Arg: arg},
 		})
 		if err != nil {
 			return 0, false, err
 		}
-		l.currentFunc.ExpressionTypes[frexpExpr] = ir.TypeResolution{Handle: &frexpStructType}
 
 		var memberIndex uint32
 		switch mem.Member {
@@ -3594,8 +3611,6 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 			if err != nil {
 				return 0, false, err
 			}
-			// fract has the same type as the argument
-			l.overrideExprTypeFromValue(result, argType)
 			return result, true, nil
 		case "exp":
 			memberIndex = 1
@@ -3605,8 +3620,6 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 			if err != nil {
 				return 0, false, err
 			}
-			// exp type is i32 (scalar) or vecN<i32> (vector)
-			l.overrideExprTypeToInt(result, argType)
 			return result, true, nil
 		}
 	}
@@ -3616,40 +3629,11 @@ func (l *Lowerer) tryLowerBuiltinResultMember(mem *parser.MemberExpr, target *[]
 
 // resolveExprValueType returns the inner TypeInner for an expression.
 func (l *Lowerer) resolveExprValueType(handle ir.ExpressionHandle) ir.TypeInner {
-	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.ExpressionTypes) {
-		return nil
-	}
-	res := &l.currentFunc.ExpressionTypes[handle]
+	res := l.exprResolution(handle)
 	if res.Handle != nil && int(*res.Handle) < len(l.module.Types) {
 		return l.module.Types[*res.Handle].Inner
 	}
 	return res.Value
-}
-
-// overrideExprTypeFromValue sets the expression type to the given type inner.
-func (l *Lowerer) overrideExprTypeFromValue(handle ir.ExpressionHandle, inner ir.TypeInner) {
-	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.ExpressionTypes) {
-		return
-	}
-	l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{Value: inner}
-}
-
-// overrideExprTypeToInt sets the expression type to i32 or vecN<i32> matching the vector size.
-func (l *Lowerer) overrideExprTypeToInt(handle ir.ExpressionHandle, argType ir.TypeInner) {
-	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.ExpressionTypes) {
-		return
-	}
-	switch argType.(type) {
-	case ir.VectorType:
-		vec := argType.(ir.VectorType)
-		l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{
-			Value: ir.VectorType{Size: vec.Size, Scalar: ir.ScalarType{Kind: ir.ScalarSint, Width: 4}},
-		}
-	default:
-		l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{
-			Value: ir.ScalarType{Kind: ir.ScalarSint, Width: 4},
-		}
-	}
 }
 
 // getOrCreateModfResultType creates or retrieves the __modf_result_* struct type.
@@ -3958,12 +3942,6 @@ func (l *Lowerer) addExpressionRaw(expr ir.Expression) ir.ExpressionHandle {
 	handle := l.currentExprIdx
 	l.currentExprIdx++
 	l.currentFunc.Expressions = append(l.currentFunc.Expressions, expr)
-
-	exprType, err := ir.ResolveExpressionType(l.module, l.currentFunc, handle)
-	if err != nil {
-		exprType = ir.TypeResolution{}
-	}
-	l.currentFunc.ExpressionTypes = append(l.currentFunc.ExpressionTypes, exprType)
 	if l.inModuleConstContext() {
 		// The evaluator reads Module.GlobalExpressions directly.
 		l.module.GlobalExpressions = l.currentFunc.Expressions
@@ -4071,10 +4049,10 @@ func (l *Lowerer) isPointerExpressionInLowerer(handle ir.ExpressionHandle) bool 
 // (e.g., a runtime-sized array). Unsized types cannot be loaded via ExprLoad
 // in SPIR-V — they must remain as pointer references.
 func (l *Lowerer) isUnsizedType(handle ir.ExpressionHandle) bool {
-	if l.currentFunc == nil || int(handle) >= len(l.currentFunc.ExpressionTypes) {
+	resolution, err := l.typeOf(handle)
+	if err != nil {
 		return false
 	}
-	resolution := l.currentFunc.ExpressionTypes[handle]
 	var inner ir.TypeInner
 	if resolution.Handle != nil {
 		if int(*resolution.Handle) < len(l.module.Types) {
@@ -4127,7 +4105,7 @@ func (l *Lowerer) lowerMemberForRef(mem *parser.MemberExpr, target *[]ir.Stateme
 		return 0, err
 	}
 
-	baseType, err := ir.ResolveExpressionType(l.module, l.currentFunc, base)
+	baseType, err := l.typeOf(base)
 	if err != nil {
 		return 0, fmt.Errorf("member access base type: %w", err)
 	}
@@ -4933,31 +4911,13 @@ func (l *Lowerer) lowerMathCall(mathFunc ir.MathFunction, args []parser.Expr, ta
 		}
 	}
 
-	// For modf/frexp, create the result struct type so the resolver can find it.
+	// For modf/frexp, create the result struct type the typifier types the
+	// call as (Rust's predeclared ModfResult and FrexpResult types).
 	if mathFunc == ir.MathModf {
-		argType := l.resolveExprValueType(arg0)
-		structHandle := l.getOrCreateModfResultType(argType)
-		handle, err := l.addExpression(ir.Expression{
-			Kind: ir.ExprMath{Fun: mathFunc, Arg: arg0},
-		})
-		if err != nil {
-			return 0, err
-		}
-		// Override the expression type to the struct
-		l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{Handle: &structHandle}
-		return handle, nil
+		l.getOrCreateModfResultType(l.resolveExprValueType(arg0))
 	}
 	if mathFunc == ir.MathFrexp {
-		argType := l.resolveExprValueType(arg0)
-		structHandle := l.getOrCreateFrexResultType(argType)
-		handle, err := l.addExpression(ir.Expression{
-			Kind: ir.ExprMath{Fun: mathFunc, Arg: arg0},
-		})
-		if err != nil {
-			return 0, err
-		}
-		l.currentFunc.ExpressionTypes[handle] = ir.TypeResolution{Handle: &structHandle}
-		return handle, nil
+		l.getOrCreateFrexResultType(l.resolveExprValueType(arg0))
 	}
 
 	return l.addExpression(ir.Expression{
@@ -6294,11 +6254,10 @@ func swizzleComponentNamespace(c byte) swizzleNamespace {
 // inferTypeFromExpression infers a type handle from an expression's resolved type.
 // This is used for `let` bindings without explicit type annotations.
 func (l *Lowerer) inferTypeFromExpression(handle ir.ExpressionHandle) (ir.TypeHandle, error) {
-	if int(handle) >= len(l.currentFunc.ExpressionTypes) {
-		return 0, fmt.Errorf("expression %d has no resolved type", handle)
+	resolution, err := l.typeOf(handle)
+	if err != nil {
+		return 0, fmt.Errorf("expression %d has no resolved type: %w", handle, err)
 	}
-
-	resolution := l.currentFunc.ExpressionTypes[handle]
 
 	// If it's already a handle, return it
 	if resolution.Handle != nil {
@@ -7235,6 +7194,7 @@ func (l *Lowerer) lowerTextureQuery(args []parser.Expr, target *[]ir.Statement, 
 				if lit, ok := l.currentFunc.Expressions[level].Kind.(ir.Literal); ok {
 					if ai, ok := lit.Value.(ir.LiteralAbstractInt); ok {
 						l.currentFunc.Expressions[level].Kind = ir.Literal{Value: ir.LiteralI32(int32(ai))}
+						l.retypeExpr(level)
 					}
 				}
 			}
@@ -7452,32 +7412,37 @@ func (l *Lowerer) lowerWorkgroupUniformLoad(args []parser.Expr, target *[]ir.Sta
 		return 0, err
 	}
 
+	// The type the load gives, which the result carries (Rust): the pointee,
+	// a T for an atomic<T>, the vector or scalar of a value pointer.
+	var resultTy ir.TypeHandle
+	ptrType, err := l.typeOf(pointer)
+	if err != nil {
+		return 0, fmt.Errorf("workgroupUniformLoad: %w", err)
+	}
+	switch pt := ptrType.Inner(l.module.Types).(type) {
+	case ir.PointerType:
+		resultTy = pt.Base
+		if a, isAtomic := l.module.Types[pt.Base].Inner.(ir.AtomicType); isAtomic {
+			resultTy = l.registerType("", a.Scalar)
+		}
+	case ir.ValuePointerType:
+		if pt.Size != nil {
+			resultTy = l.registerType("", ir.VectorType{Size: *pt.Size, Scalar: pt.Scalar})
+		} else {
+			resultTy = l.registerType("", pt.Scalar)
+		}
+	default:
+		return 0, fmt.Errorf("incorrect type passed to workgroupUniformLoad")
+	}
+
 	// Use interruptEmitter to ensure WorkGroupUniformLoadResult falls outside
 	// emit ranges (it's a pre-emit expression, like AtomicResult and CallResult).
 	// Matches Rust naga's interrupt_emitter call for this expression.
 	resultHandle, err := l.interruptEmitter(ir.Expression{
-		Kind: ir.ExprWorkGroupUniformLoadResult{},
+		Kind: ir.ExprWorkGroupUniformLoadResult{Ty: resultTy},
 	})
 	if err != nil {
 		return 0, err
-	}
-
-	// Fix up the expression type: interruptEmitter -> addExpression can't resolve
-	// WorkGroupUniformLoadResult because the statement hasn't been added yet.
-	// Resolve from the pointer type: result is the pointee type of the pointer.
-	if l.currentFunc != nil && int(resultHandle) < len(l.currentFunc.ExpressionTypes) {
-		ptrType, ptrErr := ir.ResolveExpressionType(l.module, l.currentFunc, pointer)
-		if ptrErr == nil {
-			ptrInner := ptrType.Inner(l.module.Types)
-			if pt, ok := ptrInner.(ir.PointerType); ok {
-				h := pt.Base
-				// Like Load, a pointer to atomic<T> yields a T (Rust).
-				if a, isAtomic := l.module.Types[h].Inner.(ir.AtomicType); isAtomic {
-					h = l.registerType("", a.Scalar)
-				}
-				l.currentFunc.ExpressionTypes[resultHandle] = ir.TypeResolution{Handle: &h}
-			}
-		}
 	}
 
 	*target = append(*target, ir.Statement{
@@ -7575,7 +7540,7 @@ func (l *Lowerer) lowerSubgroupCollectiveOperation(op ir.SubgroupOperation, cop 
 	}
 
 	// Resolve the argument type to use as the result type
-	argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, argument)
+	argType, err := l.typeOf(argument)
 	if err != nil {
 		return 0, fmt.Errorf("cannot resolve subgroup argument type: %w", err)
 	}
@@ -7676,7 +7641,7 @@ func (l *Lowerer) lowerSubgroupGather(gatherKind string, args []parser.Expr, tar
 	}
 
 	// Resolve the argument type to use as the result type
-	argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, argument)
+	argType, err := l.typeOf(argument)
 	if err != nil {
 		return 0, fmt.Errorf("cannot resolve subgroup gather argument type: %w", err)
 	}
@@ -7724,7 +7689,7 @@ func (l *Lowerer) lowerQuadSwap(funcName string, args []parser.Expr, target *[]i
 	}
 
 	// Resolve the argument type to use as the result type
-	argType, err := ir.ResolveExpressionType(l.module, l.currentFunc, argument)
+	argType, err := l.typeOf(argument)
 	if err != nil {
 		return 0, fmt.Errorf("cannot resolve quad swap argument type: %w", err)
 	}
@@ -7824,28 +7789,22 @@ func (l *Lowerer) lowerAtomicCompareExchange(args []parser.Expr, target *[]ir.St
 }
 
 // resolveAtomicScalarFromPointer resolves the scalar type of an atomic from its pointer expression.
+// It is the scalar of the atomic the pointer points to, or of an atomic or
+// scalar the expression is; u32 for any other.
 func (l *Lowerer) resolveAtomicScalarFromPointer(pointer ir.ExpressionHandle) ir.ScalarType {
-	scalar := irutil.ResolveAtomicPointerScalar(l.module, l.currentFunc, pointer)
-	if scalar != nil {
-		return *scalar
-	}
-	// Fallback: try expression types
-	if l.currentFunc != nil && int(pointer) < len(l.currentFunc.ExpressionTypes) {
-		ptrRes := l.currentFunc.ExpressionTypes[pointer]
-		if ptrInner := ptrRes.Inner(l.module.Types); ptrInner != nil {
-			if at, ok := ptrInner.(ir.AtomicType); ok {
+	switch t := l.exprResolution(pointer).Inner(l.module.Types).(type) {
+	case ir.AtomicType:
+		return t.Scalar
+	case ir.ScalarType:
+		return t
+	case ir.PointerType:
+		if int(t.Base) < len(l.module.Types) {
+			if at, ok := l.module.Types[t.Base].Inner.(ir.AtomicType); ok {
 				return at.Scalar
-			}
-			if pt, ok := ptrInner.(ir.PointerType); ok {
-				if int(pt.Base) < len(l.module.Types) {
-					if at, ok := l.module.Types[pt.Base].Inner.(ir.AtomicType); ok {
-						return at.Scalar
-					}
-				}
 			}
 		}
 	}
-	return ir.ScalarType{Kind: ir.ScalarUint, Width: 4} // default fallback
+	return ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
 }
 
 // getOrCreateAtomicCompareExchangeResultType creates (or reuses) the predeclared

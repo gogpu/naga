@@ -358,13 +358,10 @@ func (w *Writer) isVariableReference(handle ir.ExpressionHandle) bool {
 // isPointerExpression returns true if the expression has a pointer type.
 // Pointer expressions are never baked — they are address-space references.
 func (w *Writer) isPointerExpression(handle ir.ExpressionHandle) bool {
-	if w.currentFunction == nil {
+	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.Expressions) {
 		return false
 	}
-	if int(handle) >= len(w.currentFunction.ExpressionTypes) {
-		return false
-	}
-	resolution := &w.currentFunction.ExpressionTypes[handle]
+	resolution := w.exprType(handle)
 	if resolution.Handle != nil && w.module != nil {
 		if int(*resolution.Handle) < len(w.module.Types) {
 			_, isPtr := w.module.Types[*resolution.Handle].Inner.(ir.PointerType)
@@ -788,7 +785,7 @@ func (w *Writer) emitBreakIfSubExpressions(condHandle ir.ExpressionHandle) error
 }
 
 // bakeExpression creates a temporary variable for an expression with an auto-generated name.
-// If type information is not available (no ExpressionTypes), the expression
+// If its type has no MSL name, the expression
 // is skipped and will be inlined at use site instead.
 func (w *Writer) bakeExpression(handle ir.ExpressionHandle) error {
 	return w.bakeExpressionImpl(handle, fmt.Sprintf("_e%d", handle), false)
@@ -806,12 +803,12 @@ func (w *Writer) bakeExpressionImpl(handle ir.ExpressionHandle, name string, use
 	if w.currentFunction == nil {
 		return nil
 	}
-	if int(handle) >= len(w.currentFunction.ExpressionTypes) {
-		return nil // No type info — skip baking, expression will be inlined
+	if int(handle) >= len(w.currentFunction.Expressions) {
+		return nil
 	}
 
 	// Determine expression type
-	resolution := &w.currentFunction.ExpressionTypes[handle]
+	resolution := w.exprType(handle)
 	typeName := ""
 	if resolution.Handle != nil {
 		typeName = w.writeTypeName(*resolution.Handle, StorageAccess(0))
@@ -819,20 +816,7 @@ func (w *Writer) bakeExpressionImpl(handle ir.ExpressionHandle, name string, use
 		typeName = typeInnerToMSL(resolution.Value)
 	}
 	if typeName == "" {
-		// Try re-resolving type from expression (handles cases where
-		// compaction dropped abstract type handles).
-		if w.currentFunction != nil && int(handle) < len(w.currentFunction.Expressions) {
-			if reResolved, err := ir.ResolveExpressionType(w.module, w.currentFunction, handle); err == nil {
-				if reResolved.Handle != nil {
-					typeName = w.writeTypeName(*reResolved.Handle, StorageAccess(0))
-				} else if reResolved.Value != nil {
-					typeName = typeInnerToMSL(reResolved.Value)
-				}
-			}
-		}
-		if typeName == "" {
-			return nil // No type info — skip baking
-		}
+		return nil // A type MSL can't name: the expression is inlined at its use
 	}
 
 	tempName := name
@@ -1916,13 +1900,17 @@ func (w *Writer) writeWorkGroupUniformLoad(load ir.StmtWorkGroupUniformLoad) err
 	// First barrier
 	w.WriteLine("%sthreadgroup_barrier(%smem_flags::mem_threadgroup);", Namespace, Namespace)
 
-	// Get the result type for the variable declaration.
-	resultType := w.getExpressionType(load.Result)
-	typeName := "auto"
-	if resultType != nil {
-		if th := w.getExpressionTypeHandle(load.Result); th != nil {
-			typeName = w.writeTypeName(*th, StorageAccess(0))
-		}
+	// The result type for the variable declaration, named as Rust's
+	// start_baking_expression names a resolution: a handle by its type's
+	// name, a value (an atomic's scalar) by its own.
+	typeName := ""
+	if res := w.exprType(load.Result); res.Handle != nil {
+		typeName = w.writeTypeName(*res.Handle, StorageAccess(0))
+	} else if res.Value != nil {
+		typeName = typeInnerToMSL(res.Value)
+	}
+	if typeName == "" {
+		typeName = "auto"
 	}
 
 	// Generate the variable name via namer.call("").
@@ -2006,12 +1994,8 @@ func (w *Writer) writeRayQueryInit(query ir.ExpressionHandle, f ir.RayQueryIniti
 			}
 		}
 		if typeName == "" {
-			// Fallback: try ExpressionTypes
-			if w.currentFunction != nil && int(f.Descriptor) < len(w.currentFunction.ExpressionTypes) {
-				res := &w.currentFunction.ExpressionTypes[f.Descriptor]
-				if res.Handle != nil {
-					typeName = w.writeTypeName(*res.Handle, StorageAccess(0))
-				}
+			if res := w.exprType(f.Descriptor); res.Handle != nil {
+				typeName = w.writeTypeName(*res.Handle, StorageAccess(0))
 			}
 		}
 		if typeName != "" {

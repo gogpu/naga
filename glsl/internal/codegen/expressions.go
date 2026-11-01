@@ -15,10 +15,10 @@ import (
 
 // isIntegerExpr reports whether the expression is an integer scalar.
 func (w *Writer) isIntegerExpr(handle ir.ExpressionHandle) bool {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(handle) {
 		return false
 	}
-	t, ok := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[handle], handle).(ir.ScalarType)
+	t, ok := w.exprInner(handle).(ir.ScalarType)
 	return ok && (t.Kind == ir.ScalarSint || t.Kind == ir.ScalarUint || t.Kind == ir.ScalarAbstractInt)
 }
 
@@ -26,10 +26,10 @@ func (w *Writer) isIntegerExpr(handle ir.ExpressionHandle) bool {
 // Returns (vecSize, true) where vecSize is 0 for scalar, 2/3/4 for vectors.
 // Returns (0, false) if not unsigned.
 func (w *Writer) isUnsignedExpr(handle ir.ExpressionHandle) (int, bool) {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(handle) {
 		return 0, false
 	}
-	res := &w.currentFunction.ExpressionTypes[handle]
+	res := w.exprType(handle)
 	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 		inner := w.module.Types[*res.Handle].Inner
 		switch t := inner.(type) {
@@ -97,8 +97,8 @@ func (w *Writer) writeExpressionInline(handle ir.ExpressionHandle) (string, erro
 	if int(handle) >= len(w.currentFunction.Expressions) {
 		return "", fmt.Errorf("invalid expression handle: %d", handle)
 	}
-	if int(handle) < len(w.currentFunction.ExpressionTypes) {
-		if res := w.currentFunction.ExpressionTypes[handle]; isFloat16(res.Inner(w.module.Types)) {
+	if w.hasExprType(handle) {
+		if res := w.exprType(handle); isFloat16(res.Inner(w.module.Types)) {
 			return "", errNoFloat16
 		}
 	}
@@ -258,10 +258,10 @@ func (w *Writer) writeAccess(a ir.ExprAccess) (string, error) {
 // of base when the Restrict policy applies to base and the index may be out
 // of bounds.
 func (w *Writer) restrictIndex(base ir.ExpressionHandle, baseCode, index string, k uint32, isConst bool) string {
-	if int(base) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(base) {
 		return index
 	}
-	inner := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[base], base)
+	inner := w.exprInner(base)
 	policy := w.options.BoundsCheckPolicies.Index
 	switch t := inner.(type) {
 	case ir.BindingArrayType:
@@ -357,10 +357,10 @@ func (w *Writer) writeAccessIndex(a ir.ExprAccessIndex) (string, error) {
 //   - ValuePointer → [index] bracket
 //   - Vector → .x swizzle
 func (w *Writer) isVectorBase(handle ir.ExpressionHandle) bool {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(handle) {
 		return false
 	}
-	res := &w.currentFunction.ExpressionTypes[handle]
+	res := w.exprType(handle)
 
 	var checkType func(ir.TypeHandle) bool
 	checkType = func(h ir.TypeHandle) bool {
@@ -436,10 +436,10 @@ func (w *Writer) resolveStructMemberAccess(a ir.ExprAccessIndex, base string) (s
 		return "", false
 	}
 
-	// Try to resolve base type from ExpressionTypes first (handles all expression types)
+	// Resolve the base type from its expression type first
 	var baseTypeHandle *ir.TypeHandle
-	if int(a.Base) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[a.Base]
+	if w.hasExprType(a.Base) {
+		res := w.exprType(a.Base)
 		if res.Handle != nil {
 			h := *res.Handle
 			// Unwrap pointer types (Handle path)
@@ -492,8 +492,8 @@ func (w *Writer) writeSplat(s ir.ExprSplat) (string, error) {
 
 	// Determine vector prefix from the scalar type of the splatted value.
 	prefix := ""
-	if w.currentFunction != nil && int(s.Value) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[s.Value]
+	if w.hasExprType(s.Value) {
+		res := w.exprType(s.Value)
 		if res.Value != nil {
 			if st, ok := res.Value.(ir.ScalarType); ok {
 				prefix = scalarVecPrefix(st.Kind)
@@ -629,8 +629,8 @@ func (w *Writer) writeUnary(u ir.ExprUnary) (string, error) {
 	case ir.UnaryLogicalNot:
 		// Rust naga: "not" for vector booleans, "!" for scalars
 		isVec := false
-		if w.currentFunction != nil && int(u.Expr) < len(w.currentFunction.ExpressionTypes) {
-			res := &w.currentFunction.ExpressionTypes[u.Expr]
+		if w.hasExprType(u.Expr) {
+			res := w.exprType(u.Expr)
 			if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 				_, isVec = w.module.Types[*res.Handle].Inner.(ir.VectorType)
 			} else if res.Value != nil {
@@ -765,10 +765,10 @@ func (w *Writer) writeSelect(s ir.ExprSelect) (string, error) {
 
 // isVectorExpression reports whether an expression resolves to a vector type.
 func (w *Writer) isVectorExpression(handle ir.ExpressionHandle) bool {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(handle) {
 		return false
 	}
-	_, ok := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[handle], handle).(ir.VectorType)
+	_, ok := w.exprInner(handle).(ir.VectorType)
 	return ok
 }
 
@@ -955,8 +955,8 @@ func (w *Writer) writeMath(m ir.ExprMath) (string, error) {
 	case ir.MathDot:
 		// GLSL dot() only works for float vectors. For int/uint vectors, expand manually.
 		isIntDot := false
-		if w.currentFunction != nil && int(m.Arg) < len(w.currentFunction.ExpressionTypes) {
-			res := &w.currentFunction.ExpressionTypes[m.Arg]
+		if w.hasExprType(m.Arg) {
+			res := w.exprType(m.Arg)
 			var inner ir.TypeInner
 			if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 				inner = w.module.Types[*res.Handle].Inner
@@ -973,8 +973,8 @@ func (w *Writer) writeMath(m ir.ExprMath) (string, error) {
 			// Expand: ( + a.x*b.x + a.y*b.y [+ a.z*b.z [+ a.w*b.w]])
 			components := []string{"x", "y", "z", "w"}
 			size := 2 // default vec2
-			if w.currentFunction != nil && int(m.Arg) < len(w.currentFunction.ExpressionTypes) {
-				res := &w.currentFunction.ExpressionTypes[m.Arg]
+			if w.hasExprType(m.Arg) {
+				res := w.exprType(m.Arg)
 				var inner ir.TypeInner
 				if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 					inner = w.module.Types[*res.Handle].Inner
@@ -1374,10 +1374,10 @@ func (w *Writer) writeImageSample(s ir.ExprImageSample) (string, error) {
 // getExprVectorSize returns (vector_size, true) if the expression resolves to a vector type.
 // Returns (0, false) for non-vector types.
 func (w *Writer) getExprVectorSize(handle ir.ExpressionHandle) (int, bool) {
-	if w.currentFunction == nil || int(handle) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(handle) {
 		return 0, false
 	}
-	res := &w.currentFunction.ExpressionTypes[handle]
+	res := w.exprType(handle)
 	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 		if v, ok := w.module.Types[*res.Handle].Inner.(ir.VectorType); ok {
 			return int(v.Size), true
@@ -1396,8 +1396,8 @@ func (w *Writer) resolveImageType(exprHandle ir.ExpressionHandle) *ir.ImageType 
 	if w.currentFunction == nil {
 		return nil
 	}
-	if int(exprHandle) < len(w.currentFunction.ExpressionTypes) {
-		if t, ok := w.resolveTypeInner(&w.currentFunction.ExpressionTypes[exprHandle], exprHandle).(ir.ImageType); ok {
+	if w.hasExprType(exprHandle) {
+		if t, ok := w.exprInner(exprHandle).(ir.ImageType); ok {
 			return &t
 		}
 	}
@@ -1834,8 +1834,8 @@ func (w *Writer) writeAs(a ir.ExprAs) (string, error) {
 		// Bitcast — use GLSL bitcast functions
 		// Matches Rust naga: floatBitsToInt, floatBitsToUint, intBitsToFloat, uintBitsToFloat
 		sourceKind := ir.ScalarFloat // default
-		if w.currentFunction != nil && int(a.Expr) < len(w.currentFunction.ExpressionTypes) {
-			res := &w.currentFunction.ExpressionTypes[a.Expr]
+		if w.hasExprType(a.Expr) {
+			res := w.exprType(a.Expr)
 			if res.Value != nil {
 				if st, ok := res.Value.(ir.ScalarType); ok {
 					sourceKind = st.Kind
@@ -1870,8 +1870,8 @@ func (w *Writer) writeAs(a ir.ExprAs) (string, error) {
 
 	// Regular conversion — use target type constructor
 	// For vectors: ivec2(expr), uvec3(expr), etc.
-	if w.currentFunction != nil && int(a.Expr) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[a.Expr]
+	if w.hasExprType(a.Expr) {
+		res := w.exprType(a.Expr)
 		var inner ir.TypeInner
 		if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 			inner = w.module.Types[*res.Handle].Inner
@@ -1897,8 +1897,8 @@ func (w *Writer) writeAs(a ir.ExprAs) (string, error) {
 // resolveBitcastTargetType determines the GLSL type for a bitcast's target.
 // For vectors: builds uvec2/ivec3 etc from the source vector size + target scalar kind.
 func (w *Writer) resolveBitcastTargetType(a ir.ExprAs) string {
-	if w.currentFunction != nil && int(a.Expr) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[a.Expr]
+	if w.hasExprType(a.Expr) {
+		res := w.exprType(a.Expr)
 		var inner ir.TypeInner
 		if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 			inner = w.module.Types[*res.Handle].Inner
@@ -1933,9 +1933,9 @@ func (w *Writer) writeAtomicResult(_ ir.ExprAtomicResult) (string, error) {
 
 // getCoordDim returns the dimensionality of a coordinate expression (1 for scalar, 2-4 for vectors).
 func (w *Writer) getCoordDim(handle ir.ExpressionHandle) uint8 {
-	if w.currentFunction != nil && int(handle) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[handle]
-		inner := w.resolveTypeInner(res, handle)
+	if w.hasExprType(handle) {
+		res := w.exprType(handle)
+		inner := w.resolutionInner(res)
 		if inner != nil {
 			if vt, ok := inner.(ir.VectorType); ok {
 				return uint8(vt.Size)
@@ -1950,10 +1950,10 @@ func (w *Writer) getCoordDim(handle ir.ExpressionHandle) uint8 {
 
 // isVectorBinaryExpr checks if a binary expression operates on vector types.
 func (w *Writer) isVectorBinaryExpr(b ir.ExprBinary) bool {
-	if w.currentFunction == nil || int(b.Left) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(b.Left) {
 		return false
 	}
-	res := &w.currentFunction.ExpressionTypes[b.Left]
+	res := w.exprType(b.Left)
 	var inner ir.TypeInner
 	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 		inner = w.module.Types[*res.Handle].Inner
@@ -1966,10 +1966,10 @@ func (w *Writer) isVectorBinaryExpr(b ir.ExprBinary) bool {
 
 // isFloatBinaryExpr checks if a binary expression operates on float types.
 func (w *Writer) isFloatBinaryExpr(b ir.ExprBinary) bool {
-	if w.currentFunction == nil || int(b.Left) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(b.Left) {
 		return false
 	}
-	res := &w.currentFunction.ExpressionTypes[b.Left]
+	res := w.exprType(b.Left)
 	var inner ir.TypeInner
 	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 		inner = w.module.Types[*res.Handle].Inner
@@ -1989,10 +1989,10 @@ func (w *Writer) isFloatBinaryExpr(b ir.ExprBinary) bool {
 
 // isBoolVectorBinaryExpr checks if a binary expression operates on boolean VECTOR types.
 func (w *Writer) isBoolVectorBinaryExpr(b ir.ExprBinary) bool {
-	if w.currentFunction == nil || int(b.Left) >= len(w.currentFunction.ExpressionTypes) {
+	if !w.hasExprType(b.Left) {
 		return false
 	}
-	res := &w.currentFunction.ExpressionTypes[b.Left]
+	res := w.exprType(b.Left)
 	var inner ir.TypeInner
 	if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 		inner = w.module.Types[*res.Handle].Inner
@@ -2011,8 +2011,8 @@ func (w *Writer) isBoolVectorBinaryExpr(b ir.ExprBinary) bool {
 // e.g., bvec3(a.x || b.x, a.y || b.y, a.z || b.z)
 func (w *Writer) expandBoolVectorOp(b ir.ExprBinary, left, right, op string) (string, error) {
 	size := uint8(2) // default
-	if w.currentFunction != nil && int(b.Left) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[b.Left]
+	if w.hasExprType(b.Left) {
+		res := w.exprType(b.Left)
 		var inner ir.TypeInner
 		if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 			inner = w.module.Types[*res.Handle].Inner
@@ -2036,8 +2036,8 @@ func (w *Writer) isBooleanBinaryExpr(b ir.ExprBinary) bool {
 	if w.currentFunction == nil {
 		return false
 	}
-	if int(b.Left) < len(w.currentFunction.ExpressionTypes) {
-		res := &w.currentFunction.ExpressionTypes[b.Left]
+	if w.hasExprType(b.Left) {
+		res := w.exprType(b.Left)
 		if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 			if st, ok := w.module.Types[*res.Handle].Inner.(ir.ScalarType); ok {
 				return st.Kind == ir.ScalarBool

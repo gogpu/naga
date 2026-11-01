@@ -411,6 +411,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 	w.writePerFunctionWrappedHelpers(fn)
 
 	w.currentFunction = fn
+	w.types = w.typifiers.Function(fn)
 	w.currentFuncHandle = epFuncHandle(epIdx)
 	w.currentEPIndex = epIdx
 	w.localNames = make(map[uint32]string)
@@ -420,6 +421,7 @@ func (w *Writer) writeEntryPointWithIO(epIdx int, ep *ir.EntryPoint) error {
 
 	defer func() {
 		w.currentFunction = nil
+		w.types = nil
 		w.localNames = nil
 	}()
 

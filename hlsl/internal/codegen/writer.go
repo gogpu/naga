@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gogpu/naga/internal/textutil"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -99,6 +100,8 @@ type Writer struct {
 
 	// Function context (set during function writing)
 	currentFunction     *ir.Function
+	typifiers           *typifier.Module   // the type of every expression of every function
+	types               *typifier.Typifier // typifiers of currentFunction
 	currentFuncHandle   ir.FunctionHandle
 	currentEPIndex      int // -1 for regular functions, >= 0 for entry points
 	localNames          map[uint32]string
@@ -432,14 +435,6 @@ func (w *Writer) registerNames() error {
 				}
 			})
 		}
-	}
-
-	// Register type alias names so the namer detects collisions with variables.
-	// In Rust naga, type aliases create a named type in the arena via
-	// ensure_type_exists(Some(alias_name), inner), which the namer registers.
-	// Our IR stores alias names separately in TypeAliasNames.
-	for _, aliasName := range w.module.TypeAliasNames {
-		w.namer.call(aliasName)
 	}
 
 	// Registration order matches Rust naga proc::Namer::reset():
@@ -1517,8 +1512,8 @@ func (w *Writer) writeWrappedMathHelpers(fn *ir.Function) {
 
 		// Get the struct type handle to determine the struct name
 		var resultStructName string
-		if int(handle) < len(fn.ExpressionTypes) {
-			res := &fn.ExpressionTypes[handle]
+		if w.fnHasExprType(fn, handle) {
+			res := w.fnExprType(fn, handle)
 			if res.Handle != nil && int(*res.Handle) < len(w.module.Types) {
 				resultStructName = w.getTypeName(*res.Handle)
 			}
@@ -1871,10 +1866,10 @@ func i32MinLiteral(width uint8) string {
 
 // resolveExprTypeInner resolves the TypeInner for an expression in a specific function.
 func (w *Writer) resolveExprTypeInner(fn *ir.Function, handle ir.ExpressionHandle) ir.TypeInner {
-	if int(handle) >= len(fn.ExpressionTypes) {
+	if !w.fnHasExprType(fn, handle) {
 		return nil
 	}
-	resolution := &fn.ExpressionTypes[handle]
+	resolution := w.fnExprType(fn, handle)
 	if resolution.Handle != nil {
 		h := *resolution.Handle
 		if int(h) < len(w.module.Types) {
@@ -2132,11 +2127,11 @@ func (w *Writer) registerStorageLoadConstructors(fn *ir.Function, pointer ir.Exp
 		return
 	}
 	// Get the loaded value type (what the Load returns)
-	if int(pointer) >= len(fn.ExpressionTypes) {
+	if !w.fnHasExprType(fn, pointer) {
 		return
 	}
 	// The pointer's type is a pointer to the value type
-	resolution := &fn.ExpressionTypes[pointer]
+	resolution := w.fnExprType(fn, pointer)
 	var inner ir.TypeInner
 	var resolvedHandle *ir.TypeHandle
 	if resolution.Handle != nil {
@@ -2155,11 +2150,11 @@ func (w *Writer) registerStorageLoadConstructors(fn *ir.Function, pointer ir.Exp
 			w.registerConstructorsForType(ptr.Base, inner)
 		}
 	} else if resolvedHandle != nil {
-		// ExpressionTypes gave us a direct type handle (e.g., AccessIndex through pointer
+		// The expression type is a type handle (e.g., AccessIndex through pointer
 		// returns the member type directly, not wrapped in a Pointer). Use the handle directly.
 		w.registerConstructorsForType(*resolvedHandle, inner)
 	} else {
-		// ExpressionTypes has a Value (inline type), find the handle by searching
+		// The expression type is a Value (inline type), find the handle by searching
 		w.registerConstructorsForInner(inner)
 	}
 }
@@ -2430,6 +2425,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	w.writePerFunctionWrappedHelpers(fn)
 
 	w.currentFunction = fn
+	w.types = w.typifiers.Function(fn)
 	w.currentFuncHandle = handle
 	w.currentEPIndex = -1
 	w.localNames = make(map[uint32]string)
@@ -2508,6 +2504,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	if err := w.writeFunctionBody(fn); err != nil {
 		w.PopIndent()
 		w.currentFunction = nil
+		w.types = nil
 		return err
 	}
 
@@ -2520,6 +2517,7 @@ func (w *Writer) writeFunction(handle ir.FunctionHandle, fn *ir.Function) error 
 	w.WriteLine("")
 
 	w.currentFunction = nil
+	w.types = nil
 	return nil
 }
 

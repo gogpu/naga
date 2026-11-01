@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/gogpu/naga/internal/d3d"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -50,6 +51,7 @@ func (c componentTaint) union() scalarSet {
 type analysisState struct {
 	irMod   *ir.Module
 	ep      *ir.EntryPoint
+	types   *typifier.Typifier // the entry point's expression types
 	inputs  []SigElement
 	outputs []SigElement
 
@@ -75,10 +77,11 @@ type analysisState struct {
 	giveUp bool
 }
 
-func newAnalysisState(irMod *ir.Module, ep *ir.EntryPoint, inputs, outputs []SigElement) *analysisState {
+func newAnalysisState(irMod *ir.Module, ep *ir.EntryPoint, types *typifier.Typifier, inputs, outputs []SigElement) *analysisState {
 	s := &analysisState{
 		irMod:         irMod,
 		ep:            ep,
+		types:         types,
 		inputs:        inputs,
 		outputs:       outputs,
 		exprTaint:     make(map[ir.ExpressionHandle]componentTaint),

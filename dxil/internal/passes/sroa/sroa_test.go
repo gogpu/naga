@@ -110,6 +110,11 @@ func TestRunStructDecomposition(t *testing.T) {
 	if len(compose.Components) != 2 {
 		t.Fatalf("expected 2 components in Compose, got %d", len(compose.Components))
 	}
+	// The Compose carries the struct's type: the IR alone types it, with no
+	// side table (it was 0, the f32 type, masked by a stale table).
+	if compose.Type != makeTypeHandle(3) {
+		t.Errorf("Compose.Type = %d, want 3 (the struct)", compose.Type)
+	}
 	// Each component should be an ExprLoad pointing to the new field local.
 	for i, comp := range compose.Components {
 		if int(comp) >= len(fn.Expressions) {

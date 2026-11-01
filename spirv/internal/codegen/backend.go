@@ -8,6 +8,7 @@ import (
 	"github.com/gogpu/naga/backend"
 	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -47,6 +48,13 @@ type Backend struct {
 	module  *ir.Module
 	builder *ModuleBuilder
 	options Options
+
+	// typifiers holds the type of every expression of each function of
+	// module (typify); globalExprFn is the global expression arena as a
+	// function, typed into globalTypes on first use.
+	typifiers    *typifier.Module
+	globalExprFn *ir.Function
+	globalTypes  *typifier.Typifier
 
 	// epIndex is the entry point Options.EntryPoint selects, or
 	// entrypoint.All; filter, set with one selected, leaves out the globals
@@ -412,6 +420,10 @@ func (b *Backend) Compile(module *ir.Module) ([]byte, error) {
 	// Reset all per-compilation state (maps cleared, slices truncated).
 	b.Reset()
 	b.module = module
+	b.globalExprFn = nil
+	if err := b.typify(); err != nil {
+		return nil, err
+	}
 	b.epIndex, b.filter = epIndex, nil
 	if epIndex != entrypoint.All {
 		f := entrypoint.NewFilter(module, epIndex)
@@ -984,7 +996,7 @@ func (b *Backend) emitTypeWithoutLayout(handle ir.TypeHandle) (uint32, error) {
 // Uses cache to ensure type deduplication (SPIR-V requires unique types).
 func (b *Backend) emitScalarType(scalar ir.ScalarType) (uint32, error) {
 	// Concretize abstract types — they should have been removed by compact,
-	// but may survive in ExpressionTypes. AbstractInt→I32, AbstractFloat→F32.
+	// but an abstract literal is still typed abstract. AbstractInt→I32, AbstractFloat→F32.
 	switch scalar.Kind {
 	case ir.ScalarAbstractInt:
 		scalar = ir.ScalarType{Kind: ir.ScalarSint, Width: 4}
@@ -1511,7 +1523,7 @@ func (b *Backend) emitGlobalExpression(handle ir.ExpressionHandle) (uint32, erro
 		if err != nil {
 			return 0, err
 		}
-		res, err := ir.ResolveExpressionType(b.module, &ir.Function{Expressions: b.module.GlobalExpressions}, handle)
+		res, err := b.exprType(b.globalExpressions(), handle)
 		if err != nil {
 			return 0, err
 		}
@@ -2933,11 +2945,11 @@ func (b *Backend) emitWrappedFunctions(fn *ir.Function) error {
 			continue
 		}
 		// Resolve left operand type to get scalar kind
-		leftType, err := ir.ResolveExpressionType(b.module, fn, binary.Left)
+		leftType, err := b.exprType(fn, binary.Left)
 		if err != nil {
 			continue
 		}
-		rightType, err := ir.ResolveExpressionType(b.module, fn, binary.Right)
+		rightType, err := b.exprType(fn, binary.Right)
 		if err != nil {
 			continue
 		}
@@ -4205,7 +4217,7 @@ func (e *ExpressionEmitter) emitConstExpression(handle ir.ExpressionHandle) (uin
 		id = e.backend.builder.AddConstantComposite(typeID, componentIDs...)
 	case ir.ExprSplat:
 		// Splat as constant composite
-		valueType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, kind.Value)
+		valueType, rErr := e.backend.exprType(e.function, kind.Value)
 		if rErr != nil {
 			return 0, fmt.Errorf("splat value type: %w", rErr)
 		}
@@ -4500,7 +4512,7 @@ func (e *ExpressionEmitter) emitCompose(compose ir.ExprCompose) (uint32, error) 
 // In SPIR-V, this is OpCompositeConstruct with the same scalar ID repeated.
 func (e *ExpressionEmitter) emitSplat(splat ir.ExprSplat) (uint32, error) {
 	// Resolve the scalar type from the splat value
-	valueType, err := ir.ResolveExpressionType(e.backend.module, e.function, splat.Value)
+	valueType, err := e.backend.exprType(e.function, splat.Value)
 	if err != nil {
 		return 0, fmt.Errorf("splat value type: %w", err)
 	}
@@ -4590,7 +4602,7 @@ func (e *ExpressionEmitter) maybeCopyLogicalForStore(pointerExpr, valueExpr ir.E
 	}
 
 	// Resolve the value expression's IR type to check if it's a composite needing layout.
-	valueTypeRes, err := ir.ResolveExpressionType(e.backend.module, e.function, valueExpr)
+	valueTypeRes, err := e.backend.exprType(e.function, valueExpr)
 	if err != nil {
 		return valueID, err
 	}
@@ -4939,7 +4951,7 @@ func (e *ExpressionEmitter) resolveAccessElementType(baseType ir.TypeResolution,
 // Returns the VALUE at the indexed location (not a pointer).
 func (e *ExpressionEmitter) emitAccess(exprHandle ir.ExpressionHandle, access ir.ExprAccess) (uint32, error) {
 	// Get result type from type inference
-	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
+	baseType, err := e.backend.exprType(e.function, access.Base)
 	if err != nil {
 		return 0, fmt.Errorf("access base type: %w", err)
 	}
@@ -5086,7 +5098,7 @@ func (e *ExpressionEmitter) isPointerAccess(handle ir.ExpressionHandle) bool {
 	default:
 		return false
 	}
-	res, err := ir.ResolveExpressionType(e.backend.module, e.function, base)
+	res, err := e.backend.exprType(e.function, base)
 	if err != nil {
 		return false
 	}
@@ -5172,7 +5184,7 @@ func (e *ExpressionEmitter) accessChainResultType(tip ir.ExpressionHandle) (uint
 	default:
 		return 0, fmt.Errorf("access chain tip %T is not an access", k)
 	}
-	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, base)
+	baseType, err := e.backend.exprType(e.function, base)
 	if err != nil {
 		return 0, fmt.Errorf("access base type: %w", err)
 	}
@@ -5245,7 +5257,7 @@ func (e *ExpressionEmitter) emitPointerRoot(handle ir.ExpressionHandle) (uint32,
 // Returns a VALUE (auto-loads from pointers). For pointer destinations, use emitPointerExpression.
 func (e *ExpressionEmitter) emitAccessIndex(exprHandle ir.ExpressionHandle, access ir.ExprAccessIndex) (uint32, error) {
 	// Get result type from type inference
-	baseType, err := ir.ResolveExpressionType(e.backend.module, e.function, access.Base)
+	baseType, err := e.backend.exprType(e.function, access.Base)
 	if err != nil {
 		return 0, fmt.Errorf("access index base type: %w", err)
 	}
@@ -5329,7 +5341,7 @@ func (e *ExpressionEmitter) resolveTypeInner(res ir.TypeResolution) ir.TypeInner
 func (e *ExpressionEmitter) spillToInternalVariable(base ir.ExpressionHandle) error {
 	if _, alreadySpilled := e.spilledComposites[base]; !alreadySpilled {
 		// Create new Function-space variable for the base type.
-		baseType, _ := ir.ResolveExpressionType(e.backend.module, e.function, base)
+		baseType, _ := e.backend.exprType(e.function, base)
 		baseTypeID, err := e.backend.resolveTypeForStorageClass(baseType, StorageClassFunction)
 		if err != nil {
 			return err
@@ -5457,7 +5469,7 @@ func (e *ExpressionEmitter) emitSwizzle(swizzle ir.ExprSwizzle) (uint32, error) 
 
 // extractVectorScalar extracts the scalar type from a vector expression.
 func (e *ExpressionEmitter) extractVectorScalar(handle ir.ExpressionHandle) (ir.ScalarType, error) {
-	vectorType, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
+	vectorType, err := e.backend.exprType(e.function, handle)
 	if err != nil {
 		return ir.ScalarType{}, fmt.Errorf("swizzle vector type: %w", err)
 	}
@@ -5484,7 +5496,7 @@ func (e *ExpressionEmitter) emitAs(as ir.ExprAs) (uint32, error) {
 	}
 
 	// Resolve source expression type to get source scalar kind
-	srcType, err := ir.ResolveExpressionType(e.backend.module, e.function, as.Expr)
+	srcType, err := e.backend.exprType(e.function, as.Expr)
 	if err != nil {
 		return 0, fmt.Errorf("as source type: %w", err)
 	}
@@ -5751,7 +5763,7 @@ func (e *ExpressionEmitter) emitLoad(load ir.ExprLoad) (uint32, error) {
 	// Get the pointer expression's type and dereference it to find the loaded value type.
 	// Pointer expressions (ExprLocalVariable, ExprGlobalVariable, etc.) resolve to
 	// PointerType/ValuePointerType. OpLoad needs the pointed-TO type, not the pointer type.
-	pointerType, err := ir.ResolveExpressionType(e.backend.module, e.function, load.Pointer)
+	pointerType, err := e.backend.exprType(e.function, load.Pointer)
 	if err != nil {
 		return 0, fmt.Errorf("load pointer type: %w", err)
 	}
@@ -5871,7 +5883,7 @@ func (e *ExpressionEmitter) emitUnary(unary ir.ExprUnary) (uint32, error) {
 	}
 
 	// Get operand type to determine correct opcode
-	operandType, err := ir.ResolveExpressionType(e.backend.module, e.function, unary.Expr)
+	operandType, err := e.backend.exprType(e.function, unary.Expr)
 	if err != nil {
 		return 0, fmt.Errorf("unary operand type: %w", err)
 	}
@@ -5939,7 +5951,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	}
 
 	// Get left operand type to determine correct opcode
-	leftType, err := ir.ResolveExpressionType(e.backend.module, e.function, binary.Left)
+	leftType, err := e.backend.exprType(e.function, binary.Left)
 	if err != nil {
 		return 0, fmt.Errorf("binary left type: %w", err)
 	}
@@ -6044,7 +6056,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			}
 			opcode = OpFAdd
 			// vec + scalar or scalar + vec: splat scalar to matching vector
-			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			rightType, rErr := e.backend.exprType(e.function, binary.Right)
 			if rErr == nil {
 				var promErr error
 				leftID, rightID, resultType, promErr = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
@@ -6064,7 +6076,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			}
 			opcode = OpFSub
 			// vec - scalar or scalar - vec: splat scalar to matching vector
-			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			rightType, rErr := e.backend.exprType(e.function, binary.Right)
 			if rErr == nil {
 				var promErr error
 				leftID, rightID, resultType, promErr = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
@@ -6079,7 +6091,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 		if scalarKind == ir.ScalarFloat {
 			// Check for special multiplication cases (vector-scalar, matrix-vector, etc.)
 			// that require dedicated SPIR-V opcodes.
-			rightType, rightErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			rightType, rightErr := e.backend.exprType(e.function, binary.Right)
 			if rightErr != nil {
 				return 0, fmt.Errorf("binary right type: %w", rightErr)
 			}
@@ -6149,7 +6161,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			// Integer multiplication: OpIMul requires matching types.
 			// For vector*scalar or scalar*vector, splat the scalar to match.
 			// Matches Rust naga's write_vector_scalar_mult (block.rs:2548).
-			rightType, _ := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			rightType, _ := e.backend.exprType(e.function, binary.Right)
 			leftInner := typeResolutionInner(e.backend.module, leftType)
 			rightInner := typeResolutionInner(e.backend.module, rightType)
 			leftVec, leftIsVec := leftInner.(ir.VectorType)
@@ -6189,7 +6201,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			opcode = OpFDiv
 			// Check for vec / scalar — SPIR-V has no OpVectorDivideScalar.
 			// Splat the scalar to a matching vector.
-			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			rightType, rErr := e.backend.exprType(e.function, binary.Right)
 			if rErr == nil {
 				var promErr error
 				leftID, rightID, resultType, promErr = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
@@ -6199,7 +6211,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			}
 		} else {
 			// Integer divide: use wrapped function for safety
-			rightType, _ := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			rightType, _ := e.backend.exprType(e.function, binary.Right)
 			leftTypeID, err := e.backend.resolveTypeResolution(leftType)
 			if err != nil {
 				return 0, err
@@ -6217,7 +6229,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 	case ir.BinaryModulo:
 		if scalarKind == ir.ScalarFloat {
 			opcode = OpFRem
-			rightType, rErr := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			rightType, rErr := e.backend.exprType(e.function, binary.Right)
 			if rErr == nil {
 				var promErr error
 				leftID, rightID, resultType, promErr = e.promoteScalarToVector(leftType, rightType, leftID, rightID, resultType)
@@ -6227,7 +6239,7 @@ func (e *ExpressionEmitter) emitBinary(binary ir.ExprBinary) (uint32, error) {
 			}
 		} else {
 			// Integer modulo: use wrapped function for safety
-			rightType, _ := ir.ResolveExpressionType(e.backend.module, e.function, binary.Right)
+			rightType, _ := e.backend.exprType(e.function, binary.Right)
 			leftTypeID, err := e.backend.resolveTypeResolution(leftType)
 			if err != nil {
 				return 0, err
@@ -6421,7 +6433,7 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 	}
 
 	// Result type is same as accept/reject branches
-	acceptType, err := ir.ResolveExpressionType(e.backend.module, e.function, sel.Accept)
+	acceptType, err := e.backend.exprType(e.function, sel.Accept)
 	if err != nil {
 		return 0, fmt.Errorf("select accept type: %w", err)
 	}
@@ -6433,7 +6445,7 @@ func (e *ExpressionEmitter) emitSelect(sel ir.ExprSelect) (uint32, error) {
 	// SPIR-V OpSelect requires the condition to be the same size as the result.
 	// WGSL allows scalar bool condition with vector operands (broadcast).
 	// When condition is scalar bool but result is vector, splat the condition.
-	condType, err := ir.ResolveExpressionType(e.backend.module, e.function, sel.Condition)
+	condType, err := e.backend.exprType(e.function, sel.Condition)
 	if err != nil {
 		return 0, fmt.Errorf("select condition type: %w", err)
 	}
@@ -7268,7 +7280,7 @@ func (e *ExpressionEmitter) emitMath(handle ir.ExpressionHandle, mathExpr ir.Exp
 	}
 
 	// Get argument type to determine result type and correct opcodes
-	argType, err := ir.ResolveExpressionType(e.backend.module, e.function, mathExpr.Arg)
+	argType, err := e.backend.exprType(e.function, mathExpr.Arg)
 	if err != nil {
 		return 0, fmt.Errorf("math argument type: %w", err)
 	}
@@ -7889,7 +7901,7 @@ func (e *ExpressionEmitter) emitMath(handle ir.ExpressionHandle, mathExpr ir.Exp
 	// FMix: if selector (arg2) is scalar but result is vector, splat the selector.
 	// SPIR-V FMix requires all operands to match Result Type.
 	if needsMixSplat && len(operands) >= 3 && mathExpr.Arg2 != nil {
-		selectorType, _ := ir.ResolveExpressionType(e.backend.module, e.function, *mathExpr.Arg2)
+		selectorType, _ := e.backend.exprType(e.function, *mathExpr.Arg2)
 		selectorInner := selectorType.Inner(e.backend.module.Types)
 		argInner2 := argType.Inner(e.backend.module.Types)
 		if _, isScalar := selectorInner.(ir.ScalarType); isScalar {
@@ -7922,7 +7934,7 @@ func (e *ExpressionEmitter) emitMath(handle ir.ExpressionHandle, mathExpr ir.Exp
 // writer takes the result type of every expression from the typifier too.
 // It reports false when the arena has no such struct.
 func (e *ExpressionEmitter) mathResultStruct(handle ir.ExpressionHandle) (ir.TypeHandle, bool) {
-	res, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
+	res, err := e.backend.exprType(e.function, handle)
 	if err != nil || res.Handle == nil || int(*res.Handle) >= len(e.backend.module.Types) {
 		return 0, false
 	}
@@ -8250,7 +8262,7 @@ func (e *ExpressionEmitter) emitRelational(handle ir.ExpressionHandle, rel ir.Ex
 		return 0, unsupported.Errorf("unsupported relational function: %v", rel.Fun)
 	}
 
-	resultRes, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
+	resultRes, err := e.backend.exprType(e.function, handle)
 	if err != nil {
 		return 0, fmt.Errorf("relational result type: %w", err)
 	}
@@ -8271,7 +8283,7 @@ func (e *ExpressionEmitter) emitDerivative(deriv ir.ExprDerivative) (uint32, err
 	}
 
 	// Get result type from expression (derivative preserves type)
-	exprType, err := ir.ResolveExpressionType(e.backend.module, e.function, deriv.Expr)
+	exprType, err := e.backend.exprType(e.function, deriv.Expr)
 	if err != nil {
 		return 0, fmt.Errorf("derivative expression type: %w", err)
 	}
@@ -8388,7 +8400,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 	// For non-Dref depth sampling (without gather), SPIR-V returns vec4
 	// but we need scalar, so we CompositeExtract the first component.
 	isDepthImage := false
-	exprType, resolveErr := ir.ResolveExpressionType(e.backend.module, e.function, sample.Image)
+	exprType, resolveErr := e.backend.exprType(e.function, sample.Image)
 	if resolveErr == nil {
 		inner := typeResolutionInner(e.backend.module, exprType)
 		if imgType, ok := inner.(ir.ImageType); ok {
@@ -8554,7 +8566,7 @@ func (e *ExpressionEmitter) emitImageSample(sample ir.ExprImageSample) (uint32, 
 		// For depth images, the WGSL Lod is integer (i32/u32), so we must convert.
 		// Matches Rust naga image.rs line 1010-1044.
 		if isDepthImage {
-			lodType, lodErr := ir.ResolveExpressionType(e.backend.module, e.function, level.Level)
+			lodType, lodErr := e.backend.exprType(e.function, level.Level)
 			if lodErr == nil {
 				lodInner := lodType.Inner(e.backend.module.Types)
 				if sc, ok := lodInner.(ir.ScalarType); ok && (sc.Kind == ir.ScalarSint || sc.Kind == ir.ScalarUint) {
@@ -8691,7 +8703,7 @@ func (e *ExpressionEmitter) emitImageCoordinates(
 		return imageCoordinates{}, err
 	}
 
-	coordType, err := ir.ResolveExpressionType(e.backend.module, e.function, coordExpr)
+	coordType, err := e.backend.exprType(e.function, coordExpr)
 	if err != nil {
 		return imageCoordinates{}, err
 	}
@@ -8736,7 +8748,7 @@ func (e *ExpressionEmitter) emitImageCoordinates(
 	}
 
 	// Resolve array index type and bitcast if needed
-	arrayIndexType, _ := ir.ResolveExpressionType(e.backend.module, e.function, *arrayIndex)
+	arrayIndexType, _ := e.backend.exprType(e.function, *arrayIndex)
 	arrayIndexInner := typeResolutionInner(e.backend.module, arrayIndexType)
 	if scalar, ok := arrayIndexInner.(ir.ScalarType); ok {
 		if scalar.Kind != componentScalar.Kind {
@@ -8809,7 +8821,7 @@ func (e *ExpressionEmitter) emitImageLoad(load ir.ExprImageLoad) (uint32, error)
 	}
 
 	// Determine image class from type
-	imageType, err := ir.ResolveExpressionType(e.backend.module, e.function, load.Image)
+	imageType, err := e.backend.exprType(e.function, load.Image)
 	if err != nil {
 		return 0, err
 	}
@@ -9233,7 +9245,7 @@ func (e *ExpressionEmitter) emitImageQuery(query ir.ExprImageQuery) (uint32, err
 	builder := e.newIB()
 
 	// Resolve image type for dimension-dependent queries.
-	imageType, err := ir.ResolveExpressionType(e.backend.module, e.function, query.Image)
+	imageType, err := e.backend.exprType(e.function, query.Image)
 	if err != nil {
 		return 0, fmt.Errorf("emitImageQuery: resolve image type: %w", err)
 	}
@@ -9416,7 +9428,7 @@ func (b *Backend) getSampledImageType(fn *ir.Function, imageExpr ir.ExpressionHa
 		Dim:   ir.Dim2D,
 		Class: ir.ImageClassSampled,
 	}
-	exprType, err := ir.ResolveExpressionType(b.module, fn, imageExpr)
+	exprType, err := b.exprType(fn, imageExpr)
 	if err == nil {
 		inner := typeResolutionInner(b.module, exprType)
 		if imgType, ok := inner.(ir.ImageType); ok {
@@ -9535,7 +9547,7 @@ func (e *ExpressionEmitter) emitWorkGroupUniformLoad(stmt ir.StmtWorkGroupUnifor
 	_ = e.emitBarrier(ir.BarrierWorkGroup, true)
 
 	// Resolve the result type from the result expression
-	resultType, err := ir.ResolveExpressionType(e.backend.module, e.function, stmt.Result)
+	resultType, err := e.backend.exprType(e.function, stmt.Result)
 	if err != nil {
 		return fmt.Errorf("workgroup uniform load: cannot resolve result type: %w", err)
 	}
@@ -9580,7 +9592,7 @@ func (e *ExpressionEmitter) emitWorkGroupUniformLoad(stmt ir.StmtWorkGroupUnifor
 // Pointer { base: Atomic, space } (back/spv/block.rs write_checked_load and
 // Statement::Store).
 func (e *ExpressionEmitter) atomicPointerSpace(pointer ir.ExpressionHandle) (ir.AddressSpace, bool, error) {
-	res, err := ir.ResolveExpressionType(e.backend.module, e.function, pointer)
+	res, err := e.backend.exprType(e.function, pointer)
 	if err != nil {
 		return 0, false, fmt.Errorf("pointer type: %w", err)
 	}
@@ -9658,7 +9670,7 @@ func (e *ExpressionEmitter) emitAtomicStoreInstruction(pointerID, valueID uint32
 func (e *ExpressionEmitter) resolveAtomicScalar(pointer ir.ExpressionHandle) ir.ScalarType {
 	defaultScalar := ir.ScalarType{Kind: ir.ScalarUint, Width: 4}
 
-	pointerType, err := ir.ResolveExpressionType(e.backend.module, e.function, pointer)
+	pointerType, err := e.backend.exprType(e.function, pointer)
 	if err != nil {
 		return defaultScalar
 	}
@@ -9671,7 +9683,7 @@ func (e *ExpressionEmitter) resolveAtomicScalar(pointer ir.ExpressionHandle) ir.
 		inner = pointerType.Value
 	}
 
-	// ResolveExpressionType may return the atomic type directly (e.g., for
+	// The typifier may return the atomic type directly (e.g., for
 	// struct field access like tiles[i].backdrop) or wrapped in a PointerType.
 	if atomicType, ok := inner.(ir.AtomicType); ok {
 		return atomicType.Scalar
@@ -9910,7 +9922,7 @@ func (e *ExpressionEmitter) appendArrayIndex(coordID uint32, arrayIndexExpr, coo
 		return 0, err
 	}
 	// Convert array index to float if it's integer
-	arrayIndexType, _ := ir.ResolveExpressionType(e.backend.module, e.function, arrayIndexExpr)
+	arrayIndexType, _ := e.backend.exprType(e.function, arrayIndexExpr)
 	indexInner := typeResolutionInner(e.backend.module, arrayIndexType)
 	if scalar, ok := indexInner.(ir.ScalarType); ok && scalar.Kind != ir.ScalarFloat {
 		floatTypeID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
@@ -9930,7 +9942,7 @@ func (e *ExpressionEmitter) appendArrayIndex(coordID uint32, arrayIndexExpr, coo
 		arrayIndexID = convertedID
 	}
 	// Extend coordinate vector: e.g. vec2(x,y) + arrayIndex → vec3(x,y,arrayIndex)
-	coordType, _ := ir.ResolveExpressionType(e.backend.module, e.function, coordExpr)
+	coordType, _ := e.backend.exprType(e.function, coordExpr)
 	coordInner := typeResolutionInner(e.backend.module, coordType)
 	if coordVec, ok := coordInner.(ir.VectorType); ok {
 		floatScalarID, err := e.backend.emitScalarType(ir.ScalarType{Kind: ir.ScalarFloat, Width: 4})
@@ -10309,7 +10321,7 @@ func (e *ExpressionEmitter) emitCall(call ir.StmtCall) error {
 // take one (layoutFree).
 func (e *ExpressionEmitter) storeToLocal(ptr uint32, h ir.ExpressionHandle, value uint32) error {
 	if e.backend.layoutFree(StorageClassFunction) {
-		res, err := ir.ResolveExpressionType(e.backend.module, e.function, h)
+		res, err := e.backend.exprType(e.function, h)
 		if err != nil {
 			return err
 		}
@@ -10766,7 +10778,7 @@ func (e *ExpressionEmitter) emitSubgroupGather(stmt ir.StmtSubgroupGather) error
 
 // resolveSubgroupTypeID resolves the SPIR-V type ID for a subgroup result expression.
 func (e *ExpressionEmitter) resolveSubgroupTypeID(handle ir.ExpressionHandle) (uint32, error) {
-	typeRes, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
+	typeRes, err := e.backend.exprType(e.function, handle)
 	if err != nil {
 		return 0, fmt.Errorf("cannot resolve subgroup result type: %w", err)
 	}
@@ -10792,7 +10804,7 @@ func (e *ExpressionEmitter) resolveSubgroupTypeID(handle ir.ExpressionHandle) (u
 
 // resolveSubgroupScalarKind extracts the scalar kind from a subgroup argument expression.
 func (e *ExpressionEmitter) resolveSubgroupScalarKind(handle ir.ExpressionHandle) ir.ScalarKind {
-	typeRes, err := ir.ResolveExpressionType(e.backend.module, e.function, handle)
+	typeRes, err := e.backend.exprType(e.function, handle)
 	if err != nil {
 		return ir.ScalarUint
 	}

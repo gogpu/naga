@@ -42,6 +42,7 @@ import (
 	"github.com/gogpu/naga/internal/d3d"
 	"github.com/gogpu/naga/internal/entrypoint"
 	"github.com/gogpu/naga/internal/irutil"
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/internal/unsupported"
 	"github.com/gogpu/naga/ir"
 )
@@ -342,6 +343,10 @@ func checkBuiltins(irModule *ir.Module, ep *ir.EntryPoint) error {
 // newer shader model than sm, the newest such feature first, with a
 // *backend.ShaderModelError.
 func checkShaderModel(irModule *ir.Module, ep *ir.EntryPoint, sm backend.ShaderModel) error {
+	lowPrecision, err := moduleUsesLowPrecision(irModule)
+	if err != nil {
+		return fmt.Errorf("dxil: %w", err)
+	}
 	for _, r := range []struct {
 		minor   uint8
 		feature string
@@ -353,7 +358,7 @@ func checkShaderModel(irModule *ir.Module, ep *ir.EntryPoint, sm backend.ShaderM
 		{5, "a ray query", moduleUsesRayQuery(irModule)},
 		// f16 is written as native 16-bit types, DXC's
 		// -enable-16bit-types (quantizeToF16 uses legacy ops, SM 6.0).
-		{2, "a 16-bit type", moduleUsesLowPrecision(irModule)},
+		{2, "a 16-bit type", lowPrecision},
 		// dx.op.viewID (opcode 138).
 		{1, "the view index", moduleUsesViewID(irModule)},
 	} {
@@ -554,16 +559,15 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	smMinor := uint32(opts.ShaderModel.Minor)
 
 	// Inline user helpers and clone the module so we never mutate the caller's IR.
-	var inlineErr error
-	irModule, inlineErr = prepareModule(irModule)
-	if inlineErr != nil {
-		return nil, inlineErr
+	if irModule, err = prepareModule(irModule); err != nil {
+		return nil, err
 	}
 	ep = &irModule.EntryPoints[0]
 	if err := prepareEntryPoint(irModule, ep, opts); err != nil {
 		return nil, err
 	}
-	if err := lowerForEmit(irModule, opts); err != nil {
+	types, err := lowerForEmit(irModule, opts)
+	if err != nil {
 		return nil, err
 	}
 
@@ -629,6 +633,7 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 		SpecialConstants:        convertBindTarget(special),
 		ImmediatesTarget:        convertBindTarget(opts.ImmediatesTarget),
 		DynamicOffsets:          dynamicOffsets,
+		Types:                   types,
 	}
 	mod, bitcodeShaderFlags, err := emit.EmitWithFlags(irModule, emitOpts)
 	if err != nil {
@@ -673,6 +678,7 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 		dynamicOffsets: dynamicOffsets,
 		special:        special,
 		immediates:     opts.ImmediatesTarget,
+		epTypes:        types.Function(&ep.Function),
 	}))
 
 	// STAT (Shader Statistics) is required by the D3D12 runtime format
@@ -1358,7 +1364,7 @@ func buildPSV(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool, inputCount, 
 		// component dependency table. Must agree byte-for-byte with the
 		// bitcode `dx.viewIdState` regenerated content or dxil.dll's
 		// content-verifier reports 'ViewIDState mismatch'.
-		info.InputToOutputTable = buildInputToOutputTable(irMod, ep, sigs)
+		info.InputToOutputTable = buildInputToOutputTable(irMod, ep, t.epTypes, sigs)
 		return info
 	}
 
@@ -2058,6 +2064,7 @@ type psvTargets struct {
 	dynamicOffsets []emit.DynamicOffsetsBuffer
 	special        *BindTarget
 	immediates     *BindTarget
+	epTypes        *typifier.Typifier // the entry point's expression types
 }
 
 // buildPSVEx creates PSV info for an entry point, including mesh shader support.
@@ -3445,8 +3452,9 @@ func memberScalarCount(m *ir.Module, inner ir.TypeInner) int {
 // an expression of its functions, is a 16-bit float, 16-bit integer, or a
 // vector/matrix thereof. QuantizeF16's lowering uses
 // dx.op.legacyF32ToF16/legacyF16ToF32 (opcodes 130/131), which are
-// available since SM 6.0 and don't introduce the LLVM half type.
-func moduleUsesLowPrecision(m *ir.Module) bool {
+// available since SM 6.0 and don't introduce the LLVM half type. It types
+// the functions only when no type of the module is one.
+func moduleUsesLowPrecision(m *ir.Module) (bool, error) {
 	is16 := func(inner ir.TypeInner) bool {
 		switch t := inner.(type) {
 		case ir.ScalarType:
@@ -3460,7 +3468,7 @@ func moduleUsesLowPrecision(m *ir.Module) bool {
 	}
 	for i := range m.Types {
 		if is16(m.Types[i].Inner) {
-			return true
+			return true, nil
 		}
 	}
 	fns := make([]*ir.Function, 0, len(m.Functions)+len(m.EntryPoints))
@@ -3471,13 +3479,17 @@ func moduleUsesLowPrecision(m *ir.Module) bool {
 		fns = append(fns, &m.EntryPoints[i].Function)
 	}
 	for _, fn := range fns {
-		for _, res := range fn.ExpressionTypes {
-			if res.Handle == nil && is16(res.Value) {
-				return true
+		types, err := typifier.Function(m, fn)
+		if err != nil {
+			return false, fmt.Errorf("function %q: %w", fn.Name, err)
+		}
+		for h := range fn.Expressions {
+			if res := types.Get(ir.ExpressionHandle(h)); res.Handle == nil && is16(res.Value) {
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
 }
 
 func moduleUsesInt64Atomics(m *ir.Module) bool {
@@ -3520,12 +3532,22 @@ func prepareEntryPoint(irModule *ir.Module, ep *ir.EntryPoint, opts Options) err
 
 // lowerForEmit runs the optimization passes, mem2reg and DCE in the DXC
 // pipeline order (DxilLinker.cpp:1284: mem2reg -> SimplifyInst -> DCE), and
-// then clamps run-time indices under the Index and BindingArray policies.
-func lowerForEmit(irModule *ir.Module, opts Options) error {
+// then clamps run-time indices under the Index and BindingArray policies. It
+// returns the expression types of the module as the passes leave it, for the
+// emitter and the PSV dependency table; the emitter grows them over the
+// expressions it appends.
+func lowerForEmit(irModule *ir.Module, opts Options) (*typifier.Module, error) {
 	if err := runOptPasses(irModule); err != nil {
-		return err
+		return nil, err
 	}
-	return restrictIndices(irModule, opts)
+	if err := restrictIndices(irModule, opts); err != nil {
+		return nil, err
+	}
+	types, err := typifier.ForModule(irModule)
+	if err != nil {
+		return nil, fmt.Errorf("dxil: %w", err)
+	}
+	return types, nil
 }
 
 // runOptPasses runs the optimization pass pipeline on all functions
@@ -3624,13 +3646,13 @@ func blockUsesRayQuery(block ir.Block) bool {
 //
 // Returns nil when the entry point has no signature — the PSV0
 // dep-table region is zero-sized in that case.
-func buildInputToOutputTable(irMod *ir.Module, ep *ir.EntryPoint, sigs graphicsPSVSigs) []uint32 {
+func buildInputToOutputTable(irMod *ir.Module, ep *ir.EntryPoint, types *typifier.Typifier, sigs graphicsPSVSigs) []uint32 {
 	inElems := psvSigsToViewIDElems(sigs.PSVInputs)
 	outElems := psvSigsToViewIDElems(sigs.PSVOutputs)
 	if len(inElems) == 0 || len(outElems) == 0 {
 		return nil
 	}
-	deps := viewid.Analyze(irMod, ep, inElems, outElems)
+	deps := viewid.Analyze(irMod, ep, types, inElems, outElems)
 	if deps == nil {
 		return nil
 	}

@@ -235,11 +235,6 @@ func initialValueOf(ctx *promotionContext, v uint32) ir.ExpressionHandle {
 	ctx.fn.Expressions = append(ctx.fn.Expressions, ir.Expression{
 		Kind: ir.ExprZeroValue{Type: lv.Type},
 	})
-	if len(ctx.fn.ExpressionTypes) == int(zh) {
-		ctx.fn.ExpressionTypes = append(ctx.fn.ExpressionTypes, ir.TypeResolution{
-			Handle: &lv.Type,
-		})
-	}
 	return zh
 }
 
@@ -568,21 +563,13 @@ func collectStores(ptrs *localPtr, candidates map[uint32]struct{}, block []ir.St
 }
 
 // appendPhi appends a new ExprPhi to fn.Expressions and returns its
-// handle. The phi's result type is taken from the first incoming
+// handle. The typifier gives the phi the type of its incoming values
 // (SSA invariant: every incoming has the same type).
 func (w *phiWalker) appendPhi(incomings []ir.PhiIncoming) ir.ExpressionHandle {
 	h := ir.ExpressionHandle(len(w.ctx.fn.Expressions)) //nolint:gosec // expression count fits uint32 by IR design
 	w.ctx.fn.Expressions = append(w.ctx.fn.Expressions, ir.Expression{
 		Kind: ir.ExprPhi{Incoming: incomings},
 	})
-	// Mirror the type of the first incoming into ExpressionTypes so
-	// downstream type queries succeed without re-resolving.
-	if len(incomings) > 0 && int(incomings[0].Value) < len(w.ctx.fn.ExpressionTypes) {
-		w.ctx.fn.ExpressionTypes = append(w.ctx.fn.ExpressionTypes,
-			w.ctx.fn.ExpressionTypes[incomings[0].Value])
-	} else {
-		w.ctx.fn.ExpressionTypes = append(w.ctx.fn.ExpressionTypes, ir.TypeResolution{})
-	}
 	return h
 }
 

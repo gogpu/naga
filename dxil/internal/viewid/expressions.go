@@ -495,11 +495,10 @@ func (s *analysisState) resultScalarCount(h ir.ExpressionHandle) int {
 // TypeResolution's Handle or Value form. Returns nil if the expression
 // has no resolved type.
 func (s *analysisState) innerOfExpr(h ir.ExpressionHandle) ir.TypeInner {
-	fn := &s.ep.Function
-	if int(h) >= len(fn.ExpressionTypes) {
+	if s.types == nil || int(h) >= s.types.Len() {
 		return nil
 	}
-	tr := fn.ExpressionTypes[h]
+	tr := s.types.Get(h)
 	if tr.Handle != nil {
 		th := *tr.Handle
 		if int(th) < len(s.irMod.Types) {

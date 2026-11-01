@@ -407,19 +407,15 @@ func (e *Emitter) captureInlineReturn(fn *ir.Function, ret ir.StmtReturn) error 
 
 	// For vector / multi-component returns, capture each component so the
 	// caller can address them via ExprAccessIndex / swizzle.
-	retType := e.resolveExprTypeInner(fn, *ret.Value)
-	if retType != nil {
-		nc := componentCount(retType)
-		if nc > 1 {
-			comps := make([]int, nc)
-			for c := 0; c < nc; c++ {
-				comps[c] = e.getComponentID(*ret.Value, c)
-			}
-			e.inlineReturnValue = comps[0]
-			e.inlineReturnComponents = comps
-			e.inlineReturnCaptured = true
-			return nil
+	if nc := componentCount(e.resolveExprType(fn, *ret.Value)); nc > 1 {
+		comps := make([]int, nc)
+		for c := 0; c < nc; c++ {
+			comps[c] = e.getComponentID(*ret.Value, c)
 		}
+		e.inlineReturnValue = comps[0]
+		e.inlineReturnComponents = comps
+		e.inlineReturnCaptured = true
+		return nil
 	}
 
 	e.inlineReturnValue = valueID

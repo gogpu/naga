@@ -664,8 +664,12 @@ type ExprAtomicResult struct {
 func (ExprAtomicResult) expressionKind() {}
 
 // ExprWorkGroupUniformLoadResult represents the result of a workgroup uniform load.
-// Created by StmtWorkGroupUniformLoad, holds the loaded value.
-type ExprWorkGroupUniformLoadResult struct{}
+// Created by StmtWorkGroupUniformLoad, holds the loaded value. Ty is the type
+// of that value: the pointee, or T for an atomic<T> (Rust naga's
+// WorkGroupUniformLoadResult { ty }).
+type ExprWorkGroupUniformLoadResult struct {
+	Ty TypeHandle
+}
 
 func (ExprWorkGroupUniformLoadResult) expressionKind() {}
 

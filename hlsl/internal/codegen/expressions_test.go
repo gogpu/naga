@@ -54,7 +54,7 @@ func TestIsI32ScalarOp(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	tests := []struct {
 		name string
@@ -103,21 +103,13 @@ func TestWriteAsExpressionVectorCast(t *testing.T) {
 	f32Handle := ir.TypeHandle(2)
 
 	fn := &ir.Function{
-		Expressions: []ir.Expression{
-			{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // 0: some i32 value
-			{Kind: ir.Literal{Value: ir.LiteralI32(0)}}, // 1: some i32 value
-			{Kind: ir.Literal{Value: ir.LiteralF32(0)}}, // 2: some f32 value
-		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &ivec4Handle}, // expr 0 is vec4<i32>
-			{Handle: &vec2fHandle}, // expr 1 is vec2<f32>
-			{Handle: &f32Handle},   // expr 2 is scalar f32
-		},
+		// expr 0 is vec4<i32>, 1 vec2<f32>, 2 scalar f32
+		Expressions:      zeroValues(ivec4Handle, vec2fHandle, f32Handle),
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	width4 := uint8(4)
 	tests := []struct {
@@ -203,7 +195,7 @@ func TestWrappingSignedArithmetic(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	tests := []struct {
 		name string
@@ -477,7 +469,7 @@ func TestSamplerHeapBindingArray(t *testing.T) {
 				{Handle: ptrTo(ir.TypeHandle(5))}, // type of textures
 			},
 		}
-		w.currentFunction = fn
+		setCurrentFunction(t, w, fn)
 
 		info := w.samplerBindingArrayInfoFromExpression(0)
 		if info == nil {
@@ -577,7 +569,7 @@ func TestWritePack4xI8U8(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newTestWriter(module, nil, nil)
-			setCurrentFunction(w, fn)
+			setCurrentFunction(t, w, fn)
 			w.Out.Reset()
 
 			e := ir.ExprMath{Fun: tt.fun, Arg: 0}
@@ -635,7 +627,7 @@ func TestWriteUnpack4xI8U8(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newTestWriter(module, nil, nil)
-			setCurrentFunction(w, fn)
+			setCurrentFunction(t, w, fn)
 			w.Out.Reset()
 
 			e := ir.ExprMath{Fun: tt.fun, Arg: 0}
@@ -697,7 +689,7 @@ func TestWriteDot4Packed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newTestWriter(module, nil, nil)
 			w.options.ShaderModel = tt.sm
-			setCurrentFunction(w, fn)
+			setCurrentFunction(t, w, fn)
 			w.Out.Reset()
 
 			e := ir.ExprMath{Fun: tt.fun, Arg: 0, Arg1: &arg1Handle}
@@ -716,7 +708,7 @@ func TestWriteDot4Packed(t *testing.T) {
 	// Error case: missing arg1
 	t.Run("missing_arg1_error", func(t *testing.T) {
 		w := newTestWriter(module, nil, nil)
-		setCurrentFunction(w, fn)
+		setCurrentFunction(t, w, fn)
 		w.Out.Reset()
 
 		e := ir.ExprMath{Fun: ir.MathDot4I8Packed, Arg: 0, Arg1: nil}
@@ -763,7 +755,7 @@ func TestLiteralF16Formatting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := newTestWriter(module, nil, nil)
-			setCurrentFunction(w, fn)
+			setCurrentFunction(t, w, fn)
 			w.Out.Reset()
 
 			err := w.writeExpression(tt.handle)
@@ -787,32 +779,33 @@ func TestExprWorkGroupUniformLoadResult(t *testing.T) {
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarUint, Width: 4}}, // 0: u32
 		},
+		GlobalVariables: []ir.GlobalVariable{
+			{Name: "wg_data", Space: ir.SpaceWorkGroup, Type: 0},
+		},
 	}
-	u32Handle := ir.TypeHandle(0)
 
 	fn := &ir.Function{
 		Expressions: []ir.Expression{
-			{Kind: ir.ExprWorkGroupUniformLoadResult{}}, // 0: result
+			{Kind: ir.ExprGlobalVariable{Variable: 0}},  // 0: wg_data ptr
+			{Kind: ir.ExprWorkGroupUniformLoadResult{}}, // 1: result
 		},
-		ExpressionTypes: []ir.TypeResolution{
-			{Handle: &u32Handle},
-		},
+		Body:             ir.Block{{Kind: ir.StmtWorkGroupUniformLoad{Pointer: 0, Result: 1}}},
 		NamedExpressions: make(map[ir.ExpressionHandle]string),
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	// Simulate what writeWorkGroupUniformLoadStatement does: cache the name
-	w.namedExpressions[0] = "_e0"
+	w.namedExpressions[1] = "_e1"
 
 	w.Out.Reset()
-	err := w.writeExpression(0)
+	err := w.writeExpression(1)
 	if err != nil {
 		t.Fatalf("writeExpression(WorkGroupUniformLoadResult): %v", err)
 	}
 	got := w.Out.String()
-	if got != "_e0" {
-		t.Errorf("WorkGroupUniformLoadResult: got %q, want %q", got, "_e0")
+	if got != "_e1" {
+		t.Errorf("WorkGroupUniformLoadResult: got %q, want %q", got, "_e1")
 	}
 }

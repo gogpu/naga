@@ -641,7 +641,7 @@ func TestWriteExpressionToString(t *testing.T) {
 	}
 
 	w := newTestWriter(module, nil, nil)
-	setCurrentFunction(w, fn)
+	setCurrentFunction(t, w, fn)
 
 	got, err := w.writeExpressionToString(0)
 	if err != nil {

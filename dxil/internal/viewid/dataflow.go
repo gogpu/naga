@@ -36,6 +36,7 @@
 package viewid
 
 import (
+	"github.com/gogpu/naga/internal/typifier"
 	"github.com/gogpu/naga/ir"
 )
 
@@ -137,8 +138,8 @@ type SigElement struct {
 	SystemManaged bool
 }
 
-// Analyze walks the entry point function body and computes dataflow
-// dependencies between inputs and outputs.
+// Analyze walks the entry point function body, whose expression types are
+// types, and computes dataflow dependencies between inputs and outputs.
 //
 // The analysis is conservative: when it cannot trace precisely (e.g.
 // through local-variable flow with multiple stores, dynamic indexing,
@@ -150,7 +151,7 @@ type SigElement struct {
 // decouples the IR-level walker from the DXIL emitter's sig collection
 // machinery while still honoring the emit-order ↔ ViewIdState-scalar-
 // order contract.
-func Analyze(irMod *ir.Module, ep *ir.EntryPoint, inputs, outputs []SigElement) *Deps {
+func Analyze(irMod *ir.Module, ep *ir.EntryPoint, types *typifier.Typifier, inputs, outputs []SigElement) *Deps {
 	var numInScalars, numOutScalars uint32
 	var sigInVectors, sigOutVectors uint32
 
@@ -212,7 +213,7 @@ func Analyze(irMod *ir.Module, ep *ir.EntryPoint, inputs, outputs []SigElement) 
 	}
 
 	// Run per-component taint propagation.
-	state := newAnalysisState(irMod, ep, inputs, outputs)
+	state := newAnalysisState(irMod, ep, types, inputs, outputs)
 	state.analyze()
 
 	// Emit results in both layouts from the same taint result.

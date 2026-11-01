@@ -1227,11 +1227,11 @@ func TestSwizzleAssignment_RHSConvertsToVectorScalar(t *testing.T) {
 						continue
 					}
 					stores++
-					ptr, err := ir.ResolveExpressionType(m, fn, st.Pointer)
+					ptr, err := typeOfExpr(m, fn, st.Pointer)
 					if err != nil {
 						t.Fatalf("resolve store pointer: %v", err)
 					}
-					val, err := ir.ResolveExpressionType(m, fn, st.Value)
+					val, err := typeOfExpr(m, fn, st.Value)
 					if err != nil {
 						t.Fatalf("resolve store value: %v", err)
 					}
@@ -1249,7 +1249,7 @@ func TestSwizzleAssignment_RHSConvertsToVectorScalar(t *testing.T) {
 				t.Fatal("no Store in the entry point")
 			}
 			for h := range fn.Expressions {
-				res, err := ir.ResolveExpressionType(m, fn, ir.ExpressionHandle(h))
+				res, err := typeOfExpr(m, fn, ir.ExpressionHandle(h))
 				if err != nil {
 					t.Fatalf("resolve expression %d: %v", h, err)
 				}
@@ -1269,7 +1269,7 @@ func TestSwizzleAssignment_RHSConvertsToVectorScalar(t *testing.T) {
 					continue
 				}
 				for _, comp := range c.Components {
-					cres, err := ir.ResolveExpressionType(m, fn, comp)
+					cres, err := typeOfExpr(m, fn, comp)
 					if err != nil {
 						t.Fatalf("resolve component %d: %v", comp, err)
 					}
