@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The last planned breaking release before v1.0 (ADR-010): one public surface, in Rust naga's shape, with safe zero
+values. `apidiff` against v0.20.5 lists every change; the entries below explain them.
+
+### Migrating from 0.20
+
+| 0.20 | 0.21 |
+|---|---|
+| `naga.Parse` + `naga.Lower`, `wgsl.Lower*`, `wgsl.NewParser`… | `wgsl.Parse(src, wgsl.ParseOptions{}) (*ir.Module, wgsl.ParseInfo, error)`; errors are `*wgsl.ParseError` (`Format`, `Location`) |
+| `naga.Validate`, `ir.Validate`, `ir.ValidateWithCapabilities` | `valid.Validate(m, valid.Options{Capabilities, SubgroupStages, SubgroupOperations}) (valid.ModuleInfo, error)` — zero = no optional capability |
+| `ir.Capabilities`, `ir.Cap*`, `ir.ValidationError(s)` | `valid.Capabilities`, `valid.Cap*`, `valid.Error`, `valid.Errors` |
+| `naga.GenerateSPIRV`, `spirv.NewBackend(o).Compile(m)` | `spirv.Compile(m, spirv.Options{}) ([]byte, spirv.TranslationInfo, error)` — every backend: `Compile(*ir.Module, Options) (out, TranslationInfo, error)` |
+| `hlsl.Compile(m, *Options)`, `hlsl.DefaultOptions() *Options` | `hlsl.Compile(m, hlsl.Options{})`; `DefaultOptions()` is the zero `Options` in every backend |
+| `naga.ProcessOverrides(m, opts) (*ir.Module, error)` | `naga.ProcessOverrides(m, info, opts) (*ir.Module, valid.ModuleInfo, error)` — pass the `ModuleInfo` of your `valid.Validate` |
+| `naga.CompileOptions{SPIRVVersion, Debug, Validate, BoundsCheckPolicies}` | `naga.CompileOptions{SPIRV spirv.Options, Capabilities valid.Capabilities, SkipValidation}` |
+| `naga.EntryPointSelector`, glsl/hlsl entry point names, `msl.PipelineOptions` | `*backend.EntryPointSelector{Stage, Name}` in every backend's `Options.EntryPoint` and in `OverrideOptions` |
+| per-backend `BoundsCheckPolicy`/`Policies`, `ClampFragDepth`, zero-init bools, `dxil.ShaderModel`/`SM6_*` | `backend.BoundsCheckPolicies` (zero = `Restrict`), `backend.ClampFragDepth`, `backend.ZeroInitializeWorkgroupMemoryMode` (zero = polyfill), `backend.ShaderModel{Major, Minor}` |
+| `ForceLoopBounding`, `RayQueryInitTracking` | `SkipLoopBounding`, `SkipRayQueryInitTracking` (safe at zero) |
+| a target version raised for you; `backend.ShaderModelError` | refused: `*backend.VersionError{Space, Feature, Required, Requested}` (`errors.Is(err, backend.ErrUnsupported)`) — pass the device's version |
+| glsl `WriterFlags`, binding bases, `ForceHighPrecision` | `SkipAdjustCoordinateSpace`, `ForcePointSize`, `TextureShadowLod`, `DrawParameters`; bases removed |
+| binding map keys `glsl.BindingMapKey`, `dxil.BindingLocation`, `spirv.ResourceBinding` | `ir.ResourceBinding`; a non-nil map must list every resource (else `backend.ErrMissingBinding`, unless `FakeMissingBindings`) |
+| `ir.Compact*`, `ir.CompactUnused`, `ir.KeepUnused*` | `naga.Compact(m, naga.KeepUnusedYes/No)` |
+| `ir.TypeSize`, `ir.TypeAlignment`, `ir.TypeResInner`, `ir.ResolveLiteralType`, `ir.NeedsPreEmit`, `ir.ResolveExpressionType` | `ir.Layouter`, `TypeResolution.Inner`, `Literal.Type`, `Expression.NeedsPreEmit`; expression typing is internal |
+| `ir.Constant{Value, IsAbstract}`, `ir.ConstantValue`… | `ir.Constant{Name, Type, Init}` (`Init` indexes `Module.GlobalExpressions`) |
+| `ir.StorageAccessMode`, `StorageRead`/`Write`… | `ir.StorageAccess` bit set (`StorageAccessLoad`, `Store`, `Atomic`) |
+| `ir.Interpolation{Kind, Sampling}`, `ir.EarlyDepthTest{Conservative}`, `ir.StmtBarrier` | `ir.LocationBinding{Interpolation *Interpolation, Sampling *Sampling, PerPrimitive}`, `EarlyDepthForce`/`EarlyDepthAllow`, `StmtControlBarrier` + `StmtMemoryBarrier` |
+| `ir.SpacePushConstant` (`var<push_constant>`) | `ir.SpaceImmediate` (`var<immediate>`); later address-space values shift by one |
+| `ir.ExprAlias`, `ir.ExprPhi`, `ir.AtomicLoad`/`Store`, `Module.TypeUseOrder`/`TypeAliasNames`, `Function.ExpressionTypes` | removed (backend-internal or never produced) |
+| spirv `Instruction`, `ModuleBuilder`, `Op*`, `GLSLstd*`, `Capability*` … | internal; `spirv.Capability` stays for `ExtraCapabilities`/`AllowedCapabilities` |
+| hlsl `Error`/`ErrorKind`, `Feature*`, `*ToHLSL` helpers | removed (internal); errors wrap `backend.ErrUnsupported` / `backend.ErrMissingBinding` |
+
 ### Changed
 
 - **Readback corpus format 2.** A known failure can carry `"skip": true`: the runner does not dispatch the case on
