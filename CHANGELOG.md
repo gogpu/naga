@@ -106,6 +106,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FunctionInfo`, `GlobalUse`; renamed: `ValidateOptions` → `valid.Options`, `ValidationError` → `valid.Error`,
   `ValidationErrors` → `valid.Errors`. `naga.CompileOptions.Capabilities` is a `valid.Capabilities`.
   `Function.ExpressionTypes` is removed.
+- **Breaking: the validator checks every capability Rust naga checks on a feature naga's IR can express** (ADR-010
+  S-B), with Rust's texts. Besides f64, i64 and f16 (literals too, which were missed): subgroup operations, barriers,
+  built-ins and stages; 64-bit and f32 atomics; texture atomics; ray queries and acceleration structures; mesh shaders;
+  multiview, primitive index, clip distances, barycentrics, draw index; dual-source blending; early depth test; 16-bit
+  norm storage textures; binding arrays of each resource kind; per-vertex inputs; i16/u16. `valid.Options` gains
+  `SubgroupStages` and `SubgroupOperations` (Rust's bits); zero derives them from the capabilities, as Rust. Zero
+  `Options` still accepts every core WebGPU shader, immediates and `texture_external` included; a caller using an
+  optional feature passes the device's capabilities (Rust's `features_to_naga_capabilities` mapping). Every Rust corpus
+  shader validates with exactly the capabilities its parameters grant, and fails without any one of them.
+- **Validator: an expression used before it is in scope is an error**, as Rust naga's `NotInScope`. It found two
+  places where naga produced such IR: the WGSL frontend emitted an `atomicStore` value after the store, and
+  `ProcessOverrides` remapped `Emit` ranges by their ends, emitting an expression twice (gfx-rs/wgpu#10646); both
+  fixed.
 - **Breaking: the IR has only the kinds Rust naga's IR has** (ADR-010 B6). `ir.ExprAlias`, `ir.ExprPhi`,
   `ir.PhiIncoming` and `ir.PhiPredKey` existed for the DXIL backend's SSA pass and now live inside it;
   `ir.AtomicStore` and `ir.AtomicLoad`, which nothing produced (an atomic load is a `Load`, a store a `Store`, as in
