@@ -45,10 +45,11 @@ type Options struct {
 	// and !dx.shaderModel carry the same version. A shader that uses a
 	// feature of a newer model (the view index 6.1, 16-bit types 6.2, ray
 	// queries and mesh shaders 6.5, 64-bit atomics 6.6) is an error, a
-	// *backend.ShaderModelError: pass the device's highest supported model. Known
-	// gap (P1-DXIL-072): storage buffers are written with raw buffer
-	// operations, which raise the model to 6.2 (6.3 for 64-bit elements),
-	// where DXC writes bufferLoad and bufferStore below 6.2.
+	// *backend.ShaderModelError: pass the device's highest supported model. So
+	// is, for now, a storage buffer whose element has more than four
+	// components (6.2) or 64-bit elements (6.3): it is written with raw
+	// buffer operations, where DXC writes bufferLoad and bufferStore below
+	// 6.2 (P1-DXIL-072).
 	ShaderModel backend.ShaderModel
 
 	// EntryPoint is the entry point the container holds. A DXIL container
@@ -502,11 +503,19 @@ func compileContainer(irModule *ir.Module, opts Options) ([]byte, error) {
 	// rawBufferLoad/Store (SM 6.2+) or 64-bit element access (SM 6.3+).
 	// This mirrors DXC behavior: dead storage buffer accesses are optimized
 	// away before SM requirements are applied.
-	if reachableUsesRawBufferAccess(irModule, reachableGlobals) && smMinor < 2 {
-		smMinor = 2
-	}
+	// Storage buffers are written with raw buffer operations (SM 6.2; 6.3
+	// for 64-bit elements), where DXC writes bufferLoad and bufferStore below
+	// 6.2: our limit, not the shader's, refused as loudly as a feature
+	// (P1-DXIL-072).
 	if reachableUsesInt64Buffer(irModule, reachableGlobals) && smMinor < 3 {
-		smMinor = 3
+		return nil, fmt.Errorf("dxil: %w", &backend.ShaderModelError{
+			Feature:  "a storage buffer with 64-bit elements (written with raw buffer operations, P1-DXIL-072)",
+			Required: backend.ShaderModel{Major: 6, Minor: 3}, Requested: opts.ShaderModel})
+	}
+	if reachableUsesRawBufferAccess(irModule, reachableGlobals) && smMinor < 2 {
+		return nil, fmt.Errorf("dxil: %w", &backend.ShaderModelError{
+			Feature:  "a storage buffer element of more than four components (written with raw buffer operations, P1-DXIL-072)",
+			Required: backend.ShaderModel{Major: 6, Minor: 2}, Requested: opts.ShaderModel})
 	}
 
 	// Pre-compute per-input-arg component usage masks from IR body analysis.
