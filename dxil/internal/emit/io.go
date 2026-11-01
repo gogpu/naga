@@ -139,7 +139,7 @@ func (e *Emitter) buildInputRowMap(fn *ir.Function, stage ir.ShaderStage) map[in
 	isComputeLike := stage == ir.StageCompute || stage == ir.StageMesh || stage == ir.StageTask
 
 	interpFn := func(loc ir.LocationBinding) d3d.SigPackInterp {
-		return d3d.SigPackInterp(interpolationModeForBinding(loc.Interpolation, isFragment, false))
+		return d3d.SigPackInterp(interpolationModeForBinding(loc, isFragment, false))
 	}
 
 	entries := e.collectFlatInputEntries(fn, isVSInput)

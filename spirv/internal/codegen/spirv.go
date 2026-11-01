@@ -258,6 +258,7 @@ const (
 	DecorationDescriptorSet Decoration = 34
 	DecorationOffset        Decoration = 35
 	DecorationNonUniform    Decoration = 5300 // NonUniformEXT
+	DecorationPerVertexKHR  Decoration = 5285 // SPV_KHR_fragment_shader_barycentric
 )
 
 // BuiltIn represents a SPIR-V built-in decoration value.

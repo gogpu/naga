@@ -265,15 +265,33 @@ func convertSamplerBufferBindingMap(m map[uint32]BindTarget) map[uint32]emit.Bin
 	return out
 }
 
+// checkLocation refuses the location bindings the emitter does not write:
+// per_vertex, which DXC lowers to nointerpolation inputs read with
+// dx.op.attributeAtVertex (SM 6.1, GetAttributeAtVertex in Rust naga's HLSL),
+// and per_primitive, a mesh shading input.
+func checkLocation(ep *ir.EntryPoint, loc ir.LocationBinding) error {
+	if loc.Interpolation != nil && *loc.Interpolation == ir.InterpolationPerVertex {
+		return unsupported.Errorf("dxil: entry point %q: location %d: per_vertex interpolation is not supported", ep.Name, loc.Location)
+	}
+	if loc.PerPrimitive {
+		return unsupported.Errorf("dxil: entry point %q: location %d: per_primitive is not supported", ep.Name, loc.Location)
+	}
+	return nil
+}
+
 // checkBuiltins refuses an entry point whose interface uses a built-in the
 // emitter has no signature element for. draw_index and point_size have no
 // D3D semantic (Rust naga's HLSL backend refuses them too); SV_Barycentrics is
 // not written yet (P2-DXIL-073). The semantic mapper's fallback would
-// otherwise name them SV_Unknown<N>.
+// otherwise name them SV_Unknown<N>. Location bindings go through
+// checkLocation.
 func checkBuiltins(irModule *ir.Module, ep *ir.EntryPoint) error {
 	check := func(b *ir.Binding) error {
 		if b == nil {
 			return nil
+		}
+		if loc, ok := (*b).(ir.LocationBinding); ok {
+			return checkLocation(ep, loc)
 		}
 		bi, ok := (*b).(ir.BuiltinBinding)
 		if !ok {
@@ -753,10 +771,10 @@ func buildSignatures(irMod *ir.Module, ep *ir.EntryPoint, isFragment bool) ([]co
 	stage := ep.Stage
 	isVSInput := stage == ir.StageVertex
 	interpFn := func(loc ir.LocationBinding) d3d.SigPackInterp {
-		return d3d.SigPackInterp(psvInterpolationMode(loc.Interpolation, isFragment, false))
+		return d3d.SigPackInterp(psvInterpolationMode(loc, isFragment, false))
 	}
 	interpFnOut := func(loc ir.LocationBinding) d3d.SigPackInterp {
-		return d3d.SigPackInterp(psvInterpolationMode(loc.Interpolation, isFragment, true))
+		return d3d.SigPackInterp(psvInterpolationMode(loc, isFragment, true))
 	}
 
 	// Inputs from function arguments.
@@ -1472,10 +1490,10 @@ func buildGraphicsPSVSigs(irMod *ir.Module, ep *ir.EntryPoint) graphicsPSVSigs {
 	stage := ep.Stage
 	isVSInput := stage == ir.StageVertex
 	interpFnIn := func(loc ir.LocationBinding) d3d.SigPackInterp {
-		return d3d.SigPackInterp(psvInterpolationMode(loc.Interpolation, ep.Stage == ir.StageFragment, false))
+		return d3d.SigPackInterp(psvInterpolationMode(loc, ep.Stage == ir.StageFragment, false))
 	}
 	interpFnOut := func(loc ir.LocationBinding) d3d.SigPackInterp {
-		return d3d.SigPackInterp(psvInterpolationMode(loc.Interpolation, ep.Stage == ir.StageFragment, true))
+		return d3d.SigPackInterp(psvInterpolationMode(loc, ep.Stage == ir.StageFragment, true))
 	}
 
 	// Walk arguments (inputs).
@@ -1694,7 +1712,7 @@ func psvSemanticForLocation(loc ir.LocationBinding, stage ir.ShaderStage, isOutp
 		Kind:          0, // SemanticKind::Arbitrary
 		Name:          d3d.LocationSemantic,
 		Index:         loc.Location,
-		Interpolation: psvInterpolationMode(loc.Interpolation, isFragment, isOutput),
+		Interpolation: psvInterpolationMode(loc, isFragment, isOutput),
 	}
 }
 
@@ -1714,21 +1732,32 @@ func psvSemanticForLocation(loc ir.LocationBinding, stage ir.ShaderStage, isOutp
 // or the validator emits 'Interpolation mode for X is set but should
 // be undefined'. Vertex output and fragment input MUST match — they
 // describe the same data flowing across the rasterizer.
-func psvInterpolationMode(interp *ir.Interpolation, isFragment, isOutput bool) uint8 {
+//
+// The mode is DXC's for the qualifiers Rust naga's HLSL writer gives the
+// binding (InterpolationMode's table in DxilInterpolationMode.cpp): flat,
+// whatever its sampling (first and either have no HLSL qualifier), is
+// nointerpolation, Constant; linear is noperspective; centroid and sample
+// add their variant; perspective and center add nothing. Per-vertex inputs
+// are refused before (checkBuiltins).
+func psvInterpolationMode(loc ir.LocationBinding, isFragment, isOutput bool) uint8 {
 	isVertex := !isFragment
 	carries := (isVertex && isOutput) || (isFragment && !isOutput)
 	if !carries {
 		return 0
 	}
-	if interp == nil {
+	if loc.Interpolation == nil {
 		return 2 // Linear (perspective center, default)
 	}
-	switch interp.Kind {
+	var sampling ir.Sampling // None is center
+	if loc.Sampling != nil {
+		sampling = *loc.Sampling
+	}
+	switch *loc.Interpolation {
 	case ir.InterpolationFlat:
 		return 1 // Constant
 	case ir.InterpolationLinear:
 		// "linear" in WGSL == HLSL noperspective.
-		switch interp.Sampling {
+		switch sampling {
 		case ir.SamplingCentroid:
 			return 5 // LinearNoperspectiveCentroid
 		case ir.SamplingSample:
@@ -1737,7 +1766,7 @@ func psvInterpolationMode(interp *ir.Interpolation, isFragment, isOutput bool) u
 			return 4 // LinearNoperspective
 		}
 	case ir.InterpolationPerspective:
-		switch interp.Sampling {
+		switch sampling {
 		case ir.SamplingCentroid:
 			return 3 // LinearCentroid
 		case ir.SamplingSample:

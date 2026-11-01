@@ -149,42 +149,51 @@ func BuiltInToSemantic(b ir.BuiltinValue) string {
 	}
 }
 
-// InterpolationToHLSL returns the HLSL interpolation modifier.
-// Returns empty string for the default perspective interpolation.
-func InterpolationToHLSL(k ir.InterpolationKind) string {
-	switch k {
-	case ir.InterpolationFlat:
-		return "nointerpolation"
+// InterpolationToHLSL returns the HLSL interpolation modifier: Rust naga's
+// Interpolation::to_hlsl_str (back/hlsl/conv.rs). Perspective, the default
+// in SM4 and up, has none; a per-vertex input is nointerpolation, read with
+// GetAttributeAtVertex.
+func InterpolationToHLSL(i ir.Interpolation) string {
+	switch i {
 	case ir.InterpolationLinear:
 		return "noperspective"
-	case ir.InterpolationPerspective:
-		return "" // Default in SM4+
+	case ir.InterpolationFlat, ir.InterpolationPerVertex:
+		return "nointerpolation"
 	default:
 		return ""
 	}
 }
 
-// SamplingToHLSL returns the HLSL auxiliary sampling qualifier.
-// Returns empty string for default center sampling.
-func SamplingToHLSL(s ir.InterpolationSampling) string {
+// SamplingToHLSL returns the HLSL auxiliary sampling qualifier: Rust naga's
+// Sampling::to_hlsl_str. Center, first and either have none.
+func SamplingToHLSL(s ir.Sampling) string {
 	switch s {
-	case SamplingCenter:
-		return "" // Default
-	case SamplingCentroid:
+	case ir.SamplingCentroid:
 		return "centroid"
-	case SamplingSample:
+	case ir.SamplingSample:
 		return "sample"
 	default:
 		return ""
 	}
 }
 
-// Sampling constants matching ir.InterpolationSampling
-const (
-	SamplingCenter   ir.InterpolationSampling = ir.SamplingCenter
-	SamplingCentroid ir.InterpolationSampling = ir.SamplingCentroid
-	SamplingSample   ir.InterpolationSampling = ir.SamplingSample
-)
+// interpolationModifiers is Rust naga's write_modifier for a location
+// binding: the interpolation modifier, then the sampling one, each followed
+// by a space; "" when the binding has neither.
+func interpolationModifiers(loc ir.LocationBinding) string {
+	var s string
+	if loc.Interpolation != nil {
+		if m := InterpolationToHLSL(*loc.Interpolation); m != "" {
+			s += m + " "
+		}
+	}
+	if loc.Sampling != nil {
+		if m := SamplingToHLSL(*loc.Sampling); m != "" {
+			s += m + " "
+		}
+	}
+	return s
+}
 
 // AtomicOpToHLSL returns the HLSL Interlocked function suffix.
 func AtomicOpToHLSL(op string) string {

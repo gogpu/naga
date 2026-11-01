@@ -1,4 +1,4 @@
-// language: metal1.0
+// language: metal4.0
 #include <metal_stdlib>
 #include <simd/simd.h>
 
@@ -15,7 +15,7 @@ struct type_1 {
 };
 
 struct fs_mainInput {
-    type_1 v [[user(loc0), center_perspective]];
+    metal::vertex_value<float> v [[user(loc0)]];
 };
 struct fs_mainOutput {
     metal::float4 member [[color(0)]];
@@ -23,6 +23,6 @@ struct fs_mainOutput {
 fragment fs_mainOutput fs_main(
   fs_mainInput varyings [[stage_in]]
 ) {
-    const auto v = varyings.v;
+    const type_1 v = { varyings.v.get(metal::vertex_index::first), varyings.v.get(metal::vertex_index::second), varyings.v.get(metal::vertex_index::third) };
     return fs_mainOutput { metal::float4(v.inner[0], v.inner[1], v.inner[2], 1.0) };
 }

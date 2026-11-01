@@ -5,12 +5,15 @@
 ; Schema: 0
 
                OpCapability Shader
+               OpCapability 5284
+         OpExtension %_1599492179 %_1599227979 %_1734439526 %_1953391981 %_1634235231 %_1601332580 %_2037539170 %_1953391971 %_6515058
          %_1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint Fragment %_13 "fs_main" %_9 %_11
                OpExecutionMode %_13 OriginUpperLeft
                OpDecorate %_6 ArrayStride 4
                OpDecorate %_9 Location 0
+               OpDecorate %_9 5285
                OpDecorate %_11 Location 0
          %_2 = OpTypeVoid
          %_3 = OpTypeFloat 32

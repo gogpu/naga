@@ -321,7 +321,10 @@ func (w *Writer) writeInterfaceStruct(
 		if m.binding != nil {
 			w.writeModifierForType(m.binding, m.ty)
 		}
-		typeName := w.getTypeName(m.ty)
+		// Rust naga writes an array member's element type without its size
+		// (write_type): a per-vertex input's array<T, 3> is one T, read per
+		// vertex with GetAttributeAtVertex.
+		typeName, _ := w.getTypeNameWithArraySuffix(m.ty)
 		fmt.Fprintf(&w.Out, "%s %s", typeName, m.name)
 		if m.binding != nil {
 			w.writeSemantic(m.binding, stageIO)
@@ -351,8 +354,10 @@ func (w *Writer) writeInterfaceStruct(
 	}, nil
 }
 
-// writeModifierForType writes interpolation/invariant modifiers, applying default
-// interpolation for int/uint types (Flat -> nointerpolation).
+// writeModifierForType writes interpolation/invariant modifiers (Rust naga's
+// write_modifier), and nointerpolation for an integer location without
+// interpolation, as getInterpolationModifierForType does (upstream b051a87e
+// not ported).
 func (w *Writer) writeModifierForType(binding *ir.Binding, ty ir.TypeHandle) {
 	if binding == nil {
 		return
@@ -368,22 +373,13 @@ func (w *Writer) writeModifierForType(binding *ir.Binding, ty ir.TypeHandle) {
 			fmt.Fprintf(&w.Out, "noperspective ")
 		}
 	case ir.LocationBinding:
-		if b.Interpolation != nil {
-			if kindStr := InterpolationToHLSL(b.Interpolation.Kind); kindStr != "" {
-				fmt.Fprintf(&w.Out, "%s ", kindStr)
-			}
-			if sampStr := SamplingToHLSL(b.Interpolation.Sampling); sampStr != "" {
-				fmt.Fprintf(&w.Out, "%s ", sampStr)
-			}
-		} else {
-			// Apply default interpolation: int/uint -> nointerpolation (matches Rust naga)
-			if int(ty) < len(w.module.Types) {
-				kind, hasKind := getScalarKind(w.module, ty)
-				if hasKind && (kind == ir.ScalarSint || kind == ir.ScalarUint) {
-					fmt.Fprintf(&w.Out, "nointerpolation ")
-				}
+		if b.Interpolation == nil && int(ty) < len(w.module.Types) {
+			kind, hasKind := getScalarKind(w.module, ty)
+			if hasKind && (kind == ir.ScalarSint || kind == ir.ScalarUint) {
+				w.Out.WriteString("nointerpolation ")
 			}
 		}
+		w.Out.WriteString(interpolationModifiers(b))
 	}
 }
 
@@ -399,14 +395,7 @@ func (w *Writer) writeModifier(binding *ir.Binding) {
 			// Check for invariant - for now, we don't track this
 		}
 	case ir.LocationBinding:
-		if b.Interpolation != nil {
-			if kindStr := InterpolationToHLSL(b.Interpolation.Kind); kindStr != "" {
-				fmt.Fprintf(&w.Out, "%s ", kindStr)
-			}
-			if sampStr := SamplingToHLSL(b.Interpolation.Sampling); sampStr != "" {
-				fmt.Fprintf(&w.Out, "%s ", sampStr)
-			}
-		}
+		w.Out.WriteString(interpolationModifiers(b))
 	}
 }
 
@@ -606,15 +595,26 @@ func (w *Writer) writeEPArgumentsInit(epIdx int, fn *ir.Function, ep *ir.EntryPo
 			}
 		}
 
-		// Simple argument
+		// Simple argument; an array one (a per-vertex input) is
+		// `T name[N]`, as Rust writes it.
+		typeName, arraySuffix := w.getTypeNameWithArraySuffix(arg.Type)
 		w.WriteIndent()
-		fmt.Fprintf(&w.Out, "%s %s = ", argType, argName)
+		fmt.Fprintf(&w.Out, "%s %s%s = ", typeName, argName, arraySuffix)
 		if fakeIter < len(epInput.members) {
 			w.writeEPArgInit(ep, epInput, &epInput.members[fakeIter], arg.Binding)
 			fakeIter++
 		}
 		w.Out.WriteString(";\n")
 	}
+}
+
+// isPerVertexBinding reports whether b is a per-vertex fragment input.
+func isPerVertexBinding(b *ir.Binding) bool {
+	if b == nil {
+		return false
+	}
+	loc, ok := (*b).(ir.LocationBinding)
+	return ok && loc.Interpolation != nil && *loc.Interpolation == ir.InterpolationPerVertex
 }
 
 // writeEPArgInit writes the initialization expression for a single EP argument.
@@ -644,6 +644,12 @@ func (w *Writer) writeEPArgInit(ep *ir.EntryPoint, epInput *entryPointBinding, f
 				fmt.Fprintf(&w.Out, "%s.__local_invocation_index / WaveGetLaneCount()", epInput.argName)
 				return
 			}
+		}
+		if isPerVertexBinding(binding) {
+			// checkShaderModel refused a model below 6.1.
+			fmt.Fprintf(&w.Out, "{ GetAttributeAtVertex(%[1]s.%[2]s, 0), GetAttributeAtVertex(%[1]s.%[2]s, 1), GetAttributeAtVertex(%[1]s.%[2]s, 2) }",
+				epInput.argName, fakeMember.name)
+			return
 		}
 	}
 	// Default: read from input struct

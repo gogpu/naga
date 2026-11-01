@@ -150,16 +150,16 @@ func TestBindingTypes(t *testing.T) {
 	})
 
 	t.Run("location_binding", func(t *testing.T) {
-		interp := &Interpolation{Kind: InterpolationFlat, Sampling: SamplingCenter}
+		interp, sampling := InterpolationFlat, SamplingCenter
 		blendSrc := uint32(1)
-		b := LocationBinding{Location: 3, Interpolation: interp, BlendSrc: &blendSrc}
+		b := LocationBinding{Location: 3, Interpolation: &interp, Sampling: &sampling, BlendSrc: &blendSrc}
 		var binding Binding = b
 		binding.binding()
 		if b.Location != 3 {
 			t.Error("unexpected location")
 		}
-		if b.Interpolation.Kind != InterpolationFlat {
-			t.Error("unexpected interpolation kind")
+		if *b.Interpolation != InterpolationFlat || *b.Sampling != SamplingCenter {
+			t.Error("unexpected interpolation")
 		}
 		if *b.BlendSrc != 1 {
 			t.Error("unexpected blend src")

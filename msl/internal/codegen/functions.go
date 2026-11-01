@@ -454,6 +454,9 @@ func (w *Writer) writeEntryPoints() error {
 
 // writeEntryPoint writes a single entry point function.
 func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
+	if err := w.checkVaryings(ep); err != nil {
+		return err
+	}
 	// Blank line before each entry point (matches Rust naga: writeln!(self.out)?)
 	w.WriteLine("")
 
@@ -807,8 +810,11 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 
 			if arg.Binding != nil {
 				// Direct argument with location binding — extract from varyings struct
-				if isVarying(arg.Binding) {
-					if w.hasVaryings {
+				if isVarying(arg.Binding) && w.hasVaryings {
+					if isPerVertex(arg.Binding) {
+						w.WriteLine("const %s %s = %s;", w.writeTypeName(arg.Type, StorageAccess(0)), argName,
+							perVertexValues(varyingsName, argName))
+					} else {
 						w.WriteLine("const auto %s = %s.%s;", argName, varyingsName, argName)
 					}
 				}
@@ -840,6 +846,13 @@ func (w *Writer) writeEntryPoint(epIdx int, ep *ir.EntryPoint) error {
 				}
 				key := nameKey{kind: nameKeyStructMember, handle1: uint32(arg.Type), handle2: uint32(memberIdx)}
 				memberName := w.flattenedMemberNames[key]
+				// A per-vertex member is its three vertices' values. Rust
+				// writes the argument's name and a line break here
+				// (writer.rs, struct arguments); the member's is right.
+				if isPerVertex(member.Binding) && !doVPT && w.hasVaryings {
+					w.write("%s", perVertexValues(varyingsName, memberName))
+					continue
+				}
 				if !doVPT {
 					// Normal mode: location members from varyings struct
 					if isVarying(member.Binding) && w.hasVaryings {
@@ -997,10 +1010,7 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 					continue
 				}
 				argName := w.getName(nameKey{kind: nameKeyFunctionArgument, handle1: uint32(epFuncHandle(epIdx)), handle2: uint32(i)})
-				argType := w.writeTypeName(arg.Type, StorageAccess(0))
-
-				attr := w.varyingAttribute(*arg.Binding, ep.Stage, arg.Type)
-				w.WriteLine("%s %s %s;", argType, argName, attr)
+				w.WriteLine("%s;", w.varyingMember(*arg.Binding, ep.Stage, arg.Type, argName))
 			}
 		})
 
@@ -1072,9 +1082,7 @@ func (w *Writer) writeEntryPointInputStruct(epIdx int, ep *ir.EntryPoint, fn *ir
 					}
 					key := nameKey{kind: nameKeyStructMember, handle1: uint32(sa.tyH), handle2: uint32(memberIdx)}
 					memberName := w.flattenedMemberNames[key]
-					memberType := w.writeTypeName(member.Type, StorageAccess(0))
-					attr := w.varyingAttribute(*member.Binding, ep.Stage, member.Type)
-					w.WriteLine("%s %s %s;", memberType, memberName, attr)
+					w.WriteLine("%s;", w.varyingMember(*member.Binding, ep.Stage, member.Type, memberName))
 				}
 			}
 		})
@@ -1791,7 +1799,7 @@ func (w *Writer) outputMemberAttribute(binding ir.Binding, stage ir.ShaderStage)
 		switch stage {
 		case ir.StageVertex:
 			// Vertex outputs use user() for custom varyings, with interpolation
-			interpStr := resolveInterpolationString(b.Interpolation)
+			interpStr := resolveInterpolationString(b)
 			if interpStr != "" {
 				return fmt.Sprintf("[[user(loc%d), %s]]", b.Location, interpStr)
 			}
@@ -1897,18 +1905,97 @@ func locationInputAttribute(loc ir.LocationBinding, stage ir.ShaderStage, scalar
 		// Fragment inputs use user() for custom varyings, with interpolation qualifier.
 		// Rust naga always emits interpolation for fragment inputs.
 		// Integer types default to flat (WGSL spec); floats default to center_perspective.
-		interp := loc.Interpolation
-		if interp == nil && (scalarKind == ir.ScalarSint || scalarKind == ir.ScalarUint) {
-			flat := &ir.Interpolation{Kind: ir.InterpolationFlat}
-			interp = flat
+		if loc.Interpolation == nil && (scalarKind == ir.ScalarSint || scalarKind == ir.ScalarUint) {
+			flat := ir.InterpolationFlat
+			loc.Interpolation = &flat
 		}
-		interpStr := resolveInterpolationString(interp)
+		interpStr := resolveInterpolationString(loc)
 		if interpStr != "" {
 			return fmt.Sprintf("[[user(loc%d), %s]]", loc.Location, interpStr)
 		}
 		return fmt.Sprintf("[[user(loc%d)]]", loc.Location)
 	}
 	return ""
+}
+
+// isPerVertex reports whether b is a per-vertex fragment input location.
+func isPerVertex(b *ir.Binding) bool {
+	if b == nil {
+		return false
+	}
+	loc, ok := (*b).(ir.LocationBinding)
+	return ok && loc.Interpolation != nil && *loc.Interpolation == ir.InterpolationPerVertex
+}
+
+// varyingMember returns a [[stage_in]] struct member declaration without
+// its semicolon. A per-vertex input is Rust naga's
+// `metal::vertex_value<T> name [[user(locN)]]` over the element type of its
+// array<T, 3> (back/msl/writer.rs); any other is `type name attribute`.
+func (w *Writer) varyingMember(b ir.Binding, stage ir.ShaderStage, ty ir.TypeHandle, name string) string {
+	if isPerVertex(&b) {
+		elem := ty
+		if arr, ok := w.module.Types[ty].Inner.(ir.ArrayType); ok {
+			elem = arr.Base
+		}
+		return fmt.Sprintf("metal::vertex_value<%s> %s [[user(loc%d)]]",
+			w.writeTypeName(elem, StorageAccess(0)), name, b.(ir.LocationBinding).Location)
+	}
+	return fmt.Sprintf("%s %s %s", w.writeTypeName(ty, StorageAccess(0)), name, w.varyingAttribute(b, stage, ty))
+}
+
+// perVertexValues is Rust naga's initializer of a per-vertex input: the
+// values of the three vertices read from the vertex_value member.
+func perVertexValues(varyings, member string) string {
+	return fmt.Sprintf("{ %[1]s.%[2]s.get(metal::vertex_index::first), %[1]s.%[2]s.get(metal::vertex_index::second), %[1]s.%[2]s.get(metal::vertex_index::third) }",
+		varyings, member)
+}
+
+// checkVaryings refuses a per-primitive location, which only mesh shading
+// has and this backend does not write. A per-vertex input needs MSL 4.0:
+// Rust refuses a lower version (PerVertexNotSupported); this backend raises
+// the version instead, as for every feature (requireVersion).
+func (w *Writer) checkVaryings(ep *ir.EntryPoint) error {
+	check := func(b *ir.Binding) error {
+		if b == nil {
+			return nil
+		}
+		loc, ok := (*b).(ir.LocationBinding)
+		if !ok {
+			return nil
+		}
+		if loc.PerPrimitive {
+			return unsupported.Errorf("msl: entry point %q: location %d: per_primitive is not supported", ep.Name, loc.Location)
+		}
+		if isPerVertex(b) {
+			w.requireVersion(Version{Major: 4}) // metal::vertex_value
+		}
+		return nil
+	}
+	for _, arg := range ep.Function.Arguments {
+		if err := check(arg.Binding); err != nil {
+			return err
+		}
+		if st, ok := w.module.Types[arg.Type].Inner.(ir.StructType); ok && arg.Binding == nil {
+			for _, m := range st.Members {
+				if err := check(m.Binding); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if res := ep.Function.Result; res != nil {
+		if err := check(res.Binding); err != nil {
+			return err
+		}
+		if st, ok := w.module.Types[res.Type].Inner.(ir.StructType); ok && res.Binding == nil {
+			for _, m := range st.Members {
+				if err := check(m.Binding); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // typeScalarKind returns the scalar kind for a type handle.
@@ -1927,19 +2014,28 @@ func (w *Writer) typeScalarKind(th ir.TypeHandle) ir.ScalarKind {
 	}
 }
 
-// resolveInterpolationString returns the MSL interpolation qualifier string
-// for a given interpolation setting. Returns empty string if no qualifier needed.
-// Matches Rust naga's ResolvedInterpolation.
-func resolveInterpolationString(interp *ir.Interpolation) string {
-	if interp == nil {
-		// Default for float fragment inputs: center_perspective
+// resolveInterpolationString returns the MSL interpolation qualifier of a
+// vertex output or fragment input: Rust naga's
+// ResolvedInterpolation::from_binding (back/msl/mod.rs), sampling None being
+// Center. Rust unwraps the interpolation, which the validator requires; a
+// binding without one is center_perspective. Per-vertex inputs are written
+// by varyingMember, without a qualifier.
+func resolveInterpolationString(loc ir.LocationBinding) string {
+	if loc.PerPrimitive {
+		return "flat"
+	}
+	if loc.Interpolation == nil {
 		return interpCenterPerspective
 	}
-	switch interp.Kind {
+	sampling := ir.SamplingCenter
+	if loc.Sampling != nil {
+		sampling = *loc.Sampling
+	}
+	switch *loc.Interpolation {
 	case ir.InterpolationFlat:
 		return "flat"
 	case ir.InterpolationLinear:
-		switch interp.Sampling {
+		switch sampling {
 		case ir.SamplingCenter:
 			return "center_no_perspective"
 		case ir.SamplingCentroid:
@@ -1948,7 +2044,7 @@ func resolveInterpolationString(interp *ir.Interpolation) string {
 			return "sample_no_perspective"
 		}
 	case ir.InterpolationPerspective:
-		switch interp.Sampling {
+		switch sampling {
 		case ir.SamplingCenter:
 			return interpCenterPerspective
 		case ir.SamplingCentroid:
@@ -1957,7 +2053,7 @@ func resolveInterpolationString(interp *ir.Interpolation) string {
 			return "sample_perspective"
 		}
 	}
-	return "center_perspective"
+	return interpCenterPerspective
 }
 
 // writeWorkgroupZeroInit writes the zero-initialization prologue for workgroup variables.

@@ -223,6 +223,10 @@ func (w *Writer) writeSemantic(binding *ir.Binding, stage *shaderStageIO) {
 		} else {
 			fmt.Fprintf(&w.Out, " : %s%d", locationSemantic, b.Location)
 		}
+		// Rust: a per-primitive location (mesh shading) is also `primitive`.
+		if b.PerPrimitive {
+			w.Out.WriteString(" : primitive")
+		}
 	}
 }
 
@@ -232,35 +236,22 @@ type shaderStageIO struct {
 	io    Io
 }
 
-// getInterpolationModifier returns the HLSL interpolation modifier.
+// getInterpolationModifier returns the HLSL interpolation modifiers of a
+// location binding (Rust naga's write_modifier), space-separated.
 func (w *Writer) getInterpolationModifier(binding ir.Binding) string {
 	loc, ok := binding.(ir.LocationBinding)
 	if !ok {
 		return ""
 	}
-
-	if loc.Interpolation == nil {
-		return ""
-	}
-
-	var modifiers []string
-
-	// Interpolation kind
-	if kindMod := InterpolationToHLSL(loc.Interpolation.Kind); kindMod != "" {
-		modifiers = append(modifiers, kindMod)
-	}
-
-	// Sampling modifier
-	if samplingMod := SamplingToHLSL(loc.Interpolation.Sampling); samplingMod != "" {
-		modifiers = append(modifiers, samplingMod)
-	}
-
-	return strings.Join(modifiers, " ")
+	return strings.TrimSuffix(interpolationModifiers(loc), " ")
 }
 
 // getInterpolationModifierForType returns the HLSL interpolation modifier,
-// applying default interpolation if not explicitly set (matches Rust naga's
-// apply_default_interpolation). Integer types default to "nointerpolation" (Flat).
+// and nointerpolation for an integer location without interpolation: the
+// frontend default of Rust naga before upstream b051a87e (integers flat on
+// every location, vertex inputs and fragment outputs included), whose HLSL
+// output is kept until that change is ported (the fragment-output.hlsl
+// deviation).
 func (w *Writer) getInterpolationModifierForType(binding ir.Binding, memberType ir.TypeHandle) string {
 	loc, ok := binding.(ir.LocationBinding)
 	if !ok {
@@ -271,7 +262,6 @@ func (w *Writer) getInterpolationModifierForType(binding ir.Binding, memberType 
 		return w.getInterpolationModifier(binding)
 	}
 
-	// Apply default interpolation based on scalar kind (matches Rust naga)
 	if int(memberType) < len(w.module.Types) {
 		kind, hasKind := getScalarKind(w.module, memberType)
 		if hasKind {

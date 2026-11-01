@@ -161,12 +161,13 @@ func TestBuiltInToSemantic(t *testing.T) {
 func TestInterpolationToHLSL(t *testing.T) {
 	tests := []struct {
 		name     string
-		kind     ir.InterpolationKind
+		kind     ir.Interpolation
 		expected string
 	}{
 		{"flat", ir.InterpolationFlat, "nointerpolation"},
 		{"linear", ir.InterpolationLinear, "noperspective"},
 		{"perspective", ir.InterpolationPerspective, ""},
+		{"per_vertex", ir.InterpolationPerVertex, "nointerpolation"},
 	}
 
 	for _, tt := range tests {
@@ -182,12 +183,14 @@ func TestInterpolationToHLSL(t *testing.T) {
 func TestSamplingToHLSL(t *testing.T) {
 	tests := []struct {
 		name     string
-		sampling ir.InterpolationSampling
+		sampling ir.Sampling
 		expected string
 	}{
 		{"center", ir.SamplingCenter, ""},
 		{"centroid", ir.SamplingCentroid, "centroid"},
 		{"sample", ir.SamplingSample, "sample"},
+		{"first", ir.SamplingFirst, ""},
+		{"either", ir.SamplingEither, ""},
 	}
 
 	for _, tt := range tests {

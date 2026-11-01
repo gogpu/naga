@@ -832,7 +832,13 @@ func formatBinding(b ir.Binding) string {
 	case ir.LocationBinding:
 		s := fmt.Sprintf("Location(%d)", v.Location)
 		if v.Interpolation != nil {
-			s += fmt.Sprintf(" interp=%d/%d", v.Interpolation.Kind, v.Interpolation.Sampling)
+			s += " interpolation=" + v.Interpolation.String()
+		}
+		if v.Sampling != nil {
+			s += " sampling=" + v.Sampling.String()
+		}
+		if v.PerPrimitive {
+			s += " per_primitive"
 		}
 		return s
 	default:

@@ -564,7 +564,7 @@ func TestCollectFeatures_NoEntryPoint(t *testing.T) {
 // =============================================================================
 
 func TestScanVaryingFeatures_NoPerspective(t *testing.T) {
-	interp := ir.Interpolation{Kind: ir.InterpolationLinear}
+	interp := ir.InterpolationLinear
 	loc := ir.Binding(ir.LocationBinding{Location: 0, Interpolation: &interp})
 	module := &ir.Module{
 		Types: []ir.Type{
@@ -592,8 +592,8 @@ func TestScanVaryingFeatures_NoPerspective(t *testing.T) {
 }
 
 func TestScanVaryingFeatures_SampleQualifier(t *testing.T) {
-	interp := ir.Interpolation{Kind: ir.InterpolationFlat, Sampling: ir.SamplingSample}
-	loc := ir.Binding(ir.LocationBinding{Location: 0, Interpolation: &interp})
+	interp, sampling := ir.InterpolationFlat, ir.SamplingSample
+	loc := ir.Binding(ir.LocationBinding{Location: 0, Interpolation: &interp, Sampling: &sampling})
 	module := &ir.Module{
 		Types: []ir.Type{
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},

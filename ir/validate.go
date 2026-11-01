@@ -804,6 +804,8 @@ func (v *validator) validateEntryPoints() {
 			}
 		}
 
+		v.validateVaryings(&v.module.EntryPoints[i])
+
 		// The body is validated like any function's (Rust validates entry
 		// point functions with the module's functions).
 		v.context = validationContext{
@@ -814,6 +816,130 @@ func (v *validator) validateEntryPoints() {
 		}
 		v.validateFunction(fn)
 	}
+}
+
+// validateVaryings checks the interpolation of each location binding of an
+// entry point's arguments and result, struct members included: the
+// interpolation part of Rust naga's VaryingContext::validate_impl
+// (valid/interface.rs). The messages are Rust's VaryingError texts.
+func (v *validator) validateVaryings(ep *EntryPoint) {
+	fn := &ep.Function
+	for i := range fn.Arguments {
+		arg := &fn.Arguments[i]
+		v.validateVarying(ep, fmt.Sprintf("argument %d", i), arg.Type, arg.Binding, false)
+	}
+	if fn.Result != nil {
+		v.validateVarying(ep, "result", fn.Result.Type, fn.Result.Binding, true)
+	}
+}
+
+// validateVarying checks one entry point argument or result: its binding,
+// or each struct member's.
+func (v *validator) validateVarying(ep *EntryPoint, where string, ty TypeHandle, binding *Binding, output bool) {
+	if binding == nil {
+		if !v.isValidTypeHandle(ty) {
+			return
+		}
+		if st, ok := v.module.Types[ty].Inner.(StructType); ok {
+			for _, m := range st.Members {
+				if m.Binding != nil {
+					v.validateVarying(ep, where, m.Type, m.Binding, output)
+				}
+			}
+		}
+		return
+	}
+	loc, ok := (*binding).(LocationBinding)
+	if !ok {
+		return
+	}
+	if msg := v.locationVaryingError(ep.Stage, ty, loc, output); msg != "" {
+		v.addError(fmt.Sprintf("entry point %q: %s: %s", ep.Name, where, msg))
+	}
+}
+
+// locationVaryingError returns Rust's VaryingError text for a location
+// binding whose interpolation does not fit its stage, direction and type, or
+// "" when it fits.
+func (v *validator) locationVaryingError(stage ShaderStage, ty TypeHandle, loc LocationBinding, output bool) string {
+	if !v.isValidTypeHandle(ty) {
+		return ""
+	}
+	perVertex := loc.Interpolation != nil && *loc.Interpolation == InterpolationPerVertex
+	if perVertex {
+		if stage != StageFragment {
+			return "Interpolation PerVertex is only valid for stage Fragment"
+		}
+		if loc.Sampling != nil && *loc.Sampling != SamplingCenter {
+			return "Per vertex can only have Center sampling or no sampling modifier"
+		}
+		// The checks below are on the element type of the array<T, 3>.
+		arr, ok := v.module.Types[ty].Inner.(ArrayType)
+		if !ok || arr.Size.Constant == nil || *arr.Size.Constant != 3 {
+			return "Per vertex fragment inputs must be an array of length 3."
+		}
+		ty = arr.Base
+		if !v.isValidTypeHandle(ty) {
+			return ""
+		}
+	}
+
+	// Only a fragment input reads a per-primitive value outside a mesh
+	// shader's primitive outputs, which are not entry point results.
+	if loc.PerPrimitive && (stage != StageFragment || output) {
+		return "The `@per_primitive` attribute can only be used in fragment shader inputs or mesh shader primitive outputs"
+	}
+
+	if loc.Interpolation != nil && loc.Sampling != nil {
+		valid := false
+		switch *loc.Interpolation {
+		case InterpolationPerspective, InterpolationLinear:
+			s := *loc.Sampling
+			valid = s == SamplingCenter || s == SamplingCentroid || s == SamplingSample
+		case InterpolationFlat:
+			valid = *loc.Sampling == SamplingFirst || *loc.Sampling == SamplingEither
+		case InterpolationPerVertex:
+			valid = true // Center only, checked above
+		}
+		if !valid {
+			return fmt.Sprintf("Cannot combine %s interpolation with the %s sample type", *loc.Interpolation, *loc.Sampling)
+		}
+	}
+
+	var needsInterpolation bool
+	switch stage {
+	case StageVertex, StageMesh:
+		needsInterpolation = output
+	case StageFragment:
+		needsInterpolation = !output && !loc.PerPrimitive
+	}
+	if perVertex || !needsInterpolation {
+		return ""
+	}
+	var kind ScalarKind
+	switch t := v.module.Types[ty].Inner.(type) {
+	case ScalarType:
+		kind = t.Kind
+	case VectorType:
+		kind = t.Scalar.Kind
+	case MatrixType:
+		kind = t.Scalar.Kind
+	default:
+		return ""
+	}
+	switch kind {
+	case ScalarFloat:
+		// The frontend applies the default interpolation to floats.
+		if loc.Interpolation == nil {
+			return "Interpolation must be specified on vertex shader outputs and fragment shader inputs"
+		}
+	case ScalarSint, ScalarUint:
+		// Integers have no default interpolation: flat must be explicit.
+		if loc.Interpolation == nil || *loc.Interpolation != InterpolationFlat {
+			return "`@interpolate(flat)` must be explicitly specified for integer I/O"
+		}
+	}
+	return ""
 }
 
 // hasPositionBuiltin checks if the function result contains @builtin(position).

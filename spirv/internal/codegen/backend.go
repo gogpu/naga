@@ -2449,26 +2449,33 @@ func (b *Backend) addInterpolationDecorations(varID uint32, loc ir.LocationBindi
 	noDecorations := (class == StorageClassInput && stage == ir.StageVertex) ||
 		(class == StorageClassOutput && stage == ir.StageFragment)
 
-	if !noDecorations && loc.Interpolation != nil {
-		// Interpolation kind
-		switch loc.Interpolation.Kind {
-		case ir.InterpolationFlat:
-			b.builder.AddDecorate(varID, DecorationFlat)
-		case ir.InterpolationLinear:
-			b.builder.AddDecorate(varID, DecorationNoPerspective)
-		case ir.InterpolationPerspective:
-			// Perspective is the default, no decoration needed
+	// Rust naga's map_binding (back/spv/writer.rs).
+	if !noDecorations {
+		if loc.Interpolation != nil {
+			switch *loc.Interpolation {
+			case ir.InterpolationPerspective:
+				// Perspective-correct interpolation is the default in SPIR-V.
+			case ir.InterpolationFlat:
+				b.builder.AddDecorate(varID, DecorationFlat)
+			case ir.InterpolationLinear:
+				b.builder.AddDecorate(varID, DecorationNoPerspective)
+			case ir.InterpolationPerVertex:
+				b.builder.AddDecorate(varID, DecorationPerVertexKHR)
+				b.addCapability(CapabilityFragmentBarycentricKHR)
+				b.addExtension("SPV_KHR_fragment_shader_barycentric")
+			}
 		}
-
-		// Sampling
-		switch loc.Interpolation.Sampling {
-		case ir.SamplingCentroid:
-			b.builder.AddDecorate(varID, DecorationCentroid)
-		case ir.SamplingSample:
-			b.addCapability(CapabilitySampleRateShading)
-			b.builder.AddDecorate(varID, DecorationSample)
-		case ir.SamplingCenter:
-			// Center is the default, no decoration needed
+		if loc.Sampling != nil {
+			switch *loc.Sampling {
+			case ir.SamplingCenter, ir.SamplingFirst, ir.SamplingEither:
+				// Center sampling is the default in SPIR-V; the vertex a flat
+				// value comes from has no decoration.
+			case ir.SamplingCentroid:
+				b.builder.AddDecorate(varID, DecorationCentroid)
+			case ir.SamplingSample:
+				b.addCapability(CapabilitySampleRateShading)
+				b.builder.AddDecorate(varID, DecorationSample)
+			}
 		}
 	}
 
@@ -2615,7 +2622,9 @@ func builtinToSPIRV(builtin ir.BuiltinValue, storageClass StorageClass) BuiltIn 
 const builtInUnmapped BuiltIn = ^BuiltIn(0)
 
 // checkBuiltins refuses an entry point the backend writes whose interface
-// uses a built-in builtinToSPIRV cannot map.
+// uses a built-in builtinToSPIRV cannot map, or a per-primitive location:
+// Rust decorates it PerPrimitiveEXT for mesh shading, which this backend
+// does not write (no MeshShadingEXT).
 func (b *Backend) checkBuiltins() error {
 	check := func(ep *ir.EntryPoint, binding *ir.Binding, sc StorageClass) error {
 		if binding == nil {
@@ -2623,6 +2632,9 @@ func (b *Backend) checkBuiltins() error {
 		}
 		if bi, ok := (*binding).(ir.BuiltinBinding); ok && builtinToSPIRV(bi.Builtin, sc) == builtInUnmapped {
 			return unsupported.Errorf("spirv: entry point %q: built-in %d is not supported", ep.Name, bi.Builtin)
+		}
+		if loc, ok := (*binding).(ir.LocationBinding); ok && loc.PerPrimitive {
+			return unsupported.Errorf("spirv: entry point %q: location %d: per_primitive is not supported", ep.Name, loc.Location)
 		}
 		return nil
 	}

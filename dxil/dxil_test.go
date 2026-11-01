@@ -786,8 +786,13 @@ func TestBuildPSVSampleFrequency(t *testing.T) {
 			{Inner: ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}},
 		},
 	}
-	mkFragEP := func(interp *ir.Interpolation) *ir.EntryPoint {
-		binding := ir.Binding(ir.LocationBinding{Location: 0, Interpolation: interp})
+	// interp is a location binding's interpolation and sampling.
+	interp := func(i ir.Interpolation, s *ir.Sampling) ir.LocationBinding {
+		return ir.LocationBinding{Interpolation: &i, Sampling: s}
+	}
+	samp := func(s ir.Sampling) *ir.Sampling { return &s }
+	mkFragEP := func(loc ir.LocationBinding) *ir.EntryPoint {
+		binding := ir.Binding(loc)
 		result := ir.Binding(ir.LocationBinding{Location: 0})
 		return &ir.EntryPoint{
 			Name:  "frag_main",
@@ -809,27 +814,27 @@ func TestBuildPSVSampleFrequency(t *testing.T) {
 	}{
 		{
 			"no interp attribute (default perspective)",
-			mkFragEP(nil),
+			mkFragEP(ir.LocationBinding{}),
 			false,
 		},
 		{
 			"linear, center — no sample frequency",
-			mkFragEP(&ir.Interpolation{Kind: ir.InterpolationLinear, Sampling: ir.SamplingCenter}),
+			mkFragEP(interp(ir.InterpolationLinear, samp(ir.SamplingCenter))),
 			false,
 		},
 		{
 			"linear, sample → SampleFrequency = 1",
-			mkFragEP(&ir.Interpolation{Kind: ir.InterpolationLinear, Sampling: ir.SamplingSample}),
+			mkFragEP(interp(ir.InterpolationLinear, samp(ir.SamplingSample))),
 			true,
 		},
 		{
 			"perspective, sample → SampleFrequency = 1",
-			mkFragEP(&ir.Interpolation{Kind: ir.InterpolationPerspective, Sampling: ir.SamplingSample}),
+			mkFragEP(interp(ir.InterpolationPerspective, samp(ir.SamplingSample))),
 			true,
 		},
 		{
 			"flat → not a sample variant",
-			mkFragEP(&ir.Interpolation{Kind: ir.InterpolationFlat}),
+			mkFragEP(interp(ir.InterpolationFlat, nil)),
 			false,
 		},
 	}

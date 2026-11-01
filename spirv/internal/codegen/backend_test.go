@@ -726,17 +726,18 @@ func TestDefaultInterpolationFlatOnIntegerLocation(t *testing.T) {
 	}}
 
 	// Input binding: @location(0) with Flat interpolation (as set by lowerer)
-	flatInterp := ir.Interpolation{Kind: ir.InterpolationFlat}
+	flatInterp := ir.InterpolationFlat
 	var inputBinding ir.Binding = ir.LocationBinding{
 		Location:      0,
 		Interpolation: &flatInterp,
 	}
 
 	// Output binding: @location(0) with Perspective interpolation (default for float)
-	perspInterp := ir.Interpolation{Kind: ir.InterpolationPerspective, Sampling: ir.SamplingCenter}
+	perspInterp, center := ir.InterpolationPerspective, ir.SamplingCenter
 	var outputBinding ir.Binding = ir.LocationBinding{
 		Location:      0,
 		Interpolation: &perspInterp,
+		Sampling:      &center,
 	}
 
 	module := &ir.Module{

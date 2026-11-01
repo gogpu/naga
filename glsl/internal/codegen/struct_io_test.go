@@ -27,8 +27,11 @@ import (
 func testTypesVertexIO() ([]ir.Type, map[string]ir.TypeHandle) {
 	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
 
+	// Every member is a float: the WGSL frontend's default interpolation,
+	// Perspective and Center.
 	locBinding := func(loc uint32) *ir.Binding {
-		b := ir.Binding(ir.LocationBinding{Location: loc})
+		interp, sampling := ir.InterpolationPerspective, ir.SamplingCenter
+		b := ir.Binding(ir.LocationBinding{Location: loc, Interpolation: &interp, Sampling: &sampling})
 		return &b
 	}
 	positionBinding := func() *ir.Binding {
@@ -222,8 +225,11 @@ func TestCompile_StructVertexOutput(t *testing.T) {
 
 func TestCompile_StructFragmentInput(t *testing.T) {
 	f32 := ir.ScalarType{Kind: ir.ScalarFloat, Width: 4}
+	// Float inputs: the WGSL frontend's default interpolation, Perspective
+	// and Center.
 	locBinding := func(loc uint32) *ir.Binding {
-		b := ir.Binding(ir.LocationBinding{Location: loc})
+		interp, sampling := ir.InterpolationPerspective, ir.SamplingCenter
+		b := ir.Binding(ir.LocationBinding{Location: loc, Interpolation: &interp, Sampling: &sampling})
 		return &b
 	}
 

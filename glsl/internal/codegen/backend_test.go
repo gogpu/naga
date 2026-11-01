@@ -1302,10 +1302,8 @@ func TestVaryingInterpolationSampling(t *testing.T) {
 	}
 	// noperspective centroid
 	w := newWriter(module, &Options{LangVersion: Version{Major: 3, Minor: 0, ES: true}})
-	loc := ir.Binding(ir.LocationBinding{
-		Location:      4,
-		Interpolation: &ir.Interpolation{Kind: ir.InterpolationLinear, Sampling: ir.SamplingCentroid},
-	})
+	interp, sampling := ir.InterpolationLinear, ir.SamplingCentroid
+	loc := ir.Binding(ir.LocationBinding{Location: 4, Interpolation: &interp, Sampling: &sampling})
 	w.writeSingleVarying(&loc, 0, ir.StageFragment, false)
 	output := w.String()
 	if !strings.Contains(output, "noperspective centroid in") {
