@@ -106,6 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FunctionInfo`, `GlobalUse`; renamed: `ValidateOptions` → `valid.Options`, `ValidationError` → `valid.Error`,
   `ValidationErrors` → `valid.Errors`. `naga.CompileOptions.Capabilities` is a `valid.Capabilities`.
   `Function.ExpressionTypes` is removed.
+- **Breaking: the IR has only the kinds Rust naga's IR has** (ADR-010 B6). `ir.ExprAlias`, `ir.ExprPhi`,
+  `ir.PhiIncoming` and `ir.PhiPredKey` existed for the DXIL backend's SSA pass and now live inside it;
+  `ir.AtomicStore` and `ir.AtomicLoad`, which nothing produced (an atomic load is a `Load`, a store a `Store`, as in
+  Rust), are removed. `valid.Validate` reports an expression kind it does not know instead of accepting it.
 - **Breaking: `naga.ProcessOverrides(module, info, OverrideOptions) (*ir.Module, valid.ModuleInfo, error)`**, as Rust
   naga's `process_overrides`: it takes the `ModuleInfo` of the caller's validation and returns the module's info.
   With nothing to do (no overrides, and no entry point to pick out of several) it returns the module and that info as
